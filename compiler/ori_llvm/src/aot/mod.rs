@@ -81,6 +81,7 @@ pub mod debug;
 pub mod incremental;
 pub mod linker;
 pub mod mangle;
+pub mod multi_file;
 pub mod object;
 pub mod passes;
 pub mod runtime;
@@ -128,4 +129,10 @@ pub use syslib::{find_library, library_exists, LibrarySearchOrder, SysLibConfig,
 pub use wasm::{
     JsBindingGenerator, WasiConfig, WasiPreopen, WasiVersion, WasmConfig, WasmError, WasmExport,
     WasmMemoryConfig, WasmOptLevel, WasmOptRunner, WasmStackConfig, WasmType,
+};
+
+// Re-export key types from multi_file
+pub use multi_file::{
+    build_dependency_graph, derive_module_name, resolve_relative_import, CompiledModule,
+    DependencyBuildResult, MultiFileConfig, MultiFileError,
 };

@@ -1,0 +1,4 @@
+// Directory module that should NOT be used
+// because precedence.ori (file module) exists at the same level
+
+pub @source () -> str = "directory_module"

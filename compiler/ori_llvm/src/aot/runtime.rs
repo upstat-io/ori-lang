@@ -3,13 +3,15 @@
 //! This module provides configuration for linking the Ori runtime library
 //! (`libori_rt`) with AOT-compiled programs.
 //!
-//! # Runtime Library Location
+//! # Runtime Library Discovery
 //!
-//! The runtime library can be found in several locations:
+//! Discovery follows rustc's sysroot pattern - walk up from the executable:
 //!
-//! 1. **Environment variable**: `ORI_RT_PATH` - explicit path to `libori_rt.a`
-//! 2. **Relative to compiler**: `../ori_rt/target/release/libori_rt.a`
-//! 3. **System install**: `/usr/local/lib/ori/libori_rt.a` or similar
+//! 1. **Dev layout**: Same directory as compiler binary (`target/release/libori_rt.a`)
+//! 2. **Installed layout**: `<exe>/../lib/libori_rt.a` (e.g., `/usr/local/bin/ori` → `/usr/local/lib/`)
+//! 3. **Workspace dev**: `$ORI_WORKSPACE_DIR/target/{release,debug}/libori_rt.a`
+//!
+//! No environment variables are used for primary discovery. Use `--runtime-path` CLI flag for overrides.
 //!
 //! # Usage
 //!
@@ -25,7 +27,7 @@
 //! driver.link(&input)?;
 //! ```
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{LibraryKind, LinkInput, LinkLibrary};
 
@@ -47,18 +49,21 @@ pub struct RuntimeNotFound {
 
 impl std::fmt::Display for RuntimeNotFound {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Ori runtime library (libori_rt.a) not found.")?;
+        let lib_name = RuntimeConfig::lib_name();
+        writeln!(f, "Ori runtime library ({lib_name}) not found.")?;
+        writeln!(f)?;
         writeln!(f, "Searched paths:")?;
         for path in &self.searched_paths {
             writeln!(f, "  - {}", path.display())?;
         }
         writeln!(f)?;
         writeln!(f, "To fix this, either:")?;
+        writeln!(f, "  1. Build the runtime: cargo build -p ori_rt --release")?;
+        writeln!(f, "  2. Install Ori properly: make install")?;
         writeln!(
             f,
-            "  1. Set ORI_RT_PATH environment variable to the path containing libori_rt.a"
+            "  3. Specify path: ori build --runtime-path=/path/to/lib"
         )?;
-        writeln!(f, "  2. Build the runtime: cargo build -p ori_rt --release")?;
         Ok(())
     }
 }
@@ -75,74 +80,71 @@ impl RuntimeConfig {
         }
     }
 
+    /// Get platform-specific library filename.
+    #[must_use]
+    pub fn lib_name() -> &'static str {
+        if cfg!(windows) {
+            "ori_rt.lib"
+        } else {
+            "libori_rt.a"
+        }
+    }
+
+    /// Check if runtime library exists in directory.
+    fn lib_exists(dir: &Path, lib_name: &str) -> bool {
+        dir.join(lib_name).exists()
+    }
+
     /// Detect the runtime library location.
     ///
-    /// Searches in order:
-    /// 1. `ORI_RT_PATH` environment variable
-    /// 2. Relative to the current executable
-    /// 3. Common system locations
+    /// Discovery strategy (like rustc's sysroot):
+    /// 1. Same directory as executable (dev builds: `target/release/`)
+    /// 2. Installed layout: `<exe>/../lib/libori_rt.a`
+    /// 3. Workspace directory (via `ORI_WORKSPACE_DIR` for `cargo run`)
+    ///
+    /// No environment variables are used for primary discovery.
+    /// Use `--runtime-path` CLI flag for explicit overrides.
     ///
     /// # Errors
     ///
     /// Returns `RuntimeNotFound` if the library cannot be found.
     pub fn detect() -> Result<Self, RuntimeNotFound> {
         let mut searched = Vec::new();
+        let lib_name = Self::lib_name();
 
-        // 1. Check ORI_RT_PATH environment variable
-        if let Ok(path) = std::env::var("ORI_RT_PATH") {
-            let path = PathBuf::from(path);
-            if path.join("libori_rt.a").exists() || path.join("ori_rt.lib").exists() {
-                return Ok(Self::new(path));
-            }
-            searched.push(path);
-        }
-
-        // 2. Check relative to compiler build directory
-        // When running from cargo, the target directory is at the workspace root
-        if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-            let release_path = PathBuf::from(&manifest_dir).join("../ori_llvm/target/release");
-            if release_path.join("libori_rt.a").exists() {
-                return Ok(Self::new(release_path));
-            }
-            searched.push(release_path);
-
-            let debug_path = PathBuf::from(&manifest_dir).join("../ori_llvm/target/debug");
-            if debug_path.join("libori_rt.a").exists() {
-                return Ok(Self::new(debug_path));
-            }
-            searched.push(debug_path);
-        }
-
-        // 3. Check relative to current executable
+        // 1. Check relative to current executable (like rustc's sysroot discovery)
         if let Ok(exe_path) = std::env::current_exe() {
+            // Canonicalize to resolve symlinks (like rustc does)
+            let exe_path = exe_path.canonicalize().unwrap_or(exe_path);
+
             if let Some(exe_dir) = exe_path.parent() {
-                // Check same directory as executable
-                if exe_dir.join("libori_rt.a").exists() {
+                // Dev layout: same directory as executable (target/release/)
+                // This is the most common case during development
+                if Self::lib_exists(exe_dir, lib_name) {
                     return Ok(Self::new(exe_dir.to_path_buf()));
                 }
                 searched.push(exe_dir.to_path_buf());
 
-                // Check ../lib relative to executable
+                // Installed layout: bin/ori -> ../lib/libori_rt.a
+                // Standard FHS: /usr/local/bin/ori -> /usr/local/lib/libori_rt.a
                 let lib_path = exe_dir.join("../lib");
-                if lib_path.join("libori_rt.a").exists() {
-                    return Ok(Self::new(lib_path));
+                if Self::lib_exists(&lib_path, lib_name) {
+                    return Ok(Self::new(lib_path.canonicalize().unwrap_or(lib_path)));
                 }
                 searched.push(lib_path);
             }
         }
 
-        // 4. Check common system locations
-        let system_paths = [
-            PathBuf::from("/usr/local/lib/ori"),
-            PathBuf::from("/usr/lib/ori"),
-            PathBuf::from("/opt/ori/lib"),
-        ];
-
-        for path in system_paths {
-            if path.join("libori_rt.a").exists() {
-                return Ok(Self::new(path));
+        // 2. Check workspace directory (for `cargo run` during development)
+        // ORI_WORKSPACE_DIR is set by the build system when running via cargo
+        if let Ok(workspace) = std::env::var("ORI_WORKSPACE_DIR") {
+            for profile in ["release", "debug"] {
+                let path = PathBuf::from(&workspace).join("target").join(profile);
+                if Self::lib_exists(&path, lib_name) {
+                    return Ok(Self::new(path));
+                }
+                searched.push(path);
             }
-            searched.push(path);
         }
 
         Err(RuntimeNotFound {
@@ -222,15 +224,26 @@ mod tests {
     }
 
     #[test]
+    fn test_lib_name_unix() {
+        // On Unix systems, should be libori_rt.a
+        #[cfg(unix)]
+        assert_eq!(RuntimeConfig::lib_name(), "libori_rt.a");
+    }
+
+    #[test]
     fn test_runtime_not_found_display() {
         let err = RuntimeNotFound {
             searched_paths: vec![PathBuf::from("/path/1"), PathBuf::from("/path/2")],
         };
 
         let msg = err.to_string();
-        assert!(msg.contains("libori_rt.a"));
+        assert!(msg.contains(RuntimeConfig::lib_name()));
         assert!(msg.contains("/path/1"));
         assert!(msg.contains("/path/2"));
-        assert!(msg.contains("ORI_RT_PATH"));
+        assert!(msg.contains("cargo build -p ori_rt"));
+        assert!(msg.contains("--runtime-path"));
+        // Should NOT mention env vars anymore
+        assert!(!msg.contains("ORI_RT_PATH"));
+        assert!(!msg.contains("ORI_LIB_DIR"));
     }
 }

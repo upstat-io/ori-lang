@@ -7,155 +7,118 @@ section: "Pattern System"
 
 # Pattern Registry
 
-The PatternRegistry stores pattern definitions and provides lookup by name. It enables extensibility without modifying core compiler code.
+The PatternRegistry provides pattern lookup via direct enum dispatch with static pattern instances.
 
 ## Location
 
 ```
-compiler/oric/src/patterns/registry.rs (~289 lines)
+compiler/ori_patterns/src/registry.rs
 ```
 
-## Structure
+## Architecture
+
+The registry uses **compile-time enum dispatch** rather than a dynamic HashMap:
 
 ```rust
+// Static ZST pattern instances for 'static lifetime references
+static RECURSE: RecursePattern = RecursePattern;
+static PARALLEL: ParallelPattern = ParallelPattern;
+static SPAWN: SpawnPattern = SpawnPattern;
+static TIMEOUT: TimeoutPattern = TimeoutPattern;
+static CACHE: CachePattern = CachePattern;
+static WITH: WithPattern = WithPattern;
+static PRINT: PrintPattern = PrintPattern;
+static PANIC: PanicPattern = PanicPattern;
+static CATCH: CatchPattern = CatchPattern;
+static TODO: TodoPattern = TodoPattern;
+static UNREACHABLE: UnreachablePattern = UnreachablePattern;
+
 pub struct PatternRegistry {
-    /// Pattern name -> Definition
-    patterns: HashMap<Name, Arc<dyn PatternDefinition>>,
-
-    /// Interner for name resolution
-    interner: Arc<Interner>,
-}
-```
-
-## Registration
-
-### Built-in Patterns
-
-```rust
-impl PatternRegistry {
-    pub fn with_builtins(interner: Arc<Interner>) -> Self {
-        let mut registry = Self::new(interner);
-
-        // Data transformation
-        registry.register(MapPattern);
-        registry.register(FilterPattern);
-        registry.register(FoldPattern);
-        registry.register(FindPattern);
-        registry.register(CollectPattern);
-
-        // Control flow
-        registry.register(RunPattern);
-        registry.register(TryPattern);
-        registry.register(MatchPattern);
-
-        // Recursion
-        registry.register(RecursePattern);
-
-        // Concurrency
-        registry.register(ParallelPattern);
-        registry.register(SpawnPattern);
-        registry.register(TimeoutPattern);
-        registry.register(RetryPattern);
-
-        // Caching/validation
-        registry.register(CachePattern::new());
-        registry.register(ValidatePattern);
-
-        // Resource management
-        registry.register(WithPattern);
-
-        registry
-    }
-}
-```
-
-### Manual Registration
-
-```rust
-impl PatternRegistry {
-    pub fn register<P: PatternDefinition + 'static>(&mut self, pattern: P) {
-        let name = self.interner.intern(pattern.name());
-        self.patterns.insert(name, Arc::new(pattern));
-    }
-
-    pub fn register_arc(&mut self, pattern: Arc<dyn PatternDefinition>) {
-        let name = self.interner.intern(pattern.name());
-        self.patterns.insert(name, pattern);
-    }
+    _private: (),  // Marker to prevent external construction
 }
 ```
 
 ## Lookup
 
+Pattern lookup is a direct enum match, not a HashMap lookup:
+
 ```rust
 impl PatternRegistry {
-    /// Get pattern by name
-    pub fn get(&self, name: Name) -> Option<Arc<dyn PatternDefinition>> {
-        self.patterns.get(&name).cloned()
+    /// Get the pattern definition for a given kind.
+    /// Returns a static reference to avoid borrow issues.
+    pub fn get(&self, kind: FunctionExpKind) -> &'static dyn PatternDefinition {
+        match kind {
+            FunctionExpKind::Recurse => &RECURSE,
+            FunctionExpKind::Parallel => &PARALLEL,
+            FunctionExpKind::Spawn => &SPAWN,
+            FunctionExpKind::Timeout => &TIMEOUT,
+            FunctionExpKind::Cache => &CACHE,
+            FunctionExpKind::With => &WITH,
+            FunctionExpKind::Print => &PRINT,
+            FunctionExpKind::Panic => &PANIC,
+            FunctionExpKind::Catch => &CATCH,
+            FunctionExpKind::Todo => &TODO,
+            FunctionExpKind::Unreachable => &UNREACHABLE,
+        }
     }
 
-    /// Check if name is a pattern
-    pub fn is_pattern(&self, name: Name) -> bool {
-        self.patterns.contains_key(&name)
-    }
-
-    /// Get all pattern names
-    pub fn pattern_names(&self) -> impl Iterator<Item = Name> + '_ {
-        self.patterns.keys().copied()
-    }
-
-    /// Find similar pattern names (for suggestions)
-    pub fn suggest_similar(&self, name: Name) -> Vec<Name> {
-        let target = self.interner.resolve(name);
-
-        self.patterns
-            .keys()
-            .filter(|&n| {
-                let s = self.interner.resolve(*n);
-                levenshtein_distance(target, s) <= 2
-            })
-            .copied()
-            .collect()
+    /// Get all pattern kinds.
+    pub fn all_kinds(&self) -> &'static [FunctionExpKind] {
+        &[
+            FunctionExpKind::Recurse,
+            FunctionExpKind::Parallel,
+            FunctionExpKind::Spawn,
+            // ...
+        ]
     }
 }
 ```
+
+## Benefits of Static Dispatch
+
+1. **Zero heap allocation** - All patterns are ZSTs
+2. **No HashMap overhead** - Direct enum match
+3. **No borrow issues** - Static lifetime references
+4. **Exhaustive matching** - Compiler ensures all patterns handled
+5. **Optimal performance** - Patterns can be inlined
+
+## Registered Patterns
+
+| Pattern | Purpose | Required Props |
+|---------|---------|----------------|
+| `recurse` | Self-referential recursion | `condition`, `base`, `step` |
+| `parallel` | Concurrent execution | `tasks` |
+| `spawn` | Fire-and-forget tasks | `tasks` |
+| `timeout` | Time-limited execution | `op`, `after` |
+| `cache` | Capability-aware caching | `key`, `op` |
+| `with` | RAII resource management | `acquire`, `use`, `release` |
+| `print` | Debug output | `msg` |
+| `panic` | Trigger panic (returns Never) | `msg` |
+| `catch` | Catch panics | `expr` |
+| `todo` | Unimplemented marker (returns Never) | - |
+| `unreachable` | Unreachable marker (returns Never) | - |
 
 ## Usage in Type Checker
 
 ```rust
 impl TypeChecker {
-    fn infer_pattern_call(
+    fn infer_function_exp(
         &mut self,
-        name: Name,
-        args: &[NamedArg],
-    ) -> Result<Type, TypeError> {
+        kind: FunctionExpKind,
+        props: &[NamedProp],
+    ) -> Type {
         // Get pattern from registry
-        let pattern = self.pattern_registry
-            .get(name)
-            .ok_or_else(|| TypeError::UndefinedPattern(name))?;
+        let pattern = self.pattern_registry.get(kind);
 
-        // Type check arguments
-        let typed_args: Vec<TypedArg> = args
-            .iter()
-            .map(|arg| TypedArg {
-                name: arg.name,
-                ty: self.infer_expr(arg.value),
-                span: arg.span,
-            })
-            .collect();
-
-        // Validate required arguments
-        for spec in pattern.arguments() {
-            if spec.required && !typed_args.iter().any(|a| a.name.as_str() == spec.name) {
-                return Err(TypeError::MissingPatternArg {
-                    pattern: name,
-                    arg: spec.name,
-                });
-            }
-        }
+        // Build type check context
+        let ctx = TypeCheckContext::new(
+            self.interner,
+            &prop_types,
+            // ...
+        );
 
         // Delegate to pattern's type checking
-        pattern.type_check(&typed_args, self)
+        pattern.type_check(&mut ctx)
     }
 }
 ```
@@ -164,112 +127,83 @@ impl TypeChecker {
 
 ```rust
 impl Evaluator {
-    fn eval_pattern_call(
+    fn eval_function_exp(
         &mut self,
-        name: Name,
-        args: &[NamedArg],
-    ) -> Result<Value, EvalError> {
+        kind: FunctionExpKind,
+        props: &[NamedProp],
+    ) -> EvalResult {
         // Get pattern from registry
-        let pattern = self.pattern_registry
-            .get(name)
-            .ok_or_else(|| EvalError::UndefinedPattern(name))?;
+        let pattern = self.pattern_registry.get(kind);
 
-        // Evaluate arguments
-        let eval_args: Vec<EvalArg> = args
-            .iter()
-            .map(|arg| Ok(EvalArg {
-                name: arg.name,
-                value: self.eval_expr(arg.value)?,
-            }))
-            collect::<Result<_, _>>()?;
+        // Build evaluation context
+        let ctx = EvalContext::new(&props, span);
 
         // Delegate to pattern's evaluation
-        pattern.evaluate(&eval_args, self)
+        pattern.evaluate(&ctx, self)
     }
 }
 ```
 
-## SharedRegistry Pattern
+## Adding New Patterns
 
-For dependency injection in tests:
+To add a new pattern:
+
+1. **Add enum variant** to `FunctionExpKind` in `ori_ir/src/ast/patterns/exp.rs`
+2. **Create pattern struct** in `ori_patterns/src/` (usually a ZST)
+3. **Implement `PatternDefinition`** trait
+4. **Add static instance** to `registry.rs`
+5. **Add match arm** to `get()` method
+6. **Update parser** to recognize the pattern name
 
 ```rust
-/// Newtype wrapper for shared registry
-pub struct SharedRegistry<T>(Arc<T>);
-
-impl<T> SharedRegistry<T> {
-    pub fn new(inner: T) -> Self {
-        Self(Arc::new(inner))
-    }
-
-    pub fn inner(&self) -> &T {
-        &self.0
-    }
+// 1. In ori_ir (FunctionExpKind enum)
+pub enum FunctionExpKind {
+    // ... existing variants
+    MyPattern,
 }
 
-impl<T> Clone for SharedRegistry<T> {
-    fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0))
-    }
+// 2-3. In ori_patterns (new file my_pattern.rs)
+pub struct MyPattern;
+
+impl PatternDefinition for MyPattern {
+    fn name(&self) -> &'static str { "my_pattern" }
+    fn required_props(&self) -> &'static [&'static str] { &["arg1"] }
+    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type { ... }
+    fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult { ... }
 }
 
-// Usage
-pub type SharedPatternRegistry = SharedRegistry<PatternRegistry>;
+// 4-5. In registry.rs
+static MY_PATTERN: MyPattern = MyPattern;
+
+pub fn get(&self, kind: FunctionExpKind) -> &'static dyn PatternDefinition {
+    match kind {
+        // ...
+        FunctionExpKind::MyPattern => &MY_PATTERN,
+    }
+}
 ```
+
+## Design Decision: Why Not HashMap?
+
+The previous design considered a `HashMap<Name, Arc<dyn PatternDefinition>>` but this was rejected because:
+
+1. **Fixed set** - Patterns are known at compile time
+2. **Performance** - Enum dispatch is faster than HashMap lookup
+3. **No plugins** - Users don't add patterns at runtime
+4. **Exhaustiveness** - Compiler catches missing pattern handlers
+5. **Memory** - ZSTs have zero runtime cost
+
+The enum dispatch approach aligns with Ori's "prefer enum for fixed sets" design principle.
 
 ## Thread Safety
 
-The registry is designed for concurrent access:
+The registry is inherently thread-safe because:
+- All patterns are static references
+- Pattern instances are ZSTs (no mutable state)
+- Registry itself is immutable after construction
 
 ```rust
-// Patterns are Arc<dyn PatternDefinition>
-// Registry can be cloned cheaply
-let registry: SharedPatternRegistry = ...;
-
 // Safe to use from multiple threads
-thread::spawn({
-    let registry = registry.clone();
-    move || {
-        let pattern = registry.get(name);
-        // ...
-    }
-});
-```
-
-## Error Handling
-
-```rust
-impl PatternRegistry {
-    pub fn get_or_error(&self, name: Name, span: Span) -> Result<Arc<dyn PatternDefinition>, PatternError> {
-        self.get(name).ok_or_else(|| {
-            let similar = self.suggest_similar(name);
-            PatternError::UndefinedPattern {
-                name,
-                span,
-                similar,
-            }
-        })
-    }
-}
-```
-
-## Extension Points
-
-### Custom Patterns
-
-Users can register custom patterns:
-
-```rust
-// In user code
-registry.register(MyCustomPattern::new());
-
-// Pattern is now available
-my_pattern(arg: value)
-```
-
-### Plugin System (Future)
-
-```rust
-// Load patterns from dynamic library
-registry.load_plugin("path/to/plugin.so")?;
+let pattern = registry.get(FunctionExpKind::Parallel);
+// pattern is &'static dyn PatternDefinition
 ```

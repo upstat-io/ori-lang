@@ -12,29 +12,34 @@ Code fixes are automatic repair suggestions that can be applied to resolve error
 ## Location
 
 ```
-compiler/oric/src/diagnostic/fixes/mod.rs (~258 lines)
+compiler/ori_diagnostic/src/diagnostic.rs  # Suggestion, Substitution, Applicability types
+compiler/ori_diagnostic/src/fixes/         # Fix registry and helpers
 ```
 
-## CodeFix Structure
+## Suggestion Structure
+
+Code fixes are represented as `Suggestion` with `Substitution` components:
 
 ```rust
-pub struct CodeFix {
-    /// Description shown to user
+/// A structured suggestion with substitutions and applicability.
+pub struct Suggestion {
+    /// Human-readable message describing the fix.
     pub message: String,
 
-    /// Text edits to apply
-    pub edits: Vec<TextEdit>,
+    /// The text substitutions to make.
+    pub substitutions: Vec<Substitution>,
 
-    /// How safe is this fix?
+    /// How confident we are in this suggestion.
     pub applicability: Applicability,
 }
 
-pub struct TextEdit {
-    /// Range to replace
+/// A text substitution for a code fix.
+pub struct Substitution {
+    /// The span to replace.
     pub span: Span,
 
-    /// Replacement text
-    pub new_text: String,
+    /// Replacement text.
+    pub snippet: String,
 }
 
 pub enum Applicability {
@@ -48,31 +53,75 @@ pub enum Applicability {
     HasPlaceholders,
 
     /// Just a suggestion, likely needs thought
+    #[default]
     Unspecified,
+}
+```
+
+### Factory Methods
+
+```rust
+impl Suggestion {
+    /// Create a machine-applicable suggestion (safe to auto-apply).
+    pub fn machine_applicable(
+        message: impl Into<String>,
+        span: Span,
+        snippet: impl Into<String>,
+    ) -> Self;
+
+    /// Create a suggestion that might be incorrect.
+    pub fn maybe_incorrect(
+        message: impl Into<String>,
+        span: Span,
+        snippet: impl Into<String>,
+    ) -> Self;
+
+    /// Create a suggestion with placeholders.
+    pub fn has_placeholders(
+        message: impl Into<String>,
+        span: Span,
+        snippet: impl Into<String>,
+    ) -> Self;
+
+    /// Add another substitution to this suggestion.
+    pub fn with_substitution(self, span: Span, snippet: impl Into<String>) -> Self;
 }
 ```
 
 ## Creating Fixes
 
+### Using Diagnostic Builder
+
+The easiest way to add fixes is through the `Diagnostic` builder:
+
+```rust
+// Machine-applicable fix (safe to auto-apply)
+Diagnostic::error(ErrorCode::E1001)
+    .with_message("missing semicolon")
+    .with_fix("add semicolon", span, ";")
+
+// Maybe-incorrect fix (needs human review)
+Diagnostic::error(ErrorCode::E2001)
+    .with_message("type mismatch")
+    .with_maybe_fix("convert to int", span, "int(x)")
+```
+
 ### Typo Correction
 
 ```rust
-fn fix_typo(span: Span, wrong: &str, correct: &str) -> CodeFix {
-    CodeFix {
-        message: format!("change `{}` to `{}`", wrong, correct),
-        edits: vec![TextEdit {
-            span,
-            new_text: correct.to_string(),
-        }],
-        applicability: Applicability::MachineApplicable,
-    }
+fn fix_typo(span: Span, wrong: &str, correct: &str) -> Suggestion {
+    Suggestion::machine_applicable(
+        format!("change `{}` to `{}`", wrong, correct),
+        span,
+        correct,
+    )
 }
 ```
 
 ### Type Conversion
 
 ```rust
-fn fix_type_conversion(span: Span, from: &Type, to: &Type) -> Option<CodeFix> {
+fn fix_type_conversion(span: Span, from: &Type, to: &Type) -> Option<Suggestion> {
     let conversion = match (from, to) {
         (Type::String, Type::Int) => "int",
         (Type::Int, Type::String) => "str",
@@ -80,46 +129,40 @@ fn fix_type_conversion(span: Span, from: &Type, to: &Type) -> Option<CodeFix> {
         _ => return None,
     };
 
-    Some(CodeFix {
-        message: format!("convert using `{}()`", conversion),
-        edits: vec![
-            // Wrap expression: expr -> int(expr)
-            TextEdit { span: Span::new(span.start, span.start), new_text: format!("{}(", conversion) },
-            TextEdit { span: Span::new(span.end, span.end), new_text: ")".into() },
-        ],
-        applicability: Applicability::MaybeIncorrect,
-    })
+    // Wrap expression: expr -> int(expr)
+    Some(Suggestion::maybe_incorrect(
+        format!("convert using `{}()`", conversion),
+        Span::new(span.start, span.start),
+        format!("{}(", conversion),
+    ).with_substitution(
+        Span::new(span.end, span.end),
+        ")",
+    ))
 }
 ```
 
 ### Missing Import
 
 ```rust
-fn fix_missing_import(module: &str, item: &str, insert_pos: u32) -> CodeFix {
-    CodeFix {
-        message: format!("add import from '{}'", module),
-        edits: vec![TextEdit {
-            span: Span::new(insert_pos, insert_pos),
-            new_text: format!("use '{}' {{ {} }}\n", module, item),
-        }],
-        applicability: Applicability::MachineApplicable,
-    }
+fn fix_missing_import(module: &str, item: &str, insert_pos: u32) -> Suggestion {
+    Suggestion::machine_applicable(
+        format!("add import from '{}'", module),
+        Span::new(insert_pos, insert_pos),
+        format!("use '{}' {{ {} }}\n", module, item),
+    )
 }
 ```
 
 ### Add Missing Field
 
 ```rust
-fn fix_missing_field(struct_span: Span, field: &str, field_type: &Type) -> CodeFix {
-    CodeFix {
-        message: format!("add missing field `{}`", field),
-        edits: vec![TextEdit {
-            // Insert before closing brace
-            span: Span::new(struct_span.end - 1, struct_span.end - 1),
-            new_text: format!(", {}: /* TODO */", field),
-        }],
-        applicability: Applicability::HasPlaceholders,
-    }
+fn fix_missing_field(struct_span: Span, field: &str) -> Suggestion {
+    Suggestion::has_placeholders(
+        format!("add missing field `{}`", field),
+        // Insert before closing brace
+        Span::new(struct_span.end - 1, struct_span.end - 1),
+        format!(", {}: /* TODO */", field),
+    )
 }
 ```
 
@@ -128,7 +171,7 @@ fn fix_missing_field(struct_span: Span, field: &str, field_type: &Type) -> CodeF
 ### E2001: Type Mismatch
 
 ```rust
-fn suggest_for_type_mismatch(expected: &Type, found: &Type, span: Span) -> Vec<CodeFix> {
+fn suggest_for_type_mismatch(expected: &Type, found: &Type, span: Span) -> Vec<Suggestion> {
     let mut fixes = Vec::new();
 
     // Suggest conversion if possible
@@ -138,14 +181,11 @@ fn suggest_for_type_mismatch(expected: &Type, found: &Type, span: Span) -> Vec<C
 
     // Suggest changing annotation
     if let Some(annotation_span) = find_type_annotation(span) {
-        fixes.push(CodeFix {
-            message: format!("change type annotation to `{}`", found.display()),
-            edits: vec![TextEdit {
-                span: annotation_span,
-                new_text: found.display().to_string(),
-            }],
-            applicability: Applicability::MaybeIncorrect,
-        });
+        fixes.push(Suggestion::maybe_incorrect(
+            format!("change type annotation to `{}`", found.display()),
+            annotation_span,
+            found.display().to_string(),
+        ));
     }
 
     fixes
@@ -155,7 +195,7 @@ fn suggest_for_type_mismatch(expected: &Type, found: &Type, span: Span) -> Vec<C
 ### E2002: Undefined Variable
 
 ```rust
-fn suggest_for_undefined_var(name: Name, similar: &[Name], span: Span) -> Vec<CodeFix> {
+fn suggest_for_undefined_var(name: Name, similar: &[Name], span: Span) -> Vec<Suggestion> {
     similar.iter().map(|&s| {
         fix_typo(span, &name.to_string(), &s.to_string())
     }).collect()
@@ -165,34 +205,31 @@ fn suggest_for_undefined_var(name: Name, similar: &[Name], span: Span) -> Vec<Co
 ### E2003: Missing Capability
 
 ```rust
-fn suggest_for_missing_capability(cap: Capability, func_span: Span) -> Vec<CodeFix> {
-    vec![CodeFix {
-        message: format!("add `uses {}` to function signature", cap),
-        edits: vec![TextEdit {
-            span: find_capability_insert_point(func_span),
-            new_text: format!(" uses {}", cap),
-        }],
-        applicability: Applicability::MachineApplicable,
-    }]
+fn suggest_for_missing_capability(cap: Capability, func_span: Span) -> Vec<Suggestion> {
+    vec![Suggestion::machine_applicable(
+        format!("add `uses {}` to function signature", cap),
+        find_capability_insert_point(func_span),
+        format!(" uses {}", cap),
+    )]
 }
 ```
 
 ## Applying Fixes
 
-### Single Fix
+### Single Suggestion
 
 ```rust
-pub fn apply_fix(source: &str, fix: &CodeFix) -> String {
+pub fn apply_suggestion(source: &str, suggestion: &Suggestion) -> String {
     let mut result = source.to_string();
 
-    // Apply edits in reverse order to preserve spans
-    let mut edits = fix.edits.clone();
-    edits.sort_by(|a, b| b.span.start.cmp(&a.span.start));
+    // Apply substitutions in reverse order to preserve spans
+    let mut subs = suggestion.substitutions.clone();
+    subs.sort_by(|a, b| b.span.start.cmp(&a.span.start));
 
-    for edit in edits {
+    for sub in subs {
         result.replace_range(
-            edit.span.start as usize..edit.span.end as usize,
-            &edit.new_text,
+            sub.span.start as usize..sub.span.end as usize,
+            &sub.snippet,
         );
     }
 
@@ -200,35 +237,35 @@ pub fn apply_fix(source: &str, fix: &CodeFix) -> String {
 }
 ```
 
-### Multiple Fixes
+### Multiple Suggestions
 
 ```rust
-pub fn apply_all_fixes(source: &str, fixes: &[CodeFix]) -> String {
-    // Collect all edits
-    let mut all_edits: Vec<_> = fixes
+pub fn apply_all_suggestions(source: &str, suggestions: &[Suggestion]) -> String {
+    // Collect all substitutions from machine-applicable suggestions
+    let mut all_subs: Vec<_> = suggestions
         .iter()
-        .filter(|f| f.applicability == Applicability::MachineApplicable)
-        .flat_map(|f| f.edits.iter())
+        .filter(|s| s.applicability.is_machine_applicable())
+        .flat_map(|s| s.substitutions.iter())
         .cloned()
         .collect();
 
     // Sort reverse by position
-    all_edits.sort_by(|a, b| b.span.start.cmp(&a.span.start));
+    all_subs.sort_by(|a, b| b.span.start.cmp(&a.span.start));
 
     // Check for overlaps
-    for window in all_edits.windows(2) {
+    for window in all_subs.windows(2) {
         if window[0].span.start < window[1].span.end {
-            // Overlapping edits - apply one at a time
-            return apply_fixes_one_by_one(source, fixes);
+            // Overlapping substitutions - apply one at a time
+            return apply_suggestions_one_by_one(source, suggestions);
         }
     }
 
     // Apply all at once
     let mut result = source.to_string();
-    for edit in all_edits {
+    for sub in all_subs {
         result.replace_range(
-            edit.span.start as usize..edit.span.end as usize,
-            &edit.new_text,
+            sub.span.start as usize..sub.span.end as usize,
+            &sub.snippet,
         );
     }
     result

@@ -12,10 +12,6 @@ use ori_llvm::aot::{
     TargetConfig, TargetTripleComponents, WasmConfig, WasmMemoryConfig, WasmStackConfig,
 };
 
-// ============================================================================
-// Target Configuration Helpers
-// ============================================================================
-
 /// Create a Linux `x86_64` target for testing.
 #[must_use]
 pub fn linux_target() -> TargetConfig {
@@ -65,10 +61,6 @@ pub fn wasm32_wasi_target() -> TargetConfig {
     TargetConfig::from_components(components)
 }
 
-// ============================================================================
-// WASM Configuration Helpers
-// ============================================================================
-
 /// Create a default WASM configuration for testing.
 #[must_use]
 pub fn default_wasm_config() -> WasmConfig {
@@ -98,10 +90,6 @@ pub fn minimal_wasm_config() -> WasmConfig {
         )
         .with_stack(WasmStackConfig::default().with_size_kb(64))
 }
-
-// ============================================================================
-// WASM Binary Verification (using wasmparser)
-// ============================================================================
 
 /// WASM binary verification result.
 #[derive(Debug, Default)]
@@ -265,10 +253,6 @@ pub fn wasm_has_custom_section(verification: &WasmVerification, name: &str) -> b
     verification.custom_sections.iter().any(|s| s == name)
 }
 
-// ============================================================================
-// Object File Verification (using object crate)
-// ============================================================================
-
 /// Object file verification result.
 #[derive(Debug, Default)]
 pub struct ObjectVerification {
@@ -376,10 +360,6 @@ pub fn object_has_section(verification: &ObjectVerification, name: &str) -> bool
     verification.sections.iter().any(|s| s.contains(name))
 }
 
-// ============================================================================
-// Linker Command Verification
-// ============================================================================
-
 /// Extract arguments from a Command for verification.
 pub fn command_args(cmd: &Command) -> Vec<String> {
     cmd.get_args()
@@ -403,10 +383,6 @@ pub fn command_has_arg_before(cmd: &Command, arg: &str, before: &str) -> bool {
         _ => false,
     }
 }
-
-// ============================================================================
-// Tool Detection
-// ============================================================================
 
 /// Check if a tool is available on the system.
 pub fn tool_available(name: &str) -> bool {
@@ -436,10 +412,6 @@ pub fn llvm_objdump_available() -> bool {
 pub fn wasm_opt_available() -> bool {
     tool_available("wasm-opt")
 }
-
-// ============================================================================
-// Test Fixtures
-// ============================================================================
 
 /// Create a minimal valid WASM module for testing.
 ///
@@ -499,10 +471,6 @@ pub fn wasm_module_with_exports(exports: &[(&str, &str)]) -> Vec<u8> {
     let _ = exports;
     module
 }
-
-// ============================================================================
-// Test Result Assertions
-// ============================================================================
 
 /// Assert that a WASM verification has specific exports.
 #[macro_export]

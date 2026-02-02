@@ -9,6 +9,16 @@ section: "Features"
 
 Displaying type information and documentation when the user hovers over code.
 
+## Implementation Status
+
+| Feature | Status |
+|---------|--------|
+| Function signatures | ✅ Implemented |
+| Type definitions | ✅ Implemented |
+| Variable types | ⚠ Not Implemented |
+| Doc comments | ⚠ Not Implemented |
+| Expression types | ⚠ Not Implemented |
+
 ## Overview
 
 Hover is a **request** from client to server. The server returns information to display in a tooltip.
@@ -19,11 +29,59 @@ textDocument/hover
            ◄───────────────────────── (Hover)
 ```
 
-## Implementation
+## Current Implementation
 
-### Core Logic
+The current hover implementation finds items (functions, types) at the cursor position:
 
 ```rust
+impl OriLanguageServer {
+    fn get_hover_info(&self, uri: &Url, position: Position) -> Option<Hover> {
+        let doc = self.documents.get(uri)?;
+        let module = doc.module.as_ref()?;
+        let offset = position_to_offset(&doc.text, position);
+
+        for item in &module.items {
+            if let Some(info) = self.hover_for_item(item, offset) {
+                return Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: info,
+                    }),
+                    range: None,
+                });
+            }
+        }
+        None
+    }
+
+    fn hover_for_item(&self, item: &Item, offset: usize) -> Option<String> {
+        match item {
+            Item::Function(fd) => {
+                if fd.span.contains(&offset) {
+                    Some(self.function_signature(fd))
+                } else {
+                    None
+                }
+            }
+            Item::TypeDef(td) => {
+                if td.span.contains(&offset) {
+                    Some(self.type_signature(td))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+```
+
+## Future Design: Enhanced Hover
+
+The planned enhanced implementation would provide richer hover info:
+
+```rust
+// Planned: features/hover.rs
 pub fn hover(
     docs: &DocumentManager,
     params: HoverParams,

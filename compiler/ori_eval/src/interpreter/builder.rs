@@ -4,9 +4,9 @@ use super::resolvers::{
     BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, MethodResolverKind,
     UserRegistryResolver,
 };
-use super::Interpreter;
 #[cfg(target_arch = "wasm32")]
 use super::DEFAULT_MAX_CALL_DEPTH;
+use super::{Interpreter, TypeNames};
 use crate::{
     stdout_handler, Environment, SharedMutableRegistry, SharedPrintHandler, SharedRegistry,
     UserMethodRegistry,
@@ -155,11 +155,15 @@ impl<'a> InterpreterBuilder<'a> {
         // Pre-compute the Name for "self" to avoid repeated interning
         let self_name = self.interner.intern("self");
 
+        // Pre-intern all primitive type names for hot-path method dispatch
+        let type_names = TypeNames::new(self.interner);
+
         Interpreter {
             interner: self.interner,
             arena: self.arena,
             env: self.env.unwrap_or_default(),
             self_name,
+            type_names,
             call_depth: self.call_depth,
             max_call_depth: self.max_call_depth,
             registry: pat_reg,
@@ -194,11 +198,15 @@ impl<'a> InterpreterBuilder<'a> {
         // Pre-compute the Name for "self" to avoid repeated interning
         let self_name = self.interner.intern("self");
 
+        // Pre-intern all primitive type names for hot-path method dispatch
+        let type_names = TypeNames::new(self.interner);
+
         Interpreter {
             interner: self.interner,
             arena: self.arena,
             env: self.env.unwrap_or_default(),
             self_name,
+            type_names,
             call_depth: self.call_depth,
             registry: pat_reg,
             user_method_registry: user_meth_reg,

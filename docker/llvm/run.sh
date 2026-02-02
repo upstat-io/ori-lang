@@ -40,12 +40,13 @@ elif [ "$1" = "ori" ]; then
     DOCKER_FLAGS=""
     shift
     # Build oric with LLVM feature and run with --backend=llvm
+    # Note: ori_rt must be built explicitly to get libori_rt.a (the staticlib for AOT linking)
     if [ "$1" = "test" ]; then
         shift
-        # Build oric with llvm feature, then run tests
-        CMD="cargo build --release --features llvm && ./target/release/ori test --backend=llvm $*"
+        # Build oric and ori_rt with llvm feature, then run tests
+        CMD="cargo build -p oric -p ori_rt --release --features llvm && ./target/release/ori test --backend=llvm $*"
     else
-        CMD="cargo build --release --features llvm && ./target/release/ori $*"
+        CMD="cargo build -p oric -p ori_rt --release --features llvm && ./target/release/ori $*"
     fi
 else
     DOCKER_FLAGS=""

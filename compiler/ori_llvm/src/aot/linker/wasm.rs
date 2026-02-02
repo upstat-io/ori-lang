@@ -137,10 +137,6 @@ impl WasmLinker {
         self.cmd.arg(arg);
     }
 
-    // ========================================================================
-    // WASM-specific configuration
-    // ========================================================================
-
     /// Apply comprehensive WASM configuration.
     ///
     /// This applies memory settings, stack size, and feature flags

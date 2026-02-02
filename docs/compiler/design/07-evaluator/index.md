@@ -210,24 +210,44 @@ impl Evaluator {
 
 ### Value System
 
-Runtime values with Arc-based sharing:
+Runtime values with `Heap<T>` for Arc-based sharing:
 
 ```rust
 pub enum Value {
     Int(i64),
     Float(f64),
     Bool(bool),
-    String(Arc<String>),
-    List(Arc<Vec<Value>>),
-    Map(Arc<HashMap<Value, Value>>),
+    Str(Heap<String>),
+    Char(char),
+    Byte(u8),
+    List(Heap<Vec<Value>>),
+    Map(Heap<BTreeMap<String, Value>>),  // BTreeMap for deterministic iteration
+    Set(Heap<HashSet<Value>>),
     Function(FunctionValue),
-    Option(Option<Arc<Value>>),
-    Result(Result<Arc<Value>, Arc<Value>>),
-    Struct { name: Name, fields: Arc<HashMap<Name, Value>> },
-    ModuleNamespace(Arc<HashMap<Name, Value>>),
-    Void,
+    Option(Option<Heap<Value>>),
+    Result(Result<Heap<Value>, Heap<Value>>),
+    Struct { name: Name, fields: Heap<HashMap<Name, Value>> },
+    Variant { name: Name, payload: Option<Heap<Vec<Value>>> },
+    ModuleNamespace(Heap<BTreeMap<Name, Value>>),  // BTreeMap for Salsa compatibility
+    Range(Heap<RangeValue>),
+    Duration { nanoseconds: i64 },
+    Size { bytes: u64 },
+    Ordering(std::cmp::Ordering),
+    Unit,
+    Never,  // Uninhabited type for diverging expressions
 }
 ```
+
+The `Heap<T>` wrapper enforces Arc allocation for shared values:
+
+```rust
+/// Wrapper for heap-allocated values using Arc.
+/// Ensures all heap values go through factory methods.
+#[repr(transparent)]
+pub struct Heap<T>(Arc<T>);
+```
+
+**Key design choice:** `Map` and `ModuleNamespace` use `BTreeMap` for deterministic iteration order, which is required for Salsa compatibility and consistent test output.
 
 ### ModuleNamespace Values
 
@@ -239,7 +259,7 @@ use std.math as math
 math.sqrt(x: 16.0)
 
 // Runtime: math is bound to Value::ModuleNamespace containing sqrt
-Value::ModuleNamespace(Arc::new(HashMap::from([
+Value::ModuleNamespace(Heap::new(BTreeMap::from([
     (intern("sqrt"), Value::Function(...)),
     (intern("abs"), Value::Function(...)),
     // ... other exports
@@ -250,7 +270,26 @@ When a method call occurs on a `ModuleNamespace` value, the interpreter intercep
 
 ### Environment
 
-Stack-based lexical scoping:
+Stack-based lexical scoping with parent-linked scopes:
+
+```rust
+/// Scope with parent chain for lexical scoping.
+pub struct Scope {
+    bindings: FxHashMap<Name, Binding>,  // Fast hash for Name keys
+    parent: Option<LocalScope<Scope>>,    // Rc<RefCell<Scope>>
+}
+
+/// Environment with scope stack.
+pub struct Environment {
+    scopes: Vec<LocalScope<Scope>>,
+    global: LocalScope<Scope>,
+}
+```
+
+The `LocalScope<T>` wrapper is `Rc<RefCell<T>>` for single-threaded scope management:
+- More efficient than `Arc<RwLock<T>>` for single-threaded use
+- Parent chain enables closure capture
+- `FxHashMap` provides faster hashing for `Name` keys
 
 ```rust
 let x = 1           // Outer scope: x = 1

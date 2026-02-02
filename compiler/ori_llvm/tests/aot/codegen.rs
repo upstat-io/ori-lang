@@ -21,10 +21,6 @@ use ori_llvm::aot::passes::{LtoMode, OptimizationLevel};
 
 use super::util::parse_object;
 
-// ============================================================================
-// Output Format Tests
-// ============================================================================
-
 /// Test: Output format extension mapping
 ///
 /// Scenario from Rust `emit`:
@@ -62,10 +58,6 @@ fn test_output_format_variants() {
         assert!(!format.description().is_empty());
     }
 }
-
-// ============================================================================
-// Optimization Level Tests
-// ============================================================================
 
 /// Test: Optimization level to LLVM pass string mapping
 ///
@@ -144,10 +136,6 @@ fn test_optimization_level_merge_functions() {
     assert!(OptimizationLevel::Oz.enables_merge_functions());
 }
 
-// ============================================================================
-// LTO Mode Tests
-// ============================================================================
-
 /// Test: LTO mode pass pipeline names
 ///
 /// Scenario from Rust `cross-lang-lto`:
@@ -209,10 +197,6 @@ fn test_lto_mode_display() {
     assert_eq!(format!("{}", LtoMode::Thin), "thin");
     assert_eq!(format!("{}", LtoMode::Full), "full");
 }
-
-// ============================================================================
-// Debug Information Configuration Tests
-// ============================================================================
 
 /// Test: Debug level `is_enabled`
 #[test]
@@ -339,10 +323,6 @@ fn test_debug_config_needs_pdb() {
     assert!(!config.needs_pdb("x86_64-unknown-linux-gnu"));
 }
 
-// ============================================================================
-// Symbol Mangling Tests
-// ============================================================================
-
 /// Test: Ori symbol mangling scheme
 ///
 /// Scenario from Rust `demangle`:
@@ -379,10 +359,10 @@ fn test_is_ori_symbol() {
 /// Round-trip mangling/demangling.
 #[test]
 fn test_demangle() {
-    // Simple function
+    // Simple function (demangled output uses Ori syntax with @ prefix)
     let demangled = demangle("_ori_main");
     assert!(demangled.is_some());
-    assert_eq!(demangled.unwrap(), "main");
+    assert_eq!(demangled.unwrap(), "@main");
 
     // Module function
     let demangled = demangle("_ori_math$add");
@@ -445,10 +425,6 @@ fn test_mangle_associated_function() {
     assert!(mangled.contains("some"));
 }
 
-// ============================================================================
-// Object File Verification Tests (using object crate)
-// ============================================================================
-
 /// Test: Parse ELF object file structure
 ///
 /// This test uses a pre-constructed minimal ELF for verification.
@@ -503,10 +479,6 @@ fn test_object_format_detection() {
     let wasm = [0x00, 0x61, 0x73, 0x6d]; // \0asm
     assert!(wasm.starts_with(&[0x00, 0x61, 0x73, 0x6d]));
 }
-
-// ============================================================================
-// Optimization Effect Tests
-// ============================================================================
 
 /// Test: Optimization level pipeline strings
 ///

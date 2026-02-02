@@ -162,6 +162,7 @@ mod tests {
             code,
             message: message.to_string(),
             span: Span::new(offset, offset + 5),
+            suggestion: None,
         }
     }
 

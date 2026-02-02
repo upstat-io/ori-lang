@@ -27,10 +27,6 @@ use super::util::{
 };
 use crate::assert_command_args;
 
-// ============================================================================
-// Linker Flavor Detection Tests
-// ============================================================================
-
 /// Test: Correct linker flavor for each target
 ///
 /// Scenario: Auto-detection of linker based on target triple.
@@ -58,10 +54,6 @@ fn test_linker_flavor_for_target() {
     let wasm = TargetTripleComponents::parse("wasm32-unknown-unknown").unwrap();
     assert_eq!(LinkerFlavor::for_target(&wasm), LinkerFlavor::WasmLd);
 }
-
-// ============================================================================
-// Output Type Extension Tests
-// ============================================================================
 
 /// Test: Correct file extensions per platform
 ///
@@ -93,10 +85,6 @@ fn test_link_output_extensions() {
     assert_eq!(LinkOutput::SharedLibrary.extension(&windows), "dll");
     assert_eq!(LinkOutput::StaticLibrary.extension(&windows), "lib");
 }
-
-// ============================================================================
-// GCC Linker Tests (Linux/macOS)
-// ============================================================================
 
 /// Test: Basic GCC linker command
 ///
@@ -311,10 +299,6 @@ fn test_gcc_linker_raw_args() {
     assert_command_args!(cmd, "-v", "-Wl,--as-needed");
 }
 
-// ============================================================================
-// MSVC Linker Tests (Windows)
-// ============================================================================
-
 /// Test: Basic MSVC linker command
 ///
 /// Scenario: Windows executable linking.
@@ -418,10 +402,6 @@ fn test_msvc_linker_with_lld() {
     let cmd = linker.finalize();
     assert_eq!(cmd.get_program().to_string_lossy(), "lld-link");
 }
-
-// ============================================================================
-// Linker Driver Tests
-// ============================================================================
 
 /// Test: Linker driver invalid input
 ///
@@ -530,10 +510,6 @@ fn test_linker_driver_response_file() {
     assert!(args[0].starts_with('@'));
 }
 
-// ============================================================================
-// Link Library Builder Tests
-// ============================================================================
-
 /// Test: `LinkLibrary` builder pattern
 #[test]
 fn test_link_library_builder() {
@@ -555,10 +531,6 @@ fn test_link_library_builder() {
     assert_eq!(lib.kind, LibraryKind::Unspecified);
 }
 
-// ============================================================================
-// Linker Detection Tests
-// ============================================================================
-
 /// Test: Linker detection structure
 #[test]
 fn test_linker_detection_default() {
@@ -578,10 +550,6 @@ fn test_linker_detection_preferred() {
     // First in list is preferred
     assert_eq!(detection.preferred(), Some(LinkerFlavor::Lld));
 }
-
-// ============================================================================
-// Linker Error Tests
-// ============================================================================
 
 /// Test: Linker error display
 #[test]
@@ -643,10 +611,6 @@ fn test_linker_error_display() {
     assert!(err.to_string().contains("riscv64"));
 }
 
-// ============================================================================
-// Cross-Platform Linker Tests
-// ============================================================================
-
 /// Test: Windows GNU linker uses GCC style
 ///
 /// Scenario: MinGW toolchain on Windows.
@@ -676,10 +640,6 @@ fn test_macos_arm64_linker() {
     assert_command_args!(cmd, "-o", "output");
 }
 
-// ============================================================================
-// Library Search Path Tests
-// ============================================================================
-
 /// Test: Library with custom search path
 ///
 /// Scenario from Rust `c-static-rlib`:
@@ -704,10 +664,6 @@ fn test_library_with_search_path() {
     // Library's search path should be added
     assert!(args.iter().any(|a| a.contains("/opt/custom/lib")));
 }
-
-// ============================================================================
-// LinkerImpl Enum Dispatch Tests
-// ============================================================================
 
 /// Test: `LinkerImpl` dispatch to correct implementation
 #[test]

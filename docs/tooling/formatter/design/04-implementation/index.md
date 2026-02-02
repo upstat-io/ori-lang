@@ -49,7 +49,7 @@ compiler/ori_fmt/
 │   ├── formatter/          # Core formatting engine
 │   │   └── mod.rs          # Formatter struct, format/emit_inline/emit_broken/emit_stacked
 │   ├── context.rs          # FormatContext, column/indent tracking
-│   ├── emitter.rs          # StringEmitter, FileEmitter traits
+│   ├── emitter.rs          # Emitter trait, StringEmitter implementation
 │   ├── declarations.rs     # ModuleFormatter for top-level items
 │   ├── comments.rs         # CommentIndex, doc comment reordering
 │   └── incremental.rs      # Incremental formatting for LSP
@@ -70,7 +70,7 @@ compiler/ori_fmt/
 | `FormatContext` | `context.rs` | Column tracking, indentation, line width checking |
 | `ModuleFormatter` | `declarations.rs` | Module-level formatting (functions, types, etc.) |
 | `CommentIndex` | `comments.rs` | Comment association and doc comment reordering |
-| `Emitter` | `emitter.rs` | Output abstraction (string, file) |
+| `Emitter` | `emitter.rs` | Output abstraction (StringEmitter implemented) |
 
 ## Width Calculation
 
@@ -431,9 +431,9 @@ pub fn with_capacity(capacity: usize) -> Self {
 }
 ```
 
-### Streaming Output
+### Output Abstraction
 
-For large files, the `Emitter` trait enables streaming to file without building a full string:
+The `Emitter` trait enables different output targets:
 
 ```rust
 pub trait Emitter {
@@ -443,3 +443,5 @@ pub trait Emitter {
     fn emit_indent(&mut self, level: usize);
 }
 ```
+
+Currently only `StringEmitter` is implemented. The trait exists to enable future file-streaming output without building full strings in memory.

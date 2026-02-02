@@ -155,18 +155,12 @@ impl MethodDef {
     }
 }
 
-// =============================================================================
-// Built-in Method Registry
-// =============================================================================
-
 /// All built-in methods for primitive types.
 ///
 /// This is the single source of truth for which methods exist on which types.
 /// The registry is organized by type for easy lookup.
 pub static BUILTIN_METHODS: &[MethodDef] = &[
-    // -------------------------------------------------------------------------
     // int methods
-    // -------------------------------------------------------------------------
     MethodDef::comparable(BuiltinType::Int),
     MethodDef::eq_trait(BuiltinType::Int),
     MethodDef::clone_trait(BuiltinType::Int),
@@ -280,9 +274,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         ReturnSpec::SelfType,
         Some("Shr"),
     ),
-    // -------------------------------------------------------------------------
     // float methods
-    // -------------------------------------------------------------------------
     MethodDef::comparable(BuiltinType::Float),
     MethodDef::eq_trait(BuiltinType::Float),
     MethodDef::clone_trait(BuiltinType::Float),
@@ -343,9 +335,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         ReturnSpec::SelfType,
         Some("Neg"),
     ),
-    // -------------------------------------------------------------------------
     // bool methods
-    // -------------------------------------------------------------------------
     MethodDef::comparable(BuiltinType::Bool),
     MethodDef::eq_trait(BuiltinType::Bool),
     MethodDef::clone_trait(BuiltinType::Bool),
@@ -358,25 +348,19 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         ReturnSpec::Type(BuiltinType::Bool),
         Some("Not"),
     ),
-    // -------------------------------------------------------------------------
     // char methods
-    // -------------------------------------------------------------------------
     MethodDef::comparable(BuiltinType::Char),
     MethodDef::eq_trait(BuiltinType::Char),
     MethodDef::clone_trait(BuiltinType::Char),
     MethodDef::hash_trait(BuiltinType::Char),
     MethodDef::to_str_trait(BuiltinType::Char),
-    // -------------------------------------------------------------------------
     // byte methods
-    // -------------------------------------------------------------------------
     MethodDef::comparable(BuiltinType::Byte),
     MethodDef::eq_trait(BuiltinType::Byte),
     MethodDef::clone_trait(BuiltinType::Byte),
     MethodDef::hash_trait(BuiltinType::Byte),
     MethodDef::to_str_trait(BuiltinType::Byte),
-    // -------------------------------------------------------------------------
     // str methods
-    // -------------------------------------------------------------------------
     MethodDef::comparable(BuiltinType::Str),
     MethodDef::eq_trait(BuiltinType::Str),
     MethodDef::clone_trait(BuiltinType::Str),
@@ -438,9 +422,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         ReturnSpec::SelfType,
         Some("Add"),
     ),
-    // -------------------------------------------------------------------------
     // Duration methods
-    // -------------------------------------------------------------------------
     MethodDef::comparable(BuiltinType::Duration),
     MethodDef::eq_trait(BuiltinType::Duration),
     MethodDef::clone_trait(BuiltinType::Duration),
@@ -531,9 +513,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         ReturnSpec::SelfType,
         Some("Neg"),
     ),
-    // -------------------------------------------------------------------------
     // Size methods
-    // -------------------------------------------------------------------------
     MethodDef::comparable(BuiltinType::Size),
     MethodDef::eq_trait(BuiltinType::Size),
     MethodDef::clone_trait(BuiltinType::Size),
@@ -610,9 +590,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         ReturnSpec::SelfType,
         Some("Rem"),
     ),
-    // -------------------------------------------------------------------------
     // Ordering methods
-    // -------------------------------------------------------------------------
     MethodDef::comparable(BuiltinType::Ordering),
     MethodDef::eq_trait(BuiltinType::Ordering),
     MethodDef::clone_trait(BuiltinType::Ordering),
@@ -662,10 +640,6 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         None,
     ),
 ];
-
-// =============================================================================
-// Lookup Functions
-// =============================================================================
 
 /// Find a method definition by receiver type and method name.
 ///

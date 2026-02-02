@@ -12,7 +12,13 @@ The Ori lexer converts source text into a stream of tokens. It's implemented usi
 ## Location
 
 ```
-compiler/ori_lexer/src/lib.rs (~643 lines)
+compiler/ori_lexer/src/
+├── lib.rs              # Public API: lex(), lex_with_comments(), LexOutput
+├── raw_token.rs        # Logos-derived RawToken enum
+├── convert.rs          # Token conversion with string interning
+├── escape.rs           # Escape sequence processing
+├── comments.rs         # Comment classification/normalization
+└── parse_helpers.rs    # Numeric literal parsing utilities
 ```
 
 The lexer is a separate crate with minimal dependencies:
@@ -42,11 +48,20 @@ TokenList (with spans, interned names)
 
 ## Token Definition
 
-Tokens are defined using logos derive macro:
+Tokens are defined in `raw_token.rs` using the logos derive macro, then converted to final `TokenKind` in `convert.rs`:
 
 ```rust
-#[derive(Logos, Debug, Clone, PartialEq)]
-pub enum TokenKind {
+#[derive(Logos, Debug, Clone, Copy, PartialEq)]
+#[logos(skip r"[ \t\r]+")] // Skip horizontal whitespace
+pub enum RawToken {
+    // Comments and trivia
+    #[regex(r"//[^\n]*")]
+    LineComment,
+    #[token("\n")]
+    Newline,
+    #[regex(r"\\[ \t]*\n")]
+    LineContinuation,
+
     // Keywords
     #[token("let")]
     Let,
@@ -56,98 +71,104 @@ pub enum TokenKind {
     Else,
     #[token("then")]
     Then,
-    // ...
+    #[token("def")]
+    Def,
+    #[token("tests")]
+    Tests,
+    #[token("dyn")]
+    Dyn,
+    #[token("extend")]
+    Extend,
+    #[token("extension")]
+    Extension,
+    #[token("async")]
+    Async,
+    #[token("mut")]
+    Mut,
+    // ... more keywords
 
-    // Operators
-    #[token("+")]
-    Plus,
-    #[token("-")]
-    Minus,
-    #[token("*")]
-    Star,
-    // ...
-
-    // Literals
-    #[regex(r"[0-9]+", |lex| lex.slice().parse().ok())]
-    Int(i64),
-
-    #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse().ok())]
+    // Literals with inline parsing (zero-allocation for common cases)
+    #[regex(r"[0-9][0-9_]*", |lex| parse_int_skip_underscores(lex.slice(), 10))]
+    Int(u64),
+    #[regex(r"0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| parse_int_skip_underscores(&lex.slice()[2..], 16))]
+    HexInt(u64),
+    #[regex(r"0b[01][01_]*", |lex| parse_int_skip_underscores(&lex.slice()[2..], 2))]
+    BinInt(u64),
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?", ...)]
     Float(f64),
 
-    #[regex(r#""[^"]*""#, |lex| {
-        let s = lex.slice();
-        Some(s[1..s.len()-1].to_string())
-    })]
-    String(String),
+    // Duration literals (each suffix is a separate variant)
+    #[regex(r"[0-9]+ns", ...)]
+    DurationNs((u64, DurationUnit)),
+    #[regex(r"[0-9]+us", ...)]
+    DurationUs((u64, DurationUnit)),
+    // ... ms, s, m, h
 
-    // Identifiers (interned later)
+    // Size literals
+    #[regex(r"[0-9]+b", ...)]
+    SizeB((u64, SizeUnit)),
+    // ... kb, mb, gb, tb
+
+    // String/Char (unescaping done in convert.rs)
+    #[regex(r#""([^"\\\n\r]|\\.)*""#)]
+    String,
+    #[regex(r"'([^'\\\n\r]|\\.)'")]
+    Char,
+
+    // Identifiers (interned in convert.rs)
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Ident,
-
-    // Special - handled in post-processing
-    #[regex(r"[0-9]+(ms|s|m|h)")]
-    Duration,
-
-    #[regex(r"[0-9]+(b|kb|mb|gb)")]
-    Size,
-
-    // Error fallback
-    #[error]
-    Error,
 }
 ```
 
 ## Tokenization Process
 
-### 1. Initial Tokenization
+### Entry Points
+
+Two main functions:
+- `lex(source, interner)` - Standard tokenization for parsing
+- `lex_with_comments(source, interner)` - Preserves comments for formatter
+
+### 1. Logos Tokenization
 
 ```rust
-pub fn tokenize(db: &dyn Db, source: &str) -> TokenList {
-    let lexer = TokenKind::lexer(source);
+pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
+    let mut result = TokenList::new();
+    let mut logos = RawToken::lexer(source);
 
-    let mut tokens = Vec::new();
-    let mut spans = Vec::new();
+    while let Some(token_result) = logos.next() {
+        let span = Span::try_from_range(logos.span()).unwrap_or_else(|_| {
+            // File exceeds u32::MAX - use saturated position
+            Span::new(u32::MAX.saturating_sub(1), u32::MAX)
+        });
+        let slice = logos.slice();
 
-    for (kind, span) in lexer.spanned() {
-        tokens.push(kind);
-        spans.push(Span::new(span.start, span.end));
+        match token_result {
+            Ok(raw) => {
+                match raw {
+                    RawToken::LineComment | RawToken::LineContinuation => {}  // Skip
+                    RawToken::Newline => result.push(Token::new(TokenKind::Newline, span)),
+                    _ => {
+                        let kind = convert_token(raw, slice, interner);
+                        result.push(Token::new(kind, span));
+                    }
+                }
+            }
+            Err(()) => result.push(Token::new(TokenKind::Error, span)),
+        }
     }
 
-    // ...
+    result.push(Token::new(TokenKind::Eof, Span::point(source.len() as u32)));
+    result
 }
 ```
 
-### 2. Post-Processing
+### 2. Token Conversion
 
-After logos tokenization:
-
-```rust
-// Intern identifiers
-for (i, token) in tokens.iter_mut().enumerate() {
-    if let TokenKind::Ident = token {
-        let text = &source[spans[i].start..spans[i].end];
-        let name = db.interner().intern(text);
-        *token = TokenKind::Identifier(name);
-    }
-}
-
-// Parse duration literals
-for (i, token) in tokens.iter_mut().enumerate() {
-    if let TokenKind::Duration = token {
-        let text = &source[spans[i].start..spans[i].end];
-        *token = parse_duration(text);
-    }
-}
-```
-
-### 3. Result
-
-```rust
-TokenList {
-    tokens,
-    spans,
-}
-```
+The `convert_token()` function in `convert.rs`:
+- Interns identifiers to `Name` indices
+- Unescapes string and char literals
+- Maps `RawToken` variants to `TokenKind`
 
 ## Escape Sequence Handling
 
@@ -175,19 +196,31 @@ Both `unescape_string()` and `unescape_char()` delegate to this function, avoidi
 ### Duration Literals
 
 ```
-100ms  -> Duration(Milliseconds(100))
-5s     -> Duration(Seconds(5))
-2m     -> Duration(Minutes(2))
-1h     -> Duration(Hours(1))
+100ns  -> Duration(100, Nanoseconds)
+50us   -> Duration(50, Microseconds)
+100ms  -> Duration(100, Milliseconds)
+5s     -> Duration(5, Seconds)
+2m     -> Duration(2, Minutes)
+1h     -> Duration(1, Hours)
 ```
 
 ### Size Literals
 
 ```
-1024b  -> Size(Bytes(1024))
-4kb    -> Size(Kilobytes(4))
-10mb   -> Size(Megabytes(10))
-2gb    -> Size(Gigabytes(2))
+1024b  -> Size(1024, Bytes)
+4kb    -> Size(4, Kilobytes)
+10mb   -> Size(10, Megabytes)
+2gb    -> Size(2, Gigabytes)
+1tb    -> Size(1, Terabytes)
+```
+
+### Integer Literals
+
+```
+42       -> Int(42)
+1_000    -> Int(1000)      // underscores for readability
+0xFF     -> HexInt(255)    // hex
+0b1010   -> BinInt(10)     // binary
 ```
 
 ## TokenList Structure
@@ -214,13 +247,26 @@ impl TokenList {
 }
 ```
 
+## Newline Handling
+
+Newlines are significant tokens used by the parser for statement separation. The lexer:
+- Emits `TokenKind::Newline` for `\n`
+- Supports line continuation with `\` at end of line
+- Skips horizontal whitespace (spaces, tabs)
+
+```rust
+// Input: "let x = 42\nlet y = 10"
+// Output: [Let, Ident(x), Eq, Int(42), Newline, Let, Ident(y), Eq, Int(10), Eof]
+```
+
 ## No Error Recovery
 
 The lexer does not attempt error recovery. Invalid characters become `Error` tokens:
 
 ```rust
 // Input: "let x = @#$"
-// Output: [Let, Ident, Eq, Error, Error, Error]
+// @ is a valid token, but say if there was invalid Unicode:
+// Output: [Let, Ident, Eq, At, Error, Error, Eof]
 ```
 
 Error handling is deferred to the parser, which can provide better diagnostics with context.

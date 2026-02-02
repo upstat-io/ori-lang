@@ -118,15 +118,15 @@ ParseResult { Module, ExprArena }
     │ create TypeChecker
     ▼
 TypeChecker {
-    env: TypeEnv,       // Variable -> Type
-    registry: TypeRegistry,  // Named types
-    constraints: Vec<Constraint>,
+    inference: InferenceState,   // ctx, env, expr_types
+    registries: Registries,      // pattern, types, traits
+    diagnostics: DiagnosticState,
 }
     │
-    │ infer types for all expressions
+    │ infer types for all expressions (immediate unification)
     ▼
 TypedModule {
-    expr_types: Vec<Type>,  // Type per ExprId
+    expr_types: Vec<TypeId>,  // Type per ExprId
     errors: Vec<TypeError>,
 }
 ```
@@ -138,22 +138,33 @@ TypedModule {
 ```rust
 pub enum Type {
     // Primitives
-    Int, Float, Bool, String, Char, Void, Never,
+    Int, Float, Bool, Str, Char, Byte, Unit, Never,
+    Duration, Size, Ordering,
 
     // Compound
     List(Box<Type>),
+    Map { key: Box<Type>, value: Box<Type> },
+    Set(Box<Type>),
     Option(Box<Type>),
-    Result(Box<Type>, Box<Type>),
+    Result { ok: Box<Type>, err: Box<Type> },
+    Range(Box<Type>),
+    Channel(Box<Type>),
+    Tuple(Vec<Type>),
     Function { params: Vec<Type>, ret: Box<Type> },
 
     // Module namespace (for module alias imports)
     ModuleNamespace { items: Vec<(Name, Type)> },
 
     // Inference
-    TypeVar(TypeVarId),
+    Var(TypeVar),
 
     // User-defined
     Named(Name),
+    Applied { name: Name, args: Vec<Type> },
+    Projection { base: Box<Type>, trait_name: Name, assoc_name: Name },
+
+    // Error recovery
+    Error,
 }
 ```
 
@@ -280,17 +291,20 @@ The cache is cleared whenever `register_trait()` or `register_impl()` is called.
 
 ### TypeEnv
 
+The type environment uses `Rc`-based parent chain for efficient scoping:
+
 ```rust
-pub struct TypeEnv {
-    /// Stack of scopes
-    scopes: Vec<Scope>,
+/// Internal storage wrapped in Rc for O(1) child creation.
+struct TypeEnvInner {
+    bindings: FxHashMap<Name, TypeSchemeId>,
+    parent: Option<TypeEnv>,
+    interner: SharedTypeInterner,
 }
 
-pub struct Scope {
-    /// Variable bindings
-    bindings: HashMap<Name, Type>,
-}
+pub struct TypeEnv(Rc<TypeEnvInner>);
 ```
+
+See [Type Environment](type-environment.md) for details on the parent chain design.
 
 ### TypeContext
 
@@ -465,11 +479,14 @@ These traits should be preferred over `TypeFolder`/`TypeVisitor` for new code as
 ### Literals
 
 ```
-42      : Int
-3.14    : Float
-"hello" : String
-true    : Bool
+42      : int
+3.14    : float
+"hello" : str
+true    : bool
+'a'     : char
+0xFF    : byte (when used with byte context)
 []      : [T]  (fresh T)
+()      : ()   (unit)
 ```
 
 ### Binary Operations
@@ -477,11 +494,11 @@ true    : Bool
 Arithmetic and bitwise operators are type-checked through operator traits. The type checker first attempts primitive operation checking, then falls back to trait-based dispatch for user-defined types.
 
 ```
-Int + Int       -> Int       (primitive fast path)
-Float + Float   -> Float     (primitive fast path)
-String + String -> String    (primitive fast path)
-Int < Int       -> Bool      (comparison via Comparable)
-T == T          -> Bool      (where T: Eq)
+int + int       -> int       (primitive fast path)
+float + float   -> float     (primitive fast path)
+str + str       -> str       (primitive fast path)
+int < int       -> bool      (comparison via Comparable)
+T == T          -> bool      (where T: Eq)
 T + U           -> T::Output (where T: Add<U>)
 ```
 
@@ -522,7 +539,7 @@ fn check_binary_op(checker, op, left, right, span) -> Type {
 
 ```
 if cond then t else e
-  cond : Bool
+  cond : bool
   t : T
   e : T
   result : T
@@ -532,9 +549,9 @@ if cond then t else e
 
 ```
 @add (a: int, b: int) -> int
-  a, b : Int
-  body : Int
-  function : (Int, Int) -> Int
+  a, b : int
+  body : int
+  function : (int, int) -> int
 ```
 
 ## Built-in Method Type Checking

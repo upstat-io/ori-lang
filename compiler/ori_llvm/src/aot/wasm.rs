@@ -39,10 +39,6 @@ use std::fmt::{self, Write as _};
 use std::fs;
 use std::path::Path;
 
-// ============================================================================
-// Error Types
-// ============================================================================
-
 /// Error type for WASM-specific operations.
 #[derive(Debug, Clone)]
 pub enum WasmError {
@@ -76,10 +72,6 @@ impl fmt::Display for WasmError {
 }
 
 impl std::error::Error for WasmError {}
-
-// ============================================================================
-// Memory Configuration
-// ============================================================================
 
 /// WebAssembly memory configuration.
 ///
@@ -204,10 +196,6 @@ impl WasmMemoryConfig {
     }
 }
 
-// ============================================================================
-// Stack Configuration
-// ============================================================================
-
 /// WebAssembly stack configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WasmStackConfig {
@@ -244,10 +232,6 @@ impl WasmStackConfig {
         vec![format!("--stack-size={}", self.size)]
     }
 }
-
-// ============================================================================
-// WASM Configuration
-// ============================================================================
 
 /// WebAssembly feature flags.
 ///
@@ -562,10 +546,6 @@ impl WasmConfig {
     }
 }
 
-// ============================================================================
-// WASI Configuration
-// ============================================================================
-
 /// WASI version/preview level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WasiVersion {
@@ -781,10 +761,6 @@ pub struct WasiPreopen {
     pub host_path: String,
 }
 
-// ============================================================================
-// wasm-opt Configuration
-// ============================================================================
-
 /// Optimization level for wasm-opt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WasmOptLevel {
@@ -820,10 +796,6 @@ impl WasmOptLevel {
         }
     }
 }
-
-// ============================================================================
-// wasm-opt Runner
-// ============================================================================
 
 /// Runs `wasm-opt` on a WASM file for additional optimization.
 ///
@@ -995,10 +967,6 @@ impl WasmOptRunner {
     }
 }
 
-// ============================================================================
-// Exported Function Info
-// ============================================================================
-
 /// Information about an exported WASM function for binding generation.
 #[derive(Debug, Clone)]
 pub struct WasmExport {
@@ -1058,10 +1026,6 @@ impl WasmType {
         }
     }
 }
-
-// ============================================================================
-// JavaScript Binding Generator
-// ============================================================================
 
 /// Generator for JavaScript bindings and TypeScript declarations.
 pub struct JsBindingGenerator {
@@ -1408,10 +1372,6 @@ fn pascal_case(s: &str) -> String {
         })
         .collect()
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

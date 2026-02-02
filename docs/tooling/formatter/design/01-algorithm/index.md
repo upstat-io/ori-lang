@@ -28,22 +28,22 @@ Each AST node type defines:
 2. **Broken rendering** — How to render when broken across lines
 3. **Always-stacked** — Whether to skip inline attempt (for `run`, `try`, `match` arms, etc.)
 
-## Two-Pass Approach
+## Two-Phase Approach
 
-The formatter operates in two passes:
+The formatter conceptually operates in two phases, though implemented with lazy caching for efficiency:
 
-### Pass 1: Measure
+### Phase 1: Measure (Lazy)
 
-Calculate the inline width of each node without producing output. This is a bottom-up traversal:
+Calculate the inline width of each node without producing output. Widths are computed on-demand and cached:
 
 ```
 width(BinaryExpr(left, op, right)) = width(left) + width(op) + width(right) + 4
                                      // +4 for spaces around operator
 ```
 
-Widths can be cached on the AST for efficiency.
+The `WidthCalculator` uses an `FxHashMap` cache to avoid recomputing widths for shared subexpressions.
 
-### Pass 2: Render
+### Phase 2: Render
 
 Top-down rendering that decides inline vs broken based on measured widths and current column position:
 

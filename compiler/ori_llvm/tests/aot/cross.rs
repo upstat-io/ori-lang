@@ -24,10 +24,6 @@ use super::util::{
     windows_gnu_target, windows_msvc_target,
 };
 
-// ============================================================================
-// Target Triple Parsing Tests
-// ============================================================================
-
 /// Test: Parse valid target triples
 ///
 /// Scenario from Rust `target-specs`:
@@ -138,10 +134,6 @@ fn test_unsupported_targets() {
     }
 }
 
-// ============================================================================
-// Target Triple Component Tests
-// ============================================================================
-
 /// Test: Target triple platform detection
 ///
 /// Scenario: Platform detection helper methods.
@@ -220,10 +212,6 @@ fn test_target_triple_to_string() {
     assert!(triple.contains("wasi"));
 }
 
-// ============================================================================
-// Target Config Tests
-// ============================================================================
-
 /// Test: Target config from components
 ///
 /// Scenario: Create `TargetConfig` from parsed components.
@@ -297,10 +285,6 @@ fn test_target_config_generic_cpu() {
 
     assert_eq!(config.cpu(), "generic");
 }
-
-// ============================================================================
-// CPU Feature Tests
-// ============================================================================
 
 /// Test: Parse CPU feature string
 ///
@@ -379,10 +363,6 @@ fn test_wasm_features() {
     }
 }
 
-// ============================================================================
-// Data Layout Tests
-// ============================================================================
-
 /// Test: `x86_64` Linux data layout
 ///
 /// Scenario: Verify data layout string format.
@@ -454,10 +434,6 @@ fn test_wasm32_data_layout() {
     assert!(layout.contains("p:32:32"));
 }
 
-// ============================================================================
-// Cross-Compilation Tests
-// ============================================================================
-
 /// Test: Cross-compile Linux to macOS config
 ///
 /// Scenario from Rust `mismatching-target-triples`:
@@ -510,10 +486,6 @@ fn test_cross_compile_to_windows() {
     assert!(gnu.is_windows());
 }
 
-// ============================================================================
-// Target Error Tests
-// ============================================================================
-
 /// Test: Target error display
 #[test]
 fn test_target_error_display() {
@@ -535,10 +507,6 @@ fn test_target_error_display() {
     assert!(err.to_string().contains("target machine"));
 }
 
-// ============================================================================
-// Optimization Level per Target Tests
-// ============================================================================
-
 /// Test: Target config with optimization level
 ///
 /// Scenario: Optimization level configuration.
@@ -553,10 +521,6 @@ fn test_target_config_with_opt_level() {
 
     assert_eq!(config.opt_level(), OptimizationLevel::Aggressive);
 }
-
-// ============================================================================
-// Host Detection Tests (may vary by system)
-// ============================================================================
 
 /// Test: Host CPU name detection
 ///
@@ -579,10 +543,6 @@ fn test_host_cpu_features_detection() {
     // May be empty on some systems, but should not panic
     let _ = features;
 }
-
-// ============================================================================
-// Target Specific Behavior Tests
-// ============================================================================
 
 /// Test: Linux vs musl libc difference
 #[test]

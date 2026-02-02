@@ -11,157 +11,136 @@ Problems are categorized by compiler phase and converted to diagnostics for disp
 
 ## Problem Enum
 
-```rust
-pub enum Problem {
-    // === Lexer Problems (E0xxx) ===
-    InvalidCharacter {
-        char: char,
-        span: Span,
-    },
-    UnterminatedString {
-        start: Span,
-    },
-    InvalidEscape {
-        escape: char,
-        span: Span,
-    },
-    InvalidNumber {
-        text: String,
-        span: Span,
-    },
+The `Problem` enum uses a **three-tier hierarchy** for organization by compiler phase:
 
-    // === Parser Problems (E1xxx) ===
+```rust
+/// Unified problem enum for all compilation phases.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub enum Problem {
+    /// Parse-time problems (syntax errors).
+    Parse(ParseProblem),
+
+    /// Type checking problems.
+    Type(TypeProblem),
+
+    /// Semantic analysis problems.
+    Semantic(SemanticProblem),
+}
+
+impl Problem {
+    pub fn span(&self) -> Span {
+        match self {
+            Problem::Parse(p) => p.span(),
+            Problem::Type(p) => p.span(),
+            Problem::Semantic(p) => p.span(),
+        }
+    }
+
+    pub fn is_parse(&self) -> bool { matches!(self, Problem::Parse(_)) }
+    pub fn is_type(&self) -> bool { matches!(self, Problem::Type(_)) }
+    pub fn is_semantic(&self) -> bool { matches!(self, Problem::Semantic(_)) }
+}
+```
+
+### ParseProblem (E1xxx)
+
+```rust
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub enum ParseProblem {
     UnexpectedToken {
-        expected: Vec<TokenKind>,
-        found: TokenKind,
         span: Span,
-    },
-    UnexpectedEof {
-        expected: Vec<TokenKind>,
+        expected: String,
+        found: String,
     },
     ExpectedExpression {
-        found: TokenKind,
         span: Span,
+        found: String,
     },
-    MissingClosingDelimiter {
-        delimiter: TokenKind,
-        opening: Span,
-        span: Span,
+    UnclosedDelimiter {
+        found_span: Span,
+        open_span: Span,
+        delimiter: char,
     },
-    InvalidPattern {
-        span: Span,
-    },
+    // ...
+}
+```
 
-    // === Type Problems (E2xxx) ===
+### TypeProblem (E2xxx)
+
+```rust
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub enum TypeProblem {
     TypeMismatch {
-        expected: Type,
-        found: Type,
         span: Span,
-        context: Option<String>,
+        expected: String,
+        found: String,
     },
-    UndefinedVariable {
-        name: Name,
+    ArgCountMismatch {
         span: Span,
-        similar: Vec<Name>,
-    },
-    UndefinedType {
-        name: Name,
-        span: Span,
-        similar: Vec<Name>,
-    },
-    UndefinedFunction {
-        name: Name,
-        span: Span,
-        similar: Vec<Name>,
-    },
-    MissingCapability {
-        required: Capability,
-        span: Span,
-    },
-    InfiniteType {
-        var: TypeVarId,
-        ty: Type,
-        span: Span,
-    },
-    NotCallable {
-        ty: Type,
-        span: Span,
-    },
-    WrongArgCount {
         expected: usize,
         found: usize,
+    },
+    InfiniteType { span: Span },
+    CannotInfer { span: Span, context: String },
+    UnknownType { span: Span, name: String },
+    NotCallable { span: Span, found_type: String },
+    NoSuchField {
         span: Span,
+        type_name: String,
+        field_name: String,
+        available_fields: Vec<String>,
     },
-    MissingField {
-        struct_name: Name,
-        field: Name,
+    NoSuchMethod {
         span: Span,
+        type_name: String,
+        method_name: String,
+        available_methods: Vec<String>,
     },
-
-    // === Pattern Problems (E3xxx) ===
-    UnknownPattern {
-        name: Name,
+    InvalidBinaryOp {
         span: Span,
-        similar: Vec<Name>,
+        op: String,
+        left_type: String,
+        right_type: String,
     },
-    MissingRequiredArg {
-        pattern: Name,
-        arg: String,
+    MissingNamedArg { span: Span, arg_name: String },
+    ReturnTypeMismatch {
         span: Span,
+        expected: String,
+        found: String,
+        func_name: String,
     },
-    UnexpectedArg {
-        pattern: Name,
-        arg: Name,
+    ConditionNotBool { span: Span, found_type: String },
+    MatchArmTypeMismatch {
         span: Span,
+        first_type: String,
+        this_type: String,
+        first_span: Span,
     },
-    InvalidPatternArg {
-        pattern: Name,
-        arg: String,
-        expected: Type,
-        found: Type,
-        span: Span,
-    },
-
-    // === Evaluation Problems (E4xxx) ===
-    DivisionByZero {
-        span: Span,
-    },
-    IndexOutOfBounds {
-        index: i64,
-        length: usize,
-        span: Span,
-    },
-    AssertionFailed {
-        message: Option<String>,
-        span: Span,
-    },
-    Panic {
-        message: String,
-        span: Span,
-    },
-
-    // === Import Problems (E5xxx) ===
-    ModuleNotFound {
-        path: String,
-        span: Span,
-    },
-    ItemNotExported {
-        module: String,
-        item: Name,
-        span: Span,
-    },
-    CircularImport {
-        path: PathBuf,
-        cycle: Vec<PathBuf>,
-        span: Span,
-    },
-
-    // === Internal Problems (E9xxx) ===
-    InternalError {
-        message: String,
-        span: Option<Span>,
-    },
+    CyclicType { span: Span, type_name: String },
+    ClosureSelfReference { span: Span },
+    // ...
 }
+```
+
+### SemanticProblem
+
+```rust
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub enum SemanticProblem {
+    UnknownIdentifier {
+        span: Span,
+        name: String,
+        similar: Option<String>,
+    },
+    DuplicateDefinition {
+        span: Span,
+        name: String,
+        kind: DefinitionKind,
+        first_span: Span,
+    },
+    // ...
+}
+```
 ```
 
 ## Problem to Diagnostic Conversion
@@ -262,11 +241,22 @@ pub enum Severity {
     /// Potential problem, but compilation succeeds
     Warning,
 
-    /// Informational note
-    Info,
+    /// Additional context information
+    Note,
 
     /// Suggestion for improvement
-    Hint,
+    Help,
+}
+
+impl fmt::Display for Severity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Severity::Error => write!(f, "error"),
+            Severity::Warning => write!(f, "warning"),
+            Severity::Note => write!(f, "note"),
+            Severity::Help => write!(f, "help"),
+        }
+    }
 }
 ```
 
@@ -284,18 +274,18 @@ Compilation succeeds, but something is suspicious:
 warning: unused variable `x`
 ```
 
-### Info
+### Note
 
 Additional context:
 ```
-info: type inferred as `int`
+note: type inferred as `int`
 ```
 
-### Hint
+### Help
 
 Suggestions:
 ```
-hint: consider using `map` instead of `for..yield`
+help: consider using `map` instead of `for..yield`
 ```
 
 ## Related Information
@@ -323,11 +313,18 @@ Mark specific locations:
 pub struct Label {
     pub span: Span,
     pub message: String,
-    pub style: LabelStyle,
+    pub is_primary: bool,
 }
 
-pub enum LabelStyle {
-    Primary,   // Main error location
-    Secondary, // Related context
+impl Label {
+    /// Create a primary label (the main error location).
+    pub fn primary(span: Span, message: impl Into<String>) -> Self {
+        Label { span, message: message.into(), is_primary: true }
+    }
+
+    /// Create a secondary label (related context).
+    pub fn secondary(span: Span, message: impl Into<String>) -> Self {
+        Label { span, message: message.into(), is_primary: false }
+    }
 }
 ```

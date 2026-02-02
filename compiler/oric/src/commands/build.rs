@@ -17,6 +17,7 @@ use super::read_file;
 /// output, etc.). These are not state machine candidates as they are
 /// independent orthogonal settings.
 #[derive(Debug, Clone)]
+// Many independent orthogonal flags (see doc comment above) - not a state machine
 #[allow(clippy::struct_excessive_bools)]
 pub struct BuildOptions {
     /// Build with optimizations (--release)
@@ -359,6 +360,21 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
     options
 }
 
+/// Check if source code has any imports.
+///
+/// Uses a simple line-based check for `use "./` or `use "../` patterns.
+/// This is faster than parsing when we just need to detect presence of imports.
+#[cfg(feature = "llvm")]
+fn has_imports(content: &str) -> bool {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("use \"./") || trimmed.starts_with("use \"../") {
+            return true;
+        }
+    }
+    false
+}
+
 /// Build an Ori source file to a native executable.
 ///
 /// This performs the full AOT compilation pipeline:
@@ -367,32 +383,48 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
 /// 3. Run optimization passes
 /// 4. Emit object file
 /// 5. Link into executable
+///
+/// If the source file has imports, this delegates to multi-file compilation.
 #[cfg(feature = "llvm")]
 pub(crate) fn build_file(path: &str, options: &BuildOptions) {
-    use ori_llvm::inkwell::context::Context;
     use std::time::Instant;
-
-    use oric::{CompilerDb, SourceFile};
-
-    use ori_llvm::aot::{
-        LinkInput, LinkOutput, LinkerDriver, LinkerFlavor, ObjectEmitter, OutputFormat,
-        RuntimeConfig,
-    };
-
-    use super::compile_common::{check_source, compile_to_llvm};
 
     let start = Instant::now();
 
-    // Step 1: Read and parse the source file
+    // Read the source file
+    let content = read_file(path);
+
+    // Check if file has imports - if so, use multi-file compilation
+    if has_imports(&content) {
+        if options.verbose {
+            eprintln!("  Detected imports, using multi-file compilation...");
+        }
+        build_file_multi(path, &content, options, start);
+    } else {
+        build_file_single(path, &content, options, start);
+    }
+}
+
+/// Build a single Ori source file (no imports).
+#[cfg(feature = "llvm")]
+fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: std::time::Instant) {
+    use ori_llvm::inkwell::context::Context;
+
+    use oric::{CompilerDb, SourceFile};
+
+    use ori_llvm::aot::ObjectEmitter;
+
+    use super::compile_common::{check_source, compile_to_llvm};
+
+    // Step 1: Parse and type-check the source file
     if options.verbose {
         eprintln!("  Compiling {path}...");
     }
 
-    let content = read_file(path);
     let db = CompilerDb::new();
-    let file = SourceFile::new(&db, PathBuf::from(path), content);
+    let file = SourceFile::new(&db, PathBuf::from(path), content.to_string());
 
-    // Check for parse and type errors (shared with run_file_compiled)
+    // Check for parse and type errors
     let (parse_result, type_result) = match check_source(&db, file, path) {
         Some(results) => results,
         None => std::process::exit(1),
@@ -412,12 +444,9 @@ pub(crate) fn build_file(path: &str, options: &BuildOptions) {
         eprintln!("  Optimization: {:?}", options.opt_level);
     }
 
-    // Step 3: Generate LLVM IR (shared with run_file_compiled)
+    // Step 3: Generate LLVM IR
     let context = Context::create();
     let llvm_module = compile_to_llvm(&context, &db, &parse_result, &type_result, path);
-
-    // TODO: Add main entry point wrapper that calls @main and handles exit code
-    // For now, the linker will use the compiled @main directly if it exists
 
     // Configure module for target
     let emitter = match ObjectEmitter::new(&target) {
@@ -447,29 +476,14 @@ pub(crate) fn build_file(path: &str, options: &BuildOptions) {
 
     // Step 6: Emit based on emit type
     if let Some(emit_type) = options.emit {
-        // Just emit the requested format, don't link
-        let emit_path = output_path.with_extension(emit_type.extension());
-
-        if options.verbose {
-            eprintln!("  Emitting {:?} to {}", emit_type, emit_path.display());
-        }
-
-        let format = match emit_type {
-            EmitType::Object => OutputFormat::Object,
-            EmitType::LlvmIr => OutputFormat::LlvmIr,
-            EmitType::LlvmBc => OutputFormat::Bitcode,
-            EmitType::Assembly => OutputFormat::Assembly,
-        };
-
-        if let Err(e) = emitter.emit(&llvm_module, &emit_path, format) {
-            eprintln!("error: failed to emit: {e}");
-            std::process::exit(1);
-        }
-
-        let elapsed = start.elapsed();
-        if options.verbose {
-            eprintln!("  Finished in {:.2}s", elapsed.as_secs_f64());
-        }
+        emit_and_finish(
+            &llvm_module,
+            &emitter,
+            &output_path,
+            emit_type,
+            options,
+            start,
+        );
         return;
     }
 
@@ -494,11 +508,409 @@ pub(crate) fn build_file(path: &str, options: &BuildOptions) {
     }
 
     // Step 8: Link into executable
+    link_and_finish(&[obj_path], &output_path, &target, options, start);
+}
+
+/// Build a multi-file Ori program (with imports).
+///
+/// This builds all dependent modules in topological order and links them together.
+#[cfg(feature = "llvm")]
+fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: std::time::Instant) {
+    use ori_llvm::aot::{build_dependency_graph, Mangler};
+    use oric::CompilerDb;
+
+    // Step 1: Build dependency graph
+    if options.verbose {
+        eprintln!("  Building dependency graph...");
+    }
+
+    let entry_path = Path::new(path);
+    let entry_canonical = entry_path
+        .canonicalize()
+        .unwrap_or_else(|_| entry_path.to_path_buf());
+
+    // Import resolver that converts relative paths to absolute paths
+    let resolve_import = |current: &Path, import: &str| -> Result<PathBuf, String> {
+        let dir = current.parent().unwrap_or(Path::new("."));
+        let resolved = dir.join(import);
+        let with_ext = if resolved.extension().is_none() {
+            resolved.with_extension("ori")
+        } else {
+            resolved
+        };
+
+        if with_ext.exists() {
+            Ok(with_ext)
+        } else {
+            Err(format!(
+                "cannot find '{}' at '{}'",
+                import,
+                with_ext.display()
+            ))
+        }
+    };
+
+    let dep_result = match build_dependency_graph(&entry_canonical, resolve_import) {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    if options.verbose {
+        eprintln!(
+            "  Found {} files to compile",
+            dep_result.compilation_order.len()
+        );
+        for (i, p) in dep_result.compilation_order.iter().enumerate() {
+            eprintln!("    {}: {}", i + 1, p.display());
+        }
+    }
+
+    // Step 2: Configure target
+    let target = match configure_target(options) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("error: failed to configure target: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    if options.verbose {
+        eprintln!("  Target: {}", target.triple());
+        eprintln!("  Optimization: {:?}", options.opt_level);
+    }
+
+    // Step 3: Compile each module in topological order
+    let temp_dir = match std::env::temp_dir().canonicalize() {
+        Ok(d) => d,
+        Err(_) => std::env::temp_dir(),
+    };
+    let obj_dir = temp_dir.join("ori_build");
+    if let Err(e) = std::fs::create_dir_all(&obj_dir) {
+        eprintln!("warning: could not create build directory: {e}");
+    }
+
+    let db = CompilerDb::new();
+    let mangler = Mangler::new();
+    let opt_config = build_optimization_config(options);
+
+    // Create compilation context (avoids passing many parameters to helper)
+    let compile_ctx = ModuleCompileContext {
+        db: &db,
+        target: &target,
+        opt_config: &opt_config,
+        mangler: &mangler,
+        graph: &dep_result.graph,
+        base_dir: &dep_result.base_dir,
+        obj_dir: &obj_dir,
+        verbose: options.verbose,
+    };
+
+    // Pre-allocate vectors with known capacity to avoid reallocation
+    let module_count = dep_result.compilation_order.len();
+    let mut compiled_modules: Vec<CompiledModuleInfo> = Vec::with_capacity(module_count);
+    let mut object_files: Vec<PathBuf> = Vec::with_capacity(module_count);
+
+    // Compile each module in topological order
+    for source_path in &dep_result.compilation_order {
+        match compile_single_module(&compile_ctx, source_path, &compiled_modules) {
+            Some((obj_path, module_info)) => {
+                compiled_modules.push(module_info);
+                object_files.push(obj_path);
+            }
+            None => std::process::exit(1),
+        }
+    }
+
+    // Step 4: Link all object files
+    let output_path = determine_output_path(path, options);
+    link_and_finish(&object_files, &output_path, &target, options, start);
+
+    // Clean up temp object files
+    for obj_path in &object_files {
+        let _ = std::fs::remove_file(obj_path);
+    }
+}
+
+/// Context for compiling a single module in multi-file compilation.
+#[cfg(feature = "llvm")]
+struct ModuleCompileContext<'a> {
+    db: &'a oric::CompilerDb,
+    target: &'a ori_llvm::aot::TargetConfig,
+    opt_config: &'a ori_llvm::aot::OptimizationConfig,
+    mangler: &'a ori_llvm::aot::Mangler,
+    graph: &'a ori_llvm::aot::incremental::deps::DependencyGraph,
+    base_dir: &'a Path,
+    obj_dir: &'a Path,
+    verbose: bool,
+}
+
+/// Information about a compiled module, including its function signatures.
+#[cfg(feature = "llvm")]
+struct CompiledModuleInfo {
+    /// Path to the source file.
+    path: PathBuf,
+    /// Module name for mangling.
+    #[allow(dead_code)] // Kept for debugging and potential future use
+    module_name: String,
+    /// Public function signatures (mangled_name, param_types, return_type).
+    /// These are the actual types from type checking, not defaults.
+    /// The mangled name is pre-computed to avoid needing the interner later.
+    public_functions: Vec<(String, Vec<ori_ir::TypeId>, ori_ir::TypeId)>,
+}
+
+/// Compile a single module to an object file.
+///
+/// Returns (object_path, CompiledModuleInfo) on success.
+#[cfg(feature = "llvm")]
+fn compile_single_module(
+    ctx: &ModuleCompileContext<'_>,
+    source_path: &Path,
+    compiled_modules: &[CompiledModuleInfo],
+) -> Option<(PathBuf, CompiledModuleInfo)> {
+    use ori_llvm::aot::{derive_module_name, ObjectEmitter};
+    use ori_llvm::inkwell::context::Context;
+    use oric::SourceFile;
+
+    use super::compile_common::{check_source, compile_to_llvm_with_imports};
+
+    let source_path_str = source_path.to_string_lossy();
+
+    if ctx.verbose {
+        eprintln!("  Compiling {}...", source_path.display());
+    }
+
+    // Read source content
+    let content = match std::fs::read_to_string(source_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: failed to read '{}': {}", source_path.display(), e);
+            return None;
+        }
+    };
+
+    // Derive module name
+    let module_name = derive_module_name(source_path, Some(ctx.base_dir));
+
+    // Load and check the source
+    let file = SourceFile::new(ctx.db, source_path.to_path_buf(), content);
+    let (parse_result, type_result) = check_source(ctx.db, file, &source_path_str)?;
+
+    // Extract public function signatures with actual types from type checking
+    let public_functions = extract_public_function_types(
+        &parse_result,
+        &type_result,
+        &module_name,
+        ctx.mangler,
+        ctx.db,
+    );
+
+    // Build list of imported functions for this module
+    let imported_functions = build_import_infos(
+        source_path,
+        ctx.graph,
+        compiled_modules,
+        ctx.base_dir,
+        ctx.mangler,
+    );
+
+    // Compile to LLVM IR
+    let context = Context::create();
+    let llvm_module = compile_to_llvm_with_imports(
+        &context,
+        ctx.db,
+        &parse_result,
+        &type_result,
+        &source_path_str,
+        &module_name,
+        &imported_functions,
+    );
+
+    // Configure module for target
+    let emitter = match ObjectEmitter::new(ctx.target) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("error: failed to create object emitter: {e}");
+            return None;
+        }
+    };
+
+    if let Err(e) = emitter.configure_module(&llvm_module) {
+        eprintln!("error: failed to configure module: {e}");
+        return None;
+    }
+
+    // Run optimization passes
+    if let Err(e) =
+        ori_llvm::aot::run_optimization_passes(&llvm_module, emitter.machine(), ctx.opt_config)
+    {
+        eprintln!("error: optimization failed: {e}");
+        return None;
+    }
+
+    // Emit object file
+    let obj_path = ctx
+        .obj_dir
+        .join(format!("{}.o", module_name.replace('$', "_")));
+    if ctx.verbose {
+        eprintln!("    Emitting object to {}", obj_path.display());
+    }
+
+    if let Err(e) = emitter.emit_object(&llvm_module, &obj_path) {
+        eprintln!("error: failed to emit object file: {e}");
+        return None;
+    }
+
+    let module_info = CompiledModuleInfo {
+        path: source_path.to_path_buf(),
+        module_name,
+        public_functions,
+    };
+
+    Some((obj_path, module_info))
+}
+
+/// Extract public function signatures with actual types from a type-checked module.
+///
+/// Returns tuples of (mangled_name, param_types, return_type).
+/// The mangled name is pre-computed to avoid needing the interner later.
+#[cfg(feature = "llvm")]
+fn extract_public_function_types(
+    parse_result: &ori_parse::ParseOutput,
+    type_result: &ori_typeck::TypedModule,
+    module_name: &str,
+    mangler: &ori_llvm::aot::Mangler,
+    db: &oric::CompilerDb,
+) -> Vec<(String, Vec<ori_ir::TypeId>, ori_ir::TypeId)> {
+    use oric::Db; // For interner() method
+
+    let interner = db.interner();
+    let mut public_functions = Vec::new();
+
+    // Match parsed functions with their type-checked signatures
+    for (idx, func) in parse_result.module.functions.iter().enumerate() {
+        if !func.visibility.is_public() {
+            continue;
+        }
+
+        // Get the corresponding FunctionType from type checking
+        if let Some(func_type) = type_result.function_types.get(idx) {
+            let func_name_str = interner.lookup(func.name);
+            let mangled_name = mangler.mangle_function(module_name, func_name_str);
+
+            public_functions.push((
+                mangled_name,
+                func_type.params.clone(),
+                func_type.return_type,
+            ));
+        }
+    }
+
+    public_functions
+}
+
+/// Build import information for a module based on its dependencies.
+///
+/// Uses actual type information from already-compiled modules rather than
+/// defaulting to INT. This ensures correct calling conventions for cross-module calls.
+#[cfg(feature = "llvm")]
+fn build_import_infos(
+    source_path: &Path,
+    graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
+    compiled_modules: &[CompiledModuleInfo],
+    _base_dir: &Path,
+    _mangler: &ori_llvm::aot::Mangler,
+) -> Vec<super::compile_common::ImportedFunctionInfo> {
+    let mut imported_functions = Vec::new();
+
+    // Get the direct imports of this module
+    let imports = match graph.get_imports(source_path) {
+        Some(imports) => imports,
+        None => return imported_functions,
+    };
+
+    for import_path in imports {
+        // Find the compiled module info for this import
+        let module_info = match compiled_modules.iter().find(|m| m.path == *import_path) {
+            Some(info) => info,
+            None => {
+                // Module not yet compiled - shouldn't happen in topological order
+                eprintln!(
+                    "warning: import '{}' not found in compiled modules",
+                    import_path.display()
+                );
+                continue;
+            }
+        };
+
+        // Add each public function using the actual types from type checking
+        // The mangled names are pre-computed when the module was compiled
+        for (mangled_name, param_types, return_type) in &module_info.public_functions {
+            imported_functions.push(super::compile_common::ImportedFunctionInfo {
+                mangled_name: mangled_name.clone(),
+                param_types: param_types.clone(),
+                return_type: *return_type,
+            });
+        }
+    }
+
+    imported_functions
+}
+
+/// Emit a module and finish (used for --emit flag).
+#[cfg(feature = "llvm")]
+fn emit_and_finish(
+    llvm_module: &ori_llvm::inkwell::module::Module<'_>,
+    emitter: &ori_llvm::aot::ObjectEmitter,
+    output_path: &Path,
+    emit_type: EmitType,
+    options: &BuildOptions,
+    start: std::time::Instant,
+) {
+    use ori_llvm::aot::OutputFormat;
+
+    let emit_path = output_path.with_extension(emit_type.extension());
+
+    if options.verbose {
+        eprintln!("  Emitting {:?} to {}", emit_type, emit_path.display());
+    }
+
+    let format = match emit_type {
+        EmitType::Object => OutputFormat::Object,
+        EmitType::LlvmIr => OutputFormat::LlvmIr,
+        EmitType::LlvmBc => OutputFormat::Bitcode,
+        EmitType::Assembly => OutputFormat::Assembly,
+    };
+
+    if let Err(e) = emitter.emit(llvm_module, &emit_path, format) {
+        eprintln!("error: failed to emit: {e}");
+        std::process::exit(1);
+    }
+
+    let elapsed = start.elapsed();
+    if options.verbose {
+        eprintln!("  Finished in {:.2}s", elapsed.as_secs_f64());
+    }
+}
+
+/// Link object files and finish.
+#[cfg(feature = "llvm")]
+fn link_and_finish(
+    object_files: &[PathBuf],
+    output_path: &Path,
+    target: &ori_llvm::aot::TargetConfig,
+    options: &BuildOptions,
+    start: std::time::Instant,
+) {
+    use ori_llvm::aot::{LinkInput, LinkOutput, LinkerDriver, LinkerFlavor, RuntimeConfig};
+
     if options.verbose {
         eprintln!("  Linking to {}", output_path.display());
     }
 
-    let driver = LinkerDriver::new(&target);
+    let driver = LinkerDriver::new(target);
 
     // Find runtime library
     let runtime_config = match RuntimeConfig::detect() {
@@ -519,8 +931,8 @@ pub(crate) fn build_file(path: &str, options: &BuildOptions) {
     };
 
     let mut link_input = LinkInput {
-        objects: vec![obj_path.clone()],
-        output: output_path.clone(),
+        objects: object_files.to_vec(), // Clone required: link_input takes ownership, caller may need objects for cleanup
+        output: output_path.to_path_buf(),
         output_kind,
         lto: matches!(options.lto, LtoMode::Thin | LtoMode::Full),
         gc_sections: options.release,
@@ -545,9 +957,6 @@ pub(crate) fn build_file(path: &str, options: &BuildOptions) {
         eprintln!("error: linking failed: {e}");
         std::process::exit(1);
     }
-
-    // Clean up temp object file
-    let _ = std::fs::remove_file(&obj_path);
 
     let elapsed = start.elapsed();
     eprintln!(

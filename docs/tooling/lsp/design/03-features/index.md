@@ -9,25 +9,65 @@ section: "Features"
 
 This section details the implementation of each LSP feature.
 
-## Phase 1 Features
+## Implementation Status
 
-These are the foundational features for the initial release:
+| Feature | Status | LSP Method |
+|---------|--------|------------|
+| Diagnostics | ✅ Implemented | `publishDiagnostics` |
+| Hover | ✅ Implemented | `textDocument/hover` |
+| Go to Definition | ✅ Implemented | `textDocument/definition` |
+| Completions | ✅ Implemented | `textDocument/completion` |
+| Formatting | ✅ Implemented | `textDocument/formatting` |
+| Find References | ⚠ Not Implemented | `textDocument/references` |
+| Document Symbols | ⚠ Not Implemented | `textDocument/documentSymbol` |
+| Code Actions | ⚠ Not Implemented | `textDocument/codeAction` |
+| Semantic Tokens | ⚠ Not Implemented | `textDocument/semanticTokens` |
 
-| Feature | LSP Method | Compiler Dependency |
-|---------|------------|---------------------|
-| [Diagnostics](diagnostics.md) | `publishDiagnostics` | `ori_parse`, `ori_typeck` |
-| [Formatting](formatting.md) | `textDocument/formatting` | `ori_fmt` |
-| [Hover](hover.md) | `textDocument/hover` | `ori_typeck` |
+## Current Implementation
 
-## Feature Implementation Pattern
-
-Each feature follows a consistent pattern:
+The current implementation uses `tower-lsp` with `DashMap` for document storage. Features access documents directly:
 
 ```rust
-// features/hover.rs
-use crate::document::DocumentManager;
-use crate::protocol::types::*;
+impl OriLanguageServer {
+    fn get_hover_info(&self, uri: &Url, position: Position) -> Option<Hover> {
+        // Get document from DashMap
+        let doc = self.documents.get(uri)?;
+        let module = doc.module.as_ref()?;
+        let offset = position_to_offset(&doc.text, position);
 
+        // Find item at position
+        for item in &module.items {
+            if let Some(info) = self.hover_for_item(item, offset) {
+                return Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: info,
+                    }),
+                    range: None,
+                });
+            }
+        }
+        None
+    }
+}
+```
+
+## Detailed Documentation
+
+The following pages describe both the current implementation and planned enhancements:
+
+| Feature | Current | Planned |
+|---------|---------|---------|
+| [Diagnostics](diagnostics.md) | Parse and type errors | Semantic errors, warnings |
+| [Formatting](formatting.md) | Full document format | Selection formatting |
+| [Hover](hover.md) | Function/type signatures | Expression types, doc comments |
+
+## Future Design: Feature Pattern
+
+The enhanced implementation pattern (not yet implemented) would provide richer analysis:
+
+```rust
+// Planned: features/hover.rs
 pub fn hover(
     docs: &DocumentManager,
     params: HoverParams,

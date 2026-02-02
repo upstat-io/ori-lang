@@ -17,10 +17,6 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-// ============================================================================
-// Test Utilities
-// ============================================================================
-
 /// Get the path to the `ori` binary.
 /// Assumes the binary is built in the workspace target directory.
 fn ori_binary() -> PathBuf {
@@ -75,10 +71,6 @@ const INVALID_PROGRAM: &str = r#"
 const EXIT_CODE_PROGRAM: &str = r"
 @main () -> int = 42
 ";
-
-// ============================================================================
-// Basic Build Tests
-// ============================================================================
 
 /// Test: `ori build` produces an executable.
 ///
@@ -172,10 +164,6 @@ fn test_build_exit_code() {
     assert!(output.exists(), "Binary was not created");
 }
 
-// ============================================================================
-// Output Path Tests
-// ============================================================================
-
 /// Test: `ori build -o <path>` creates binary at specified path.
 #[test]
 fn test_build_output_path() {
@@ -235,10 +223,6 @@ fn test_build_output_dir() {
         "Binary was not created in output directory"
     );
 }
-
-// ============================================================================
-// Emit Type Tests
-// ============================================================================
 
 /// Test: `ori build --emit=obj` produces object file.
 #[test]
@@ -342,10 +326,6 @@ fn test_build_emit_assembly() {
     );
 }
 
-// ============================================================================
-// Error Handling Tests
-// ============================================================================
-
 /// Test: `ori build` with invalid source fails gracefully.
 #[test]
 fn test_build_invalid_source() {
@@ -407,10 +387,6 @@ fn test_build_missing_file() {
     );
 }
 
-// ============================================================================
-// Targets Command Tests
-// ============================================================================
-
 /// Test: `ori targets` lists supported targets.
 #[test]
 fn test_targets_list() {
@@ -469,10 +445,6 @@ fn test_targets_installed() {
     );
 }
 
-// ============================================================================
-// Demangle Command Tests
-// ============================================================================
-
 /// Test: `ori demangle` decodes Ori symbols.
 #[test]
 fn test_demangle_ori_symbol() {
@@ -516,10 +488,6 @@ fn test_demangle_non_ori_symbol() {
     );
 }
 
-// ============================================================================
-// Verbose Output Tests
-// ============================================================================
-
 /// Test: `ori build --verbose` shows compilation progress.
 #[test]
 fn test_build_verbose() {
@@ -551,10 +519,6 @@ fn test_build_verbose() {
         "Verbose output missing expected progress info: {stderr}"
     );
 }
-
-// ============================================================================
-// Target Command Tests
-// ============================================================================
 
 /// Test: `ori target list` shows installed targets.
 #[test]
@@ -669,10 +633,6 @@ fn test_target_remove_not_installed() {
     );
 }
 
-// ============================================================================
-// Cross-Compilation Tests
-// ============================================================================
-
 /// Test: `ori build --target=wasm32-unknown-unknown` for WASM target.
 ///
 /// Note: This test may require the WASM target to be set up properly.
@@ -774,10 +734,6 @@ fn test_build_unsupported_target() {
     );
 }
 
-// ============================================================================
-// Dependency Error Tests
-// ============================================================================
-
 /// Ori program that imports a missing module.
 const MISSING_DEPENDENCY_PROGRAM: &str = r#"
 use "./nonexistent_module" { some_function }
@@ -828,10 +784,6 @@ fn test_build_missing_dependency() {
         "Output binary should not exist for failed build"
     );
 }
-
-// ============================================================================
-// Incremental Compilation Tests
-// ============================================================================
 
 /// Test: `ori build` with unchanged source should be fast (incremental rebuild).
 ///

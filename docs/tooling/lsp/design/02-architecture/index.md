@@ -7,427 +7,296 @@ section: "Architecture"
 
 # Architecture Overview
 
-The LSP server is structured for code reuse between native and WASM targets.
+The LSP server uses `tower-lsp` for async protocol handling with `DashMap` for concurrent document storage.
 
 ## Crate Structure
 
 ```
-compiler/ori_lsp/
+tools/ori-lsp/
 ├── Cargo.toml
-├── src/
-│   ├── lib.rs              # Core logic (shared native/WASM)
-│   ├── main.rs             # Native: lsp-server + main loop
-│   ├── wasm.rs             # WASM: direct function exports
-│   │
-│   ├── state.rs            # GlobalState + GlobalStateSnapshot
-│   ├── dispatch.rs         # Request/notification routing
-│   ├── files.rs            # FileSystemProxy (in-memory cache)
-│   │
-│   ├── handlers/
-│   │   ├── mod.rs
-│   │   ├── diagnostics.rs  # publishDiagnostics + SuggestedFix
-│   │   ├── formatting.rs   # textDocument/formatting
-│   │   ├── hover.rs        # textDocument/hover
-│   │   ├── definition.rs   # textDocument/definition (Phase 2)
-│   │   └── completion.rs   # textDocument/completion (Phase 3)
-│   │
-│   └── feedback.rs         # DiagnosticTracker (incremental updates)
+└── src/
+    ├── main.rs             # Entry point, Tokio runtime
+    └── server.rs           # OriLanguageServer implementation
+                            # - Document storage (DashMap)
+                            # - Diagnostics publishing
+                            # - Hover, definition, completion handlers
+                            # - Formatting via ori_fmt
 ```
 
 ## Dependency Graph
 
 ```mermaid
 flowchart TD
-    subgraph LSP["ori_lsp"]
+    subgraph LSP["ori-lsp"]
         direction TB
-        Protocol["protocol/"]
-        Features["features/"]
-        Document["document"]
+        Main["main.rs"]
+        Server["server.rs"]
 
-        Protocol --> Features
-        Features --> Document
-        Features --> CompilerCrates
-        Document --> CompilerCrates
+        Main --> Server
     end
 
-    subgraph CompilerCrates["Compiler Crates"]
-        direction TB
-        ori_fmt
-        ori_typeck
-        ori_parse
-        ori_lexer
-        ori_ir
+    LSP --> oric
+    LSP --> tower-lsp
+    LSP --> tokio
+    LSP --> dashmap
 
-        ori_typeck --> ori_ir
-        ori_parse --> ori_ir
-        ori_lexer --> ori_ir
+    subgraph oric["oric (compiler crate)"]
+        direction TB
+        lexer["lexer"]
+        parser["parser"]
+        type_check["type_check"]
+        format["format"]
+        ast["ast (Module, Item, etc.)"]
     end
 ```
+
+The LSP depends on `oric` which provides all compiler functionality through a unified interface.
 
 ## Core Types
 
-### GlobalState (Mutable, Main Thread)
+### OriLanguageServer
 
-The main thread owns mutable state. Workers receive immutable snapshots.
+The server struct holds the LSP client and document storage:
 
 ```rust
-/// Mutable state owned by main thread (rust-analyzer pattern)
-pub struct GlobalState {
-    /// File content with in-memory cache for unsaved edits
-    files: FileSystemProxy,
+pub struct OriLanguageServer {
+    /// Client for sending notifications (diagnostics, etc.)
+    client: Client,
 
-    /// Tracks which files have diagnostics (for incremental updates)
-    diagnostic_tracker: DiagnosticTracker,
-
-    /// Connection for sending responses/notifications
-    connection: lsp_server::Connection,
-
-    /// Sender for worker thread results
-    task_sender: crossbeam_channel::Sender<Task>,
-}
-
-impl GlobalState {
-    /// Create immutable snapshot for worker threads
-    pub fn snapshot(&self) -> GlobalStateSnapshot {
-        GlobalStateSnapshot {
-            files: self.files.clone(),
-        }
-    }
+    /// Concurrent document storage
+    documents: DashMap<Url, Document>,
 }
 ```
 
-### GlobalStateSnapshot (Immutable, Worker Threads)
+### Document
+
+Each open document stores its text and cached analysis:
 
 ```rust
-/// Immutable snapshot for thread-safe parallel work
-#[derive(Clone)]
-pub struct GlobalStateSnapshot {
-    files: FileSystemProxy,
-}
+pub struct Document {
+    /// Full document text
+    pub text: String,
 
-impl GlobalStateSnapshot {
-    pub fn read_file(&self, uri: &Url) -> Option<String> {
-        self.files.read(uri)
-    }
+    /// Cached parsed module (if successful)
+    pub module: Option<Module>,
+
+    /// Current diagnostics for this document
+    pub diagnostics: Vec<Diagnostic>,
 }
 ```
 
-### FileSystemProxy (Gleam Pattern)
+### LanguageServer Trait Implementation
 
-Transparent cache for unsaved editor content:
+tower-lsp provides the `LanguageServer` trait for handling LSP methods:
 
 ```rust
-/// In-memory cache layered over filesystem (Gleam pattern)
-#[derive(Clone)]
-pub struct FileSystemProxy {
-    /// Unsaved edits from editor
-    memory: Arc<RwLock<HashMap<Url, String>>>,
-}
-
-impl FileSystemProxy {
-    pub fn read(&self, uri: &Url) -> Option<String> {
-        // Check in-memory cache first
-        if let Some(content) = self.memory.read().unwrap().get(uri) {
-            return Some(content.clone());
-        }
-
-        // Fall back to disk (native only)
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let path = uri.to_file_path().ok()?;
-            std::fs::read_to_string(path).ok()
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        None
+#[tower_lsp::async_trait]
+impl LanguageServer for OriLanguageServer {
+    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+        Ok(InitializeResult {
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec![".".to_string(), "@".to_string(), "$".to_string()]),
+                    ..Default::default()
+                }),
+                document_formatting_provider: Some(OneOf::Left(true)),
+                ..Default::default()
+            },
+            server_info: Some(ServerInfo {
+                name: "ori-lsp".to_string(),
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            }),
+        })
     }
 
-    pub fn write_memory(&self, uri: Url, content: String) {
-        self.memory.write().unwrap().insert(uri, content);
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        Ok(self.get_hover_info(&uri, position))
     }
 
-    pub fn remove_memory(&self, uri: &Url) {
-        self.memory.write().unwrap().remove(uri);
-    }
+    // ... other handlers
 }
 ```
 
-### DiagnosticTracker (Gleam Pattern)
+### Document Lifecycle
 
-Track which files have diagnostics for incremental updates:
+Documents are tracked through open/change/close notifications:
 
 ```rust
-/// Tracks diagnostic state for incremental publishing (Gleam pattern)
-pub struct DiagnosticTracker {
-    files_with_errors: HashSet<Url>,
-    files_with_warnings: HashSet<Url>,
+async fn did_open(&self, params: DidOpenTextDocumentParams) {
+    let uri = params.text_document.uri;
+    let text = params.text_document.text;
+
+    // Parse and type check
+    let (module, diagnostics) = self.parse_document(&uri, &text).await;
+
+    // Store in DashMap
+    self.documents.insert(uri.clone(), Document { text, module, diagnostics: diagnostics.clone() });
+
+    // Publish diagnostics to client
+    self.publish_diagnostics(uri, diagnostics).await;
 }
 
-impl DiagnosticTracker {
-    /// Only clear diagnostics for files we're about to update
-    pub fn publish_update(
-        &mut self,
-        connection: &Connection,
-        compiled_files: &[Url],
-        new_diagnostics: HashMap<Url, Vec<Diagnostic>>,
-    ) {
-        // Clear diagnostics only for files that were recompiled
-        for uri in compiled_files {
-            if !new_diagnostics.contains_key(uri) {
-                self.publish_empty(connection, uri);
-            }
-        }
+async fn did_change(&self, params: DidChangeTextDocumentParams) {
+    let uri = params.text_document.uri;
+    let text = params.content_changes.into_iter().next()
+        .map(|c| c.text).unwrap_or_default();
 
-        // Publish new diagnostics
-        for (uri, diagnostics) in new_diagnostics {
-            self.publish(connection, uri, diagnostics);
-        }
-    }
+    // Re-parse and update
+    let (module, diagnostics) = self.parse_document(&uri, &text).await;
+    self.documents.insert(uri.clone(), Document { text, module, diagnostics: diagnostics.clone() });
+    self.publish_diagnostics(uri, diagnostics).await;
 }
 ```
+
+### Future Enhancement: FileSystemProxy
+
+The FileSystemProxy pattern (used by Gleam) would provide a transparent cache for unsaved editor content across files. This is **not yet implemented** but planned for multi-file analysis support.
+
+### Future Enhancement: DiagnosticTracker
+
+The DiagnosticTracker pattern (used by Gleam) tracks which files have diagnostics for incremental updates. This is **not yet implemented** but planned for efficient cross-file diagnostic publishing.
 
 ## Cargo Configuration
 
 ```toml
 [package]
-name = "ori_lsp"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib", "rlib"]
+name = "ori-lsp"
+version.workspace = true
+edition.workspace = true
 
 [[bin]]
-name = "ori_lsp"
+name = "ori-lsp"
 path = "src/main.rs"
 
 [dependencies]
-# Compiler crates
-ori_ir = { path = "../ori_ir" }
-ori_lexer = { path = "../ori_lexer" }
-ori_parse = { path = "../ori_parse" }
-ori_typeck = { path = "../ori_typeck" }
-ori_fmt = { path = "../ori_fmt" }
+# Compiler orchestration (provides lexer, parser, type_check, format)
+oric = { path = "../../compiler/oric" }
 
-# Shared
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# LSP framework
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }
 
-# Native-only: lsp-server (used by Gleam, rust-analyzer)
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-lsp-server = "0.7"           # Generic LSP transport
-lsp-types = "0.95"           # LSP protocol types
-crossbeam-channel = "0.5"    # Main loop channels
+# Concurrent document storage
+dashmap = "5"
 
-# WASM-only
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"
-js-sys = "0.3"
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 ```
 
-**Why `lsp-server` over `tower-lsp`**:
-- Simpler: no async runtime required
-- Battle-tested: used by Gleam and rust-analyzer
-- Single-threaded main loop is easier to reason about
-- Better fit for snapshot pattern (no async lifetimes)
+**Why `tower-lsp`**:
+- Native async/await with Tokio runtime
+- Built-in concurrent request handling
+- Simpler trait-based handler implementation
+- Well-maintained and widely used
 
-## Main Loop Architecture (Native)
+## Main Loop Architecture
 
-Single-threaded main loop with worker threads (rust-analyzer pattern):
+The server uses tower-lsp's async architecture with Tokio:
 
 ```rust
-// main.rs - Native entry point
-#[cfg(not(target_arch = "wasm32"))]
-fn main() -> Result<()> {
-    // lsp-server handles stdio transport
-    let (connection, io_threads) = lsp_server::Connection::stdio();
+// main.rs - Entry point
+#[tokio::main]
+async fn main() {
+    let stdin = tokio::io::stdin();
+    let stdout = tokio::io::stdout();
 
-    // Initialize
-    let (id, params) = connection.initialize_start()?;
-    let init_params: InitializeParams = serde_json::from_value(params)?;
-    let capabilities = server_capabilities();
-    connection.initialize_finish(id, serde_json::to_value(capabilities)?)?;
-
-    // Run main loop
-    main_loop(connection, init_params)?;
-
-    io_threads.join()?;
-    Ok(())
+    let (service, socket) = LspService::new(OriLanguageServer::new);
+    Server::new(stdin, stdout, socket).serve(service).await;
 }
 ```
 
-### Event Loop with select!
+tower-lsp handles:
+- Protocol message parsing
+- Request/response correlation
+- Concurrent request handling
+- Lifecycle management (initialize, shutdown)
+
+### Server Construction
 
 ```rust
-fn main_loop(connection: Connection, params: InitializeParams) -> Result<()> {
-    let (task_sender, task_receiver) = crossbeam_channel::unbounded::<Task>();
-
-    let mut state = GlobalState::new(connection, task_sender);
-
-    loop {
-        // Select across multiple event sources (rust-analyzer pattern)
-        crossbeam_channel::select! {
-            // LSP messages from client (highest priority)
-            recv(state.connection.receiver) -> msg => {
-                match msg? {
-                    Message::Request(req) => {
-                        if state.connection.handle_shutdown(&req)? {
-                            return Ok(());
-                        }
-                        handle_request(&mut state, req);
-                    }
-                    Message::Notification(notif) => {
-                        handle_notification(&mut state, notif);
-                    }
-                    Message::Response(resp) => {
-                        // Handle responses to our requests (rare)
-                    }
-                }
-            }
-
-            // Results from worker threads
-            recv(task_receiver) -> task => {
-                handle_task_result(&mut state, task?);
-            }
+impl OriLanguageServer {
+    pub fn new(client: Client) -> Self {
+        OriLanguageServer {
+            client,
+            documents: DashMap::new(),
         }
     }
 }
 ```
 
-### Request Dispatch
+### Document Analysis Pipeline
 
 ```rust
-fn handle_request(state: &mut GlobalState, req: Request) {
-    // Route by method name (Gleam uses enum, rust-analyzer uses strings)
-    let result = match req.method.as_str() {
-        "textDocument/hover" => {
-            let params: HoverParams = serde_json::from_value(req.params)?;
-            // Spawn on thread pool with snapshot
-            let snapshot = state.snapshot();
-            std::thread::spawn(move || {
-                handlers::hover(snapshot, params)
-            });
-            return; // Response sent via task channel
+/// Parse a document and return diagnostics
+async fn parse_document(&self, uri: &Url, text: &str) -> (Option<Module>, Vec<Diagnostic>) {
+    let filename = uri.path();
+    let mut diagnostics = Vec::new();
+
+    // Lexer phase
+    let tokens = match lexer::tokenize(text, filename) {
+        Ok(t) => t,
+        Err(e) => {
+            diagnostics.push(to_lsp_diagnostic("Lexer error", &e, "E1000"));
+            return (None, diagnostics);
         }
-        "textDocument/formatting" => {
-            let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
-            // Formatting is fast, run synchronously
-            handlers::formatting(&state.files, params)
-        }
-        _ => Err(LspError::MethodNotFound),
     };
 
-    // Send response
-    let response = match result {
-        Ok(value) => Response::new_ok(req.id, value),
-        Err(e) => Response::new_err(req.id, e.code(), e.message()),
-    };
-    state.connection.sender.send(Message::Response(response))?;
-}
-```
-
-## WASM Entry Points
-
-```rust
-// wasm.rs - WASM entry point
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub struct WasmLanguageServer {
-    files: FileSystemProxy,
-    diagnostic_tracker: DiagnosticTracker,
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-impl WasmLanguageServer {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
-        Self {
-            files: FileSystemProxy::new(),
-            diagnostic_tracker: DiagnosticTracker::new(),
+    // Parser phase
+    let mut parser = parser::Parser::new(tokens);
+    let module = match parser.parse_module(filename) {
+        Ok(m) => m,
+        Err(e) => {
+            diagnostics.push(to_lsp_diagnostic("Parse error", &e, "E2000"));
+            return (None, diagnostics);
         }
+    };
+
+    // Type checking phase
+    if let Err(diag) = oric::type_check(module.clone()) {
+        diagnostics.push(diagnostic_to_lsp(&diag, text));
     }
 
-    // Direct method calls (no message passing in WASM)
-    pub fn open_document(&mut self, uri: &str, content: &str) {
-        let uri = Url::parse(uri).unwrap();
-        self.files.write_memory(uri, content.to_string());
-    }
-
-    pub fn format(&self, uri: &str) -> Option<String> {
-        let uri = Url::parse(uri).ok()?;
-        let content = self.files.read(&uri)?;
-        ori_fmt::format(&content).ok()
-    }
-
-    pub fn get_diagnostics(&self, uri: &str) -> String {
-        let uri = Url::parse(uri).unwrap();
-        let diagnostics = handlers::compute_diagnostics(&self.files, &uri);
-        serde_json::to_string(&diagnostics).unwrap()
-    }
+    (Some(module), diagnostics)
 }
 ```
+
+## Future: WASM Compilation
+
+WASM compilation for browser playground is **not yet implemented**. When implemented, it would provide:
+
+- Direct method calls (no message passing)
+- In-memory file system
+- Integration with Monaco editor
+
+See `02-architecture/wasm.md` for the planned design.
 
 ## Error Handling
 
-Use a unified error type with LSP error codes:
+tower-lsp uses `Result<T, jsonrpc::Error>` for request handlers. Internal errors are logged via the client:
 
 ```rust
-#[derive(Debug)]
-pub enum LspError {
-    /// Request parsing failed
-    ParseError(String),
-
-    /// Document not found
-    DocumentNotFound(Url),
-
-    /// Method not supported
-    MethodNotFound,
-
-    /// Compiler error (parse, type check)
-    CompilerError(String),
-
-    /// Internal error
-    Internal(String),
-}
-
-impl LspError {
-    pub fn code(&self) -> i32 {
-        match self {
-            LspError::ParseError(_) => -32700,      // Parse error
-            LspError::DocumentNotFound(_) => -32602, // Invalid params
-            LspError::MethodNotFound => -32601,      // Method not found
-            LspError::CompilerError(_) => -32603,    // Internal error
-            LspError::Internal(_) => -32603,         // Internal error
-        }
-    }
-
-    pub fn message(&self) -> String {
-        match self {
-            LspError::ParseError(msg) => msg.clone(),
-            LspError::DocumentNotFound(uri) => format!("Document not found: {}", uri),
-            LspError::MethodNotFound => "Method not found".to_string(),
-            LspError::CompilerError(msg) => msg.clone(),
-            LspError::Internal(msg) => msg.clone(),
-        }
-    }
+async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+    let uri = params.text_document_position_params.text_document.uri;
+    let position = params.text_document_position_params.position;
+    Ok(self.get_hover_info(&uri, position))
 }
 ```
 
-### Panic Safety (rust-analyzer pattern)
-
-Worker threads catch panics to avoid crashing the server:
+Diagnostic errors are published to the client, not returned from handlers:
 
 ```rust
-fn spawn_handler<F, R>(snapshot: GlobalStateSnapshot, f: F) -> JoinHandle<Result<R>>
-where
-    F: FnOnce(GlobalStateSnapshot) -> R + Send + 'static,
-    R: Send + 'static,
-{
-    std::thread::spawn(move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(snapshot)))
-            .map_err(|_| LspError::Internal("Handler panicked".to_string()))
-    })
+async fn publish_diagnostics(&self, uri: Url, diagnostics: Vec<Diagnostic>) {
+    self.client
+        .publish_diagnostics(uri, diagnostics, None)
+        .await;
 }
 ```
 
@@ -443,40 +312,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_hover_on_variable() {
-        let code = "let x: int = 42";
-        let server = test_server_with_doc("test.ori", code);
+    fn test_hover_on_function() {
+        let code = "@add (a: int, b: int) -> int = a + b";
+        let module = parse_for_test(code);
 
-        let result = hover(&server, position(0, 4)); // cursor on 'x'
+        let info = hover_for_item(&module.items[0], 1); // cursor on 'add'
 
-        assert_eq!(result.contents, "```ori\nx: int\n```");
+        assert!(info.unwrap().contains("@add"));
     }
 
     #[test]
     fn test_diagnostics_parse_error() {
         let code = "let x = ";
-        let diagnostics = compute_diagnostics(code);
+        let (_, diagnostics) = parse_document_for_test(code);
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].severity, DiagnosticSeverity::Error);
+        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
     }
 }
 ```
 
 ### Integration Tests
 
-Test full request/response cycle:
+Test full request/response cycle with tokio test runtime:
 
 ```rust
 #[tokio::test]
 async fn test_format_request() {
-    let (client, server) = test_client_server();
+    let (service, _socket) = LspService::new(OriLanguageServer::new);
 
-    client.open_document("file:///test.ori", "let x=1").await;
-
-    let edits = client.format("file:///test.ori").await;
-
-    assert_eq!(edits.len(), 1);
-    assert_eq!(edits[0].new_text, "let x = 1\n");
+    // Simulate document open and format request
+    // ...
 }
 ```

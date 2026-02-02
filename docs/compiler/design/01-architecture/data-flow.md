@@ -21,10 +21,8 @@ flowchart TB
     F --> G["TypedModule (expr_types)"]
     G --> H["Evaluator"]
     H --> I["ModuleEvalResult (Value)"]
-    G -.->|"(pending)"| J["LLVM Codegen"]
-    J -.-> K["Native Binary"]
-    style J stroke-dasharray: 5 5
-    style K stroke-dasharray: 5 5
+    G --> J["LLVM Codegen"]
+    J --> K["Native Binary"]
 ```
 
 ## Stage 1: Lexing
@@ -126,11 +124,22 @@ pub enum Type {
     Int,
     Float,
     Bool,
-    String,
+    Str,
+    Char,
+    Byte,
+    Unit,
+    Never,
+    Duration,
+    Size,
     List(Box<Type>),
+    Map { key: Box<Type>, value: Box<Type> },
     Option(Box<Type>),
+    Result { ok: Box<Type>, err: Box<Type> },
     Function { params: Vec<Type>, ret: Box<Type> },
-    TypeVar(TypeVarId),
+    Var(TypeVar),
+    Named(Name),
+    Applied { name: Name, args: Vec<Type> },
+    Error,
     // ...
 }
 ```

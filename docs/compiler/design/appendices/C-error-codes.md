@@ -83,9 +83,9 @@ An expression has a different type than expected in the given context.
 | E1xxx | Parser | Syntax errors |
 | E2xxx | Type Checker | Type errors |
 | E3xxx | Patterns | Pattern errors |
-| E4xxx | Evaluator | Runtime errors |
-| E5xxx | Imports | Module errors |
 | E9xxx | Internal | Compiler bugs |
+
+**Note:** Runtime errors (evaluator) and import errors are reported as type errors (E2xxx) or internal errors (E9xxx) rather than having dedicated ranges.
 
 ## Lexer Errors (E0xxx)
 
@@ -283,75 +283,23 @@ error[E3003]: unexpected argument `.foo` for pattern `map`
   = help: valid arguments are: .over, .transform
 ```
 
-## Runtime Errors (E4xxx)
+## Runtime Errors
 
-### E4001: Division by Zero
-
-```
-error[E4001]: division by zero
- --> src/mainsi:3:10
-  |
-3 |     let x = 10 / 0
-  |             ^^^^^^ attempted to divide by zero
-```
-
-### E4002: Index Out of Bounds
+Runtime errors are not currently assigned dedicated error codes. They are reported as panics with descriptive messages:
 
 ```
-error[E4002]: index out of bounds
- --> src/mainsi:4:10
-  |
-4 |     list[10]
-  |          ^^ index 10 is out of range for list of length 3
+[runtime] division by zero
+[runtime] index out of bounds: index 10 is out of range for list of length 3
+[runtime] assertion failed: x > 10
 ```
 
-### E4003: Assertion Failed
+## Import Errors
 
-```
-error[E4003]: assertion failed
- --> src/mainsi:5:5
-  |
-5 |     assert(cond: x > 10)
-  |     ^^^^^^^^^^^^^^^^^^^^^ condition was false
-```
+Import errors are reported as type errors (E2xxx) since they are caught during type checking:
 
-## Import Errors (E5xxx)
-
-### E5001: Module Not Found
-
-```
-error[E5001]: cannot find module './utils'
- --> src/mainsi:1:5
-  |
-1 | use './utils' { helper }
-  |     ^^^^^^^^^^ file not found
-  |
-  = help: looked for: src/utils.ori
-```
-
-### E5002: Item Not Exported
-
-```
-error[E5002]: `helper` is not exported from module './utils'
- --> src/mainsi:1:15
-  |
-1 | use './utils' { helper }
-  |                 ^^^^^^ not public
-  |
-  = help: add `pub` to make it public, or use `::helper` for private access
-```
-
-### E5003: Circular Import
-
-```
-error[E5003]: circular import detected
- --> src/asi:1:1
-  |
-1 | use './b' { foo }
-  | ^^^^^^^^^^^^^^^^^
-  |
-  = note: import cycle: a.ori -> b.ori -> a.ori
-```
+- Module not found → reported via diagnostic system
+- Item not exported → E2003 (unknown identifier)
+- Circular import → detected during module resolution
 
 ## Internal Errors (E9xxx)
 

@@ -202,6 +202,14 @@ pub struct ResolvedImport {
 /// - Successful loads create tracked `SourceFile` inputs
 /// - Content changes to imported files invalidate dependent queries
 /// - File creation/deletion is detected on next query execution
+///
+/// # Directory Modules
+///
+/// For relative imports like `use "./http"`, the resolver tries:
+/// 1. `./http.ori` (file-based module)
+/// 2. `./http/mod.ori` (directory-based module)
+///
+/// The first successful load wins.
 pub fn resolve_import(
     db: &dyn Db,
     import_path: &ImportPath,
@@ -211,18 +219,76 @@ pub fn resolve_import(
 
     match import_path {
         ImportPath::Relative(name) => {
-            let path = resolve_relative_path_to_pathbuf(*name, current_file, interner);
-            match db.load_file(&path) {
-                Some(file) => Ok(ResolvedImport { file, path }),
-                None => Err(ImportError::new(format!(
-                    "cannot find import '{}' at '{}'",
-                    interner.lookup(*name),
-                    path.display()
-                ))),
-            }
+            resolve_relative_import_tracked(db, *name, current_file, interner)
         }
         ImportPath::Module(segments) => resolve_module_import_tracked(db, segments, current_file),
     }
+}
+
+/// Resolve a relative import using tracked file loading.
+///
+/// Generates candidate paths and probes each via `db.load_file()`.
+/// Tries file-based module first (`./http.ori`), then directory module (`./http/mod.ori`).
+fn resolve_relative_import_tracked(
+    db: &dyn Db,
+    name: Name,
+    current_file: &Path,
+    interner: &StringInterner,
+) -> Result<ResolvedImport, ImportError> {
+    let candidates = generate_relative_candidates(name, current_file, interner);
+    let path_str = interner.lookup(name);
+
+    for path in &candidates {
+        if let Some(file) = db.load_file(path) {
+            return Ok(ResolvedImport {
+                file,
+                path: path.clone(),
+            });
+        }
+    }
+
+    // Format searched paths for error message
+    let searched = candidates
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    Err(ImportError::new(format!(
+        "cannot find import '{path_str}'. Searched: {searched}"
+    )))
+}
+
+/// Generate candidate file paths for a relative import.
+///
+/// Returns paths to try in priority order:
+/// 1. `<dir>/<path>.ori` (file-based module)
+/// 2. `<dir>/<path>/mod.ori` (directory-based module)
+fn generate_relative_candidates(
+    name: Name,
+    current_file: &Path,
+    interner: &StringInterner,
+) -> Vec<PathBuf> {
+    let path_str = interner.lookup(name);
+    let current_dir = current_file.parent().unwrap_or(Path::new("."));
+    let resolved = current_dir.join(path_str);
+
+    let mut candidates = Vec::with_capacity(2);
+
+    // 1. Try file-based module: ./http.ori
+    if resolved.extension().is_none() {
+        candidates.push(resolved.with_extension("ori"));
+    } else {
+        candidates.push(resolved.clone());
+    }
+
+    // 2. Try directory module: ./http/mod.ori
+    // Only if no extension was provided (don't try ./http.ori/mod.ori)
+    if resolved.extension().is_none() {
+        candidates.push(resolved.join("mod.ori"));
+    }
+
+    candidates
 }
 
 /// Resolve a module import using tracked file loading.
@@ -294,25 +360,6 @@ fn generate_module_candidates(components: &[&str], current_file: &Path) -> Vec<P
     }
 
     candidates
-}
-
-/// Resolve a relative import path to a `PathBuf`.
-///
-/// Helper function for path computation without file access.
-fn resolve_relative_path_to_pathbuf(
-    name: Name,
-    current_file: &Path,
-    interner: &StringInterner,
-) -> PathBuf {
-    let path_str = interner.lookup(name);
-    let current_dir = current_file.parent().unwrap_or(Path::new("."));
-    let resolved = current_dir.join(path_str);
-
-    if resolved.extension().is_none() {
-        resolved.with_extension("ori")
-    } else {
-        resolved
-    }
 }
 
 /// Context for loading modules with cycle detection.
@@ -602,23 +649,64 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn test_resolve_relative_path_computation() {
+    fn test_generate_relative_candidates_file_module() {
         let interner = SharedInterner::default();
         let name = interner.intern("./math");
         let current = PathBuf::from("/project/src/main.ori");
 
-        let result = resolve_relative_path_to_pathbuf(name, &current, &interner);
-        assert_eq!(result, PathBuf::from("/project/src/math.ori"));
+        let candidates = generate_relative_candidates(name, &current, &interner);
+
+        // Should try file first, then directory module
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0], PathBuf::from("/project/src/math.ori"));
+        assert_eq!(candidates[1], PathBuf::from("/project/src/math/mod.ori"));
     }
 
     #[test]
-    fn test_resolve_parent_path_computation() {
+    fn test_generate_relative_candidates_parent_path() {
         let interner = SharedInterner::default();
         let name = interner.intern("../utils");
         let current = PathBuf::from("/project/src/main.ori");
 
-        let result = resolve_relative_path_to_pathbuf(name, &current, &interner);
-        assert_eq!(result, PathBuf::from("/project/src/../utils.ori"));
+        let candidates = generate_relative_candidates(name, &current, &interner);
+
+        // Should try file first, then directory module
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0], PathBuf::from("/project/src/../utils.ori"));
+        assert_eq!(
+            candidates[1],
+            PathBuf::from("/project/src/../utils/mod.ori")
+        );
+    }
+
+    #[test]
+    fn test_generate_relative_candidates_with_extension() {
+        let interner = SharedInterner::default();
+        let name = interner.intern("./helper.ori");
+        let current = PathBuf::from("/project/src/main.ori");
+
+        let candidates = generate_relative_candidates(name, &current, &interner);
+
+        // Should only try the exact path when extension is provided
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0], PathBuf::from("/project/src/helper.ori"));
+    }
+
+    #[test]
+    fn test_generate_relative_candidates_nested_directory() {
+        let interner = SharedInterner::default();
+        let name = interner.intern("./http/client");
+        let current = PathBuf::from("/project/src/main.ori");
+
+        let candidates = generate_relative_candidates(name, &current, &interner);
+
+        // Should try file first, then directory module
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0], PathBuf::from("/project/src/http/client.ori"));
+        assert_eq!(
+            candidates[1],
+            PathBuf::from("/project/src/http/client/mod.ori")
+        );
     }
 
     #[test]

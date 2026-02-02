@@ -9,7 +9,23 @@ section: "Appendices"
 
 Common patterns for working with Salsa in the Ori compiler.
 
-## Query Definition
+## Current Usage
+
+The Ori compiler currently uses a **minimal subset** of Salsa features:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `#[salsa::tracked]` | ✅ Used | Basic query caching |
+| `#[salsa::input]` with `#[return_ref]` | ✅ Used | SourceFile input |
+| `#[salsa::db]` | ✅ Used | CompilerDb setup |
+| `#[salsa::accumulator]` | ❌ Not Used | DiagnosticQueue instead |
+| `#[salsa::interned]` | ❌ Not Used | Custom StringInterner |
+| `#[salsa::tracked]` struct | ❌ Not Used | Regular structs |
+| Cycle detection (`cycle_fn`) | ❌ Not Used | No cyclic queries |
+
+This appendix documents both **currently used patterns** and **available Salsa features** for potential future use.
+
+## Currently Used Patterns
 
 ### Basic Tracked Function
 
@@ -31,9 +47,13 @@ pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseResult {
 }
 ```
 
+## Available Salsa Features (Not Currently Used)
+
+The following patterns are available in Salsa but not currently used in Ori. Documented for reference and potential future use.
+
 ### Accumulator Pattern
 
-For collecting items across queries:
+For collecting items across queries (Ori uses `DiagnosticQueue` instead):
 
 ```rust
 #[salsa::accumulator]
@@ -73,9 +93,9 @@ let text = file.text(&db);
 file.set_text(&mut db).to(new_text);
 ```
 
-## Interned Values
+### Interned Values
 
-For deduplication:
+For deduplication (Ori uses a custom `StringInterner` instead):
 
 ```rust
 #[salsa::interned]
@@ -95,9 +115,9 @@ assert_eq!(interned, interned2);
 let data = interned.data(&db);
 ```
 
-## Tracked Struct
+### Tracked Struct
 
-For mutable state that Salsa tracks:
+For mutable state that Salsa tracks (not currently used):
 
 ```rust
 #[salsa::tracked]
@@ -109,7 +129,7 @@ pub struct TypedExpr {
 }
 ```
 
-## Database Setup
+## Database Setup (Currently Used)
 
 ```rust
 #[salsa::db]
@@ -151,9 +171,9 @@ let tokens_b = tokens(db, file_b);
 // Salsa handles synchronization
 ```
 
-## Cycle Detection
+## Cycle Detection (Reference)
 
-Salsa detects query cycles:
+Salsa detects query cycles. Ori queries are currently acyclic, but this pattern is available if needed:
 
 ```rust
 // This would panic with cycle error

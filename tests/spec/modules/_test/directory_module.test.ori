@@ -1,0 +1,15 @@
+// Test importing from a directory module (http/mod.ori)
+// The import `use "./http"` should resolve to `./http/mod.ori`
+
+use std.testing { assert, assert_eq }
+use "../http" { status_ok, get }
+
+// Test that we can call functions from the directory module
+@test_import_status_ok tests @status_ok () -> void = assert_eq(
+    actual: status_ok(),
+    expected: 200
+)
+
+@test_import_get tests @get () -> void = assert(
+    condition: get() == "HTTP GET response"
+)

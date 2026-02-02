@@ -19,10 +19,6 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-// ============================================================================
-// Test Utilities
-// ============================================================================
-
 /// Get the path to the `ori` binary.
 fn ori_binary() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -93,10 +89,6 @@ fn assert_aot_success(source: &str, test_name: &str) {
     );
 }
 
-// ============================================================================
-// Bindings (tests/spec/expressions/bindings.ori)
-// ============================================================================
-
 #[test]
 fn test_aot_let_binding_basic() {
     assert_aot_success(
@@ -138,10 +130,6 @@ fn test_aot_let_shadowing() {
         "let_shadowing",
     );
 }
-
-// ============================================================================
-// Conditionals (tests/spec/expressions/conditionals.ori)
-// ============================================================================
 
 #[test]
 fn test_aot_if_then_else() {
@@ -187,10 +175,6 @@ fn test_aot_comparison_conditions() {
         "comparison_conditions",
     );
 }
-
-// ============================================================================
-// Arithmetic (tests/spec/types/primitives.ori)
-// ============================================================================
 
 #[test]
 fn test_aot_arithmetic_add_sub() {
@@ -262,10 +246,6 @@ fn test_aot_arithmetic_precedence() {
     );
 }
 
-// ============================================================================
-// Boolean Operators
-// ============================================================================
-
 #[test]
 fn test_aot_boolean_and() {
     assert_aot_success(
@@ -311,10 +291,6 @@ fn test_aot_boolean_not() {
         "boolean_not",
     );
 }
-
-// ============================================================================
-// Functions (tests/spec/declarations/functions.ori)
-// ============================================================================
 
 #[test]
 fn test_aot_function_call() {
@@ -377,10 +353,6 @@ fn test_aot_function_nested_calls() {
     );
 }
 
-// ============================================================================
-// Comparisons
-// ============================================================================
-
 #[test]
 fn test_aot_comparison_equality() {
     assert_aot_success(
@@ -412,10 +384,6 @@ fn test_aot_comparison_ordering() {
         "comparison_ordering",
     );
 }
-
-// ============================================================================
-// Print Function
-// ============================================================================
 
 #[test]
 fn test_aot_print_string() {
@@ -469,10 +437,6 @@ fn test_aot_print_string() {
         String::from_utf8_lossy(&run_result.stderr)
     );
 }
-
-// ============================================================================
-// Complex Expressions
-// ============================================================================
 
 #[test]
 fn test_aot_complex_expression() {

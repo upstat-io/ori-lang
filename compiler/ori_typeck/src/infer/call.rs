@@ -65,7 +65,7 @@ fn check_call(checker: &mut TypeChecker<'_>, func: &Type, args: &[Type], span: S
     let expected = checker
         .inference
         .ctx
-        .make_function(args.to_vec(), result.clone());
+        .make_function_from_slice(args, result.clone());
 
     if let Err(e) = checker.inference.ctx.unify(func, &expected) {
         checker.report_type_error(&e, span);

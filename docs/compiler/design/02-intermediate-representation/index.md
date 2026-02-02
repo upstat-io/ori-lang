@@ -21,28 +21,33 @@ The IR lives in its own crate `ori_ir`, which has no dependencies and is used by
 ```
 compiler/ori_ir/src/
 ├── lib.rs              # Module exports, static_assert_size! macro
-├── ast/                # Expression and statement types (~1,570 lines total)
-│   ├── mod.rs              # Module re-exports (~110 lines)
-│   ├── expr.rs             # ExprKind variants (~364 lines)
-│   ├── stmt.rs             # Statement types (~51 lines)
-│   ├── operators.rs        # Operator enums (~51 lines)
-│   ├── ranges.rs           # Range types for arena allocation (~273 lines)
-│   ├── collections.rs      # Collection literals (~53 lines)
+├── ast/                # Expression and statement types
+│   ├── mod.rs              # Module re-exports
+│   ├── expr.rs             # ExprKind variants (47+ variants)
+│   ├── stmt.rs             # Statement types
+│   ├── operators.rs        # Operator enums
+│   ├── ranges.rs           # Range types for arena allocation
+│   ├── collections.rs      # Collection literals
 │   ├── items/              # Top-level item definitions
-│   │   ├── mod.rs              # Re-exports (~15 lines)
-│   │   ├── function.rs         # Function, TestDef (~141 lines)
-│   │   ├── imports.rs          # UseDef, ImportPath (~48 lines)
-│   │   └── traits.rs           # TraitDef, ImplDef, ExtendDef (~205 lines)
+│   │   ├── function.rs         # Function, TestDef
+│   │   ├── imports.rs          # UseDef, ImportPath
+│   │   ├── types.rs            # TypeDecl, TypeDeclKind
+│   │   └── traits.rs           # TraitDef, ImplDef, ExtendDef
 │   └── patterns/           # Pattern constructs
-│       ├── mod.rs              # Re-exports (~11 lines)
-│       ├── seq.rs              # FunctionSeq (run, try, match) (~102 lines)
-│       ├── exp.rs              # FunctionExp (map, filter, etc.) (~72 lines)
-│       └── binding.rs          # Match patterns and arms (~83 lines)
-├── arena.rs            # Expression arena (~475 lines)
-├── derives.rs          # DerivedTrait, DerivedMethodInfo (~103 lines)
-├── token.rs            # Token definitions (~690 lines)
-├── visitor.rs          # AST visitor pattern (~1,230 lines)
-├── interner.rs         # String interning (~260 lines)
+│       ├── seq.rs              # FunctionSeq (run, try, match)
+│       ├── exp.rs              # FunctionExp (recurse, parallel, etc.)
+│       └── binding.rs          # Match patterns and arms
+├── arena.rs            # Expression arena
+├── expr_id.rs          # ExprId, StmtId, ParsedTypeId, MatchPatternId
+├── type_id.rs          # TypeId with sharding (16 shards)
+├── name.rs             # Name interning
+├── parsed_type.rs      # ParsedType for type annotations
+├── derives.rs          # DerivedTrait, DerivedMethodInfo
+├── token.rs            # Token definitions
+├── visitor.rs          # AST visitor pattern
+├── interner.rs         # String interning (16-shard RwLock)
+├── comment.rs          # Comment handling
+├── traits.rs           # Spanned, Named, Typed traits
 └── span.rs             # Source location tracking
 ```
 
@@ -132,13 +137,18 @@ Types have a dual representation for different use cases:
 
 ```rust
 enum Type {
-    Int, Float, Bool, String, Char, Void,
+    Int, Float, Bool, Str, Char, Byte, Unit, Never,
+    Duration, Size, Ordering,
     List(Box<Type>),
+    Map { key: Box<Type>, value: Box<Type> },
     Option(Box<Type>),
-    Result(Box<Type>, Box<Type>),
+    Result { ok: Box<Type>, err: Box<Type> },
     Function { params: Vec<Type>, ret: Box<Type> },
-    TypeVar(TypeVar),
+    Var(TypeVar),
     Named(Name),
+    Applied { name: Name, args: Vec<Type> },
+    Projection { base: Box<Type>, trait_name: Name, assoc_name: Name },
+    Error,
     // ...
 }
 ```
@@ -253,9 +263,20 @@ Several types use ID patterns for indirection:
 | Type | ID | Storage |
 |------|-----|---------|
 | `Expr` | `ExprId(u32)` | `ExprArena` |
+| `Stmt` | `StmtId(u32)` | `ExprArena` (stmt_list) |
+| `ParsedType` | `ParsedTypeId(u32)` | `ExprArena` (type_list) |
+| `MatchPattern` | `MatchPatternId(u32)` | `ExprArena` (pattern_list) |
 | `String` | `Name(u32)` | `StringInterner` |
 | `Type` | `TypeId(u32)` | `TypeInterner` |
 | `TypeVar` | `TypeVar(u32)` | `InferenceContext` |
+
+All ID types use `INVALID = u32::MAX` as their sentinel value:
+```rust
+impl ExprId {
+    pub const INVALID: ExprId = ExprId(u32::MAX);
+    pub fn is_valid(self) -> bool { self.0 != u32::MAX }
+}
+```
 
 Benefits:
 - O(1) comparison (compare IDs, not contents)
@@ -279,7 +300,10 @@ Pre-interned primitives (shard 0):
 - `TypeId::INT` = 0, `TypeId::FLOAT` = 1, `TypeId::BOOL` = 2
 - `TypeId::STR` = 3, `TypeId::CHAR` = 4, `TypeId::BYTE` = 5
 - `TypeId::VOID` = 6, `TypeId::NEVER` = 7
-- `TypeId::INFER` = 8, `TypeId::SELF_TYPE` = 9
+- `TypeId::INFER` = 8 (type checking marker), `TypeId::SELF_TYPE` = 9 (trait/impl marker)
+- `TypeId::DURATION` = 8, `TypeId::SIZE` = 9 (overlap is intentional - INFER/SELF_TYPE are type checking only)
+- `TypeId::ERROR` = 10, `TypeId::ORDERING` = 11
+- `TypeId::FIRST_COMPOUND` = 12 (first dynamically allocated type)
 
 ## Derived Trait Definitions
 

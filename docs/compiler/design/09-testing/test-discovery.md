@@ -7,235 +7,194 @@ section: "Testing"
 
 # Test Discovery
 
-Test discovery finds all test functions in a module and determines coverage.
+Test discovery finds all `.ori` files in a directory tree for test execution.
 
 ## Location
 
 ```
-compiler/oric/src/test/discovery.rs (~310 lines)
+compiler/oric/src/test/discovery.rs (~154 lines)
 ```
 
-## Discovery Process
+## Architecture
+
+Test discovery operates at the **filesystem level**, not the AST level. It finds files that may contain tests; actual test extraction happens during parsing.
+
+```
+discover_tests(root: &Path)
+        |
+        v
+   filesystem scan
+        |
+        v
+  Vec<TestFile>    <-- Just paths, no parsing yet
+        |
+        v
+   runner parses each file
+        |
+        v
+  extract tests from Module.tests
+```
+
+## TestFile Structure
 
 ```rust
-pub fn discover_tests(module: &Module) -> TestDiscovery {
-    let mut tests = Vec::new();
-    let mut targets: HashMap<Name, Vec<Name>> = HashMap::new();
+/// A discovered test file.
+#[derive(Clone, Debug)]
+pub struct TestFile {
+    /// Path to the test file.
+    pub path: PathBuf,
+}
 
-    for item in &module.items {
-        if let Item::Test(test) = item {
-            tests.push(TestInfo {
-                name: test.name,
-                targets: test.targets.clone(),
-                attributes: test.attributes.clone(),
-                body: test.body,
-            });
+impl TestFile {
+    pub fn new(path: PathBuf) -> Self {
+        TestFile { path }
+    }
+}
+```
 
-            // Track which functions are tested
-            for target in &test.targets {
-                targets.entry(*target)
-                    .or_default()
-                    .push(test.name);
+## Discovery Functions
+
+### discover_tests
+
+Recursively finds all `.ori` files in a directory:
+
+```rust
+/// Discover all test files in a directory tree.
+///
+/// # Arguments
+/// * `root` - Root directory to search
+///
+/// # Returns
+/// Vector of discovered test files, sorted by path.
+pub fn discover_tests(root: &Path) -> Vec<TestFile> {
+    let mut files = Vec::new();
+    discover_recursive(root, &mut files);
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    files
+}
+
+fn discover_recursive(dir: &Path, files: &mut Vec<TestFile>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        // Skip hidden files and directories
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.starts_with('.') {
+                continue;
             }
+        }
+
+        if path.is_dir() {
+            // Skip common non-source directories
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if matches!(name, "target" | "node_modules" | ".git" | "__pycache__") {
+                    continue;
+                }
+            }
+            discover_recursive(&path, files);
+        } else if path.extension().is_some_and(|e| e == "ori") {
+            files.push(TestFile::new(path));
+        }
+    }
+}
+```
+
+### discover_tests_in
+
+Handles both file and directory paths:
+
+```rust
+/// Discover tests in a specific file or directory.
+///
+/// If `path` is a file, returns just that file.
+/// If `path` is a directory, discovers all .ori files recursively.
+pub fn discover_tests_in(path: &Path) -> Vec<TestFile> {
+    if path.is_file() {
+        if path.extension().is_some_and(|e| e == "ori") {
+            vec![TestFile::new(path.to_path_buf())]
+        } else {
+            vec![]
+        }
+    } else if path.is_dir() {
+        discover_tests(path)
+    } else {
+        vec![]
+    }
+}
+```
+
+## Filtering Rules
+
+### Skipped Directories
+
+| Directory | Reason |
+|-----------|--------|
+| `.hidden` | Hidden files/directories (starts with `.`) |
+| `target` | Rust build output |
+| `node_modules` | Node.js dependencies |
+| `.git` | Version control |
+| `__pycache__` | Python cache |
+
+### File Extensions
+
+Only `.ori` files are discovered. Test functions are extracted from these files during parsing.
+
+## File Conventions
+
+| Pattern | Description |
+|---------|-------------|
+| `foo.ori` | Source file (may contain tests) |
+| `foo.test.ori` | Dedicated test file |
+| `_test/` | Test directory convention |
+
+All `.ori` files are scanned for tests, regardless of naming convention. The `_test/` directory convention is organizational, not enforced by discovery.
+
+## Integration with Test Runner
+
+The runner uses discovery to get file paths, then parses each file:
+
+```rust
+impl TestRunner {
+    pub fn run(&self, path: &Path) -> TestSummary {
+        // Discovery: filesystem scan
+        let test_files = discover_tests_in(path);
+
+        if self.config.parallel && test_files.len() > 1 {
+            self.run_parallel(&test_files)
+        } else {
+            self.run_sequential(&test_files)
         }
     }
 
-    TestDiscovery { tests, targets }
-}
-```
+    fn run_file(&self, path: &Path) -> FileSummary {
+        // Parsing: extract tests from Module
+        let content = std::fs::read_to_string(path)?;
+        let db = CompilerDb::new();
+        let file = SourceFile::new(&db, path.to_path_buf(), content);
+        let parse_result = parsed(&db, file);
 
-## TestInfo Structure
-
-```rust
-pub struct TestInfo {
-    /// Test function name
-    pub name: Name,
-
-    /// Functions this test targets
-    pub targets: Vec<Name>,
-
-    /// Test attributes
-    pub attributes: TestAttributes,
-
-    /// Test body
-    pub body: ExprId,
-}
-
-pub struct TestAttributes {
-    pub skip: Option<String>,
-    pub compile_fail: Option<String>,
-    pub should_fail: Option<String>,
+        // Tests are in parse_result.module.tests
+        for test in &parse_result.module.tests {
+            // Execute test...
+        }
+    }
 }
 ```
 
 ## Coverage Checking
 
-```rust
-pub fn check_coverage(module: &Module, discovery: &TestDiscovery) -> CoverageReport {
-    let mut report = CoverageReport::new();
-
-    for func in &module.functions {
-        // Skip main and private functions
-        if func.name.as_str() == "main" {
-            continue;
-        }
-
-        if discovery.targets.contains_key(&func.name) {
-            report.covered.push(func.name);
-        } else {
-            report.uncovered.push(func.name);
-        }
-    }
-
-    report
-}
-
-pub struct CoverageReport {
-    pub covered: Vec<Name>,
-    pub uncovered: Vec<Name>,
-}
-
-impl CoverageReport {
-    pub fn percentage(&self) -> f64 {
-        let total = self.covered.len() + self.uncovered.len();
-        if total == 0 {
-            100.0
-        } else {
-            (self.covered.len() as f64 / total as f64) * 100.0
-        }
-    }
-}
-```
-
-## Mandatory Testing
-
-Compilation fails if functions lack tests:
+Coverage checking (which functions have tests) is handled in the **runner**, not discovery:
 
 ```rust
-pub fn check_mandatory_tests(module: &Module, discovery: &TestDiscovery) -> Vec<Problem> {
-    let mut problems = Vec::new();
-
-    for func in &module.functions {
-        // Exemptions
-        if func.name.as_str() == "main" { continue; }
-        if func.is_private() { continue; }  // Private functions can use :: import for testing
-
-        if !discovery.targets.contains_key(&func.name) {
-            problems.push(Problem::UntrestedFunction {
-                name: func.name,
-                span: func.span,
-            });
-        }
-    }
-
-    problems
+// runner.rs lines 538-588
+fn compute_coverage(&self, results: &[FileSummary]) -> CoverageReport {
+    // Examines which functions are targeted by tests
+    // Reports functions without test coverage
 }
 ```
 
-Error message:
-```
-error: function `@process` has no test
- --> src/libsi:10:1
-   |
-10 | @process (data: Data) -> Result<Output, Error> = ...
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = help: add a test like:
-     @test_process tests @process () -> void = run(...)
-```
-
-## Filtering Tests
-
-```rust
-pub fn filter_tests(
-    discovery: &TestDiscovery,
-    filter: &TestFilter,
-) -> Vec<&TestInfo> {
-    discovery.tests.iter()
-        .filter(|test| {
-            // Skip skipped tests
-            if test.attributes.skip.is_some() {
-                return false;
-            }
-
-            // Name filter
-            if let Some(pattern) = &filter.name {
-                if !test.name.as_str().contains(pattern) {
-                    return false;
-                }
-            }
-
-            // Target filter
-            if let Some(target) = &filter.target {
-                if !test.targets.iter().any(|t| t == target) {
-                    return false;
-                }
-            }
-
-            true
-        })
-        .collect()
-}
-
-pub struct TestFilter {
-    pub name: Option<String>,
-    pub target: Option<Name>,
-}
-```
-
-## Test Ordering
-
-Tests are ordered for deterministic output:
-
-```rust
-pub fn order_tests(tests: &mut [&TestInfo]) {
-    tests.sort_by(|a, b| {
-        // Sort by:
-        // 1. Targeted tests before free-floating
-        // 2. Alphabetically by name
-        let a_targeted = !a.targets.is_empty();
-        let b_targeted = !b.targets.is_empty();
-
-        match (a_targeted, b_targeted) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.cmp(&b.name),
-        }
-    });
-}
-```
-
-## Compile-Fail Tests
-
-Special handling for tests that should fail to compile:
-
-```rust
-pub fn handle_compile_fail_tests(
-    module: &Module,
-    discovery: &TestDiscovery,
-) -> Vec<CompileFailResult> {
-    discovery.tests.iter()
-        .filter(|t| t.attributes.compile_fail.is_some())
-        .map(|test| {
-            // Try to compile just this test's body
-            let result = try_compile_isolated(module, test.body);
-
-            match result {
-                Ok(_) => CompileFailResult::UnexpectedSuccess(test.name),
-                Err(errors) => {
-                    let expected = test.attributes.compile_fail.as_ref().unwrap();
-                    if errors.iter().any(|e| e.message.contains(expected)) {
-                        CompileFailResult::ExpectedFailure(test.name)
-                    } else {
-                        CompileFailResult::WrongError {
-                            test: test.name,
-                            expected: expected.clone(),
-                            actual: errors,
-                        }
-                    }
-                }
-            }
-        })
-        .collect()
-}
-```
+Enable with `ori test --coverage`.

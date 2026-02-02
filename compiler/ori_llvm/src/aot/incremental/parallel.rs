@@ -66,6 +66,10 @@ pub struct CompilationPlan {
     pending: HashSet<usize>,
     /// Completed items.
     completed: HashSet<PathBuf>,
+    /// Reverse index: dep path -> items that depend on it (for O(1) lookup on completion).
+    dependents: std::collections::HashMap<PathBuf, Vec<usize>>,
+    /// Count of unsatisfied dependencies per item.
+    unsatisfied_deps: Vec<usize>,
 }
 
 impl CompilationPlan {
@@ -116,8 +120,17 @@ impl CompilationPlan {
     /// Add a work item to the plan.
     pub fn add_item(&mut self, item: WorkItem) {
         let idx = self.items.len();
+        let dep_count = item.dependencies.len();
 
-        if item.dependencies.is_empty() {
+        // Build reverse index: for each dependency, record that this item depends on it
+        for dep in &item.dependencies {
+            self.dependents.entry(dep.clone()).or_default().push(idx);
+        }
+
+        // Track unsatisfied dependency count
+        self.unsatisfied_deps.push(dep_count);
+
+        if dep_count == 0 {
             self.ready.push_back(idx);
         } else {
             self.pending.insert(idx);
@@ -132,24 +145,24 @@ impl CompilationPlan {
     }
 
     /// Mark an item as completed.
+    ///
+    /// Uses O(dependents) lookup instead of O(pending * deps) iteration.
     pub fn complete(&mut self, path: &Path) {
         self.completed.insert(path.to_path_buf());
 
-        // Check if any pending items are now ready
-        let mut newly_ready = Vec::new();
+        // Only check items that directly depend on the completed path (O(1) lookup + O(dependents))
+        if let Some(dependent_indices) = self.dependents.get(path) {
+            for &idx in dependent_indices {
+                // Decrement unsatisfied count
+                if self.unsatisfied_deps[idx] > 0 {
+                    self.unsatisfied_deps[idx] -= 1;
 
-        for &idx in &self.pending {
-            let item = &self.items[idx];
-            let deps_satisfied = item.dependencies.iter().all(|d| self.completed.contains(d));
-
-            if deps_satisfied {
-                newly_ready.push(idx);
+                    // If all deps satisfied, move from pending to ready
+                    if self.unsatisfied_deps[idx] == 0 && self.pending.remove(&idx) {
+                        self.ready.push_back(idx);
+                    }
+                }
             }
-        }
-
-        for idx in newly_ready {
-            self.pending.remove(&idx);
-            self.ready.push_back(idx);
         }
     }
 
@@ -234,7 +247,7 @@ impl ParallelConfig {
 }
 
 /// Result of compiling a single item.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CompileResult {
     /// Path to the source file.
     pub path: PathBuf,

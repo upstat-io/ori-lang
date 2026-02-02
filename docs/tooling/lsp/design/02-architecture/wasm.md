@@ -7,6 +7,11 @@ section: "Architecture"
 
 # WASM Compilation
 
+> **Status: NOT IMPLEMENTED**
+>
+> This document describes the planned design for WASM compilation.
+> WASM support is not yet implemented.
+
 Compiling the LSP server to WebAssembly for browser-based Playground integration.
 
 ## Build Process

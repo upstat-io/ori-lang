@@ -401,6 +401,7 @@ pub fn type_check_with_imports(
                     message: format!("import error: {}", e.message),
                     span: e.span.unwrap_or_default(),
                     code: ori_diagnostic::ErrorCode::E2003, // Unknown identifier
+                    suggestion: None,
                 }],
                 error_guarantee: ori_diagnostic::ErrorGuaranteed::from_error_count(1),
             };
@@ -441,6 +442,7 @@ pub fn type_check_with_imports_and_source(
                     message: format!("import error: {}", e.message),
                     span: e.span.unwrap_or_default(),
                     code: ori_diagnostic::ErrorCode::E2003,
+                    suggestion: None,
                 }],
                 error_guarantee: ori_diagnostic::ErrorGuaranteed::from_error_count(1),
             };

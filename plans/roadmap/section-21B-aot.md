@@ -31,7 +31,7 @@ sections:
     status: in-progress
   - id: "21B.8.5"
     title: Multi-File Compilation
-    status: not-started
+    status: in-progress
   - id: "21B.9"
     title: Error Handling
     status: not-started
@@ -255,6 +255,16 @@ sections:
   - [x] Dynamic linking (--link=dynamic)
   - [x] **Rust Tests**: `ori_rt/src/lib.rs` (19 tests), `ori_llvm/src/aot/runtime.rs` (4 tests)
 
+- [x] **Implement**: Runtime library discovery
+  - **Proposal**: `proposals/approved/runtime-library-discovery-proposal.md` ✅ APPROVED 2026-02-02
+  - [x] Walk up from binary to find `libori_rt.a` (like rustc sysroot)
+  - [x] Dev layout: same directory as compiler binary
+  - [x] Installed layout: `<exe>/../lib/libori_rt.a`
+  - [x] Workspace dev: `$ORI_WORKSPACE_DIR/target/{release,debug}/`
+  - [ ] CLI override: `--runtime-path` flag (pending CLI integration)
+  - [x] Remove environment variables (ORI_LIB_DIR, ORI_RT_PATH) from current implementation
+  - [x] **Unblocks**: Multi-file AOT compilation (21B.8.5), End-to-end tests (21B.10)
+
 - [x] **Implement**: System library detection
   - [x] Platform-specific library paths
   - [x] Sysroot support for cross-compilation
@@ -432,38 +442,38 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 
 ### 21B.8.5.1 Dependency Graph Infrastructure
 
-- [ ] **Implement**: `DependencyGraph::from_entry()` in `ori_llvm/src/aot/multi_file.rs`
-  - [ ] Build import graph from entry file using existing `resolve_import`
-  - [ ] Handle relative imports (`./helper`, `../utils`)
-  - [ ] Handle directory modules (`./http` → `http/mod.ori`)
+- [x] **Implement**: `build_dependency_graph()` in `ori_llvm/src/aot/multi_file.rs`
+  - [x] Build import graph from entry file using import extraction
+  - [x] Handle relative imports (`./helper`, `../utils`)
+  - [x] Handle directory modules (`./http` → `http/mod.ori`)
   - [ ] Handle stdlib imports (`std.math` via `ORI_STDLIB`)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+  - [x] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs` (15 tests)
 
-- [ ] **Implement**: Topological sorting for compilation order
-  - [ ] Sort modules so dependencies compile before dependents
-  - [ ] Integrate with existing cycle detection (E5003)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+- [x] **Implement**: Topological sorting for compilation order
+  - [x] Sort modules so dependencies compile before dependents (reuses `DependencyGraph::topological_order()`)
+  - [x] Integrate with cycle detection via `GraphBuildContext`
+  - [x] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
 
 ### 21B.8.5.2 Per-Module Compilation
 
-- [ ] **Implement**: `compile_module_to_object()` function
-  - [ ] Compile single module to object file
-  - [ ] Use module-qualified name mangling (`_ori_<module>_<function>`)
-  - [ ] Generate `declare` for imported symbols (linker resolves)
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+- [x] **Implement**: Per-module compilation in `build_file_multi()`
+  - [x] Compile single module to object file
+  - [x] Use module-qualified name mangling (`_ori_<module>$<function>`)
+  - [x] Generate `declare` for imported symbols via `declare_external_fn_mangled()`
+  - [x] **Rust Tests**: `ori_llvm/src/declare.rs`
 
-- [ ] **Implement**: Update `ori demangle` for module paths
-  - [ ] Parse `_ori_helper_my_assert` → `helper.@my_assert`
-  - [ ] Handle nested paths (`_ori_http_client_connect` → `http/client.@connect`)
-  - [ ] **Rust Tests**: `oric/src/commands/demangle.rs`
+- [x] **Implement**: Update `ori demangle` for module paths
+  - [x] Parse `_ori_helper$my_assert` → `helper.@my_assert`
+  - [x] Handle nested paths (`_ori_http$client$connect` → `http/client.@connect`)
+  - [x] **Rust Tests**: `oric/src/commands/demangle.rs` (9 tests)
 
 ### 21B.8.5.3 Linking Integration
 
-- [ ] **Implement**: Multi-file linking in `compile_multi_file()`
-  - [ ] Collect all object files from dependency graph
-  - [ ] Pass to existing linker infrastructure
+- [x] **Implement**: Multi-file linking in `build_file_multi()`
+  - [x] Collect all object files from dependency graph
+  - [x] Pass to existing linker infrastructure via `link_and_finish()`
   - [ ] Handle stdlib library paths via `ORI_STDLIB`
-  - [ ] **Rust Tests**: `ori_llvm/src/aot/multi_file.rs`
+  - [x] **Rust Tests**: Covered by existing linker tests
 
 ### 21B.8.5.4 Cache Integration
 
@@ -756,6 +766,7 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 - [x] LLD support
 - [x] Runtime library (libori_rt)
 - [x] Static and dynamic linking
+- [x] Runtime library discovery (binary-relative, like rustc sysroot)
 - [ ] Linker error handling tests (8 scenarios)
 - [ ] Linker feature tests (9 scenarios)
 
@@ -784,9 +795,10 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 - [ ] Build incremental test (blocked on 21B.6 integration)
 
 **Multi-File Compilation (21B.8.5):**
-- [ ] Dependency graph infrastructure
-- [ ] Per-module compilation with name mangling
-- [ ] Linking integration
+- [x] Dependency graph infrastructure
+- [x] Per-module compilation with name mangling
+- [x] Linking integration
+- [x] `ori demangle` Ori-style output (`module.@function`)
 - [ ] Cache integration (reuse 21B.6)
 - [ ] Error handling (E5004-E5006)
 - [ ] Multi-file tests (13 scenarios)

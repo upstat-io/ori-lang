@@ -23,10 +23,6 @@ use super::util::{
 };
 use crate::assert_command_args;
 
-// ============================================================================
-// WASM Module Parsing Tests
-// ============================================================================
-
 /// Test: Parse a minimal valid WASM module
 ///
 /// Scenario from Rust `wasm-export-all-symbols`:
@@ -86,10 +82,6 @@ fn test_parse_invalid_wasm_fails() {
     let result = parse_wasm(invalid);
     assert!(result.is_err());
 }
-
-// ============================================================================
-// Memory Configuration Tests
-// ============================================================================
 
 /// Test: Default memory configuration
 ///
@@ -175,10 +167,6 @@ fn test_memory_config_unlimited() {
     assert!(!args.iter().any(|a| a.contains("--max-memory")));
 }
 
-// ============================================================================
-// Stack Configuration Tests
-// ============================================================================
-
 /// Test: Default stack configuration
 #[test]
 fn test_stack_config_default() {
@@ -198,10 +186,6 @@ fn test_stack_config_custom() {
     let args = config.linker_args();
     assert!(args.contains(&"--stack-size=524288".to_string()));
 }
-
-// ============================================================================
-// WASM Feature Flag Tests
-// ============================================================================
 
 /// Test: Enable bulk memory operations
 ///
@@ -289,10 +273,6 @@ fn test_wasm_config_all_features() {
     assert!(args.contains(&"--enable-multivalue".to_string()));
 }
 
-// ============================================================================
-// WASM Configuration Presets Tests
-// ============================================================================
-
 /// Test: Standalone WASM configuration
 ///
 /// Scenario: WASM module without WASI or JS bindings.
@@ -360,10 +340,6 @@ fn test_wasm_config_wasi_minimal() {
     assert!(wasi.clock);
     assert!(wasi.random);
 }
-
-// ============================================================================
-// WASI Configuration Tests
-// ============================================================================
 
 /// Test: WASI version configuration
 #[test]
@@ -453,10 +429,6 @@ fn test_wasi_minimal_undefined_symbols() {
     assert!(symbols.contains(&"wasi_snapshot_preview1.random_get"));
 }
 
-// ============================================================================
-// wasm-opt Integration Tests
-// ============================================================================
-
 /// Test: wasm-opt optimization levels
 #[test]
 fn test_wasm_opt_levels() {
@@ -508,10 +480,6 @@ fn test_wasm_opt_runner_custom_path() {
         "/opt/binaryen/bin/wasm-opt"
     );
 }
-
-// ============================================================================
-// WASM Linker Command Tests
-// ============================================================================
 
 /// Test: WASM linker executable output
 ///
@@ -699,10 +667,6 @@ fn test_wasm_linker_custom_entry() {
     assert_command_args!(cmd, "--entry=main");
 }
 
-// ============================================================================
-// JavaScript Binding Generation Tests
-// ============================================================================
-
 /// Test: JS binding generator creates valid output
 #[test]
 fn test_js_binding_generator() {
@@ -768,10 +732,6 @@ fn test_wasm_type_mappings() {
         "Array<any>"
     );
 }
-
-// ============================================================================
-// Error Handling Tests
-// ============================================================================
 
 /// Test: WASM error display
 #[test]

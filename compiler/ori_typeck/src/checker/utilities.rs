@@ -44,6 +44,7 @@ impl TypeChecker<'_> {
             message: diag.message.clone(),
             span,
             code: diag.code,
+            suggestion: None,
         };
 
         // If we have a diagnostic queue, use it for deduplication/limits
@@ -100,6 +101,28 @@ impl TypeChecker<'_> {
             message: msg.into(),
             span,
             code,
+            suggestion: None,
+        });
+    }
+
+    /// Push a type check error with an actionable suggestion.
+    ///
+    /// The suggestion is displayed separately from the main message,
+    /// following the three-part diagnostic structure:
+    /// problem → source context → actionable guidance.
+    #[inline]
+    pub(crate) fn push_error_with_suggestion(
+        &mut self,
+        msg: impl Into<String>,
+        span: Span,
+        code: ori_diagnostic::ErrorCode,
+        suggestion: impl Into<String>,
+    ) {
+        self.diagnostics.errors.push(TypeCheckError {
+            message: msg.into(),
+            span,
+            code,
+            suggestion: Some(suggestion.into()),
         });
     }
 }

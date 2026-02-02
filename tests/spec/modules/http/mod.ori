@@ -1,0 +1,15 @@
+// Directory module entry point (http/mod.ori)
+// Tests that `use "./http"` resolves to `./http/mod.ori`
+
+use std.testing { assert, assert_eq }
+
+// Public function for external use
+pub @status_ok () -> int = 200
+
+// Public function that returns a status string
+pub @get () -> str = "HTTP GET response"
+
+// Tests
+@test_status tests @status_ok () -> void = assert_eq(actual: status_ok(), expected: 200)
+
+@test_get tests @get () -> void = assert(condition: get() == "HTTP GET response")

@@ -1,14 +1,59 @@
 ---
 title: "WASM Target"
-description: "WebAssembly-specific considerations for the Ori interpreter"
+description: "WebAssembly support in Ori - interpreter and compilation target"
 order: 2
 ---
 
 # WASM Target
 
+Ori supports WebAssembly in two distinct ways:
+
+1. **Interpreter in WASM**: The Ori interpreter (`ori_eval`) compiles to WASM for embedding in browsers (Playground)
+2. **Compiling to WASM**: The LLVM backend can compile Ori programs to `.wasm` files
+
+## Compiling Ori to WebAssembly (LLVM Backend)
+
+The LLVM backend supports two WebAssembly targets:
+
+| Target | Description |
+|--------|-------------|
+| `wasm32-unknown-unknown` | Standalone WebAssembly (no host APIs) |
+| `wasm32-wasi` | WebAssembly with WASI (file system, stdio, etc.) |
+
+### Building WASM Binaries
+
+```bash
+# Compile to standalone WASM
+ori build --target wasm32-unknown-unknown program.ori
+
+# Compile with WASI support
+ori build --target wasm32-wasi program.ori
+```
+
+### WASM-Specific Configuration
+
+The `WasmConfig` struct controls WASM-specific options:
+
+```rust
+pub struct WasmConfig {
+    /// Memory configuration (import vs export, initial/max pages)
+    pub memory: WasmMemoryConfig,
+    /// Generate JavaScript bindings
+    pub generate_js_bindings: bool,
+    /// Generate TypeScript declarations
+    pub generate_ts_declarations: bool,
+}
+```
+
+See `ori_llvm/src/aot/wasm.rs` for implementation details.
+
+---
+
+## Interpreter in WASM (Playground)
+
 The Ori interpreter can be compiled to WebAssembly for embedding in browsers, Node.js, Deno, Wasmtime, Wasmer, and other WASM runtimes.
 
-## Building for WASM
+### Building the Interpreter for WASM
 
 ```bash
 cargo build --target wasm32-unknown-unknown -p ori_eval
@@ -20,7 +65,7 @@ Or with wasm-pack for JavaScript bindings:
 wasm-pack build --target web --release
 ```
 
-## Portable Crate Design
+### Portable Crate Design
 
 The following crates are WASM-compatible (no Salsa dependency):
 

@@ -186,6 +186,43 @@ impl<'ll> CodegenCx<'ll, '_> {
         self.scx.llmod.get_function(name)
     }
 
+    /// Declare an external function with a pre-mangled name.
+    ///
+    /// This is used to declare imported functions from other modules.
+    /// The caller is responsible for providing the correctly mangled name.
+    ///
+    /// # Arguments
+    ///
+    /// * `mangled_name` - The fully mangled symbol name (e.g., `_ori_helper$add`)
+    /// * `param_types` - LLVM types for the parameters
+    /// * `return_type` - LLVM return type, or `None` for void
+    ///
+    /// # Returns
+    ///
+    /// The function declaration with external linkage.
+    pub fn declare_external_fn_mangled(
+        &self,
+        mangled_name: &str,
+        param_types: &[BasicMetadataTypeEnum<'ll>],
+        return_type: Option<BasicTypeEnum<'ll>>,
+    ) -> FunctionValue<'ll> {
+        // Check if already declared
+        if let Some(func) = self.scx.llmod.get_function(mangled_name) {
+            return func;
+        }
+
+        // Build function type
+        let fn_type = match return_type {
+            Some(ret) => self.scx.type_func(param_types, ret),
+            None => self.scx.type_void_func(param_types),
+        };
+
+        // Add function with external linkage (resolved at link time)
+        self.scx
+            .llmod
+            .add_function(mangled_name, fn_type, Some(Linkage::External))
+    }
+
     /// Declare a global variable.
     ///
     /// Creates a global variable declaration that can be defined later.
@@ -321,5 +358,30 @@ mod tests {
         let global = cx.declare_global_string("hello", "str_hello");
         assert_eq!(global.get_name().to_str().unwrap(), "str_hello");
         assert!(global.is_constant());
+    }
+
+    #[test]
+    fn test_declare_external_fn_mangled() {
+        let context = Context::create();
+        let interner = StringInterner::new();
+        let cx = CodegenCx::new(&context, &interner, "test");
+
+        let i64_ty: BasicTypeEnum = cx.scx.type_i64().into();
+        let func = cx.declare_external_fn_mangled(
+            "_ori_helper$add",
+            &[i64_ty.into(), i64_ty.into()],
+            Some(i64_ty),
+        );
+
+        assert_eq!(func.get_name().to_str().unwrap(), "_ori_helper$add");
+        assert_eq!(func.count_params(), 2);
+
+        // Second call should return same function
+        let func2 = cx.declare_external_fn_mangled(
+            "_ori_helper$add",
+            &[i64_ty.into(), i64_ty.into()],
+            Some(i64_ty),
+        );
+        assert_eq!(func, func2);
     }
 }

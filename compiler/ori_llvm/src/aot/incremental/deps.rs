@@ -189,6 +189,9 @@ impl DependencyGraph {
     ///
     /// Files are ordered so that dependencies come before dependents.
     /// Returns None if there's a cycle.
+    ///
+    /// Note: This produces a deterministic ordering by sorting paths with equal
+    /// in-degree. This ensures consistent compilation order across runs.
     pub fn topological_order(&self) -> Option<Vec<PathBuf>> {
         // Count how many dependencies each node has (in-degree in dependency graph)
         let mut in_degree: HashMap<&PathBuf, usize> = HashMap::new();
@@ -207,10 +210,15 @@ impl DependencyGraph {
         }
 
         // Find nodes with no dependencies (can compile first)
-        for (path, &degree) in &in_degree {
-            if degree == 0 {
-                queue.push_back(*path);
-            }
+        // Sort paths for deterministic ordering when multiple nodes have zero in-degree
+        let mut zero_degree: Vec<&PathBuf> = in_degree
+            .iter()
+            .filter(|(_, &degree)| degree == 0)
+            .map(|(path, _)| *path)
+            .collect();
+        zero_degree.sort();
+        for path in zero_degree {
+            queue.push_back(path);
         }
 
         // Process nodes in order
@@ -219,13 +227,20 @@ impl DependencyGraph {
 
             // When we complete this file, files that depend on it can decrement their count
             if let Some(deps) = self.dependents.get(path) {
+                // Collect newly ready deps and sort for determinism
+                let mut newly_ready: Vec<&PathBuf> = Vec::new();
                 for dep in deps {
                     if let Some(degree) = in_degree.get_mut(dep) {
                         *degree -= 1;
                         if *degree == 0 {
-                            queue.push_back(dep);
+                            newly_ready.push(dep);
                         }
                     }
+                }
+                // Sort for deterministic ordering
+                newly_ready.sort();
+                for dep in newly_ready {
+                    queue.push_back(dep);
                 }
             }
         }
