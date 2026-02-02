@@ -5,7 +5,7 @@
 /// Takes a mangled symbol like `_ori_MyModule_foo` and outputs
 /// the demangled form like `MyModule.@foo`.
 #[cfg(feature = "llvm")]
-pub(crate) fn demangle_symbol(symbol: &str) {
+pub fn demangle_symbol(symbol: &str) {
     use ori_llvm::aot::{demangle, is_ori_symbol};
 
     if !is_ori_symbol(symbol) {
@@ -25,7 +25,7 @@ pub(crate) fn demangle_symbol(symbol: &str) {
 
 /// Demangle when LLVM feature is not enabled.
 #[cfg(not(feature = "llvm"))]
-pub(crate) fn demangle_symbol(_symbol: &str) {
+pub fn demangle_symbol(_symbol: &str) {
     eprintln!("error: the 'demangle' command requires the LLVM backend");
     eprintln!();
     eprintln!("The Ori compiler was built without LLVM support.");

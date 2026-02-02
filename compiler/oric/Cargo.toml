@@ -59,6 +59,7 @@ ori_macros = { path = "../ori_macros" }
 pretty_assertions = "1.4"
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.10"
+ori_rt = { path = "../ori_rt" }
 
 [[bench]]
 name = "type_check"

@@ -3,7 +3,7 @@
 use ori_diagnostic::{ErrorCode, ErrorDocs};
 
 /// Display detailed documentation for a given error code string.
-pub(crate) fn explain_error(code_str: &str) {
+pub fn explain_error(code_str: &str) {
     let Some(code) = parse_error_code(code_str) else {
         eprintln!("Unknown error code: {code_str}");
         eprintln!();

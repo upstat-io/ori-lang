@@ -21,7 +21,7 @@ pub enum TargetSubcommand {
 
 impl TargetSubcommand {
     /// Parse a subcommand from a string.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "list" => Some(Self::List),
             "add" => Some(Self::Add),
@@ -56,7 +56,7 @@ fn is_target_installed(target: &str) -> bool {
 /// Run the `ori target list` command.
 ///
 /// Lists all installed cross-compilation targets.
-pub(crate) fn list_installed_targets() {
+pub fn list_installed_targets() {
     let sysroots = sysroots_dir();
 
     println!("Installed targets:");
@@ -107,7 +107,7 @@ pub(crate) fn list_installed_targets() {
 ///
 /// Downloads and installs a cross-compilation sysroot for the given target.
 #[cfg(feature = "llvm")]
-pub(crate) fn add_target(target: &str) {
+pub fn add_target(target: &str) {
     use ori_llvm::aot::SUPPORTED_TARGETS;
 
     // Validate target
@@ -205,7 +205,7 @@ pub(crate) fn add_target(target: &str) {
 
 /// Run the `ori target add <target>` command when LLVM is not available.
 #[cfg(not(feature = "llvm"))]
-pub(crate) fn add_target(_target: &str) {
+pub fn add_target(_target: &str) {
     eprintln!("error: the 'target add' command requires the LLVM backend");
     eprintln!();
     eprintln!("The Ori compiler was built without LLVM support.");
@@ -216,7 +216,7 @@ pub(crate) fn add_target(_target: &str) {
 }
 
 /// Run the `ori target remove <target>` command.
-pub(crate) fn remove_target(target: &str) {
+pub fn remove_target(target: &str) {
     let sysroot = sysroot_path(target);
 
     if !sysroot.exists() {
@@ -350,19 +350,16 @@ mod tests {
     #[test]
     fn test_target_subcommand_from_str() {
         assert_eq!(
-            TargetSubcommand::from_str("list"),
+            TargetSubcommand::parse("list"),
             Some(TargetSubcommand::List)
         );
+        assert_eq!(TargetSubcommand::parse("add"), Some(TargetSubcommand::Add));
         assert_eq!(
-            TargetSubcommand::from_str("add"),
-            Some(TargetSubcommand::Add)
-        );
-        assert_eq!(
-            TargetSubcommand::from_str("remove"),
+            TargetSubcommand::parse("remove"),
             Some(TargetSubcommand::Remove)
         );
-        assert_eq!(TargetSubcommand::from_str("invalid"), None);
-        assert_eq!(TargetSubcommand::from_str(""), None);
+        assert_eq!(TargetSubcommand::parse("invalid"), None);
+        assert_eq!(TargetSubcommand::parse(""), None);
     }
 
     #[test]
