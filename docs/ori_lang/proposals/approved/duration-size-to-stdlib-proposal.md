@@ -202,31 +202,32 @@ impl Rem for Size {
 // Note: Neg is NOT implemented for Size — unary negation is a compile error
 
 impl Size {
-    // Factory methods (associated functions)
+    // Factory methods (associated functions) - SI units (1000-based)
     pub @from_bytes (b: int) -> Self = run(
         if b < 0 then panic(msg: "Size cannot be negative"),
         Size { bytes: b },
     )
-    pub @from_kilobytes (kb: int) -> Self = Self.from_bytes(b: kb * 1024)
-    pub @from_megabytes (mb: int) -> Self = Self.from_bytes(b: mb * 1024 * 1024)
-    pub @from_gigabytes (gb: int) -> Self = Self.from_bytes(b: gb * 1024 * 1024 * 1024)
-    pub @from_terabytes (tb: int) -> Self = Self.from_bytes(b: tb * 1024 * 1024 * 1024 * 1024)
+    pub @from_kilobytes (kb: int) -> Self = Self.from_bytes(b: kb * 1000)
+    pub @from_megabytes (mb: int) -> Self = Self.from_bytes(b: mb * 1_000_000)
+    pub @from_gigabytes (gb: int) -> Self = Self.from_bytes(b: gb * 1_000_000_000)
+    pub @from_terabytes (tb: int) -> Self = Self.from_bytes(b: tb * 1_000_000_000_000)
 
-    // Extraction methods (truncate toward zero)
+    // Extraction methods (truncate toward zero) - SI units (1000-based)
     pub @bytes (self) -> int = self.bytes
-    pub @kilobytes (self) -> int = self.bytes / 1024
-    pub @megabytes (self) -> int = self.bytes / (1024 * 1024)
-    pub @gigabytes (self) -> int = self.bytes / (1024 * 1024 * 1024)
-    pub @terabytes (self) -> int = self.bytes / (1024 * 1024 * 1024 * 1024)
+    pub @kilobytes (self) -> int = self.bytes / 1000
+    pub @megabytes (self) -> int = self.bytes / 1_000_000
+    pub @gigabytes (self) -> int = self.bytes / 1_000_000_000
+    pub @terabytes (self) -> int = self.bytes / 1_000_000_000_000
 }
 
 impl Printable for Size {
+    // SI units (1000-based)
     @to_str (self) -> str = run(
         let b = self.bytes,
-        if b % 1_099_511_627_776 == 0 then `{b / 1_099_511_627_776}tb`
-        else if b % 1_073_741_824 == 0 then `{b / 1_073_741_824}gb`
-        else if b % 1_048_576 == 0 then `{b / 1_048_576}mb`
-        else if b % 1024 == 0 then `{b / 1024}kb`
+        if b % 1_000_000_000_000 == 0 then `{b / 1_000_000_000_000}tb`
+        else if b % 1_000_000_000 == 0 then `{b / 1_000_000_000}gb`
+        else if b % 1_000_000 == 0 then `{b / 1_000_000}mb`
+        else if b % 1000 == 0 then `{b / 1000}kb`
         else `{b}b`,
     )
 }

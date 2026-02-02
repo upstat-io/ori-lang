@@ -181,27 +181,29 @@ Range: 0 to ~8 exabytes.
 | Suffix | Unit | Bytes |
 |--------|------|-------|
 | `b` | bytes | 1 |
-| `kb` | kilobytes | 1,024 |
-| `mb` | megabytes | 1,048,576 |
-| `gb` | gigabytes | 1,073,741,824 |
-| `tb` | terabytes | 1,099,511,627,776 |
+| `kb` | kilobytes | 1,000 |
+| `mb` | megabytes | 1,000,000 |
+| `gb` | gigabytes | 1,000,000,000 |
+| `tb` | terabytes | 1,000,000,000,000 |
 
 ```ori
 let s1 = 100b    // 100 bytes
-let s2 = 4kb     // 4 kilobytes = 4096 bytes
+let s2 = 4kb     // 4 kilobytes = 4000 bytes
 let s3 = 10mb    // 10 megabytes
 let s4 = 2gb     // 2 gigabytes
 let s5 = 1tb     // 1 terabyte
 ```
 
-### Binary vs Decimal
+### SI Units
 
-Ori uses binary units (powers of 1024), not decimal (powers of 1000):
+Ori uses SI/decimal units (powers of 1000). Programs requiring exact powers of 1024 should use explicit byte counts: `1024b`, `1048576b`, etc.
 
 ```ori
-1kb == 1024b    // true (binary kilobyte)
-1mb == 1024kb   // true
+1kb == 1000b     // true (SI kilobyte)
+1mb == 1000kb    // true
 ```
+
+> **Amendment:** Size units changed from binary (1024) to SI (1000) by `decimal-duration-size-literals-proposal.md` to enable intuitive decimal literal syntax.
 
 ### Arithmetic
 
@@ -216,9 +218,9 @@ Ori uses binary units (powers of 1024), not decimal (powers of 1000):
 | `s1 % s2` | Size % Size | Size (remainder) |
 
 ```ori
-let total = 1mb + 512kb   // 1.5mb = 1572864b
-let ratio = 1gb / 1mb     // 1024
-let aligned = 1025b % 1kb // 1b
+let total = 1mb + 500kb   // 1.5mb = 1500000b
+let ratio = 1gb / 1mb     // 1000
+let aligned = 1001b % 1kb // 1b
 ```
 
 ### Non-Negative Constraint
@@ -236,7 +238,7 @@ Sizes are fully comparable:
 
 ```ori
 1mb < 1gb     // true
-1024kb == 1mb // true
+1000kb == 1mb // true
 ```
 
 ### Conversion Methods
@@ -427,5 +429,5 @@ Update duration and size unit productions:
 | Negative | Allowed | Compile error (unary -) or panic (subtraction) |
 | Overflow | Panic | Panic |
 | Default | `0ns` | `0b` |
-| Units | Metric time | Binary (1024-based) |
+| Units | Metric time | SI/Decimal (1000-based) |
 | Modulo | Supported | Supported |

@@ -175,7 +175,16 @@ pub enum TokenKind {
     Newline,
     Eof,
 
+    /// Generic error token for unrecognized input.
     Error,
+
+    /// Float with duration suffix error (e.g., 1.5s, 2.5ms).
+    /// Per spec: "Duration: no float prefix (`1500ms` not `1.5s`)"
+    FloatDurationError,
+
+    /// Float with size suffix error (e.g., 1.5kb, 2.5mb).
+    /// Per spec: "Size: no float prefix"
+    FloatSizeError,
 }
 
 impl TokenKind {
@@ -367,6 +376,8 @@ impl TokenKind {
             TokenKind::Newline => "newline",
             TokenKind::Eof => "end of file",
             TokenKind::Error => "error",
+            TokenKind::FloatDurationError => "invalid float duration literal",
+            TokenKind::FloatSizeError => "invalid float size literal",
         }
     }
 }

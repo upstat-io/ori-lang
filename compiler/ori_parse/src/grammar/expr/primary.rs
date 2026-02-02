@@ -279,6 +279,30 @@ impl Parser<'_> {
             // Let expression
             TokenKind::Let => self.parse_let_expr(),
 
+            // Float with duration suffix is an error (e.g., 1.5s, 2.5ms)
+            // Spec: duration-size-types-proposal.md § Numeric Prefix
+            // "Floating-point prefixes are NOT supported"
+            TokenKind::FloatDurationError => {
+                self.advance();
+                Err(ParseError::new(
+                    ori_diagnostic::ErrorCode::E0911,
+                    "floating-point duration literal not supported",
+                    span,
+                )
+                .with_context("use integer with smaller unit (e.g., `1500ms` instead of `1.5s`)"))
+            }
+
+            // Float with size suffix is an error (e.g., 1.5kb, 2.5mb)
+            TokenKind::FloatSizeError => {
+                self.advance();
+                Err(ParseError::new(
+                    ori_diagnostic::ErrorCode::E0911,
+                    "floating-point size literal not supported",
+                    span,
+                )
+                .with_context("use integer with smaller unit (e.g., `1536kb` instead of `1.5mb`)"))
+            }
+
             _ => Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
                 format!(

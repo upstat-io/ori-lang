@@ -260,6 +260,31 @@ pub(crate) enum RawToken {
     })]
     Float(f64),
 
+    // Error tokens for float+duration/size suffixes (must be higher priority than Float)
+    // These catch invalid literals like 1.5s, 2.5ms, 0.5kb
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?ns", priority = 2)]
+    FloatDurationNs,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?us", priority = 2)]
+    FloatDurationUs,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?ms", priority = 2)]
+    FloatDurationMs,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?s", priority = 2)]
+    FloatDurationS,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?m", priority = 2)]
+    FloatDurationM,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?h", priority = 2)]
+    FloatDurationH,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?b", priority = 2)]
+    FloatSizeB,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?kb", priority = 2)]
+    FloatSizeKb,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?mb", priority = 2)]
+    FloatSizeMb,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?gb", priority = 2)]
+    FloatSizeGb,
+    #[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?tb", priority = 2)]
+    FloatSizeTb,
+
     // Duration literals (using shared helper)
     #[regex(r"[0-9]+ns", |lex| parse_with_suffix(lex.slice(), 2, DurationUnit::Nanoseconds))]
     DurationNs((u64, DurationUnit)),
