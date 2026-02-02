@@ -16,6 +16,24 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ## Keyword Clusters by Section
 
+### Section 00: Full Parser Support
+**File:** `section-00-parser.md` | **Tier:** 0 | **Status:** Not Started
+
+```
+parser, parsing, syntax, grammar, EBNF
+lexer, lexical, token, tokenize
+AST, abstract syntax tree, parse tree
+production, grammar rule, syntax rule
+literal, identifier, keyword, operator, delimiter
+expression, statement, declaration
+pattern, binding pattern, match pattern
+precedence, associativity, binary, unary, postfix
+error recovery, parse error, syntax error
+ori_parse, ori_lexer
+```
+
+---
+
 ### Section 01: Type System Foundation
 **File:** `section-01-type-system.md` | **Tier:** 1 | **Status:** Complete
 
@@ -581,6 +599,7 @@ ori publish, registry, cache
 
 | ID | Title | Tier | File |
 |----|-------|------|------|
+| 00 | Full Parser Support | 0 | `section-00-parser.md` |
 | 01 | Type System Foundation | 1 | `section-01-type-system.md` |
 | 02 | Type Inference | 1 | `section-02-type-inference.md` |
 | 03 | Traits and Implementations | 1 | `section-03-traits.md` |

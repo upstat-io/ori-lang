@@ -3,7 +3,7 @@
 //! Methods for emitting always-stacked constructs (run, try, match, etc.)
 //! that always render in multi-line format.
 
-use ori_ir::{ExprId, ExprKind, SeqBinding, SeqBindingRange, StringLookup};
+use ori_ir::{ArmRange, ExprId, ExprKind, SeqBinding, SeqBindingRange, StringLookup};
 
 use super::Formatter;
 
@@ -14,28 +14,7 @@ impl<I: StringLookup> Formatter<'_, I> {
 
         match &expr.kind {
             ExprKind::Match { scrutinee, arms } => {
-                self.ctx.emit("match(");
-                self.format(*scrutinee);
-                self.ctx.emit(",");
-                let arms_list = self.arena.get_arms(*arms);
-                self.ctx.emit_newline();
-                self.ctx.indent();
-                for arm in arms_list {
-                    self.ctx.emit_indent();
-                    self.emit_match_pattern(&arm.pattern);
-                    if let Some(guard) = arm.guard {
-                        self.ctx.emit(".match(");
-                        self.format(guard);
-                        self.ctx.emit(")");
-                    }
-                    self.ctx.emit(" -> ");
-                    self.format(arm.body);
-                    self.ctx.emit(",");
-                    self.ctx.emit_newline();
-                }
-                self.ctx.dedent();
-                self.ctx.emit_indent();
-                self.ctx.emit(")");
+                self.emit_match_construct(*scrutinee, *arms);
             }
 
             ExprKind::FunctionSeq(seq) => {
@@ -105,28 +84,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 arms,
                 span: _,
             } => {
-                self.ctx.emit("match(");
-                self.format(*scrutinee);
-                self.ctx.emit(",");
-                let arms_list = self.arena.get_arms(*arms);
-                self.ctx.emit_newline();
-                self.ctx.indent();
-                for arm in arms_list {
-                    self.ctx.emit_indent();
-                    self.emit_match_pattern(&arm.pattern);
-                    if let Some(guard) = arm.guard {
-                        self.ctx.emit(".match(");
-                        self.format(guard);
-                        self.ctx.emit(")");
-                    }
-                    self.ctx.emit(" -> ");
-                    self.format(arm.body);
-                    self.ctx.emit(",");
-                    self.ctx.emit_newline();
-                }
-                self.ctx.dedent();
-                self.ctx.emit_indent();
-                self.ctx.emit(")");
+                self.emit_match_construct(*scrutinee, *arms);
             }
 
             ori_ir::FunctionSeq::ForPattern {
@@ -172,6 +130,40 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit(")");
             }
         }
+    }
+
+    /// Emit a match construct (shared by `ExprKind::Match` and `FunctionSeq::Match`).
+    ///
+    /// Format:
+    /// ```text
+    /// match(scrutinee,
+    ///     pattern -> body,
+    ///     pattern.match(guard) -> body,
+    /// )
+    /// ```
+    fn emit_match_construct(&mut self, scrutinee: ExprId, arms: ArmRange) {
+        self.ctx.emit("match(");
+        self.format(scrutinee);
+        self.ctx.emit(",");
+        let arms_list = self.arena.get_arms(arms);
+        self.ctx.emit_newline();
+        self.ctx.indent();
+        for arm in arms_list {
+            self.ctx.emit_indent();
+            self.emit_match_pattern(&arm.pattern);
+            if let Some(guard) = arm.guard {
+                self.ctx.emit(".match(");
+                self.format(guard);
+                self.ctx.emit(")");
+            }
+            self.ctx.emit(" -> ");
+            self.format(arm.body);
+            self.ctx.emit(",");
+            self.ctx.emit_newline();
+        }
+        self.ctx.dedent();
+        self.ctx.emit_indent();
+        self.ctx.emit(")");
     }
 
     /// Emit a sequential pattern with bindings (shared by run/try).
