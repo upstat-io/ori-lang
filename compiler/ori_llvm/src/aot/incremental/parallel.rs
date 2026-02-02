@@ -78,10 +78,15 @@ impl CompilationPlan {
     /// Create a compilation plan from a dependency graph.
     #[must_use]
     pub fn from_graph(graph: &DependencyGraph, files: &[PathBuf]) -> Self {
+        use std::collections::HashSet;
+
         let mut plan = Self::new();
 
         // Get topological order for proper scheduling
         let order = graph.topological_order().unwrap_or_default();
+
+        // Pre-build HashSet for O(1) lookup instead of O(n) Vec::contains
+        let files_set: HashSet<&PathBuf> = files.iter().collect();
 
         // Create work items
         for path in files {
@@ -91,7 +96,7 @@ impl CompilationPlan {
                     .map(<[PathBuf]>::to_vec)
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|d| files.contains(d))
+                    .filter(|d| files_set.contains(&d))
                     .collect();
 
                 // Priority based on position in topological order

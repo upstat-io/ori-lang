@@ -46,9 +46,11 @@ impl DependencyGraph {
         }
 
         // Remove old imports from reverse map if updating
+        // Use HashSet for O(1) lookup instead of O(n) Vec::contains
         if let Some(old_node) = self.nodes.get(&path) {
+            let imports_set: HashSet<&PathBuf> = imports.iter().collect();
             for old_import in &old_node.imports {
-                if !imports.contains(old_import) {
+                if !imports_set.contains(old_import) {
                     if let Some(deps) = self.dependents.get_mut(old_import) {
                         deps.remove(&path);
                     }
@@ -126,28 +128,30 @@ impl DependencyGraph {
     /// Returns all files that this file depends on, directly or indirectly.
     #[must_use]
     pub fn transitive_dependencies(&self, path: &Path) -> HashSet<PathBuf> {
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
+        // Use references internally to avoid cloning during traversal
+        let mut visited: HashSet<&PathBuf> = HashSet::new();
+        let mut queue: VecDeque<&PathBuf> = VecDeque::new();
 
         if let Some(node) = self.nodes.get(path) {
             for import in &node.imports {
-                queue.push_back(import.clone());
+                queue.push_back(import);
             }
         }
 
         while let Some(current) = queue.pop_front() {
-            if visited.insert(current.clone()) {
-                if let Some(node) = self.nodes.get(&current) {
+            if visited.insert(current) {
+                if let Some(node) = self.nodes.get(current) {
                     for import in &node.imports {
                         if !visited.contains(import) {
-                            queue.push_back(import.clone());
+                            queue.push_back(import);
                         }
                     }
                 }
             }
         }
 
-        visited
+        // Clone only at the end when building the result
+        visited.into_iter().cloned().collect()
     }
 
     /// Compute the transitive closure of dependents for a file.
@@ -155,28 +159,30 @@ impl DependencyGraph {
     /// Returns all files that depend on this file, directly or indirectly.
     #[must_use]
     pub fn transitive_dependents(&self, path: &Path) -> HashSet<PathBuf> {
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
+        // Use references internally to avoid cloning during traversal
+        let mut visited: HashSet<&PathBuf> = HashSet::new();
+        let mut queue: VecDeque<&PathBuf> = VecDeque::new();
 
         if let Some(deps) = self.dependents.get(path) {
             for dep in deps {
-                queue.push_back(dep.clone());
+                queue.push_back(dep);
             }
         }
 
         while let Some(current) = queue.pop_front() {
-            if visited.insert(current.clone()) {
-                if let Some(deps) = self.dependents.get(&current) {
+            if visited.insert(current) {
+                if let Some(deps) = self.dependents.get(current) {
                     for dep in deps {
                         if !visited.contains(dep) {
-                            queue.push_back(dep.clone());
+                            queue.push_back(dep);
                         }
                     }
                 }
             }
         }
 
-        visited
+        // Clone only at the end when building the result
+        visited.into_iter().cloned().collect()
     }
 
     /// Compute a topological ordering for compilation.
