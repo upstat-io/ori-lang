@@ -10,7 +10,7 @@ use super::read_file;
 ///
 /// Accumulates all errors (parse, type, and coverage) before exiting, giving
 /// the user a complete picture of issues rather than stopping at the first error.
-pub(crate) fn check_file(path: &str) {
+pub fn check_file(path: &str) {
     let content = read_file(path);
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);

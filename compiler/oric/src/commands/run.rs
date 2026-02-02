@@ -13,7 +13,7 @@ use super::read_file;
 ///
 /// Accumulates all errors (parse and type) before exiting, giving the user
 /// a complete picture of issues rather than stopping at the first error.
-pub(crate) fn run_file(path: &str) {
+pub fn run_file(path: &str) {
     let content = read_file(path);
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);
@@ -72,7 +72,7 @@ pub(crate) fn run_file(path: &str) {
 /// This mode compiles the source to a native executable and caches it.
 /// Subsequent runs with unchanged source reuse the cached binary.
 #[cfg(feature = "llvm")]
-pub(crate) fn run_file_compiled(path: &str) {
+pub fn run_file_compiled(path: &str) {
     use ori_llvm::inkwell::context::Context;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -273,7 +273,7 @@ fn get_cache_dir() -> PathBuf {
 
 /// Run with compile mode when LLVM feature is not enabled.
 #[cfg(not(feature = "llvm"))]
-pub(crate) fn run_file_compiled(_path: &str) {
+pub fn run_file_compiled(_path: &str) {
     eprintln!("error: the '--compile' flag requires the LLVM backend");
     eprintln!();
     eprintln!("The Ori compiler was built without LLVM support.");

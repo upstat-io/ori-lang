@@ -5,7 +5,7 @@ use oric::TestOutcome;
 use std::path::Path;
 
 /// Run tests at the given path with the provided configuration.
-pub(crate) fn run_tests(path: &str, config: &TestRunnerConfig) {
+pub fn run_tests(path: &str, config: &TestRunnerConfig) {
     let path = Path::new(path);
 
     if !path.exists() {

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use super::read_file;
 
 /// Parse a file and display AST information.
-pub(crate) fn parse_file(path: &str) {
+pub fn parse_file(path: &str) {
     let content = read_file(path);
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);
@@ -43,7 +43,7 @@ pub(crate) fn parse_file(path: &str) {
 }
 
 /// Lex a file and display the token stream.
-pub(crate) fn lex_file(path: &str) {
+pub fn lex_file(path: &str) {
     let content = read_file(path);
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);

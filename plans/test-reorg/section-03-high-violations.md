@@ -1,32 +1,32 @@
 ---
 section: 3
 title: High Violations
-status: not-started
+status: completed
 goal: Extract 500-800 line inline test modules
 sections:
   - id: "3.1"
     title: Extract scalar_int.rs Tests
-    status: not-started
+    status: completed
   - id: "3.2"
     title: Extract passes.rs Tests
-    status: not-started
+    status: completed
   - id: "3.3"
     title: Extract errors.rs Tests
-    status: not-started
+    status: completed
   - id: "3.4"
     title: Extract object.rs Tests
-    status: not-started
+    status: completed
   - id: "3.5"
     title: Extract lexer Tests
-    status: not-started
+    status: completed
   - id: "3.6"
     title: Completion Checklist
-    status: not-started
+    status: completed
 ---
 
 # Section 3: High Violations (500-800 lines)
 
-**Status:** 📋 Planned
+**Status:** ✅ Completed
 **Goal:** Extract 500-800 line inline test modules
 
 ---
@@ -178,12 +178,12 @@ sections:
 
 ## 3.6 Completion Checklist
 
-- [ ] `scalar_int.rs` inline tests < 200 lines
-- [ ] `passes.rs` inline tests < 200 lines
-- [ ] `errors.rs` inline tests < 200 lines
-- [ ] `object.rs` inline tests < 200 lines
-- [ ] `ori_lexer/src/lib.rs` inline tests < 200 lines
-- [ ] All tests pass in phase tests
+- [x] `scalar_int.rs` inline tests < 200 lines (0 lines - all extracted)
+- [x] `passes.rs` inline tests < 200 lines (0 lines - all extracted)
+- [x] `errors.rs` inline tests < 200 lines (0 lines - all extracted)
+- [x] `object.rs` inline tests < 200 lines (0 lines - all extracted)
+- [x] `ori_lexer/src/lib.rs` inline tests < 200 lines (0 lines - all extracted)
+- [x] All tests pass in phase tests (392 tests passing)
 - [ ] No test regressions in CI
 
 **Exit Criteria:** All 5 high-violation modules extracted; all tests passing; no module > 200 lines of inline tests.

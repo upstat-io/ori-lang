@@ -4,7 +4,7 @@
 ///
 /// With `--installed`, only shows targets that have sysroots available.
 #[cfg(feature = "llvm")]
-pub(crate) fn list_targets(installed_only: bool) {
+pub fn list_targets(installed_only: bool) {
     use ori_llvm::aot::SUPPORTED_TARGETS;
 
     if installed_only {
@@ -64,7 +64,7 @@ pub(crate) fn list_targets(installed_only: bool) {
 
 /// List targets when LLVM feature is not enabled.
 #[cfg(not(feature = "llvm"))]
-pub(crate) fn list_targets(_installed_only: bool) {
+pub fn list_targets(_installed_only: bool) {
     eprintln!("error: the 'targets' command requires the LLVM backend");
     eprintln!();
     eprintln!("The Ori compiler was built without LLVM support.");

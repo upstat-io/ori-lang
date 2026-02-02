@@ -62,7 +62,7 @@ pub enum FormatResult {
 /// Format a single Ori source file.
 ///
 /// Returns the format result indicating whether the file was changed.
-pub(crate) fn format_file(path: &str, config: &FormatConfig) -> FormatResult {
+pub fn format_file(path: &str, config: &FormatConfig) -> FormatResult {
     let content = read_file(path);
     format_content(path, &content, config)
 }
@@ -70,7 +70,7 @@ pub(crate) fn format_file(path: &str, config: &FormatConfig) -> FormatResult {
 /// Format content from stdin and write to stdout.
 ///
 /// Returns true if the content was valid (no parse errors), false otherwise.
-pub(crate) fn format_stdin() -> bool {
+pub fn format_stdin() -> bool {
     let mut content = String::new();
     if let Err(e) = std::io::stdin().read_to_string(&mut content) {
         eprintln!("Error reading from stdin: {e}");
@@ -232,7 +232,7 @@ fn print_diff(path: &str, original: &str, formatted: &str) {
 /// Format all Ori files in a directory recursively.
 ///
 /// Uses parallel processing for better performance on large directories.
-pub(crate) fn format_directory(path: &str, config: &FormatConfig) -> (usize, usize, usize) {
+pub fn format_directory(path: &str, config: &FormatConfig) -> (usize, usize, usize) {
     // Load ignore patterns from .orifmtignore files
     let ignore_patterns = if config.no_ignore {
         Vec::new()
@@ -422,7 +422,7 @@ fn visit_ori_files_impl<F: FnMut(&Path)>(
 }
 
 /// Run the format command.
-pub(crate) fn run_format(args: &[String]) {
+pub fn run_format(args: &[String]) {
     let mut config = FormatConfig::default();
     let mut paths: Vec<String> = Vec::new();
 

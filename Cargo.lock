@@ -741,6 +741,7 @@ dependencies = [
  "ori_macros",
  "ori_parse",
  "ori_patterns",
+ "ori_rt",
  "ori_stack",
  "ori_typeck",
  "ori_types",

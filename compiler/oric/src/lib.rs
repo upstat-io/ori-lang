@@ -1,8 +1,3 @@
-// EvalError is a fundamental error type - boxing would add complexity across the crate
-#![allow(clippy::result_large_err)]
-// Arc is needed for sharing captures across closures in the evaluator
-#![allow(clippy::disallowed_types)]
-
 //! Ori Compiler - Salsa-First Incremental Compilation
 //!
 //! Built with Salsa as the foundation for efficient incremental compilation.
@@ -24,6 +19,14 @@
 //! ```
 //!
 //! Each arrow is a Salsa query with automatic caching and invalidation.
+
+// EvalError is a fundamental error type - boxing would add complexity across the crate
+#![allow(clippy::result_large_err)]
+// Arc is needed for sharing captures across closures in the evaluator
+#![allow(clippy::disallowed_types)]
+
+// Allow modules to use `oric::` paths for consistency with external consumers
+extern crate self as oric;
 
 /// Compile-time assertion that a type has a specific size.
 ///
@@ -48,6 +51,7 @@ macro_rules! static_assert_size {
     };
 }
 
+pub mod commands;
 pub mod db;
 pub mod input;
 pub mod ir;
