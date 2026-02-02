@@ -9,92 +9,138 @@ section: "Type System"
 
 Unification is the process of finding a substitution that makes two types equal. It's the core algorithm for type inference.
 
-## Basic Algorithm
+## Location
+
+```
+compiler/ori_types/src/context.rs
+```
+
+## TypeId-Based Unification
+
+The implementation uses `TypeId` internally for O(1) equality fast-paths:
 
 ```rust
-fn unify(&mut self, t1: &Type, t2: &Type) -> Result<(), TypeError> {
-    // Apply current substitution first
-    let t1 = self.apply_subst(t1);
-    let t2 = self.apply_subst(t2);
+impl InferenceContext {
+    /// Public API: accepts Type references.
+    pub fn unify(&mut self, t1: &Type, t2: &Type) -> Result<(), TypeError> {
+        let id1 = t1.to_type_id(&self.interner);
+        let id2 = t2.to_type_id(&self.interner);
+        self.unify_ids(id1, id2)
+    }
 
-    match (&t1, &t2) {
-        // Identical types unify trivially
-        _ if t1 == t2 => Ok(()),
-
-        // Type variable unifies with anything (with occurs check)
-        (Type::TypeVar(id), ty) | (ty, Type::TypeVar(id)) => {
-            self.bind_var(*id, ty)
+    /// Internal: uses interned TypeIds for efficiency.
+    pub fn unify_ids(&mut self, id1: TypeId, id2: TypeId) -> Result<(), TypeError> {
+        // O(1) fast path: identical TypeIds always unify
+        if id1 == id2 {
+            return Ok(());
         }
 
-        // Compound types unify component-wise
-        (Type::List(a), Type::List(b)) => self.unify(a, b),
+        let id1 = self.resolve_id(id1);
+        let id2 = self.resolve_id(id2);
 
-        (Type::Option(a), Type::Option(b)) => self.unify(a, b),
-
-        (Type::Result(ok1, err1), Type::Result(ok2, err2)) => {
-            self.unify(ok1, ok2)?;
-            self.unify(err1, err2)
+        // Check again after resolution
+        if id1 == id2 {
+            return Ok(());
         }
 
-        (Type::Tuple(ts1), Type::Tuple(ts2)) => {
-            if ts1.len() != ts2.len() {
-                return Err(TypeError::TupleLengthMismatch);
-            }
-            for (a, b) in ts1.iter().zip(ts2.iter()) {
-                self.unify(a, b)?;
-            }
-            Ok(())
-        }
+        let data1 = self.interner.lookup(id1);
+        let data2 = self.interner.lookup(id2);
 
-        (Type::Function { params: p1, ret: r1, .. },
-         Type::Function { params: p2, ret: r2, .. }) => {
-            if p1.len() != p2.len() {
-                return Err(TypeError::ParamCountMismatch);
+        match (&data1, &data2) {
+            // Type variable unifies with anything (with occurs check)
+            (TypeData::Var(v), _) => {
+                if self.occurs_id(*v, id2) {
+                    return Err(TypeError::InfiniteType);
+                }
+                self.substitutions.insert(*v, id2);
+                Ok(())
             }
-            for (a, b) in p1.iter().zip(p2.iter()) {
-                self.unify(a, b)?;
+            (_, TypeData::Var(v)) => {
+                if self.occurs_id(*v, id1) {
+                    return Err(TypeError::InfiniteType);
+                }
+                self.substitutions.insert(*v, id1);
+                Ok(())
             }
-            self.unify(r1, r2)
-        }
 
-        // Different types don't unify
-        _ => Err(TypeError::Mismatch {
-            expected: t1.clone(),
-            found: t2.clone(),
-        }),
+            // Error/Never unify with anything (see Special Type Handling)
+            (TypeData::Error | TypeData::Never, _) |
+            (_, TypeData::Error | TypeData::Never) => Ok(()),
+
+            // Compound types unify component-wise
+            (TypeData::List(a), TypeData::List(b)) => self.unify_ids(*a, *b),
+
+            (TypeData::Option(a), TypeData::Option(b)) => self.unify_ids(*a, *b),
+
+            (TypeData::Result { ok: ok1, err: err1 },
+             TypeData::Result { ok: ok2, err: err2 }) => {
+                self.unify_ids(*ok1, *ok2)?;
+                self.unify_ids(*err1, *err2)
+            }
+
+            (TypeData::Function { params: p1, ret: r1 },
+             TypeData::Function { params: p2, ret: r2 }) => {
+                if p1.len() != p2.len() {
+                    return Err(TypeError::ArgCountMismatch {
+                        expected: p1.len(),
+                        found: p2.len(),
+                    });
+                }
+                for (a, b) in p1.iter().zip(p2.iter()) {
+                    self.unify_ids(*a, *b)?;
+                }
+                self.unify_ids(*r1, *r2)
+            }
+
+            // Different types don't unify
+            _ => Err(TypeError::Mismatch {
+                expected: self.interner.to_type(id1),
+                found: self.interner.to_type(id2),
+            }),
+        }
     }
 }
 ```
 
-## Variable Binding
+## Resolution
 
-When binding a type variable, check for cycles:
+The `resolve` methods apply substitutions to resolve type variables:
 
 ```rust
-fn bind_var(&mut self, var: TypeVarId, ty: &Type) -> Result<(), TypeError> {
-    // Check if variable is already bound
-    if let Some(existing) = self.substitution.get(&var) {
-        return self.unify(existing, ty);
+impl InferenceContext {
+    /// Resolve a Type by applying all substitutions.
+    pub fn resolve(&self, ty: &Type) -> Type {
+        let id = ty.to_type_id(&self.interner);
+        let resolved = self.resolve_id(id);
+        self.interner.to_type(resolved)
     }
 
-    // Skip if binding to self
-    if let Type::TypeVar(id) = ty {
-        if *id == var {
-            return Ok(());
+    /// Resolve a TypeId by applying all substitutions.
+    pub fn resolve_id(&self, id: TypeId) -> TypeId {
+        let mut resolver = TypeIdResolver {
+            interner: &self.interner,
+            substitutions: &self.substitutions,
+        };
+        resolver.fold(id)
+    }
+}
+
+/// TypeIdFolder that resolves type variables through substitutions.
+struct TypeIdResolver<'a> {
+    interner: &'a TypeInterner,
+    substitutions: &'a HashMap<TypeVar, TypeId>,
+}
+
+impl TypeIdFolder for TypeIdResolver<'_> {
+    fn interner(&self) -> &TypeInterner { self.interner }
+
+    fn fold_var(&mut self, var: TypeVar) -> TypeId {
+        if let Some(&resolved) = self.substitutions.get(&var) {
+            self.fold(resolved)  // Recursively resolve chains
+        } else {
+            self.interner.intern(TypeData::Var(var))
         }
     }
-
-    // Occurs check - prevent infinite types
-    if self.occurs_in(var, ty) {
-        return Err(TypeError::InfiniteType {
-            var,
-            ty: ty.clone(),
-        });
-    }
-
-    // Add binding to substitution
-    self.substitution.insert(var, ty.clone());
-    Ok(())
 }
 ```
 
@@ -108,73 +154,54 @@ let xs = [xs]  // Error: infinite type
 ```
 
 ```rust
-fn occurs_in(&self, var: TypeVarId, ty: &Type) -> bool {
-    match ty {
-        Type::TypeVar(id) => {
-            if *id == var {
-                return true;
-            }
-            // Check through substitution
-            if let Some(resolved) = self.substitution.get(id) {
-                return self.occurs_in(var, resolved);
-            }
-            false
+impl InferenceContext {
+    /// Check if a type variable occurs in a type (prevents infinite types).
+    fn occurs_id(&self, var: TypeVar, id: TypeId) -> bool {
+        let mut checker = OccursChecker {
+            interner: &self.interner,
+            substitutions: &self.substitutions,
+            target: var,
+            found: false,
+        };
+        checker.visit(id);
+        checker.found
+    }
+}
+
+/// TypeIdVisitor that checks for occurrence of a type variable.
+struct OccursChecker<'a> {
+    interner: &'a TypeInterner,
+    substitutions: &'a HashMap<TypeVar, TypeId>,
+    target: TypeVar,
+    found: bool,
+}
+
+impl TypeIdVisitor for OccursChecker<'_> {
+    fn interner(&self) -> &TypeInterner { self.interner }
+
+    fn visit_var(&mut self, var: TypeVar) {
+        if var == self.target {
+            self.found = true;
+        } else if let Some(&resolved) = self.substitutions.get(&var) {
+            self.visit(resolved);  // Check through substitution chain
         }
-
-        Type::List(elem) => self.occurs_in(var, elem),
-
-        Type::Option(inner) => self.occurs_in(var, inner),
-
-        Type::Result(ok, err) => {
-            self.occurs_in(var, ok) || self.occurs_in(var, err)
-        }
-
-        Type::Tuple(elems) => elems.iter().any(|e| self.occurs_in(var, e)),
-
-        Type::Function { params, ret, .. } => {
-            params.iter().any(|p| self.occurs_in(var, p))
-                || self.occurs_in(var, ret)
-        }
-
-        // Primitives don't contain type variables
-        _ => false,
     }
 }
 ```
 
-## Substitution
+## Substitution Storage
 
-A substitution maps type variables to types:
+Substitutions are stored as a simple `HashMap<TypeVar, TypeId>`:
 
 ```rust
-struct Substitution {
-    map: HashMap<TypeVarId, Type>,
-}
-
-impl Substitution {
-    fn apply(&self, ty: &Type) -> Type {
-        match ty {
-            Type::TypeVar(id) => {
-                self.map.get(id)
-                    .map(|t| self.apply(t))  // Apply recursively
-                    .unwrap_or_else(|| ty.clone())
-            }
-
-            Type::List(elem) => Type::List(Box::new(self.apply(elem))),
-
-            Type::Function { params, ret, caps } => Type::Function {
-                params: params.iter().map(|p| self.apply(p)).collect(),
-                ret: Box::new(self.apply(ret)),
-                caps: caps.clone(),
-            },
-
-            // Other compound types...
-
-            _ => ty.clone(),
-        }
-    }
+pub struct InferenceContext {
+    /// Type variable substitutions.
+    substitutions: FxHashMap<TypeVar, TypeId>,
+    // ... other fields
 }
 ```
+
+The `TypeIdResolver` (shown above) handles recursive resolution through substitution chains. No union-find is used — the simple HashMap approach is sufficient for Ori's type inference needs.
 
 ## Special Type Handling
 
@@ -273,85 +300,13 @@ unify([Int], {String: Int}) = Err(Mismatch)
 unify(T0, [T0]) = Err(InfiniteType)
 ```
 
-## Constraint-Based Approach
+## Immediate Unification
 
-Instead of unifying immediately, collect constraints:
+Ori uses **immediate unification** during type inference — constraints are unified as they're generated, not collected and solved later. This simplifies the implementation while still supporting Hindley-Milner inference.
 
-```rust
-struct Constraint {
-    left: Type,
-    right: Type,
-    span: Span,
-    context: String,
-}
+Benefits of immediate unification:
+- Simpler implementation (no constraint storage)
+- Errors reported at point of occurrence
+- Substitutions available immediately for subsequent inference
 
-impl TypeChecker {
-    fn add_constraint(&mut self, left: Type, right: Type, span: Span) {
-        self.constraints.push(Constraint {
-            left,
-            right,
-            span,
-            context: self.current_context(),
-        });
-    }
-
-    fn solve_constraints(&mut self) -> Result<(), Vec<TypeError>> {
-        let mut errors = Vec::new();
-
-        for constraint in &self.constraints {
-            if let Err(e) = self.unify(&constraint.left, &constraint.right) {
-                errors.push(e.with_span(constraint.span));
-            }
-        }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
-    }
-}
-```
-
-Benefits of constraint collection:
-- Better error messages (know context)
-- Can report multiple errors
-- Enables advanced inference features
-
-## Union-Find Optimization
-
-For efficiency, use union-find for type variables:
-
-```rust
-struct UnionFind {
-    parent: Vec<usize>,
-    rank: Vec<usize>,
-}
-
-impl UnionFind {
-    fn find(&mut self, x: usize) -> usize {
-        if self.parent[x] != x {
-            self.parent[x] = self.find(self.parent[x]);  // Path compression
-        }
-        self.parent[x]
-    }
-
-    fn union(&mut self, x: usize, y: usize) {
-        let px = self.find(x);
-        let py = self.find(y);
-        if px != py {
-            // Union by rank
-            if self.rank[px] < self.rank[py] {
-                self.parent[px] = py;
-            } else if self.rank[px] > self.rank[py] {
-                self.parent[py] = px;
-            } else {
-                self.parent[py] = px;
-                self.rank[px] += 1;
-            }
-        }
-    }
-}
-```
-
-This makes variable lookup nearly O(1) amortized.
+The trade-off is that some advanced type system features (like ranked types or bidirectional type checking) would require refactoring to constraint-based approach.

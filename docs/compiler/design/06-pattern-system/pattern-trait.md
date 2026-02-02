@@ -13,278 +13,283 @@ The `PatternDefinition` trait defines the interface for all patterns in Ori.
 
 ```rust
 pub trait PatternDefinition: Send + Sync {
-    /// Pattern name (e.g., "map", "filter", "fold")
-    fn name(&self) -> &str;
+    /// Pattern name (e.g., "recurse", "parallel")
+    fn name(&self) -> &'static str;
 
-    /// Argument specifications
-    fn arguments(&self) -> &[PatternArg];
+    /// Required property names for this pattern.
+    fn required_props(&self) -> &'static [&'static str];
 
-    /// Type check the pattern call
-    fn type_check(
-        &self,
-        args: &[TypedArg],
-        checker: &mut TypeChecker,
-    ) -> Result<Type, TypeError>;
+    /// Optional property names for this pattern.
+    fn optional_props(&self) -> &'static [&'static str] {
+        &[]
+    }
 
-    /// Evaluate the pattern
-    fn evaluate(
-        &self,
-        args: &[EvalArg],
-        evaluator: &mut Evaluator,
-    ) -> Result<Value, EvalError>;
+    /// Optional arguments with their default values.
+    fn optional_args(&self) -> &'static [OptionalArg] {
+        &[]
+    }
 
-    /// Check if pattern can fuse with next pattern
-    fn can_fuse(&self, next: &dyn PatternDefinition) -> bool {
+    /// Scoped bindings to introduce during type checking.
+    ///
+    /// Some patterns introduce identifiers only available within certain
+    /// property expressions. For example, `recurse` introduces `self` which
+    /// is available in the `step` property.
+    fn scoped_bindings(&self) -> &'static [ScopedBinding] {
+        &[]
+    }
+
+    /// Whether this pattern allows arbitrary additional properties.
+    /// Only `parallel` uses this (for dynamic task properties).
+    fn allows_arbitrary_props(&self) -> bool {
         false
     }
 
-    /// Fuse with following pattern (optimization)
+    /// Type check this pattern and return its result type.
+    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type;
+
+    /// Evaluate this pattern.
+    fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult;
+
+    /// Compute the pattern signature for template caching.
+    fn signature(&self, ctx: &TypeCheckContext) -> PatternSignature { ... }
+
+    /// Check if this pattern can be fused with the given next pattern.
+    fn can_fuse_with(&self, next: &dyn PatternDefinition) -> bool {
+        false
+    }
+
+    /// Create a fused pattern combining this pattern with the next one.
     fn fuse_with(
         &self,
         next: &dyn PatternDefinition,
-    ) -> Option<Box<dyn PatternDefinition>> {
+        self_ctx: &EvalContext,
+        next_ctx: &EvalContext,
+    ) -> Option<FusedPattern> {
         None
     }
-
-    /// Capability requirements
-    fn capabilities(&self) -> Vec<Capability> {
-        vec![]
-    }
 }
 ```
 
-## Argument Specification
+## Context Types
+
+### TypeCheckContext
+
+Provides access to property types during type checking:
 
 ```rust
-pub struct PatternArg {
-    /// Argument name (e.g., "over", "transform")
+pub struct TypeCheckContext<'a> {
+    pub interner: &'a StringInterner,
+    pub props: &'a HashMap<Name, Type>,
+    // ...
+}
+
+impl TypeCheckContext<'_> {
+    /// Get the type of a required property.
+    pub fn get_prop_type(&self, name: &str) -> Option<Type>;
+
+    /// Get the type of a required property, returning Error on failure.
+    pub fn require_prop_type(&self, name: &str) -> Type;
+
+    /// Create a fresh type variable.
+    pub fn fresh_var(&mut self) -> Type;
+
+    /// Extract return type from function property.
+    pub fn get_function_return_type(&self, prop: &str) -> Type;
+
+    /// Type constructors
+    pub fn list_of(&self, elem: Type) -> Type;
+    pub fn option_of(&self, inner: Type) -> Type;
+    pub fn result_of(&self, ok: Type, err: Type) -> Type;
+}
+```
+
+### EvalContext
+
+Provides access to property expressions during evaluation:
+
+```rust
+pub struct EvalContext<'a> {
+    pub props: &'a HashMap<Name, ExprId>,
+    pub span: Span,
+    // ...
+}
+
+impl EvalContext<'_> {
+    /// Get a required property expression.
+    pub fn get_prop(&self, name: &str) -> Option<ExprId>;
+
+    /// Get an optional property expression.
+    pub fn get_prop_opt(&self, name: &str) -> Option<ExprId>;
+
+    /// Evaluate a property expression.
+    pub fn eval_prop(&self, name: &str, exec: &mut dyn PatternExecutor) -> EvalResult;
+
+    /// Evaluate with span attachment for error reporting.
+    pub fn eval_prop_spanned(&self, name: &str, exec: &mut dyn PatternExecutor) -> EvalResult;
+
+    /// Get the span of a property for error messages.
+    pub fn prop_span(&self, name: &str) -> Option<Span>;
+
+    /// Create an error with the property's span.
+    pub fn error_with_prop_span(&self, msg: &str, name: &str) -> EvalError;
+}
+```
+
+### PatternExecutor
+
+Abstraction layer between patterns and the evaluator:
+
+```rust
+pub trait PatternExecutor {
+    /// Evaluate an expression by ID.
+    fn eval(&mut self, expr_id: ExprId) -> EvalResult;
+
+    /// Call a function value with arguments.
+    fn call(&mut self, func: &Value, args: Vec<Value>) -> EvalResult;
+
+    /// Look up a capability by name.
+    fn lookup_capability(&self, name: &str) -> Option<Value>;
+
+    /// Call a method on a value.
+    fn call_method(&mut self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult;
+
+    /// Look up a variable by name.
+    fn lookup_var(&self, name: &str) -> Option<Value>;
+
+    /// Bind a variable in the current scope.
+    fn bind_var(&mut self, name: &str, value: Value);
+}
+```
+
+## Scoped Bindings
+
+The `ScopedBinding` system enables patterns like `recurse` to introduce identifiers:
+
+```rust
+pub struct ScopedBinding {
+    /// The name to introduce (e.g., "self")
     pub name: &'static str,
 
-    /// Expected type pattern
-    pub ty: ArgType,
+    /// Which properties this binding is available in
+    pub for_props: &'static [&'static str],
 
-    /// Is this argument required?
-    pub required: bool,
-
-    /// Default value if not provided
-    pub default: Option<Value>,
+    /// How to compute the binding's type
+    pub type_from: ScopedBindingType,
 }
 
-pub enum ArgType {
-    /// Any type
-    Any,
+pub enum ScopedBindingType {
+    /// Same type as another property
+    SameAs(&'static str),
 
-    /// Specific type
-    Exact(Type),
+    /// Function returning the type of a property
+    FunctionReturning(&'static str),
 
-    /// Generic type variable
-    TypeVar(TypeVarId),
-
-    /// List of T
-    ListOf(Box<ArgType>),
-
-    /// Function from A to B
-    Function { param: Box<ArgType>, ret: Box<ArgType> },
-
-    /// Must be iterable
-    Iterable,
-
-    /// Must be a predicate (returns bool)
-    Predicate,
+    /// The enclosing function's type (for recursion)
+    EnclosingFunction,
 }
 ```
 
-## Example: Map Pattern
+Example: `recurse` introduces `self` with type `(...) -> T`:
 
 ```rust
-pub struct MapPattern;
+fn scoped_bindings(&self) -> &'static [ScopedBinding] {
+    &[ScopedBinding {
+        name: "self",
+        for_props: &["step"],
+        type_from: ScopedBindingType::EnclosingFunction,
+    }]
+}
+```
 
-impl PatternDefinition for MapPattern {
-    fn name(&self) -> &str {
-        "map"
+## Example: Recurse Pattern
+
+```rust
+pub struct RecursePattern;
+
+impl PatternDefinition for RecursePattern {
+    fn name(&self) -> &'static str {
+        "recurse"
     }
 
-    fn arguments(&self) -> &[PatternArg] {
-        &[
-            PatternArg {
-                name: "over",
-                ty: ArgType::Iterable,
-                required: true,
-                default: None,
-            },
-            PatternArg {
-                name: "transform",
-                ty: ArgType::Function {
-                    param: Box::new(ArgType::TypeVar(TypeVarId(0))),
-                    ret: Box::new(ArgType::TypeVar(TypeVarId(1))),
-                },
-                required: true,
-                default: None,
-            },
-        ]
+    fn required_props(&self) -> &'static [&'static str] {
+        &["condition", "base", "step"]
     }
 
-    fn type_check(
-        &self,
-        args: &[TypedArg],
-        checker: &mut TypeChecker,
-    ) -> Result<Type, TypeError> {
-        let over_arg = args.find("over")?;
-        let transform_arg = args.find("transform")?;
-
-        // over must be iterable
-        let elem_ty = checker.extract_element_type(&over_arg.ty)?;
-
-        // transform must be function
-        let (param_ty, ret_ty) = checker.extract_function_type(&transform_arg.ty)?;
-
-        // Parameter must match element type
-        checker.unify(&param_ty, &elem_ty)?;
-
-        // Result is list of return type
-        Ok(Type::List(Box::new(ret_ty)))
+    fn optional_props(&self) -> &'static [&'static str] {
+        &["memo", "parallel"]
     }
 
-    fn evaluate(
-        &self,
-        args: &[EvalArg],
-        evaluator: &mut Evaluator,
-    ) -> Result<Value, EvalError> {
-        let over = args.get("over")?.as_list()?;
-        let transform = args.get("transform")?.as_function()?;
-
-        let result: Vec<Value> = over
-            .iter()
-            .map(|item| evaluator.call_function(&transform, vec![item.clone()]))
-            collect::<Result<_, _>>()?;
-
-        Ok(Value::List(Arc::new(result)))
+    fn scoped_bindings(&self) -> &'static [ScopedBinding] {
+        &[ScopedBinding {
+            name: "self",
+            for_props: &["step"],
+            type_from: ScopedBindingType::EnclosingFunction,
+        }]
     }
 
-    fn can_fuse(&self, next: &dyn PatternDefinition) -> bool {
-        matches!(next.name(), "filter" | "map")
+    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
+        let base_type = ctx.require_prop_type("base");
+        let step_type = ctx.require_prop_type("step");
+
+        // condition must be bool
+        let cond_type = ctx.require_prop_type("condition");
+        ctx.unify(&cond_type, &Type::Bool);
+
+        // step must match base
+        ctx.unify(&step_type, &base_type);
+
+        base_type
     }
 
-    fn fuse_with(
-        &self,
-        next: &dyn PatternDefinition,
-    ) -> Option<Box<dyn PatternDefinition>> {
-        match next.name() {
-            "filter" => Some(Box::new(MapFilterPattern::new(self, next))),
-            "map" => Some(Box::new(MapMapPattern::new(self, next))),
-            _ => None,
+    fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
+        // Check condition
+        let cond = ctx.eval_prop("condition", exec)?;
+        if cond.as_bool()? {
+            // Base case
+            ctx.eval_prop("base", exec)
+        } else {
+            // Recursive case - `self` is available in step
+            ctx.eval_prop("step", exec)
         }
     }
 }
 ```
 
-## Example: Fold Pattern
+## Example: Timeout Pattern
 
 ```rust
-pub struct FoldPattern;
+pub struct TimeoutPattern;
 
-impl PatternDefinition for FoldPattern {
-    fn name(&self) -> &str {
-        "fold"
+impl PatternDefinition for TimeoutPattern {
+    fn name(&self) -> &'static str {
+        "timeout"
     }
 
-    fn arguments(&self) -> &[PatternArg] {
-        &[
-            PatternArg {
-                name: "over",
-                ty: ArgType::Iterable,
-                required: true,
-                default: None,
-            },
-            PatternArg {
-                name: "init",
-                ty: ArgType::TypeVar(TypeVarId(0)),  // Accumulator type
-                required: true,
-                default: None,
-            },
-            PatternArg {
-                name: "op",
-                ty: ArgType::Function {
-                    // (acc, elem) -> acc
-                    param: Box::new(ArgType::Exact(Type::Tuple(vec![
-                        Type::TypeVar(TypeVarId(0)),
-                        Type::TypeVar(TypeVarId(1)),
-                    ]))),
-                    ret: Box::new(ArgType::TypeVar(TypeVarId(0))),
-                },
-                required: true,
-                default: None,
-            },
-        ]
+    fn required_props(&self) -> &'static [&'static str] {
+        &["op", "after"]
     }
 
-    fn type_check(
-        &self,
-        args: &[TypedArg],
-        checker: &mut TypeChecker,
-    ) -> Result<Type, TypeError> {
-        let over_ty = args.find("over")?.ty.clone();
-        let init_ty = args.find("init")?.ty.clone();
-        let op_ty = args.find("op")?.ty.clone();
+    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
+        let op_type = ctx.require_prop_type("op");
+        let after_type = ctx.require_prop_type("after");
 
-        let elem_ty = checker.extract_element_type(&over_ty)?;
-        let (param_ty, ret_ty) = checker.extract_function_type(&op_ty)?;
+        // after must be Duration
+        ctx.unify(&after_type, &Type::Duration);
 
-        // op takes (acc, elem), acc matches init
-        if let Type::Tuple(params) = param_ty {
-            checker.unify(&params[0], &init_ty)?;
-            checker.unify(&params[1], &elem_ty)?;
+        // Result is Result<op_type, TimeoutError>
+        ctx.result_of(op_type, Type::Named("TimeoutError".into()))
+    }
+
+    fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
+        let duration = ctx.eval_prop("after", exec)?.as_duration()?;
+
+        // Evaluate with timeout
+        match exec.eval_with_timeout(ctx.get_prop("op").unwrap(), duration) {
+            Ok(value) => Ok(Value::ok(value)),
+            Err(EvalError::Timeout) => Ok(Value::err("TimeoutError")),
+            Err(e) => Err(e),
         }
-
-        // op returns acc type
-        checker.unify(&ret_ty, &init_ty)?;
-
-        Ok(init_ty)
     }
-
-    fn evaluate(
-        &self,
-        args: &[EvalArg],
-        evaluator: &mut Evaluator,
-    ) -> Result<Value, EvalError> {
-        let over = args.get("over")?.as_list()?;
-        let init = args.get("init")?.clone();
-        let op = args.get("op")?.as_function()?;
-
-        let mut acc = init;
-        for item in over.iter() {
-            acc = evaluator.call_function(&op, vec![acc, item.clone()])?;
-        }
-
-        Ok(acc)
-    }
-}
-```
-
-## TypedArg and EvalArg
-
-```rust
-pub struct TypedArg {
-    pub name: Name,
-    pub ty: Type,
-    pub span: Span,
-}
-
-impl TypedArg {
-    pub fn find(args: &[Self], name: &str) -> Option<&Self> {
-        args.iter().find(|a| a.name.as_str() == name)
-    }
-}
-
-pub struct EvalArg {
-    pub name: Name,
-    pub value: Value,
-}
-
-impl EvalArg {
-    pub fn as_list(&self) -> Result<&[Value], EvalError> { ... }
-    pub fn as_function(&self) -> Result<&FunctionValue, EvalError> { ... }
-    pub fn as_int(&self) -> Result<i64, EvalError> { ... }
 }
 ```
 
@@ -295,9 +300,17 @@ Patterns must be `Send + Sync` for:
 - Parallel compilation
 - Concurrent evaluation (parallel pattern)
 
-```rust
-// All pattern state must be thread-safe
-pub struct CachePattern {
-    cache: Arc<RwLock<HashMap<Value, Value>>>,
-}
+All patterns are zero-sized types (ZSTs) with static lifetime, so this is automatic.
+
+## Note on map/filter/fold
+
+These are **collection methods** in stdlib, NOT patterns. They don't require compiler support:
+
+```ori
+// These are method calls, not patterns
+items.map(transform: x -> x * 2)
+items.filter(predicate: x -> x > 0)
+items.fold(initial: 0, op: (acc, x) -> acc + x)
 ```
+
+Patterns are reserved for constructs requiring special compiler handling (recursion with `self`, concurrency, capability-aware caching, etc.).

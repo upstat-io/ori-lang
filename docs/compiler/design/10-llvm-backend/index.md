@@ -7,7 +7,7 @@ section: "LLVM Backend"
 
 # LLVM Backend Overview
 
-The LLVM backend (`ori_llvm` crate) provides JIT compilation and native code generation for Ori programs. It translates the typed AST directly to LLVM IR, bypassing the tree-walking interpreter for improved performance.
+The LLVM backend (`ori_llvm` crate) provides both JIT compilation and AOT (Ahead-of-Time) native code generation for Ori programs. It translates the typed AST directly to LLVM IR.
 
 ## Architecture
 
@@ -62,6 +62,30 @@ Ori types map to LLVM types as follows:
 | User structs | Named `{ fields... }` | Registered via `StructLayout` (see [User Types](user-types.md)) |
 | Closures | `i64` | Tagged pointer (see [Closures](closures.md)) |
 
+## Compilation Modes
+
+### JIT Compilation
+
+JIT execution compiles and runs code immediately in the same process:
+
+```rust
+let evaluator = LlvmEvaluator::new(db)?;
+let result = evaluator.evaluate_file(source)?;
+```
+
+### AOT Compilation
+
+AOT compilation generates native executables or libraries. See [AOT Compilation](aot.md) for details.
+
+```rust
+let target = TargetConfig::native()?;
+let emitter = ObjectEmitter::new(&target)?;
+emitter.emit_object(&module, Path::new("output.o"))?;
+
+let driver = LinkerDriver::new(&target);
+driver.link(LinkInput { ... })?;
+```
+
 ## Compilation Phases
 
 The backend uses a two-phase approach:
@@ -91,28 +115,65 @@ Each function body is compiled:
 3. Compile function body expression
 4. Build return instruction
 
+## Control Flow Compilation
+
+### Short-Circuit Operators
+
+Logical `&&` and `||` operators use short-circuit evaluation with proper basic block structure:
+
+```
+// Compiling: left && right
+                    ┌──────────┐
+                    │  entry   │
+                    │ eval left│
+                    └────┬─────┘
+                         │
+              ┌──false───┴───true──┐
+              ▼                    ▼
+        ┌──────────┐         ┌──────────┐
+        │  merge   │         │ and_rhs  │
+        │(phi=false)◄────────│eval right│
+        └──────────┘         └──────────┘
+```
+
+The implementation handles edge cases where the right operand may terminate (e.g., `panic()`).
+
+### Conditionals
+
+If/else expressions create three basic blocks (then, else, merge) with PHI nodes for value-producing branches. Terminating branches (panic, return, break) skip the merge jump.
+
+### Loops
+
+Loop compilation creates header, body, and exit blocks:
+- `loop(...)` creates infinite loops with `break`/`continue` support
+- `for x in iter do body` creates indexed iteration with guard support
+- Loop context tracks header and exit blocks for nested control flow
+
 ## Runtime Functions
 
-The backend links against runtime functions for operations that require heap allocation or complex logic. These are Rust functions with `extern "C"` ABI:
+The backend links against runtime functions for operations that require heap allocation or complex logic. These are provided by `libori_rt`:
 
-| Function | Purpose |
-|----------|---------|
-| `ori_print`, `ori_print_int`, etc. | Output |
-| `ori_str_concat` | String concatenation |
-| `ori_str_eq`, `ori_str_ne` | String comparison |
-| `ori_list_new`, `ori_list_free` | List allocation |
-| `ori_closure_box` | Closure heap allocation |
-| `ori_panic`, `ori_panic_cstr` | Panic handling |
-| `ori_assert*` | Assertion variants |
-
-See [runtime.rs](../../../compiler/ori_llvm/src/runtime.rs) for the complete list.
+| Category | Functions |
+|----------|-----------|
+| Output | `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool` |
+| Strings | `ori_str_concat`, `ori_str_eq`, `ori_str_ne`, `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float` |
+| Collections | `ori_list_new`, `ori_list_free`, `ori_list_len` |
+| Memory | `ori_alloc`, `ori_free`, `ori_realloc` |
+| Reference Counting | `ori_rc_new`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_count`, `ori_rc_data` |
+| Closures | `ori_closure_box` |
+| Panic | `ori_panic`, `ori_panic_cstr` |
+| Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str` |
+| Comparison | `ori_compare_int`, `ori_min_int`, `ori_max_int` |
 
 ## Documentation Sections
 
+- [AOT Compilation](aot.md) - Native executable and WebAssembly generation
 - [Closures](closures.md) - Closure representation and calling conventions
 - [User-Defined Types](user-types.md) - Struct types, impl blocks, and method dispatch
 
 ## Source Files
+
+### Core
 
 | File | Purpose |
 |------|---------|
@@ -121,18 +182,57 @@ See [runtime.rs](../../../compiler/ori_llvm/src/runtime.rs) for the complete lis
 | `declare.rs` | Function declaration phase |
 | `module.rs` | Module-level compilation, struct registration |
 | `evaluator.rs` | JIT evaluation, module loading orchestration |
+| `types.rs` | Ori-to-LLVM type mapping |
+
+### Code Generation
+
+| File | Purpose |
+|------|---------|
 | `functions/` | Function body compilation |
+| `functions/body.rs` | Function body entry and setup |
+| `functions/expressions.rs` | Expression compilation dispatch |
 | `functions/calls.rs` | Function and method call compilation |
+| `functions/lambdas.rs` | Lambda expression compilation |
+| `functions/sequences.rs` | Sequence expression handling (`run`, `try`, `match`) |
+| `functions/builtins.rs` | Built-in function compilation |
+| `functions/helpers.rs` | Common compilation helpers |
+| `functions/phi.rs` | PHI node construction for control flow |
 | `collections/` | Collection type handling (lists, maps, tuples) |
 | `collections/structs.rs` | Struct literals and field access |
-| `control_flow.rs` | If/else, loops, match |
+| `collections/strings.rs` | String operations and concatenation |
+| `collections/lists.rs` | List construction and operations |
+| `collections/maps.rs` | Map construction |
+| `collections/tuples.rs` | Tuple construction and access |
+| `collections/ranges.rs` | Range expression handling |
+| `collections/indexing.rs` | Index access operations |
+| `collections/wrappers.rs` | Option and Result wrapper types |
+| `control_flow.rs` | If/else, loops, match, short-circuit operators |
 | `operators.rs` | Binary and unary operators |
-| `runtime.rs` | Runtime function definitions |
-| `types.rs` | Ori-to-LLVM type mapping |
+| `matching.rs` | Pattern matching compilation |
+| `traits.rs` | Trait method resolution |
+| `builtin_methods/` | Built-in type method implementations |
+| `builtin_methods/numeric.rs` | Numeric type methods |
+| `builtin_methods/ordering.rs` | Ordering type methods |
+| `builtin_methods/units.rs` | Duration and Size type methods |
+
+### AOT
+
+| File | Purpose |
+|------|---------|
+| `aot/target.rs` | Target configuration and machine creation |
+| `aot/object.rs` | Object file emission |
+| `aot/mangle.rs` | Symbol mangling/demangling |
+| `aot/debug.rs` | Debug information (DWARF/CodeView) |
+| `aot/passes.rs` | Optimization pipeline |
+| `aot/linker/` | Platform-agnostic linker driver |
+| `aot/runtime.rs` | Runtime library discovery |
+| `aot/multi_file.rs` | Multi-file compilation |
+| `aot/wasm.rs` | WebAssembly configuration |
+| `aot/incremental/` | Caching and parallel compilation |
 
 ## Development
 
-The LLVM crate requires Docker for building and testing due to LLVM library dependencies:
+The LLVM crate is built locally with LLVM 17+:
 
 ```bash
 ./llvm-build    # Build the crate
@@ -140,13 +240,8 @@ The LLVM crate requires Docker for building and testing due to LLVM library depe
 ./llvm-clippy   # Run clippy
 ```
 
-Formatting works without Docker:
+Formatting works without special setup:
 
 ```bash
 cargo fmt --manifest-path compiler/ori_llvm/Cargo.toml
 ```
-
-## Status
-
-- JIT execution: Working (734/753 tests passing)
-- AOT compilation: Pending

@@ -301,15 +301,19 @@ Type::List(Box<Type>)  // One allocation
 Type::Function { params: Vec<Type>, ret: Box<Type> }
 ```
 
-## Memory Profiling
+## Memory Profiling (Planned)
 
-For large programs:
+> **Status: NOT IMPLEMENTED**
+>
+> Memory profiling is planned but not yet available.
+
+The planned interface would be:
 
 ```bash
-# Run with memory profiler
+# Planned: Run with memory profiler
 ORI_PROFILE_MEMORY=1 ori run large_file.ori
 
-# Output
+# Expected output:
 Arena: 1.2 MB (12,000 expressions)
 Interner: 0.3 MB (5,000 strings)
 Values: 2.1 MB

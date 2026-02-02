@@ -150,13 +150,20 @@ pub struct TypeCheckError {
     pub message: String,
     pub span: Span,
     pub code: ErrorCode,
+    /// Optional suggestion for fixing the error (e.g., "try using `foo`").
+    /// Displayed separately from the main message per diagnostic guidelines.
+    pub suggestion: Option<String>,
 }
 
 impl TypeCheckError {
     pub fn to_diagnostic(&self) -> Diagnostic {
-        Diagnostic::error(self.code)
+        let mut diag = Diagnostic::error(self.code)
             .with_message(&self.message)
-            .with_label(self.span, self.infer_label())
+            .with_label(self.span, self.infer_label());
+        if let Some(ref suggestion) = self.suggestion {
+            diag = diag.with_suggestion(suggestion);
+        }
+        diag
     }
 
     /// Infer a contextual label from the error message.

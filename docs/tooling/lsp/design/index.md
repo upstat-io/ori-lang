@@ -4,18 +4,36 @@ description: "Ori Language Server Design — Implementation Guide"
 order: 0
 ---
 
-> **Proposed** — This design has not yet been implemented.
-
 # Overview
 
 This documentation describes the design and implementation of the Ori Language Server (`ori_lsp`). The language server provides IDE features via the Language Server Protocol (LSP).
 
+## Implementation Status
+
+The LSP server is **implemented** at `tools/ori-lsp/` using:
+- **`tower-lsp`** crate for async LSP protocol implementation
+- **`DashMap`** for concurrent document storage
+- **`tokio`** for async runtime
+
+**Implemented Features:**
+- ✅ Diagnostics (parse errors, type errors)
+- ✅ Hover (type information, function signatures)
+- ✅ Go to Definition
+- ✅ Completions (keywords, patterns, document functions)
+- ✅ Formatting (via `ori_fmt`)
+
+**Not Yet Implemented:**
+- ⚠ WASM compilation for browser playground
+- ⚠ Find References
+- ⚠ Document Symbols
+- ⚠ Code Actions
+- ⚠ Semantic Tokens
+
 ## Goals
 
-1. **Single implementation, multiple clients** — One LSP server serves VS Code, Neovim, Playground, and any LSP-compatible editor
-2. **WASM-first** — Compiles to WebAssembly for in-browser Playground use
+1. **Single implementation, multiple clients** — One LSP server serves VS Code, Neovim, and any LSP-compatible editor
+2. **Integrated** — Leverages existing compiler infrastructure (`ori_fmt`, `ori_typeck`, etc.)
 3. **Incremental** — Start with essential features, expand over time
-4. **Integrated** — Leverages existing compiler infrastructure (`ori_fmt`, `ori_typeck`, etc.)
 
 ## Reference Implementations
 
@@ -23,7 +41,7 @@ The Ori LSP design draws from established language server implementations:
 
 | Language | Key Patterns Adopted |
 |----------|---------------------|
-| **Gleam** | FileSystemProxy, Response pattern, `lsp-server`/`lsp-types` crates |
+| **Gleam** | FileSystemProxy, Response pattern |
 | **rust-analyzer** | Snapshot pattern, single main loop with `select!`, execution mode dispatch |
 | **Go (gopls)** | Structured diagnostics with SuggestedFix, modular analyzer design |
 
@@ -37,21 +55,20 @@ The Ori LSP design draws from established language server implementations:
 
 ```mermaid
 flowchart TD
-    subgraph LSP["ori_lsp crate"]
+    subgraph LSP["ori-lsp (tools/ori-lsp/)"]
         direction TB
-        Protocol["Protocol Handler"]
-        Features["Features (handlers)"]
-        DocMgr["Document Manager<br/>(open files, sync)"]
-        Compiler["Compiler Components<br/>ori_fmt | ori_typeck | ori_parse | ori_lexer"]
+        Main["main.rs<br/>(Tokio runtime)"]
+        Server["server.rs<br/>(OriLanguageServer)"]
+        Docs["DashMap<Url, Document>"]
 
-        Protocol --> Features
-        Features --> DocMgr
-        Features --> Compiler
-        DocMgr --> Compiler
+        Main --> Server
+        Server --> Docs
     end
 
+    Server --> oric["oric crate<br/>(lexer, parser, type_check, format)"]
+
     LSP --> Native["Native binary<br/>(VS Code, Neovim)"]
-    LSP --> WASM["WASM module<br/>(Playground)"]
+    LSP -.-> WASM["WASM module<br/>(Planned)"]
 ```
 
 ## Feature Roadmap
@@ -116,14 +133,11 @@ flowchart TD
 ## Crate Location
 
 ```
-compiler/ori_lsp/
+tools/ori-lsp/
 ├── Cargo.toml
-├── src/
-│   ├── lib.rs           # Core LSP logic (shared native/WASM)
-│   ├── main.rs          # Native binary entry point
-│   ├── protocol/        # LSP message handling
-│   ├── features/        # Feature implementations
-│   └── document.rs      # Document state management
+└── src/
+    ├── main.rs          # Entry point with Tokio runtime
+    └── server.rs        # OriLanguageServer implementation
 ```
 
 ## Dependencies
@@ -132,94 +146,72 @@ compiler/ori_lsp/
 
 | Crate | Purpose |
 |-------|---------|
-| `ori_fmt` | Code formatting |
-| `ori_typeck` | Type checking, type info for hover |
-| `ori_parse` | Parsing for diagnostics |
-| `ori_lexer` | Tokenization |
+| `oric` | Compiler orchestration, type checking, formatting |
 | `ori_ir` | AST and spans |
 
-### LSP Infrastructure (Native)
+### LSP Infrastructure
 
 | Crate | Purpose |
 |-------|---------|
-| `lsp-server` | Generic LSP transport (stdio), message loop — used by Gleam, rust-analyzer |
-| `lsp-types` | LSP protocol type definitions |
-| `crossbeam-channel` | Channel-based main loop (rust-analyzer pattern) |
-| `serde_json` | JSON serialization for LSP messages |
+| `tower-lsp` | Async LSP protocol implementation |
+| `tokio` | Async runtime |
+| `dashmap` | Concurrent HashMap for document storage |
+| `lsp-types` | (via tower-lsp) LSP protocol type definitions |
 
-### WASM (Browser)
+### Architecture Choice
 
-| Crate | Purpose |
-|-------|---------|
-| `wasm-bindgen` | WASM bindings |
-| `serde_json` | JSON serialization |
-
-**Note**: We use `lsp-server` instead of `tower-lsp` because:
-- `lsp-server` is simpler (no async runtime required)
-- Used by both Gleam and rust-analyzer
-- Easier to reason about with single-threaded main loop
+We use `tower-lsp` for:
+- Async/await patterns with Tokio
+- Built-in concurrent request handling
+- Simpler trait-based handler implementation
 
 ## Design Principles
 
 1. **Leverage existing infrastructure** — Use `ori_fmt` for formatting, `ori_typeck` for type info
-2. **Single-threaded main loop** — Simpler than async, use worker threads for heavy work (rust-analyzer)
-3. **Snapshot pattern** — Immutable state clones for thread-safe worker access (rust-analyzer)
-4. **FileSystemProxy** — Transparent in-memory cache for unsaved edits (Gleam)
-5. **Structured diagnostics** — Include `SuggestedFix` with `TextEdit[]` from day one (Go)
-6. **Fast feedback** — Prioritize responsiveness over completeness
-7. **Graceful degradation** — Partial results better than failure
+2. **Async with tower-lsp** — Concurrent request handling via Tokio
+3. **DashMap for documents** — Thread-safe concurrent document storage
+4. **Full document sync** — Simple full-text sync (incremental sync planned)
+5. **Fast feedback** — Prioritize responsiveness over completeness
+6. **Graceful degradation** — Partial results better than failure
 
-## Key Patterns
+## Current Architecture
 
-### FileSystemProxy (from Gleam)
+### Document Storage
 
-In-memory cache for unsaved editor content, transparent to compiler:
+Documents are stored in a concurrent `DashMap`:
 
 ```rust
-struct FileSystemProxy {
-    disk: RealFileSystem,
-    memory: HashMap<Url, String>,  // Unsaved edits
+pub struct OriLanguageServer {
+    client: Client,
+    documents: DashMap<Url, Document>,
 }
 
-impl FileSystemProxy {
-    fn read(&self, uri: &Url) -> Option<String> {
-        // Check memory first, fall back to disk
-        self.memory.get(uri).cloned()
-            .or_else(|| self.disk.read(uri))
+pub struct Document {
+    pub text: String,
+    pub module: Option<Module>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+```
+
+### Request Handling
+
+tower-lsp handles concurrent requests automatically:
+
+```rust
+#[tower_lsp::async_trait]
+impl LanguageServer for OriLanguageServer {
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        // Access documents via DashMap
+        let doc = self.documents.get(&uri)?;
+        // ...
     }
 }
 ```
 
-### Snapshot Pattern (from rust-analyzer)
+### Future Enhancements
 
-Immutable state clones for thread-safe parallel work:
-
-```rust
-struct GlobalState {
-    documents: DocumentManager,
-    // ... mutable state
-}
-
-impl GlobalState {
-    fn snapshot(&self) -> GlobalStateSnapshot {
-        GlobalStateSnapshot {
-            documents: self.documents.clone(),
-            // ... immutable clone
-        }
-    }
-}
-
-// Workers receive snapshot, main thread keeps mutable state
-```
-
-### Response Pattern (from Gleam)
-
-Bundle result with metadata for intelligent feedback:
-
-```rust
-struct Response<T> {
-    result: Result<T, Error>,
-    warnings: Vec<Warning>,
-    compiled_files: Vec<Url>,  // For incremental diagnostics
-}
-```
+**Not Yet Implemented:**
+- FileSystemProxy pattern (for unsaved edits across files)
+- Snapshot pattern (for parallel analysis)
+- Structured diagnostics with SuggestedFix
+- Incremental document sync

@@ -354,38 +354,42 @@ impl Interpreter<'_> {
     /// Get the concrete type name for a value as an interned Name.
     ///
     /// For struct values, returns the struct's `type_name` directly.
-    /// For other values, interns the static type name string.
+    /// For other values, uses pre-interned type names from `self.type_names`.
     ///
-    /// This avoids String allocation during method dispatch by using
-    /// interned Names throughout the lookup chain.
+    /// # Performance
+    ///
+    /// This method is called on every method dispatch (extremely hot path).
+    /// Using pre-interned names avoids hash lookups and lock acquisition
+    /// that would occur with `interner.intern()` calls.
     pub(super) fn get_value_type_name(&self, value: &Value) -> Name {
+        let names = &self.type_names;
         match value {
             Value::Struct(s) => s.type_name,
-            Value::Range(_) => self.interner.intern("range"),
-            Value::Int(_) => self.interner.intern("int"),
-            Value::Float(_) => self.interner.intern("float"),
-            Value::Bool(_) => self.interner.intern("bool"),
-            Value::Str(_) => self.interner.intern("str"),
-            Value::Char(_) => self.interner.intern("char"),
-            Value::Byte(_) => self.interner.intern("byte"),
-            Value::Void => self.interner.intern("void"),
-            Value::Duration(_) => self.interner.intern("Duration"),
-            Value::Size(_) => self.interner.intern("Size"),
-            Value::Ordering(_) => self.interner.intern("Ordering"),
-            Value::List(_) => self.interner.intern("list"),
-            Value::Map(_) => self.interner.intern("map"),
-            Value::Tuple(_) => self.interner.intern("tuple"),
-            Value::Some(_) | Value::None => self.interner.intern("Option"),
-            Value::Ok(_) | Value::Err(_) => self.interner.intern("Result"),
+            Value::Range(_) => names.range,
+            Value::Int(_) => names.int,
+            Value::Float(_) => names.float,
+            Value::Bool(_) => names.bool_,
+            Value::Str(_) => names.str_,
+            Value::Char(_) => names.char_,
+            Value::Byte(_) => names.byte,
+            Value::Void => names.void,
+            Value::Duration(_) => names.duration,
+            Value::Size(_) => names.size,
+            Value::Ordering(_) => names.ordering,
+            Value::List(_) => names.list,
+            Value::Map(_) => names.map,
+            Value::Tuple(_) => names.tuple,
+            Value::Some(_) | Value::None => names.option,
+            Value::Ok(_) | Value::Err(_) => names.result,
             Value::Variant { type_name, .. }
             | Value::VariantConstructor { type_name, .. }
             | Value::Newtype { type_name, .. }
             | Value::NewtypeConstructor { type_name }
             | Value::TypeRef { type_name } => *type_name,
-            Value::Function(_) | Value::MemoizedFunction(_) => self.interner.intern("function"),
-            Value::FunctionVal(_, _) => self.interner.intern("function_val"),
-            Value::ModuleNamespace(_) => self.interner.intern("module"),
-            Value::Error(_) => self.interner.intern("error"),
+            Value::Function(_) | Value::MemoizedFunction(_) => names.function,
+            Value::FunctionVal(_, _) => names.function_val,
+            Value::ModuleNamespace(_) => names.module,
+            Value::Error(_) => names.error,
         }
     }
 

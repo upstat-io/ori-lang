@@ -20,28 +20,59 @@ Salsa is a Rust framework that provides:
 
 ## Database Setup
 
-The Salsa database is defined in `db.rs`:
+The Salsa database is defined in `oric/src/db.rs`:
 
 ```rust
 #[salsa::db]
 pub trait Db: salsa::Database {
-    fn interner(&self) -> &Interner;
+    /// Get the string interner for interning identifiers and strings.
+    fn interner(&self) -> &StringInterner;
+
+    /// Load a source file by path, creating a SourceFile input if needed.
+    /// Returns None if the file cannot be read.
+    fn load_file(&self, path: &Path) -> Option<SourceFile>;
 }
 
 #[salsa::db]
-#[derive(Default)]
-pub struct Database {
+#[derive(Clone)]
+pub struct CompilerDb {
+    /// Salsa's internal storage for all queries.
     storage: salsa::Storage<Self>,
-    interner: Interner,
+
+    /// String interner for identifiers and string literals.
+    /// Shared via Arc so Clone works and strings persist.
+    interner: SharedInterner,
+
+    /// Cache of loaded source files by path.
+    /// Uses parking_lot::RwLock for efficient concurrent access.
+    /// This is an index for deduplication only - SourceFile values
+    /// are Salsa inputs and are properly tracked.
+    file_cache: Arc<RwLock<HashMap<PathBuf, SourceFile>>>,
+
+    /// Event logs for testing/debugging (optional).
+    logs: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 #[salsa::db]
-impl salsa::Database for Database {
+impl salsa::Database for CompilerDb {
     fn salsa_event(&self, event: &dyn Fn() -> salsa::Event) {
-        // Optional: log Salsa events for debugging
+        // Log events if logging is enabled
+        if let Some(logs) = &mut *self.logs.lock() {
+            let event = event();
+            if let salsa::EventKind::WillExecute { .. } = event.kind {
+                logs.push(format!("{event:?}"));
+            }
+        }
     }
 }
 ```
+
+### Key Design Points
+
+- **`CompilerDb`** must implement `Clone` for Salsa to work
+- **`file_cache`** prevents duplicate `SourceFile` inputs for the same path
+- **`load_file()`** is the proper way to load imported files - it creates Salsa inputs so changes are tracked
+- **`SharedInterner`** is `Arc`-wrapped to survive clones
 
 ## Input vs Tracked
 

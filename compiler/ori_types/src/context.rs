@@ -470,6 +470,14 @@ impl InferenceContext {
         self.type_context.function_type(params, ret)
     }
 
+    /// Get or create a Function type from a slice, avoiding caller allocation.
+    ///
+    /// This is more efficient than `make_function` when you have a `&[Type]`
+    /// because it avoids the caller needing to call `.to_vec()`.
+    pub fn make_function_from_slice(&mut self, params: &[Type], ret: Type) -> Type {
+        self.type_context.function_type(params.to_vec(), ret)
+    }
+
     /// Access the underlying type context directly.
     pub fn type_context(&mut self) -> &mut TypeContext {
         &mut self.type_context

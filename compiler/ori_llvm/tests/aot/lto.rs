@@ -12,10 +12,6 @@
 
 use ori_llvm::aot::passes::{LtoMode, OptimizationLevel};
 
-// ============================================================================
-// LTO Mode Configuration Tests
-// ============================================================================
-
 /// Test: LTO mode variants
 ///
 /// Scenario: Verify all LTO mode variants exist and are distinct.
@@ -40,10 +36,6 @@ fn test_lto_mode_display() {
     assert_eq!(format!("{}", LtoMode::Thin), "thin");
     assert_eq!(format!("{}", LtoMode::Full), "full");
 }
-
-// ============================================================================
-// Thin LTO Tests
-// ============================================================================
 
 /// Test: Thin LTO pre-link passes
 ///
@@ -122,10 +114,6 @@ fn test_thin_lto_link_passes() {
     );
 }
 
-// ============================================================================
-// Full LTO Tests
-// ============================================================================
-
 /// Test: Full LTO pre-link passes
 ///
 /// Scenario from Rust `lto-*`:
@@ -191,10 +179,6 @@ fn test_full_lto_link_passes() {
     );
 }
 
-// ============================================================================
-// No LTO Tests
-// ============================================================================
-
 /// Test: No LTO produces no passes
 ///
 /// Scenario: `LtoMode::Off` should not generate any LTO passes.
@@ -212,10 +196,6 @@ fn test_no_lto_no_passes() {
     assert_eq!(off.lto_pipeline_string(OptimizationLevel::O2), None);
     assert_eq!(off.lto_pipeline_string(OptimizationLevel::O3), None);
 }
-
-// ============================================================================
-// LTO with Optimization Level Tests
-// ============================================================================
 
 /// Test: LTO at O0
 ///
@@ -249,10 +229,6 @@ fn test_lto_at_oz() {
         Some("lto<Oz>".to_string())
     );
 }
-
-// ============================================================================
-// LTO Comparison Tests
-// ============================================================================
 
 /// Test: Thin vs Full LTO differences
 ///

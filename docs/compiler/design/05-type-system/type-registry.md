@@ -30,9 +30,11 @@ compiler/ori_typeck/src/registry/
 /// Registry for user-defined types.
 pub struct TypeRegistry {
     /// Types indexed by name.
-    types_by_name: HashMap<Name, TypeEntry>,
+    types_by_name: FxHashMap<Name, TypeEntry>,
     /// Types indexed by TypeId.
-    types_by_id: HashMap<TypeId, TypeEntry>,
+    types_by_id: FxHashMap<TypeId, TypeEntry>,
+    /// Variant name -> (enum TypeId, variant index) for O(1) constructor lookup.
+    variants_by_name: FxHashMap<Name, (TypeId, usize)>,
     /// Next available TypeId for compound types.
     next_type_id: u32,
     /// Type interner for Type↔TypeId conversions.
@@ -468,7 +470,7 @@ impl TypeRegistry {
     fn is_eq(&self, ty: &Type) -> bool {
         match ty {
             // Primitives are Eq
-            Type::Int | Type::Float | Type::Bool | Type::String => true,
+            Type::Int | Type::Float | Type::Bool | Type::Str => true,
 
             // Compound types are Eq if elements are Eq
             Type::List(elem) => self.is_eq(elem),
@@ -477,7 +479,7 @@ impl TypeRegistry {
 
             // Check for derived Eq
             Type::Named(name) => {
-                self.has_derived(name, "Eq")
+                self.has_derived(*name, "Eq")
             }
 
             _ => false,

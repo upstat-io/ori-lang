@@ -97,8 +97,10 @@ ORI_INTERP_SKIPPED="${ORI_INTERP_NUMS[2]:-0}"
 
 echo ""
 echo "=== Running Ori language tests (LLVM backend) ==="
-# Build with LLVM feature first (quietly)
-cargo build -p oric --features llvm --release -q 2>/dev/null || true
+# Build compiler with LLVM feature AND runtime library (quietly)
+# Note: ori_rt must be built explicitly to get libori_rt.a (the staticlib for AOT linking)
+# Cargo only builds the rlib as a dependency; the staticlib is a separate artifact.
+cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null || true
 
 if [[ $VERBOSE -eq 1 ]]; then
     if ./target/release/ori test --backend=llvm tests/ 2>&1 | tee "$ORI_LLVM_OUTPUT"; then

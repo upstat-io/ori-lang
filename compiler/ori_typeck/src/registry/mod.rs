@@ -21,6 +21,7 @@ mod tests;
 use ori_ir::{Name, Span, TypeId};
 use ori_types::{SharedTypeInterner, Type, TypeInterner};
 use rustc_hash::FxHashMap;
+use std::collections::BTreeMap;
 
 pub use trait_registry::{
     CoherenceError, ImplAssocTypeDef, ImplEntry, ImplMethodDef, MethodLookup, TraitAssocTypeDef,
@@ -82,11 +83,16 @@ pub struct TypeEntry {
 /// Note: `HashMap` doesn't implement Hash, so `TypeRegistry` can't either.
 /// Salsa queries that return `TypeRegistry` should use interior mutability
 /// or return individual `TypeEntry` values instead.
+///
+/// # Iteration Order
+/// `types_by_name` uses `BTreeMap` to maintain sorted iteration order by Name,
+/// avoiding O(n log n) sort on every `iter()` call. This is critical for
+/// reproducible output regardless of insertion order.
 #[derive(Clone, Debug)]
 pub struct TypeRegistry {
-    /// Types indexed by name (`FxHashMap` for faster hashing with `Name` keys).
-    types_by_name: FxHashMap<Name, TypeEntry>,
-    /// Types indexed by `TypeId` (`FxHashMap` for faster hashing with `TypeId` keys).
+    /// Types indexed by name (`BTreeMap` for sorted iteration, avoiding re-sort on each `iter()`).
+    types_by_name: BTreeMap<Name, TypeEntry>,
+    /// Types indexed by `TypeId` (`FxHashMap` for O(1) lookups by ID).
     types_by_id: FxHashMap<TypeId, TypeEntry>,
     /// Variant name → (enum `TypeId`, variant index) for O(1) variant lookup.
     /// This is derived state for performance - not included in equality comparisons.
@@ -121,7 +127,7 @@ impl TypeRegistry {
     /// Create a new empty registry with a new type interner.
     pub fn new() -> Self {
         TypeRegistry {
-            types_by_name: FxHashMap::default(),
+            types_by_name: BTreeMap::new(),
             types_by_id: FxHashMap::default(),
             variants_by_name: FxHashMap::default(),
             next_type_id: TypeId::FIRST_COMPOUND,
@@ -134,7 +140,7 @@ impl TypeRegistry {
     /// Use this when you want to share the interner with other compiler phases.
     pub fn with_interner(interner: SharedTypeInterner) -> Self {
         TypeRegistry {
-            types_by_name: FxHashMap::default(),
+            types_by_name: BTreeMap::new(),
             types_by_id: FxHashMap::default(),
             variants_by_name: FxHashMap::default(),
             next_type_id: TypeId::FIRST_COMPOUND,
@@ -295,12 +301,10 @@ impl TypeRegistry {
 
     /// Iterate over all registered types in deterministic order.
     ///
-    /// Entries are sorted by name for reproducible iteration order,
-    /// ensuring consistent output regardless of `HashMap` insertion order.
+    /// Uses `BTreeMap` for O(1) iteration without sorting.
+    /// Entries are yielded in sorted order by name for reproducible output.
     pub fn iter(&self) -> impl Iterator<Item = &TypeEntry> {
-        let mut entries: Vec<_> = self.types_by_name.values().collect();
-        entries.sort_by_key(|e| e.name);
-        entries.into_iter()
+        self.types_by_name.values()
     }
 
     /// Convert a registered type to the type checker's Type representation.
@@ -442,10 +446,6 @@ impl TypeRegistry {
         })
     }
 }
-
-// =============================================================================
-// Built-in Type Registration
-// =============================================================================
 
 /// Register built-in enum types that are part of the language.
 ///

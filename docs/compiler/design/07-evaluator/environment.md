@@ -12,34 +12,49 @@ The Environment manages variable bindings during evaluation. It uses a stack of 
 ## Location
 
 ```
-compiler/oric/src/eval/environment.rs (~408 lines)
+compiler/ori_eval/src/environment.rs
 ```
 
 ## Structure
 
+The environment uses a parent-linked scope chain with `Rc<RefCell<_>>` wrapped in `LocalScope<T>`:
+
 ```rust
-pub struct Environment {
-    /// Stack of scopes (innermost last)
-    scopes: Vec<Scope>,
-}
+/// Single-threaded scope wrapper (Rc<RefCell<T>>)
+#[repr(transparent)]
+pub struct LocalScope<T>(Rc<RefCell<T>>);
 
 pub struct Scope {
-    /// Variable bindings
-    bindings: HashMap<Name, Value>,
-
-    /// Scope kind for debugging
-    kind: ScopeKind,
+    /// Variable bindings (FxHashMap for faster Name hashing)
+    bindings: FxHashMap<Name, Binding>,
+    /// Parent scope for lexical scoping
+    parent: Option<LocalScope<Scope>>,
 }
 
-pub enum ScopeKind {
-    Global,
-    Function(Name),
-    Block,
-    Lambda,
-    ForLoop,
-    MatchArm,
+/// A variable binding with mutability tracking
+struct Binding {
+    value: Value,
+    mutability: Mutability,
+}
+
+pub enum Mutability {
+    Mutable,    // let x = ...
+    Immutable,  // let $x = ...
+}
+
+pub struct Environment {
+    /// Stack of scopes (for push/pop during evaluation)
+    scopes: Vec<LocalScope<Scope>>,
+    /// Global scope (always accessible)
+    global: LocalScope<Scope>,
 }
 ```
+
+**Key design decisions:**
+- `LocalScope<T>` uses `Rc<RefCell<T>>` (not `Arc`) for single-threaded interpreter
+- `FxHashMap` provides faster hashing for `Name` keys
+- Parent chain enables closure capture lookup
+- `Mutability` prevents reassignment of `$` constants
 
 ## Operations
 
@@ -48,20 +63,48 @@ pub enum ScopeKind {
 ```rust
 impl Environment {
     pub fn new() -> Self {
+        let global = LocalScope::new(Scope::new());
         Self {
-            scopes: vec![Scope::global()],
+            scopes: vec![global.clone()],
+            global,
         }
     }
+}
+```
 
-    pub fn with_builtins() -> Self {
-        let mut env = Self::new();
+### Variable Binding
 
-        // Bind built-in functions
-        env.bind(name("print"), Value::Builtin(BuiltinFn::Print));
-        env.bind(name("len"), Value::Builtin(BuiltinFn::Len));
-        // ... more builtins
+```rust
+impl Scope {
+    /// Define a variable with specified mutability
+    pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
+        self.bindings.insert(name, Binding { value, mutability });
+    }
 
-        env
+    /// Look up a variable (checks parent chain)
+    pub fn lookup(&self, name: Name) -> Option<Value> {
+        if let Some(binding) = self.bindings.get(&name) {
+            return Some(binding.value.clone());
+        }
+        if let Some(parent) = &self.parent {
+            return parent.borrow().lookup(name);
+        }
+        None
+    }
+
+    /// Assign to a mutable variable
+    pub fn assign(&mut self, name: Name, value: Value) -> Result<(), String> {
+        if let Some(binding) = self.bindings.get_mut(&name) {
+            if !binding.mutability.is_mutable() {
+                return Err("cannot assign to immutable variable".to_string());
+            }
+            binding.value = value;
+            return Ok(());
+        }
+        if let Some(parent) = &self.parent {
+            return parent.borrow_mut().assign(name, value);
+        }
+        Err("undefined variable".to_string())
     }
 }
 ```
@@ -71,11 +114,18 @@ impl Environment {
 ```rust
 impl Environment {
     pub fn push_scope(&mut self) {
-        self.scopes.push(Scope::block());
+        let current = self.scopes.last().cloned();
+        let new_scope = LocalScope::new(match current {
+            Some(parent) => Scope::with_parent(parent),
+            None => Scope::new(),
+        });
+        self.scopes.push(new_scope);
     }
 
-    pub fn push_function_scope(&mut self, name: Name) {
-        self.scopes.push(Scope::function(name));
+    pub fn pop_scope(&mut self) {
+        if self.scopes.len() > 1 {
+            self.scopes.pop();
+        }
     }
 
     pub fn push_scope_with(&mut self, captured: Scope) {

@@ -41,10 +41,6 @@
 use std::cell::RefCell;
 use std::ffi::CStr;
 
-// ============================================================================
-// Data Structures
-// ============================================================================
-
 /// Ori string representation: { i64 len, *const u8 data }
 #[repr(C)]
 pub struct OriStr {
@@ -108,10 +104,6 @@ pub struct RcHeader {
     pub size: i64,
 }
 
-// ============================================================================
-// Thread-Local Panic State (for JIT test isolation)
-// ============================================================================
-
 thread_local! {
     static PANIC_OCCURRED: RefCell<bool> = const { RefCell::new(false) };
     static PANIC_MESSAGE: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -144,10 +136,6 @@ pub fn set_panic_state_for_test(msg: &str) {
     PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
     PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.to_string()));
 }
-
-// ============================================================================
-// Memory Allocation
-// ============================================================================
 
 /// Allocate memory with the given size and alignment.
 ///
@@ -219,10 +207,6 @@ pub extern "C" fn ori_realloc(
     // SAFETY: Caller guarantees ptr was allocated with matching layout
     unsafe { std::alloc::realloc(ptr, old_layout, new_size) }
 }
-
-// ============================================================================
-// Reference Counting
-// ============================================================================
 
 /// Create a new reference-counted object.
 ///
@@ -319,10 +303,6 @@ pub extern "C" fn ori_rc_data(ptr: *mut RcHeader) -> *mut u8 {
     unsafe { ptr.add(1).cast() }
 }
 
-// ============================================================================
-// I/O Functions
-// ============================================================================
-
 /// Print a string to stdout.
 #[no_mangle]
 pub extern "C" fn ori_print(s: *const OriStr) {
@@ -354,10 +334,6 @@ pub extern "C" fn ori_print_float(f: f64) {
 pub extern "C" fn ori_print_bool(b: bool) {
     println!("{b}");
 }
-
-// ============================================================================
-// Panic & Assertions
-// ============================================================================
 
 /// Panic with a message.
 ///
@@ -468,10 +444,6 @@ pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriS
     }
 }
 
-// ============================================================================
-// List Operations
-// ============================================================================
-
 /// Allocate a new list with given capacity.
 #[no_mangle]
 pub extern "C" fn ori_list_new(capacity: i64, elem_size: i64) -> *mut OriList {
@@ -522,10 +494,6 @@ pub extern "C" fn ori_list_len(list: *const OriList) -> i64 {
     // SAFETY: Caller ensures list is valid
     unsafe { (*list).len }
 }
-
-// ============================================================================
-// String Operations
-// ============================================================================
 
 /// Concatenate two strings.
 ///
@@ -606,10 +574,6 @@ pub extern "C" fn ori_str_from_float(f: f64) -> OriStr {
     OriStr { len, data: ptr }
 }
 
-// ============================================================================
-// Comparison & Numeric
-// ============================================================================
-
 /// Compare two integers (for sorting, etc.)
 /// Returns -1 if a < b, 0 if a == b, 1 if a > b.
 #[no_mangle]
@@ -633,10 +597,6 @@ pub extern "C" fn ori_max_int(a: i64, b: i64) -> i64 {
     a.max(b)
 }
 
-// ============================================================================
-// Closure Support
-// ============================================================================
-
 /// Allocate memory for a closure struct.
 ///
 /// Used when a closure has captures and needs to be boxed for returning.
@@ -646,10 +606,6 @@ pub extern "C" fn ori_closure_box(size: i64) -> *mut u8 {
     let size = size.max(8) as usize;
     ori_alloc(size, 8)
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

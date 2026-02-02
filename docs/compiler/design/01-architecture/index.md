@@ -126,7 +126,17 @@ compiler/
 │       ├── lib.rs            # Diagnostic/Subdiagnostic derives
 │       ├── diagnostic.rs     # #[derive(Diagnostic)] impl
 │       └── subdiagnostic.rs  # #[derive(Subdiagnostic)] impl
-├── ori_llvm/                 # LLVM backend (excluded from workspace)
+├── ori_fmt/                  # Source code formatter
+│   └── src/
+│       ├── lib.rs            # Module exports
+│       └── ...               # Formatting logic
+├── ori_stack/                # Stack safety utilities
+│   └── src/
+│       └── lib.rs            # grow_stack(), stack checks
+├── ori_rt/                   # Runtime library (for AOT compilation)
+│   └── src/
+│       └── lib.rs            # Runtime support functions
+├── ori_llvm/                 # LLVM backend (native code generation)
 │   └── src/
 │       ├── lib.rs            # Module exports, LlvmBackend trait
 │       ├── builder.rs        # CodeBuilder - main codegen orchestrator
@@ -204,16 +214,19 @@ ori_ir (base)
                     │
                     └── oric ──→ ALL (orchestrator)
 
-ori_llvm (separate, excluded from workspace)
-    └── depends on: ori_ir, ori_types, ori_parse, ori_patterns, ori_typeck
+ori_llvm (in workspace)
+    └── depends on: ori_ir, ori_types, ori_parse, ori_patterns, ori_typeck, ori_rt
 ```
 
 **Layered architecture:**
 - `ori_ir`: Core IR types (no dependencies)
 - `ori_patterns`: Pattern definitions, Value types, EvalError (single source of truth)
 - `ori_eval`: Core tree-walking interpreter (Interpreter, Environment, exec, method dispatch)
+- `ori_fmt`: Source code formatter (AST pretty-printing)
+- `ori_stack`: Stack safety utilities (stacker integration)
+- `ori_rt`: Runtime library for AOT-compiled binaries
 - `oric`: CLI orchestrator with Salsa queries, type checker, high-level Evaluator wrapper
-- `ori_llvm`: LLVM backend for native code generation (excluded from main workspace to avoid LLVM linking overhead)
+- `ori_llvm`: LLVM backend for native code generation (in workspace)
 
 Pure functions live in library crates; Salsa queries live in `oric`.
 
@@ -330,8 +343,11 @@ impl PatternRegistry {
 | `ori_typeck` | Type checking: TypeChecker, inference, registries |
 | `ori_patterns` | Pattern definitions, Value types, EvalError (single source of truth) |
 | `ori_eval` | Core tree-walking interpreter: Interpreter, Environment, exec, method dispatch |
+| `ori_fmt` | Source code formatter: AST pretty-printing |
+| `ori_stack` | Stack safety utilities: stacker integration for deep recursion |
+| `ori_rt` | Runtime library: support functions for AOT-compiled binaries |
 | `ori-macros` | Proc-macros (`#[derive(Diagnostic)]`, etc.) |
-| `ori_llvm` | LLVM backend: CodeBuilder, JIT execution, native codegen (excluded from workspace) |
+| `ori_llvm` | LLVM backend: CodeBuilder, JIT execution, native codegen |
 | `oric` | CLI orchestrator, Salsa queries, high-level Evaluator, patterns |
 
 ### DRY Re-exports
@@ -366,7 +382,7 @@ When files exceed limits, extract submodules:
 
 ## LLVM Backend
 
-The `ori_llvm` crate provides native code generation via LLVM 17. It is **excluded from the main workspace** to avoid LLVM linking overhead during normal development.
+The `ori_llvm` crate provides native code generation via LLVM 17. It is now **part of the main workspace** for unified builds.
 
 **Key components:**
 - `CodeBuilder`: Main codegen orchestrator, walks the typed AST

@@ -18,25 +18,32 @@ The Ori parser uses error recovery to parse as much as possible despite syntax e
 
 ## Error Types
 
+Parse errors use structured `ErrorCode` + message (not an enum):
+
 ```rust
-pub enum ParseErrorKind {
-    UnexpectedToken {
-        expected: Vec<TokenKind>,
-        found: TokenKind,
-    },
-    UnexpectedEof,
-    InvalidLiteral(String),
-    MissingExpression,
-    MissingType,
-    InvalidPattern,
-    // ...
+pub struct ParseError {
+    /// Error code for searchability (e.g., E1001)
+    pub code: ori_diagnostic::ErrorCode,
+    /// Human-readable message
+    pub message: String,
+    /// Location of the error
+    pub span: Span,
+    /// Optional context for suggestions
+    pub context: Option<String>,
 }
 
-pub struct ParseError {
-    pub kind: ParseErrorKind,
-    pub span: Span,
+impl ParseError {
+    pub fn new(code: ErrorCode, message: impl Into<String>, span: Span) -> Self;
+    pub fn with_context(self, context: impl Into<String>) -> Self;
+    pub fn to_diagnostic(&self) -> Diagnostic;
 }
 ```
+
+Error codes follow the E1xxx range (see Appendix C):
+- `E1001` - Unexpected token
+- `E1002` - Expected expression
+- `E1003` - Unclosed delimiter
+- `E1004` - Expected identifier
 
 ## Recovery Strategies
 
@@ -73,26 +80,22 @@ fn synchronize(&mut self) {
 Insert a missing token and continue:
 
 ```rust
-fn expect(&mut self, kind: TokenKind) -> Result<(), ParseError> {
-    if self.check(&kind) {
-        self.advance();
+fn expect(&mut self, kind: &TokenKind) -> Result<(), ParseError> {
+    if self.cursor.check(kind) {
+        self.cursor.advance();
         Ok(())
     } else {
-        // Record error but continue as if token was there
-        self.error(ParseErrorKind::UnexpectedToken {
-            expected: vec![kind],
-            found: self.current().clone(),
-        });
-        Err(ParseError { ... })
+        let span = self.cursor.current_span();
+        Err(ParseError::new(E1001, format!("expected {:?}", kind), span))
     }
 }
 
-fn expect_recover(&mut self, kind: TokenKind) {
-    if !self.check(&kind) {
+fn expect_recover(&mut self, kind: &TokenKind) {
+    if !self.cursor.check(kind) {
         self.error_expected(kind);
         // Don't advance - continue as if token was present
     } else {
-        self.advance();
+        self.cursor.advance();
     }
 }
 ```
@@ -135,7 +138,8 @@ fn parse_expr_or_error(&mut self) -> ExprId {
     if self.can_start_expr() {
         self.parse_expr()
     } else {
-        self.error(ParseErrorKind::MissingExpression);
+        let span = self.cursor.current_span();
+        self.push_error(ParseError::new(E1002, "expected expression", span));
         // Return error placeholder
         self.alloc(ExprKind::Error)
     }
@@ -217,53 +221,67 @@ fn parse_module(&mut self) -> Module {
 ### Error Limit
 
 ```rust
-const MAX_ERRORS: usize = 100;
+### Progress-Based Recovery
 
-fn should_continue(&self) -> bool {
-    self.errors.len() < MAX_ERRORS
+Instead of traditional panic mode, Ori uses progress tracking for error recovery:
+
+```rust
+pub enum Progress {
+    Made,  // Tokens were consumed
+    None,  // No tokens consumed
+}
+
+pub struct ParseResult<T> {
+    pub progress: Progress,
+    pub result: Result<T, ParseError>,
 }
 ```
 
-### Panic Mode
-
-Track if we're in error recovery to suppress duplicates:
+Recovery decisions are based on progress:
+- `Progress::None` + error → try alternative productions
+- `Progress::Made` + error → commit to path and report error
 
 ```rust
-struct Parser {
-    in_panic_mode: bool,
-    // ...
-}
-
-fn error(&mut self, kind: ParseErrorKind) {
-    if !self.in_panic_mode {
-        self.errors.push(ParseError { kind, ... });
-        self.in_panic_mode = true;
-    }
-}
-
-fn synchronize(&mut self) {
-    // ... sync logic ...
-    self.in_panic_mode = false;  // Exit panic mode
+fn parse_item_with_progress(&mut self) -> ParseResult<Item> {
+    let start_pos = self.cursor.position();
+    let result = self.try_parse_item();
+    let progress = if self.cursor.position() > start_pos {
+        Progress::Made
+    } else {
+        Progress::None
+    };
+    ParseResult { progress, result }
 }
 ```
 
 ### Context Tracking
 
-Track context for better errors:
+The parser uses bitflag-based context for disambiguation:
 
 ```rust
-enum ParseContext {
-    Function,
-    IfCondition,
-    ForLoop,
-    MatchArm,
+pub struct ParseContext(u8);
+
+impl ParseContext {
+    const NO_STRUCT_LIT: Self = Self(0b0001);  // In if/while conditions
+    const IN_PATTERN: Self = Self(0b0010);     // Parsing match patterns
+    const IN_TYPE: Self = Self(0b0100);        // Parsing type annotations
+    const IN_LOOP: Self = Self(0b1000);        // Inside loop body
 }
 
-fn parse_with_context<T>(&mut self, ctx: ParseContext, f: impl FnOnce(&mut Self) -> T) -> T {
-    self.context_stack.push(ctx);
+fn with_context<T>(&mut self, add: ParseContext, f: impl FnOnce(&mut Self) -> T) -> T {
+    let old = self.context;
+    self.context = self.context.with(add);
     let result = f(self);
-    self.context_stack.pop();
+    self.context = old;
     result
+}
+```
+
+Used to prevent struct literals in conditions:
+
+```rust
+fn parse_if_condition(&mut self) -> ExprId {
+    self.with_context(ParseContext::NO_STRUCT_LIT, |p| p.parse_expr())
 }
 ```
 
@@ -272,19 +290,24 @@ fn parse_with_context<T>(&mut self, ctx: ParseContext, f: impl FnOnce(&mut Self)
 ### Context-Aware Messages
 
 ```rust
-fn error_expected(&mut self, kind: TokenKind) {
-    let context_hint = match self.current_context() {
-        Some(ParseContext::IfCondition) =>
-            "in if condition",
-        Some(ParseContext::ForLoop) =>
-            "in for loop",
-        _ => "",
+fn error_expected(&mut self, kind: &TokenKind) {
+    let span = self.cursor.current_span();
+    let message = format!("expected {:?}", kind);
+
+    // Add context based on current parsing state
+    let context = if self.context.has(ParseContext::NO_STRUCT_LIT) {
+        Some("in if condition".to_string())
+    } else if self.context.has(ParseContext::IN_LOOP) {
+        Some("in loop body".to_string())
+    } else {
+        None
     };
 
-    self.error(ParseErrorKind::UnexpectedToken {
-        expected: vec![kind],
-        found: self.current().clone(),
-        context: context_hint.to_string(),
+    let error = ParseError::new(E1001, message, span);
+    self.push_error(if let Some(ctx) = context {
+        error.with_context(ctx)
+    } else {
+        error
     });
 }
 ```
@@ -293,21 +316,24 @@ fn error_expected(&mut self, kind: TokenKind) {
 
 ```rust
 fn error_unexpected_token(&mut self) {
-    let found = self.current().clone();
+    let span = self.cursor.current_span();
+    let found = self.cursor.current_kind();
 
     // Suggest common fixes
-    let suggestion = match &found {
-        TokenKind::Eq if self.expected_double_eq() =>
-            Some("did you mean '=='?"),
+    let (message, context) = match found {
+        TokenKind::Eq =>
+            ("unexpected '='", Some("did you mean '=='?")),
         TokenKind::Semicolon =>
-            Some("unexpected ';' - Ori uses expressions, not statements"),
-        _ => None,
+            ("unexpected ';'", Some("Ori uses expressions, not statements")),
+        _ =>
+            ("unexpected token", None),
     };
 
-    self.error(ParseErrorKind::UnexpectedToken {
-        expected: self.expected_tokens(),
-        found,
-        suggestion,
+    let error = ParseError::new(E1001, message, span);
+    self.push_error(if let Some(ctx) = context {
+        error.with_context(ctx)
+    } else {
+        error
     });
 }
 ```

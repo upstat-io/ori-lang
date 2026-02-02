@@ -11,92 +11,93 @@ This guide explains how to add new patterns to the Ori compiler.
 
 ## Overview
 
-To add a new pattern:
+Adding a new pattern requires changes across multiple crates:
 
-1. Create pattern struct implementing `PatternDefinition`
-2. Register pattern in `PatternRegistry`
-3. Add tests
-4. Update documentation
+1. Add enum variant to `FunctionExpKind` in `ori_ir`
+2. Create pattern struct implementing `PatternDefinition` in `ori_patterns`
+3. Add static instance and match arm in registry
+4. Update parser to recognize the pattern name
+5. Add tests and documentation
 
-## Step 1: Create Pattern Struct
+## Step 1: Add Enum Variant
 
-Create a new file in `compiler/oric/src/patterns/`:
+In `compiler/ori_ir/src/ast/patterns/exp.rs`:
 
 ```rust
-// patterns/take.rs
+/// Kind of function_exp pattern.
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+pub enum FunctionExpKind {
+    Recurse,
+    Parallel,
+    Spawn,
+    Timeout,
+    Cache,
+    With,
+    Print,
+    Panic,
+    Catch,
+    Todo,
+    Unreachable,
+    Take,  // <-- Add new variant
+}
+```
 
-use crate::patterns::{PatternDefinition, PatternArg, ArgType, TypedArg, EvalArg};
-use crate::types::Type;
-use crate::eval::Value;
+## Step 2: Create Pattern Struct
+
+Create a new file in `compiler/ori_patterns/src/`:
+
+```rust
+// take.rs
+
+use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext};
+use ori_types::Type;
 
 /// take(over: items, count: n) - Take first n items
 pub struct TakePattern;
 
 impl PatternDefinition for TakePattern {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "take"
     }
 
-    fn arguments(&self) -> &[PatternArg] {
-        &[
-            PatternArg {
-                name: "over",
-                ty: ArgType::Iterable,
-                required: true,
-                default: None,
-            },
-            PatternArg {
-                name: "count",
-                ty: ArgType::Exact(Type::Int),
-                required: true,
-                default: None,
-            },
-        ]
+    fn required_props(&self) -> &'static [&'static str] {
+        &["over", "count"]
     }
 
-    fn type_check(
-        &self,
-        args: &[TypedArg],
-        checker: &mut TypeChecker,
-    ) -> Result<Type, TypeError> {
-        let over_arg = args.iter().find(|a| a.name.as_str() == "over")
-            .ok_or(TypeError::MissingArg("over"))?;
-        let count_arg = args.iter().find(|a| a.name.as_str() == "count")
-            .ok_or(TypeError::MissingArg("count"))?;
+    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
+        // Get property types
+        let over_type = ctx.require_prop_type("over");
+        let count_type = ctx.require_prop_type("count");
 
-        // Verify count is int
-        checker.unify(&count_arg.ty, &Type::Int)?;
+        // count must be int
+        ctx.unify(&count_type, &Type::Int);
 
         // Result has same type as input
-        Ok(over_arg.ty.clone())
+        over_type
     }
 
-    fn evaluate(
-        &self,
-        args: &[EvalArg],
-        _evaluator: &mut Evaluator,
-    ) -> Result<Value, EvalError> {
-        let over = args.iter().find(|a| a.name.as_str() == "over")
-            .ok_or(EvalError::MissingArg("over"))?
-            .value.as_list()?;
+    fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
+        // Evaluate properties
+        let over = ctx.eval_prop("over", exec)?;
+        let count = ctx.eval_prop("count", exec)?.as_int()? as usize;
 
-        let count = args.iter().find(|a| a.name.as_str() == "count")
-            .ok_or(EvalError::MissingArg("count"))?
-            .value.as_int()? as usize;
+        // Get list from over
+        let list = over.as_list()?;
 
-        let result: Vec<Value> = over.iter()
+        // Take first n elements
+        let result: Vec<_> = list.iter()
             .take(count)
             .cloned()
             .collect();
 
-        Ok(Value::List(Arc::new(result)))
+        Ok(Value::list(result))
     }
 }
 ```
 
-## Step 2: Add to Module
+## Step 3: Add to Module
 
-Update `patterns/mod.rs`:
+Update `compiler/ori_patterns/src/lib.rs`:
 
 ```rust
 mod take;
@@ -104,61 +105,66 @@ mod take;
 pub use take::TakePattern;
 ```
 
-## Step 3: Register Pattern
+## Step 4: Register in Registry
 
-Update `patterns/registry.rs`:
+Update `compiler/ori_patterns/src/registry.rs`:
 
 ```rust
+// Add static instance
+static TAKE: TakePattern = TakePattern;
+
 impl PatternRegistry {
-    pub fn with_builtins(interner: Arc<Interner>) -> Self {
-        let mut registry = Self::new(interner);
-
-        // ... existing patterns ...
-
-        // Add new pattern
-        registry.register(TakePattern);
-
-        registry
+    pub fn get(&self, kind: FunctionExpKind) -> &'static dyn PatternDefinition {
+        match kind {
+            // ... existing patterns ...
+            FunctionExpKind::Take => &TAKE,
+        }
     }
 }
 ```
 
-## Step 4: Add Tests
+## Step 5: Update Parser
 
-Create `patterns/take_test.rs`:
+In `compiler/ori_parse/src/expr.rs`, add the pattern name to the function_exp parser:
 
 ```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_take_basic() {
-        let result = eval("take(over: [1, 2, 3, 4, 5], count: 3)");
-        assert_eq!(result, Value::List(vec![1, 2, 3].into()));
-    }
-
-    #[test]
-    fn test_take_empty() {
-        let result = eval("take(over: [], count: 3)");
-        assert_eq!(result, Value::List(vec![].into()));
-    }
-
-    #[test]
-    fn test_take_more_than_available() {
-        let result = eval("take(over: [1, 2], count: 5)");
-        assert_eq!(result, Value::List(vec![1, 2].into()));
-    }
-
-    #[test]
-    fn test_take_type_error() {
-        let err = eval_err("take(over: [1, 2], count: \"not a number\")");
-        assert!(matches!(err, TypeError::Mismatch { .. }));
+fn parse_function_exp(&mut self) -> Option<FunctionExpKind> {
+    let name = self.expect_identifier()?;
+    match name.as_str() {
+        "recurse" => Some(FunctionExpKind::Recurse),
+        "parallel" => Some(FunctionExpKind::Parallel),
+        // ... existing patterns ...
+        "take" => Some(FunctionExpKind::Take),
+        _ => None,
     }
 }
 ```
 
-## Step 5: Add Documentation
+## Step 6: Add Tests
+
+Create test file or add to existing tests:
+
+```rust
+#[test]
+fn test_take_basic() {
+    let result = eval("take(over: [1, 2, 3, 4, 5], count: 3)");
+    assert_eq!(result, Value::list(vec![1, 2, 3]));
+}
+
+#[test]
+fn test_take_empty() {
+    let result = eval("take(over: [], count: 3)");
+    assert_eq!(result, Value::list(vec![]));
+}
+
+#[test]
+fn test_take_more_than_available() {
+    let result = eval("take(over: [1, 2], count: 5)");
+    assert_eq!(result, Value::list(vec![1, 2]));
+}
+```
+
+## Step 7: Add Documentation
 
 Update `docs/ori_lang/0.1-alpha/spec/10-patterns.md`:
 
@@ -173,8 +179,8 @@ take(over: [T], count: int) -> [T]
 ```
 
 **Arguments:**
-- `.over` - Collection to take from
-- `.count` - Number of elements to take
+- `.over:` - Collection to take from
+- `.count:` - Number of elements to take
 
 **Example:**
 ```ori
@@ -182,79 +188,73 @@ take(over: [1, 2, 3, 4, 5], count: 3)  // [1, 2, 3]
 ```
 ```
 
-## Optional: Add Fusion Support
-
-If your pattern can fuse with others:
-
-```rust
-impl PatternDefinition for TakePattern {
-    // ... other methods ...
-
-    fn can_fuse(&self, next: &dyn PatternDefinition) -> bool {
-        // take can fuse with map
-        next.name() == "map"
-    }
-
-    fn fuse_with(
-        &self,
-        next: &dyn PatternDefinition,
-    ) -> Option<Box<dyn PatternDefinition>> {
-        if next.name() == "map" {
-            Some(Box::new(TakeMapPattern::new(self, next)))
-        } else {
-            None
-        }
-    }
-}
-```
-
 ## Pattern Categories
 
-### Data Patterns (function_exp)
+### function_exp Patterns
 
-Return transformed data:
+Registered patterns using the `PatternDefinition` trait:
 
 ```rust
-// map, filter, fold, take, skip, etc.
-fn evaluate(&self, args: &[EvalArg], eval: &mut Evaluator) -> Result<Value, EvalError> {
-    // Transform input and return result
-    Ok(transformed_value)
+impl PatternDefinition for MyPattern {
+    fn name(&self) -> &'static str { "my_pattern" }
+    fn required_props(&self) -> &'static [&'static str] { &["arg1", "arg2"] }
+    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type { ... }
+    fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult { ... }
 }
 ```
 
-### Control Patterns (function_seq)
+### function_seq Patterns
 
-Control execution flow:
+Control flow constructs (`run`, `try`, `match`) are NOT in the pattern registry. They are:
+- Defined as AST nodes in `ori_ir/src/ast/patterns/seq.rs`
+- Type-checked directly in `ori_typeck`
+- Evaluated directly in `ori_eval`
+
+Do NOT add control flow patterns to the `PatternRegistry`.
+
+## Optional Features
+
+### Optional Properties
 
 ```rust
-// run, try, match
-fn evaluate(&self, args: &[EvalArg], eval: &mut Evaluator) -> Result<Value, EvalError> {
-    // Execute in sequence, handle control flow
-    for expr in sequence {
-        eval.eval_expr(expr)?;
-    }
-    Ok(final_value)
+fn optional_props(&self) -> &'static [&'static str] {
+    &["limit", "offset"]
 }
 ```
 
-### Effect Patterns
+### Scoped Bindings
 
-Require capabilities:
+For patterns that introduce identifiers (like `recurse` with `self`):
 
 ```rust
-impl PatternDefinition for HttpGetPattern {
-    fn capabilities(&self) -> Vec<Capability> {
-        vec![Capability::Http]
-    }
+fn scoped_bindings(&self) -> &'static [ScopedBinding] {
+    &[ScopedBinding {
+        name: "item",
+        for_props: &["transform"],
+        type_from: ScopedBindingType::SameAs("over"),
+    }]
+}
+```
 
-    fn evaluate(&self, args: &[EvalArg], eval: &mut Evaluator) -> Result<Value, EvalError> {
-        // Verify capability is available
-        eval.require_capability(Capability::Http)?;
+### Pattern Fusion
 
-        // Perform HTTP request
-        let url = args.get("url")?.as_string()?;
-        let response = eval.http_client()?.get(&url)?;
-        Ok(Value::String(response))
+If your pattern can fuse with others for performance:
+
+```rust
+fn can_fuse_with(&self, next: &dyn PatternDefinition) -> bool {
+    next.name() == "filter"
+}
+
+fn fuse_with(
+    &self,
+    next: &dyn PatternDefinition,
+    self_ctx: &EvalContext,
+    next_ctx: &EvalContext,
+) -> Option<FusedPattern> {
+    if next.name() == "filter" {
+        Some(FusedPattern::TakeFilter { ... })
+    } else {
+        None
     }
 }
 ```
@@ -263,21 +263,33 @@ impl PatternDefinition for HttpGetPattern {
 
 Before submitting:
 
-- [ ] Pattern struct implements `PatternDefinition`
-- [ ] Registered in `PatternRegistry::with_builtins`
-- [ ] Type checking validates all arguments
+- [ ] Added `FunctionExpKind` variant in `ori_ir`
+- [ ] Created pattern struct in `ori_patterns`
+- [ ] Implemented `PatternDefinition` trait with correct signatures
+- [ ] Added static instance and match arm in registry
+- [ ] Updated parser to recognize pattern name
+- [ ] Type checking validates all properties
 - [ ] Evaluation handles edge cases
 - [ ] Unit tests cover basic usage
 - [ ] Unit tests cover error cases
 - [ ] Documentation added to spec
-- [ ] Example added to guide (optional)
-- [ ] Fusion rules defined (if applicable)
-- [ ] Capabilities declared (if applicable)
+- [ ] All crates compile (`cargo build -p ori_ir -p ori_patterns -p ori_parse`)
 
 ## Common Mistakes
 
-1. **Forgetting required arguments** - Always check required args in type_check and evaluate
-2. **Wrong return type** - Ensure type_check returns same type as evaluate produces
-3. **Not handling empty input** - Test with empty lists/collections
-4. **Missing capability check** - Declare and verify capabilities for effects
-5. **Thread safety** - Ensure pattern is `Send + Sync`
+1. **Forgetting to update all locations** - Pattern needs changes in `ori_ir`, `ori_patterns`, `ori_parse`
+2. **Wrong trait signature** - Use `required_props()` not `arguments()`
+3. **Not using context types** - Use `TypeCheckContext`/`EvalContext`, not raw checker/evaluator
+4. **Missing parser update** - Pattern won't parse without adding to parser
+5. **Thread safety** - All patterns must be `Send + Sync` (ZSTs are automatically)
+
+## Note on Stdlib Methods
+
+Data transformation operations like `map`, `filter`, `fold`, `find`, `take`, `skip` are actually **collection methods** in stdlib, not patterns. They don't require compiler support.
+
+Only add to the pattern registry if your construct genuinely needs:
+- Special syntax not expressible as a method call
+- Scoped bindings (introducing new identifiers)
+- Capability-aware behavior
+- Concurrency semantics
+- Control flow manipulation

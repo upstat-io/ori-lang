@@ -13,20 +13,23 @@ The Ori parser transforms a token stream into an AST. It uses recursive descent 
 
 ```
 compiler/ori_parse/src/
-├── lib.rs                  # Parser struct and entry point
+├── lib.rs                  # Parser struct and public API
+├── cursor.rs               # Token cursor abstraction
+├── context.rs              # ParseContext for context-sensitive parsing
+├── progress.rs             # Progress tracking (inspired by Roc)
+├── recovery.rs             # RecoverySet and synchronization
 ├── error.rs                # Parse error types
-├── stack.rs                # Stack safety (stacker integration)
 └── grammar/
     ├── mod.rs              # Grammar module organization
-    ├── expr/               # Expression parsing (~1,681 lines total)
-    │   ├── mod.rs              # Entry point, parse_binary_level! macro (~247 lines)
-    │   ├── operators.rs        # Operator matching helpers (~103 lines)
-    │   ├── patterns.rs         # function_seq/function_exp parsing (~472 lines)
-    │   ├── postfix.rs          # Call, method call, field, index (~248 lines)
-    │   └── primary.rs          # Primary expressions, literals (~611 lines)
-    ├── item/               # Item parsing (split into submodules)
+    ├── expr/               # Expression parsing
+    │   ├── mod.rs              # Entry point, parse_binary_level! macro
+    │   ├── operators.rs        # Operator matching helpers
+    │   ├── patterns.rs         # function_seq/function_exp parsing
+    │   ├── postfix.rs          # Call, method call, field, index
+    │   └── primary.rs          # Primary expressions, literals
+    ├── item/               # Item parsing
     │   ├── mod.rs              # Re-exports
-    │   ├── function.rs         # Function/test parsing (~199 lines)
+    │   ├── function.rs         # Function/test parsing
     │   ├── type_decl.rs        # Type declarations
     │   ├── trait_def.rs        # Trait definitions
     │   ├── impl_def.rs         # Impl blocks
@@ -34,9 +37,7 @@ compiler/ori_parse/src/
     │   ├── extend.rs           # Extension definitions
     │   ├── generics.rs         # Generic parameter parsing
     │   └── config.rs           # Config variable parsing
-    ├── type.rs             # Type annotation parsing
-    ├── pattern.rs          # Pattern parsing
-    ├── stmt.rs             # Statement parsing
+    ├── ty.rs               # Type annotation parsing
     └── attr.rs             # Attribute parsing
 ```
 
@@ -54,30 +55,54 @@ The parser is a separate crate with dependencies:
 
 ## Parser Structure
 
+The parser uses a layered architecture:
+
 ```rust
 pub struct Parser<'a> {
-    tokens: &'a TokenList,
-    pos: usize,
+    /// Token navigation via Cursor abstraction
+    cursor: Cursor<'a>,
+    /// Flat AST storage
     arena: ExprArena,
-    errors: Vec<ParseError>,
-    interner: &'a Interner,
+    /// Context flags for context-sensitive parsing
+    context: ParseContext,
+}
+
+/// Token cursor for navigating the token stream
+pub struct Cursor<'a> {
+    tokens: &'a TokenList,
+    interner: &'a StringInterner,
+    pos: usize,
+}
+
+/// Context flags for context-sensitive parsing
+pub struct ParseContext(u8);
+
+impl ParseContext {
+    const NO_STRUCT_LIT: Self = Self(0b0001);  // Disallow struct literals in conditions
+    const IN_MATCH_ARM: Self = Self(0b0010);   // Inside match arm
+    // ...
 }
 ```
 
-## Entry Point
+## Progress-Aware Parsing
+
+Inspired by the Roc compiler, the parser tracks whether tokens were consumed:
 
 ```rust
-pub fn parse(db: &dyn Db, tokens: TokenList) -> ParseResult {
-    let mut parser = Parser::new(&tokens, db.interner());
-    let module = parser.parse_module();
+pub enum Progress {
+    Made,  // Parser consumed tokens
+    None,  // No tokens consumed
+}
 
-    ParseResult {
-        module,
-        arena: parser.arena,
-        errors: parser.errors,
-    }
+pub struct ParseResult<T> {
+    pub progress: Progress,
+    pub result: Result<T, ParseError>,
 }
 ```
+
+This enables better error recovery:
+- `Progress::None` + error → can try alternative productions
+- `Progress::Made` + error → commit to this path and report error
 
 ## Parsing Flow
 
@@ -99,31 +124,42 @@ ExprArena (populated during parsing)
 
 ## Core Methods
 
-### Token Access
+### Token Access (via Cursor)
+
+Token navigation is delegated to the `Cursor` type:
+
+```rust
+impl Cursor<'_> {
+    fn current(&self) -> &Token { ... }
+    fn current_kind(&self) -> &TokenKind { &self.current().kind }
+    fn current_span(&self) -> Span { self.current().span }
+    fn peek_next_kind(&self) -> &TokenKind { ... }  // Lookahead
+
+    fn check(&self, kind: &TokenKind) -> bool {
+        std::mem::discriminant(self.current_kind()) == std::mem::discriminant(kind)
+    }
+
+    fn advance(&mut self) -> &Token { ... }
+    fn consume(&mut self, kind: &TokenKind) -> bool { ... }
+
+    fn position(&self) -> usize { self.pos }  // For progress tracking
+}
+```
+
+### Context Management
 
 ```rust
 impl Parser<'_> {
-    fn current(&self) -> &TokenKind {
-        self.tokens.get(self.pos).unwrap_or(&TokenKind::Eof)
+    fn with_context<T>(&mut self, add: ParseContext, f: impl FnOnce(&mut Self) -> T) -> T {
+        let old = self.context;
+        self.context = self.context.with(add);
+        let result = f(self);
+        self.context = old;
+        result
     }
 
-    fn advance(&mut self) -> &TokenKind {
-        let tok = self.current();
-        self.pos += 1;
-        tok
-    }
-
-    fn check(&self, kind: &TokenKind) -> bool {
-        self.current() == kind
-    }
-
-    fn expect(&mut self, kind: TokenKind) -> Result<(), ParseError> {
-        if self.check(&kind) {
-            self.advance();
-            Ok(())
-        } else {
-            Err(self.error_expected(kind))
-        }
+    fn allows_struct_lit(&self) -> bool {
+        self.context.allows_struct_lit()
     }
 }
 ```
@@ -181,33 +217,37 @@ impl Parser<'_> {
 
 **Note:** `>>` and `>=` are synthesized from adjacent `>` tokens. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary).
 
-## Error Handling
+## Error Recovery
 
-Errors are accumulated, not fatal:
+Error recovery uses the `RecoverySet` type to synchronize after errors:
 
 ```rust
-impl Parser<'_> {
-    fn error(&mut self, kind: ParseErrorKind) {
-        self.errors.push(ParseError {
-            kind,
-            span: self.current_span(),
-        });
-    }
+/// Defines a set of tokens that indicate safe recovery points.
+pub struct RecoverySet {
+    /// Tokens that indicate a new item starts
+    tokens: &'static [TokenKind],
+}
 
-    fn synchronize(&mut self) {
-        // Skip tokens until we find a synchronization point
-        while !self.at_end() {
-            match self.current() {
-                TokenKind::Let |
-                TokenKind::If |
-                TokenKind::For |
-                TokenKind::At => return,
-                _ => { self.advance(); }
-            }
+impl RecoverySet {
+    pub const ITEM: RecoverySet = RecoverySet {
+        tokens: &[TokenKind::At, TokenKind::Pub, TokenKind::Type, TokenKind::Trait, ...]
+    };
+}
+
+/// Skip tokens until we find a recovery point.
+pub fn synchronize(cursor: &mut Cursor, recovery: &RecoverySet) {
+    while !cursor.is_at_end() {
+        if recovery.contains(cursor.current_kind()) {
+            return;
         }
+        cursor.advance();
     }
 }
 ```
+
+The progress tracking enables smarter recovery decisions:
+- If no tokens consumed, try alternative parsing strategies
+- If tokens consumed, report error and synchronize
 
 ## Salsa Integration
 

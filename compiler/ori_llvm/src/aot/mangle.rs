@@ -42,9 +42,9 @@
 //! let mangled = mangler.mangle_function("math", "add");
 //! assert_eq!(mangled, "_ori_math$add");
 //!
-//! // Demangle
+//! // Demangle (Ori-style output)
 //! let demangled = demangle("_ori_math$add");
-//! assert_eq!(demangled, Some("math::add".to_string()));
+//! assert_eq!(demangled, Some("math.@add".to_string()));
 //! ```
 
 use std::fmt::Write;
@@ -227,6 +227,21 @@ impl Mangler {
     }
 
     // -- Internal encoding helpers --
+    //
+    // These helpers share a common pattern:
+    // 1. Alphanumeric and '_' pass through unchanged
+    // 2. Special characters get named escapes (context-dependent)
+    // 3. Other characters get hex-escaped via encode_char_hex
+    //
+    // The different methods have different special character mappings:
+    // - Module paths: path separators become MODULE_SEP
+    // - Identifiers: brackets, generics, etc. get named escapes
+
+    /// Encode a character as hex escape (e.g., '@' -> "$40").
+    #[inline]
+    fn encode_char_hex(out: &mut String, c: char) {
+        let _ = write!(out, "${:02x}", c as u32);
+    }
 
     /// Encode a module path, replacing path separators.
     // Takes &self for API consistency and future extensibility (e.g., windows_compat
@@ -237,10 +252,7 @@ impl Mangler {
             match c {
                 '/' | '\\' | '.' | ':' => out.push(MODULE_SEP),
                 c if c.is_alphanumeric() || c == '_' => out.push(c),
-                _ => {
-                    // Escape other characters as hex
-                    let _ = write!(out, "${:02x}", c as u32);
-                }
+                _ => Self::encode_char_hex(out, c),
             }
         }
     }
@@ -263,9 +275,7 @@ impl Mangler {
                 ')' => out.push_str("$RP"),
                 ':' => out.push_str("$CC"),
                 '-' => out.push_str("$D"),
-                _ => {
-                    let _ = write!(out, "${:02x}", c as u32);
-                }
+                _ => Self::encode_char_hex(out, c),
             }
         }
     }
@@ -275,27 +285,18 @@ impl Mangler {
     // platform-specific encoding using self.windows_compat).
     #[allow(clippy::unused_self)]
     fn encode_type_name(&self, out: &mut String, type_name: &str) {
-        // Handle common collection types
-        let encoded = match type_name {
-            "int" => "int",
-            "float" => "float",
-            "bool" => "bool",
-            "str" => "str",
-            "char" => "char",
-            "byte" => "byte",
-            "void" => "void",
-            "Never" => "Never",
-            _ => {
-                // For complex types, encode the full name
-                self.encode_identifier(out, type_name);
-                return;
+        // Primitive types are passed through unchanged for readability
+        match type_name {
+            "int" | "float" | "bool" | "str" | "char" | "byte" | "void" | "Never" => {
+                out.push_str(type_name);
             }
-        };
-        out.push_str(encoded);
+            // Complex types get full identifier encoding
+            _ => self.encode_identifier(out, type_name),
+        }
     }
 }
 
-/// Demangle an Ori symbol name back to its original form.
+/// Demangle an Ori symbol name back to its original Ori-style form.
 ///
 /// # Arguments
 ///
@@ -303,101 +304,215 @@ impl Mangler {
 ///
 /// # Returns
 ///
-/// The demangled name in Ori syntax, or `None` if not a valid Ori symbol.
+/// The demangled name in Ori syntax (e.g., `math.@add`), or `None` if not a valid Ori symbol.
+///
+/// # Output Format
+///
+/// - Module functions: `_ori_math$add` → `math.@add`
+/// - Nested modules: `_ori_http$client$connect` → `http/client.@connect`
+/// - Trait impls: `_ori_int$$Eq$equals` → `int::Eq.@equals`
+/// - Associated fns: `_ori_Option$A$some` → `Option.@some`
 #[must_use]
 pub fn demangle(mangled: &str) -> Option<String> {
-    // Check prefix
     let rest = mangled.strip_prefix(MANGLE_PREFIX)?;
+    let parsed = DemangleParser::parse(rest)?;
+    Some(parsed.format())
+}
 
-    let mut result = String::with_capacity(mangled.len());
-    let mut chars = rest.chars().peekable();
+/// Internal parser state for demangling.
+struct DemangleParser {
+    segments: Vec<String>,
+    is_trait_impl: bool,
+    is_associated: bool,
+}
 
-    while let Some(c) = chars.next() {
-        match c {
-            MODULE_SEP => {
-                // Check for escape sequences (multi-character escapes start with $)
-                match chars.peek().copied() {
-                    Some('$') => {
-                        // Trait separator $$
-                        chars.next();
-                        result.push_str("::");
-                    }
-                    Some('L') => {
-                        chars.next();
-                        match chars.next() {
-                            Some('T') => result.push('<'),
-                            Some('B') => result.push('['),
-                            Some('P') => result.push('('),
-                            _ => result.push_str("$L"),
-                        }
-                    }
-                    Some('G') => {
-                        // Generic marker $G
-                        chars.next();
-                        result.push('<');
-                    }
-                    Some('R') => {
-                        chars.next();
-                        match chars.next() {
-                            Some('B') => result.push(']'),
-                            Some('P') => result.push(')'),
-                            _ => result.push_str("$R"),
-                        }
-                    }
-                    Some('C') => {
-                        chars.next();
-                        match chars.peek() {
-                            Some('C') => {
-                                chars.next();
-                                result.push_str("::");
-                            }
-                            _ => result.push(','),
-                        }
-                    }
-                    Some('D') => {
-                        chars.next();
-                        result.push('-');
-                    }
-                    Some('A') => {
-                        // Associated function marker $A$
-                        chars.next();
-                        if chars.peek() == Some(&'$') {
-                            chars.next();
-                            result.push('.');
-                        }
-                    }
-                    Some('e') => {
-                        // Could be extension marker $ext$ or just a regular separator before 'e'
-                        // Peek ahead to check for 'xt$'
-                        // Since peeking multiple chars is tricky, just treat as separator
-                        // Extension markers are $$ext$ which starts with $$, handled above
-                        result.push_str("::");
-                    }
-                    _ => {
-                        // Plain module separator $ -> ::
-                        result.push_str("::");
-                    }
+impl DemangleParser {
+    /// Parse a mangled symbol (without prefix) into segments and flags.
+    fn parse(input: &str) -> Option<Self> {
+        let mut parser = Self {
+            segments: Vec::new(),
+            is_trait_impl: false,
+            is_associated: false,
+        };
+        let mut current = String::new();
+        let mut chars = input.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            match c {
+                MODULE_SEP => parser.handle_separator(&mut chars, &mut current),
+                '_' if current.ends_with('<') || current.ends_with(", ") => {
+                    current.push_str(", ");
                 }
+                c => current.push(c),
             }
-            '_' => {
-                // Underscore in generic type separator becomes ", "
-                if result.ends_with('<') || result.ends_with(", ") {
-                    // Already in generic context, this is type separator
-                    result.push_str(", ");
-                } else {
-                    result.push('_');
-                }
+        }
+
+        if !current.is_empty() {
+            parser.segments.push(current);
+        }
+
+        if parser.segments.is_empty() {
+            return None;
+        }
+        Some(parser)
+    }
+
+    /// Handle `$` separator and its escape sequences.
+    fn handle_separator(
+        &mut self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        current: &mut String,
+    ) {
+        match chars.peek().copied() {
+            Some('$') => {
+                chars.next();
+                self.push_segment(current);
+                self.is_trait_impl = true;
             }
-            c => result.push(c),
+            Some('L') => Self::decode_left_bracket(chars, current),
+            Some('G') => {
+                chars.next();
+                current.push('<');
+            }
+            Some('R') => Self::decode_right_bracket(chars, current),
+            Some('C') => Self::decode_comma_or_colons(chars, current),
+            Some('D') => {
+                chars.next();
+                current.push('-');
+            }
+            Some('A') => self.handle_associated_marker(chars, current),
+            Some('e') => self.handle_extension_marker(chars, current),
+            _ => self.push_segment(current),
         }
     }
 
-    // Clean up trailing generic bracket if needed
-    if result.contains('<') && !result.contains('>') {
-        result.push('>');
+    fn decode_left_bracket(
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        current: &mut String,
+    ) {
+        chars.next();
+        match chars.next() {
+            Some('T') => current.push('<'),
+            Some('B') => current.push('['),
+            Some('P') => current.push('('),
+            _ => current.push_str("$L"),
+        }
     }
 
-    Some(result)
+    fn decode_right_bracket(
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        current: &mut String,
+    ) {
+        chars.next();
+        match chars.next() {
+            Some('B') => current.push(']'),
+            Some('P') => current.push(')'),
+            _ => current.push_str("$R"),
+        }
+    }
+
+    fn decode_comma_or_colons(
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        current: &mut String,
+    ) {
+        chars.next();
+        if chars.peek() == Some(&'C') {
+            chars.next();
+            current.push_str("::");
+        } else {
+            current.push(',');
+        }
+    }
+
+    fn handle_associated_marker(
+        &mut self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        current: &mut String,
+    ) {
+        chars.next();
+        if chars.peek() == Some(&'$') {
+            chars.next();
+            self.push_segment(current);
+            self.is_associated = true;
+        }
+    }
+
+    fn handle_extension_marker(
+        &mut self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        current: &mut String,
+    ) {
+        let peek: String = chars.clone().take(3).collect();
+        if peek == "xt$" {
+            chars.next(); // x
+            chars.next(); // t
+            chars.next(); // $
+            self.push_segment(current);
+            self.is_trait_impl = true;
+        } else {
+            self.push_segment(current);
+        }
+    }
+
+    fn push_segment(&mut self, current: &mut String) {
+        if !current.is_empty() {
+            self.segments.push(std::mem::take(current));
+        }
+    }
+
+    /// Format parsed segments into Ori-style output.
+    fn format(mut self) -> String {
+        let mut result = String::with_capacity(self.segments.iter().map(String::len).sum());
+
+        if self.segments.len() == 1 {
+            result.push('@');
+            result.push_str(&self.segments[0]);
+        } else if self.is_trait_impl {
+            self.format_trait_impl(&mut result);
+        } else if self.is_associated {
+            self.format_associated(&mut result);
+        } else {
+            self.format_module_function(&mut result);
+        }
+
+        if result.contains('<') && !result.contains('>') {
+            result.push('>');
+        }
+        result
+    }
+
+    fn format_trait_impl(&mut self, result: &mut String) {
+        let method = self.segments.pop().unwrap();
+        let trait_name = self.segments.pop();
+        let type_name = self.segments.pop();
+        if let Some(tn) = type_name {
+            result.push_str(&tn);
+        }
+        if let Some(tr) = trait_name {
+            result.push_str("::");
+            result.push_str(&tr);
+        }
+        result.push_str(".@");
+        result.push_str(&method);
+    }
+
+    fn format_associated(&mut self, result: &mut String) {
+        let method = self.segments.pop().unwrap();
+        result.push_str(&self.segments.join("/"));
+        result.push_str(".@");
+        result.push_str(&method);
+    }
+
+    fn format_module_function(&mut self, result: &mut String) {
+        let function = self.segments.pop().unwrap();
+        if self.segments.is_empty() {
+            result.push('@');
+        } else {
+            result.push_str(&self.segments.join("/"));
+            result.push_str(".@");
+        }
+        result.push_str(&function);
+    }
 }
 
 /// Check if a symbol name is a mangled Ori symbol.
@@ -506,24 +621,27 @@ mod tests {
 
     #[test]
     fn test_demangle_simple() {
-        assert_eq!(demangle("_ori_main"), Some("main".to_string()));
-        assert_eq!(demangle("_ori_add"), Some("add".to_string()));
+        assert_eq!(demangle("_ori_main"), Some("@main".to_string()));
+        assert_eq!(demangle("_ori_add"), Some("@add".to_string()));
     }
 
     #[test]
     fn test_demangle_module() {
-        assert_eq!(demangle("_ori_math$add"), Some("math::add".to_string()));
+        // Ori-style: module.@function
+        assert_eq!(demangle("_ori_math$add"), Some("math.@add".to_string()));
+        // Nested modules: module/submodule.@function
         assert_eq!(
             demangle("_ori_data$utils$process"),
-            Some("data::utils::process".to_string())
+            Some("data/utils.@process".to_string())
         );
     }
 
     #[test]
     fn test_demangle_trait_impl() {
+        // Trait impl: type::Trait.@method
         assert_eq!(
             demangle("_ori_int$$Eq$equals"),
-            Some("int::Eq::equals".to_string())
+            Some("int::Eq.@equals".to_string())
         );
     }
 
@@ -568,16 +686,19 @@ mod tests {
     fn test_roundtrip() {
         let mangler = Mangler::new();
 
-        // Test that demangling produces readable output
-        let cases = [("", "main"), ("math", "add"), ("std.io", "read")];
+        // Test that demangling produces Ori-style readable output
+        let cases = [
+            ("", "main", "@main"),
+            ("math", "add", "math.@add"),
+            ("std.io", "read", "std/io.@read"),
+        ];
 
-        for (module, func) in cases {
+        for (module, func, expected) in cases {
             let mangled_name = mangler.mangle_function(module, func);
             let demangled = demangle(&mangled_name).expect("should demangle");
-            // The demangled form should contain the function name
-            assert!(
-                demangled.contains(func),
-                "demangled '{demangled}' should contain '{func}'"
+            assert_eq!(
+                demangled, expected,
+                "demangled '{demangled}' should equal '{expected}'"
             );
         }
     }

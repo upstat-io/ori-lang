@@ -81,6 +81,63 @@ use ori_ir::{
     ArmRange, BinaryOp, BindingPattern, ExprArena, ExprId, ExprKind, Name, SharedArena, StmtKind,
     StringInterner, UnaryOp,
 };
+
+/// Pre-interned type names for hot-path method dispatch.
+///
+/// These names are interned once at Interpreter construction to avoid
+/// repeated hash lookups in `get_value_type_name()`, which is called
+/// on every method dispatch.
+#[derive(Clone, Copy)]
+pub struct TypeNames {
+    pub range: Name,
+    pub int: Name,
+    pub float: Name,
+    pub bool_: Name,
+    pub str_: Name,
+    pub char_: Name,
+    pub byte: Name,
+    pub void: Name,
+    pub duration: Name,
+    pub size: Name,
+    pub ordering: Name,
+    pub list: Name,
+    pub map: Name,
+    pub tuple: Name,
+    pub option: Name,
+    pub result: Name,
+    pub function: Name,
+    pub function_val: Name,
+    pub module: Name,
+    pub error: Name,
+}
+
+impl TypeNames {
+    /// Pre-intern all primitive type names.
+    pub fn new(interner: &StringInterner) -> Self {
+        Self {
+            range: interner.intern("range"),
+            int: interner.intern("int"),
+            float: interner.intern("float"),
+            bool_: interner.intern("bool"),
+            str_: interner.intern("str"),
+            char_: interner.intern("char"),
+            byte: interner.intern("byte"),
+            void: interner.intern("void"),
+            duration: interner.intern("Duration"),
+            size: interner.intern("Size"),
+            ordering: interner.intern("Ordering"),
+            list: interner.intern("list"),
+            map: interner.intern("map"),
+            tuple: interner.intern("tuple"),
+            option: interner.intern("Option"),
+            result: interner.intern("Result"),
+            function: interner.intern("function"),
+            function_val: interner.intern("function_val"),
+            module: interner.intern("module"),
+            error: interner.intern("error"),
+        }
+    }
+}
 #[cfg(target_arch = "wasm32")]
 use ori_patterns::recursion_limit_exceeded;
 use ori_patterns::{
@@ -115,6 +172,9 @@ pub struct Interpreter<'a> {
     pub env: Environment,
     /// Pre-computed Name for "self" keyword (avoids repeated interning).
     pub self_name: Name,
+    /// Pre-interned type names for hot-path method dispatch.
+    /// Avoids repeated `intern()` calls in `get_value_type_name()`.
+    pub(crate) type_names: TypeNames,
     /// Current call depth for recursion limit tracking (WASM only).
     ///
     /// On WASM builds, this is checked against `max_call_depth` to prevent
@@ -1063,10 +1123,6 @@ impl<'a> Interpreter<'a> {
         self.print_handler.clear();
     }
 }
-
-// =============================================================================
-// Operator Trait Method Mapping
-// =============================================================================
 
 /// Check if this is a mixed-type operation between primitives that needs special handling.
 ///

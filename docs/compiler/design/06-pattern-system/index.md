@@ -93,33 +93,84 @@ with(acquire: resource, use: r -> use(r), release: r -> cleanup(r))
 
 The `with` pattern provides RAII-style resource management. The `release` function is always called, even if `use` panics.
 
+## Pattern Registry
+
+The `PatternRegistry` uses direct enum dispatch with static pattern instances, avoiding HashMap overhead:
+
+```rust
+// Static pattern instances for 'static lifetime references
+static RECURSE: RecursePattern = RecursePattern;
+static PARALLEL: ParallelPattern = ParallelPattern;
+static SPAWN: SpawnPattern = SpawnPattern;
+// ...
+
+pub struct PatternRegistry {
+    _private: (),  // Marker to prevent external construction
+}
+
+impl PatternRegistry {
+    /// Get the pattern definition for a given kind.
+    /// Returns a static reference to avoid borrow issues.
+    pub fn get(&self, kind: FunctionExpKind) -> &'static dyn PatternDefinition {
+        match kind {
+            FunctionExpKind::Recurse => &RECURSE,
+            FunctionExpKind::Parallel => &PARALLEL,
+            FunctionExpKind::Spawn => &SPAWN,
+            FunctionExpKind::Timeout => &TIMEOUT,
+            FunctionExpKind::Cache => &CACHE,
+            FunctionExpKind::With => &WITH,
+            FunctionExpKind::Print => &PRINT,
+            FunctionExpKind::Panic => &PANIC,
+            FunctionExpKind::Catch => &CATCH,
+            FunctionExpKind::Todo => &TODO,
+            FunctionExpKind::Unreachable => &UNREACHABLE,
+        }
+    }
+}
+```
+
+All patterns are zero-sized types (ZSTs) with static lifetime, providing:
+- Zero heap allocation overhead
+- Direct dispatch (no HashMap lookup)
+- No borrow issues with the registry
+
 ## Pattern Interface
 
 All patterns implement the `PatternDefinition` trait:
 
 ```rust
 pub trait PatternDefinition: Send + Sync {
-    /// Pattern name (e.g., "map", "filter")
-    fn name(&self) -> &str;
+    /// Pattern name (e.g., "recurse", "parallel")
+    fn name(&self) -> &'static str;
 
-    /// Expected arguments
-    fn arguments(&self) -> &[PatternArg];
+    /// Required property names (e.g., ["condition", "base", "step"])
+    fn required_props(&self) -> &'static [&'static str];
 
-    /// Type check the pattern
-    fn type_check(
-        &self,
-        args: &[TypedArg],
-        checker: &mut TypeChecker,
-    ) -> Result<Type, TypeError>;
+    /// Optional property names
+    fn optional_props(&self) -> &'static [&'static str] { &[] }
 
-    /// Evaluate the pattern
-    fn evaluate(
-        &self,
-        args: &[EvalArg],
-        evaluator: &mut Evaluator,
-    ) -> Result<Value, EvalError>;
+    /// Optional arguments with default values
+    fn optional_args(&self) -> &'static [OptionalArg] { &[] }
+
+    /// Scoped bindings (e.g., `self` in recurse step)
+    fn scoped_bindings(&self) -> &'static [ScopedBinding] { &[] }
+
+    /// Type check using TypeCheckContext
+    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type;
+
+    /// Evaluate using EvalContext and PatternExecutor
+    fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult;
+
+    /// Check if this pattern can fuse with another
+    fn can_fuse_with(&self, next: &dyn PatternDefinition) -> bool { false }
+
+    /// Create fused pattern if possible
+    fn fuse_with(&self, next: &dyn PatternDefinition,
+                 self_ctx: &EvalContext, next_ctx: &EvalContext) -> Option<FusedPattern> { None }
 }
 ```
+
+Note: Uses `TypeCheckContext`/`EvalContext` for property access and `PatternExecutor` for evaluation abstraction, not raw `TypeChecker`/`Evaluator`.
 
 ## Iterable Helpers
 

@@ -45,20 +45,24 @@ This design ensures:
 ```rust
 pub enum Value {
     // Primitives (inline, no heap allocation)
-    Int(ScalarInt),  // Uses ScalarInt to prevent unchecked arithmetic
+    Int(i64),
     Float(f64),
     Bool(bool),
     Char(char),
     Byte(u8),
-    Void,
-    Duration(u64),  // milliseconds
-    Size(u64),      // bytes
+    Unit,
+    Duration { nanoseconds: i64 },  // Signed for negative durations
+    Size { bytes: u64 },            // Unsigned (cannot be negative)
+    Ordering(std::cmp::Ordering),   // Less | Equal | Greater
+    Never,                          // Uninhabited (diverging expressions)
 
     // Heap Types (use Heap<T> for enforced Arc usage)
     Str(Heap<String>),
     List(Heap<Vec<Value>>),
-    Map(Heap<HashMap<String, Value>>),
+    Map(Heap<BTreeMap<String, Value>>),  // BTreeMap for deterministic iteration
+    Set(Heap<HashSet<Value>>),
     Tuple(Heap<Vec<Value>>),
+    Range(Heap<RangeValue>),
 
     // Algebraic Types
     Some(Heap<Value>),

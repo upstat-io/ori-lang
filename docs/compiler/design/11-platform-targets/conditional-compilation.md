@@ -172,4 +172,33 @@ wasm-pack build --target web
 |-------|--------------|---------|
 | `ori_stack` | Stack management | `stacker` vs no-op |
 | `ori_eval` | Recursion limits | Call depth tracking |
+| `ori_llvm` | Target/linker selection | Cross-compilation support |
 | `playground-wasm` | WASM bindings | JavaScript interop |
+
+### LLVM Backend Platform Code
+
+The `ori_llvm` crate uses target detection for linker selection and sysroot discovery:
+
+```rust
+// In ori_llvm/src/aot/syslib.rs
+#[cfg(target_arch = "x86_64")]
+fn default_lib_dirs() -> Vec<PathBuf> { /* x86_64 paths */ }
+
+#[cfg(target_arch = "aarch64")]
+fn default_lib_dirs() -> Vec<PathBuf> { /* aarch64 paths */ }
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+fn default_lib_dirs() -> Vec<PathBuf> { vec![] }
+```
+
+Platform-specific linker drivers are selected based on target triple, not host architecture:
+
+```rust
+pub fn driver_for_target(triple: &str) -> Box<dyn LinkerDriver> {
+    match triple {
+        t if t.contains("windows-msvc") => Box::new(MsvcLinker::new()),
+        t if t.contains("wasm32") => Box::new(WasmLinker::new()),
+        _ => Box::new(GccLinker::new()),
+    }
+}
+```

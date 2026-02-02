@@ -1,4 +1,8 @@
 #!/bin/bash
-# Build LLVM crate in Docker container
+# Build LLVM crate and runtime library in Docker container
 # Usage: ./llvm-build [additional args...]
-exec ./docker/llvm/run.sh cargo build "$@"
+#
+# Note: Both ori_llvm and ori_rt are built to ensure libori_rt.a is available
+# for AOT compilation. Cargo only builds the rlib as a dependency; the staticlib
+# is a separate artifact that must be explicitly requested.
+exec ./docker/llvm/run.sh cargo build -p ori_llvm -p ori_rt "$@"

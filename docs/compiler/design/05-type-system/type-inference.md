@@ -16,16 +16,24 @@ Ori uses Hindley-Milner (HM) type inference, extended with features for patterns
 When a type is unknown, create a fresh type variable:
 
 ```rust
-fn fresh_type_var(&mut self) -> Type {
-    let id = self.next_var;
-    self.next_var = TypeVarId(self.next_var.0 + 1);
-    Type::TypeVar(id)
+impl InferenceContext {
+    pub fn fresh_var(&mut self) -> Type {
+        let var = TypeVar::new(self.next_var);
+        self.next_var += 1;
+        Type::Var(var)
+    }
+
+    pub fn fresh_var_id(&mut self) -> TypeId {
+        let var = TypeVar::new(self.next_var);
+        self.next_var += 1;
+        self.interner.intern(TypeData::Var(var))
+    }
 }
 ```
 
-### 2. Constraint Generation
+### 2. Expression Inference
 
-Walk the AST and generate equality constraints:
+Walk the AST and infer types, unifying immediately:
 
 ```rust
 fn infer_expr(&mut self, expr: ExprId) -> Type {
@@ -35,7 +43,7 @@ fn infer_expr(&mut self, expr: ExprId) -> Type {
         ExprKind::Literal(Literal::Int(_)) => Type::Int,
 
         ExprKind::Ident(name) => {
-            self.env.lookup(*name).cloned()
+            self.env.lookup(*name)
                 .unwrap_or_else(|| self.error_undefined(*name))
         }
 
@@ -47,11 +55,9 @@ fn infer_expr(&mut self, expr: ExprId) -> Type {
 
         ExprKind::Let { name, value, body } => {
             let value_ty = self.infer_expr(*value);
-            self.env.push_scope();
-            self.env.bind(*name, value_ty);
-            let body_ty = self.infer_expr(*body);
-            self.env.pop_scope();
-            body_ty
+            let mut child_env = self.env.child();
+            child_env.bind(*name, value_ty);
+            self.infer_expr_with_env(*body, &child_env)
         }
 
         // ...
@@ -61,67 +67,66 @@ fn infer_expr(&mut self, expr: ExprId) -> Type {
 
 ### 3. Unification
 
-Solve constraints by unifying types:
+Unification happens immediately via `InferenceContext`:
 
 ```rust
-fn unify(&mut self, t1: &Type, t2: &Type) -> Result<(), TypeError> {
-    let t1 = self.apply_subst(t1);
-    let t2 = self.apply_subst(t2);
+impl InferenceContext {
+    pub fn unify(&mut self, t1: &Type, t2: &Type) -> Result<(), TypeError> {
+        let id1 = t1.to_type_id(&self.interner);
+        let id2 = t2.to_type_id(&self.interner);
+        self.unify_ids(id1, id2)  // O(1) fast path if identical
+    }
 
-    match (&t1, &t2) {
-        // Same type - ok
-        (Type::Int, Type::Int) => Ok(()),
+    pub fn unify_ids(&mut self, id1: TypeId, id2: TypeId) -> Result<(), TypeError> {
+        if id1 == id2 { return Ok(()); }  // O(1) fast path
 
-        // Type variable - bind it
-        (Type::TypeVar(id), ty) | (ty, Type::TypeVar(id)) => {
-            if self.occurs_in(*id, ty) {
-                Err(TypeError::InfiniteType)
-            } else {
-                self.substitution.insert(*id, ty.clone());
+        let data1 = self.interner.lookup(self.resolve_id(id1));
+        let data2 = self.interner.lookup(self.resolve_id(id2));
+
+        match (&data1, &data2) {
+            // Type variable - bind it (after occurs check)
+            (TypeData::Var(v), _) => {
+                if self.occurs_id(*v, id2) { return Err(TypeError::InfiniteType); }
+                self.substitutions.insert(*v, id2);
                 Ok(())
             }
+
+            // Compound types - recurse
+            (TypeData::List(a), TypeData::List(b)) => self.unify_ids(*a, *b),
+
+            // Error/Never unify with anything
+            (TypeData::Error | TypeData::Never, _) |
+            (_, TypeData::Error | TypeData::Never) => Ok(()),
+
+            // Mismatch
+            _ => Err(TypeError::Mismatch { /* ... */ }),
         }
-
-        // Compound types - recurse
-        (Type::List(a), Type::List(b)) => self.unify(a, b),
-
-        (Type::Function { params: p1, ret: r1 },
-         Type::Function { params: p2, ret: r2 }) => {
-            if p1.len() != p2.len() {
-                return Err(TypeError::ParamCountMismatch);
-            }
-            for (a, b) in p1.iter().zip(p2.iter()) {
-                self.unify(a, b)?;
-            }
-            self.unify(r1, r2)
-        }
-
-        // Mismatch
-        _ => Err(TypeError::Mismatch { expected: t1, found: t2 }),
     }
 }
 ```
 
-### 4. Substitution Application
+See [Unification](unification.md) for the complete algorithm.
 
-Apply the substitution to resolve type variables:
+### 4. Resolution
+
+Apply substitutions to resolve type variables:
 
 ```rust
-fn apply_subst(&self, ty: &Type) -> Type {
-    match ty {
-        Type::TypeVar(id) => {
-            if let Some(resolved) = self.substitution.get(id) {
-                self.apply_subst(resolved)
-            } else {
-                ty.clone()
-            }
-        }
-        Type::List(elem) => Type::List(Box::new(self.apply_subst(elem))),
-        Type::Function { params, ret } => Type::Function {
-            params: params.iter().map(|p| self.apply_subst(p)).collect(),
-            ret: Box::new(self.apply_subst(ret)),
-        },
-        _ => ty.clone(),
+impl InferenceContext {
+    /// Resolve a Type by applying all substitutions.
+    pub fn resolve(&self, ty: &Type) -> Type {
+        let id = ty.to_type_id(&self.interner);
+        let resolved = self.resolve_id(id);
+        self.interner.to_type(resolved)
+    }
+
+    /// Resolve a TypeId (internal, uses TypeIdFolder).
+    pub fn resolve_id(&self, id: TypeId) -> TypeId {
+        let mut resolver = TypeIdResolver {
+            interner: &self.interner,
+            substitutions: &self.substitutions,
+        };
+        resolver.fold(id)
     }
 }
 ```
@@ -169,12 +174,12 @@ identity("hello")
 1. identity : forall T. (T) -> T
 2. identity(42):
    - Instantiate: (T0) -> T0
-   - Unify(T0, Int)
-   - Result: Int
+   - Unify(T0, int)
+   - Result: int
 3. identity("hello"):
    - Instantiate: (T1) -> T1
-   - Unify(T1, String)
-   - Result: String
+   - Unify(T1, str)
+   - Result: str
 ```
 
 ### List Inference
@@ -202,62 +207,56 @@ Variables bound with `let` can be polymorphic:
 
 ```ori
 let id = x -> x           // forall T. T -> T
-let a = id(42)            // Int
-let b = id("hello")       // String
+let a = id(42)            // int
+let b = id("hello")       // str
 ```
 
 This is called "let-generalization":
 
 ```rust
-fn infer_let(&mut self, name: Name, value: ExprId, body: ExprId) -> Type {
-    let value_ty = self.infer_expr(value);
+impl InferenceContext {
+    /// Generalize a type by quantifying over free type variables.
+    pub fn generalize(&self, ty: &Type, env: &TypeEnv) -> TypeScheme {
+        let ty_vars = self.free_vars(ty);
+        let env_vars: HashSet<_> = env.free_vars(self).into_iter().collect();
 
-    // Generalize: find unbound type variables
-    let generalized = self.generalize(value_ty);
+        // Quantify over variables free in ty but not in env
+        let generalizable: Vec<_> = ty_vars.iter()
+            .filter(|v| !env_vars.contains(v))
+            .cloned()
+            .collect();
 
-    self.env.bind(name, generalized);
-    self.infer_expr(body)
-}
-
-fn generalize(&self, ty: Type) -> Type {
-    // Find type variables not bound in environment
-    let free_vars = self.free_type_vars(&ty);
-    let env_vars = self.env.free_type_vars();
-    let generalizable = free_vars.difference(&env_vars);
-
-    if generalizable.is_empty() {
-        ty
-    } else {
-        Type::Forall { vars: generalizable.collect(), ty: Box::new(ty) }
+        TypeScheme {
+            vars: generalizable,
+            ty: ty.clone(),
+        }
     }
 }
 ```
+
+The `TypeScheme` is stored in the environment and instantiated with fresh variables on each use.
 
 ## Occurs Check
 
 Prevent infinite types like `T = [T]`:
 
 ```rust
-fn occurs_in(&self, var: TypeVarId, ty: &Type) -> bool {
-    match ty {
-        Type::TypeVar(id) => {
-            if *id == var {
-                true
-            } else if let Some(resolved) = self.substitution.get(id) {
-                self.occurs_in(var, resolved)
-            } else {
-                false
-            }
-        }
-        Type::List(elem) => self.occurs_in(var, elem),
-        Type::Function { params, ret } => {
-            params.iter().any(|p| self.occurs_in(var, p))
-                || self.occurs_in(var, ret)
-        }
-        _ => false,
+impl InferenceContext {
+    /// Check if type variable occurs in a type (prevents infinite types).
+    fn occurs_id(&self, var: TypeVar, id: TypeId) -> bool {
+        let mut checker = OccursChecker {
+            interner: &self.interner,
+            substitutions: &self.substitutions,
+            target: var,
+            found: false,
+        };
+        checker.visit(id);
+        checker.found
     }
 }
 ```
+
+See [Unification](unification.md) for the `OccursChecker` implementation using `TypeIdVisitor`.
 
 ## Error Reporting
 

@@ -285,10 +285,10 @@ pub struct Diagnostic {
 - "remove extra arguments"
 
 pub enum Severity {
-    Error,
-    Warning,
-    Note,
-    Help,
+    Error,    // Compilation cannot continue
+    Warning,  // Potential problem, compilation succeeds
+    Note,     // Additional context information
+    Help,     // Suggestion for improvement
 }
 ```
 
@@ -441,22 +441,29 @@ These utilities are used by `DiagnosticQueue` for position-based deduplication a
 
 ### Problem
 
+The `Problem` enum uses a three-tier hierarchy:
+
 ```rust
 pub enum Problem {
-    // Parser problems
-    UnexpectedToken { expected: Vec<TokenKind>, found: TokenKind },
-    UnterminatedString,
+    /// Parse-time problems (syntax errors).
+    Parse(ParseProblem),
 
-    // Type problems
-    TypeMismatch { expected: Type, found: Type },
-    UndefinedVariable { name: Name },
-    MissingCapability { required: Capability },
+    /// Type checking problems.
+    Type(TypeProblem),
 
-    // Pattern problems
-    UnknownPattern { name: Name },
-    MissingArgument { pattern: Name, arg: &'static str },
+    /// Semantic analysis problems.
+    Semantic(SemanticProblem),
+}
+
+impl Problem {
+    pub fn span(&self) -> Span;
+    pub fn is_parse(&self) -> bool;
+    pub fn is_type(&self) -> bool;
+    pub fn is_semantic(&self) -> bool;
 }
 ```
+
+Each category (ParseProblem, TypeProblem, SemanticProblem) is a separate enum with category-specific variants. See [Problem Types](problem-types.md) for details.
 
 ## Diagnostic Derive Macros
 

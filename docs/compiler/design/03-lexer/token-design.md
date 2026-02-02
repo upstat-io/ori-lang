@@ -17,10 +17,10 @@ Reserved words with specific meaning:
 
 ```rust
 // Control flow
-Let, If, Else, Then, For, In, Do, Loop, While, Break, Continue, Yield
+Let, If, Else, Then, For, In, Do, Loop, Break, Continue, Yield
 
 // Declarations
-Fn, Type, Trait, Impl, Pub, Use, Mut
+Type, Trait, Impl, Pub, Use, Mut, Def, Extend, Extension
 
 // Values
 True, False, Self_, SelfType
@@ -28,9 +28,17 @@ True, False, Self_, SelfType
 // Pattern keywords
 Match, With, Run, Try
 
-// Special
-Where, Uses, As, Async
+// Testing
+Tests, Skip
+
+// Type system
+Dyn, Where, Uses, As
+
+// Reserved for future
+Async  // Reserved for future async features
 ```
+
+**Note:** `Fn` and `While` are NOT keywords in Ori. Functions use `@name` syntax, and there is no while loop (use `loop` with `break`).
 
 ### Operators
 
@@ -80,20 +88,22 @@ DotDotEq,    // ..=
 Grouping and punctuation:
 
 ```rust
-LParen,    // (
-RParen,    // )
-LBracket,  // [
-RBracket,  // ]
-LBrace,    // {
-RBrace,    // }
-Comma,     // ,
-Colon,     // :
-ColonColon,// ::
-Semicolon, // ;
-Dot,       // .
-At,        // @
-Hash,      // #
-Dollar,    // $
+LParen,      // (
+RParen,      // )
+LBracket,    // [
+RBracket,    // ]
+LBrace,      // {
+RBrace,      // }
+Comma,       // ,
+Colon,       // :
+ColonColon,  // ::
+Semicolon,   // ;
+Dot,         // .
+At,          // @
+Hash,        // #
+HashBracket, // #[ (combined token for attributes)
+Dollar,      // $
+Newline,     // \n (significant for statement separation)
 ```
 
 ### Literals
@@ -198,16 +208,20 @@ Colon,      // :
 map(over: items, transform: fn)
 ```
 
-### # (Attributes)
+### # and #[ (Attributes)
+
+For efficiency, `#[` is lexed as a single combined token:
 
 ```rust
-Hash,    // #
-LBracket // [
+Hash,        // # (standalone)
+HashBracket, // #[ (combined for attributes)
 
-// Parsed as: Hash LBracket ... RBracket
+// #[derive(Eq, Clone)] is lexed as: HashBracket Ident LParen ... RParen RBracket
 #[derive(Eq, Clone)]
 #[skip("reason")]
 ```
+
+This avoids lookahead when parsing attributes.
 
 ## Integer Literals
 
@@ -221,20 +235,23 @@ Multiple formats supported:
 // Hexadecimal
 0xFF
 0xDEAD_BEEF
+
+// Binary
+0b1010
+0b1111_0000
 ```
 
-Parsing:
+Parsing uses zero-allocation helpers for common cases:
 
 ```rust
-#[regex(r"0x[0-9a-fA-F_]+", |lex| {
-    i64::from_str_radix(&lex.slice()[2..].replace("_", ""), 16).ok()
-})]
-HexInt(i64),
+#[regex(r"[0-9][0-9_]*", |lex| parse_int_skip_underscores(lex.slice(), 10))]
+Int(u64),
 
-#[regex(r"[0-9][0-9_]*", |lex| {
-    lex.slice().replace("_", "").parse().ok()
-})]
-Int(i64),
+#[regex(r"0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| parse_int_skip_underscores(&lex.slice()[2..], 16))]
+HexInt(u64),
+
+#[regex(r"0b[01][01_]*", |lex| parse_int_skip_underscores(&lex.slice()[2..], 2))]
+BinInt(u64),
 ```
 
 ## String Literals
@@ -254,7 +271,15 @@ Int(i64),
 
 ## Duration Literals
 
+All time units from nanoseconds to hours:
+
 ```rust
+#[regex(r"[0-9]+ns")]
+Nanoseconds,
+
+#[regex(r"[0-9]+us")]
+Microseconds,
+
 #[regex(r"[0-9]+ms")]
 Milliseconds,
 
@@ -271,15 +296,21 @@ Hours,
 Post-processing combines into `Duration`:
 
 ```rust
-pub enum Duration {
-    Milliseconds(u64),
-    Seconds(u64),
-    Minutes(u64),
-    Hours(u64),
+pub enum DurationUnit {
+    Nanoseconds,
+    Microseconds,
+    Milliseconds,
+    Seconds,
+    Minutes,
+    Hours,
 }
+
+// TokenKind::Duration(value, unit)
 ```
 
 ## Size Literals
+
+All size units from bytes to terabytes:
 
 ```rust
 #[regex(r"[0-9]+b")]
@@ -293,36 +324,88 @@ Megabytes,
 
 #[regex(r"[0-9]+gb")]
 Gigabytes,
+
+#[regex(r"[0-9]+tb")]
+Terabytes,
 ```
 
 Post-processing combines into `Size`:
 
 ```rust
-pub enum Size {
-    Bytes(u64),
-    Kilobytes(u64),
-    Megabytes(u64),
-    Gigabytes(u64),
+pub enum SizeUnit {
+    Bytes,
+    Kilobytes,
+    Megabytes,
+    Gigabytes,
+    Terabytes,
 }
+
+// TokenKind::Size(value, unit)
 ```
 
 ## Comments
 
-Comments are **not** tokens - they're stripped during lexing:
+Comments are NOT part of the token stream by default, but can be preserved:
+
+### Standard Lexing
+
+The default `lex()` function strips comments:
 
 ```rust
 // Line comments
-#[regex(r"//[^\n]*", logos::skip)]
-
-// No block comments in Ori
+#[regex(r"//[^\n]*")]
+LineComment,  // Not added to token output
 ```
+
+### Comment-Preserving Lexing
+
+The `lex_with_comments()` function returns both tokens and classified comments:
+
+```rust
+pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
+    // Returns TokenList + CommentList
+}
+```
+
+### Comment Classification
+
+Comments are classified for documentation/formatter purposes:
+
+```rust
+pub enum CommentKind {
+    Regular,        // Normal comments
+    DocDescription, // // Description text
+    DocParam,       // // * param_name: description
+    DocWarning,     // // ! Warning text
+    DocExample,     // // > example -> result
+}
+```
+
+**Note:** Ori has no block comments (`/* */`). Only line comments (`//`) are supported.
 
 ## Whitespace
 
-Whitespace is also stripped:
+Horizontal whitespace (spaces, tabs) is stripped:
 
 ```rust
-#[regex(r"[ \t\n\r]+", logos::skip)]
+#[logos(skip r"[ \t\r]+")]  // Skip horizontal whitespace
+```
+
+**Important:** Newlines are NOT stripped - they become `Newline` tokens used for statement separation.
+
+### Line Continuation
+
+A backslash at the end of a line allows continuing expressions:
+
+```rust
+#[regex(r"\\[ \t]*\n")]
+LineContinuation,  // Skipped (allows multi-line expressions)
+```
+
+```ori
+let result = very_long_expression \
+    + another_part \
+    + final_part
 ```
 
 ## Error Token
@@ -352,14 +435,15 @@ logos handles this automatically via longest-match semantics.
 
 ## Reserved Words
 
-Some words are reserved but not yet used:
+Some words are reserved for future language features:
 
 ```rust
 Async,   // Reserved for future async features
-Await,   // Reserved for future async features
 ```
 
 These lex as keywords to prevent their use as identifiers.
+
+**Note:** `await` is NOT currently reserved (planned for future).
 
 ## Lexer-Parser Token Boundary
 

@@ -31,7 +31,7 @@ The `Vec<Expr>` is the arena. Expressions are allocated by pushing to the vector
 pub struct ExprId(pub u32);
 
 impl ExprId {
-    pub const DUMMY: ExprId = ExprId(u32::MAX);
+    pub const INVALID: ExprId = ExprId(u32::MAX);
 
     pub fn index(self) -> usize {
         self.0 as usize
@@ -39,7 +39,7 @@ impl ExprId {
 }
 ```
 
-`ExprId::DUMMY` is used as a placeholder during parsing when the actual expression isn't known yet.
+`ExprId::INVALID` is used as a placeholder during parsing when the actual expression isn't known yet.
 
 ### ExprArena
 
@@ -216,11 +216,11 @@ let add = arena.alloc(binary(one, two)); // ID 2
 // Children (0, 1) allocated before parent (2)
 ```
 
-### 4. Use DUMMY Sparingly
+### 4. Use INVALID Sparingly
 
 ```rust
 // Use for temporary placeholders only
-let placeholder = ExprId::DUMMY;
+let placeholder = ExprId::INVALID;
 // Then fill in real value later
 ```
 

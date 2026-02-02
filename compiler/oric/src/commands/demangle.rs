@@ -74,31 +74,33 @@ mod tests {
 
         #[test]
         fn test_demangle_simple_function() {
-            assert_eq!(demangle("_ori_main"), Some("main".to_string()));
-            assert_eq!(demangle("_ori_foo"), Some("foo".to_string()));
-            assert_eq!(demangle("_ori_bar_baz"), Some("bar_baz".to_string()));
+            // Ori-style: @function for root-level functions
+            assert_eq!(demangle("_ori_main"), Some("@main".to_string()));
+            assert_eq!(demangle("_ori_foo"), Some("@foo".to_string()));
+            assert_eq!(demangle("_ori_bar_baz"), Some("@bar_baz".to_string()));
         }
 
         #[test]
         fn test_demangle_module_function() {
-            assert_eq!(demangle("_ori_math$add"), Some("math::add".to_string()));
+            // Ori-style: module.@function, nested: module/sub.@function
+            assert_eq!(demangle("_ori_math$add"), Some("math.@add".to_string()));
             assert_eq!(
                 demangle("_ori_std$io$read"),
-                Some("std::io::read".to_string())
+                Some("std/io.@read".to_string())
             );
-            assert_eq!(demangle("_ori_a$b$c$d"), Some("a::b::c::d".to_string()));
+            assert_eq!(demangle("_ori_a$b$c$d"), Some("a/b/c.@d".to_string()));
         }
 
         #[test]
         fn test_demangle_trait_impl() {
-            // Trait implementations use $$ separator
+            // Trait implementations: type::Trait.@method
             assert_eq!(
                 demangle("_ori_int$$Eq$equals"),
-                Some("int::Eq::equals".to_string())
+                Some("int::Eq.@equals".to_string())
             );
             assert_eq!(
                 demangle("_ori_Point$$Clone$clone"),
-                Some("Point::Clone::clone".to_string())
+                Some("Point::Clone.@clone".to_string())
             );
         }
 

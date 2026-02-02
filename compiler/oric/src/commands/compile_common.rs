@@ -26,6 +26,18 @@ use oric::typeck::TypedModule;
 #[cfg(feature = "llvm")]
 use oric::{CompilerDb, Db, SourceFile};
 
+/// Information about an imported function for codegen.
+#[cfg(feature = "llvm")]
+#[derive(Debug, Clone)]
+pub struct ImportedFunctionInfo {
+    /// The mangled name of the function (e.g., `_ori_helper$add`).
+    pub mangled_name: String,
+    /// Parameter types as `TypeId`s.
+    pub param_types: Vec<ori_ir::TypeId>,
+    /// Return type.
+    pub return_type: ori_ir::TypeId,
+}
+
 /// Check a source file for parse and type errors.
 ///
 /// Prints all errors to stderr and returns `None` if any errors occurred.
@@ -86,7 +98,7 @@ pub fn compile_to_llvm<'ctx>(
         .and_then(|s| s.to_str())
         .unwrap_or("module");
 
-    let compiler = ModuleCompiler::new(context, &interner, module_name);
+    let compiler = ModuleCompiler::new(context, interner, module_name);
     compiler.declare_runtime();
 
     // Register user-defined struct types
@@ -103,6 +115,92 @@ pub fn compile_to_llvm<'ctx>(
     let expr_types = &type_result.expr_types;
     for func in &module.functions {
         compiler.compile_function(func, arena, expr_types);
+    }
+
+    compiler.module().clone()
+}
+
+/// Compile source to LLVM IR with explicit module name and import declarations.
+///
+/// This is used for multi-file compilation where:
+/// - The module name is explicitly provided for proper symbol mangling
+/// - Imported functions are declared as external symbols
+///
+/// # Arguments
+///
+/// * `context` - The LLVM context
+/// * `db` - The compiler database
+/// * `parse_result` - Parsed AST
+/// * `type_result` - Type checking results
+/// * `source_path` - Path to the source file
+/// * `module_name` - Explicit module name for symbol mangling
+/// * `imported_functions` - Functions imported from other modules (declared as external)
+#[cfg(feature = "llvm")]
+pub fn compile_to_llvm_with_imports<'ctx>(
+    context: &'ctx Context,
+    db: &CompilerDb,
+    parse_result: &ParseOutput,
+    type_result: &TypedModule,
+    source_path: &str,
+    module_name: &str,
+    imported_functions: &[ImportedFunctionInfo],
+) -> ori_llvm::inkwell::module::Module<'ctx> {
+    use ori_llvm::inkwell::types::BasicMetadataTypeEnum;
+
+    // Use the interner from the database
+    let interner = db.interner();
+
+    let compiler = ModuleCompiler::new(context, interner, module_name);
+    compiler.declare_runtime();
+
+    let cx = compiler.cx();
+
+    // Declare imported functions as external symbols
+    for import_info in imported_functions {
+        // Convert TypeIds to LLVM types
+        let param_llvm_types: Vec<BasicMetadataTypeEnum<'ctx>> = import_info
+            .param_types
+            .iter()
+            .map(|&t| cx.llvm_type(t).into())
+            .collect();
+
+        let return_llvm_type = if import_info.return_type == ori_ir::TypeId::VOID {
+            None
+        } else {
+            Some(cx.llvm_type(import_info.return_type))
+        };
+
+        cx.declare_external_fn_mangled(
+            &import_info.mangled_name,
+            &param_llvm_types,
+            return_llvm_type,
+        );
+    }
+
+    // Register user-defined struct types
+    let module = &parse_result.module;
+    for type_decl in &module.types {
+        if let TypeDeclKind::Struct(fields) = &type_decl.kind {
+            let field_names: Vec<_> = fields.iter().map(|f| f.name).collect();
+            compiler.register_struct(type_decl.name, field_names);
+        }
+    }
+
+    // Compile all functions
+    let arena = &parse_result.arena;
+    let expr_types = &type_result.expr_types;
+    for func in &module.functions {
+        compiler.compile_function(func, arena, expr_types);
+    }
+
+    // Log the source path for debugging (avoids unused variable warning)
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        eprintln!(
+            "Compiled module '{}' from '{}' with {} imported functions",
+            module_name,
+            source_path,
+            imported_functions.len()
+        );
     }
 
     compiler.module().clone()
