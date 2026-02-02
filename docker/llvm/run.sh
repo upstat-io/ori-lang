@@ -52,12 +52,14 @@ else
     CMD="$*"
 fi
 
-# Optional: use host's cargo registry cache for faster builds (local dev only)
-# In CI, we skip this to avoid read-only filesystem issues
-CARGO_CACHE_MOUNT=""
-if [ -d "${HOME}/.cargo/registry/cache" ] && [ -z "${CI}" ]; then
-    CARGO_CACHE_MOUNT="-v ${HOME}/.cargo/registry:/root/.cargo/registry:ro"
-fi
+# Use a persistent Docker volume for cargo cache (faster rebuilds, avoids read-only issues)
+# The volume persists between runs so downloaded crates are cached
+CARGO_VOLUME="ori-llvm-cargo-cache"
+
+# Create the volume if it doesn't exist (silent, idempotent)
+docker volume create "${CARGO_VOLUME}" >/dev/null 2>&1 || true
+
+CARGO_CACHE_MOUNT="-v ${CARGO_VOLUME}:/root/.cargo/registry"
 
 exec docker run --rm ${DOCKER_FLAGS} \
     --memory="${MEMORY_LIMIT}" \
