@@ -357,7 +357,7 @@ fn format_break_void() {
 fn format_continue() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
-    let expr = make_expr(&mut arena, ExprKind::Continue);
+    let expr = make_expr(&mut arena, ExprKind::Continue(None));
     assert_eq!(format_to_string(&arena, &interner, expr), "continue\n");
 }
 

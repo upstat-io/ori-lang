@@ -16,7 +16,7 @@ The formatter applies normalization rules that produce a single canonical format
 ### General
 
 - 4 spaces indentation, no tabs
-- 100 character line limit (hard)
+- 100 character line limit (default, configurable)
 - Trailing commas required in multi-line, forbidden in single-line
 - No consecutive, leading, or trailing blank lines
 
@@ -81,11 +81,14 @@ These constructs are always stacked regardless of width:
 
 | Construct | Reason |
 |-----------|--------|
-| `run` / `try` | Sequential blocks; stacking shows execution order |
+| `run` (top-level) | Function body; stacking shows sequential execution |
+| `try` | Sequential blocks with error propagation; stacking shows execution order |
 | `match` arms | Pattern matching; one arm per line aids readability |
 | `recurse` | Named parameters pattern |
 | `parallel` / `spawn` | Concurrency patterns |
 | `nursery` | Structured concurrency pattern |
+
+> **Note:** Nested `run()` (inside for body, if body, etc.) follows width-based breaking (see [run/try](#runtry)).
 
 ### Independent Breaking
 
@@ -422,20 +425,26 @@ let category =
     else "small"
 ```
 
-Chained else-if:
+### Chained else-if
+
+When an if-then-else has multiple else/else-if clauses, the first `if` stays on the assignment line (Kotlin style), and each `else` clause is indented:
 
 ```ori
-let size =
-    if n < 10 then "small"
+let size = if n < 10 then "small"
     else if n < 100 then "medium"
     else "large"
+
+let category = if score >= 90 then "A"
+    else if score >= 80 then "B"
+    else if score >= 70 then "C"
+    else if score >= 60 then "D"
+    else "F"
 ```
 
 Branch bodies break independently:
 
 ```ori
-let result =
-    if condition then compute_simple(x: value)
+let result = if condition then compute_simple(x: value)
     else compute_with_many_args(
         input: data,
         fallback: default,
@@ -458,6 +467,18 @@ let result = first_value + second_value
     + fifth_value / sixth_value
 ```
 
+### Long Boolean Expressions
+
+When a boolean expression contains multiple `||` clauses, each clause receives its own line with `||` at the start of continuation lines:
+
+```ori
+x > 5 && x < 9
+    || x == 1
+    || x == 10
+```
+
+This rule applies when the expression exceeds line width or has three or more `||` clauses. The first clause remains on the initial line; subsequent clauses break with leading `||`.
+
 ## Method Chains
 
 Inline if ≤100 characters:
@@ -466,7 +487,7 @@ Inline if ≤100 characters:
 let result = items.filter(x -> x > 0).map(x -> x * 2)
 ```
 
-Initial value on `let` line, break at every `.` once any break needed:
+Receiver stays on assignment/yield line, break at every `.` once any break needed:
 
 ```ori
 let result = items
@@ -475,9 +496,46 @@ let result = items
     .fold(0, (a, b) -> a + b)
 ```
 
+In `for...yield` bodies, the same rule applies—receiver stays with `yield`, all methods break:
+
+```ori
+@process (items: [str]) -> [str] =
+    for x in items yield x
+        .to_upper()
+        .trim()
+        .replace(old: "O", new: "0")
+```
+
 ## run/try
 
-Always stacked (never inline):
+### run
+
+#### Top-level run
+
+When `run()` appears as a function body (top-level position), it is always stacked:
+
+```ori
+@process () -> int = run(
+    let x = get_value(),
+    let y = transform(x),
+    x + y,
+)
+```
+
+#### Nested run
+
+When `run()` appears nested inside another construct (for body, if body, lambda body, etc.), it follows width-based breaking. Inline if ≤100 characters:
+
+```ori
+let result = run(let x = 1, let y = 2, x + y)
+let doubled = run(let v = compute(), v * 2)
+
+@with_cap () -> [int] uses Print =
+    for x in [1, 2, 3] do
+        run(print(msg: x.to_str()), x)
+```
+
+Stacked when contents exceed line width:
 
 ```ori
 let result = run(
@@ -485,15 +543,9 @@ let result = run(
     let y = transform(x),
     x + y,
 )
-
-let result = try(
-    let data = fetch(url: endpoint)?,
-    let parsed = parse(input: data)?,
-    Ok(parsed),
-)
 ```
 
-With contracts:
+With contracts (typically stacked due to length):
 
 ```ori
 let result = run(
@@ -508,7 +560,62 @@ let result = run(
 )
 ```
 
+### try
+
+`try()` is always stacked (never inline):
+
+```ori
+let result = try(
+    let data = fetch(url: endpoint)?,
+    let parsed = parse(input: data)?,
+    Ok(parsed),
+)
+```
+
+## loop
+
+### Simple Body
+
+When `loop()` contains a simple expression body, it stays inline if it fits:
+
+```ori
+loop(body())
+loop(process_next())
+```
+
+### Complex Body
+
+When `loop()` contains a complex body (`run`, `try`, `match`, or `for`), break after `loop(` with body indented:
+
+```ori
+loop(
+    run(
+        let input = read_input(),
+        if input == "quit" then break
+        else process(input: input),
+    )
+)
+
+loop(
+    match(get_command(),
+        Quit -> break,
+        Process(data) -> handle(data: data),
+        _ -> continue,
+    )
+)
+
+loop(
+    try(
+        let data = fetch_next()?,
+        if data.is_empty() then break Ok(results)
+        else results.push(data),
+    )
+)
+```
+
 ## match
+
+The `match` construct is always stacked regardless of length. This matches Rust and Kotlin behavior, where pattern matching arms are always formatted one per line for readability.
 
 Scrutinee on first line, arms always stacked:
 
@@ -594,13 +701,16 @@ let result = timeout(
 
 ## with Expressions
 
+The `with...in` construct stays on one line when the body is short. It only breaks at `in` when the body is complex or the line exceeds 100 characters.
+
 Inline if ≤100:
 
 ```ori
 let result = with Http = mock_http in fetch(url: "/api")
+let cached = with Cache = memory_cache in lookup(key: "user")
 ```
 
-Broken with capabilities aligned:
+Broken with capabilities aligned. The break occurs at `in` when the body is complex:
 
 ```ori
 let result =
@@ -613,16 +723,48 @@ let result =
     in perform_operation(input: data)
 ```
 
+Multiple capability bindings are comma-separated and aligned when broken.
+
 ## for Loops
 
-Inline if short:
+### Inline vs. Broken
+
+When the entire for loop (including nested loops) fits within 100 characters, it remains inline:
+
+```ori
+@short () -> [[int]] = for x in [1, 2] yield for y in [3, 4] yield x * y
+```
+
+### Simple Expression Body
+
+When the for body is a simple expression without control flow, it stays inline if it fits within 100 characters:
 
 ```ori
 for x in items do print(msg: x)
 let doubled = for x in items yield x * 2
+let squares = for n in 1..10 yield n * n
 ```
 
-Body on next line when broken:
+#### Short Body Rule
+
+A simple body (identifier, literal, or expression under approximately 20 characters) must remain with `yield`/`do` even when the overall line is long. A lone identifier or literal never appears on its own line:
+
+```ori
+// Correct: simple body stays with yield
+@func () -> [int] =
+    for x in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] yield x
+
+// Incorrect: lone identifier should never be isolated
+@func () -> [int] =
+    for x in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] yield
+        x
+```
+
+The breaking point moves to before `for` rather than after `yield` when the iterable is long but the body is simple.
+
+#### Long Body Breaking
+
+Body on next line when the body expression itself exceeds line width:
 
 ```ori
 for user in users do
@@ -631,6 +773,58 @@ for user in users do
 let results = for item in items yield
     transform(input: item, config: default_config)
 ```
+
+### Control Flow in Body
+
+When a `for...do` or `for...yield` body contains control flow constructs (`if`, `match`, or another `for`), break after `do`/`yield` with body on next line indented:
+
+```ori
+// Body contains if → break after do
+for item in items do
+    if item.active then process(item: item)
+
+// Body contains match → break after yield
+let labels = for status in statuses yield
+    match(status,
+        Pending -> "waiting",
+        Complete -> "done",
+    )
+
+// Body contains nested for → break after yield
+let pairs = for x in xs yield
+    for y in ys yield (x, y)
+```
+
+### Nested for
+
+Since inner `for` is control flow, outer `for` body always breaks when it contains another `for`:
+
+```ori
+// Outer breaks because inner for is control flow
+let matrix = for row in 0..height yield
+    for col in 0..width yield
+        compute(row: row, col: col)
+
+// Triple nesting
+let cube = for x in xs yield
+    for y in ys yield
+        for z in zs yield
+            Point { x, y, z }
+```
+
+### Nested For - Rust-style Indentation
+
+When nested for loops break (due to width), each nesting level gets its own line with incremented indentation. This follows Rust-style formatting for nested iterators:
+
+```ori
+// When breaking is needed, each level is indented
+@deeper () -> [[[int]]] =
+    for x in [1, 2, 3] yield
+        for y in [4, 5, 6] yield
+            for z in [7, 8, 9] yield x * y * z
+```
+
+Each nested `for` introduces a new indentation level. The innermost body follows standard body breaking rules.
 
 ## nursery
 
@@ -773,3 +967,56 @@ let message =
 let template =
     `Dear {user.name}, your order #{order.id} has been shipped.`
 ```
+
+## Parentheses Preservation
+
+Parentheses that are semantically required are preserved. This applies when an expression that would not normally be callable or indexable is used in such a position.
+
+### Method Receiver
+
+Iterator expressions as method receivers:
+
+```ori
+(for x in items yield x * 2).fold(0, (a, b) -> a + b)
+(for x in items yield x).count()
+```
+
+Loop expressions as method receivers:
+
+```ori
+(loop(break 42)).unwrap()
+(loop(break Some(value))).map(f)
+```
+
+### Call Target
+
+Lambda expressions as call targets:
+
+```ori
+(x -> x * 2)(5)
+((a, b) -> a + b)(1, 2)
+```
+
+### Iterator Source
+
+Iterator expressions in `for...in`:
+
+```ori
+for x in (for y in items yield y * 2) yield x + 1
+for pair in (for x in xs yield (x, x * 2)) do process(pair)
+```
+
+### Parentheses Preservation
+
+User parentheses are always preserved. The formatter never removes parentheses, even when not strictly required for precedence:
+
+```ori
+// Preserved: user's parens are kept for clarity
+let x = (1 + 2)      // → let x = (1 + 2)  (unchanged)
+let y = ((a))        // → let y = ((a))    (unchanged)
+
+// Also preserved: precedence parens
+let z = (1 + 2) * 3  // → let z = (1 + 2) * 3
+```
+
+This ensures the formatter cannot accidentally change program semantics and respects programmer intent when parentheses are added for readability.

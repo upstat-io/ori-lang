@@ -423,7 +423,7 @@ fn test_continue() {
 
     // continue
     let cont_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Continue,
+        kind: ExprKind::Continue(None),
         span: ori_ir::Span::new(0, 1),
     });
 

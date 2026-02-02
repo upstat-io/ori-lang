@@ -1,0 +1,6 @@
+// Loop expression as method receiver
+// Spec: 16-formatting.md § Parentheses Preservation
+
+@unwrap_loop () -> int = (loop(break 42)).unwrap()
+
+@map_loop () -> Option<int> = (loop(break Some(5))).map(x -> x * 2)

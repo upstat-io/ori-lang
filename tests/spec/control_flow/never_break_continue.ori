@@ -1,0 +1,164 @@
+// Never Type for Break and Continue
+// Spec: 06-types.md § Never Type
+// Spec: 19-control-flow.md § Loop Control
+// Proposal: proposals/approved/never-type-proposal.md
+//
+// Break and continue have type Never inside loops. Since Never coerces to any
+// type, they can appear in positions expecting other types.
+
+// =============================================================================
+// Break Has Type Never - Coerces in Conditionals
+// =============================================================================
+
+// Break in else branch coerces to match then branch type
+@test_break_coerces_to_int tests @break_to_int () -> void = run(
+    let result = for x in [1, 2, 3] do
+        if x == 2 then x else break,
+    // Result is the last yielded value before break (not tested here)
+    (),
+)
+
+@break_to_int () -> void =
+    for x in [1, 2, 3] do
+        if x == 2 then x else break
+
+// Break in then branch coerces to match else branch type
+@test_break_in_then tests @break_in_then () -> void = run(
+    for x in [1, 2, 3, 4, 5] do
+        if x > 3 then break else x,
+    (),
+)
+
+@break_in_then () -> void =
+    for x in [1, 2, 3, 4, 5] do
+        if x > 3 then break else x
+
+// =============================================================================
+// Continue Has Type Never - Coerces in Conditionals
+// =============================================================================
+
+// Continue in else branch coerces to match then branch type
+@test_continue_coerces_to_int tests @continue_to_int () -> void = run(
+    for x in [1, 2, 3] do
+        if x % 2 == 0 then x else continue,
+    (),
+)
+
+@continue_to_int () -> void =
+    for x in [1, 2, 3] do
+        if x % 2 == 0 then x else continue
+
+// Continue in then branch coerces to match else branch type
+@test_continue_in_then tests @continue_in_then () -> void = run(
+    for x in [1, 2, 3] do
+        if x == 1 then continue else x,
+    (),
+)
+
+@continue_in_then () -> void =
+    for x in [1, 2, 3] do
+        if x == 1 then continue else x
+
+// =============================================================================
+// Break/Continue in Nested Conditionals
+// =============================================================================
+
+// Nested break coerces through multiple levels
+@test_nested_break tests @nested_break () -> void = run(
+    for x in [1, 2, 3, 4, 5] do
+        if x < 3 then x
+        else (if x > 4 then break else x),
+    (),
+)
+
+@nested_break () -> void =
+    for x in [1, 2, 3, 4, 5] do
+        if x < 3 then x
+        else (if x > 4 then break else x)
+
+// Nested continue coerces through multiple levels
+@test_nested_continue tests @nested_continue () -> void = run(
+    for x in [1, 2, 3, 4, 5] do
+        if x < 3 then x
+        else (if x == 3 then continue else x),
+    (),
+)
+
+@nested_continue () -> void =
+    for x in [1, 2, 3, 4, 5] do
+        if x < 3 then x
+        else (if x == 3 then continue else x)
+
+// =============================================================================
+// Break/Continue Coerce to Complex Types
+// =============================================================================
+
+// Break coerces to str
+@test_break_to_str tests @break_to_str () -> void = run(
+    for x in [1, 2, 3] do
+        if x == 2 then "found" else break,
+    (),
+)
+
+@break_to_str () -> void =
+    for x in [1, 2, 3] do
+        if x == 2 then "found" else break
+
+// Continue coerces to list
+@test_continue_to_list tests @continue_to_list () -> void = run(
+    for x in [[1], [2], [3]] do
+        if len(collection: x) > 0 then x else continue,
+    (),
+)
+
+@continue_to_list () -> void =
+    for x in [[1], [2], [3]] do
+        if len(collection: x) > 0 then x else continue
+
+// =============================================================================
+// Break with Value (for yield loops)
+// =============================================================================
+
+// Break with value in yield loop adds final element
+@test_break_with_value tests @break_with_value () -> void = run(
+    let result = for x in [1, 2, 3, 4, 5] yield
+        if x > 3 then break 100 else x,
+    assert_eq(actual: result, expected: [1, 2, 3, 100]),
+)
+
+@break_with_value () -> [int] =
+    for x in [1, 2, 3, 4, 5] yield
+        if x > 3 then break 100 else x
+
+// =============================================================================
+// Continue with Value (for yield loops)
+// =============================================================================
+
+// Continue with value substitutes the yielded value
+@test_continue_with_value tests @continue_with_value () -> void = run(
+    let result = for x in [1, 2, 3, 4, 5] yield
+        if x == 3 then continue 0 else x,
+    assert_eq(actual: result, expected: [1, 2, 0, 4, 5]),
+)
+
+@continue_with_value () -> [int] =
+    for x in [1, 2, 3, 4, 5] yield
+        if x == 3 then continue 0 else x
+
+// =============================================================================
+// Multiple Break/Continue in Same Loop
+// =============================================================================
+
+@test_multiple_control_flow tests @multiple_control_flow () -> void = run(
+    let result = for x in [1, 2, 3, 4, 5, 6] yield
+        if x == 2 then continue 0
+        else if x == 5 then break 99
+        else x,
+    assert_eq(actual: result, expected: [1, 0, 3, 4, 99]),
+)
+
+@multiple_control_flow () -> [int] =
+    for x in [1, 2, 3, 4, 5, 6] yield
+        if x == 2 then continue 0
+        else if x == 5 then break 99
+        else x

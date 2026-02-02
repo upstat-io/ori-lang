@@ -201,6 +201,14 @@ pub fn infer_break(checker: &mut TypeChecker<'_>, value: Option<ExprId>) -> Type
     Type::Never
 }
 
+/// Infer type for continue expression.
+pub fn infer_continue(checker: &mut TypeChecker<'_>, value: Option<ExprId>) -> Type {
+    if let Some(id) = value {
+        infer_expr(checker, id);
+    }
+    Type::Never
+}
+
 /// Infer type for await expression.
 pub fn infer_await(checker: &mut TypeChecker<'_>, inner: ExprId, span: Span) -> Type {
     let _ = infer_expr(checker, inner);

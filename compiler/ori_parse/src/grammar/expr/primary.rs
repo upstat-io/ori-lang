@@ -279,6 +279,78 @@ impl Parser<'_> {
             // Let expression
             TokenKind::Let => self.parse_let_expr(),
 
+            // Break expression (only valid inside loops)
+            TokenKind::Break => {
+                if !self.context.in_loop() {
+                    return Err(ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        "`break` outside of loop",
+                        span,
+                    )
+                    .with_context("break can only be used inside a loop or for expression"));
+                }
+                self.advance();
+                // Optional value: break or break value
+                // Value is present if there's an expression following
+                // Terminators: delimiters, control-flow keywords, newlines, EOF
+                let value = if !self.check(&TokenKind::Comma)
+                    && !self.check(&TokenKind::RParen)
+                    && !self.check(&TokenKind::RBrace)
+                    && !self.check(&TokenKind::RBracket)
+                    && !self.check(&TokenKind::Newline)
+                    && !self.check(&TokenKind::Else)
+                    && !self.check(&TokenKind::Then)
+                    && !self.check(&TokenKind::Do)
+                    && !self.check(&TokenKind::Yield)
+                    && !self.is_at_end()
+                {
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
+                let end_span = value.map_or(span, |v| self.arena.get_expr(v).span);
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Break(value), span.merge(end_span))))
+            }
+
+            // Continue expression (only valid inside loops)
+            TokenKind::Continue => {
+                if !self.context.in_loop() {
+                    return Err(ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        "`continue` outside of loop",
+                        span,
+                    )
+                    .with_context("continue can only be used inside a loop or for expression"));
+                }
+                self.advance();
+                // Optional value: continue or continue value (valid in for...yield)
+                // Terminators: delimiters, control-flow keywords, newlines, EOF
+                let value = if !self.check(&TokenKind::Comma)
+                    && !self.check(&TokenKind::RParen)
+                    && !self.check(&TokenKind::RBrace)
+                    && !self.check(&TokenKind::RBracket)
+                    && !self.check(&TokenKind::Newline)
+                    && !self.check(&TokenKind::Else)
+                    && !self.check(&TokenKind::Then)
+                    && !self.check(&TokenKind::Do)
+                    && !self.check(&TokenKind::Yield)
+                    && !self.is_at_end()
+                {
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
+                let end_span = value.map_or(span, |v| self.arena.get_expr(v).span);
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Continue(value), span.merge(end_span))))
+            }
+
+            // Loop expression: loop(body)
+            TokenKind::Loop => self.parse_loop_expr(),
+
             // Float with duration suffix is an error (e.g., 1.5s, 2.5ms)
             // Spec: duration-size-types-proposal.md § Numeric Prefix
             // "Floating-point prefixes are NOT supported"
@@ -699,6 +771,8 @@ impl Parser<'_> {
     ///
     /// Also supports optional guard: `for x in items if condition do body`
     fn parse_for_loop(&mut self) -> Result<ExprId, ParseError> {
+        use crate::context::ParseContext;
+
         let span = self.current_span();
         self.expect(&TokenKind::For)?;
 
@@ -736,8 +810,8 @@ impl Parser<'_> {
 
         self.skip_newlines();
 
-        // Parse body expression
-        let body = self.parse_expr()?;
+        // Parse body expression with IN_LOOP context (enables break/continue)
+        let body = self.with_context(ParseContext::IN_LOOP, Self::parse_expr)?;
 
         let end_span = self.arena.get_expr(body).span;
         Ok(self.arena.alloc_expr(Expr::new(
@@ -750,6 +824,29 @@ impl Parser<'_> {
             },
             span.merge(end_span),
         )))
+    }
+
+    /// Parse loop expression: `loop(body)`
+    ///
+    /// The body is evaluated repeatedly until a `break` is encountered.
+    fn parse_loop_expr(&mut self) -> Result<ExprId, ParseError> {
+        use crate::context::ParseContext;
+
+        let span = self.current_span();
+        self.expect(&TokenKind::Loop)?;
+        self.expect(&TokenKind::LParen)?;
+        self.skip_newlines();
+
+        // Parse body expression with IN_LOOP context (enables break/continue)
+        let body = self.with_context(ParseContext::IN_LOOP, Self::parse_expr)?;
+
+        self.skip_newlines();
+        let end_span = self.current_span();
+        self.expect(&TokenKind::RParen)?;
+
+        Ok(self
+            .arena
+            .alloc_expr(Expr::new(ExprKind::Loop { body }, span.merge(end_span))))
     }
 
     /// Check if typed lambda params.

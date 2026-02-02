@@ -294,6 +294,7 @@ golden_test!(
     "expressions/conversions"
 );
 golden_test!(golden_tests_expressions_errors, "expressions/errors");
+golden_test!(golden_tests_expressions_parens, "expressions/parens");
 
 // Pattern Tests (Phase 4)
 golden_test!(golden_tests_patterns_run, "patterns/run");

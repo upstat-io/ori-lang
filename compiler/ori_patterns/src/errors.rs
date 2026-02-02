@@ -18,7 +18,8 @@ pub enum ControlFlow {
     /// Break from a loop, optionally with a value.
     Break(Value),
     /// Continue to the next iteration of a loop.
-    Continue,
+    /// In `for...yield` context, may carry a substitution value.
+    Continue(Value),
     /// Return from a function, optionally with a value.
     Return(Value),
 }
@@ -69,12 +70,22 @@ impl EvalError {
         }
     }
 
-    /// Create a continue signal.
+    /// Create a continue signal without a substitution value.
     pub fn continue_signal() -> Self {
         EvalError {
             message: "continue".to_string(),
             propagated_value: None,
-            control_flow: Some(ControlFlow::Continue),
+            control_flow: Some(ControlFlow::Continue(Value::Void)),
+            span: None,
+        }
+    }
+
+    /// Create a continue signal with a substitution value (for `for...yield`).
+    pub fn continue_with(value: Value) -> Self {
+        EvalError {
+            message: format!("continue:{value}"),
+            propagated_value: None,
+            control_flow: Some(ControlFlow::Continue(value)),
             span: None,
         }
     }

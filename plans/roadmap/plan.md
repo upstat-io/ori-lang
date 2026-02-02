@@ -93,6 +93,43 @@ When adding new implementation items to the roadmap, consider creating a new sec
 
 ---
 
+## Bugs Found During Formatting Review (2026-02-02)
+
+Bugs discovered during comprehensive formatting scenario review.
+
+### Fixed in This Session
+
+1. **For/Loop receiver parentheses** — `(for x in items yield x).fold(...)` was losing parentheses
+   - Fixed in `compiler/ori_fmt/src/formatter/mod.rs` — added `For` and `Loop` to `needs_receiver_parens()`
+
+2. **Lambda call target parentheses** — `(y -> y * 2)(x)` was losing parentheses
+   - Fixed in `compiler/ori_fmt/src/formatter/helpers.rs` — added `emit_call_target_inline()` and `format_call_target()`
+
+3. **Iterator source parentheses** — `for x in (for y in items yield y)` was losing parentheses
+   - Fixed in `compiler/ori_fmt/src/formatter/helpers.rs` — added `emit_iter_inline()` and `format_iter()`
+
+### Pre-existing Issues Discovered (Not Formatter Bugs)
+
+These are parser/lexer issues discovered during formatting testing, not formatter bugs:
+
+1. **`??` coalesce operator not implemented** — Token `DoubleQuestion` is lexed but parser never creates `BinaryOp::Coalesce`
+   - Location: `compiler/ori_parse/src/grammar/expr.rs`
+   - Status: Parser infrastructure exists but operator not wired up
+
+2. **`return` keyword not implemented** — Shows as "unknown identifier"
+   - Location: `compiler/ori_lexer/src/lib.rs`, `compiler/ori_parse/src/grammar/`
+   - Status: Keyword reserved but not parsed
+
+3. **`!=` in for guards** — Parser error with `!=` in guard expressions
+   - Example: `for x in items if x != 0 yield x` fails to parse
+   - Location: `compiler/ori_parse/src/grammar/expr.rs`
+
+4. **`by` in ranges for for loops** — `for x in 0..100 by 5` doesn't parse
+   - Location: `compiler/ori_parse/src/grammar/expr.rs`
+   - Status: `by` recognized but not integrated with for loop iteration
+
+---
+
 ## Spec Updates Required
 
 Approved proposals that need spec documentation:

@@ -51,13 +51,13 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             // Calls
             ExprKind::Call { func, args } => {
-                self.emit_inline(*func);
+                self.emit_call_target_inline(*func);
                 self.ctx.emit("(");
                 self.emit_inline_expr_list(*args);
                 self.ctx.emit(")");
             }
             ExprKind::CallNamed { func, args } => {
-                self.emit_inline(*func);
+                self.emit_call_target_inline(*func);
                 self.ctx.emit("(");
                 self.emit_inline_call_args(*args);
                 self.ctx.emit(")");
@@ -252,7 +252,13 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.emit_inline(*val_id);
                 }
             }
-            ExprKind::Continue => self.ctx.emit("continue"),
+            ExprKind::Continue(val) => {
+                self.ctx.emit("continue");
+                if let Some(val_id) = val {
+                    self.ctx.emit_space();
+                    self.emit_inline(*val_id);
+                }
+            }
 
             // Postfix operators
             ExprKind::Await(inner) => {
@@ -296,7 +302,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit("for ");
                 self.ctx.emit(self.interner.lookup(*binding));
                 self.ctx.emit(" in ");
-                self.emit_inline(*iter);
+                self.emit_iter_inline(*iter);
                 if let Some(guard_id) = guard {
                     self.ctx.emit(" if ");
                     self.emit_inline(*guard_id);
