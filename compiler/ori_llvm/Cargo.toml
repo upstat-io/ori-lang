@@ -35,6 +35,9 @@ llvm-sys = "170"
 
 [dev-dependencies]
 pretty_assertions = "1.4"
+wasmparser = "0.221"
+tempfile = "3.10"
+object = "0.36"
 
 [lints.rust]
 # unsafe_code is required for llvm-sys FFI calls

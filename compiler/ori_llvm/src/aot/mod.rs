@@ -86,6 +86,7 @@ pub mod passes;
 pub mod runtime;
 pub mod syslib;
 pub mod target;
+pub mod wasm;
 
 // Re-export key types from target
 pub use target::{
@@ -122,3 +123,9 @@ pub use runtime::{RuntimeConfig, RuntimeNotFound};
 
 // Re-export key types from syslib
 pub use syslib::{find_library, library_exists, LibrarySearchOrder, SysLibConfig, SysLibError};
+
+// Re-export key types from wasm
+pub use wasm::{
+    JsBindingGenerator, WasiConfig, WasiPreopen, WasiVersion, WasmConfig, WasmError, WasmExport,
+    WasmMemoryConfig, WasmOptLevel, WasmOptRunner, WasmStackConfig, WasmType,
+};

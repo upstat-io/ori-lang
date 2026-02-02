@@ -473,7 +473,7 @@ impl LinkerDriver {
     }
 
     /// Configure the linker with all input settings.
-    fn configure_linker(linker: &mut LinkerImpl, input: &LinkInput) -> Result<(), LinkerError> {
+    pub fn configure_linker(linker: &mut LinkerImpl, input: &LinkInput) -> Result<(), LinkerError> {
         // Set output kind first (affects other options)
         linker.set_output_kind(input.output_kind);
 
@@ -574,7 +574,7 @@ impl LinkerDriver {
     }
 
     /// Check if the error is retryable.
-    pub(crate) fn should_retry(stderr: &str) -> bool {
+    pub fn should_retry(stderr: &str) -> bool {
         // Common retryable errors (from rustc's experience)
         let retryable_patterns = [
             "unrecognized option",
@@ -635,7 +635,7 @@ impl LinkerDriver {
     }
 
     /// Create a response file and return a command that uses it.
-    pub(crate) fn create_response_file(cmd: &Command) -> Result<Command, LinkerError> {
+    pub fn create_response_file(cmd: &Command) -> Result<Command, LinkerError> {
         // Create temp file
         let temp_dir = std::env::temp_dir();
         let rsp_path = temp_dir.join(format!("ori_link_{}.rsp", std::process::id()));
