@@ -1,14 +1,7 @@
 name: Deploy Website
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - 'website/**'
-      - 'compiler/**'
-      - '.github/workflows/deploy-website.yml'
-      - 'docs/**'
-  # Also trigger after CI completes to get fresh test results
+  # Deploy after CI completes on master (includes PR merges)
   workflow_run:
     workflows: ["CI"]
     types: [completed]
