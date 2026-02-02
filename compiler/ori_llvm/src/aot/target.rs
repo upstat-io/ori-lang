@@ -1021,7 +1021,7 @@ mod tests {
             os: "linux".to_string(),
             env: Some("gnu".to_string()),
         };
-        assert_eq!(format!("{}", components), "x86_64-unknown-linux-gnu");
+        assert_eq!(format!("{components}"), "x86_64-unknown-linux-gnu");
 
         let components = TargetTripleComponents {
             arch: "aarch64".to_string(),
@@ -1029,7 +1029,7 @@ mod tests {
             os: "darwin".to_string(),
             env: None,
         };
-        assert_eq!(format!("{}", components), "aarch64-apple-darwin");
+        assert_eq!(format!("{components}"), "aarch64-apple-darwin");
     }
 
     #[test]

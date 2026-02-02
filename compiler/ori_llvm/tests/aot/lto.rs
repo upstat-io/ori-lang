@@ -197,7 +197,7 @@ fn test_full_lto_link_passes() {
 
 /// Test: No LTO produces no passes
 ///
-/// Scenario: LtoMode::Off should not generate any LTO passes.
+/// Scenario: `LtoMode::Off` should not generate any LTO passes.
 #[test]
 fn test_no_lto_no_passes() {
     let off = LtoMode::Off;

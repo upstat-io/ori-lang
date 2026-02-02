@@ -1,8 +1,51 @@
 use inkwell::context::Context;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind};
-use ori_ir::{ExprArena, StringInterner, TypeId};
+use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
 
 use super::helper::TestCodegen;
+
+// Helper functions to reduce test boilerplate
+
+fn make_ident(arena: &mut ExprArena, name: Name) -> ExprId {
+    arena.alloc_expr(Expr {
+        kind: ExprKind::Ident(name),
+        span: ori_ir::Span::new(0, 1),
+    })
+}
+
+fn make_int(arena: &mut ExprArena, value: i64) -> ExprId {
+    arena.alloc_expr(Expr {
+        kind: ExprKind::Int(value),
+        span: ori_ir::Span::new(0, 1),
+    })
+}
+
+fn make_binary(arena: &mut ExprArena, op: BinaryOp, left: ExprId, right: ExprId) -> ExprId {
+    arena.alloc_expr(Expr {
+        kind: ExprKind::Binary { op, left, right },
+        span: ori_ir::Span::new(0, 1),
+    })
+}
+
+fn make_call(arena: &mut ExprArena, func_name: Name, arg: ExprId) -> ExprId {
+    let func = make_ident(arena, func_name);
+    let args = arena.alloc_expr_list([arg]);
+    arena.alloc_expr(Expr {
+        kind: ExprKind::Call { func, args },
+        span: ori_ir::Span::new(0, 1),
+    })
+}
+
+fn make_if(arena: &mut ExprArena, cond: ExprId, then_br: ExprId, else_br: ExprId) -> ExprId {
+    arena.alloc_expr(Expr {
+        kind: ExprKind::If {
+            cond,
+            then_branch: then_br,
+            else_branch: Some(else_br),
+        },
+        span: ori_ir::Span::new(0, 1),
+    })
+}
 
 #[test]
 fn test_function_with_params() {
@@ -105,15 +148,15 @@ fn test_function_call_simple() {
     let mut arena2 = ExprArena::new();
 
     // Arguments: 10, 20
-    let arg1 = arena2.alloc_expr(Expr {
+    let first_arg = arena2.alloc_expr(Expr {
         kind: ExprKind::Int(10),
         span: ori_ir::Span::new(0, 1),
     });
-    let arg2 = arena2.alloc_expr(Expr {
+    let second_arg = arena2.alloc_expr(Expr {
         kind: ExprKind::Int(20),
         span: ori_ir::Span::new(0, 1),
     });
-    let args = arena2.alloc_expr_list([arg1, arg2]);
+    let arg_list = arena2.alloc_expr_list([first_arg, second_arg]);
 
     // Function reference: add
     let func = arena2.alloc_expr(Expr {
@@ -123,7 +166,10 @@ fn test_function_call_simple() {
 
     // Call: add(10, 20)
     let call_expr = arena2.alloc_expr(Expr {
-        kind: ExprKind::Call { func, args },
+        kind: ExprKind::Call {
+            func,
+            args: arg_list,
+        },
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -251,104 +297,40 @@ fn test_function_call_nested() {
     assert_eq!(result, 20);
 }
 
+/// Build the factorial function body: if n <= 1 then 1 else n * factorial(n - 1)
+fn build_factorial_body(arena: &mut ExprArena, n_name: Name, fn_name: Name) -> ExprId {
+    // Condition: n <= 1
+    let n_ref = make_ident(arena, n_name);
+    let one = make_int(arena, 1);
+    let cond = make_binary(arena, BinaryOp::LtEq, n_ref, one);
+    // Then branch: 1
+    let then_branch = make_int(arena, 1);
+    // n - 1
+    let n_ref2 = make_ident(arena, n_name);
+    let one2 = make_int(arena, 1);
+    let n_minus_1 = make_binary(arena, BinaryOp::Sub, n_ref2, one2);
+    // factorial(n - 1)
+    let rec_call = make_call(arena, fn_name, n_minus_1);
+    // n * factorial(n - 1)
+    let n_ref3 = make_ident(arena, n_name);
+    let else_branch = make_binary(arena, BinaryOp::Mul, n_ref3, rec_call);
+    // if n <= 1 then 1 else n * factorial(n - 1)
+    make_if(arena, cond, then_branch, else_branch)
+}
+
 #[test]
 fn test_recursive_function() {
     let context = Context::create();
     let interner = StringInterner::new();
     let codegen = TestCodegen::new(&context, &interner, "test");
 
-    // Create factorial:
-    //   fn factorial(n: int) -> int {
-    //       if n <= 1 then 1 else n * factorial(n - 1)
-    //   }
-    //   fn main() -> int { factorial(5) }
-    //   Should return 120
-
+    // Create factorial: fn factorial(n: int) -> int = if n <= 1 then 1 else n * factorial(n - 1)
+    // main: fn main() -> int = factorial(5) => 120
     let mut arena = ExprArena::new();
     let n_name = interner.intern("n");
     let factorial_fn_name = interner.intern("factorial");
 
-    // n <= 1
-    let n_ref1 = arena.alloc_expr(Expr {
-        kind: ExprKind::Ident(n_name),
-        span: ori_ir::Span::new(0, 1),
-    });
-    let one_cond = arena.alloc_expr(Expr {
-        kind: ExprKind::Int(1),
-        span: ori_ir::Span::new(0, 1),
-    });
-    let cond = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary {
-            op: BinaryOp::LtEq,
-            left: n_ref1,
-            right: one_cond,
-        },
-        span: ori_ir::Span::new(0, 1),
-    });
-
-    // then branch: 1
-    let then_branch = arena.alloc_expr(Expr {
-        kind: ExprKind::Int(1),
-        span: ori_ir::Span::new(0, 1),
-    });
-
-    // n - 1
-    let n_ref2 = arena.alloc_expr(Expr {
-        kind: ExprKind::Ident(n_name),
-        span: ori_ir::Span::new(0, 1),
-    });
-    let one_sub = arena.alloc_expr(Expr {
-        kind: ExprKind::Int(1),
-        span: ori_ir::Span::new(0, 1),
-    });
-    let n_minus_1 = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary {
-            op: BinaryOp::Sub,
-            left: n_ref2,
-            right: one_sub,
-        },
-        span: ori_ir::Span::new(0, 1),
-    });
-
-    // factorial(n - 1)
-    let rec_args = arena.alloc_expr_list([n_minus_1]);
-    let factorial_ref = arena.alloc_expr(Expr {
-        kind: ExprKind::Ident(factorial_fn_name),
-        span: ori_ir::Span::new(0, 1),
-    });
-    let rec_call = arena.alloc_expr(Expr {
-        kind: ExprKind::Call {
-            func: factorial_ref,
-            args: rec_args,
-        },
-        span: ori_ir::Span::new(0, 1),
-    });
-
-    // n * factorial(n - 1)
-    let n_ref3 = arena.alloc_expr(Expr {
-        kind: ExprKind::Ident(n_name),
-        span: ori_ir::Span::new(0, 1),
-    });
-    let else_branch = arena.alloc_expr(Expr {
-        kind: ExprKind::Binary {
-            op: BinaryOp::Mul,
-            left: n_ref3,
-            right: rec_call,
-        },
-        span: ori_ir::Span::new(0, 1),
-    });
-
-    // if n <= 1 then 1 else n * factorial(n - 1)
-    let factorial_body = arena.alloc_expr(Expr {
-        kind: ExprKind::If {
-            cond,
-            then_branch,
-            else_branch: Some(else_branch),
-        },
-        span: ori_ir::Span::new(0, 1),
-    });
-
-    let factorial_expr_types = vec![TypeId::INT; 20];
+    let factorial_body = build_factorial_body(&mut arena, n_name, factorial_fn_name);
 
     codegen.compile_function(
         factorial_fn_name,
@@ -357,32 +339,15 @@ fn test_recursive_function() {
         TypeId::INT,
         factorial_body,
         &arena,
-        &factorial_expr_types,
+        &[TypeId::INT; 20],
     );
 
     // main function: factorial(5)
     let mut arena2 = ExprArena::new();
-
-    let five = arena2.alloc_expr(Expr {
-        kind: ExprKind::Int(5),
-        span: ori_ir::Span::new(0, 1),
-    });
-    let args = arena2.alloc_expr_list([five]);
-    let factorial_ref_main = arena2.alloc_expr(Expr {
-        kind: ExprKind::Ident(factorial_fn_name),
-        span: ori_ir::Span::new(0, 1),
-    });
-    let call = arena2.alloc_expr(Expr {
-        kind: ExprKind::Call {
-            func: factorial_ref_main,
-            args,
-        },
-        span: ori_ir::Span::new(0, 1),
-    });
+    let five = make_int(&mut arena2, 5);
+    let call = make_call(&mut arena2, factorial_fn_name, five);
 
     let main_fn_name = interner.intern("main");
-    let main_expr_types = vec![TypeId::INT; 5];
-
     codegen.compile_function(
         main_fn_name,
         &[],
@@ -390,7 +355,7 @@ fn test_recursive_function() {
         TypeId::INT,
         call,
         &arena2,
-        &main_expr_types,
+        &[TypeId::INT; 5],
     );
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {

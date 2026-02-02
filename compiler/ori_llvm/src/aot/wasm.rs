@@ -1871,7 +1871,7 @@ mod tests {
         let js_path = temp_dir.join("test_ori_wasm.js");
 
         let result = gen.generate_js(&js_path);
-        assert!(result.is_ok(), "generate_js failed: {:?}", result);
+        assert!(result.is_ok(), "generate_js failed: {result:?}");
 
         // Verify file was created and has content
         let content = fs::read_to_string(&js_path).unwrap();
@@ -1903,7 +1903,7 @@ mod tests {
         let dts_path = temp_dir.join("test_ori_wasm.d.ts");
 
         let result = gen.generate_dts(&dts_path);
-        assert!(result.is_ok(), "generate_dts failed: {:?}", result);
+        assert!(result.is_ok(), "generate_dts failed: {result:?}");
 
         // Verify file was created and has content
         let content = fs::read_to_string(&dts_path).unwrap();
@@ -1951,11 +1951,7 @@ mod tests {
         let path = temp_dir.join("test_wasi_symbols.txt");
 
         let result = config.write_undefined_symbols(&path);
-        assert!(
-            result.is_ok(),
-            "write_undefined_symbols failed: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "write_undefined_symbols failed: {result:?}");
 
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("wasi_snapshot_preview1.proc_exit"));

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use inkwell::context::Context;
 use ori_ir::ast::patterns::BindingPattern;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind, Stmt, StmtKind};
-use ori_ir::{ExprArena, Span, StringInterner, TypeId};
+use ori_ir::{ExprArena, Span, StmtRange, StringInterner, TypeId};
 
 use super::helper::setup_builder_test;
 use crate::builder::Builder;
@@ -178,7 +178,7 @@ fn test_block_with_multiple_statements() {
     });
     let x_name = interner.intern("x");
 
-    let stmt1 = arena.alloc_stmt(Stmt {
+    let first_stmt = arena.alloc_stmt(Stmt {
         kind: StmtKind::Let {
             pattern: BindingPattern::Name(x_name),
             ty: None,
@@ -204,7 +204,7 @@ fn test_block_with_multiple_statements() {
         span: Span::new(0, 1),
     });
 
-    let stmts = arena.alloc_stmt_range(stmt1.index() as u32, 2);
+    let stmt_range = arena.alloc_stmt_range(first_stmt.index() as u32, 2);
 
     // x + y
     let x_ref = arena.alloc_expr(Expr {
@@ -231,7 +231,7 @@ fn test_block_with_multiple_statements() {
     let mut locals = HashMap::new();
 
     let result = builder.compile_block(
-        stmts,
+        stmt_range,
         Some(add),
         &arena,
         &expr_types,
@@ -252,7 +252,6 @@ fn test_block_with_empty_statements() {
     let mut arena = ExprArena::new();
 
     // Empty block { 42 }
-    use ori_ir::StmtRange;
     let empty_stmts = StmtRange::EMPTY;
 
     let result_expr = arena.alloc_expr(Expr {
@@ -296,12 +295,12 @@ fn test_block_with_statement_expr() {
         span: Span::new(0, 1),
     });
 
-    let stmt1 = arena.alloc_stmt(Stmt {
+    let first_stmt = arena.alloc_stmt(Stmt {
         kind: StmtKind::Expr(side_effect),
         span: Span::new(0, 1),
     });
 
-    let stmts = arena.alloc_stmt_range(stmt1.index() as u32, 1);
+    let stmt_range = arena.alloc_stmt_range(first_stmt.index() as u32, 1);
 
     let result_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Int(42),
@@ -315,7 +314,7 @@ fn test_block_with_statement_expr() {
     let mut locals = HashMap::new();
 
     let result = builder.compile_block(
-        stmts,
+        stmt_range,
         Some(result_expr),
         &arena,
         &expr_types,
@@ -344,12 +343,12 @@ fn test_block_no_result() {
         span: Span::new(0, 1),
     });
 
-    let stmt1 = arena.alloc_stmt(Stmt {
+    let first_stmt = arena.alloc_stmt(Stmt {
         kind: StmtKind::Expr(side_effect),
         span: Span::new(0, 1),
     });
 
-    let stmts = arena.alloc_stmt_range(stmt1.index() as u32, 1);
+    let stmt_range = arena.alloc_stmt_range(first_stmt.index() as u32, 1);
 
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
@@ -358,7 +357,7 @@ fn test_block_no_result() {
     let mut locals = HashMap::new();
 
     let result = builder.compile_block(
-        stmts,
+        stmt_range,
         None, // No result expression
         &arena,
         &expr_types,

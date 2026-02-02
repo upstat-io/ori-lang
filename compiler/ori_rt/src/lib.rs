@@ -135,6 +135,16 @@ pub fn reset_panic_state() {
     PANIC_MESSAGE.with(|m| *m.borrow_mut() = None);
 }
 
+/// Set panic state without terminating (for unit tests only).
+///
+/// Unlike `ori_panic` and `ori_panic_cstr`, this function does NOT call `exit()`,
+/// allowing unit tests to verify panic behavior without terminating the test process.
+#[cfg(test)]
+pub fn set_panic_state_for_test(msg: &str) {
+    PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
+    PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.to_string()));
+}
+
 // ============================================================================
 // Memory Allocation
 // ============================================================================
@@ -396,10 +406,16 @@ pub extern "C" fn ori_panic_cstr(s: *const i8) {
 }
 
 /// Assert that a condition is true.
+///
+/// Sets panic state but does NOT terminate - this allows JIT tests to check `did_panic()`.
+/// For AOT, the generated code should check the panic state after assertions.
 #[no_mangle]
 pub extern "C" fn ori_assert(condition: bool) {
     if !condition {
-        ori_panic_cstr(c"assertion failed".as_ptr());
+        let msg = "assertion failed";
+        eprintln!("ori panic: {msg}");
+        PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
+        PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.to_string()));
     }
 }
 
@@ -836,7 +852,8 @@ mod tests {
         assert!(!did_panic());
         assert!(get_panic_message().is_none());
 
-        ori_panic_cstr(c"test panic".as_ptr());
+        // Use the test helper instead of ori_panic_cstr (which would exit the process)
+        set_panic_state_for_test("test panic");
         assert!(did_panic());
         assert_eq!(get_panic_message(), Some("test panic".to_string()));
 

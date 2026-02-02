@@ -10,6 +10,128 @@ use crate::builder::Builder;
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
+    /// Compile short-circuit logical AND (&&).
+    ///
+    /// Evaluates left operand first. If false, returns false without evaluating right.
+    /// Otherwise, evaluates and returns the right operand.
+    #[expect(clippy::too_many_arguments, reason = "matches compile_expr signature")]
+    pub(crate) fn compile_short_circuit_and(
+        &self,
+        left: ExprId,
+        right: ExprId,
+        arena: &ExprArena,
+        expr_types: &[TypeId],
+        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        function: FunctionValue<'ll>,
+        loop_ctx: Option<&LoopContext<'ll>>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        // Compile left operand
+        let lhs = self.compile_expr(left, arena, expr_types, locals, function, loop_ctx)?;
+        let lhs_bool = lhs.into_int_value();
+
+        // Create basic blocks
+        let eval_rhs_bb = self.append_block(function, "and_rhs");
+        let merge_bb = self.append_block(function, "and_merge");
+
+        let entry_bb = self.current_block()?;
+
+        // If left is false, short-circuit to merge; otherwise evaluate right
+        self.cond_br(lhs_bool, eval_rhs_bb, merge_bb);
+
+        // Evaluate right operand
+        self.position_at_end(eval_rhs_bb);
+        let rhs = self.compile_expr(right, arena, expr_types, locals, function, loop_ctx);
+        let rhs_exit_bb = self.current_block()?;
+
+        // Handle case where right operand terminates (e.g., panic)
+        let rhs_terminated = rhs_exit_bb.get_terminator().is_some();
+        if !rhs_terminated {
+            self.br(merge_bb);
+        }
+
+        // Merge block with phi node
+        self.position_at_end(merge_bb);
+
+        let false_val = self.cx().scx.type_i1().const_int(0, false);
+
+        if let Some(rhs_val) = rhs {
+            if rhs_terminated {
+                // Right side terminated, only left's false case reaches merge
+                Some(false_val.into())
+            } else {
+                // Both paths reach merge: false from left, rhs from right
+                self.build_phi_from_incoming(
+                    TypeId::BOOL,
+                    &[(false_val.into(), entry_bb), (rhs_val, rhs_exit_bb)],
+                )
+            }
+        } else {
+            Some(false_val.into())
+        }
+    }
+
+    /// Compile short-circuit logical OR (||).
+    ///
+    /// Evaluates left operand first. If true, returns true without evaluating right.
+    /// Otherwise, evaluates and returns the right operand.
+    #[expect(clippy::too_many_arguments, reason = "matches compile_expr signature")]
+    pub(crate) fn compile_short_circuit_or(
+        &self,
+        left: ExprId,
+        right: ExprId,
+        arena: &ExprArena,
+        expr_types: &[TypeId],
+        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        function: FunctionValue<'ll>,
+        loop_ctx: Option<&LoopContext<'ll>>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        // Compile left operand
+        let lhs = self.compile_expr(left, arena, expr_types, locals, function, loop_ctx)?;
+        let lhs_bool = lhs.into_int_value();
+
+        // Create basic blocks
+        let eval_rhs_bb = self.append_block(function, "or_rhs");
+        let merge_bb = self.append_block(function, "or_merge");
+
+        let entry_bb = self.current_block()?;
+
+        // If left is true, short-circuit to merge; otherwise evaluate right
+        self.cond_br(lhs_bool, merge_bb, eval_rhs_bb);
+
+        // Evaluate right operand
+        self.position_at_end(eval_rhs_bb);
+        let rhs = self.compile_expr(right, arena, expr_types, locals, function, loop_ctx);
+        let rhs_exit_bb = self.current_block()?;
+
+        // Handle case where right operand terminates (e.g., panic)
+        let rhs_terminated = rhs_exit_bb.get_terminator().is_some();
+        if !rhs_terminated {
+            self.br(merge_bb);
+        }
+
+        // Merge block with phi node
+        self.position_at_end(merge_bb);
+
+        let true_val = self.cx().scx.type_i1().const_int(1, false);
+
+        if let Some(rhs_val) = rhs {
+            if rhs_terminated {
+                // Right side terminated, only left's true case reaches merge
+                Some(true_val.into())
+            } else {
+                // Both paths reach merge: true from left, rhs from right
+                self.build_phi_from_incoming(
+                    TypeId::BOOL,
+                    &[(true_val.into(), entry_bb), (rhs_val, rhs_exit_bb)],
+                )
+            }
+        } else {
+            Some(true_val.into())
+        }
+    }
+}
+
+impl<'ll> Builder<'_, 'll, '_> {
     /// Compile an if/else expression.
     #[instrument(
         skip(self, arena, expr_types, locals, function, loop_ctx),

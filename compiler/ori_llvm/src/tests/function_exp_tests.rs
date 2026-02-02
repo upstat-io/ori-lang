@@ -1,4 +1,4 @@
-//! Tests for FunctionExp patterns (recurse, print, panic).
+//! Tests for `FunctionExp` patterns (recurse, print, panic).
 
 use std::collections::HashMap;
 

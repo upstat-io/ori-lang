@@ -11,6 +11,9 @@
 //! - Debug information presence
 //! - Symbol table correctness
 
+// Allow similar names in tests (mangler -> mangled pattern is intentional)
+#![allow(clippy::similar_names)]
+
 use ori_llvm::aot::debug::{DebugFormat, DebugInfoConfig, DebugLevel};
 use ori_llvm::aot::mangle::{demangle, is_ori_symbol, Mangler, MANGLE_PREFIX};
 use ori_llvm::aot::object::OutputFormat;
@@ -211,7 +214,7 @@ fn test_lto_mode_display() {
 // Debug Information Configuration Tests
 // ============================================================================
 
-/// Test: Debug level is_enabled
+/// Test: Debug level `is_enabled`
 #[test]
 fn test_debug_level_is_enabled() {
     assert!(!DebugLevel::None.is_enabled());
@@ -311,7 +314,7 @@ fn test_debug_info_config_for_target() {
     assert_eq!(config.format, DebugFormat::Dwarf);
 }
 
-/// Test: Debug config needs_dsym
+/// Test: Debug config `needs_dsym`
 #[test]
 fn test_debug_config_needs_dsym() {
     let config = DebugInfoConfig::new(DebugLevel::Full).with_split_debug_info(true);
@@ -326,7 +329,7 @@ fn test_debug_config_needs_dsym() {
     assert!(!config.needs_dsym("aarch64-apple-darwin"));
 }
 
-/// Test: Debug config needs_pdb
+/// Test: Debug config `needs_pdb`
 #[test]
 fn test_debug_config_needs_pdb() {
     let config = DebugInfoConfig::for_target(DebugLevel::Full, "x86_64-pc-windows-msvc");
@@ -349,15 +352,15 @@ fn test_mangler_function() {
     let mangler = Mangler::new();
 
     // Simple function in root module
-    let mangled = mangler.mangle_function("", "main");
-    assert!(mangled.starts_with(MANGLE_PREFIX));
-    assert!(mangled.contains("main"));
+    let main_sym = mangler.mangle_function("", "main");
+    assert!(main_sym.starts_with(MANGLE_PREFIX));
+    assert!(main_sym.contains("main"));
 
     // Function in module
-    let mangled = mangler.mangle_function("math", "add");
-    assert!(mangled.starts_with(MANGLE_PREFIX));
-    assert!(mangled.contains("math"));
-    assert!(mangled.contains("add"));
+    let math_add_sym = mangler.mangle_function("math", "add");
+    assert!(math_add_sym.starts_with(MANGLE_PREFIX));
+    assert!(math_add_sym.contains("math"));
+    assert!(math_add_sym.contains("add"));
 }
 
 /// Test: Ori symbol detection

@@ -13,7 +13,7 @@ fn make_ori_str(s: &[u8]) -> OriStr {
 fn test_ori_print() {
     let s = make_ori_str(b"hello");
     // Just verify it doesn't panic
-    runtime::ori_print(&s);
+    runtime::ori_print(&raw const s);
 }
 
 #[test]
@@ -28,7 +28,8 @@ fn test_ori_print_bool_false() {
 
 #[test]
 fn test_ori_print_float() {
-    runtime::ori_print_float(3.14159);
+    // Use 1.23456 to avoid clippy::approx_constant warning (for PI, E, etc.)
+    runtime::ori_print_float(1.23456);
 }
 
 #[test]
@@ -82,8 +83,8 @@ fn test_ori_str_eq() {
     let s2 = make_ori_str(b"hello");
     let s3 = make_ori_str(b"world");
 
-    assert!(runtime::ori_str_eq(&s1, &s2));
-    assert!(!runtime::ori_str_eq(&s1, &s3));
+    assert!(runtime::ori_str_eq(&raw const s1, &raw const s2));
+    assert!(!runtime::ori_str_eq(&raw const s1, &raw const s3));
 }
 
 #[test]
@@ -91,7 +92,7 @@ fn test_ori_str_ne() {
     let s1 = make_ori_str(b"hello");
     let s2 = make_ori_str(b"world");
 
-    assert!(runtime::ori_str_ne(&s1, &s2));
+    assert!(runtime::ori_str_ne(&raw const s1, &raw const s2));
 }
 
 #[test]
@@ -99,7 +100,7 @@ fn test_ori_str_eq_different_lengths() {
     let s1 = make_ori_str(b"hello");
     let s2 = make_ori_str(b"hell");
 
-    assert!(!runtime::ori_str_eq(&s1, &s2));
+    assert!(!runtime::ori_str_eq(&raw const s1, &raw const s2));
 }
 
 #[test]
@@ -143,7 +144,7 @@ fn test_ori_assert_eq_bool_fails() {
 fn test_ori_assert_eq_str_passes() {
     let s1 = make_ori_str(b"test");
     let s2 = make_ori_str(b"test");
-    runtime::ori_assert_eq_str(&s1, &s2);
+    runtime::ori_assert_eq_str(&raw const s1, &raw const s2);
 }
 
 #[test]
@@ -151,7 +152,7 @@ fn test_ori_assert_eq_str_fails() {
     runtime::reset_panic_state();
     let s1 = make_ori_str(b"hello");
     let s2 = make_ori_str(b"world");
-    runtime::ori_assert_eq_str(&s1, &s2);
+    runtime::ori_assert_eq_str(&raw const s1, &raw const s2);
     assert!(runtime::did_panic());
 }
 
@@ -197,13 +198,14 @@ fn test_ori_str_from_bool_false() {
 #[test]
 #[allow(unsafe_code)]
 fn test_ori_str_from_float() {
-    let result = runtime::ori_str_from_float(3.14);
+    // Use 2.5 instead of 3.14 to avoid clippy::approx_constant warning
+    let result = runtime::ori_str_from_float(2.5);
     assert!(result.len > 0);
     assert!(!result.data.is_null());
 
     let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
     let s = std::str::from_utf8(slice).unwrap();
-    assert!(s.starts_with("3.14"));
+    assert!(s.starts_with("2.5"));
 }
 
 #[test]
@@ -212,7 +214,7 @@ fn test_ori_str_concat() {
     let s1 = make_ori_str(b"hello");
     let s2 = make_ori_str(b"world");
 
-    let result = runtime::ori_str_concat(&s1, &s2);
+    let result = runtime::ori_str_concat(&raw const s1, &raw const s2);
     assert_eq!(result.len, 10);
 
     let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
@@ -226,7 +228,7 @@ fn test_ori_str_concat_empty() {
     let s1 = make_ori_str(b"");
     let s2 = make_ori_str(b"test");
 
-    let result = runtime::ori_str_concat(&s1, &s2);
+    let result = runtime::ori_str_concat(&raw const s1, &raw const s2);
     assert_eq!(result.len, 4);
 
     let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
@@ -249,14 +251,20 @@ fn test_ori_closure_box_allocates_memory() {
     assert_eq!(ptr2 as usize % 8, 0);
 
     // Write and read back to verify memory is usable
+    // We're guaranteed 8-byte alignment from ori_closure_box.
     unsafe {
         // Write a pattern to the memory
         *ptr1 = 42;
-        *(ptr1.add(8) as *mut i64) = 12345;
+
+        // For the i64 write at offset 8, we need to ensure alignment.
+        // Since ptr1 is 8-byte aligned and we add 8 bytes, the result is 8-byte aligned.
+        // Use write_unaligned to satisfy clippy, even though we know it's aligned.
+        let i64_ptr = ptr1.add(8);
+        std::ptr::write_unaligned(i64_ptr.cast::<i64>(), 12345);
 
         // Read back
         assert_eq!(*ptr1, 42);
-        assert_eq!(*(ptr1.add(8) as *mut i64), 12345);
+        assert_eq!(std::ptr::read_unaligned(i64_ptr.cast::<i64>()), 12345);
     }
 
     // Clean up (normally closures would be freed by GC or explicit dealloc)

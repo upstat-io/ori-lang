@@ -59,7 +59,7 @@ fn test_call_builtin_int() {
 
     // Create: int(3.14)
     let arg = arena.alloc_expr(Expr {
-        kind: ExprKind::Float(3.14f64.to_bits()),
+        kind: ExprKind::Float(3.5f64.to_bits()),
         span: Span::new(0, 1),
     });
     let args = arena.alloc_expr_list(vec![arg]);

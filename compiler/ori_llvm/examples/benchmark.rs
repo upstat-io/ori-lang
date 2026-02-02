@@ -1,10 +1,11 @@
 //! Benchmark: Compare LLVM JIT vs interpreter performance
 //!
-//! Run with: cargo run --example benchmark -p ori_llvm
+//! Run with: `cargo run --example benchmark -p ori_llvm`
 
 use std::time::Instant;
 
 use inkwell::context::Context;
+use inkwell::module::Module;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
@@ -80,7 +81,7 @@ fn benchmark_arithmetic() {
 
     // JIT execution
     let result = jit_execute_i64(&compiler, "big_mul").unwrap();
-    println!("  Result: {}", result);
+    println!("  Result: {result}");
     println!("  Expected: {}\n", 1_000_000i64 * 500_000i64);
 }
 
@@ -158,7 +159,7 @@ fn benchmark_fib() {
     compiler.compile_function(&func, &arena, &expr_types);
     let compile_time = compile_start.elapsed();
 
-    println!("  Compilation time: {:?}", compile_time);
+    println!("  Compilation time: {compile_time:?}");
     println!("  Generated IR:");
     println!("{}", compiler.print_to_string());
 
@@ -189,11 +190,46 @@ fn create_standalone_benchmark() {
     let compiler = ModuleCompiler::new(&context, &interner, "ori_bench");
     compiler.declare_runtime();
 
+    let (mut arena, expr_types) = build_compute_function(&interner);
+
+    let fn_name = interner.intern("ori_compute");
+    let n_name = interner.intern("n");
+
+    let params = arena.alloc_params([Param {
+        name: n_name,
+        ty: None,
+        span: ori_ir::Span::new(0, 1),
+    }]);
+
+    // Get the body expression (last allocated expression)
+    #[allow(clippy::cast_possible_truncation)]
+    let body = ori_ir::ExprId::new((expr_types.len() - 1) as u32);
+
+    let func = Function {
+        name: fn_name,
+        generics: GenericParamRange::EMPTY,
+        params,
+        return_ty: None,
+        capabilities: vec![],
+        where_clauses: vec![],
+        body,
+        span: ori_ir::Span::new(0, 1),
+        visibility: Visibility::Private,
+    };
+
+    compiler.compile_function(&func, &arena, &expr_types);
+
+    emit_benchmark_files(compiler.module());
+    compile_and_run_benchmark();
+
+    // Show the generated LLVM IR
+    println!("\nGenerated LLVM IR:");
+    println!("{}", compiler.print_to_string());
+}
+
+/// Build the compute function AST: `fn ori_compute(n: int) -> int { (n * 42) + (n / 2) }`
+fn build_compute_function(interner: &StringInterner) -> (ExprArena, Vec<TypeId>) {
     let mut arena = ExprArena::new();
-
-    // Create: fn ori_compute(n: int) -> int { (n * 42) + (n / 2) }
-    // This can't be constant-folded since n is a parameter
-
     let n_name = interner.intern("n");
 
     // n * 42
@@ -233,7 +269,7 @@ fn create_standalone_benchmark() {
     });
 
     // mul + div
-    let add = arena.alloc_expr(Expr {
+    arena.alloc_expr(Expr {
         kind: ExprKind::Binary {
             op: BinaryOp::Add,
             left: mul,
@@ -242,7 +278,6 @@ fn create_standalone_benchmark() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let fn_name = interner.intern("ori_compute");
     let expr_types = vec![
         TypeId::INT,
         TypeId::INT,
@@ -253,35 +288,16 @@ fn create_standalone_benchmark() {
         TypeId::INT, // add
     ];
 
-    let params = arena.alloc_params([Param {
-        name: n_name,
-        ty: None,
-        span: ori_ir::Span::new(0, 1),
-    }]);
+    (arena, expr_types)
+}
 
-    let func = Function {
-        name: fn_name,
-        generics: GenericParamRange::EMPTY,
-        params,
-        return_ty: None,
-        capabilities: vec![],
-        where_clauses: vec![],
-        body: add,
-        span: ori_ir::Span::new(0, 1),
-        visibility: Visibility::Private,
-    };
-
-    compiler.compile_function(&func, &arena, &expr_types);
-
-    // Write IR and object file
+/// Emit LLVM IR and object files for the benchmark.
+fn emit_benchmark_files(module: &Module) {
     let ir_path = std::path::Path::new("/tmp/ori_bench.ll");
     let obj_path = std::path::Path::new("/tmp/ori_bench.o");
 
     // Write LLVM IR
-    compiler
-        .module()
-        .print_to_file(ir_path)
-        .expect("Failed to write IR");
+    module.print_to_file(ir_path).expect("Failed to write IR");
     println!("  Wrote IR to: {}", ir_path.display());
 
     // Write object file using target machine
@@ -300,12 +316,52 @@ fn create_standalone_benchmark() {
         .expect("Failed to create target machine");
 
     target_machine
-        .write_to_file(compiler.module(), FileType::Object, obj_path)
+        .write_to_file(module, FileType::Object, obj_path)
         .expect("Failed to write object file");
     println!("  Wrote object file to: {}", obj_path.display());
+}
 
-    // Create a C wrapper
-    let c_wrapper = r#"
+/// Create C wrapper, compile, and run the benchmark.
+fn compile_and_run_benchmark() {
+    let c_wrapper = create_c_wrapper();
+
+    let c_path = std::path::Path::new("/tmp/ori_bench_main.c");
+    std::fs::write(c_path, c_wrapper).expect("Failed to write C wrapper");
+    println!("  Wrote C wrapper to: {}", c_path.display());
+
+    // Compile and link
+    println!("\nCompiling and linking...");
+    let output = std::process::Command::new("cc")
+        .args([
+            "-O2",
+            "/tmp/ori_bench_main.c",
+            "/tmp/ori_bench.o",
+            "-o",
+            "/tmp/ori_bench",
+        ])
+        .output()
+        .expect("Failed to run cc");
+
+    if !output.status.success() {
+        eprintln!("Compilation failed:");
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+        return;
+    }
+
+    println!("  Created executable: /tmp/ori_bench");
+
+    // Run the benchmark
+    println!("\nRunning benchmark...\n");
+    let output = std::process::Command::new("/tmp/ori_bench")
+        .output()
+        .expect("Failed to run benchmark");
+
+    println!("{}", String::from_utf8_lossy(&output.stdout));
+}
+
+/// Generate the C wrapper code for the benchmark.
+fn create_c_wrapper() -> &'static str {
+    r#"
 #include <stdio.h>
 #include <time.h>
 #include <stdint.h>
@@ -340,42 +396,5 @@ int main() {
 
     return 0;
 }
-"#;
-
-    let c_path = std::path::Path::new("/tmp/ori_bench_main.c");
-    std::fs::write(c_path, c_wrapper).expect("Failed to write C wrapper");
-    println!("  Wrote C wrapper to: {}", c_path.display());
-
-    // Compile and link
-    println!("\nCompiling and linking...");
-    let output = std::process::Command::new("cc")
-        .args([
-            "-O2",
-            "/tmp/ori_bench_main.c",
-            "/tmp/ori_bench.o",
-            "-o",
-            "/tmp/ori_bench",
-        ])
-        .output()
-        .expect("Failed to run cc");
-
-    if !output.status.success() {
-        eprintln!("Compilation failed:");
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        return;
-    }
-
-    println!("  Created executable: /tmp/ori_bench");
-
-    // Run the benchmark
-    println!("\nRunning benchmark...\n");
-    let output = std::process::Command::new("/tmp/ori_bench")
-        .output()
-        .expect("Failed to run benchmark");
-
-    println!("{}", String::from_utf8_lossy(&output.stdout));
-
-    // Show the generated LLVM IR
-    println!("\nGenerated LLVM IR:");
-    println!("{}", compiler.print_to_string());
+"#
 }

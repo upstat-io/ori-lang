@@ -5,10 +5,14 @@
 //! 2. Compile to native code
 //! 3. Benchmark against other languages
 //!
-//! Run with: cargo run --example fib_benchmark -p ori_llvm --release
+//! Run with: `cargo run --example fib_benchmark -p ori_llvm --release`
 
 use inkwell::context::Context;
+use inkwell::targets::{
+    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
+};
 use inkwell::IntPredicate;
+use inkwell::OptimizationLevel;
 
 fn main() {
     println!("=== Fibonacci Benchmark ===\n");
@@ -33,6 +37,25 @@ fn create_fib_benchmark() {
 
     let n = function.get_nth_param(0).unwrap().into_int_value();
     n.set_name("n");
+
+    // Build the fibonacci function body
+    build_fib_body(&context, &builder, function, n);
+
+    // Print the IR
+    println!("Generated LLVM IR:");
+    println!("{}", module.print_to_string().to_string());
+
+    // Write and compile the benchmark
+    write_and_compile_benchmark(&module);
+}
+
+fn build_fib_body<'ctx>(
+    context: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    function: inkwell::values::FunctionValue<'ctx>,
+    n: inkwell::values::IntValue<'ctx>,
+) {
+    let i64_type = context.i64_type();
 
     // Entry block
     let entry = context.append_basic_block(function, "entry");
@@ -100,11 +123,9 @@ fn create_fib_benchmark() {
     builder
         .build_return(Some(&result_phi.as_basic_value()))
         .unwrap();
+}
 
-    // Print the IR
-    println!("Generated LLVM IR:");
-    println!("{}", module.print_to_string().to_string());
-
+fn write_and_compile_benchmark(module: &inkwell::module::Module) {
     // Write files
     let ir_path = std::path::Path::new("/tmp/fib_bench.ll");
     let obj_path = std::path::Path::new("/tmp/fib_bench.o");
@@ -113,11 +134,6 @@ fn create_fib_benchmark() {
     println!("\nWrote IR to: {}", ir_path.display());
 
     // Write object file
-    use inkwell::targets::{
-        CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
-    };
-    use inkwell::OptimizationLevel;
-
     Target::initialize_native(&InitializationConfig::default()).unwrap();
 
     let triple = TargetMachine::get_default_triple();
@@ -137,11 +153,15 @@ fn create_fib_benchmark() {
         .unwrap();
 
     target_machine
-        .write_to_file(&module, FileType::Object, obj_path)
+        .write_to_file(module, FileType::Object, obj_path)
         .unwrap();
     println!("Wrote object file to: {}", obj_path.display());
 
-    // Create C benchmark harness
+    // Create C benchmark harness, compile, and run
+    create_and_run_c_harness();
+}
+
+fn create_and_run_c_harness() {
     let c_code = r#"
 #include <stdio.h>
 #include <stdlib.h>
@@ -255,6 +275,10 @@ int main(int argc, char **argv) {
     println!("Created: /tmp/fib_bench\n");
 
     // Run benchmark
+    run_benchmark_and_show_disasm();
+}
+
+fn run_benchmark_and_show_disasm() {
     println!("Running benchmark...\n");
     let output = std::process::Command::new("/tmp/fib_bench")
         .arg("40")
@@ -275,11 +299,11 @@ int main(int argc, char **argv) {
     if let Some(start) = disasm.find("<fib>:") {
         let section = &disasm[start..];
         if let Some(end) = section[1..].find("\n\n") {
-            println!("{}", &section[..end + 1]);
+            println!("{}", &section[..=end]);
         } else {
             // Print first 30 lines
             for line in section.lines().take(30) {
-                println!("{}", line);
+                println!("{line}");
             }
         }
     }

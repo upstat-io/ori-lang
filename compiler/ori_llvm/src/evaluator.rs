@@ -414,7 +414,7 @@ mod tests {
         if let Err(e) = &result {
             eprintln!("Error: {}", e.message);
         }
-        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        assert!(result.is_ok(), "Expected Ok, got {result:?}");
     }
 
     #[test]
@@ -435,6 +435,6 @@ mod tests {
         if let Err(e) = &result {
             eprintln!("Error: {}", e.message);
         }
-        assert!(result.is_ok(), "Expected Ok, got {:?}", result);
+        assert!(result.is_ok(), "Expected Ok, got {result:?}");
     }
 }
