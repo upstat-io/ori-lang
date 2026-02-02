@@ -8,6 +8,9 @@
 //! - Comment handling and classification
 //! - Edge cases (empty input, whitespace, errors)
 
+// Spec: 06-types.md § Duration, 06-types.md § Size
+// Spec: duration-size-types-proposal.md § Numeric Prefix
+
 use ori_ir::{CommentKind, DurationUnit, SizeUnit, StringInterner, TokenKind};
 use ori_lexer::{lex, lex_with_comments};
 
@@ -466,4 +469,111 @@ fn test_lex_with_comments_no_comments() {
 
     assert!(output.comments.is_empty());
     assert_eq!(output.tokens.len(), 5); // let, x, =, 42, EOF
+}
+
+// Float duration/size literal error tests
+// Spec: duration-size-types-proposal.md § Numeric Prefix
+// "Floating-point prefixes are NOT supported"
+
+#[test]
+fn test_lex_float_duration_error_seconds() {
+    let interner = test_interner();
+    let tokens = lex("1.5s", &interner);
+
+    assert_eq!(tokens.len(), 2); // FloatDurationError, EOF
+    assert!(matches!(tokens[0].kind, TokenKind::FloatDurationError));
+    assert_eq!(tokens[0].span.start, 0);
+    assert_eq!(tokens[0].span.end, 4);
+}
+
+#[test]
+fn test_lex_float_duration_error_milliseconds() {
+    let interner = test_interner();
+    let tokens = lex("2.5ms", &interner);
+
+    assert_eq!(tokens.len(), 2);
+    assert!(matches!(tokens[0].kind, TokenKind::FloatDurationError));
+}
+
+#[test]
+fn test_lex_float_duration_error_all_units() {
+    let interner = test_interner();
+
+    // Test all duration suffixes
+    for suffix in ["ns", "us", "ms", "s", "m", "h"] {
+        let source = format!("1.5{suffix}");
+        let tokens = lex(&source, &interner);
+        assert!(
+            matches!(tokens[0].kind, TokenKind::FloatDurationError),
+            "Expected FloatDurationError for {source}, got {:?}",
+            tokens[0].kind
+        );
+    }
+}
+
+#[test]
+fn test_lex_float_size_error_kilobytes() {
+    let interner = test_interner();
+    let tokens = lex("2.5kb", &interner);
+
+    assert_eq!(tokens.len(), 2); // FloatSizeError, EOF
+    assert!(matches!(tokens[0].kind, TokenKind::FloatSizeError));
+}
+
+#[test]
+fn test_lex_float_size_error_all_units() {
+    let interner = test_interner();
+
+    // Test all size suffixes
+    for suffix in ["b", "kb", "mb", "gb", "tb"] {
+        let source = format!("1.5{suffix}");
+        let tokens = lex(&source, &interner);
+        assert!(
+            matches!(tokens[0].kind, TokenKind::FloatSizeError),
+            "Expected FloatSizeError for {source}, got {:?}",
+            tokens[0].kind
+        );
+    }
+}
+
+#[test]
+fn test_lex_float_duration_with_scientific_notation() {
+    let interner = test_interner();
+
+    // Scientific notation float with duration suffix should also be an error
+    let tokens = lex("1.5e2s", &interner);
+    assert!(matches!(tokens[0].kind, TokenKind::FloatDurationError));
+
+    let tokens = lex("2.0e-1ms", &interner);
+    assert!(matches!(tokens[0].kind, TokenKind::FloatDurationError));
+}
+
+#[test]
+fn test_lex_valid_integer_duration_still_works() {
+    let interner = test_interner();
+
+    // Ensure valid integer durations still work
+    let tokens = lex("1500ms", &interner);
+    assert!(matches!(
+        tokens[0].kind,
+        TokenKind::Duration(1500, DurationUnit::Milliseconds)
+    ));
+
+    let tokens = lex("30m", &interner);
+    assert!(matches!(
+        tokens[0].kind,
+        TokenKind::Duration(30, DurationUnit::Minutes)
+    ));
+}
+
+#[test]
+fn test_lex_valid_integer_size_still_works() {
+    let interner = test_interner();
+
+    // Ensure valid integer sizes still work
+    let tokens = lex("1024kb", &interner);
+    assert!(matches!(
+        tokens[0].kind,
+        TokenKind::Size(1024, SizeUnit::Kilobytes)
+    ));
 }

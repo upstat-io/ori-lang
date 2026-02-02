@@ -41,6 +41,21 @@ pub(crate) fn convert_token(raw: RawToken, slice: &str, interner: &StringInterne
         | RawToken::SizeGb((v, u))
         | RawToken::SizeTb((v, u)) => TokenKind::Size(v, u),
 
+        // Float with duration suffix errors (e.g., 1.5s, 2.5ms)
+        RawToken::FloatDurationNs
+        | RawToken::FloatDurationUs
+        | RawToken::FloatDurationMs
+        | RawToken::FloatDurationS
+        | RawToken::FloatDurationM
+        | RawToken::FloatDurationH => TokenKind::FloatDurationError,
+
+        // Float with size suffix errors (e.g., 1.5kb, 2.5mb)
+        RawToken::FloatSizeB
+        | RawToken::FloatSizeKb
+        | RawToken::FloatSizeMb
+        | RawToken::FloatSizeGb
+        | RawToken::FloatSizeTb => TokenKind::FloatSizeError,
+
         // Keywords
         RawToken::Async => TokenKind::Async,
         RawToken::Break => TokenKind::Break,

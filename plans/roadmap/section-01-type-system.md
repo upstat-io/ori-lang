@@ -102,8 +102,9 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
   - [x] **LLVM Support**: LLVM codegen for Size literals
   - [x] **LLVM Rust Tests**: `ori_llvm/src/tests/arithmetic_tests.rs`
 
-- [ ] **Implement**: Error for floating-point prefix on duration/size literals
-  - [ ] **Ori Tests**: `tests/compile-fail/duration_float_prefix.ori`
+- [x] **Implement**: Error for floating-point prefix on duration/size literals
+  - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — float_duration/size error token tests
+  - **Note**: Parse errors (E0911) cannot use `#[compile_fail]` which is for type errors only. Rust-level tests provide complete coverage.
 
 ### Type System
 

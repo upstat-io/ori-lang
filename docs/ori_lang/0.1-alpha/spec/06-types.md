@@ -111,7 +111,26 @@ let delay = 100ms
 let precise = 500us
 ```
 
-Floating-point prefixes are not supported. Use smaller units instead: `1500ms` not `1.5s`.
+Decimal notation is supported as compile-time sugar:
+
+```ori
+let half_second = 0.5s      // 500,000,000 nanoseconds
+let precise = 1.56s         // 1,560,000,000 nanoseconds
+let quarter_hour = 0.25h    // 15 minutes
+```
+
+The decimal portion is converted to an exact integer value using integer arithmetic—no floating-point operations are involved. The result must be a whole number of nanoseconds; otherwise, it is an error:
+
+```ori
+// Valid - results in whole nanoseconds
+1.5s           // 1,500,000,000 ns
+0.001s         // 1,000,000 ns (1ms)
+1.123456789s   // 1,123,456,789 ns
+
+// Invalid - sub-nanosecond precision
+1.5ns          // Error: 1.5 nanoseconds is not a whole number
+1.0000000001s  // Error: result has sub-nanosecond precision
+```
 
 **Arithmetic:**
 
@@ -161,17 +180,36 @@ Extraction methods truncate toward zero: `90s.minutes()` returns `1`.
 | Suffix | Unit | Bytes |
 |--------|------|-------|
 | `b` | bytes | 1 |
-| `kb` | kilobytes | 1,024 |
-| `mb` | megabytes | 1,048,576 |
-| `gb` | gigabytes | 1,073,741,824 |
-| `tb` | terabytes | 1,099,511,627,776 |
+| `kb` | kilobytes | 1,000 |
+| `mb` | megabytes | 1,000,000 |
+| `gb` | gigabytes | 1,000,000,000 |
+| `tb` | terabytes | 1,000,000,000,000 |
 
-Size uses binary units (powers of 1024), not decimal (powers of 1000).
+Size uses SI/decimal units (powers of 1000). Programs requiring exact powers of 1024 should use explicit byte counts: `1024b`, `1048576b`.
 
 ```ori
 let buffer = 64kb
 let limit = 10mb
 let heap = 2gb
+```
+
+Decimal notation is supported as compile-time sugar:
+
+```ori
+let half_kb = 0.5kb         // 500 bytes
+let one_and_half_mb = 1.5mb // 1,500,000 bytes
+let quarter_gb = 0.25gb     // 250,000,000 bytes
+```
+
+The decimal portion is converted to an exact integer value using integer arithmetic. The result must be a whole number of bytes; otherwise, it is an error:
+
+```ori
+// Valid - results in whole bytes
+1.5kb          // 1,500 bytes
+0.001mb        // 1,000 bytes (1kb)
+
+// Invalid - sub-byte precision
+0.5b           // Error: 0.5 bytes is not a whole number
 ```
 
 **Arithmetic:**

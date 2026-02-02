@@ -21,6 +21,9 @@ sections:
     title: Floor Division (div) Operator Fix
     status: not-started
   - id: "15C.6"
+    title: Decimal Duration and Size Literals
+    status: not-started
+  - id: "15C.7"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -446,7 +449,72 @@ Fix parser discrepancy where `div` operator is in grammar but missing from parse
 
 ---
 
-## 15C.6 Section Completion Checklist
+## 15C.6 Decimal Duration and Size Literals
+
+**Proposal**: `proposals/approved/decimal-duration-size-literals-proposal.md`
+
+Allow decimal syntax in duration and size literals as compile-time sugar.
+
+```ori
+let t = 0.5s        // 500,000,000 nanoseconds
+let t = 1.56s       // 1,560,000,000 nanoseconds
+let s = 1.5kb       // 1,500 bytes (SI units)
+let s = 0.25mb      // 250,000 bytes
+```
+
+**Key changes:**
+- Decimal notation for duration/size literals (compile-time, no floats)
+- Size units changed from binary (1024) to SI (1000)
+- E0911 repurposed: "literal cannot be represented exactly"
+
+### Lexer
+
+- [ ] **Implement**: Parse decimal duration literals (`1.5s`, `0.25h`, etc.)
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — decimal duration tokenization
+  - [ ] **Ori Tests**: `tests/spec/lexical/decimal_duration.ori`
+  - [ ] **LLVM Support**: LLVM codegen for decimal duration literals
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/literal_tests.rs` — decimal duration codegen
+
+- [ ] **Implement**: Parse decimal size literals (`1.5kb`, `0.5mb`, etc.)
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — decimal size tokenization
+  - [ ] **Ori Tests**: `tests/spec/lexical/decimal_size.ori`
+  - [ ] **LLVM Support**: LLVM codegen for decimal size literals
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/literal_tests.rs` — decimal size codegen
+
+- [ ] **Implement**: Integer arithmetic conversion (no floats involved)
+  - [ ] **Rust Tests**: `ori_lexer/src/convert.rs` — integer-only decimal conversion
+  - [ ] **Ori Tests**: `tests/spec/lexical/decimal_precision.ori`
+
+- [ ] **Implement**: Validation for whole-number results
+  - [ ] **Rust Tests**: `ori_lexer/src/convert.rs` — non-whole number rejection
+  - [ ] **Ori Tests**: `tests/compile-fail/decimal_duration_not_whole.ori`
+  - [ ] **Ori Tests**: `tests/compile-fail/decimal_size_not_whole.ori`
+
+### Token Changes
+
+- [ ] **Implement**: Remove `FloatDurationError` and `FloatSizeError` token types
+  - [ ] **Rust Tests**: `ori_ir/src/token.rs` — token type cleanup
+
+- [ ] **Implement**: Store Duration/Size tokens as computed base unit value
+  - [ ] **Rust Tests**: `ori_ir/src/token.rs` — token value storage
+
+### Error Messages
+
+- [ ] **Implement**: E0911 error for non-representable decimal literals
+  - [ ] **Rust Tests**: `ori_diagnostic/src/error_code.rs` — E0911 update
+  - [ ] **Ori Tests**: `tests/compile-fail/e0911_decimal_precision.ori`
+
+### Size Unit Change
+
+- [ ] **Implement**: Change Size unit multipliers from 1024 to 1000
+  - [ ] **Rust Tests**: `ori_lexer/src/convert.rs` — SI unit multipliers
+  - [ ] **Ori Tests**: `tests/spec/types/size_si_units.ori`
+  - [ ] **LLVM Support**: LLVM codegen with SI units
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/literal_tests.rs` — SI unit codegen
+
+---
+
+## 15C.7 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

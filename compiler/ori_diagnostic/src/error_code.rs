@@ -21,6 +21,8 @@ pub enum ErrorCode {
     E0004,
     /// Invalid escape sequence
     E0005,
+    /// Floating-point duration/size literal not supported
+    E0911,
 
     // Parser Errors (E1xxx)
     /// Unexpected token
@@ -120,6 +122,7 @@ impl ErrorCode {
             ErrorCode::E0003 => "E0003",
             ErrorCode::E0004 => "E0004",
             ErrorCode::E0005 => "E0005",
+            ErrorCode::E0911 => "E0911",
             // Parser
             ErrorCode::E1001 => "E1001",
             ErrorCode::E1002 => "E1002",
