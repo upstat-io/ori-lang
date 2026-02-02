@@ -1,21 +1,5 @@
 /**
  * Remark plugin to transform markdown links (.md) to proper absolute URLs.
- *
- * Problem: When a page URL is /docs/compiler-design/03-lexer (no trailing slash),
- * browsers treat "03-lexer" as a file, so relative links resolve incorrectly:
- * - "token-design" -> /docs/compiler-design/token-design (WRONG)
- * - Should be: /docs/compiler-design/03-lexer/token-design
- *
- * Solution: Convert relative .md links to absolute paths at build time.
- *
- * Transforms (example from docs/compiler/design/03-lexer/index.md):
- * - [Token Design](token-design.md) -> [Token Design](/docs/compiler-design/03-lexer/token-design)
- * - [Pipeline](../01-architecture/pipeline.md) -> [Pipeline](/docs/compiler-design/01-architecture/pipeline)
- *
- * Does NOT transform:
- * - External URLs (http://, https://)
- * - Already absolute paths starting with /
- * - Anchor-only links (#section)
  */
 
 import { visit } from 'unist-util-visit';
@@ -32,17 +16,37 @@ const COLLECTION_MAPPINGS = [
 
 export function remarkMdLinks() {
   return (tree, file) => {
-    // Get the source file path
-    const filePath = file.history?.[0] || file.path;
-    console.log('[remark-md-links] Processing file:', filePath);
+    // Debug: log what's available
+    console.log('[remark-md-links] file keys:', Object.keys(file || {}));
+    console.log('[remark-md-links] file.data keys:', Object.keys(file?.data || {}));
+    console.log('[remark-md-links] file.history:', file?.history);
+    console.log('[remark-md-links] file.path:', file?.path);
+
+    // Try to get file path from various sources
+    const filePath = file?.history?.[0] || file?.path || file?.data?.astro?.filePath;
+
     if (!filePath) {
-      console.log('[remark-md-links] No file path found, file object:', Object.keys(file));
+      // No file path available - can't do relative resolution
+      // Fall back to just stripping .md extension
+      visit(tree, 'link', (node) => {
+        if (node.url && node.url.includes('.md') && !node.url.startsWith('http')) {
+          node.url = node.url.replace(/\.md(#|$)/, '$1');
+        }
+      });
       return;
     }
 
     // Find which collection this file belongs to
     const mapping = COLLECTION_MAPPINGS.find(m => filePath.includes(m.sourceBase));
-    if (!mapping) return;
+    if (!mapping) {
+      // Not in a known collection - just strip .md
+      visit(tree, 'link', (node) => {
+        if (node.url && node.url.includes('.md') && !node.url.startsWith('http')) {
+          node.url = node.url.replace(/\.md(#|$)/, '$1');
+        }
+      });
+      return;
+    }
 
     // Get the file's directory relative to the collection base
     const sourceBaseIndex = filePath.indexOf(mapping.sourceBase);
@@ -52,18 +56,9 @@ export function remarkMdLinks() {
     visit(tree, 'link', (node) => {
       const url = node.url;
 
-      // Skip external URLs
-      if (url.startsWith('http://') || url.startsWith('https://')) {
-        return;
-      }
-
-      // Skip already absolute paths
-      if (url.startsWith('/')) {
-        return;
-      }
-
-      // Skip anchor-only links
-      if (url.startsWith('#')) {
+      // Skip external URLs, absolute paths, and anchor-only links
+      if (!url || url.startsWith('http://') || url.startsWith('https://') ||
+          url.startsWith('/') || url.startsWith('#')) {
         return;
       }
 
@@ -84,11 +79,7 @@ export function remarkMdLinks() {
         : normalize(join(fileDir, cleanPath));
 
       // Build absolute URL
-      const absoluteUrl = `${mapping.urlBase}/${resolvedPath}${anchor ? '#' + anchor : ''}`;
-
-      // Normalize any remaining ../ or ./
-      node.url = absoluteUrl.replace(/\/\.\//g, '/');
-      console.log(`[remark-md-links] ${url} -> ${node.url}`);
+      node.url = `${mapping.urlBase}/${resolvedPath}${anchor ? '#' + anchor : ''}`;
     });
   };
 }
