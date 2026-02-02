@@ -12,13 +12,15 @@ members = [
     "compiler/ori_fmt",
     "compiler/ori_macros",
     "compiler/ori_stack",
-    "compiler/ori_llvm",
-    "compiler/ori_rt",
     "compiler/oric",
 ]
-# Excluded crates:
+# Excluded crates (still buildable with -p flag, but not part of --workspace):
+# - ori_llvm: Requires LLVM 17; build with: cargo bl / cargo blr
+# - ori_rt: Runtime for AOT; built alongside ori_llvm
 # - ori-lsp: Not yet updated to use new compiler
 exclude = [
+    "compiler/ori_llvm",
+    "compiler/ori_rt",
     "tools/ori-lsp",
 ]
 
@@ -42,7 +44,7 @@ rustc-hash = "2.1"
 stacker = "0.1"
 proptest = "1.4"
 
-# Internal crates
+# Internal crates (workspace members only; excluded crates use path deps directly)
 ori_ir = { path = "compiler/ori_ir" }
 ori_diagnostic = { path = "compiler/ori_diagnostic" }
 ori_lexer = { path = "compiler/ori_lexer" }
@@ -52,8 +54,6 @@ ori_patterns = { path = "compiler/ori_patterns" }
 ori_typeck = { path = "compiler/ori_typeck" }
 ori_eval = { path = "compiler/ori_eval" }
 ori_fmt = { path = "compiler/ori_fmt" }
-ori_llvm = { path = "compiler/ori_llvm" }
-ori_rt = { path = "compiler/ori_rt" }
 ori_macros = { path = "compiler/ori_macros" }
 ori_stack = { path = "compiler/ori_stack" }
 

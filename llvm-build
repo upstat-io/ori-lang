@@ -3,6 +3,6 @@
 # Usage: ./llvm-build [additional args...]
 #
 # Note: Both ori_llvm and ori_rt are built to ensure libori_rt.a is available
-# for AOT compilation. Cargo only builds the rlib as a dependency; the staticlib
-# is a separate artifact that must be explicitly requested.
-exec ./docker/llvm/run.sh cargo build -p ori_llvm -p ori_rt "$@"
+# for AOT compilation. We use raw shell commands to control manifest paths.
+ARGS="${*:---release}"
+exec ./docker/llvm/run.sh sh -c "cargo build --manifest-path compiler/ori_rt/Cargo.toml ${ARGS} && cargo build --manifest-path compiler/ori_llvm/Cargo.toml ${ARGS}"
