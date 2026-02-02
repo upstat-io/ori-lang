@@ -60,7 +60,7 @@ fn test_builtin_str_from_float() {
 
     let builder = Builder::build(&cx, entry_bb);
 
-    let float_val = cx.scx.type_f64().const_float(3.14);
+    let float_val = cx.scx.type_f64().const_float(3.5);
     let result = builder.compile_builtin_str(float_val.into());
 
     assert!(result.is_some(), "str(float) should produce a value");
@@ -202,7 +202,7 @@ fn test_builtin_float_already_float() {
 
     let builder = Builder::build(&cx, entry_bb);
 
-    let float_val = cx.scx.type_f64().const_float(3.14);
+    let float_val = cx.scx.type_f64().const_float(3.5);
     let result = builder.compile_builtin_float(float_val.into());
 
     assert!(result.is_some(), "float(float) should return the value");

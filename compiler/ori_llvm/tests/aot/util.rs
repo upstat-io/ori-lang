@@ -16,14 +16,14 @@ use ori_llvm::aot::{
 // Target Configuration Helpers
 // ============================================================================
 
-/// Create a Linux x86_64 target for testing.
+/// Create a Linux `x86_64` target for testing.
 #[must_use]
 pub fn linux_target() -> TargetConfig {
     let components = TargetTripleComponents::parse("x86_64-unknown-linux-gnu").unwrap();
     TargetConfig::from_components(components)
 }
 
-/// Create a macOS x86_64 target for testing.
+/// Create a macOS `x86_64` target for testing.
 #[must_use]
 pub fn macos_target() -> TargetConfig {
     let components = TargetTripleComponents::parse("x86_64-apple-darwin").unwrap();
@@ -126,7 +126,7 @@ pub struct WasmExportInfo {
     pub kind: WasmExportKind,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WasmExportKind {
     Function,
     Memory,
@@ -156,6 +156,9 @@ pub struct WasmMemoryInfo {
     pub shared: bool,
 }
 
+// These boolean fields represent distinct WASM feature flags that are independent
+// and cannot be meaningfully combined into a state machine or two-variant enums.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Default, Clone)]
 pub struct WasmFeatures {
     pub bulk_memory: bool,
@@ -191,7 +194,7 @@ pub fn parse_wasm(bytes: &[u8]) -> Result<WasmVerification, String> {
                             wasmparser::ExternalKind::Memory => WasmExportKind::Memory,
                             wasmparser::ExternalKind::Table => WasmExportKind::Table,
                             wasmparser::ExternalKind::Global => WasmExportKind::Global,
-                            _ => continue,
+                            wasmparser::ExternalKind::Tag => continue,
                         },
                     });
                 }
@@ -207,7 +210,7 @@ pub fn parse_wasm(bytes: &[u8]) -> Result<WasmVerification, String> {
                             wasmparser::TypeRef::Memory(_) => WasmImportKind::Memory,
                             wasmparser::TypeRef::Table(_) => WasmImportKind::Table,
                             wasmparser::TypeRef::Global(_) => WasmImportKind::Global,
-                            _ => continue,
+                            wasmparser::TypeRef::Tag(_) => continue,
                         },
                     });
                 }
@@ -325,7 +328,7 @@ pub fn parse_object(bytes: &[u8]) -> Result<ObjectVerification, String> {
             let name = sym.name().ok()?.to_string();
             let kind = match sym.section() {
                 object::SymbolSection::Section(idx) => {
-                    if let Some(section) = obj.section_by_index(idx).ok() {
+                    if let Ok(section) = obj.section_by_index(idx) {
                         if section.name().ok()?.contains("text") {
                             SymbolKind::Text
                         } else if section.name().ok()?.contains("data") {
@@ -347,7 +350,7 @@ pub fn parse_object(bytes: &[u8]) -> Result<ObjectVerification, String> {
 
     let sections: Vec<_> = obj
         .sections()
-        .filter_map(|s| s.name().ok().map(|n| n.to_string()))
+        .filter_map(|s| s.name().ok().map(ToString::to_string))
         .collect();
 
     let has_debug_info = sections
@@ -507,7 +510,7 @@ macro_rules! assert_wasm_exports {
     ($verification:expr, $($export:expr),+ $(,)?) => {
         $(
             assert!(
-                crate::util::wasm_has_export(&$verification, $export),
+                $crate::util::wasm_has_export(&$verification, $export),
                 "Expected WASM export '{}' not found. Exports: {:?}",
                 $export,
                 $verification.exports.iter().map(|e| &e.name).collect::<Vec<_>>()
@@ -522,7 +525,7 @@ macro_rules! assert_wasm_imports_from {
     ($verification:expr, $($module:expr),+ $(,)?) => {
         $(
             assert!(
-                crate::util::wasm_has_import_from(&$verification, $module),
+                $crate::util::wasm_has_import_from(&$verification, $module),
                 "Expected WASM import from module '{}' not found. Imports: {:?}",
                 $module,
                 $verification.imports.iter().map(|i| &i.module).collect::<Vec<_>>()
@@ -537,7 +540,7 @@ macro_rules! assert_object_symbols {
     ($verification:expr, $($symbol:expr),+ $(,)?) => {
         $(
             assert!(
-                crate::util::object_has_symbol(&$verification, $symbol),
+                $crate::util::object_has_symbol(&$verification, $symbol),
                 "Expected symbol '{}' not found in object. Symbols: {:?}",
                 $symbol,
                 $verification.symbols.iter().map(|(n, _)| n).collect::<Vec<_>>()
@@ -552,10 +555,10 @@ macro_rules! assert_command_args {
     ($cmd:expr, $($arg:expr),+ $(,)?) => {
         $(
             assert!(
-                crate::util::command_has_arg(&$cmd, $arg),
+                $crate::util::command_has_arg(&$cmd, $arg),
                 "Expected argument '{}' not found in command. Args: {:?}",
                 $arg,
-                crate::util::command_args(&$cmd)
+                $crate::util::command_args(&$cmd)
             );
         )+
     };

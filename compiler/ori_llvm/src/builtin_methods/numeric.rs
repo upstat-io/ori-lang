@@ -260,8 +260,8 @@ mod tests {
         let (entry, _function) = setup_test_function(&cx);
         let bx = Builder::build(&cx, entry);
 
-        let lhs = cx.scx.type_f64().const_float(3.14);
-        let rhs = cx.scx.type_f64().const_float(2.71);
+        let lhs = cx.scx.type_f64().const_float(3.5);
+        let rhs = cx.scx.type_f64().const_float(2.5);
 
         let result = compile_float_compare(&bx, lhs, rhs);
         assert!(result.is_int_value());

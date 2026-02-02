@@ -8,8 +8,11 @@
 //!
 //! These tests require the `ori` binary to be built with the LLVM feature.
 
+// Allow raw string hashes for readability in test program literals
+#![allow(clippy::needless_raw_string_hashes)]
+
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tempfile::TempDir;
@@ -27,8 +30,7 @@ fn ori_binary() -> PathBuf {
     let workspace_root = manifest_dir
         .ancestors()
         .find(|p| p.join("Cargo.toml").exists() && p.join("compiler").exists())
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("/workspace")); // Docker fallback
+        .map_or_else(|| PathBuf::from("/workspace"), Path::to_path_buf); // Docker fallback
 
     // Try release first (faster tests), then debug
     let release_path = workspace_root.join("target/release/ori");
@@ -70,9 +72,9 @@ const INVALID_PROGRAM: &str = r#"
 "#;
 
 /// Ori program that just returns an exit code.
-const EXIT_CODE_PROGRAM: &str = r#"
+const EXIT_CODE_PROGRAM: &str = r"
 @main () -> int = 42
-"#;
+";
 
 // ============================================================================
 // Basic Build Tests
@@ -371,8 +373,7 @@ fn test_build_invalid_source() {
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
         stderr.contains("error") || stderr.contains("Error"),
-        "Error message not found in stderr: {}",
-        stderr
+        "Error message not found in stderr: {stderr}"
     );
 
     // Output file should not exist
@@ -402,8 +403,7 @@ fn test_build_missing_file() {
         stderr.contains("cannot find")
             || stderr.contains("not found")
             || stderr.contains("No such file"),
-        "Expected 'not found' error in stderr: {}",
-        stderr
+        "Expected 'not found' error in stderr: {stderr}"
     );
 }
 
@@ -490,8 +490,7 @@ fn test_demangle_ori_symbol() {
     let stdout = String::from_utf8_lossy(&result.stdout);
     assert!(
         stdout.contains("main"),
-        "Demangled output should contain 'main': {}",
-        stdout
+        "Demangled output should contain 'main': {stdout}"
     );
 }
 
@@ -513,8 +512,7 @@ fn test_demangle_non_ori_symbol() {
     // Non-Ori symbols should pass through unchanged
     assert!(
         stdout.contains("_ZN3foo3barE"),
-        "Non-Ori symbol should pass through: {}",
-        stdout
+        "Non-Ori symbol should pass through: {stdout}"
     );
 }
 
@@ -550,8 +548,7 @@ fn test_build_verbose() {
     // Verbose mode should show some progress info
     assert!(
         stderr.contains("Compiling") || stderr.contains("Target") || stderr.contains("Linking"),
-        "Verbose output missing expected progress info: {}",
-        stderr
+        "Verbose output missing expected progress info: {stderr}"
     );
 }
 
@@ -578,15 +575,13 @@ fn test_target_list() {
     // Should always show the native target
     assert!(
         stdout.contains("native") || stdout.contains("x86_64") || stdout.contains("aarch64"),
-        "Native target not listed: {}",
-        stdout
+        "Native target not listed: {stdout}"
     );
 
     // Should have usage hint
     assert!(
         stdout.contains("ori target add"),
-        "Missing usage hint for adding targets: {}",
-        stdout
+        "Missing usage hint for adding targets: {stdout}"
     );
 }
 
@@ -607,8 +602,7 @@ fn test_target_no_subcommand() {
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
         stderr.contains("Usage") || stderr.contains("subcommand"),
-        "Missing usage message: {}",
-        stderr
+        "Missing usage message: {stderr}"
     );
 }
 
@@ -629,8 +623,7 @@ fn test_target_add_invalid() {
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
         stderr.contains("unsupported") || stderr.contains("error"),
-        "Expected unsupported target error: {}",
-        stderr
+        "Expected unsupported target error: {stderr}"
     );
 }
 
@@ -651,8 +644,7 @@ fn test_target_add_missing_name() {
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
         stderr.contains("missing") || stderr.contains("Usage"),
-        "Expected missing target name error: {}",
-        stderr
+        "Expected missing target name error: {stderr}"
     );
 }
 
@@ -673,8 +665,7 @@ fn test_target_remove_not_installed() {
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
         stderr.contains("not installed") || stderr.contains("error"),
-        "Expected not installed error: {}",
-        stderr
+        "Expected not installed error: {stderr}"
     );
 }
 
@@ -779,8 +770,7 @@ fn test_build_unsupported_target() {
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
         stderr.contains("unsupported") || stderr.contains("error") || stderr.contains("target"),
-        "Expected unsupported target error: {}",
-        stderr
+        "Expected unsupported target error: {stderr}"
     );
 }
 
@@ -829,8 +819,7 @@ fn test_build_missing_dependency() {
         stderr.contains("cannot find")
             || stderr.contains("not found")
             || stderr.contains("import error"),
-        "Expected missing module error in stderr: {}",
-        stderr
+        "Expected missing module error in stderr: {stderr}"
     );
 
     // Output file should not exist
@@ -903,8 +892,6 @@ fn test_build_incremental_unchanged() {
     // This is a heuristic - cache hits should be much faster than full builds
     assert!(
         duration2 < duration1 / 2,
-        "Incremental build not faster: first={:?}, second={:?}",
-        duration1,
-        duration2
+        "Incremental build not faster: first={duration1:?}, second={duration2:?}"
     );
 }

@@ -572,14 +572,12 @@ mod tests {
         let cases = [("", "main"), ("math", "add"), ("std.io", "read")];
 
         for (module, func) in cases {
-            let mangled = mangler.mangle_function(module, func);
-            let demangled = demangle(&mangled).expect("should demangle");
+            let mangled_name = mangler.mangle_function(module, func);
+            let demangled = demangle(&mangled_name).expect("should demangle");
             // The demangled form should contain the function name
             assert!(
                 demangled.contains(func),
-                "demangled '{}' should contain '{}'",
-                demangled,
-                func
+                "demangled '{demangled}' should contain '{func}'"
             );
         }
     }
@@ -637,7 +635,7 @@ mod tests {
         // Module path with colon gets encoded as module separator
         let result = mangler.mangle_function("C:/foo", "bar");
         // Colon becomes $ (module separator), so C: becomes C$
-        assert!(result.contains("$"));
+        assert!(result.contains('$'));
     }
 
     #[test]

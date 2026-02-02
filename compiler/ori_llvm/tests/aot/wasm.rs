@@ -622,7 +622,7 @@ fn test_wasm_linker_features() {
     );
 }
 
-/// Test: WASM linker with WasmConfig
+/// Test: WASM linker with `WasmConfig`
 ///
 /// Scenario: Apply comprehensive configuration.
 #[test]
@@ -753,7 +753,7 @@ fn test_js_binding_generator() {
     let _ = std::fs::remove_file(&dts_path);
 }
 
-/// Test: WasmType TypeScript mappings
+/// Test: `WasmType` TypeScript mappings
 #[test]
 fn test_wasm_type_mappings() {
     assert_eq!(WasmType::I32.typescript_type(), "number");

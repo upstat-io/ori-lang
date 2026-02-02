@@ -193,7 +193,7 @@ fn test_gcc_linker_gc_sections_linux() {
 
 /// Test: macOS GCC linker garbage collection
 ///
-/// Scenario: macOS uses -dead_strip instead of --gc-sections.
+/// Scenario: macOS uses `-dead_strip` instead of `--gc-sections`.
 #[test]
 fn test_gcc_linker_gc_sections_macos() {
     let target = macos_target();
@@ -250,7 +250,7 @@ fn test_gcc_linker_export_symbols_linux() {
 
 /// Test: macOS GCC linker export symbols
 ///
-/// Scenario: macOS uses -exported_symbol.
+/// Scenario: macOS uses `-exported_symbol`.
 #[test]
 fn test_gcc_linker_export_symbols_macos() {
     let target = macos_target();
@@ -534,7 +534,7 @@ fn test_linker_driver_response_file() {
 // Link Library Builder Tests
 // ============================================================================
 
-/// Test: LinkLibrary builder pattern
+/// Test: `LinkLibrary` builder pattern
 #[test]
 fn test_link_library_builder() {
     // Static library with search path
@@ -657,7 +657,7 @@ fn test_windows_gnu_uses_gcc_linker() {
 
     // Should create command successfully
     let cmd = linker.finalize();
-    assert!(cmd.get_program().to_string_lossy().len() > 0);
+    assert!(!cmd.get_program().to_string_lossy().is_empty());
 }
 
 /// Test: ARM64 macOS linker
@@ -709,7 +709,7 @@ fn test_library_with_search_path() {
 // LinkerImpl Enum Dispatch Tests
 // ============================================================================
 
-/// Test: LinkerImpl dispatch to correct implementation
+/// Test: `LinkerImpl` dispatch to correct implementation
 #[test]
 fn test_linker_impl_dispatch() {
     // GCC
@@ -735,7 +735,7 @@ fn test_linker_impl_dispatch() {
     assert!(command_args(&cmd).contains(&"out_wasm.wasm".to_string()));
 }
 
-/// Test: LinkerImpl all methods dispatch correctly
+/// Test: `LinkerImpl` all methods dispatch correctly
 #[test]
 fn test_linker_impl_all_methods() {
     let target = linux_target();

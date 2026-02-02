@@ -881,7 +881,11 @@ mod tests {
         use inkwell::context::Context;
 
         // Initialize native target
-        if inkwell::targets::Target::initialize_native(&Default::default()).is_err() {
+        if inkwell::targets::Target::initialize_native(
+            &inkwell::targets::InitializationConfig::default(),
+        )
+        .is_err()
+        {
             // Skip if native target unavailable
             return;
         }
@@ -920,14 +924,18 @@ mod tests {
         // Run O0 optimization (should succeed even with minimal passes)
         let config = OptimizationConfig::debug();
         let result = run_optimization_passes(&module, &target_machine, &config);
-        assert!(result.is_ok(), "O0 optimization failed: {:?}", result);
+        assert!(result.is_ok(), "O0 optimization failed: {result:?}");
     }
 
     #[test]
     fn test_run_optimization_passes_o2() {
         use inkwell::context::Context;
 
-        if inkwell::targets::Target::initialize_native(&Default::default()).is_err() {
+        if inkwell::targets::Target::initialize_native(
+            &inkwell::targets::InitializationConfig::default(),
+        )
+        .is_err()
+        {
             return;
         }
 
@@ -965,14 +973,18 @@ mod tests {
         // Run O2 optimization
         let config = OptimizationConfig::release();
         let result = run_optimization_passes(&module, &target_machine, &config);
-        assert!(result.is_ok(), "O2 optimization failed: {:?}", result);
+        assert!(result.is_ok(), "O2 optimization failed: {result:?}");
     }
 
     #[test]
     fn test_run_custom_pipeline() {
         use inkwell::context::Context;
 
-        if inkwell::targets::Target::initialize_native(&Default::default()).is_err() {
+        if inkwell::targets::Target::initialize_native(
+            &inkwell::targets::InitializationConfig::default(),
+        )
+        .is_err()
+        {
             return;
         }
 
@@ -1005,14 +1017,18 @@ mod tests {
 
         // Run a custom minimal pipeline
         let result = run_custom_pipeline(&module, &target_machine, "function(verify)");
-        assert!(result.is_ok(), "Custom pipeline failed: {:?}", result);
+        assert!(result.is_ok(), "Custom pipeline failed: {result:?}");
     }
 
     #[test]
     fn test_config_with_extra_passes_integration() {
         use inkwell::context::Context;
 
-        if inkwell::targets::Target::initialize_native(&Default::default()).is_err() {
+        if inkwell::targets::Target::initialize_native(
+            &inkwell::targets::InitializationConfig::default(),
+        )
+        .is_err()
+        {
             return;
         }
 
@@ -1049,8 +1065,7 @@ mod tests {
         let result = run_optimization_passes(&module, &target_machine, &config);
         assert!(
             result.is_ok(),
-            "Optimization with extra passes failed: {:?}",
-            result
+            "Optimization with extra passes failed: {result:?}"
         );
     }
 
@@ -1154,7 +1169,11 @@ mod tests {
     fn test_run_optimization_passes_o3() {
         use inkwell::context::Context;
 
-        if inkwell::targets::Target::initialize_native(&Default::default()).is_err() {
+        if inkwell::targets::Target::initialize_native(
+            &inkwell::targets::InitializationConfig::default(),
+        )
+        .is_err()
+        {
             return;
         }
 
@@ -1190,14 +1209,18 @@ mod tests {
         // Run O3 optimization
         let config = OptimizationConfig::aggressive();
         let result = run_optimization_passes(&module, &target_machine, &config);
-        assert!(result.is_ok(), "O3 optimization failed: {:?}", result);
+        assert!(result.is_ok(), "O3 optimization failed: {result:?}");
     }
 
     #[test]
     fn test_run_optimization_passes_size() {
         use inkwell::context::Context;
 
-        if inkwell::targets::Target::initialize_native(&Default::default()).is_err() {
+        if inkwell::targets::Target::initialize_native(
+            &inkwell::targets::InitializationConfig::default(),
+        )
+        .is_err()
+        {
             return;
         }
 
@@ -1233,19 +1256,23 @@ mod tests {
         // Run Os optimization
         let config = OptimizationConfig::size();
         let result = run_optimization_passes(&module, &target_machine, &config);
-        assert!(result.is_ok(), "Os optimization failed: {:?}", result);
+        assert!(result.is_ok(), "Os optimization failed: {result:?}");
 
         // Run Oz optimization
         let config = OptimizationConfig::min_size();
         let result = run_optimization_passes(&module, &target_machine, &config);
-        assert!(result.is_ok(), "Oz optimization failed: {:?}", result);
+        assert!(result.is_ok(), "Oz optimization failed: {result:?}");
     }
 
     #[test]
     fn test_invalid_custom_pipeline() {
         use inkwell::context::Context;
 
-        if inkwell::targets::Target::initialize_native(&Default::default()).is_err() {
+        if inkwell::targets::Target::initialize_native(
+            &inkwell::targets::InitializationConfig::default(),
+        )
+        .is_err()
+        {
             return;
         }
 

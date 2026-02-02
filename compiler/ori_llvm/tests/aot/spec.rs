@@ -10,8 +10,11 @@
 //! condition where the AOT compiler uses `/tmp/test.o` as an intermediate file.
 //! TODO: Fix the AOT build path to use unique temp file names.
 
+// Allow raw string hashes for readability in test program literals
+#![allow(clippy::needless_raw_string_hashes)]
+
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tempfile::TempDir;
@@ -26,8 +29,7 @@ fn ori_binary() -> PathBuf {
     let workspace_root = manifest_dir
         .ancestors()
         .find(|p| p.join("Cargo.toml").exists() && p.join("compiler").exists())
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("/workspace"));
+        .map_or_else(|| PathBuf::from("/workspace"), Path::to_path_buf);
 
     let release_path = workspace_root.join("target/release/ori");
     if release_path.exists() {
@@ -50,8 +52,8 @@ fn compile_and_run(source: &str) -> i32 {
 
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let source_path = temp_dir.path().join(format!("test_{}.ori", id));
-    let binary_path = temp_dir.path().join(format!("test_{}", id));
+    let source_path = temp_dir.path().join(format!("test_{id}.ori"));
+    let binary_path = temp_dir.path().join(format!("test_{id}"));
 
     fs::write(&source_path, source).expect("Failed to write source");
 
@@ -87,8 +89,7 @@ fn assert_aot_success(source: &str, test_name: &str) {
     let exit_code = compile_and_run(source);
     assert_eq!(
         exit_code, 0,
-        "{} failed with exit code {}",
-        test_name, exit_code
+        "{test_name} failed with exit code {exit_code}"
     );
 }
 
@@ -446,8 +447,7 @@ fn test_aot_print_string() {
     // Verify binary exists
     assert!(
         binary_path.exists(),
-        "Binary was not created at {:?}",
-        binary_path
+        "Binary was not created at {binary_path:?}"
     );
 
     // Run and capture output

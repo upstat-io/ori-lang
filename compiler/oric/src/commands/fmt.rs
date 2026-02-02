@@ -979,7 +979,11 @@ mod tests {
         let output = format_parse_error("test.ori", &error, source);
 
         // Should contain help with suggestion
-        assert!(output.contains("help:"));
+        // Note: "help:" may have ANSI escape codes between "help" and ":"
+        assert!(
+            output.contains("help:") || output.contains("help\x1b[0m:"),
+            "expected 'help:' in output: {output}"
+        );
         assert!(output.contains("="));
     }
 

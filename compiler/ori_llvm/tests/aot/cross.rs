@@ -11,6 +11,9 @@
 //! - Data layout configuration
 //! - Platform-specific behavior
 
+// Allow similar names in tests (wasm vs wasi pattern is intentional)
+#![allow(clippy::similar_names)]
+
 use ori_llvm::aot::target::{
     get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, TargetConfig,
     TargetError, TargetTripleComponents,
@@ -223,7 +226,7 @@ fn test_target_triple_to_string() {
 
 /// Test: Target config from components
 ///
-/// Scenario: Create TargetConfig from parsed components.
+/// Scenario: Create `TargetConfig` from parsed components.
 #[test]
 fn test_target_config_from_components() {
     let components = TargetTripleComponents::parse("x86_64-unknown-linux-gnu").unwrap();
@@ -237,7 +240,7 @@ fn test_target_config_from_components() {
 
 /// Test: Target config platform helpers
 ///
-/// Scenario: Platform detection via TargetConfig.
+/// Scenario: Platform detection via `TargetConfig`.
 #[test]
 fn test_target_config_platform_helpers() {
     // Linux
@@ -321,9 +324,9 @@ fn test_parse_features() {
     assert!(features.is_empty());
 }
 
-/// Test: x86_64 specific features
+/// Test: `x86_64` specific features
 ///
-/// Scenario: Common x86_64 CPU features.
+/// Scenario: Common `x86_64` CPU features.
 #[test]
 fn test_x86_64_features() {
     let x86_features = [
@@ -380,16 +383,15 @@ fn test_wasm_features() {
 // Data Layout Tests
 // ============================================================================
 
-/// Test: x86_64 Linux data layout
+/// Test: `x86_64` Linux data layout
 ///
 /// Scenario: Verify data layout string format.
 /// Note: Requires LLVM target to be registered.
 #[test]
 fn test_x86_64_linux_data_layout() {
     let config = linux_target();
-    let layout = match config.data_layout() {
-        Ok(l) => l,
-        Err(_) => return, // Skip if target not available
+    let Ok(layout) = config.data_layout() else {
+        return; // Skip if target not available
     };
 
     // x86_64 is little endian
@@ -402,14 +404,13 @@ fn test_x86_64_linux_data_layout() {
     assert!(layout.contains("i64:"));
 }
 
-/// Test: x86_64 macOS data layout
+/// Test: `x86_64` macOS data layout
 /// Note: Requires LLVM target to be registered.
 #[test]
 fn test_x86_64_macos_data_layout() {
     let config = macos_target();
-    let layout = match config.data_layout() {
-        Ok(l) => l,
-        Err(_) => return, // Skip if target not available
+    let Ok(layout) = config.data_layout() else {
+        return; // Skip if target not available
     };
 
     // Little endian
@@ -424,9 +425,8 @@ fn test_x86_64_macos_data_layout() {
 #[test]
 fn test_aarch64_macos_data_layout() {
     let config = macos_arm_target();
-    let layout = match config.data_layout() {
-        Ok(l) => l,
-        Err(_) => return, // Skip if target not available
+    let Ok(layout) = config.data_layout() else {
+        return; // Skip if target not available
     };
 
     // Little endian (Apple Silicon is LE)
@@ -443,9 +443,8 @@ fn test_aarch64_macos_data_layout() {
 #[test]
 fn test_wasm32_data_layout() {
     let config = wasm32_target();
-    let layout = match config.data_layout() {
-        Ok(l) => l,
-        Err(_) => return, // Skip if target not available
+    let Ok(layout) = config.data_layout() else {
+        return; // Skip if target not available
     };
 
     // Little endian
@@ -543,7 +542,7 @@ fn test_target_error_display() {
 /// Test: Target config with optimization level
 ///
 /// Scenario: Optimization level configuration.
-/// Note: TargetConfig uses inkwell's OptimizationLevel directly.
+/// Note: `TargetConfig` uses inkwell's `OptimizationLevel` directly.
 #[test]
 fn test_target_config_with_opt_level() {
     use inkwell::OptimizationLevel;
@@ -633,7 +632,7 @@ fn test_wasi_vs_standalone_wasm() {
 
 /// Test: Pointer size for different architectures
 ///
-/// Note: pointer_size() returns bytes, not bits
+/// Note: `pointer_size()` returns bytes, not bits
 #[test]
 fn test_pointer_sizes() {
     // 64-bit targets (8 bytes)

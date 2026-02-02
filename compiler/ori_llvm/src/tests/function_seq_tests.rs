@@ -1,4 +1,4 @@
-//! Tests for FunctionSeq patterns (run, try, match).
+//! Tests for `FunctionSeq` patterns (run, try, match).
 
 use std::collections::HashMap;
 

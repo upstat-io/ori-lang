@@ -1,4 +1,4 @@
-//! Tests for LLVMEvaluator and OwnedLLVMEvaluator.
+//! Tests for `LLVMEvaluator` and `OwnedLLVMEvaluator`.
 
 use inkwell::context::Context;
 use ori_ir::ast::{Expr, ExprKind, Module, Visibility};
@@ -25,13 +25,13 @@ fn empty_module() -> Module {
 fn test_llvm_value_debug() {
     let void = LLVMValue::Void;
     let int = LLVMValue::Int(42);
-    let float = LLVMValue::Float(3.14);
+    let float = LLVMValue::Float(3.5);
     let bool_val = LLVMValue::Bool(true);
 
-    assert_eq!(format!("{:?}", void), "Void");
-    assert_eq!(format!("{:?}", int), "Int(42)");
-    assert_eq!(format!("{:?}", float), "Float(3.14)");
-    assert_eq!(format!("{:?}", bool_val), "Bool(true)");
+    assert_eq!(format!("{void:?}"), "Void");
+    assert_eq!(format!("{int:?}"), "Int(42)");
+    assert_eq!(format!("{float:?}"), "Float(3.5)");
+    assert_eq!(format!("{bool_val:?}"), "Bool(true)");
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn test_llvm_value_equality() {
     assert_eq!(LLVMValue::Void, LLVMValue::Void);
     assert_eq!(LLVMValue::Int(42), LLVMValue::Int(42));
     assert_ne!(LLVMValue::Int(42), LLVMValue::Int(43));
-    assert_eq!(LLVMValue::Float(3.14), LLVMValue::Float(3.14));
+    assert_eq!(LLVMValue::Float(3.5), LLVMValue::Float(3.5));
     assert_eq!(LLVMValue::Bool(true), LLVMValue::Bool(true));
     assert_ne!(LLVMValue::Bool(true), LLVMValue::Bool(false));
 }
@@ -60,7 +60,7 @@ fn test_llvm_eval_error_new() {
 #[test]
 fn test_llvm_eval_error_display() {
     let error = LLVMEvalError::new("display test");
-    assert_eq!(format!("{}", error), "display test");
+    assert_eq!(format!("{error}"), "display test");
 }
 
 #[test]
@@ -225,7 +225,7 @@ fn test_function_sig_debug() {
         return_type: TypeId::STR,
     };
 
-    let debug_str = format!("{:?}", sig);
+    let debug_str = format!("{sig:?}");
     assert!(debug_str.contains("params"), "Debug should show params");
     assert!(
         debug_str.contains("return_type"),
@@ -269,7 +269,7 @@ fn test_llvm_evaluator_eval_float() {
 
     let mut arena = ExprArena::new();
     let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Float(3.14f64.to_bits()),
+        kind: ExprKind::Float(3.5f64.to_bits()),
         span: Span::new(0, 1),
     });
 

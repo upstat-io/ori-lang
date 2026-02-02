@@ -1,7 +1,7 @@
 //! Additional tests for control flow.
 
 use inkwell::context::Context;
-use ori_ir::ast::{BinaryOp, Expr, ExprKind};
+use ori_ir::ast::{BinaryOp, BindingPattern, Expr, ExprKind, Stmt, StmtKind};
 use ori_ir::{ExprArena, StringInterner, TypeId};
 
 use super::helper::TestCodegen;
@@ -294,8 +294,7 @@ fn test_multiple_let_bindings() {
     });
 
     // Create block with two let bindings
-    use ori_ir::ast::{BindingPattern, Stmt, StmtKind};
-    let stmt1 = Stmt {
+    let let_x = Stmt {
         kind: StmtKind::Let {
             pattern: BindingPattern::Name(x_name),
             ty: None,
@@ -304,7 +303,7 @@ fn test_multiple_let_bindings() {
         },
         span: ori_ir::Span::new(0, 1),
     };
-    let stmt2 = Stmt {
+    let let_y = Stmt {
         kind: StmtKind::Let {
             pattern: BindingPattern::Name(y_name),
             ty: None,
@@ -315,13 +314,13 @@ fn test_multiple_let_bindings() {
     };
 
     // Allocate statements to arena and create range
-    let stmt1_id = arena.alloc_stmt(stmt1);
-    arena.alloc_stmt(stmt2);
-    let stmts = arena.alloc_stmt_range(stmt1_id.index() as u32, 2);
+    let first_stmt_id = arena.alloc_stmt(let_x);
+    arena.alloc_stmt(let_y);
+    let stmt_range = arena.alloc_stmt_range(first_stmt_id.index() as u32, 2);
 
     let block = arena.alloc_expr(Expr {
         kind: ExprKind::Block {
-            stmts,
+            stmts: stmt_range,
             result: Some(add_expr),
         },
         span: ori_ir::Span::new(0, 1),
@@ -369,8 +368,7 @@ fn test_shadowing() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    use ori_ir::ast::{BindingPattern, Stmt, StmtKind};
-    let stmt1 = Stmt {
+    let let_x_first = Stmt {
         kind: StmtKind::Let {
             pattern: BindingPattern::Name(x_name),
             ty: None,
@@ -379,7 +377,7 @@ fn test_shadowing() {
         },
         span: ori_ir::Span::new(0, 1),
     };
-    let stmt2 = Stmt {
+    let let_x_shadow = Stmt {
         kind: StmtKind::Let {
             pattern: BindingPattern::Name(x_name),
             ty: None,
@@ -390,13 +388,13 @@ fn test_shadowing() {
     };
 
     // Allocate statements to arena and create range
-    let stmt1_id = arena.alloc_stmt(stmt1);
-    arena.alloc_stmt(stmt2);
-    let stmts = arena.alloc_stmt_range(stmt1_id.index() as u32, 2);
+    let first_stmt_id = arena.alloc_stmt(let_x_first);
+    arena.alloc_stmt(let_x_shadow);
+    let stmt_range = arena.alloc_stmt_range(first_stmt_id.index() as u32, 2);
 
     let block = arena.alloc_expr(Expr {
         kind: ExprKind::Block {
-            stmts,
+            stmts: stmt_range,
             result: Some(x_ref),
         },
         span: ori_ir::Span::new(0, 1),

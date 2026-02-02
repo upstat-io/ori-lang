@@ -482,12 +482,12 @@ mod tests {
             let path = temp_dir.join("test_emit.ll");
 
             let result = emitter.emit_llvm_ir(&module, &path);
-            assert!(result.is_ok(), "emit_llvm_ir failed: {:?}", result);
+            assert!(result.is_ok(), "emit_llvm_ir failed: {result:?}");
 
             // Verify file exists and contains expected content
-            let content = std::fs::read_to_string(&path).unwrap();
-            assert!(content.contains("test_func"));
-            assert!(content.contains("ret i64 42"));
+            let ir_text = std::fs::read_to_string(&path).unwrap();
+            assert!(ir_text.contains("test_func"));
+            assert!(ir_text.contains("ret i64 42"));
 
             // Cleanup
             let _ = std::fs::remove_file(&path);
@@ -516,7 +516,7 @@ mod tests {
             let path = temp_dir.join("test_emit.bc");
 
             let result = emitter.emit_bitcode(&module, &path);
-            assert!(result.is_ok(), "emit_bitcode failed: {:?}", result);
+            assert!(result.is_ok(), "emit_bitcode failed: {result:?}");
 
             // Verify file exists and has content
             let metadata = std::fs::metadata(&path).unwrap();
@@ -552,7 +552,7 @@ mod tests {
             let path = temp_dir.join("test_emit.o");
 
             let result = emitter.emit_object(&module, &path);
-            assert!(result.is_ok(), "emit_object failed: {:?}", result);
+            assert!(result.is_ok(), "emit_object failed: {result:?}");
 
             // Verify file exists and has content
             let metadata = std::fs::metadata(&path).unwrap();
@@ -588,11 +588,11 @@ mod tests {
             let path = temp_dir.join("test_emit.s");
 
             let result = emitter.emit_assembly(&module, &path);
-            assert!(result.is_ok(), "emit_assembly failed: {:?}", result);
+            assert!(result.is_ok(), "emit_assembly failed: {result:?}");
 
             // Verify file exists and contains assembly
-            let content = std::fs::read_to_string(&path).unwrap();
-            assert!(content.contains("asm_func") || content.contains("_asm_func"));
+            let asm_text = std::fs::read_to_string(&path).unwrap();
+            assert!(asm_text.contains("asm_func") || asm_text.contains("_asm_func"));
 
             // Cleanup
             let _ = std::fs::remove_file(&path);
@@ -620,7 +620,7 @@ mod tests {
                 .unwrap();
 
             let result = emitter.emit_object_to_memory(&module);
-            assert!(result.is_ok(), "emit_object_to_memory failed: {:?}", result);
+            assert!(result.is_ok(), "emit_object_to_memory failed: {result:?}");
 
             let bytes = result.unwrap();
             assert!(!bytes.is_empty());
@@ -665,7 +665,7 @@ mod tests {
     #[test]
     fn test_object_emitter_debug() {
         if let Ok(emitter) = ObjectEmitter::native() {
-            let debug_str = format!("{:?}", emitter);
+            let debug_str = format!("{emitter:?}");
             assert!(debug_str.contains("ObjectEmitter"));
             assert!(debug_str.contains("target"));
         }
