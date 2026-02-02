@@ -1,5 +1,6 @@
 //! Function and test definition parsing.
 
+use crate::context::ParseContext;
 use crate::{FunctionOrTest, ParseError, ParseResult, ParsedAttrs, Parser};
 use ori_ir::{Function, GenericParamRange, Param, ParamRange, TestDef, TokenKind, Visibility};
 
@@ -60,7 +61,7 @@ impl Parser<'_> {
             // = body
             self.expect(&TokenKind::Eq)?;
             self.skip_newlines();
-            let body = self.parse_expr()?;
+            let body = self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr)?;
 
             let end_span = self.arena.get_expr(body).span;
             let span = start_span.merge(end_span);
@@ -94,7 +95,7 @@ impl Parser<'_> {
             // = body
             self.expect(&TokenKind::Eq)?;
             self.skip_newlines();
-            let body = self.parse_expr()?;
+            let body = self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr)?;
 
             let end_span = self.arena.get_expr(body).span;
             let span = start_span.merge(end_span);
@@ -149,7 +150,7 @@ impl Parser<'_> {
             // = body
             self.expect(&TokenKind::Eq)?;
             self.skip_newlines();
-            let body = self.parse_expr()?;
+            let body = self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr)?;
 
             let end_span = self.arena.get_expr(body).span;
             let span = start_span.merge(end_span);

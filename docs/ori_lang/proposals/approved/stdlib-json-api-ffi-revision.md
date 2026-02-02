@@ -621,7 +621,7 @@ impl PureJsonParser {
             let self = match(self.peek(),
                 Some('0') -> self.advance(n: 1),
                 Some(c) if c.is_digit() && c != '0' -> self.skip_digits(),
-                _ -> return Err(self.error(message: "Invalid number")),
+                _ -> Err(self.error(message: "Invalid number"))?,
             ),
 
             // Fractional part
@@ -696,7 +696,7 @@ impl PureJsonParser {
                         let (key_value, new_self) = self.parse_string()?,
                         let key = match(key_value,
                             JsonValue.String(s) -> s,
-                            _ -> return Err(self.error(message: "Object key must be string")),
+                            _ -> Err(self.error(message: "Object key must be string"))?,
                         ),
                         let self = new_self.skip_whitespace(),
 

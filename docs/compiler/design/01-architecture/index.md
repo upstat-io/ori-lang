@@ -126,10 +126,18 @@ compiler/
 │       ├── lib.rs            # Diagnostic/Subdiagnostic derives
 │       ├── diagnostic.rs     # #[derive(Diagnostic)] impl
 │       └── subdiagnostic.rs  # #[derive(Subdiagnostic)] impl
-├── ori_fmt/                  # Source code formatter
+├── ori_fmt/                  # Source code formatter (5-layer architecture)
 │   └── src/
-│       ├── lib.rs            # Module exports
-│       └── ...               # Formatting logic
+│       ├── lib.rs            # Public API, tabs_to_spaces()
+│       ├── spacing/          # Layer 1: Token spacing (O(1) lookup)
+│       ├── packing/          # Layer 2: Container packing decisions
+│       ├── shape/            # Layer 3: Width tracking
+│       ├── rules/            # Layer 4: Breaking rules (8 rules)
+│       ├── formatter/        # Layer 5: Orchestration
+│       ├── width/            # Width calculation
+│       ├── declarations/     # Module-level formatting
+│       ├── comments/         # Comment preservation
+│       └── ...               # Other formatting modules
 ├── ori_stack/                # Stack safety utilities
 │   └── src/
 │       └── lib.rs            # grow_stack(), stack checks
@@ -343,7 +351,7 @@ impl PatternRegistry {
 | `ori_typeck` | Type checking: TypeChecker, inference, registries |
 | `ori_patterns` | Pattern definitions, Value types, EvalError (single source of truth) |
 | `ori_eval` | Core tree-walking interpreter: Interpreter, Environment, exec, method dispatch |
-| `ori_fmt` | Source code formatter: AST pretty-printing |
+| `ori_fmt` | Source code formatter: 5-layer architecture (spacing, packing, shape, rules, orchestration) |
 | `ori_stack` | Stack safety utilities: stacker integration for deep recursion |
 | `ori_rt` | Runtime library: support functions for AOT-compiled binaries |
 | `ori-macros` | Proc-macros (`#[derive(Diagnostic)]`, etc.) |

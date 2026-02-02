@@ -110,10 +110,10 @@ for (name, value) in person.fields() do
 
 ### Implementation
 
-- [ ] **Spec**: Add `spec/27-reflection.md`
-  - [ ] Reflect trait definition
-  - [ ] TypeInfo, FieldInfo, VariantInfo types
-  - [ ] Unknown type
+- [x] **Spec**: Add `spec/27-reflection.md` ✅ DONE
+  - [x] Reflect trait definition
+  - [x] TypeInfo, FieldInfo, VariantInfo types
+  - [x] Unknown type
   - [ ] **LLVM Support**: LLVM codegen for Reflect trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
@@ -184,10 +184,10 @@ type VariantInfo = {
 
 ### Implementation
 
-- [ ] **Spec**: TypeInfo structure
-  - [ ] All fields defined
-  - [ ] TypeKind variants
-  - [ ] FieldInfo, VariantInfo
+- [x] **Spec**: TypeInfo structure ✅ DONE (in spec/27-reflection.md)
+  - [x] All fields defined
+  - [x] TypeKind variants
+  - [x] FieldInfo, VariantInfo
   - [ ] **LLVM Support**: LLVM codegen for TypeInfo structure
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
@@ -249,10 +249,10 @@ match value.downcast<int>() {
 
 ### Implementation
 
-- [ ] **Spec**: Unknown type semantics
-  - [ ] Type erasure mechanism
-  - [ ] Safe downcasting
-  - [ ] Reference counting (ARC-compatible)
+- [x] **Spec**: Unknown type semantics ✅ DONE (in spec/27-reflection.md)
+  - [x] Type erasure mechanism
+  - [x] Safe downcasting
+  - [x] Reference counting (ARC-compatible)
   - [ ] **LLVM Support**: LLVM codegen for Unknown type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
@@ -525,7 +525,7 @@ Per `proposals/approved/reflection-api-proposal.md § Deferred Decisions`:
 ## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
-- [ ] Spec updated: `spec/27-reflection.md` complete
+- [x] Spec updated: `spec/27-reflection.md` complete ✅ DONE
 - [ ] CLAUDE.md updated with Reflect, Unknown, TypeInfo
 - [ ] Reflect trait works with derive
 - [ ] TypeInfo accessible at runtime

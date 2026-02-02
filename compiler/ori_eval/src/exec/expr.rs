@@ -143,6 +143,7 @@ pub fn get_collection_length(value: &Value) -> Result<i64, EvalError> {
 pub fn eval_range<F>(
     start: Option<ExprId>,
     end: Option<ExprId>,
+    step: Option<ExprId>,
     inclusive: bool,
     mut eval_fn: F,
 ) -> EvalResult
@@ -163,11 +164,22 @@ where
     } else {
         return Err(unbounded_range_end());
     };
+    let step_val = if let Some(s) = step {
+        eval_fn(s)?
+            .as_int()
+            .ok_or_else(|| range_bound_not_int("step"))?
+    } else {
+        1
+    };
 
     if inclusive {
-        Ok(Value::Range(RangeValue::inclusive(start_val, end_val)))
+        Ok(Value::Range(RangeValue::inclusive_with_step(
+            start_val, end_val, step_val,
+        )))
     } else {
-        Ok(Value::Range(RangeValue::exclusive(start_val, end_val)))
+        Ok(Value::Range(RangeValue::exclusive_with_step(
+            start_val, end_val, step_val,
+        )))
     }
 }
 

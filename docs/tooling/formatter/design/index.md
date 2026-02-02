@@ -76,6 +76,14 @@ Exceptions exist only for constructs that are *always* stacked regardless of wid
 - [Patterns](02-constructs/patterns.md) — run, try, match, recurse, parallel
 - [Collections](02-constructs/collections.md) — Lists, maps, tuples, structs
 
+### Layers
+
+- [5-Layer Architecture](03-layers/index.md) — Modular architecture overview
+- [Layer 1: Token Spacing](03-layers/01-spacing.md) — O(1) declarative spacing rules
+- [Layer 2: Container Packing](03-layers/02-packing.md) — Inline vs break decisions
+- [Layer 3: Shape Tracking](03-layers/03-shape.md) — Width tracking for fit decisions
+- [Layer 4: Breaking Rules](03-layers/04-rules.md) — Ori-specific breaking rules
+
 ### Comments
 
 - [Comments](03-comments/index.md) — Comment handling and doc comment ordering

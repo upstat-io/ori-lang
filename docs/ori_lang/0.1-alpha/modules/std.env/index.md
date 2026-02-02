@@ -267,16 +267,20 @@ use std.env { args_os }
 
 @parse_args () uses Env -> Result<Options, str> = run(
     let args = args_os(),
-    let options = Options.default(),
 
-    for arg in args do match(arg,
-        "--help" -> return Ok(options.with_help(true)),
-        "--verbose" -> options = options.with_verbose(true),
-        s if s.starts_with("--") -> return Err("Unknown flag: " + s),
-        s -> options = options.with_file(s),
+    // Fold through args, accumulating options or error
+    args.fold(
+        initial: Ok(Options.default()),
+        f: (acc, arg) -> try(
+            let options = acc?,
+            match(arg,
+                "--help" -> Ok(options.with_help(true)),
+                "--verbose" -> Ok(options.with_verbose(true)),
+                s if s.starts_with("--") -> Err("Unknown flag: " + s),
+                s -> Ok(options.with_file(s)),
+            ),
+        ),
     ),
-
-    Ok(options),
 )
 ```
 

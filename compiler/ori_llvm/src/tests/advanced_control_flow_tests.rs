@@ -9,7 +9,6 @@ use ori_ir::{ExprArena, Span, StmtRange, StringInterner, TypeId};
 
 use super::helper::setup_builder_test;
 use crate::builder::Builder;
-use crate::context::CodegenCx;
 
 #[test]
 fn test_if_no_else_void_result() {
@@ -371,72 +370,6 @@ fn test_block_no_result() {
     );
 
     assert!(result.is_none(), "Block without result should return None");
-}
-
-#[test]
-fn test_return_with_value() {
-    let context = Context::create();
-    let interner = StringInterner::new();
-    let (cx, function) = setup_builder_test(&context, &interner);
-
-    let mut arena = ExprArena::new();
-
-    let return_val = arena.alloc_expr(Expr {
-        kind: ExprKind::Int(42),
-        span: Span::new(0, 1),
-    });
-
-    let entry_bb = cx.llcx().append_basic_block(function, "entry");
-    let builder = Builder::build(&cx, entry_bb);
-
-    let expr_types = vec![TypeId::INT];
-    let mut locals = HashMap::new();
-
-    let result = builder.compile_return(
-        Some(return_val),
-        &arena,
-        &expr_types,
-        &mut locals,
-        function,
-        None,
-    );
-
-    assert!(result.is_none(), "Return doesn't produce a value");
-
-    // Verify IR contains ret
-    let ir = cx.llmod().print_to_string().to_string();
-    assert!(ir.contains("ret i64"), "Should have return instruction");
-}
-
-#[test]
-fn test_return_void() {
-    let context = Context::create();
-    let interner = StringInterner::new();
-    let cx = CodegenCx::new(&context, &interner, "test");
-    cx.declare_runtime_functions();
-
-    // Create a void function
-    let fn_type = cx.scx.type_void().fn_type(&[], false);
-    let function = cx.llmod().add_function("void_fn", fn_type, None);
-
-    let arena = ExprArena::new();
-
-    let entry_bb = cx.llcx().append_basic_block(function, "entry");
-    let builder = Builder::build(&cx, entry_bb);
-
-    let expr_types = vec![];
-    let mut locals = HashMap::new();
-
-    let result = builder.compile_return(None, &arena, &expr_types, &mut locals, function, None);
-
-    assert!(result.is_none(), "Void return doesn't produce a value");
-
-    // Verify IR contains void ret
-    let ir = cx.llmod().print_to_string().to_string();
-    assert!(
-        ir.contains("ret void"),
-        "Should have void return instruction"
-    );
 }
 
 #[test]

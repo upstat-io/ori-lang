@@ -100,18 +100,12 @@ pub fn is_simple_conditional_body(arena: &ExprArena, body: ExprId) -> bool {
     {
         // Check if then branch is break/continue
         let then_expr = arena.get_expr(*then_branch);
-        let then_simple = matches!(
-            then_expr.kind,
-            ExprKind::Break(_) | ExprKind::Continue(_) | ExprKind::Return(_)
-        );
+        let then_simple = matches!(then_expr.kind, ExprKind::Break(_) | ExprKind::Continue(_));
 
         // Check if else branch is break/continue (if present)
         let else_simple = else_branch.is_none_or(|else_id| {
             let else_expr = arena.get_expr(else_id);
-            matches!(
-                else_expr.kind,
-                ExprKind::Break(_) | ExprKind::Continue(_) | ExprKind::Return(_)
-            )
+            matches!(else_expr.kind, ExprKind::Break(_) | ExprKind::Continue(_))
         });
 
         return then_simple && else_simple;

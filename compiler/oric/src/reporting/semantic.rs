@@ -129,11 +129,6 @@ impl Render for SemanticProblem {
                 )
                 .with_suggestion("move this statement inside a loop body"),
 
-            SemanticProblem::ReturnOutsideFunction { span } => Diagnostic::error(ErrorCode::E3002)
-                .with_message("`return` outside of function")
-                .with_label(*span, "`return` can only appear inside function bodies")
-                .with_suggestion("use a different expression to yield a value"),
-
             SemanticProblem::SelfOutsideMethod { span } => Diagnostic::error(ErrorCode::E3002)
                 .with_message("`self` outside of method")
                 .with_label(*span, "`self` is only available in `impl` block methods")

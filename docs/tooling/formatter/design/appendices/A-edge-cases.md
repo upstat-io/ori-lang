@@ -127,6 +127,29 @@ let valid = (is_admin || has_permission(user, resource))
     && !is_expired(token)
 ```
 
+## Parentheses Preservation
+
+Parentheses are required in certain positions to maintain correct parsing. See [ParenthesesRule](../03-layers/04-rules.md#parenthesesrule) for details.
+
+```ori
+// Method receiver - parens required for complex expressions
+(for x in items yield x).fold(0, acc, x -> acc + x)
+(items.filter(x -> x > 0)).count()
+
+// Call target - parens required for lambdas
+(x -> x * 2)(5)
+((a, b) -> a + b)(1, 2)
+
+// Iterator source - parens required for nested for/if/lambda
+for x in (for y in outer yield transform(y)) yield process(x)
+for item in (if has_data then items else []) yield item
+
+// Continue with value - parens may be needed for complex expressions
+for x in items yield
+    if skip_condition then continue (x * 2)
+    else x
+```
+
 ## Function Signatures at Boundary
 
 ```ori

@@ -20,7 +20,6 @@ use crate::{
     expected_struct,
     expected_tuple,
     field_assignment_not_implemented,
-    for_requires_iterable,
     index_assignment_not_implemented,
     invalid_assignment_target,
     invalid_literal_pattern,
@@ -31,7 +30,6 @@ use crate::{
     Environment,
     EvalError,
     EvalResult,
-    Heap,
     Mutability,
     Value,
 };
@@ -501,131 +499,6 @@ pub enum LoopAction {
     Error(EvalError),
 }
 
-/// Lazy iterator over for loop items to avoid pre-collecting all elements.
-///
-/// This avoids the allocation overhead of `list.iter().cloned().collect::<Vec<_>>()`
-/// which would allocate a full copy of the list on every loop iteration.
-enum ForIter {
-    List {
-        list: Heap<Vec<Value>>,
-        index: usize,
-    },
-    Range {
-        iter: std::ops::Range<i64>,
-    },
-}
-
-impl Iterator for ForIter {
-    type Item = Value;
-
-    fn next(&mut self) -> Option<Value> {
-        match self {
-            ForIter::List { list, index } => {
-                if *index < list.len() {
-                    let item = list[*index].clone();
-                    *index = index.saturating_add(1);
-                    Some(item)
-                } else {
-                    None
-                }
-            }
-            ForIter::Range { iter } => iter.next().map(Value::int),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            ForIter::List { list, index } => {
-                let remaining = list.len().saturating_sub(*index);
-                (remaining, Some(remaining))
-            }
-            ForIter::Range { iter } => iter.size_hint(),
-        }
-    }
-}
-
-/// Evaluate a for loop.
-///
-/// Uses RAII scope guard to ensure scope is popped even on panic.
-/// Uses lazy iteration to avoid pre-collecting all elements.
-pub fn eval_for<F>(
-    binding: Name,
-    iter: Value,
-    guard: Option<ExprId>,
-    body: ExprId,
-    is_yield: bool,
-    env: &mut Environment,
-    mut eval_body: F,
-) -> EvalResult
-where
-    F: FnMut(ExprId, Option<ExprId>, &mut Environment) -> Result<(Value, LoopAction), EvalError>,
-{
-    let items = match iter {
-        Value::List(list) => ForIter::List { list, index: 0 },
-        Value::Range(range) => ForIter::Range {
-            iter: range.start..if range.inclusive {
-                range.end.saturating_add(1)
-            } else {
-                range.end
-            },
-        },
-        _ => return Err(for_requires_iterable()),
-    };
-
-    if is_yield {
-        let mut results = Vec::new();
-        for item in items {
-            // Use RAII guard for scope safety
-            let (result, action) = {
-                let mut scope_guard = EnvScopeGuard::new(env);
-                scope_guard.define(binding, item, Mutability::Immutable);
-                eval_body(body, guard, &mut scope_guard)?
-            }; // scope popped when guard drops
-
-            match action {
-                LoopAction::Continue => {
-                    results.push(result);
-                }
-                LoopAction::ContinueWith(val) => {
-                    // In yield mode, substitute the yielded value
-                    results.push(val);
-                }
-                LoopAction::Break(val) => {
-                    // Break with value adds final element
-                    if !matches!(val, Value::Void) {
-                        results.push(val);
-                    }
-                    return Ok(Value::list(results));
-                }
-                LoopAction::Error(e) => {
-                    return Err(e);
-                }
-            }
-        }
-        Ok(Value::list(results))
-    } else {
-        for item in items {
-            // Use RAII guard for scope safety
-            let (_, action) = {
-                let mut scope_guard = EnvScopeGuard::new(env);
-                scope_guard.define(binding, item, Mutability::Immutable);
-                eval_body(body, guard, &mut scope_guard)?
-            }; // scope popped when guard drops
-
-            match action {
-                LoopAction::Continue | LoopAction::ContinueWith(_) => {}
-                LoopAction::Break(val) => {
-                    return Ok(val);
-                }
-                LoopAction::Error(e) => {
-                    return Err(e);
-                }
-            }
-        }
-        Ok(Value::Void)
-    }
-}
-
 /// Evaluate a loop expression.
 pub fn eval_loop<F>(body: ExprId, mut eval_fn: F) -> EvalResult
 where
@@ -674,7 +547,6 @@ pub fn to_loop_action(error: EvalError) -> LoopAction {
         Some(ControlFlow::Continue(v)) if !matches!(v, Value::Void) => LoopAction::ContinueWith(v),
         Some(ControlFlow::Continue(_)) => LoopAction::Continue,
         Some(ControlFlow::Break(v)) => LoopAction::Break(v),
-        Some(ControlFlow::Return(_)) => LoopAction::Error(error),
         None => {
             // Fall back to string parsing for legacy compatibility
             parse_loop_control(&error.message)

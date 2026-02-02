@@ -176,6 +176,7 @@ impl Parser<'_> {
                 message: format!("expected '(' after attribute name '{attr_name_str}'"),
                 span: self.current_span(),
                 context: None,
+                help: Vec::new(),
             });
             if uses_brackets {
                 self.skip_to_rbracket();
@@ -194,6 +195,7 @@ impl Parser<'_> {
                 message: format!("attribute '{attr_name_str}' requires a string argument"),
                 span: self.current_span(),
                 context: None,
+                help: Vec::new(),
             });
             None
         };
@@ -207,6 +209,7 @@ impl Parser<'_> {
                 message: "expected ')' after attribute value".to_string(),
                 span: self.current_span(),
                 context: None,
+                help: Vec::new(),
             });
         }
 
@@ -220,6 +223,7 @@ impl Parser<'_> {
                     message: "expected ']' to close attribute".to_string(),
                     span: self.current_span(),
                     context: None,
+                    help: Vec::new(),
                 });
             }
         }
@@ -254,6 +258,7 @@ impl Parser<'_> {
                 message: "expected '(' after 'compile_fail'".to_string(),
                 span: self.current_span(),
                 context: None,
+                help: Vec::new(),
             });
             if uses_brackets {
                 self.skip_to_rbracket();
@@ -281,6 +286,7 @@ impl Parser<'_> {
                     message: "expected ')' after compile_fail value".to_string(),
                     span: self.current_span(),
                     context: None,
+                    help: Vec::new(),
                 });
             }
         } else {
@@ -299,6 +305,7 @@ impl Parser<'_> {
                         message: "expected parameter name in compile_fail".to_string(),
                         span: self.current_span(),
                         context: None,
+                        help: Vec::new(),
                     });
                     if uses_brackets {
                         self.skip_to_rbracket();
@@ -315,6 +322,7 @@ impl Parser<'_> {
                         message: format!("expected ':' after '{param_name}'"),
                         span: self.current_span(),
                         context: None,
+                        help: Vec::new(),
                     });
                     if uses_brackets {
                         self.skip_to_rbracket();
@@ -337,6 +345,7 @@ impl Parser<'_> {
                                 message: "expected string for 'message'".to_string(),
                                 span: self.current_span(),
                                 context: None,
+                                help: Vec::new(),
                             });
                         }
                     }
@@ -350,6 +359,7 @@ impl Parser<'_> {
                                 message: "expected string for 'code'".to_string(),
                                 span: self.current_span(),
                                 context: None,
+                                help: Vec::new(),
                             });
                         }
                     }
@@ -363,6 +373,7 @@ impl Parser<'_> {
                                 message: "expected integer for 'line'".to_string(),
                                 span: self.current_span(),
                                 context: None,
+                                help: Vec::new(),
                             });
                         }
                     }
@@ -376,6 +387,7 @@ impl Parser<'_> {
                                 message: "expected integer for 'column'".to_string(),
                                 span: self.current_span(),
                                 context: None,
+                                help: Vec::new(),
                             });
                         }
                     }
@@ -385,6 +397,7 @@ impl Parser<'_> {
                             message: format!("unknown compile_fail parameter '{param_name}'"),
                             span: self.previous_span(),
                             context: None,
+                            help: Vec::new(),
                         });
                     }
                 }
@@ -411,6 +424,7 @@ impl Parser<'_> {
                     message: "expected ')' after compile_fail parameters".to_string(),
                     span: self.current_span(),
                     context: None,
+                    help: Vec::new(),
                 });
             }
         }
@@ -425,6 +439,7 @@ impl Parser<'_> {
                     message: "expected ']' to close attribute".to_string(),
                     span: self.current_span(),
                     context: None,
+                    help: Vec::new(),
                 });
             }
         }
@@ -444,6 +459,7 @@ impl Parser<'_> {
                 message: "expected '(' after 'derive'".to_string(),
                 span: self.current_span(),
                 context: None,
+                help: Vec::new(),
             });
             if uses_brackets {
                 self.skip_to_rbracket();
@@ -488,6 +504,7 @@ impl Parser<'_> {
                 message: "expected ')' after derive trait list".to_string(),
                 span: self.current_span(),
                 context: None,
+                help: Vec::new(),
             });
         }
 
@@ -501,6 +518,7 @@ impl Parser<'_> {
                     message: "expected ']' to close attribute".to_string(),
                     span: self.current_span(),
                     context: None,
+                    help: Vec::new(),
                 });
             }
         }

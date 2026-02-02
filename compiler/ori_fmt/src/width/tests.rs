@@ -471,29 +471,6 @@ fn test_width_try_postfix() {
 }
 
 #[test]
-fn test_width_return() {
-    let mut arena = ExprArena::new();
-    let interner = StringInterner::new();
-
-    let ret = make_expr(&mut arena, ExprKind::Return(None));
-    let mut calc = WidthCalculator::new(&arena, &interner);
-
-    assert_eq!(calc.width(ret), 6); // "return"
-}
-
-#[test]
-fn test_width_return_value() {
-    let mut arena = ExprArena::new();
-    let interner = StringInterner::new();
-
-    let value = make_expr(&mut arena, ExprKind::Int(0));
-    let ret = make_expr(&mut arena, ExprKind::Return(Some(value)));
-    let mut calc = WidthCalculator::new(&arena, &interner);
-
-    assert_eq!(calc.width(ret), 8); // "return 0"
-}
-
-#[test]
 fn test_width_break() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
@@ -706,6 +683,7 @@ fn test_width_range() {
         ExprKind::Range {
             start: Some(start),
             end: Some(end),
+            step: None,
             inclusive: false,
         },
     );
@@ -727,6 +705,7 @@ fn test_width_range_inclusive() {
         ExprKind::Range {
             start: Some(start),
             end: Some(end),
+            step: None,
             inclusive: true,
         },
     );

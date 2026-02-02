@@ -181,6 +181,103 @@ See [Properties of Types § Sendable](07-properties-of-types.md#sendable) for `S
 
 When values cross task boundaries, reference count operations are atomic. The compiler ensures thread-safe reference counting for values accessed by multiple tasks.
 
+## Cancellation
+
+Task cancellation uses a _cooperative_ model. A cancelled task continues executing until it reaches a cancellation checkpoint, then terminates with cleanup.
+
+### Cancellation Checkpoints
+
+A task observes cancellation at these points:
+
+| Checkpoint | Description |
+|------------|-------------|
+| Suspension points | Async calls, channel operations |
+| Loop iterations | Start of each `for` or `loop` iteration |
+| Pattern entry | Entry to `run`, `try`, `match`, `parallel`, `nursery` |
+
+Between checkpoints, a task executes atomically with respect to cancellation.
+
+### Cancellation Behavior
+
+When a task reaches a checkpoint while marked for cancellation:
+
+1. The current expression evaluates to `Err(CancellationError)`
+2. Normal unwinding occurs — destructors run
+3. The task terminates with `Err(CancellationError)`
+
+### CancellationError Type
+
+```ori
+type CancellationError = {
+    reason: CancellationReason,
+    task_id: int,
+}
+
+type CancellationReason =
+    | Timeout
+    | SiblingFailed
+    | NurseryExited
+    | ExplicitCancel
+    | ResourceExhausted
+```
+
+### Error Mode Semantics
+
+**FailFast:** On first error, all other tasks are marked for cancellation. The nursery waits for all tasks to reach checkpoints and terminate.
+
+**CancelRemaining:** On first error, pending tasks (not yet started) are cancelled immediately. Running tasks continue to completion.
+
+**CollectAll:** Errors do not trigger cancellation. All tasks run to completion.
+
+### Timeout Cancellation
+
+When a nursery timeout expires:
+
+1. All incomplete tasks are marked for cancellation
+2. Tasks reach checkpoints and terminate
+3. Nursery waits for cancellation to complete
+4. Returns results collected so far
+
+Timeout always cancels incomplete tasks regardless of error mode.
+
+### Cleanup Guarantees
+
+When a task is cancelled:
+
+1. Stack unwinding occurs from the cancellation checkpoint
+2. Destructors run for all values in scope
+3. Cleanup is guaranteed to complete before task terminates
+
+A task cannot be forcibly terminated during destructor execution.
+
+### Checking Cancellation Status
+
+Tasks can explicitly check cancellation status:
+
+```ori
+@is_cancelled () -> bool
+```
+
+This built-in function returns `true` if the current task has been marked for cancellation.
+
+```ori
+@long_running_task () -> Result<Data, Error> uses Suspend = run(
+    for item in large_dataset do run(
+        if is_cancelled() then break Err(CancellationError { ... }),
+        process(item),
+    ),
+)
+```
+
+### Nested Nurseries
+
+When an outer nursery cancels a task containing an inner nursery:
+
+1. The inner nursery receives cancellation
+2. Inner nursery cancels its tasks per its error mode
+3. Inner nursery completes (with cancellation results)
+4. Outer task then completes
+
 ## Errors
 
 ```

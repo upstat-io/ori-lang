@@ -104,6 +104,12 @@ impl ParseContext {
         self.has(Self::IN_LOOP)
     }
 
+    /// Check if we're inside a function body.
+    #[inline]
+    pub const fn in_function(self) -> bool {
+        self.has(Self::IN_FUNCTION)
+    }
+
     /// Check if yield is allowed.
     #[inline]
     pub const fn allows_yield(self) -> bool {

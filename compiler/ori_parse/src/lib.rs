@@ -459,6 +459,7 @@ impl<'a> Parser<'a> {
                         .to_string(),
                     span: self.current_span(),
                     context: None,
+                    help: Vec::new(),
                 });
                 self.advance();
             } else {

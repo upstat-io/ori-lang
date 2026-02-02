@@ -221,12 +221,20 @@ use std.math.rand { random }
 @weighted_choice<T> (items: [(T, float)]) -> Option<T> uses Random = run(
     let total = items.map((_, w) -> w).sum(),
     let r = random() * total,
-    let mut cumulative = 0.0,
-    for (item, weight) in items do run(
-        cumulative = cumulative + weight,
-        if r < cumulative then return Some(item),
-    ),
-    None,
+
+    // Fold with cumulative weight, break when threshold exceeded
+    items.fold(
+        initial: (0.0, None),
+        f: (state, entry) -> match(state,
+            (_, Some(_)) -> state,  // Already found, skip rest
+            (cumulative, None) -> run(
+                let (item, weight) = entry,
+                let new_cumulative = cumulative + weight,
+                if r < new_cumulative then (new_cumulative, Some(item))
+                else (new_cumulative, None),
+            ),
+        ),
+    ).1,  // Extract the Option<T> from tuple
 )
 ```
 

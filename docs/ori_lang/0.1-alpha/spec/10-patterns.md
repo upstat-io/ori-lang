@@ -782,7 +782,7 @@ with(
     acquire: open_file(path),
     action: f -> run(
         if bad_condition then panic("abort"),
-        if err_condition then return Err("failed"),
+        if err_condition then Err("failed")?,
         read_all(f),
     ),
     release: f -> close(f),  // Always called

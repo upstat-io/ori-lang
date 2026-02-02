@@ -235,7 +235,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         ExprKind::Loop { body } => {
             visitor.visit_expr_id(*body, arena);
         }
-        ExprKind::Return(val) | ExprKind::Break(val) | ExprKind::Continue(val) => {
+        ExprKind::Break(val) | ExprKind::Continue(val) => {
             if let Some(id) = val {
                 visitor.visit_expr_id(*id, arena);
             }
@@ -358,6 +358,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         ExprKind::Range {
             start,
             end,
+            step,
             inclusive: _,
         } => {
             if let Some(start_id) = start {
@@ -365,6 +366,9 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
             }
             if let Some(end_id) = end {
                 visitor.visit_expr_id(*end_id, arena);
+            }
+            if let Some(step_id) = step {
+                visitor.visit_expr_id(*step_id, arena);
             }
         }
 

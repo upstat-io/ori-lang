@@ -116,15 +116,11 @@ These are parser/lexer issues discovered during formatting testing, not formatte
    - Location: `compiler/ori_parse/src/grammar/expr.rs`
    - Status: Parser infrastructure exists but operator not wired up
 
-2. **`return` keyword not implemented** — Shows as "unknown identifier"
-   - Location: `compiler/ori_lexer/src/lib.rs`, `compiler/ori_parse/src/grammar/`
-   - Status: Keyword reserved but not parsed
-
-3. **`!=` in for guards** — Parser error with `!=` in guard expressions
+2. **`!=` in for guards** — Parser error with `!=` in guard expressions
    - Example: `for x in items if x != 0 yield x` fails to parse
    - Location: `compiler/ori_parse/src/grammar/expr.rs`
 
-4. **`by` in ranges for for loops** — `for x in 0..100 by 5` doesn't parse
+3. **`by` in ranges for for loops** — `for x in 0..100 by 5` doesn't parse
    - Location: `compiler/ori_parse/src/grammar/expr.rs`
    - Status: `by` recognized but not integrated with for loop iteration
 

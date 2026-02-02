@@ -70,14 +70,6 @@ fn test_control_flow_continue() {
 }
 
 #[test]
-fn test_control_flow_return() {
-    let err = EvalError::return_with(Value::int(42));
-    assert!(err.message.contains("return"));
-    assert!(err.is_control_flow());
-    assert_eq!(err.control_flow, Some(ControlFlow::Return(Value::int(42))));
-}
-
-#[test]
 fn test_is_control_flow() {
     let regular_err = EvalError::new("error");
     assert!(!regular_err.is_control_flow());

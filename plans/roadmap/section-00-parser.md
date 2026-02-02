@@ -1028,55 +1028,32 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 The following grammar inconsistencies were identified during the audit and require resolution:
 
-### 1. Extension Generics (grammar.ebnf § extension_def)
+### 1. Extension Generics (grammar.ebnf § extension_def) — ✅ RESOLVED
 
-**Current grammar:**
+**Resolution:** Updated grammar.ebnf to support generics and any type in extensions:
 ```ebnf
-extension_def = "extend" identifier [ where_clause ] "{" { method } "}" .
+extension_def = "extend" [ generics ] type [ where_clause ] "{" { method } "}" .
 ```
 
-**Spec allows** (per `spec/12-modules.md`):
+This allows:
 ```ori
 extend<T: Clone> [T] { ... }           // Angle bracket generics
-extend [T] where T: Clone { ... }       // Where clause (currently supported)
+extend [T] where T: Clone { ... }       // List type with where clause
 extend Iterator where Self.Item: Add { ... }
 ```
 
-**Fix needed:** Update grammar to support generics in extensions:
-```ebnf
-extension_def = "extend" [ generics ] type_path [ where_clause ] "{" { method } "}" .
-```
+### 2. Bounded Trait Objects (grammar.ebnf § type) — ✅ RESOLVED
 
-### 2. Bounded Trait Objects (grammar.ebnf § type)
-
-**Current grammar:**
+**Resolution:** Added `trait_object_bounds` production to grammar.ebnf:
 ```ebnf
 type = type_path [ type_args ]
+     | trait_object_bounds            /* Printable + Hashable */
      | list_type | fixed_list_type | map_type | tuple_type | function_type
      | impl_trait_type .
-```
 
-**Spec allows** (per `spec/06-types.md` § Bounded Trait Objects):
-```ori
-@store (item: Printable + Hashable) -> void
-```
-
-**Issue:** `bounds` production only appears in:
-- Generic parameter bounds (`type_param`)
-- Trait inheritance (`trait_def`)
-- Where clause constraints (`type_constraint`)
-- Existential types (`impl_trait_type`)
-
-But NOT as a standalone type, so `Printable + Hashable` (without `impl`) cannot parse as a type.
-
-**Fix needed:** Add `bounds` as type alternative:
-```ebnf
-type = type_path [ type_args ]
-     | bounds                     // NEW: bounded trait objects
-     | list_type | fixed_list_type | map_type | tuple_type | function_type
-     | impl_trait_type .
+trait_object_bounds = type_path "+" type_path { "+" type_path } .
 ```
 
 ---
 
-**Resolution Priority:** These grammar fixes should be addressed before the parser audit to ensure the grammar is authoritative.
+**Resolution Status:** ✅ All grammar inconsistencies resolved (2026-02-02).

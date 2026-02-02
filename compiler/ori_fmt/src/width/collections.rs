@@ -87,11 +87,12 @@ pub(super) fn struct_width<I: StringLookup>(
     name_w + 3 + fields_w + 2
 }
 
-/// Calculate width of a range expression: `start..end` or `start..=end`.
+/// Calculate width of a range expression: `start..end` or `start..=end` or `start..end by step`.
 pub(super) fn range_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     start: Option<ExprId>,
     end: Option<ExprId>,
+    step: Option<ExprId>,
     inclusive: bool,
 ) -> usize {
     let mut total = 0;
@@ -113,6 +114,15 @@ pub(super) fn range_width<I: StringLookup>(
             return ALWAYS_STACKED;
         }
         total += end_w;
+    }
+
+    // " by " + step
+    if let Some(step_expr) = step {
+        let step_w = calc.width(step_expr);
+        if step_w == ALWAYS_STACKED {
+            return ALWAYS_STACKED;
+        }
+        total += 4 + step_w; // " by " + step
     }
 
     total

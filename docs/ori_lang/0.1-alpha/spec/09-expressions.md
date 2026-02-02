@@ -126,6 +126,58 @@ It is a compile-time error to use positional arguments in direct function or met
 value?         // returns Err early if Err
 ```
 
+### Conversion Expressions
+
+The `as` and `as?` operators convert values between types.
+
+```ori
+42 as float           // 42.0 (infallible)
+"42" as? int          // Some(42) (fallible)
+```
+
+**Syntax:**
+
+| Form | Semantics | Return Type |
+|------|-----------|-------------|
+| `expr as Type` | Infallible conversion | `Type` |
+| `expr as? Type` | Fallible conversion | `Option<Type>` |
+
+**Backing Traits:**
+
+- `expr as Type` desugars to `As<Type>.as(self: expr)`
+- `expr as? Type` desugars to `TryAs<Type>.try_as(self: expr)`
+
+See [Types § Conversion Traits](06-types.md#conversion-traits) for trait definitions.
+
+**Compile-Time Enforcement:**
+
+The compiler enforces that `as` is only used for conversions that cannot fail:
+
+```ori
+42 as float         // OK: int -> float always succeeds
+"42" as int         // ERROR: str -> int can fail, use `as?`
+3.14 as int         // ERROR: lossy conversion, use explicit method
+```
+
+Lossy conversions (like `float -> int`) require explicit methods:
+
+```ori
+3.99.truncate()     // 3 (toward zero)
+3.99.round()        // 4 (nearest)
+3.99.floor()        // 3 (toward negative infinity)
+3.99.ceil()         // 4 (toward positive infinity)
+```
+
+**Chaining:**
+
+`as` and `as?` are postfix operators that chain naturally:
+
+```ori
+input.trim() as? int      // (input.trim()) as? int
+items[0] as str           // (items[0]) as str
+get_value()? as float     // (get_value()?) as float
+```
+
 ## Unary Expressions
 
 ### Logical Not (`!`)
@@ -317,7 +369,7 @@ Operators are listed from highest to lowest precedence:
 
 | Level | Operators | Associativity | Description |
 |-------|-----------|---------------|-------------|
-| 1 | `.` `[]` `()` `?` | Left | Postfix |
+| 1 | `.` `[]` `()` `?` `as` `as?` | Left | Postfix |
 | 2 | `!` `-` `~` | Right | Unary |
 | 3 | `*` `/` `%` `div` | Left | Multiplicative |
 | 4 | `+` `-` | Left | Additive |

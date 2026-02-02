@@ -329,23 +329,6 @@ fn format_self_ref() {
 // Control Flow Formatting Tests
 
 #[test]
-fn format_return_void() {
-    let mut arena = ExprArena::new();
-    let interner = StringInterner::new();
-    let expr = make_expr(&mut arena, ExprKind::Return(None));
-    assert_eq!(format_to_string(&arena, &interner, expr), "return\n");
-}
-
-#[test]
-fn format_return_value() {
-    let mut arena = ExprArena::new();
-    let interner = StringInterner::new();
-    let value = make_expr(&mut arena, ExprKind::Int(42));
-    let expr = make_expr(&mut arena, ExprKind::Return(Some(value)));
-    assert_eq!(format_to_string(&arena, &interner, expr), "return 42\n");
-}
-
-#[test]
 fn format_break_void() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
@@ -424,6 +407,7 @@ fn format_range_exclusive() {
         ExprKind::Range {
             start: Some(start),
             end: Some(end),
+            step: None,
             inclusive: false,
         },
     );
@@ -443,6 +427,7 @@ fn format_range_inclusive() {
         ExprKind::Range {
             start: Some(start),
             end: Some(end),
+            step: None,
             inclusive: true,
         },
     );
