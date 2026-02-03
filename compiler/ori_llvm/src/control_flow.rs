@@ -1,9 +1,8 @@
 //! Control flow compilation: conditionals, loops, blocks.
 
-use std::collections::HashMap;
-
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprId, Name, StmtRange, TypeId};
+use rustc_hash::FxHashMap;
 use tracing::instrument;
 
 use crate::builder::Builder;
@@ -21,7 +20,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         right: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -81,7 +80,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         right: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -145,7 +144,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         result_type: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -225,7 +224,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         result_type: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Create basic blocks
@@ -277,7 +276,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         value: Option<ExprId>,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -302,7 +301,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         value: Option<ExprId>,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -336,7 +335,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         result_type: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Compile the iterable
@@ -453,7 +452,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         inner: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -507,7 +506,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         result: Option<ExprId>,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -550,7 +549,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         value: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {

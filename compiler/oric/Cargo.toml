@@ -39,9 +39,6 @@ ori_fmt.workspace = true
 # Path dependency since ori_llvm is excluded from workspace
 ori_llvm = { path = "../ori_llvm", optional = true }
 
-# Lexing
-logos.workspace = true
-
 # Concurrency and hashing
 parking_lot.workspace = true
 rustc-hash.workspace = true
@@ -49,11 +46,8 @@ rustc-hash.workspace = true
 # Parallel test execution
 rayon.workspace = true
 
-# Stack safety for deep recursion
-ori_stack.workspace = true
-
 # Diagnostic derive macros
-ori_macros = { path = "../ori_macros" }
+ori_macros.workspace = true
 
 [dev-dependencies]
 pretty_assertions = "1.4"

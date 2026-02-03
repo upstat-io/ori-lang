@@ -5,8 +5,9 @@
 # This script runs:
 # 1. Rust unit tests (workspace crates)
 # 2. Rust unit tests (LLVM crates: ori_llvm, ori_rt)
-# 3. Ori language spec tests (interpreter backend)
-# 4. Ori language spec tests (LLVM backend)
+# 3. WASM playground build check
+# 4. Ori language spec tests (interpreter backend)
+# 5. Ori language spec tests (LLVM backend)
 #
 # By default, only shows output for failing tests.
 # Use -v or --verbose to see all output.
@@ -97,6 +98,31 @@ RUST_LLVM_FAILED=$(grep -E "^test result:" "$RUST_LLVM_OUTPUT" | sed 's/.*; \([0
 RUST_LLVM_IGNORED=$(grep -E "^test result:" "$RUST_LLVM_OUTPUT" | sed 's/.*; \([0-9]*\) ignored.*/\1/' | awk '{sum += $1} END {print sum+0}')
 
 echo ""
+echo "=== Checking WASM playground builds ==="
+# Check if wasm32 target is installed
+if ! rustup target list --installed | grep -q wasm32-unknown-unknown; then
+    echo "  (skipped - wasm32-unknown-unknown target not installed)"
+    echo "  Run: rustup target add wasm32-unknown-unknown"
+    WASM_STATUS="skipped"
+else
+    WASM_OUTPUT=$(mktemp)
+    if cargo build --manifest-path website/playground-wasm/Cargo.toml --target wasm32-unknown-unknown --release 2>&1 > "$WASM_OUTPUT"; then
+        WASM_STATUS="passed"
+        echo "  Build successful"
+    else
+        WASM_STATUS="FAILED"
+        ANY_FAILED=1
+        if [[ $VERBOSE -eq 1 ]]; then
+            cat "$WASM_OUTPUT"
+        else
+            echo "  Build failed. Run with -v for details."
+            tail -20 "$WASM_OUTPUT"
+        fi
+    fi
+    rm -f "$WASM_OUTPUT"
+fi
+
+echo ""
 echo "=== Running Ori language tests (interpreter) ==="
 if [[ $VERBOSE -eq 1 ]]; then
     if cargo run -p oric --bin ori -- test tests/ 2>&1 | tee "$ORI_INTERP_OUTPUT"; then
@@ -171,6 +197,7 @@ printf "%-30s %8s %8s %8s\n" "Test Suite" "Passed" "Failed" "Skipped"
 printf "%-30s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------"
 printf "%-30s %8d %8d %8d\n" "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED"
 printf "%-30s %8d %8d %8d\n" "Rust unit tests (LLVM)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED"
+printf "%-30s %8s\n" "WASM playground build" "$WASM_STATUS"
 printf "%-30s %8d %8d %8d\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED"
 printf "%-30s %8d %8d %8d\n" "Ori spec (LLVM backend)" "$ORI_LLVM_PASSED" "$ORI_LLVM_FAILED" "$ORI_LLVM_SKIPPED"
 printf "%-30s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------"

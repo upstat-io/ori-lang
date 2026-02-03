@@ -13,11 +13,6 @@ use ori_ir::{Span, TokenKind};
 /// Each variant captures the specific information needed to generate
 /// helpful error messages and suggestions. Inspired by Gleam's 50+
 /// error variants and Roc's nested error context.
-///
-/// # Migration Status
-/// This enum is being incrementally adopted. New error sites should
-/// use these variants when possible. Existing sites using `ParseError::new()`
-/// will be migrated over time.
 #[derive(Clone, Debug)]
 pub enum ParseErrorKind {
     // === Token-level errors ===
@@ -125,10 +120,6 @@ pub enum ParseErrorKind {
         /// Why it's not allowed here.
         reason: &'static str,
     },
-
-    // === Legacy wrapper ===
-    /// Wrapper for legacy `ParseError::new()` calls during migration.
-    Legacy { code: ErrorCode, message: String },
 }
 
 /// Position in an expression where an error occurred.
@@ -254,7 +245,6 @@ impl ParseErrorKind {
             Self::InvalidPattern { .. } => ErrorCode::E1008,
             Self::PatternArgumentError { .. } => ErrorCode::E1009,
             Self::UnsupportedKeyword { .. } => ErrorCode::E1015,
-            Self::Legacy { code, .. } => *code,
         }
     }
 
@@ -366,7 +356,6 @@ impl ParseErrorKind {
             Self::UnsupportedKeyword { keyword, reason } => {
                 format!("`{}` is not supported: {reason}", keyword.display_name())
             }
-            Self::Legacy { message, .. } => message.clone(),
         }
     }
 }
@@ -412,6 +401,7 @@ pub struct ParseError {
 
 impl ParseError {
     /// Create a new parse error.
+    #[cold]
     pub fn new(code: ori_diagnostic::ErrorCode, message: impl Into<String>, span: Span) -> Self {
         ParseError {
             code,
@@ -425,6 +415,7 @@ impl ParseError {
     // --- Series Combinator Helpers ---
 
     /// Error when expecting an item in a series but none was found.
+    #[cold]
     pub fn expected_item(span: Span, terminator: &TokenKind) -> Self {
         ParseError::new(
             ErrorCode::E1002,
@@ -434,6 +425,7 @@ impl ParseError {
     }
 
     /// Error when a trailing separator was found but not allowed.
+    #[cold]
     pub fn unexpected_trailing_separator(span: Span, separator: &TokenKind) -> Self {
         ParseError::new(
             ErrorCode::E1001,
@@ -443,6 +435,7 @@ impl ParseError {
     }
 
     /// Error when expecting separator or terminator but found something else.
+    #[cold]
     pub fn expected_separator_or_terminator(
         span: Span,
         separator: &TokenKind,
@@ -460,6 +453,7 @@ impl ParseError {
     }
 
     /// Error when a series has too few items.
+    #[cold]
     pub fn too_few_items(span: Span, min: usize, actual: usize) -> Self {
         ParseError::new(
             ErrorCode::E1002,
@@ -469,6 +463,7 @@ impl ParseError {
     }
 
     /// Error when a series has too many items.
+    #[cold]
     pub fn too_many_items(span: Span, max: usize, actual: usize) -> Self {
         ParseError::new(
             ErrorCode::E1002,
@@ -508,6 +503,7 @@ impl ParseError {
     ///
     /// This is the preferred way to create errors in new code.
     /// The kind provides all context needed to generate helpful messages.
+    #[cold]
     pub fn from_kind(kind: &ParseErrorKind, span: Span) -> Self {
         let code = kind.error_code();
         let message = kind.message();

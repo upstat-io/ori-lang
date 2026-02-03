@@ -50,15 +50,8 @@ pub fn unify_pattern_with_scrutinee(
             };
 
             if !valid_variant && !matches!(resolved_ty, Type::Error) {
-                checker.push_error(
-                    format!(
-                        "pattern `{}` is not a valid variant for type `{}`",
-                        variant_str,
-                        resolved_ty.display(checker.context.interner)
-                    ),
-                    span,
-                    ori_diagnostic::ErrorCode::E2001,
-                );
+                let scrutinee_type = resolved_ty.display(checker.context.interner);
+                checker.error_invalid_variant_pattern(span, variant_str, scrutinee_type);
             }
 
             // Unify inner patterns with variant field types
@@ -84,15 +77,8 @@ pub fn unify_pattern_with_scrutinee(
 
                 if field_ty.is_none() && !matches!(resolved_ty, Type::Var(_) | Type::Error) {
                     let field_str = checker.context.interner.lookup(*field_name);
-                    checker.push_error(
-                        format!(
-                            "type `{}` has no field `{}`",
-                            resolved_ty.display(checker.context.interner),
-                            field_str
-                        ),
-                        span,
-                        ori_diagnostic::ErrorCode::E2001,
-                    );
+                    let type_name = resolved_ty.display(checker.context.interner);
+                    checker.error_no_such_field(span, type_name, field_str, None);
                 }
 
                 if let (Some(nested_id), Some(ty)) = (opt_pattern_id, field_ty) {
@@ -107,15 +93,7 @@ pub fn unify_pattern_with_scrutinee(
             match &resolved_ty {
                 Type::Tuple(elems) => {
                     if pattern_ids.len() != elems.len() {
-                        checker.push_error(
-                            format!(
-                                "tuple pattern has {} elements but scrutinee has {}",
-                                pattern_ids.len(),
-                                elems.len()
-                            ),
-                            span,
-                            ori_diagnostic::ErrorCode::E2001,
-                        );
+                        checker.error_tuple_length_mismatch(span, elems.len(), pattern_ids.len());
                     }
 
                     for (pat_id, ty) in pattern_ids.iter().zip(elems.iter()) {
@@ -140,14 +118,8 @@ pub fn unify_pattern_with_scrutinee(
                 }
                 Type::Error => {}
                 _ => {
-                    checker.push_error(
-                        format!(
-                            "tuple pattern cannot match type `{}`",
-                            resolved_ty.display(checker.context.interner)
-                        ),
-                        span,
-                        ori_diagnostic::ErrorCode::E2001,
-                    );
+                    let found_type = resolved_ty.display(checker.context.interner);
+                    checker.error_tuple_pattern_mismatch(span, found_type);
                 }
             }
         }
@@ -175,14 +147,8 @@ pub fn unify_pattern_with_scrutinee(
                 }
                 Type::Error => {}
                 _ => {
-                    checker.push_error(
-                        format!(
-                            "list pattern cannot match type `{}`",
-                            resolved_ty.display(checker.context.interner)
-                        ),
-                        span,
-                        ori_diagnostic::ErrorCode::E2001,
-                    );
+                    let found_type = resolved_ty.display(checker.context.interner);
+                    checker.error_list_pattern_mismatch(span, found_type);
                 }
             }
         }

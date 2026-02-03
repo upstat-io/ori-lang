@@ -4,7 +4,7 @@
 //! Clone + Eq + `PartialEq` + Hash + Debug traits.
 
 use super::value::Value;
-use crate::ir::StringInterner;
+use crate::ir::{Name, StringInterner};
 use std::hash::{Hash, Hasher};
 
 /// Salsa-compatible representation of an evaluated value.
@@ -60,8 +60,8 @@ pub enum EvalOutput {
     Struct(String),
     /// User-defined variant.
     Variant {
-        type_name: String,
-        variant_name: String,
+        type_name: Name,
+        variant_name: Name,
         fields: Vec<EvalOutput>,
     },
     /// Map (stored as key-value pairs).
@@ -121,8 +121,8 @@ impl EvalOutput {
                 variant_name,
                 fields,
             } => EvalOutput::Variant {
-                type_name: interner.lookup(*type_name).to_string(),
-                variant_name: interner.lookup(*variant_name).to_string(),
+                type_name: *type_name,
+                variant_name: *variant_name,
                 fields: fields
                     .iter()
                     .map(|v| Self::from_value(v, interner))
@@ -168,7 +168,9 @@ impl EvalOutput {
     }
 
     /// Get a display string for this output.
-    pub fn display(&self) -> String {
+    ///
+    /// Requires the interner to resolve interned names (for variants).
+    pub fn display(&self, interner: &StringInterner) -> String {
         match self {
             EvalOutput::Int(n) => n.to_string(),
             EvalOutput::Float(bits) => f64::from_bits(*bits).to_string(),
@@ -178,17 +180,17 @@ impl EvalOutput {
             EvalOutput::Byte(b) => format!("0x{b:02x}"),
             EvalOutput::Void => "void".to_string(),
             EvalOutput::List(items) => {
-                let inner: Vec<_> = items.iter().map(EvalOutput::display).collect();
+                let inner: Vec<_> = items.iter().map(|i| i.display(interner)).collect();
                 format!("[{}]", inner.join(", "))
             }
             EvalOutput::Tuple(items) => {
-                let inner: Vec<_> = items.iter().map(EvalOutput::display).collect();
+                let inner: Vec<_> = items.iter().map(|i| i.display(interner)).collect();
                 format!("({})", inner.join(", "))
             }
-            EvalOutput::Some(v) => format!("Some({})", v.display()),
+            EvalOutput::Some(v) => format!("Some({})", v.display(interner)),
             EvalOutput::None => "None".to_string(),
-            EvalOutput::Ok(v) => format!("Ok({})", v.display()),
-            EvalOutput::Err(v) => format!("Err({})", v.display()),
+            EvalOutput::Ok(v) => format!("Ok({})", v.display(interner)),
+            EvalOutput::Err(v) => format!("Err({})", v.display(interner)),
             EvalOutput::Duration(ms) => format!("{ms}ms"),
             EvalOutput::Size(bytes) => format!("{bytes}b"),
             EvalOutput::Ordering(tag) => match tag {
@@ -214,17 +216,19 @@ impl EvalOutput {
                 variant_name,
                 fields,
             } => {
+                let type_str = interner.lookup(*type_name);
+                let variant_str = interner.lookup(*variant_name);
                 if fields.is_empty() {
-                    format!("{type_name}::{variant_name}")
+                    format!("{type_str}::{variant_str}")
                 } else {
-                    let inner: Vec<_> = fields.iter().map(EvalOutput::display).collect();
-                    format!("{type_name}::{variant_name}({})", inner.join(", "))
+                    let inner: Vec<_> = fields.iter().map(|f| f.display(interner)).collect();
+                    format!("{type_str}::{variant_str}({})", inner.join(", "))
                 }
             }
             EvalOutput::Map(entries) => {
                 let inner: Vec<_> = entries
                     .iter()
-                    .map(|(k, v)| format!("\"{}\": {}", k, v.display()))
+                    .map(|(k, v)| format!("\"{}\": {}", k, v.display(interner)))
                     .collect();
                 format!("{{{}}}", inner.join(", "))
             }
@@ -427,26 +431,51 @@ mod tests {
 
     #[test]
     fn test_eval_output_display() {
-        assert_eq!(EvalOutput::Int(42).display(), "42");
-        assert_eq!(EvalOutput::Bool(true).display(), "true");
-        assert_eq!(EvalOutput::Void.display(), "void");
-        assert_eq!(EvalOutput::None.display(), "None");
+        let interner = SharedInterner::default();
+        assert_eq!(EvalOutput::Int(42).display(&interner), "42");
+        assert_eq!(EvalOutput::Bool(true).display(&interner), "true");
+        assert_eq!(EvalOutput::Void.display(&interner), "void");
+        assert_eq!(EvalOutput::None.display(&interner), "None");
         assert_eq!(
-            EvalOutput::Some(Box::new(EvalOutput::Int(1))).display(),
+            EvalOutput::Some(Box::new(EvalOutput::Int(1))).display(&interner),
             "Some(1)"
         );
         assert_eq!(
-            EvalOutput::Ok(Box::new(EvalOutput::Int(1))).display(),
+            EvalOutput::Ok(Box::new(EvalOutput::Int(1))).display(&interner),
             "Ok(1)"
         );
         assert_eq!(
-            EvalOutput::List(vec![EvalOutput::Int(1), EvalOutput::Int(2)]).display(),
+            EvalOutput::List(vec![EvalOutput::Int(1), EvalOutput::Int(2)]).display(&interner),
             "[1, 2]"
         );
         assert_eq!(
-            EvalOutput::Tuple(vec![EvalOutput::Int(1), EvalOutput::Bool(true)]).display(),
+            EvalOutput::Tuple(vec![EvalOutput::Int(1), EvalOutput::Bool(true)]).display(&interner),
             "(1, true)"
         );
+    }
+
+    #[test]
+    fn test_eval_output_variant_display() {
+        let interner = SharedInterner::default();
+        let type_name = interner.intern("Option");
+        let some_name = interner.intern("Some");
+        let none_name = interner.intern("None");
+
+        // Variant without fields
+        let none_variant = EvalOutput::Variant {
+            type_name,
+            variant_name: none_name,
+            fields: vec![],
+        };
+        assert_eq!(none_variant.display(&interner), "Option::None");
+
+        // Variant with fields
+        let some_variant = EvalOutput::Variant {
+            type_name,
+            variant_name: some_name,
+            fields: vec![EvalOutput::Int(42)],
+        };
+        assert_eq!(some_variant.display(&interner), "Option::Some(42)");
     }
 
     #[test]

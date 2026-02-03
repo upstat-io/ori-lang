@@ -1,7 +1,7 @@
 //! The `run` command: parse, type-check, and evaluate an Ori source file.
 
 use oric::query::{evaluated, parsed, typed};
-use oric::{CompilerDb, SourceFile};
+use oric::{CompilerDb, Db, SourceFile};
 use std::path::PathBuf;
 
 #[cfg(feature = "llvm")]
@@ -62,7 +62,7 @@ pub fn run_file(path: &str) {
         use oric::EvalOutput;
         match result {
             EvalOutput::Void => {}
-            _ => println!("{}", result.display()),
+            _ => println!("{}", result.display(db.interner())),
         }
     }
 }

@@ -10,13 +10,13 @@
 //! - Future extension for parallel codegen (one context per unit)
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::{BasicType, BasicTypeEnum, IntType, PointerType, StructType};
 use inkwell::values::FunctionValue;
 use inkwell::AddressSpace;
+use rustc_hash::FxHashMap;
 
 use ori_ir::{Name, StringInterner, TypeId};
 
@@ -28,7 +28,7 @@ pub struct StructLayout {
     /// Field names in declaration order (index = LLVM struct field index).
     pub fields: Vec<Name>,
     /// Map from field name to index for O(1) lookup.
-    pub field_indices: HashMap<Name, u32>,
+    pub field_indices: FxHashMap<Name, u32>,
 }
 
 impl StructLayout {
@@ -59,17 +59,17 @@ impl StructLayout {
 #[derive(Default)]
 pub struct TypeCache<'ll> {
     /// Cache for scalar types (int, float, bool, etc.)
-    pub scalars: HashMap<TypeId, BasicTypeEnum<'ll>>,
+    pub scalars: FxHashMap<TypeId, BasicTypeEnum<'ll>>,
     /// Cache for complex types (structs, arrays, etc.)
-    pub complex: HashMap<TypeId, BasicTypeEnum<'ll>>,
+    pub complex: FxHashMap<TypeId, BasicTypeEnum<'ll>>,
     /// Named struct types for forward references.
     ///
     /// Uses interned `Name` as key for O(1) lookup without string hashing.
-    pub named_structs: HashMap<Name, StructType<'ll>>,
+    pub named_structs: FxHashMap<Name, StructType<'ll>>,
     /// Struct field layouts for user-defined types.
     ///
     /// Maps type name to field layout for field access code generation.
-    pub struct_layouts: HashMap<Name, StructLayout>,
+    pub struct_layouts: FxHashMap<Name, StructLayout>,
 }
 
 impl<'ll> TypeCache<'ll> {
@@ -246,9 +246,9 @@ pub struct CodegenCx<'ll, 'tcx> {
     /// String interner for name lookup.
     pub interner: &'tcx StringInterner,
     /// Cache of compiled functions by name.
-    pub instances: RefCell<HashMap<Name, FunctionValue<'ll>>>,
+    pub instances: RefCell<FxHashMap<Name, FunctionValue<'ll>>>,
     /// Cache of compiled test functions.
-    pub tests: RefCell<HashMap<Name, FunctionValue<'ll>>>,
+    pub tests: RefCell<FxHashMap<Name, FunctionValue<'ll>>>,
     /// Type cache for efficient lookups.
     pub type_cache: RefCell<TypeCache<'ll>>,
 }
@@ -261,8 +261,8 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
         Self {
             scx,
             interner,
-            instances: RefCell::new(HashMap::new()),
-            tests: RefCell::new(HashMap::new()),
+            instances: RefCell::new(FxHashMap::default()),
+            tests: RefCell::new(FxHashMap::default()),
             type_cache: RefCell::new(TypeCache::new()),
         }
     }
@@ -480,7 +480,7 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     /// Returns a cloned `HashMap` because the test registry is stored in a `RefCell`
     /// and we cannot return a reference with the borrow guard's lifetime.
     /// The clone is cheap since `FunctionValue` is a thin pointer wrapper.
-    pub fn all_tests(&self) -> HashMap<Name, FunctionValue<'ll>> {
+    pub fn all_tests(&self) -> FxHashMap<Name, FunctionValue<'ll>> {
         self.tests.borrow().clone()
     }
 

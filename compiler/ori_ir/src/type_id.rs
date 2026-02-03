@@ -63,12 +63,6 @@ impl TypeId {
     /// Number of shards for type interning.
     pub const NUM_SHARDS: usize = 16;
 
-    /// Create a new `TypeId` from a raw index (legacy API).
-    #[inline]
-    pub const fn new(index: u32) -> Self {
-        TypeId(index)
-    }
-
     /// Create a `TypeId` from shard and local index.
     ///
     /// # Layout
@@ -103,12 +97,6 @@ impl TypeId {
     #[inline]
     pub const fn from_raw(raw: u32) -> Self {
         TypeId(raw)
-    }
-
-    /// Get the raw index (legacy API, same as `raw()`).
-    #[inline]
-    pub const fn index(self) -> u32 {
-        self.0
     }
 
     /// Check if this is a primitive type (pre-interned in shard 0).
@@ -181,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_compound_types() {
-        let compound = TypeId::new(TypeId::FIRST_COMPOUND);
+        let compound = TypeId::from_raw(TypeId::FIRST_COMPOUND);
         assert!(!compound.is_primitive());
     }
 

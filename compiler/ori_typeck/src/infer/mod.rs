@@ -183,14 +183,8 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
             if let Some(ty) = checker.scope.config_types.get(name) {
                 ty.clone()
             } else {
-                checker.push_error(
-                    format!(
-                        "undefined config variable `${}`",
-                        checker.context.interner.lookup(*name)
-                    ),
-                    span,
-                    ori_diagnostic::ErrorCode::E2004,
-                );
+                let name_str = checker.context.interner.lookup(*name);
+                checker.error_undefined_config(span, format!("${name_str}"));
                 Type::Error
             }
         }
@@ -200,11 +194,7 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
             if let Some(ref self_ty) = checker.scope.current_impl_self {
                 self_ty.clone()
             } else {
-                checker.push_error(
-                    "`self` can only be used inside impl blocks",
-                    span,
-                    ori_diagnostic::ErrorCode::E2003,
-                );
+                checker.error_self_outside_impl(span);
                 Type::Error
             }
         }
@@ -234,13 +224,7 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
 
                     if !implements_builtin {
                         let provider_ty_str = format!("{resolved_provider_ty:?}");
-                        checker.push_error(
-                            format!(
-                                "provider type `{provider_ty_str}` does not implement capability `{cap_name}`"
-                            ),
-                            span,
-                            ori_diagnostic::ErrorCode::E2013,
-                        );
+                        checker.error_capability_not_implemented(span, provider_ty_str, cap_name);
                     }
                 }
             }

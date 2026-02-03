@@ -9,8 +9,6 @@ description = "Language Server Protocol implementation for the Ori programming l
 oric = { path = "../../compiler/oric" }
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 dashmap = "5"
 
 [lints]

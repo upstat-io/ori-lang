@@ -162,7 +162,7 @@ impl TypeRegistry {
 
     /// Generate the next available `TypeId` for a compound type.
     fn next_id(&mut self) -> TypeId {
-        let id = TypeId::new(self.next_type_id);
+        let id = TypeId::from_raw(self.next_type_id);
         self.next_type_id += 1;
         id
     }

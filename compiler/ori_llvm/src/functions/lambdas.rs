@@ -8,7 +8,7 @@
 //! When calling a closure, we extract the function pointer and captured
 //! values, then call the function with both regular args and captures.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -34,7 +34,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         body: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &FxHashMap<Name, BasicValueEnum<'ll>>,
         _parent_function: FunctionValue<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {
         let parameters = arena.get_params(params);
@@ -69,7 +69,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         self.position_at_end(entry);
 
         // Build parameter map for lambda body
-        let mut lambda_locals: HashMap<Name, BasicValueEnum<'ll>> = HashMap::new();
+        let mut lambda_locals: FxHashMap<Name, BasicValueEnum<'ll>> = FxHashMap::default();
 
         // Add regular parameters
         for (i, param) in parameters.iter().enumerate() {
@@ -186,7 +186,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         body: ExprId,
         arena: &ExprArena,
         param_names: &HashSet<Name>,
-        locals: &HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &FxHashMap<Name, BasicValueEnum<'ll>>,
     ) -> Vec<(Name, BasicValueEnum<'ll>)> {
         let mut captures = Vec::new();
         let mut seen = HashSet::new();
@@ -206,7 +206,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         expr_id: ExprId,
         arena: &ExprArena,
         bound: &HashSet<Name>,
-        locals: &HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &FxHashMap<Name, BasicValueEnum<'ll>>,
         captures: &mut Vec<(Name, BasicValueEnum<'ll>)>,
         seen: &mut HashSet<Name>,
     ) {

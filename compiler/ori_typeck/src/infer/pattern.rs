@@ -7,7 +7,7 @@ use crate::checker::TypeChecker;
 use ori_ir::{FunctionExp, FunctionSeq, Name, SeqBinding, Span};
 use ori_patterns::TypeCheckContext;
 use ori_types::Type;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Infer type for a `function_seq` expression (run, try, match).
 pub fn infer_function_seq(
@@ -201,7 +201,7 @@ pub fn infer_function_exp(checker: &mut TypeChecker<'_>, func_exp: &FunctionExp)
 
     // If there are no scoped bindings, use the simple path
     if scoped_bindings.is_empty() {
-        let prop_types: HashMap<Name, Type> = props
+        let prop_types: FxHashMap<Name, Type> = props
             .iter()
             .map(|prop| (prop.name, infer_expr(checker, prop.value)))
             .collect();
@@ -231,9 +231,10 @@ fn infer_function_exp_with_scoped_bindings(
     use ori_patterns::ScopedBindingType;
 
     // Pre-compute which bindings apply to each property (O(n) instead of O(n*m))
-    let mut bindings_by_prop: HashMap<Name, Vec<&ori_patterns::ScopedBinding>> =
-        HashMap::with_capacity(scoped_bindings.len());
-    let mut props_needing_scope: std::collections::HashSet<Name> = std::collections::HashSet::new();
+    let mut bindings_by_prop: FxHashMap<Name, Vec<&ori_patterns::ScopedBinding>> =
+        FxHashMap::default();
+    bindings_by_prop.reserve(scoped_bindings.len());
+    let mut props_needing_scope: rustc_hash::FxHashSet<Name> = rustc_hash::FxHashSet::default();
 
     for binding in scoped_bindings {
         for prop_str in binding.for_props {
@@ -243,7 +244,7 @@ fn infer_function_exp_with_scoped_bindings(
         }
     }
 
-    let mut prop_types: HashMap<Name, Type> = HashMap::new();
+    let mut prop_types: FxHashMap<Name, Type> = FxHashMap::default();
 
     // First pass: type-check properties that don't need scoped bindings
     for prop in props {

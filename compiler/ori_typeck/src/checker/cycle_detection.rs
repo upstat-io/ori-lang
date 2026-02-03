@@ -86,13 +86,7 @@ impl TypeChecker<'_> {
             for name in &bound_names {
                 if free_vars.contains(name) {
                     let name_str = self.context.interner.lookup(*name);
-                    self.push_error(
-                        format!(
-                            "closure cannot capture itself: `{name_str}` references itself in its body"
-                        ),
-                        span,
-                        ori_diagnostic::ErrorCode::E2007,
-                    );
+                    self.error_closure_self_capture(span, name_str);
                 }
             }
         }

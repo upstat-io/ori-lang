@@ -1,6 +1,6 @@
 //! Tuple compilation.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
@@ -16,7 +16,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         elements: ExprList,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {

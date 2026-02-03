@@ -1,6 +1,6 @@
 //! Helper functions for compiling various expression types.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use inkwell::values::BasicValueEnum;
 use ori_ir::{DurationUnit, Name, SizeUnit};
@@ -14,7 +14,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_config(
         &self,
         name: Name,
-        locals: &HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &FxHashMap<Name, BasicValueEnum<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Config variables should be pre-populated in locals by the caller
         locals.get(&name).copied()

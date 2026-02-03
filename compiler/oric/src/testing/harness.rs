@@ -135,7 +135,7 @@ pub fn assert_eval_bool(source: &str, expected: bool) {
 pub fn assert_eval_str(source: &str, expected: &str) {
     let wrapped = format!("@main () -> str = {source}");
     match eval_source(&wrapped) {
-        Ok(Value::Str(s)) => assert_eq!(s.as_str(), expected, "source: {source}"),
+        Ok(Value::Str(s)) => assert_eq!(&**s, expected, "source: {source}"),
         Ok(other) => panic!("expected Str({expected}), got {other:?} for: {source}"),
         Err(e) => panic!("evaluation error for '{source}': {e:?}"),
     }

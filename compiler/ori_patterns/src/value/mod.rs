@@ -32,7 +32,7 @@ mod heap;
 mod scalar_int;
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fmt;
 
 // Re-export StringLookup from ori_ir for convenience
@@ -125,7 +125,10 @@ pub enum Value {
 
     // Heap Types (use Heap<T> for enforced Arc usage)
     /// String value.
-    Str(Heap<String>),
+    ///
+    /// Uses `Cow<'static, str>` to allow zero-copy for interned string literals
+    /// (`Cow::Borrowed`) while still supporting runtime-created strings (`Cow::Owned`).
+    Str(Heap<Cow<'static, str>>),
     /// List of values.
     List(Heap<Vec<Value>>),
     /// Map from string keys to values.
@@ -225,7 +228,10 @@ impl Value {
         Value::Int(ScalarInt::new(n))
     }
 
-    /// Create a string value.
+    /// Create a string value from an owned string.
+    ///
+    /// This allocates for runtime-created strings. For string literals from
+    /// source code, use `string_static` with the interner's `lookup_static`.
     ///
     /// # Example
     ///
@@ -235,7 +241,18 @@ impl Value {
     /// ```
     #[inline]
     pub fn string(s: impl Into<String>) -> Self {
-        Value::Str(Heap::new(s.into()))
+        Value::Str(Heap::new(Cow::Owned(s.into())))
+    }
+
+    /// Create a string value from a static string reference (zero-copy).
+    ///
+    /// Use this for interned string literals to avoid allocation:
+    /// ```text
+    /// let s = Value::string_static(interner.lookup_static(name));
+    /// ```
+    #[inline]
+    pub fn string_static(s: &'static str) -> Self {
+        Value::Str(Heap::new(Cow::Borrowed(s)))
     }
 
     /// Create a list value.
@@ -269,7 +286,7 @@ impl Value {
     ///
     /// This preserves backwards compatibility while ensuring deterministic iteration.
     #[inline]
-    pub fn map_from_hashmap(entries: HashMap<String, Value>) -> Self {
+    pub fn map_from_hashmap(entries: std::collections::HashMap<String, Value>) -> Self {
         Value::Map(Heap::new(entries.into_iter().collect()))
     }
 
@@ -1099,9 +1116,9 @@ mod tests {
     #[test]
     fn test_function_value() {
         use ori_ir::{ExprArena, ExprId, SharedArena};
-        use std::collections::HashMap;
+        use rustc_hash::FxHashMap;
         let arena = SharedArena::new(ExprArena::new());
-        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), arena);
+        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), arena);
         assert!(func.params.is_empty());
         assert!(!func.has_captures());
     }
@@ -1167,9 +1184,9 @@ mod tests {
         reason = "Value hash is based on immutable content"
     )]
     fn test_value_as_hashmap_key() {
-        use std::collections::HashMap;
+        use rustc_hash::FxHashMap;
 
-        let mut map: HashMap<Value, &str> = HashMap::new();
+        let mut map: FxHashMap<Value, &str> = FxHashMap::default();
         map.insert(Value::string("key1"), "value1");
         map.insert(Value::int(42), "value2");
 

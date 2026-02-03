@@ -1,5 +1,6 @@
 //! The `test` command: discover and run Ori spec tests, report results.
 
+use oric::ir::StringInterner;
 use oric::test::{CoverageReport, TestRunner, TestRunnerConfig, TestSummary};
 use oric::TestOutcome;
 use std::path::Path;
@@ -18,21 +19,21 @@ pub fn run_tests(path: &str, config: &TestRunnerConfig) {
     // Generate coverage report if requested
     if config.coverage {
         let report = runner.coverage_report(path);
-        print_coverage_report(&report);
+        print_coverage_report(&report, runner.interner());
         std::process::exit(i32::from(!report.is_complete()));
     }
 
     let summary = runner.run(path);
 
     // Print results
-    print_test_summary(&summary, config.verbose);
+    print_test_summary(&summary, runner.interner(), config.verbose);
 
     // Exit with appropriate code
     std::process::exit(summary.exit_code());
 }
 
 /// Print a coverage report showing which functions have tests.
-fn print_coverage_report(report: &CoverageReport) {
+fn print_coverage_report(report: &CoverageReport, interner: &StringInterner) {
     println!("Coverage Report");
     println!("===============");
     println!();
@@ -47,8 +48,13 @@ fn print_coverage_report(report: &CoverageReport) {
     if !covered.is_empty() {
         println!("Covered ({}):", covered.len());
         for func in covered {
-            let tests = func.test_names.join(", ");
-            println!("  @{} <- {}", func.name, tests);
+            let tests: Vec<_> = func
+                .test_names
+                .iter()
+                .map(|n| interner.lookup(*n))
+                .collect();
+            let func_name = func.name_str(interner);
+            println!("  @{} <- {}", func_name, tests.join(", "));
         }
         println!();
     }
@@ -58,7 +64,8 @@ fn print_coverage_report(report: &CoverageReport) {
     if !uncovered.is_empty() {
         println!("Uncovered ({}):", uncovered.len());
         for func in uncovered {
-            println!("  @{}", func.name);
+            let func_name = func.name_str(interner);
+            println!("  @{func_name}");
         }
         println!();
     }
@@ -79,7 +86,7 @@ fn print_coverage_report(report: &CoverageReport) {
 }
 
 /// Print a summary of test results, with optional verbose output.
-fn print_test_summary(summary: &TestSummary, verbose: bool) {
+fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose: bool) {
     // Print file-by-file results
     for file in &summary.files {
         if file.total() == 0 && file.errors.is_empty() {
@@ -100,20 +107,21 @@ fn print_test_summary(summary: &TestSummary, verbose: bool) {
         }
 
         for result in &file.results {
+            let name = result.name_str(interner);
             let status = match &result.outcome {
                 TestOutcome::Passed => {
                     if verbose {
-                        format!("  PASS: {} ({:.2?})", result.name, result.duration)
+                        format!("  PASS: {name} ({:.2?})", result.duration)
                     } else {
                         continue;
                     }
                 }
                 TestOutcome::Failed(msg) => {
-                    format!("  FAIL: {} - {}", result.name, msg)
+                    format!("  FAIL: {name} - {msg}")
                 }
                 TestOutcome::Skipped(reason) => {
                     if verbose {
-                        format!("  SKIP: {} - {}", result.name, reason)
+                        format!("  SKIP: {name} - {reason}")
                     } else {
                         continue;
                     }

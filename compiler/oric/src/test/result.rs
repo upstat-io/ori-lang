@@ -1,5 +1,6 @@
 //! Test result types.
 
+use ori_ir::{Name, StringInterner};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -31,10 +32,10 @@ impl TestOutcome {
 /// Result of running a single test.
 #[derive(Clone, Debug)]
 pub struct TestResult {
-    /// Name of the test.
-    pub name: String,
-    /// Functions being tested.
-    pub targets: Vec<String>,
+    /// Name of the test (interned).
+    pub name: Name,
+    /// Functions being tested (interned).
+    pub targets: Vec<Name>,
     /// Outcome of the test.
     pub outcome: TestOutcome,
     /// Time taken to run the test.
@@ -43,7 +44,7 @@ pub struct TestResult {
 
 impl TestResult {
     /// Create a passed test result.
-    pub fn passed(name: String, targets: Vec<String>, duration: Duration) -> Self {
+    pub fn passed(name: Name, targets: Vec<Name>, duration: Duration) -> Self {
         TestResult {
             name,
             targets,
@@ -53,7 +54,7 @@ impl TestResult {
     }
 
     /// Create a failed test result.
-    pub fn failed(name: String, targets: Vec<String>, error: String, duration: Duration) -> Self {
+    pub fn failed(name: Name, targets: Vec<Name>, error: String, duration: Duration) -> Self {
         TestResult {
             name,
             targets,
@@ -63,13 +64,23 @@ impl TestResult {
     }
 
     /// Create a skipped test result.
-    pub fn skipped(name: String, targets: Vec<String>, reason: String) -> Self {
+    pub fn skipped(name: Name, targets: Vec<Name>, reason: String) -> Self {
         TestResult {
             name,
             targets,
             outcome: TestOutcome::Skipped(reason),
             duration: Duration::ZERO,
         }
+    }
+
+    /// Get the test name as a string.
+    pub fn name_str<'a>(&self, interner: &'a StringInterner) -> &'a str {
+        interner.lookup(self.name)
+    }
+
+    /// Get the target names as strings.
+    pub fn targets_str<'a>(&self, interner: &'a StringInterner) -> Vec<&'a str> {
+        self.targets.iter().map(|t| interner.lookup(*t)).collect()
     }
 }
 
@@ -172,16 +183,21 @@ impl TestSummary {
 /// Coverage information for a single function.
 #[derive(Clone, Debug)]
 pub struct FunctionCoverage {
-    /// Function name.
-    pub name: String,
-    /// Names of tests targeting this function.
-    pub test_names: Vec<String>,
+    /// Function name (interned).
+    pub name: Name,
+    /// Names of tests targeting this function (interned).
+    pub test_names: Vec<Name>,
 }
 
 impl FunctionCoverage {
     /// Returns whether this function has tests.
     pub fn has_tests(&self) -> bool {
         !self.test_names.is_empty()
+    }
+
+    /// Get the function name as a string.
+    pub fn name_str<'a>(&self, interner: &'a StringInterner) -> &'a str {
+        interner.lookup(self.name)
     }
 }
 
@@ -204,7 +220,7 @@ impl CoverageReport {
     /// Add a function's coverage information.
     ///
     /// The `has_tests` status is derived from whether `test_names` is non-empty.
-    pub fn add_function(&mut self, name: String, test_names: Vec<String>) {
+    pub fn add_function(&mut self, name: Name, test_names: Vec<Name>) {
         let has_tests = !test_names.is_empty();
         if has_tests {
             self.covered += 1;
@@ -232,11 +248,20 @@ impl CoverageReport {
     }
 
     /// Get list of untested function names.
-    pub fn untested(&self) -> Vec<&str> {
+    pub fn untested(&self) -> Vec<Name> {
         self.functions
             .iter()
             .filter(|f| !f.has_tests())
-            .map(|f| f.name.as_str())
+            .map(|f| f.name)
+            .collect()
+    }
+
+    /// Get list of untested function names as strings.
+    pub fn untested_str<'a>(&self, interner: &'a StringInterner) -> Vec<&'a str> {
+        self.functions
+            .iter()
+            .filter(|f| !f.has_tests())
+            .map(|f| interner.lookup(f.name))
             .collect()
     }
 }
@@ -244,6 +269,10 @@ impl CoverageReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_interner() -> StringInterner {
+        StringInterner::new()
+    }
 
     #[test]
     fn test_outcome_predicates() {
@@ -255,19 +284,20 @@ mod tests {
 
     #[test]
     fn test_file_summary() {
+        let interner = test_interner();
+        let test1 = interner.intern("test1");
+        let test2 = interner.intern("test2");
+        let test3 = interner.intern("test3");
+
         let mut summary = FileSummary::new(PathBuf::from("test.ori"));
-        summary.add_result(TestResult::passed(
-            "test1".into(),
-            vec![],
-            Duration::from_millis(10),
-        ));
+        summary.add_result(TestResult::passed(test1, vec![], Duration::from_millis(10)));
         summary.add_result(TestResult::failed(
-            "test2".into(),
+            test2,
             vec![],
             "error".into(),
             Duration::from_millis(5),
         ));
-        summary.add_result(TestResult::skipped("test3".into(), vec![], "skip".into()));
+        summary.add_result(TestResult::skipped(test3, vec![], "skip".into()));
 
         assert_eq!(summary.passed, 1);
         assert_eq!(summary.failed, 1);
@@ -286,5 +316,36 @@ mod tests {
 
         summary.failed = 1;
         assert_eq!(summary.exit_code(), 1); // Failures
+    }
+
+    #[test]
+    fn test_result_name_lookup() {
+        let interner = test_interner();
+        let name = interner.intern("my_test");
+        let target = interner.intern("my_function");
+
+        let result = TestResult::passed(name, vec![target], Duration::from_millis(5));
+
+        assert_eq!(result.name_str(&interner), "my_test");
+        assert_eq!(result.targets_str(&interner), vec!["my_function"]);
+    }
+
+    #[test]
+    fn test_coverage_report() {
+        let interner = test_interner();
+        let func1 = interner.intern("func1");
+        let func2 = interner.intern("func2");
+        let test1 = interner.intern("test1");
+
+        let mut report = CoverageReport::new();
+        report.add_function(func1, vec![test1]); // covered
+        report.add_function(func2, vec![]); // not covered
+
+        assert_eq!(report.covered, 1);
+        assert_eq!(report.total, 2);
+        assert!((report.percentage() - 50.0).abs() < f64::EPSILON);
+        assert!(!report.is_complete());
+        assert_eq!(report.untested(), vec![func2]);
+        assert_eq!(report.untested_str(&interner), vec!["func2"]);
     }
 }

@@ -6,6 +6,7 @@ mod context;
 mod cursor;
 mod error;
 mod grammar;
+pub mod incremental;
 mod progress;
 mod recovery;
 mod scratch;
@@ -599,6 +600,250 @@ impl<'a> Parser<'a> {
     fn recover_to_function(&mut self) {
         recovery::synchronize(&mut self.cursor, recovery::FUNCTION_BOUNDARY);
     }
+
+    /// Parse a module with incremental reuse from a previous parse.
+    ///
+    /// This method attempts to reuse unchanged declarations from the old AST,
+    /// only re-parsing declarations that overlap with the text change.
+    fn parse_module_incremental(
+        mut self,
+        mut state: incremental::IncrementalState<'_>,
+        old_arena: &ExprArena,
+    ) -> ParseOutput {
+        use incremental::{AstCopier, DeclKind};
+
+        let mut module = Module::new();
+        let mut errors = Vec::new();
+
+        // Parse imports first - imports always get re-parsed since they affect resolution
+        // TODO: In the future, could optimize import reuse too
+        while !self.is_at_end() {
+            self.skip_newlines();
+            if self.is_at_end() {
+                break;
+            }
+
+            let is_pub_use =
+                self.check(&TokenKind::Pub) && matches!(self.peek_next_kind(), TokenKind::Use);
+
+            if self.check(&TokenKind::Use) || is_pub_use {
+                let visibility = if is_pub_use {
+                    self.advance();
+                    Visibility::Public
+                } else {
+                    Visibility::Private
+                };
+                let result = self.with_progress(|p| p.parse_use_inner(visibility));
+                self.handle_parse_result(
+                    result,
+                    &mut module.imports,
+                    &mut errors,
+                    Self::recover_to_next_statement,
+                );
+            } else {
+                break;
+            }
+        }
+
+        // Parse remaining declarations with potential reuse
+        while !self.is_at_end() {
+            self.skip_newlines();
+
+            if self.is_at_end() {
+                break;
+            }
+
+            let pos = self.current_span().start;
+
+            // Try to find a reusable declaration at this position
+            if let Some(decl_ref) = state.cursor.find_at(pos) {
+                // Check if this declaration is outside the change region
+                if !state.cursor.marker().intersects(decl_ref.span) {
+                    // Create a copier for adjusting spans
+                    let copier = AstCopier::new(old_arena, state.cursor.marker().clone());
+
+                    // Copy the declaration with adjusted spans
+                    match decl_ref.kind {
+                        DeclKind::Function => {
+                            let old_func = &state.cursor.module().functions[decl_ref.index];
+                            let new_func = copier.copy_function(old_func, &mut self.arena);
+                            module.functions.push(new_func);
+                        }
+                        DeclKind::Test => {
+                            let old_test = &state.cursor.module().tests[decl_ref.index];
+                            let new_test = copier.copy_test(old_test, &mut self.arena);
+                            module.tests.push(new_test);
+                        }
+                        DeclKind::Type => {
+                            let old_type = &state.cursor.module().types[decl_ref.index];
+                            let new_type = copier.copy_type_decl(old_type, &mut self.arena);
+                            module.types.push(new_type);
+                        }
+                        DeclKind::Trait => {
+                            let old_trait = &state.cursor.module().traits[decl_ref.index];
+                            let new_trait = copier.copy_trait(old_trait, &mut self.arena);
+                            module.traits.push(new_trait);
+                        }
+                        DeclKind::Impl => {
+                            let old_impl = &state.cursor.module().impls[decl_ref.index];
+                            let new_impl = copier.copy_impl(old_impl, &mut self.arena);
+                            module.impls.push(new_impl);
+                        }
+                        DeclKind::DefImpl => {
+                            let old_def_impl = &state.cursor.module().def_impls[decl_ref.index];
+                            let new_def_impl = copier.copy_def_impl(old_def_impl, &mut self.arena);
+                            module.def_impls.push(new_def_impl);
+                        }
+                        DeclKind::Extend => {
+                            let old_extend = &state.cursor.module().extends[decl_ref.index];
+                            let new_extend = copier.copy_extend(old_extend, &mut self.arena);
+                            module.extends.push(new_extend);
+                        }
+                        DeclKind::Config => {
+                            let old_config = &state.cursor.module().configs[decl_ref.index];
+                            let new_config = copier.copy_config(old_config, &mut self.arena);
+                            module.configs.push(new_config);
+                        }
+                        DeclKind::Import => {
+                            // Imports already handled above
+                            unreachable!("imports should not appear in declaration list");
+                        }
+                    }
+
+                    state.stats.reused_count += 1;
+
+                    // Skip tokens until we're past this declaration
+                    self.skip_to_span_end(decl_ref.span);
+                    continue;
+                }
+            }
+
+            // Cannot reuse: parse fresh
+            state.stats.reparsed_count += 1;
+
+            // Parse attributes
+            let attrs = self.parse_attributes(&mut errors);
+
+            // Check for pub modifier
+            let visibility = if self.check(&TokenKind::Pub) {
+                self.advance();
+                Visibility::Public
+            } else {
+                Visibility::Private
+            };
+
+            if self.check(&TokenKind::At) {
+                let result = self.parse_function_or_test_with_progress(attrs, visibility);
+                let made_progress = result.made_progress();
+                match result.into_result() {
+                    Ok(FunctionOrTest::Function(func)) => module.functions.push(func),
+                    Ok(FunctionOrTest::Test(test)) => module.tests.push(test),
+                    Err(e) => {
+                        if made_progress {
+                            self.recover_to_function();
+                        }
+                        errors.push(e);
+                    }
+                }
+            } else if self.check(&TokenKind::Trait) {
+                let result = self.parse_trait_with_progress(visibility);
+                self.handle_parse_result(
+                    result,
+                    &mut module.traits,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
+            } else if self.check(&TokenKind::Def)
+                && matches!(self.peek_next_kind(), TokenKind::Impl)
+            {
+                let result = self.parse_def_impl_with_progress(visibility);
+                self.handle_parse_result(
+                    result,
+                    &mut module.def_impls,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
+            } else if self.check(&TokenKind::Impl) {
+                let result = self.parse_impl_with_progress();
+                self.handle_parse_result(
+                    result,
+                    &mut module.impls,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
+            } else if self.check(&TokenKind::Extend) {
+                let result = self.parse_extend_with_progress();
+                self.handle_parse_result(
+                    result,
+                    &mut module.extends,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
+            } else if self.check(&TokenKind::Type) {
+                let result = self.parse_type_decl_with_progress(attrs, visibility);
+                self.handle_parse_result(
+                    result,
+                    &mut module.types,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
+            } else if self.check(&TokenKind::Dollar) {
+                let result = self.parse_config_with_progress(visibility);
+                self.handle_parse_result(
+                    result,
+                    &mut module.configs,
+                    &mut errors,
+                    Self::recover_to_function,
+                );
+            } else if self.check(&TokenKind::Use) {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "import statements must appear at the beginning of the file".to_string(),
+                    self.current_span(),
+                ));
+                self.advance();
+                while !self.is_at_end()
+                    && !self.check(&TokenKind::At)
+                    && !self.check(&TokenKind::Trait)
+                    && !self.check(&TokenKind::Impl)
+                    && !self.check(&TokenKind::Type)
+                    && !self.check(&TokenKind::Use)
+                {
+                    self.advance();
+                }
+            } else if !attrs.is_empty() {
+                errors.push(ParseError {
+                    code: ori_diagnostic::ErrorCode::E1006,
+                    message: "attributes must be followed by a function or test definition"
+                        .to_string(),
+                    span: self.current_span(),
+                    context: None,
+                    help: Vec::new(),
+                });
+                self.advance();
+            } else {
+                self.advance();
+            }
+        }
+
+        ParseOutput {
+            module,
+            arena: self.arena,
+            errors,
+        }
+    }
+
+    /// Skip tokens until we're past the given span end.
+    ///
+    /// Used during incremental parsing to skip over reused declarations.
+    fn skip_to_span_end(&mut self, span: Span) {
+        // Adjust the span end for the change delta to get the new end position
+        let adjusted_end = self.cursor.current_span().start.max(span.end);
+
+        while !self.is_at_end() && self.current_span().start < adjusted_end {
+            self.advance();
+        }
+    }
 }
 
 /// Output from parsing a module, containing the module, arena, and any errors.
@@ -619,4 +864,61 @@ impl ParseOutput {
 pub fn parse(tokens: &TokenList, interner: &StringInterner) -> ParseOutput {
     let parser = Parser::new(tokens, interner);
     parser.parse_module()
+}
+
+/// Parse tokens with incremental reuse from a previous parse result.
+///
+/// Uses the old AST to reuse unchanged declarations, only re-parsing
+/// those that overlap with the text change. This can provide significant
+/// speedups for IDE scenarios where only small edits are made.
+///
+/// # Arguments
+///
+/// * `tokens` - The new token list after the edit
+/// * `interner` - String interner (must be the same instance used for old result)
+/// * `old_result` - The previous parse result to reuse from
+/// * `change` - Description of the text change
+///
+/// # Returns
+///
+/// A new `ParseOutput` with reused declarations having adjusted spans.
+pub fn parse_incremental(
+    tokens: &TokenList,
+    interner: &StringInterner,
+    old_result: &ParseOutput,
+    change: ori_ir::incremental::TextChange,
+) -> ParseOutput {
+    use incremental::{IncrementalState, SyntaxCursor};
+    use ori_ir::incremental::ChangeMarker;
+
+    // Find the token before the change for lookahead safety
+    let prev_token_end = find_token_end_before(tokens, change.start);
+
+    // Create the change marker with extended region
+    let marker = ChangeMarker::from_change(&change, prev_token_end);
+
+    // Create syntax cursor for navigating old AST
+    let cursor = SyntaxCursor::new(&old_result.module, &old_result.arena, marker);
+
+    // Create incremental state
+    let state = IncrementalState::new(cursor);
+
+    // Parse with incremental reuse
+    let parser = Parser::new(tokens, interner);
+    parser.parse_module_incremental(state, &old_result.arena)
+}
+
+/// Find the end position of the token that ends before `pos`.
+///
+/// This is used to determine how far back to extend the change region
+/// for lookahead safety. Returns 0 if no token ends before `pos`.
+fn find_token_end_before(tokens: &TokenList, pos: u32) -> u32 {
+    let mut prev_end = 0u32;
+    for token in tokens.iter() {
+        if token.span.start >= pos {
+            break;
+        }
+        prev_end = token.span.end;
+    }
+    prev_end
 }

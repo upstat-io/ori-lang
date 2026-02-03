@@ -3,7 +3,8 @@
 //! Tracks import relationships between source files to determine
 //! what needs recompilation when a file changes.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use super::hash::ContentHash;
@@ -23,9 +24,9 @@ pub struct DependencyNode {
 #[derive(Debug, Default)]
 pub struct DependencyGraph {
     /// Map from file path to its dependency node.
-    nodes: HashMap<PathBuf, DependencyNode>,
+    nodes: FxHashMap<PathBuf, DependencyNode>,
     /// Reverse dependency map: file -> files that import it.
-    dependents: HashMap<PathBuf, HashSet<PathBuf>>,
+    dependents: FxHashMap<PathBuf, FxHashSet<PathBuf>>,
 }
 
 impl DependencyGraph {
@@ -48,7 +49,7 @@ impl DependencyGraph {
         // Remove old imports from reverse map if updating
         // Use HashSet for O(1) lookup instead of O(n) Vec::contains
         if let Some(old_node) = self.nodes.get(&path) {
-            let imports_set: HashSet<&PathBuf> = imports.iter().collect();
+            let imports_set: FxHashSet<&PathBuf> = imports.iter().collect();
             for old_import in &old_node.imports {
                 if !imports_set.contains(old_import) {
                     if let Some(deps) = self.dependents.get_mut(old_import) {
@@ -90,7 +91,7 @@ impl DependencyGraph {
 
     /// Get files that directly depend on the given file.
     #[must_use]
-    pub fn get_dependents(&self, path: &Path) -> Option<&HashSet<PathBuf>> {
+    pub fn get_dependents(&self, path: &Path) -> Option<&FxHashSet<PathBuf>> {
         self.dependents.get(path)
     }
 
@@ -127,9 +128,9 @@ impl DependencyGraph {
     ///
     /// Returns all files that this file depends on, directly or indirectly.
     #[must_use]
-    pub fn transitive_dependencies(&self, path: &Path) -> HashSet<PathBuf> {
+    pub fn transitive_dependencies(&self, path: &Path) -> FxHashSet<PathBuf> {
         // Use references internally to avoid cloning during traversal
-        let mut visited: HashSet<&PathBuf> = HashSet::new();
+        let mut visited: FxHashSet<&PathBuf> = FxHashSet::default();
         let mut queue: VecDeque<&PathBuf> = VecDeque::new();
 
         if let Some(node) = self.nodes.get(path) {
@@ -158,9 +159,9 @@ impl DependencyGraph {
     ///
     /// Returns all files that depend on this file, directly or indirectly.
     #[must_use]
-    pub fn transitive_dependents(&self, path: &Path) -> HashSet<PathBuf> {
+    pub fn transitive_dependents(&self, path: &Path) -> FxHashSet<PathBuf> {
         // Use references internally to avoid cloning during traversal
-        let mut visited: HashSet<&PathBuf> = HashSet::new();
+        let mut visited: FxHashSet<&PathBuf> = FxHashSet::default();
         let mut queue: VecDeque<&PathBuf> = VecDeque::new();
 
         if let Some(deps) = self.dependents.get(path) {
@@ -194,7 +195,7 @@ impl DependencyGraph {
     /// in-degree. This ensures consistent compilation order across runs.
     pub fn topological_order(&self) -> Option<Vec<PathBuf>> {
         // Count how many dependencies each node has (in-degree in dependency graph)
-        let mut in_degree: HashMap<&PathBuf, usize> = HashMap::new();
+        let mut in_degree: FxHashMap<&PathBuf, usize> = FxHashMap::default();
         let mut result = Vec::new();
         let mut queue = VecDeque::new();
 
@@ -257,8 +258,8 @@ impl DependencyGraph {
     ///
     /// Returns all changed files plus all their transitive dependents.
     #[must_use]
-    pub fn files_to_recompile(&self, changed: &[PathBuf]) -> HashSet<PathBuf> {
-        let mut result = HashSet::new();
+    pub fn files_to_recompile(&self, changed: &[PathBuf]) -> FxHashSet<PathBuf> {
+        let mut result = FxHashSet::default();
 
         for path in changed {
             result.insert(path.clone());
@@ -311,7 +312,7 @@ impl DependencyTracker {
 
     /// Compute files that need recompilation.
     #[must_use]
-    pub fn needs_recompilation(&self, changed: &[PathBuf]) -> HashSet<PathBuf> {
+    pub fn needs_recompilation(&self, changed: &[PathBuf]) -> FxHashSet<PathBuf> {
         self.graph.files_to_recompile(changed)
     }
 

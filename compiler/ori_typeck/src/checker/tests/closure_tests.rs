@@ -17,8 +17,8 @@ fn test_closure_self_capture_direct() {
     assert!(typed
         .errors
         .iter()
-        .any(|e| e.message.contains("closure cannot capture itself")
-            && e.code == ori_diagnostic::ErrorCode::E2007));
+        .any(|e| e.message().contains("closure cannot capture itself")
+            && e.code() == ori_diagnostic::ErrorCode::E2007));
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn test_closure_self_capture_call() {
     assert!(typed
         .errors
         .iter()
-        .any(|e| e.message.contains("closure cannot capture itself")));
+        .any(|e| e.message().contains("closure cannot capture itself")));
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn test_no_self_capture_uses_outer_binding() {
     assert!(!typed
         .errors
         .iter()
-        .any(|e| e.code == ori_diagnostic::ErrorCode::E2007));
+        .any(|e| e.code() == ori_diagnostic::ErrorCode::E2007));
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn test_closure_self_capture_in_run() {
     assert!(typed
         .errors
         .iter()
-        .any(|e| e.message.contains("closure cannot capture itself")));
+        .any(|e| e.message().contains("closure cannot capture itself")));
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn test_closure_self_capture_nested_expression() {
     assert!(typed
         .errors
         .iter()
-        .any(|e| e.message.contains("closure cannot capture itself")));
+        .any(|e| e.message().contains("closure cannot capture itself")));
 }
 
 #[test]
@@ -122,5 +122,5 @@ fn test_valid_mutual_recursion_via_outer_scope() {
     assert!(!typed
         .errors
         .iter()
-        .any(|e| e.code == ori_diagnostic::ErrorCode::E2007));
+        .any(|e| e.code() == ori_diagnostic::ErrorCode::E2007));
 }

@@ -81,6 +81,7 @@ use ori_ir::{
     ArmRange, BinaryOp, BindingPattern, ExprArena, ExprId, ExprKind, Name, SharedArena, StmtKind,
     StringInterner, UnaryOp,
 };
+use rustc_hash::FxHashMap;
 
 /// Pre-interned type names for hot-path method dispatch.
 ///
@@ -569,7 +570,8 @@ impl<'a> Interpreter<'a> {
             // Struct literal
             ExprKind::Struct { name, fields } => {
                 let field_list = self.arena.get_field_inits(*fields);
-                let mut field_values = std::collections::HashMap::with_capacity(field_list.len());
+                let mut field_values: FxHashMap<Name, Value> = FxHashMap::default();
+                field_values.reserve(field_list.len());
                 for field in field_list {
                     let value = if let Some(v) = field.value {
                         self.eval(v)?

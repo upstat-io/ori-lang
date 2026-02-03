@@ -3,11 +3,22 @@
 //! Provides traversal traits for both the boxed `Type` representation and
 //! the interned `TypeId` representation:
 //!
-//! - `TypeFolder` / `TypeVisitor`: Work with boxed `Type` (legacy)
-//! - `TypeIdFolder` / `TypeIdVisitor`: Work with interned `TypeId` (preferred)
+//! - `TypeFolder` / `TypeVisitor`: Work with boxed `Type`
+//! - `TypeIdFolder` / `TypeIdVisitor`: Work with interned `TypeId`
 //!
-//! The `TypeId` variants should be preferred for new code as they enable
-//! O(1) equality comparisons and better cache locality.
+//! # When to Use Each
+//!
+//! **Use `TypeFolder`/`TypeVisitor`** when:
+//! - Building up types during inference (before interning)
+//! - Working without access to a `TypeInterner`
+//! - Code clarity is more important than O(1) equality
+//! - The types will be interned later
+//!
+//! **Use `TypeIdFolder`/`TypeIdVisitor`** when:
+//! - Working with final, interned types
+//! - O(1) equality comparisons are needed
+//! - Memory efficiency and cache locality matter
+//! - You have access to a `TypeInterner`
 
 use crate::core::Type;
 use crate::data::{TypeData, TypeVar};

@@ -4,6 +4,8 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+
+use rustc_hash::FxHashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[expect(
     clippy::disallowed_types,
@@ -67,7 +69,7 @@ pub struct CompilationPlan {
     /// Completed items.
     completed: HashSet<PathBuf>,
     /// Reverse index: dep path -> items that depend on it (for O(1) lookup on completion).
-    dependents: std::collections::HashMap<PathBuf, Vec<usize>>,
+    dependents: FxHashMap<PathBuf, Vec<usize>>,
     /// Count of unsatisfied dependencies per item.
     unsatisfied_deps: Vec<usize>,
 }

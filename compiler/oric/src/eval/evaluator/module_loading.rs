@@ -145,8 +145,9 @@ impl Evaluator<'_> {
         register_newtype_constructors(&parse_result.module, self.env_mut());
 
         // Build up user method registry from impl and extend blocks
+        // Wrap captures in Arc once for efficient sharing across all collect_* calls
         let mut user_methods = UserMethodRegistry::new();
-        let captures = self.env().capture();
+        let captures = std::sync::Arc::new(self.env().capture());
         collect_impl_methods(
             &parse_result.module,
             &shared_arena,

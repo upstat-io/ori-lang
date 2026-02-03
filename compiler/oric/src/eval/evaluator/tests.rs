@@ -15,7 +15,7 @@ use crate::ir::ast::{Expr, ExprKind};
 use crate::ir::{BinaryOp, ExprArena, SharedArena, SharedInterner, Span};
 use ori_eval::SharedMutableRegistry;
 use ori_eval::{UserMethod, UserMethodRegistry};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 #[test]
@@ -68,7 +68,7 @@ fn test_user_method_dispatch() {
     let user_method = UserMethod::new(
         vec![self_name],
         body,
-        Arc::new(HashMap::new()),
+        Arc::new(FxHashMap::default()),
         shared_arena,
     );
     let mut registry = UserMethodRegistry::new();
@@ -82,7 +82,7 @@ fn test_user_method_dispatch() {
         .build();
 
     // Create a struct value with x = 5
-    let mut fields = HashMap::new();
+    let mut fields = FxHashMap::default();
     fields.insert(x_name, Value::int(5));
     let point = Value::Struct(StructValue::new(point_name, fields));
 
@@ -119,7 +119,7 @@ fn test_user_method_with_self_access() {
     let user_method = UserMethod::new(
         vec![self_name],
         body,
-        Arc::new(HashMap::new()),
+        Arc::new(FxHashMap::default()),
         shared_arena,
     );
     let mut registry = UserMethodRegistry::new();
@@ -133,7 +133,7 @@ fn test_user_method_with_self_access() {
         .build();
 
     // Create a struct value with x = 7
-    let mut fields = HashMap::new();
+    let mut fields = FxHashMap::default();
     fields.insert(x_name, Value::int(7));
     let point = Value::Struct(StructValue::new(point_name, fields));
 
@@ -182,7 +182,7 @@ fn test_user_method_with_args() {
     let user_method = UserMethod::new(
         vec![self_name, n_name],
         body,
-        Arc::new(HashMap::new()),
+        Arc::new(FxHashMap::default()),
         shared_arena,
     );
     let mut registry = UserMethodRegistry::new();
@@ -196,7 +196,7 @@ fn test_user_method_with_args() {
         .build();
 
     // Create a struct value with x = 10
-    let mut fields = HashMap::new();
+    let mut fields = FxHashMap::default();
     fields.insert(x_name, Value::int(10));
     let point = Value::Struct(StructValue::new(point_name, fields));
 

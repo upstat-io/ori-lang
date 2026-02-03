@@ -90,7 +90,7 @@ pub fn is_bool(value: &Value, expected: bool) -> bool {
 /// Check if a value is a string with the expected value.
 pub fn is_str(value: &Value, expected: &str) -> bool {
     match value {
-        Value::Str(s) => s.as_str() == expected,
+        Value::Str(s) => **s == *expected,
         _ => false,
     }
 }

@@ -1,6 +1,6 @@
 //! Tests for complex control flow scenarios: nested conditionals, loops, blocks.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use inkwell::context::Context;
 use ori_ir::ast::patterns::BindingPattern;
@@ -32,7 +32,7 @@ fn test_if_no_else_void_result() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::BOOL, TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     // No else branch with void result
     let result = builder.compile_if(
@@ -68,7 +68,7 @@ fn test_loop_terminates_without_body_terminator() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::VOID];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_loop(
         break_expr,
@@ -100,7 +100,7 @@ fn test_loop_with_non_void_result() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::VOID];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_loop(
         break_expr,
@@ -126,7 +126,7 @@ fn test_break_without_loop_context() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     // Break without loop context should return None
     let result = builder.compile_break(
@@ -155,7 +155,7 @@ fn test_continue_without_loop_context() {
 
     let arena = ExprArena::new();
     let expr_types: Vec<ori_ir::TypeId> = vec![];
-    let mut locals = std::collections::HashMap::new();
+    let mut locals = rustc_hash::FxHashMap::default();
 
     // Continue without loop context should return None
     let result = builder.compile_continue(None, &arena, &expr_types, &mut locals, function, None);
@@ -231,7 +231,7 @@ fn test_block_with_multiple_statements() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT; 10];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_block(
         stmt_range,
@@ -266,7 +266,7 @@ fn test_block_with_empty_statements() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_block(
         empty_stmts,
@@ -314,7 +314,7 @@ fn test_block_with_statement_expr() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT; 5];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_block(
         stmt_range,
@@ -357,7 +357,7 @@ fn test_block_no_result() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_block(
         stmt_range,
@@ -396,7 +396,7 @@ fn test_assign_to_variable() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT, TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_assign(
         target,
@@ -438,7 +438,7 @@ fn test_assign_non_ident_target() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT, TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_assign(
         target,
@@ -506,7 +506,7 @@ fn test_nested_if_else() {
         TypeId::BOOL,
         TypeId::INT,
     ];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_if(
         outer_cond,

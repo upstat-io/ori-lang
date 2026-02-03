@@ -220,13 +220,10 @@ impl TypeChecker<'_> {
 
             // Register impl, checking for coherence violations
             if let Err(coherence_err) = self.registries.traits.register_impl(entry) {
-                self.push_error(
-                    format!(
-                        "{} (previous impl at {:?})",
-                        coherence_err.message, coherence_err.existing_span
-                    ),
+                self.error_coherence_violation(
                     coherence_err.span,
-                    ori_diagnostic::ErrorCode::E2010,
+                    coherence_err.message,
+                    coherence_err.existing_span,
                 );
             }
         }
@@ -270,13 +267,7 @@ impl TypeChecker<'_> {
                 let trait_name_str = self.context.interner.lookup(trait_name);
                 let assoc_name_str = self.context.interner.lookup(required_at.name);
                 let type_name = self_ty.display(self.context.interner);
-                self.push_error(
-                    format!(
-                        "impl of `{trait_name_str}` for `{type_name}` missing associated type `{assoc_name_str}`"
-                    ),
-                    span,
-                    ori_diagnostic::ErrorCode::E2018,
-                );
+                self.error_missing_assoc_type(span, trait_name_str, type_name, assoc_name_str);
             }
         }
     }
@@ -328,26 +319,14 @@ impl TypeChecker<'_> {
                 // No default provided and not enough args - error
                 let trait_name_str = self.context.interner.lookup(trait_name);
                 let param_name_str = self.context.interner.lookup(trait_entry.type_params[i]);
-                self.push_error(
-                    format!(
-                        "impl of `{trait_name_str}` is missing type argument `{param_name_str}` which has no default"
-                    ),
-                    span,
-                    ori_diagnostic::ErrorCode::E2016,
-                );
+                self.error_missing_type_arg(span, trait_name_str, param_name_str);
             }
         }
 
         // Too many args provided
         if provided_count > required_params {
             let trait_name_str = self.context.interner.lookup(trait_name);
-            self.push_error(
-                format!(
-                    "too many type arguments for `{trait_name_str}`: expected {required_params}, found {provided_count}"
-                ),
-                span,
-                ori_diagnostic::ErrorCode::E2017,
-            );
+            self.error_too_many_type_args(span, trait_name_str, required_params, provided_count);
         }
 
         result
@@ -496,13 +475,7 @@ impl TypeChecker<'_> {
                     || "unknown".to_string(),
                     |n| self.context.interner.lookup(n).to_string(),
                 );
-                self.push_error(
-                    format!(
-                        "type parameter `{non_default_name}` without default must appear before type parameter `{default_name}` with default"
-                    ),
-                    span,
-                    ori_diagnostic::ErrorCode::E2015,
-                );
+                self.error_type_param_ordering(span, non_default_name, default_name);
             }
         }
     }
@@ -520,11 +493,7 @@ impl TypeChecker<'_> {
             // Validate that the trait exists
             if !self.registries.traits.has_trait(trait_name) {
                 let trait_name_str = self.context.interner.lookup(trait_name);
-                self.push_error(
-                    format!("trait `{trait_name_str}` not found for def impl"),
-                    def_impl.span,
-                    ori_diagnostic::ErrorCode::E2003,
-                );
+                self.error_trait_not_found(def_impl.span, trait_name_str);
                 continue;
             }
 
@@ -565,13 +534,10 @@ impl TypeChecker<'_> {
             // Register the def impl
             if let Err(coherence_err) = self.registries.traits.register_def_impl(trait_name, entry)
             {
-                self.push_error(
-                    format!(
-                        "{} (previous def impl at {:?})",
-                        coherence_err.message, coherence_err.existing_span
-                    ),
+                self.error_coherence_violation(
                     coherence_err.span,
-                    ori_diagnostic::ErrorCode::E2010,
+                    coherence_err.message,
+                    coherence_err.existing_span,
                 );
             }
         }

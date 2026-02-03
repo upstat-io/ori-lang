@@ -3,9 +3,8 @@
 //! This provides a JIT-based evaluator that compiles Ori code to LLVM IR
 //! and executes it natively, as an alternative to the tree-walking interpreter.
 
-use std::collections::HashMap;
-
 use inkwell::context::Context;
+use rustc_hash::FxHashMap;
 
 use ori_ir::ast::{Module, TypeDeclKind, Visibility};
 use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
@@ -58,7 +57,7 @@ pub struct LLVMEvaluator<'ctx> {
     context: &'ctx Context,
     interner: &'ctx StringInterner,
     /// Compiled functions by name
-    functions: HashMap<Name, CompiledFunction>,
+    functions: FxHashMap<Name, CompiledFunction>,
     /// Type information for expressions
     expr_types: Vec<TypeId>,
 }
@@ -81,7 +80,7 @@ impl<'ctx> LLVMEvaluator<'ctx> {
         LLVMEvaluator {
             context,
             interner,
-            functions: HashMap::new(),
+            functions: FxHashMap::default(),
             expr_types: Vec::new(),
         }
     }
@@ -242,7 +241,7 @@ pub struct FunctionSig {
 pub struct OwnedLLVMEvaluator {
     context: Context,
     /// Compiled functions by name
-    functions: HashMap<Name, CompiledFunction>,
+    functions: FxHashMap<Name, CompiledFunction>,
 }
 
 impl OwnedLLVMEvaluator {
@@ -251,7 +250,7 @@ impl OwnedLLVMEvaluator {
     pub fn new() -> Self {
         OwnedLLVMEvaluator {
             context: Context::create(),
-            functions: HashMap::new(),
+            functions: FxHashMap::default(),
         }
     }
 

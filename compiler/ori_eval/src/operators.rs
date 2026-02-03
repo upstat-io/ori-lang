@@ -181,19 +181,19 @@ fn eval_bool_binary(a: bool, b: bool, op: BinaryOp) -> EvalResult {
 }
 
 /// Binary operations on strings.
-fn eval_string_binary(a: &Heap<String>, b: &Heap<String>, op: BinaryOp) -> EvalResult {
+fn eval_string_binary(a: &str, b: &str, op: BinaryOp) -> EvalResult {
     match op {
         BinaryOp::Add => {
-            let result = format!("{}{}", &**a, &**b);
+            let result = format!("{a}{b}");
             Ok(Value::string(result))
         }
-        BinaryOp::Eq => Ok(Value::Bool(**a == **b)),
-        BinaryOp::NotEq => Ok(Value::Bool(**a != **b)),
+        BinaryOp::Eq => Ok(Value::Bool(a == b)),
+        BinaryOp::NotEq => Ok(Value::Bool(a != b)),
         // Lexicographic comparison
-        BinaryOp::Lt => Ok(Value::Bool(**a < **b)),
-        BinaryOp::LtEq => Ok(Value::Bool(**a <= **b)),
-        BinaryOp::Gt => Ok(Value::Bool(**a > **b)),
-        BinaryOp::GtEq => Ok(Value::Bool(**a >= **b)),
+        BinaryOp::Lt => Ok(Value::Bool(a < b)),
+        BinaryOp::LtEq => Ok(Value::Bool(a <= b)),
+        BinaryOp::Gt => Ok(Value::Bool(a > b)),
+        BinaryOp::GtEq => Ok(Value::Bool(a >= b)),
         _ => Err(invalid_binary_op_for("strings", op)),
     }
 }

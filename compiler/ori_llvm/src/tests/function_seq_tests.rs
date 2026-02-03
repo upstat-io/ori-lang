@@ -1,6 +1,6 @@
 //! Tests for `FunctionSeq` patterns (run, try, match).
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use inkwell::context::Context;
 use ori_ir::ast::patterns::{BindingPattern, FunctionSeq, MatchArm, MatchPattern, SeqBinding};
@@ -34,7 +34,7 @@ fn test_function_seq_run_empty_bindings() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_function_seq(
         &run_seq,
@@ -89,7 +89,7 @@ fn test_function_seq_run_with_let_binding() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT, TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_function_seq(
         &run_seq,
@@ -141,7 +141,7 @@ fn test_function_seq_run_with_stmt() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT, TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_function_seq(
         &run_seq,
@@ -180,7 +180,7 @@ fn test_function_seq_try_empty_bindings() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_function_seq(
         &try_seq,
@@ -235,7 +235,7 @@ fn test_function_seq_try_with_let_binding() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT, TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_function_seq(
         &try_seq,
@@ -287,7 +287,7 @@ fn test_function_seq_match() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT, TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_function_seq(
         &match_seq,
@@ -361,7 +361,7 @@ fn test_function_seq_for_pattern_basic() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT; 10];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_function_seq(
         &for_seq,
@@ -431,7 +431,7 @@ fn test_function_seq_for_pattern_with_map() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT; 10];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_function_seq(
         &for_seq,
@@ -462,7 +462,7 @@ fn test_bind_pattern_name() {
     let pattern = BindingPattern::Name(x_name);
     let value = cx.scx.type_i64().const_int(42, false).into();
 
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
     builder.bind_pattern(&pattern, value, &mut locals);
 
     assert!(locals.contains_key(&x_name), "x should be bound");
@@ -489,7 +489,7 @@ fn test_bind_pattern_wildcard() {
     let pattern = BindingPattern::Wildcard;
     let value = cx.scx.type_i64().const_int(42, false).into();
 
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
     builder.bind_pattern(&pattern, value, &mut locals);
 
     assert!(locals.is_empty(), "Wildcard should not bind anything");

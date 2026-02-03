@@ -1,9 +1,8 @@
 //! Function body compilation.
 
-use std::collections::HashMap;
-
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprId, Name, TypeId};
+use rustc_hash::FxHashMap;
 use tracing::instrument;
 
 use crate::builder::Builder;
@@ -43,7 +42,7 @@ impl<'ll> Builder<'_, 'll, '_> {
             function,
         } = *config;
         // Build parameter map
-        let mut locals: HashMap<Name, BasicValueEnum<'ll>> = HashMap::new();
+        let mut locals: FxHashMap<Name, BasicValueEnum<'ll>> = FxHashMap::default();
 
         // Verify parameter count matches (debug assertion for internal consistency)
         debug_assert_eq!(

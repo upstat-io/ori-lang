@@ -94,7 +94,7 @@ pub fn dispatch_string_method(
         "compare" => {
             require_args("compare", 1, args.len())?;
             let other = require_str_arg("compare", &args, 0)?;
-            Ok(ordering_to_value(s.as_str().cmp(other), interner))
+            Ok(ordering_to_value((**s).cmp(other), interner))
         }
         _ => Err(no_such_method(method, "str")),
     }

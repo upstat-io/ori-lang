@@ -30,7 +30,8 @@ use crate::eval::{Environment, FunctionValue, Mutability, Value};
 use crate::input::SourceFile;
 use crate::ir::{ImportPath, Name, SharedArena, StringInterner};
 use crate::parser::ParseOutput;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use rustc_hash::FxHashMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -468,7 +469,7 @@ impl<'a> ImportedModule<'a> {
             let func_value = FunctionValue::with_capabilities(
                 params,
                 func.body,
-                HashMap::new(),
+                FxHashMap::default(),
                 imported_arena.clone(),
                 capabilities,
             );
@@ -521,8 +522,8 @@ pub fn register_imports(
     let allow_private_access =
         is_test_module(current_file) && is_parent_module_import(current_file, import_path);
 
-    // Build HashMap for O(1) function lookup instead of O(n) linear scan
-    let func_by_name: HashMap<&str, &crate::ir::Function> = imported
+    // Build FxHashMap for O(1) function lookup instead of O(n) linear scan
+    let func_by_name: FxHashMap<&str, &crate::ir::Function> = imported
         .result
         .module
         .functions
@@ -605,8 +606,8 @@ fn register_module_alias(
     let mut namespace: BTreeMap<Name, Value> = BTreeMap::new();
 
     // Clone captures once and wrap in Arc for sharing across all functions
-    // Convert BTreeMap to HashMap (FunctionValue expects HashMap for captures)
-    let shared_captures: Arc<HashMap<Name, Value>> = Arc::new(
+    // Convert BTreeMap to FxHashMap (FunctionValue expects FxHashMap for captures)
+    let shared_captures: Arc<FxHashMap<Name, Value>> = Arc::new(
         imported
             .functions
             .iter()

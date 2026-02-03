@@ -36,10 +36,7 @@ pub fn eval_literal(kind: &ExprKind, interner: &StringInterner) -> Option<EvalRe
         ExprKind::Int(n) => Some(Ok(Value::int(*n))),
         ExprKind::Float(bits) => Some(Ok(Value::Float(f64::from_bits(*bits)))),
         ExprKind::Bool(b) => Some(Ok(Value::Bool(*b))),
-        ExprKind::String(s) => {
-            let string = interner.lookup(*s).to_string();
-            Some(Ok(Value::string(string)))
-        }
+        ExprKind::String(s) => Some(Ok(Value::string_static(interner.lookup_static(*s)))),
         ExprKind::Char(c) => Some(Ok(Value::Char(*c))),
         ExprKind::Unit => Some(Ok(Value::Void)),
         ExprKind::Duration { value, unit } => Some(Ok(Value::Duration(unit.to_nanos(*value)))),
@@ -229,7 +226,7 @@ pub fn eval_index(value: Value, index: Value) -> EvalResult {
                 .ok_or_else(|| index_out_of_bounds(raw))
         }
         (Value::Map(map), Value::Str(key)) => map
-            .get(key.as_str())
+            .get(&**key) // Deref Heap<Cow> to &str
             .cloned()
             .ok_or_else(|| key_not_found(&key)),
         (value, index) => Err(cannot_index(value.type_name(), index.type_name())),

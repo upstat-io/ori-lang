@@ -16,10 +16,9 @@
 //!
 //! `CompileCtx` is available for users who prefer bundled parameters.
 
-use std::collections::HashMap;
-
 use inkwell::values::BasicValueEnum;
 use ori_ir::{ExprArena, Name, TypeId};
+use rustc_hash::FxHashMap;
 
 use crate::LoopContext;
 
@@ -37,17 +36,18 @@ pub struct CompileCtx<'a, 'll> {
     /// Type of each expression (indexed by `ExprId`).
     pub expr_types: &'a [TypeId],
     /// Local variable bindings (mutable for let bindings).
-    pub locals: &'a mut HashMap<Name, BasicValueEnum<'ll>>,
+    pub locals: &'a mut FxHashMap<Name, BasicValueEnum<'ll>>,
     /// Current loop context for break/continue (if inside a loop).
     pub loop_ctx: Option<&'a LoopContext<'ll>>,
 }
 
 impl<'a, 'll> CompileCtx<'a, 'll> {
     /// Create a new compilation context.
+    #[inline]
     pub fn new(
         arena: &'a ExprArena,
         expr_types: &'a [TypeId],
-        locals: &'a mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &'a mut FxHashMap<Name, BasicValueEnum<'ll>>,
         loop_ctx: Option<&'a LoopContext<'ll>>,
     ) -> Self {
         Self {
@@ -59,10 +59,11 @@ impl<'a, 'll> CompileCtx<'a, 'll> {
     }
 
     /// Create a context without loop context (for initial compilation).
+    #[inline]
     pub fn without_loop(
         arena: &'a ExprArena,
         expr_types: &'a [TypeId],
-        locals: &'a mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &'a mut FxHashMap<Name, BasicValueEnum<'ll>>,
     ) -> Self {
         Self {
             arena,
@@ -75,6 +76,7 @@ impl<'a, 'll> CompileCtx<'a, 'll> {
     /// Reborrow the context with a different loop context.
     ///
     /// This is useful when entering/exiting loops.
+    #[inline]
     pub fn with_loop_ctx<'b>(
         &'b mut self,
         loop_ctx: Option<&'b LoopContext<'ll>>,
@@ -94,6 +96,7 @@ impl<'a, 'll> CompileCtx<'a, 'll> {
     ///
     /// Use this when you need to pass the context to a nested call
     /// without consuming the original reference.
+    #[inline]
     pub fn reborrow<'b>(&'b mut self) -> CompileCtx<'b, 'll>
     where
         'a: 'b,

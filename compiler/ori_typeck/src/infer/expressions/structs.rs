@@ -9,7 +9,6 @@ use crate::suggest::{suggest_field, suggest_type};
 use ori_ir::{FieldInitRange, Name, Span};
 use ori_types::Type;
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write;
 
 /// Result of looking up a struct field.
 pub(super) enum FieldLookupResult {
@@ -69,11 +68,8 @@ pub(super) fn handle_struct_field_access(
     let lookup_result = {
         let Some(entry) = checker.registries.types.get_by_name(type_name) else {
             let type_name_str = checker.context.interner.lookup(type_name);
-            let mut msg = format!("unknown type `{type_name_str}`");
-            if let Some(suggestion) = suggest_type(checker, type_name) {
-                let _ = write!(msg, "; try using `{suggestion}`");
-            }
-            checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2003);
+            let suggestion = suggest_type(checker, type_name);
+            checker.error_unknown_struct(span, type_name_str, suggestion);
             return Type::Error;
         };
         lookup_struct_field_in_entry(entry, field, type_args, &checker.registries.types)
@@ -82,26 +78,21 @@ pub(super) fn handle_struct_field_access(
     match lookup_result {
         FieldLookupResult::Found(ty) => ty,
         FieldLookupResult::NoSuchField => {
-            let mut msg = format!(
-                "struct `{}` has no field `{}`",
-                checker.context.interner.lookup(type_name),
-                checker.context.interner.lookup(field)
-            );
-            if let Some(suggestion) = suggest_field(checker, type_name, field) {
-                let _ = write!(msg, "; try using `{suggestion}`");
-            }
-            checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2001);
+            let type_name_str = checker.context.interner.lookup(type_name);
+            let field_name_str = checker.context.interner.lookup(field);
+            let suggestion = suggest_field(checker, type_name, field);
+            checker.error_no_such_field(span, type_name_str, field_name_str, suggestion);
             Type::Error
         }
         FieldLookupResult::NotStruct => {
-            checker.push_error(
-                format!(
-                    "cannot access field `{}` on non-struct type `{}`",
-                    checker.context.interner.lookup(field),
-                    checker.context.interner.lookup(type_name)
-                ),
+            let type_name_str = checker.context.interner.lookup(type_name);
+            let field_name_str = checker.context.interner.lookup(field);
+            checker.error_field_access_not_supported(
                 span,
-                ori_diagnostic::ErrorCode::E2001,
+                type_name_str,
+                Some(format!(
+                    "cannot access field `{field_name_str}` on non-struct type"
+                )),
             );
             Type::Error
         }
@@ -121,11 +112,8 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
             };
 
             let name_str = checker.context.interner.lookup(name);
-            let mut msg = format!("unknown struct type `{name_str}`");
-            if let Some(suggestion) = suggest_type(checker, name) {
-                let _ = write!(msg, "; try using `{suggestion}`");
-            }
-            checker.push_error(msg, span, ori_diagnostic::ErrorCode::E2003);
+            let suggestion = suggest_type(checker, name);
+            checker.error_unknown_struct(span, name_str, suggestion);
 
             for init in field_inits {
                 if let Some(value_id) = init.value {
@@ -153,14 +141,8 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
                 ori_ir::Span::new(0, 0)
             };
 
-            checker.push_error(
-                format!(
-                    "`{}` is not a struct type",
-                    checker.context.interner.lookup(name)
-                ),
-                span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            let name_str = checker.context.interner.lookup(name);
+            checker.error_not_a_struct(span, name_str);
             return Type::Error;
         };
 
@@ -201,14 +183,8 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
 
     for init in field_inits {
         if !provided_fields.insert(init.name) {
-            checker.push_error(
-                format!(
-                    "field `{}` specified more than once",
-                    checker.context.interner.lookup(init.name)
-                ),
-                init.span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            let field_name = checker.context.interner.lookup(init.name);
+            checker.error_duplicate_field(init.span, field_name);
             continue;
         }
 
@@ -225,15 +201,10 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
                 }
             }
         } else {
-            let mut msg = format!(
-                "struct `{}` has no field `{}`",
-                checker.context.interner.lookup(name),
-                checker.context.interner.lookup(init.name)
-            );
-            if let Some(suggestion) = suggest_field(checker, name, init.name) {
-                let _ = write!(msg, "; try using `{suggestion}`");
-            }
-            checker.push_error(msg, init.span, ori_diagnostic::ErrorCode::E2001);
+            let struct_name = checker.context.interner.lookup(name);
+            let field_name = checker.context.interner.lookup(init.name);
+            let suggestion = suggest_field(checker, name, init.name);
+            checker.error_no_such_field(init.span, struct_name, field_name, suggestion);
 
             if let Some(value_id) = init.value {
                 infer_expr(checker, value_id);
@@ -249,15 +220,9 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
                 ori_ir::Span::new(0, 0)
             };
 
-            checker.push_error(
-                format!(
-                    "missing field `{}` in struct `{}`",
-                    checker.context.interner.lookup(*field_name),
-                    checker.context.interner.lookup(name)
-                ),
-                span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            let field_name_str = checker.context.interner.lookup(*field_name);
+            let struct_name = checker.context.interner.lookup(name);
+            checker.error_missing_field(span, struct_name, field_name_str);
         }
     }
 

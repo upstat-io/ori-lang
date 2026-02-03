@@ -8,13 +8,10 @@ repository.workspace = true
 
 [dependencies]
 ori_ir.workspace = true
-ori_types.workspace = true
-ori_diagnostic.workspace = true
 ori_patterns.workspace = true
 parking_lot.workspace = true
 ori_stack.workspace = true
 rustc-hash.workspace = true
-rayon.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

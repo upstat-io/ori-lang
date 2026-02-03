@@ -282,7 +282,7 @@ mod tests {
 
         // Error and compound types return None
         assert_eq!(BuiltinType::from_type_id(TypeId::ERROR), None);
-        assert_eq!(BuiltinType::from_type_id(TypeId::new(100)), None);
+        assert_eq!(BuiltinType::from_type_id(TypeId::from_raw(100)), None);
     }
 
     #[test]

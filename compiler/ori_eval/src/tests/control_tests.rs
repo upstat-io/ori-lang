@@ -3,50 +3,9 @@
 //! Relocated from `exec/control.rs` per coding guidelines (>200 lines).
 
 use crate::environment::{Environment, Mutability};
-use crate::exec::control::{bind_pattern, eval_if, parse_loop_control, to_loop_action, LoopAction};
+use crate::exec::control::{bind_pattern, eval_if, to_loop_action, LoopAction};
 use ori_ir::{BindingPattern, ExprId, Name};
 use ori_patterns::{EvalError, Value};
-
-mod parse_loop_control_tests {
-    use super::*;
-
-    #[test]
-    fn continue_returns_continue() {
-        let action = parse_loop_control("continue");
-        assert!(matches!(action, LoopAction::Continue));
-    }
-
-    #[test]
-    fn break_void_returns_break_void() {
-        let action = parse_loop_control("break:void");
-        if let LoopAction::Break(v) = action {
-            assert!(matches!(v, Value::Void));
-        } else {
-            panic!("expected LoopAction::Break");
-        }
-    }
-
-    #[test]
-    fn break_with_value_returns_void_for_now() {
-        // Current implementation simplifies to void
-        let action = parse_loop_control("break:42");
-        if let LoopAction::Break(v) = action {
-            assert!(matches!(v, Value::Void));
-        } else {
-            panic!("expected LoopAction::Break");
-        }
-    }
-
-    #[test]
-    fn unknown_message_returns_error() {
-        let action = parse_loop_control("unknown");
-        if let LoopAction::Error(e) = action {
-            assert_eq!(e.message, "unknown");
-        } else {
-            panic!("expected LoopAction::Error");
-        }
-    }
-}
 
 mod to_loop_action_tests {
     use super::*;
@@ -56,6 +15,17 @@ mod to_loop_action_tests {
         let err = EvalError::continue_signal();
         let action = to_loop_action(err);
         assert!(matches!(action, LoopAction::Continue));
+    }
+
+    #[test]
+    fn control_flow_continue_with_value_returns_continue_with() {
+        let err = EvalError::continue_with(Value::int(42));
+        let action = to_loop_action(err);
+        if let LoopAction::ContinueWith(v) = action {
+            assert_eq!(v, Value::int(42));
+        } else {
+            panic!("expected LoopAction::ContinueWith, got {action:?}");
+        }
     }
 
     #[test]
@@ -70,10 +40,25 @@ mod to_loop_action_tests {
     }
 
     #[test]
-    fn no_control_flow_falls_back_to_string_parsing() {
-        let err = EvalError::new("continue");
+    fn control_flow_break_void_returns_break_void() {
+        let err = EvalError::break_with(Value::Void);
         let action = to_loop_action(err);
-        assert!(matches!(action, LoopAction::Continue));
+        if let LoopAction::Break(v) = action {
+            assert!(matches!(v, Value::Void));
+        } else {
+            panic!("expected LoopAction::Break(Void)");
+        }
+    }
+
+    #[test]
+    fn no_control_flow_returns_error() {
+        let err = EvalError::new("some error message");
+        let action = to_loop_action(err);
+        if let LoopAction::Error(e) = action {
+            assert_eq!(e.message, "some error message");
+        } else {
+            panic!("expected LoopAction::Error");
+        }
     }
 }
 

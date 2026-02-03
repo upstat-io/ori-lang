@@ -215,7 +215,7 @@ fn test_type_entry_hash() {
 
     let entry1 = TypeEntry {
         name,
-        type_id: TypeId::new(TypeId::FIRST_COMPOUND),
+        type_id: TypeId::from_raw(TypeId::FIRST_COMPOUND),
         kind: TypeKind::Struct { fields: vec![] },
         span: make_span(),
         type_params: vec![],

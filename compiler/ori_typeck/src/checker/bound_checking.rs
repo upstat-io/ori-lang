@@ -3,10 +3,9 @@
 //! Verifies that types satisfy trait bounds at call sites.
 
 use super::{FunctionType, TypeChecker};
-use ori_diagnostic::ErrorCode;
 use ori_ir::{Name, Span};
 use ori_types::{Type, TypeData};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Trait sets for primitive types (reduces duplication).
 const INT_TRAITS: &[&str] = &[
@@ -213,12 +212,11 @@ impl TypeChecker<'_> {
                     let type_name = resolved_type.display(self.context.interner);
                     let generic_name = self.context.interner.lookup(generic.param);
 
-                    self.push_error(
-                        format!(
-                            "type `{type_name}` does not satisfy trait bound `{bound_name}` required by generic parameter `{generic_name}`"
-                        ),
+                    self.error_bound_not_satisfied(
                         span,
-                        ErrorCode::E2009,
+                        type_name,
+                        bound_name,
+                        Some(generic_name.to_string()),
                     );
                 }
             }
@@ -269,12 +267,11 @@ impl TypeChecker<'_> {
                         self.context.interner.lookup(constraint.param).to_string()
                     };
 
-                    self.push_error(
-                        format!(
-                            "type `{type_name}` (from `{constraint_desc}`) does not satisfy trait bound `{bound_name}`"
-                        ),
+                    self.error_bound_not_satisfied(
                         span,
-                        ErrorCode::E2009,
+                        format!("{type_name} (from `{constraint_desc}`)"),
+                        bound_name,
+                        None,
                     );
                 }
             }
@@ -290,13 +287,13 @@ impl TypeChecker<'_> {
         &self,
         func_sig: &FunctionType,
         resolved_params: &[Type],
-    ) -> HashMap<Name, Type> {
-        let mut map = HashMap::new();
+    ) -> FxHashMap<Name, Type> {
+        let mut map = FxHashMap::default();
         let interner = self.inference.env.interner();
 
         // Build a map from type var ID to generic param name.
         // Chain generics and where constraints into a single iterator for efficiency.
-        let type_var_to_generic: HashMap<u32, Name> = func_sig
+        let type_var_to_generic: FxHashMap<u32, Name> = func_sig
             .generics
             .iter()
             .map(|g| (g.type_var, g.param))
