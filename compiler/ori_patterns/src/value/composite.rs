@@ -10,7 +10,8 @@
     reason = "Arc for immutable HashMap sharing, RwLock for memoization cache"
 )]
 
-use std::collections::{HashMap, VecDeque};
+use rustc_hash::FxHashMap;
+use std::collections::VecDeque;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock};
@@ -25,7 +26,7 @@ use super::Value;
 #[derive(Clone, Debug)]
 pub struct StructLayout {
     /// Map from field name to index.
-    field_indices: HashMap<Name, usize>,
+    field_indices: FxHashMap<Name, usize>,
 }
 
 impl StructLayout {
@@ -70,7 +71,7 @@ pub struct StructValue {
 
 impl StructValue {
     /// Create a new struct value from a name and field values.
-    pub fn new(name: Name, field_values: HashMap<Name, Value>) -> Self {
+    pub fn new(name: Name, field_values: FxHashMap<Name, Value>) -> Self {
         let mut field_names: Vec<Name> = field_values.keys().copied().collect();
         field_names.sort();
         let layout = Arc::new(StructLayout::new(&field_names));
@@ -123,7 +124,7 @@ pub struct FunctionValue {
     /// Captured environment (frozen at creation).
     ///
     /// No `RwLock` needed since captures are immutable after creation.
-    captures: Arc<HashMap<Name, Value>>,
+    captures: Arc<FxHashMap<Name, Value>>,
     /// Arena for expression resolution.
     ///
     /// Required for thread safety - the body `ExprId` must be resolved
@@ -148,7 +149,7 @@ impl FunctionValue {
     pub fn new(
         params: Vec<Name>,
         body: ExprId,
-        captures: HashMap<Name, Value>,
+        captures: FxHashMap<Name, Value>,
         arena: SharedArena,
     ) -> Self {
         FunctionValue {
@@ -171,7 +172,7 @@ impl FunctionValue {
     pub fn with_capabilities(
         params: Vec<Name>,
         body: ExprId,
-        captures: HashMap<Name, Value>,
+        captures: FxHashMap<Name, Value>,
         arena: SharedArena,
         capabilities: Vec<Name>,
     ) -> Self {
@@ -199,7 +200,7 @@ impl FunctionValue {
     pub fn with_shared_captures(
         params: Vec<Name>,
         body: ExprId,
-        captures: Arc<HashMap<Name, Value>>,
+        captures: Arc<FxHashMap<Name, Value>>,
         arena: SharedArena,
         capabilities: Vec<Name>,
     ) -> Self {
@@ -322,7 +323,7 @@ pub struct MemoizedFunctionValue {
     ///
     /// Uses `Arc<RwLock>` for thread-safe caching during evaluation.
     /// This cache is NOT part of Salsa's query system.
-    cache: Arc<RwLock<HashMap<MemoKey, Value>>>,
+    cache: Arc<RwLock<FxHashMap<MemoKey, Value>>>,
     /// Insertion order for FIFO eviction.
     ///
     /// When the cache reaches [`MAX_MEMO_CACHE_SIZE`], entries are evicted
@@ -335,7 +336,7 @@ impl MemoizedFunctionValue {
     pub fn new(func: FunctionValue) -> Self {
         MemoizedFunctionValue {
             func,
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            cache: Arc::new(RwLock::new(FxHashMap::default())),
             insertion_order: Arc::new(RwLock::new(VecDeque::new())),
         }
     }
@@ -639,14 +640,14 @@ mod tests {
 
     #[test]
     fn test_function_value_new() {
-        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), dummy_arena());
+        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
         assert!(func.params.is_empty());
         assert!(!func.has_captures());
     }
 
     #[test]
     fn test_function_value_with_captures() {
-        let mut captures = HashMap::new();
+        let mut captures = FxHashMap::default();
         captures.insert(Name::new(0, 1), Value::int(42));
         let func = FunctionValue::new(vec![], ExprId::new(0), captures, dummy_arena());
         assert!(func.has_captures());
@@ -677,7 +678,7 @@ mod tests {
     fn test_struct_value_get_field_missing() {
         let type_name = Name::new(0, 100);
         let field_a = Name::new(0, 1);
-        let mut fields = HashMap::new();
+        let mut fields = FxHashMap::default();
         fields.insert(field_a, Value::int(42));
         let sv = StructValue::new(type_name, fields);
 
@@ -690,7 +691,7 @@ mod tests {
     fn test_struct_value_get_field_existing() {
         let type_name = Name::new(0, 100);
         let field_a = Name::new(0, 1);
-        let mut fields = HashMap::new();
+        let mut fields = FxHashMap::default();
         fields.insert(field_a, Value::int(42));
         let sv = StructValue::new(type_name, fields);
 
@@ -699,7 +700,7 @@ mod tests {
 
     #[test]
     fn test_function_value_get_capture_missing() {
-        let mut captures = HashMap::new();
+        let mut captures = FxHashMap::default();
         captures.insert(Name::new(0, 1), Value::int(42));
         let func = FunctionValue::new(vec![], ExprId::new(0), captures, dummy_arena());
 
@@ -710,7 +711,7 @@ mod tests {
 
     #[test]
     fn test_memoized_function_get_cached_uncached() {
-        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), dummy_arena());
+        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
         let memoized = MemoizedFunctionValue::new(func);
 
         // Query with args that haven't been cached
@@ -720,7 +721,7 @@ mod tests {
 
     #[test]
     fn test_memoized_function_cache_and_retrieve() {
-        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), dummy_arena());
+        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
         let memoized = MemoizedFunctionValue::new(func);
 
         // Cache a result
@@ -735,7 +736,7 @@ mod tests {
 
     #[test]
     fn test_memoized_function_different_args_not_cached() {
-        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), dummy_arena());
+        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
         let memoized = MemoizedFunctionValue::new(func);
 
         // Cache with one set of args
@@ -751,7 +752,7 @@ mod tests {
     fn test_memoized_function_cache_eviction() {
         use super::MAX_MEMO_CACHE_SIZE;
 
-        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), dummy_arena());
+        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
         let memoized = MemoizedFunctionValue::new(func);
 
         // Fill the cache to capacity
@@ -786,7 +787,7 @@ mod tests {
 
     #[test]
     fn test_memoized_function_cache_update_no_eviction() {
-        let func = FunctionValue::new(vec![], ExprId::new(0), HashMap::new(), dummy_arena());
+        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
         let memoized = MemoizedFunctionValue::new(func);
 
         // Cache initial value

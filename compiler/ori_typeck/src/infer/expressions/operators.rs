@@ -106,15 +106,9 @@ fn check_binary_op(
     }
 
     // No trait impl found
-    checker.push_error(
-        format!(
-            "cannot apply operator to `{}` and `{}`: type does not implement the required operator trait",
-            resolved_left.display(checker.context.interner),
-            resolved_right.display(checker.context.interner)
-        ),
-        span,
-        ori_diagnostic::ErrorCode::E2001,
-    );
+    let left_type = resolved_left.display(checker.context.interner);
+    let right_type = resolved_right.display(checker.context.interner);
+    checker.error_invalid_binary_op(span, format!("{op:?}"), left_type, right_type);
     Type::Error
 }
 
@@ -166,16 +160,9 @@ fn check_operator_trait(
 
             // Check that the right operand type matches
             if let Err(_e) = checker.inference.ctx.unify(rhs_param, right_ty) {
-                checker.push_error(
-                    format!(
-                        "mismatched types for `{}` operator: expected `{}`, found `{}`",
-                        trait_name,
-                        rhs_param.display(checker.context.interner),
-                        right_ty.display(checker.context.interner)
-                    ),
-                    span,
-                    ori_diagnostic::ErrorCode::E2001,
-                );
+                let expected = rhs_param.display(checker.context.interner);
+                let found = right_ty.display(checker.context.interner);
+                checker.error_operator_type_mismatch(span, trait_name, expected, found);
                 return Some(Type::Error);
             }
 
@@ -215,22 +202,12 @@ fn check_unary_op(checker: &mut TypeChecker<'_>, op: UnaryOp, operand: &Type, sp
             match &resolved {
                 Type::Int | Type::Float | Type::Duration | Type::Var(_) => resolved,
                 Type::Size => {
-                    checker.push_error(
-                        "cannot negate `Size`: Size values must be non-negative".to_string(),
-                        span,
-                        ori_diagnostic::ErrorCode::E2001,
-                    );
+                    checker.error_invalid_unary_op(span, "-", "Size");
                     Type::Error
                 }
                 _ if is_primitive_type(&resolved) => {
-                    checker.push_error(
-                        format!(
-                            "cannot negate `{}`: negation requires a numeric type (int, float, or Duration)",
-                            operand.display(checker.context.interner)
-                        ),
-                        span,
-                        ori_diagnostic::ErrorCode::E2001,
-                    );
+                    let operand_type = operand.display(checker.context.interner);
+                    checker.error_invalid_unary_op(span, "-", operand_type);
                     Type::Error
                 }
                 // User-defined type: try trait lookup
@@ -240,14 +217,8 @@ fn check_unary_op(checker: &mut TypeChecker<'_>, op: UnaryOp, operand: &Type, sp
                     {
                         result_ty
                     } else {
-                        checker.push_error(
-                            format!(
-                                "cannot negate `{}`: type does not implement `Neg` trait",
-                                operand.display(checker.context.interner)
-                            ),
-                            span,
-                            ori_diagnostic::ErrorCode::E2001,
-                        );
+                        let operand_type = operand.display(checker.context.interner);
+                        checker.error_invalid_unary_op(span, "-", operand_type);
                         Type::Error
                     }
                 }
@@ -268,14 +239,8 @@ fn check_unary_op(checker: &mut TypeChecker<'_>, op: UnaryOp, operand: &Type, sp
                 }
             }
 
-            checker.push_error(
-                format!(
-                    "cannot apply `!` to `{}`: type does not implement `Not` trait",
-                    operand.display(checker.context.interner)
-                ),
-                span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            let operand_type = operand.display(checker.context.interner);
+            checker.error_invalid_unary_op(span, "!", operand_type);
             Type::Error
         }
         UnaryOp::BitNot => {
@@ -293,14 +258,8 @@ fn check_unary_op(checker: &mut TypeChecker<'_>, op: UnaryOp, operand: &Type, sp
                 }
             }
 
-            checker.push_error(
-                format!(
-                    "cannot apply `~` to `{}`: type does not implement `BitNot` trait",
-                    operand.display(checker.context.interner)
-                ),
-                span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            let operand_type = operand.display(checker.context.interner);
+            checker.error_invalid_unary_op(span, "~", operand_type);
             Type::Error
         }
         UnaryOp::Try => {

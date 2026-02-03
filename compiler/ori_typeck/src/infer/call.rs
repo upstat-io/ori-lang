@@ -31,15 +31,7 @@ pub fn infer_call(checker: &mut TypeChecker<'_>, func: ExprId, args: ExprList, s
             ExprKind::Ident(name) => Some(checker.context.interner.lookup(*name)),
             _ => None,
         };
-        let message = match func_name {
-            Some(name) => {
-                format!("named arguments required when calling `@{name}` (use name: value syntax)")
-            }
-            None => {
-                "named arguments required for function calls (use name: value syntax)".to_string()
-            }
-        };
-        checker.push_error(message, span, ori_diagnostic::ErrorCode::E2011);
+        checker.error_named_args_required(span, func_name.map(String::from));
         return Type::Error;
     }
 
@@ -98,21 +90,14 @@ pub fn infer_call_named(
         Type::Function { params, ret } => {
             let has_arity_error = params.len() != arg_types.len();
             if has_arity_error {
-                let message = if let Some(name) = func_name {
-                    format!(
-                        "function `{}` expects {} arguments, found {}",
-                        checker.context.interner.lookup(name),
-                        params.len(),
-                        arg_types.len()
-                    )
-                } else {
-                    format!(
-                        "expected {} arguments, found {}",
-                        params.len(),
-                        arg_types.len()
-                    )
-                };
-                checker.push_error(message, span, ori_diagnostic::ErrorCode::E2004);
+                let func_name_str =
+                    func_name.map(|n| checker.context.interner.lookup(n).to_string());
+                checker.error_arg_count_mismatch(
+                    span,
+                    params.len(),
+                    arg_types.len(),
+                    func_name_str,
+                );
             }
 
             // Type-check available arguments even on arity mismatch to catch more errors
@@ -137,11 +122,7 @@ pub fn infer_call_named(
         }
         Type::Error => (Type::Error, None),
         _ => {
-            checker.push_error(
-                "expected function type for call".to_string(),
-                span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            checker.error_not_callable(span, "non-function");
             (Type::Error, None)
         }
     };
@@ -186,14 +167,7 @@ fn check_capability_propagation(checker: &mut TypeChecker<'_>, func_name: Name, 
     for required_cap in missing_caps {
         let func_name_str = checker.context.interner.lookup(func_name);
         let cap_name_str = checker.context.interner.lookup(required_cap);
-        checker.push_error(
-            format!(
-                "function `{func_name_str}` uses `{cap_name_str}` capability, \
-                 but caller does not declare or provide it"
-            ),
-            span,
-            ori_diagnostic::ErrorCode::E2014,
-        );
+        checker.error_missing_capability(span, func_name_str, cap_name_str);
     }
 }
 
@@ -207,11 +181,7 @@ pub fn infer_method_call(
 ) -> Type {
     let arg_ids: Vec<_> = checker.context.arena.iter_expr_list(args).collect();
     if !arg_ids.is_empty() {
-        checker.push_error(
-            "named arguments required for method calls (name: value)".to_string(),
-            span,
-            ori_diagnostic::ErrorCode::E2011,
-        );
+        checker.error_named_args_required(span, None);
         return Type::Error;
     }
 
@@ -292,15 +262,12 @@ fn infer_method_call_core(
         {
             // Associated functions have no self parameter, so all params are arguments
             if arg_types.len() != method_lookup.params.len() {
-                checker.push_error(
-                    format!(
-                        "associated function `{}` expects {} arguments, found {}",
-                        checker.context.interner.lookup(method),
-                        method_lookup.params.len(),
-                        arg_types.len()
-                    ),
+                let method_name = checker.context.interner.lookup(method).to_string();
+                checker.error_arg_count_mismatch(
                     span,
-                    ori_diagnostic::ErrorCode::E2004,
+                    method_lookup.params.len(),
+                    arg_types.len(),
+                    Some(method_name),
                 );
                 return Type::Error;
             }
@@ -329,15 +296,12 @@ fn infer_method_call_core(
         {
             // def impl methods have no self parameter, so all params are arguments
             if arg_types.len() != method_lookup.params.len() {
-                checker.push_error(
-                    format!(
-                        "def impl method `{}` expects {} arguments, found {}",
-                        checker.context.interner.lookup(method),
-                        method_lookup.params.len(),
-                        arg_types.len()
-                    ),
+                let method_name = checker.context.interner.lookup(method).to_string();
+                checker.error_arg_count_mismatch(
                     span,
-                    ori_diagnostic::ErrorCode::E2004,
+                    method_lookup.params.len(),
+                    arg_types.len(),
+                    Some(method_name),
                 );
                 return Type::Error;
             }
@@ -380,15 +344,12 @@ fn infer_method_call_core(
         let expected_arg_count = method_lookup.params.len().saturating_sub(1);
 
         if arg_types.len() != expected_arg_count {
-            checker.push_error(
-                format!(
-                    "method `{}` expects {} arguments, found {}",
-                    checker.context.interner.lookup(method),
-                    expected_arg_count,
-                    arg_types.len()
-                ),
+            let method_name = checker.context.interner.lookup(method).to_string();
+            checker.error_arg_count_mismatch(
                 span,
-                ori_diagnostic::ErrorCode::E2004,
+                expected_arg_count,
+                arg_types.len(),
+                Some(method_name),
             );
             return Type::Error;
         }
@@ -440,23 +401,22 @@ fn infer_builtin_method(
             {
                 if method_name == "unwrap" {
                     if !arg_types.is_empty() {
-                        checker.push_error(
-                            format!("`unwrap` takes no arguments, found {}", arg_types.len()),
+                        checker.error_arg_count_mismatch(
                             span,
-                            ori_diagnostic::ErrorCode::E2004,
+                            0,
+                            arg_types.len(),
+                            Some("unwrap".to_string()),
                         );
                     }
                     return underlying;
                 }
                 // Unknown method on newtype
-                checker.push_error(
-                    format!(
-                        "newtype `{}` has no method `{}`; use `.unwrap()` to access the underlying value",
-                        checker.context.interner.lookup(*name),
-                        method_name
-                    ),
+                let type_name = checker.context.interner.lookup(*name);
+                checker.error_no_such_method(
                     span,
-                    ori_diagnostic::ErrorCode::E2002,
+                    type_name,
+                    method_name,
+                    Some("use `.unwrap()` to access the underlying value".to_string()),
                 );
                 return Type::Error;
             }
@@ -481,15 +441,8 @@ fn infer_builtin_method(
         }
     } else {
         // No handler found for this type
-        checker.push_error(
-            format!(
-                "type `{}` has no method `{}`",
-                receiver_ty.display(checker.context.interner),
-                method_name
-            ),
-            span,
-            ori_diagnostic::ErrorCode::E2002,
-        );
+        let type_name = receiver_ty.display(checker.context.interner);
+        checker.error_no_such_method(span, type_name, method_name, None);
         Type::Error
     }
 }
@@ -530,10 +483,6 @@ fn infer_builtin_associated_function(
         };
     }
 
-    checker.push_error(
-        format!("type `{type_name}` has no associated function `{method_str}`"),
-        span,
-        ori_diagnostic::ErrorCode::E2002,
-    );
+    checker.error_no_such_method(span, type_name, method_str, None);
     Type::Error
 }

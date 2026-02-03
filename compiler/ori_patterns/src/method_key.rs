@@ -54,7 +54,7 @@ impl std::fmt::Display for MethodKeyDisplay<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use rustc_hash::FxHashMap;
 
     #[test]
     fn test_method_key_equality() {
@@ -79,7 +79,7 @@ mod tests {
         let scale = interner.intern("scale");
         let missing = interner.intern("missing");
 
-        let mut map: HashMap<MethodKey, u32> = HashMap::new();
+        let mut map: FxHashMap<MethodKey, u32> = FxHashMap::default();
         map.insert(MethodKey::new(point, distance), 1);
         map.insert(MethodKey::new(point, scale), 2);
 

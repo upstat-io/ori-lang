@@ -42,7 +42,7 @@ mod type_conversion_tests;
 
 // Test helper for the new architecture
 pub mod helper {
-    use std::collections::HashMap;
+    use rustc_hash::FxHashMap;
 
     use inkwell::basic_block::BasicBlock;
     use inkwell::context::Context;
@@ -121,7 +121,7 @@ pub mod helper {
             let builder = Builder::build(&self.cx, entry_bb);
 
             // Set up locals from parameters
-            let mut locals: HashMap<Name, BasicValueEnum<'ll>> = HashMap::new();
+            let mut locals: FxHashMap<Name, BasicValueEnum<'ll>> = FxHashMap::default();
             for (i, &param_name) in param_names.iter().enumerate() {
                 let param = func.get_nth_param(i as u32).unwrap();
                 param.set_name(self.cx.interner.lookup(param_name));

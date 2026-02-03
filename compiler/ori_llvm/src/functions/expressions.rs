@@ -1,6 +1,6 @@
 //! Named expression patterns (recurse, parallel, etc.).
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ast::patterns::FunctionExp;
@@ -18,7 +18,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         result_type: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {

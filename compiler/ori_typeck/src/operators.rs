@@ -25,6 +25,7 @@ pub struct TypeOpError {
 }
 
 impl TypeOpError {
+    #[cold]
     pub fn new(message: impl Into<String>, code: ErrorCode) -> Self {
         TypeOpError {
             message: message.into(),

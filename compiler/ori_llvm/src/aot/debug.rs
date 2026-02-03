@@ -38,8 +38,8 @@
 //! di.finalize();
 //! ```
 
+use rustc_hash::FxHashMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::path::Path;
 
 use inkwell::builder::Builder;
@@ -315,13 +315,13 @@ fn basic_type_creation_error(name: &str) -> DebugInfoError {
 /// Cached debug type information.
 struct TypeCache<'ctx> {
     /// Primitive type cache (int, float, bool, etc.).
-    primitives: HashMap<&'static str, DIBasicType<'ctx>>,
+    primitives: FxHashMap<&'static str, DIBasicType<'ctx>>,
 }
 
 impl TypeCache<'_> {
     fn new() -> Self {
         Self {
-            primitives: HashMap::new(),
+            primitives: FxHashMap::default(),
         }
     }
 }

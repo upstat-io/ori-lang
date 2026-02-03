@@ -104,14 +104,8 @@ pub fn infer_for(
         Type::Var(_) => checker.inference.ctx.fresh_var(),
         Type::Error => Type::Error,
         other => {
-            checker.push_error(
-                format!(
-                    "`{}` is not iterable; expected List, Set, Range, Str, or Map",
-                    other.display(checker.context.interner)
-                ),
-                checker.context.arena.get_expr(iter).span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            let found_type = other.display(checker.context.interner);
+            checker.error_not_iterable(checker.context.arena.get_expr(iter).span, found_type);
             Type::Error
         }
     };
@@ -204,11 +198,7 @@ pub fn infer_continue(checker: &mut TypeChecker<'_>, value: Option<ExprId>) -> T
 /// Infer type for await expression.
 pub fn infer_await(checker: &mut TypeChecker<'_>, inner: ExprId, span: Span) -> Type {
     let _ = infer_expr(checker, inner);
-    checker.push_error(
-        "`.await` is not supported; use `uses Async` capability and `parallel(...)` pattern",
-        span,
-        ori_diagnostic::ErrorCode::E2001,
-    );
+    checker.error_await_not_supported(span);
     Type::Error
 }
 
@@ -222,15 +212,9 @@ pub fn infer_try(checker: &mut TypeChecker<'_>, inner: ExprId, _span: Span) -> T
         Type::Var(_) => checker.inference.ctx.fresh_var(),
         Type::Error => Type::Error,
         other => {
-            checker.push_error(
-                format!(
-                    "the `?` operator can only be applied to `Result` or `Option`, \
-                     found `{}`",
-                    other.display(checker.context.interner)
-                ),
-                checker.context.arena.get_expr(inner).span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            let found_type = other.display(checker.context.interner);
+            checker
+                .error_invalid_try_operand(checker.context.arena.get_expr(inner).span, found_type);
             Type::Error
         }
     }

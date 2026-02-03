@@ -3,7 +3,7 @@
 // Some functions have unused type_id params for API consistency with the trait
 #![allow(clippy::used_underscore_binding)]
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprId, Name, TypeId};
@@ -26,7 +26,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         _type_id: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -84,7 +84,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         _type_id: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -123,7 +123,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         _type_id: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {

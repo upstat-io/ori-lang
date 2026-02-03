@@ -23,7 +23,7 @@ pub fn dispatch_ordering_method(
     args: Vec<Value>,
     interner: &StringInterner,
 ) -> EvalResult {
-    // Extract OrderingValue from either Value::Ordering or legacy Value::Variant
+    // Extract the OrderingValue from Value::Ordering
     let Some(ord) = extract_ordering(&receiver) else {
         unreachable!("dispatch_ordering_method called with non-ordering receiver")
     };

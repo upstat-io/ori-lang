@@ -56,8 +56,16 @@ impl Default for TestRunnerConfig {
 }
 
 /// Test runner.
+///
+/// The test runner maintains a shared `StringInterner` which is used by all files.
+/// Each file gets its own `CompilerDb` for Salsa query storage, but they all share
+/// the same interner via Arc. This means all `Name` values are valid and comparable
+/// across files, modeling how real Ori projects work: one compilation unit with
+/// one shared interner.
 pub struct TestRunner {
     config: TestRunnerConfig,
+    /// Shared interner - all files use the same interner for comparable Name values.
+    interner: crate::ir::SharedInterner,
 }
 
 impl TestRunner {
@@ -65,12 +73,23 @@ impl TestRunner {
     pub fn new() -> Self {
         TestRunner {
             config: TestRunnerConfig::default(),
+            interner: crate::ir::SharedInterner::new(),
         }
     }
 
     /// Create a test runner with custom config.
     pub fn with_config(config: TestRunnerConfig) -> Self {
-        TestRunner { config }
+        TestRunner {
+            config,
+            interner: crate::ir::SharedInterner::new(),
+        }
+    }
+
+    /// Get the string interner for looking up `Name` values.
+    ///
+    /// Use this to convert `Name` to `&str` when displaying test results.
+    pub fn interner(&self) -> &crate::ir::StringInterner {
+        &self.interner
     }
 
     /// Run all tests in a path (file or directory).
@@ -90,7 +109,8 @@ impl TestRunner {
         let start = Instant::now();
 
         for file in files {
-            let file_summary = self.run_file(&file.path);
+            let file_summary =
+                Self::run_file_with_interner(&file.path, &self.interner, &self.config);
             summary.add_file(file_summary);
         }
 
@@ -99,12 +119,21 @@ impl TestRunner {
     }
 
     /// Run tests in parallel using rayon.
+    ///
+    /// Each parallel task creates its own `CompilerDb` but shares the interner.
+    /// This is thread-safe because `SharedInterner` is `Arc<StringInterner>`
+    /// and `StringInterner` uses `RwLock` per shard for concurrent access.
     fn run_parallel(&self, files: &[TestFile]) -> TestSummary {
         let start = Instant::now();
 
+        // Clone the shared interner and config for the parallel closure.
+        // SharedInterner is Arc-wrapped, so this is cheap.
+        let interner = self.interner.clone();
+        let config = self.config.clone();
+
         let file_summaries: Vec<_> = files
             .par_iter()
-            .map(|file| self.run_file(&file.path))
+            .map(|file| Self::run_file_with_interner(&file.path, &interner, &config))
             .collect();
 
         let mut summary = TestSummary::new();
@@ -116,8 +145,22 @@ impl TestRunner {
         summary
     }
 
-    /// Run all tests in a single file.
+    /// Run all tests in a single file (instance method for convenience).
     fn run_file(&self, path: &Path) -> FileSummary {
+        Self::run_file_with_interner(path, &self.interner, &self.config)
+    }
+
+    /// Run all tests in a single file with a shared interner.
+    ///
+    /// This is the core implementation that creates a fresh `CompilerDb` per file
+    /// while sharing the interner across all files. This allows parallel execution
+    /// (each file gets its own Salsa query cache) while maintaining `Name` comparability
+    /// (all `Name` values come from the same interner).
+    fn run_file_with_interner(
+        path: &Path,
+        interner: &crate::ir::SharedInterner,
+        config: &TestRunnerConfig,
+    ) -> FileSummary {
         let mut summary = FileSummary::new(path.to_path_buf());
 
         // Read and parse the file
@@ -131,7 +174,10 @@ impl TestRunner {
 
         // Keep a copy of the source for error matching (content is moved into SourceFile)
         let source = content.clone();
-        let db = CompilerDb::new();
+        // Create a fresh CompilerDb with the shared interner.
+        // Each file gets its own Salsa query cache, but all share the same interner
+        // so Name values are comparable across files.
+        let db = CompilerDb::with_interner(interner.clone());
         let file = SourceFile::new(&db, path.to_path_buf(), content);
 
         // Parse the file
@@ -165,9 +211,9 @@ impl TestRunner {
         // Run compile_fail tests first (they don't need load_module)
         for test in &compile_fail_tests {
             // Apply filter if set
-            if let Some(filter) = &self.config.filter {
+            if let Some(ref filter_str) = config.filter {
                 let test_name = interner.lookup(test.name);
-                if !test_name.contains(filter.as_str()) {
+                if !test_name.contains(filter_str.as_str()) {
                     continue;
                 }
             }
@@ -189,7 +235,7 @@ impl TestRunner {
         }
 
         // Run regular tests based on backend
-        match self.config.backend {
+        match config.backend {
             Backend::Interpreter => {
                 // Create evaluator with database for proper Salsa-tracked import resolution
                 // load_module enforces type checking - will fail if there are type errors
@@ -205,9 +251,9 @@ impl TestRunner {
                 // Run each regular test
                 for test in &regular_tests {
                     // Apply filter if set
-                    if let Some(filter) = &self.config.filter {
+                    if let Some(ref filter_str) = config.filter {
                         let test_name = interner.lookup(test.name);
-                        if !test_name.contains(filter.as_str()) {
+                        if !test_name.contains(filter_str.as_str()) {
                             continue;
                         }
                     }
@@ -227,12 +273,13 @@ impl TestRunner {
             #[cfg(feature = "llvm")]
             Backend::LLVM => {
                 // Use LLVM JIT backend
-                self.run_file_llvm(
+                Self::run_file_llvm(
                     &mut summary,
                     &parse_result,
                     &typed_module,
                     &source,
                     interner,
+                    config,
                 );
             }
             #[cfg(not(feature = "llvm"))]
@@ -249,12 +296,12 @@ impl TestRunner {
     /// Run tests in a file using the LLVM backend.
     #[cfg(feature = "llvm")]
     fn run_file_llvm(
-        &self,
         summary: &mut FileSummary,
         parse_result: &ori_parse::ParseOutput,
         typed_module: &crate::typeck::TypedModule,
         source: &str,
         interner: &crate::ir::StringInterner,
+        config: &TestRunnerConfig,
     ) {
         use ori_llvm::evaluator::OwnedLLVMEvaluator;
         use ori_llvm::FunctionSig;
@@ -281,9 +328,9 @@ impl TestRunner {
         // Run each test
         for test in &parse_result.module.tests {
             // Apply filter if set
-            if let Some(filter) = &self.config.filter {
+            if let Some(ref filter_str) = config.filter {
                 let test_name = interner.lookup(test.name);
-                if !test_name.contains(filter.as_str()) {
+                if !test_name.contains(filter_str.as_str()) {
                     continue;
                 }
             }
@@ -326,17 +373,10 @@ impl TestRunner {
         expr_types: &[crate::ir::TypeId],
         function_sigs: &[ori_llvm::FunctionSig],
     ) -> TestResult {
-        let test_name = interner.lookup(test.name).to_string();
-        let targets: Vec<String> = test
-            .targets
-            .iter()
-            .map(|t| interner.lookup(*t).to_string())
-            .collect();
-
         // Check if test is skipped
         if let Some(reason) = test.skip_reason {
             let reason_str = interner.lookup(reason).to_string();
-            return TestResult::skipped(test_name, targets, reason_str);
+            return TestResult::skipped(test.name, test.targets.clone(), reason_str);
         }
 
         // Time the test execution
@@ -352,8 +392,10 @@ impl TestRunner {
             expr_types,
             function_sigs,
         ) {
-            Ok(_) => TestResult::passed(test_name, targets, start.elapsed()),
-            Err(e) => TestResult::failed(test_name, targets, e.message, start.elapsed()),
+            Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
+            Err(e) => {
+                TestResult::failed(test.name, test.targets.clone(), e.message, start.elapsed())
+            }
         }
     }
 
@@ -367,17 +409,10 @@ impl TestRunner {
         source: &str,
         interner: &crate::ir::StringInterner,
     ) -> TestResult {
-        let test_name = interner.lookup(test.name).to_string();
-        let targets: Vec<String> = test
-            .targets
-            .iter()
-            .map(|t| interner.lookup(*t).to_string())
-            .collect();
-
         // Check if test is skipped
         if let Some(reason) = test.skip_reason {
             let reason_str = interner.lookup(reason).to_string();
-            return TestResult::skipped(test_name, targets, reason_str);
+            return TestResult::skipped(test.name, test.targets.clone(), reason_str);
         }
 
         let start = Instant::now();
@@ -395,8 +430,8 @@ impl TestRunner {
                 "errors"
             };
             return TestResult::failed(
-                test_name,
-                targets,
+                test.name,
+                test.targets.clone(),
                 format!(
                     "expected compilation to fail with {} {error_word}, but compilation succeeded. Expected: {}",
                     test.expected_errors.len(),
@@ -416,7 +451,7 @@ impl TestRunner {
 
         if match_result.all_matched() {
             // All expectations matched - test passes
-            TestResult::passed(test_name, targets, start.elapsed())
+            TestResult::passed(test.name, test.targets.clone(), start.elapsed())
         } else {
             // Some expectations were not matched
             let unmatched: Vec<String> = match_result
@@ -432,8 +467,8 @@ impl TestRunner {
                 .collect();
 
             TestResult::failed(
-                test_name,
-                targets,
+                test.name,
+                test.targets.clone(),
                 format!(
                     "unmatched expectations: [{}]. Actual errors: [{}]",
                     unmatched.join(", "),
@@ -504,17 +539,10 @@ impl TestRunner {
         test: &TestDef,
         interner: &crate::ir::StringInterner,
     ) -> TestResult {
-        let test_name = interner.lookup(test.name).to_string();
-        let targets: Vec<String> = test
-            .targets
-            .iter()
-            .map(|t| interner.lookup(*t).to_string())
-            .collect();
-
         // Check if test is skipped
         if let Some(reason) = test.skip_reason {
             let reason_str = interner.lookup(reason).to_string();
-            return TestResult::skipped(test_name, targets, reason_str);
+            return TestResult::skipped(test.name, test.targets.clone(), reason_str);
         }
 
         // Time the test execution
@@ -522,8 +550,10 @@ impl TestRunner {
 
         // Evaluate the test body
         match evaluator.eval(test.body) {
-            Ok(_) => TestResult::passed(test_name, targets, start.elapsed()),
-            Err(e) => TestResult::failed(test_name, targets, e.message, start.elapsed()),
+            Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
+            Err(e) => {
+                TestResult::failed(test.name, test.targets.clone(), e.message, start.elapsed())
+            }
         }
     }
 }
@@ -541,19 +571,20 @@ impl TestRunner {
         let mut report = CoverageReport::new();
 
         for file in &test_files {
-            Self::add_file_coverage(&file.path, &mut report);
+            self.add_file_coverage(&file.path, &mut report);
         }
 
         report
     }
 
     /// Add coverage info for a single file.
-    fn add_file_coverage(path: &Path, report: &mut CoverageReport) {
+    fn add_file_coverage(&self, path: &Path, report: &mut CoverageReport) {
         let Ok(content) = std::fs::read_to_string(path) else {
             return;
         };
 
-        let db = CompilerDb::new();
+        // Create a fresh CompilerDb with the shared interner
+        let db = CompilerDb::with_interner(self.interner.clone());
         let file = SourceFile::new(&db, path.to_path_buf(), content);
         let parse_result = parsed(&db, file);
 
@@ -565,13 +596,12 @@ impl TestRunner {
         let main_name = interner.intern("main");
 
         // Build map of function -> tests that target it
-        let mut test_map: std::collections::HashMap<crate::ir::Name, Vec<String>> =
+        let mut test_map: std::collections::HashMap<crate::ir::Name, Vec<crate::ir::Name>> =
             std::collections::HashMap::new();
 
         for test in &parse_result.module.tests {
-            let test_name = interner.lookup(test.name).to_string();
             for target in &test.targets {
-                test_map.entry(*target).or_default().push(test_name.clone());
+                test_map.entry(*target).or_default().push(test.name);
             }
         }
 
@@ -580,9 +610,8 @@ impl TestRunner {
             if func.name == main_name {
                 continue;
             }
-            let func_name = interner.lookup(func.name).to_string();
             let test_names = test_map.get(&func.name).cloned().unwrap_or_default();
-            report.add_function(func_name, test_names);
+            report.add_function(func.name, test_names);
         }
     }
 }
@@ -698,6 +727,8 @@ mod tests {
         let summary = runner.run_file(&path);
 
         assert_eq!(summary.total(), 1);
-        assert!(summary.results[0].name.contains("foo"));
+        // Use the interner to look up the Name
+        let name_str = summary.results[0].name_str(runner.interner());
+        assert!(name_str.contains("foo"));
     }
 }

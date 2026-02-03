@@ -2,8 +2,8 @@
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
-use crate::eval::exec::control::{bind_pattern, eval_if, parse_loop_control, LoopAction};
-use crate::eval::{Environment, Mutability, Value};
+use crate::eval::exec::control::{bind_pattern, eval_if, to_loop_action, LoopAction};
+use crate::eval::{Environment, EvalError, Mutability, Value};
 use crate::ir::{BindingPattern, ExprId, SharedInterner};
 
 // If/Else Tests
@@ -326,48 +326,53 @@ mod pattern_binding {
     }
 }
 
-// Loop Control Tests
+// Loop Control Tests (using typed ControlFlow enum)
 
 mod loop_control {
     use super::*;
 
     #[test]
-    fn continue_action() {
-        match parse_loop_control("continue") {
+    fn continue_signal_returns_continue() {
+        let err = EvalError::continue_signal();
+        match to_loop_action(err) {
             LoopAction::Continue => {}
-            _ => panic!("expected Continue"),
+            other => panic!("expected Continue, got {other:?}"),
         }
     }
 
     #[test]
-    fn break_void() {
-        match parse_loop_control("break:void") {
+    fn continue_with_value_returns_continue_with() {
+        let err = EvalError::continue_with(Value::int(42));
+        match to_loop_action(err) {
+            LoopAction::ContinueWith(v) => assert_eq!(v, Value::int(42)),
+            other => panic!("expected ContinueWith, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn break_void_returns_break_void() {
+        let err = EvalError::break_with(Value::Void);
+        match to_loop_action(err) {
             LoopAction::Break(Value::Void) => {}
-            _ => panic!("expected Break(Void)"),
+            other => panic!("expected Break(Void), got {other:?}"),
         }
     }
 
     #[test]
-    fn break_with_value() {
-        match parse_loop_control("break:42") {
-            LoopAction::Break(Value::Void) => {}
-            _ => panic!("expected Break"),
+    fn break_with_value_returns_break_with_value() {
+        let err = EvalError::break_with(Value::int(42));
+        match to_loop_action(err) {
+            LoopAction::Break(v) => assert_eq!(v, Value::int(42)),
+            other => panic!("expected Break with value, got {other:?}"),
         }
     }
 
     #[test]
-    fn error_message() {
-        match parse_loop_control("some error") {
+    fn regular_error_returns_error() {
+        let err = EvalError::new("some error");
+        match to_loop_action(err) {
             LoopAction::Error(e) => assert_eq!(e.message, "some error"),
-            _ => panic!("expected Error"),
-        }
-    }
-
-    #[test]
-    fn empty_message() {
-        match parse_loop_control("") {
-            LoopAction::Error(e) => assert_eq!(e.message, ""),
-            _ => panic!("expected Error"),
+            other => panic!("expected Error, got {other:?}"),
         }
     }
 }

@@ -42,6 +42,7 @@ mod builtin_type;
 mod comment;
 mod derives;
 mod expr_id;
+pub mod incremental;
 mod inline_list;
 mod interner;
 mod name;

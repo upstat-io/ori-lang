@@ -5,7 +5,7 @@
 
 #![allow(clippy::unwrap_used, clippy::arithmetic_side_effects)]
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use ori_ir::ExprId;
 
@@ -20,11 +20,11 @@ use crate::{EvalError, EvalResult, PatternExecutor, Value};
 /// - Call results for specific function values
 pub struct MockPatternExecutor {
     /// Values to return for `eval(ExprId)` calls.
-    expr_values: HashMap<usize, Value>,
+    expr_values: FxHashMap<usize, Value>,
     /// Variables accessible via `lookup_var`.
-    variables: HashMap<String, Value>,
+    variables: FxHashMap<String, Value>,
     /// Capabilities accessible via `lookup_capability`.
-    capabilities: HashMap<String, Value>,
+    capabilities: FxHashMap<String, Value>,
     /// Function call results (function is matched by display string).
     call_results: Vec<Value>,
     /// Index for cycling through call results.
@@ -35,9 +35,9 @@ impl MockPatternExecutor {
     /// Create a new mock executor.
     pub fn new() -> Self {
         MockPatternExecutor {
-            expr_values: HashMap::new(),
-            variables: HashMap::new(),
-            capabilities: HashMap::new(),
+            expr_values: FxHashMap::default(),
+            variables: FxHashMap::default(),
+            capabilities: FxHashMap::default(),
             call_results: Vec::new(),
             call_index: 0,
         }

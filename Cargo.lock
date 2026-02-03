@@ -602,16 +602,13 @@ dependencies = [
 name = "ori_eval"
 version = "0.1.0-alpha.8"
 dependencies = [
- "ori_diagnostic",
  "ori_ir",
  "ori_lexer",
  "ori_parse",
  "ori_patterns",
  "ori_stack",
- "ori_types",
  "parking_lot",
  "pretty_assertions",
- "rayon",
  "rustc-hash",
 ]
 
@@ -653,7 +650,7 @@ dependencies = [
  "llvm-sys",
  "ori_ir",
  "ori_rt",
- "parking_lot",
+ "rustc-hash",
  "tracing",
  "tracing-subscriber",
 ]
@@ -731,7 +728,6 @@ name = "oric"
 version = "0.1.0-alpha.8"
 dependencies = [
  "criterion",
- "logos",
  "ori_diagnostic",
  "ori_eval",
  "ori_fmt",
@@ -742,7 +738,6 @@ dependencies = [
  "ori_parse",
  "ori_patterns",
  "ori_rt",
- "ori_stack",
  "ori_typeck",
  "ori_types",
  "parking_lot",

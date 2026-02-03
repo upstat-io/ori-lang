@@ -185,7 +185,7 @@ mod value_helpers {
         match v {
             Value::Err(inner) => {
                 if let Value::Str(s) = &*inner {
-                    assert_eq!(s.as_str(), "error message");
+                    assert_eq!(&**s, "error message");
                 } else {
                     panic!("expected Str inside Err");
                 }
@@ -240,7 +240,7 @@ mod execute_task_tests {
         match result {
             Value::Err(inner) => {
                 if let Value::Str(s) = &*inner {
-                    assert_eq!(s.as_str(), "error");
+                    assert_eq!(&**s, "error");
                 }
             }
             _ => panic!("expected Err variant"),
@@ -253,7 +253,7 @@ mod execute_task_tests {
         match result {
             Value::Ok(inner) => {
                 if let Value::Str(s) = &*inner {
-                    assert_eq!(s.as_str(), "hello");
+                    assert_eq!(&**s, "hello");
                 }
             }
             _ => panic!("expected Ok variant"),

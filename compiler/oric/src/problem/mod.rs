@@ -33,13 +33,12 @@
 
 pub mod parse;
 pub mod semantic;
-pub mod typecheck;
 
 pub use parse::ParseProblem;
 pub use semantic::SemanticProblem;
-pub use typecheck::TypeProblem;
 
 use crate::ir::Span;
+use ori_ir::StringInterner;
 
 // HasSpan trait and macros for DRY problem implementations
 
@@ -106,13 +105,15 @@ pub(crate) use impl_has_span;
 ///
 /// # Salsa Compatibility
 /// Has Clone, Eq, `PartialEq`, Hash, Debug for use in query results.
+///
+/// # Note on Type Errors
+/// Type checking errors use `TypeCheckError` from `ori_typeck` directly,
+/// rather than being wrapped in this enum. This allows the type checker
+/// to use structured error variants while other phases use this unified type.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Problem {
     /// Parse-time problems (syntax errors).
     Parse(ParseProblem),
-
-    /// Type checking problems.
-    Type(TypeProblem),
 
     /// Semantic analysis problems.
     Semantic(SemanticProblem),
@@ -123,8 +124,17 @@ impl Problem {
     pub fn span(&self) -> Span {
         match self {
             Problem::Parse(p) => p.span(),
-            Problem::Type(p) => p.span(),
             Problem::Semantic(p) => p.span(),
+        }
+    }
+
+    /// Convert this problem into a diagnostic.
+    ///
+    /// The interner is required to look up interned `Name` values.
+    pub fn into_diagnostic(&self, interner: &StringInterner) -> crate::diagnostic::Diagnostic {
+        match self {
+            Problem::Parse(p) => p.into_diagnostic(interner),
+            Problem::Semantic(p) => p.into_diagnostic(interner),
         }
     }
 }
@@ -132,13 +142,11 @@ impl Problem {
 // Generate type predicates using macro
 impl_problem_predicates!(Problem {
     Parse => is_parse,
-    Type => is_type,
     Semantic => is_semantic,
 });
 
 // Generate From implementations using macro
 impl_from_problem!(ParseProblem => Problem::Parse);
-impl_from_problem!(TypeProblem => Problem::Type);
 impl_from_problem!(SemanticProblem => Problem::Semantic);
 
 #[cfg(test)]
@@ -156,25 +164,8 @@ mod tests {
         let problem: Problem = parse_problem.clone().into();
 
         assert!(problem.is_parse());
-        assert!(!problem.is_type());
         assert!(!problem.is_semantic());
         assert_eq!(problem.span(), Span::new(0, 5));
-    }
-
-    #[test]
-    fn test_problem_from_type() {
-        let type_problem = TypeProblem::TypeMismatch {
-            span: Span::new(10, 15),
-            expected: "int".into(),
-            found: "str".into(),
-        };
-
-        let problem: Problem = type_problem.clone().into();
-
-        assert!(!problem.is_parse());
-        assert!(problem.is_type());
-        assert!(!problem.is_semantic());
-        assert_eq!(problem.span(), Span::new(10, 15));
     }
 
     #[test]
@@ -188,7 +179,6 @@ mod tests {
         let problem: Problem = semantic_problem.clone().into();
 
         assert!(!problem.is_parse());
-        assert!(!problem.is_type());
         assert!(problem.is_semantic());
         assert_eq!(problem.span(), Span::new(20, 25));
     }
@@ -228,10 +218,10 @@ mod tests {
         });
 
         let p2 = p1.clone();
-        let p3 = Problem::Type(TypeProblem::TypeMismatch {
+        let p3 = Problem::Semantic(SemanticProblem::UnknownIdentifier {
             span: Span::new(10, 15),
-            expected: "int".into(),
-            found: "str".into(),
+            name: "foo".into(),
+            similar: None,
         });
 
         let mut set = HashSet::new();

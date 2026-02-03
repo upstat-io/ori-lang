@@ -83,7 +83,7 @@ pub fn matches_expected(
     // Check message substring if specified
     if let Some(msg_name) = expected.message {
         let msg_substr = interner.lookup(msg_name);
-        if !actual.message.contains(msg_substr) {
+        if !actual.message().contains(msg_substr) {
             return false;
         }
     }
@@ -91,14 +91,14 @@ pub fn matches_expected(
     // Check error code if specified
     if let Some(code_name) = expected.code {
         let code_str = interner.lookup(code_name);
-        if actual.code.as_str() != code_str {
+        if actual.code().as_str() != code_str {
             return false;
         }
     }
 
     // Check line number if specified
     if let Some(line) = expected.line {
-        let (actual_line, _) = span_utils::offset_to_line_col(source, actual.span.start);
+        let (actual_line, _) = span_utils::offset_to_line_col(source, actual.span().start);
         if actual_line != line {
             return false;
         }
@@ -106,7 +106,7 @@ pub fn matches_expected(
 
     // Check column number if specified
     if let Some(column) = expected.column {
-        let (_, actual_col) = span_utils::offset_to_line_col(source, actual.span.start);
+        let (_, actual_col) = span_utils::offset_to_line_col(source, actual.span().start);
         if actual_col != column {
             return false;
         }
@@ -141,12 +141,12 @@ pub fn format_expected(expected: &ExpectedError, interner: &StringInterner) -> S
 
 /// Format an actual error for display in error messages.
 pub fn format_actual(actual: &TypeCheckError, source: &str) -> String {
-    let (line, col) = span_utils::offset_to_line_col(source, actual.span.start);
+    let (line, col) = span_utils::offset_to_line_col(source, actual.span().start);
     format!(
         "[{}] at {}:{}: {}",
-        actual.code.as_str(),
+        actual.code().as_str(),
         line,
         col,
-        actual.message
+        actual.message()
     )
 }

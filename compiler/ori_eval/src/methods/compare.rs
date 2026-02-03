@@ -33,7 +33,7 @@ pub fn compare_values(
         (Value::Int(a), Value::Int(b)) => Ok(a.cmp(b)),
         (Value::Float(a), Value::Float(b)) => Ok(a.total_cmp(b)),
         (Value::Bool(a), Value::Bool(b)) => Ok(a.cmp(b)),
-        (Value::Str(a), Value::Str(b)) => Ok(a.as_str().cmp(b.as_str())),
+        (Value::Str(a), Value::Str(b)) => Ok((**a).cmp(&**b)),
         (Value::Char(a), Value::Char(b)) => Ok(a.cmp(b)),
         (Value::Byte(a), Value::Byte(b)) => Ok(a.cmp(b)),
         (Value::Duration(a), Value::Duration(b)) => Ok(a.cmp(b)),

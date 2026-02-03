@@ -72,13 +72,13 @@ where
 mod tests {
     use super::*;
     use ori_ir::{ExprId, Name, SharedArena};
-    use std::collections::HashMap;
+    use rustc_hash::FxHashMap;
 
     fn make_function_value(param_count: usize) -> FunctionValue {
         use ori_ir::ExprArena;
         let params: Vec<Name> = (0..param_count).map(|i| Name::from_raw(i as u32)).collect();
         let body = ExprId::new(0);
-        let captures = HashMap::new();
+        let captures = FxHashMap::default();
         let arena = SharedArena::new(ExprArena::default());
         FunctionValue::new(params, body, captures, arena)
     }
@@ -161,12 +161,13 @@ mod tests {
     mod bind_captures_tests {
         use super::*;
         use ori_ir::ExprArena;
+        use rustc_hash::FxHashMap;
 
         #[test]
         fn binds_captured_variables() {
             let params = vec![Name::from_raw(0)];
             let body = ExprId::new(0);
-            let mut captures = HashMap::new();
+            let mut captures = FxHashMap::default();
             let capture_name = Name::from_raw(10);
             captures.insert(capture_name, Value::int(100));
             let arena = SharedArena::new(ExprArena::default());
@@ -182,7 +183,7 @@ mod tests {
         fn binds_multiple_captures() {
             let params = vec![];
             let body = ExprId::new(0);
-            let mut captures = HashMap::new();
+            let mut captures = FxHashMap::default();
             let name1 = Name::from_raw(10);
             let name2 = Name::from_raw(11);
             captures.insert(name1, Value::int(1));

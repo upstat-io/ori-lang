@@ -4,7 +4,7 @@
 //! Uses a combination of file metadata (size, mtime) for quick checks
 //! and content hash for accurate change detection.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Read};
@@ -72,7 +72,7 @@ impl FileMetadata {
 #[derive(Debug)]
 pub struct SourceHasher {
     /// Cache of file hashes keyed by path.
-    cache: HashMap<PathBuf, FileMetadata>,
+    cache: FxHashMap<PathBuf, FileMetadata>,
     /// Whether to normalize content before hashing (ignore whitespace changes).
     normalize: bool,
 }
@@ -88,7 +88,7 @@ impl SourceHasher {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            cache: HashMap::new(),
+            cache: FxHashMap::default(),
             normalize: false,
         }
     }

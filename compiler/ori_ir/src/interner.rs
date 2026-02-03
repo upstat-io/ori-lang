@@ -231,6 +231,17 @@ impl StringInterner {
         guard.strings[name.local()]
     }
 
+    /// Look up the string for a Name, returning a `'static` reference.
+    ///
+    /// This is safe because all interned strings are leaked (never deallocated).
+    /// Use this when you need to store the string reference without lifetime concerns,
+    /// such as in `Cow<'static, str>` for zero-copy string values.
+    pub fn lookup_static(&self, name: Name) -> &'static str {
+        let shard = &self.shards[name.shard()];
+        let guard = shard.read();
+        guard.strings[name.local()]
+    }
+
     /// Pre-intern all Ori keywords and common identifiers.
     fn pre_intern_keywords(&self) {
         const KEYWORDS: &[&str] = &[

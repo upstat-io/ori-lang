@@ -11,7 +11,7 @@ mod call_tests;
 mod control_tests;
 mod free_vars_tests;
 
-use crate::checker::{TypeChecker, TypeCheckerBuilder};
+use crate::checker::{TypeCheckError, TypeChecker, TypeCheckerBuilder};
 use ori_ir::SharedInterner;
 use ori_types::Type;
 
@@ -72,8 +72,8 @@ impl CheckResult {
     }
 
     /// Get the first error message, if any.
-    pub fn first_error(&self) -> Option<&str> {
-        self.typed.errors.first().map(|e| e.message.as_str())
+    pub fn first_error(&self) -> Option<String> {
+        self.typed.errors.first().map(TypeCheckError::message)
     }
 
     /// Check if any error contains the given substring.
@@ -81,7 +81,7 @@ impl CheckResult {
         self.typed
             .errors
             .iter()
-            .any(|e| e.message.contains(substring))
+            .any(|e| e.message().contains(substring))
     }
 
     /// Get the type of the first function's body expression.

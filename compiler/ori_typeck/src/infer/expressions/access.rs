@@ -26,17 +26,14 @@ pub fn infer_field(checker: &mut TypeChecker<'_>, receiver: ExprId, field: Name)
                 }
             }
             // Provide helpful error with valid indices
-            let message = if elems.is_empty() {
-                "unit type `()` has no fields".to_string()
+            let hint = if elems.is_empty() {
+                Some("unit type `()` has no fields".to_string())
             } else if elems.len() == 1 {
-                format!("tuple has no field `{field_name}` (valid index: 0)")
+                Some("valid index: 0".to_string())
             } else {
-                format!(
-                    "tuple has no field `{field_name}` (valid indices: 0..{})",
-                    elems.len() - 1
-                )
+                Some(format!("valid indices: 0..{}", elems.len() - 1))
             };
-            checker.push_error(message, receiver_span, ori_diagnostic::ErrorCode::E2001);
+            checker.error_no_such_field(receiver_span, "tuple", field_name, hint);
             Type::Error
         }
 
@@ -52,11 +49,7 @@ pub fn infer_field(checker: &mut TypeChecker<'_>, receiver: ExprId, field: Name)
             }
             // Field not found in module namespace
             let field_name = checker.context.interner.lookup(field);
-            checker.push_error(
-                format!("module has no exported item `{field_name}`"),
-                receiver_span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            checker.error_no_such_export(receiver_span, field_name);
             Type::Error
         }
 
@@ -66,22 +59,28 @@ pub fn infer_field(checker: &mut TypeChecker<'_>, receiver: ExprId, field: Name)
         _ => {
             let type_str = resolved_ty.display(checker.context.interner);
             // Provide type-specific suggestions
-            let suggestion = match &resolved_ty {
+            let hint = match &resolved_ty {
                 Type::Int | Type::Float | Type::Bool | Type::Char | Type::Byte => {
-                    " (primitives do not have fields)"
+                    Some("primitives do not have fields".to_string())
                 }
-                Type::Function { .. } => " (functions must be called, not accessed with `.`)",
-                Type::Option(_) => " (use `.unwrap()` or pattern matching to access inner value)",
-                Type::Result { .. } => " (use `.unwrap()` or pattern matching to access Ok value)",
-                Type::List(_) => " (use indexing `[i]` or methods like `.first()`, `.last()`)",
-                Type::Map { .. } => " (use indexing `[key]` or methods like `.get()`)",
-                _ => "",
+                Type::Function { .. } => {
+                    Some("functions must be called, not accessed with `.`".to_string())
+                }
+                Type::Option(_) => {
+                    Some("use `.unwrap()` or pattern matching to access inner value".to_string())
+                }
+                Type::Result { .. } => {
+                    Some("use `.unwrap()` or pattern matching to access Ok value".to_string())
+                }
+                Type::List(_) => {
+                    Some("use indexing `[i]` or methods like `.first()`, `.last()`".to_string())
+                }
+                Type::Map { .. } => {
+                    Some("use indexing `[key]` or methods like `.get()`".to_string())
+                }
+                _ => None,
             };
-            checker.push_error(
-                format!("type `{type_str}` does not support field access{suggestion}"),
-                receiver_span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            checker.error_field_access_not_supported(receiver_span, type_str, hint);
             Type::Error
         }
     }
@@ -128,20 +127,20 @@ pub fn infer_index(
         other => {
             let type_str = other.display(checker.context.interner);
             // Provide type-specific suggestions
-            let suggestion = match &other {
+            let hint = match &other {
                 Type::Named(_) | Type::Applied { .. } => {
-                    " (structs use field access with `.field`)"
+                    Some("structs use field access with `.field`".to_string())
                 }
-                Type::Tuple(_) => " (tuples use field access with `.0`, `.1`, etc.)",
-                Type::Option(_) => " (use `.unwrap()` or pattern matching to access inner value)",
-                Type::Result { .. } => " (use `.unwrap()` or pattern matching to access Ok value)",
-                _ => "",
+                Type::Tuple(_) => Some("tuples use field access with `.0`, `.1`, etc.".to_string()),
+                Type::Option(_) => {
+                    Some("use `.unwrap()` or pattern matching to access inner value".to_string())
+                }
+                Type::Result { .. } => {
+                    Some("use `.unwrap()` or pattern matching to access Ok value".to_string())
+                }
+                _ => None,
             };
-            checker.push_error(
-                format!("type `{type_str}` is not indexable{suggestion}"),
-                span,
-                ori_diagnostic::ErrorCode::E2001,
-            );
+            checker.error_not_indexable(span, type_str, hint);
             Type::Error
         }
     }

@@ -102,6 +102,24 @@ impl CompilerDb {
         Self::default()
     }
 
+    /// Create a compiler database with an existing shared interner.
+    ///
+    /// This allows multiple databases to share the same interner, which is
+    /// useful when compiling multiple files that need compatible `Name` values.
+    pub fn with_interner(interner: SharedInterner) -> Self {
+        Self {
+            storage: salsa::Storage::default(),
+            interner,
+            file_cache: Arc::default(),
+            logs: Arc::default(),
+        }
+    }
+
+    /// Get the shared interner for use across databases.
+    pub fn shared_interner(&self) -> SharedInterner {
+        self.interner.clone()
+    }
+
     /// Enable logging of Salsa events (for testing).
     #[cfg(test)]
     pub fn enable_logging(&self) {

@@ -10,7 +10,6 @@
 
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -362,8 +361,8 @@ impl Environment {
     ///
     /// Returns a map of all visible bindings that can be used
     /// when the closure is called later.
-    pub fn capture(&self) -> HashMap<Name, Value> {
-        fn collect(scope: &Scope, captures: &mut HashMap<Name, Value>) {
+    pub fn capture(&self) -> FxHashMap<Name, Value> {
+        fn collect(scope: &Scope, captures: &mut FxHashMap<Name, Value>) {
             for (name, binding) in &scope.bindings {
                 captures
                     .entry(*name)
@@ -373,7 +372,7 @@ impl Environment {
                 collect(&parent.borrow(), captures);
             }
         }
-        let mut captures = HashMap::new();
+        let mut captures = FxHashMap::default();
         collect(&self.current_scope().borrow(), &mut captures);
         captures
     }

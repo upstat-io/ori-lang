@@ -14,7 +14,7 @@ use oric::test::{match_errors, matches_expected, MatchResult};
 use oric::TypeCheckError;
 
 fn make_error(code: ErrorCode, message: &str, offset: u32) -> TypeCheckError {
-    TypeCheckError {
+    TypeCheckError::Generic {
         code,
         message: message.to_string(),
         span: Span::new(offset, offset + 5),

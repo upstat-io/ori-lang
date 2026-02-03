@@ -206,7 +206,7 @@ mod tests {
         let interner = SharedInterner::default();
         let mut ctx = ori_types::InferenceContext::new();
 
-        let mut prop_types = std::collections::HashMap::new();
+        let mut prop_types = rustc_hash::FxHashMap::default();
         let base_name = interner.intern("base");
         prop_types.insert(base_name, Type::Int);
 

@@ -99,7 +99,7 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
         let errors: Vec<String> = typed_module
             .errors
             .iter()
-            .map(|e| format!("At {}: {}", e.span, e.message))
+            .map(|e| format!("At {}: {}", e.span(), e.message()))
             .collect();
         return RunResult {
             success: false,
@@ -124,8 +124,9 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     let shared_arena = SharedArena::new(parse_result.arena.clone());
 
     // Build user method registry from impl and extend blocks
+    // Wrap captures in Arc once for efficient sharing across all collect_* calls
     let mut user_methods = UserMethodRegistry::new();
-    let captures = interpreter.env().capture();
+    let captures = std::sync::Arc::new(interpreter.env().capture());
     collect_impl_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
     collect_extend_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
 

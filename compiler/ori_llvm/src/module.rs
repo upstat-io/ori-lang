@@ -23,13 +23,15 @@ use crate::functions::body::FunctionBodyConfig;
 
 /// Convert a `ParsedType` to a `TypeId`.
 ///
-/// Only handles primitive types for now. Returns None for complex types
-/// which will fall back to INT.
+/// Only handles primitive types. Returns `None` for complex types
+/// (tuples, lists, functions, generics, etc.), which causes the caller
+/// to fall back to default types (INT for params, VOID for return).
+///
+/// For accurate type handling of complex types, callers should use
+/// `compile_function_with_sig` with type information from the type checker.
 fn parsed_type_to_type_id(ty: &ParsedType) -> Option<TypeId> {
     match ty {
         ParsedType::Primitive(id) => Some(*id),
-        // For tuples, lists, functions, etc. we'd need more sophisticated handling
-        // For now, return None to use the fallback
         _ => None,
     }
 }
@@ -80,12 +82,22 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         self.cx.register_struct(name, field_names, &field_types);
     }
 
-    /// Compile a function definition (legacy - uses hardcoded INT types).
+    /// Compile a function definition using AST type annotations.
+    ///
+    /// **Note**: This method extracts types from AST `ParsedType` annotations.
+    /// For parameters without type annotations, it defaults to `TypeId::INT`.
+    /// For return types without annotations, it defaults to `TypeId::VOID`.
+    ///
+    /// For functions with known type signatures from the type checker, prefer
+    /// using [`compile_function_with_sig`](Self::compile_function_with_sig) instead.
     pub fn compile_function(&self, func: &Function, arena: &ExprArena, expr_types: &[TypeId]) {
         self.compile_function_with_sig(func, arena, expr_types, None);
     }
 
-    /// Compile a function definition with type signature from the type checker.
+    /// Compile a function definition with explicit type signature.
+    ///
+    /// This is the preferred method when type information is available from
+    /// the type checker. It avoids fallback to default types.
     pub fn compile_function_with_sig(
         &self,
         func: &Function,
@@ -103,7 +115,9 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         let (param_types, return_type) = if let Some(sig) = sig {
             (sig.params.clone(), sig.return_type)
         } else {
-            // Extract types from parameter declarations
+            // Extract types from parameter declarations.
+            // Defaults: parameters without type annotations -> INT,
+            //           functions without return type -> VOID.
             let param_types: Vec<TypeId> = params
                 .iter()
                 .map(|p| {
@@ -113,7 +127,6 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
                 })
                 .collect();
 
-            // Extract return type from function declaration
             let return_type = func
                 .return_ty
                 .as_ref()
@@ -180,7 +193,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
     }
 
     /// Get all compiled tests.
-    pub fn tests(&self) -> std::collections::HashMap<Name, FunctionValue<'ll>> {
+    pub fn tests(&self) -> rustc_hash::FxHashMap<Name, FunctionValue<'ll>> {
         self.cx.all_tests()
     }
 

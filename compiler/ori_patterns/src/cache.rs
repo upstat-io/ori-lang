@@ -113,7 +113,7 @@ mod tests {
         let interner = SharedInterner::default();
         let mut ctx = ori_types::InferenceContext::new();
 
-        let mut prop_types = std::collections::HashMap::new();
+        let mut prop_types = rustc_hash::FxHashMap::default();
         let op_name = interner.intern("operation");
         prop_types.insert(
             op_name,
@@ -134,7 +134,7 @@ mod tests {
         let interner = SharedInterner::default();
         let mut ctx = ori_types::InferenceContext::new();
 
-        let mut prop_types = std::collections::HashMap::new();
+        let mut prop_types = rustc_hash::FxHashMap::default();
         let op_name = interner.intern("operation");
         prop_types.insert(op_name, Type::Str);
 

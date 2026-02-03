@@ -1,6 +1,6 @@
 //! Tests for `FunctionExp` patterns (recurse, print, panic).
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use inkwell::context::Context;
 use ori_ir::ast::patterns::{FunctionExp, FunctionExpKind, NamedExpr};
@@ -71,7 +71,7 @@ fn test_function_exp_recurse_with_condition() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_function_exp(
         &func_exp,
@@ -133,7 +133,7 @@ fn test_function_exp_recurse_incomplete_props() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::BOOL];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     // Should return None because base and step are missing
     let result = builder.compile_function_exp(
@@ -182,7 +182,7 @@ fn test_function_exp_print() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::STR];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     // Print returns void (None)
     let result = builder.compile_function_exp(
@@ -216,7 +216,7 @@ fn test_function_exp_panic() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     let result = builder.compile_function_exp(
         &func_exp,
@@ -257,7 +257,7 @@ fn test_function_exp_default_fallback_void() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     // For void return type, should return None
     let result = builder.compile_function_exp(
@@ -292,7 +292,7 @@ fn test_function_exp_default_fallback_int() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     // For int return type, should return a default value
     let result = builder.compile_function_exp(
@@ -329,7 +329,7 @@ fn test_function_exp_timeout() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![];
-    let mut locals = HashMap::new();
+    let mut locals = FxHashMap::default();
 
     // Timeout falls through to default
     let result = builder.compile_function_exp(

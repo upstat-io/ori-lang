@@ -14,12 +14,12 @@ repository = "https://github.com/upstat-io/ori-lang"
 ori_ir = { path = "../ori_ir" }
 ori_rt = { path = "../ori_rt" }
 
+# Fast hash map for compiler internals
+rustc-hash = "2.1"
+
 # Debug instrumentation
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# Concurrency primitives
-parking_lot = "0.12"
 
 # LLVM bindings - platform-specific linking
 # Linux/macOS: dynamic linking (requires LLVM installed or in Docker)

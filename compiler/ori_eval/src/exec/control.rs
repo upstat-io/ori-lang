@@ -213,7 +213,7 @@ pub fn try_match(
                 ExprKind::Int(n) => Value::int(*n),
                 ExprKind::Float(bits) => Value::Float(f64::from_bits(*bits)),
                 ExprKind::Bool(b) => Value::Bool(*b),
-                ExprKind::String(s) => Value::string(interner.lookup(*s).to_string()),
+                ExprKind::String(s) => Value::string_static(interner.lookup_static(*s)),
                 ExprKind::Char(c) => Value::Char(*c),
                 _ => return Err(invalid_literal_pattern()),
             };
@@ -488,6 +488,7 @@ where
 }
 
 /// Result of a for loop iteration.
+#[derive(Debug)]
 pub enum LoopAction {
     /// Skip current iteration (continue without value)
     Continue,
@@ -517,29 +518,11 @@ where
     }
 }
 
-/// Parse a loop control message (break/continue).
-///
-/// This is a legacy function that parses string-based control flow messages.
-/// Prefer using `to_loop_action` with `EvalError::control_flow` for new code.
-pub fn parse_loop_control(message: &str) -> LoopAction {
-    if message == "continue" {
-        LoopAction::Continue
-    } else if let Some(val_str) = message.strip_prefix("break:") {
-        if val_str == "void" {
-            LoopAction::Break(Value::Void)
-        } else {
-            // For simplicity, just return void
-            LoopAction::Break(Value::Void)
-        }
-    } else {
-        LoopAction::Error(EvalError::new(message))
-    }
-}
-
 /// Convert an `EvalError` to a `LoopAction` using the `ControlFlow` enum.
 ///
-/// This is the preferred way to handle loop control flow in new code.
-/// It uses the typed `ControlFlow` enum for better type safety.
+/// Control flow signals (break/continue) are indicated by the `control_flow`
+/// field on `EvalError`. Regular errors (where `control_flow` is `None`) are
+/// propagated as `LoopAction::Error`.
 pub fn to_loop_action(error: EvalError) -> LoopAction {
     use ori_patterns::ControlFlow;
 
@@ -547,10 +530,7 @@ pub fn to_loop_action(error: EvalError) -> LoopAction {
         Some(ControlFlow::Continue(v)) if !matches!(v, Value::Void) => LoopAction::ContinueWith(v),
         Some(ControlFlow::Continue(_)) => LoopAction::Continue,
         Some(ControlFlow::Break(v)) => LoopAction::Break(v),
-        None => {
-            // Fall back to string parsing for legacy compatibility
-            parse_loop_control(&error.message)
-        }
+        None => LoopAction::Error(error),
     }
 }
 

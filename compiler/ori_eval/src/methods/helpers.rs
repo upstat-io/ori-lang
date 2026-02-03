@@ -111,7 +111,7 @@ pub fn require_str_arg<'a>(
     index: usize,
 ) -> Result<&'a str, EvalError> {
     match args.get(index) {
-        Some(Value::Str(s)) => Ok(s.as_str()),
+        Some(Value::Str(s)) => Ok(&**s),
         _ => Err(wrong_arg_type(method, "string")),
     }
 }

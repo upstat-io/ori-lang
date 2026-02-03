@@ -46,7 +46,7 @@ mod parallel_tests;
 #[cfg(test)]
 mod test_helpers;
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use ori_ir::{ExprArena, ExprId, NamedExpr, StringInterner};
 use ori_types::{InferenceContext, Type};
@@ -150,7 +150,7 @@ pub struct TypeCheckContext<'a> {
     pub interner: &'a StringInterner,
     pub ctx: &'a mut InferenceContext,
     /// Types of evaluated properties, keyed by property name.
-    pub prop_types: HashMap<Name, Type>,
+    pub prop_types: FxHashMap<Name, Type>,
 }
 
 impl<'a> TypeCheckContext<'a> {
@@ -158,7 +158,7 @@ impl<'a> TypeCheckContext<'a> {
     pub fn new(
         interner: &'a StringInterner,
         ctx: &'a mut InferenceContext,
-        prop_types: HashMap<Name, Type>,
+        prop_types: FxHashMap<Name, Type>,
     ) -> Self {
         TypeCheckContext {
             interner,

@@ -41,8 +41,8 @@ fn test_type_mismatch_error() {
 
     assert!(typed.has_errors());
     assert!(
-        typed.errors[0].message.contains("type mismatch")
-            || typed.errors[0].message.contains("expected")
+        typed.errors[0].message().contains("type mismatch")
+            || typed.errors[0].message().contains("expected")
     );
 }
 
@@ -72,7 +72,7 @@ fn test_let_type_annotation_mismatch_in_run() {
     let has_int_str_error = typed
         .errors
         .iter()
-        .any(|e| e.message.contains("int") && e.message.contains("str"));
+        .any(|e| e.message().contains("int") && e.message().contains("str"));
     assert!(
         has_int_str_error,
         "Should have type error for let x: int = \"hello\" inside run"

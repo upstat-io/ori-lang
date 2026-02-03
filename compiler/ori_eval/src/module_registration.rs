@@ -17,7 +17,7 @@
 
 use crate::{Environment, FunctionValue, Mutability, UserMethod, UserMethodRegistry, Value};
 use ori_ir::{Module, Name, SharedArena, TypeDeclKind};
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
 
 /// Configuration for method collection operations.
@@ -29,8 +29,9 @@ pub struct MethodCollectionConfig<'a> {
     pub module: &'a Module,
     /// Shared arena for expression lookup.
     pub arena: &'a SharedArena,
-    /// Variable captures from the current environment.
-    pub captures: &'a HashMap<Name, Value>,
+    /// Variable captures from the current environment, pre-wrapped in Arc for
+    /// efficient sharing across multiple methods (O(1) cloning).
+    pub captures: Arc<FxHashMap<Name, Value>>,
 }
 
 /// Register all functions from a module into the environment.
@@ -71,7 +72,7 @@ pub fn collect_impl_methods_with_config(
     config: &MethodCollectionConfig<'_>,
     registry: &mut UserMethodRegistry,
 ) {
-    collect_impl_methods(config.module, config.arena, config.captures, registry);
+    collect_impl_methods(config.module, config.arena, &config.captures, registry);
 }
 
 /// Collect methods from extend blocks into a registry using a config struct.
@@ -81,7 +82,7 @@ pub fn collect_extend_methods_with_config(
     config: &MethodCollectionConfig<'_>,
     registry: &mut UserMethodRegistry,
 ) {
-    collect_extend_methods(config.module, config.arena, config.captures, registry);
+    collect_extend_methods(config.module, config.arena, &config.captures, registry);
 }
 
 /// Collect methods from impl blocks into a registry.
@@ -93,23 +94,22 @@ pub fn collect_extend_methods_with_config(
 ///
 /// * `module` - The module containing impl blocks
 /// * `arena` - Shared arena for expression lookup
-/// * `captures` - Variable captures from the current environment
+/// * `captures` - Variable captures pre-wrapped in Arc for efficient sharing
 /// * `registry` - Registry to store collected methods
 #[expect(
     clippy::implicit_hasher,
-    reason = "captures use default hasher throughout codebase"
+    reason = "FxHashMap is used specifically for performance with small keys"
 )]
 pub fn collect_impl_methods(
     module: &Module,
     arena: &SharedArena,
-    captures: &HashMap<Name, Value>,
+    captures: &Arc<FxHashMap<Name, Value>>,
     registry: &mut UserMethodRegistry,
 ) {
-    // Wrap captures in Arc once for efficient sharing across all methods
-    let captures = Arc::new(captures.clone());
+    // Arc is already provided by caller, no cloning needed
 
     // First, build a map of trait names to their definitions for default method lookup
-    let mut trait_map: HashMap<Name, &ori_ir::TraitDef> = HashMap::new();
+    let mut trait_map: FxHashMap<Name, &ori_ir::TraitDef> = FxHashMap::default();
     for trait_def in &module.traits {
         trait_map.insert(trait_def.name, trait_def);
     }
@@ -121,7 +121,7 @@ pub fn collect_impl_methods(
         };
 
         // Collect names of methods explicitly defined in this impl
-        let mut overridden_methods: HashSet<Name> = HashSet::new();
+        let mut overridden_methods: FxHashSet<Name> = FxHashSet::default();
 
         // Register each explicitly defined method
         for method in &impl_def.methods {
@@ -132,7 +132,7 @@ pub fn collect_impl_methods(
 
             // Create user method with Arc-cloned captures (O(1) instead of O(n))
             let user_method =
-                UserMethod::new(params, method.body, Arc::clone(&captures), arena.clone());
+                UserMethod::new(params, method.body, Arc::clone(captures), arena.clone());
 
             registry.register(type_name, method.name, user_method);
         }
@@ -150,7 +150,7 @@ pub fn collect_impl_methods(
                                 let user_method = UserMethod::new(
                                     params,
                                     default_method.body,
-                                    Arc::clone(&captures),
+                                    Arc::clone(captures),
                                     arena.clone(),
                                 );
 
@@ -173,20 +173,19 @@ pub fn collect_impl_methods(
 ///
 /// * `module` - The module containing extend blocks
 /// * `arena` - Shared arena for expression lookup
-/// * `captures` - Variable captures from the current environment
+/// * `captures` - Variable captures pre-wrapped in Arc for efficient sharing
 /// * `registry` - Registry to store collected methods
 #[expect(
     clippy::implicit_hasher,
-    reason = "captures use default hasher throughout codebase"
+    reason = "FxHashMap is used specifically for performance with small keys"
 )]
 pub fn collect_extend_methods(
     module: &Module,
     arena: &SharedArena,
-    captures: &HashMap<Name, Value>,
+    captures: &Arc<FxHashMap<Name, Value>>,
     registry: &mut UserMethodRegistry,
 ) {
-    // Wrap captures in Arc once for efficient sharing across all methods
-    let captures = Arc::new(captures.clone());
+    // Arc is already provided by caller, no cloning needed
 
     for extend_def in &module.extends {
         // Get the target type name (e.g., "list" for `extend [T] { ... }`)
@@ -199,7 +198,7 @@ pub fn collect_extend_methods(
 
             // Create user method with Arc-cloned captures (O(1) instead of O(n))
             let user_method =
-                UserMethod::new(params, method.body, Arc::clone(&captures), arena.clone());
+                UserMethod::new(params, method.body, Arc::clone(captures), arena.clone());
 
             registry.register(type_name, method.name, user_method);
         }
@@ -246,20 +245,19 @@ pub fn register_variant_constructors(module: &Module, env: &mut Environment) {
 ///
 /// * `module` - The module containing def impl blocks
 /// * `arena` - Shared arena for expression lookup
-/// * `captures` - Variable captures from the current environment
+/// * `captures` - Variable captures pre-wrapped in Arc for efficient sharing
 /// * `registry` - Registry to store collected methods
 #[expect(
     clippy::implicit_hasher,
-    reason = "captures use default hasher throughout codebase"
+    reason = "FxHashMap is used specifically for performance with small keys"
 )]
 pub fn collect_def_impl_methods(
     module: &Module,
     arena: &SharedArena,
-    captures: &HashMap<Name, Value>,
+    captures: &Arc<FxHashMap<Name, Value>>,
     registry: &mut UserMethodRegistry,
 ) {
-    // Wrap captures in Arc once for efficient sharing across all methods
-    let captures = Arc::new(captures.clone());
+    // Arc is already provided by caller, no cloning needed
 
     for def_impl_def in &module.def_impls {
         let trait_name = def_impl_def.trait_name;
@@ -270,7 +268,7 @@ pub fn collect_def_impl_methods(
 
             // Create user method with Arc-cloned captures (O(1) instead of O(n))
             let user_method =
-                UserMethod::new(params, method.body, Arc::clone(&captures), arena.clone());
+                UserMethod::new(params, method.body, Arc::clone(captures), arena.clone());
 
             // Register under trait name (trait_name -> method_name)
             // This enables `TraitName.method(...)` calls for capability dispatch
@@ -286,7 +284,7 @@ pub fn collect_def_impl_methods_with_config(
     config: &MethodCollectionConfig<'_>,
     registry: &mut UserMethodRegistry,
 ) {
-    collect_def_impl_methods(config.module, config.arena, config.captures, registry);
+    collect_def_impl_methods(config.module, config.arena, &config.captures, registry);
 }
 
 /// Register newtype constructors from type declarations.
@@ -404,7 +402,7 @@ mod tests {
 
         let arena = SharedArena::new(result.arena.clone());
         let mut registry = UserMethodRegistry::new();
-        let captures = HashMap::new();
+        let captures = Arc::new(FxHashMap::default());
 
         collect_impl_methods(&result.module, &arena, &captures, &mut registry);
 
@@ -428,12 +426,12 @@ mod tests {
 
         let arena = SharedArena::new(result.arena.clone());
         let mut registry = UserMethodRegistry::new();
-        let captures = HashMap::new();
+        let captures = Arc::new(FxHashMap::default());
 
         let config = MethodCollectionConfig {
             module: &result.module,
             arena: &arena,
-            captures: &captures,
+            captures: Arc::clone(&captures),
         };
         collect_impl_methods_with_config(&config, &mut registry);
 
@@ -455,7 +453,7 @@ mod tests {
 
         let arena = SharedArena::new(result.arena.clone());
         let mut registry = UserMethodRegistry::new();
-        let captures = HashMap::new();
+        let captures = Arc::new(FxHashMap::default());
 
         collect_extend_methods(&result.module, &arena, &captures, &mut registry);
 
@@ -477,12 +475,12 @@ mod tests {
 
         let arena = SharedArena::new(result.arena.clone());
         let mut registry = UserMethodRegistry::new();
-        let captures = HashMap::new();
+        let captures = Arc::new(FxHashMap::default());
 
         let config = MethodCollectionConfig {
             module: &result.module,
             arena: &arena,
-            captures: &captures,
+            captures: Arc::clone(&captures),
         };
         collect_extend_methods_with_config(&config, &mut registry);
 
@@ -505,7 +503,7 @@ mod tests {
 
         let arena = SharedArena::new(result.arena.clone());
         let mut registry = UserMethodRegistry::new();
-        let captures = HashMap::new();
+        let captures = Arc::new(FxHashMap::default());
 
         collect_def_impl_methods(&result.module, &arena, &captures, &mut registry);
 
@@ -530,12 +528,12 @@ mod tests {
 
         let arena = SharedArena::new(result.arena.clone());
         let mut registry = UserMethodRegistry::new();
-        let captures = HashMap::new();
+        let captures = Arc::new(FxHashMap::default());
 
         let config = MethodCollectionConfig {
             module: &result.module,
             arena: &arena,
-            captures: &captures,
+            captures: Arc::clone(&captures),
         };
         collect_def_impl_methods_with_config(&config, &mut registry);
 

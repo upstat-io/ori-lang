@@ -12,7 +12,7 @@
 
 use crate::Value;
 use ori_ir::{DerivedMethodInfo, ExprId, Name, SharedArena};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 use crate::method_key::MethodKey;
@@ -38,7 +38,7 @@ pub struct UserMethod {
     /// Arena for evaluating the body (required for thread safety).
     pub arena: SharedArena,
     /// Captured variables from the defining scope (Arc for cheap cloning).
-    pub captures: Arc<HashMap<Name, Value>>,
+    pub captures: Arc<FxHashMap<Name, Value>>,
 }
 
 impl UserMethod {
@@ -52,7 +52,7 @@ impl UserMethod {
     pub fn new(
         params: Vec<Name>,
         body: ExprId,
-        captures: Arc<HashMap<Name, Value>>,
+        captures: Arc<FxHashMap<Name, Value>>,
         arena: SharedArena,
     ) -> Self {
         UserMethod {
@@ -69,7 +69,7 @@ impl UserMethod {
     pub fn with_captures(
         params: Vec<Name>,
         body: ExprId,
-        captures: HashMap<Name, Value>,
+        captures: FxHashMap<Name, Value>,
         arena: SharedArena,
     ) -> Self {
         Self::new(params, body, Arc::new(captures), arena)
@@ -94,17 +94,17 @@ pub enum MethodEntry {
 #[derive(Clone, Debug, Default)]
 pub struct UserMethodRegistry {
     /// Map from method key to method definition.
-    methods: HashMap<MethodKey, UserMethod>,
+    methods: FxHashMap<MethodKey, UserMethod>,
     /// Map from method key to derived method info.
-    derived_methods: HashMap<MethodKey, DerivedMethodInfo>,
+    derived_methods: FxHashMap<MethodKey, DerivedMethodInfo>,
 }
 
 impl UserMethodRegistry {
     /// Create a new empty registry.
     pub fn new() -> Self {
         UserMethodRegistry {
-            methods: HashMap::new(),
-            derived_methods: HashMap::new(),
+            methods: FxHashMap::default(),
+            derived_methods: FxHashMap::default(),
         }
     }
 
@@ -225,8 +225,8 @@ mod tests {
         SharedArena::new(ExprArena::new())
     }
 
-    fn dummy_captures() -> Arc<HashMap<Name, Value>> {
-        Arc::new(HashMap::new())
+    fn dummy_captures() -> Arc<FxHashMap<Name, Value>> {
+        Arc::new(FxHashMap::default())
     }
 
     #[test]

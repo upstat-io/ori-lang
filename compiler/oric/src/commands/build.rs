@@ -831,10 +831,16 @@ fn build_import_infos(
         None => return imported_functions,
     };
 
+    // Build index once for O(1) lookups instead of O(n) linear scan per import
+    let module_index: rustc_hash::FxHashMap<&Path, &CompiledModuleInfo> = compiled_modules
+        .iter()
+        .map(|m| (m.path.as_path(), m))
+        .collect();
+
     for import_path in imports {
-        // Find the compiled module info for this import
-        let module_info = match compiled_modules.iter().find(|m| m.path == *import_path) {
-            Some(info) => info,
+        // O(1) lookup using the index
+        let module_info = match module_index.get(import_path.as_path()) {
+            Some(info) => *info,
             None => {
                 // Module not yet compiled - shouldn't happen in topological order
                 eprintln!(
@@ -847,6 +853,8 @@ fn build_import_infos(
 
         // Add each public function using the actual types from type checking
         // The mangled names are pre-computed when the module was compiled
+        // Pre-allocate to avoid reallocations in the inner loop
+        imported_functions.reserve(module_info.public_functions.len());
         for (mangled_name, param_types, return_type) in &module_info.public_functions {
             imported_functions.push(super::compile_common::ImportedFunctionInfo {
                 mangled_name: mangled_name.clone(),

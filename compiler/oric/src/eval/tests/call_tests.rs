@@ -14,7 +14,7 @@ use crate::ir::{
     CallArg, CallArgRange, Expr, ExprArena, ExprId, ExprKind, Name, SharedArena, SharedInterner,
     Span,
 };
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Create a dummy arena for tests.
 fn dummy_arena() -> SharedArena {
@@ -23,7 +23,7 @@ fn dummy_arena() -> SharedArena {
 
 /// Create a test function with the given parameters.
 fn test_func(params: Vec<Name>, body: ExprId) -> FunctionValue {
-    FunctionValue::new(params, body, HashMap::new(), dummy_arena())
+    FunctionValue::new(params, body, FxHashMap::default(), dummy_arena())
 }
 
 // Argument Count Validation Tests
@@ -168,7 +168,7 @@ mod parameter_binding {
 mod capture_binding {
     use super::*;
 
-    fn func_with_captures(params: Vec<Name>, captures: HashMap<Name, Value>) -> FunctionValue {
+    fn func_with_captures(params: Vec<Name>, captures: FxHashMap<Name, Value>) -> FunctionValue {
         FunctionValue::new(params, ExprId::new(0), captures, dummy_arena())
     }
 
@@ -176,7 +176,7 @@ mod capture_binding {
     fn single_capture() {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
-        let mut captures = HashMap::new();
+        let mut captures = FxHashMap::default();
         captures.insert(x, Value::int(42));
 
         let func = func_with_captures(vec![], captures);
@@ -194,7 +194,7 @@ mod capture_binding {
         let y = interner.intern("y");
         let z = interner.intern("z");
 
-        let mut captures = HashMap::new();
+        let mut captures = FxHashMap::default();
         captures.insert(x, Value::int(1));
         captures.insert(y, Value::string("hello"));
         captures.insert(z, Value::Bool(true));
@@ -211,7 +211,7 @@ mod capture_binding {
 
     #[test]
     fn no_captures() {
-        let func = func_with_captures(vec![], HashMap::new());
+        let func = func_with_captures(vec![], FxHashMap::default());
         let mut env = Environment::new();
         env.push_scope();
         bind_captures(&mut env, &func);
@@ -222,7 +222,7 @@ mod capture_binding {
     fn captures_are_immutable() {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
-        let mut captures = HashMap::new();
+        let mut captures = FxHashMap::default();
         captures.insert(x, Value::int(42));
 
         let func = func_with_captures(vec![], captures);
@@ -243,7 +243,7 @@ mod capture_binding {
         let list = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
         let tuple = Value::tuple(vec![Value::string("a"), Value::Bool(false)]);
 
-        let mut captures = HashMap::new();
+        let mut captures = FxHashMap::default();
         captures.insert(list_name, list.clone());
         captures.insert(tuple_name, tuple.clone());
 

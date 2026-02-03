@@ -52,18 +52,8 @@ pub fn infer_ident(checker: &mut TypeChecker<'_>, name: Name, span: Span) -> Typ
 
     // Try to suggest a similar name
     let name_str = checker.context.interner.lookup(name);
-    let message = format!("unknown identifier `{name_str}`");
-
-    if let Some(suggestion) = suggest::suggest_identifier(checker, name) {
-        checker.push_error_with_suggestion(
-            message,
-            span,
-            ori_diagnostic::ErrorCode::E2003,
-            format!("try using `{suggestion}`"),
-        );
-    } else {
-        checker.push_error(message, span, ori_diagnostic::ErrorCode::E2003);
-    }
+    let suggestion = suggest::suggest_identifier(checker, name);
+    checker.error_unknown_identifier(span, name_str, suggestion);
     Type::Error
 }
 
@@ -139,18 +129,8 @@ pub fn infer_function_ref(checker: &mut TypeChecker<'_>, name: Name, span: Span)
     } else {
         // Try to suggest a similar function name
         let name_str = checker.context.interner.lookup(name);
-        let message = format!("unknown function `@{name_str}`");
-
-        if let Some(suggestion) = suggest::suggest_function(checker, name) {
-            checker.push_error_with_suggestion(
-                message,
-                span,
-                ori_diagnostic::ErrorCode::E2003,
-                format!("try using `@{suggestion}`"),
-            );
-        } else {
-            checker.push_error(message, span, ori_diagnostic::ErrorCode::E2003);
-        }
+        let suggestion = suggest::suggest_function(checker, name);
+        checker.error_unknown_function(span, format!("@{name_str}"), suggestion);
         Type::Error
     }
 }

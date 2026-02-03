@@ -22,32 +22,33 @@
 
 mod parse;
 mod semantic;
-mod type_errors;
 
 use crate::diagnostic::queue::{DiagnosticConfig, DiagnosticQueue, DiagnosticSeverity};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::problem::Problem;
 use crate::typeck::TypeCheckError;
+use ori_ir::StringInterner;
 
 /// Trait for rendering problems into diagnostics.
 pub trait Render {
     /// Render this problem into a diagnostic.
-    fn render(&self) -> Diagnostic;
+    ///
+    /// The interner is required to look up interned `Name` values.
+    fn render(&self, interner: &StringInterner) -> Diagnostic;
 }
 
 impl Render for Problem {
-    fn render(&self) -> Diagnostic {
+    fn render(&self, interner: &StringInterner) -> Diagnostic {
         match self {
-            Problem::Parse(p) => p.render(),
-            Problem::Type(p) => p.render(),
-            Problem::Semantic(p) => p.render(),
+            Problem::Parse(p) => p.render(interner),
+            Problem::Semantic(p) => p.render(interner),
         }
     }
 }
 
 /// Render a collection of problems into diagnostics.
-pub fn render_all(problems: &[Problem]) -> Vec<Diagnostic> {
-    problems.iter().map(Render::render).collect()
+pub fn render_all(problems: &[Problem], interner: &StringInterner) -> Vec<Diagnostic> {
+    problems.iter().map(|p| p.render(interner)).collect()
 }
 
 /// Process type check errors through the diagnostic queue for filtering and sorting.
@@ -139,8 +140,8 @@ impl Report {
     }
 
     /// Adds a problem to the report, rendering it as a diagnostic.
-    pub fn add_problem(&mut self, problem: &Problem) {
-        self.diagnostics.push(problem.render());
+    pub fn add_problem(&mut self, problem: &Problem, interner: &StringInterner) {
+        self.diagnostics.push(problem.render(interner));
     }
 
     /// Returns true if the report contains no diagnostics.
@@ -180,17 +181,22 @@ mod tests {
     use crate::diagnostic::ErrorCode;
     use crate::ir::Span;
     use crate::problem::semantic::DefinitionKind;
-    use crate::problem::{ParseProblem, SemanticProblem, TypeProblem};
+    use crate::problem::{ParseProblem, SemanticProblem};
+
+    fn test_interner() -> StringInterner {
+        StringInterner::new()
+    }
 
     #[test]
     fn test_render_parse_problem() {
+        let interner = test_interner();
         let problem = ParseProblem::UnexpectedToken {
             span: Span::new(0, 5),
             expected: "expression".into(),
             found: "}".into(),
         };
 
-        let diag = problem.render();
+        let diag = problem.render(&interner);
 
         assert_eq!(diag.code, ErrorCode::E1001);
         assert!(diag.message.contains("unexpected token"));
@@ -200,30 +206,31 @@ mod tests {
     }
 
     #[test]
-    fn test_render_type_mismatch() {
-        let problem = TypeProblem::TypeMismatch {
+    fn test_render_semantic_error() {
+        let interner = test_interner();
+        let problem = SemanticProblem::UnknownIdentifier {
             span: Span::new(10, 15),
-            expected: "int".into(),
-            found: "str".into(),
+            name: "unknown_var".into(),
+            similar: None,
         };
 
-        let diag = problem.render();
+        let diag = problem.render(&interner);
 
-        assert_eq!(diag.code, ErrorCode::E2001);
-        assert!(diag.message.contains("type mismatch"));
-        assert!(diag.message.contains("int"));
-        assert!(diag.message.contains("str"));
+        assert_eq!(diag.code, ErrorCode::E2003);
+        assert!(diag.message.contains("unknown identifier"));
+        assert!(diag.message.contains("unknown_var"));
     }
 
     #[test]
     fn test_render_unknown_identifier_with_suggestion() {
+        let interner = test_interner();
         let problem = SemanticProblem::UnknownIdentifier {
             span: Span::new(20, 25),
             name: "foo".into(),
             similar: Some("for".into()),
         };
 
-        let diag = problem.render();
+        let diag = problem.render(&interner);
 
         assert_eq!(diag.code, ErrorCode::E2003);
         assert!(diag.message.contains("unknown identifier"));
@@ -232,6 +239,7 @@ mod tests {
 
     #[test]
     fn test_render_duplicate_definition() {
+        let interner = test_interner();
         let problem = SemanticProblem::DuplicateDefinition {
             span: Span::new(100, 110),
             name: "bar".into(),
@@ -239,7 +247,7 @@ mod tests {
             first_span: Span::new(10, 20),
         };
 
-        let diag = problem.render();
+        let diag = problem.render(&interner);
 
         assert_eq!(diag.code, ErrorCode::E2006);
         assert!(diag.message.contains("duplicate"));
@@ -249,12 +257,13 @@ mod tests {
 
     #[test]
     fn test_render_warning() {
+        let interner = test_interner();
         let problem = SemanticProblem::UnusedVariable {
             span: Span::new(5, 10),
             name: "x".into(),
         };
 
-        let diag = problem.render();
+        let diag = problem.render(&interner);
 
         assert!(!diag.is_error());
         assert_eq!(diag.severity, Severity::Warning);
@@ -262,40 +271,48 @@ mod tests {
 
     #[test]
     fn test_render_all() {
+        let interner = test_interner();
         let problems = vec![
             Problem::Parse(ParseProblem::UnexpectedToken {
                 span: Span::new(0, 5),
                 expected: "expression".into(),
                 found: "}".into(),
             }),
-            Problem::Type(TypeProblem::TypeMismatch {
+            Problem::Semantic(SemanticProblem::UnknownIdentifier {
                 span: Span::new(10, 15),
-                expected: "int".into(),
-                found: "str".into(),
+                name: "foo".into(),
+                similar: None,
             }),
         ];
 
-        let diagnostics = render_all(&problems);
+        let diagnostics = render_all(&problems, &interner);
 
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].code, ErrorCode::E1001);
-        assert_eq!(diagnostics[1].code, ErrorCode::E2001);
+        assert_eq!(diagnostics[1].code, ErrorCode::E2003);
     }
 
     #[test]
     fn test_report() {
+        let interner = test_interner();
         let mut report = Report::new();
 
-        report.add_problem(&Problem::Parse(ParseProblem::UnexpectedToken {
-            span: Span::new(0, 5),
-            expected: "expression".into(),
-            found: "}".into(),
-        }));
+        report.add_problem(
+            &Problem::Parse(ParseProblem::UnexpectedToken {
+                span: Span::new(0, 5),
+                expected: "expression".into(),
+                found: "}".into(),
+            }),
+            &interner,
+        );
 
-        report.add_problem(&Problem::Semantic(SemanticProblem::UnusedVariable {
-            span: Span::new(5, 10),
-            name: "x".into(),
-        }));
+        report.add_problem(
+            &Problem::Semantic(SemanticProblem::UnusedVariable {
+                span: Span::new(5, 10),
+                name: "x".into(),
+            }),
+            &interner,
+        );
 
         assert_eq!(report.len(), 2);
         assert!(report.has_errors());

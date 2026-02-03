@@ -397,7 +397,7 @@ pub fn type_check_with_imports(
             return TypedModule {
                 expr_types: Vec::new(),
                 function_types: Vec::new(),
-                errors: vec![TypeCheckError {
+                errors: vec![TypeCheckError::Generic {
                     message: format!("import error: {}", e.message),
                     span: e.span.unwrap_or_default(),
                     code: ori_diagnostic::ErrorCode::E2003, // Unknown identifier
@@ -438,7 +438,7 @@ pub fn type_check_with_imports_and_source(
             return TypedModule {
                 expr_types: Vec::new(),
                 function_types: Vec::new(),
-                errors: vec![TypeCheckError {
+                errors: vec![TypeCheckError::Generic {
                     message: format!("import error: {}", e.message),
                     span: e.span.unwrap_or_default(),
                     code: ori_diagnostic::ErrorCode::E2003,

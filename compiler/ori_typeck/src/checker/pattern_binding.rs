@@ -87,14 +87,10 @@ impl TypeChecker<'_> {
                                 self.bind_pattern(pat, elem_ty, span);
                             }
                         } else {
-                            self.push_error(
-                                format!(
-                                    "tuple pattern has {} elements, but type has {}",
-                                    patterns.len(),
-                                    elem_types.len()
-                                ),
+                            self.error_tuple_length_mismatch(
                                 span,
-                                ori_diagnostic::ErrorCode::E2001,
+                                elem_types.len(),
+                                patterns.len(),
                             );
                         }
                     }
@@ -107,14 +103,8 @@ impl TypeChecker<'_> {
                     }
                     Type::Error => {} // Error recovery - don't cascade errors
                     other => {
-                        self.push_error(
-                            format!(
-                                "cannot destructure `{}` as a tuple",
-                                other.display(self.context.interner)
-                            ),
-                            span,
-                            ori_diagnostic::ErrorCode::E2001,
-                        );
+                        let found_type = other.display(self.context.interner);
+                        self.error_tuple_pattern_mismatch(span, found_type);
                     }
                 }
             }
@@ -154,14 +144,8 @@ impl TypeChecker<'_> {
                     }
                     Type::Error => {} // Error recovery - don't cascade errors
                     other => {
-                        self.push_error(
-                            format!(
-                                "cannot destructure `{}` as a list",
-                                other.display(self.context.interner)
-                            ),
-                            span,
-                            ori_diagnostic::ErrorCode::E2001,
-                        );
+                        let found_type = other.display(self.context.interner);
+                        self.error_list_pattern_mismatch(span, found_type);
                     }
                 }
             }
