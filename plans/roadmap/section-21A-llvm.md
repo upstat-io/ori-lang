@@ -609,8 +609,8 @@ sections:
   - [ ] Library linking: `-l<lib>` flag generation
   - [ ] **Rust Tests**: `ori_llvm/src/ffi/c_ffi_tests.rs`
 
-- [ ] **Implement**: Unsafe blocks
-  - [ ] `unsafe { ... }` block codegen (same as safe, marker only)
+- [ ] **Implement**: Unsafe expressions
+  - [ ] `unsafe(...)` expression codegen (same as safe, marker only)
   - [ ] `uses FFI` capability requirement at call sites
   - [ ] Pointer operations: `ptr_read<T>(ptr:)`, `ptr_write<T>(ptr:, value:)`
   - [ ] Pointer arithmetic (future)

@@ -3,19 +3,19 @@
 //! Handles list, tuple, map, and struct literals.
 
 use super::{WidthCalculator, ALWAYS_STACKED};
-use ori_ir::{ExprId, ExprRange, FieldInitRange, MapEntryRange, Name, StringLookup};
+use ori_ir::{ExprId, ExprList, FieldInitRange, MapEntryRange, Name, StringLookup};
 
 /// Calculate width of a list literal: `[items]`.
 pub(super) fn list_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
-    items: ExprRange,
+    items: ExprList,
 ) -> usize {
-    let items_list = calc.arena.get_expr_list(items);
-    if items_list.is_empty() {
+    if items.is_empty() {
         return 2; // "[]"
     }
 
-    let items_w = calc.width_of_expr_list(items_list);
+    let items_vec: Vec<_> = calc.arena.iter_expr_list(items).collect();
+    let items_w = calc.width_of_expr_list(&items_vec);
     if items_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
@@ -28,20 +28,20 @@ pub(super) fn list_width<I: StringLookup>(
 /// Single-element tuples need trailing comma: `(x,)`.
 pub(super) fn tuple_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
-    items: ExprRange,
+    items: ExprList,
 ) -> usize {
-    let items_list = calc.arena.get_expr_list(items);
-    if items_list.is_empty() {
+    if items.is_empty() {
         return 2; // "()"
     }
 
-    let items_w = calc.width_of_expr_list(items_list);
+    let items_vec: Vec<_> = calc.arena.iter_expr_list(items).collect();
+    let items_w = calc.width_of_expr_list(&items_vec);
     if items_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
 
     // "(" + items + ")" + optional trailing comma for single element
-    let trailing_comma = usize::from(items_list.len() == 1);
+    let trailing_comma = usize::from(items_vec.len() == 1);
     1 + items_w + trailing_comma + 1
 }
 

@@ -30,6 +30,12 @@ sections:
   - id: "1.5"
     title: Section Completion Checklist
     status: complete
+  - id: "1.6"
+    title: Low-Level Future-Proofing (Reserved Slots)
+    status: not-started
+  - id: "1.7"
+    title: Section Completion Checklist (Updated)
+    status: not-started
 ---
 
 # Section 1: Type System Foundation
@@ -290,10 +296,60 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 
 ---
 
-## 1.5 Section Completion Checklist
+## 1.6 Low-Level Future-Proofing (Reserved Slots)
 
-- [x] All items above have all three checkboxes marked `[x]`
+**Proposal**: `proposals/approved/low-level-future-proofing-proposal.md`
+
+Reserve architectural space in the type system for future low-level features (inline types, borrowed views). No user-visible changes — only internal structure.
+
+### Type System Slots
+
+- [ ] **Implement**: Add `LifetimeId` type to `ori_types`
+  - [ ] `LifetimeId(u32)` newtype with `STATIC` constant only
+  - [ ] **Rust Tests**: `ori_types/src/` — LifetimeId basic tests
+
+- [ ] **Implement**: Add `ValueCategory` enum to `ori_types`
+  - [ ] `Boxed` (default), `Inline` (reserved), `View` (reserved)
+  - [ ] Document `Inline` as "NO ARC header" (distinct from small-struct optimization)
+  - [ ] **Rust Tests**: `ori_types/src/` — ValueCategory tests
+
+- [ ] **Implement**: Add `#[doc(hidden)]` `Borrowed` variant to `Type` enum
+  - [ ] `Borrowed { inner: Box<Type>, lifetime: LifetimeId }`
+  - [ ] Never constructed — exists only to reserve the concept
+  - [ ] **Rust Tests**: Verify enum size assertion still passes
+
+- [ ] **Implement**: Add `category` field to `TypeData::Struct` variant (if exists)
+  - [ ] Default to `ValueCategory::Boxed`
+  - [ ] **Rust Tests**: Verify backward compatibility
+
+### Syntax Reservation
+
+- [ ] **Implement**: Add `inline` as reserved keyword in lexer
+  - [ ] Recognizes but does not assign special semantics
+  - [ ] **Rust Tests**: `ori_lexer/src/` — keyword recognition
+
+- [ ] **Implement**: Add `view` as reserved keyword in lexer
+  - [ ] Recognizes but does not assign special semantics
+  - [ ] **Rust Tests**: `ori_lexer/src/` — keyword recognition
+
+- [ ] **Implement**: Reserve `&` in type position
+  - [ ] Parser rejects `&T` with helpful error message
+  - [ ] `&` remains available in expression position (future bitwise-and)
+  - [ ] **Rust Tests**: `ori_parse/src/` — reserved syntax rejection
+
+- [ ] **Implement**: Parser rejects reserved keywords with helpful errors
+  - [ ] `inline type` → "inline types are reserved for a future version of Ori"
+  - [ ] `view T` → "view types are reserved for a future version of Ori"
+  - [ ] `&T` → "borrowed references (&T) are reserved for a future version"
+  - [ ] **Ori Tests**: Error message verification (if compile-fail tests support parser errors)
+
+---
+
+## 1.7 Section Completion Checklist
+
+- [x] All items above have all three checkboxes marked `[x]` (1.1-1.5)
 - [x] 80+% test coverage (241 unit tests passing, exceeds 152 target)
 - [x] Run full test suite: `./test-all` — **241 unit tests + 64 spec tests pass**
+- [ ] Low-level future-proofing slots reserved (1.6)
 
-**Section 1 Status**: ✅ Complete
+**Section 1 Status**: ✅ Complete (core), ⏳ In Progress (1.6 pending)

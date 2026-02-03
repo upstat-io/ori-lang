@@ -325,7 +325,7 @@ fn test_function_seq_for_pattern_basic() {
             span: Span::new(0, 1),
         }),
     ];
-    let list_range = arena.alloc_expr_list(list_items);
+    let list_range = arena.alloc_expr_list_inline(&list_items);
     let over = arena.alloc_expr(Expr {
         kind: ExprKind::List(list_range),
         span: Span::new(0, 1),
@@ -389,7 +389,7 @@ fn test_function_seq_for_pattern_with_map() {
         kind: ExprKind::Int(1),
         span: Span::new(0, 1),
     })];
-    let list_range = arena.alloc_expr_list(list_items);
+    let list_range = arena.alloc_expr_list_inline(&list_items);
     let over = arena.alloc_expr(Expr {
         kind: ExprKind::List(list_range),
         span: Span::new(0, 1),

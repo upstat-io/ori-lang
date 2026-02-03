@@ -30,7 +30,7 @@ Go parser, Zig scratch, Gleam errors, Roc errors
 ---
 
 ### Section 02: Medium-Term Improvements
-**File:** `section-02-medium-term.md` | **Phase:** 2 | **Status:** Not Started
+**File:** `section-02-medium-term.md` | **Phase:** 2 | **Status:** ✅ Completed
 
 ```
 speculative parsing, snapshot, restore, backtracking

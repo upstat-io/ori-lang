@@ -422,6 +422,61 @@ impl ParseError {
         }
     }
 
+    // --- Series Combinator Helpers ---
+
+    /// Error when expecting an item in a series but none was found.
+    pub fn expected_item(span: Span, terminator: &TokenKind) -> Self {
+        ParseError::new(
+            ErrorCode::E1002,
+            format!("expected item before `{}`", terminator.display_name()),
+            span,
+        )
+    }
+
+    /// Error when a trailing separator was found but not allowed.
+    pub fn unexpected_trailing_separator(span: Span, separator: &TokenKind) -> Self {
+        ParseError::new(
+            ErrorCode::E1001,
+            format!("unexpected trailing `{}`", separator.display_name()),
+            span,
+        )
+    }
+
+    /// Error when expecting separator or terminator but found something else.
+    pub fn expected_separator_or_terminator(
+        span: Span,
+        separator: &TokenKind,
+        terminator: &TokenKind,
+    ) -> Self {
+        ParseError::new(
+            ErrorCode::E1001,
+            format!(
+                "expected `{}` or `{}`",
+                separator.display_name(),
+                terminator.display_name()
+            ),
+            span,
+        )
+    }
+
+    /// Error when a series has too few items.
+    pub fn too_few_items(span: Span, min: usize, actual: usize) -> Self {
+        ParseError::new(
+            ErrorCode::E1002,
+            format!("expected at least {min} items, found {actual}"),
+            span,
+        )
+    }
+
+    /// Error when a series has too many items.
+    pub fn too_many_items(span: Span, max: usize, actual: usize) -> Self {
+        ParseError::new(
+            ErrorCode::E1002,
+            format!("expected at most {max} items, found {actual}"),
+            span,
+        )
+    }
+
     /// Add context for better error messages.
     #[must_use]
     pub fn with_context(mut self, context: impl Into<String>) -> Self {

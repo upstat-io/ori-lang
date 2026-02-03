@@ -139,13 +139,13 @@ extern "c" from "yyjson" {
 
 // Memory allocation helpers for C out-parameters
 @alloc_obj_iter () -> CPtr uses FFI =
-    unsafe { stack_alloc(size: 48) }  // sizeof(yyjson_obj_iter)
+    unsafe(stack_alloc(size: 48))  // sizeof(yyjson_obj_iter)
 
 @alloc_arr_iter () -> CPtr uses FFI =
-    unsafe { stack_alloc(size: 24) }  // sizeof(yyjson_arr_iter)
+    unsafe(stack_alloc(size: 24))  // sizeof(yyjson_arr_iter)
 
 @alloc_size_t () -> CPtr uses FFI =
-    unsafe { stack_alloc(size: 8) }   // sizeof(size_t)
+    unsafe(stack_alloc(size: 8))   // sizeof(size_t)
 ```
 
 ---

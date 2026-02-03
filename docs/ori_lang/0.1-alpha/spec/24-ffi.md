@@ -226,15 +226,57 @@ extern "js" {
 
 ### C Structs
 
-The `#repr("c")` attribute ensures C-compatible memory layout:
+The `#repr` attribute controls struct memory layout. It applies only to struct types.
+
+| Attribute | Effect |
+|-----------|--------|
+| `#repr("c")` | C-compatible field layout and alignment |
+| `#repr("packed")` | No padding between fields |
+| `#repr("transparent")` | Same layout as single field |
+| `#repr("aligned", N)` | Minimum N-byte alignment (N must be power of two) |
 
 ```ori
 #repr("c")
 type CTimeSpec = {
-    tv_sec: int,
-    tv_nsec: int
+    tv_sec: c_long,
+    tv_nsec: c_long
 }
 
+#repr("packed")
+type PacketHeader = {
+    version: byte,
+    flags: byte,
+    length: c_short
+}
+
+#repr("transparent")
+type FileHandle = { fd: c_int }
+
+#repr("aligned", 64)
+type CacheAligned = { value: int }
+```
+
+**Combining attributes:**
+
+`#repr("c")` may combine with `#repr("aligned", N)`. Other combinations are invalid:
+
+```ori
+// Valid
+#repr("c")
+#repr("aligned", 16)
+type CAligned = { x: int, y: int }
+
+// Invalid - packed and aligned are contradictory
+#repr("packed")
+#repr("aligned", 16)  // Error
+type Invalid = { x: int }
+```
+
+**Newtypes:**
+
+Newtypes (`type T = U`) are implicitly transparent — they have identical layout to their underlying type without requiring an explicit attribute.
+
+```ori
 extern "c" from "libc" {
     @_clock_gettime (clock_id: int, ts: CTimeSpec) -> int as "clock_gettime"
 }
@@ -267,15 +309,13 @@ extern "c" {
 
 Calling C variadic functions requires `unsafe`.
 
-## Unsafe Blocks
+## Unsafe Expressions
 
 Operations that bypass Ori's safety guarantees require `unsafe`:
 
 ```ori
 @raw_memory_access (ptr: CPtr, offset: int) -> byte uses FFI =
-    unsafe {
-        ptr_read_byte(ptr: ptr, offset: offset)
-    }
+    unsafe(ptr_read_byte(ptr: ptr, offset: offset))
 ```
 
 ### Operations Requiring Unsafe

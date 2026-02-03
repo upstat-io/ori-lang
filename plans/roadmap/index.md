@@ -45,6 +45,9 @@ nanoseconds, microseconds, milliseconds, seconds, minutes, hours
 bytes, kilobytes, megabytes, gigabytes, terabytes
 type annotations, parameter types, lambda types, let binding types
 Never type, bottom type, uninhabited, coercion
+low-level, future-proofing, reserved, inline type, view type
+lifetime, LifetimeId, borrowed, value category, ValueCategory
+stack allocation, Inline, View, Boxed, architectural slot
 ```
 
 ---

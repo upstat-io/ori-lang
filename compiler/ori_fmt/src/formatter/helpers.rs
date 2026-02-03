@@ -12,7 +12,7 @@
 use crate::packing;
 use crate::rules::ParenPosition;
 use crate::width::ALWAYS_STACKED;
-use ori_ir::{CallArgRange, ExprId, ExprRange, StringLookup};
+use ori_ir::{CallArgRange, ExprId, ExprList, StringLookup};
 
 use super::Formatter;
 
@@ -35,13 +35,12 @@ impl<I: StringLookup> Formatter<'_, I> {
         self.ctx.emit(")");
     }
 
-    pub(super) fn emit_inline_expr_list(&mut self, range: ExprRange) {
-        let items = self.arena.get_expr_list(range);
-        for (i, item) in items.iter().enumerate() {
+    pub(super) fn emit_inline_expr_list(&mut self, list: ExprList) {
+        for (i, item) in self.arena.iter_expr_list(list).enumerate() {
             if i > 0 {
                 self.ctx.emit(", ");
             }
-            self.emit_inline(*item);
+            self.emit_inline(item);
         }
     }
 
@@ -155,12 +154,12 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
     }
 
-    pub(super) fn emit_broken_expr_list(&mut self, range: ExprRange) {
-        let items = self.arena.get_expr_list(range);
-        if items.is_empty() {
+    pub(super) fn emit_broken_expr_list(&mut self, list: ExprList) {
+        if list.is_empty() {
             return;
         }
 
+        let items: Vec<_> = self.arena.iter_expr_list(list).collect();
         self.ctx.emit_newline();
         self.ctx.indent();
         for (i, item) in items.iter().enumerate() {

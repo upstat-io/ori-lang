@@ -848,7 +848,7 @@ fn test_float_add() {
         kind: ExprKind::Ident(int_name),
         span: ori_ir::Span::new(0, 1),
     });
-    let args = arena.alloc_expr_list([float_expr]);
+    let args = arena.alloc_expr_list_inline(&[float_expr]);
     let call_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Call {
             func: func_ident,
@@ -915,7 +915,7 @@ fn test_float_mul() {
         kind: ExprKind::Ident(int_name),
         span: ori_ir::Span::new(0, 1),
     });
-    let args = arena.alloc_expr_list([float_expr]);
+    let args = arena.alloc_expr_list_inline(&[float_expr]);
     let call_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Call {
             func: func_ident,

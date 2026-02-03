@@ -59,7 +59,7 @@ sections:
 | Support callbacks? | Yes (native) | Required for many C APIs |
 | Memory management? | Manual in unsafe blocks | C doesn't know about ARC |
 | Async WASM handling? | Implicit JsPromise resolution | Preserves Ori's "no await" philosophy |
-| Unsafe operations? | `unsafe { }` blocks | Explicit marking for unverifiable ops |
+| Unsafe operations? | `unsafe(...)` expressions | Explicit marking for unverifiable ops |
 
 ---
 
@@ -189,58 +189,85 @@ extern "c" from "foo" {
 
 ## 11.3 #repr Attribute
 
-**Spec section**: `spec/23-ffi.md § Struct Layout`
+**Spec section**: `spec/24-ffi.md § C Structs`
+**Proposal**: `proposals/approved/repr-extensions-proposal.md`
 
 ### Syntax
 
+| Attribute | Effect |
+|-----------|--------|
+| `#repr("c")` | C-compatible field layout and alignment |
+| `#repr("packed")` | No padding between fields |
+| `#repr("transparent")` | Same layout as single field |
+| `#repr("aligned", N)` | Minimum N-byte alignment (N must be power of two) |
+
 ```ori
 #repr("c")
-type CTimeSpec = {
-    tv_sec: int,
-    tv_nsec: int
-}
+type CTimeSpec = { tv_sec: c_long, tv_nsec: c_long }
+
+#repr("packed")
+type PacketHeader = { version: byte, flags: byte, length: c_short }
+
+#repr("transparent")
+type FileHandle = { fd: c_int }
+
+#repr("aligned", 64)
+type CacheAligned = { value: int }
 ```
+
+**Combining:** `#repr("c")` may combine with `#repr("aligned", N)`. Other combinations are invalid.
+
+**Newtypes:** Newtypes (`type T = U`) are implicitly transparent.
 
 ### Implementation
 
-- [ ] **Spec**: Define `#repr` attribute semantics
-  - [ ] `"c"` — C ABI compatible layout
-  - [ ] Future: `"packed"`, `"aligned(N)"`
+- [ ] **IR**: Add `ReprKind` enum to struct type definitions
+  - [ ] `Default`, `C`, `Packed`, `Transparent`, `Aligned(u32)`, `CAligned(u32)`
 
-- [ ] **Parser**: Parse `#repr` attribute
-  - [ ] Add to attribute handling
-  - [ ] Validate string argument
+- [ ] **Parser**: Parse `#repr` attribute variants
+  - [ ] `#repr("c")` — existing
+  - [ ] `#repr("packed")` — new
+  - [ ] `#repr("transparent")` — new
+  - [ ] `#repr("aligned", N)` — new, validate power of two
 
 - [ ] **Type checker**: Validate #repr usage
-  - [ ] Only valid on struct types
-  - [ ] Validate field types are FFI-compatible
+  - [ ] Only valid on struct types (not sum types)
+  - [ ] `transparent` requires exactly one field
+  - [ ] `aligned` N must be power of two
+  - [ ] Reject `packed` + `aligned` combination
 
-- [ ] **Codegen**: Generate C-compatible layout
-  - [ ] LLVM struct type with correct alignment
-  - [ ] No padding optimization
+- [ ] **Codegen**: Generate appropriate LLVM layout
+  - [ ] `#repr("c")` — default struct, no packed
+  - [ ] `#repr("packed")` — LLVM packed struct type
+  - [ ] `#repr("transparent")` — same type as inner field
+  - [ ] `#repr("aligned", N)` — align N on allocations
 
 - [ ] **LLVM Support**: LLVM codegen for #repr structs
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — #repr struct codegen
 
-- [ ] **Test**: `tests/spec/ffi/repr_c.ori`
-  - [ ] Basic #repr("c") struct
-  - [ ] Nested #repr structs
-  - [ ] Invalid #repr (compile error)
+- [ ] **Test**: `tests/spec/ffi/repr.ori`
+  - [ ] `#repr("c")` struct
+  - [ ] `#repr("packed")` struct
+  - [ ] `#repr("transparent")` single-field struct
+  - [ ] `#repr("aligned", 16)` struct
+  - [ ] `#repr("c")` + `#repr("aligned", N)` combination
+  - [ ] Invalid: `#repr` on sum type (compile error)
+  - [ ] Invalid: `#repr("transparent")` with multiple fields (compile error)
+  - [ ] Invalid: `#repr("aligned", 7)` non-power-of-two (compile error)
+  - [ ] Invalid: `#repr("packed")` + `#repr("aligned")` (compile error)
 
 ---
 
-## 11.4 Unsafe Blocks
+## 11.4 Unsafe Expressions
 
-**Spec section**: `spec/23-ffi.md § Unsafe Blocks`
+**Spec section**: `spec/24-ffi.md § Unsafe Expressions`
 
 ### Syntax
 
 ```ori
 @raw_memory_access (ptr: CPtr, offset: int) -> byte uses FFI =
-    unsafe {
-        // Direct pointer arithmetic - Ori cannot verify safety
-        ptr_read_byte(ptr: ptr, offset: offset)
-    }
+    // Direct pointer arithmetic - Ori cannot verify safety
+    unsafe(ptr_read_byte(ptr: ptr, offset: offset))
 ```
 
 ### Semantics

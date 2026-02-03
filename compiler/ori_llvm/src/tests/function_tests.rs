@@ -29,7 +29,7 @@ fn make_binary(arena: &mut ExprArena, op: BinaryOp, left: ExprId, right: ExprId)
 
 fn make_call(arena: &mut ExprArena, func_name: Name, arg: ExprId) -> ExprId {
     let func = make_ident(arena, func_name);
-    let args = arena.alloc_expr_list([arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
     arena.alloc_expr(Expr {
         kind: ExprKind::Call { func, args },
         span: ori_ir::Span::new(0, 1),
@@ -156,7 +156,7 @@ fn test_function_call_simple() {
         kind: ExprKind::Int(20),
         span: ori_ir::Span::new(0, 1),
     });
-    let arg_list = arena2.alloc_expr_list([first_arg, second_arg]);
+    let arg_list = arena2.alloc_expr_list_inline(&[first_arg, second_arg]);
 
     // Function reference: add
     let func = arena2.alloc_expr(Expr {
@@ -248,7 +248,7 @@ fn test_function_call_nested() {
         kind: ExprKind::Int(5),
         span: ori_ir::Span::new(0, 1),
     });
-    let inner_args = arena2.alloc_expr_list([five]);
+    let inner_args = arena2.alloc_expr_list_inline(&[five]);
     let double_ref_inner = arena2.alloc_expr(Expr {
         kind: ExprKind::Ident(double_fn_name),
         span: ori_ir::Span::new(0, 1),
@@ -262,7 +262,7 @@ fn test_function_call_nested() {
     });
 
     // Outer call: double(double(5))
-    let outer_args = arena2.alloc_expr_list([inner_call]);
+    let outer_args = arena2.alloc_expr_list_inline(&[inner_call]);
     let double_ref_outer = arena2.alloc_expr(Expr {
         kind: ExprKind::Ident(double_fn_name),
         span: ori_ir::Span::new(0, 1),

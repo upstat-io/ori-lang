@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{CallArgRange, ExprArena, ExprId, ExprRange, Name, TypeId};
+use ori_ir::{CallArgRange, ExprArena, ExprId, ExprList, Name, TypeId};
 use tracing::instrument;
 
 use crate::builder::Builder;
@@ -18,7 +18,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_call(
         &self,
         func: ExprId,
-        args: ExprRange,
+        args: ExprList,
         arena: &ExprArena,
         expr_types: &[TypeId],
         locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
@@ -41,7 +41,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let fn_name = self.cx().interner.lookup(func_name);
 
         // Handle built-in type conversion functions
-        let arg_ids = arena.get_expr_list(args);
+        let arg_ids: Vec<_> = arena.iter_expr_list(args).collect();
         match fn_name {
             "str" => {
                 if arg_ids.len() == 1 {
@@ -78,7 +78,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         if let Some(closure_val) = locals.get(&func_name) {
             return self.compile_closure_call(
                 *closure_val,
-                arg_ids,
+                &arg_ids,
                 arena,
                 expr_types,
                 locals,
@@ -93,9 +93,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         // Compile arguments
         let mut compiled_args: Vec<BasicValueEnum<'ll>> = Vec::with_capacity(arg_ids.len());
 
-        for &arg_id in arg_ids {
+        for arg_id in &arg_ids {
             let arg_val =
-                self.compile_expr(arg_id, arena, expr_types, locals, function, loop_ctx)?;
+                self.compile_expr(*arg_id, arena, expr_types, locals, function, loop_ctx)?;
             compiled_args.push(arg_val);
         }
 
@@ -346,7 +346,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         receiver: ExprId,
         method: Name,
-        args: ExprRange,
+        args: ExprList,
         arena: &ExprArena,
         expr_types: &[TypeId],
         locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
@@ -363,7 +363,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx);
 
         // Get argument IDs
-        let arg_ids = arena.get_expr_list(args);
+        let arg_ids: Vec<_> = arena.iter_expr_list(args).collect();
 
         // Try built-in method first if we have a receiver value
         if let Some(recv) = recv_val {
@@ -371,7 +371,7 @@ impl<'ll> Builder<'_, 'll, '_> {
                 recv,
                 receiver_type,
                 method,
-                arg_ids,
+                &arg_ids,
                 arena,
                 expr_types,
                 locals,
@@ -390,9 +390,9 @@ impl<'ll> Builder<'_, 'll, '_> {
             None => vec![],
         };
 
-        for &arg_id in arg_ids {
+        for arg_id in &arg_ids {
             if let Some(arg_val) =
-                self.compile_expr(arg_id, arena, expr_types, locals, function, loop_ctx)
+                self.compile_expr(*arg_id, arena, expr_types, locals, function, loop_ctx)
             {
                 compiled_args.push(arg_val);
             }

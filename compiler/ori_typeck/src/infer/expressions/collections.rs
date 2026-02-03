@@ -2,12 +2,12 @@
 
 use super::super::infer_expr;
 use crate::checker::TypeChecker;
-use ori_ir::{ExprId, ExprRange, MapEntryRange, Span};
+use ori_ir::{ExprId, ExprList, MapEntryRange, Span};
 use ori_types::Type;
 
 /// Infer type for a list literal.
-pub fn infer_list(checker: &mut TypeChecker<'_>, elements: ExprRange) -> Type {
-    let element_ids = checker.context.arena.get_expr_list(elements);
+pub fn infer_list(checker: &mut TypeChecker<'_>, elements: ExprList) -> Type {
+    let element_ids: Vec<_> = checker.context.arena.iter_expr_list(elements).collect();
 
     if element_ids.is_empty() {
         let elem = checker.inference.ctx.fresh_var();
@@ -25,8 +25,8 @@ pub fn infer_list(checker: &mut TypeChecker<'_>, elements: ExprRange) -> Type {
 }
 
 /// Infer type for a tuple literal.
-pub fn infer_tuple(checker: &mut TypeChecker<'_>, elements: ExprRange) -> Type {
-    let element_ids = checker.context.arena.get_expr_list(elements);
+pub fn infer_tuple(checker: &mut TypeChecker<'_>, elements: ExprList) -> Type {
+    let element_ids: Vec<_> = checker.context.arena.iter_expr_list(elements).collect();
     if element_ids.is_empty() {
         Type::Unit
     } else {

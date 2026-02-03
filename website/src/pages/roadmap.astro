@@ -377,19 +377,33 @@ const tierMetadata: Omit<Tier, 'sections' | 'status'>[] = [
 function buildTiers(): Tier[] {
   const sectionsByTier = loadAllSections();
 
-  return tierMetadata.map(meta => {
-    const sections = sectionsByTier.get(meta.id) || [];
+  // Get all unique tier IDs from discovered sections, sorted
+  const tierIds = [...sectionsByTier.keys()].sort((a, b) => a - b);
+
+  return tierIds.map(id => {
+    const sections = sectionsByTier.get(id) || [];
+
+    // Use hardcoded metadata if available, otherwise generate defaults
+    const meta = tierMetadata.find(m => m.id === id);
+    const name = meta?.name ?? `Tier ${id}`;
+    const description = meta?.description ?? sections[0]?.goal ?? '';
+    const milestone = meta?.milestone ?? `M${id}`;
+    const exitCriteria = meta?.exitCriteria ?? '';
 
     let status: string;
+    let milestoneStatus: string;
     if (sections.length === 0 || sections.every(s => s.status === 'not-started')) {
       status = 'not-started';
+      milestoneStatus = 'not-started';
     } else if (sections.every(s => s.status === 'complete')) {
       status = 'complete';
+      milestoneStatus = 'complete';
     } else {
       status = 'partial';
+      milestoneStatus = 'partial';
     }
 
-    return { ...meta, sections, status };
+    return { id, name, description, milestone, milestoneStatus, exitCriteria, sections, status };
   });
 }
 

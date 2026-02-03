@@ -22,7 +22,7 @@ fn test_call_builtin_str() {
         kind: ExprKind::Int(42),
         span: Span::new(0, 1),
     });
-    let args = arena.alloc_expr_list(vec![arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
 
     let str_name = interner.intern("str");
     let func_ident = arena.alloc_expr(Expr {
@@ -62,7 +62,7 @@ fn test_call_builtin_int() {
         kind: ExprKind::Float(3.5f64.to_bits()),
         span: Span::new(0, 1),
     });
-    let args = arena.alloc_expr_list(vec![arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
 
     let int_name = interner.intern("int");
     let func_ident = arena.alloc_expr(Expr {
@@ -102,7 +102,7 @@ fn test_call_builtin_float() {
         kind: ExprKind::Int(42),
         span: Span::new(0, 1),
     });
-    let args = arena.alloc_expr_list(vec![arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
 
     let float_name = interner.intern("float");
     let func_ident = arena.alloc_expr(Expr {
@@ -142,7 +142,7 @@ fn test_call_builtin_byte() {
         kind: ExprKind::Int(300),
         span: Span::new(0, 1),
     });
-    let args = arena.alloc_expr_list(vec![arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
 
     let byte_name = interner.intern("byte");
     let func_ident = arena.alloc_expr(Expr {
@@ -178,7 +178,7 @@ fn test_call_non_ident_returns_none() {
     let mut arena = ExprArena::new();
 
     // Create: 42() - calling an int (not valid)
-    let args = arena.alloc_expr_list(vec![]);
+    let args = arena.alloc_expr_list_inline(&[]);
     let func_int = arena.alloc_expr(Expr {
         kind: ExprKind::Int(42),
         span: Span::new(0, 1),
@@ -212,7 +212,7 @@ fn test_call_unknown_function_returns_none() {
     let mut arena = ExprArena::new();
 
     // Create: unknown_func()
-    let args = arena.alloc_expr_list(vec![]);
+    let args = arena.alloc_expr_list_inline(&[]);
     let unknown_name = interner.intern("unknown_func");
     let func_ident = arena.alloc_expr(Expr {
         kind: ExprKind::Ident(unknown_name),
@@ -254,7 +254,7 @@ fn test_call_closure_from_locals() {
         kind: ExprKind::Int(10),
         span: Span::new(0, 1),
     });
-    let args = arena.alloc_expr_list(vec![arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
 
     let f_name = interner.intern("f");
     let func_ident = arena.alloc_expr(Expr {
@@ -294,7 +294,7 @@ fn test_call_closure_as_pointer() {
 
     let mut arena = ExprArena::new();
 
-    let args = arena.alloc_expr_list(vec![]);
+    let args = arena.alloc_expr_list_inline(&[]);
     let f_name = interner.intern("ptr_fn");
     let func_ident = arena.alloc_expr(Expr {
         kind: ExprKind::Ident(f_name),
@@ -335,7 +335,7 @@ fn test_call_closure_as_struct_with_captures() {
 
     let mut arena = ExprArena::new();
 
-    let args = arena.alloc_expr_list(vec![]);
+    let args = arena.alloc_expr_list_inline(&[]);
     let f_name = interner.intern("struct_fn");
     let func_ident = arena.alloc_expr(Expr {
         kind: ExprKind::Ident(f_name),

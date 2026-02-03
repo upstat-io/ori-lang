@@ -15,7 +15,7 @@ use super::operators::{BinaryOp, UnaryOp};
 use super::patterns::{BindingPattern, FunctionExp, FunctionSeq};
 use super::ranges::{ArmRange, CallArgRange, FieldInitRange, MapEntryRange};
 use crate::token::{DurationUnit, SizeUnit};
-use crate::{ExprId, ExprRange, Name, ParsedType, Span, Spanned, StmtRange};
+use crate::{ExprId, ExprList, Name, ParsedType, Span, Spanned, StmtRange};
 
 /// Expression node.
 ///
@@ -112,17 +112,23 @@ pub enum ExprKind {
 
     /// Function call with positional args: func(arg)
     /// Only valid for single-param functions.
-    Call { func: ExprId, args: ExprRange },
+    ///
+    /// # Two-Tier Storage
+    /// Uses `ExprList` for inline storage of 0-2 arguments (~77% of calls).
+    Call { func: ExprId, args: ExprList },
 
     /// Function call with named args: func(a: 1, b: 2)
     /// Required for multi-param functions.
     CallNamed { func: ExprId, args: CallArgRange },
 
     /// Method call: receiver.method(args...)
+    ///
+    /// # Two-Tier Storage
+    /// Uses `ExprList` for inline storage of 0-2 arguments.
     MethodCall {
         receiver: ExprId,
         method: Name,
-        args: ExprRange,
+        args: ExprList,
     },
 
     /// Method call with named args: receiver.method(a: 1, b: 2)
@@ -184,7 +190,10 @@ pub enum ExprKind {
     },
 
     /// List literal: [a, b, c]
-    List(ExprRange),
+    ///
+    /// # Two-Tier Storage
+    /// Uses `ExprList` for inline storage of 0-2 elements (~62% of lists).
+    List(ExprList),
 
     /// Map literal: {k: v, ...}
     Map(MapEntryRange),
@@ -193,7 +202,10 @@ pub enum ExprKind {
     Struct { name: Name, fields: FieldInitRange },
 
     /// Tuple: (a, b, c)
-    Tuple(ExprRange),
+    ///
+    /// # Two-Tier Storage
+    /// Uses `ExprList` for inline storage of 0-2 elements (~61% of tuples).
+    Tuple(ExprList),
 
     /// Range: start..end or start..=end or start..end by step
     Range {

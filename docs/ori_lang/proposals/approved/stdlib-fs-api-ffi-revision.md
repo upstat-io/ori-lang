@@ -130,7 +130,7 @@ extern "c" from "libc" {
 
 // Helper to get errno value
 @get_errno () -> int uses FFI =
-    unsafe { ptr_read_int(ptr: _errno_location()) }
+    unsafe(ptr_read_int(ptr: _errno_location()))
 
 // Open flags
 let $O_RDONLY: int = 0
@@ -206,9 +206,7 @@ impl CStat {
 
 // Extract name from dirent pointer
 @dirent_name (entry: CPtr) -> str uses FFI =
-    unsafe {
-        ptr_read_cstr(ptr: entry, offset: $DIRENT_NAME_OFFSET)
-    }
+    unsafe(ptr_read_cstr(ptr: entry, offset: $DIRENT_NAME_OFFSET))
 ```
 
 ---
@@ -542,10 +540,10 @@ impl CGlob {
 
 // Read path from glob result at index
 @read_glob_path (pglob: CGlob, index: int) -> str uses FFI =
-    unsafe {
+    unsafe(run(
         let path_ptr = ptr_array_index(ptr: pglob.gl_pathv, index: index),
-        ptr_read_cstr(ptr: path_ptr, offset: 0)
-    }
+        ptr_read_cstr(ptr: path_ptr, offset: 0),
+    ))
 
 pub @glob (pattern: str) -> Result<[str], FileError> uses FileSystem =
     run(

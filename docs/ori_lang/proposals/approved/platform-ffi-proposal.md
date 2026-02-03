@@ -413,16 +413,14 @@ const imports = {
 
 ---
 
-## Unsafe Blocks
+## Unsafe Expressions
 
 For operations that bypass Ori's safety guarantees:
 
 ```ori
 @raw_memory_access (ptr: CPtr, offset: int) -> byte uses FFI =
-    unsafe {
-        // Direct pointer arithmetic - Ori cannot verify safety
-        ptr_read_byte(ptr: ptr, offset: offset)
-    }
+    // Direct pointer arithmetic - Ori cannot verify safety
+    unsafe(ptr_read_byte(ptr: ptr, offset: offset))
 ```
 
 ### Unsafe Operations
@@ -869,7 +867,7 @@ interface math {
 | Async | Blocking OK | `JsPromise<T>` + implicit resolution |
 | Glue code | None | Generated JS |
 | Capability | `uses FFI` | `uses FFI` |
-| Unsafe ops | `unsafe { }` blocks | `unsafe { }` blocks |
+| Unsafe ops | `unsafe(...)` expressions | `unsafe(...)` expressions |
 
 **The key insight:** One Ori codebase, two FFI backends. Platform differences are isolated in `#target` blocks. User code stays clean and portable.
 

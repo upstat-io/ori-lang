@@ -56,6 +56,7 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 // Reserved: break, continue, def, do, else, extern, false, for, if, impl, in, let,
 //           loop, match, pub, self, Self, suspend, then, trait, true, type, unsafe, use,
 //           uses, void, where, with, yield
+// Reserved (future): asm, inline, static, union, view (reserved for future low-level features)
 // Context-sensitive (patterns): cache, catch, collect, filter, find, fold, for, map,
 //           match, nursery, parallel, recurse, retry, run, spawn, timeout, try, validate, with
 // Context-sensitive (imports): without (only in import items, before "def")
@@ -327,9 +328,9 @@ primary       = literal | identifier | "self" | "Self"
               | unsafe_expr .
 
 // --- Unsafe Expression ---
-// See: spec/23-ffi.md § Unsafe Blocks
+// See: spec/24-ffi.md § Unsafe Blocks
 
-unsafe_expr = "unsafe" "{" expression "}" .
+unsafe_expr = "unsafe" "(" expression ")" .
 
 // List literals with spread support
 // See: 09-expressions.md § Spread Operator

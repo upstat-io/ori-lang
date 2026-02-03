@@ -4,7 +4,7 @@
 //! lists, if expressions, and let expressions.
 
 use crate::{ParseError, ParseResult, Parser};
-use ori_ir::{BindingPattern, Expr, ExprId, ExprKind, ExprRange, Param, ParamRange, TokenKind};
+use ori_ir::{BindingPattern, Expr, ExprId, ExprKind, ExprList, Param, ParamRange, TokenKind};
 
 impl Parser<'_> {
     /// Parse primary expressions with progress tracking.
@@ -434,7 +434,7 @@ impl Parser<'_> {
 
             let end_span = self.previous_span();
             return Ok(self.arena.alloc_expr(Expr::new(
-                ExprKind::Tuple(ExprRange::EMPTY),
+                ExprKind::Tuple(ExprList::EMPTY),
                 span.merge(end_span),
             )));
         }
@@ -498,10 +498,10 @@ impl Parser<'_> {
             }
 
             let end_span = self.previous_span();
-            let range = self.arena.alloc_expr_list(exprs);
+            let list = self.arena.alloc_expr_list_inline(&exprs);
             return Ok(self
                 .arena
-                .alloc_expr(Expr::new(ExprKind::Tuple(range), span.merge(end_span))));
+                .alloc_expr(Expr::new(ExprKind::Tuple(list), span.merge(end_span))));
         }
 
         self.expect(&TokenKind::RParen)?;
@@ -528,25 +528,20 @@ impl Parser<'_> {
     fn parse_list_literal(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
         self.advance(); // [
-        self.skip_newlines();
 
-        let mut exprs = Vec::new();
-
-        while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
-            exprs.push(self.parse_expr()?);
-            self.skip_newlines();
-            if !self.check(&TokenKind::RBracket) {
-                self.expect(&TokenKind::Comma)?;
-                self.skip_newlines();
+        let exprs: Vec<ExprId> = self.bracket_series(|p| {
+            if p.check(&TokenKind::RBracket) {
+                Ok(None)
+            } else {
+                Ok(Some(p.parse_expr()?))
             }
-        }
+        })?;
 
-        self.expect(&TokenKind::RBracket)?;
         let end_span = self.previous_span();
-        let range = self.arena.alloc_expr_list(exprs);
+        let list = self.arena.alloc_expr_list_inline(&exprs);
         Ok(self
             .arena
-            .alloc_expr(Expr::new(ExprKind::List(range), span.merge(end_span))))
+            .alloc_expr(Expr::new(ExprKind::List(list), span.merge(end_span))))
     }
 
     /// Parse map literal: `{ key: value, ... }` or `{}`.
@@ -555,33 +550,25 @@ impl Parser<'_> {
 
         let span = self.current_span();
         self.advance(); // {
-        self.skip_newlines();
 
-        let mut entries = Vec::new();
+        let entries: Vec<MapEntry> = self.brace_series(|p| {
+            if p.check(&TokenKind::RBrace) {
+                return Ok(None);
+            }
 
-        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-            let entry_span = self.current_span();
-            let key = self.parse_expr()?;
-            self.expect(&TokenKind::Colon)?;
-            let value = self.parse_expr()?;
-            let end_span = self.arena.get_expr(value).span;
+            let entry_span = p.current_span();
+            let key = p.parse_expr()?;
+            p.expect(&TokenKind::Colon)?;
+            let value = p.parse_expr()?;
+            let end_span = p.arena.get_expr(value).span;
 
-            entries.push(MapEntry {
+            Ok(Some(MapEntry {
                 key,
                 value,
                 span: entry_span.merge(end_span),
-            });
+            }))
+        })?;
 
-            self.skip_newlines();
-            if self.check(&TokenKind::Comma) {
-                self.advance();
-                self.skip_newlines();
-            } else {
-                break;
-            }
-        }
-
-        self.expect(&TokenKind::RBrace)?;
         let end_span = self.previous_span();
         let range = self.arena.alloc_map_entries(entries);
         Ok(self
@@ -685,40 +672,46 @@ impl Parser<'_> {
                 Ok(BindingPattern::Wildcard)
             }
             TokenKind::LParen => {
+                use crate::series::SeriesConfig;
                 self.advance();
-                let mut patterns = Vec::new();
-                while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-                    patterns.push(self.parse_binding_pattern()?);
-                    if !self.check(&TokenKind::RParen) {
-                        self.expect(&TokenKind::Comma)?;
-                    }
-                }
+                let patterns: Vec<BindingPattern> =
+                    self.series(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
+                        if p.check(&TokenKind::RParen) {
+                            Ok(None)
+                        } else {
+                            Ok(Some(p.parse_binding_pattern()?))
+                        }
+                    })?;
                 self.expect(&TokenKind::RParen)?;
                 Ok(BindingPattern::Tuple(patterns))
             }
             TokenKind::LBrace => {
+                use crate::series::SeriesConfig;
+                use ori_ir::Name;
                 self.advance();
-                let mut fields = Vec::new();
-                while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-                    let field_name = self.expect_ident()?;
+                let fields: Vec<(Name, Option<BindingPattern>)> =
+                    self.series(&SeriesConfig::comma(TokenKind::RBrace).no_newlines(), |p| {
+                        if p.check(&TokenKind::RBrace) {
+                            return Ok(None);
+                        }
 
-                    let binding = if self.check(&TokenKind::Colon) {
-                        self.advance();
-                        Some(self.parse_binding_pattern()?)
-                    } else {
-                        None // Shorthand: { x } binds field x to variable x
-                    };
+                        let field_name = p.expect_ident()?;
 
-                    fields.push((field_name, binding));
+                        let binding = if p.check(&TokenKind::Colon) {
+                            p.advance();
+                            Some(p.parse_binding_pattern()?)
+                        } else {
+                            None // Shorthand: { x } binds field x to variable x
+                        };
 
-                    if !self.check(&TokenKind::RBrace) {
-                        self.expect(&TokenKind::Comma)?;
-                    }
-                }
+                        Ok(Some((field_name, binding)))
+                    })?;
                 self.expect(&TokenKind::RBrace)?;
                 Ok(BindingPattern::Struct { fields })
             }
             TokenKind::LBracket => {
+                // List pattern is special: has optional ..rest at the end
+                // Cannot use simple series combinator
                 self.advance();
                 let mut elements = Vec::new();
                 let mut rest = None;

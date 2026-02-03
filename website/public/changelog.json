@@ -1,4 +1,6 @@
 [
+  {"date": "2026-02-02", "type": "fix", "scope": "ci", "message": "restore push trigger for master to enable website deployment", "hash": "e5f944d"},
+  {"date": "2026-02-02", "type": "feat", "scope": "parse", "message": "add TokenSet bitset, ScratchBuffer, and rich error types", "hash": "483b8ab"},
   {"date": "2026-02-02", "type": "feat", "message": "add range step syntax and remove return keyword", "hash": "3be22e7"},
   {"date": "2026-02-02", "type": "refactor", "scope": "ori_fmt", "message": "modularize formatter into packing, rules, shape, and spacing", "hash": "08360be"},
   {"date": "2026-02-02", "type": "feat", "scope": "control-flow", "message": "add continue value support for for...yield loops", "hash": "aa68937"},
@@ -96,7 +98,5 @@
   {"date": "2026-01-28", "type": "docs", "scope": "proposal", "message": "reject pipe-operator proposal", "hash": "72d7b93"},
   {"date": "2026-01-28", "type": "refactor", "scope": "approve-proposal", "message": "add interactive recommendation workflow", "hash": "4d21750"},
   {"date": "2026-01-28", "type": "refactor", "scope": "approve-proposal", "message": "enhance command documentation for clarity and detail", "hash": "b13d4d1"},
-  {"date": "2026-01-28", "type": "feat", "scope": "commands", "message": "add sync-all command to streamline documentation synchronization", "hash": "58617af"},
-  {"date": "2026-01-28", "type": "feat", "scope": "commands", "message": "add sync-spec command for updating language specification", "hash": "229d1df"},
-  {"date": "2026-01-28", "type": "feat", "scope": "commands", "message": "add approve proposal command with detailed workflow", "hash": "ea6c62e"}
+  {"date": "2026-01-28", "type": "feat", "scope": "commands", "message": "add sync-all command to streamline documentation synchronization", "hash": "58617af"}
 ]

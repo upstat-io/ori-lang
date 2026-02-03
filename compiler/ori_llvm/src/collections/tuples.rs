@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, ExprRange, Name, TypeId};
+use ori_ir::{ExprArena, ExprList, Name, TypeId};
 
 use crate::builder::Builder;
 use crate::LoopContext;
@@ -13,7 +13,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a tuple expression.
     pub(crate) fn compile_tuple(
         &self,
-        range: ExprRange,
+        elements: ExprList,
         arena: &ExprArena,
         expr_types: &[TypeId],
         locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
@@ -21,7 +21,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Get tuple elements
-        let element_ids = arena.get_expr_list(range);
+        let element_ids: Vec<_> = arena.iter_expr_list(elements).collect();
 
         if element_ids.is_empty() {
             // Empty tuple = unit
@@ -32,9 +32,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         let mut values: Vec<BasicValueEnum<'ll>> = Vec::new();
         let mut types: Vec<BasicTypeEnum<'ll>> = Vec::new();
 
-        for &elem_id in element_ids {
+        for elem_id in &element_ids {
             if let Some(val) =
-                self.compile_expr(elem_id, arena, expr_types, locals, function, loop_ctx)
+                self.compile_expr(*elem_id, arena, expr_types, locals, function, loop_ctx)
             {
                 types.push(val.get_type());
                 values.push(val);

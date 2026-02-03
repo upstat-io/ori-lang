@@ -290,10 +290,8 @@ extern "c" from "libc" {
     @printf (format: CPtr, ...) -> c_int as "printf"
 }
 
-// Must be in unsafe block
-unsafe {
-    printf("Number: %d\n".as_c_str(), 42)
-}
+// Must use unsafe expression
+unsafe(printf("Number: %d\n".as_c_str(), 42))
 ```
 
 ### Distinction from Ori Variadics
@@ -301,7 +299,7 @@ unsafe {
 | Feature | Ori `...T` | C `...` |
 |---------|------------|---------|
 | Type safety | Homogeneous, checked | Unchecked |
-| Context | Safe code | `unsafe` block only |
+| Context | Safe code | `unsafe(...)` only |
 | Implementation | Collected into list | va_list ABI |
 | Type annotation | Required (`...int`) | None (just `...`) |
 

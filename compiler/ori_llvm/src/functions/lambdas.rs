@@ -234,8 +234,8 @@ impl<'ll> Builder<'_, 'll, '_> {
 
             ExprKind::Call { func, args } => {
                 self.collect_free_vars(*func, arena, bound, locals, captures, seen);
-                for arg_id in arena.get_expr_list(*args) {
-                    self.collect_free_vars(*arg_id, arena, bound, locals, captures, seen);
+                for arg_id in arena.iter_expr_list(*args) {
+                    self.collect_free_vars(arg_id, arena, bound, locals, captures, seen);
                 }
             }
 
