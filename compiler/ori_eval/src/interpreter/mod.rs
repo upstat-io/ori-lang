@@ -348,14 +348,14 @@ impl<'a> Interpreter<'a> {
         ensure_sufficient_stack(|| self.eval_inner(expr_id))
     }
 
-    /// Evaluate a list of expressions from an `ExprRange`.
+    /// Evaluate a list of expressions from an `ExprList`.
     ///
     /// Helper to reduce repetition in collection and call evaluation.
-    fn eval_expr_list(&mut self, range: ori_ir::ExprRange) -> Result<Vec<Value>, EvalError> {
+    /// Works with both inline and overflow storage transparently.
+    fn eval_expr_list(&mut self, list: ori_ir::ExprList) -> Result<Vec<Value>, EvalError> {
         self.arena
-            .get_expr_list(range)
-            .iter()
-            .map(|id| self.eval(*id))
+            .iter_expr_list(list)
+            .map(|id| self.eval(id))
             .collect()
     }
 

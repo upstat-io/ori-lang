@@ -2,8 +2,8 @@
 
 use crate::{ParseError, Parser};
 use ori_ir::{
-    CapabilityRef, GenericParam, GenericParamRange, Name, ParsedType, ParsedTypeRange, TokenKind,
-    TraitBound, WhereClause,
+    CapabilityRef, GenericParam, GenericParamRange, Name, ParsedType, ParsedTypeId,
+    ParsedTypeRange, TokenKind, TraitBound, WhereClause,
 };
 
 impl Parser<'_> {
@@ -28,40 +28,42 @@ impl Parser<'_> {
     ///
     /// Supports default type parameters for traits: `trait Add<Rhs = Self>`.
     pub(crate) fn parse_generics(&mut self) -> Result<GenericParamRange, ParseError> {
+        use crate::series::SeriesConfig;
+
         self.expect(&TokenKind::Lt)?;
 
-        let mut params = Vec::new();
-        while !self.check(&TokenKind::Gt) && !self.is_at_end() {
-            let param_span = self.current_span();
-            let name = self.expect_ident()?;
+        let params: Vec<GenericParam> =
+            self.series(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
+                if p.check(&TokenKind::Gt) {
+                    return Ok(None);
+                }
 
-            // Optional bounds: : Bound + OtherBound
-            let bounds = if self.check(&TokenKind::Colon) {
-                self.advance();
-                self.parse_bounds()?
-            } else {
-                Vec::new()
-            };
+                let param_span = p.current_span();
+                let name = p.expect_ident()?;
 
-            // Optional default type: = Type
-            let default_type = if self.check(&TokenKind::Eq) {
-                self.advance();
-                Some(self.parse_type_required()?)
-            } else {
-                None
-            };
+                // Optional bounds: : Bound + OtherBound
+                let bounds = if p.check(&TokenKind::Colon) {
+                    p.advance();
+                    p.parse_bounds()?
+                } else {
+                    Vec::new()
+                };
 
-            params.push(GenericParam {
-                name,
-                bounds,
-                default_type,
-                span: param_span.merge(self.previous_span()),
-            });
+                // Optional default type: = Type
+                let default_type = if p.check(&TokenKind::Eq) {
+                    p.advance();
+                    Some(p.parse_type_required()?)
+                } else {
+                    None
+                };
 
-            if !self.check(&TokenKind::Gt) {
-                self.expect(&TokenKind::Comma)?;
-            }
-        }
+                Ok(Some(GenericParam {
+                    name,
+                    bounds,
+                    default_type,
+                    span: param_span.merge(p.previous_span()),
+                }))
+            })?;
 
         self.expect(&TokenKind::Gt)?;
         Ok(self.arena.alloc_generic_params(params))
@@ -129,18 +131,18 @@ impl Parser<'_> {
 
         // Check for type arguments: <T, U>
         let type_args = if self.check(&TokenKind::Lt) {
+            use crate::series::SeriesConfig;
+
             self.advance(); // <
-            let mut arg_ids = Vec::new();
-            while !self.check(&TokenKind::Gt) && !self.is_at_end() {
-                let ty = self.parse_type_required()?;
-                let id = self.arena.alloc_parsed_type(ty);
-                arg_ids.push(id);
-                if self.check(&TokenKind::Comma) {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
+            let arg_ids: Vec<ParsedTypeId> =
+                self.series(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
+                    if p.check(&TokenKind::Gt) {
+                        return Ok(None);
+                    }
+                    let ty = p.parse_type_required()?;
+                    let id = p.arena.alloc_parsed_type(ty);
+                    Ok(Some(id))
+                })?;
             if self.check(&TokenKind::Gt) {
                 self.advance(); // >
             }

@@ -5,16 +5,11 @@
 use super::builtin_methods::MethodTypeResult;
 use super::infer_expr;
 use crate::checker::TypeChecker;
-use ori_ir::{CallArgRange, ExprId, ExprKind, ExprRange, Name, Span};
+use ori_ir::{CallArgRange, ExprId, ExprKind, ExprList, Name, Span};
 use ori_types::Type;
 
 /// Infer type for a function call (positional arguments).
-pub fn infer_call(
-    checker: &mut TypeChecker<'_>,
-    func: ExprId,
-    args: ExprRange,
-    span: Span,
-) -> Type {
+pub fn infer_call(checker: &mut TypeChecker<'_>, func: ExprId, args: ExprList, span: Span) -> Type {
     let func_expr = checker.context.arena.get_expr(func);
     let positional_allowed = match &func_expr.kind {
         ExprKind::Ident(name) => {
@@ -28,7 +23,7 @@ pub fn infer_call(
         _ => true,
     };
 
-    let arg_ids = checker.context.arena.get_expr_list(args);
+    let arg_ids: Vec<_> = checker.context.arena.iter_expr_list(args).collect();
 
     if !positional_allowed && !arg_ids.is_empty() {
         // Extract function name for better error message
@@ -53,7 +48,7 @@ pub fn infer_call(
     // Pre-allocate to avoid repeated reallocations
     let mut arg_types = Vec::with_capacity(arg_ids.len());
     for id in arg_ids {
-        arg_types.push(infer_expr(checker, *id));
+        arg_types.push(infer_expr(checker, id));
     }
 
     check_call(checker, &func_ty, &arg_types, span)
@@ -207,10 +202,10 @@ pub fn infer_method_call(
     checker: &mut TypeChecker<'_>,
     receiver: ExprId,
     method: Name,
-    args: ExprRange,
+    args: ExprList,
     span: Span,
 ) -> Type {
-    let arg_ids = checker.context.arena.get_expr_list(args);
+    let arg_ids: Vec<_> = checker.context.arena.iter_expr_list(args).collect();
     if !arg_ids.is_empty() {
         checker.push_error(
             "named arguments required for method calls (name: value)".to_string(),

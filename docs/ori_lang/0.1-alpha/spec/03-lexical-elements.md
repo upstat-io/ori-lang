@@ -60,6 +60,14 @@ then     trait     true     type     unsafe   use
 uses     void      where    with     yield
 ```
 
+### Reserved (Future)
+
+Reserved for future low-level features. Currently rejected with an informative error:
+
+```
+asm      inline   static   union    view
+```
+
 ### Context-Sensitive
 
 Keywords only in pattern expressions:

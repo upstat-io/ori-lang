@@ -63,12 +63,12 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             // Collections - one item per line for complex, wrap for simple
             ExprKind::List(items) => {
-                let items_list = self.arena.get_expr_list(*items);
-                if items_list.is_empty() {
+                if items.is_empty() {
                     self.ctx.emit("[]");
                 } else {
+                    let items_vec: Vec<_> = self.arena.iter_expr_list(*items).collect();
                     self.ctx.emit("[");
-                    self.emit_broken_list(items_list);
+                    self.emit_broken_list(&items_vec);
                     self.ctx.emit("]");
                 }
             }
@@ -122,18 +122,18 @@ impl<I: StringLookup> Formatter<'_, I> {
                 }
             }
             ExprKind::Tuple(items) => {
-                let items_list = self.arena.get_expr_list(*items);
-                if items_list.is_empty() {
+                if items.is_empty() {
                     self.ctx.emit("()");
                 } else {
+                    let items_vec: Vec<_> = self.arena.iter_expr_list(*items).collect();
                     self.ctx.emit("(");
                     self.ctx.emit_newline();
                     self.ctx.indent();
-                    for (i, item) in items_list.iter().enumerate() {
+                    for (i, item) in items_vec.iter().enumerate() {
                         self.ctx.emit_indent();
                         self.format(*item);
                         self.ctx.emit(",");
-                        if i < items_list.len() - 1 {
+                        if i < items_vec.len() - 1 {
                             self.ctx.emit_newline();
                         }
                     }

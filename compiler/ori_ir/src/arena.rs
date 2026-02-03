@@ -207,6 +207,43 @@ impl ExprArena {
         &self.expr_lists[start..end]
     }
 
+    // -- Two-Tier Storage (ExprList) --
+
+    /// Allocate expression list with two-tier storage.
+    ///
+    /// For 0-2 items, stores inline in the returned `ExprList`.
+    /// For 3+ items, allocates to `expr_lists` and returns an overflow reference.
+    ///
+    /// # Performance
+    ///
+    /// ~77% of function call arguments have 0-2 items and will use inline storage,
+    /// eliminating indirection and improving cache locality.
+    pub fn alloc_expr_list_inline(&mut self, exprs: &[ExprId]) -> super::ExprList {
+        super::ExprList::from_items(exprs, |items| {
+            let start = to_u32(self.expr_lists.len(), "expression lists");
+            self.expr_lists.extend_from_slice(items);
+            let len = to_u16(items.len(), "expression list");
+            (start, len)
+        })
+    }
+
+    /// Iterate over items in an `ExprList`.
+    ///
+    /// Works transparently for both inline and overflow storage.
+    #[inline]
+    pub fn iter_expr_list(&self, list: super::ExprList) -> super::ExprListIter<'_> {
+        list.iter(&self.expr_lists)
+    }
+
+    /// Get raw `expr_lists` storage (for `ExprList` iteration).
+    ///
+    /// This is a low-level accessor for when you need direct access to the storage.
+    /// Prefer `iter_expr_list()` for most use cases.
+    #[inline]
+    pub fn expr_lists_storage(&self) -> &[ExprId] {
+        &self.expr_lists
+    }
+
     /// Allocate statement, return ID.
     #[inline]
     pub fn alloc_stmt(&mut self, stmt: Stmt) -> StmtId {
@@ -746,5 +783,113 @@ mod tests {
         arena.reset();
         assert!(arena.is_empty());
         assert_eq!(arena.expr_count(), 0);
+    }
+
+    // -- ExprList (Two-Tier Storage) Tests --
+
+    #[test]
+    fn test_alloc_expr_list_inline_empty() {
+        let mut arena = ExprArena::new();
+        let list = arena.alloc_expr_list_inline(&[]);
+
+        assert!(list.is_empty());
+        assert!(list.is_inline());
+        assert_eq!(list.len(), 0);
+
+        let items: Vec<_> = arena.iter_expr_list(list).collect();
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn test_alloc_expr_list_inline_single() {
+        let mut arena = ExprArena::new();
+        let id1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
+
+        let list = arena.alloc_expr_list_inline(&[id1]);
+
+        assert!(!list.is_empty());
+        assert!(list.is_inline());
+        assert_eq!(list.len(), 1);
+
+        let items: Vec<_> = arena.iter_expr_list(list).collect();
+        assert_eq!(items, vec![id1]);
+    }
+
+    #[test]
+    fn test_alloc_expr_list_inline_pair() {
+        let mut arena = ExprArena::new();
+        let id1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
+        let id2 = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(2, 3)));
+
+        let list = arena.alloc_expr_list_inline(&[id1, id2]);
+
+        assert!(list.is_inline());
+        assert_eq!(list.len(), 2);
+
+        let items: Vec<_> = arena.iter_expr_list(list).collect();
+        assert_eq!(items, vec![id1, id2]);
+    }
+
+    #[test]
+    fn test_alloc_expr_list_inline_overflow() {
+        let mut arena = ExprArena::new();
+        let id1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
+        let id2 = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(2, 3)));
+        let id3 = arena.alloc_expr(Expr::new(ExprKind::Int(3), Span::new(4, 5)));
+
+        let list = arena.alloc_expr_list_inline(&[id1, id2, id3]);
+
+        assert!(!list.is_inline()); // Should overflow
+        assert_eq!(list.len(), 3);
+
+        let items: Vec<_> = arena.iter_expr_list(list).collect();
+        assert_eq!(items, vec![id1, id2, id3]);
+    }
+
+    #[test]
+    fn test_alloc_expr_list_inline_many_items() {
+        let mut arena = ExprArena::new();
+        let ids: Vec<_> = (0..10)
+            .map(|i| arena.alloc_expr(Expr::new(ExprKind::Int(i), Span::new(0, 1))))
+            .collect();
+
+        let list = arena.alloc_expr_list_inline(&ids);
+
+        assert!(!list.is_inline()); // Should overflow
+        assert_eq!(list.len(), 10);
+
+        let items: Vec<_> = arena.iter_expr_list(list).collect();
+        assert_eq!(items, ids);
+    }
+
+    #[test]
+    fn test_expr_lists_storage_access() {
+        let mut arena = ExprArena::new();
+        let id1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
+        let id2 = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(2, 3)));
+        let id3 = arena.alloc_expr(Expr::new(ExprKind::Int(3), Span::new(4, 5)));
+
+        // Allocate an overflow list
+        let _list = arena.alloc_expr_list_inline(&[id1, id2, id3]);
+
+        // Check that storage is accessible
+        let storage = arena.expr_lists_storage();
+        assert_eq!(storage.len(), 3);
+        assert_eq!(storage, &[id1, id2, id3]);
+    }
+
+    #[test]
+    fn test_inline_does_not_allocate_to_storage() {
+        let mut arena = ExprArena::new();
+        let id1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
+        let id2 = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(2, 3)));
+
+        // Inline storage should not touch expr_lists
+        let _list = arena.alloc_expr_list_inline(&[id1, id2]);
+
+        assert!(
+            arena.expr_lists_storage().is_empty(),
+            "inline list should not allocate to expr_lists"
+        );
     }
 }

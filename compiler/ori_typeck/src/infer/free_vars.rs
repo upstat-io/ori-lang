@@ -76,8 +76,8 @@ fn collect_free_vars_impl(
         // Call - check function and args
         ExprKind::Call { func, args } => {
             collect_free_vars_impl(checker, *func, bound, free);
-            for arg_id in checker.context.arena.get_expr_list(*args) {
-                collect_free_vars_impl(checker, *arg_id, bound, free);
+            for arg_id in checker.context.arena.iter_expr_list(*args) {
+                collect_free_vars_impl(checker, arg_id, bound, free);
             }
         }
 
@@ -92,8 +92,8 @@ fn collect_free_vars_impl(
         // Method call
         ExprKind::MethodCall { receiver, args, .. } => {
             collect_free_vars_impl(checker, *receiver, bound, free);
-            for arg_id in checker.context.arena.get_expr_list(*args) {
-                collect_free_vars_impl(checker, *arg_id, bound, free);
+            for arg_id in checker.context.arena.iter_expr_list(*args) {
+                collect_free_vars_impl(checker, arg_id, bound, free);
             }
         }
 
@@ -168,8 +168,8 @@ fn collect_free_vars_impl(
 
         // List and Tuple
         ExprKind::List(elements) | ExprKind::Tuple(elements) => {
-            for elem_id in checker.context.arena.get_expr_list(*elements) {
-                collect_free_vars_impl(checker, *elem_id, bound, free);
+            for elem_id in checker.context.arena.iter_expr_list(*elements) {
+                collect_free_vars_impl(checker, elem_id, bound, free);
             }
         }
 

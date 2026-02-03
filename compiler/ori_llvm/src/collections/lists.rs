@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use inkwell::types::BasicType;
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, ExprRange, Name, TypeId};
+use ori_ir::{ExprArena, ExprList, Name, TypeId};
 
 use crate::builder::Builder;
 use crate::LoopContext;
@@ -14,14 +14,14 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Lists are represented as { i64 len, i64 cap, ptr data }.
     pub(crate) fn compile_list(
         &self,
-        range: ExprRange,
+        list: ExprList,
         arena: &ExprArena,
         expr_types: &[TypeId],
         locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
-        let elements = arena.get_expr_list(range);
+        let elements: Vec<_> = arena.iter_expr_list(list).collect();
 
         if elements.is_empty() {
             // Empty list - return struct with zeros
@@ -40,9 +40,9 @@ impl<'ll> Builder<'_, 'll, '_> {
 
         // Compile each element
         let mut values: Vec<BasicValueEnum<'ll>> = Vec::new();
-        for &elem_id in elements {
+        for elem_id in &elements {
             if let Some(val) =
-                self.compile_expr(elem_id, arena, expr_types, locals, function, loop_ctx)
+                self.compile_expr(*elem_id, arena, expr_types, locals, function, loop_ctx)
             {
                 values.push(val);
             }

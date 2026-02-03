@@ -572,8 +572,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.5.2 Unsafe Expression
 
-- [ ] **Audit**: Unsafe blocks — grammar.ebnf § unsafe_expr
-  - [ ] `unsafe { ptr_read(ptr) }`
+- [ ] **Audit**: Unsafe expressions — grammar.ebnf § unsafe_expr
+  - [ ] `unsafe(ptr_read(ptr))`
   - [ ] **Rust Tests**: `ori_parse/src/`
   - [ ] **Ori Tests**: `tests/spec/expressions/unsafe.ori`
 

@@ -3,7 +3,7 @@
 //! Handles function calls and method calls, both positional and named argument variants.
 
 use super::{WidthCalculator, ALWAYS_STACKED};
-use ori_ir::{CallArgRange, ExprId, ExprKind, ExprRange, Name, StringLookup};
+use ori_ir::{CallArgRange, ExprId, ExprKind, ExprList, Name, StringLookup};
 
 /// Check if an expression needs parentheses when used as a receiver.
 fn receiver_needs_parens<I: StringLookup>(calc: &WidthCalculator<'_, I>, receiver: ExprId) -> bool {
@@ -23,15 +23,15 @@ fn receiver_needs_parens<I: StringLookup>(calc: &WidthCalculator<'_, I>, receive
 pub(super) fn call_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     func: ExprId,
-    args: ExprRange,
+    args: ExprList,
 ) -> usize {
     let func_w = calc.width(func);
     if func_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
 
-    let args_list = calc.arena.get_expr_list(args);
-    let args_w = calc.width_of_expr_list(args_list);
+    let args_vec: Vec<_> = calc.arena.iter_expr_list(args).collect();
+    let args_w = calc.width_of_expr_list(&args_vec);
     if args_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
@@ -67,7 +67,7 @@ pub(super) fn method_call_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     receiver: ExprId,
     method: Name,
-    args: ExprRange,
+    args: ExprList,
 ) -> usize {
     let receiver_w = calc.width(receiver);
     if receiver_w == ALWAYS_STACKED {
@@ -81,8 +81,8 @@ pub(super) fn method_call_width<I: StringLookup>(
     };
 
     let method_w = calc.interner.lookup(method).len();
-    let args_list = calc.arena.get_expr_list(args);
-    let args_w = calc.width_of_expr_list(args_list);
+    let args_vec: Vec<_> = calc.arena.iter_expr_list(args).collect();
+    let args_w = calc.width_of_expr_list(&args_vec);
     if args_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }

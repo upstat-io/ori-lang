@@ -26,7 +26,7 @@ fn test_builtin_int_from_int() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let args = arena.alloc_expr_list([arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
     let call_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Call {
             func: func_ident,
@@ -72,7 +72,7 @@ fn test_builtin_int_from_bool_true() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let args = arena.alloc_expr_list([arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
     let call_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Call {
             func: func_ident,
@@ -120,7 +120,7 @@ fn test_builtin_int_from_bool_false() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let args = arena.alloc_expr_list([arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
     let call_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Call {
             func: func_ident,
@@ -168,7 +168,7 @@ fn test_builtin_int_from_float() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let args = arena.alloc_expr_list([arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
     let call_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Call {
             func: func_ident,
@@ -216,7 +216,7 @@ fn test_builtin_byte_from_int() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let args = arena.alloc_expr_list([arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
     let call_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Call {
             func: func_ident,
@@ -263,7 +263,7 @@ fn test_builtin_byte_truncation() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let args = arena.alloc_expr_list([arg]);
+    let args = arena.alloc_expr_list_inline(&[arg]);
     let call_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Call {
             func: func_ident,

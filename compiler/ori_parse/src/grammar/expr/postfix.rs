@@ -41,11 +41,11 @@ impl Parser<'_> {
                     ));
                 } else {
                     let args: Vec<ExprId> = call_args.into_iter().map(|a| a.value).collect();
-                    let args_range = self.arena.alloc_expr_list(args);
+                    let args_list = self.arena.alloc_expr_list_inline(&args);
                     expr = self.arena.alloc_expr(Expr::new(
                         ExprKind::Call {
                             func: expr,
-                            args: args_range,
+                            args: args_list,
                         },
                         call_span,
                     ));
@@ -78,12 +78,12 @@ impl Parser<'_> {
                     } else {
                         // Use MethodCall for positional arguments
                         let args: Vec<ExprId> = call_args.into_iter().map(|a| a.value).collect();
-                        let args_range = self.arena.alloc_expr_list(args);
+                        let args_list = self.arena.alloc_expr_list_inline(&args);
                         expr = self.arena.alloc_expr(Expr::new(
                             ExprKind::MethodCall {
                                 receiver: expr,
                                 method: field,
-                                args: args_range,
+                                args: args_list,
                             },
                             span,
                         ));
@@ -122,44 +122,37 @@ impl Parser<'_> {
                     let struct_name = *name;
                     let start_span = expr_data.span;
                     self.advance(); // {
-                    self.skip_newlines();
 
-                    let mut fields = Vec::new();
-                    while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-                        let field_span = self.current_span();
-                        let field_name = self.expect_ident()?;
+                    let fields: Vec<FieldInit> = self.brace_series(|p| {
+                        if p.check(&TokenKind::RBrace) {
+                            return Ok(None);
+                        }
+
+                        let field_span = p.current_span();
+                        let field_name = p.expect_ident()?;
 
                         // Check for shorthand { x } vs full { x: value }
-                        let value = if self.check(&TokenKind::Colon) {
-                            self.advance();
-                            Some(self.parse_expr()?)
+                        let value = if p.check(&TokenKind::Colon) {
+                            p.advance();
+                            Some(p.parse_expr()?)
                         } else {
                             // Shorthand: { x } means { x: x }
                             None
                         };
 
                         let end_span = if let Some(v) = value {
-                            self.arena.get_expr(v).span
+                            p.arena.get_expr(v).span
                         } else {
-                            self.previous_span()
+                            p.previous_span()
                         };
 
-                        fields.push(FieldInit {
+                        Ok(Some(FieldInit {
                             name: field_name,
                             value,
                             span: field_span.merge(end_span),
-                        });
+                        }))
+                    })?;
 
-                        self.skip_newlines();
-                        if self.check(&TokenKind::Comma) {
-                            self.advance();
-                            self.skip_newlines();
-                        } else {
-                            break;
-                        }
-                    }
-
-                    self.expect(&TokenKind::RBrace)?;
                     let end_span = self.previous_span();
                     let fields_range = self.arena.alloc_field_inits(fields);
 
@@ -208,48 +201,36 @@ impl Parser<'_> {
 
     /// Parse call arguments, supporting both positional and named args.
     pub(crate) fn parse_call_args(&mut self) -> Result<(Vec<CallArg>, bool, bool), ParseError> {
-        let mut args = Vec::new();
-        let mut has_positional = false;
-        let mut has_named = false;
+        use crate::series::SeriesConfig;
 
-        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-            self.skip_newlines();
+        let args: Vec<CallArg> = self.series(&SeriesConfig::comma(TokenKind::RParen), |p| {
+            if p.check(&TokenKind::RParen) {
+                return Ok(None);
+            }
 
-            let arg_span = self.current_span();
+            let arg_span = p.current_span();
 
-            if self.is_named_arg_start() {
-                let name = self.expect_ident_or_keyword()?;
-                self.expect(&TokenKind::Colon)?;
-                let value = self.parse_expr()?;
-                let end_span = self.arena.get_expr(value).span;
-
-                args.push(CallArg {
-                    name: Some(name),
-                    value,
-                    span: arg_span.merge(end_span),
-                });
-                has_named = true;
+            let (name, value) = if p.is_named_arg_start() {
+                let name = p.expect_ident_or_keyword()?;
+                p.expect(&TokenKind::Colon)?;
+                let value = p.parse_expr()?;
+                (Some(name), value)
             } else {
-                let value = self.parse_expr()?;
-                let end_span = self.arena.get_expr(value).span;
+                let value = p.parse_expr()?;
+                (None, value)
+            };
 
-                args.push(CallArg {
-                    name: None,
-                    value,
-                    span: arg_span.merge(end_span),
-                });
-                has_positional = true;
-            }
+            let end_span = p.arena.get_expr(value).span;
 
-            self.skip_newlines();
+            Ok(Some(CallArg {
+                name,
+                value,
+                span: arg_span.merge(end_span),
+            }))
+        })?;
 
-            if !self.check(&TokenKind::RParen) {
-                self.expect(&TokenKind::Comma)?;
-                self.skip_newlines();
-            }
-        }
-
-        self.skip_newlines();
+        let has_positional = args.iter().any(|a| a.name.is_none());
+        let has_named = args.iter().any(|a| a.name.is_some());
 
         Ok((args, has_positional, has_named))
     }

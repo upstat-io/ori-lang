@@ -2,8 +2,8 @@
 
 use crate::{ParseError, ParseResult, ParsedAttrs, Parser};
 use ori_ir::{
-    GenericParamRange, Name, ParsedType, ParsedTypeRange, Span, StructField, TokenKind, TypeDecl,
-    TypeDeclKind, Variant, VariantField, Visibility,
+    GenericParamRange, Name, ParsedType, ParsedTypeId, ParsedTypeRange, Span, StructField,
+    TokenKind, TypeDecl, TypeDeclKind, Variant, VariantField, Visibility,
 };
 
 impl Parser<'_> {
@@ -87,29 +87,24 @@ impl Parser<'_> {
     where
         F: Fn(Name, ParsedType, Span) -> T,
     {
-        let mut fields = Vec::new();
-        while !self.check(end_token) && !self.is_at_end() {
-            let field_span = self.current_span();
-            let field_name = self.expect_ident()?;
-            self.expect(&TokenKind::Colon)?;
-            let field_ty = self.parse_type_required()?;
+        use crate::series::SeriesConfig;
 
-            fields.push(make_field(
+        self.series(&SeriesConfig::comma(end_token.clone()), |p| {
+            if p.check(end_token) {
+                return Ok(None);
+            }
+
+            let field_span = p.current_span();
+            let field_name = p.expect_ident()?;
+            p.expect(&TokenKind::Colon)?;
+            let field_ty = p.parse_type_required()?;
+
+            Ok(Some(make_field(
                 field_name,
                 field_ty,
-                field_span.merge(self.previous_span()),
-            ));
-
-            // Comma separator (optional before end token)
-            if self.check(&TokenKind::Comma) {
-                self.advance();
-                self.skip_newlines();
-            } else {
-                self.skip_newlines();
-                break;
-            }
-        }
-        Ok(fields)
+                field_span.merge(p.previous_span()),
+            )))
+        })
     }
 
     /// Parse struct body: { field: Type, ... }
@@ -137,19 +132,19 @@ impl Parser<'_> {
 
         // Check for generic args on newtype: MyType<T>
         if self.check(&TokenKind::Lt) {
+            use crate::series::SeriesConfig;
+
             // This is a newtype with generic args
             self.advance(); // <
-            let mut arg_ids = Vec::new();
-            while !self.check(&TokenKind::Gt) && !self.is_at_end() {
-                let ty = self.parse_type_required()?;
-                let id = self.arena.alloc_parsed_type(ty);
-                arg_ids.push(id);
-                if self.check(&TokenKind::Comma) {
-                    self.advance();
-                } else {
-                    break;
-                }
-            }
+            let arg_ids: Vec<ParsedTypeId> =
+                self.series(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
+                    if p.check(&TokenKind::Gt) {
+                        return Ok(None);
+                    }
+                    let ty = p.parse_type_required()?;
+                    let id = p.arena.alloc_parsed_type(ty);
+                    Ok(Some(id))
+                })?;
             if self.check(&TokenKind::Gt) {
                 self.advance(); // >
             }

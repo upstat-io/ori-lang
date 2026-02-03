@@ -39,6 +39,25 @@ impl<'a> Cursor<'a> {
         self.pos
     }
 
+    /// Set the cursor position directly.
+    ///
+    /// Used by `ParserSnapshot::restore()` to roll back the parser state
+    /// after speculative parsing. The position must be valid (within bounds
+    /// of the token stream).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `pos` is greater than the token count.
+    pub fn set_position(&mut self, pos: usize) {
+        debug_assert!(
+            pos <= self.tokens.len(),
+            "cursor position {} out of bounds (max {})",
+            pos,
+            self.tokens.len()
+        );
+        self.pos = pos;
+    }
+
     /// Get the current token.
     pub fn current(&self) -> &Token {
         self.tokens

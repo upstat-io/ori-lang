@@ -53,47 +53,39 @@ impl Parser<'_> {
 
         // Parse imported items: { item1, item2 as alias }
         self.expect(&TokenKind::LBrace)?;
-        self.skip_newlines();
 
-        let mut items = Vec::new();
-        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+        let items: Vec<UseItem> = self.brace_series(|p| {
+            if p.check(&TokenKind::RBrace) {
+                return Ok(None);
+            }
+
             // Check for private import prefix ::
-            let is_private = if self.check(&TokenKind::DoubleColon) {
-                self.advance();
+            let is_private = if p.check(&TokenKind::DoubleColon) {
+                p.advance();
                 true
             } else {
                 false
             };
 
             // Item name
-            let name = self.expect_ident()?;
+            let name = p.expect_ident()?;
 
             // Optional alias: `as alias`
-            let alias = if self.check(&TokenKind::As) {
-                self.advance();
-                Some(self.expect_ident()?)
+            let alias = if p.check(&TokenKind::As) {
+                p.advance();
+                Some(p.expect_ident()?)
             } else {
                 None
             };
 
-            items.push(UseItem {
+            Ok(Some(UseItem {
                 name,
                 alias,
                 is_private,
-            });
+            }))
+        })?;
 
-            // Comma separator (optional before closing brace)
-            if self.check(&TokenKind::Comma) {
-                self.advance();
-                self.skip_newlines();
-            } else {
-                self.skip_newlines();
-                break;
-            }
-        }
-
-        let end_span = self.current_span();
-        self.expect(&TokenKind::RBrace)?;
+        let end_span = self.previous_span();
 
         Ok(UseDef {
             path,

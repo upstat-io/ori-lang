@@ -187,7 +187,7 @@ extern "c" from "libc" {
 | Feature | Ori `...T` | C `...` |
 |---------|------------|---------|
 | Type safety | Homogeneous, checked | Unchecked |
-| Context | Safe code | `unsafe` block only |
+| Context | Safe code | `unsafe(...)` only |
 | Type annotation | Required | None |
 
 C-style `...` (without type) is only valid in `extern "c"` declarations. Calling C variadic functions requires `unsafe`.

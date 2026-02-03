@@ -268,7 +268,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         // Calls
         ExprKind::Call { func, args } => {
             visitor.visit_expr_id(*func, arena);
-            for &arg_id in arena.get_expr_list(*args) {
+            for arg_id in arena.iter_expr_list(*args) {
                 visitor.visit_expr_id(arg_id, arena);
             }
         }
@@ -280,7 +280,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         }
         ExprKind::MethodCall { receiver, args, .. } => {
             visitor.visit_expr_id(*receiver, arena);
-            for &arg_id in arena.get_expr_list(*args) {
+            for arg_id in arena.iter_expr_list(*args) {
                 visitor.visit_expr_id(arg_id, arena);
             }
         }
@@ -341,7 +341,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
 
         // Collections
         ExprKind::List(items) | ExprKind::Tuple(items) => {
-            for &item_id in arena.get_expr_list(*items) {
+            for item_id in arena.iter_expr_list(*items) {
                 visitor.visit_expr_id(item_id, arena);
             }
         }

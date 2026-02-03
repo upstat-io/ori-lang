@@ -103,8 +103,8 @@ fn test_visit_literals() {
     let int1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
     let int2 = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(3, 4)));
     let bool1 = arena.alloc_expr(Expr::new(ExprKind::Bool(true), Span::new(6, 10)));
-    let list_range = arena.alloc_expr_list([int1, int2, bool1]);
-    let list = arena.alloc_expr(Expr::new(ExprKind::List(list_range), Span::new(0, 11)));
+    let list_items = arena.alloc_expr_list_inline(&[int1, int2, bool1]);
+    let list = arena.alloc_expr(Expr::new(ExprKind::List(list_items), Span::new(0, 11)));
 
     let mut counter = LiteralCounter {
         int_count: 0,
@@ -269,7 +269,7 @@ fn test_visit_deeply_nested_expressions() {
 
     // Wrap in 10 levels of tuple nesting
     for depth in 0..10 {
-        let list = arena.alloc_expr_list([current]);
+        let list = arena.alloc_expr_list_inline(&[current]);
         current = arena.alloc_expr(Expr::new(
             ExprKind::Tuple(list),
             Span::new(0, (depth + 1) * 2),
@@ -287,8 +287,8 @@ fn test_visit_deeply_nested_expressions() {
 fn test_visit_empty_list() {
     let mut arena = ExprArena::new();
 
-    let empty_list_range = arena.alloc_expr_list([]);
-    let empty_list = arena.alloc_expr(Expr::new(ExprKind::List(empty_list_range), Span::new(0, 2)));
+    let empty_list_items = arena.alloc_expr_list_inline(&[]);
+    let empty_list = arena.alloc_expr(Expr::new(ExprKind::List(empty_list_items), Span::new(0, 2)));
 
     let mut counter = ExprCounter { count: 0 };
     counter.visit_expr_id(empty_list, &arena);

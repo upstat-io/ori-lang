@@ -42,6 +42,7 @@ mod builtin_type;
 mod comment;
 mod derives;
 mod expr_id;
+mod inline_list;
 mod interner;
 mod name;
 mod parsed_type;
@@ -127,6 +128,7 @@ pub use expr_id::{
     ExprId, ExprRange, MatchPatternId, MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId,
     StmtRange,
 };
+pub use inline_list::{ExprList, ExprListIter, INLINE_CAPACITY};
 pub use interner::{InternError, SharedInterner, StringInterner, StringLookup};
 pub use name::Name;
 pub use parsed_type::ParsedType;

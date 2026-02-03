@@ -26,7 +26,7 @@ fn test_tuple_creation() {
     });
 
     // Allocate the tuple elements in the arena's expr_list
-    let range = arena.alloc_expr_list([elem1, elem2]);
+    let range = arena.alloc_expr_list_inline(&[elem1, elem2]);
 
     // Create tuple expression
     let tuple_expr = arena.alloc_expr(Expr {
@@ -440,7 +440,7 @@ fn test_list_literal_empty() {
     // Create: fn test() -> List { [] }
     let mut arena = ExprArena::new();
 
-    let range = arena.alloc_expr_list([]);
+    let range = arena.alloc_expr_list_inline(&[]);
     let list_expr = arena.alloc_expr(Expr {
         kind: ExprKind::List(range),
         span: ori_ir::Span::new(0, 1),
@@ -490,7 +490,7 @@ fn test_list_literal_with_elements() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let range = arena.alloc_expr_list([elem1, elem2, elem3]);
+    let range = arena.alloc_expr_list_inline(&[elem1, elem2, elem3]);
     let list_expr = arena.alloc_expr(Expr {
         kind: ExprKind::List(range),
         span: ori_ir::Span::new(0, 1),
@@ -648,7 +648,7 @@ fn test_tuple_index() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let range = arena.alloc_expr_list([elem1, elem2]);
+    let range = arena.alloc_expr_list_inline(&[elem1, elem2]);
     let tuple_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Tuple(range),
         span: ori_ir::Span::new(0, 1),
@@ -718,7 +718,7 @@ fn test_tuple_index_second() {
         span: ori_ir::Span::new(0, 1),
     });
 
-    let range = arena.alloc_expr_list([elem1, elem2]);
+    let range = arena.alloc_expr_list_inline(&[elem1, elem2]);
     let tuple_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Tuple(range),
         span: ori_ir::Span::new(0, 1),

@@ -9,6 +9,8 @@ mod grammar;
 mod progress;
 mod recovery;
 mod scratch;
+pub mod series;
+mod snapshot;
 
 #[cfg(test)]
 mod tests;
@@ -18,6 +20,8 @@ pub use cursor::Cursor;
 pub use error::ParseError;
 pub use progress::{ParseResult, Progress, WithProgress};
 pub use recovery::{synchronize, TokenSet, FUNCTION_BOUNDARY, STMT_BOUNDARY};
+pub use series::{SeriesConfig, TrailingSeparator};
+pub use snapshot::ParserSnapshot;
 
 use ori_ir::{
     ExprArena, Function, Module, Name, Span, StringInterner, TestDef, Token, TokenKind, TokenList,
@@ -281,6 +285,117 @@ impl<'a> Parser<'a> {
         let result = f(self);
         let progress = self.progress_since(start_pos);
         ParseResult { progress, result }
+    }
+
+    // --- Speculative Parsing (Snapshots) ---
+    //
+    // These methods enable speculative parsing for disambiguation.
+    // Use when you need to try a parse, examine the result, and decide
+    // whether to keep or discard it.
+    //
+    // Complements progress tracking:
+    // - Progress: simple alternatives (`parse_a().or_else(|| parse_b())`)
+    // - Snapshots: complex disambiguation requiring full parse attempts
+
+    /// Create a snapshot of the current parser state.
+    ///
+    /// The snapshot captures cursor position and context flags. Arena state
+    /// is NOT captured—speculative parsing should examine tokens, not allocate.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let snapshot = self.snapshot();
+    /// // Try parsing as type
+    /// if self.parse_type().is_ok() && self.check(&TokenKind::Eq) {
+    ///     // Commit: this is a type annotation
+    /// } else {
+    ///     // Rollback and try as expression
+    ///     self.restore(snapshot);
+    ///     return self.parse_expr();
+    /// }
+    /// ```
+    #[inline]
+    #[allow(dead_code)] // Will be used for disambiguation in future work
+    pub(crate) fn snapshot(&self) -> snapshot::ParserSnapshot {
+        snapshot::ParserSnapshot::new(self.cursor.position(), self.context)
+    }
+
+    /// Restore parser state from a snapshot.
+    ///
+    /// Resets cursor position and context flags to their values when the
+    /// snapshot was taken. Does NOT restore arena state.
+    #[inline]
+    #[allow(dead_code)] // Will be used for disambiguation in future work
+    pub(crate) fn restore(&mut self, snapshot: snapshot::ParserSnapshot) {
+        self.cursor.set_position(snapshot.cursor_pos);
+        self.context = snapshot.context;
+    }
+
+    /// Try parsing speculatively, restoring state on failure.
+    ///
+    /// If the parse function succeeds, returns `Some(result)`.
+    /// If it fails, restores parser state and returns `None`.
+    ///
+    /// This is the primary method for speculative parsing. Use when you
+    /// need to try an interpretation and fall back if it doesn't work.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Try parsing as type annotation first
+    /// if let Some(ty) = self.try_parse(|p| p.parse_type()) {
+    ///     return Ok(TypeOrExpr::Type(ty));
+    /// }
+    /// // Fall back to expression
+    /// let expr = self.parse_expr()?;
+    /// Ok(TypeOrExpr::Expr(expr))
+    /// ```
+    #[inline]
+    #[allow(dead_code)] // Will be used for disambiguation in future work
+    pub(crate) fn try_parse<T, F>(&mut self, f: F) -> Option<T>
+    where
+        F: FnOnce(&mut Self) -> Result<T, ParseError>,
+    {
+        let snapshot = self.snapshot();
+        if let Ok(result) = f(self) {
+            Some(result)
+        } else {
+            self.restore(snapshot);
+            None
+        }
+    }
+
+    /// Look ahead without side effects.
+    ///
+    /// Executes the function and then always restores state, returning
+    /// whatever the function returned. Use for peeking ahead to make
+    /// parsing decisions without consuming tokens.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Check if this looks like a type annotation
+    /// let is_type_annotation = self.look_ahead(|p| {
+    ///     p.parse_type().is_ok() && p.check(&TokenKind::Eq)
+    /// });
+    ///
+    /// if is_type_annotation {
+    ///     // Parse as type annotation
+    /// } else {
+    ///     // Parse as expression
+    /// }
+    /// ```
+    #[inline]
+    #[allow(dead_code)] // Will be used for disambiguation in future work
+    pub(crate) fn look_ahead<T, F>(&mut self, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let snapshot = self.snapshot();
+        let result = f(self);
+        self.restore(snapshot);
+        result
     }
 
     /// Handle a parse result by pushing to a collection on success, or recording error and recovering.

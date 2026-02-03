@@ -120,25 +120,27 @@ impl Parser<'_> {
     /// Parse optional generic arguments: `<T, U, ...>`
     /// Returns a range into the arena's type list storage.
     fn parse_optional_generic_args_range(&mut self) -> ParsedTypeRange {
+        use crate::series::SeriesConfig;
+        use ori_ir::ParsedTypeId;
+
         if !self.check(&TokenKind::Lt) {
             return ParsedTypeRange::EMPTY;
         }
         self.advance(); // <
 
-        let mut arg_ids = Vec::new();
-
-        // Parse comma-separated type arguments
-        while !self.check(&TokenKind::Gt) && !self.is_at_end() {
-            if let Some(ty) = self.parse_type() {
-                let id = self.arena.alloc_parsed_type(ty);
-                arg_ids.push(id);
-            }
-            if self.check(&TokenKind::Comma) {
-                self.advance();
-            } else {
-                break;
-            }
-        }
+        let arg_ids: Vec<ParsedTypeId> = self
+            .series(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
+                if p.check(&TokenKind::Gt) {
+                    return Ok(None);
+                }
+                if let Some(ty) = p.parse_type() {
+                    let id = p.arena.alloc_parsed_type(ty);
+                    Ok(Some(id))
+                } else {
+                    Ok(None)
+                }
+            })
+            .unwrap_or_default();
 
         if self.check(&TokenKind::Gt) {
             self.advance(); // >

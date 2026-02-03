@@ -150,37 +150,28 @@ impl Parser<'_> {
         self.expect(&TokenKind::Comma)?;
         self.skip_newlines();
 
-        let mut arms = Vec::new();
-        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-            self.skip_newlines();
+        let arms: Vec<MatchArm> = self.paren_series(|p| {
+            if p.check(&TokenKind::RParen) {
+                return Ok(None);
+            }
 
-            let arm_span = self.current_span();
-            let pattern = self.parse_match_pattern()?;
+            let arm_span = p.current_span();
+            let pattern = p.parse_match_pattern()?;
 
             // Check for guard: pattern.match(condition)
-            let guard = self.parse_pattern_guard()?;
+            let guard = p.parse_pattern_guard()?;
 
-            self.expect(&TokenKind::Arrow)?;
-            let body = self.parse_expr()?;
-            let end_span = self.arena.get_expr(body).span;
+            p.expect(&TokenKind::Arrow)?;
+            let body = p.parse_expr()?;
+            let end_span = p.arena.get_expr(body).span;
 
-            arms.push(MatchArm {
+            Ok(Some(MatchArm {
                 pattern,
                 guard,
                 body,
                 span: arm_span.merge(end_span),
-            });
-
-            self.skip_newlines();
-
-            if !self.check(&TokenKind::RParen) {
-                self.expect(&TokenKind::Comma)?;
-                self.skip_newlines();
-            }
-        }
-
-        self.skip_newlines();
-        self.expect(&TokenKind::RParen)?;
+            }))
+        })?;
         let end_span = self.previous_span();
 
         if arms.is_empty() {
@@ -495,15 +486,17 @@ impl Parser<'_> {
             TokenKind::Ok => self.parse_builtin_variant_pattern("Ok", true),
             TokenKind::Err => self.parse_builtin_variant_pattern("Err", true),
             TokenKind::LParen => {
+                use crate::series::SeriesConfig;
+
                 self.advance();
-                let mut pattern_ids = Vec::new();
-                while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-                    let pat = self.parse_match_pattern()?;
-                    pattern_ids.push(self.arena.alloc_match_pattern(pat));
-                    if !self.check(&TokenKind::RParen) {
-                        self.expect(&TokenKind::Comma)?;
-                    }
-                }
+                let pattern_ids: Vec<MatchPatternId> =
+                    self.series(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
+                        if p.check(&TokenKind::RParen) {
+                            return Ok(None);
+                        }
+                        let pat = p.parse_match_pattern()?;
+                        Ok(Some(p.arena.alloc_match_pattern(pat)))
+                    })?;
                 self.expect(&TokenKind::RParen)?;
                 let range = self.arena.alloc_match_pattern_list(pattern_ids);
                 Ok(MatchPattern::Tuple(range))
@@ -528,41 +521,31 @@ impl Parser<'_> {
         self.expect(&TokenKind::LParen)?;
         self.skip_newlines();
 
-        let mut props = Vec::new();
+        let props: Vec<NamedExpr> = self.paren_series(|p| {
+            if p.check(&TokenKind::RParen) {
+                return Ok(None);
+            }
 
-        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-            self.skip_newlines();
-
-            if !self.is_named_arg_start() {
+            if !p.is_named_arg_start() {
                 return Err(ParseError::new(
                     ori_diagnostic::ErrorCode::E1013,
                     format!("`{}` requires named properties (name: value)", kind.name()),
-                    self.current_span(),
+                    p.current_span(),
                 ));
             }
 
-            let name = self.expect_ident_or_keyword()?;
-            let prop_span = self.previous_span();
-            self.expect(&TokenKind::Colon)?;
-            let value = self.parse_expr()?;
-            let end_span = self.arena.get_expr(value).span;
+            let name = p.expect_ident_or_keyword()?;
+            let prop_span = p.previous_span();
+            p.expect(&TokenKind::Colon)?;
+            let value = p.parse_expr()?;
+            let end_span = p.arena.get_expr(value).span;
 
-            props.push(NamedExpr {
+            Ok(Some(NamedExpr {
                 name,
                 value,
                 span: prop_span.merge(end_span),
-            });
-
-            self.skip_newlines();
-
-            if !self.check(&TokenKind::RParen) {
-                self.expect(&TokenKind::Comma)?;
-                self.skip_newlines();
-            }
-        }
-
-        self.skip_newlines();
-        self.expect(&TokenKind::RParen)?;
+            }))
+        })?;
         let end_span = self.previous_span();
 
         let props_range = self.arena.alloc_named_exprs(props);
@@ -604,62 +587,47 @@ impl Parser<'_> {
     /// Returns an empty range for unit variants (when immediately followed by `)`),
     /// or a range with one or more patterns for variants with fields.
     fn parse_variant_inner_patterns(&mut self) -> Result<MatchPatternRange, ParseError> {
-        let mut pattern_ids = Vec::new();
+        use crate::series::SeriesConfig;
 
-        // Empty case: immediately followed by )
-        if self.check(&TokenKind::RParen) {
-            return Ok(MatchPatternRange::EMPTY);
+        let pattern_ids: Vec<MatchPatternId> =
+            self.series(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
+                if p.check(&TokenKind::RParen) {
+                    return Ok(None);
+                }
+                let pat = p.parse_match_pattern()?;
+                Ok(Some(p.arena.alloc_match_pattern(pat)))
+            })?;
+
+        if pattern_ids.is_empty() {
+            Ok(MatchPatternRange::EMPTY)
+        } else {
+            Ok(self.arena.alloc_match_pattern_list(pattern_ids))
         }
-
-        // Parse first pattern
-        let first = self.parse_match_pattern()?;
-        pattern_ids.push(self.arena.alloc_match_pattern(first));
-
-        // Parse additional patterns separated by commas
-        while self.check(&TokenKind::Comma) {
-            self.advance();
-            // Allow trailing comma
-            if self.check(&TokenKind::RParen) {
-                break;
-            }
-            let pat = self.parse_match_pattern()?;
-            pattern_ids.push(self.arena.alloc_match_pattern(pat));
-        }
-
-        Ok(self.arena.alloc_match_pattern_list(pattern_ids))
     }
 
     /// Parse struct pattern fields: `{ x, y: pattern, ... }`
     fn parse_struct_pattern_fields(&mut self) -> Result<MatchPattern, ParseError> {
         self.advance(); // consume {
-        self.skip_newlines();
 
-        let mut fields: Vec<(ori_ir::Name, Option<MatchPatternId>)> = Vec::new();
+        let fields: Vec<(ori_ir::Name, Option<MatchPatternId>)> = self.brace_series(|p| {
+            if p.check(&TokenKind::RBrace) {
+                return Ok(None);
+            }
 
-        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-            self.skip_newlines();
-
-            let field_name = self.expect_ident()?;
+            let field_name = p.expect_ident()?;
 
             // Check for pattern binding: { x: pattern } vs shorthand { x }
-            let pattern_id = if self.check(&TokenKind::Colon) {
-                self.advance();
-                let pat = self.parse_match_pattern()?;
-                Some(self.arena.alloc_match_pattern(pat))
+            let pattern_id = if p.check(&TokenKind::Colon) {
+                p.advance();
+                let pat = p.parse_match_pattern()?;
+                Some(p.arena.alloc_match_pattern(pat))
             } else {
                 None // Shorthand: field name is also the binding
             };
 
-            fields.push((field_name, pattern_id));
+            Ok(Some((field_name, pattern_id)))
+        })?;
 
-            self.skip_newlines();
-            if !self.check(&TokenKind::RBrace) {
-                self.expect(&TokenKind::Comma)?;
-                self.skip_newlines();
-            }
-        }
-
-        self.expect(&TokenKind::RBrace)?;
         Ok(MatchPattern::Struct { fields })
     }
 

@@ -172,37 +172,38 @@ impl Parser<'_> {
     /// Parse parameter list.
     /// Accepts both regular identifiers and `self` for trait methods.
     pub(crate) fn parse_params(&mut self) -> Result<ParamRange, ParseError> {
-        let mut params = Vec::new();
+        use crate::series::SeriesConfig;
 
-        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-            let param_span = self.current_span();
+        let params: Vec<Param> =
+            self.series(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
+                if p.check(&TokenKind::RParen) {
+                    return Ok(None);
+                }
 
-            // Accept `self` as a special parameter name for trait/impl methods
-            let name = if self.check(&TokenKind::SelfLower) {
-                self.advance();
-                self.interner().intern("self")
-            } else {
-                self.expect_ident()?
-            };
+                let param_span = p.current_span();
 
-            // : Type (optional, not required for `self`)
-            let ty = if self.check(&TokenKind::Colon) {
-                self.advance();
-                self.parse_type()
-            } else {
-                None
-            };
+                // Accept `self` as a special parameter name for trait/impl methods
+                let name = if p.check(&TokenKind::SelfLower) {
+                    p.advance();
+                    p.interner().intern("self")
+                } else {
+                    p.expect_ident()?
+                };
 
-            params.push(Param {
-                name,
-                ty,
-                span: param_span,
-            });
+                // : Type (optional, not required for `self`)
+                let ty = if p.check(&TokenKind::Colon) {
+                    p.advance();
+                    p.parse_type()
+                } else {
+                    None
+                };
 
-            if !self.check(&TokenKind::RParen) {
-                self.expect(&TokenKind::Comma)?;
-            }
-        }
+                Ok(Some(Param {
+                    name,
+                    ty,
+                    span: param_span,
+                }))
+            })?;
 
         Ok(self.arena.alloc_params(params))
     }

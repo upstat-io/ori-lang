@@ -333,8 +333,8 @@ fn test_width_list_empty() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
 
-    let list_range = arena.alloc_expr_list([]);
-    let list = make_expr(&mut arena, ExprKind::List(list_range));
+    let list_items = arena.alloc_expr_list_inline(&[]);
+    let list = make_expr(&mut arena, ExprKind::List(list_items));
 
     let mut calc = WidthCalculator::new(&arena, &interner);
     assert_eq!(calc.width(list), 2); // "[]"
@@ -348,8 +348,8 @@ fn test_width_list_with_items() {
     let one = make_expr(&mut arena, ExprKind::Int(1));
     let two = make_expr(&mut arena, ExprKind::Int(2));
     let three = make_expr(&mut arena, ExprKind::Int(3));
-    let list_range = arena.alloc_expr_list([one, two, three]);
-    let list = make_expr(&mut arena, ExprKind::List(list_range));
+    let list_items = arena.alloc_expr_list_inline(&[one, two, three]);
+    let list = make_expr(&mut arena, ExprKind::List(list_items));
 
     let mut calc = WidthCalculator::new(&arena, &interner);
     // "[1, 2, 3]" = 1 + 1 + 2 + 1 + 2 + 1 + 1 = 9
@@ -663,7 +663,7 @@ fn test_width_tuple() {
 
     let one = make_expr(&mut arena, ExprKind::Int(1));
     let two = make_expr(&mut arena, ExprKind::Int(2));
-    let items = arena.alloc_expr_list([one, two]);
+    let items = arena.alloc_expr_list_inline(&[one, two]);
     let tuple = make_expr(&mut arena, ExprKind::Tuple(items));
     let mut calc = WidthCalculator::new(&arena, &interner);
 
