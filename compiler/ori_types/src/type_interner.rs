@@ -436,6 +436,11 @@ impl TypeInterner {
     /// Create a `ModuleNamespace` type.
     ///
     /// Returns the same `TypeId` for identical item lists (deduplication).
+    ///
+    /// # Invariant
+    ///
+    /// Caller **must** provide items sorted by `Name` (ascending order).
+    /// This enables O(log n) binary search lookup.
     pub fn module_namespace(&self, items: impl Into<Box<[(Name, TypeId)]>>) -> TypeId {
         self.intern(TypeData::ModuleNamespace {
             items: items.into(),

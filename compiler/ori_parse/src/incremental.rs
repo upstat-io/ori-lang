@@ -23,8 +23,8 @@ use ori_ir::{
     ast::{BindingPattern, FunctionExp, FunctionSeq, MatchArm, MatchPattern, SeqBinding},
     CallArg, ConfigDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef, FieldInit,
     Function, GenericParam, ImplAssocType, ImplDef, ImplMethod, MapEntry, MatchPatternId,
-    MatchPatternRange, Module, NamedExpr, Param, ParsedType, ParsedTypeId, ParsedTypeRange, Span,
-    Stmt, StmtKind, TestDef, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
+    MatchPatternRange, Module, Name, NamedExpr, Param, ParsedType, ParsedTypeId, ParsedTypeRange,
+    Span, Stmt, StmtKind, TestDef, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
     TraitMethodSig, TypeDecl, UseDef, WhereClause,
 };
 
@@ -324,16 +324,7 @@ impl<'old> AstCopier<'old> {
                 }
             }
             ExprKind::CallNamed { func, args } => {
-                let new_func = self.copy_expr(*func, new_arena);
-                let old_args = self.old_arena.get_call_args(*args);
-                let new_args: Vec<_> = old_args
-                    .iter()
-                    .map(|arg| self.copy_call_arg(arg, new_arena))
-                    .collect();
-                ExprKind::CallNamed {
-                    func: new_func,
-                    args: new_arena.alloc_call_args(new_args),
-                }
+                self.copy_call_named_kind(*func, *args, new_arena)
             }
             ExprKind::MethodCall {
                 receiver,
@@ -352,19 +343,7 @@ impl<'old> AstCopier<'old> {
                 receiver,
                 method,
                 args,
-            } => {
-                let new_receiver = self.copy_expr(*receiver, new_arena);
-                let old_args = self.old_arena.get_call_args(*args);
-                let new_args: Vec<_> = old_args
-                    .iter()
-                    .map(|arg| self.copy_call_arg(arg, new_arena))
-                    .collect();
-                ExprKind::MethodCallNamed {
-                    receiver: new_receiver,
-                    method: *method,
-                    args: new_arena.alloc_call_args(new_args),
-                }
-            }
+            } => self.copy_method_call_named_kind(*receiver, *method, *args, new_arena),
 
             // Field and index access
             ExprKind::Field { receiver, field } => ExprKind::Field {
@@ -387,16 +366,7 @@ impl<'old> AstCopier<'old> {
                 else_branch: else_branch.map(|e| self.copy_expr(e, new_arena)),
             },
             ExprKind::Match { scrutinee, arms } => {
-                let new_scrutinee = self.copy_expr(*scrutinee, new_arena);
-                let old_arms = self.old_arena.get_arms(*arms);
-                let new_arms: Vec<_> = old_arms
-                    .iter()
-                    .map(|arm| self.copy_match_arm(arm, new_arena))
-                    .collect();
-                ExprKind::Match {
-                    scrutinee: new_scrutinee,
-                    arms: new_arena.alloc_arms(new_arms),
-                }
+                self.copy_match_kind(*scrutinee, *arms, new_arena)
             }
             ExprKind::For {
                 binding,
@@ -414,29 +384,7 @@ impl<'old> AstCopier<'old> {
             ExprKind::Loop { body } => ExprKind::Loop {
                 body: self.copy_expr(*body, new_arena),
             },
-            ExprKind::Block { stmts, result } => {
-                let old_stmts = self.old_arena.get_stmt_range(*stmts);
-                let mut new_stmts = Vec::with_capacity(old_stmts.len());
-                for stmt in old_stmts {
-                    new_stmts.push(self.copy_stmt(stmt, new_arena));
-                }
-                // Allocate statements sequentially
-                #[allow(clippy::cast_possible_truncation)]
-                // Statement indices won't exceed u32::MAX in practice
-                let start_id = if new_stmts.is_empty() {
-                    0
-                } else {
-                    let first_id = new_arena.alloc_stmt(new_stmts[0].clone());
-                    for stmt in new_stmts.iter().skip(1) {
-                        new_arena.alloc_stmt(stmt.clone());
-                    }
-                    first_id.index() as u32
-                };
-                ExprKind::Block {
-                    stmts: new_arena.alloc_stmt_range(start_id, new_stmts.len()),
-                    result: result.map(|r| self.copy_expr(r, new_arena)),
-                }
-            }
+            ExprKind::Block { stmts, result } => self.copy_block_kind(*stmts, *result, new_arena),
 
             // Bindings
             ExprKind::Let {
@@ -454,43 +402,15 @@ impl<'old> AstCopier<'old> {
                 params,
                 ret_ty,
                 body,
-            } => {
-                let old_params = self.old_arena.get_params(*params);
-                let new_params: Vec<_> = old_params
-                    .iter()
-                    .map(|p| self.copy_param(p, new_arena))
-                    .collect();
-                ExprKind::Lambda {
-                    params: new_arena.alloc_params(new_params),
-                    ret_ty: ret_ty.as_ref().map(|t| self.copy_parsed_type(t, new_arena)),
-                    body: self.copy_expr(*body, new_arena),
-                }
-            }
+            } => self.copy_lambda_kind(*params, ret_ty.as_ref(), *body, new_arena),
 
             // Collections
             ExprKind::List(exprs) => {
                 let new_exprs = self.copy_expr_list(*exprs, new_arena);
                 ExprKind::List(new_exprs)
             }
-            ExprKind::Map(entries) => {
-                let old_entries = self.old_arena.get_map_entries(*entries);
-                let new_entries: Vec<_> = old_entries
-                    .iter()
-                    .map(|e| self.copy_map_entry(e, new_arena))
-                    .collect();
-                ExprKind::Map(new_arena.alloc_map_entries(new_entries))
-            }
-            ExprKind::Struct { name, fields } => {
-                let old_fields = self.old_arena.get_field_inits(*fields);
-                let new_fields: Vec<_> = old_fields
-                    .iter()
-                    .map(|f| self.copy_field_init(f, new_arena))
-                    .collect();
-                ExprKind::Struct {
-                    name: *name,
-                    fields: new_arena.alloc_field_inits(new_fields),
-                }
-            }
+            ExprKind::Map(entries) => self.copy_map_kind(*entries, new_arena),
+            ExprKind::Struct { name, fields } => self.copy_struct_kind(*name, *fields, new_arena),
             ExprKind::Tuple(exprs) => {
                 let new_exprs = self.copy_expr_list(*exprs, new_arena);
                 ExprKind::Tuple(new_exprs)
@@ -545,6 +465,143 @@ impl<'old> AstCopier<'old> {
         };
 
         new_arena.alloc_expr(Expr::new(new_kind, new_span))
+    }
+
+    /// Copy a Block expression's statements and result.
+    fn copy_block_kind(
+        &self,
+        stmts: ori_ir::StmtRange,
+        result: Option<ExprId>,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let old_stmts = self.old_arena.get_stmt_range(stmts);
+        let mut new_stmts = Vec::with_capacity(old_stmts.len());
+        for stmt in old_stmts {
+            new_stmts.push(self.copy_stmt(stmt, new_arena));
+        }
+        // Allocate statements sequentially
+        #[allow(clippy::cast_possible_truncation)]
+        // Statement indices won't exceed u32::MAX in practice
+        let start_id = if new_stmts.is_empty() {
+            0
+        } else {
+            let first_id = new_arena.alloc_stmt(new_stmts[0].clone());
+            for stmt in new_stmts.iter().skip(1) {
+                new_arena.alloc_stmt(stmt.clone());
+            }
+            first_id.index() as u32
+        };
+        ExprKind::Block {
+            stmts: new_arena.alloc_stmt_range(start_id, new_stmts.len()),
+            result: result.map(|r| self.copy_expr(r, new_arena)),
+        }
+    }
+
+    /// Copy a Lambda expression's parameters and body.
+    fn copy_lambda_kind(
+        &self,
+        params: ori_ir::ParamRange,
+        ret_ty: Option<&ParsedType>,
+        body: ExprId,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let old_params = self.old_arena.get_params(params);
+        let new_params: Vec<_> = old_params
+            .iter()
+            .map(|p| self.copy_param(p, new_arena))
+            .collect();
+        ExprKind::Lambda {
+            params: new_arena.alloc_params(new_params),
+            ret_ty: ret_ty.map(|t| self.copy_parsed_type(t, new_arena)),
+            body: self.copy_expr(body, new_arena),
+        }
+    }
+
+    /// Copy a Match expression's scrutinee and arms.
+    fn copy_match_kind(
+        &self,
+        scrutinee: ExprId,
+        arms: ori_ir::ArmRange,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let new_scrutinee = self.copy_expr(scrutinee, new_arena);
+        let old_arms = self.old_arena.get_arms(arms);
+        let new_arms: Vec<_> = old_arms
+            .iter()
+            .map(|arm| self.copy_match_arm(arm, new_arena))
+            .collect();
+        ExprKind::Match {
+            scrutinee: new_scrutinee,
+            arms: new_arena.alloc_arms(new_arms),
+        }
+    }
+
+    /// Copy a Map expression's entries.
+    fn copy_map_kind(&self, entries: ori_ir::MapEntryRange, new_arena: &mut ExprArena) -> ExprKind {
+        let old_entries = self.old_arena.get_map_entries(entries);
+        let new_entries: Vec<_> = old_entries
+            .iter()
+            .map(|e| self.copy_map_entry(e, new_arena))
+            .collect();
+        ExprKind::Map(new_arena.alloc_map_entries(new_entries))
+    }
+
+    /// Copy a Struct expression's name and fields.
+    fn copy_struct_kind(
+        &self,
+        name: Name,
+        fields: ori_ir::FieldInitRange,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let old_fields = self.old_arena.get_field_inits(fields);
+        let new_fields: Vec<_> = old_fields
+            .iter()
+            .map(|f| self.copy_field_init(f, new_arena))
+            .collect();
+        ExprKind::Struct {
+            name,
+            fields: new_arena.alloc_field_inits(new_fields),
+        }
+    }
+
+    /// Copy a named call's function and arguments.
+    fn copy_call_named_kind(
+        &self,
+        func: ExprId,
+        args: ori_ir::CallArgRange,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let new_func = self.copy_expr(func, new_arena);
+        let old_args = self.old_arena.get_call_args(args);
+        let new_args: Vec<_> = old_args
+            .iter()
+            .map(|arg| self.copy_call_arg(arg, new_arena))
+            .collect();
+        ExprKind::CallNamed {
+            func: new_func,
+            args: new_arena.alloc_call_args(new_args),
+        }
+    }
+
+    /// Copy a named method call's receiver, method, and arguments.
+    fn copy_method_call_named_kind(
+        &self,
+        receiver: ExprId,
+        method: Name,
+        args: ori_ir::CallArgRange,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let new_receiver = self.copy_expr(receiver, new_arena);
+        let old_args = self.old_arena.get_call_args(args);
+        let new_args: Vec<_> = old_args
+            .iter()
+            .map(|arg| self.copy_call_arg(arg, new_arena))
+            .collect();
+        ExprKind::MethodCallNamed {
+            receiver: new_receiver,
+            method,
+            args: new_arena.alloc_call_args(new_args),
+        }
     }
 
     /// Copy an `ExprList` (inline or overflow).

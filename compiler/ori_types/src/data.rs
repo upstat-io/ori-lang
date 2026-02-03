@@ -130,8 +130,13 @@ pub enum TypeData {
     // Module namespaces
     /// Module namespace type: created by module alias imports like `use std.http as http`.
     /// Contains a mapping from exported item names to their types.
+    ///
+    /// # Invariant
+    ///
+    /// Items **must** be sorted by `Name` (ascending order) to enable O(log n) lookup.
     ModuleNamespace {
         /// Mapping from exported item names to their types (as `TypeId`s).
+        /// **Invariant:** Sorted by `Name` in ascending order.
         items: Box<[(Name, TypeId)]>,
     },
 }
