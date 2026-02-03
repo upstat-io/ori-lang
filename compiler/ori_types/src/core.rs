@@ -90,9 +90,15 @@ pub enum Type {
     /// Module namespace type: created by module alias imports like `use std.http as http`.
     /// Contains a mapping from exported item names to their types.
     /// Enables qualified access type checking: `http.get(...)`.
+    ///
+    /// # Invariant
+    ///
+    /// Items **must** be sorted by `Name` (ascending order) to enable O(log n) lookup
+    /// via binary search. Construction sites must sort items after collection.
     ModuleNamespace {
         /// Mapping from exported item names to their types.
         /// For functions, this is `Type::Function { ... }`.
+        /// **Invariant:** Sorted by `Name` in ascending order.
         items: Vec<(Name, Type)>,
     },
 }
@@ -137,11 +143,16 @@ impl Type {
     ///
     /// Returns `Some(&Type)` if this is a `ModuleNamespace` containing the named item,
     /// or `None` if not found or if this is not a namespace type.
+    ///
+    /// # Performance
+    ///
+    /// Uses O(log n) binary search. Items must be sorted by `Name` (construction invariant).
     pub fn get_namespace_item(&self, name: Name) -> Option<&Type> {
         match self {
-            Type::ModuleNamespace { items } => {
-                items.iter().find(|(n, _)| *n == name).map(|(_, ty)| ty)
-            }
+            Type::ModuleNamespace { items } => items
+                .binary_search_by_key(&name, |(n, _)| *n)
+                .ok()
+                .map(|idx| &items[idx].1),
             _ => None,
         }
     }

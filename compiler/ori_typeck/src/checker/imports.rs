@@ -127,7 +127,7 @@ impl TypeChecker<'_> {
     /// ```
     pub fn register_module_alias(&mut self, module_alias: &ImportedModuleAlias) {
         // Build the module namespace type with all exported functions
-        let items: Vec<(Name, Type)> = module_alias
+        let mut items: Vec<(Name, Type)> = module_alias
             .functions
             .iter()
             .map(|func| {
@@ -138,6 +138,9 @@ impl TypeChecker<'_> {
                 (func.name, fn_type)
             })
             .collect();
+
+        // Sort by Name for O(log n) binary search lookup (ModuleNamespace invariant)
+        items.sort_by_key(|(name, _)| *name);
 
         let namespace_type = Type::ModuleNamespace { items };
 

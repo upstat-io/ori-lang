@@ -147,14 +147,10 @@ fn test_module_namespace_field_access_type() {
 
     // Verify field access on the namespace returns the function type
     let ns_type = checker.inference.env.lookup(alias_name).unwrap();
-    if let Type::ModuleNamespace { items } = ns_type {
-        // Look up "add" in the namespace
-        let add_type = items
-            .iter()
-            .find(|(name, _)| *name == add_name)
-            .map(|(_, ty)| ty);
-        assert!(add_type.is_some(), "Should find 'add' in namespace");
-
+    // Use get_namespace_item for O(log n) binary search lookup
+    let add_type = ns_type.get_namespace_item(add_name);
+    assert!(add_type.is_some(), "Should find 'add' in namespace");
+    if matches!(ns_type, Type::ModuleNamespace { .. }) {
         let fn_type = add_type.unwrap();
         match fn_type {
             Type::Function { params, ret } => {
