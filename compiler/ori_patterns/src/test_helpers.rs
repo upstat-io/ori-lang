@@ -7,9 +7,22 @@
 
 use rustc_hash::FxHashMap;
 
-use ori_ir::ExprId;
+use ori_ir::{ExprArena, ExprId, NamedExpr, SharedInterner};
 
-use crate::{EvalError, EvalResult, PatternExecutor, Value};
+use crate::{EvalContext, EvalError, EvalResult, PatternExecutor, Value};
+
+/// Create an `EvalContext` for testing patterns.
+///
+/// This is a convenience wrapper around `EvalContext::new()` for test code.
+/// Uses `SharedInterner` since that's what tests typically create.
+pub fn make_ctx<'a>(
+    interner: &'a SharedInterner,
+    arena: &'a ExprArena,
+    props: &'a [NamedExpr],
+) -> EvalContext<'a> {
+    // SharedInterner derefs to StringInterner
+    EvalContext::new(interner, arena, props)
+}
 
 /// Mock executor for testing patterns in isolation.
 ///

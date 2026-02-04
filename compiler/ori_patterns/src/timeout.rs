@@ -17,6 +17,7 @@ use crate::test_helpers::MockPatternExecutor;
 ///
 /// Note: In the interpreter, timeout is not enforced. Actual timeout
 /// behavior is implemented in the compiled output.
+#[derive(Clone, Copy)]
 pub struct TimeoutPattern;
 
 impl PatternDefinition for TimeoutPattern {

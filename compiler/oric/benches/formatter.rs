@@ -4,7 +4,9 @@
 //!
 //! Measures formatting performance across different input sizes.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use ori_fmt::{format_incremental, format_module, format_module_with_comments, IncrementalResult};
 use ori_ir::StringInterner;
 use rayon::prelude::*;

@@ -2,7 +2,9 @@
 //!
 //! Measures tokenization performance across different input sizes and complexity.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use oric::query::tokens;
 use oric::{CompilerDb, SourceFile};
 use std::path::PathBuf;

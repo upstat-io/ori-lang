@@ -2,9 +2,9 @@
 //!
 //! Tests for the LLVM optimization pass management using the new pass manager.
 //! These tests validate:
-//! - OptimizationLevel pipeline strings and settings
-//! - LtoMode pipeline generation
-//! - OptimizationConfig builder pattern and effective settings
+//! - `OptimizationLevel` pipeline strings and settings
+//! - `LtoMode` pipeline generation
+//! - `OptimizationConfig` builder pattern and effective settings
 //! - Integration tests for running optimization passes
 
 #[cfg(feature = "llvm")]

@@ -37,7 +37,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         }
 
         // Compile each element
-        let mut values: Vec<BasicValueEnum<'ll>> = Vec::new();
+        let mut values: Vec<BasicValueEnum<'ll>> = Vec::with_capacity(elements.len());
         for elem_id in &elements {
             if let Some(val) =
                 self.compile_expr(*elem_id, arena, expr_types, locals, function, loop_ctx)

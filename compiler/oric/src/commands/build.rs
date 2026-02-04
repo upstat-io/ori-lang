@@ -408,11 +408,10 @@ pub fn build_file(path: &str, options: &BuildOptions) {
 /// Build a single Ori source file (no imports).
 #[cfg(feature = "llvm")]
 fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: std::time::Instant) {
-    use ori_llvm::inkwell::context::Context;
-
-    use oric::{CompilerDb, SourceFile};
-
     use ori_llvm::aot::ObjectEmitter;
+    use ori_llvm::inkwell::context::Context;
+    use oric::{CompilerDb, SourceFile};
+    use tempfile::TempDir;
 
     use super::compile_common::{check_source, compile_to_llvm};
 
@@ -425,9 +424,8 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     let file = SourceFile::new(&db, PathBuf::from(path), content.to_string());
 
     // Check for parse and type errors
-    let (parse_result, type_result) = match check_source(&db, file, path) {
-        Some(results) => results,
-        None => std::process::exit(1),
+    let Some((parse_result, type_result)) = check_source(&db, file, path) else {
+        std::process::exit(1)
     };
 
     // Step 2: Configure target
@@ -487,16 +485,20 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
         return;
     }
 
-    // Step 7: Emit object file to temp location
-    let temp_dir = match std::env::temp_dir().canonicalize() {
-        Ok(d) => d,
-        Err(_) => std::env::temp_dir(),
+    // Step 7: Emit object file to unique temp location
+    // Use tempfile for unique directory to avoid race conditions in parallel builds
+    let temp_dir = match TempDir::new() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("error: failed to create temp directory: {e}");
+            std::process::exit(1);
+        }
     };
     let module_name = Path::new(path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("module");
-    let obj_path = temp_dir.join(format!("{module_name}.o"));
+    let obj_path = temp_dir.path().join(format!("{module_name}.o"));
 
     if options.verbose {
         eprintln!("  Emitting object to {}", obj_path.display());
@@ -508,6 +510,7 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     }
 
     // Step 8: Link into executable
+    // Note: temp_dir must stay alive until linking completes (auto-cleaned on drop)
     link_and_finish(&[obj_path], &output_path, &target, options, start);
 }
 
@@ -518,6 +521,7 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
 fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: std::time::Instant) {
     use ori_llvm::aot::{build_dependency_graph, Mangler};
     use oric::CompilerDb;
+    use tempfile::TempDir;
 
     // Step 1: Build dependency graph
     if options.verbose {
@@ -583,14 +587,15 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
     }
 
     // Step 3: Compile each module in topological order
-    let temp_dir = match std::env::temp_dir().canonicalize() {
-        Ok(d) => d,
-        Err(_) => std::env::temp_dir(),
+    // Use tempfile for unique directory to avoid race conditions in parallel builds
+    let temp_dir = match TempDir::new() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("error: failed to create temp directory: {e}");
+            std::process::exit(1);
+        }
     };
-    let obj_dir = temp_dir.join("ori_build");
-    if let Err(e) = std::fs::create_dir_all(&obj_dir) {
-        eprintln!("warning: could not create build directory: {e}");
-    }
+    let obj_dir = temp_dir.path().to_path_buf();
 
     let db = CompilerDb::new();
     let mangler = Mangler::new();
@@ -625,13 +630,12 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
     }
 
     // Step 4: Link all object files
+    // Note: temp_dir must stay alive until linking completes (auto-cleaned on drop)
     let output_path = determine_output_path(path, options);
     link_and_finish(&object_files, &output_path, &target, options, start);
 
-    // Clean up temp object files
-    for obj_path in &object_files {
-        let _ = std::fs::remove_file(obj_path);
-    }
+    // temp_dir automatically cleans up when it goes out of scope
+    drop(temp_dir);
 }
 
 /// Context for compiling a single module in multi-file compilation.
@@ -655,7 +659,7 @@ struct CompiledModuleInfo {
     /// Module name for mangling.
     #[allow(dead_code)] // Kept for debugging and potential future use
     module_name: String,
-    /// Public function signatures (mangled_name, param_types, return_type).
+    /// Public function signatures (`mangled_name`, `param_types`, `return_type`).
     /// These are the actual types from type checking, not defaults.
     /// The mangled name is pre-computed to avoid needing the interner later.
     public_functions: Vec<(String, Vec<ori_ir::TypeId>, ori_ir::TypeId)>,
@@ -663,7 +667,7 @@ struct CompiledModuleInfo {
 
 /// Compile a single module to an object file.
 ///
-/// Returns (object_path, CompiledModuleInfo) on success.
+/// Returns (`object_path`, `CompiledModuleInfo`) on success.
 #[cfg(feature = "llvm")]
 fn compile_single_module(
     ctx: &ModuleCompileContext<'_>,
@@ -774,7 +778,7 @@ fn compile_single_module(
 
 /// Extract public function signatures with actual types from a type-checked module.
 ///
-/// Returns tuples of (mangled_name, param_types, return_type).
+/// Returns tuples of (`mangled_name`, `param_types`, `return_type`).
 /// The mangled name is pre-computed to avoid needing the interner later.
 #[cfg(feature = "llvm")]
 fn extract_public_function_types(
@@ -826,9 +830,8 @@ fn build_import_infos(
     let mut imported_functions = Vec::new();
 
     // Get the direct imports of this module
-    let imports = match graph.get_imports(source_path) {
-        Some(imports) => imports,
-        None => return imported_functions,
+    let Some(imports) = graph.get_imports(source_path) else {
+        return imported_functions;
     };
 
     // Build index once for O(1) lookups instead of O(n) linear scan per import
@@ -839,17 +842,15 @@ fn build_import_infos(
 
     for import_path in imports {
         // O(1) lookup using the index
-        let module_info = match module_index.get(import_path.as_path()) {
-            Some(info) => *info,
-            None => {
-                // Module not yet compiled - shouldn't happen in topological order
-                eprintln!(
-                    "warning: import '{}' not found in compiled modules",
-                    import_path.display()
-                );
-                continue;
-            }
+        let Some(module_info) = module_index.get(import_path.as_path()) else {
+            // Module not yet compiled - shouldn't happen in topological order
+            eprintln!(
+                "warning: import '{}' not found in compiled modules",
+                import_path.display()
+            );
+            continue;
         };
+        let module_info = *module_info;
 
         // Add each public function using the actual types from type checking
         // The mangled names are pre-computed when the module was compiled

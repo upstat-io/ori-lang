@@ -31,8 +31,8 @@ impl<'ll> Builder<'_, 'll, '_> {
         }
 
         // Compile each field value
-        let mut values: Vec<BasicValueEnum<'ll>> = Vec::new();
-        let mut types: Vec<BasicTypeEnum<'ll>> = Vec::new();
+        let mut values: Vec<BasicValueEnum<'ll>> = Vec::with_capacity(field_inits.len());
+        let mut types: Vec<BasicTypeEnum<'ll>> = Vec::with_capacity(field_inits.len());
 
         for init in field_inits {
             // Get the value - either explicit or shorthand (variable with same name)

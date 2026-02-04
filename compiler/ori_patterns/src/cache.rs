@@ -19,6 +19,7 @@ use crate::test_helpers::MockPatternExecutor;
 ///
 /// Note: In the interpreter, caching is not implemented. The operation
 /// function is called each time. Actual caching is implemented in compiled output.
+#[derive(Clone, Copy)]
 pub struct CachePattern;
 
 impl PatternDefinition for CachePattern {

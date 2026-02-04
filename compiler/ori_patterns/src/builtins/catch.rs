@@ -4,13 +4,11 @@ use ori_types::Type;
 
 use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value};
 
-#[cfg(test)]
-use crate::test_helpers::MockPatternExecutor;
-
 /// The `catch` pattern captures panics and converts them to `Result<T, str>`.
 ///
 /// Syntax: `catch(expr: expression)`
 /// Type: `catch(expr: T) -> Result<T, str>`
+#[derive(Clone, Copy)]
 pub struct CatchPattern;
 
 impl PatternDefinition for CatchPattern {
@@ -41,15 +39,8 @@ impl PatternDefinition for CatchPattern {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::test_helpers::{make_ctx, MockPatternExecutor};
     use ori_ir::{ExprArena, ExprId, NamedExpr, SharedInterner, Span};
-
-    fn make_ctx<'a>(
-        interner: &'a SharedInterner,
-        arena: &'a ExprArena,
-        props: &'a [NamedExpr],
-    ) -> EvalContext<'a> {
-        EvalContext::new(interner, arena, props)
-    }
 
     #[test]
     fn catch_success_wraps_in_ok() {

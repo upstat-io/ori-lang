@@ -16,6 +16,7 @@ use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeChe
 /// - Native: stdout (default)
 /// - WASM: buffer for capture
 /// - Tests: buffer for assertions
+#[derive(Clone, Copy)]
 pub struct PrintPattern;
 
 impl PatternDefinition for PrintPattern {
@@ -57,16 +58,8 @@ impl PatternDefinition for PrintPattern {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::test_helpers::MockPatternExecutor;
+    use crate::test_helpers::{make_ctx, MockPatternExecutor};
     use ori_ir::{ExprArena, ExprId, NamedExpr, SharedInterner, Span};
-
-    fn make_ctx<'a>(
-        interner: &'a SharedInterner,
-        arena: &'a ExprArena,
-        props: &'a [NamedExpr],
-    ) -> EvalContext<'a> {
-        EvalContext::new(interner, arena, props)
-    }
 
     #[test]
     fn print_returns_void() {

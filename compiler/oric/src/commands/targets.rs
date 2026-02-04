@@ -1,13 +1,22 @@
 //! The `targets` command: list supported compilation targets.
 
+/// Filter for which targets to display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetFilter {
+    /// Show all supported targets.
+    All,
+    /// Show only installed targets (those with sysroots available).
+    InstalledOnly,
+}
+
 /// List all supported compilation targets.
 ///
-/// With `--installed`, only shows targets that have sysroots available.
+/// With `InstalledOnly`, only shows targets that have sysroots available.
 #[cfg(feature = "llvm")]
-pub fn list_targets(installed_only: bool) {
+pub fn list_targets(filter: TargetFilter) {
     use ori_llvm::aot::SUPPORTED_TARGETS;
 
-    if installed_only {
+    if filter == TargetFilter::InstalledOnly {
         // For now, we only support native target without explicit sysroot
         println!("Installed targets:");
         println!();
@@ -64,7 +73,7 @@ pub fn list_targets(installed_only: bool) {
 
 /// List targets when LLVM feature is not enabled.
 #[cfg(not(feature = "llvm"))]
-pub fn list_targets(_installed_only: bool) {
+pub fn list_targets(_filter: TargetFilter) {
     eprintln!("error: the 'targets' command requires the LLVM backend");
     eprintln!();
     eprintln!("The Ori compiler was built without LLVM support.");
@@ -76,7 +85,7 @@ pub fn list_targets(_installed_only: bool) {
 
 #[cfg(test)]
 mod tests {
-    /// Test that SUPPORTED_TARGETS contains expected platform families.
+    /// Test that `SUPPORTED_TARGETS` contains expected platform families.
     ///
     /// The actual `list_targets` function does I/O (prints to stdout), so we test
     /// the underlying data and logic that it depends on.
@@ -118,9 +127,7 @@ mod tests {
                 let min_parts = if target.starts_with("wasm") { 2 } else { 3 };
                 assert!(
                     parts.len() >= min_parts,
-                    "target '{}' should have at least {} parts",
-                    target,
-                    min_parts
+                    "target '{target}' should have at least {min_parts} parts"
                 );
             }
         }
@@ -139,8 +146,7 @@ mod tests {
             for target in SUPPORTED_TARGETS {
                 assert!(
                     seen.insert(target),
-                    "duplicate target '{}' in SUPPORTED_TARGETS",
-                    target
+                    "duplicate target '{target}' in SUPPORTED_TARGETS"
                 );
             }
         }

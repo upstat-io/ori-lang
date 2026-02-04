@@ -7,12 +7,13 @@ use crate::{
 };
 
 #[cfg(test)]
-use crate::{test_helpers::MockPatternExecutor, Value};
+use crate::Value;
 
 /// The `panic` pattern halts execution with an error message.
 ///
 /// Syntax: `panic(msg: expr)`
 /// Type: `panic(msg: str) -> Never`
+#[derive(Clone, Copy)]
 pub struct PanicPattern;
 
 impl PatternDefinition for PanicPattern {
@@ -39,15 +40,8 @@ impl PatternDefinition for PanicPattern {
 #[allow(clippy::unwrap_used, clippy::default_trait_access)]
 mod tests {
     use super::*;
+    use crate::test_helpers::{make_ctx, MockPatternExecutor};
     use ori_ir::{ExprArena, ExprId, NamedExpr, SharedInterner, Span};
-
-    fn make_ctx<'a>(
-        interner: &'a SharedInterner,
-        arena: &'a ExprArena,
-        props: &'a [NamedExpr],
-    ) -> EvalContext<'a> {
-        EvalContext::new(interner, arena, props)
-    }
 
     #[test]
     fn panic_returns_error_with_message() {

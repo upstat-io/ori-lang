@@ -46,9 +46,12 @@ rustc-hash.workspace = true
 # Parallel test execution
 rayon.workspace = true
 
+# Temp files for AOT intermediate objects
+tempfile = "3.10"
+
 [dev-dependencies]
 pretty_assertions = "1.4"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 tempfile = "3.10"
 ori_rt = { path = "../ori_rt" }
 

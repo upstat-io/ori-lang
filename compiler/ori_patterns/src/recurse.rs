@@ -20,6 +20,7 @@ use crate::test_helpers::MockPatternExecutor;
 /// - `memo: true` for memoization
 ///
 /// Type: `recurse(condition: bool, base: T, step: T) -> T`
+#[derive(Clone, Copy)]
 pub struct RecursePattern;
 
 impl PatternDefinition for RecursePattern {

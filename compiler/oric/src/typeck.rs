@@ -157,7 +157,11 @@ pub fn type_check_with_context(
 /// Result of resolving imports for type checking.
 ///
 /// Contains both individual function imports and module alias imports.
-#[derive(Debug, Default)]
+///
+/// Note: Does not derive `Hash` because inner types (`ImportedFunction`, `ImportedModuleAlias`)
+/// contain `Type` which doesn't implement `Hash`. This is acceptable since `ResolvedImports`
+/// is used as a result value, not a query key.
+#[derive(Clone, Debug, Default)]
 pub struct ResolvedImports {
     /// Individual function imports.
     pub functions: Vec<ImportedFunction>,

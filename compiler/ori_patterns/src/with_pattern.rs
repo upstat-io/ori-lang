@@ -19,6 +19,7 @@ use crate::{test_helpers::MockPatternExecutor, Value};
 ///
 /// The property is named `action` rather than `use` because `use` is a reserved keyword.
 /// The release function is always called, even if action throws.
+#[derive(Clone, Copy)]
 pub struct WithPattern;
 
 impl PatternDefinition for WithPattern {

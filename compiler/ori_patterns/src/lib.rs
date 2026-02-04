@@ -54,7 +54,7 @@ use ori_types::{InferenceContext, Type};
 pub use errors::{ControlFlow, EvalError, EvalResult};
 pub use fusion::{ChainLink, FusedPattern, FusionHints, PatternChain};
 pub use method_key::{MethodKey, MethodKeyDisplay};
-pub use registry::PatternRegistry;
+pub use registry::{Pattern, PatternRegistry};
 pub use signature::{DefaultValue, FunctionSignature, OptionalArg, PatternSignature};
 pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};
 pub use value::{
