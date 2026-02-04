@@ -251,7 +251,7 @@ Location: `compiler/oric/tests/phases/common/parse.rs:94`
 
 ## 10.8 Verification
 
-- [ ] `./test-all` passes
+- [ ] `./test-all.sh` passes
 - [ ] No `#[ignore]` without tracking issue
 - [ ] All inline test modules < 200 lines
 - [ ] Test names describe behavior

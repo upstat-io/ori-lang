@@ -64,8 +64,8 @@ All errors were in `/home/eric/ori_lang/compiler/ori_parse/src/incremental.rs`:
 
 ## 01.3 Verification
 
-- [x] Run `./clippy-all` — passes with no errors
-- [x] Run `./test-all` — passes (6,367 tests, 0 failures)
+- [x] Run `./clippy-all.sh` — passes with no errors
+- [x] Run `./test-all.sh` — passes (6,367 tests, 0 failures)
 - [x] Verify CI is green
 
 ---
@@ -73,8 +73,8 @@ All errors were in `/home/eric/ori_lang/compiler/ori_parse/src/incremental.rs`:
 ## 01.N Completion Checklist
 
 - [x] All 11 clippy errors fixed
-- [x] `./clippy-all` passes
-- [x] `./test-all` passes
+- [x] `./clippy-all.sh` passes
+- [x] `./test-all.sh` passes
 - [x] No new warnings introduced
 
-**Exit Criteria:** ✅ CI is green, `./clippy-all` produces no errors
+**Exit Criteria:** ✅ CI is green, `./clippy-all.sh` produces no errors

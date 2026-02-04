@@ -260,8 +260,8 @@ pub fn shift_left(a: i64, b: i64, span: Span) -> Result<Value, EvalError> {
 - [ ] Grep for errors without `.with_span()` — should be zero
 - [ ] Grep for "Did you mean" — should be zero (use imperative)
 - [ ] Review error output for common operations
-- [ ] `./clippy-all` passes
-- [ ] `./test-all` passes
+- [ ] `./clippy-all.sh` passes
+- [ ] `./test-all.sh` passes
 
 ---
 
@@ -274,6 +274,6 @@ pub fn shift_left(a: i64, b: i64, span: Span) -> Result<Value, EvalError> {
 - [ ] Incremental: Add spans to more error sites (ongoing)
 - [ ] Incremental: Add "try using" suggestions (ongoing)
 - [ ] Incremental: Expand terse messages (ongoing)
-- [x] `./test-all` passes
+- [x] `./test-all.sh` passes
 
 **Exit Criteria:** ✅ Infrastructure complete; incremental improvements tracked as future work

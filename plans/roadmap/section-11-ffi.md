@@ -568,7 +568,7 @@ extern "js" {
 - [ ] Can call libc functions (strlen, malloc, free)
 - [ ] Can call libm functions (sin, cos, sqrt)
 - [ ] Can create and use SQLite binding
-- [ ] All tests pass: `./test-all`
+- [ ] All tests pass: `./test-all.sh`
 - [ ] `uses FFI` properly enforced
 - [ ] `unsafe` blocks working
 

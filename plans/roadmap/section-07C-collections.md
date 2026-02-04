@@ -390,7 +390,7 @@ sections:
 - [ ] All items above have all checkboxes marked `[x]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage, tests against spec/design
-- [ ] Run full test suite: `./test-all`
+- [ ] Run full test suite: `./test-all.sh`
 - [ ] **LLVM Support**: All LLVM codegen tests pass
 
 **Exit Criteria**: Collections and iteration working correctly

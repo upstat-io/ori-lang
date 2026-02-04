@@ -135,6 +135,6 @@ Implements error trace preservation across task boundaries in async code.
 - [ ] CLAUDE.md updated with async/concurrency syntax
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage, tests against spec/design
-- [ ] Run full test suite: `./test-all`
+- [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: Async code compiles and runs

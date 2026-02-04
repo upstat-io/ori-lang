@@ -7,7 +7,7 @@
 Before starting:
 1. Familiarize yourself with `CLAUDE.md` (language quick reference)
 2. Familiarize yourself with `docs/ori_lang/0.1-alpha/spec/` (authoritative spec)
-3. Ensure `./test-all` passes (runs Rust tests, Ori interpreter tests, and LLVM tests)
+3. Ensure `./test-all.sh` passes (runs Rust tests, Ori interpreter tests, and LLVM tests)
 
 ### Execution Rules
 
@@ -274,12 +274,12 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
 
 ```bash
 # Run ALL tests (Rust + Ori interpreter + LLVM backend)
-./test-all
+./test-all.sh
 
 # Individual test suites:
 cargo t                          # Rust unit tests only
 cargo st                         # Ori language tests (interpreter)
-./llvm-test                      # LLVM Rust unit tests
+./llvm-test.sh                   # LLVM Rust unit tests
 ./docker/llvm/run.sh ori test tests/  # Ori language tests (LLVM)
 
 # Specific category

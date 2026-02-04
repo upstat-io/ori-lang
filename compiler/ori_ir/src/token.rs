@@ -542,6 +542,150 @@ impl TokenKind {
             TokenKind::FloatSizeError => "invalid float size literal",
         }
     }
+
+    /// Get a friendly name for a discriminant index, suitable for "expected X" messages.
+    ///
+    /// Returns `None` for tokens that shouldn't appear in expected lists
+    /// (e.g., `Error`, `Newline`, `Eof`).
+    ///
+    /// Used by `TokenSet::format_expected()` for generating error messages like
+    /// "expected `,`, `)`, or `}`".
+    #[inline]
+    pub fn friendly_name_from_index(index: u8) -> Option<&'static str> {
+        // Map indices to friendly names, excluding internal/error tokens.
+        // Some arms are merged when different tokens share the same display name
+        // (e.g., Float literal and FloatType keyword both display as "float").
+        match index {
+            // Data-carrying variants (some merged with type keywords)
+            0 => Some("integer"),    // Int
+            1 | 43 => Some("float"), // Float (literal) and FloatType (keyword)
+            2 => Some("string"),     // String
+            3 | 46 => Some("char"),  // Char (literal) and CharType (keyword)
+            4 => Some("duration"),   // Duration
+            5 => Some("size"),       // Size
+            6 => Some("identifier"), // Ident
+
+            // Keywords (indices 7-41)
+            7 => Some("async"),
+            8 => Some("break"),
+            9 => Some("continue"),
+            10 => Some("return"),
+            11 => Some("def"),
+            12 => Some("do"),
+            13 => Some("else"),
+            14 => Some("false"),
+            15 => Some("for"),
+            16 => Some("if"),
+            17 => Some("impl"),
+            18 => Some("in"),
+            19 => Some("let"),
+            20 => Some("loop"),
+            21 => Some("match"),
+            22 => Some("mut"),
+            23 => Some("pub"),
+            24 => Some("self"),
+            25 => Some("Self"),
+            26 => Some("then"),
+            27 => Some("trait"),
+            28 => Some("true"),
+            29 => Some("type"),
+            30 => Some("use"),
+            31 => Some("uses"),
+            32 => Some("void"),
+            33 => Some("where"),
+            34 => Some("with"),
+            35 => Some("yield"),
+            36 => Some("tests"),
+            37 => Some("as"),
+            38 => Some("dyn"),
+            39 => Some("extend"),
+            40 => Some("extension"),
+            41 => Some("skip"),
+
+            // Type keywords (indices 42-48, some merged above)
+            42 => Some("int"),
+            // 43 merged with 1 (float)
+            44 => Some("bool"),
+            45 => Some("str"),
+            // 46 merged with 3 (char)
+            47 => Some("byte"),
+            48 => Some("Never"),
+
+            // Result/Option constructors (indices 49-52)
+            49 => Some("Ok"),
+            50 => Some("Err"),
+            51 => Some("Some"),
+            52 => Some("None"),
+
+            // Pattern keywords (indices 53-65)
+            53 => Some("cache"),
+            54 => Some("catch"),
+            55 => Some("parallel"),
+            56 => Some("spawn"),
+            57 => Some("recurse"),
+            58 => Some("run"),
+            59 => Some("timeout"),
+            60 => Some("try"),
+            61 => Some("by"),
+            62 => Some("print"),
+            63 => Some("panic"),
+            64 => Some("todo"),
+            65 => Some("unreachable"),
+
+            // Punctuation (indices 66-89)
+            66 => Some("#["),
+            67 => Some("@"),
+            68 => Some("$"),
+            69 => Some("#"),
+            70 => Some("("),
+            71 => Some(")"),
+            72 => Some("{"),
+            73 => Some("}"),
+            74 => Some("["),
+            75 => Some("]"),
+            76 => Some(":"),
+            77 => Some("::"),
+            78 => Some(","),
+            79 => Some("."),
+            80 => Some(".."),
+            81 => Some("..="),
+            82 => Some("..."),
+            83 => Some("->"),
+            84 => Some("=>"),
+            85 => Some("|"),
+            86 => Some("?"),
+            87 => Some("??"),
+            88 => Some("_"),
+            89 => Some(";"),
+
+            // Operators (indices 90-110)
+            90 => Some("="),
+            91 => Some("=="),
+            92 => Some("!="),
+            93 => Some("<"),
+            94 => Some("<="),
+            95 => Some("<<"),
+            96 => Some(">"),
+            97 => Some(">="),
+            98 => Some(">>"),
+            99 => Some("+"),
+            100 => Some("-"),
+            101 => Some("*"),
+            102 => Some("/"),
+            103 => Some("%"),
+            104 => Some("!"),
+            105 => Some("~"),
+            106 => Some("&"),
+            107 => Some("&&"),
+            108 => Some("||"),
+            109 => Some("^"),
+            110 => Some("div"),
+
+            // Internal tokens and unknown indices - exclude from expected lists
+            // Indices 111-115 are Newline, Eof, Error, FloatDurationError, FloatSizeError
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Debug for TokenKind {
@@ -1035,5 +1179,58 @@ mod tests {
         assert!(!list.is_empty());
         assert_eq!(list[0].kind, TokenKind::Int(1));
         assert_eq!(list.get(1).unwrap().kind, TokenKind::Plus);
+    }
+
+    #[test]
+    fn test_friendly_name_from_index() {
+        // Test data-carrying variants
+        assert_eq!(TokenKind::friendly_name_from_index(0), Some("integer"));
+        assert_eq!(TokenKind::friendly_name_from_index(6), Some("identifier"));
+
+        // Test keywords
+        assert_eq!(TokenKind::friendly_name_from_index(16), Some("if"));
+        assert_eq!(TokenKind::friendly_name_from_index(19), Some("let"));
+
+        // Test punctuation
+        assert_eq!(TokenKind::friendly_name_from_index(70), Some("("));
+        assert_eq!(TokenKind::friendly_name_from_index(71), Some(")"));
+        assert_eq!(TokenKind::friendly_name_from_index(78), Some(","));
+
+        // Test operators
+        assert_eq!(TokenKind::friendly_name_from_index(99), Some("+"));
+        assert_eq!(TokenKind::friendly_name_from_index(100), Some("-"));
+
+        // Test internal tokens (should return None)
+        assert_eq!(TokenKind::friendly_name_from_index(111), None); // Newline
+        assert_eq!(TokenKind::friendly_name_from_index(112), None); // Eof
+        assert_eq!(TokenKind::friendly_name_from_index(113), None); // Error
+
+        // Test out of range
+        assert_eq!(TokenKind::friendly_name_from_index(200), None);
+    }
+
+    #[test]
+    fn test_friendly_name_matches_discriminant() {
+        // Verify that friendly_name_from_index returns correct names
+        // for the corresponding discriminant indices
+        let test_cases = [
+            (TokenKind::Int(42), "integer"),
+            (TokenKind::Ident(crate::Name::EMPTY), "identifier"),
+            (TokenKind::If, "if"),
+            (TokenKind::Let, "let"),
+            (TokenKind::Plus, "+"),
+            (TokenKind::LParen, "("),
+            (TokenKind::Comma, ","),
+        ];
+
+        for (token, expected_name) in test_cases {
+            let index = token.discriminant_index();
+            let friendly = TokenKind::friendly_name_from_index(index);
+            assert_eq!(
+                friendly,
+                Some(expected_name),
+                "Mismatch for {token:?} at index {index}"
+            );
+        }
     }
 }

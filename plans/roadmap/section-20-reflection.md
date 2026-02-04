@@ -533,7 +533,7 @@ Per `proposals/approved/reflection-api-proposal.md § Deferred Decisions`:
 - [ ] current_variant works for enums
 - [ ] fields() extension works
 - [ ] JSON serialization example works
-- [ ] All tests pass: `./test-all`
+- [ ] All tests pass: `./test-all.sh`
 
 **Exit Criteria**: Can implement generic JSON serialization/deserialization using reflection
 

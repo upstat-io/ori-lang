@@ -17,7 +17,7 @@ Quick-reference keyword index for finding Parser 2.0 implementation sections.
 ## Keyword Clusters by Section
 
 ### Section 01: Data-Oriented AST
-**File:** `section-01-data-oriented-ast.md` | **Status:** Not Started
+**File:** `section-01-data-oriented-ast.md` | **Status:** In Progress (01.1-01.2 analysis complete)
 
 ```
 MultiArrayList, SoA, struct of arrays
@@ -31,7 +31,7 @@ Zig parser, data-oriented design
 ---
 
 ### Section 02: Lexer Optimizations
-**File:** `section-02-lexer.md` | **Status:** Not Started
+**File:** `section-02-lexer.md` | **Status:** ✅ Complete (logos already optimal)
 
 ```
 perfect hash, keyword lookup
@@ -44,35 +44,38 @@ Go parser, keyword recognition
 ---
 
 ### Section 03: Enhanced Progress System
-**File:** `section-03-progress.md` | **Status:** Not Started
+**File:** `section-03-progress.md` | **Status:** ✅ Complete
 
 ```
 progress tracking, consumed, empty
 backtracking, automatic backtrack
-one_of macro, combinator
+one_of macro, try_outcome, require, chain
 Elm parser, Roc parser
 context capture, error context
 ParseOutcome, ConsumedOk, EmptyErr
+ErrorContext, in_error_context, with_error_context
 ```
 
 ---
 
 ### Section 04: Structured Errors
-**File:** `section-04-errors.md` | **Status:** Not Started
+**File:** `section-04-errors.md` | **Status:** Partial (04.1, 04.2, 04.3 complete)
 
 ```
 error messages, friendly errors
 empathetic, educational
 expected token accumulation
-ParseErrorDetails, error hints
+ParseErrorDetails, error hints, details()
+ExtraLabel, CodeSuggestion, Applicability
 Elm errors, Gleam errors
 common mistakes, suggestions
+detect_common_mistake, educational_note
 ```
 
 ---
 
 ### Section 05: Incremental Parsing
-**File:** `section-05-incremental.md` | **Status:** Not Started
+**File:** `section-05-incremental.md` | **Status:** 🔄 Partial (05.2-05.3 complete)
 
 ```
 incremental, reparse, reuse
@@ -81,6 +84,8 @@ change range, span adjustment
 content hash, reusability
 TypeScript parser, IDE support
 lazy tokens, deferred capture
+SyntaxCursor, AstCopier, ChangeMarker
+parse_incremental, parse_module_incremental
 ```
 
 ---
@@ -101,14 +106,14 @@ formatter support, IDE metadata
 
 ## Quick Reference
 
-| ID | Title | File | Priority |
-|----|-------|------|----------|
-| 01 | Data-Oriented AST | `section-01-data-oriented-ast.md` | P1 |
-| 02 | Lexer Optimizations | `section-02-lexer.md` | P1 |
-| 03 | Enhanced Progress System | `section-03-progress.md` | P2 |
-| 04 | Structured Errors | `section-04-errors.md` | P1 |
-| 05 | Incremental Parsing | `section-05-incremental.md` | P2 |
-| 06 | Formatting Metadata | `section-06-metadata.md` | P3 |
+| ID | Title | File | Priority | Status |
+|----|-------|------|----------|--------|
+| 01 | Data-Oriented AST | `section-01-data-oriented-ast.md` | P1 | 🔶 Deferred (already efficient) |
+| 02 | Lexer Optimizations | `section-02-lexer.md` | P1 | ✅ Complete |
+| 03 | Enhanced Progress System | `section-03-progress.md` | P2 | ✅ Complete |
+| 04 | Structured Errors | `section-04-errors.md` | P1 | 🔶 Partial (04.1-04.3 complete) |
+| 05 | Incremental Parsing | `section-05-incremental.md` | P2 | 🔄 Partial (05.2-05.3 complete) |
+| 06 | Formatting Metadata | `section-06-metadata.md` | P3 | Not Started |
 
 ---
 

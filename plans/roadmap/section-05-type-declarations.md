@@ -400,6 +400,6 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 
 - [ ] All items above have all three checkboxes marked `[x]`
 - [ ] 80+% test coverage
-- [ ] Run full test suite: `./test-all`
+- [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: User-defined structs and enums work

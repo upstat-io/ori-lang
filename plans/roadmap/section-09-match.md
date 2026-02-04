@@ -276,6 +276,6 @@ Pattern matrix decomposition algorithm (Maranget's algorithm) for exhaustiveness
 - [ ] Spec updated: `spec/10-patterns.md` reflects implementation
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] 80+% test coverage
-- [ ] Run full test suite: `./test-all`
+- [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: Match expressions work like spec

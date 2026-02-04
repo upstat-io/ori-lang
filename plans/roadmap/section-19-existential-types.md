@@ -350,7 +350,7 @@ error: `impl Trait` is only allowed in return position
 - [ ] Type inference correct
 - [ ] Associated type constraints work
 - [ ] Clear errors for invalid positions
-- [ ] All tests pass: `./test-all`
+- [ ] All tests pass: `./test-all.sh`
 
 **Exit Criteria**: Can write iterator-returning functions with clean APIs
 

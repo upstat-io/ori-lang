@@ -85,7 +85,93 @@ impl TokenSet {
     pub const fn count(&self) -> u32 {
         self.0.count_ones()
     }
+
+    /// Get the raw bits of this set (for iteration).
+    #[inline]
+    pub const fn bits(&self) -> u128 {
+        self.0
+    }
+
+    /// Iterate over the discriminant indices in this set.
+    ///
+    /// Returns an iterator of `u8` discriminant indices. Use
+    /// `TokenKind::from_discriminant_index()` to convert back to token kinds
+    /// for display purposes.
+    pub fn iter_indices(&self) -> TokenSetIterator {
+        TokenSetIterator { bits: self.0 }
+    }
+
+    /// Add a token kind to this set (non-const mutation).
+    #[inline]
+    pub fn insert(&mut self, kind: &TokenKind) {
+        self.0 |= 1u128 << kind.discriminant_index();
+    }
+
+    /// Union with another set (non-const mutation).
+    #[inline]
+    pub fn union_with(&mut self, other: &Self) {
+        self.0 |= other.0;
+    }
+
+    /// Format this token set as a human-readable list for error messages.
+    ///
+    /// Returns a string like "`,`, `)`, or `}`" for multiple tokens,
+    /// or "`(`" for a single token, or "nothing" for empty set.
+    pub fn format_expected(&self) -> String {
+        use ori_ir::TokenKind;
+
+        let names: Vec<&'static str> = self
+            .iter_indices()
+            .filter_map(TokenKind::friendly_name_from_index)
+            .collect();
+
+        match names.as_slice() {
+            [] => "nothing".to_string(),
+            [single] => format!("`{single}`"),
+            [first, second] => format!("`{first}` or `{second}`"),
+            [rest @ .., last] => {
+                let rest_str = rest
+                    .iter()
+                    .map(|n| format!("`{n}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{rest_str}, or `{last}`")
+            }
+        }
+    }
 }
+
+/// Iterator over discriminant indices in a `TokenSet`.
+pub struct TokenSetIterator {
+    bits: u128,
+}
+
+impl Iterator for TokenSetIterator {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.bits == 0 {
+            return None;
+        }
+        // SAFETY: trailing_zeros() on u128 returns 0-127, which fits in u8
+        let idx = self.bits.trailing_zeros();
+        debug_assert!(idx <= 127, "TokenSet index out of u8 range");
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "u128::trailing_zeros() max is 127"
+        )]
+        let idx = idx as u8;
+        self.bits &= self.bits - 1; // Clear the lowest set bit
+        Some(idx)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let count = self.bits.count_ones() as usize;
+        (count, Some(count))
+    }
+}
+
+impl ExactSizeIterator for TokenSetIterator {}
 
 impl Default for TokenSet {
     fn default() -> Self {
@@ -313,5 +399,107 @@ mod tests {
         assert!(TEST_SET.contains(&TokenKind::Plus));
         assert!(TEST_SET.contains(&TokenKind::Minus));
         assert!(!TEST_SET.contains(&TokenKind::Star));
+    }
+
+    #[test]
+    fn test_token_set_iterator() {
+        let set = TokenSet::new()
+            .with(TokenKind::Plus)
+            .with(TokenKind::Minus)
+            .with(TokenKind::Star);
+
+        let indices: Vec<u8> = set.iter_indices().collect();
+        assert_eq!(indices.len(), 3);
+
+        // Verify all expected indices are present
+        assert!(indices.contains(&TokenKind::Plus.discriminant_index()));
+        assert!(indices.contains(&TokenKind::Minus.discriminant_index()));
+        assert!(indices.contains(&TokenKind::Star.discriminant_index()));
+    }
+
+    #[test]
+    fn test_token_set_iterator_empty() {
+        let set = TokenSet::new();
+        let indices: Vec<u8> = set.iter_indices().collect();
+        assert!(indices.is_empty());
+    }
+
+    #[test]
+    fn test_token_set_iterator_exact_size() {
+        let set = TokenSet::new()
+            .with(TokenKind::LParen)
+            .with(TokenKind::RParen)
+            .with(TokenKind::Comma);
+
+        let iter = set.iter_indices();
+        assert_eq!(iter.len(), 3);
+    }
+
+    #[test]
+    fn test_token_set_insert() {
+        let mut set = TokenSet::new();
+        assert!(set.is_empty());
+
+        set.insert(&TokenKind::Plus);
+        assert!(set.contains(&TokenKind::Plus));
+        assert_eq!(set.count(), 1);
+
+        set.insert(&TokenKind::Minus);
+        assert!(set.contains(&TokenKind::Minus));
+        assert_eq!(set.count(), 2);
+
+        // Inserting duplicate doesn't change count
+        set.insert(&TokenKind::Plus);
+        assert_eq!(set.count(), 2);
+    }
+
+    #[test]
+    fn test_token_set_union_with() {
+        let mut set1 = TokenSet::new().with(TokenKind::Plus);
+        let set2 = TokenSet::new().with(TokenKind::Minus).with(TokenKind::Star);
+
+        set1.union_with(&set2);
+        assert_eq!(set1.count(), 3);
+        assert!(set1.contains(&TokenKind::Plus));
+        assert!(set1.contains(&TokenKind::Minus));
+        assert!(set1.contains(&TokenKind::Star));
+    }
+
+    #[test]
+    fn test_format_expected_empty() {
+        let set = TokenSet::new();
+        assert_eq!(set.format_expected(), "nothing");
+    }
+
+    #[test]
+    fn test_format_expected_single() {
+        let set = TokenSet::new().with(TokenKind::LParen);
+        assert_eq!(set.format_expected(), "`(`");
+    }
+
+    #[test]
+    fn test_format_expected_two() {
+        let set = TokenSet::new()
+            .with(TokenKind::LParen)
+            .with(TokenKind::LBracket);
+        // Order depends on discriminant indices
+        let result = set.format_expected();
+        assert!(result.contains("or"));
+        assert!(result.contains("`(`"));
+        assert!(result.contains("`[`"));
+    }
+
+    #[test]
+    fn test_format_expected_multiple() {
+        let set = TokenSet::new()
+            .with(TokenKind::Comma)
+            .with(TokenKind::RParen)
+            .with(TokenKind::RBrace);
+        let result = set.format_expected();
+        // Should have "or" before the last item
+        assert!(result.contains(", or `"));
+        assert!(result.contains("`,`"));
+        assert!(result.contains("`)`"));
+        assert!(result.contains("`}`"));
     }
 }

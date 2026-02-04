@@ -564,6 +564,6 @@ let count = get_count() ?? 0
 - [ ] All spec docs updated
 - [ ] CLAUDE.md updated with syntax changes
 - [ ] Migration tools working
-- [ ] All tests pass: `./test-all`
+- [ ] All tests pass: `./test-all.sh`
 
 **Exit Criteria**: Literal and operator syntax proposals implemented

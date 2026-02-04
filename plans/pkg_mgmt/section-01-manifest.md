@@ -151,6 +151,6 @@ The lock file contains **only checksums** for security verification, not for ver
 - [ ] Validation with helpful errors
 - [ ] Unknown fields warn, don't error
 - [ ] Formatting integration
-- [ ] Run full test suite: `./test-all`
+- [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: Can parse and validate oripk.toml and oripk.lock files

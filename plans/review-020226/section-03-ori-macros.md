@@ -87,8 +87,8 @@ Location: `compiler/oric/src/problem/mod.rs`
 
 ## 03.6 Verification
 
-- [x] `./clippy-all` passes
-- [x] `./test-all` passes (6,367 tests, 0 failures)
+- [x] `./clippy-all.sh` passes
+- [x] `./test-all.sh` passes (6,367 tests, 0 failures)
 - [x] Error output unchanged (same rendering logic)
 - [x] Render trait now thin wrappers delegating to `into_diagnostic()`
 
@@ -122,6 +122,6 @@ Benefits:
 - [x] Rendering logic moved from reporting/ to problem/ files
 - [x] Render impls reduced to one-line delegations
 - [x] Error output unchanged
-- [x] `./test-all` passes
+- [x] `./test-all.sh` passes
 
 **Exit Criteria:** ✅ All Problem types have `into_diagnostic()`, Render delegates to it

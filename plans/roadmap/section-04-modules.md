@@ -492,7 +492,7 @@ Extension methods add methods to existing types without modifying their definiti
 - [x] Re-exports (`pub use`) — parsing complete
 - [x] Qualified access (`module.function()`) — runtime complete, type checker pending
 - [ ] Type definitions parsing (see Section 5)
-- [x] Run full test suite: `./test-all`
+- [x] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: Multi-file projects compile (core support complete)
 **Status**: Section 4 parsing and runtime complete. Type checker support for module namespaces pending.

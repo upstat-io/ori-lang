@@ -366,7 +366,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 - [x] Associated types (3.4): All complete
 - [x] Derive traits (3.5): All 5 derives implemented
 - [x] 148 trait tests pass
-- [x] Run full test suite: `./test-all`
+- [x] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: Trait-based code compiles and runs
 

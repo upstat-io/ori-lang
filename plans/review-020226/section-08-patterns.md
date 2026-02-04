@@ -130,8 +130,8 @@ Well-organized static array. Approaching maintainability threshold.
 
 - [ ] No duplicate code patterns >3 occurrences
 - [ ] Repetitive match arms use helper functions or macros
-- [ ] `./clippy-all` passes
-- [ ] `./test-all` passes
+- [ ] `./clippy-all.sh` passes
+- [ ] `./test-all.sh` passes
 
 ---
 
@@ -144,6 +144,6 @@ Well-organized static array. Approaching maintainability threshold.
 - [x] Spacing rules - ALREADY TABLE-DRIVEN (declarative SpaceRule structs)
 - [x] Declaration collection - ACCEPTABLE (9 small blocks, clear code)
 - [x] Builtin methods - ACCEPTABLE (well-documented static array)
-- [x] `./test-all` passes (verified during Section 07)
+- [x] `./test-all.sh` passes (verified during Section 07)
 
 **Exit Criteria:** ✅ Patterns assessed; current implementations are well-justified and maintainable

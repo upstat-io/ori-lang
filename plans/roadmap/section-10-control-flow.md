@@ -544,6 +544,6 @@ sections:
 - [ ] Spec updated: `spec/09-expressions.md`, `spec/19-control-flow.md` reflect implementation
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] 80+% test coverage
-- [ ] Run full test suite: `./test-all`
+- [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: All control flow constructs work including labeled loops, scoping, and panic handling

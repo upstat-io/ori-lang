@@ -140,8 +140,8 @@ Section 03 (ori_macros) ─┼──→ Section 04 (Memory)
 A section is complete when:
 
 1. **Fixed** — All tasks checked off
-2. **Tested** — `./test-all` passes
-3. **Linted** — `./clippy-all` passes
+2. **Tested** — `./test-all.sh` passes
+3. **Linted** — `./clippy-all.sh` passes
 4. **Verified** — Manual verification of fix effectiveness
 
 ---

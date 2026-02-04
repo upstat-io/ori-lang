@@ -440,6 +440,6 @@ The spec formalizes two distinct pattern categories:
 - [x] All compiler patterns implemented
 - [x] Data transformation patterns moved to stdlib
 - [x] Resilience patterns moved to stdlib
-- [x] Run full test suite: `./test-all`
+- [x] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: All compiler patterns evaluate correctly

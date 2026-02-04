@@ -442,7 +442,7 @@ Validate with:
 2. **Integration tests** comparing JIT vs AOT results
 3. **Run full spec suite** through AOT backend:
    ```bash
-   ./llvm-test --backend=aot tests/spec/
+   ./llvm-test.sh --backend=aot tests/spec/
    ```
 
 Success criteria:

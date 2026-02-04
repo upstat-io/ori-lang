@@ -20,7 +20,7 @@ Then:
 
 1. Create a branch: `git checkout -b my-feature`
 2. Make your changes
-3. Run tests: `./test-all`
+3. Run tests: `./test-all.sh`
 4. Commit using conventional format (see below)
 5. Push: `git push origin my-feature`
 6. Open a Pull Request
@@ -28,10 +28,10 @@ Then:
 ## Development Commands
 
 ```bash
-./test-all      # Run all tests (Rust + Ori + LLVM)
-./build-all     # Build everything
-./clippy-all    # Run lints
-./fmt-all       # Format code
+./test-all.sh      # Run all tests (Rust + Ori + LLVM)
+./build-all.sh     # Build everything
+./clippy-all.sh    # Run lints
+./fmt-all.sh       # Format code
 
 cargo t         # Run Rust tests only
 cargo st        # Run Ori spec tests only
