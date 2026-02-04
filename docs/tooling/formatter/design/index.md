@@ -6,7 +6,7 @@ order: 0
 
 # Overview
 
-This documentation describes the design and implementation of the Ori formatter. The formatter produces canonical source code formatting with zero configuration.
+This documentation describes the design and implementation of the Ori formatter. The formatter produces canonical source code formatting with minimal configuration (only line width is configurable).
 
 ## Reference: Go's gofmt
 
@@ -18,7 +18,7 @@ The Ori formatter follows the philosophy established by Go's `gofmt`:
 
 | Principle | gofmt | Ori |
 |-----------|-------|-----|
-| Configuration | None — deliberately denied | None — zero-config |
+| Configuration | None — deliberately denied | Width only (default 100) |
 | Specification | "Implementation is the spec" | Formatter output is canonical |
 | Determinism | Idempotent, same input → same output | Same guarantee |
 | Debates | Eliminated by design | Eliminated by design |
@@ -32,29 +32,29 @@ The Ori formatter follows the philosophy established by Go's `gofmt`:
 
 ## Design Principles
 
-1. **One format, no options** — The style is whatever the formatter outputs
+1. **Minimal configuration** — Only line width is configurable (default 100)
 2. **Deterministic** — Same input always produces same output
 3. **Idempotent** — `format(format(code)) == format(code)`
 4. **Semantic preservation** — Only whitespace changes, never meaning
-5. **Width-driven breaking** — Lines break only when exceeding 100 characters
+5. **Width-driven breaking** — Lines break when exceeding the configured width
 
 ## Core Rules
 
-| Rule | Value |
-|------|-------|
-| Indentation | 4 spaces, no tabs |
-| Line width | 100 characters hard limit |
-| Trailing commas | Required in multi-line, forbidden in single-line |
-| Blank lines | One between top-level items, no consecutive |
+| Rule | Value | Configurable |
+|------|-------|--------------|
+| Line width | 100 characters (default) | Yes (`--width=N`) |
+| Indentation | 4 spaces, no tabs | No |
+| Trailing commas | Required in multi-line, forbidden in single-line | No |
+| Blank lines | One between top-level items, no consecutive | No |
 
 ## Breaking Philosophy
 
-The formatter follows a simple principle: **inline until 100 characters, then break**.
+The formatter follows a simple principle: **inline until max width, then break**.
 
 There are no arbitrary thresholds like "break if more than 3 parameters." Instead:
 - Measure the line width
-- If it fits in 100 characters, keep it inline
-- If it exceeds 100 characters, break according to construct-specific rules
+- If it fits within the configured width (default 100), keep it inline
+- If it exceeds the width limit, break according to construct-specific rules
 
 Exceptions exist only for constructs that are *always* stacked regardless of width:
 - `run` / `try` — sequential blocks always stack
@@ -64,13 +64,13 @@ Exceptions exist only for constructs that are *always* stacked regardless of wid
 
 ### Algorithm
 
-- [Algorithm Overview](01-algorithm/index.md) — Core formatting algorithm
+- [Algorithm Overview](01-algorithm/) — Core formatting algorithm
 - [Line Breaking](01-algorithm/line-breaking.md) — When and how to break lines
 - [Indentation](01-algorithm/indentation.md) — Indentation rules and nesting
 
 ### Constructs
 
-- [Constructs Overview](02-constructs/index.md) — Per-construct formatting rules
+- [Constructs Overview](02-constructs/) — Per-construct formatting rules
 - [Declarations](02-constructs/declarations.md) — Functions, types, traits, impls
 - [Expressions](02-constructs/expressions.md) — Calls, chains, conditionals, lambdas
 - [Patterns](02-constructs/patterns.md) — run, try, match, recurse, parallel
@@ -78,7 +78,7 @@ Exceptions exist only for constructs that are *always* stacked regardless of wid
 
 ### Layers
 
-- [5-Layer Architecture](03-layers/index.md) — Modular architecture overview
+- [5-Layer Architecture](03-layers/) — Modular architecture overview
 - [Layer 1: Token Spacing](03-layers/01-spacing.md) — O(1) declarative spacing rules
 - [Layer 2: Container Packing](03-layers/02-packing.md) — Inline vs break decisions
 - [Layer 3: Shape Tracking](03-layers/03-shape.md) — Width tracking for fit decisions
@@ -86,12 +86,12 @@ Exceptions exist only for constructs that are *always* stacked regardless of wid
 
 ### Comments
 
-- [Comments](03-comments/index.md) — Comment handling and doc comment ordering
+- [Comments](03-comments/) — Comment handling and doc comment ordering
 
 ### Implementation
 
-- [Implementation Overview](04-implementation/index.md) — Implementation approach
-- [Tooling Integration](04-implementation/index.md#tooling-integration) — Crates, LSP, Playground, editors
+- [Implementation Overview](04-implementation/) — Implementation approach
+- [Tooling Integration](04-implementation/#tooling-integration) — Crates, LSP, Playground, editors
 - [AST Integration](04-implementation/ast-integration.md) — Working with the Ori AST
 
 ### Appendices
@@ -109,7 +109,7 @@ Exceptions exist only for constructs that are *always* stacked regardless of wid
 
 **Editors**: Same `ori_lsp` binary serves VS Code, Neovim, and other LSP-compatible editors.
 
-See [Tooling Integration](04-implementation/index.md#tooling-integration) for architecture details, or the [LSP Design docs](../lsp/design/index.md) for full LSP documentation.
+See [Tooling Integration](04-implementation/#tooling-integration) for architecture details, or the [LSP Design docs](../lsp/design/) for full LSP documentation.
 
 ## Relationship to Spec
 

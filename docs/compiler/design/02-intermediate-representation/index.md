@@ -23,7 +23,15 @@ compiler/ori_ir/src/
 ├── lib.rs              # Module exports, static_assert_size! macro
 ├── ast/                # Expression and statement types
 │   ├── mod.rs              # Module re-exports
-│   ├── expr.rs             # ExprKind variants (47+ variants)
+│   ├── expr.rs             # ExprKind variants (50 variants)
+│   ├── stmt.rs             # Statement types
+│   ├── operators.rs        # Operator enums
+│   ├── ranges.rs           # Range types for arena allocation
+│   ├── collections.rs      # Collection literals
+├── inline_list.rs      # Two-tier ExprList (inline/overflow)
+├── ast/                # Expression and statement types
+│   ├── mod.rs              # Module re-exports
+│   ├── expr.rs             # ExprKind variants
 │   ├── stmt.rs             # Statement types
 │   ├── operators.rs        # Operator enums
 │   ├── ranges.rs           # Range types for arena allocation
@@ -109,7 +117,53 @@ impl ExprArena {
 
 See [Arena Allocation](arena-allocation.md) for details.
 
-### 3. String Interning
+### 3. Two-Tier Expression Lists
+
+Profiling shows that ~77% of function call arguments have 0-2 items. The `ExprList` type optimizes for this by storing small lists inline:
+
+```rust
+/// Two-tier expression list: inline for small counts, overflow to arena for large.
+pub enum ExprList {
+    /// 0-2 items stored directly in the enum.
+    Inline {
+        count: u8,
+        items: [ExprId; 2],  // INLINE_CAPACITY = 2
+    },
+    /// 3+ items stored in arena's expr_lists.
+    Overflow {
+        start: u32,
+        len: u16,
+    },
+}
+```
+
+**Memory layout:** Both variants fit in 12 bytes (vs 8 bytes for the old `ExprRange`), a small increase for significant cache locality benefits.
+
+**Benefits:**
+- Eliminates indirection through `expr_lists` for common cases
+- Improves cache locality (data is adjacent to expression node)
+- Reduces arena allocations
+
+**API:**
+
+```rust
+// Construction
+let list = ExprList::single(expr_id);     // 1 item
+let list = ExprList::pair(id1, id2);      // 2 items
+let list = ExprList::from_items(&ids, |items| {
+    // Allocator closure for overflow case
+    let start = arena.expr_lists.len() as u32;
+    arena.expr_lists.extend(items);
+    (start, items.len() as u16)
+});
+
+// Iteration (requires arena for overflow case)
+for id in list.iter(&arena.expr_lists) {
+    let expr = arena.get_expr(id);
+}
+```
+
+### 4. String Interning
 
 All identifiers are interned to u32 indices:
 
@@ -367,7 +421,7 @@ Current sizes (64-bit):
 | `TokenKind` | 16 bytes | Largest variant payload + discriminant |
 | `Expr` | 88 bytes | ExprKind + Span |
 | `ExprKind` | 80 bytes | Largest variants are FunctionSeq/FunctionExp |
-| `Type` | 32 bytes | Vec<Type> + Box<Type> for Function variant |
+| `Type` | 40 bytes | Vec<Type> + Box<Type> for Function variant |
 | `TypeVar` | 4 bytes | Just a u32 wrapper |
 
 If any of these sizes change, compilation fails with a clear error message, allowing intentional review of the change.

@@ -236,7 +236,8 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
                         bound_checking::primitive_implements_trait(&resolved_provider_ty, cap_name);
 
                     if !implements_builtin {
-                        let provider_ty_str = format!("{resolved_provider_ty:?}");
+                        let provider_ty_str =
+                            resolved_provider_ty.display(checker.context.interner);
                         checker.error_capability_not_implemented(span, provider_ty_str, cap_name);
                     }
                 }

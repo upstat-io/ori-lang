@@ -179,7 +179,7 @@ http.get(url: "/api")  // Qualified access
 
 // Type representation
 Type::ModuleNamespace {
-    items: vec![
+    items: vec![  // Sorted by Name (invariant for O(log n) lookup)
         (intern("get"), Type::Function { params: vec![Type::String], ret: ... }),
         (intern("post"), Type::Function { params: vec![Type::String, ...], ret: ... }),
         // ... other exports
@@ -187,7 +187,20 @@ Type::ModuleNamespace {
 }
 ```
 
-When field access occurs on a `ModuleNamespace` type, the type checker looks up the field name in the `items` vector and returns the corresponding function type.
+When field access occurs on a `ModuleNamespace` type, the type checker uses binary search to look up the field name:
+
+```rust
+pub fn get_namespace_item(&self, name: Name) -> Option<&Type> {
+    match self {
+        Type::ModuleNamespace { items } => items
+            .binary_search_by_key(&name, |(n, _)| *n)
+            .ok()
+            .map(|idx| &items[idx].1),
+    }
+}
+```
+
+The items vector is maintained in sorted order (invariant enforced during construction) for O(log n) lookup performance.
 
 ### TypeChecker
 
@@ -628,6 +641,60 @@ impl BuiltinMethodRegistry {
 This design replaces nested match statements with focused, single-responsibility handlers.
 
 A `TYPECK_BUILTIN_METHODS` constant in `builtin_methods/mod.rs` exports a sorted list of all `(type_name, method_name)` pairs. A cross-crate consistency test in `oric` verifies that the evaluator's `EVAL_BUILTIN_METHODS` is a subset of this list, catching drift between the two crates.
+
+## Method Resolution Chain
+
+Method resolution uses a three-level dispatch pattern:
+
+1. **User-Defined Methods** - Inherent impls first, then trait impls
+2. **Built-in Methods** - Type-specific handlers via ZST pattern
+3. **Default Methods** - From trait definitions
+
+### Method Cache
+
+The `TraitRegistry` caches method lookups for O(1) repeated access:
+
+```rust
+method_cache: RefCell<FxHashMap<(TypeId, Name), Option<Arc<MethodLookup>>>>
+```
+
+The cache key uses `TypeId` (not `Type`) to avoid cloning, and results are wrapped in `Arc<MethodLookup>` to avoid cloning on cache hit. The cache is cleared when `register_trait()` or `register_impl()` is called.
+
+## Hindley-Milner Inference
+
+The type system uses immediate unification rather than constraint collection:
+
+1. **Constraint generation and unification happen together** - No separate phases
+2. **Substitutions available immediately** - Subsequent inference sees resolved types
+3. **Error at point of occurrence** - Easier to debug than deferred errors
+
+### Generalization
+
+```rust
+pub fn generalize(&self, ty: &Type, env_free_vars: &[TypeVar]) -> TypeScheme {
+    // Gen(Γ, τ) = ∀(FV(τ) - FV(Γ)). τ
+    let free = self.free_vars(ty);
+    let quantified = free.iter()
+        .filter(|v| !env_free_vars.contains(v))
+        .cloned()
+        .collect();
+    TypeScheme { quantified, ty: ty.clone() }
+}
+```
+
+### Generic Type Handling
+
+For each generic parameter, the type checker creates fresh type variables:
+
+```rust
+let mut generic_type_vars: FxHashMap<Name, Type> = FxHashMap::default();
+for gp in generic_params {
+    let type_var = self.inference.ctx.fresh_var();
+    generic_type_vars.insert(gp.name, type_var);
+}
+```
+
+Generic bounds are tracked separately for constraint checking at call sites.
 
 ## Related Documents
 

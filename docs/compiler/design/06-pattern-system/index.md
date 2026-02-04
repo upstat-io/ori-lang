@@ -245,6 +245,49 @@ fn get_variant_field_types(
 
 This returns a `Vec<Type>` matching the variant's fields, enabling correct unification of each inner pattern with its corresponding field type.
 
+## Pattern Matching Algorithm
+
+### Type Checking Flow
+
+1. **Infer scrutinee type** via `infer_expr(checker, scrutinee)`
+2. **For each arm:**
+   - Unify pattern with scrutinee type via `unify_pattern_with_scrutinee()`
+   - Extract bindings via `extract_match_pattern_bindings()` returning `Vec<(Name, Type)>`
+   - Type-check guard expression (must be `bool`)
+   - Unify arm body type with result type
+3. **Result type:** Common type from all arm bodies
+
+### Binding Extraction
+
+The `extract_match_pattern_bindings()` function recursively extracts variable bindings:
+
+| Pattern | Bindings |
+|---------|----------|
+| `Wildcard`, `Literal`, `Range` | None |
+| `Binding(name)` | `[(name, scrutinee_ty)]` |
+| `Variant`, `Struct`, `Tuple`, `List` | Recursive from nested patterns |
+| `Or` | From first alternative (all alternatives must have same bindings) |
+| `At { name, pattern }` | Both outer name and inner pattern bindings |
+
+### Runtime Matching
+
+`try_match()` returns `Ok(Some(bindings))` on match, `Ok(None)` on no-match:
+
+```rust
+pub fn try_match(
+    pattern: &MatchPattern,
+    value: &Value,
+    arena: &ExprArena,
+    interner: &StringInterner,
+) -> Result<Option<Vec<(Name, Value)>>, EvalError>
+```
+
+### Guard Expressions
+
+Guards (`.match(expr)`) are evaluated after pattern match succeeds but before the arm body. If the guard returns false, matching continues to the next arm.
+
+**Exhaustiveness:** Guards are NOT considered for exhaustiveness checking—the compiler cannot statically verify guard conditions.
+
 ## Related Documents
 
 - [Pattern Trait](pattern-trait.md) - PatternDefinition interface

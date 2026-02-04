@@ -537,7 +537,8 @@ Benefits:
 ## Arena Threading Pattern
 
 When evaluating functions or methods from different modules, the interpreter must
-use the correct arena for expression lookups. The `create_function_interpreter`
+use the correct arena for expression lookups. Each `FunctionValue` carries its own
+`SharedArena` (the arena from the module where it was defined). The `create_function_interpreter`
 helper ensures this:
 
 ```rust
@@ -566,6 +567,27 @@ where
 This pattern appears in `ori_eval/src/interpreter/`:
 - `function_call.rs` - calling user functions
 - `method_dispatch.rs` - calling user methods
+
+### Why Arena Threading Matters
+
+Consider a scenario where module A imports a function from module B:
+
+```
+Module A (arena_a)          Module B (arena_b)
+┌──────────────────┐        ┌──────────────────┐
+│ @main () = run(  │        │ @helper (x: int) │
+│   helper(42),    │ ──────►│   = x * 2        │
+│ )                │        │                  │
+└──────────────────┘        └──────────────────┘
+```
+
+When `main` calls `helper`, the interpreter must switch from `arena_a` to `arena_b`
+to look up the expression `x * 2`. The `FunctionValue` stores a `SharedArena`
+reference to `arena_b`, and `create_function_interpreter` creates a child interpreter
+using that arena.
+
+**Key invariant**: An `ExprId` is only valid within its originating arena. Mixing
+arenas causes undefined behavior (wrong expression lookups)
 
 ## Module Registration (Salsa-Free)
 

@@ -122,7 +122,8 @@ impl PatternDefinition for ParallelPattern {
         if has_callable && task_list.len() >= 2 {
             execute_parallel(&task_list, max_concurrent, timeout_ms)
         } else {
-            // Single task or non-callable - execute sequentially
+            // Single task or non-callable - execute sequentially.
+            // Note: clone() is cheap here - Value uses Arc for heap types (O(1) ref count).
             let results: Vec<Value> = task_list.iter().map(|t| execute_task(t.clone())).collect();
             Ok(Value::list(results))
         }
@@ -206,6 +207,7 @@ fn execute_parallel(
 
         thread::scope(|s| {
             for (i, task) in task_list.iter().enumerate() {
+                // Clone task for thread ownership. Cheap: Value uses Arc for heap types.
                 let task = task.clone();
                 let results = Arc::clone(&results_clone);
                 let tx = tx.clone();
@@ -270,6 +272,7 @@ fn execute_parallel(
         // No timeout - execute all tasks
         thread::scope(|s| {
             for (i, task) in task_list.iter().enumerate() {
+                // Clone task for thread ownership. Cheap: Value uses Arc for heap types.
                 let task = task.clone();
                 let results = Arc::clone(&results);
                 let sem = semaphore.clone();

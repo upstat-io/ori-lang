@@ -74,6 +74,7 @@ pub fn infer_list_with_spread(checker: &mut TypeChecker<'_>, elements: ListEleme
 fn extract_list_element_type(checker: &mut TypeChecker<'_>, ty: &Type, span: Span) -> Type {
     let resolved = checker.inference.ctx.resolve(ty);
     match &resolved {
+        // Clone needed to extract owned Type from Box. Acceptable in type inference.
         Type::List(elem) => (**elem).clone(),
         Type::Error => Type::Error,
         _ => {
@@ -192,6 +193,7 @@ pub fn infer_map_with_spread(
 fn extract_map_kv_types(checker: &mut TypeChecker<'_>, ty: &Type, span: Span) -> (Type, Type) {
     let resolved = checker.inference.ctx.resolve(ty);
     match &resolved {
+        // Clone needed to extract owned Types from Box. Acceptable in type inference.
         Type::Map { key, value } => ((**key).clone(), (**value).clone()),
         Type::Error => (Type::Error, Type::Error),
         _ => {

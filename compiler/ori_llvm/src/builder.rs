@@ -36,7 +36,7 @@ use inkwell::values::{
 };
 use inkwell::IntPredicate;
 use rustc_hash::FxHashMap;
-use tracing::instrument;
+use tracing::{instrument, warn};
 
 use ori_ir::ast::patterns::BindingPattern;
 use ori_ir::ast::{BinaryOp, ExprKind};
@@ -957,8 +957,13 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             // Struct literal with spread (not yet implemented in LLVM backend)
             ExprKind::StructWithSpread { .. } => {
                 // TODO: Implement spread syntax in LLVM backend
-                // For now, this should be caught earlier in the pipeline
-                unimplemented!("StructWithSpread not yet supported in LLVM backend")
+                // For now, emit a warning and return None to indicate compilation failure
+                warn!(
+                    expr_id = ?id,
+                    "StructWithSpread not yet supported in LLVM backend; \
+                     compilation will fail gracefully"
+                );
+                None
             }
 
             // Field access
@@ -1155,14 +1160,24 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             // List with spread: [...a, b, ...c]
             ExprKind::ListWithSpread(_elements) => {
                 // TODO: Implement spread syntax for lists
-                // For now, return None to indicate unimplemented
+                // Emit warning so developers can trace why compilation failed
+                warn!(
+                    expr_id = ?id,
+                    "ListWithSpread not yet supported in LLVM backend; \
+                     compilation will fail gracefully"
+                );
                 None
             }
 
             // Map with spread: {...a, k: v, ...b}
             ExprKind::MapWithSpread(_elements) => {
                 // TODO: Implement spread syntax for maps
-                // For now, return None to indicate unimplemented
+                // Emit warning so developers can trace why compilation failed
+                warn!(
+                    expr_id = ?id,
+                    "MapWithSpread not yet supported in LLVM backend; \
+                     compilation will fail gracefully"
+                );
                 None
             }
         }

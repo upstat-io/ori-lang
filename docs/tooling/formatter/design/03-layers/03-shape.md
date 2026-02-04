@@ -86,6 +86,26 @@ let shape = Shape::new(100);   // indent=0, width=100
 let indented = shape.indent(4); // indent=4, width=96
 ```
 
+### dedent(n)
+
+Remove indentation (reverse of `indent`):
+
+```rust
+pub fn dedent(self, spaces: usize) -> Self {
+    Shape {
+        indent: self.indent.saturating_sub(spaces),
+        width: self.width + spaces,
+        ..self
+    }
+}
+```
+
+Example:
+```rust
+let shape = Shape::new(100).indent(8); // indent=8, width=92
+let back = shape.dedent(4);            // indent=4, width=96
+```
+
 ### next_line(max_width)
 
 Reset to start of next line:

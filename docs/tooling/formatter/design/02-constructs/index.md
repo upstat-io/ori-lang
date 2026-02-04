@@ -7,7 +7,7 @@ section: "Constructs"
 
 # Constructs Overview
 
-This section documents the formatting rules for each Ori language construct. All rules follow the core principle: **inline if ≤100 characters, break otherwise**.
+This section documents the formatting rules for each Ori language construct. All rules follow the core principle: **inline if within configured width (default 100), break otherwise**.
 
 ## Construct Categories
 
@@ -75,7 +75,7 @@ For any construct, the formatter follows this decision process:
 
 2. Calculate inline width of the construct
 
-3. Does current_column + inline_width <= 100?
+3. Does current_column + inline_width <= max_width?
    YES → Use inline format
    NO  → Use broken format
 

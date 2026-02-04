@@ -554,37 +554,37 @@ use std.console { StreamWriter }
 
 ## Implementation Phases
 
-### Phase 1: Basic I/O (Weeks 1-2)
+### Phase 1: Basic I/O
 - [ ] Console capability trait
 - [ ] Unix driver (termios)
 - [ ] Basic write/flush
 - [ ] Terminal size detection
 - [ ] Raw mode enter/exit
 
-### Phase 2: Styled Output (Weeks 3-4)
+### Phase 2: Styled Output
 - [ ] Style and Color types
 - [ ] ANSI escape sequence generation
 - [ ] Color degradation (TrueColor → 256 → 16)
 - [ ] Capability detection (color depth)
 
-### Phase 3: Input Handling (Weeks 5-6)
+### Phase 3: Input Handling
 - [ ] Event type
 - [ ] Key parsing (including escape sequences)
 - [ ] Mouse support
 - [ ] Resize events
 
-### Phase 4: Unicode (Weeks 7-8)
+### Phase 4: Unicode
 - [ ] Grapheme iteration
 - [ ] Display width calculation
 - [ ] Width-aware truncation
 
-### Phase 5: Advanced Features (Weeks 9-10)
+### Phase 5: Advanced Features
 - [ ] Atomic output
 - [ ] Synchronized output (DEC 2026)
 - [ ] Line caching
 - [ ] Cursor management
 
-### Phase 6: Testing & Polish (Weeks 11-12)
+### Phase 6: Testing & Polish
 - [ ] Headless driver
 - [ ] Snapshot testing
 - [ ] Windows driver

@@ -37,8 +37,9 @@ The formatter conceptually operates in two phases, though implemented with lazy 
 Calculate the inline width of each node without producing output. Widths are computed on-demand and cached:
 
 ```
-width(BinaryExpr(left, op, right)) = width(left) + width(op) + width(right) + 4
-                                     // +4 for spaces around operator
+width(BinaryExpr(left, op, right)) = width(left) + op_width + width(right)
+                                     // op_width includes spaces: 3-5 chars
+                                     // e.g., " + " = 3, " && " = 4, " div " = 5
 ```
 
 The `WidthCalculator` uses an `FxHashMap` cache to avoid recomputing widths for shared subexpressions.
@@ -107,7 +108,7 @@ let result = process(
 | Identifier | `name.len()` |
 | Integer literal | `text.len()` |
 | String literal | `text.len() + 2` (quotes) |
-| Binary expr | `left + 3 + right` (space-op-space) |
+| Binary expr | `left + op_width + right` (3-5 chars per op) |
 | Function call | `name + 1 + args_width + separators + 1` |
 | Named argument | `name + 2 + value` (`: `) |
 | Struct literal | `name + 3 + fields_width + separators + 2` (` { ` + ` }`) |

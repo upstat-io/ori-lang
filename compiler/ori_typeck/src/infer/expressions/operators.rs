@@ -108,7 +108,7 @@ fn check_binary_op(
     // No trait impl found
     let left_type = resolved_left.display(checker.context.interner);
     let right_type = resolved_right.display(checker.context.interner);
-    checker.error_invalid_binary_op(span, format!("{op:?}"), left_type, right_type);
+    checker.error_invalid_binary_op(span, op.as_symbol().to_string(), left_type, right_type);
     Type::Error
 }
 

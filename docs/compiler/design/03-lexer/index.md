@@ -271,6 +271,50 @@ The lexer does not attempt error recovery. Invalid characters become `Error` tok
 
 Error handling is deferred to the parser, which can provide better diagnostics with context.
 
+### Special Error Tokens
+
+Two specific error types catch semantic validation at lex time:
+
+```rust
+FloatDurationError  // e.g., 1.5s (float + duration suffix not allowed)
+FloatSizeError      // e.g., 2.5kb (float + size suffix not allowed)
+```
+
+These high-priority regexes prevent ambiguous tokenization:
+
+```rust
+#[regex(r"[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9]+)?ns", priority = 2)]
+FloatDurationNs,  // Error: floats can't have duration suffix
+```
+
+## Token Statistics
+
+| Aspect | Details |
+|--------|---------|
+| Total token kinds | 116 variants |
+| Token size | 24 bytes (TokenKind 16 + Span 8) |
+| Escape sequences | 7 (`\n`, `\r`, `\t`, `\\`, `\"`, `\'`, `\0`) |
+| Duration units | 6 (ns, us, ms, s, m, h) |
+| Size units | 5 (b, kb, mb, gb, tb) |
+| Integer formats | 3 (decimal, hex `0x`, binary `0b`) |
+
+## Greater-Than Token Handling
+
+The lexer produces individual `>` tokens to enable nested generic parsing:
+
+```ori
+type Nested = Result<Result<int, str>, str>
+//                                    ^^--- Must be TWO separate > tokens
+```
+
+| Operator | Lexer Output | Parser Handling |
+|----------|--------------|-----------------|
+| `>` | Single `Gt` token | Used as-is |
+| `>>` | Two adjacent `Gt` tokens | Parser synthesizes in expression context |
+| `>=` | `Gt` + `Eq` tokens | Parser synthesizes in expression context |
+
+The parser checks token adjacency (span endpoints touch) to combine tokens when needed.
+
 ## Performance
 
 Using logos provides:

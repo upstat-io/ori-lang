@@ -171,6 +171,84 @@ Results: 40 passed, 1 failed, 1 skipped
 Coverage: 95% of functions tested
 ```
 
+## Test Runner Architecture
+
+### Shared Interner Pattern
+
+All test files share one `SharedInterner` (Arc-wrapped) so `Name` values are comparable across files:
+
+```rust
+let interner = SharedInterner::new();  // Arc-wrapped
+
+for file in files {
+    let db = CompilerDb::with_interner(interner.clone());
+    let parsed = parsed(&db, file);
+    // All Name values now comparable across files
+}
+```
+
+### Backend Support
+
+| Backend | Description | Parallelization |
+|---------|-------------|-----------------|
+| Interpreter | Tree-walking evaluator | Parallel (rayon scoped thread pool) |
+| LLVM | JIT compilation | Sequential (global lock contention) |
+
+### LLVM "Compile Once, Run Many"
+
+For LLVM tests, a single compilation pass generates all test wrappers:
+
+```rust
+let compiled = evaluator.compile_module_with_tests(tests);  // ONE pass
+
+for test in tests {
+    compiled.run_test(test.name);  // N calls, NO recompilation
+}
+```
+
+This provides O(N + M) performance vs O(N × M) where N=functions, M=tests.
+
+### Test Execution Flow
+
+```
+discover_tests_in(path)
+  → for each file:
+    → parse (→ ParseOutput)
+    → separate compile_fail vs regular tests
+    → type_check_with_imports_source_and_interner
+    → run_compile_fail_tests (error matching only, no eval)
+    → run_regular_tests (interpreter or LLVM)
+    → apply_fail_wrapper for tests with #[fail]
+```
+
+### Error Matching Algorithm
+
+For `compile_fail` tests, errors are matched using multi-criteria matching:
+
+1. For each expectation, find first unmatched error satisfying all criteria
+2. Greedy 1:1 matching (one error satisfies one expectation)
+3. Report unmatched expectations and unmatched errors
+
+**Span Isolation:** For multiple compile_fail tests in the same file, errors are first filtered to those within the test's span, falling back to all module errors if none found.
+
+## Phase Tests vs Spec Tests
+
+| Scenario | Location |
+|----------|----------|
+| Internal compiler behavior | `tests/phases/` |
+| Inline unit test < 200 lines | `compiler/<crate>/src/` |
+| Needs multiple compiler internals | `tests/phases/` |
+| User-facing language feature | `tests/spec/` |
+| Backend-independent behavior | `tests/spec/` |
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All tests passed |
+| 1 | Test failures exist |
+| 2 | No tests found |
+
 ## Related Documents
 
 - [Test Discovery](test-discovery.md) - Finding tests
