@@ -1,7 +1,7 @@
 ---
 section: 0
 title: Full Parser Support
-status: in_progress
+status: in-progress
 tier: 0
 goal: Complete parser support for entire Ori spec grammar (parsing only, not evaluation)
 spec:
@@ -39,10 +39,10 @@ sections:
     status: complete
   - id: "0.8"
     title: Section Completion Checklist
-    status: in_progress
+    status: in-progress
   - id: "0.9"
     title: Parser Bugs (from Comprehensive Tests)
-    status: in_progress
+    status: in-progress
 ---
 
 # Section 0: Full Parser Support
@@ -51,7 +51,7 @@ sections:
 
 > **SPEC**: `spec/grammar.ebnf` (authoritative), `spec/02-source-code.md`, `spec/03-lexical-elements.md`
 
-**Status**: ⚠️ In Progress — Only 2 parser bugs remain: associated type constraints (`==` in where clause) and const functions. Most syntax parses; remaining issues are evaluator/type checker gaps tracked in Section 23.
+**Status**: In Progress — Only 2 parser bugs remain: associated type constraints (`==` in where clause) and const functions. Most syntax parses; remaining issues are evaluator/type checker gaps tracked in Section 23.
 
 ---
 
@@ -1002,7 +1002,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.8 Section Completion Checklist
 
-> **STATUS**: NEARLY COMPLETE — 1983 passing, 0 failing, 31 skipped (2026-02-04)
+> **STATUS**: NEARLY COMPLETE — 1983 passing, 0 failing, 31 skipped
 
 - [x] All lexical grammar items audited and tested (0.1)
 - [x] All source structure items audited and tested (0.2)
@@ -1023,7 +1023,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.9 Parser Bugs (from Comprehensive Tests)
 
-> **STATUS**: 16/18 parser bugs fixed (2026-02-04). Only 2 remain: associated type constraints and const functions.
+> **STATUS**: 16/18 parser bugs fixed. Only 2 remain: associated type constraints and const functions.
 
 > **POLICY**: Skipping tests is NOT acceptable. Every test must pass. If a feature is tested, it must work. Fix the code, not the tests.
 
@@ -1060,17 +1060,17 @@ These features fail at the parse phase — the parser does not recognize the syn
   - [x] **Syntax**: `sum(...list)` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/expressions/function_calls.ori` — type checker support needed
 
-- [x] **Implement**: `#repr` attribute ✅ (2026-02-04)
+- [x] **Implement**: `#repr` attribute
   - [x] **Parser**: Register `repr` as known attribute
   - [x] **Syntax**: `#repr("c")` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori` — semantic validation needed
 
-- [x] **Implement**: `#target` attribute ✅ (2026-02-04)
+- [x] **Implement**: `#target` attribute
   - [x] **Parser**: Register `target` as known attribute
   - [x] **Syntax**: `#target(os: "linux")` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori` — semantic validation needed
 
-- [x] **Implement**: `#cfg` attribute ✅ (2026-02-04)
+- [x] **Implement**: `#cfg` attribute
   - [x] **Parser**: Register `cfg` as known attribute
   - [x] **Syntax**: `#cfg(debug)` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori` — semantic validation needed
@@ -1080,12 +1080,12 @@ These features fail at the parse phase — the parser does not recognize the syn
   - [ ] **Syntax**: `where I.Item == int` — Parser expects `:`, finds `==`
   - [ ] **Ori Tests**: `tests/spec/declarations/where_clause.ori`
 
-- [x] **Implement**: `timeout` as identifier ✅ (2026-02-04)
+- [x] **Implement**: `timeout` as identifier
   - [x] **Parser**: Allow `timeout` in non-pattern contexts
   - [x] **Syntax**: `let timeout = 5` — Now works (context-sensitive keyword)
   - [x] **Ori Tests**: Verified working in local tests
 
-- [x] **Implement**: Computed constants ✅ (2026-02-04)
+- [x] **Implement**: Computed constants
   - [x] **Parser**: Allow expressions in module-level constant definitions
   - [x] **Syntax**: `let $X = 2 + 3` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/constants.ori` — evaluator support needed
@@ -1097,44 +1097,44 @@ These features fail at the parse phase — the parser does not recognize the syn
 
 ### 0.9.2 Additional Parser Bugs (discovered during testing)
 
-- [x] **Implement**: Fixed-capacity list type syntax `[T, max N]` ✅ (2026-02-03)
+- [x] **Implement**: Fixed-capacity list type syntax `[T, max N]`
   - [x] **Parser**: Handle comma in type annotation for fixed-capacity lists
   - [x] **Syntax**: `let buffer: [int, max 10] = []` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/types/fixed_list_types.ori` — type checker support needed
 
-- [x] **Implement**: Wildcard pattern in for loops `for _ in range` ✅ (2026-02-03)
+- [x] **Implement**: Wildcard pattern in for loops `for _ in range`
   - [x] **Parser**: Accept `_` as binding pattern in for loops
   - [x] **Syntax**: `for _ in 0..n do ...` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/patterns/for.ori`
 
-- [x] **Implement**: `as` and `as?` type conversion operators ✅ (2026-02-03)
+- [x] **Implement**: `as` and `as?` type conversion operators
   - [x] **Parser**: Handle `as` and `as?` as postfix operators
   - [x] **Syntax**: `42 as float`, `"42" as? int` — Now parses correctly
   - [x] **Syntax**: Negative literals: `-100 as float` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/expressions/type_conversion.ori`
 
-- [x] **Implement**: Context-sensitive pattern keywords ✅ (2026-02-03)
+- [x] **Implement**: Context-sensitive pattern keywords
   - [x] **Parser**: Allow `timeout`, `parallel`, `cache`, `spawn`, `recurse` as identifiers
   - [x] **Syntax**: `let timeout = 5`, `fn(timeout: int)` — Now parses correctly
   - [x] **Rule**: Keywords only when followed by `(`, otherwise identifiers
   - [ ] **Ori Tests**: Various tests using pattern keywords as variable names
 
-- [x] **Implement**: List spread syntax `[...a, x, ...b]` ✅ (2026-02-04)
+- [x] **Implement**: List spread syntax `[...a, x, ...b]`
   - [x] **Parser**: Handle `...` spread in list literals
   - [x] **Syntax**: `[...result, i]` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/types/list_types.ori` — evaluator support needed
 
-- [x] **Implement**: Map spread syntax `{...base, key: value}` ✅ (2026-02-04)
+- [x] **Implement**: Map spread syntax `{...base, key: value}`
   - [x] **Parser**: Handle `...` spread in map literals
   - [x] **Syntax**: `{...base, "c": 3}` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/types/map_types.ori` — evaluator support needed
 
-- [x] **Implement**: Tuple destructuring in for loops `for (k, v) in map` ✅ (2026-02-04)
+- [x] **Implement**: Tuple destructuring in for loops `for (k, v) in map`
   - [x] **Parser**: Distinguish tuple pattern from for(...) pattern syntax
   - [x] **Syntax**: `for (k, v) in m do ...` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/types/map_types.ori` — evaluator support needed
 
-- [x] **Implement**: Multiple derives in single attribute `#derive(Eq, Clone, Debug)` ✅ (2026-02-04)
+- [x] **Implement**: Multiple derives in single attribute `#derive(Eq, Clone, Debug)`
   - [x] **Parser**: Handle comma-separated derives correctly
   - [x] **Syntax**: `#derive(Eq, Clone, Debug)` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/types/trait_objects.ori` — semantic support needed
@@ -1145,9 +1145,9 @@ These features fail at the parse phase — the parser does not recognize the syn
 
 ---
 
-## Completion Summary (2026-02-04)
+## Completion Summary
 
-**Parser Fixes Made (2026-02-03):**
+**Parser Fixes Made:**
 1. Added `div` operator to `match_multiplicative_op()` in `operators.rs`
 2. Added `$` prefix support for immutable bindings in `let` expressions (maintained `mut` backward compat)
 
@@ -1160,28 +1160,28 @@ These features fail at the parse phase — the parser does not recognize the syn
 - `tests/spec/patterns/`: 1 file (syntax)
 - `tests/spec/const_expr/`: 1 file (syntax)
 
-**Roadmap Verification Audit (2026-02-04):**
+**Roadmap Verification Audit:**
 Many items marked `[ ]` were found to actually work. Updated status for:
-- `#repr`, `#target`, `#cfg` attributes: ✅ Parse correctly
-- `timeout` as identifier: ✅ Works (context-sensitive keyword)
-- Computed constants `let $X = 2 + 3`: ✅ Parses correctly
-- List spread `[...a, ...b]`: ✅ Parses correctly
-- Map spread `{...base, key: val}`: ✅ Parses correctly
-- Tuple destructure in for `for (k, v) in m`: ✅ Parses correctly
-- Multiple derives `#derive(Eq, Clone)`: ✅ Parses correctly
+- `#repr`, `#target`, `#cfg` attributes: Parse correctly
+- `timeout` as identifier: Works (context-sensitive keyword)
+- Computed constants `let $X = 2 + 3`: Parses correctly
+- List spread `[...a, ...b]`: Parses correctly
+- Map spread `{...base, key: val}`: Parses correctly
+- Tuple destructure in for `for (k, v) in m`: Parses correctly
+- Multiple derives `#derive(Eq, Clone)`: Parses correctly
 
 **Remaining Parser Bugs (verified 2026-02-04):**
-- Associated type constraints `where I.Item == int`: ❌ Still fails (expects `:`, finds `==`)
-- Const functions `$name (params) = expr`: ❌ Not implemented
+- Associated type constraints `where I.Item == int`: Still fails (expects `:`, finds `==`)
+- Const functions `$name (params) = expr`: Not implemented
 
 **Known Limitations (Parser works, but semantics incomplete — tracked in Section 23):**
 - `??` operator: Parses but evaluator support incomplete — **Tracked**: Section 23.1.1
 - Primitive trait methods: Parse but evaluator doesn't resolve — **Tracked**: Section 23.2
 - Map indexing semantics: Parses but returns wrong type — **Tracked**: Section 23.3.1
-- Size literals: ✅ Fixed — uses SI units (1000) per approved proposal
-- Pattern matching in function params: ✅ Implemented (2026-02-03)
-- Default parameter values: ✅ Implemented (2026-02-03)
-- Struct spread syntax `...`: ✅ Implemented (2026-02-03)
+- Size literals: Fixed — uses SI units (1000) per approved proposal
+- Pattern matching in function params: Implemented
+- Default parameter values: Implemented
+- Struct spread syntax `...`: Implemented
 
 ---
 
@@ -1199,7 +1199,7 @@ Many items marked `[ ]` were found to actually work. Updated status for:
 
 The following grammar inconsistencies were identified during the audit and require resolution:
 
-### 1. Extension Generics (grammar.ebnf § extension_def) — ✅ RESOLVED
+### 1. Extension Generics (grammar.ebnf § extension_def) — RESOLVED
 
 **Resolution:** Updated grammar.ebnf to support generics and any type in extensions:
 ```ebnf
@@ -1213,7 +1213,7 @@ extend [T] where T: Clone { ... }       // List type with where clause
 extend Iterator where Self.Item: Add { ... }
 ```
 
-### 2. Bounded Trait Objects (grammar.ebnf § type) — ✅ RESOLVED
+### 2. Bounded Trait Objects (grammar.ebnf § type) — RESOLVED
 
 **Resolution:** Added `trait_object_bounds` production to grammar.ebnf:
 ```ebnf
@@ -1227,4 +1227,4 @@ trait_object_bounds = type_path "+" type_path { "+" type_path } .
 
 ---
 
-**Resolution Status:** ✅ All grammar inconsistencies resolved (2026-02-02).
+**Resolution Status:** All grammar inconsistencies resolved.

@@ -529,7 +529,7 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for hash length in index (placeholder exists, needs real impl)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — hash length codegen
 
-**Implementation Notes (2026-01-28):**
+**Implementation Notes:**
 - Added `IN_INDEX` context flag to `ParseContext`
 - Parser recognizes `#` (TokenKind::Hash) as `ExprKind::HashLength` only inside index brackets
 - Type checker and evaluator already had full support for `HashLength`

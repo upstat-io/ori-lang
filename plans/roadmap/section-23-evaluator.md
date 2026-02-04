@@ -1,7 +1,7 @@
 ---
 section: 23
 title: Full Evaluator Support
-status: in_progress
+status: in-progress
 tier: 0
 goal: Complete evaluator support for entire Ori spec semantics
 spec:
@@ -20,22 +20,22 @@ sections:
     status: complete
   - id: "23.3"
     title: Type Coercion and Indexing
-    status: in_progress
+    status: in-progress
   - id: "23.4"
     title: Control Flow
-    status: in_progress
+    status: in-progress
   - id: "23.5"
     title: Derived Traits
     status: complete
   - id: "23.6"
     title: Stdlib Types and Methods
-    status: not_started
+    status: not-started
   - id: "23.8"
     title: Parser Feature Support (Type Checker/Evaluator)
-    status: not_started
+    status: not-started
   - id: "23.7"
     title: Section Completion Checklist
-    status: in_progress
+    status: in-progress
 ---
 
 # Section 23: Full Evaluator Support
@@ -83,14 +83,14 @@ This section ensures the evaluator (interpreter) correctly implements all Ori la
 
 ### 23.1.2 Comparison Operators for Option/Result
 
-- [x] **Implement**: `<`, `<=`, `>`, `>=` for Option types ✅ (2026-02-04)
+- [x] **Implement**: `<`, `<=`, `>`, `>=` for Option types
   - [x] **Spec**: `None < Some(x)` for all x — Works correctly
   - [x] **Verified**: `let a: Option<int> = None; let b = Some(1); assert(eq: a < b)` passes
   - [x] **Ori Tests**: `tests/spec/expressions/operators_comparison.ori`
 
 ### 23.1.3 Struct Equality with `#derive(Eq)`
 
-- [x] **Fix**: Equality operators for derived structs ✅ (2026-02-04)
+- [x] **Fix**: Equality operators for derived structs
   - [x] **Verified**: `#derive(Eq) type Point = { x: int, y: int }` with `p1 == p2` works
   - [x] **Ori Tests**: `tests/spec/expressions/operators_comparison.ori`
 
@@ -106,13 +106,13 @@ This section ensures the evaluator (interpreter) correctly implements all Ori la
 ## 23.2 Primitive Trait Methods
 
 > **SPEC**: `spec/11-traits.md` § Built-in Traits
-> **STATUS**: ✅ ALL IMPLEMENTED (verified 2026-02-04)
+> **STATUS**: ALL IMPLEMENTED (verified 2026-02-04)
 
 Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ### 23.2.1 Printable Trait (`.to_str()`)
 
-- [x] **Implement**: `.to_str()` on primitive types ✅ (2026-02-04)
+- [x] **Implement**: `.to_str()` on primitive types
   - [x] `int.to_str()` — Works: `42.to_str() == "42"`
   - [x] `str.to_str()` — Works
   - [x] `bool.to_str()` — Works: `true.to_str() == "true"`
@@ -121,7 +121,7 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ### 23.2.2 Clone Trait (`.clone()`)
 
-- [x] **Implement**: `.clone()` on primitive types ✅ (2026-02-04)
+- [x] **Implement**: `.clone()` on primitive types
   - [x] `int.clone()` — Works: `let y = x.clone()`
   - [x] `str.clone()` — Works
   - [x] All primitives are cloneable
@@ -129,7 +129,7 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ### 23.2.3 Hashable Trait (`.hash()`)
 
-- [x] **Implement**: `.hash()` on primitive types ✅ (2026-02-04)
+- [x] **Implement**: `.hash()` on primitive types
   - [x] `int.hash()` — Works
   - [x] `str.hash()` — Works
   - [x] **Ori Tests**: `tests/spec/declarations/traits.ori`
@@ -143,7 +143,7 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ### 23.3.1 Map Index Return Type
 
-- [x] **Fix**: Map lookup works for existing keys ✅ (2026-02-04)
+- [x] **Fix**: Map lookup works for existing keys
   - [x] **Verified**: `let m = {"a": 1}; let val = m["a"]; assert(eq: val == 1)` works
   - [ ] **Pending**: Missing key behavior needs verification — spec says should return `Option<V>`
   - [ ] **Ori Tests**: `tests/spec/expressions/index_access.ori`, `tests/spec/expressions/literals.ori`
@@ -158,14 +158,14 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ### 23.3.3 String Index Return Type
 
-- [x] **Fix**: String indexing works ✅ (2026-02-04)
+- [x] **Fix**: String indexing works
   - [x] **Verified**: `let s = "hello"; let c = s[0]` compiles and runs
   - [ ] **Pending**: Verify return type matches spec (str vs char)
   - [ ] **Ori Tests**: `tests/spec/expressions/index_access.ori`
 
 ### 23.3.4 List Index Assignment
 
-- [x] **Implement**: `list[i] = value` syntax ✅ (2026-02-04)
+- [x] **Implement**: `list[i] = value` syntax
   - [x] **Verified**: `let list = [1, 2, 3]; list[0] = 99; assert(eq: list[0] == 99)` works
   - [x] **Ori Tests**: `tests/spec/expressions/index_access.ori`
 
@@ -196,11 +196,11 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 ## 23.5 Derived Traits
 
 > **SPEC**: `spec/08-declarations.md` § Attributes
-> **STATUS**: ✅ ALL IMPLEMENTED (verified 2026-02-04)
+> **STATUS**: ALL IMPLEMENTED (verified 2026-02-04)
 
 ### 23.5.1 `#derive(Eq)` Implementation
 
-- [x] **Fix**: Generated equality for structs ✅ (2026-02-04)
+- [x] **Fix**: Generated equality for structs
   - [x] Compares all fields correctly
   - [x] Works with `==` and `!=` operators
   - [x] **Verified**: `#derive(Eq) type Point = {...}; assert(eq: p1 == p2)` works
@@ -208,14 +208,14 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ### 23.5.2 `#derive(Clone)` Implementation
 
-- [x] **Fix**: Generated clone for structs ✅ (2026-02-04)
+- [x] **Fix**: Generated clone for structs
   - [x] Clones all fields correctly
   - [x] **Verified**: `#derive(Clone) type Point = {...}; let p2 = p1.clone()` works
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori`
 
 ### 23.5.3 `#derive(Hashable)` Implementation
 
-- [x] **Fix**: Generated hash for structs ✅ (2026-02-04)
+- [x] **Fix**: Generated hash for structs
   - [x] Combines hashes of all fields
   - [x] **Verified**: `#derive(Hashable) type Point = {...}; let h = p.hash()` works
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori`
@@ -278,7 +278,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 
 ### 23.8.1 Guard Clauses
 
-> **Parser Status**: ✅ Parses correctly (`@f (n: int) -> int if n > 0 = n`)
+> **Parser Status**: Parses correctly (`@f (n: int) -> int if n > 0 = n`)
 > **Test File**: `tests/spec/declarations/clause_params.ori`
 
 - [ ] **Type Checker**: Verify guard expression returns `bool`
@@ -291,7 +291,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 
 ### 23.8.2 List Patterns in Function Parameters
 
-> **Parser Status**: ✅ Parses correctly (`@len ([]: [T]) -> int = 0`)
+> **Parser Status**: Parses correctly (`@len ([]: [T]) -> int = 0`)
 > **Test File**: `tests/spec/declarations/clause_params.ori`
 
 - [ ] **Type Checker**: Extract bindings from list patterns
@@ -305,7 +305,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 
 ### 23.8.3 Const Generics
 
-> **Parser Status**: ✅ Parses correctly (`@f<$N: int>`, `@f<$N: int = 10>`)
+> **Parser Status**: Parses correctly (`@f<$N: int>`, `@f<$N: int = 10>`)
 > **Test File**: `tests/spec/declarations/generics.ori`
 
 - [ ] **Type Checker**: Make const generic params available in scope
@@ -322,7 +322,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 
 ### 23.8.4 Variadic Parameters
 
-> **Parser Status**: ✅ Parses correctly (`@sum (nums: ...int)`)
+> **Parser Status**: Parses correctly (`@sum (nums: ...int)`)
 > **Test File**: `tests/spec/declarations/variadic_params.ori` (needs creation)
 
 - [ ] **Type Checker**: Handle variadic parameter types
@@ -337,7 +337,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 
 ### 23.8.5 Spread in Function Calls
 
-> **Parser Status**: ✅ Parses correctly (`sum(...list)`)
+> **Parser Status**: Parses correctly (`sum(...list)`)
 > **Test File**: `tests/spec/expressions/function_calls.ori`
 
 - [ ] **Type Checker**: Verify spread arg matches variadic param type

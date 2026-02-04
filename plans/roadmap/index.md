@@ -17,7 +17,7 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 ## Keyword Clusters by Section
 
 ### Section 00: Full Parser Support
-**File:** `section-00-parser.md` | **Tier:** 0 | **Status:** Not Started
+**File:** `section-00-parser.md` | **Tier:** 0 | **Status:** In Progress
 
 ```
 parser, parsing, syntax, grammar, EBNF
@@ -637,7 +637,7 @@ ori publish, registry, cache
 ---
 
 ### Section 23: Full Evaluator Support
-**File:** `section-23-evaluator.md` | **Tier:** 0 | **Status:** Not Started
+**File:** `section-23-evaluator.md` | **Tier:** 0 | **Status:** In Progress
 
 ```
 evaluator, interpreter, eval, runtime

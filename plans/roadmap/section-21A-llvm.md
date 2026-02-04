@@ -66,9 +66,9 @@ sections:
 
 # Section 21A: LLVM Backend
 
-**Status:** 🔶 Partial — JIT working, basic codegen functional, many features missing
+**Status:** Partial — JIT working, basic codegen functional, many features missing
 
-## Current Test Results (2026-02-01)
+## Current Test Results
 
 | Test Suite | Passed | Failed | Skipped | Total |
 |------------|--------|--------|---------|-------|
@@ -688,7 +688,7 @@ sections:
   - [ ] Stack-allocated values: no refcount (moved or copied)
   - [ ] **Rust Tests**: `ori_llvm/src/arc/refcount_tests.rs`
 
-- [x] **Spec**: Drop trait in `spec/06-types.md` § Drop Trait ✅ DONE
+- [x] **Spec**: Drop trait in `spec/06-types.md` § Drop Trait DONE
   - [x] Trait definition, execution timing, LIFO order
   - [x] Constraints (no async, must return void, panic during unwind = abort)
   - [x] drop_early built-in function

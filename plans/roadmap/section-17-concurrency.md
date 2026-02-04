@@ -429,13 +429,13 @@ Specifies execution guarantees for the `parallel` pattern: task ordering, concur
 
 **Proposal**: `proposals/approved/nursery-cancellation-proposal.md`
 
-**Spec**: ✅ `spec/23-concurrency-model.md` § Cancellation (added cooperative model, checkpoints, CancellationError, is_cancelled)
+**Spec**: `spec/23-concurrency-model.md` § Cancellation (added cooperative model, checkpoints, CancellationError, is_cancelled)
 
 Specifies cooperative cancellation model, checkpoints, error mode behaviors, and cleanup guarantees.
 
 ### Implementation
 
-- [x] **Spec**: Cancellation semantics in `spec/23-concurrency-model.md` ✅ DONE
+- [x] **Spec**: Cancellation semantics in `spec/23-concurrency-model.md` DONE
 
 - [ ] **Implement**: Cooperative cancellation model
   - [ ] **Rust Tests**: `oric/src/eval/cancellation.rs` — cooperative cancellation

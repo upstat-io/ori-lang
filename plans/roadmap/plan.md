@@ -31,6 +31,15 @@ Before starting:
 - Update `priority-and-tracking.md` section status
 - Save after each update
 
+### Style Rules
+
+**No emojis or dates in roadmap files.** Use text instead:
+- Instead of emoji status indicators, use text or mark checkboxes `[x]`
+- Do not add date annotations like `(2026-02-04)` to task items
+- Status values: `complete`, `in-progress`, `not-started` (text only)
+
+If you encounter emojis or date annotations in roadmap files, remove them. The website parser and tooling expect plain text status values.
+
 ### Section File Frontmatter Format
 
 Each section file uses YAML frontmatter for machine-parseable metadata. This enables the website to dynamically read roadmap data instead of hard-coding it.

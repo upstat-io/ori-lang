@@ -85,7 +85,7 @@ sections:
 
 > **SPEC**: `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: 🔶 Partial — Core complete (3.0-3.6, 3.19-3.21), approved proposals pending (3.7-3.18), operator LLVM pending
+**Status**: Partial — Core complete (3.0-3.6, 3.19-3.21), approved proposals pending (3.7-3.18), operator LLVM pending
 
 ---
 
@@ -114,7 +114,7 @@ Without traits, tests cannot use assertions - this blocks the testing workflow.
 
 ## 3.0 Core Library Traits
 
-**STATUS: ✅ COMPLETE**
+**STATUS: COMPLETE**
 
 Core library traits are implemented via:
 1. **Runtime**: Evaluator's `MethodRegistry` provides hardcoded Rust dispatch for methods like `.len()`, `.is_empty()`, `.is_some()`, etc.
@@ -123,7 +123,7 @@ Core library traits are implemented via:
 
 This approach follows the "Lean Core, Rich Libraries" principle — the runtime implementation stays in Rust for efficiency, while the type system recognizes the trait bounds for generic programming.
 
-### 3.0.1 Len Trait ✅
+### 3.0.1 Len Trait
 
 - [x] **Implemented**: Trait bound `Len` recognized for `[T]`, `str`, `{K: V}`, `Set<T>`, `Range<T>`
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_len_bound_satisfied_by_*`
@@ -131,7 +131,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Implemented**: `.len()` method works on all collection types
   - [x] **Tests**: `ori_eval/src/methods.rs` — list/string/range method tests
 
-### 3.0.2 IsEmpty Trait ✅
+### 3.0.2 IsEmpty Trait
 
 - [x] **Implemented**: Trait bound `IsEmpty` recognized for `[T]`, `str`, `{K: V}`, `Set<T>`
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_is_empty_bound_satisfied_by_*`
@@ -139,21 +139,21 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Implemented**: `.is_empty()` method works on all collection types
   - [x] **Tests**: `ori_eval/src/methods.rs` — list/string method tests
 
-### 3.0.3 Option Methods ✅
+### 3.0.3 Option Methods
 
 - [x] **Implemented**: `.is_some()`, `.is_none()`, `.unwrap()`, `.unwrap_or()` methods
   - [x] **Rust Tests**: `ori_eval/src/methods.rs` — `option_methods` module
   - [x] **Ori Tests**: `tests/spec/traits/core/option.ori`
 - [x] **Type checking**: `infer_builtin_method()` handles Option methods
 
-### 3.0.4 Result Methods ✅
+### 3.0.4 Result Methods
 
 - [x] **Implemented**: `.is_ok()`, `.is_err()`, `.unwrap()` methods
   - [x] **Rust Tests**: `ori_eval/src/methods.rs` — `result_methods` module
   - [x] **Ori Tests**: `tests/spec/traits/core/result.ori`
 - [x] **Type checking**: `infer_builtin_method()` handles Result methods
 
-### 3.0.5 Comparable Trait ✅
+### 3.0.5 Comparable Trait
 
 - [x] **Implemented**: Trait bound `Comparable` recognized for `int`, `float`, `bool`, `str`, `char`, `byte`, `Duration`, `Size`, `[T]`, `Option<T>`, `Result<T, E>`, `Ordering`
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_comparable_bound_satisfied_by_*`
@@ -161,13 +161,13 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Type checking**: All comparable types have `.compare()` returning `Ordering`
   - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/` — numeric.rs, string.rs, list.rs, option.rs, result.rs, units.rs, ordering.rs
 
-### 3.0.6 Eq Trait ✅
+### 3.0.6 Eq Trait
 
 - [x] **Implemented**: Trait bound `Eq` recognized for all primitive types
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_eq_bound_satisfied_by_*`
   - [x] **Ori Tests**: `tests/spec/traits/core/eq.ori`
 
-### Additional Traits ✅
+### Additional Traits
 
 The following traits are also recognized in trait bounds:
 - **Clone**: All primitives, collections
@@ -301,7 +301,7 @@ The following traits are also recognized in trait bounds:
 
 ## 3.4 Associated Types
 
-**STATUS: ✅ COMPLETE (2026-01-25)**
+**STATUS: COMPLETE**
 
 Infrastructure implemented:
 - `ParsedType::AssociatedType` variant in `ori_ir/src/parsed_type.rs`
@@ -330,7 +330,7 @@ Infrastructure implemented:
 
 ## 3.5 Derive Traits
 
-**STATUS: ✅ COMPLETE (2026-01-25)**
+**STATUS: COMPLETE**
 
 All 5 derive traits implemented in `oric/src/typeck/derives/mod.rs`.
 Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
@@ -359,18 +359,18 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 
 ## 3.6 Section Completion Checklist
 
-- [x] Core library traits (3.0): All complete ✅
-- [x] Trait declarations (3.1): All complete ✅
-- [x] Trait implementations (3.2): All complete ✅
-- [x] Trait bounds (3.3): All complete ✅
-- [x] Associated types (3.4): All complete ✅ (2026-01-25)
-- [x] Derive traits (3.5): All 5 derives implemented ✅
+- [x] Core library traits (3.0): All complete
+- [x] Trait declarations (3.1): All complete
+- [x] Trait implementations (3.2): All complete
+- [x] Trait bounds (3.3): All complete
+- [x] Associated types (3.4): All complete
+- [x] Derive traits (3.5): All 5 derives implemented
 - [x] 148 trait tests pass
 - [x] Run full test suite: `./test-all`
 
-**Exit Criteria**: Trait-based code compiles and runs ✅
+**Exit Criteria**: Trait-based code compiles and runs
 
-**Section 3 Complete** (2026-01-25)
+**Section 3 Complete**
 
 ---
 
@@ -1149,7 +1149,7 @@ Formalizes the `Into` trait for semantic, lossless type conversions. Defines tra
 
 ## 3.18 Ordering Type
 
-**STATUS: 🔶 Partial — Core methods complete, `then`/`then_with` pending (keyword conflict)**
+**STATUS: Partial — Core methods complete, `then`/`then_with` pending (keyword conflict)**
 
 **Proposal**: `proposals/approved/ordering-type-proposal.md`
 
@@ -1198,7 +1198,7 @@ Formalizes the `Ordering` type that represents comparison results. Defines the t
 
 ## 3.19 Default Type Parameters on Traits
 
-**STATUS: ✅ COMPLETE (2026-01-31)**
+**STATUS: COMPLETE**
 
 **Proposal**: `proposals/approved/default-type-parameters-proposal.md`
 
@@ -1229,15 +1229,15 @@ Allow type parameters on traits to have default values, enabling `trait Add<Rhs 
 - [x] **Implement**: Later parameters can reference earlier ones in defaults
   - [x] **Design**: Stored as `ParsedType`, resolved at impl time with substitution
 
-- [x] **Update Spec**: `grammar.ebnf` § Generics — `type_param = identifier [ ":" bounds ] [ "=" type ] .` ✅
-- [x] **Update Spec**: `08-declarations.md` — Default Type Parameters section under Traits ✅
-- [x] **Update**: `CLAUDE.md` — `trait N<T = Self>` syntax documented ✅
+- [x] **Update Spec**: `grammar.ebnf` § Generics — `type_param = identifier [ ":" bounds ] [ "=" type ] .`
+- [x] **Update Spec**: `08-declarations.md` — Default Type Parameters section under Traits
+- [x] **Update**: `CLAUDE.md` — `trait N<T = Self>` syntax documented
 
 ---
 
 ## 3.20 Default Associated Types
 
-**STATUS: ✅ COMPLETE (2026-01-31)**
+**STATUS: COMPLETE**
 
 **Proposal**: `proposals/approved/default-associated-types-proposal.md`
 
@@ -1266,15 +1266,15 @@ Allow associated types in traits to have default values, enabling `type Output =
 - [ ] **Implement**: Bounds checking — verify default satisfies any bounds after substitution
   - Note: Deferred to future enhancement; bounds on associated types not yet fully implemented
 
-- [x] **Update Spec**: `grammar.ebnf` — update assoc_type production ✅
-- [x] **Update Spec**: `08-declarations.md` — add Default Associated Types section ✅
-- [x] **Update**: `CLAUDE.md` — add default associated type syntax to Traits section ✅
+- [x] **Update Spec**: `grammar.ebnf` — update assoc_type production
+- [x] **Update Spec**: `08-declarations.md` — add Default Associated Types section
+- [x] **Update**: `CLAUDE.md` — add default associated type syntax to Traits section
 
 ---
 
 ## 3.21 Operator Traits
 
-**STATUS: 🔶 Partial — Interpreter complete, LLVM pending**
+**STATUS: Partial — Interpreter complete, LLVM pending**
 
 **Proposal**: `proposals/approved/operator-traits-proposal.md`
 
@@ -1332,5 +1332,5 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
   - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — operator derive tests
   - [ ] **Ori Tests**: `tests/spec/traits/operators/derive.ori`
 
-- [x] **Update Spec**: `09-expressions.md` — replace "No Operator Overloading" with Operator Traits section ✅
-- [x] **Update**: `CLAUDE.md` — add operator traits to prelude and operators section ✅
+- [x] **Update Spec**: `09-expressions.md` — replace "No Operator Overloading" with Operator Traits section
+- [x] **Update**: `CLAUDE.md` — add operator traits to prelude and operators section
