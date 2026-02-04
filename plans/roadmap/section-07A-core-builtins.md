@@ -281,9 +281,9 @@ Formalizes `repeat`, `compile_error`, `PanicInfo`, and clarifies `??` operator s
 
 **Proposal**: `proposals/approved/panic-handler-proposal.md` (extends basic definition)
 
-**Spec**: ✅ `spec/20-errors-and-panics.md` § PanicInfo Type (updated with full structure)
+**Spec**: `spec/20-errors-and-panics.md` § PanicInfo Type (updated with full structure)
 
-- [x] **Spec**: PanicInfo type definition — `{ message, location, stack_trace, thread_id }` ✅ DONE
+- [x] **Spec**: PanicInfo type definition — `{ message, location, stack_trace, thread_id }` DONE
 
 - [ ] **Implement**: `PanicInfo` struct type — `{ message: str, location: TraceEntry, stack_trace: [TraceEntry], thread_id: Option<int> }`
   - [ ] **Rust Tests**: `oric/src/typeck/types.rs` — PanicInfo type tests

@@ -285,6 +285,12 @@ function extractTasksFromBody(body: string): Map<string, Task[]> {
   return result;
 }
 
+// Normalize status values to handle both hyphen and underscore variants
+// e.g., "in_progress" -> "in-progress", "not_started" -> "not-started"
+function normalizeStatus(status: string): string {
+  return status.toLowerCase().replace(/_/g, '-');
+}
+
 // Load and parse a single section file
 function loadSectionFile(filepath: string): RoadmapSection | null {
   if (!existsSync(filepath)) return null;
@@ -316,9 +322,10 @@ function loadSectionFile(filepath: string): RoadmapSection | null {
     }
   }
 
+  const normalizedStatus = normalizeStatus(frontmatter.status);
   const status: "complete" | "partial" | "not-started" =
-    frontmatter.status === 'complete' ? 'complete' :
-    frontmatter.status === 'in-progress' ? 'partial' : 'not-started';
+    normalizedStatus === 'complete' ? 'complete' :
+    normalizedStatus === 'in-progress' ? 'partial' : 'not-started';
 
   return {
     num: frontmatter.section,
@@ -418,7 +425,9 @@ const statusLabels: Record<string, string> = {
   "complete": "Complete",
   "partial": "In Progress",
   "in-progress": "In Progress",
+  "in_progress": "In Progress",
   "not-started": "Not Started",
+  "not_started": "Not Started",
   "planned": "Planned",
   "future": "Future",
   "near-complete": "Near Complete",
@@ -445,7 +454,9 @@ const statusColors: Record<string, string> = {
   "complete": "success",
   "partial": "warning",
   "in-progress": "warning",
+  "in_progress": "warning",
   "not-started": "muted",
+  "not_started": "muted",
   "planned": "muted",
   "future": "muted",
   "near-complete": "warning",

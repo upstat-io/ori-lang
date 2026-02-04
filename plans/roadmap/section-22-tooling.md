@@ -57,7 +57,7 @@ sections:
 > **CRATE**: `compiler/ori_fmt/` — Width calculation, rendering engine
 > **DOCUMENTATION**: `docs/tooling/formatter/` — User guide, integration, troubleshooting, style guide
 
-**Status**: ✅ Complete (CLI), 🔶 Partial (LSP/WASM in 22.2)
+**Status**: Complete (CLI), Partial (LSP/WASM in 22.2)
 
 ### Core Implementation (Complete)
 
@@ -414,7 +414,7 @@ Machine-readable diagnostics with actionable fix suggestions. Enables AI agents 
 > **PROPOSAL**: `proposals/approved/wasm-playground-proposal.md`
 > **CRATE**: `playground/wasm/` — WASM bindings for portable compiler subset
 
-**Status**: ✅ Core complete, 🔶 Examples pending
+**Status**: Core complete, Examples pending
 
 ### Core Implementation (Complete)
 

@@ -60,7 +60,7 @@ sections:
 
 # Section 21B: AOT Compilation
 
-**Status:** 🔶 In Progress
+**Status:** In Progress
 **Proposal:** `proposals/approved/aot-compilation-proposal.md`
 **Depends on:** Section 21A (LLVM Backend - JIT working)
 
@@ -256,7 +256,7 @@ sections:
   - [x] **Rust Tests**: `ori_rt/src/lib.rs` (19 tests), `ori_llvm/src/aot/runtime.rs` (4 tests)
 
 - [x] **Implement**: Runtime library discovery
-  - **Proposal**: `proposals/approved/runtime-library-discovery-proposal.md` ✅ APPROVED 2026-02-02
+  - **Proposal**: `proposals/approved/runtime-library-discovery-proposal.md` APPROVED 2026-02-02
   - [x] Walk up from binary to find `libori_rt.a` (like rustc sysroot)
   - [x] Dev layout: same directory as compiler binary
   - [x] Installed layout: `<exe>/../lib/libori_rt.a`

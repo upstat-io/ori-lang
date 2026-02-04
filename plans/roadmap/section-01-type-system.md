@@ -44,7 +44,7 @@ sections:
 
 > **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: ✅ Complete — Core (1.1-1.5) complete, 1.1A trait implementations complete with Ori tests, 1.1B core Never semantics complete (advanced features pending)
+**Status**: Complete — Core (1.1-1.5) complete, 1.1A trait implementations complete with Ori tests, 1.1B core Never semantics complete (advanced features pending)
 
 ---
 
@@ -201,7 +201,7 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 
 Formalize the Never type as the bottom type with coercion rules, type inference behavior, and pattern matching exhaustiveness.
 
-**Status**: ✅ Core complete (coercion and basic Never-producing expressions); advanced features pending
+**Status**: Core complete (coercion and basic Never-producing expressions); advanced features pending
 
 ### Coercion
 
@@ -352,4 +352,4 @@ Reserve architectural space in the type system for future low-level features (in
 - [x] Run full test suite: `./test-all` — **241 unit tests + 64 spec tests pass**
 - [ ] Low-level future-proofing slots reserved (1.6)
 
-**Section 1 Status**: ✅ Complete (core), ⏳ In Progress (1.6 pending)
+**Section 1 Status**: Complete (core), In Progress (1.6 pending)

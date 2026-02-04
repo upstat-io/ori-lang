@@ -41,7 +41,7 @@ sections:
 
 **Dependencies**: Section 3 (Traits), Section 5 (Type Declarations), Section 7 (Derive Macros), Section 11 (Generics)
 
-**Proposal**: `proposals/approved/reflection-api-proposal.md` — ✅ APPROVED 2026-01-31
+**Proposal**: `proposals/approved/reflection-api-proposal.md` — APPROVED 2026-01-31
 
 ---
 
@@ -110,7 +110,7 @@ for (name, value) in person.fields() do
 
 ### Implementation
 
-- [x] **Spec**: Add `spec/27-reflection.md` ✅ DONE
+- [x] **Spec**: Add `spec/27-reflection.md` DONE
   - [x] Reflect trait definition
   - [x] TypeInfo, FieldInfo, VariantInfo types
   - [x] Unknown type
@@ -184,7 +184,7 @@ type VariantInfo = {
 
 ### Implementation
 
-- [x] **Spec**: TypeInfo structure ✅ DONE (in spec/27-reflection.md)
+- [x] **Spec**: TypeInfo structure DONE (in spec/27-reflection.md)
   - [x] All fields defined
   - [x] TypeKind variants
   - [x] FieldInfo, VariantInfo
@@ -249,7 +249,7 @@ match value.downcast<int>() {
 
 ### Implementation
 
-- [x] **Spec**: Unknown type semantics ✅ DONE (in spec/27-reflection.md)
+- [x] **Spec**: Unknown type semantics DONE (in spec/27-reflection.md)
   - [x] Type erasure mechanism
   - [x] Safe downcasting
   - [x] Reference counting (ARC-compatible)
@@ -525,7 +525,7 @@ Per `proposals/approved/reflection-api-proposal.md § Deferred Decisions`:
 ## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[x]`
-- [x] Spec updated: `spec/27-reflection.md` complete ✅ DONE
+- [x] Spec updated: `spec/27-reflection.md` complete DONE
 - [ ] CLAUDE.md updated with Reflect, Unknown, TypeInfo
 - [ ] Reflect trait works with derive
 - [ ] TypeInfo accessible at runtime

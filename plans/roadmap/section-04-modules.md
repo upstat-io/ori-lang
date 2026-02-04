@@ -54,7 +54,7 @@ sections:
 > **PROPOSAL**: `proposals/approved/no-circular-imports-proposal.md` — Circular import rejection
 > **PROPOSAL**: `proposals/approved/module-system-details-proposal.md` — Entry points, re-export chains, visibility
 
-**Status**: 🔶 Partial — Core complete (4.1-4.6, 4.10), tooling pending (4.7), module details pending (4.8), extension methods pending (4.11)
+**Status**: Partial — Core complete (4.1-4.6, 4.10), tooling pending (4.7), module details pending (4.8), extension methods pending (4.11)
 
 ---
 
@@ -302,9 +302,9 @@ sections:
 ## 4.9 Remaining Work (Pre-existing)
 
 **Parsing/Runtime complete, type checker pending:**
-- Module alias syntax: `use std.net.http as http` — parsing ✅, runtime ✅, type checker ❌
-- Re-exports: `pub use './client' { get, post }` — parsing ✅, full resolution pending
-- Qualified access: `module.function()` — runtime ✅, type checker needs ModuleNamespace support
+- Module alias syntax: `use std.net.http as http` — parsing, runtime, type checker
+- Re-exports: `pub use './client' { get, post }` — parsing, full resolution pending
+- Qualified access: `module.function()` — runtime, type checker needs ModuleNamespace support
 
 ---
 
@@ -322,7 +322,7 @@ pub let $VERSION = "1.0.0"
 
 **Status**: Parser complete, evaluator incomplete.
 
-### Parser ✅
+### Parser
 
 - [x] **Implement**: Parse `let $NAME = value` — `constant_decl` production
   - [x] **Rust Tests**: `ori_parse/src/grammar/` — constant parsing
@@ -485,7 +485,7 @@ Extension methods add methods to existing types without modifying their definiti
 - [x] Cycle detection working
 - [x] Test module private access working
 - [x] Built-in prelude types and functions working
-- [x] Auto-load stdlib prelude ✅
+- [x] Auto-load stdlib prelude
 - [x] `Self` type parsing in traits
 - [x] Trait/impl parsing at module level
 - [x] Module alias syntax (`use std.net.http as http`) — parsing/runtime complete
@@ -494,5 +494,5 @@ Extension methods add methods to existing types without modifying their definiti
 - [ ] Type definitions parsing (see Section 5)
 - [x] Run full test suite: `./test-all`
 
-**Exit Criteria**: Multi-file projects compile ✅ (core support complete)
+**Exit Criteria**: Multi-file projects compile (core support complete)
 **Status**: Section 4 parsing and runtime complete. Type checker support for module namespaces pending.

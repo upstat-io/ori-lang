@@ -58,7 +58,7 @@ sections:
 > **SPEC**: `spec/14-capabilities.md`
 > **DESIGN**: `design/14-capabilities/index.md`
 
-**Status**: 🔶 Partial — Core complete (6.1-6.10, 31/31 tests); composition (6.11), resolution (6.12), intrinsics (6.14) pending
+**Status**: Partial — Core complete (6.1-6.10, 31/31 tests); composition (6.11), resolution (6.12), intrinsics (6.14) pending
 
 ---
 
@@ -205,7 +205,7 @@ sections:
 ## 6.10 Default Implementations (`def impl`)
 
 **Proposal**: `proposals/approved/default-impl-proposal.md`
-**Status**: ✅ Complete
+**Status**: Complete
 
 Introduce `def impl` syntax to declare a default implementation for a trait. Importing a trait with a `def impl` automatically binds the default.
 
@@ -432,7 +432,7 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
 - [x] 27 capability tests passing
 - [x] Full test suite: `./test-all`
 
-**Exit Criteria**: Effect tracking works per spec (6.1-6.9 ✅, 6.10-6.14 pending)
+**Exit Criteria**: Effect tracking works per spec (6.1-6.9, 6.10-6.14 pending)
 
 **Remaining for Section 7 (Stdlib)**:
 - Real capability implementations (Http, FileSystem, etc.)
