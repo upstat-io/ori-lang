@@ -40,8 +40,39 @@ pub fn match_errors(
     source: &str,
     interner: &StringInterner,
 ) -> MatchResult {
+    match_errors_impl(actual.iter(), actual.len(), expected, source, interner)
+}
+
+/// Match actual errors (as references) against expected error specifications.
+///
+/// This variant accepts a slice of references, useful when errors have been
+/// filtered from a larger collection.
+pub fn match_errors_refs(
+    actual: &[&TypeCheckError],
+    expected: &[ExpectedError],
+    source: &str,
+    interner: &StringInterner,
+) -> MatchResult {
+    match_errors_impl(
+        actual.iter().copied(),
+        actual.len(),
+        expected,
+        source,
+        interner,
+    )
+}
+
+/// Internal implementation for matching errors against expectations.
+fn match_errors_impl<'a>(
+    actual: impl Iterator<Item = &'a TypeCheckError>,
+    actual_len: usize,
+    expected: &[ExpectedError],
+    source: &str,
+    interner: &StringInterner,
+) -> MatchResult {
+    let actual: Vec<_> = actual.collect();
     let mut matched = Vec::new();
-    let mut error_matched = vec![false; actual.len()];
+    let mut error_matched = vec![false; actual_len];
 
     // For each expectation, try to find a matching error
     for (exp_idx, exp) in expected.iter().enumerate() {

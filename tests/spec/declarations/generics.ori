@@ -136,7 +136,7 @@ type Pair<A, B> = { first: A, second: B }
 
 @test_wrap_result tests @wrap_result () -> void = run(
     let res = wrap_result(x: 42),
-    assert(cond: is_ok(result: res)),
+    assert(cond: is_ok(r: res)),
 )
 
 // =============================================================================

@@ -2,6 +2,7 @@
 // Tests for generic type arguments and const generics
 
 use std.testing { assert, assert_eq }
+use std.prelude { is_some, is_ok }
 
 // =============================================================================
 // Single Type Argument
@@ -75,7 +76,7 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
 
 @test_result_of_result tests @result_of_result () -> void = run(
     let res: Result<Result<int, str>, str> = Ok(Ok(100)),
-    assert(cond: is_ok(result: res)),
+    assert(cond: is_ok(r: res)),
 )
 
 @result_of_result () -> Result<Result<int, str>, str> = Ok(Ok(100))
@@ -180,7 +181,7 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
 
 @test_return_result_generic tests @return_result_generic () -> void = run(
     let res = make_ok(x: "hello"),
-    assert(cond: is_ok(result: res)),
+    assert(cond: is_ok(r: res)),
 )
 
 @return_result_generic () -> Result<str, str> = make_ok(x: "hello")

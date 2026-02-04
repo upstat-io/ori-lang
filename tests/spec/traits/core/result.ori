@@ -59,25 +59,25 @@ use std.testing { assert, assert_eq }
 @test_is_ok_builtin tests @is_ok_builtin () -> void = run(
     let ok_val: Result<int, str> = Ok(1),
     let err_val: Result<int, str> = Err("e"),
-    assert(cond: is_ok(result: ok_val)),
-    assert(cond: !is_ok(result: err_val)),
+    assert(cond: is_ok(r: ok_val)),
+    assert(cond: !is_ok(r: err_val)),
 )
 
 @is_ok_builtin () -> bool = run(
     let x: Result<int, str> = Ok(1),
-    is_ok(result: x),
+    is_ok(r: x),
 )
 
 @test_is_err_builtin tests @is_err_builtin () -> void = run(
     let ok_val: Result<int, str> = Ok(1),
     let err_val: Result<int, str> = Err("e"),
-    assert(cond: is_err(result: err_val)),
-    assert(cond: !is_err(result: ok_val)),
+    assert(cond: is_err(r: err_val)),
+    assert(cond: !is_err(r: ok_val)),
 )
 
 @is_err_builtin () -> bool = run(
     let x: Result<int, str> = Err("error"),
-    is_err(result: x),
+    is_err(r: x),
 )
 
 // =============================================================================

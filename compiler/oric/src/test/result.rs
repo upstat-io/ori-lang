@@ -166,11 +166,21 @@ impl TestSummary {
         self.passed + self.failed + self.skipped
     }
 
+    /// Returns true if any test function failed.
     pub fn has_failures(&self) -> bool {
-        self.failed > 0 || self.files.iter().any(|f| !f.errors.is_empty())
+        self.failed > 0
     }
 
-    /// Get exit code: 0 = all pass, 1 = failures, 2 = no tests found.
+    /// Returns true if any file had errors (type check, parse, etc.).
+    /// These prevent tests from running but aren't test failures themselves.
+    pub fn has_file_errors(&self) -> bool {
+        self.files.iter().any(|f| !f.errors.is_empty())
+    }
+
+    /// Get exit code: 0 = all pass, 1 = test failures, 2 = no tests found.
+    ///
+    /// Note: File-level errors (type check failures) are reported but don't
+    /// affect the exit code. Tests in those files simply don't run.
     pub fn exit_code(&self) -> i32 {
         if self.total() == 0 {
             2

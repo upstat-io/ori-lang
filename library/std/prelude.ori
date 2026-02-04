@@ -52,88 +52,101 @@ pub trait Default {
 // Operator traits enable user-defined types to support operator syntax.
 // The compiler desugars operators to trait method calls.
 // Primitives (int, float, etc.) have built-in implementations.
-
 // Binary arithmetic: a + b -> a.add(rhs: b)
 pub trait Add<Rhs = Self> {
-    type Output = Self
+    type Output
+
     @add (self, rhs: Rhs) -> Self.Output
 }
 
 // Binary arithmetic: a - b -> a.subtract(rhs: b)
 pub trait Sub<Rhs = Self> {
-    type Output = Self
+    type Output
+
     @subtract (self, rhs: Rhs) -> Self.Output
 }
 
 // Binary arithmetic: a * b -> a.multiply(rhs: b)
 pub trait Mul<Rhs = Self> {
-    type Output = Self
+    type Output
+
     @multiply (self, rhs: Rhs) -> Self.Output
 }
 
 // Binary arithmetic: a / b -> a.divide(rhs: b)
 pub trait Div<Rhs = Self> {
-    type Output = Self
+    type Output
+
     @divide (self, rhs: Rhs) -> Self.Output
 }
 
 // Binary arithmetic: a div b -> a.floor_divide(rhs: b)
 pub trait FloorDiv<Rhs = Self> {
-    type Output = Self
+    type Output
+
     @floor_divide (self, rhs: Rhs) -> Self.Output
 }
 
 // Binary arithmetic: a % b -> a.remainder(rhs: b)
 pub trait Rem<Rhs = Self> {
-    type Output = Self
+    type Output
+
     @remainder (self, rhs: Rhs) -> Self.Output
 }
 
 // Unary negation: -a -> a.negate()
 pub trait Neg {
-    type Output = Self
+    type Output
+
     @negate (self) -> Self.Output
 }
 
 // Unary logical not: !a -> a.not()
 pub trait Not {
-    type Output = Self
+    type Output
+
     @not (self) -> Self.Output
 }
 
 // Unary bitwise not: ~a -> a.bit_not()
 pub trait BitNot {
-    type Output = Self
+    type Output
+
     @bit_not (self) -> Self.Output
 }
 
 // Bitwise and: a & b -> a.bit_and(rhs: b)
 pub trait BitAnd<Rhs = Self> {
-    type Output = Self
+    type Output
+
     @bit_and (self, rhs: Rhs) -> Self.Output
 }
 
 // Bitwise or: a | b -> a.bit_or(rhs: b)
 pub trait BitOr<Rhs = Self> {
-    type Output = Self
+    type Output
+
     @bit_or (self, rhs: Rhs) -> Self.Output
 }
 
 // Bitwise xor: a ^ b -> a.bit_xor(rhs: b)
 pub trait BitXor<Rhs = Self> {
-    type Output = Self
+    type Output
+
     @bit_xor (self, rhs: Rhs) -> Self.Output
 }
 
 // Left shift: a << b -> a.shift_left(rhs: b)
 pub trait Shl<Rhs = int> {
-    type Output = Self
+    type Output
+
     @shift_left (self, rhs: Rhs) -> Self.Output
 }
 
 // Right shift: a >> b -> a.shift_right(rhs: b)
 pub trait Shr<Rhs = int> {
-    type Output = Self
+    type Output
+
     @shift_right (self, rhs: Rhs) -> Self.Output
 }
 
@@ -229,25 +242,25 @@ pub @len (collection: [int]) -> int = collection.len()
 pub @is_empty (collection: [int]) -> bool = collection.len() == 0
 
 // Check if Option is Some
-pub @is_some (opt: Option<int>) -> bool = match(opt,
+pub @is_some<T> (opt: Option<T>) -> bool = match(opt,
     Some(_) -> true,
     None -> false,
 )
 
 // Check if Option is None
-pub @is_none (opt: Option<int>) -> bool = match(opt,
+pub @is_none<T> (opt: Option<T>) -> bool = match(opt,
     Some(_) -> false,
     None -> true,
 )
 
 // Check if Result is Ok
-pub @is_ok (result: Result<int, str>) -> bool = match(result,
+pub @is_ok<T, E> (r: Result<T, E>) -> bool = match(r,
     Ok(_) -> true,
     Err(_) -> false,
 )
 
 // Check if Result is Err
-pub @is_err (result: Result<int, str>) -> bool = match(result,
+pub @is_err<T, E> (r: Result<T, E>) -> bool = match(r,
     Ok(_) -> false,
     Err(_) -> true,
 )

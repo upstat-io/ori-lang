@@ -70,14 +70,14 @@ type BatchResult = { completed: int, failed: int, total: int }
 @test_process_item tests @process_item () -> void = run(
     let item = WorkItem { id: 1, payload: "test", priority: 5 },
     let result = process_item(item: item),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 #skip("LLVM backend: struct parameters not supported")
 @test_invalid_priority tests @process_item () -> void = run(
     let item = WorkItem { id: 1, payload: "test", priority: 0 },
     let result = process_item(item: item),
-    assert(cond: is_err(result: result)),
+    assert(cond: is_err(r: result)),
 )
 
 #skip("LLVM backend: struct parameters not supported")

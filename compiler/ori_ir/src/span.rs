@@ -101,6 +101,12 @@ impl Span {
         offset >= self.start && offset < self.end
     }
 
+    /// Check if another span is fully contained within this span.
+    #[inline]
+    pub fn contains_span(&self, other: Span) -> bool {
+        self.start <= other.start && other.end <= self.end
+    }
+
     /// Merge two spans to create one covering both.
     #[inline]
     #[must_use]

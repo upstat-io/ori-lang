@@ -112,7 +112,10 @@ fn main() {
 
             // Use provided path or current directory
             let path = path.unwrap_or_else(|| ".".to_string());
-            run_tests(&path, &config);
+            let exit_code = run_tests(&path, &config);
+            if exit_code != 0 {
+                std::process::exit(exit_code);
+            }
         }
         "check" => {
             if args.len() < 3 {

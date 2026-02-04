@@ -324,7 +324,7 @@ type Either = Left(value: int) | Middle(text: str) | Right(flag: bool)
 
 @either_to_int (e: Either) -> int = match(e,
     Left(v) -> v,
-    Middle(t) -> len(collection: t),
+    Middle(t) -> t.len(),
     Right(f) -> if f then 1 else 0,
 )
 

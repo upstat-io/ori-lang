@@ -500,8 +500,12 @@ impl<'ll> Builder<'_, 'll, '_> {
         let iter_val = self.compile_expr(iter, arena, expr_types, locals, function, None)?;
 
         // Create loop blocks
+        // Structure: entry -> header -> body -> latch -> header (or exit)
+        // The latch block increments the index before looping back.
+        // `continue` jumps to latch (to increment), `break` jumps to exit.
         let header_bb = self.append_block(function, "for_header");
         let body_bb = self.append_block(function, "for_body");
+        let latch_bb = self.append_block(function, "for_latch");
         let exit_bb = self.append_block(function, "for_exit");
 
         // Allocate index counter
@@ -567,9 +571,11 @@ impl<'ll> Builder<'_, 'll, '_> {
         // For-loop variables are re-bound each iteration (immutable within iteration)
         locals.bind_immutable(binding, idx.into());
 
-        // Create loop context for break/continue in for-loop body
+        // Create loop context for break/continue in for-loop body.
+        // IMPORTANT: `continue` must jump to the latch block (which increments the
+        // index) rather than the header, otherwise we get an infinite loop.
         let for_loop_ctx = LoopContext {
-            header: header_bb,
+            header: latch_bb, // continue goes to latch (increment then check)
             exit: exit_bb,
             break_phi: None,
         };
@@ -587,19 +593,9 @@ impl<'ll> Builder<'_, 'll, '_> {
             let guard_bool = guard_val.into_int_value();
 
             let guard_pass_bb = self.append_block(function, "guard_pass");
-            let guard_fail_bb = self.append_block(function, "guard_fail");
 
-            self.cond_br(guard_bool, guard_pass_bb, guard_fail_bb);
-
-            // Guard fail: increment and continue
-            self.position_at_end(guard_fail_bb);
-            let next_idx = self.add(
-                idx,
-                self.cx().scx.type_i64().const_int(1, false),
-                "next_idx",
-            );
-            self.store(next_idx.into(), idx_ptr);
-            self.br(header_bb);
+            // Guard fail: go to latch (increment and continue)
+            self.cond_br(guard_bool, guard_pass_bb, latch_bb);
 
             self.position_at_end(guard_pass_bb);
         }
@@ -614,7 +610,13 @@ impl<'ll> Builder<'_, 'll, '_> {
             Some(&for_loop_ctx),
         );
 
-        // Increment index
+        // Fall through to latch if body didn't terminate
+        if self.current_block()?.get_terminator().is_none() {
+            self.br(latch_bb);
+        }
+
+        // Latch block: increment index and loop back to header
+        self.position_at_end(latch_bb);
         let current_idx = self
             .load(self.cx().scx.type_i64().into(), idx_ptr, "cur_idx")
             .into_int_value();
@@ -624,11 +626,7 @@ impl<'ll> Builder<'_, 'll, '_> {
             "next_idx",
         );
         self.store(next_idx.into(), idx_ptr);
-
-        // Loop back
-        if self.current_block()?.get_terminator().is_none() {
-            self.br(header_bb);
-        }
+        self.br(header_bb);
 
         // Exit
         self.position_at_end(exit_bb);

@@ -182,12 +182,12 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @result_ok_list () -> bool = run(
     let r = Ok([1, 2, 3]),
-    is_ok(result: r),
+    is_ok(r: r),
 )
 
 @result_err_list () -> bool = run(
     let r = Err("failed"),
-    is_err(result: r),
+    is_err(r: r),
 )
 
 @test_list_int tests @list_int () -> void = run(
@@ -393,10 +393,10 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_result_ok_list tests @result_ok_list () -> void = run(
     let r = Ok([1, 2, 3]),
-    assert(cond: is_ok(result: r)),
+    assert(cond: is_ok(r: r)),
 )
 
 @test_result_err_list tests @result_err_list () -> void = run(
     let r = Err("failed"),
-    assert(cond: is_err(result: r)),
+    assert(cond: is_err(r: r)),
 )

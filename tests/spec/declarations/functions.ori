@@ -157,8 +157,8 @@ pub @public_identity<T> (x: T) -> T = x
     if n >= 0 then Ok(n) else Err("negative")
 
 @test_return_result tests @return_result () -> void = run(
-    assert(cond: is_ok(result: return_result(n: 5))),
-    assert(cond: is_err(result: return_result(n: -5))),
+    assert(cond: is_ok(r: return_result(n: 5))),
+    assert(cond: is_err(r: return_result(n: -5))),
 )
 
 // =============================================================================

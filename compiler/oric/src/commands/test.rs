@@ -6,12 +6,13 @@ use oric::TestOutcome;
 use std::path::Path;
 
 /// Run tests at the given path with the provided configuration.
-pub fn run_tests(path: &str, config: &TestRunnerConfig) {
+/// Returns the exit code (0 for success, non-zero for failure).
+pub fn run_tests(path: &str, config: &TestRunnerConfig) -> i32 {
     let path = Path::new(path);
 
     if !path.exists() {
         eprintln!("Path not found: {}", path.display());
-        std::process::exit(1);
+        return 1;
     }
 
     let runner = TestRunner::with_config(config.clone());
@@ -20,7 +21,7 @@ pub fn run_tests(path: &str, config: &TestRunnerConfig) {
     if config.coverage {
         let report = runner.coverage_report(path);
         print_coverage_report(&report, runner.interner());
-        std::process::exit(i32::from(!report.is_complete()));
+        return i32::from(!report.is_complete());
     }
 
     let summary = runner.run(path);
@@ -28,8 +29,7 @@ pub fn run_tests(path: &str, config: &TestRunnerConfig) {
     // Print results
     print_test_summary(&summary, runner.interner(), config.verbose);
 
-    // Exit with appropriate code
-    std::process::exit(summary.exit_code());
+    summary.exit_code()
 }
 
 /// Print a coverage report showing which functions have tests.
@@ -149,6 +149,10 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
     } else if summary.total() == 0 {
         println!();
         println!("NO TESTS FOUND");
+    } else if summary.has_file_errors() {
+        // Tests passed but some files had errors (couldn't run tests in those files)
+        println!();
+        println!("OK (some files had errors)");
     } else {
         println!();
         println!("OK");

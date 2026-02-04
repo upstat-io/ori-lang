@@ -140,8 +140,8 @@ use std.testing { assert, assert_eq }
 @test_list_of_results tests @list_of_results () -> void = run(
     let results: [Result<int, str>] = [Ok(1), Err("fail"), Ok(3)],
     assert_eq(actual: results.len(), expected: 3),
-    assert(cond: is_ok(result: results[0])),
-    assert(cond: is_err(result: results[1])),
+    assert(cond: is_ok(r: results[0])),
+    assert(cond: is_err(r: results[1])),
 )
 
 @list_of_results () -> [Result<int, str>] = [Ok(1), Err("fail"), Ok(3)]

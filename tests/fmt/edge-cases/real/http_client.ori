@@ -2,6 +2,8 @@
 // Spec: 09-capabilities.md § Capability System
 // Design: tooling/formatter/design/appendices/A-edge-cases.md
 
+use std.testing { assert_eq }
+
 type Method = Get | Post | Put
 
 type Request = { method: Method, url: str, body: str }

@@ -181,7 +181,7 @@ use std.testing { assert, assert_eq, assert_ne }
     ),
     // Result should be Ok(42)
     assert(
-        cond: is_ok(result: result),
+        cond: is_ok(r: result),
     ),
 )
 
@@ -199,7 +199,7 @@ use std.testing { assert, assert_eq, assert_ne }
     ),
     // Result should be Ok(60)
     assert(
-        cond: is_ok(result: result),
+        cond: is_ok(r: result),
     ),
 )
 
@@ -216,7 +216,7 @@ use std.testing { assert, assert_eq, assert_ne }
         after: 2m,
     ),
     assert(
-        cond: is_ok(result: result),
+        cond: is_ok(r: result),
     ),
 )
 
@@ -233,7 +233,7 @@ use std.testing { assert, assert_eq, assert_ne }
         after: 1h,
     ),
     assert(
-        cond: is_ok(result: result),
+        cond: is_ok(r: result),
     ),
 )
 
@@ -257,7 +257,7 @@ use std.testing { assert, assert_eq, assert_ne }
         attempts: 3,
     ),
     assert(
-        cond: is_ok(result: result),
+        cond: is_ok(r: result),
     ),
 )
 
