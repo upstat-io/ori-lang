@@ -1,4 +1,6 @@
 // Spec: 14-capabilities.md § Declaration
+
+use std.testing { assert_eq }
 // Tests for capability declaration syntax (uses clause)
 
 // =============================================================================

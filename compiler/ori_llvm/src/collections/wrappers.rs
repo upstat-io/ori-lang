@@ -3,19 +3,19 @@
 // Some functions have unused type_id params for API consistency with the trait
 #![allow(clippy::used_underscore_binding)]
 
-use rustc_hash::FxHashMap;
-
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, ExprId, Name, TypeId};
+use ori_ir::{ExprArena, ExprId, TypeId};
 use tracing::instrument;
 
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile Some(value).
     ///
-    /// Uses standardized { i8 tag, i64 payload } layout to match function signatures.
+    /// For scalar types (int, float, bool, etc.), uses { i8 tag, i64 payload } layout
+    /// with the value coerced to i64. For struct types (nested Options, etc.), uses
+    /// { i8 tag, struct payload } to preserve the full struct value.
     #[instrument(
         skip(self, arena, expr_types, locals, function, loop_ctx),
         level = "debug"
@@ -26,38 +26,47 @@ impl<'ll> Builder<'_, 'll, '_> {
         _type_id: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Compile the inner value
         let inner_val = self.compile_expr(inner, arena, expr_types, locals, function, loop_ctx)?;
 
-        // Use standardized Option type with i64 payload
-        let opt_type = self.cx().option_type(self.cx().scx.type_i64().into());
-
-        // Coerce inner value to i64 for storage
-        let payload = self.coerce_to_i64(inner_val)?;
-
         // Build the struct: { tag = 1, value = payload }
         let tag = self.cx().scx.type_i8().const_int(1, false); // 1 = Some
 
-        let struct_val = self.build_struct(opt_type, &[tag.into(), payload.into()], "some");
+        // Check if inner value is a struct (e.g., nested Option/Result)
+        // If so, store it directly instead of coercing to i64
+        if let BasicValueEnum::StructValue(_) = inner_val {
+            // Use the actual struct type for the payload
+            let inner_type = inner_val.get_type();
+            let opt_type = self.cx().option_type(inner_type);
+            let struct_val = self.build_struct(opt_type, &[tag.into(), inner_val], "some");
+            Some(struct_val.into())
+        } else {
+            // Use standardized Option type with i64 payload
+            let opt_type = self.cx().option_type(self.cx().scx.type_i64().into());
 
-        Some(struct_val.into())
+            // Coerce inner value to i64 for storage
+            let payload = self.coerce_to_i64(inner_val)?;
+
+            let struct_val = self.build_struct(opt_type, &[tag.into(), payload.into()], "some");
+
+            Some(struct_val.into())
+        }
     }
 
     /// Compile None.
     pub(crate) fn compile_none(&self, type_id: TypeId) -> Option<BasicValueEnum<'ll>> {
-        // For None, we need to know the inner type to create the right struct.
-        // Since we don't have that info easily, use i64 as default payload.
-        let payload_type = self.cx().llvm_type(type_id);
-
-        // If we got a pointer type (unknown), use i64 as default
-        let payload_type = if payload_type.is_pointer_type() {
-            self.cx().scx.type_i64().into()
+        // type_id is the type of the whole Option<T> expression.
+        // We need to extract the inner type T to build the correct struct.
+        let payload_type = if let Some(inner) = self.cx().option_inner_type(type_id) {
+            // We know the inner type - use it for the payload
+            self.cx().llvm_type(inner)
         } else {
-            payload_type
+            // Fall back to i64 if we can't determine inner type
+            self.cx().scx.type_i64().into()
         };
 
         let opt_type = self.cx().option_type(payload_type);
@@ -84,7 +93,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         _type_id: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -123,7 +132,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         _type_id: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {

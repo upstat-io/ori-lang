@@ -3,6 +3,13 @@
 //! This is the portable interpreter that can run in both native and WASM contexts.
 //! For the full Salsa-integrated evaluator, see `oric::Evaluator`.
 //!
+//! # Specification
+//!
+//! - Eval rules: `docs/ori_lang/0.1-alpha/spec/operator-rules.md`
+//! - Prose: `docs/ori_lang/0.1-alpha/spec/09-expressions.md`
+//!
+//! Implementation must match the evaluation rules in operator-rules.md.
+//!
 //! # Modular Architecture
 //!
 //! The interpreter's `eval()` method acts as a dispatcher, delegating to specialized
@@ -60,11 +67,12 @@ use crate::{
     evaluate_unary,
     for_requires_iterable,
     hash_outside_index,
-    map_keys_must_be_strings,
+    map_key_not_hashable,
     no_member_in_module,
     non_exhaustive_match,
     parse_error,
     self_outside_method,
+    spread_requires_map,
     undefined_config,
     undefined_function,
     undefined_variable,
@@ -79,8 +87,9 @@ use crate::{
 };
 use ori_ir::{
     ArmRange, BinaryOp, BindingPattern, ExprArena, ExprId, ExprKind, Name, SharedArena, StmtKind,
-    StringInterner, UnaryOp,
+    StringInterner, TypeId, UnaryOp,
 };
+use ori_types::SharedTypeInterner;
 use rustc_hash::FxHashMap;
 
 /// Pre-interned type names for hot-path method dispatch.
@@ -228,6 +237,18 @@ pub struct Interpreter<'a> {
     ///
     /// This provides RAII-style panic safety for function call evaluation.
     pub(crate) owns_scoped_env: bool,
+    /// Expression type table from type checking.
+    ///
+    /// Maps `ExprId.index()` to `TypeId`. Used by operators like `??` that need
+    /// type information to determine correct behavior (e.g., chaining vs unwrapping).
+    /// Optional because some evaluator uses don't require type info.
+    pub(crate) expr_types: Option<&'a [TypeId]>,
+    /// Type interner for resolving `TypeId` to `TypeData`.
+    ///
+    /// Required when `expr_types` is set to look up actual type information.
+    /// Currently unused but retained for future error message improvements.
+    #[allow(dead_code)]
+    pub(crate) type_interner: Option<SharedTypeInterner>,
 }
 
 /// RAII Drop implementation for panic-safe scope cleanup.
@@ -341,6 +362,21 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    /// Check if two expressions have the same type.
+    ///
+    /// Used by the `??` operator to determine whether to chain or unwrap.
+    /// Chaining: left type == result type → return left unchanged
+    /// Unwrapping: left type ≠ result type → return inner value
+    ///
+    /// Returns `None` if type info is not available.
+    #[inline]
+    fn types_match(&self, expr1: ExprId, expr2: ExprId) -> Option<bool> {
+        let expr_types = self.expr_types?;
+        let type1 = expr_types.get(expr1.index())?;
+        let type2 = expr_types.get(expr2.index())?;
+        Some(type1 == type2)
+    }
+
     /// Evaluate an expression.
     ///
     /// Uses `ensure_sufficient_stack` to prevent stack overflow
@@ -409,7 +445,7 @@ impl<'a> Interpreter<'a> {
             ),
 
             // Operators
-            ExprKind::Binary { left, op, right } => self.eval_binary(*left, *op, *right),
+            ExprKind::Binary { left, op, right } => self.eval_binary(expr_id, *left, *op, *right),
             ExprKind::Unary { op, operand } => self.eval_unary(*op, *operand),
 
             // Control flow
@@ -430,6 +466,29 @@ impl<'a> Interpreter<'a> {
 
             // Collections
             ExprKind::List(range) => Ok(Value::list(self.eval_expr_list(*range)?)),
+            ExprKind::ListWithSpread(elements) => {
+                let element_list = self.arena.get_list_elements(*elements);
+                let mut result = Vec::new();
+                for element in element_list {
+                    match element {
+                        ori_ir::ListElement::Expr { expr, .. } => {
+                            result.push(self.eval(*expr)?);
+                        }
+                        ori_ir::ListElement::Spread { expr, .. } => {
+                            // Evaluate the spread expression and append all its elements
+                            let spread_val = self.eval(*expr)?;
+                            if let Value::List(items) = spread_val {
+                                result.extend(items.iter().cloned());
+                            } else {
+                                return Err(EvalError::new(
+                                    "spread operator requires a list".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                }
+                Ok(Value::list(result))
+            }
             ExprKind::Tuple(range) => Ok(Value::tuple(self.eval_expr_list(*range)?)),
             ExprKind::Range {
                 start,
@@ -558,10 +617,34 @@ impl<'a> Interpreter<'a> {
                 for entry in entry_list {
                     let key = self.eval(entry.key)?;
                     let value = self.eval(entry.value)?;
-                    if let Value::Str(k) = key {
-                        map.insert(k.to_string(), value);
-                    } else {
-                        return Err(map_keys_must_be_strings());
+                    let key_str = key.to_map_key().map_err(|_| map_key_not_hashable())?;
+                    map.insert(key_str, value);
+                }
+                Ok(Value::map(map))
+            }
+
+            // Map literal with spread
+            ExprKind::MapWithSpread(elements) => {
+                let element_list = self.arena.get_map_elements(*elements);
+                let mut map = std::collections::BTreeMap::new();
+                for element in element_list {
+                    match element {
+                        ori_ir::MapElement::Entry(entry) => {
+                            let key = self.eval(entry.key)?;
+                            let value = self.eval(entry.value)?;
+                            let key_str = key.to_map_key().map_err(|_| map_key_not_hashable())?;
+                            map.insert(key_str, value);
+                        }
+                        ori_ir::MapElement::Spread { expr, .. } => {
+                            let spread_val = self.eval(*expr)?;
+                            if let Value::Map(spread_map) = spread_val {
+                                for (k, v) in spread_map.iter() {
+                                    map.insert(k.clone(), v.clone());
+                                }
+                            } else {
+                                return Err(spread_requires_map());
+                            }
+                        }
                     }
                 }
                 Ok(Value::map(map))
@@ -587,6 +670,47 @@ impl<'a> Interpreter<'a> {
                 Ok(Value::Struct(StructValue::new(*name, field_values)))
             }
 
+            // Struct literal with spread (not yet implemented in evaluator)
+            ExprKind::StructWithSpread { name, fields } => {
+                // Parse the fields, applying spreads and overrides
+                let field_list = self.arena.get_struct_lit_fields(*fields);
+                let mut field_values: FxHashMap<Name, Value> = FxHashMap::default();
+
+                for field in field_list {
+                    match field {
+                        ori_ir::StructLitField::Field(init) => {
+                            let value = if let Some(v) = init.value {
+                                self.eval(v)?
+                            } else {
+                                // Shorthand: { x } means { x: x }
+                                self.env.lookup(init.name).ok_or_else(|| {
+                                    let name_str = self.interner.lookup(init.name);
+                                    undefined_variable(name_str)
+                                })?
+                            };
+                            field_values.insert(init.name, value);
+                        }
+                        ori_ir::StructLitField::Spread { expr, .. } => {
+                            // Evaluate the spread expression and merge its fields
+                            let spread_val = self.eval(*expr)?;
+                            if let Value::Struct(sv) = spread_val {
+                                // Iterate through the layout's field indices to get names and values
+                                for (field_name, idx) in sv.layout.iter() {
+                                    if let Some(v) = sv.fields.get(idx) {
+                                        field_values.insert(field_name, v.clone());
+                                    }
+                                }
+                            } else {
+                                return Err(EvalError::new(
+                                    "spread requires a struct value".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                }
+                Ok(Value::Struct(StructValue::new(*name, field_values)))
+            }
+
             ExprKind::Break(v) => {
                 let val = v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void);
                 Err(EvalError::break_with(val))
@@ -608,6 +732,10 @@ impl<'a> Interpreter<'a> {
                 Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
                 other => Ok(other),
             },
+            ExprKind::Cast { expr, ty, fallible } => {
+                let value = self.eval(*expr)?;
+                self.eval_cast(value, ty, *fallible)
+            }
             ExprKind::Config(name) => self
                 .env
                 .lookup(*name)
@@ -635,6 +763,112 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    /// Evaluate a type cast: `expr as type` or `expr as? type`
+    ///
+    /// Handles conversions between primitive types:
+    /// - int -> float, int -> byte, byte -> int, char -> int, int -> char
+    /// - str -> int (with `as?`), str -> float (with `as?`)
+    fn eval_cast(&self, value: Value, ty: &ori_ir::ParsedType, fallible: bool) -> EvalResult {
+        // Get the target type name from the parsed type
+        let target_name = match ty {
+            ori_ir::ParsedType::Primitive(type_id) => type_id.name().unwrap_or("?"),
+            ori_ir::ParsedType::Named { name, type_args } if type_args.is_empty() => {
+                self.interner.lookup(*name)
+            }
+            _ => {
+                return Err(EvalError::new(format!(
+                    "unsupported cast target type: {ty:?}"
+                )));
+            }
+        };
+
+        let result = match (target_name, &value) {
+            // int conversions
+            #[allow(clippy::cast_precision_loss)] // intentional: int to float conversion
+            ("float", Value::Int(n)) => Ok(Value::Float(n.raw() as f64)),
+            ("byte", Value::Int(n)) => {
+                let raw = n.raw();
+                if !(0..=255).contains(&raw) {
+                    if fallible {
+                        return Ok(Value::None);
+                    }
+                    return Err(EvalError::new(format!(
+                        "value {raw} out of range for byte (0-255)"
+                    )));
+                }
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                Ok(Value::Byte(raw as u8))
+            }
+            ("char", Value::Int(n)) => {
+                let raw = n.raw();
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                if let Some(c) = char::from_u32(raw as u32) {
+                    Ok(Value::Char(c))
+                } else if fallible {
+                    return Ok(Value::None);
+                } else {
+                    return Err(EvalError::new(format!(
+                        "value {raw} is not a valid Unicode codepoint"
+                    )));
+                }
+            }
+
+            // byte conversions
+            ("int", Value::Byte(b)) => Ok(Value::int(i64::from(*b))),
+
+            // char conversions
+            ("int", Value::Char(c)) => Ok(Value::int(i64::from(*c as u32))),
+
+            // float conversions
+            #[allow(clippy::cast_possible_truncation)]
+            ("int", Value::Float(f)) => Ok(Value::int(*f as i64)),
+
+            // string parsing (always fallible semantically, but `as` will panic)
+            ("int", Value::Str(s)) => match s.parse::<i64>() {
+                Ok(n) => Ok(Value::int(n)),
+                Err(_) if fallible => return Ok(Value::None),
+                Err(_) => {
+                    return Err(EvalError::new(format!("cannot parse '{s}' as int")));
+                }
+            },
+            ("float", Value::Str(s)) => match s.parse::<f64>() {
+                Ok(n) => Ok(Value::Float(n)),
+                Err(_) if fallible => return Ok(Value::None),
+                Err(_) => {
+                    return Err(EvalError::new(format!("cannot parse '{s}' as float")));
+                }
+            },
+
+            // Identity conversions (value already matches target type)
+            ("int", Value::Int(_))
+            | ("float", Value::Float(_))
+            | ("str", Value::Str(_))
+            | ("bool", Value::Bool(_))
+            | ("byte", Value::Byte(_))
+            | ("char", Value::Char(_)) => Ok(value),
+
+            // str conversion - anything can become a string
+            ("str", v) => Ok(Value::string(v.to_string())),
+
+            _ => {
+                if fallible {
+                    return Ok(Value::None);
+                }
+                Err(EvalError::new(format!(
+                    "cannot convert {} to {target_name}",
+                    value.type_name()
+                )))
+            }
+        };
+
+        // For `as?`, wrap successful result in Some
+        if fallible {
+            result.map(Value::some)
+        } else {
+            result
+        }
+    }
+
     /// Evaluate a unary operation.
     fn eval_unary(&mut self, op: UnaryOp, operand: ExprId) -> EvalResult {
         let value = self.eval(operand)?;
@@ -659,10 +893,19 @@ impl<'a> Interpreter<'a> {
     /// Operators with trait implementations (Add, Sub, Mul, etc.) dispatch through
     /// the method system uniformly for all types. Comparison, logical, and range
     /// operators use direct evaluation.
-    fn eval_binary(&mut self, left: ExprId, op: BinaryOp, right: ExprId) -> EvalResult {
+    ///
+    /// The `binary_expr_id` is the ID of the binary expression itself (not the operands),
+    /// used for looking up the result type when type information is available.
+    fn eval_binary(
+        &mut self,
+        binary_expr_id: ExprId,
+        left: ExprId,
+        op: BinaryOp,
+        right: ExprId,
+    ) -> EvalResult {
         let left_val = self.eval(left)?;
 
-        // Short-circuit for && and ||
+        // Short-circuit for &&, ||, and ??
         match op {
             BinaryOp::And => {
                 if !left_val.is_truthy() {
@@ -677,6 +920,51 @@ impl<'a> Interpreter<'a> {
                 }
                 let right_val = self.eval(right)?;
                 return Ok(Value::Bool(right_val.is_truthy()));
+            }
+            BinaryOp::Coalesce => {
+                // Null coalescing with type-aware behavior:
+                // - Option<T> ?? Option<T> -> Option<T> (chaining: return left as-is)
+                // - Option<T> ?? T -> T (unwrap: return inner value)
+                // Same pattern for Result<T, E>.
+                //
+                // Chaining vs unwrapping is determined by comparing types:
+                // - If left type == result type → chaining (return left unchanged)
+                // - If left type ≠ result type → unwrapping (return inner value)
+                //
+                // This handles nested Options correctly:
+                // - Option<Option<int>> ?? Option<int> → unwrap (types differ)
+                // - Option<int> ?? Option<int> → chain (types match)
+                //
+                // Short-circuit: right is NOT evaluated when left is Some/Ok.
+                let is_chaining = self.types_match(left, binary_expr_id) == Some(true);
+
+                match left_val {
+                    Value::Some(inner) => {
+                        // If left type == result type, we're chaining - return left unchanged
+                        if is_chaining {
+                            return Ok(Value::Some(inner));
+                        }
+                        // Otherwise unwrap (return inner value)
+                        return Ok((*inner).clone());
+                    }
+                    Value::Ok(inner) => {
+                        // If left type == result type, we're chaining - return left unchanged
+                        if is_chaining {
+                            return Ok(Value::Ok(inner));
+                        }
+                        // Otherwise unwrap (return inner value)
+                        return Ok((*inner).clone());
+                    }
+                    Value::None | Value::Err(_) => {
+                        return self.eval(right);
+                    }
+                    _ => {
+                        return Err(EvalError::new(format!(
+                            "operator '??' requires Option or Result, got {}",
+                            left_val.type_name()
+                        )));
+                    }
+                }
             }
             _ => {}
         }

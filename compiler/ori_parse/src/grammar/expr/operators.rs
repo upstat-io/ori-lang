@@ -2,6 +2,12 @@
 //!
 //! Helper methods for matching binary and unary operators during parsing.
 //!
+//! # Specification
+//!
+//! - Syntax: `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` § EXPRESSIONS
+//! - Semantics: `docs/ori_lang/0.1-alpha/spec/operator-rules.md`
+//! - Precedence: `docs/ori_lang/0.1-alpha/spec/operator-rules.md` § Precedence Table
+//!
 //! ## Compound Operators
 //!
 //! The lexer produces individual `>` tokens to enable parsing nested generics
@@ -77,13 +83,14 @@ impl Parser<'_> {
         }
     }
 
-    /// Match multiplicative operators: `*`, `/`, `%`
+    /// Match multiplicative operators: `*`, `/`, `%`, `div`
     /// Returns `(op, token_count)` where `token_count` is always 1.
     pub(crate) fn match_multiplicative_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
             TokenKind::Star => Some((BinaryOp::Mul, 1)),
             TokenKind::Slash => Some((BinaryOp::Div, 1)),
             TokenKind::Percent => Some((BinaryOp::Mod, 1)),
+            TokenKind::Div => Some((BinaryOp::FloorDiv, 1)),
             _ => None,
         }
     }
@@ -99,31 +106,34 @@ impl Parser<'_> {
 
     /// Match `function_exp` keywords.
     pub(crate) fn match_function_exp_kind(&self) -> Option<FunctionExpKind> {
-        // Compiler pattern keywords (require special syntax or static analysis)
-        match self.current_kind() {
-            TokenKind::Recurse => return Some(FunctionExpKind::Recurse),
-            TokenKind::Parallel => return Some(FunctionExpKind::Parallel),
-            TokenKind::Spawn => return Some(FunctionExpKind::Spawn),
-            TokenKind::Timeout => return Some(FunctionExpKind::Timeout),
-            TokenKind::Cache => return Some(FunctionExpKind::Cache),
-            TokenKind::With => {
-                // Check if this is capability provision syntax: with Ident =
-                // If so, don't treat it as a function_exp - it's a special expression
-                if self.is_with_capability_syntax() {
-                    return None;
-                }
+        // `with` has special capability provision syntax: with Ident = ...
+        // Check for that case first
+        if matches!(self.current_kind(), TokenKind::With) {
+            if self.is_with_capability_syntax() {
+                return None;
+            }
+            if self.next_is_lparen() {
                 return Some(FunctionExpKind::With);
             }
-            _ => {}
+            return None;
         }
 
-        // Fundamental built-in functions are context-sensitive:
-        // only keywords when followed by `(`
+        // All pattern/function keywords are context-sensitive:
+        // only treated as keywords when followed by `(`
         if !self.next_is_lparen() {
             return None;
         }
 
         match self.current_kind() {
+            // Compiler pattern keywords (require special syntax or static analysis)
+            TokenKind::Recurse => Some(FunctionExpKind::Recurse),
+            TokenKind::Parallel => Some(FunctionExpKind::Parallel),
+            TokenKind::Spawn => Some(FunctionExpKind::Spawn),
+            TokenKind::Timeout => Some(FunctionExpKind::Timeout),
+            TokenKind::Cache => Some(FunctionExpKind::Cache),
+            TokenKind::With => Some(FunctionExpKind::With),
+
+            // Fundamental built-in functions
             TokenKind::Print => Some(FunctionExpKind::Print),
             TokenKind::Panic => Some(FunctionExpKind::Panic),
             TokenKind::Catch => Some(FunctionExpKind::Catch),

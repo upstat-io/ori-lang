@@ -8,6 +8,11 @@ use crate::builder::Builder;
 
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a binary operation.
+    ///
+    /// # Parameters
+    /// - `op`: The binary operator
+    /// - `lhs`, `rhs`: The compiled operand values
+    /// - `operand_type`: The `TypeId` of the left operand (used to distinguish struct types)
     #[expect(
         clippy::too_many_lines,
         reason = "large match on BinaryOp - splitting would obscure the operation dispatch"
@@ -17,24 +22,41 @@ impl<'ll> Builder<'_, 'll, '_> {
         op: BinaryOp,
         lhs: BasicValueEnum<'ll>,
         rhs: BasicValueEnum<'ll>,
-        _result_type: TypeId,
+        operand_type: TypeId,
     ) -> Option<BasicValueEnum<'ll>> {
         // Determine the operand type - both must be the same type for binary ops
         let lhs_is_struct = matches!(lhs, BasicValueEnum::StructValue(_));
         let rhs_is_struct = matches!(rhs, BasicValueEnum::StructValue(_));
         let both_struct = lhs_is_struct && rhs_is_struct;
-        let is_float = matches!(lhs, BasicValueEnum::FloatValue(_));
+        let lhs_is_float = matches!(lhs, BasicValueEnum::FloatValue(_));
+        let rhs_is_float = matches!(rhs, BasicValueEnum::FloatValue(_));
+        let is_ptr = matches!(lhs, BasicValueEnum::PointerValue(_))
+            || matches!(rhs, BasicValueEnum::PointerValue(_));
         // If one is struct and the other isn't, we can't do the operation
         let is_struct = lhs_is_struct || rhs_is_struct;
+
+        // Check if this is specifically a string type (for struct operations)
+        let is_string_type = operand_type == TypeId::STR;
+
+        // Pointer arithmetic is not supported through normal binary ops
+        if is_ptr {
+            return None;
+        }
+
+        // Mixed float/int operations not supported - require explicit conversion
+        if lhs_is_float != rhs_is_float {
+            return None;
+        }
+        let is_float = lhs_is_float;
 
         match op {
             // Arithmetic
             BinaryOp::Add => {
-                if both_struct {
+                if both_struct && is_string_type {
                     // String concatenation - call runtime function
                     self.compile_str_concat(lhs, rhs)
                 } else if is_struct {
-                    // Mixed types - not supported
+                    // Struct types other than strings don't support +
                     None
                 } else if is_float {
                     let l = lhs.into_float_value();
@@ -48,7 +70,10 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
 
             BinaryOp::Sub => {
-                if is_float {
+                if is_struct {
+                    // Struct types don't support subtraction
+                    None
+                } else if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
                     Some(self.fsub(l, r, "fsub").into())
@@ -60,7 +85,10 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
 
             BinaryOp::Mul => {
-                if is_float {
+                if is_struct {
+                    // Struct types don't support multiplication
+                    None
+                } else if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
                     Some(self.fmul(l, r, "fmul").into())
@@ -72,7 +100,10 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
 
             BinaryOp::Div => {
-                if is_float {
+                if is_struct {
+                    // Struct types don't support division
+                    None
+                } else if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
                     Some(self.fdiv(l, r, "fdiv").into())
@@ -84,7 +115,10 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
 
             BinaryOp::Mod => {
-                if is_float {
+                if is_struct {
+                    // Struct types don't support modulo
+                    None
+                } else if is_float {
                     let l = lhs.into_float_value();
                     let r = rhs.into_float_value();
                     Some(self.frem(l, r, "frem").into())
@@ -97,9 +131,10 @@ impl<'ll> Builder<'_, 'll, '_> {
 
             // Comparisons
             BinaryOp::Eq => {
-                if both_struct {
+                if both_struct && is_string_type {
                     self.compile_str_eq(lhs, rhs)
                 } else if is_struct {
+                    // Struct equality for non-string types not yet implemented
                     None
                 } else if is_float {
                     let l = lhs.into_float_value();
@@ -113,9 +148,10 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
 
             BinaryOp::NotEq => {
-                if both_struct {
+                if both_struct && is_string_type {
                     self.compile_str_ne(lhs, rhs)
                 } else if is_struct {
+                    // Struct inequality for non-string types not yet implemented
                     None
                 } else if is_float {
                     let l = lhs.into_float_value();

@@ -304,8 +304,9 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_map_str_int tests @map_str_int () -> void = run(
     let ages = {"alice": 30, "bob": 25},
+    // Map indexing returns Option<V>
     let alice_age = ages["alice"],
-    assert_eq(actual: alice_age, expected: 30),
+    assert_eq(actual: alice_age, expected: Some(30)),
 )
 
 @test_map_empty tests @map_empty () -> void = run(
@@ -316,7 +317,8 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_map_bool_values tests @map_bool_values () -> void = run(
     let flags = {"enabled": true, "debug": false},
-    let enabled = flags["enabled"],
+    // Map indexing returns Option<V>, use ?? to unwrap
+    let enabled = flags["enabled"] ?? false,
     assert(cond: enabled),
 )
 
@@ -363,21 +365,24 @@ use std.testing { assert, assert_eq, assert_ne }
 @test_list_of_maps tests @list_of_maps () -> void = run(
     let people = [{"name": "Alice"}, {"name": "Bob"}],
     let first = people[0],
+    // Map indexing returns Option<V>
     let name = first["name"],
-    assert_eq(actual: name, expected: "Alice"),
+    assert_eq(actual: name, expected: Some("Alice")),
 )
 
 @test_map_of_lists tests @map_of_lists () -> void = run(
     let groups = {"evens": [2, 4, 6], "odds": [1, 3, 5]},
-    let evens = groups["evens"],
+    // Map indexing returns Option<V>, use ?? to unwrap for further operations
+    let evens = groups["evens"] ?? [],
     assert_eq(actual: evens[0], expected: 2),
 )
 
 @test_tuple_of_maps tests @tuple_of_maps () -> void = run(
     let t = ({"a": 1}, {"b": 2}),
     let (first, second) = t,
-    assert_eq(actual: first["a"], expected: 1),
-    assert_eq(actual: second["b"], expected: 2),
+    // Map indexing returns Option<V>
+    assert_eq(actual: first["a"], expected: Some(1)),
+    assert_eq(actual: second["b"], expected: Some(2)),
 )
 
 @test_option_unwrap_or_list tests @option_unwrap_or_list () -> void = run(

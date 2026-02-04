@@ -1,11 +1,9 @@
 //! Map compilation.
 
-use rustc_hash::FxHashMap;
-
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, Name, TypeId};
+use ori_ir::{ExprArena, TypeId};
 
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
@@ -15,7 +13,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         entries: ori_ir::ast::MapEntryRange,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {

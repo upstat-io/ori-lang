@@ -1,97 +1,474 @@
 // Spec: 08-declarations.md § Function Declarations
-// Design: 03-type-system/05-type-inference.md
+// Tests for function declarations (grammar.ebnf § function_decl)
 
 use std.testing { assert, assert_eq, assert_ne }
+
+// =============================================================================
+// Basic Function Declaration
+// =============================================================================
+
+@simple () -> int = 42
+
+@test_simple tests @simple () -> void = run(
+    assert_eq(actual: simple(), expected: 42),
+)
+
+@no_params () -> str = "hello"
+
+@test_no_params tests @no_params () -> void = run(
+    assert_eq(actual: no_params(), expected: "hello"),
+)
 
 // =============================================================================
 // Function Parameter Type Annotations
 // =============================================================================
 
-@test_typed_param tests @typed_param () -> void = run(
-    let result = typed_param(x: 5),
-    assert_eq(
-        actual: result,
-        expected: 10,
-    ),
-)
-
 @typed_param (x: int) -> int = x * 2
 
-@test_multiple_typed_params tests @multiple_typed_params () -> void = run(
-    let result = multiple_typed_params(
-        a: 3,
-        b: 4,
-    ),
-    assert_eq(
-        actual: result,
-        expected: 7,
-    ),
+@test_typed_param tests @typed_param () -> void = run(
+    assert_eq(actual: typed_param(x: 5), expected: 10),
+    assert_eq(actual: typed_param(x: 0), expected: 0),
+    assert_eq(actual: typed_param(x: -3), expected: -6),
 )
 
 @multiple_typed_params (a: int, b: int) -> int = a + b
 
-@test_mixed_types tests @mixed_types () -> void = run(
-    let result = mixed_types(
-        x: 5,
-        y: 2.5,
-    ),
-    assert(cond: result > 7.0),
-    assert(cond: result < 8.0),
+@test_multiple_typed_params tests @multiple_typed_params () -> void = run(
+    assert_eq(actual: multiple_typed_params(a: 3, b: 4), expected: 7),
 )
 
 @mixed_types (x: int, y: float) -> float = float(x) + y
+
+@test_mixed_types tests @mixed_types () -> void = run(
+    let result = mixed_types(x: 5, y: 2.5),
+    assert(cond: result > 7.4),
+    assert(cond: result < 7.6),
+)
 
 // =============================================================================
 // Function Return Type Annotations
 // =============================================================================
 
-@test_explicit_return_int tests @explicit_return_int () -> void = run(
-    let result = explicit_return_int(),
-    assert_eq(
-        actual: result,
-        expected: 42,
-    ),
-)
-
 @explicit_return_int () -> int = 42
 
-@test_explicit_return_str tests @explicit_return_str () -> void = run(
-    let result = explicit_return_str(),
-    assert_eq(
-        actual: result,
-        expected: "hello",
-    ),
+@test_explicit_return_int tests @explicit_return_int () -> void = run(
+    assert_eq(actual: explicit_return_int(), expected: 42),
 )
 
 @explicit_return_str () -> str = "hello"
 
-@test_explicit_return_bool tests @explicit_return_bool () -> void = run(
-    let result = explicit_return_bool(),
-    assert(cond: result),
+@test_explicit_return_str tests @explicit_return_str () -> void = run(
+    assert_eq(actual: explicit_return_str(), expected: "hello"),
 )
 
 @explicit_return_bool () -> bool = true
+
+@test_explicit_return_bool tests @explicit_return_bool () -> void = run(
+    assert(cond: explicit_return_bool()),
+)
+
+@explicit_return_void () -> void = ()
 
 @test_explicit_return_void tests @explicit_return_void () -> void = run(
     explicit_return_void(),
     assert(cond: true),
 )
 
-@explicit_return_void () -> void = ()
+@explicit_return_float () -> float = 3.14
+
+@test_explicit_return_float tests @explicit_return_float () -> void = run(
+    let result = explicit_return_float(),
+    assert(cond: result > 3.13),
+    assert(cond: result < 3.15),
+)
 
 // =============================================================================
 // Full Function Signatures
 // =============================================================================
 
+@full_signature (n: int, prefix: str) -> str = prefix + ": " + str(n)
+
 @test_full_signature tests @full_signature () -> void = run(
-    let result = full_signature(
-        n: 10,
-        prefix: "hello",
-    ),
-    assert_eq(
-        actual: result,
-        expected: "hello: 10",
-    ),
+    assert_eq(actual: full_signature(n: 10, prefix: "value"), expected: "value: 10"),
 )
 
-@full_signature (n: int, prefix: str) -> str = prefix + ": " + str(n)
+// =============================================================================
+// Public Functions
+// =============================================================================
+// Per spec: "Private by default; `pub` exports"
+
+pub @public_add (a: int, b: int) -> int = a + b
+
+@test_public_add tests @public_add () -> void = run(
+    assert_eq(actual: public_add(a: 10, b: 20), expected: 30),
+)
+
+pub @public_identity<T> (x: T) -> T = x
+
+@test_public_identity tests @public_identity () -> void = run(
+    assert_eq(actual: public_identity(x: 42), expected: 42),
+    assert_eq(actual: public_identity(x: "test"), expected: "test"),
+)
+
+// =============================================================================
+// Expression-Based (No Return Statement)
+// =============================================================================
+// Per CLAUDE.md: "Every block's value is its last expression. There is no `return` statement."
+
+@expression_based (x: int) -> int = run(
+    let doubled = x * 2,
+    let tripled = x * 3,
+    doubled + tripled,  // Last expression is the return value
+)
+
+@test_expression_based tests @expression_based () -> void = run(
+    assert_eq(actual: expression_based(x: 10), expected: 50),  // 20 + 30
+)
+
+// =============================================================================
+// Functions Returning Different Types
+// =============================================================================
+
+@return_tuple (x: int, y: int) -> (int, int) = (x, y)
+
+@test_return_tuple tests @return_tuple () -> void = run(
+    let (a, b) = return_tuple(x: 10, y: 20),
+    assert_eq(actual: a, expected: 10),
+    assert_eq(actual: b, expected: 20),
+)
+
+@return_list (n: int) -> [int] = [n, n * 2, n * 3]
+
+@test_return_list tests @return_list () -> void = run(
+    let list = return_list(n: 5),
+    assert_eq(actual: list[0], expected: 5),
+    assert_eq(actual: list[1], expected: 10),
+    assert_eq(actual: list[2], expected: 15),
+)
+
+@return_option (n: int) -> Option<int> = if n > 0 then Some(n) else None
+
+@test_return_option tests @return_option () -> void = run(
+    assert(cond: is_some(opt: return_option(n: 5))),
+    assert(cond: is_none(opt: return_option(n: -5))),
+)
+
+@return_result (n: int) -> Result<int, str> =
+    if n >= 0 then Ok(n) else Err("negative")
+
+@test_return_result tests @return_result () -> void = run(
+    assert(cond: is_ok(result: return_result(n: 5))),
+    assert(cond: is_err(result: return_result(n: -5))),
+)
+
+// =============================================================================
+// Variadic Parameters
+// =============================================================================
+// Per spec: "A variadic parameter accepts zero or more arguments of the same type"
+//
+// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - variadic calling not implemented
+// Evaluator does not pack multiple arguments into the variadic list parameter.
+
+@sum_ints (nums: ...int) -> int =
+    nums.fold(initial: 0, op: (acc, n) -> acc + n)
+
+#skip("variadic function calling not implemented in evaluator")
+@test_variadic_empty tests @sum_ints () -> void = run(
+    assert_eq(actual: sum_ints(), expected: 0),
+)
+
+#skip("variadic function calling not implemented in evaluator")
+@test_variadic_single tests @sum_ints () -> void = run(
+    assert_eq(actual: sum_ints(10), expected: 10),
+)
+
+#skip("variadic function calling not implemented in evaluator")
+@test_variadic_multiple tests @sum_ints () -> void = run(
+    assert_eq(actual: sum_ints(1, 2, 3, 4, 5), expected: 15),
+)
+
+// Variadic after required parameter
+@log_message (level: str, messages: ...str) -> str =
+    "[" + level + "] " + messages.fold(initial: "", op: (acc, m) -> if acc == "" then m else acc + " " + m)
+
+#skip("variadic function calling not implemented in evaluator")
+@test_variadic_with_required tests @log_message () -> void = run(
+    assert_eq(actual: log_message(level: "INFO", "hello", "world"), expected: "[INFO] hello world"),
+)
+
+// Variadic requiring at least one
+@max_of (first: int, rest: ...int) -> int =
+    rest.fold(initial: first, op: (acc, n) -> if n > acc then n else acc)
+
+#skip("variadic function calling not implemented in evaluator")
+@test_variadic_at_least_one tests @max_of () -> void = run(
+    assert_eq(actual: max_of(first: 5, 3, 8, 2, 9, 1), expected: 9),
+    assert_eq(actual: max_of(first: 42), expected: 42),
+)
+
+// Spread into variadic
+#skip("variadic function calling not implemented in evaluator")
+@test_variadic_spread tests @sum_ints () -> void = run(
+    let nums = [1, 2, 3, 4, 5],
+    assert_eq(actual: sum_ints(...nums), expected: 15),
+)
+
+#skip("variadic function calling not implemented in evaluator")
+@test_variadic_mixed_spread tests @sum_ints () -> void = run(
+    let nums = [2, 3],
+    assert_eq(actual: sum_ints(1, ...nums, 4, 5), expected: 15),
+)
+
+// =============================================================================
+// Generic Variadic
+// =============================================================================
+//
+// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - variadic calling not implemented
+
+@count_items<T> (items: ...T) -> int =
+    items.fold(initial: 0, op: (acc, unused) -> acc + 1)
+
+#skip("variadic function calling not implemented in evaluator")
+@test_generic_variadic_int tests @count_items () -> void = run(
+    assert_eq(actual: count_items(1, 2, 3), expected: 3),
+)
+
+#skip("variadic function calling not implemented in evaluator")
+@test_generic_variadic_str tests @count_items () -> void = run(
+    assert_eq(actual: count_items("a", "b", "c", "d"), expected: 4),
+)
+
+// =============================================================================
+// Higher-Order Functions
+// =============================================================================
+
+@apply<T, U> (f: (T) -> U, x: T) -> U = f(x)
+
+@test_higher_order tests @apply () -> void = run(
+    let double = (n: int) -> int = n * 2,
+    assert_eq(actual: apply(f: double, x: 5), expected: 10),
+)
+
+@compose<A, B, C> (f: (B) -> C, g: (A) -> B) -> (A) -> C = (x) -> f(g(x))
+
+@test_compose tests @compose () -> void = run(
+    let double = (n: int) -> int = n * 2,
+    let add_one = (n: int) -> int = n + 1,
+    let composed = compose(f: add_one, g: double),
+    assert_eq(actual: composed(5), expected: 11),  // double(5) = 10, add_one(10) = 11
+)
+
+@curry_add (a: int) -> (int) -> int = (b) -> a + b
+
+@test_curry tests @curry_add () -> void = run(
+    let add_five = curry_add(a: 5),
+    assert_eq(actual: add_five(10), expected: 15),
+)
+
+// =============================================================================
+// Recursive Functions
+// =============================================================================
+
+@fib_rec (n: int) -> int =
+    if n <= 1 then n else fib_rec(n: n - 1) + fib_rec(n: n - 2)
+
+@test_fib_rec tests @fib_rec () -> void = run(
+    assert_eq(actual: fib_rec(n: 0), expected: 0),
+    assert_eq(actual: fib_rec(n: 1), expected: 1),
+    assert_eq(actual: fib_rec(n: 6), expected: 8),
+)
+
+@fact_rec (n: int) -> int =
+    if n <= 1 then 1 else n * fact_rec(n: n - 1)
+
+@test_fact_rec tests @fact_rec () -> void = run(
+    assert_eq(actual: fact_rec(n: 0), expected: 1),
+    assert_eq(actual: fact_rec(n: 5), expected: 120),
+)
+
+// =============================================================================
+// Mutually Recursive Functions
+// =============================================================================
+
+@is_even (n: int) -> bool =
+    if n == 0 then true else is_odd(n: n - 1)
+
+@is_odd (n: int) -> bool =
+    if n == 0 then false else is_even(n: n - 1)
+
+@test_mutual_recursion tests @is_even tests @is_odd () -> void = run(
+    assert(cond: is_even(n: 0)),
+    assert(cond: !is_odd(n: 0)),
+    assert(cond: is_even(n: 4)),
+    assert(cond: is_odd(n: 5)),
+)
+
+// =============================================================================
+// Functions with Complex Bodies
+// =============================================================================
+
+@complex_body (x: int, y: int) -> int = run(
+    let sum = x + y,
+    let product = x * y,
+    let difference = x - y,
+    if sum > 10 then product else difference,
+)
+
+@test_complex_body tests @complex_body () -> void = run(
+    assert_eq(actual: complex_body(x: 6, y: 5), expected: 30),   // sum=11 > 10, return product
+    assert_eq(actual: complex_body(x: 3, y: 2), expected: 1),    // sum=5 <= 10, return difference
+)
+
+// =============================================================================
+// Functions with Loops
+// =============================================================================
+
+@sum_range (start: int, end: int) -> int =
+    (for i in start..end yield i).fold(initial: 0, op: (acc, n) -> acc + n)
+
+@test_sum_range tests @sum_range () -> void = run(
+    assert_eq(actual: sum_range(start: 1, end: 5), expected: 10),  // 1+2+3+4
+)
+
+// =============================================================================
+// Functions with Pattern Matching
+// =============================================================================
+
+@describe_option (opt: Option<int>) -> str = match(opt,
+    Some(n) -> "has value: " + str(n),
+    None -> "no value",
+)
+
+@test_describe_option tests @describe_option () -> void = run(
+    assert_eq(actual: describe_option(opt: Some(42)), expected: "has value: 42"),
+    assert_eq(actual: describe_option(opt: None), expected: "no value"),
+)
+
+// =============================================================================
+// Single Parameter Functions
+// =============================================================================
+
+@double (n: int) -> int = n * 2
+
+@test_double tests @double () -> void = run(
+    assert_eq(actual: double(n: 0), expected: 0),
+    assert_eq(actual: double(n: 5), expected: 10),
+    assert_eq(actual: double(n: -3), expected: -6),
+)
+
+@negate (b: bool) -> bool = !b
+
+@test_negate tests @negate () -> void = run(
+    assert(cond: negate(b: false)),
+    assert(cond: !negate(b: true)),
+)
+
+// =============================================================================
+// Many Parameters
+// =============================================================================
+
+@many_params (a: int, b: int, c: int, d: int, e: int, f: int) -> int =
+    a + b + c + d + e + f
+
+@test_many_params tests @many_params () -> void = run(
+    assert_eq(actual: many_params(a: 1, b: 2, c: 3, d: 4, e: 5, f: 6), expected: 21),
+)
+
+// =============================================================================
+// Functions Returning Functions
+// =============================================================================
+
+@make_adder (n: int) -> (int) -> int = (x) -> x + n
+
+@test_make_adder tests @make_adder () -> void = run(
+    let add_10 = make_adder(n: 10),
+    assert_eq(actual: add_10(5), expected: 15),
+)
+
+@make_multiplier (n: int) -> (int) -> int = (x) -> x * n
+
+@test_make_multiplier tests @make_multiplier () -> void = run(
+    let times_3 = make_multiplier(n: 3),
+    assert_eq(actual: times_3(7), expected: 21),
+)
+
+// =============================================================================
+// Functions as Parameters
+// =============================================================================
+
+@map_int (f: (int) -> int, n: int) -> int = f(n)
+
+@test_map_int tests @map_int () -> void = run(
+    assert_eq(actual: map_int(f: (x) -> x * 2, n: 5), expected: 10),
+    assert_eq(actual: map_int(f: (x) -> x + 1, n: 5), expected: 6),
+)
+
+@filter_positive (predicate: (int) -> bool, n: int) -> Option<int> =
+    if predicate(n) then Some(n) else None
+
+@test_filter_positive tests @filter_positive () -> void = run(
+    let is_positive = (n: int) -> bool = n > 0,
+    assert(cond: is_some(opt: filter_positive(predicate: is_positive, n: 5))),
+    assert(cond: is_none(opt: filter_positive(predicate: is_positive, n: -5))),
+)
+
+// =============================================================================
+// Functions with All Primitive Types
+// =============================================================================
+
+@all_primitives (i: int, f: float, b: bool, s: str, c: char) -> str =
+    str(i) + " " + str(f) + " " + str(b) + " " + s + " " + str(c)
+
+@test_all_primitives tests @all_primitives () -> void = run(
+    let result = all_primitives(i: 42, f: 3.14, b: true, s: "hello", c: 'x'),
+    assert(cond: result.len() > 0),
+)
+
+// =============================================================================
+// Inline Lambda Calling (Single-Param Without Name)
+// =============================================================================
+// Per spec: "Named args required except: fn variables, single-param with inline lambda"
+//
+// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - inline lambda without named param not supported
+// Evaluator requires all args to be named.
+
+@apply_twice (f: (int) -> int, x: int) -> int = f(f(x))
+
+#skip("inline lambda without named param not implemented in evaluator")
+@test_inline_lambda tests @apply_twice () -> void = run(
+    // Single-param with inline lambda - can omit name
+    assert_eq(actual: apply_twice(x -> x + 1, x: 5), expected: 7),
+)
+
+// =============================================================================
+// Edge Cases
+// =============================================================================
+
+// Zero parameter function
+@constant_value () -> int = 42
+
+@test_constant_value tests @constant_value () -> void = run(
+    assert_eq(actual: constant_value(), expected: 42),
+)
+
+// Function returning unit
+@side_effect (n: int) -> void = run(
+    let _ = n * 2,
+    (),
+)
+
+@test_side_effect tests @side_effect () -> void = run(
+    side_effect(n: 10),
+    assert(cond: true),  // Just verify it runs
+)
+
+// Boolean logic functions
+@both (a: bool, b: bool) -> bool = a && b
+@either (a: bool, b: bool) -> bool = a || b
+
+@test_boolean_logic tests @both tests @either () -> void = run(
+    assert(cond: both(a: true, b: true)),
+    assert(cond: !both(a: true, b: false)),
+    assert(cond: either(a: true, b: false)),
+    assert(cond: !either(a: false, b: false)),
+)

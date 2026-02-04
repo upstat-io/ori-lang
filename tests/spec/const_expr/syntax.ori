@@ -1,0 +1,90 @@
+// Spec: 21-constant-expressions.md § Constant Expression Syntax
+// Tests for constant expression syntax (grammar.ebnf § const_expr)
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Literal Const Expressions
+// =============================================================================
+
+@const_int () -> int = 42
+
+@test_const_int tests @const_int () -> void = run(
+    assert_eq(actual: const_int(), expected: 42),
+)
+
+@const_bool () -> bool = true
+
+@test_const_bool tests @const_bool () -> void = run(
+    assert(cond: const_bool()),
+)
+
+// =============================================================================
+// Arithmetic Const Expressions
+// =============================================================================
+
+@const_add () -> int = 10 + 5
+
+@test_const_add tests @const_add () -> void = run(
+    assert_eq(actual: const_add(), expected: 15),
+)
+
+@const_mul () -> int = 3 * 4
+
+@test_const_mul tests @const_mul () -> void = run(
+    assert_eq(actual: const_mul(), expected: 12),
+)
+
+@const_complex () -> int = (2 + 3) * 4
+
+@test_const_complex tests @const_complex () -> void = run(
+    assert_eq(actual: const_complex(), expected: 20),
+)
+
+// =============================================================================
+// Comparison Const Expressions
+// =============================================================================
+
+@const_lt () -> bool = 1 < 2
+
+@test_const_lt tests @const_lt () -> void = run(
+    assert(cond: const_lt()),
+)
+
+@const_eq () -> bool = 10 == 10
+
+@test_const_eq tests @const_eq () -> void = run(
+    assert(cond: const_eq()),
+)
+
+// =============================================================================
+// Logical Const Expressions
+// =============================================================================
+
+@const_and () -> bool = true && true
+
+@test_const_and tests @const_and () -> void = run(
+    assert(cond: const_and()),
+)
+
+@const_or () -> bool = false || true
+
+@test_const_or tests @const_or () -> void = run(
+    assert(cond: const_or()),
+)
+
+@const_not () -> bool = !false
+
+@test_const_not tests @const_not () -> void = run(
+    assert(cond: const_not()),
+)
+
+// =============================================================================
+// Grouped Const Expressions
+// =============================================================================
+
+@const_grouped () -> bool = (1 < 2) && (3 > 1)
+
+@test_const_grouped tests @const_grouped () -> void = run(
+    assert(cond: const_grouped()),
+)

@@ -147,7 +147,10 @@ fn test_visit_function() {
     let body = arena.alloc_expr(Expr::new(ExprKind::Int(42), Span::new(20, 22)));
     let params = arena.alloc_params([Param {
         name: Name::new(0, 1),
+        pattern: None,
         ty: None,
+        default: None,
+        is_variadic: false,
         span: Span::new(6, 7),
     }]);
 
@@ -158,6 +161,7 @@ fn test_visit_function() {
         return_ty: None,
         capabilities: Vec::new(),
         where_clauses: Vec::new(),
+        guard: None,
         body,
         span: Span::new(0, 22),
         visibility: Visibility::Private,
@@ -183,6 +187,7 @@ fn test_visit_module() {
         return_ty: None,
         capabilities: Vec::new(),
         where_clauses: Vec::new(),
+        guard: None,
         body: body1,
         span: Span::new(0, 5),
         visibility: Visibility::Private,
@@ -195,6 +200,7 @@ fn test_visit_module() {
         return_ty: None,
         capabilities: Vec::new(),
         where_clauses: Vec::new(),
+        guard: None,
         body: body2,
         span: Span::new(10, 15),
         visibility: Visibility::Public,
@@ -304,12 +310,18 @@ fn test_visit_lambda_with_params() {
     let params = arena.alloc_params([
         Param {
             name: Name::new(0, 0),
+            pattern: None,
             ty: None,
+            default: None,
+            is_variadic: false,
             span: Span::new(1, 2),
         },
         Param {
             name: Name::new(0, 1),
+            pattern: None,
             ty: None,
+            default: None,
+            is_variadic: false,
             span: Span::new(4, 5),
         },
     ]);

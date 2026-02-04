@@ -220,6 +220,35 @@ pub fn infer_try(checker: &mut TypeChecker<'_>, inner: ExprId, _span: Span) -> T
     }
 }
 
+/// Infer type for cast expression: `expr as type` or `expr as? type`
+///
+/// - `as` (infallible): returns the target type directly
+/// - `as?` (fallible): returns `Option<target_type>`
+///
+/// The actual conversion validity is checked at evaluation time.
+/// The type checker accepts the cast and returns the appropriate type.
+pub fn infer_cast(
+    checker: &mut TypeChecker<'_>,
+    expr: ExprId,
+    target_ty: &ParsedType,
+    fallible: bool,
+    _span: Span,
+) -> Type {
+    // Infer the source expression type (for potential diagnostics)
+    let _source_ty = infer_expr(checker, expr);
+
+    // Convert the parsed type to a Type
+    let target = checker.parsed_type_to_type(target_ty);
+
+    if fallible {
+        // `as?` returns Option<T>
+        Type::Option(Box::new(target))
+    } else {
+        // `as` returns T directly
+        target
+    }
+}
+
 /// Infer type for assignment expression.
 pub fn infer_assign(
     checker: &mut TypeChecker<'_>,

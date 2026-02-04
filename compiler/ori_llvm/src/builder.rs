@@ -45,6 +45,67 @@ use ori_ir::{ExprArena, ExprId, Name, TypeId};
 use crate::context::CodegenCx;
 use crate::LoopContext;
 
+// ============================================================================
+// Local Variable Storage
+// ============================================================================
+
+/// Storage strategy for a local variable.
+///
+/// LLVM uses SSA (Static Single Assignment) where each value is assigned once.
+/// For mutable variables in loops, we need stack allocation with load/store
+/// so that reassignment updates the memory location, not an immutable SSA value.
+#[derive(Debug, Clone, Copy)]
+pub enum LocalStorage<'ctx> {
+    /// Immutable: SSA value in register (efficient, but can't be reassigned)
+    Immutable(BasicValueEnum<'ctx>),
+    /// Mutable: stack-allocated via alloca (supports reassignment via load/store)
+    Mutable {
+        /// Pointer to the stack slot
+        ptr: PointerValue<'ctx>,
+        /// Type of the stored value (needed for load instruction)
+        ty: BasicTypeEnum<'ctx>,
+    },
+}
+
+/// Manages local variable bindings with mutability awareness.
+///
+/// Replaces the simple `FxHashMap<Name, BasicValueEnum>` to track whether
+/// each variable needs SSA (immutable) or alloca/load/store (mutable) semantics.
+#[derive(Debug, Clone, Default)]
+pub struct Locals<'ctx> {
+    bindings: FxHashMap<Name, LocalStorage<'ctx>>,
+}
+
+impl<'ctx> Locals<'ctx> {
+    /// Create a new empty locals map.
+    pub fn new() -> Self {
+        Self {
+            bindings: FxHashMap::default(),
+        }
+    }
+
+    /// Bind an immutable variable (SSA value).
+    pub fn bind_immutable(&mut self, name: Name, value: BasicValueEnum<'ctx>) {
+        self.bindings.insert(name, LocalStorage::Immutable(value));
+    }
+
+    /// Bind a mutable variable (stack-allocated).
+    pub fn bind_mutable(&mut self, name: Name, ptr: PointerValue<'ctx>, ty: BasicTypeEnum<'ctx>) {
+        self.bindings
+            .insert(name, LocalStorage::Mutable { ptr, ty });
+    }
+
+    /// Get the storage for a variable.
+    pub fn get_storage(&self, name: &Name) -> Option<&LocalStorage<'ctx>> {
+        self.bindings.get(name)
+    }
+
+    /// Check if a variable exists.
+    pub fn contains(&self, name: &Name) -> bool {
+        self.bindings.contains_key(name)
+    }
+}
+
 /// LLVM instruction builder.
 ///
 /// Wraps an LLVM `IRBuilder` and provides methods for generating instructions.
@@ -653,6 +714,78 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         &self.llbuilder
     }
 
+    // -- Mutable Variable Support --
+
+    /// Create an alloca at function entry block.
+    ///
+    /// Placing allocas at the entry block is required for LLVM's `mem2reg` pass
+    /// to optimize stack allocations back to SSA registers when possible.
+    pub fn create_entry_alloca(
+        &self,
+        function: FunctionValue<'ll>,
+        name: &str,
+        ty: BasicTypeEnum<'ll>,
+    ) -> PointerValue<'ll> {
+        // Get the entry block
+        let entry = function
+            .get_first_basic_block()
+            .expect("function has entry block");
+
+        // Save current position
+        let current_block = self.current_block();
+
+        // Position at the start of entry block (after any existing allocas)
+        // We position at the end of entry, then move to start if there's no terminator yet
+        if let Some(first_instr) = entry.get_first_instruction() {
+            self.llbuilder.position_before(&first_instr);
+        } else {
+            self.position_at_end(entry);
+        }
+
+        // Create the alloca
+        let ptr = self.alloca(ty, name);
+
+        // Restore position
+        if let Some(block) = current_block {
+            self.position_at_end(block);
+        }
+
+        ptr
+    }
+
+    /// Load a variable, handling both immutable (SSA) and mutable (alloca) storage.
+    pub fn load_variable(&self, name: Name, locals: &Locals<'ll>) -> Option<BasicValueEnum<'ll>> {
+        match locals.get_storage(&name)? {
+            LocalStorage::Immutable(value) => Some(*value),
+            LocalStorage::Mutable { ptr, ty } => {
+                let name_str = self.cx().interner.lookup(name);
+                Some(self.load(*ty, *ptr, name_str))
+            }
+        }
+    }
+
+    /// Store to a mutable variable.
+    ///
+    /// Returns `None` if the variable doesn't exist or is immutable.
+    pub fn store_variable(
+        &self,
+        name: Name,
+        value: BasicValueEnum<'ll>,
+        locals: &Locals<'ll>,
+    ) -> Option<()> {
+        match locals.get_storage(&name)? {
+            LocalStorage::Immutable(_) => {
+                // Cannot assign to immutable variable - this is a type error
+                // that should have been caught earlier
+                None
+            }
+            LocalStorage::Mutable { ptr, ty: _ } => {
+                self.store(value, *ptr);
+                Some(())
+            }
+        }
+    }
+
     // -- Expression Compilation --
 
     /// Compile an expression, dispatching to the appropriate helper method.
@@ -686,7 +819,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         id: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -724,12 +857,12 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             // String literal
             ExprKind::String(name) => self.compile_string(*name),
 
-            // Variables
-            ExprKind::Ident(name) => locals.get(name).copied(),
+            // Variables - load from SSA or stack depending on storage type
+            ExprKind::Ident(name) => self.load_variable(*name, locals),
 
             // Binary operations
             ExprKind::Binary { op, left, right } => {
-                // Short-circuit evaluation for logical operators
+                // Short-circuit evaluation for logical and coalescing operators
                 match op {
                     BinaryOp::And => {
                         return self.compile_short_circuit_and(
@@ -741,6 +874,11 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                             *left, *right, arena, expr_types, locals, function, loop_ctx,
                         );
                     }
+                    BinaryOp::Coalesce => {
+                        return self.compile_short_circuit_coalesce(
+                            *left, *right, type_id, arena, expr_types, locals, function, loop_ctx,
+                        );
+                    }
                     _ => {}
                 }
 
@@ -749,7 +887,12 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                     self.compile_expr(*left, arena, expr_types, locals, function, loop_ctx)?;
                 let rhs =
                     self.compile_expr(*right, arena, expr_types, locals, function, loop_ctx)?;
-                self.compile_binary_op(*op, lhs, rhs, type_id)
+                // Pass the left operand's type to help distinguish struct types
+                let left_type = expr_types
+                    .get(left.index())
+                    .copied()
+                    .unwrap_or(TypeId::INFER);
+                self.compile_binary_op(*op, lhs, rhs, left_type)
             }
 
             // Unary operations
@@ -760,8 +903,13 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // Let binding
-            ExprKind::Let { pattern, init, .. } => self.compile_let(
-                pattern, *init, arena, expr_types, locals, function, loop_ctx,
+            ExprKind::Let {
+                pattern,
+                init,
+                mutable,
+                ..
+            } => self.compile_let(
+                pattern, *init, *mutable, arena, expr_types, locals, function, loop_ctx,
             ),
 
             // If/else expression
@@ -805,6 +953,13 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             ExprKind::Struct { name, fields } => self.compile_struct(
                 *name, *fields, arena, expr_types, locals, function, loop_ctx,
             ),
+
+            // Struct literal with spread (not yet implemented in LLVM backend)
+            ExprKind::StructWithSpread { .. } => {
+                // TODO: Implement spread syntax in LLVM backend
+                // For now, this should be caught earlier in the pipeline
+                unimplemented!("StructWithSpread not yet supported in LLVM backend")
+            }
 
             // Field access
             ExprKind::Field { receiver, field } => self.compile_field_access(
@@ -970,10 +1125,54 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             // Named expression patterns (recurse, parallel, etc.)
             ExprKind::FunctionExp(exp) => self
                 .compile_function_exp(exp, type_id, arena, expr_types, locals, function, loop_ctx),
+
+            // Type cast: expr as Type or expr as? Type
+            ExprKind::Cast {
+                expr: inner,
+                fallible,
+                ..
+            } => {
+                // For now, compile the inner expression and rely on type checker
+                // to ensure cast validity. Full cast implementation requires
+                // knowing source and target types to select appropriate LLVM casts.
+                let val =
+                    self.compile_expr(*inner, arena, expr_types, locals, function, loop_ctx)?;
+                if *fallible {
+                    // as? returns Option<T> - wrap value in Some
+                    // Use standardized Option type with i64 payload
+                    let opt_type = self.cx().option_type(self.cx().scx.type_i64().into());
+                    let payload = self.coerce_to_i64(val)?;
+                    let tag = self.cx().scx.type_i8().const_int(1, false); // 1 = Some
+                    let struct_val =
+                        self.build_struct(opt_type, &[tag.into(), payload.into()], "cast_some");
+                    Some(struct_val.into())
+                } else {
+                    // as returns the converted value directly
+                    Some(val)
+                }
+            }
+
+            // List with spread: [...a, b, ...c]
+            ExprKind::ListWithSpread(_elements) => {
+                // TODO: Implement spread syntax for lists
+                // For now, return None to indicate unimplemented
+                None
+            }
+
+            // Map with spread: {...a, k: v, ...b}
+            ExprKind::MapWithSpread(_elements) => {
+                // TODO: Implement spread syntax for maps
+                // For now, return None to indicate unimplemented
+                None
+            }
         }
     }
 
     /// Compile a let binding.
+    ///
+    /// For mutable bindings (`let mut x = ...`), creates stack allocation with
+    /// `alloca`/`store` so the variable can be reassigned. For immutable bindings,
+    /// uses direct SSA values which are more efficient but cannot be reassigned.
     #[instrument(
         skip(self, pattern, arena, expr_types, locals, function, loop_ctx),
         level = "debug"
@@ -982,17 +1181,19 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         &self,
         pattern: &BindingPattern,
         init: ExprId,
+        mutable: bool,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Compile the initializer
         let value = self.compile_expr(init, arena, expr_types, locals, function, loop_ctx)?;
+        let ty = value.get_type();
 
         // Bind the value based on the pattern (implementation in sequences.rs)
-        self.bind_pattern(pattern, value, locals);
+        self.bind_pattern(pattern, value, mutable, ty, function, locals);
 
         // Let bindings produce the bound value
         Some(value)

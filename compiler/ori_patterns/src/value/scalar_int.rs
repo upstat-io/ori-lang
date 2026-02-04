@@ -123,14 +123,23 @@ impl ScalarInt {
         }
     }
 
-    /// Checked left shift. Returns `None` if shift amount is negative or >= 64.
+    /// Checked left shift. Returns `None` if shift amount is negative, >= 64,
+    /// or if the shift causes signed integer overflow.
+    ///
+    /// Per spec: `1 << 63` should panic because it overflows i64.
     #[inline]
     pub fn checked_shl(self, rhs: Self) -> Option<Self> {
         let shift = u32::try_from(rhs.0).ok()?;
         if shift >= 64 {
             return None;
         }
-        self.0.checked_shl(shift).map(Self)
+        // Perform the shift
+        let result = self.0.wrapping_shl(shift);
+        // Check for overflow by shifting back - if we don't get the original, we overflowed
+        if result.wrapping_shr(shift) != self.0 {
+            return None;
+        }
+        Some(Self(result))
     }
 
     /// Checked right shift. Returns `None` if shift amount is negative or >= 64.

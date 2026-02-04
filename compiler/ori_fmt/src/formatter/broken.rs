@@ -4,7 +4,7 @@
 //! Used when expressions don't fit on a single line.
 
 use crate::width::ALWAYS_STACKED;
-use ori_ir::{ExprId, ExprKind, StringLookup};
+use ori_ir::{BinaryOp, ExprId, ExprKind, StringLookup};
 
 use super::{binary_op_str, Formatter};
 
@@ -16,11 +16,11 @@ impl<I: StringLookup> Formatter<'_, I> {
         match &expr.kind {
             // Binary expression - break before operator
             ExprKind::Binary { op, left, right } => {
-                self.format(*left);
+                self.emit_binary_operand_broken(*left, *op, true);
                 self.ctx.emit_newline_indent();
                 self.ctx.emit(binary_op_str(*op));
                 self.ctx.emit_space();
-                self.format(*right);
+                self.emit_binary_operand_broken(*right, *op, false);
             }
 
             // Calls - one argument per line
@@ -87,6 +87,37 @@ impl<I: StringLookup> Formatter<'_, I> {
                         self.format(entry.value);
                         self.ctx.emit(",");
                         if i < entries_list.len() - 1 {
+                            self.ctx.emit_newline();
+                        }
+                    }
+                    self.ctx.dedent();
+                    self.ctx.emit_newline_indent();
+                    self.ctx.emit("}");
+                }
+            }
+            ExprKind::MapWithSpread(elements) => {
+                let elements_list = self.arena.get_map_elements(*elements);
+                if elements_list.is_empty() {
+                    self.ctx.emit("{}");
+                } else {
+                    self.ctx.emit("{");
+                    self.ctx.emit_newline();
+                    self.ctx.indent();
+                    for (i, element) in elements_list.iter().enumerate() {
+                        self.ctx.emit_indent();
+                        match element {
+                            ori_ir::MapElement::Entry(entry) => {
+                                self.format(entry.key);
+                                self.ctx.emit(": ");
+                                self.format(entry.value);
+                            }
+                            ori_ir::MapElement::Spread { expr, .. } => {
+                                self.ctx.emit("...");
+                                self.format(*expr);
+                            }
+                        }
+                        self.ctx.emit(",");
+                        if i < elements_list.len() - 1 {
                             self.ctx.emit_newline();
                         }
                     }
@@ -184,14 +215,18 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
 
             // Let binding
-            // Note: mutable is default, immutable uses $ prefix in pattern
+            // Per spec: mutable is default, $ prefix for immutable
             ExprKind::Let {
                 pattern,
                 ty: _,
                 init,
-                mutable: _,
+                mutable,
             } => {
-                self.ctx.emit("let ");
+                if *mutable {
+                    self.ctx.emit("let ");
+                } else {
+                    self.ctx.emit("let $");
+                }
                 self.emit_binding_pattern(pattern);
                 self.ctx.emit(" =");
                 self.ctx.emit_newline();
@@ -333,6 +368,49 @@ impl<I: StringLookup> Formatter<'_, I> {
         } else {
             // Final else branch
             self.format(else_id);
+        }
+    }
+
+    /// Emit a binary operand in broken format, wrapping in parentheses if needed.
+    ///
+    /// Parentheses are needed when the operand is a binary expression with lower
+    /// precedence than the parent operator, or when associativity requires it.
+    fn emit_binary_operand_broken(&mut self, operand: ExprId, parent_op: BinaryOp, is_left: bool) {
+        let expr = self.arena.get_expr(operand);
+
+        let needs_parens = match &expr.kind {
+            ExprKind::Binary { op: child_op, .. } => {
+                let parent_prec = parent_op.precedence();
+                let child_prec = child_op.precedence();
+
+                match child_prec.cmp(&parent_prec) {
+                    std::cmp::Ordering::Greater => {
+                        // Child has lower precedence (higher number) - needs parens
+                        true
+                    }
+                    std::cmp::Ordering::Equal => {
+                        // Same precedence - check associativity
+                        // All ops are left-associative except ??
+                        let is_right_assoc = matches!(parent_op, BinaryOp::Coalesce);
+                        if is_right_assoc {
+                            is_left
+                        } else {
+                            !is_left
+                        }
+                    }
+                    std::cmp::Ordering::Less => false,
+                }
+            }
+            ExprKind::Lambda { .. } | ExprKind::Let { .. } | ExprKind::If { .. } => true,
+            _ => false,
+        };
+
+        if needs_parens {
+            self.ctx.emit("(");
+            self.format(operand);
+            self.ctx.emit(")");
+        } else {
+            self.format(operand);
         }
     }
 }

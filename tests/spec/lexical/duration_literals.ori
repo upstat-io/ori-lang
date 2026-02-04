@@ -1,0 +1,382 @@
+// Spec: 03-lexical-elements.md § Duration Literals, 06-types.md § Duration
+// Tests for duration literals (grammar.ebnf § duration_literal)
+// duration_literal = ( int_literal | decimal_duration ) duration_unit .
+// decimal_duration = decimal_lit "." decimal_lit .
+// duration_unit    = "ns" | "us" | "ms" | "s" | "m" | "h" .
+// Duration is 64-bit nanoseconds. Decimal syntax is compile-time sugar.
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Nanoseconds (ns)
+// =============================================================================
+
+@duration_ns_1 () -> int = 1ns.nanoseconds()
+
+@test_duration_ns_1 tests @duration_ns_1 () -> void = run(
+    assert_eq(actual: duration_ns_1(), expected: 1),
+)
+
+@duration_ns_100 () -> int = 100ns.nanoseconds()
+
+@test_duration_ns_100 tests @duration_ns_100 () -> void = run(
+    assert_eq(actual: duration_ns_100(), expected: 100),
+)
+
+@duration_ns_large () -> int = 1000000ns.microseconds()
+
+@test_duration_ns_large tests @duration_ns_large () -> void = run(
+    assert_eq(actual: duration_ns_large(), expected: 1000), // 1000000ns = 1000us
+)
+
+// =============================================================================
+// Microseconds (us)
+// =============================================================================
+
+@duration_us_1 () -> int = 1us.microseconds()
+
+@test_duration_us_1 tests @duration_us_1 () -> void = run(
+    assert_eq(actual: duration_us_1(), expected: 1),
+)
+
+@duration_us_50 () -> int = 50us.microseconds()
+
+@test_duration_us_50 tests @duration_us_50 () -> void = run(
+    assert_eq(actual: duration_us_50(), expected: 50),
+)
+
+@duration_us_to_ns () -> int = 1us.nanoseconds()
+
+@test_duration_us_to_ns tests @duration_us_to_ns () -> void = run(
+    assert_eq(actual: duration_us_to_ns(), expected: 1000), // 1us = 1000ns
+)
+
+// =============================================================================
+// Milliseconds (ms)
+// =============================================================================
+
+@duration_ms_1 () -> int = 1ms.milliseconds()
+
+@test_duration_ms_1 tests @duration_ms_1 () -> void = run(
+    assert_eq(actual: duration_ms_1(), expected: 1),
+)
+
+@duration_ms_10 () -> int = 10ms.milliseconds()
+
+@test_duration_ms_10 tests @duration_ms_10 () -> void = run(
+    assert_eq(actual: duration_ms_10(), expected: 10),
+)
+
+@duration_ms_to_us () -> int = 1ms.microseconds()
+
+@test_duration_ms_to_us tests @duration_ms_to_us () -> void = run(
+    assert_eq(actual: duration_ms_to_us(), expected: 1000), // 1ms = 1000us
+)
+
+@duration_ms_to_ns () -> int = 1ms.nanoseconds()
+
+@test_duration_ms_to_ns tests @duration_ms_to_ns () -> void = run(
+    assert_eq(actual: duration_ms_to_ns(), expected: 1000000), // 1ms = 1000000ns
+)
+
+// =============================================================================
+// Seconds (s)
+// =============================================================================
+
+@duration_s_1 () -> int = 1s.seconds()
+
+@test_duration_s_1 tests @duration_s_1 () -> void = run(
+    assert_eq(actual: duration_s_1(), expected: 1),
+)
+
+@duration_s_5 () -> int = 5s.seconds()
+
+@test_duration_s_5 tests @duration_s_5 () -> void = run(
+    assert_eq(actual: duration_s_5(), expected: 5),
+)
+
+@duration_s_to_ms () -> int = 1s.milliseconds()
+
+@test_duration_s_to_ms tests @duration_s_to_ms () -> void = run(
+    assert_eq(actual: duration_s_to_ms(), expected: 1000), // 1s = 1000ms
+)
+
+@duration_s_to_us () -> int = 1s.microseconds()
+
+@test_duration_s_to_us tests @duration_s_to_us () -> void = run(
+    assert_eq(actual: duration_s_to_us(), expected: 1000000), // 1s = 1000000us
+)
+
+// =============================================================================
+// Minutes (m)
+// =============================================================================
+
+@duration_m_1 () -> int = 1m.minutes()
+
+@test_duration_m_1 tests @duration_m_1 () -> void = run(
+    assert_eq(actual: duration_m_1(), expected: 1),
+)
+
+@duration_m_2 () -> int = 2m.minutes()
+
+@test_duration_m_2 tests @duration_m_2 () -> void = run(
+    assert_eq(actual: duration_m_2(), expected: 2),
+)
+
+@duration_m_to_s () -> int = 1m.seconds()
+
+@test_duration_m_to_s tests @duration_m_to_s () -> void = run(
+    assert_eq(actual: duration_m_to_s(), expected: 60), // 1m = 60s
+)
+
+@duration_m_to_ms () -> int = 1m.milliseconds()
+
+@test_duration_m_to_ms tests @duration_m_to_ms () -> void = run(
+    assert_eq(actual: duration_m_to_ms(), expected: 60000), // 1m = 60000ms
+)
+
+// =============================================================================
+// Hours (h)
+// =============================================================================
+
+@duration_h_1 () -> int = 1h.hours()
+
+@test_duration_h_1 tests @duration_h_1 () -> void = run(
+    assert_eq(actual: duration_h_1(), expected: 1),
+)
+
+@duration_h_to_m () -> int = 1h.minutes()
+
+@test_duration_h_to_m tests @duration_h_to_m () -> void = run(
+    assert_eq(actual: duration_h_to_m(), expected: 60), // 1h = 60m
+)
+
+@duration_h_to_s () -> int = 1h.seconds()
+
+@test_duration_h_to_s tests @duration_h_to_s () -> void = run(
+    assert_eq(actual: duration_h_to_s(), expected: 3600), // 1h = 3600s
+)
+
+@duration_h_to_ms () -> int = 1h.milliseconds()
+
+@test_duration_h_to_ms tests @duration_h_to_ms () -> void = run(
+    assert_eq(actual: duration_h_to_ms(), expected: 3600000), // 1h = 3600000ms
+)
+
+// =============================================================================
+// Zero Duration
+// =============================================================================
+
+@duration_zero_ns () -> int = 0ns.nanoseconds()
+
+@test_duration_zero_ns tests @duration_zero_ns () -> void = run(
+    assert_eq(actual: duration_zero_ns(), expected: 0),
+)
+
+@duration_zero_s () -> int = 0s.seconds()
+
+@test_duration_zero_s tests @duration_zero_s () -> void = run(
+    assert_eq(actual: duration_zero_s(), expected: 0),
+)
+
+// =============================================================================
+// Duration Arithmetic - Addition
+// =============================================================================
+
+@duration_add_same_unit () -> int = (1s + 2s).seconds()
+
+@test_duration_add_same_unit tests @duration_add_same_unit () -> void = run(
+    assert_eq(actual: duration_add_same_unit(), expected: 3),
+)
+
+@duration_add_diff_unit () -> int = (1s + 500ms).milliseconds()
+
+@test_duration_add_diff_unit tests @duration_add_diff_unit () -> void = run(
+    assert_eq(actual: duration_add_diff_unit(), expected: 1500),
+)
+
+@duration_add_ms_us () -> int = (1ms + 500us).microseconds()
+
+@test_duration_add_ms_us tests @duration_add_ms_us () -> void = run(
+    assert_eq(actual: duration_add_ms_us(), expected: 1500),
+)
+
+// =============================================================================
+// Duration Arithmetic - Subtraction
+// =============================================================================
+
+@duration_sub_same_unit () -> int = (5s - 2s).seconds()
+
+@test_duration_sub_same_unit tests @duration_sub_same_unit () -> void = run(
+    assert_eq(actual: duration_sub_same_unit(), expected: 3),
+)
+
+@duration_sub_diff_unit () -> int = (2s - 500ms).milliseconds()
+
+@test_duration_sub_diff_unit tests @duration_sub_diff_unit () -> void = run(
+    assert_eq(actual: duration_sub_diff_unit(), expected: 1500),
+)
+
+@duration_sub_to_zero () -> int = (1s - 1s).nanoseconds()
+
+@test_duration_sub_to_zero tests @duration_sub_to_zero () -> void = run(
+    assert_eq(actual: duration_sub_to_zero(), expected: 0),
+)
+
+// =============================================================================
+// Duration Comparisons
+// =============================================================================
+
+@duration_cmp_lt () -> bool = 500ms < 1s
+
+@test_duration_cmp_lt tests @duration_cmp_lt () -> void = run(
+    assert(cond: duration_cmp_lt()),
+)
+
+@duration_cmp_gt () -> bool = 1s > 500ms
+
+@test_duration_cmp_gt tests @duration_cmp_gt () -> void = run(
+    assert(cond: duration_cmp_gt()),
+)
+
+@duration_cmp_lte () -> bool = 1s <= 1000ms
+
+@test_duration_cmp_lte tests @duration_cmp_lte () -> void = run(
+    assert(cond: duration_cmp_lte()),
+)
+
+@duration_cmp_gte () -> bool = 1000ms >= 1s
+
+@test_duration_cmp_gte tests @duration_cmp_gte () -> void = run(
+    assert(cond: duration_cmp_gte()),
+)
+
+@duration_cmp_eq () -> bool = 1000ms == 1s
+
+@test_duration_cmp_eq tests @duration_cmp_eq () -> void = run(
+    assert(cond: duration_cmp_eq()),
+)
+
+@duration_cmp_neq () -> bool = 999ms != 1s
+
+@test_duration_cmp_neq tests @duration_cmp_neq () -> void = run(
+    assert(cond: duration_cmp_neq()),
+)
+
+// =============================================================================
+// Duration Equivalences
+// =============================================================================
+
+@duration_eq_s_ms () -> bool = 1s == 1000ms
+
+@test_duration_eq_s_ms tests @duration_eq_s_ms () -> void = run(
+    assert(cond: duration_eq_s_ms()),
+)
+
+@duration_eq_ms_us () -> bool = 1ms == 1000us
+
+@test_duration_eq_ms_us tests @duration_eq_ms_us () -> void = run(
+    assert(cond: duration_eq_ms_us()),
+)
+
+@duration_eq_us_ns () -> bool = 1us == 1000ns
+
+@test_duration_eq_us_ns tests @duration_eq_us_ns () -> void = run(
+    assert(cond: duration_eq_us_ns()),
+)
+
+@duration_eq_m_s () -> bool = 1m == 60s
+
+@test_duration_eq_m_s tests @duration_eq_m_s () -> void = run(
+    assert(cond: duration_eq_m_s()),
+)
+
+@duration_eq_h_m () -> bool = 1h == 60m
+
+@test_duration_eq_h_m tests @duration_eq_h_m () -> void = run(
+    assert(cond: duration_eq_h_m()),
+)
+
+// =============================================================================
+// Negative Duration
+// =============================================================================
+
+@duration_neg () -> int = (-5s).seconds()
+
+@test_duration_neg tests @duration_neg () -> void = run(
+    assert_eq(actual: duration_neg(), expected: -5),
+)
+
+@duration_neg_ms () -> int = (-100ms).milliseconds()
+
+@test_duration_neg_ms tests @duration_neg_ms () -> void = run(
+    assert_eq(actual: duration_neg_ms(), expected: -100),
+)
+
+@duration_sub_to_neg () -> int = (1s - 2s).seconds()
+
+@test_duration_sub_to_neg tests @duration_sub_to_neg () -> void = run(
+    assert_eq(actual: duration_sub_to_neg(), expected: -1),
+)
+
+// =============================================================================
+// Duration in Collections
+// =============================================================================
+
+@duration_in_list () -> int = [1s, 2s, 3s].len()
+
+@test_duration_in_list tests @duration_in_list () -> void = run(
+    assert_eq(actual: duration_in_list(), expected: 3),
+)
+
+@duration_in_let () -> int = run(
+    let d = 30s,
+    d.seconds(),
+)
+
+@test_duration_in_let tests @duration_in_let () -> void = run(
+    assert_eq(actual: duration_in_let(), expected: 30),
+)
+
+// =============================================================================
+// Duration Binding
+// =============================================================================
+
+@duration_binding () -> int = run(
+    let d = 500ms,
+    d.milliseconds(),
+)
+
+@test_duration_binding tests @duration_binding () -> void = run(
+    assert_eq(actual: duration_binding(), expected: 500),
+)
+
+// =============================================================================
+// Large Duration Values
+// =============================================================================
+
+@duration_large_hours () -> int = 24h.hours()
+
+@test_duration_large_hours tests @duration_large_hours () -> void = run(
+    assert_eq(actual: duration_large_hours(), expected: 24),
+)
+
+@duration_large_minutes () -> int = 120m.hours()
+
+@test_duration_large_minutes tests @duration_large_minutes () -> void = run(
+    assert_eq(actual: duration_large_minutes(), expected: 2),
+)
+
+// =============================================================================
+// Duration Binding and Shadowing
+// =============================================================================
+
+@duration_rebind () -> int = run(
+    let d = 1s,
+    let d = d + 1s,
+    d.seconds(),
+)
+
+@test_duration_rebind tests @duration_rebind () -> void = run(
+    assert_eq(actual: duration_rebind(), expected: 2),
+)

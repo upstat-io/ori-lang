@@ -409,8 +409,17 @@ impl<'old> AstCopier<'old> {
                 let new_exprs = self.copy_expr_list(*exprs, new_arena);
                 ExprKind::List(new_exprs)
             }
+            ExprKind::ListWithSpread(elements) => {
+                self.copy_list_with_spread_kind(*elements, new_arena)
+            }
             ExprKind::Map(entries) => self.copy_map_kind(*entries, new_arena),
+            ExprKind::MapWithSpread(elements) => {
+                self.copy_map_with_spread_kind(*elements, new_arena)
+            }
             ExprKind::Struct { name, fields } => self.copy_struct_kind(*name, *fields, new_arena),
+            ExprKind::StructWithSpread { name, fields } => {
+                self.copy_struct_with_spread_kind(*name, *fields, new_arena)
+            }
             ExprKind::Tuple(exprs) => {
                 let new_exprs = self.copy_expr_list(*exprs, new_arena);
                 ExprKind::Tuple(new_exprs)
@@ -439,6 +448,11 @@ impl<'old> AstCopier<'old> {
             }
             ExprKind::Await(inner) => ExprKind::Await(self.copy_expr(*inner, new_arena)),
             ExprKind::Try(inner) => ExprKind::Try(self.copy_expr(*inner, new_arena)),
+            ExprKind::Cast { expr, ty, fallible } => ExprKind::Cast {
+                expr: self.copy_expr(*expr, new_arena),
+                ty: ty.clone(),
+                fallible: *fallible,
+            },
             ExprKind::Assign { target, value } => ExprKind::Assign {
                 target: self.copy_expr(*target, new_arena),
                 value: self.copy_expr(*value, new_arena),
@@ -564,6 +578,104 @@ impl<'old> AstCopier<'old> {
         }
     }
 
+    /// Copy a `StructWithSpread` expression's name and fields.
+    fn copy_struct_with_spread_kind(
+        &self,
+        name: Name,
+        fields: ori_ir::StructLitFieldRange,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let old_fields = self.old_arena.get_struct_lit_fields(fields);
+        let new_fields: Vec<_> = old_fields
+            .iter()
+            .map(|f| self.copy_struct_lit_field(f, new_arena))
+            .collect();
+        ExprKind::StructWithSpread {
+            name,
+            fields: new_arena.alloc_struct_lit_fields(new_fields),
+        }
+    }
+
+    /// Copy a struct literal field (either regular field or spread).
+    fn copy_struct_lit_field(
+        &self,
+        field: &ori_ir::StructLitField,
+        new_arena: &mut ExprArena,
+    ) -> ori_ir::StructLitField {
+        match field {
+            ori_ir::StructLitField::Field(init) => {
+                ori_ir::StructLitField::Field(self.copy_field_init(init, new_arena))
+            }
+            ori_ir::StructLitField::Spread { expr, span } => ori_ir::StructLitField::Spread {
+                expr: self.copy_expr(*expr, new_arena),
+                span: *span,
+            },
+        }
+    }
+
+    /// Copy a `ListWithSpread` expression's elements.
+    fn copy_list_with_spread_kind(
+        &self,
+        elements: ori_ir::ListElementRange,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let old_elements = self.old_arena.get_list_elements(elements);
+        let new_elements: Vec<_> = old_elements
+            .iter()
+            .map(|e| self.copy_list_element(e, new_arena))
+            .collect();
+        ExprKind::ListWithSpread(new_arena.alloc_list_elements(new_elements))
+    }
+
+    /// Copy a list element (either regular value or spread).
+    fn copy_list_element(
+        &self,
+        element: &ori_ir::ListElement,
+        new_arena: &mut ExprArena,
+    ) -> ori_ir::ListElement {
+        match element {
+            ori_ir::ListElement::Expr { expr, span } => ori_ir::ListElement::Expr {
+                expr: self.copy_expr(*expr, new_arena),
+                span: *span,
+            },
+            ori_ir::ListElement::Spread { expr, span } => ori_ir::ListElement::Spread {
+                expr: self.copy_expr(*expr, new_arena),
+                span: *span,
+            },
+        }
+    }
+
+    /// Copy a `MapWithSpread` expression's elements.
+    fn copy_map_with_spread_kind(
+        &self,
+        elements: ori_ir::MapElementRange,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let old_elements = self.old_arena.get_map_elements(elements);
+        let new_elements: Vec<_> = old_elements
+            .iter()
+            .map(|e| self.copy_map_element(e, new_arena))
+            .collect();
+        ExprKind::MapWithSpread(new_arena.alloc_map_elements(new_elements))
+    }
+
+    /// Copy a map element (either entry or spread).
+    fn copy_map_element(
+        &self,
+        element: &ori_ir::MapElement,
+        new_arena: &mut ExprArena,
+    ) -> ori_ir::MapElement {
+        match element {
+            ori_ir::MapElement::Entry(entry) => {
+                ori_ir::MapElement::Entry(self.copy_map_entry(entry, new_arena))
+            }
+            ori_ir::MapElement::Spread { expr, span } => ori_ir::MapElement::Spread {
+                expr: self.copy_expr(*expr, new_arena),
+                span: *span,
+            },
+        }
+    }
+
     /// Copy a named call's function and arguments.
     fn copy_call_named_kind(
         &self,
@@ -643,6 +755,7 @@ impl<'old> AstCopier<'old> {
         CallArg {
             name: arg.name,
             value: self.copy_expr(arg.value, new_arena),
+            is_spread: arg.is_spread,
             span: self.adjust_span(arg.span),
         }
     }
@@ -801,10 +914,13 @@ impl<'old> AstCopier<'old> {
     fn copy_param(&self, param: &Param, new_arena: &mut ExprArena) -> Param {
         Param {
             name: param.name,
+            pattern: param.pattern.clone(), // TODO: deep copy patterns if needed
             ty: param
                 .ty
                 .as_ref()
                 .map(|t| self.copy_parsed_type(t, new_arena)),
+            default: param.default.map(|e| self.copy_expr(e, new_arena)),
+            is_variadic: param.is_variadic,
             span: self.adjust_span(param.span),
         }
     }
@@ -823,6 +939,13 @@ impl<'old> AstCopier<'old> {
             ParsedType::List(elem_id) => {
                 let new_elem_id = self.copy_parsed_type_id(*elem_id, new_arena);
                 ParsedType::List(new_elem_id)
+            }
+            ParsedType::FixedList { elem, capacity } => {
+                let new_elem = self.copy_parsed_type_id(*elem, new_arena);
+                ParsedType::FixedList {
+                    elem: new_elem,
+                    capacity: *capacity,
+                }
             }
             ParsedType::Tuple(elems) => {
                 let new_elems = self.copy_parsed_type_range(*elems, new_arena);
@@ -1030,6 +1153,7 @@ impl<'old> AstCopier<'old> {
                 .map(|t| self.copy_parsed_type(t, new_arena)),
             capabilities: func.capabilities.clone(),
             where_clauses: new_where_clauses,
+            guard: func.guard.map(|g| self.copy_expr(g, new_arena)),
             body: self.copy_expr(func.body, new_arena),
             span: self.adjust_span(func.span),
             visibility: func.visibility,
@@ -1389,6 +1513,12 @@ impl<'old> AstCopier<'old> {
                 .default_type
                 .as_ref()
                 .map(|t| self.copy_parsed_type(t, new_arena)),
+            is_const: param.is_const,
+            const_type: param
+                .const_type
+                .as_ref()
+                .map(|t| self.copy_parsed_type(t, new_arena)),
+            default_value: param.default_value.map(|e| self.copy_expr(e, new_arena)),
             span: self.adjust_span(param.span),
         }
     }
@@ -1449,6 +1579,7 @@ mod tests {
             return_ty: None,
             capabilities: Vec::new(),
             where_clauses: Vec::new(),
+            guard: None,
             body: ExprId::INVALID,
             span: Span::new(50, 80),
             visibility: ori_ir::Visibility::Private,
@@ -1472,6 +1603,7 @@ mod tests {
             return_ty: None,
             capabilities: Vec::new(),
             where_clauses: Vec::new(),
+            guard: None,
             body: ExprId::INVALID,
             span: Span::new(0, 50),
             visibility: ori_ir::Visibility::Private,
@@ -1484,6 +1616,7 @@ mod tests {
             return_ty: None,
             capabilities: Vec::new(),
             where_clauses: Vec::new(),
+            guard: None,
             body: ExprId::INVALID,
             span: Span::new(100, 150),
             visibility: ori_ir::Visibility::Private,

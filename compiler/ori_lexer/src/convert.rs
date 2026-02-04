@@ -142,6 +142,7 @@ pub(crate) fn convert_token(raw: RawToken, slice: &str, interner: &StringInterne
         RawToken::Dot => TokenKind::Dot,
         RawToken::DotDot => TokenKind::DotDot,
         RawToken::DotDotEq => TokenKind::DotDotEq,
+        RawToken::DotDotDot => TokenKind::DotDotDot,
         RawToken::Arrow => TokenKind::Arrow,
         RawToken::FatArrow => TokenKind::FatArrow,
         RawToken::Pipe => TokenKind::Pipe,

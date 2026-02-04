@@ -372,6 +372,14 @@ impl TypeChecker<'_> {
                     self_ty,
                 )))
             }
+            ori_ir::ParsedType::FixedList { elem, .. } => {
+                // Fixed-capacity lists resolve to List for now
+                // (full type system support in later phase)
+                let parsed_elem = self.context.arena.get_parsed_type(*elem).clone();
+                Type::List(Box::new(
+                    self.resolve_parsed_type_with_self_substitution(&parsed_elem, self_ty),
+                ))
+            }
             ori_ir::ParsedType::Tuple(elems) => {
                 let elem_ids = self.context.arena.get_parsed_type_list(*elems);
                 let resolved_elems: Vec<Type> = elem_ids

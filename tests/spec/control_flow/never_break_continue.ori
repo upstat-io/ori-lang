@@ -1,4 +1,6 @@
 // Never Type for Break and Continue
+
+use std.testing { assert_eq }
 // Spec: 06-types.md § Never Type
 // Spec: 19-control-flow.md § Loop Control
 // Proposal: proposals/approved/never-type-proposal.md

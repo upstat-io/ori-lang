@@ -237,11 +237,12 @@ pub fn dispatch_size_method(
     };
 
     match method {
+        // SI units: 1kb = 1000 bytes, 1mb = 1,000,000 bytes, etc.
         "bytes" => to_int(bytes),
-        "kilobytes" => to_int(bytes / 1024),
-        "megabytes" => to_int(bytes / (1024 * 1024)),
-        "gigabytes" => to_int(bytes / (1024 * 1024 * 1024)),
-        "terabytes" => to_int(bytes / (1024 * 1024 * 1024 * 1024)),
+        "kilobytes" => to_int(bytes / size::BYTES_PER_KB),
+        "megabytes" => to_int(bytes / size::BYTES_PER_MB),
+        "gigabytes" => to_int(bytes / size::BYTES_PER_GB),
+        "terabytes" => to_int(bytes / size::BYTES_PER_TB),
         // Operator methods
         "add" => {
             require_args("add", 1, args.len())?;

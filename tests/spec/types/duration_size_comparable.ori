@@ -102,13 +102,14 @@ use std.testing { assert, assert_eq }
 @size_cmp_less () -> Ordering = 100b.compare(other: 200b)
 
 @test_size_compare_equal tests @size_cmp_equal () -> void = run(
-    let result = 1kb.compare(other: 1024b),
+    // SI units: 1kb = 1000 bytes (decimal notation)
+    let result = 1kb.compare(other: 1000b),
     assert(cond: result.is_equal()),
     assert(cond: !result.is_less()),
     assert(cond: !result.is_greater()),
 )
 
-@size_cmp_equal () -> Ordering = 1kb.compare(other: 1024b)
+@size_cmp_equal () -> Ordering = 1kb.compare(other: 1000b)
 
 @test_size_compare_greater tests @size_cmp_greater () -> void = run(
     let result = 1mb.compare(other: 512kb),
@@ -127,23 +128,23 @@ use std.testing { assert, assert_eq }
 @size_cmp_zero () -> Ordering = 0b.compare(other: 0kb)
 
 @test_size_compare_mixed_units tests @size_cmp_mixed () -> void = run(
-    // 1 kilobyte equals 1024 bytes
-    assert(cond: 1kb.compare(other: 1024b).is_equal()),
-    // 1025 bytes is greater than 1 kilobyte
-    assert(cond: 1025b.compare(other: 1kb).is_greater()),
-    // 1023 bytes is less than 1 kilobyte
-    assert(cond: 1023b.compare(other: 1kb).is_less()),
+    // SI units: 1kb = 1000 bytes (decimal notation - what you see is what you get)
+    assert(cond: 1kb.compare(other: 1000b).is_equal()),
+    // 1001 bytes is greater than 1 kilobyte
+    assert(cond: 1001b.compare(other: 1kb).is_greater()),
+    // 999 bytes is less than 1 kilobyte
+    assert(cond: 999b.compare(other: 1kb).is_less()),
 )
 
-@size_cmp_mixed () -> bool = 1kb == 1024b
+@size_cmp_mixed () -> bool = 1kb == 1000b
 
 @test_size_compare_large tests @size_cmp_large () -> void = run(
-    // Large size comparisons
-    assert(cond: 1tb.compare(other: 1024gb).is_equal()),
+    // SI units: 1tb = 1000gb (decimal notation)
+    assert(cond: 1tb.compare(other: 1000gb).is_equal()),
     assert(cond: 2tb.compare(other: 1tb).is_greater()),
 )
 
-@size_cmp_large () -> Ordering = 1tb.compare(other: 1024gb)
+@size_cmp_large () -> Ordering = 1tb.compare(other: 1000gb)
 
 @test_size_compare_ordering_methods tests @size_ordering_methods () -> void = run(
     let less = 100b.compare(other: 200b),

@@ -346,14 +346,14 @@ use std.testing { assert, assert_eq, assert_ne }
 @unify_string_concat () -> str = "hello" + " world"
 
 @test_unify_map_lookup tests @unify_map_lookup () -> void = run(
-    // Map lookup type inference
+    // Map lookup type inference - returns Option<V>
     let m = {"key": 42},
     let value = m["key"],
-    let result: int = value,
-    assert_eq(actual: result, expected: 42),
+    let result: Option<int> = value,
+    assert_eq(actual: result, expected: Some(42)),
 )
 
-@unify_map_lookup () -> int = run(
+@unify_map_lookup () -> Option<int> = run(
     let m = {"key": 42},
     m["key"],
 )

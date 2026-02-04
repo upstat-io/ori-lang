@@ -280,10 +280,16 @@ pub fn unbounded_range_end() -> EvalError {
     EvalError::new("unbounded range end")
 }
 
-/// Map keys must be strings.
+/// Map keys must be hashable types (primitives, tuples of hashables).
 #[cold]
-pub fn map_keys_must_be_strings() -> EvalError {
-    EvalError::new("map keys must be strings")
+pub fn map_key_not_hashable() -> EvalError {
+    EvalError::new("map keys must be hashable (primitives, tuples, etc.)")
+}
+
+/// Spread requires a map value.
+#[cold]
+pub fn spread_requires_map() -> EvalError {
+    EvalError::new("spread in map literal requires a map value")
 }
 
 // Control Flow Errors

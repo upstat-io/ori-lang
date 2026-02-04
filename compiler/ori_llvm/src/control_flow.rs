@@ -1,11 +1,11 @@
 //! Control flow compilation: conditionals, loops, blocks.
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
+use ori_ir::ast::ExprKind;
 use ori_ir::{ExprArena, ExprId, Name, StmtRange, TypeId};
-use rustc_hash::FxHashMap;
 use tracing::instrument;
 
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
@@ -20,7 +20,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         right: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -80,7 +80,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         right: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -128,6 +128,156 @@ impl<'ll> Builder<'_, 'll, '_> {
             Some(true_val.into())
         }
     }
+
+    /// Compile short-circuit null coalescing (??).
+    ///
+    /// Evaluates left operand first. If it's Some/Ok, returns the inner value.
+    /// Otherwise, evaluates and returns the right operand.
+    ///
+    /// Tag semantics differ between Option and Result:
+    /// - Option: tag=0 (None), tag=1 (Some) — "has value" when tag != 0
+    /// - Result: tag=0 (Ok), tag=1 (Err) — "has value" when tag == 0
+    #[expect(clippy::too_many_arguments, reason = "matches compile_expr signature")]
+    pub(crate) fn compile_short_circuit_coalesce(
+        &self,
+        left: ExprId,
+        right: ExprId,
+        result_type: TypeId,
+        arena: &ExprArena,
+        expr_types: &[TypeId],
+        locals: &mut Locals<'ll>,
+        function: FunctionValue<'ll>,
+        loop_ctx: Option<&LoopContext<'ll>>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        // Get the type of the left operand to distinguish Option from Result
+        let left_type = expr_types
+            .get(left.index())
+            .copied()
+            .unwrap_or(TypeId::INFER);
+        let is_result = self.cx().is_result_type(left_type);
+        let is_wrapper = self.cx().is_wrapper_type(left_type);
+
+        // Compile left operand (should be Option<T> or Result<T, E>)
+        let lhs = self.compile_expr(left, arena, expr_types, locals, function, loop_ctx)?;
+
+        // If the left operand is not a wrapper type (Option/Result), it's already
+        // an unwrapped value (e.g., from a chained coalesce). Just return it.
+        if !is_wrapper {
+            return Some(lhs);
+        }
+
+        // Option/Result are structs: { i8 tag, payload }
+        // Verify it's actually a struct before extracting
+        let BasicValueEnum::StructValue(lhs_struct) = lhs else {
+            // Not a struct - already unwrapped, return as-is
+            return Some(lhs);
+        };
+
+        // Extract the tag (first field)
+        let tag = self
+            .extract_value(lhs_struct, 0, "coalesce_tag")?
+            .into_int_value();
+
+        // Determine "has value" condition based on type:
+        // - Option: tag != 0 (tag=1 means Some)
+        // - Result: tag == 0 (tag=0 means Ok)
+        let has_value = if is_result {
+            self.icmp(
+                inkwell::IntPredicate::EQ,
+                tag,
+                self.cx().scx.type_i8().const_int(0, false),
+                "is_ok",
+            )
+        } else {
+            self.icmp(
+                inkwell::IntPredicate::NE,
+                tag,
+                self.cx().scx.type_i8().const_int(0, false),
+                "is_some",
+            )
+        };
+
+        // Create basic blocks
+        let has_value_bb = self.append_block(function, "coalesce_has_value");
+        let no_value_bb = self.append_block(function, "coalesce_no_value");
+        let merge_bb = self.append_block(function, "coalesce_merge");
+
+        // Branch based on whether left has a value
+        self.cond_br(has_value, has_value_bb, no_value_bb);
+
+        // Has value path: extract and potentially coerce payload back to result type
+        self.position_at_end(has_value_bb);
+        let payload_raw = self.extract_value(lhs_struct, 1, "coalesce_payload")?;
+        // If the payload is an i64, coerce it to the result type
+        // If it's a struct (nested Option/Result), materialize it to avoid phi issues
+        let payload = match payload_raw {
+            BasicValueEnum::IntValue(i) if i.get_type().get_bit_width() == 64 => {
+                self.coerce_from_i64(i, result_type)?
+            }
+            _ => {
+                // For nested wrappers (e.g., Option<Option<T>>), the payload is a struct.
+                // Materialize it to avoid LLVM JIT issues with constant structs in phi nodes.
+                self.materialize_constant_struct(payload_raw)
+            }
+        };
+        let has_value_exit_bb = self.current_block()?;
+        self.br(merge_bb);
+
+        // No value path: evaluate right operand
+        self.position_at_end(no_value_bb);
+        let rhs = self.compile_expr(right, arena, expr_types, locals, function, loop_ctx);
+
+        // Materialize constant structs before the branch.
+        // LLVM JIT has trouble with constant struct values in phi nodes.
+        // This stores the constant to an alloca and loads it back, creating a non-constant.
+        let rhs = rhs.map(|v| self.materialize_constant_struct(v));
+
+        let no_value_exit_bb = self.current_block()?;
+
+        // Handle case where right operand terminates (e.g., panic)
+        let rhs_terminated = no_value_exit_bb.get_terminator().is_some();
+        if !rhs_terminated {
+            self.br(merge_bb);
+        }
+
+        // Merge block with phi node
+        self.position_at_end(merge_bb);
+
+        if let Some(rhs_val) = rhs {
+            if rhs_terminated {
+                // Right side terminated, only has_value case reaches merge
+                Some(payload)
+            } else {
+                // Both paths reach merge
+                self.build_phi_from_incoming(
+                    result_type,
+                    &[(payload, has_value_exit_bb), (rhs_val, no_value_exit_bb)],
+                )
+            }
+        } else {
+            Some(payload)
+        }
+    }
+
+    /// Materialize a constant struct value to a non-constant.
+    ///
+    /// LLVM JIT can have trouble with constant struct values in phi nodes.
+    /// This stores the constant to an alloca and loads it back.
+    fn materialize_constant_struct(&self, val: BasicValueEnum<'ll>) -> BasicValueEnum<'ll> {
+        let BasicValueEnum::StructValue(sv) = val else {
+            return val;
+        };
+
+        if !sv.is_const() {
+            return val;
+        }
+
+        // Store to alloca and load back
+        let ty = sv.get_type();
+        let alloca = self.alloca(ty.into(), "const_mat");
+        self.store(val, alloca);
+        self.load(ty.into(), alloca, "const_load")
+    }
 }
 
 impl<'ll> Builder<'_, 'll, '_> {
@@ -144,7 +294,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         result_type: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -224,7 +374,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         result_type: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Create basic blocks
@@ -276,7 +426,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         value: Option<ExprId>,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -301,7 +451,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         value: Option<ExprId>,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -325,6 +475,10 @@ impl<'ll> Builder<'_, 'll, '_> {
         clippy::too_many_arguments,
         reason = "for-loop compilation requires loop context, arena, and type state"
     )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "handles both range and list iteration"
+    )]
     pub(crate) fn compile_for(
         &self,
         binding: Name,
@@ -335,19 +489,15 @@ impl<'ll> Builder<'_, 'll, '_> {
         result_type: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {
+        // Check if iterating over a range expression
+        let iter_expr = arena.get_expr(iter);
+        let is_range = matches!(iter_expr.kind, ExprKind::Range { .. });
+
         // Compile the iterable
         let iter_val = self.compile_expr(iter, arena, expr_types, locals, function, None)?;
-
-        // For simplicity, assume iter_val is a list struct { len, cap, data }
-        // Extract length and data pointer
-        let iter_struct = iter_val.into_struct_value();
-        let len = self
-            .extract_value(iter_struct, 0, "iter_len")?
-            .into_int_value();
-        let _data_ptr = self.extract_value(iter_struct, 2, "iter_data")?;
 
         // Create loop blocks
         let header_bb = self.append_block(function, "for_header");
@@ -356,29 +506,84 @@ impl<'ll> Builder<'_, 'll, '_> {
 
         // Allocate index counter
         let idx_ptr = self.alloca(self.cx().scx.type_i64().into(), "for_idx");
-        self.store(self.cx().scx.type_i64().const_int(0, false).into(), idx_ptr);
+
+        // Set up iteration bounds based on type
+        let (start_val, end_val, use_inclusive) = if is_range {
+            // Range: { i64 start, i64 end, i1 inclusive }
+            let range_struct = iter_val.into_struct_value();
+            let start = self
+                .extract_value(range_struct, 0, "range_start")?
+                .into_int_value();
+            let end = self
+                .extract_value(range_struct, 1, "range_end")?
+                .into_int_value();
+            let inclusive = self
+                .extract_value(range_struct, 2, "range_inclusive")?
+                .into_int_value();
+            (start, end, Some(inclusive))
+        } else if let BasicValueEnum::StructValue(iter_struct) = iter_val {
+            // List: { i64 len, i64 cap, ptr data }
+            let len = self
+                .extract_value(iter_struct, 0, "iter_len")?
+                .into_int_value();
+            let _data_ptr = self.extract_value(iter_struct, 2, "iter_data")?;
+            let start = self.cx().scx.type_i64().const_int(0, false);
+            (start, len, None)
+        } else {
+            // Unsupported iterable type
+            return None;
+        };
+
+        // Initialize index to start
+        self.store(start_val.into(), idx_ptr);
 
         // Jump to header
         self.br(header_bb);
 
-        // Header: check if index < len
+        // Header: check condition
         self.position_at_end(header_bb);
         let idx = self
             .load(self.cx().scx.type_i64().into(), idx_ptr, "idx")
             .into_int_value();
-        let cond = self.icmp(inkwell::IntPredicate::SLT, idx, len, "for_cond");
+
+        // Condition: idx < end (exclusive) or idx <= end (inclusive)
+        let cond = if let Some(inclusive) = use_inclusive {
+            // For ranges: use SLE if inclusive, SLT if exclusive
+            let less_than = self.icmp(inkwell::IntPredicate::SLT, idx, end_val, "for_slt");
+            let less_or_eq = self.icmp(inkwell::IntPredicate::SLE, idx, end_val, "for_sle");
+            // Select based on inclusive flag
+            self.select(inclusive, less_or_eq.into(), less_than.into(), "for_cond")
+                .into_int_value()
+        } else {
+            // For lists: always idx < len
+            self.icmp(inkwell::IntPredicate::SLT, idx, end_val, "for_cond")
+        };
         self.cond_br(cond, body_bb, exit_bb);
 
         // Body: bind element and execute
         self.position_at_end(body_bb);
 
-        // For simplicity, bind the index as the element (a real impl would dereference)
-        locals.insert(binding, idx.into());
+        // Bind the current index value to the binding name
+        // For-loop variables are re-bound each iteration (immutable within iteration)
+        locals.bind_immutable(binding, idx.into());
+
+        // Create loop context for break/continue in for-loop body
+        let for_loop_ctx = LoopContext {
+            header: header_bb,
+            exit: exit_bb,
+            break_phi: None,
+        };
 
         // Handle guard if present
         if let Some(guard_id) = guard {
-            let guard_val =
-                self.compile_expr(guard_id, arena, expr_types, locals, function, None)?;
+            let guard_val = self.compile_expr(
+                guard_id,
+                arena,
+                expr_types,
+                locals,
+                function,
+                Some(&for_loop_ctx),
+            )?;
             let guard_bool = guard_val.into_int_value();
 
             let guard_pass_bb = self.append_block(function, "guard_pass");
@@ -399,8 +604,15 @@ impl<'ll> Builder<'_, 'll, '_> {
             self.position_at_end(guard_pass_bb);
         }
 
-        // Compile body
-        let _body_val = self.compile_expr(body, arena, expr_types, locals, function, None);
+        // Compile body with loop context for break/continue support
+        let _body_val = self.compile_expr(
+            body,
+            arena,
+            expr_types,
+            locals,
+            function,
+            Some(&for_loop_ctx),
+        );
 
         // Increment index
         let current_idx = self
@@ -452,7 +664,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         inner: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -506,7 +718,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         result: Option<ExprId>,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -524,11 +736,11 @@ impl<'ll> Builder<'_, 'll, '_> {
                     pattern,
                     ty: _,
                     init,
-                    mutable: _,
+                    mutable,
                 } => {
-                    // Compile the let binding
+                    // Compile the let binding with mutability flag
                     self.compile_let(
-                        pattern, *init, arena, expr_types, locals, function, loop_ctx,
+                        pattern, *init, *mutable, arena, expr_types, locals, function, loop_ctx,
                     );
                 }
             }
@@ -549,7 +761,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         value: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -560,8 +772,8 @@ impl<'ll> Builder<'_, 'll, '_> {
         let target_expr = arena.get_expr(target);
         match &target_expr.kind {
             ori_ir::ast::ExprKind::Ident(name) => {
-                // Simple variable assignment - update locals
-                locals.insert(*name, val);
+                // Simple variable assignment - store to mutable variable
+                self.store_variable(*name, val, locals)?;
                 Some(val)
             }
             _ => {

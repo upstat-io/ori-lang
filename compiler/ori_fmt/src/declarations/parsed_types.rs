@@ -40,6 +40,14 @@ pub(super) fn format_parsed_type<I: StringLookup, E: Emitter>(
             format_parsed_type(elem_ty, arena, interner, ctx);
             ctx.emit("]");
         }
+        ParsedType::FixedList { elem, capacity } => {
+            ctx.emit("[");
+            let elem_ty = arena.get_parsed_type(*elem);
+            format_parsed_type(elem_ty, arena, interner, ctx);
+            ctx.emit(", max ");
+            ctx.emit(&capacity.to_string());
+            ctx.emit("]");
+        }
         ParsedType::Tuple(elems) => {
             ctx.emit("(");
             let elem_list = arena.get_parsed_type_list(*elems);
@@ -117,6 +125,11 @@ pub(super) fn calculate_type_width<I: StringLookup>(
             let elem_ty = arena.get_parsed_type(*elem);
             2 + calculate_type_width(elem_ty, arena, interner) // "[]"
         }
+        ParsedType::FixedList { elem, capacity } => {
+            let elem_ty = arena.get_parsed_type(*elem);
+            // "[" + elem + ", max " + digits + "]"
+            2 + calculate_type_width(elem_ty, arena, interner) + 6 + digit_count(*capacity)
+        }
         ParsedType::Tuple(elems) => {
             let elem_list = arena.get_parsed_type_list(*elems);
             let mut width = 2; // "()"
@@ -159,6 +172,19 @@ pub(super) fn calculate_type_width<I: StringLookup>(
             calculate_type_width(base_ty, arena, interner) + 1 + interner.lookup(*assoc_name).len()
         }
     }
+}
+
+/// Count the number of digits in a u64 value.
+fn digit_count(mut n: u64) -> usize {
+    if n == 0 {
+        return 1;
+    }
+    let mut count = 0;
+    while n > 0 {
+        count += 1;
+        n /= 10;
+    }
+    count
 }
 
 /// Convert a [`TypeId`] to its string representation.

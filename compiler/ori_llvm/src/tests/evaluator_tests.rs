@@ -111,6 +111,7 @@ fn test_llvm_evaluator_load_module() {
         return_ty: None,
         capabilities: vec![],
         where_clauses: vec![],
+        guard: None,
         body,
         span: Span::new(0, 1),
         visibility: Visibility::Private,
@@ -172,6 +173,7 @@ fn test_owned_llvm_evaluator_load_module() {
         return_ty: None,
         capabilities: vec![],
         where_clauses: vec![],
+        guard: None,
         body,
         span: Span::new(0, 1),
         visibility: Visibility::Private,
@@ -223,6 +225,7 @@ fn test_function_sig_debug() {
     let sig = FunctionSig {
         params: vec![TypeId::INT, TypeId::BOOL],
         return_type: TypeId::STR,
+        is_generic: false,
     };
 
     let debug_str = format!("{sig:?}");
@@ -238,6 +241,7 @@ fn test_function_sig_clone() {
     let sig = FunctionSig {
         params: vec![TypeId::INT],
         return_type: TypeId::BOOL,
+        is_generic: false,
     };
 
     let cloned = sig.clone();

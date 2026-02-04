@@ -549,14 +549,14 @@ mod str_conversion {
 
     #[test]
     fn str_from_string() {
-        // str() uses Display format, which quotes strings
+        // str() converts to raw string value - string to string is identity
         assert_eq!(
             function_val_str(&[Value::string("")]).unwrap(),
-            Value::string("\"\"")
+            Value::string("")
         );
         assert_eq!(
             function_val_str(&[Value::string("hello")]).unwrap(),
-            Value::string("\"hello\"")
+            Value::string("hello")
         );
     }
 

@@ -1,12 +1,10 @@
 //! Function call compilation.
 
-use rustc_hash::FxHashMap;
-
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{CallArgRange, ExprArena, ExprId, ExprList, Name, TypeId};
 use tracing::instrument;
 
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
@@ -21,7 +19,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         args: ExprList,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -75,9 +73,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         }
 
         // Check if this is a closure call (variable holding a function value)
-        if let Some(closure_val) = locals.get(&func_name) {
+        if let Some(closure_val) = self.load_variable(func_name, locals) {
             return self.compile_closure_call(
-                *closure_val,
+                closure_val,
                 &arg_ids,
                 arena,
                 expr_types,
@@ -115,7 +113,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         arg_ids: &[ExprId],
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -301,7 +299,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         args: CallArgRange,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -349,7 +347,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         args: ExprList,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -421,7 +419,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         args: CallArgRange,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {

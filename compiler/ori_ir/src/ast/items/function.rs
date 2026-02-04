@@ -14,11 +14,34 @@ use super::traits::WhereClause;
 use crate::{ExprId, Name, ParsedType, Span, Spanned};
 
 /// Parameter in a function or lambda.
+///
+/// Supports clause-based parameters with patterns and default values:
+/// - Simple: `(x: int)` — name only
+/// - Pattern: `(0: int)` — literal pattern
+/// - Default: `(x: int = 42)` — default value
+/// - Variadic: `(nums: ...int)` — receives zero or more values as `[T]`
+///
+/// # Fields
+/// - `name`: Primary binding name. For simple params, this is the identifier.
+///   For patterns, this may be derived from the primary binding or generated.
+/// - `pattern`: Optional match pattern. If None, this is a simple name binding.
+/// - `ty`: Optional type annotation.
+/// - `default`: Optional default value expression.
+/// - `is_variadic`: If true, this parameter accepts multiple values (`...T`).
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Param {
+    /// Primary binding name (for simple params or derived from pattern).
     pub name: Name,
+    /// Optional pattern for clause-based parameters (e.g., `0`, `Some(x)`).
+    /// If None, this is a simple name binding.
+    pub pattern: Option<super::super::patterns::MatchPattern>,
     /// The parsed type annotation. None if no type annotation.
     pub ty: Option<ParsedType>,
+    /// Default value expression (e.g., `x: int = 42`).
+    pub default: Option<ExprId>,
+    /// If true, this is a variadic parameter (`nums: ...int`).
+    /// Variadic params receive values as `[T]` inside the function.
+    pub is_variadic: bool,
     pub span: Span,
 }
 
@@ -48,6 +71,9 @@ pub struct Function {
     pub capabilities: Vec<CapabilityRef>,
     /// Where clauses: `where T: Clone, U: Default`
     pub where_clauses: Vec<WhereClause>,
+    /// Guard clause: `if condition` before `=`
+    /// Example: `@abs (n: int) -> int if n < 0 = -n`
+    pub guard: Option<ExprId>,
     pub body: ExprId,
     pub span: Span,
     pub visibility: Visibility,
@@ -57,8 +83,8 @@ impl fmt::Debug for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, uses: {:?}, where: {:?}, visibility: {:?} }}",
-            self.name, self.generics, self.params, self.return_ty, self.capabilities, self.where_clauses, self.visibility
+            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, uses: {:?}, where: {:?}, guard: {:?}, visibility: {:?} }}",
+            self.name, self.generics, self.params, self.return_ty, self.capabilities, self.where_clauses, self.guard, self.visibility
         )
     }
 }

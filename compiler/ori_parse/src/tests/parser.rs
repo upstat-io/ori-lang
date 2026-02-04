@@ -130,7 +130,8 @@ fn test_parse_let_expression() {
     {
         assert!(matches!(pattern, BindingPattern::Name(_)));
         assert!(ty.is_none());
-        assert!(!mutable);
+        // Per spec: let x = v is mutable by default
+        assert!(mutable);
     } else {
         panic!("Expected let expression, got {:?}", body.kind);
     }

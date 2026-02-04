@@ -39,29 +39,86 @@ pub struct MethodCollectionConfig<'a> {
 /// Creates function values with proper captures and arena references, ensuring
 /// correct evaluation when called from different contexts.
 ///
+/// Functions with the same name are grouped as multi-clause functions, with
+/// pattern matching determining which clause to execute at runtime.
+///
 /// # Arguments
 ///
 /// * `module` - The module containing functions to register
 /// * `arena` - Shared arena for expression lookup
 /// * `env` - The environment to register functions into
 pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut Environment) {
+    // Group functions by name to support multi-clause definitions
+    let mut func_groups: FxHashMap<Name, Vec<&ori_ir::Function>> = FxHashMap::default();
     for func in &module.functions {
-        let params = arena.get_param_names(func.params);
-        let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
-        let captures = env.capture();
+        func_groups.entry(func.name).or_default().push(func);
+    }
 
-        let func_value = FunctionValue::with_capabilities(
-            params,
-            func.body,
-            captures,
-            arena.clone(),
-            capabilities,
-        );
-        env.define(
-            func.name,
-            Value::Function(func_value),
-            Mutability::Immutable,
-        );
+    let captures = env.capture();
+
+    for (name, funcs) in func_groups {
+        if funcs.len() == 1 {
+            // Single function - create standard Value::Function
+            let func = funcs[0];
+            let params_slice = arena.get_params(func.params);
+            let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
+            let patterns: Vec<_> = params_slice.iter().map(|p| p.pattern.clone()).collect();
+            let defaults: Vec<_> = params_slice.iter().map(|p| p.default).collect();
+            let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
+
+            // Use with_patterns if there are any patterns or a guard
+            let has_patterns = patterns.iter().any(Option::is_some) || func.guard.is_some();
+            let func_value = if has_patterns {
+                FunctionValue::with_patterns(
+                    params,
+                    patterns,
+                    func.guard,
+                    defaults,
+                    func.body,
+                    captures.clone(),
+                    arena.clone(),
+                    capabilities,
+                )
+            } else {
+                FunctionValue::with_defaults(
+                    params,
+                    defaults,
+                    func.body,
+                    captures.clone(),
+                    arena.clone(),
+                    capabilities,
+                )
+            };
+            env.define(name, Value::Function(func_value), Mutability::Immutable);
+        } else {
+            // Multiple functions with same name - create Value::MultiClauseFunction
+            let clauses: Vec<FunctionValue> = funcs
+                .iter()
+                .map(|func| {
+                    let params_slice = arena.get_params(func.params);
+                    let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
+                    let patterns: Vec<_> = params_slice.iter().map(|p| p.pattern.clone()).collect();
+                    let defaults: Vec<_> = params_slice.iter().map(|p| p.default).collect();
+                    let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
+
+                    FunctionValue::with_patterns(
+                        params,
+                        patterns,
+                        func.guard,
+                        defaults,
+                        func.body,
+                        captures.clone(),
+                        arena.clone(),
+                        capabilities,
+                    )
+                })
+                .collect();
+            env.define(
+                name,
+                Value::multi_clause_function(clauses),
+                Mutability::Immutable,
+            );
+        }
     }
 }
 

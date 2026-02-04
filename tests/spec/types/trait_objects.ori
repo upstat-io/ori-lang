@@ -1,0 +1,303 @@
+// Spec: 06-types.md § Trait Objects, Object Safety
+// Tests for Printable, bounded trait objects (Printable + Hashable)
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Basic Trait Object (Printable)
+// =============================================================================
+
+// NOTE: Trait objects as parameter types may not be fully implemented.
+// Tests are designed to expose missing features.
+
+// @test_printable_param tests @printable_param () -> void = run(
+//     let result = display(item: 42),
+//     assert_eq(actual: result, expected: "42"),
+// )
+
+// @display (item: Printable) -> str = item.to_str()
+
+// @printable_param () -> str = display(item: 42)
+
+// =============================================================================
+// Trait Object Alternative: Generics with Bounds
+// =============================================================================
+
+@format_value<T: Printable> (item: T) -> str = item.to_str()
+
+@test_generic_printable_int tests @generic_printable_int () -> void = run(
+    let result = format_value(item: 123),
+    assert_eq(actual: result, expected: "123"),
+)
+
+@generic_printable_int () -> str = format_value(item: 123)
+
+@test_generic_printable_str tests @generic_printable_str () -> void = run(
+    let result = format_value(item: "hello"),
+    assert_eq(actual: result, expected: "hello"),
+)
+
+@generic_printable_str () -> str = format_value(item: "hello")
+
+@test_generic_printable_bool tests @generic_printable_bool () -> void = run(
+    let result = format_value(item: true),
+    assert_eq(actual: result, expected: "true"),
+)
+
+@generic_printable_bool () -> str = format_value(item: true)
+
+// =============================================================================
+// Multiple Trait Bounds (Printable + Hashable)
+// =============================================================================
+
+// Bounded trait objects use + syntax
+// @test_multi_bound_param tests @multi_bound_param () -> void = run(
+//     let result = format_hashable(item: 42),
+//     assert(cond: result.len() > 0),
+// )
+
+// @format_hashable (item: Printable + Hashable) -> str = item.to_str()
+
+// @multi_bound_param () -> str = format_hashable(item: 42)
+
+// Alternative: generic with multiple bounds
+@format_and_hash<T: Printable + Hashable> (item: T) -> (str, int) = run(
+    let formatted = item.to_str(),
+    let hashed = item.hash(),
+    (formatted, hashed),
+)
+
+@test_generic_multi_bound tests @generic_multi_bound () -> void = run(
+    let (s, h) = format_and_hash(item: 42),
+    assert_eq(actual: s, expected: "42"),
+)
+
+@generic_multi_bound () -> (str, int) = format_and_hash(item: 42)
+
+// =============================================================================
+// Clone Trait (NOT Object-Safe)
+// =============================================================================
+
+// Clone is not object-safe because it returns Self.
+// Testing with generics instead.
+
+@clone_value<T: Clone> (item: T) -> T = item.clone()
+
+@test_clone_int tests @clone_int () -> void = run(
+    let original = 42,
+    let cloned = clone_value(item: original),
+    assert_eq(actual: cloned, expected: 42),
+)
+
+@clone_int () -> int = clone_value(item: 42)
+
+@test_clone_str tests @clone_str () -> void = run(
+    let original = "hello",
+    let cloned = clone_value(item: original),
+    assert_eq(actual: cloned, expected: "hello"),
+)
+
+@clone_str () -> str = clone_value(item: "hello")
+
+@test_clone_list tests @clone_list () -> void = run(
+    let original = [1, 2, 3],
+    let cloned = clone_value(item: original),
+    assert_eq(actual: cloned, expected: [1, 2, 3]),
+)
+
+@clone_list () -> [int] = clone_value(item: [1, 2, 3])
+
+// =============================================================================
+// Eq Trait (NOT Object-Safe)
+// =============================================================================
+
+// Eq is not object-safe because equals takes Self.
+// Testing with generics instead.
+
+@are_equal<T: Eq> (a: T, b: T) -> bool = a == b
+
+@test_eq_int tests @eq_int () -> void = run(
+    assert(cond: are_equal(a: 42, b: 42)),
+    assert(cond: !are_equal(a: 42, b: 100)),
+)
+
+@eq_int () -> bool = are_equal(a: 42, b: 42)
+
+@test_eq_str tests @eq_str () -> void = run(
+    assert(cond: are_equal(a: "hello", b: "hello")),
+    assert(cond: !are_equal(a: "hello", b: "world")),
+)
+
+@eq_str () -> bool = are_equal(a: "hello", b: "hello")
+
+// =============================================================================
+// Comparable Trait (NOT Object-Safe)
+// =============================================================================
+
+// Comparable extends Eq and has compare taking Self.
+// Testing with generics instead.
+
+@is_less<T: Comparable> (a: T, b: T) -> bool = a < b
+
+@test_comparable_int tests @comparable_int () -> void = run(
+    assert(cond: is_less(a: 1, b: 10)),
+    assert(cond: !is_less(a: 10, b: 1)),
+)
+
+@comparable_int () -> bool = is_less(a: 1, b: 10)
+
+@test_comparable_str tests @comparable_str () -> void = run(
+    assert(cond: is_less(a: "apple", b: "banana")),
+)
+
+@comparable_str () -> bool = is_less(a: "apple", b: "banana")
+
+// =============================================================================
+// Debug Trait (Object-Safe)
+// =============================================================================
+
+// Debug just returns str, so it should be object-safe
+
+@debug_value<T: Debug> (item: T) -> str = item.debug()
+
+@test_debug_int tests @debug_int () -> void = run(
+    let s = debug_value(item: 42),
+    assert_eq(actual: s, expected: "42"),
+)
+
+@debug_int () -> str = debug_value(item: 42)
+
+@test_debug_str tests @debug_str () -> void = run(
+    let s = debug_value(item: "hello"),
+    // Debug quotes strings
+    assert(cond: s.len() > 5),
+)
+
+@debug_str () -> str = debug_value(item: "hello")
+
+// =============================================================================
+// Heterogeneous Collections with Trait Objects
+// =============================================================================
+
+// This is the key use case for trait objects: storing different types
+// in the same collection.
+
+// @test_printable_list tests @printable_list () -> void = run(
+//     let items: [Printable] = [42, "hello", true],
+//     assert_eq(actual: items.len(), expected: 3),
+//     // Each item can call to_str()
+//     assert_eq(actual: items[0].to_str(), expected: "42"),
+//     assert_eq(actual: items[1].to_str(), expected: "hello"),
+//     assert_eq(actual: items[2].to_str(), expected: "true"),
+// )
+
+// @printable_list () -> [Printable] = [42, "hello", true]
+
+// =============================================================================
+// Trait Object vs Generic - Semantic Difference
+// =============================================================================
+
+// Generic: All elements must be same concrete type
+@all_same_type<T: Printable> (items: [T]) -> [str] = run(
+    for item in items yield item.to_str(),
+)
+
+@test_generic_homogeneous tests @generic_homogeneous () -> void = run(
+    let result = all_same_type(items: [1, 2, 3]),
+    assert_eq(actual: result, expected: ["1", "2", "3"]),
+)
+
+@generic_homogeneous () -> [str] = all_same_type(items: [1, 2, 3])
+
+// Trait object: Elements can be different concrete types
+// @test_trait_heterogeneous tests @trait_heterogeneous () -> void = run(
+//     let items: [Printable] = [1, "two", true],
+//     let result = for item in items yield item.to_str(),
+//     assert_eq(actual: result, expected: ["1", "two", "true"]),
+// )
+
+// @trait_heterogeneous () -> [str] = run(
+//     let items: [Printable] = [1, "two", true],
+//     for item in items yield item.to_str(),
+// )
+
+// =============================================================================
+// User-Defined Types as Trait Objects
+// =============================================================================
+//
+// STATUS: Lexer [OK], Parser [BROKEN] - expected method definition, found ','
+// #derive(Eq, Clone, Debug) multiple derives causing parser confusion.
+
+#derive(Eq, Clone, Debug)
+type Point = { x: int, y: int }
+
+impl Printable for Point {
+    @to_str (self) -> str = "(" + str(self.x) + ", " + str(self.y) + ")"
+}
+
+@test_user_type_printable tests @user_type_printable () -> void = run(
+    let p = Point { x: 10, y: 20 },
+    let s = p.to_str(),
+    assert_eq(actual: s, expected: "(10, 20)"),
+)
+
+@user_type_printable () -> str = run(
+    let p = Point { x: 10, y: 20 },
+    p.to_str(),
+)
+
+// @test_user_type_in_trait_list tests @user_type_in_trait_list () -> void = run(
+//     let items: [Printable] = [Point { x: 1, y: 2 }, 42, "hello"],
+//     assert_eq(actual: items.len(), expected: 3),
+// )
+
+// =============================================================================
+// Trait Bounds Combinations
+// =============================================================================
+
+@format_debug_clone<T: Printable + Debug + Clone> (item: T) -> (str, str, T) = run(
+    let formatted = item.to_str(),
+    let debugged = item.debug(),
+    let cloned = item.clone(),
+    (formatted, debugged, cloned),
+)
+
+@test_triple_bound tests @triple_bound () -> void = run(
+    let (f, d, c) = format_debug_clone(item: 42),
+    assert_eq(actual: f, expected: "42"),
+    assert_eq(actual: d, expected: "42"),
+    assert_eq(actual: c, expected: 42),
+)
+
+@triple_bound () -> (str, str, int) = format_debug_clone(item: 42)
+
+// =============================================================================
+// Default Trait Implementation
+// =============================================================================
+//
+// STATUS: Evaluator [BROKEN] - Default trait not registered/implemented
+// Default.default() call fails with "undefined variable: Default"
+
+#skip("Default trait not implemented")
+@test_default_int tests @default_int () -> void = run(
+    let d: int = Default.default(),
+    assert_eq(actual: d, expected: 0),
+)
+
+@default_int () -> int = Default.default()
+
+#skip("Default trait not implemented")
+@test_default_str tests @default_str () -> void = run(
+    let d: str = Default.default(),
+    assert_eq(actual: d, expected: ""),
+)
+
+@default_str () -> str = Default.default()
+
+#skip("Default trait not implemented")
+@test_default_bool tests @default_bool () -> void = run(
+    let d: bool = Default.default(),
+    assert(cond: !d),
+)
+
+@default_bool () -> bool = Default.default()

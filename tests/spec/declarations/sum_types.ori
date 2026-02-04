@@ -1,0 +1,486 @@
+// Spec: 08-declarations.md § Type Definitions
+// Tests for sum types / algebraic data types (grammar.ebnf § sum_body)
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Unit Variants (Enum-like)
+// =============================================================================
+
+type Color = Red | Green | Blue
+
+@test_unit_red tests @_use_color () -> void = run(
+    let c = Red,
+    assert(cond: match(c, Red -> true, Green -> false, Blue -> false)),
+)
+
+@test_unit_green tests @_use_color () -> void = run(
+    let c = Green,
+    assert(cond: match(c, Red -> false, Green -> true, Blue -> false)),
+)
+
+@test_unit_blue tests @_use_color () -> void = run(
+    let c = Blue,
+    assert(cond: match(c, Red -> false, Green -> false, Blue -> true)),
+)
+
+@_use_color (c: Color) -> bool = match(c, Red -> true, _ -> false)
+
+// More unit variants
+type Direction = North | South | East | West
+
+@test_direction tests @_use_direction () -> void = run(
+    let d = North,
+    let result = match(d,
+        North -> 0,
+        South -> 180,
+        East -> 90,
+        West -> 270,
+    ),
+    assert_eq(actual: result, expected: 0),
+)
+
+@_use_direction (d: Direction) -> int = match(d, North -> 0, _ -> 1)
+
+// Binary enum
+type Toggle = On | Off
+
+@test_toggle tests @_use_toggle () -> void = run(
+    let t = On,
+    let is_on = match(t, On -> true, Off -> false),
+    assert(cond: is_on),
+)
+
+@_use_toggle (t: Toggle) -> bool = match(t, On -> true, Off -> false)
+
+// =============================================================================
+// Single-Field Variants
+// =============================================================================
+
+type MyOption = MySome(value: int) | MyNone
+
+@test_single_field_some tests @_use_myoption () -> void = run(
+    let opt = MySome(value: 42),
+    let val = match(opt,
+        MySome(value) -> value,
+        MyNone -> 0,
+    ),
+    assert_eq(actual: val, expected: 42),
+)
+
+@test_single_field_none tests @_use_myoption () -> void = run(
+    let opt = MyNone,
+    let val = match(opt,
+        MySome(value) -> value,
+        MyNone -> -1,
+    ),
+    assert_eq(actual: val, expected: -1),
+)
+
+@_use_myoption (opt: MyOption) -> int = match(opt, MySome(v) -> v, MyNone -> 0)
+
+// String payload
+type Message = Text(content: str) | Empty
+
+@test_string_payload tests @_use_message () -> void = run(
+    let m = Text(content: "hello"),
+    let result = match(m,
+        Text(content) -> content,
+        Empty -> "",
+    ),
+    assert_eq(actual: result, expected: "hello"),
+)
+
+@_use_message (m: Message) -> str = match(m, Text(c) -> c, Empty -> "")
+
+// =============================================================================
+// Multi-Field Variants
+// =============================================================================
+
+type Shape = Circle(radius: int) | Rectangle(width: int, height: int)
+
+@test_circle tests @_use_shape () -> void = run(
+    let s = Circle(radius: 5),
+    let area = match(s,
+        Circle(radius) -> radius * radius * 3,  // approximate pi*r^2
+        Rectangle(width, height) -> width * height,
+    ),
+    assert_eq(actual: area, expected: 75),
+)
+
+@test_rectangle tests @_use_shape () -> void = run(
+    let s = Rectangle(width: 10, height: 5),
+    let area = match(s,
+        Circle(radius) -> radius * radius * 3,
+        Rectangle(width, height) -> width * height,
+    ),
+    assert_eq(actual: area, expected: 50),
+)
+
+@_use_shape (s: Shape) -> int = match(s, Circle(r) -> r, Rectangle(w, _) -> w)
+
+// Three fields
+type Point3D = Point(x: int, y: int, z: int)
+
+@test_three_fields tests @_use_point3d () -> void = run(
+    let p = Point(x: 1, y: 2, z: 3),
+    let sum = match(p, Point(x, y, z) -> x + y + z),
+    assert_eq(actual: sum, expected: 6),
+)
+
+@_use_point3d (p: Point3D) -> int = match(p, Point(x, _, _) -> x)
+
+// =============================================================================
+// Mixed Variant Types
+// =============================================================================
+
+type Event = Click(x: int, y: int) | KeyPress(key: char) | Quit
+
+@test_click_event tests @_use_event () -> void = run(
+    let e = Click(x: 100, y: 200),
+    let result = match(e,
+        Click(x, y) -> x + y,
+        KeyPress(key) -> 0,
+        Quit -> -1,
+    ),
+    assert_eq(actual: result, expected: 300),
+)
+
+@test_keypress_event tests @_use_event () -> void = run(
+    let e = KeyPress(key: 'a'),
+    let is_key = match(e,
+        Click(_, _) -> false,
+        KeyPress(_) -> true,
+        Quit -> false,
+    ),
+    assert(cond: is_key),
+)
+
+@test_quit_event tests @_use_event () -> void = run(
+    let e = Quit,
+    let is_quit = match(e,
+        Click(_, _) -> false,
+        KeyPress(_) -> false,
+        Quit -> true,
+    ),
+    assert(cond: is_quit),
+)
+
+@_use_event (e: Event) -> int = match(e, Click(x, _) -> x, KeyPress(_) -> 0, Quit -> -1)
+
+// =============================================================================
+// Nested Sum Types
+// =============================================================================
+
+type Inner = A | B(value: int)
+type Outer = Wrap(inner: Inner) | Direct(n: int)
+
+@test_nested_sum tests @_use_outer () -> void = run(
+    let o = Wrap(inner: B(value: 42)),
+    let result = match(o,
+        Wrap(inner) -> match(inner, A -> 0, B(value) -> value),
+        Direct(n) -> n,
+    ),
+    assert_eq(actual: result, expected: 42),
+)
+
+@_use_outer (o: Outer) -> int = match(o, Wrap(_) -> 1, Direct(n) -> n)
+
+// =============================================================================
+// Generic Sum Types
+// =============================================================================
+
+type MyResult<T, E> = MyOk(value: T) | MyErr(error: E)
+
+@test_generic_ok tests @_use_result () -> void = run(
+    let r: MyResult<int, str> = MyOk(value: 42),
+    let val = match(r,
+        MyOk(value) -> value,
+        MyErr(_) -> 0,
+    ),
+    assert_eq(actual: val, expected: 42),
+)
+
+@test_generic_err tests @_use_result () -> void = run(
+    let r: MyResult<int, str> = MyErr(error: "failed"),
+    let msg = match(r,
+        MyOk(_) -> "",
+        MyErr(error) -> error,
+    ),
+    assert_eq(actual: msg, expected: "failed"),
+)
+
+@_use_result (r: MyResult<int, str>) -> int = match(r, MyOk(v) -> v, MyErr(_) -> 0)
+
+// Single type parameter
+type MyOptional<T> = MySome2(value: T) | MyNone2
+
+@test_generic_option tests @_use_myoptional () -> void = run(
+    let some: MyOptional<str> = MySome2(value: "hello"),
+    let none: MyOptional<str> = MyNone2,
+
+    let s1 = match(some, MySome2(value) -> value, MyNone2 -> ""),
+    let s2 = match(none, MySome2(value) -> value, MyNone2 -> "default"),
+
+    assert_eq(actual: s1, expected: "hello"),
+    assert_eq(actual: s2, expected: "default"),
+)
+
+@_use_myoptional (o: MyOptional<str>) -> str = match(o, MySome2(v) -> v, MyNone2 -> "")
+
+// =============================================================================
+// Recursive Sum Types
+// =============================================================================
+
+type LinkedList<T> = Cons(head: T, tail: LinkedList<T>) | Nil
+
+@test_recursive_list tests @_use_list () -> void = run(
+    let list: LinkedList<int> = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil))),
+    let first = match(list,
+        Cons(head, _) -> head,
+        Nil -> 0,
+    ),
+    assert_eq(actual: first, expected: 1),
+)
+
+@_use_list (l: LinkedList<int>) -> int = match(l, Cons(h, _) -> h, Nil -> 0)
+
+type Tree<T> = Leaf(value: T) | Branch(left: Tree<T>, right: Tree<T>)
+
+@test_tree tests @_use_tree () -> void = run(
+    let tree = Branch(
+        left: Leaf(value: 1),
+        right: Branch(
+            left: Leaf(value: 2),
+            right: Leaf(value: 3),
+        ),
+    ),
+    let left_val = match(tree,
+        Leaf(value) -> value,
+        Branch(left, _) -> match(left, Leaf(v) -> v, Branch(_, _) -> 0),
+    ),
+    assert_eq(actual: left_val, expected: 1),
+)
+
+@_use_tree (t: Tree<int>) -> int = match(t, Leaf(v) -> v, Branch(_, _) -> 0)
+
+// =============================================================================
+// Exhaustiveness in Match
+// =============================================================================
+
+type Status = Pending | Running | Done | Failed
+
+@test_exhaustive_match tests @_use_status () -> void = run(
+    let s = Running,
+    let code = match(s,
+        Pending -> 0,
+        Running -> 1,
+        Done -> 2,
+        Failed -> 3,
+    ),
+    assert_eq(actual: code, expected: 1),
+)
+
+@_use_status (s: Status) -> int = match(s, Pending -> 0, Running -> 1, Done -> 2, Failed -> 3)
+
+// =============================================================================
+// Wildcard Patterns
+// =============================================================================
+
+@test_wildcard tests @_use_color () -> void = run(
+    let c = Blue,
+    let is_red = match(c,
+        Red -> true,
+        _ -> false,
+    ),
+    assert(cond: !is_red),
+)
+
+@test_wildcard_inner tests @_use_shape () -> void = run(
+    let s = Rectangle(width: 5, height: 10),
+    // Ignore height with wildcard
+    let w = match(s,
+        Circle(_) -> 0,
+        Rectangle(width, _) -> width,
+    ),
+    assert_eq(actual: w, expected: 5),
+)
+
+// =============================================================================
+// Variable Binding in Patterns
+// =============================================================================
+
+@test_bind_variant tests @_use_myoption () -> void = run(
+    let opt = MySome(value: 100),
+    let doubled = match(opt,
+        MySome(v) -> v * 2,
+        MyNone -> 0,
+    ),
+    assert_eq(actual: doubled, expected: 200),
+)
+
+@test_bind_multiple tests @_use_shape () -> void = run(
+    let s = Rectangle(width: 4, height: 5),
+    let perimeter = match(s,
+        Circle(r) -> r * 2 * 3,
+        Rectangle(w, h) -> 2 * (w + h),
+    ),
+    assert_eq(actual: perimeter, expected: 18),
+)
+
+// =============================================================================
+// Sum Types with Same Field Names
+// =============================================================================
+
+type Animal = Dog(name: str) | Cat(name: str) | Bird(name: str)
+
+@test_same_field_names tests @_use_animal () -> void = run(
+    let a = Cat(name: "Whiskers"),
+    let n = match(a,
+        Dog(name) -> name,
+        Cat(name) -> name,
+        Bird(name) -> name,
+    ),
+    assert_eq(actual: n, expected: "Whiskers"),
+)
+
+@_use_animal (a: Animal) -> str = match(a, Dog(n) -> n, Cat(n) -> n, Bird(n) -> n)
+
+// =============================================================================
+// Sum Types with Struct-like Variants
+// =============================================================================
+
+type Response = Success(code: int, body: str) | Error(code: int, message: str)
+
+@test_struct_variant tests @_use_response () -> void = run(
+    let r = Success(code: 200, body: "OK"),
+    let result = match(r,
+        Success(code, body) -> str(code) + ": " + body,
+        Error(code, message) -> str(code) + ": " + message,
+    ),
+    assert_eq(actual: result, expected: "200: OK"),
+)
+
+@_use_response (r: Response) -> int = match(r, Success(c, _) -> c, Error(c, _) -> c)
+
+// =============================================================================
+// Public Sum Types
+// =============================================================================
+
+pub type PublicStatus = Active | Inactive
+
+@test_public_sum tests @_use_public_status () -> void = run(
+    let s = Active,
+    assert(cond: match(s, Active -> true, Inactive -> false)),
+)
+
+@_use_public_status (s: PublicStatus) -> bool = match(s, Active -> true, Inactive -> false)
+
+// =============================================================================
+// Sum Type in Function Parameters
+// =============================================================================
+
+@process_option (opt: MyOption) -> int = match(opt,
+    MySome(value) -> value * 2,
+    MyNone -> -1,
+)
+
+@test_sum_param tests @process_option () -> void = run(
+    assert_eq(actual: process_option(opt: MySome(value: 21)), expected: 42),
+    assert_eq(actual: process_option(opt: MyNone), expected: -1),
+)
+
+// =============================================================================
+// Sum Type as Return Type
+// =============================================================================
+
+@make_status (active: bool) -> PublicStatus = if active then Active else Inactive
+
+@test_sum_return tests @make_status () -> void = run(
+    let s1 = make_status(active: true),
+    let s2 = make_status(active: false),
+    assert(cond: match(s1, Active -> true, Inactive -> false)),
+    assert(cond: match(s2, Active -> false, Inactive -> true)),
+)
+
+// =============================================================================
+// Sum Type in Collections
+// =============================================================================
+
+@test_list_of_sum tests @_use_color () -> void = run(
+    let colors = [Red, Green, Blue, Red],
+    let count_red = colors.fold(initial: 0, op: (acc, c) -> acc + match(c, Red -> 1, _ -> 0)),
+    assert_eq(actual: count_red, expected: 2),
+)
+
+// =============================================================================
+// Sum Type with Boolean Payload
+// =============================================================================
+
+type Condition = True(reason: str) | False(reason: str)
+
+@test_bool_sum tests @_use_condition () -> void = run(
+    let c = True(reason: "passed check"),
+    let is_true = match(c,
+        True(_) -> true,
+        False(_) -> false,
+    ),
+    assert(cond: is_true),
+)
+
+@_use_condition (c: Condition) -> str = match(c, True(r) -> r, False(r) -> r)
+
+// =============================================================================
+// Equality on Sum Types (with derived Eq)
+// =============================================================================
+
+#[derive(Eq)]
+type EqColor = EqRed | EqGreen | EqBlue
+
+#skip("derive(Eq) for sum types does not generate == operator")
+@test_sum_eq tests @_use_eq_color () -> void = run(
+    let c1 = EqRed,
+    let c2 = EqRed,
+    let c3 = EqBlue,
+    assert(cond: c1 == c2),
+    assert(cond: c1 != c3),
+)
+
+@_use_eq_color (c: EqColor) -> bool = match(c, EqRed -> true, _ -> false)
+
+#[derive(Eq)]
+type EqOption = EqSome(value: int) | EqNone
+
+#skip("derive(Eq) for sum types does not generate == operator")
+@test_payload_eq tests @_use_eq_option () -> void = run(
+    let a = EqSome(value: 42),
+    let b = EqSome(value: 42),
+    let c = EqSome(value: 43),
+    let d = EqNone,
+    assert(cond: a == b),
+    assert(cond: a != c),
+    assert(cond: a != d),
+)
+
+@_use_eq_option (o: EqOption) -> int = match(o, EqSome(v) -> v, EqNone -> 0)
+
+// =============================================================================
+// Complex Nested Match
+// =============================================================================
+
+type Expr = Num(n: int) | Add(left: Expr, right: Expr) | Mul(left: Expr, right: Expr)
+
+@eval_expr (e: Expr) -> int = match(e,
+    Num(n) -> n,
+    Add(left, right) -> eval_expr(e: left) + eval_expr(e: right),
+    Mul(left, right) -> eval_expr(e: left) * eval_expr(e: right),
+)
+
+@test_expr_eval tests @eval_expr () -> void = run(
+    // (2 + 3) * 4 = 20
+    let expr = Mul(
+        left: Add(left: Num(n: 2), right: Num(n: 3)),
+        right: Num(n: 4),
+    ),
+    assert_eq(actual: eval_expr(e: expr), expected: 20),
+)

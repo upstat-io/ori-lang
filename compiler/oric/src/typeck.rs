@@ -269,6 +269,12 @@ fn parsed_type_to_type(
             let elem_ty = arena.get_parsed_type(*elem_id);
             Type::List(Box::new(parsed_type_to_type(elem_ty, arena, interner)))
         }
+        ParsedType::FixedList { elem, .. } => {
+            // Fixed-capacity lists resolve to List for now
+            // (full type system support in later phase)
+            let elem_ty = arena.get_parsed_type(*elem);
+            Type::List(Box::new(parsed_type_to_type(elem_ty, arena, interner)))
+        }
         ParsedType::Tuple(elems) => {
             let elem_ids = arena.get_parsed_type_list(*elems);
             Type::Tuple(
@@ -387,6 +393,31 @@ pub fn type_check_with_imports(
     parse_result: &ParseOutput,
     current_file: &Path,
 ) -> TypedModule {
+    type_check_with_imports_and_interner(db, parse_result, current_file, None)
+}
+
+/// Type check a parsed module with resolved imports and a shared type interner.
+///
+/// Like `type_check_with_imports`, but allows passing a `SharedTypeInterner` so the
+/// same interner can be shared between the type checker and evaluator. This enables
+/// type-aware evaluation for operators like `??` that need access to type information.
+///
+/// # Arguments
+///
+/// * `db` - The compiler database for Salsa queries
+/// * `parse_result` - The parsed module to type check
+/// * `current_file` - Path to the current file (for resolving relative imports)
+/// * `type_interner` - Optional shared type interner to use (creates a new one if None)
+///
+/// # Returns
+///
+/// A `TypedModule` with type information, or errors if type checking fails.
+pub fn type_check_with_imports_and_interner(
+    db: &dyn Db,
+    parse_result: &ParseOutput,
+    current_file: &Path,
+    type_interner: Option<ori_types::SharedTypeInterner>,
+) -> TypedModule {
     let interner = db.interner();
 
     // Resolve imports and extract function signatures and module aliases
@@ -408,8 +439,12 @@ pub fn type_check_with_imports(
         }
     };
 
-    // Create type checker and register imported functions and module aliases
-    let mut checker = TypeCheckerBuilder::new(&parse_result.arena, interner).build();
+    // Create type checker, optionally with a shared type interner
+    let mut builder = TypeCheckerBuilder::new(&parse_result.arena, interner);
+    if let Some(ti) = type_interner {
+        builder = builder.with_type_interner(ti);
+    }
+    let mut checker = builder.build();
     checker.register_imported_functions(&resolved.functions);
     for alias in &resolved.module_aliases {
         checker.register_module_alias(alias);
@@ -428,6 +463,29 @@ pub fn type_check_with_imports_and_source(
     parse_result: &ParseOutput,
     current_file: &Path,
     source: String,
+) -> TypedModule {
+    type_check_with_imports_source_and_interner(db, parse_result, current_file, source, None)
+}
+
+/// Type check a parsed module with resolved imports, source, and shared type interner.
+///
+/// Like `type_check_with_imports_and_source`, but allows passing a `SharedTypeInterner`
+/// so the same interner can be shared between the type checker and evaluator. This enables
+/// type-aware evaluation for operators like `??` that need access to type information.
+///
+/// # Arguments
+///
+/// * `db` - The compiler database for Salsa queries
+/// * `parse_result` - The parsed module to type check
+/// * `current_file` - Path to the current file (for resolving relative imports)
+/// * `source` - Source code for better error messages
+/// * `type_interner` - Optional shared type interner to use (creates a new one if None)
+pub fn type_check_with_imports_source_and_interner(
+    db: &dyn Db,
+    parse_result: &ParseOutput,
+    current_file: &Path,
+    source: String,
+    type_interner: Option<ori_types::SharedTypeInterner>,
 ) -> TypedModule {
     let interner = db.interner();
 
@@ -449,10 +507,12 @@ pub fn type_check_with_imports_and_source(
         }
     };
 
-    // Create type checker with source and register imported functions and module aliases
-    let mut checker = TypeCheckerBuilder::new(&parse_result.arena, interner)
-        .with_source(source)
-        .build();
+    // Create type checker with source, optionally with a shared type interner
+    let mut builder = TypeCheckerBuilder::new(&parse_result.arena, interner).with_source(source);
+    if let Some(ti) = type_interner {
+        builder = builder.with_type_interner(ti);
+    }
+    let mut checker = builder.build();
     checker.register_imported_functions(&resolved.functions);
     for alias in &resolved.module_aliases {
         checker.register_module_alias(alias);

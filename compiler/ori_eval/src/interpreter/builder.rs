@@ -11,8 +11,9 @@ use crate::{
     stdout_handler, Environment, SharedMutableRegistry, SharedPrintHandler, SharedRegistry,
     UserMethodRegistry,
 };
-use ori_ir::{ExprArena, SharedArena, StringInterner};
+use ori_ir::{ExprArena, SharedArena, StringInterner, TypeId};
 use ori_patterns::PatternRegistry;
+use ori_types::SharedTypeInterner;
 
 /// Builder for creating Interpreter instances with various configurations.
 pub struct InterpreterBuilder<'a> {
@@ -27,6 +28,10 @@ pub struct InterpreterBuilder<'a> {
     call_depth: usize,
     #[cfg(target_arch = "wasm32")]
     max_call_depth: usize,
+    /// Expression type table from type checking.
+    expr_types: Option<&'a [TypeId]>,
+    /// Type interner for resolving [`TypeId`] to [`TypeData`].
+    type_interner: Option<SharedTypeInterner>,
 }
 
 impl<'a> InterpreterBuilder<'a> {
@@ -44,6 +49,8 @@ impl<'a> InterpreterBuilder<'a> {
             owns_scoped_env: false,
             call_depth: 0,
             max_call_depth: DEFAULT_MAX_CALL_DEPTH,
+            expr_types: None,
+            type_interner: None,
         }
     }
 
@@ -60,6 +67,8 @@ impl<'a> InterpreterBuilder<'a> {
             print_handler: None,
             owns_scoped_env: false,
             call_depth: 0,
+            expr_types: None,
+            type_interner: None,
         }
     }
 
@@ -133,6 +142,28 @@ impl<'a> InterpreterBuilder<'a> {
         self
     }
 
+    /// Set the expression type table from type checking.
+    ///
+    /// Enables type-aware evaluation for operators like `??` that need
+    /// to distinguish between chaining (`Option<T> ?? Option<T>`) and
+    /// unwrapping (`Option<T> ?? T`).
+    ///
+    /// Should be paired with `type_interner()` to enable type resolution.
+    #[must_use]
+    pub fn expr_types(mut self, types: &'a [TypeId]) -> Self {
+        self.expr_types = Some(types);
+        self
+    }
+
+    /// Set the type interner for resolving `TypeId` to `TypeData`.
+    ///
+    /// Required when `expr_types()` is set to look up actual type information.
+    #[must_use]
+    pub fn type_interner(mut self, interner: SharedTypeInterner) -> Self {
+        self.type_interner = Some(interner);
+        self
+    }
+
     /// Build the interpreter (WASM version with max_call_depth).
     #[cfg(target_arch = "wasm32")]
     pub fn build(self) -> Interpreter<'a> {
@@ -173,6 +204,8 @@ impl<'a> InterpreterBuilder<'a> {
             prelude_loaded: false,
             print_handler: self.print_handler.unwrap_or_else(stdout_handler),
             owns_scoped_env: self.owns_scoped_env,
+            expr_types: self.expr_types,
+            type_interner: self.type_interner,
         }
     }
 
@@ -215,6 +248,8 @@ impl<'a> InterpreterBuilder<'a> {
             prelude_loaded: false,
             print_handler: self.print_handler.unwrap_or_else(stdout_handler),
             owns_scoped_env: self.owns_scoped_env,
+            expr_types: self.expr_types,
+            type_interner: self.type_interner,
         }
     }
 }

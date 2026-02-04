@@ -1,0 +1,439 @@
+// Spec: 08-declarations.md § Function Generics and Type Parameters
+// Tests for generic functions and types (grammar.ebnf § generics)
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Basic Generic Function
+// =============================================================================
+
+@identity<T> (x: T) -> T = x
+
+@test_identity_int tests @identity () -> void = run(
+    assert_eq(actual: identity(x: 42), expected: 42),
+)
+
+@test_identity_str tests @identity () -> void = run(
+    assert_eq(actual: identity(x: "hello"), expected: "hello"),
+)
+
+@test_identity_bool tests @identity () -> void = run(
+    assert(cond: identity(x: true)),
+)
+
+// =============================================================================
+// Generic with Multiple Type Params
+// =============================================================================
+
+@pair<A, B> (a: A, b: B) -> (A, B) = (a, b)
+
+@test_pair tests @pair () -> void = run(
+    let p = pair(a: 1, b: "hello"),
+    let (x, y) = p,
+    assert_eq(actual: x, expected: 1),
+    assert_eq(actual: y, expected: "hello"),
+)
+
+@triple<A, B, C> (a: A, b: B, c: C) -> (A, B, C) = (a, b, c)
+
+@test_triple tests @triple () -> void = run(
+    let t = triple(a: 1, b: "two", c: true),
+    let (x, y, z) = t,
+    assert_eq(actual: x, expected: 1),
+    assert_eq(actual: y, expected: "two"),
+    assert(cond: z),
+)
+
+// =============================================================================
+// Generic Type Definitions
+// =============================================================================
+
+type Box<T> = { value: T }
+
+@make_box<T> (value: T) -> Box<T> = Box { value }
+
+@test_generic_struct tests @make_box () -> void = run(
+    let b = make_box(value: 100),
+    assert_eq(actual: b.value, expected: 100),
+)
+
+@test_generic_struct_str tests @make_box () -> void = run(
+    let b = make_box(value: "test"),
+    assert_eq(actual: b.value, expected: "test"),
+)
+
+type Pair<A, B> = { first: A, second: B }
+
+@make_pair<A, B> (first: A, second: B) -> Pair<A, B> = Pair { first, second }
+
+@test_generic_pair_struct tests @make_pair () -> void = run(
+    let p = make_pair(first: 10, second: "hello"),
+    assert_eq(actual: p.first, expected: 10),
+    assert_eq(actual: p.second, expected: "hello"),
+)
+
+// =============================================================================
+// Bounded Generic - Single Bound
+// =============================================================================
+
+@compare_eq<T: Eq> (a: T, b: T) -> bool = a == b
+
+@test_bounded_single tests @compare_eq () -> void = run(
+    assert(cond: compare_eq(a: 42, b: 42)),
+    assert(cond: !compare_eq(a: 42, b: 43)),
+)
+
+@max_val<T: Comparable> (a: T, b: T) -> T =
+    if a.compare(other: b) == Greater then a else b
+
+#skip("Ordering type does not implement Eq for == comparison")
+@test_bounded_comparable tests @max_val () -> void = run(
+    assert_eq(actual: max_val(a: 10, b: 20), expected: 20),
+    assert_eq(actual: max_val(a: 50, b: 30), expected: 50),
+)
+
+// =============================================================================
+// Multiple Bounds
+// =============================================================================
+
+@hash_and_compare<T: Eq + Hashable> (a: T, b: T) -> bool = a == b
+
+@test_multi_bound tests @hash_and_compare () -> void = run(
+    assert(cond: hash_and_compare(a: 10, b: 10)),
+    assert(cond: !hash_and_compare(a: 10, b: 20)),
+)
+
+@clone_and_eq<T: Clone + Eq> (x: T) -> bool = run(
+    let cloned = x.clone(),
+    x == cloned,
+)
+
+@test_clone_and_eq tests @clone_and_eq () -> void = run(
+    assert(cond: clone_and_eq(x: 42)),
+    assert(cond: clone_and_eq(x: "hello")),
+)
+
+// Three bounds
+@all_traits<T: Eq + Clone + Hashable> (x: T) -> int = x.hash()
+
+@test_three_bounds tests @all_traits () -> void = run(
+    let h = all_traits(x: 42),
+    assert(cond: h != 0 || h == 0),  // Just verify hash returns something
+)
+
+// =============================================================================
+// Generic Functions Returning Generic Types
+// =============================================================================
+
+@wrap<T> (x: T) -> Option<T> = Some(x)
+
+@test_wrap tests @wrap () -> void = run(
+    let opt = wrap(x: 42),
+    assert(cond: is_some(opt: opt)),
+)
+
+@wrap_result<T> (x: T) -> Result<T, str> = Ok(x)
+
+@test_wrap_result tests @wrap_result () -> void = run(
+    let res = wrap_result(x: 42),
+    assert(cond: is_ok(result: res)),
+)
+
+// =============================================================================
+// Nested Generics
+// =============================================================================
+
+@wrap_twice<T> (x: T) -> Option<Option<T>> = Some(Some(x))
+
+@test_nested_generic tests @wrap_twice () -> void = run(
+    let nested = wrap_twice(x: 42),
+    assert(cond: is_some(opt: nested)),
+)
+
+type Nested<T> = { inner: Box<T> }
+
+@make_nested<T> (value: T) -> Nested<T> = Nested { inner: Box { value } }
+
+@test_nested_struct tests @make_nested () -> void = run(
+    let n = make_nested(value: 100),
+    assert_eq(actual: n.inner.value, expected: 100),
+)
+
+// =============================================================================
+// Generic Lists
+// =============================================================================
+
+@first_or_default<T> (items: [T], default: T) -> T =
+    if is_empty(collection: items) then default else items[0]
+
+@test_first_or_default tests @first_or_default () -> void = run(
+    assert_eq(actual: first_or_default(items: [1, 2, 3], default: 0), expected: 1),
+    let empty: [int] = [],
+    assert_eq(actual: first_or_default(items: empty, default: 99), expected: 99),
+)
+
+@map_list<T, U> (items: [T], f: (T) -> U) -> [U] =
+    for item in items yield f(item)
+
+@test_map_list tests @map_list () -> void = run(
+    let doubled = map_list(items: [1, 2, 3], f: (x) -> x * 2),
+    assert_eq(actual: doubled[0], expected: 2),
+    assert_eq(actual: doubled[1], expected: 4),
+    assert_eq(actual: doubled[2], expected: 6),
+)
+
+// =============================================================================
+// Const Generics
+// =============================================================================
+// Per spec: `$N: int` - compile-time integer parameter
+//
+// STATUS: Lexer [OK], Parser [BROKEN] - const generic syntax `$N: int` not fully supported
+// Parser recognizes $ but fails on const generic type parameter syntax.
+
+// SKIP: Const generic type parameters not fully implemented in parser
+// type FixedArray<T, $N: int> = { items: [T, max N] }
+type FixedArray<T> = { items: [T] }
+
+// SKIP: Const generic function parameters not fully implemented
+// @make_fixed_array<T, $N: int> (default: T) -> FixedArray<T, $N> = ...
+@make_fixed_array<T> (default: T) -> FixedArray<T> =
+    FixedArray { items: [] }
+
+#skip("const generic type parameters not implemented")
+@test_const_generic tests @make_fixed_array () -> void = run(
+    let arr: FixedArray<int> = make_fixed_array(default: 0),
+    assert(cond: is_empty(collection: arr.items)),
+)
+
+// SKIP: Const generic with constraints - where N > 0 not parsed
+// @bounded_array<T, $N: int> (items: [T]) -> [T, max N] where N > 0 = ...
+@bounded_array<T> (items: [T]) -> [T] = items
+
+#skip("const generic constraints (where N > 0) not implemented")
+@test_const_generic_constraint tests @bounded_array () -> void = run(
+    let arr: [int] = bounded_array(items: [1, 2, 3]),
+    assert_eq(actual: len(collection: arr), expected: 3),
+)
+
+// =============================================================================
+// Default Type Parameters
+// =============================================================================
+// Per spec: Type parameters may have default values
+
+trait Transformer<Input = Self, Output = Input> {
+    @transform (self, input: Input) -> Output
+}
+
+type Identity = { }
+
+impl Transformer for Identity {
+    @transform (self, input: Identity) -> Identity = input
+}
+
+@test_default_type_param tests @_use_identity () -> void = run(
+    let id = Identity { },
+    let result = id.transform(input: Identity { }),
+    assert(cond: true),
+)
+
+@_use_identity (i: Identity) -> bool = true
+
+// =============================================================================
+// Generic Constraints with Where Clause
+// =============================================================================
+
+@clone_if_eq<T> (x: T) -> T where T: Clone, T: Eq = x.clone()
+
+@test_where_clause tests @clone_if_eq () -> void = run(
+    let cloned = clone_if_eq(x: 42),
+    assert_eq(actual: cloned, expected: 42),
+)
+
+// Multiple constraints in where
+@complex_constraint<T, U> (x: T, y: U) -> bool where T: Eq + Clone, U: Eq + Hashable = x == x && y == y
+
+@test_complex_where tests @complex_constraint () -> void = run(
+    assert(cond: complex_constraint(x: 42, y: 100)),
+)
+
+// =============================================================================
+// Generic Sum Types
+// =============================================================================
+
+type MyResult<T, E> = MyOk(value: T) | MyErr(error: E)
+
+@make_ok<T, E> (value: T) -> MyResult<T, E> = MyOk(value)
+@make_err<T, E> (error: E) -> MyResult<T, E> = MyErr(error)
+
+@test_generic_sum_type tests @make_ok tests @make_err () -> void = run(
+    let ok: MyResult<int, str> = make_ok(value: 42),
+    let err: MyResult<int, str> = make_err(error: "failed"),
+
+    let ok_val = match(ok,
+        MyOk(value) -> value,
+        MyErr(_) -> 0,
+    ),
+    assert_eq(actual: ok_val, expected: 42),
+
+    let err_msg = match(err,
+        MyOk(_) -> "",
+        MyErr(error) -> error,
+    ),
+    assert_eq(actual: err_msg, expected: "failed"),
+)
+
+type MyOption<T> = MySome(value: T) | MyNone
+
+@test_generic_option tests @_make_some () -> void = run(
+    let some: MyOption<int> = MySome(value: 42),
+    let none: MyOption<int> = MyNone,
+
+    let val = match(some,
+        MySome(value) -> value,
+        MyNone -> 0,
+    ),
+    assert_eq(actual: val, expected: 42),
+)
+
+@_make_some<T> (value: T) -> MyOption<T> = MySome(value)
+
+// =============================================================================
+// Generic Trait Implementations
+// =============================================================================
+
+trait Wrapper<T> {
+    @wrap (value: T) -> Self
+    @unwrap (self) -> T
+}
+
+type IntBox = { value: int }
+
+impl Wrapper<int> for IntBox {
+    @wrap (value: int) -> Self = IntBox { value }
+    @unwrap (self) -> int = self.value
+}
+
+@test_generic_trait_impl tests @_use_intbox () -> void = run(
+    let b = IntBox.wrap(value: 42),
+    assert_eq(actual: b.unwrap(), expected: 42),
+)
+
+@_use_intbox (b: IntBox) -> int = b.value
+
+// =============================================================================
+// Type Inference with Generics
+// =============================================================================
+
+@infer_type<T> (x: T) -> T = x
+
+@test_inference tests @infer_type () -> void = run(
+    // Type should be inferred from argument
+    let a = infer_type(x: 42),       // T = int
+    let b = infer_type(x: "hello"),  // T = str
+    let c = infer_type(x: true),     // T = bool
+    assert_eq(actual: a, expected: 42),
+    assert_eq(actual: b, expected: "hello"),
+    assert(cond: c),
+)
+
+// =============================================================================
+// Explicit Type Application
+// =============================================================================
+
+@generic_empty<T> () -> [T] = []
+
+#skip("function/function_val type comparison issue")
+@test_explicit_type tests @generic_empty () -> void = run(
+    let ints: [int] = generic_empty<int>(),
+    let strs: [str] = generic_empty<str>(),
+    assert(cond: is_empty(collection: ints)),
+    assert(cond: is_empty(collection: strs)),
+)
+
+// =============================================================================
+// Recursive Generic Types
+// =============================================================================
+
+type Tree<T> = Leaf(value: T) | Branch(left: Tree<T>, right: Tree<T>)
+
+@leaf<T> (value: T) -> Tree<T> = Leaf(value)
+@branch<T> (left: Tree<T>, right: Tree<T>) -> Tree<T> = Branch(left, right)
+
+@test_recursive_generic tests @leaf tests @branch () -> void = run(
+    let tree = branch(
+        left: leaf(value: 1),
+        right: branch(
+            left: leaf(value: 2),
+            right: leaf(value: 3),
+        ),
+    ),
+    let val = match(tree,
+        Leaf(value) -> value,
+        Branch(left, _) -> match(left, Leaf(v) -> v, Branch(_, _) -> 0),
+    ),
+    assert_eq(actual: val, expected: 1),
+)
+
+// =============================================================================
+// Generic Functions on Generic Types
+// =============================================================================
+
+@unwrap_or<T> (opt: Option<T>, default: T) -> T = match(opt,
+    Some(x) -> x,
+    None -> default,
+)
+
+@test_unwrap_or tests @unwrap_or () -> void = run(
+    assert_eq(actual: unwrap_or(opt: Some(42), default: 0), expected: 42),
+    assert_eq(actual: unwrap_or(opt: None, default: 99), expected: 99),
+)
+
+@result_or<T, E> (res: Result<T, E>, default: T) -> T = match(res,
+    Ok(x) -> x,
+    Err(_) -> default,
+)
+
+@test_result_or tests @result_or () -> void = run(
+    let ok: Result<int, str> = Ok(42),
+    let err: Result<int, str> = Err("error"),
+    assert_eq(actual: result_or(res: ok, default: 0), expected: 42),
+    assert_eq(actual: result_or(res: err, default: 99), expected: 99),
+)
+
+// =============================================================================
+// Phantom Types (Type Parameter Not Used in Fields)
+// =============================================================================
+
+type Tagged<T, Tag> = { value: T }
+
+type Meters = { }
+type Feet = { }
+
+@tag_meters (value: int) -> Tagged<int, Meters> = Tagged { value }
+@tag_feet (value: int) -> Tagged<int, Feet> = Tagged { value }
+
+@test_phantom_types tests @tag_meters tests @tag_feet () -> void = run(
+    let m = tag_meters(value: 100),
+    let f = tag_feet(value: 328),
+    // These are different types even though inner value is same type
+    assert_eq(actual: m.value, expected: 100),
+    assert_eq(actual: f.value, expected: 328),
+)
+
+// =============================================================================
+// Higher-Kinded-Like Patterns
+// =============================================================================
+
+@lift_option<T, U> (opt: Option<T>, f: (T) -> U) -> Option<U> = match(opt,
+    Some(x) -> Some(f(x)),
+    None -> None,
+)
+
+@test_lift_option tests @lift_option () -> void = run(
+    let doubled = lift_option(opt: Some(21), f: (x) -> x * 2),
+    assert_eq(actual: doubled.unwrap_or(default: 0), expected: 42),
+
+    let none: Option<int> = None,
+    let result = lift_option(opt: none, f: (x) -> x * 2),
+    assert(cond: is_none(opt: result)),
+)

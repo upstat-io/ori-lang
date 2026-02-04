@@ -129,3 +129,250 @@ use std.testing { assert, assert_eq, assert_ne }
     b = b - 5,
     a + b,
 )
+
+// =============================================================================
+// Pre-Check Conditions
+// =============================================================================
+
+// NOTE: pre_check and post_check may not be fully implemented.
+// These tests are designed to expose missing features.
+
+// @test_pre_check_passes tests @pre_check_passes () -> void = run(
+//     let result = divide_safe(a: 10, b: 2),
+//     assert_eq(actual: result, expected: 5),
+// )
+
+// @divide_safe (a: int, b: int) -> int = run(
+//     pre_check: b != 0,
+//     a div b,
+// )
+
+// @pre_check_passes () -> int = divide_safe(a: 10, b: 2)
+
+// @test_pre_check_with_message tests @pre_check_with_message () -> void = run(
+//     let result = positive_only(n: 5),
+//     assert_eq(actual: result, expected: 25),
+// )
+
+// @positive_only (n: int) -> int = run(
+//     pre_check: n > 0 | "n must be positive",
+//     n * n,
+// )
+
+// @pre_check_with_message () -> int = positive_only(n: 5)
+
+// @test_multiple_pre_checks tests @multiple_pre_checks () -> void = run(
+//     let result = bounded_add(a: 5, b: 10),
+//     assert_eq(actual: result, expected: 15),
+// )
+
+// @bounded_add (a: int, b: int) -> int = run(
+//     pre_check: a >= 0 | "a must be non-negative",
+//     pre_check: b >= 0 | "b must be non-negative",
+//     pre_check: a < 100 | "a must be less than 100",
+//     pre_check: b < 100 | "b must be less than 100",
+//     a + b,
+// )
+
+// @multiple_pre_checks () -> int = bounded_add(a: 5, b: 10)
+
+// =============================================================================
+// Post-Check Conditions
+// =============================================================================
+
+// @test_post_check_passes tests @post_check_passes () -> void = run(
+//     let result = abs_value(n: -5),
+//     assert_eq(actual: result, expected: 5),
+// )
+
+// @abs_value (n: int) -> int = run(
+//     if n < 0 then -n else n,
+//     post_check: r -> r >= 0,
+// )
+
+// @post_check_passes () -> int = abs_value(n: -5)
+
+// @test_post_check_with_message tests @post_check_with_message () -> void = run(
+//     let result = safe_sqrt_int(n: 16),
+//     assert_eq(actual: result, expected: 4),
+// )
+
+// @safe_sqrt_int (n: int) -> int = run(
+//     // Simple integer square root
+//     let mut i = 0,
+//     for _ in 0..n do if i * i <= n then i = i + 1 else (),
+//     i - 1,
+//     post_check: r -> r * r <= n | "result squared must not exceed input",
+// )
+
+// @safe_sqrt_int () -> int = safe_sqrt_int(n: 16)
+
+// =============================================================================
+// Combined Pre and Post Checks
+// =============================================================================
+
+// @test_pre_and_post_check tests @pre_and_post_check () -> void = run(
+//     let result = safe_divide(a: 20, b: 4),
+//     assert_eq(actual: result, expected: 5),
+// )
+
+// @safe_divide (a: int, b: int) -> int = run(
+//     pre_check: b != 0 | "divisor cannot be zero",
+//     a div b,
+//     post_check: r -> r * b <= a | "result times divisor must not exceed dividend",
+// )
+
+// @pre_and_post_check () -> int = safe_divide(a: 20, b: 4)
+
+// =============================================================================
+// Post-Check with Multiple Return Bindings
+// =============================================================================
+
+// @test_post_check_tuple tests @post_check_tuple () -> void = run(
+//     let (q, r) = div_mod_safe(a: 17, b: 5),
+//     assert_eq(actual: q, expected: 3),
+//     assert_eq(actual: r, expected: 2),
+// )
+
+// @div_mod_safe (a: int, b: int) -> (int, int) = run(
+//     pre_check: b > 0,
+//     (a div b, a % b),
+//     post_check: (q, r) -> q * b + r == a,
+// )
+
+// @post_check_tuple () -> (int, int) = div_mod_safe(a: 17, b: 5)
+
+// =============================================================================
+// Pre-Check Accessing Enclosing Scope
+// =============================================================================
+
+// Verify pre_check can access bindings from enclosing scope
+// @test_pre_check_scope tests @pre_check_scope () -> void = run(
+//     let min_value = 10,
+//     let result = run(
+//         let n = 15,
+//         run(
+//             pre_check: n >= min_value,
+//             n * 2,
+//         ),
+//     ),
+//     assert_eq(actual: result, expected: 30),
+// )
+
+// @pre_check_scope () -> int = run(
+//     let min_value = 10,
+//     let n = 15,
+//     run(
+//         pre_check: n >= min_value,
+//         n * 2,
+//     ),
+// )
+
+// =============================================================================
+// Post-Check Accessing Body Bindings
+// =============================================================================
+
+// Verify post_check can access bindings from body
+// @test_post_check_body_access tests @post_check_body_access () -> void = run(
+//     let result = compute_with_check(n: 5),
+//     assert_eq(actual: result, expected: 25),
+// )
+
+// @compute_with_check (n: int) -> int = run(
+//     let intermediate = n * 2,
+//     let final_result = intermediate + n + 10,
+//     final_result,
+//     post_check: r -> r == intermediate + n + 10,
+// )
+
+// @post_check_body_access () -> int = compute_with_check(n: 5)
+
+// =============================================================================
+// Fallback Tests (run without checks)
+// =============================================================================
+
+@test_run_return_value tests @run_return_value () -> void = run(
+    let result = run(
+        let a = 5,
+        let b = 10,
+        a + b,
+    ),
+    assert_eq(actual: result, expected: 15),
+)
+
+@run_return_value () -> int = run(
+    let a = 5,
+    let b = 10,
+    a + b,
+)
+
+@test_run_void tests @run_void () -> void = run(
+    let mut counter = 0,
+    run(
+        counter = counter + 1,
+        counter = counter + 2,
+    ),
+    assert_eq(actual: counter, expected: 3),
+)
+
+@run_void () -> void = run(
+    let _x = 1,
+    (),
+)
+
+@test_run_with_if tests @run_with_if () -> void = run(
+    let result = run(
+        let x = 5,
+        if x > 0 then x * 2 else 0,
+    ),
+    assert_eq(actual: result, expected: 10),
+)
+
+@run_with_if () -> int = run(
+    let x = 5,
+    if x > 0 then x * 2 else 0,
+)
+
+@test_run_with_match tests @run_with_match () -> void = run(
+    let result = run(
+        let opt = Some(42),
+        match(opt,
+            Some(x) -> x,
+            None -> 0,
+        ),
+    ),
+    assert_eq(actual: result, expected: 42),
+)
+
+@run_with_match () -> int = run(
+    let opt = Some(42),
+    match(opt,
+        Some(x) -> x,
+        None -> 0,
+    ),
+)
+
+@test_run_deeply_nested tests @run_deeply_nested () -> void = run(
+    let result = run(
+        let a = run(
+            let b = run(
+                let c = 5,
+                c * 2,
+            ),
+            b + 3,
+        ),
+        a * 2,
+    ),
+    assert_eq(actual: result, expected: 26),
+)
+
+@run_deeply_nested () -> int = run(
+    let a = run(
+        let b = run(
+            let c = 5,
+            c * 2,
+        ),
+        b + 3,
+    ),
+    a * 2,
+)

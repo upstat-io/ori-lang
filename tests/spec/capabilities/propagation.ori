@@ -1,4 +1,6 @@
 // Spec: 14-capabilities.md § Propagation
+
+use std.testing { assert_eq }
 // Tests for capability propagation requirements
 
 // =============================================================================

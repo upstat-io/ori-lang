@@ -2,6 +2,8 @@
 // Spec: 08-declarations.md § Test Declarations
 // Design: tooling/formatter/design/02-constructs/declarations.md
 
+use std.testing { assert }
+
 @add (a: int, b: int) -> int = a + b
 
 @subtract (a: int, b: int) -> int = a - b

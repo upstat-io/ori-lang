@@ -1,4 +1,6 @@
 // Spec: 14-capabilities.md § Default Implementations
+
+use std.testing { assert_eq }
 // Tests for def impl syntax (default trait implementations)
 
 // =============================================================================

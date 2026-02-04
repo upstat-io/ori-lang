@@ -56,8 +56,9 @@ fn to_u16(value: usize, context: &str) -> u16 {
 }
 use super::ast::{
     ArmRange, CallArg, CallArgRange, Expr, FieldInit, FieldInitRange, GenericParam,
-    GenericParamRange, MapEntry, MapEntryRange, MatchArm, NamedExpr, NamedExprRange, Param,
-    ParamRange, SeqBinding, SeqBindingRange, Stmt,
+    GenericParamRange, ListElement, ListElementRange, MapElement, MapElementRange, MapEntry,
+    MapEntryRange, MatchArm, NamedExpr, NamedExprRange, Param, ParamRange, SeqBinding,
+    SeqBindingRange, Stmt, StructLitField, StructLitFieldRange,
 };
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -94,6 +95,15 @@ pub struct ExprArena {
 
     /// All field initializers.
     field_inits: Vec<FieldInit>,
+
+    /// Struct literal fields (field inits and spreads).
+    struct_lit_fields: Vec<StructLitField>,
+
+    /// List elements (values and spreads) for list literals with spread.
+    list_elements: Vec<ListElement>,
+
+    /// Map elements (entries and spreads) for map literals with spread.
+    map_elements: Vec<MapElement>,
 
     /// Sequence bindings for `function_seq` (run/try).
     seq_bindings: Vec<SeqBinding>,
@@ -140,6 +150,9 @@ impl ExprArena {
             arms: Vec::with_capacity(estimated_exprs / 16),
             map_entries: Vec::with_capacity(estimated_exprs / 16),
             field_inits: Vec::with_capacity(estimated_exprs / 16),
+            struct_lit_fields: Vec::with_capacity(estimated_exprs / 16),
+            list_elements: Vec::with_capacity(estimated_exprs / 16),
+            map_elements: Vec::with_capacity(estimated_exprs / 16),
             seq_bindings: Vec::with_capacity(estimated_exprs / 16),
             named_exprs: Vec::with_capacity(estimated_exprs / 16),
             call_args: Vec::with_capacity(estimated_exprs / 16),
@@ -387,6 +400,87 @@ impl ExprArena {
         let start = range.start as usize;
         let end = start + range.len as usize;
         &self.field_inits[start..end]
+    }
+
+    /// Allocate struct literal fields (for spread syntax), return range.
+    pub fn alloc_struct_lit_fields(
+        &mut self,
+        fields: impl IntoIterator<Item = StructLitField>,
+    ) -> StructLitFieldRange {
+        let start = to_u32(self.struct_lit_fields.len(), "struct literal fields");
+        self.struct_lit_fields.extend(fields);
+        debug_assert!(
+            self.struct_lit_fields.len() >= start as usize,
+            "arena corruption: struct_lit_fields length {} < start {}",
+            self.struct_lit_fields.len(),
+            start
+        );
+        let len = to_u16(
+            self.struct_lit_fields.len() - start as usize,
+            "struct literal field list",
+        );
+        StructLitFieldRange::new(start, len)
+    }
+
+    /// Get struct literal fields by range.
+    #[inline]
+    pub fn get_struct_lit_fields(&self, range: StructLitFieldRange) -> &[StructLitField] {
+        let start = range.start as usize;
+        let end = start + range.len as usize;
+        &self.struct_lit_fields[start..end]
+    }
+
+    /// Allocate list elements (for spread syntax), return range.
+    pub fn alloc_list_elements(
+        &mut self,
+        elements: impl IntoIterator<Item = ListElement>,
+    ) -> ListElementRange {
+        let start = to_u32(self.list_elements.len(), "list elements");
+        self.list_elements.extend(elements);
+        debug_assert!(
+            self.list_elements.len() >= start as usize,
+            "arena corruption: list_elements length {} < start {}",
+            self.list_elements.len(),
+            start
+        );
+        let len = to_u16(
+            self.list_elements.len() - start as usize,
+            "list element list",
+        );
+        ListElementRange::new(start, len)
+    }
+
+    /// Get list elements by range.
+    #[inline]
+    pub fn get_list_elements(&self, range: ListElementRange) -> &[ListElement] {
+        let start = range.start as usize;
+        let end = start + range.len as usize;
+        &self.list_elements[start..end]
+    }
+
+    /// Allocate map elements (for spread syntax), return range.
+    pub fn alloc_map_elements(
+        &mut self,
+        elements: impl IntoIterator<Item = MapElement>,
+    ) -> MapElementRange {
+        let start = to_u32(self.map_elements.len(), "map elements");
+        self.map_elements.extend(elements);
+        debug_assert!(
+            self.map_elements.len() >= start as usize,
+            "arena corruption: map_elements length {} < start {}",
+            self.map_elements.len(),
+            start
+        );
+        let len = to_u16(self.map_elements.len() - start as usize, "map element list");
+        MapElementRange::new(start, len)
+    }
+
+    /// Get map elements by range.
+    #[inline]
+    pub fn get_map_elements(&self, range: MapElementRange) -> &[MapElement] {
+        let start = range.start as usize;
+        let end = start + range.len as usize;
+        &self.map_elements[start..end]
     }
 
     /// Allocate sequence bindings, return range.

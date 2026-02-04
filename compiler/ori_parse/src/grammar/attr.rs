@@ -2,7 +2,7 @@
 //!
 //! This module extends Parser with methods for parsing attributes
 //! like `#skip("reason")`, `#compile_fail("error")`, `#fail("error")`,
-//! and `#derive(Trait1, Trait2)`.
+//! `#derive(Trait1, Trait2)`, `#repr("c")`, `#target(os: "linux")`, and `#cfg(debug)`.
 //!
 //! Grammar: `attribute = "#" identifier [ "(" [ attribute_arg { "," attribute_arg } ] ")" ] .`
 //!
@@ -46,6 +46,49 @@ pub struct ParsedAttrs {
     pub fail_expected: Option<Name>,
     /// Derived traits for `#derive(Trait1, Trait2)`.
     pub derive_traits: Vec<Name>,
+    /// Repr attribute for `#repr("c")`, `#repr("packed")`, etc.
+    pub repr: Option<ReprAttr>,
+    /// Target conditional compilation for `#target(os: "linux")`.
+    pub target: Option<TargetAttr>,
+    /// Config conditional compilation for `#cfg(debug)`.
+    pub cfg: Option<CfgAttr>,
+}
+
+/// Representation attribute values.
+#[derive(Clone, Debug)]
+#[allow(dead_code)] // Fields will be used when codegen is implemented
+pub enum ReprAttr {
+    /// `#repr("c")` - C-compatible layout
+    C,
+    /// `#repr("packed")` - No padding between fields
+    Packed,
+    /// `#repr("transparent")` - Same representation as single field
+    Transparent,
+    /// `#repr("aligned", N)` - Minimum alignment (power of two)
+    Aligned(u64),
+}
+
+/// Target conditional compilation attribute.
+#[derive(Clone, Debug, Default)]
+#[allow(dead_code)] // Fields will be used when conditional compilation is implemented
+pub struct TargetAttr {
+    pub os: Option<Name>,
+    pub arch: Option<Name>,
+    pub family: Option<Name>,
+    pub any_os: Vec<Name>,
+    pub not_os: Option<Name>,
+}
+
+/// Config conditional compilation attribute.
+#[derive(Clone, Debug, Default)]
+#[allow(dead_code)] // Fields will be used when conditional compilation is implemented
+pub struct CfgAttr {
+    pub debug: bool,
+    pub release: bool,
+    pub not_debug: bool,
+    pub feature: Option<Name>,
+    pub any_feature: Vec<Name>,
+    pub not_feature: Option<Name>,
 }
 
 impl ParsedAttrs {
@@ -55,6 +98,9 @@ impl ParsedAttrs {
             && self.expected_errors.is_empty()
             && self.fail_expected.is_none()
             && self.derive_traits.is_empty()
+            && self.repr.is_none()
+            && self.target.is_none()
+            && self.cfg.is_none()
     }
 }
 
@@ -65,6 +111,9 @@ enum AttrKind {
     CompileFail,
     Fail,
     Derive,
+    Repr,
+    Target,
+    Cfg,
     Unknown,
 }
 
@@ -75,6 +124,9 @@ impl AttrKind {
             AttrKind::CompileFail => "compile_fail",
             AttrKind::Fail => "fail",
             AttrKind::Derive => "derive",
+            AttrKind::Repr => "repr",
+            AttrKind::Target => "target",
+            AttrKind::Cfg => "cfg",
             AttrKind::Unknown => "unknown",
         }
     }
@@ -110,6 +162,15 @@ impl Parser<'_> {
                 AttrKind::CompileFail => {
                     self.parse_compile_fail_attr(&mut attrs, errors, uses_brackets);
                 }
+                AttrKind::Repr => {
+                    self.parse_repr_attr(&mut attrs, errors, uses_brackets);
+                }
+                AttrKind::Target => {
+                    self.parse_target_attr(&mut attrs, errors, uses_brackets);
+                }
+                AttrKind::Cfg => {
+                    self.parse_cfg_attr(&mut attrs, errors, uses_brackets);
+                }
                 _ => {
                     self.parse_string_attr(attr_kind, &mut attrs, errors, uses_brackets);
                 }
@@ -131,6 +192,9 @@ impl Parser<'_> {
                     "compile_fail" => AttrKind::CompileFail,
                     "fail" => AttrKind::Fail,
                     "derive" => AttrKind::Derive,
+                    "repr" => AttrKind::Repr,
+                    "target" => AttrKind::Target,
+                    "cfg" => AttrKind::Cfg,
                     s => {
                         errors.push(ParseError::new(
                             ErrorCode::E1006,
@@ -233,7 +297,12 @@ impl Parser<'_> {
             match attr_kind {
                 AttrKind::Skip => attrs.skip_reason = Some(value),
                 AttrKind::Fail => attrs.fail_expected = Some(value),
-                AttrKind::CompileFail | AttrKind::Derive | AttrKind::Unknown => {}
+                AttrKind::CompileFail
+                | AttrKind::Derive
+                | AttrKind::Repr
+                | AttrKind::Target
+                | AttrKind::Cfg
+                | AttrKind::Unknown => {}
             }
         }
     }
@@ -502,6 +571,344 @@ impl Parser<'_> {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected ')' after derive trait list".to_string(),
+                span: self.current_span(),
+                context: None,
+                help: Vec::new(),
+            });
+        }
+
+        // Expect ] only if old bracket syntax was used
+        if uses_brackets {
+            if self.check(&TokenKind::RBracket) {
+                self.advance();
+            } else {
+                errors.push(ParseError {
+                    code: ErrorCode::E1006,
+                    message: "expected ']' to close attribute".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                    help: Vec::new(),
+                });
+            }
+        }
+    }
+
+    /// Parse a `repr` attribute like `#repr("c")` or `#repr("aligned", 16)`.
+    fn parse_repr_attr(
+        &mut self,
+        attrs: &mut ParsedAttrs,
+        errors: &mut Vec<ParseError>,
+        uses_brackets: bool,
+    ) {
+        // Expect (
+        if !self.check(&TokenKind::LParen) {
+            errors.push(ParseError {
+                code: ErrorCode::E1006,
+                message: "expected '(' after 'repr'".to_string(),
+                span: self.current_span(),
+                context: None,
+                help: Vec::new(),
+            });
+            if uses_brackets {
+                self.skip_to_rbracket();
+            } else {
+                self.skip_to_rparen_or_newline();
+            }
+            return;
+        }
+        self.advance(); // consume (
+
+        // Parse repr value
+        if let TokenKind::String(string_name) = *self.current_kind() {
+            let repr_str = self.interner().lookup(string_name);
+            let repr = match repr_str {
+                "c" => Some(ReprAttr::C),
+                "packed" => Some(ReprAttr::Packed),
+                "transparent" => Some(ReprAttr::Transparent),
+                "aligned" => {
+                    self.advance(); // consume "aligned"
+                                    // Expect comma and alignment value
+                    if self.check(&TokenKind::Comma) {
+                        self.advance();
+                        if let TokenKind::Int(n) = *self.current_kind() {
+                            self.advance();
+                            Some(ReprAttr::Aligned(n))
+                        } else {
+                            errors.push(ParseError {
+                                code: ErrorCode::E1006,
+                                message: "expected alignment value after 'aligned'".to_string(),
+                                span: self.current_span(),
+                                context: None,
+                                help: Vec::new(),
+                            });
+                            None
+                        }
+                    } else {
+                        errors.push(ParseError {
+                            code: ErrorCode::E1006,
+                            message: "expected ',' after 'aligned'".to_string(),
+                            span: self.current_span(),
+                            context: None,
+                            help: Vec::new(),
+                        });
+                        None
+                    }
+                }
+                s => {
+                    errors.push(ParseError {
+                        code: ErrorCode::E1006,
+                        message: format!("unknown repr value '{s}'"),
+                        span: self.previous_span(),
+                        context: None,
+                        help: Vec::new(),
+                    });
+                    None
+                }
+            };
+
+            // For non-aligned repr, advance past the string
+            if !matches!(repr, Some(ReprAttr::Aligned(_)) | None) {
+                self.advance();
+            }
+
+            attrs.repr = repr;
+        } else {
+            errors.push(ParseError {
+                code: ErrorCode::E1006,
+                message: "expected repr value string".to_string(),
+                span: self.current_span(),
+                context: None,
+                help: Vec::new(),
+            });
+        }
+
+        self.finish_attr_paren(uses_brackets, errors);
+    }
+
+    /// Parse a `target` attribute like `#target(os: "linux")`.
+    fn parse_target_attr(
+        &mut self,
+        attrs: &mut ParsedAttrs,
+        errors: &mut Vec<ParseError>,
+        uses_brackets: bool,
+    ) {
+        // Expect (
+        if !self.check(&TokenKind::LParen) {
+            errors.push(ParseError {
+                code: ErrorCode::E1006,
+                message: "expected '(' after 'target'".to_string(),
+                span: self.current_span(),
+                context: None,
+                help: Vec::new(),
+            });
+            if uses_brackets {
+                self.skip_to_rbracket();
+            } else {
+                self.skip_to_rparen_or_newline();
+            }
+            return;
+        }
+        self.advance(); // consume (
+
+        let mut target = TargetAttr::default();
+
+        // Parse named arguments
+        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
+            let param_name = if let TokenKind::Ident(name) = *self.current_kind() {
+                let s = self.interner().lookup(name).to_owned();
+                self.advance();
+                s
+            } else {
+                errors.push(ParseError {
+                    code: ErrorCode::E1006,
+                    message: "expected parameter name in target".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                    help: Vec::new(),
+                });
+                if uses_brackets {
+                    self.skip_to_rbracket();
+                } else {
+                    self.skip_to_rparen_or_newline();
+                }
+                return;
+            };
+
+            // Expect :
+            if !self.check(&TokenKind::Colon) {
+                errors.push(ParseError {
+                    code: ErrorCode::E1006,
+                    message: format!("expected ':' after '{param_name}'"),
+                    span: self.current_span(),
+                    context: None,
+                    help: Vec::new(),
+                });
+                if uses_brackets {
+                    self.skip_to_rbracket();
+                } else {
+                    self.skip_to_rparen_or_newline();
+                }
+                return;
+            }
+            self.advance();
+
+            // Parse value
+            match param_name.as_str() {
+                "os" => {
+                    if let TokenKind::String(s) = *self.current_kind() {
+                        target.os = Some(s);
+                        self.advance();
+                    }
+                }
+                "arch" => {
+                    if let TokenKind::String(s) = *self.current_kind() {
+                        target.arch = Some(s);
+                        self.advance();
+                    }
+                }
+                "family" => {
+                    if let TokenKind::String(s) = *self.current_kind() {
+                        target.family = Some(s);
+                        self.advance();
+                    }
+                }
+                "not_os" => {
+                    if let TokenKind::String(s) = *self.current_kind() {
+                        target.not_os = Some(s);
+                        self.advance();
+                    }
+                }
+                _ => {
+                    errors.push(ParseError {
+                        code: ErrorCode::E1006,
+                        message: format!("unknown target parameter '{param_name}'"),
+                        span: self.previous_span(),
+                        context: None,
+                        help: Vec::new(),
+                    });
+                }
+            }
+
+            // Comma separator
+            if self.check(&TokenKind::Comma) {
+                self.advance();
+            } else if !self.check(&TokenKind::RParen) {
+                break;
+            }
+        }
+
+        attrs.target = Some(target);
+        self.finish_attr_paren(uses_brackets, errors);
+    }
+
+    /// Parse a `cfg` attribute like `#cfg(debug)` or `#cfg(feature: "name")`.
+    fn parse_cfg_attr(
+        &mut self,
+        attrs: &mut ParsedAttrs,
+        errors: &mut Vec<ParseError>,
+        uses_brackets: bool,
+    ) {
+        // Expect (
+        if !self.check(&TokenKind::LParen) {
+            errors.push(ParseError {
+                code: ErrorCode::E1006,
+                message: "expected '(' after 'cfg'".to_string(),
+                span: self.current_span(),
+                context: None,
+                help: Vec::new(),
+            });
+            if uses_brackets {
+                self.skip_to_rbracket();
+            } else {
+                self.skip_to_rparen_or_newline();
+            }
+            return;
+        }
+        self.advance(); // consume (
+
+        let mut cfg = CfgAttr::default();
+
+        // Parse arguments - can be bare identifiers or name: value
+        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
+            if let TokenKind::Ident(name) = *self.current_kind() {
+                let param_name = self.interner().lookup(name).to_owned();
+                self.advance();
+
+                if self.check(&TokenKind::Colon) {
+                    // Named parameter
+                    self.advance();
+                    match param_name.as_str() {
+                        "feature" => {
+                            if let TokenKind::String(s) = *self.current_kind() {
+                                cfg.feature = Some(s);
+                                self.advance();
+                            }
+                        }
+                        "not_feature" => {
+                            if let TokenKind::String(s) = *self.current_kind() {
+                                cfg.not_feature = Some(s);
+                                self.advance();
+                            }
+                        }
+                        _ => {
+                            errors.push(ParseError {
+                                code: ErrorCode::E1006,
+                                message: format!("unknown cfg parameter '{param_name}'"),
+                                span: self.previous_span(),
+                                context: None,
+                                help: Vec::new(),
+                            });
+                        }
+                    }
+                } else {
+                    // Bare identifier
+                    match param_name.as_str() {
+                        "debug" => cfg.debug = true,
+                        "release" => cfg.release = true,
+                        "not_debug" => cfg.not_debug = true,
+                        _ => {
+                            errors.push(ParseError {
+                                code: ErrorCode::E1006,
+                                message: format!("unknown cfg flag '{param_name}'"),
+                                span: self.previous_span(),
+                                context: None,
+                                help: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            } else {
+                errors.push(ParseError {
+                    code: ErrorCode::E1006,
+                    message: "expected cfg parameter".to_string(),
+                    span: self.current_span(),
+                    context: None,
+                    help: Vec::new(),
+                });
+                break;
+            }
+
+            // Comma separator
+            if self.check(&TokenKind::Comma) {
+                self.advance();
+            } else if !self.check(&TokenKind::RParen) {
+                break;
+            }
+        }
+
+        attrs.cfg = Some(cfg);
+        self.finish_attr_paren(uses_brackets, errors);
+    }
+
+    /// Helper to finish parsing attribute parentheses and brackets.
+    fn finish_attr_paren(&mut self, uses_brackets: bool, errors: &mut Vec<ParseError>) {
+        // Expect )
+        if self.check(&TokenKind::RParen) {
+            self.advance();
+        } else {
+            errors.push(ParseError {
+                code: ErrorCode::E1006,
+                message: "expected ')' to close attribute".to_string(),
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),

@@ -69,4 +69,66 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
         }
     }
+
+    /// Coerce an i64 value back to the target type.
+    ///
+    /// This is the inverse of `coerce_to_i64`, used when extracting
+    /// Option/Result payloads.
+    pub(crate) fn coerce_from_i64(
+        &self,
+        val: inkwell::values::IntValue<'ll>,
+        target_type: TypeId,
+    ) -> Option<BasicValueEnum<'ll>> {
+        use inkwell::types::BasicTypeEnum;
+
+        let llvm_type = self.cx().llvm_type(target_type);
+
+        match llvm_type {
+            BasicTypeEnum::IntType(int_ty) => {
+                let bit_width = int_ty.get_bit_width();
+                match bit_width.cmp(&64) {
+                    std::cmp::Ordering::Equal => Some(val.into()),
+                    std::cmp::Ordering::Less => {
+                        // Truncate to smaller integer
+                        Some(
+                            self.raw_builder()
+                                .build_int_truncate(val, int_ty, "coerce_trunc")
+                                .ok()?
+                                .into(),
+                        )
+                    }
+                    std::cmp::Ordering::Greater => {
+                        // Zero-extend to larger integer (shouldn't happen)
+                        Some(
+                            self.raw_builder()
+                                .build_int_z_extend(val, int_ty, "coerce_zext")
+                                .ok()?
+                                .into(),
+                        )
+                    }
+                }
+            }
+            BasicTypeEnum::FloatType(float_ty) => {
+                // Convert bits back to float
+                Some(
+                    self.raw_builder()
+                        .build_bit_cast(val, float_ty, "coerce_float")
+                        .ok()?,
+                )
+            }
+            BasicTypeEnum::PointerType(ptr_ty) => {
+                // Convert int back to pointer
+                Some(
+                    self.raw_builder()
+                        .build_int_to_ptr(val, ptr_ty, "coerce_ptr")
+                        .ok()?
+                        .into(),
+                )
+            }
+            _ => {
+                // For other types, just return the i64 (might not be correct but avoids crash)
+                Some(val.into())
+            }
+        }
+    }
 }

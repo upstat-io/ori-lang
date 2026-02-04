@@ -2,6 +2,11 @@
 //!
 //! Produces `TokenList` for Salsa queries.
 //!
+//! # Specification
+//!
+//! - Lexical grammar: `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` § LEXICAL GRAMMAR
+//! - Prose: `docs/ori_lang/0.1-alpha/spec/03-lexical-elements.md`
+//!
 //! # Lexing
 //!
 //! The main entry point is [`lex()`], which converts source code into a [`TokenList`].

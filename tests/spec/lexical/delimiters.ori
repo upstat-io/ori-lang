@@ -1,0 +1,577 @@
+// Spec: 03-lexical-elements.md § Delimiters
+// Tests for delimiters (grammar.ebnf § delimiter)
+// Delimiters: ( ) [ ] { } , : . @ $
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Parentheses - Grouping
+// =============================================================================
+
+@parens_group () -> int = (1 + 2) * 3
+
+@test_parens_group tests @parens_group () -> void = run(
+    assert_eq(actual: parens_group(), expected: 9),
+)
+
+@parens_nested () -> int = ((1 + 2) * (3 + 4))
+
+@test_parens_nested tests @parens_nested () -> void = run(
+    assert_eq(actual: parens_nested(), expected: 21),
+)
+
+@parens_deeply_nested () -> int = (((((1)))))
+
+@test_parens_deeply_nested tests @parens_deeply_nested () -> void = run(
+    assert_eq(actual: parens_deeply_nested(), expected: 1),
+)
+
+// =============================================================================
+// Parentheses - Tuples
+// =============================================================================
+
+@parens_tuple_pair () -> int = run(
+    let t = (1, 2),
+    let (a, b) = t,
+    a + b,
+)
+
+@test_parens_tuple_pair tests @parens_tuple_pair () -> void = run(
+    assert_eq(actual: parens_tuple_pair(), expected: 3),
+)
+
+@parens_tuple_triple () -> int = run(
+    let t = (1, 2, 3),
+    let (a, b, c) = t,
+    a + b + c,
+)
+
+@test_parens_tuple_triple tests @parens_tuple_triple () -> void = run(
+    assert_eq(actual: parens_tuple_triple(), expected: 6),
+)
+
+@parens_tuple_nested () -> int = run(
+    let t = ((1, 2), (3, 4)),
+    let ((a, b), (c, d)) = t,
+    a + b + c + d,
+)
+
+@test_parens_tuple_nested tests @parens_tuple_nested () -> void = run(
+    assert_eq(actual: parens_tuple_nested(), expected: 10),
+)
+
+// =============================================================================
+// Parentheses - Unit
+// =============================================================================
+
+@parens_unit () -> bool = run(
+    let _unit = (),
+    true,
+)
+
+@test_parens_unit tests @parens_unit () -> void = run(
+    assert(cond: parens_unit()),
+)
+
+// =============================================================================
+// Parentheses - Function Calls
+// =============================================================================
+
+@parens_helper (x: int) -> int = x * 2
+
+@test_parens_helper tests @parens_helper () -> void = run(
+    assert_eq(actual: parens_helper(x: 21), expected: 42),
+)
+
+@parens_fn_call () -> int = parens_helper(x: 21)
+
+@test_parens_fn_call tests @parens_fn_call () -> void = run(
+    assert_eq(actual: parens_fn_call(), expected: 42),
+)
+
+@parens_fn_multi_args (a: int, b: int, c: int) -> int = a + b + c
+
+@test_parens_fn_multi_args tests @parens_fn_multi_args () -> void = run(
+    assert_eq(actual: parens_fn_multi_args(a: 1, b: 2, c: 3), expected: 6),
+)
+
+@parens_fn_call_multi () -> int = parens_fn_multi_args(a: 1, b: 2, c: 3)
+
+@test_parens_fn_call_multi tests @parens_fn_call_multi () -> void = run(
+    assert_eq(actual: parens_fn_call_multi(), expected: 6),
+)
+
+@parens_fn_no_args () -> int = 42
+
+@test_parens_fn_no_args tests @parens_fn_no_args () -> void = run(
+    assert_eq(actual: parens_fn_no_args(), expected: 42),
+)
+
+@parens_fn_call_no_args () -> int = parens_fn_no_args()
+
+@test_parens_fn_call_no_args tests @parens_fn_call_no_args () -> void = run(
+    assert_eq(actual: parens_fn_call_no_args(), expected: 42),
+)
+
+// =============================================================================
+// Parentheses - Lambda Parameters
+// =============================================================================
+
+@parens_lambda_single () -> int = run(
+    let f = (x) -> x + 1,
+    f(41),
+)
+
+@test_parens_lambda_single tests @parens_lambda_single () -> void = run(
+    assert_eq(actual: parens_lambda_single(), expected: 42),
+)
+
+@parens_lambda_multi () -> int = run(
+    let f = (a, b) -> a + b,
+    f(20, 22),
+)
+
+@test_parens_lambda_multi tests @parens_lambda_multi () -> void = run(
+    assert_eq(actual: parens_lambda_multi(), expected: 42),
+)
+
+@parens_lambda_empty () -> int = run(
+    let f = () -> 42,
+    f(),
+)
+
+@test_parens_lambda_empty tests @parens_lambda_empty () -> void = run(
+    assert_eq(actual: parens_lambda_empty(), expected: 42),
+)
+
+// =============================================================================
+// Brackets - Lists
+// =============================================================================
+
+@brackets_empty_list () -> int = [].len()
+
+@test_brackets_empty_list tests @brackets_empty_list () -> void = run(
+    assert_eq(actual: brackets_empty_list(), expected: 0),
+)
+
+@brackets_single_list () -> int = [42].len()
+
+@test_brackets_single_list tests @brackets_single_list () -> void = run(
+    assert_eq(actual: brackets_single_list(), expected: 1),
+)
+
+@brackets_multi_list () -> int = [1, 2, 3, 4, 5].len()
+
+@test_brackets_multi_list tests @brackets_multi_list () -> void = run(
+    assert_eq(actual: brackets_multi_list(), expected: 5),
+)
+
+@brackets_nested_list () -> int = run(
+    let nested = [[1, 2], [3, 4], [5, 6]],
+    nested.len(),
+)
+
+@test_brackets_nested_list tests @brackets_nested_list () -> void = run(
+    assert_eq(actual: brackets_nested_list(), expected: 3),
+)
+
+// =============================================================================
+// Brackets - Indexing
+// =============================================================================
+
+@brackets_index_first () -> int = run(
+    let list = [10, 20, 30],
+    list[0],
+)
+
+@test_brackets_index_first tests @brackets_index_first () -> void = run(
+    assert_eq(actual: brackets_index_first(), expected: 10),
+)
+
+@brackets_index_last () -> int = run(
+    let list = [10, 20, 30],
+    list[2],
+)
+
+@test_brackets_index_last tests @brackets_index_last () -> void = run(
+    assert_eq(actual: brackets_index_last(), expected: 30),
+)
+
+@brackets_index_computed () -> int = run(
+    let list = [10, 20, 30],
+    let idx = 1,
+    list[idx],
+)
+
+@test_brackets_index_computed tests @brackets_index_computed () -> void = run(
+    assert_eq(actual: brackets_index_computed(), expected: 20),
+)
+
+@brackets_index_chain () -> int = run(
+    let nested = [[1, 2], [3, 4]],
+    nested[0][1] + nested[1][0],
+)
+
+@test_brackets_index_chain tests @brackets_index_chain () -> void = run(
+    assert_eq(actual: brackets_index_chain(), expected: 5), // 2 + 3
+)
+
+// =============================================================================
+// Brackets - List Types
+// =============================================================================
+
+@brackets_type_simple () -> int = run(
+    let list: [int] = [1, 2, 3],
+    list.len(),
+)
+
+@test_brackets_type_simple tests @brackets_type_simple () -> void = run(
+    assert_eq(actual: brackets_type_simple(), expected: 3),
+)
+
+@brackets_type_nested () -> int = run(
+    let nested: [[int]] = [[1], [2, 3]],
+    nested.len(),
+)
+
+@test_brackets_type_nested tests @brackets_type_nested () -> void = run(
+    assert_eq(actual: brackets_type_nested(), expected: 2),
+)
+
+// =============================================================================
+// Braces - Maps
+// =============================================================================
+
+@braces_empty_map () -> int = run(
+    let map: {str: int} = {},
+    map.len(),
+)
+
+@test_braces_empty_map tests @braces_empty_map () -> void = run(
+    assert_eq(actual: braces_empty_map(), expected: 0),
+)
+
+@braces_single_map () -> int = run(
+    let map = {"key": 42},
+    map.len(),
+)
+
+@test_braces_single_map tests @braces_single_map () -> void = run(
+    assert_eq(actual: braces_single_map(), expected: 1),
+)
+
+@braces_multi_map () -> int = run(
+    let map = {"a": 1, "b": 2, "c": 3},
+    map.len(),
+)
+
+@test_braces_multi_map tests @braces_multi_map () -> void = run(
+    assert_eq(actual: braces_multi_map(), expected: 3),
+)
+
+@braces_map_shorthand () -> int = run(
+    let key = "x",
+    let map = {key: 42}, // shorthand: key becomes "key"
+    map.len(),
+)
+
+@test_braces_map_shorthand tests @braces_map_shorthand () -> void = run(
+    assert_eq(actual: braces_map_shorthand(), expected: 1),
+)
+
+// =============================================================================
+// Braces - Structs
+// =============================================================================
+
+type DelimTestPoint = { x: int, y: int }
+
+@braces_struct_basic () -> int = run(
+    let p = DelimTestPoint { x: 10, y: 20 },
+    p.x + p.y,
+)
+
+@test_braces_struct_basic tests @braces_struct_basic () -> void = run(
+    assert_eq(actual: braces_struct_basic(), expected: 30),
+)
+
+@braces_struct_shorthand () -> int = run(
+    let x = 5,
+    let y = 10,
+    let p = DelimTestPoint { x, y }, // shorthand
+    p.x + p.y,
+)
+
+@test_braces_struct_shorthand tests @braces_struct_shorthand () -> void = run(
+    assert_eq(actual: braces_struct_shorthand(), expected: 15),
+)
+
+type DelimNestedStruct = { point: DelimTestPoint, value: int }
+
+@braces_struct_nested () -> int = run(
+    let s = DelimNestedStruct {
+        point: DelimTestPoint { x: 1, y: 2 },
+        value: 3,
+    },
+    s.point.x + s.point.y + s.value,
+)
+
+@test_braces_struct_nested tests @braces_struct_nested () -> void = run(
+    assert_eq(actual: braces_struct_nested(), expected: 6),
+)
+
+// =============================================================================
+// Braces - Blocks in run()
+// =============================================================================
+
+@braces_run_block () -> int = run(
+    let x = 1,
+    let y = 2,
+    x + y,
+)
+
+@test_braces_run_block tests @braces_run_block () -> void = run(
+    assert_eq(actual: braces_run_block(), expected: 3),
+)
+
+// =============================================================================
+// Comma - Lists and Tuples
+// =============================================================================
+
+@comma_list () -> int = [1, 2, 3, 4, 5].len()
+
+@test_comma_list tests @comma_list () -> void = run(
+    assert_eq(actual: comma_list(), expected: 5),
+)
+
+@comma_tuple () -> int = run(
+    let t = (1, 2, 3, 4),
+    let (a, b, c, d) = t,
+    a + b + c + d,
+)
+
+@test_comma_tuple tests @comma_tuple () -> void = run(
+    assert_eq(actual: comma_tuple(), expected: 10),
+)
+
+@comma_trailing_list () -> int = [
+    1,
+    2,
+    3,
+].len()
+
+@test_comma_trailing_list tests @comma_trailing_list () -> void = run(
+    assert_eq(actual: comma_trailing_list(), expected: 3),
+)
+
+// =============================================================================
+// Comma - Function Arguments
+// =============================================================================
+
+@comma_fn_args (a: int, b: int, c: int, d: int) -> int = a + b + c + d
+
+@test_comma_fn_args tests @comma_fn_args () -> void = run(
+    assert_eq(actual: comma_fn_args(a: 1, b: 2, c: 3, d: 4), expected: 10),
+)
+
+@comma_call_args () -> int = comma_fn_args(a: 1, b: 2, c: 3, d: 4)
+
+@test_comma_call_args tests @comma_call_args () -> void = run(
+    assert_eq(actual: comma_call_args(), expected: 10),
+)
+
+// =============================================================================
+// Colon - Type Annotations
+// =============================================================================
+
+@colon_type_int () -> int = run(
+    let x: int = 42,
+    x,
+)
+
+@test_colon_type_int tests @colon_type_int () -> void = run(
+    assert_eq(actual: colon_type_int(), expected: 42),
+)
+
+@colon_type_list () -> int = run(
+    let list: [int] = [1, 2, 3],
+    list.len(),
+)
+
+@test_colon_type_list tests @colon_type_list () -> void = run(
+    assert_eq(actual: colon_type_list(), expected: 3),
+)
+
+@colon_type_map () -> int = run(
+    let map: {str: int} = {"a": 1},
+    map.len(),
+)
+
+@test_colon_type_map tests @colon_type_map () -> void = run(
+    assert_eq(actual: colon_type_map(), expected: 1),
+)
+
+// =============================================================================
+// Colon - Named Arguments
+// =============================================================================
+
+@colon_helper (name: str, value: int) -> int = value
+
+@test_colon_helper tests @colon_helper () -> void = run(
+    assert_eq(actual: colon_helper(name: "test", value: 42), expected: 42),
+)
+
+@colon_named_args () -> int = colon_helper(name: "test", value: 42)
+
+@test_colon_named_args tests @colon_named_args () -> void = run(
+    assert_eq(actual: colon_named_args(), expected: 42),
+)
+
+// =============================================================================
+// Colon - Map Entries
+// =============================================================================
+
+@colon_map_entry () -> int = run(
+    let m = {"key": 100},
+    // Map indexing returns Option<V>, unwrap to get the value
+    m["key"].unwrap(),
+)
+
+@test_colon_map_entry tests @colon_map_entry () -> void = run(
+    assert_eq(actual: colon_map_entry(), expected: 100),
+)
+
+// =============================================================================
+// Colon - Struct Fields
+// =============================================================================
+
+@colon_struct_field () -> int = run(
+    let p = DelimTestPoint { x: 5, y: 10 },
+    p.x,
+)
+
+@test_colon_struct_field tests @colon_struct_field () -> void = run(
+    assert_eq(actual: colon_struct_field(), expected: 5),
+)
+
+// =============================================================================
+// Dot - Field Access
+// =============================================================================
+
+@dot_field () -> int = run(
+    let p = DelimTestPoint { x: 5, y: 10 },
+    p.x + p.y,
+)
+
+@test_dot_field tests @dot_field () -> void = run(
+    assert_eq(actual: dot_field(), expected: 15),
+)
+
+@dot_nested_field () -> int = run(
+    let s = DelimNestedStruct {
+        point: DelimTestPoint { x: 1, y: 2 },
+        value: 3,
+    },
+    s.point.x,
+)
+
+@test_dot_nested_field tests @dot_nested_field () -> void = run(
+    assert_eq(actual: dot_nested_field(), expected: 1),
+)
+
+// =============================================================================
+// Dot - Method Calls
+// =============================================================================
+
+@dot_method () -> int = [1, 2, 3].len()
+
+@test_dot_method tests @dot_method () -> void = run(
+    assert_eq(actual: dot_method(), expected: 3),
+)
+
+@dot_method_chain () -> int = run(
+    [1, 2, 3, 4, 5]
+        .map(transform: x -> x * 2)
+        .fold(initial: 0, combine: (a, b) -> a + b),
+)
+
+@test_dot_method_chain tests @dot_method_chain () -> void = run(
+    assert_eq(actual: dot_method_chain(), expected: 30), // 2+4+6+8+10
+)
+
+// =============================================================================
+// At Sign - Function Definitions
+// =============================================================================
+
+@at_simple () -> int = 42
+
+@test_at_simple tests @at_simple () -> void = run(
+    assert_eq(actual: at_simple(), expected: 42),
+)
+
+@at_with_params (x: int) -> int = x * 2
+
+@test_at_with_params tests @at_with_params () -> void = run(
+    assert_eq(actual: at_with_params(x: 21), expected: 42),
+)
+
+// =============================================================================
+// Immutable Bindings
+// =============================================================================
+
+@local_const () -> int = run(
+    // All let bindings are immutable by default
+    let local = 50,
+    local,
+)
+
+@test_local_const tests @local_const () -> void = run(
+    assert_eq(actual: local_const(), expected: 50),
+)
+
+// =============================================================================
+// Hash - Length in Indexing
+// =============================================================================
+
+@hash_last_index () -> int = run(
+    let list = [10, 20, 30],
+    list[# - 1], // last element
+)
+
+@test_hash_last_index tests @hash_last_index () -> void = run(
+    assert_eq(actual: hash_last_index(), expected: 30),
+)
+
+@hash_second_last () -> int = run(
+    let list = [10, 20, 30, 40],
+    list[# - 2],
+)
+
+@test_hash_second_last tests @hash_second_last () -> void = run(
+    assert_eq(actual: hash_second_last(), expected: 30),
+)
+
+// =============================================================================
+// Mixed Delimiters
+// =============================================================================
+
+// Test mixing list and tuple delimiters
+@mixed_complex () -> int = run(
+    let list: [int] = [1, 2, 3],
+    let tuple = (list[0], list[1], list[2]),
+    let (a, b, c) = tuple,
+    a + b + c,
+)
+
+@test_mixed_complex tests @mixed_complex () -> void = run(
+    assert_eq(actual: mixed_complex(), expected: 6), // 1 + 2 + 3
+)
+
+// Test nested list access
+@mixed_nested_access () -> int = run(
+    let nested = [[1, 2], [3, 4], [5, 6]],
+    nested[0][0] + nested[1][1] + nested[2][0],
+)
+
+@test_mixed_nested_access tests @mixed_nested_access () -> void = run(
+    assert_eq(actual: mixed_nested_access(), expected: 10), // 1 + 4 + 5
+)

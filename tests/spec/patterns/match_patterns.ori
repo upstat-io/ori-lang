@@ -1,0 +1,493 @@
+// Spec: 10-patterns.md § match - Pattern Types
+// Tests for all match pattern types: literal, identifier, wildcard, variant,
+// struct, tuple, list, range, or, at patterns
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Literal Patterns
+// =============================================================================
+
+@test_literal_int tests @literal_int () -> void = run(
+    assert_eq(actual: literal_int(0), expected: "zero"),
+    assert_eq(actual: literal_int(1), expected: "one"),
+    assert_eq(actual: literal_int(42), expected: "other"),
+)
+
+@literal_int (n: int) -> str = match(n,
+    0 -> "zero",
+    1 -> "one",
+    _ -> "other",
+)
+
+@test_literal_negative tests @literal_negative () -> void = run(
+    assert_eq(actual: literal_negative(-1), expected: "minus one"),
+    assert_eq(actual: literal_negative(-10), expected: "minus ten"),
+    assert_eq(actual: literal_negative(0), expected: "zero"),
+    assert_eq(actual: literal_negative(5), expected: "positive"),
+)
+
+@literal_negative (n: int) -> str = match(n,
+    -1 -> "minus one",
+    -10 -> "minus ten",
+    0 -> "zero",
+    _ -> "positive",
+)
+
+@test_literal_str tests @literal_str () -> void = run(
+    assert_eq(actual: literal_str("hello"), expected: 1),
+    assert_eq(actual: literal_str("world"), expected: 2),
+    assert_eq(actual: literal_str(""), expected: 3),
+    assert_eq(actual: literal_str("other"), expected: 0),
+)
+
+@literal_str (s: str) -> int = match(s,
+    "hello" -> 1,
+    "world" -> 2,
+    "" -> 3,
+    _ -> 0,
+)
+
+@test_literal_bool tests @literal_bool () -> void = run(
+    assert_eq(actual: literal_bool(true), expected: "yes"),
+    assert_eq(actual: literal_bool(false), expected: "no"),
+)
+
+@literal_bool (b: bool) -> str = match(b,
+    true -> "yes",
+    false -> "no",
+)
+
+// NOTE: Char literal patterns not yet supported in match
+// @test_literal_char tests @literal_char () -> void = run(
+//     assert_eq(actual: literal_char('a'), expected: "letter a"),
+//     assert_eq(actual: literal_char('b'), expected: "letter b"),
+//     assert_eq(actual: literal_char('x'), expected: "other"),
+// )
+
+// @literal_char (c: char) -> str = match(c,
+//     'a' -> "letter a",
+//     'b' -> "letter b",
+//     _ -> "other",
+// )
+
+// =============================================================================
+// Identifier Patterns (Binding)
+// =============================================================================
+
+@test_identifier_binding tests @identifier_binding () -> void = run(
+    assert_eq(actual: identifier_binding(5), expected: 10),
+    assert_eq(actual: identifier_binding(10), expected: 20),
+)
+
+@identifier_binding (n: int) -> int = match(n,
+    x -> x * 2,
+)
+
+@test_identifier_in_variant tests @identifier_in_variant () -> void = run(
+    assert_eq(actual: identifier_in_variant(Some(5)), expected: 5),
+    assert_eq(actual: identifier_in_variant(None), expected: 0),
+)
+
+@identifier_in_variant (opt: Option<int>) -> int = match(opt,
+    Some(x) -> x,
+    None -> 0,
+)
+
+// =============================================================================
+// Wildcard Patterns
+// =============================================================================
+
+@test_wildcard tests @wildcard () -> void = run(
+    assert_eq(actual: wildcard(1), expected: "one"),
+    assert_eq(actual: wildcard(2), expected: "two"),
+    assert_eq(actual: wildcard(999), expected: "other"),
+)
+
+@wildcard (n: int) -> str = match(n,
+    1 -> "one",
+    2 -> "two",
+    _ -> "other",
+)
+
+@test_wildcard_in_tuple tests @wildcard_in_tuple () -> void = run(
+    assert_eq(actual: wildcard_in_tuple((1, 2)), expected: 1),
+    assert_eq(actual: wildcard_in_tuple((5, 100)), expected: 5),
+)
+
+@wildcard_in_tuple (t: (int, int)) -> int = match(t,
+    (x, _) -> x,
+)
+
+@test_wildcard_in_variant tests @wildcard_in_variant () -> void = run(
+    assert_eq(actual: wildcard_in_variant(Ok(42)), expected: "ok"),
+    assert_eq(actual: wildcard_in_variant(Err("error")), expected: "err"),
+)
+
+@wildcard_in_variant (r: Result<int, str>) -> str = match(r,
+    Ok(_) -> "ok",
+    Err(_) -> "err",
+)
+
+// =============================================================================
+// Variant Patterns (Option, Result, Sum Types)
+// =============================================================================
+
+@test_option_patterns tests @option_patterns () -> void = run(
+    assert_eq(actual: option_patterns(Some(42)), expected: 42),
+    assert_eq(actual: option_patterns(None), expected: -1),
+)
+
+@option_patterns (opt: Option<int>) -> int = match(opt,
+    Some(v) -> v,
+    None -> -1,
+)
+
+@test_result_patterns tests @result_patterns () -> void = run(
+    assert_eq(actual: result_patterns(Ok(100)), expected: "ok: 100"),
+    assert_eq(actual: result_patterns(Err("fail")), expected: "err: fail"),
+)
+
+@result_patterns (r: Result<int, str>) -> str = match(r,
+    Ok(v) -> "ok: " + str(v),
+    Err(e) -> "err: " + e,
+)
+
+type Status = Pending | Running(progress: int) | Done
+
+@test_sum_type_patterns tests @sum_type_patterns () -> void = run(
+    assert_eq(actual: sum_type_patterns(Pending), expected: "waiting"),
+    assert_eq(actual: sum_type_patterns(Running(progress: 50)), expected: "50%"),
+    assert_eq(actual: sum_type_patterns(Done), expected: "complete"),
+)
+
+@sum_type_patterns (s: Status) -> str = match(s,
+    Pending -> "waiting",
+    Running(p) -> str(p) + "%",
+    Done -> "complete",
+)
+
+@test_nested_variant tests @nested_variant () -> void = run(
+    assert_eq(actual: nested_variant(Some(Some(42))), expected: 42),
+    assert_eq(actual: nested_variant(Some(None)), expected: -1),
+    assert_eq(actual: nested_variant(None), expected: -2),
+)
+
+@nested_variant (opt: Option<Option<int>>) -> int = match(opt,
+    Some(Some(v)) -> v,
+    Some(None) -> -1,
+    None -> -2,
+)
+
+// =============================================================================
+// Struct Patterns
+// =============================================================================
+
+type Point = { x: int, y: int }
+
+@test_struct_pattern tests @struct_pattern () -> void = run(
+    assert_eq(actual: struct_pattern(Point { x: 0, y: 0 }), expected: "origin"),
+    assert_eq(actual: struct_pattern(Point { x: 5, y: 0 }), expected: "on x-axis"),
+    assert_eq(actual: struct_pattern(Point { x: 0, y: 5 }), expected: "on y-axis"),
+    assert_eq(actual: struct_pattern(Point { x: 3, y: 4 }), expected: "at (3, 4)"),
+)
+
+@struct_pattern (p: Point) -> str = match(p,
+    { x: 0, y: 0 } -> "origin",
+    { x, y: 0 } -> "on x-axis",
+    { x: 0, y } -> "on y-axis",
+    { x, y } -> "at (" + str(x) + ", " + str(y) + ")",
+)
+
+type Person = { name: str, age: int }
+
+@test_struct_with_literals tests @struct_with_literals () -> void = run(
+    assert_eq(actual: struct_with_literals(Person { name: "Alice", age: 30 }), expected: "Alice"),
+    assert_eq(actual: struct_with_literals(Person { name: "Bob", age: 0 }), expected: "newborn Bob"),
+    assert_eq(actual: struct_with_literals(Person { name: "X", age: 100 }), expected: "centenarian"),
+)
+
+@struct_with_literals (p: Person) -> str = match(p,
+    { name, age: 0 } -> "newborn " + name,
+    { name: _, age: 100 } -> "centenarian",
+    { name, age: _ } -> name,
+)
+
+// =============================================================================
+// Tuple Patterns
+// =============================================================================
+
+@test_tuple_pattern tests @tuple_pattern () -> void = run(
+    assert_eq(actual: tuple_pattern((1, 2)), expected: 3),
+    assert_eq(actual: tuple_pattern((10, 20)), expected: 30),
+)
+
+@tuple_pattern (t: (int, int)) -> int = match(t,
+    (a, b) -> a + b,
+)
+
+@test_tuple_with_literals tests @tuple_with_literals () -> void = run(
+    assert_eq(actual: tuple_with_literals((0, 0)), expected: "origin"),
+    assert_eq(actual: tuple_with_literals((1, 0)), expected: "x-axis"),
+    assert_eq(actual: tuple_with_literals((0, 1)), expected: "y-axis"),
+    assert_eq(actual: tuple_with_literals((2, 3)), expected: "other"),
+)
+
+@tuple_with_literals (t: (int, int)) -> str = match(t,
+    (0, 0) -> "origin",
+    (_, 0) -> "x-axis",
+    (0, _) -> "y-axis",
+    _ -> "other",
+)
+
+@test_nested_tuple tests @nested_tuple () -> void = run(
+    assert_eq(actual: nested_tuple(((1, 2), (3, 4))), expected: 10),
+)
+
+@nested_tuple (t: ((int, int), (int, int))) -> int = match(t,
+    ((a, b), (c, d)) -> a + b + c + d,
+)
+
+@test_tuple_with_variant tests @tuple_with_variant () -> void = run(
+    assert_eq(actual: tuple_with_variant((Some(5), Some(10))), expected: 15),
+    assert_eq(actual: tuple_with_variant((Some(5), None)), expected: 5),
+    assert_eq(actual: tuple_with_variant((None, Some(10))), expected: 10),
+    assert_eq(actual: tuple_with_variant((None, None)), expected: 0),
+)
+
+@tuple_with_variant (t: (Option<int>, Option<int>)) -> int = match(t,
+    (Some(a), Some(b)) -> a + b,
+    (Some(a), None) -> a,
+    (None, Some(b)) -> b,
+    (None, None) -> 0,
+)
+
+// =============================================================================
+// List Patterns
+// =============================================================================
+
+@test_list_empty tests @list_empty () -> void = run(
+    assert_eq(actual: list_empty([]), expected: "empty"),
+    assert_eq(actual: list_empty([1]), expected: "nonempty"),
+)
+
+@list_empty (lst: [int]) -> str = match(lst,
+    [] -> "empty",
+    _ -> "nonempty",
+)
+
+@test_list_single tests @list_single () -> void = run(
+    assert_eq(actual: list_single([42]), expected: 42),
+    assert_eq(actual: list_single([]), expected: -1),
+    assert_eq(actual: list_single([1, 2]), expected: -2),
+)
+
+@list_single (lst: [int]) -> int = match(lst,
+    [x] -> x,
+    [] -> -1,
+    _ -> -2,
+)
+
+@test_list_head_tail tests @list_head_tail () -> void = run(
+    let (head, tail) = list_head_tail(lst: [1, 2, 3]),
+    assert_eq(actual: head, expected: 1),
+    assert_eq(actual: tail.len(), expected: 2),
+)
+
+@list_head_tail (lst: [int]) -> (int, [int]) = match(lst,
+    [head, ..tail] -> (head, tail),
+    [] -> (0, []),
+)
+
+@test_list_first_two tests @list_first_two () -> void = run(
+    assert_eq(actual: list_first_two([1, 2, 3, 4]), expected: 3),
+    assert_eq(actual: list_first_two([5, 10]), expected: 15),
+)
+
+@list_first_two (lst: [int]) -> int = match(lst,
+    [a, b, ..] -> a + b,
+    [a] -> a,
+    [] -> 0,
+)
+
+@test_list_rest_pattern tests @list_rest_pattern () -> void = run(
+    // [..rest] matches any list including empty
+    let matched = match([1, 2, 3],
+        [..all] -> all.len(),
+    ),
+    assert_eq(actual: matched, expected: 3),
+)
+
+@list_rest_pattern () -> int = match([1, 2, 3, 4, 5],
+    [..all] -> all.len(),
+)
+
+// =============================================================================
+// Range Patterns
+// =============================================================================
+
+@test_range_pattern tests @range_pattern () -> void = run(
+    assert_eq(actual: range_pattern(0), expected: "zero"),
+    assert_eq(actual: range_pattern(5), expected: "small"),
+    assert_eq(actual: range_pattern(50), expected: "medium"),
+    assert_eq(actual: range_pattern(500), expected: "large"),
+)
+
+@range_pattern (n: int) -> str = match(n,
+    0 -> "zero",
+    1..10 -> "small",
+    10..100 -> "medium",
+    _ -> "large",
+)
+
+@test_range_inclusive tests @range_inclusive () -> void = run(
+    assert_eq(actual: range_inclusive(0), expected: "zero"),
+    assert_eq(actual: range_inclusive(1), expected: "one to five"),
+    assert_eq(actual: range_inclusive(5), expected: "one to five"),
+    assert_eq(actual: range_inclusive(6), expected: "other"),
+)
+
+@range_inclusive (n: int) -> str = match(n,
+    0 -> "zero",
+    1..=5 -> "one to five",
+    _ -> "other",
+)
+
+// =============================================================================
+// Or-Patterns (Alternatives)
+// =============================================================================
+
+@test_or_pattern tests @or_pattern () -> void = run(
+    assert_eq(actual: or_pattern(1), expected: "one or two"),
+    assert_eq(actual: or_pattern(2), expected: "one or two"),
+    assert_eq(actual: or_pattern(3), expected: "three or four"),
+    assert_eq(actual: or_pattern(4), expected: "three or four"),
+    assert_eq(actual: or_pattern(5), expected: "other"),
+)
+
+@or_pattern (n: int) -> str = match(n,
+    1 | 2 -> "one or two",
+    3 | 4 -> "three or four",
+    _ -> "other",
+)
+
+@test_or_pattern_multiple tests @or_pattern_multiple () -> void = run(
+    assert_eq(actual: or_pattern_multiple(0), expected: "small"),
+    assert_eq(actual: or_pattern_multiple(1), expected: "small"),
+    assert_eq(actual: or_pattern_multiple(2), expected: "small"),
+    assert_eq(actual: or_pattern_multiple(10), expected: "other"),
+)
+
+@or_pattern_multiple (n: int) -> str = match(n,
+    0 | 1 | 2 | 3 | 4 | 5 -> "small",
+    _ -> "other",
+)
+
+@test_or_pattern_variants tests @or_pattern_variants () -> void = run(
+    assert_eq(actual: or_pattern_variants(Some(1)), expected: "has value"),
+    assert_eq(actual: or_pattern_variants(Some(999)), expected: "has value"),
+    assert_eq(actual: or_pattern_variants(None), expected: "empty"),
+)
+
+@or_pattern_variants (opt: Option<int>) -> str = match(opt,
+    Some(1) | Some(2) | Some(_) -> "has value",
+    None -> "empty",
+)
+
+// =============================================================================
+// At-Patterns (Binding While Matching)
+// =============================================================================
+
+@test_at_pattern tests @at_pattern () -> void = run(
+    let (value, msg) = at_pattern(opt: Some(42)),
+    assert_eq(actual: value, expected: 42),
+)
+
+@at_pattern (opt: Option<int>) -> (int, str) = match(opt,
+    whole @ Some(v) -> (v, "matched some"),
+    whole @ None -> (0, "matched none"),
+)
+
+@test_at_pattern_list tests @at_pattern_list () -> void = run(
+    let (head, rest_len) = at_pattern_list([1, 2, 3, 4]),
+    assert_eq(actual: head, expected: 1),
+    assert_eq(actual: rest_len, expected: 3),
+)
+
+@at_pattern_list (lst: [int]) -> (int, int) = match(lst,
+    [h, ..rest] -> (h, rest.len()),
+    [] -> (0, 0),
+)
+
+// =============================================================================
+// Guards (x.match(condition))
+// =============================================================================
+
+@test_guard tests @guard () -> void = run(
+    assert_eq(actual: guard(15), expected: "large positive"),
+    assert_eq(actual: guard(5), expected: "small positive"),
+    assert_eq(actual: guard(0), expected: "zero"),
+    assert_eq(actual: guard(-5), expected: "negative"),
+)
+
+@guard (n: int) -> str = match(n,
+    x.match(x > 10) -> "large positive",
+    x.match(x > 0) -> "small positive",
+    0 -> "zero",
+    _ -> "negative",
+)
+
+@test_guard_with_binding tests @guard_with_binding () -> void = run(
+    assert_eq(actual: guard_with_binding(Some(50)), expected: 100),
+    assert_eq(actual: guard_with_binding(Some(5)), expected: 5),
+    assert_eq(actual: guard_with_binding(None), expected: 0),
+)
+
+@guard_with_binding (opt: Option<int>) -> int = match(opt,
+    Some(x).match(x > 10) -> x * 2,
+    Some(x) -> x,
+    None -> 0,
+)
+
+@test_guard_requires_catchall tests @guard_requires_catchall () -> void = run(
+    // Guards need catch-all because compiler can't verify exhaustiveness
+    let result = match(5,
+        x.match(x > 0) -> "positive",
+        x.match(x < 0) -> "negative",
+        _ -> "zero",  // Required catch-all
+    ),
+    assert_eq(actual: result, expected: "positive"),
+)
+
+@guard_requires_catchall () -> str = match(5,
+    x.match(x > 0) -> "positive",
+    _ -> "other",
+)
+
+// =============================================================================
+// Complex Combined Patterns
+// =============================================================================
+
+@test_combined_patterns tests @combined_patterns () -> void = run(
+    let result = combined_patterns((Some(5), [1, 2, 3])),
+    assert_eq(actual: result, expected: "some with nonempty list"),
+)
+
+@combined_patterns (t: (Option<int>, [int])) -> str = match(t,
+    (Some(_), []) -> "some with empty list",
+    (Some(_), [_, ..]) -> "some with nonempty list",
+    (None, []) -> "none with empty list",
+    (None, _) -> "none with nonempty list",
+)
+
+type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree)
+
+@test_recursive_pattern tests @recursive_pattern () -> void = run(
+    let leaf = Leaf(42),
+    assert_eq(actual: recursive_pattern(t: leaf), expected: 42),
+)
+
+@recursive_pattern (t: Tree) -> int = match(t,
+    Leaf(v) -> v,
+    Branch(l, _) -> recursive_pattern(t: l),
+)

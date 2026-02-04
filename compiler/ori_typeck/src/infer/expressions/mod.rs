@@ -1,5 +1,10 @@
 //! Expression type inference for literals, identifiers, and operators.
 //!
+//! # Specification
+//!
+//! - Type rules: `docs/ori_lang/0.1-alpha/spec/operator-rules.md`
+//! - Prose: `docs/ori_lang/0.1-alpha/spec/09-expressions.md`
+//!
 //! This module is organized into focused submodules:
 //! - `identifiers`: Identifier and function reference inference
 //! - `operators`: Binary and unary operation type checking
@@ -18,11 +23,13 @@ mod structs;
 mod variants;
 
 pub use access::{infer_field, infer_index};
-pub use collections::{infer_list, infer_map, infer_range, infer_tuple};
+pub use collections::{
+    infer_list, infer_list_with_spread, infer_map, infer_map_with_spread, infer_range, infer_tuple,
+};
 pub use identifiers::{infer_function_ref, infer_ident};
 pub use lambdas::infer_lambda;
 pub use operators::{infer_binary, infer_unary};
-pub use structs::infer_struct;
+pub use structs::{infer_struct, infer_struct_with_spread};
 pub use variants::{infer_err, infer_none, infer_ok, infer_some};
 
 use ori_ir::Name;

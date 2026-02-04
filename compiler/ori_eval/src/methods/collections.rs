@@ -44,6 +44,17 @@ pub fn dispatch_list_method(
             let ord = compare_lists(&items, other, interner)?;
             Ok(ordering_to_value(ord, interner))
         }
+        // Clone trait - deep clone of list
+        "clone" => {
+            require_args("clone", 0, args.len())?;
+            Ok(Value::list((*items).clone()))
+        }
+        // Debug trait - shows list structure
+        "debug" => {
+            require_args("debug", 0, args.len())?;
+            let parts: Vec<String> = items.iter().map(|v| format!("{v:?}")).collect();
+            Ok(Value::string(format!("[{}]", parts.join(", "))))
+        }
         _ => Err(no_such_method(method, "list")),
     }
 }
@@ -95,6 +106,36 @@ pub fn dispatch_string_method(
             require_args("compare", 1, args.len())?;
             let other = require_str_arg("compare", &args, 0)?;
             Ok(ordering_to_value((**s).cmp(other), interner))
+        }
+        // Eq trait
+        "equals" => {
+            require_args("equals", 1, args.len())?;
+            let other = require_str_arg("equals", &args, 0)?;
+            Ok(Value::Bool(&**s == other))
+        }
+        // Clone trait
+        "clone" => {
+            require_args("clone", 0, args.len())?;
+            Ok(Value::string(s.to_string()))
+        }
+        // Printable trait - returns the string itself
+        "to_str" => {
+            require_args("to_str", 0, args.len())?;
+            Ok(Value::string(s.to_string()))
+        }
+        // Debug trait - shows escaped string with quotes
+        "debug" => {
+            require_args("debug", 0, args.len())?;
+            Ok(Value::string(format!("\"{s}\"")))
+        }
+        // Hashable trait
+        "hash" => {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            require_args("hash", 0, args.len())?;
+            let mut hasher = DefaultHasher::new();
+            s.hash(&mut hasher);
+            Ok(Value::int(hasher.finish().cast_signed()))
         }
         _ => Err(no_such_method(method, "str")),
     }

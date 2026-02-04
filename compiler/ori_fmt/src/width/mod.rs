@@ -38,7 +38,10 @@ mod wrappers;
 mod tests;
 
 use calls::{call_named_width, call_width, method_call_named_width, method_call_width};
-use collections::{list_width, map_width, range_width, struct_width, tuple_width};
+use collections::{
+    list_width, list_with_spread_width, map_width, map_with_spread_width, range_width,
+    struct_width, struct_with_spread_width, tuple_width,
+};
 use compounds::{duration_width, size_width};
 use control::{
     assign_width, block_width, break_width, continue_width, field_width, for_width, if_width,
@@ -50,7 +53,7 @@ use operators::{binary_op_width, unary_op_width};
 use ori_ir::{ExprArena, ExprId, ExprKind, FunctionExpKind, FunctionSeq, StringLookup};
 use patterns::binding_pattern_width;
 use rustc_hash::{FxBuildHasher, FxHashMap};
-use wrappers::{await_width, err_width, loop_width, ok_width, some_width, try_width};
+use wrappers::{await_width, cast_width, err_width, loop_width, ok_width, some_width, try_width};
 
 /// Sentinel value indicating a construct that always uses stacked format.
 ///
@@ -251,8 +254,13 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
 
             // Collections - delegated to collections module
             ExprKind::List(items) => list_width(self, *items),
+            ExprKind::ListWithSpread(elements) => list_with_spread_width(self, *elements),
             ExprKind::Map(entries) => map_width(self, *entries),
+            ExprKind::MapWithSpread(elements) => map_with_spread_width(self, *elements),
             ExprKind::Struct { name, fields } => struct_width(self, *name, *fields),
+            ExprKind::StructWithSpread { name, fields } => {
+                struct_with_spread_width(self, *name, *fields)
+            }
             ExprKind::Tuple(items) => tuple_width(self, *items),
             ExprKind::Range {
                 start,
@@ -274,6 +282,7 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             // Postfix operators - delegated to wrappers module
             ExprKind::Await(inner) => await_width(self, *inner),
             ExprKind::Try(inner) => try_width(self, *inner),
+            ExprKind::Cast { expr, ty, fallible } => cast_width(self, *expr, ty, *fallible),
 
             // Assignment and capability - delegated to control module
             ExprKind::Assign { target, value } => assign_width(self, *target, *value),
@@ -393,6 +402,111 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             }
 
             if i < fields.len() - 1 {
+                total += COMMA_SEPARATOR_WIDTH;
+            }
+        }
+        total
+    }
+
+    /// Calculate width of struct literal fields (including spreads).
+    fn width_of_struct_lit_fields(&mut self, fields: &[ori_ir::StructLitField]) -> usize {
+        if fields.is_empty() {
+            return 0;
+        }
+
+        let mut total = 0;
+        for (i, field) in fields.iter().enumerate() {
+            match field {
+                ori_ir::StructLitField::Field(init) => {
+                    let name_w = self.interner.lookup(init.name).len();
+                    if let Some(value) = init.value {
+                        let value_w = self.width(value);
+                        if value_w == ALWAYS_STACKED {
+                            return ALWAYS_STACKED;
+                        }
+                        total += name_w + 2 + value_w;
+                    } else {
+                        total += name_w;
+                    }
+                }
+                ori_ir::StructLitField::Spread { expr, .. } => {
+                    let expr_w = self.width(*expr);
+                    if expr_w == ALWAYS_STACKED {
+                        return ALWAYS_STACKED;
+                    }
+                    // "..." + expr
+                    total += 3 + expr_w;
+                }
+            }
+
+            if i < fields.len() - 1 {
+                total += COMMA_SEPARATOR_WIDTH;
+            }
+        }
+        total
+    }
+
+    /// Calculate width of list elements (including spreads).
+    fn width_of_list_elements(&mut self, elements: &[ori_ir::ListElement]) -> usize {
+        if elements.is_empty() {
+            return 0;
+        }
+
+        let mut total = 0;
+        for (i, element) in elements.iter().enumerate() {
+            match element {
+                ori_ir::ListElement::Expr { expr, .. } => {
+                    let expr_w = self.width(*expr);
+                    if expr_w == ALWAYS_STACKED {
+                        return ALWAYS_STACKED;
+                    }
+                    total += expr_w;
+                }
+                ori_ir::ListElement::Spread { expr, .. } => {
+                    let expr_w = self.width(*expr);
+                    if expr_w == ALWAYS_STACKED {
+                        return ALWAYS_STACKED;
+                    }
+                    // "..." + expr
+                    total += 3 + expr_w;
+                }
+            }
+
+            if i < elements.len() - 1 {
+                total += COMMA_SEPARATOR_WIDTH;
+            }
+        }
+        total
+    }
+
+    /// Calculate width of map elements (including spreads).
+    fn width_of_map_elements(&mut self, elements: &[ori_ir::MapElement]) -> usize {
+        if elements.is_empty() {
+            return 0;
+        }
+
+        let mut total = 0;
+        for (i, element) in elements.iter().enumerate() {
+            match element {
+                ori_ir::MapElement::Entry(entry) => {
+                    let key_w = self.width(entry.key);
+                    let value_w = self.width(entry.value);
+                    if key_w == ALWAYS_STACKED || value_w == ALWAYS_STACKED {
+                        return ALWAYS_STACKED;
+                    }
+                    total += key_w + 2 + value_w; // key: value
+                }
+                ori_ir::MapElement::Spread { expr, .. } => {
+                    let expr_w = self.width(*expr);
+                    if expr_w == ALWAYS_STACKED {
+                        return ALWAYS_STACKED;
+                    }
+                    // "..." + expr
+                    total += 3 + expr_w;
+                }
+            }
+
+            if i < elements.len() - 1 {
                 total += COMMA_SEPARATOR_WIDTH;
             }
         }

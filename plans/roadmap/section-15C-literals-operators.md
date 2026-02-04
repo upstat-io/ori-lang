@@ -24,6 +24,9 @@ sections:
     title: Decimal Duration and Size Literals
     status: not-started
   - id: "15C.7"
+    title: Null Coalesce Operator
+    status: not-started
+  - id: "15C.8"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -514,7 +517,48 @@ let s = 0.25mb      // 250,000 bytes
 
 ---
 
-## 15C.7 Section Completion Checklist
+## 15C.7 Null Coalesce Operator (`??`)
+
+**Source**: `grammar.ebnf § coalesce_expr`, `spec/09-expressions.md § Operators`
+
+The null coalesce operator `??` provides a default value when an `Option` is `None`.
+
+```ori
+let name = maybe_name ?? "Anonymous"
+let count = get_count() ?? 0
+```
+
+**Status**: Parser complete (tokenization, AST), evaluator incomplete.
+
+### Evaluator
+
+- [ ] **Implement**: Evaluate `??` for `Option<T>` — extract Some value or use default
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/mod.rs` — coalesce evaluation
+  - [ ] **Ori Tests**: `tests/spec/expressions/coalesce.ori`
+  - [ ] **LLVM Support**: LLVM codegen for null coalesce operator
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/coalesce_tests.rs` — coalesce codegen
+
+### Type Checker
+
+- [ ] **Implement**: Infer type for `a ?? b` — result is `T` where `a: Option<T>` and `b: T`
+  - [ ] **Rust Tests**: `ori_typeck/src/infer/expressions/operators.rs` — coalesce type inference
+  - [ ] **Ori Tests**: `tests/spec/types/coalesce_inference.ori`
+
+- [ ] **Implement**: Error for non-Option left operand
+  - [ ] **Rust Tests**: `ori_typeck/src/infer/tests.rs` — coalesce type error
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/coalesce_non_option.ori`
+
+### Edge Cases
+
+- [ ] **Implement**: Short-circuit evaluation — don't evaluate right side if left is Some
+  - [ ] **Ori Tests**: `tests/spec/expressions/coalesce_short_circuit.ori`
+
+- [ ] **Implement**: Chained coalesce — `a ?? b ?? c`
+  - [ ] **Ori Tests**: `tests/spec/expressions/coalesce_chained.ori`
+
+---
+
+## 15C.8 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[x]`
 - [ ] All spec docs updated

@@ -1,4 +1,6 @@
 // Spec: 06-types.md § Newtype
+
+use std.testing { assert_eq, assert }
 // Design: 03-type-system/03-user-defined-types.md
 
 // =============================================================================
@@ -17,7 +19,7 @@ type Age = int
 // Test newtype construction
 @test_newtype_construction tests @get_user_id () -> void = run(
     let id = UserId("user-123"),
-    assert(condition: true),
+    assert(cond: true),
 )
 
 // Test newtype unwrap
@@ -37,7 +39,7 @@ type Age = int
 @test_different_newtypes tests @validate_user () -> void = run(
     let id = UserId("abc"),
     let result = validate_user(id: id),
-    assert(condition: result),
+    assert(cond: result),
 )
 
 // -----------------------------------------------------------------------------
@@ -46,7 +48,7 @@ type Age = int
 
 @test_int_newtype_construction tests @get_age () -> void = run(
     let age = Age(25),
-    assert(condition: true),
+    assert(cond: true),
 )
 
 @get_age (a: Age) -> int = a.unwrap()
@@ -74,7 +76,7 @@ type Age = int
     let id1 = UserId("abc"),
     let id2 = UserId("xyz"),
     let same = compare_ids(a: id1, b: id2),
-    assert(condition: !same),
+    assert(cond: !same),
 )
 
 // -----------------------------------------------------------------------------

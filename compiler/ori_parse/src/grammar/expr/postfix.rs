@@ -3,13 +3,21 @@
 //! Parses call, method call, field access, index expressions, and struct literals.
 
 use crate::{ParseError, Parser};
-use ori_ir::{CallArg, Expr, ExprId, ExprKind, FieldInit, Param, TokenKind};
+use ori_ir::{CallArg, Expr, ExprId, ExprKind, FieldInit, Param, StructLitField, TokenKind};
 
 impl Parser<'_> {
     /// Parse function calls and field access.
     pub(crate) fn parse_call(&mut self) -> Result<ExprId, ParseError> {
-        let mut expr = self.parse_primary()?;
+        let expr = self.parse_primary()?;
+        self.apply_postfix_ops(expr)
+    }
 
+    /// Apply postfix operators to an expression.
+    ///
+    /// This is factored out from `parse_call()` to be reusable in `parse_unary()`
+    /// for cases like `-100 as float` where negative integer folding produces
+    /// an expression that still needs postfix operator handling.
+    pub(crate) fn apply_postfix_ops(&mut self, mut expr: ExprId) -> Result<ExprId, ParseError> {
         loop {
             // Skip newlines to allow method chaining across lines:
             // Builder.new()
@@ -114,7 +122,7 @@ impl Parser<'_> {
                     span,
                 ));
             } else if self.check(&TokenKind::LBrace) && self.allows_struct_lit() {
-                // Struct literal: Name { field: value, ... }
+                // Struct literal: Name { field: value, ... } or with spread: Name { ...base, x: 10 }
                 // Only valid if expr is an identifier and struct literals are allowed
                 // (not allowed in if conditions to avoid ambiguity)
                 let expr_data = self.arena.get_expr(expr);
@@ -123,12 +131,26 @@ impl Parser<'_> {
                     let start_span = expr_data.span;
                     self.advance(); // {
 
-                    let fields: Vec<FieldInit> = self.brace_series(|p| {
+                    // Parse struct literal fields (may include spread)
+                    let struct_lit_fields: Vec<StructLitField> = self.brace_series(|p| {
                         if p.check(&TokenKind::RBrace) {
                             return Ok(None);
                         }
 
                         let field_span = p.current_span();
+
+                        // Check for spread syntax: ...expr
+                        if p.check(&TokenKind::DotDotDot) {
+                            p.advance();
+                            let spread_expr = p.parse_expr()?;
+                            let end_span = p.arena.get_expr(spread_expr).span;
+                            return Ok(Some(StructLitField::Spread {
+                                expr: spread_expr,
+                                span: field_span.merge(end_span),
+                            }));
+                        }
+
+                        // Regular field: name or name: value
                         let field_name = p.expect_ident()?;
 
                         // Check for shorthand { x } vs full { x: value }
@@ -146,27 +168,82 @@ impl Parser<'_> {
                             p.previous_span()
                         };
 
-                        Ok(Some(FieldInit {
+                        Ok(Some(StructLitField::Field(FieldInit {
                             name: field_name,
                             value,
                             span: field_span.merge(end_span),
-                        }))
+                        })))
                     })?;
 
                     let end_span = self.previous_span();
-                    let fields_range = self.arena.alloc_field_inits(fields);
 
-                    expr = self.arena.alloc_expr(Expr::new(
-                        ExprKind::Struct {
-                            name: struct_name,
-                            fields: fields_range,
-                        },
-                        start_span.merge(end_span),
-                    ));
+                    // Check if any element is a spread
+                    let has_spread = struct_lit_fields
+                        .iter()
+                        .any(|f| matches!(f, StructLitField::Spread { .. }));
+
+                    if has_spread {
+                        // Use StructWithSpread for literals with spread syntax
+                        let fields_range = self.arena.alloc_struct_lit_fields(struct_lit_fields);
+                        expr = self.arena.alloc_expr(Expr::new(
+                            ExprKind::StructWithSpread {
+                                name: struct_name,
+                                fields: fields_range,
+                            },
+                            start_span.merge(end_span),
+                        ));
+                    } else {
+                        // Use regular Struct for efficiency (common case)
+                        let fields: Vec<FieldInit> = struct_lit_fields
+                            .into_iter()
+                            .filter_map(|f| match f {
+                                StructLitField::Field(init) => Some(init),
+                                StructLitField::Spread { .. } => None,
+                            })
+                            .collect();
+                        let fields_range = self.arena.alloc_field_inits(fields);
+                        expr = self.arena.alloc_expr(Expr::new(
+                            ExprKind::Struct {
+                                name: struct_name,
+                                fields: fields_range,
+                            },
+                            start_span.merge(end_span),
+                        ));
+                    }
                 } else {
                     // Not an identifier - break and let other parsing handle it
                     break;
                 }
+            } else if self.check(&TokenKind::Question) {
+                // Error propagation: expr?
+                self.advance();
+                let span = self.arena.get_expr(expr).span.merge(self.previous_span());
+                expr = self.arena.alloc_expr(Expr::new(ExprKind::Try(expr), span));
+            } else if self.check(&TokenKind::As) {
+                // Type conversion: `as type` (infallible) or `as? type` (fallible)
+                self.advance();
+
+                // Check for fallible version: as?
+                let fallible = if self.check(&TokenKind::Question) {
+                    self.advance();
+                    true
+                } else {
+                    false
+                };
+
+                // Parse the target type
+                let ty = self.parse_type().ok_or_else(|| {
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        "expected type after `as`".to_string(),
+                        self.current_span(),
+                    )
+                })?;
+
+                let span = self.arena.get_expr(expr).span.merge(self.previous_span());
+                expr = self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Cast { expr, ty, fallible }, span));
             } else if self.check(&TokenKind::Arrow) {
                 // Single-param lambda without parens: x -> body
                 let expr_data = self.arena.get_expr(expr);
@@ -178,7 +255,10 @@ impl Parser<'_> {
                     let end_span = self.arena.get_expr(body).span;
                     let params = self.arena.alloc_params(vec![Param {
                         name: param_name,
+                        pattern: None,
                         ty: None,
+                        default: None,
+                        is_variadic: false,
                         span: param_span,
                     }]);
                     expr = self.arena.alloc_expr(Expr::new(
@@ -210,6 +290,12 @@ impl Parser<'_> {
 
             let arg_span = p.current_span();
 
+            // Check for spread syntax: ...expr
+            let is_spread = p.check(&TokenKind::DotDotDot);
+            if is_spread {
+                p.advance();
+            }
+
             let (name, value) = if p.is_named_arg_start() {
                 let name = p.expect_ident_or_keyword()?;
                 p.expect(&TokenKind::Colon)?;
@@ -225,6 +311,7 @@ impl Parser<'_> {
             Ok(Some(CallArg {
                 name,
                 value,
+                is_spread,
                 span: arg_span.merge(end_span),
             }))
         })?;

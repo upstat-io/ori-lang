@@ -1,0 +1,166 @@
+// Spec: 06-types.md § Existential Types
+// Tests for impl Trait, impl Trait + Bound, with where clauses
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Basic impl Trait Return Type
+// =============================================================================
+
+// NOTE: impl Trait may not be fully implemented yet.
+// These tests are designed to expose if the feature doesn't work.
+
+// Simple impl Iterator
+// @test_impl_iterator tests @make_numbers () -> void = run(
+//     let iter = make_numbers(),
+//     // iter should be usable as an Iterator
+//     let (first, _) = iter.next(),
+//     assert(cond: is_some(opt: first)),
+// )
+
+// @make_numbers () -> impl Iterator where Item == int = [1, 2, 3].iter()
+
+// =============================================================================
+// impl Trait with Multiple Bounds
+// =============================================================================
+
+// @test_impl_multi_bounds tests @clonable_printable () -> void = run(
+//     let val = clonable_printable(),
+//     let cloned = val.clone(),
+//     assert(cond: true),
+// )
+
+// @clonable_printable () -> impl Clone + Printable = 42
+
+// =============================================================================
+// impl Trait with Where Clause
+// =============================================================================
+
+// @test_impl_with_where tests @iter_with_where () -> void = run(
+//     let iter = iter_with_where([1, 2, 3]),
+//     assert(cond: true),
+// )
+
+// @iter_with_where (items: [int]) -> impl Iterator where Item == int = items.iter()
+
+// =============================================================================
+// Fallback: Test that basic trait objects work
+// (These use trait objects, not impl Trait, to verify trait basics work)
+// =============================================================================
+//
+// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - no .to_str()/.clone() on primitives
+// Primitives (int, str, etc.) do not have trait methods registered in the evaluator.
+
+@test_printable_object tests @printable_object () -> void = run(
+    let s = printable_value(),
+    assert_eq(actual: s, expected: "42"),
+)
+
+@printable_value () -> str = 42.to_str()
+
+@test_clone_trait tests @clone_trait () -> void = run(
+    let original = 42,
+    let cloned = original.clone(),
+    assert_eq(actual: cloned, expected: 42),
+)
+
+@clone_trait () -> int = run(
+    let x = 100,
+    x.clone(),
+)
+
+// =============================================================================
+// Trait Object as Parameter (not impl Trait)
+// =============================================================================
+
+// Trait objects as parameters (different from impl Trait in return)
+// @test_trait_param tests @take_printable () -> void = run(
+//     let result = display_it(item: 42),
+//     assert_eq(actual: result, expected: "42"),
+// )
+
+// @display_it (item: Printable) -> str = item.to_str()
+
+// =============================================================================
+// Static Dispatch with Generics (alternative to impl Trait)
+// =============================================================================
+
+@format_generic<T: Printable> (item: T) -> str = item.to_str()
+
+@test_generic_printable tests @generic_printable () -> void = run(
+    let result = format_generic(item: 123),
+    assert_eq(actual: result, expected: "123"),
+)
+
+@generic_printable () -> str = format_generic(item: 123)
+
+@test_generic_printable_str tests @generic_printable_str () -> void = run(
+    let result = format_generic(item: "hello"),
+    assert_eq(actual: result, expected: "hello"),
+)
+
+@generic_printable_str () -> str = format_generic(item: "hello")
+
+// =============================================================================
+// Multiple Trait Bounds on Generic
+// =============================================================================
+
+@clone_and_format<T: Clone + Printable> (item: T) -> (T, str) = run(
+    let cloned = item.clone(),
+    let formatted = item.to_str(),
+    (cloned, formatted),
+)
+
+@test_multi_bound_generic tests @multi_bound_generic () -> void = run(
+    let (cloned, formatted) = clone_and_format(item: 42),
+    assert_eq(actual: cloned, expected: 42),
+    assert_eq(actual: formatted, expected: "42"),
+)
+
+@multi_bound_generic () -> (int, str) = clone_and_format(item: 42)
+
+// =============================================================================
+// Returning Iterator via Generic (not impl Trait)
+// =============================================================================
+
+// This tests iterator creation works even if impl Trait doesn't
+
+@test_iter_from_list tests @iter_from_list () -> void = run(
+    let items = [1, 2, 3],
+    let doubled = items.map(transform: x -> x * 2),
+    assert_eq(actual: doubled, expected: [2, 4, 6]),
+)
+
+@iter_from_list () -> [int] = [1, 2, 3].map(transform: x -> x * 2)
+
+@test_iter_chain tests @iter_chain () -> void = run(
+    let result = [1, 2, 3]
+        .map(transform: x -> x * 2)
+        .filter(predicate: x -> x > 2),
+    assert_eq(actual: result, expected: [4, 6]),
+)
+
+@iter_chain () -> [int] = [1, 2, 3]
+    .map(transform: x -> x * 2)
+    .filter(predicate: x -> x > 2)
+
+// =============================================================================
+// Opaque Type Semantics Test
+// =============================================================================
+
+// The key property of impl Trait is that the concrete type is hidden.
+// Testing with generic wrapper to verify type erasure semantics.
+
+type Opaque<T> = { inner: T }
+
+@wrap_value<T> (x: T) -> Opaque<T> = Opaque { inner: x }
+
+@test_opaque_wrapper tests @opaque_wrapper () -> void = run(
+    let wrapped = wrap_value(x: 42),
+    assert_eq(actual: wrapped.inner, expected: 42),
+)
+
+@opaque_wrapper () -> int = run(
+    let wrapped = wrap_value(x: 42),
+    wrapped.inner,
+)

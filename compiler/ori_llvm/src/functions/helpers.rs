@@ -1,23 +1,20 @@
 //! Helper functions for compiling various expression types.
 
-use rustc_hash::FxHashMap;
-
 use inkwell::values::BasicValueEnum;
 use ori_ir::{DurationUnit, Name, SizeUnit};
 
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a config variable reference.
     /// Config variables are compile-time constants stored in locals.
-    #[expect(clippy::unused_self, reason = "consistent method signature pattern")]
     pub(crate) fn compile_config(
         &self,
         name: Name,
-        locals: &FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &Locals<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Config variables should be pre-populated in locals by the caller
-        locals.get(&name).copied()
+        self.load_variable(name, locals)
     }
 
     /// Compile a function reference (@name).

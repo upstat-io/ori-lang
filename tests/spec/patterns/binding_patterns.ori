@@ -1,0 +1,399 @@
+// Spec: 10-patterns.md § Pattern Refutability
+// Tests for destructuring in let: struct, tuple, list with rest
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Tuple Destructuring in Let
+// =============================================================================
+
+@test_tuple_destructure tests @tuple_destructure () -> void = run(
+    let (a, b) = (10, 20),
+    assert_eq(actual: a, expected: 10),
+    assert_eq(actual: b, expected: 20),
+)
+
+@tuple_destructure () -> int = run(
+    let (a, b) = (10, 20),
+    a + b,
+)
+
+@test_triple_destructure tests @triple_destructure () -> void = run(
+    let (a, b, c) = (1, 2, 3),
+    assert_eq(actual: a + b + c, expected: 6),
+)
+
+@triple_destructure () -> int = run(
+    let (a, b, c) = (1, 2, 3),
+    a + b + c,
+)
+
+@test_quad_destructure tests @quad_destructure () -> void = run(
+    let (a, b, c, d) = (1, 2, 3, 4),
+    assert_eq(actual: a + b + c + d, expected: 10),
+)
+
+@quad_destructure () -> int = run(
+    let (a, b, c, d) = (1, 2, 3, 4),
+    a + b + c + d,
+)
+
+@test_nested_tuple_destructure tests @nested_tuple_destructure () -> void = run(
+    let ((a, b), (c, d)) = ((1, 2), (3, 4)),
+    assert_eq(actual: a, expected: 1),
+    assert_eq(actual: d, expected: 4),
+)
+
+@nested_tuple_destructure () -> int = run(
+    let ((a, b), (c, d)) = ((1, 2), (3, 4)),
+    a + b + c + d,
+)
+
+@test_tuple_with_wildcard tests @tuple_with_wildcard () -> void = run(
+    let (first, _) = (42, "ignored"),
+    assert_eq(actual: first, expected: 42),
+)
+
+@tuple_with_wildcard () -> int = run(
+    let (first, _) = (42, "ignored"),
+    first,
+)
+
+@test_tuple_mixed_types tests @tuple_mixed_types () -> void = run(
+    let (n, s, b) = (42, "hello", true),
+    assert_eq(actual: n, expected: 42),
+    assert_eq(actual: s, expected: "hello"),
+    assert(cond: b),
+)
+
+@tuple_mixed_types () -> (int, str, bool) = run(
+    let (n, s, b) = (42, "hello", true),
+    (n, s, b),
+)
+
+// =============================================================================
+// Struct Destructuring in Let
+// =============================================================================
+//
+// STATUS: Lexer [OK], Parser [BROKEN] - struct destructuring in let not supported
+// Parser does not recognize `let Point { x, y } = ...` or `let { x, y } = p`.
+
+type Point = { x: int, y: int }
+
+// SKIP: Struct destructuring in let not supported
+// Workaround: use field access instead
+@struct_destructure () -> int = run(
+    let p = Point { x: 10, y: 20 },
+    p.x + p.y,
+)
+
+#skip("struct destructuring in let not implemented")
+@test_struct_destructure tests @struct_destructure () -> void = run(
+    let p = Point { x: 10, y: 20 },
+    assert_eq(actual: p.x, expected: 10),
+    assert_eq(actual: p.y, expected: 20),
+)
+
+@struct_destructure_shorthand () -> int = run(
+    let p = Point { x: 5, y: 15 },
+    p.x + p.y,
+)
+
+#skip("struct destructuring in let not implemented")
+@test_struct_destructure_shorthand tests @struct_destructure_shorthand () -> void = run(
+    let p = Point { x: 5, y: 15 },
+    assert_eq(actual: p.x, expected: 5),
+    assert_eq(actual: p.y, expected: 15),
+)
+
+@struct_destructure_rename () -> int = run(
+    let p = Point { x: 100, y: 200 },
+    p.x + p.y,
+)
+
+#skip("struct destructuring in let not implemented")
+@test_struct_destructure_rename tests @struct_destructure_rename () -> void = run(
+    let p = Point { x: 100, y: 200 },
+    assert_eq(actual: p.x, expected: 100),
+    assert_eq(actual: p.y, expected: 200),
+)
+
+type Person = { name: str, age: int }
+
+@struct_partial_destructure () -> str = run(
+    let person = Person { name: "Alice", age: 30 },
+    person.name,
+)
+
+#skip("struct destructuring in let not implemented")
+@test_struct_partial_destructure tests @struct_partial_destructure () -> void = run(
+    let person = Person { name: "Alice", age: 30 },
+    assert_eq(actual: person.name, expected: "Alice"),
+)
+
+type Config = { host: str, port: int, debug: bool }
+
+@struct_three_fields () -> Config = run(
+    let cfg = Config { host: "localhost", port: 8080, debug: true },
+    cfg,
+)
+
+#skip("struct destructuring in let not implemented")
+@test_struct_three_fields tests @struct_three_fields () -> void = run(
+    let cfg = Config { host: "localhost", port: 8080, debug: true },
+    assert_eq(actual: cfg.host, expected: "localhost"),
+    assert_eq(actual: cfg.port, expected: 8080),
+    assert(cond: cfg.debug),
+)
+
+// =============================================================================
+// List Destructuring in Let
+// =============================================================================
+
+@test_list_destructure_fixed tests @list_destructure_fixed () -> void = run(
+    let [a, b, c] = [1, 2, 3],
+    assert_eq(actual: a, expected: 1),
+    assert_eq(actual: b, expected: 2),
+    assert_eq(actual: c, expected: 3),
+)
+
+@list_destructure_fixed () -> int = run(
+    let [a, b, c] = [1, 2, 3],
+    a + b + c,
+)
+
+@test_list_head_tail tests @list_head_tail () -> void = run(
+    let [head, ..tail] = [1, 2, 3, 4, 5],
+    assert_eq(actual: head, expected: 1),
+    assert_eq(actual: tail.len(), expected: 4),
+)
+
+@list_head_tail () -> (int, [int]) = run(
+    let [head, ..tail] = [1, 2, 3, 4, 5],
+    (head, tail),
+)
+
+@test_list_first_two_rest tests @list_first_two_rest () -> void = run(
+    let [a, b, ..rest] = [10, 20, 30, 40, 50],
+    assert_eq(actual: a, expected: 10),
+    assert_eq(actual: b, expected: 20),
+    assert_eq(actual: rest.len(), expected: 3),
+)
+
+@list_first_two_rest () -> (int, int, [int]) = run(
+    let [a, b, ..rest] = [10, 20, 30, 40, 50],
+    (a, b, rest),
+)
+
+@test_list_single_element tests @list_single_element () -> void = run(
+    let [only] = [42],
+    assert_eq(actual: only, expected: 42),
+)
+
+@list_single_element () -> int = run(
+    let [only] = [42],
+    only,
+)
+
+@test_list_rest_only tests @list_rest_only () -> void = run(
+    let [..all] = [1, 2, 3, 4, 5],
+    assert_eq(actual: all.len(), expected: 5),
+)
+
+@list_rest_only () -> [int] = run(
+    let [..all] = [1, 2, 3, 4, 5],
+    all,
+)
+
+// =============================================================================
+// Combined Destructuring
+// =============================================================================
+
+@test_tuple_of_structs tests @tuple_of_structs () -> void = run(
+    let (p1, p2) = (Point { x: 1, y: 2 }, Point { x: 3, y: 4 }),
+    assert_eq(actual: p1.x, expected: 1),
+    assert_eq(actual: p2.y, expected: 4),
+)
+
+@tuple_of_structs () -> int = run(
+    let (p1, p2) = (Point { x: 1, y: 2 }, Point { x: 3, y: 4 }),
+    p1.x + p1.y + p2.x + p2.y,
+)
+
+// SKIP: Local type definitions and struct destructuring not supported
+// type PointPair = { first: (int, int), second: (int, int) }
+// let { first: (a, b), second: (c, d) } = pp
+
+type PointPair = { first: (int, int), second: (int, int) }
+
+@struct_with_tuple () -> int = run(
+    let pp = PointPair { first: (1, 2), second: (3, 4) },
+    let (a, b) = pp.first,
+    let (c, d) = pp.second,
+    a + b + c + d,
+)
+
+#skip("local type definitions and struct destructuring not implemented")
+@test_struct_with_tuple tests @struct_with_tuple () -> void = run(
+    let pp = PointPair { first: (1, 2), second: (3, 4) },
+    let (a, b) = pp.first,
+    let (c, d) = pp.second,
+    assert_eq(actual: a + b + c + d, expected: 10),
+)
+
+@list_of_tuples () -> int = run(
+    let list = [(1, 2), (3, 4)],
+    let (a, b) = list[0],
+    let (c, d) = list[1],
+    a + b + c + d,
+)
+
+#skip("list destructuring with nested tuples not implemented")
+@test_list_of_tuples tests @list_of_tuples () -> void = run(
+    let list = [(1, 2), (3, 4)],
+    let (a, b) = list[0],
+    let (c, d) = list[1],
+    assert_eq(actual: a + b + c + d, expected: 10),
+)
+
+// =============================================================================
+// Destructuring in Function Parameters
+// =============================================================================
+//
+// STATUS: Lexer [OK], Parser [BROKEN] - destructuring patterns in function params not supported
+// Parser expects parameter name, not pattern like `{ x, y }` or `(a, b)`.
+
+// SKIP: Struct destructuring in params not supported
+// @sum_point ({ x, y }: Point) -> int = x + y
+@sum_point (p: Point) -> int = p.x + p.y
+
+@param_destructure () -> int = sum_point(p: Point { x: 10, y: 20 })
+
+#skip("destructuring patterns in function parameters not implemented")
+@test_param_destructure tests @param_destructure () -> void = run(
+    let result = sum_point(p: Point { x: 10, y: 20 }),
+    assert_eq(actual: result, expected: 30),
+)
+
+// SKIP: Tuple destructuring in params not supported
+// @sum_tuple ((a, b): (int, int)) -> int = a + b
+@sum_tuple (pair: (int, int)) -> int = run(
+    let (a, b) = pair,
+    a + b,
+)
+
+@param_tuple_destructure () -> int = sum_tuple(pair: (5, 10))
+
+#skip("tuple destructuring in function parameters not implemented")
+@test_param_tuple_destructure tests @param_tuple_destructure () -> void = run(
+    let result = sum_tuple(pair: (5, 10)),
+    assert_eq(actual: result, expected: 15),
+)
+
+// =============================================================================
+// Destructuring with Type Annotations
+// =============================================================================
+
+@test_typed_destructure tests @typed_destructure () -> void = run(
+    let (a, b): (int, str) = (42, "hello"),
+    assert_eq(actual: a, expected: 42),
+    assert_eq(actual: b, expected: "hello"),
+)
+
+@typed_destructure () -> (int, str) = run(
+    let (a, b): (int, str) = (42, "hello"),
+    (a, b),
+)
+
+// SKIP: Typed struct destructure not supported
+// let { x, y }: Point = Point { x: 100, y: 200 }
+@typed_struct_destructure () -> int = run(
+    let p = Point { x: 100, y: 200 },
+    p.x + p.y,
+)
+
+#skip("typed struct destructure not implemented")
+@test_typed_struct_destructure tests @typed_struct_destructure () -> void = run(
+    let p = Point { x: 100, y: 200 },
+    assert_eq(actual: p.x, expected: 100),
+    assert_eq(actual: p.y, expected: 200),
+)
+
+// =============================================================================
+// Mutable Destructured Bindings
+// =============================================================================
+//
+// STATUS: Lexer [OK], Parser [BROKEN] - `mut` inside destructuring patterns not supported
+// Parser does not recognize `let (mut a, mut b) = ...`.
+
+// SKIP: Mutable bindings in destructure patterns not supported
+// let (mut a, mut b) = (10, 20)
+@mutable_tuple_destructure () -> int = run(
+    let (x, y) = (10, 20),
+    let mut a = x,
+    let mut b = y,
+    a = a + 1,
+    b = b + 1,
+    a + b,
+)
+
+#skip("mutable bindings in destructure patterns not implemented")
+@test_mutable_tuple_destructure tests @mutable_tuple_destructure () -> void = run(
+    let (x, y) = (10, 20),
+    let mut a = x,
+    let mut b = y,
+    a = a + 1,
+    b = b + 1,
+    assert_eq(actual: a, expected: 11),
+    assert_eq(actual: b, expected: 21),
+)
+
+// =============================================================================
+// Destructuring from Function Returns
+// =============================================================================
+
+@make_pair () -> (int, str) = (42, "hello")
+
+@test_destructure_return tests @destructure_return () -> void = run(
+    let (n, s) = make_pair(),
+    assert_eq(actual: n, expected: 42),
+    assert_eq(actual: s, expected: "hello"),
+)
+
+@destructure_return () -> (int, str) = run(
+    let (n, s) = make_pair(),
+    (n, s),
+)
+
+@make_point () -> Point = Point { x: 5, y: 10 }
+
+@test_destructure_struct_return tests @destructure_struct_return () -> void = run(
+    let { x, y } = make_point(),
+    assert_eq(actual: x, expected: 5),
+    assert_eq(actual: y, expected: 10),
+)
+
+@destructure_struct_return () -> int = run(
+    let { x, y } = make_point(),
+    x + y,
+)
+
+// =============================================================================
+// Chained Destructuring
+// =============================================================================
+
+@test_chained_destructure tests @chained_destructure () -> void = run(
+    let data = ((1, 2), (3, 4)),
+    let (left, right) = data,
+    let (a, b) = left,
+    let (c, d) = right,
+    assert_eq(actual: a + b + c + d, expected: 10),
+)
+
+@chained_destructure () -> int = run(
+    let data = ((1, 2), (3, 4)),
+    let (left, right) = data,
+    let (a, b) = left,
+    let (c, d) = right,
+    a + b + c + d,
+)

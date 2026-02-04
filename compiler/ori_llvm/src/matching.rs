@@ -1,14 +1,12 @@
 //! Pattern matching compilation.
 
-use rustc_hash::FxHashMap;
-
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ast::patterns::MatchPattern;
 use ori_ir::ast::ExprKind;
-use ori_ir::{ArmRange, ExprArena, ExprId, Name, TypeId};
+use ori_ir::{ArmRange, ExprArena, ExprId, TypeId};
 use tracing::instrument;
 
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
@@ -29,7 +27,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         result_type: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -180,9 +178,13 @@ impl<'ll> Builder<'_, 'll, '_> {
                     return None; // Can't match variant on non-struct
                 };
 
-                // Extract tag
+                // Extract tag - must be the first field and must be an integer
                 let tag = self.extract_value(struct_val, 0, "tag")?;
-                let tag_int = tag.into_int_value();
+                let BasicValueEnum::IntValue(tag_int) = tag else {
+                    // Tag is not an integer - malformed Option/Result struct
+                    // This can happen if types are mismatched; treat as no match
+                    return None;
+                };
 
                 // Get expected tag based on variant name
                 let variant_name = self.cx().interner.lookup(*name);
@@ -207,17 +209,19 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Bind pattern variables to the scrutinee value.
+    ///
+    /// Match pattern bindings are always immutable.
     #[instrument(skip(self, pattern, scrutinee, arena, locals), level = "trace")]
     fn bind_match_pattern_vars(
         &self,
         pattern: &MatchPattern,
         scrutinee: BasicValueEnum<'ll>,
         arena: &ExprArena,
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
     ) {
         match pattern {
             MatchPattern::Binding(name) => {
-                locals.insert(*name, scrutinee);
+                locals.bind_immutable(*name, scrutinee);
             }
 
             MatchPattern::Variant { name: _, inner } => {
@@ -268,7 +272,7 @@ impl<'ll> Builder<'_, 'll, '_> {
 
             MatchPattern::At { name, pattern } => {
                 // Bind the whole value to name, then process inner pattern
-                locals.insert(*name, scrutinee);
+                locals.bind_immutable(*name, scrutinee);
                 let inner = arena.get_match_pattern(*pattern);
                 self.bind_match_pattern_vars(inner, scrutinee, arena, locals);
             }

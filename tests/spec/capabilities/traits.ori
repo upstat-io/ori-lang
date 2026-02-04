@@ -1,4 +1,6 @@
 // Spec: 14-capabilities.md § Capability Traits
+
+use std.testing { assert_eq }
 // Tests for capability traits validation
 
 // =============================================================================

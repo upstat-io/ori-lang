@@ -2,6 +2,11 @@
 //!
 //! This module provides helper functions for expression evaluation including
 //! literals, operators, indexing, and field access. Used by the Interpreter.
+//!
+//! # Specification
+//!
+//! - Eval rules: `docs/ori_lang/0.1-alpha/spec/operator-rules.md`
+//! - Prose: `docs/ori_lang/0.1-alpha/spec/09-expressions.md`
 
 use crate::{
     // Error factories
@@ -12,7 +17,6 @@ use crate::{
     evaluate_binary,
     index_out_of_bounds,
     invalid_tuple_field,
-    key_not_found,
     no_field_on_struct,
     no_member_in_module,
     range_bound_not_int,
@@ -217,18 +221,23 @@ pub fn eval_index(value: Value, index: Value) -> EvalResult {
                 .ok_or_else(|| index_out_of_bounds(raw))
         }
         (Value::Str(s), Value::Int(i)) => {
+            // String indexing returns a single-codepoint str (not char)
             let raw = i.raw();
             let char_count = s.chars().count();
             let idx = resolve_index(raw, char_count).ok_or_else(|| index_out_of_bounds(raw))?;
             s.chars()
                 .nth(idx)
-                .map(Value::Char)
+                .map(|c| Value::string(c.to_string()))
                 .ok_or_else(|| index_out_of_bounds(raw))
         }
-        (Value::Map(map), Value::Str(key)) => map
-            .get(&**key) // Deref Heap<Cow> to &str
-            .cloned()
-            .ok_or_else(|| key_not_found(&key)),
+        (Value::Map(map), key) => {
+            // Map indexing returns Option<V>: Some(value) if found, None if not
+            // Convert the key to a map key string (type-prefixed for uniqueness)
+            match key.to_map_key() {
+                Ok(key_str) => Ok(map.get(&key_str).cloned().map_or(Value::None, Value::some)),
+                Err(_) => Err(cannot_index("map", key.type_name())),
+            }
+        }
         (value, index) => Err(cannot_index(value.type_name(), index.type_name())),
     }
 }

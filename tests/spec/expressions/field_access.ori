@@ -1,0 +1,465 @@
+// Spec: 09-expressions.md § Field and Method Access
+// Tests for struct field access, method calls, and chained access
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Basic Field Access
+// =============================================================================
+
+type Point = { x: int, y: int }
+
+@test_field_access_basic tests @field_access_basic () -> void = run(
+    let p = Point { x: 10, y: 20 },
+    assert_eq(actual: p.x, expected: 10),
+    assert_eq(actual: p.y, expected: 20),
+)
+
+@field_access_basic () -> int = run(
+    let p = Point { x: 10, y: 20 },
+    p.x,
+)
+
+@test_field_access_both tests @field_access_both () -> void = run(
+    let p = Point { x: 5, y: 15 },
+    let sum = p.x + p.y,
+    assert_eq(actual: sum, expected: 20),
+)
+
+@field_access_both () -> int = run(
+    let p = Point { x: 5, y: 15 },
+    p.x + p.y,
+)
+
+// =============================================================================
+// Nested Struct Access
+// =============================================================================
+
+type Rectangle = { top_left: Point, bottom_right: Point }
+
+@test_nested_field_access tests @nested_field_access () -> void = run(
+    let rect = Rectangle {
+        top_left: Point { x: 0, y: 0 },
+        bottom_right: Point { x: 100, y: 50 },
+    },
+    assert_eq(actual: rect.top_left.x, expected: 0),
+    assert_eq(actual: rect.bottom_right.y, expected: 50),
+)
+
+@nested_field_access () -> int = run(
+    let rect = Rectangle {
+        top_left: Point { x: 0, y: 0 },
+        bottom_right: Point { x: 100, y: 50 },
+    },
+    rect.bottom_right.x,
+)
+
+type DeepNest = { inner: Rectangle }
+
+@test_deep_nested_access tests @deep_nested_access () -> void = run(
+    let deep = DeepNest {
+        inner: Rectangle {
+            top_left: Point { x: 1, y: 2 },
+            bottom_right: Point { x: 3, y: 4 },
+        },
+    },
+    assert_eq(actual: deep.inner.top_left.x, expected: 1),
+    assert_eq(actual: deep.inner.bottom_right.y, expected: 4),
+)
+
+@deep_nested_access () -> int = run(
+    let deep = DeepNest {
+        inner: Rectangle {
+            top_left: Point { x: 1, y: 2 },
+            bottom_right: Point { x: 3, y: 4 },
+        },
+    },
+    deep.inner.bottom_right.y,
+)
+
+// =============================================================================
+// Method Calls
+// =============================================================================
+
+impl Point {
+    @distance_from_origin (self) -> float = run(
+        let x_sq = self.x * self.x,
+        let y_sq = self.y * self.y,
+        float(x_sq + y_sq),
+    )
+
+    @manhattan_distance (self) -> int = run(
+        let abs_x = if self.x < 0 then -self.x else self.x,
+        let abs_y = if self.y < 0 then -self.y else self.y,
+        abs_x + abs_y,
+    )
+
+    @translate (self, dx: int, dy: int) -> Point = Point {
+        x: self.x + dx,
+        y: self.y + dy,
+    }
+
+    @scale (self, factor: int) -> Point = Point {
+        x: self.x * factor,
+        y: self.y * factor,
+    }
+}
+
+@test_method_no_args tests @method_no_args () -> void = run(
+    let p = Point { x: 3, y: 4 },
+    // 3^2 + 4^2 = 9 + 16 = 25
+    let dist = p.distance_from_origin(),
+    assert(cond: dist > 24.9),
+    assert(cond: dist < 25.1),
+)
+
+@method_no_args () -> float = run(
+    let p = Point { x: 3, y: 4 },
+    p.distance_from_origin(),
+)
+
+@test_method_with_args tests @method_with_args () -> void = run(
+    let p = Point { x: 10, y: 20 },
+    let translated = p.translate(dx: 5, dy: -5),
+    assert_eq(actual: translated.x, expected: 15),
+    assert_eq(actual: translated.y, expected: 15),
+)
+
+@method_with_args () -> Point = run(
+    let p = Point { x: 10, y: 20 },
+    p.translate(dx: 5, dy: -5),
+)
+
+@test_method_negative tests @method_negative () -> void = run(
+    let p = Point { x: -3, y: -4 },
+    let dist = p.manhattan_distance(),
+    assert_eq(actual: dist, expected: 7),
+)
+
+@method_negative () -> int = run(
+    let p = Point { x: -3, y: -4 },
+    p.manhattan_distance(),
+)
+
+// =============================================================================
+// Chained Method Calls
+// =============================================================================
+
+@test_chained_methods tests @chained_methods () -> void = run(
+    let p = Point { x: 1, y: 1 },
+    let result = p.scale(factor: 2).translate(dx: 3, dy: 3),
+    assert_eq(actual: result.x, expected: 5),
+    assert_eq(actual: result.y, expected: 5),
+)
+
+@chained_methods () -> Point = run(
+    let p = Point { x: 1, y: 1 },
+    p.scale(factor: 2).translate(dx: 3, dy: 3),
+)
+
+@test_long_chain tests @long_chain () -> void = run(
+    let p = Point { x: 0, y: 0 },
+    let result = p.translate(dx: 1, dy: 1)
+        .scale(factor: 2)
+        .translate(dx: 1, dy: 1)
+        .scale(factor: 3),
+    // (0,0) -> (1,1) -> (2,2) -> (3,3) -> (9,9)
+    assert_eq(actual: result.x, expected: 9),
+    assert_eq(actual: result.y, expected: 9),
+)
+
+@long_chain () -> Point = run(
+    let p = Point { x: 0, y: 0 },
+    p.translate(dx: 1, dy: 1)
+        .scale(factor: 2)
+        .translate(dx: 1, dy: 1)
+        .scale(factor: 3),
+)
+
+@test_chain_with_field tests @chain_with_field () -> void = run(
+    let p = Point { x: 5, y: 10 },
+    let x = p.scale(factor: 2).x,
+    assert_eq(actual: x, expected: 10),
+)
+
+@chain_with_field () -> int = run(
+    let p = Point { x: 5, y: 10 },
+    p.scale(factor: 2).x,
+)
+
+// =============================================================================
+// Built-in Methods
+// =============================================================================
+
+@test_list_len tests @list_len () -> void = run(
+    let list = [1, 2, 3, 4, 5],
+    assert_eq(actual: list.len(), expected: 5),
+)
+
+@list_len () -> int = [1, 2, 3, 4, 5].len()
+
+@test_str_len tests @str_len () -> void = run(
+    let s = "hello",
+    assert_eq(actual: s.len(), expected: 5),
+)
+
+@str_len () -> int = "hello".len()
+
+// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - ?? operator not implemented
+// See tests/spec/expressions/coalesce.ori for full details.
+@test_option_coalesce tests @option_coalesce () -> void = run(
+    let opt = Some(42),
+    let value = opt ?? 0,
+    assert_eq(actual: value, expected: 42),
+
+    let none: Option<int> = None,
+    let default_value = none ?? 99,
+    assert_eq(actual: default_value, expected: 99),
+)
+
+@option_coalesce () -> int = Some(42) ?? 0
+
+// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - ?? operator not implemented
+@test_result_coalesce tests @result_coalesce () -> void = run(
+    let ok: Result<int, str> = Ok(42),
+    let value = ok ?? 0,
+    assert_eq(actual: value, expected: 42),
+
+    let err: Result<int, str> = Err("error"),
+    let default_value = err ?? 99,
+    assert_eq(actual: default_value, expected: 99),
+)
+
+@result_coalesce () -> int = Ok(42) ?? 0
+
+// =============================================================================
+// For-Yield as Map/Filter (equivalent to iterator methods)
+// =============================================================================
+
+@test_for_map_filter tests @for_map_filter () -> void = run(
+    let doubled = for x in [1, 2, 3] yield x * 2,
+    let filtered = for x in doubled if x > 2 yield x,
+    assert_eq(actual: filtered, expected: [4, 6]),
+)
+
+@for_map_filter () -> [int] = run(
+    let doubled = for x in [1, 2, 3] yield x * 2,
+    for x in doubled if x > 2 yield x,
+)
+
+@test_for_fold tests @for_fold () -> void = run(
+    let mut sum = 0,
+    for x in [1, 2, 3, 4, 5] do sum = sum + x,
+    assert_eq(actual: sum, expected: 15),
+)
+
+@for_fold () -> int = run(
+    let mut sum = 0,
+    for x in [1, 2, 3, 4, 5] do sum = sum + x,
+    sum,
+)
+
+// =============================================================================
+// Associated Functions
+// =============================================================================
+
+type Counter = { value: int }
+
+impl Counter {
+    @new () -> Counter = Counter { value: 0 }
+
+    @with_value (initial: int) -> Counter = Counter { value: initial }
+
+    @increment (self) -> Counter = Counter { value: self.value + 1 }
+
+    @get (self) -> int = self.value
+}
+
+@test_associated_function tests @associated_function () -> void = run(
+    let c = Counter.new(),
+    assert_eq(actual: c.value, expected: 0),
+)
+
+@associated_function () -> Counter = Counter.new()
+
+@test_associated_with_args tests @associated_with_args () -> void = run(
+    let c = Counter.with_value(initial: 42),
+    assert_eq(actual: c.value, expected: 42),
+)
+
+@associated_with_args () -> Counter = Counter.with_value(initial: 42)
+
+@test_assoc_then_method tests @assoc_then_method () -> void = run(
+    let c = Counter.new().increment().increment(),
+    assert_eq(actual: c.get(), expected: 2),
+)
+
+@assoc_then_method () -> int = Counter.new().increment().increment().get()
+
+// =============================================================================
+// Field Access with Expressions
+// =============================================================================
+
+@get_point () -> Point = Point { x: 100, y: 200 }
+
+@test_func_result_field tests @func_result_field () -> void = run(
+    let x = get_point().x,
+    assert_eq(actual: x, expected: 100),
+)
+
+@func_result_field () -> int = get_point().x
+
+@test_conditional_field tests @conditional_field () -> void = run(
+    let cond = true,
+    let p = if cond then Point { x: 1, y: 2 } else Point { x: 3, y: 4 },
+    assert_eq(actual: p.x, expected: 1),
+)
+
+@conditional_field () -> int = run(
+    let cond = true,
+    let p = if cond then Point { x: 1, y: 2 } else Point { x: 3, y: 4 },
+    p.x,
+)
+
+// =============================================================================
+// List Element Field Access
+// =============================================================================
+
+@test_list_element_field tests @list_element_field () -> void = run(
+    let points = [
+        Point { x: 1, y: 2 },
+        Point { x: 3, y: 4 },
+        Point { x: 5, y: 6 },
+    ],
+    assert_eq(actual: points[0].x, expected: 1),
+    assert_eq(actual: points[1].y, expected: 4),
+    assert_eq(actual: points[2].x, expected: 5),
+)
+
+@list_element_field () -> int = run(
+    let points = [Point { x: 1, y: 2 }],
+    points[0].x,
+)
+
+@test_list_element_method tests @list_element_method () -> void = run(
+    let points = [
+        Point { x: 3, y: 4 },
+        Point { x: 0, y: 5 },
+    ],
+    let dist = points[0].manhattan_distance(),
+    assert_eq(actual: dist, expected: 7),
+)
+
+@list_element_method () -> int = run(
+    let points = [Point { x: 3, y: 4 }],
+    points[0].manhattan_distance(),
+)
+
+// =============================================================================
+// Tuple Field Access
+// =============================================================================
+
+@test_tuple_first tests @tuple_first () -> void = run(
+    let pair = (42, "hello"),
+    let (first, _) = pair,
+    assert_eq(actual: first, expected: 42),
+)
+
+@tuple_first () -> int = run(
+    let pair = (42, "hello"),
+    let (first, _) = pair,
+    first,
+)
+
+@test_tuple_second tests @tuple_second () -> void = run(
+    let pair = (42, "hello"),
+    let (_, second) = pair,
+    assert_eq(actual: second, expected: "hello"),
+)
+
+@tuple_second () -> str = run(
+    let pair = (42, "hello"),
+    let (_, second) = pair,
+    second,
+)
+
+// =============================================================================
+// Complex Chaining
+// =============================================================================
+
+type Container = { points: [Point] }
+
+impl Container {
+    @first (self) -> Option<Point> = run(
+        if self.points.len() > 0 then Some(self.points[0]) else None,
+    )
+
+    @count (self) -> int = self.points.len()
+}
+
+@test_complex_chain tests @complex_chain () -> void = run(
+    let c = Container {
+        points: [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }],
+    },
+    let first_point = c.first() ?? Point { x: 0, y: 0 },
+    assert_eq(actual: first_point.x, expected: 1),
+)
+
+@complex_chain () -> int = run(
+    let c = Container {
+        points: [Point { x: 1, y: 2 }],
+    },
+    (c.first() ?? Point { x: 0, y: 0 }).x,
+)
+
+@test_field_then_method_chain tests @field_then_method_chain () -> void = run(
+    let c = Container {
+        points: [Point { x: 10, y: 20 }],
+    },
+    let len = c.points.len(),
+    assert_eq(actual: len, expected: 1),
+)
+
+@field_then_method_chain () -> int = run(
+    let c = Container { points: [Point { x: 10, y: 20 }] },
+    c.points.len(),
+)
+
+// =============================================================================
+// Precedence with Operators
+// =============================================================================
+
+@test_field_in_arithmetic tests @field_in_arithmetic () -> void = run(
+    let p = Point { x: 5, y: 10 },
+    let result = p.x * 2 + p.y,
+    assert_eq(actual: result, expected: 20),
+)
+
+@field_in_arithmetic () -> int = run(
+    let p = Point { x: 5, y: 10 },
+    p.x * 2 + p.y,
+)
+
+@test_negated_field tests @negated_field () -> void = run(
+    let p = Point { x: 5, y: 10 },
+    let neg_x = -p.x,
+    assert_eq(actual: neg_x, expected: -5),
+)
+
+@negated_field () -> int = run(
+    let p = Point { x: 5, y: 10 },
+    -p.x,
+)
+
+@test_field_comparison tests @field_comparison () -> void = run(
+    let p1 = Point { x: 5, y: 10 },
+    let p2 = Point { x: 5, y: 20 },
+    assert(cond: p1.x == p2.x),
+    assert(cond: p1.y < p2.y),
+)
+
+@field_comparison () -> bool = run(
+    let p1 = Point { x: 5, y: 10 },
+    let p2 = Point { x: 5, y: 20 },
+    p1.x == p2.x,
+)

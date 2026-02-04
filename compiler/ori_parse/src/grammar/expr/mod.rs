@@ -4,6 +4,12 @@
 //! including binary operators, unary operators, function calls,
 //! lambda expressions, and primary expressions.
 //!
+//! # Specification
+//!
+//! - Syntax: `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` § EXPRESSIONS
+//! - Semantics: `docs/ori_lang/0.1-alpha/spec/operator-rules.md`
+//! - Prose: `docs/ori_lang/0.1-alpha/spec/09-expressions.md`
+//!
 //! # Module Structure
 //!
 //! - `mod.rs`: Entry point (`parse_expr`) and binary operator precedence chain
@@ -95,6 +101,22 @@ impl Parser<'_> {
         ensure_sufficient_stack(|| self.parse_expr_inner())
     }
 
+    /// Parse an expression without allowing top-level assignment.
+    ///
+    /// Use this for contexts where `=` is a delimiter rather than an operator,
+    /// such as guard clauses (`if condition = body`).
+    pub(crate) fn parse_non_assign_expr(&mut self) -> Result<ExprId, ParseError> {
+        ensure_sufficient_stack(|| self.parse_coalesce())
+    }
+
+    /// Parse an expression without comparison operators (`<`, `>`, `<=`, `>=`).
+    ///
+    /// Use this in contexts where `<` and `>` are delimiters, not operators,
+    /// such as const generic default values: `<$N: int = 10>`.
+    pub(crate) fn parse_non_comparison_expr(&mut self) -> Result<ExprId, ParseError> {
+        ensure_sufficient_stack(|| self.parse_range())
+    }
+
     /// Inner expression parsing logic (wrapped by `parse_expr` for stack safety).
     fn parse_expr_inner(&mut self) -> Result<ExprId, ParseError> {
         let left = self.parse_coalesce()?;
@@ -118,10 +140,41 @@ impl Parser<'_> {
         Ok(left)
     }
 
-    parse_binary_level! {
-        /// Parse ?? (null coalesce - lowest precedence binary operator).
-        parse_coalesce, parse_binary_or,
-        token: TokenKind::DoubleQuestion, op: BinaryOp::Coalesce
+    /// Parse ?? (null coalesce - lowest precedence binary operator).
+    ///
+    /// **Right-associative**: `a ?? b ?? c` parses as `a ?? (b ?? c)`.
+    ///
+    /// This is the industry standard for null coalescing (C#, JavaScript, Swift)
+    /// and enables natural type inference when `Never` appears in the chain:
+    /// - `opt ?? panic() ?? 99` → `opt ?? (panic() ?? 99)`
+    /// - Inner: `Never ?? int` → `int` (Never coerces to Option<int>)
+    /// - Outer: `Option<int> ?? int` → `int`
+    fn parse_coalesce(&mut self) -> Result<ExprId, ParseError> {
+        let left = self.parse_binary_or()?;
+
+        // Skip newlines to allow ?? at line start
+        self.skip_newlines();
+
+        if self.check(&TokenKind::DoubleQuestion) {
+            self.advance();
+            // Recursive call for right-associativity
+            let right = self.parse_coalesce()?;
+            let span = self
+                .arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(right).span);
+            return Ok(self.arena.alloc_expr(Expr::new(
+                ExprKind::Binary {
+                    op: BinaryOp::Coalesce,
+                    left,
+                    right,
+                },
+                span,
+            )));
+        }
+
+        Ok(left)
     }
 
     parse_binary_level! {
@@ -255,6 +308,7 @@ impl Parser<'_> {
             let start = self.current_span();
 
             // Fold negation with integer literals: `-42` → `ExprKind::Int(-42)`
+            // After folding, still apply postfix operators for cases like `-100 as float`.
             if op == UnaryOp::Neg {
                 if let TokenKind::Int(n) = *self.peek_next_kind() {
                     self.advance(); // consume `-`
@@ -262,21 +316,21 @@ impl Parser<'_> {
                     self.advance(); // consume integer literal
                     let span = start.merge(lit_span);
 
-                    return if let Ok(signed) = i64::try_from(n) {
-                        Ok(self
-                            .arena
-                            .alloc_expr(Expr::new(ExprKind::Int(-signed), span)))
+                    let expr = if let Ok(signed) = i64::try_from(n) {
+                        self.arena
+                            .alloc_expr(Expr::new(ExprKind::Int(-signed), span))
                     } else if n == I64_MIN_ABS {
-                        Ok(self
-                            .arena
-                            .alloc_expr(Expr::new(ExprKind::Int(i64::MIN), span)))
+                        self.arena
+                            .alloc_expr(Expr::new(ExprKind::Int(i64::MIN), span))
                     } else {
-                        Err(ParseError::new(
+                        return Err(ParseError::new(
                             ori_diagnostic::ErrorCode::E1002,
                             "integer literal too large".to_string(),
                             span,
-                        ))
+                        ));
                     };
+                    // Apply postfix operators (e.g., `as type`, `?`, method calls)
+                    return self.apply_postfix_ops(expr);
                 }
             }
 

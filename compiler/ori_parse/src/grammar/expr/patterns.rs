@@ -5,7 +5,7 @@
 use crate::{ParseError, Parser};
 use ori_ir::{
     Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern,
-    MatchPatternId, MatchPatternRange, NamedExpr, SeqBinding, TokenKind,
+    MatchPatternId, MatchPatternRange, Name, NamedExpr, SeqBinding, TokenKind,
 };
 
 /// Kind of `function_seq` expression.
@@ -43,11 +43,18 @@ impl Parser<'_> {
                 let binding_span = self.current_span();
                 self.advance();
 
-                let mutable = if self.check(&TokenKind::Mut) {
+                // Per spec: mutable by default, $ prefix for immutable
+                // - `let x = ...` → mutable (default)
+                // - `let $x = ...` → immutable (spec syntax)
+                // - `let mut x = ...` → mutable (legacy, redundant)
+                let mutable = if self.check(&TokenKind::Dollar) {
                     self.advance();
-                    true
+                    false // $ prefix means immutable
+                } else if self.check(&TokenKind::Mut) {
+                    self.advance();
+                    true // mut keyword (legacy, redundant)
                 } else {
-                    false
+                    true // default is mutable per spec
                 };
 
                 let pattern = self.parse_binding_pattern()?;
@@ -460,10 +467,13 @@ impl Parser<'_> {
                     // Check for rest pattern: ..rest or ..
                     if self.check(&TokenKind::DotDot) {
                         self.advance();
-                        // Optional name after ..
+                        // Optional name after .. (Name::EMPTY for anonymous rest)
                         if let TokenKind::Ident(name) = *self.current_kind() {
                             rest = Some(name);
                             self.advance();
+                        } else {
+                            // Anonymous rest pattern: use empty name as sentinel
+                            rest = Some(Name::EMPTY);
                         }
                         // Rest must be last
                         break;

@@ -86,12 +86,13 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_size_hash_equality tests @size_hash_eq () -> void = run(
     // Equal sizes must have equal hashes
+    // SI units: 1kb = 1000 bytes (decimal notation)
     let h1 = 1kb.hash(),
-    let h2 = 1024b.hash(),
+    let h2 = 1000b.hash(),
     assert_eq(actual: h1, expected: h2),
 )
 
-@size_hash_eq () -> bool = 1kb.hash() == 1024b.hash()
+@size_hash_eq () -> bool = 1kb.hash() == 1000b.hash()
 
 @test_size_hash_different_values tests @size_hash_diff () -> void = run(
     // Different sizes should (usually) have different hashes
@@ -113,13 +114,14 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_size_hash_units_equivalent tests @size_hash_units () -> void = run(
     // Equivalent sizes in different units have same hash
-    assert_eq(actual: 1024b.hash(), expected: 1kb.hash()),
-    assert_eq(actual: 1024kb.hash(), expected: 1mb.hash()),
-    assert_eq(actual: 1024mb.hash(), expected: 1gb.hash()),
-    assert_eq(actual: 1024gb.hash(), expected: 1tb.hash()),
+    // SI units: decimal notation - 1000b = 1kb, 1000kb = 1mb, etc.
+    assert_eq(actual: 1000b.hash(), expected: 1kb.hash()),
+    assert_eq(actual: 1000kb.hash(), expected: 1mb.hash()),
+    assert_eq(actual: 1000mb.hash(), expected: 1gb.hash()),
+    assert_eq(actual: 1000gb.hash(), expected: 1tb.hash()),
 )
 
-@size_hash_units () -> bool = 1024b.hash() == 1kb.hash()
+@size_hash_units () -> bool = 1000b.hash() == 1kb.hash()
 
 @test_size_hash_large tests @size_hash_large () -> void = run(
     // Large sizes should hash

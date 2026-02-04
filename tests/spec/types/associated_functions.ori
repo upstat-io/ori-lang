@@ -1,4 +1,6 @@
 // Spec: 08-declarations.md § Associated Functions
+
+use std.testing { assert_eq, assert }
 // Proposal: docs/ori_lang/proposals/approved/associated-functions-language-feature.md
 
 // =============================================================================
@@ -60,7 +62,7 @@ impl Builder {
         .with_enabled(enabled: true),
     assert_eq(actual: b.name, expected: "example"),
     assert_eq(actual: b.value, expected: 42),
-    assert(condition: b.enabled),
+    assert(cond: b.enabled),
 )
 
 @_use_builder (b: Builder) -> str = b.name

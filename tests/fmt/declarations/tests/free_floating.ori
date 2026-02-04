@@ -3,6 +3,8 @@
 // Design: tooling/formatter/design/02-constructs/declarations.md
 // Note: Free-floating tests are identified by name starting with test_ (no tests clause)
 
+use std.testing { assert, assert_eq }
+
 @test_integration () -> void = assert(cond: true)
 
 @test_smoke () -> void = assert_eq(actual: 1, expected: 1)

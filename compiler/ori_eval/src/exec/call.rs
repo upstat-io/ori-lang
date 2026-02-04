@@ -6,21 +6,146 @@
 use crate::{
     wrong_function_args, Environment, EvalError, EvalResult, FunctionValue, Mutability, Value,
 };
-use ori_ir::{CallArgRange, ExprArena, ExprId, StringInterner};
+use ori_ir::{CallArgRange, ExprArena, ExprId, Name, StringInterner};
 
 /// Check if a function has the correct argument count.
+///
+/// With default parameters, the valid range is:
+/// - Minimum: number of parameters without defaults (required parameters)
+/// - Maximum: total number of parameters
 pub fn check_arg_count(func: &FunctionValue, args: &[Value]) -> Result<(), EvalError> {
-    if args.len() != func.params.len() {
-        return Err(wrong_function_args(func.params.len(), args.len()));
+    let required = func.required_param_count();
+    let total = func.params.len();
+
+    if args.len() < required || args.len() > total {
+        if required == total {
+            // No defaults - show exact count expected
+            return Err(wrong_function_args(total, args.len()));
+        }
+        // With defaults - show range
+        return Err(wrong_function_args_range(required, total, args.len()));
     }
     Ok(())
 }
 
+/// Create an error for wrong argument count with a range.
+fn wrong_function_args_range(min: usize, max: usize, got: usize) -> EvalError {
+    EvalError::new(format!("expected {min} to {max} arguments, got {got}"))
+}
+
 /// Bind function parameters to argument values in an environment.
+///
+/// This is the simple case for functions without defaults.
 pub fn bind_parameters(env: &mut Environment, func: &FunctionValue, args: &[Value]) {
     for (param, arg) in func.params.iter().zip(args.iter()) {
         env.define(*param, arg.clone(), Mutability::Immutable);
     }
+}
+
+/// Bind function parameters with support for default values.
+///
+/// For parameters not provided in `args`, evaluates the default expression.
+/// This requires an interpreter to evaluate default expressions.
+///
+/// This version assumes args are provided in parameter order (positional).
+pub fn bind_parameters_with_defaults(
+    interpreter: &mut crate::Interpreter<'_>,
+    func: &FunctionValue,
+    args: &[Value],
+) -> Result<(), EvalError> {
+    for (i, param) in func.params.iter().enumerate() {
+        let value = if i < args.len() {
+            // Argument was provided
+            args[i].clone()
+        } else if let Some(default_expr) = func.defaults.get(i).and_then(|d| *d) {
+            // Evaluate default expression
+            interpreter.eval(default_expr)?
+        } else {
+            // No argument and no default - this shouldn't happen if check_arg_count passed
+            return Err(EvalError::new(format!(
+                "missing required argument for parameter {i}"
+            )));
+        };
+        interpreter.env.define(*param, value, Mutability::Immutable);
+    }
+    Ok(())
+}
+
+/// Bind function parameters from named arguments with default support.
+///
+/// This version matches arguments by name to parameters, allowing arguments
+/// to be provided in any order and enabling skipping defaulted parameters.
+pub fn bind_parameters_from_named_args(
+    interpreter: &mut crate::Interpreter<'_>,
+    func: &FunctionValue,
+    args: CallArgRange,
+) -> Result<(), EvalError> {
+    use rustc_hash::FxHashMap;
+
+    // Build a map of argument name -> expression ID from the call args
+    let call_args = interpreter.arena.get_call_args(args);
+    let mut arg_map: FxHashMap<Name, ExprId> = FxHashMap::default();
+    for arg in call_args {
+        if let Some(name) = arg.name {
+            arg_map.insert(name, arg.value);
+        }
+    }
+
+    // Bind each parameter
+    for (i, param) in func.params.iter().enumerate() {
+        let value = if let Some(&arg_expr) = arg_map.get(param) {
+            // Named argument was provided for this parameter
+            interpreter.eval(arg_expr)?
+        } else if let Some(default_expr) = func.defaults.get(i).and_then(|d| *d) {
+            // Use default expression
+            interpreter.eval(default_expr)?
+        } else {
+            // No argument and no default - this shouldn't happen if check_arg_count passed
+            return Err(EvalError::new(
+                "missing required argument for parameter".to_string(),
+            ));
+        };
+        interpreter.env.define(*param, value, Mutability::Immutable);
+    }
+    Ok(())
+}
+
+/// Check argument count for named arguments against a function.
+///
+/// With default parameters, validates that:
+/// - All required parameters (those without defaults) are provided
+/// - No more arguments than total parameters
+/// - All argument names match valid parameter names
+pub fn check_named_arg_count(
+    func: &FunctionValue,
+    args: CallArgRange,
+    arena: &ExprArena,
+) -> Result<(), EvalError> {
+    let call_args = arena.get_call_args(args);
+    let arg_count = call_args.len();
+
+    // Build set of provided argument names
+    let mut provided_names: rustc_hash::FxHashSet<Name> = rustc_hash::FxHashSet::default();
+    for arg in call_args {
+        if let Some(name) = arg.name {
+            provided_names.insert(name);
+        }
+    }
+
+    // Check that all required parameters are provided
+    for (i, param) in func.params.iter().enumerate() {
+        let has_default = func.defaults.get(i).is_some_and(Option::is_some);
+        if !has_default && !provided_names.contains(param) {
+            return Err(EvalError::new("missing required argument".to_string()));
+        }
+    }
+
+    // Check we don't have more arguments than parameters
+    if arg_count > func.params.len() {
+        return Err(wrong_function_args(func.params.len(), arg_count));
+    }
+
+    Ok(())
 }
 
 /// Bind captured variables to an environment.

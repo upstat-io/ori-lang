@@ -11,5 +11,5 @@ use "../http" { status_ok, get }
 )
 
 @test_import_get tests @get () -> void = assert(
-    condition: get() == "HTTP GET response"
+    cond: get() == "HTTP GET response"
 )

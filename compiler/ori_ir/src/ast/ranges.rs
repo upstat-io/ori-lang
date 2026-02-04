@@ -54,10 +54,13 @@ define_range!(
     GenericParamRange,
     ArmRange,
     MapEntryRange,
+    MapElementRange,
     FieldInitRange,
+    StructLitFieldRange,
     SeqBindingRange,
     NamedExprRange,
     CallArgRange,
+    ListElementRange,
 );
 
 #[cfg(test)]
@@ -77,7 +80,9 @@ mod tests {
         assert!(GenericParamRange::EMPTY.is_empty());
         assert!(ArmRange::EMPTY.is_empty());
         assert!(MapEntryRange::EMPTY.is_empty());
+        assert!(MapElementRange::EMPTY.is_empty());
         assert!(FieldInitRange::EMPTY.is_empty());
+        assert!(StructLitFieldRange::EMPTY.is_empty());
         assert!(SeqBindingRange::EMPTY.is_empty());
         assert!(NamedExprRange::EMPTY.is_empty());
         assert!(CallArgRange::EMPTY.is_empty());

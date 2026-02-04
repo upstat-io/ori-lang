@@ -632,6 +632,26 @@ ori publish, registry, cache
 | 21A | LLVM Backend | 8 | `section-21A-llvm.md` |
 | 21B | AOT Compilation | 8 | `section-21B-aot.md` |
 | 22 | Tooling | 8 | `section-22-tooling.md` |
+| 23 | Full Evaluator Support | 0 | `section-23-evaluator.md` |
+
+---
+
+### Section 23: Full Evaluator Support
+**File:** `section-23-evaluator.md` | **Tier:** 0 | **Status:** Not Started
+
+```
+evaluator, interpreter, eval, runtime
+ori_eval, evaluate, execution
+operator evaluation, binary op, unary op
+null coalesce, ??, coalesce operator
+primitive methods, to_str, clone, hash
+trait methods, Printable, Clone, Hashable
+indexing, map lookup, string index
+Option, Result, Some, None, Ok, Err
+derived traits, #derive, Eq, Clone
+control flow, break, continue, loop
+stdlib, Queue, Stack, string slice
+```
 
 ---
 

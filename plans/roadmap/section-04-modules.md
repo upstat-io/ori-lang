@@ -38,6 +38,9 @@ sections:
     title: Section Completion Checklist
     status: complete
   - id: "4.11"
+    title: Module-Level Constants
+    status: not-started
+  - id: "4.12"
     title: Extension Methods
     status: not-started
 ---
@@ -305,7 +308,65 @@ sections:
 
 ---
 
-## 4.11 Extension Methods
+## 4.11 Module-Level Constants
+
+**Source**: `grammar.ebnf § constant_decl`, `spec/04-constants.md`
+
+Module-level constants declared with `let $NAME = value`.
+
+```ori
+let $PI = 3.14159
+let $MAX_SIZE: int = 1000
+pub let $VERSION = "1.0.0"
+```
+
+**Status**: Parser complete, evaluator incomplete.
+
+### Parser ✅
+
+- [x] **Implement**: Parse `let $NAME = value` — `constant_decl` production
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — constant parsing
+  - [x] **Ori Tests**: `tests/spec/declarations/constants.ori`
+
+- [x] **Implement**: Parse typed constants `let $NAME: Type = value`
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — typed constant parsing
+
+- [x] **Implement**: Parse public constants `pub let $NAME = value`
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — visibility parsing
+
+### Evaluator
+
+- [ ] **Implement**: Evaluate module-level constants at load time
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/mod.rs` — constant evaluation
+  - [ ] **Ori Tests**: `tests/spec/declarations/constants_eval.ori`
+  - [ ] **LLVM Support**: LLVM codegen for module constants
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/constant_tests.rs`
+
+- [ ] **Implement**: Register constants in module namespace
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/module_loading.rs` — constant registration
+  - [ ] **Ori Tests**: `tests/spec/modules/import_constants.ori`
+
+### Type Checker
+
+- [ ] **Implement**: Type check constant initializers
+  - [ ] **Rust Tests**: `ori_typeck/src/checker/` — constant type checking
+  - [ ] **Ori Tests**: `tests/spec/types/constant_types.ori`
+
+- [ ] **Implement**: Enforce constant expression restrictions (no function calls with side effects)
+  - [ ] **Rust Tests**: `ori_typeck/src/checker/` — constant expression validation
+  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/constant_non_const_expr.ori`
+
+### Import/Export
+
+- [ ] **Implement**: Export constants via `pub let`
+  - [ ] **Ori Tests**: `tests/spec/modules/export_constants.ori`
+
+- [ ] **Implement**: Import constants via `use "path" { $CONST }`
+  - [ ] **Ori Tests**: `tests/spec/modules/import_constants.ori`
+
+---
+
+## 4.12 Extension Methods
 
 > **PROPOSAL**: `proposals/approved/extension-methods-proposal.md`
 

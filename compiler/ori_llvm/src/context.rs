@@ -8,6 +8,23 @@
 //! - Type building code to work with minimal context
 //! - Full codegen to have access to caches and Ori types
 //! - Future extension for parallel codegen (one context per unit)
+//!
+//! # Arc vs Borrowed References
+//!
+//! This module uses **borrowed references** (`&'tcx T`) for shared data, not `Arc`.
+//!
+//! **Use `&'tcx T` (borrowed) when:**
+//! - One owner exists and others borrow (codegen borrows from type-check phase)
+//! - The data's lifetime is well-defined (created before, lives until after)
+//! - Zero runtime cost is required (no atomic ref counting)
+//!
+//! **Use `Arc<T>` only when:**
+//! - Ownership is truly shared with no clear single owner
+//! - Data must outlive its creator (e.g., spawned tasks)
+//! - Cross-thread sharing with independent lifetimes
+//!
+//! Codegen receives data from type-checking which outlives the codegen phase.
+//! Borrowed references are correct, zero-cost, and Rust-idiomatic here.
 
 use std::cell::RefCell;
 
@@ -19,6 +36,7 @@ use inkwell::AddressSpace;
 use rustc_hash::FxHashMap;
 
 use ori_ir::{Name, StringInterner, TypeId};
+use ori_types::{TypeData, TypeInterner};
 
 /// Layout information for a user-defined struct type.
 ///
@@ -237,6 +255,7 @@ impl<'ll> SimpleCx<'ll> {
 ///
 /// Wraps `SimpleCx` and adds:
 /// - String interner for name resolution
+/// - Type interner for resolving compound types
 /// - Function instance cache
 /// - Type cache for efficient type lookups
 /// - Test function registry
@@ -245,6 +264,11 @@ pub struct CodegenCx<'ll, 'tcx> {
     pub scx: SimpleCx<'ll>,
     /// String interner for name lookup.
     pub interner: &'tcx StringInterner,
+    /// Type interner for resolving `TypeId` to `TypeData`.
+    ///
+    /// Used by `compute_llvm_type` to determine LLVM representation
+    /// for compound types (List, Map, Tuple, etc.).
+    pub type_interner: Option<&'tcx TypeInterner>,
     /// Cache of compiled functions by name.
     pub instances: RefCell<FxHashMap<Name, FunctionValue<'ll>>>,
     /// Cache of compiled test functions.
@@ -261,6 +285,26 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
         Self {
             scx,
             interner,
+            type_interner: None,
+            instances: RefCell::new(FxHashMap::default()),
+            tests: RefCell::new(FxHashMap::default()),
+            type_cache: RefCell::new(TypeCache::new()),
+        }
+    }
+
+    /// Create a codegen context with a type interner for compound type resolution.
+    pub fn with_type_interner(
+        context: &'ll Context,
+        interner: &'tcx StringInterner,
+        type_interner: &'tcx TypeInterner,
+        module_name: &str,
+    ) -> Self {
+        let scx = SimpleCx::new(context, module_name);
+
+        Self {
+            scx,
+            interner,
+            type_interner: Some(type_interner),
             instances: RefCell::new(FxHashMap::default()),
             tests: RefCell::new(FxHashMap::default()),
             type_cache: RefCell::new(TypeCache::new()),
@@ -309,18 +353,107 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     }
 
     /// Compute the LLVM type for a `TypeId` (uncached).
+    ///
+    /// For compound types, uses the type interner to look up the `TypeData`
+    /// and return the appropriate LLVM struct type.
     fn compute_llvm_type(&self, type_id: TypeId) -> BasicTypeEnum<'ll> {
+        // Fast path: primitive types by TypeId constant
         match type_id {
-            TypeId::FLOAT => self.scx.type_f64().into(),
-            TypeId::BOOL => self.scx.type_i1().into(),
-            TypeId::CHAR => self.scx.type_i32().into(), // Unicode codepoint
-            TypeId::STR => self.string_type().into(),
+            TypeId::FLOAT => return self.scx.type_f64().into(),
+            TypeId::BOOL => return self.scx.type_i1().into(),
+            TypeId::CHAR => return self.scx.type_i32().into(), // Unicode codepoint
+            TypeId::STR => return self.string_type().into(),
             // BYTE and ORDERING are both i8 (Ordering: Less=0, Equal=1, Greater=2)
-            TypeId::BYTE | TypeId::ORDERING => self.scx.type_i8().into(),
-            // INT, DURATION, SIZE, VOID, NEVER, and unknown types default to i64.
-            // Duration is i64 nanoseconds, Size is i64 bytes.
-            // This handles generic functions where T is not yet resolved.
-            _ => self.scx.type_i64().into(),
+            TypeId::BYTE | TypeId::ORDERING => return self.scx.type_i8().into(),
+            // INT, DURATION, SIZE, VOID, NEVER use i64
+            TypeId::INT | TypeId::DURATION | TypeId::SIZE | TypeId::VOID | TypeId::NEVER => {
+                return self.scx.type_i64().into();
+            }
+            _ => {}
+        }
+
+        // Use type interner for compound types
+        if let Some(interner) = self.type_interner {
+            let type_data = interner.lookup(type_id);
+            match type_data {
+                // Primitives and fallback types all use i64 representation.
+                // Primitives: Int, Duration, Size, Unit, Never are intentionally i64.
+                // Fallback: Var, Projection, ModuleNamespace, Error shouldn't appear at codegen
+                // but we fall back to i64 if they do (shouldn't happen in well-typed code).
+                TypeData::Int
+                | TypeData::Duration
+                | TypeData::Size
+                | TypeData::Unit
+                | TypeData::Never
+                | TypeData::Var(_)
+                | TypeData::Projection { .. }
+                | TypeData::ModuleNamespace { .. }
+                | TypeData::Error => self.scx.type_i64().into(),
+                TypeData::Float => self.scx.type_f64().into(),
+                TypeData::Bool => self.scx.type_i1().into(),
+                TypeData::Str => self.string_type().into(),
+                TypeData::Char => self.scx.type_i32().into(),
+                TypeData::Byte | TypeData::Ordering => self.scx.type_i8().into(),
+
+                // Compound types (Set uses same layout as List)
+                TypeData::List(_) | TypeData::Set(_) => self.list_type().into(),
+                TypeData::Map { .. } => self.map_type().into(),
+                TypeData::Range(_) => self.range_type().into(),
+                // Channel and Function are handles (pointers)
+                TypeData::Channel(_) | TypeData::Function { .. } => self.scx.type_ptr().into(),
+
+                // Option and Result need payload type
+                TypeData::Option(inner) => {
+                    let payload = self.llvm_type(inner);
+                    self.option_type(payload).into()
+                }
+                TypeData::Result { ok, err: _ } => {
+                    // For Result, use the larger of ok/err as payload
+                    // For simplicity, use ok type (error handling TBD)
+                    let payload = self.llvm_type(ok);
+                    self.result_type(payload).into()
+                }
+
+                // Tuple: struct of element types
+                TypeData::Tuple(elements) => {
+                    let field_types: Vec<BasicTypeEnum<'ll>> =
+                        elements.iter().map(|&id| self.llvm_type(id)).collect();
+                    self.scx.type_struct(&field_types, false).into()
+                }
+
+                // Named types: look up struct or fall back to i64
+                TypeData::Named(name) => {
+                    if let Some(struct_ty) = self.get_struct_type(name) {
+                        struct_ty.into()
+                    } else {
+                        self.scx.type_i64().into()
+                    }
+                }
+                // Applied (generic) types: compute layout from type arguments
+                // Don't use named structs because Container<int> and Container<str>
+                // have different layouts despite sharing the same name.
+                TypeData::Applied { name, ref args } => {
+                    // For now, create an anonymous struct with the resolved arg types
+                    // This is a simplified approach - full support needs field definitions
+                    if args.is_empty() {
+                        // No type args = non-generic, can use named struct
+                        if let Some(struct_ty) = self.get_struct_type(name) {
+                            struct_ty.into()
+                        } else {
+                            self.scx.type_i64().into()
+                        }
+                    } else {
+                        // Generic instantiation: create anonymous struct from type args
+                        // This assumes a simple pattern where type args map to fields
+                        let field_types: Vec<BasicTypeEnum<'ll>> =
+                            args.iter().map(|&arg| self.llvm_type(arg)).collect();
+                        self.scx.type_struct(&field_types, false).into()
+                    }
+                }
+            }
+        } else {
+            // No type interner available: fall back to i64 for unknown types
+            self.scx.type_i64().into()
         }
     }
 
@@ -352,6 +485,69 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     pub fn result_type(&self, payload: BasicTypeEnum<'ll>) -> StructType<'ll> {
         self.scx
             .type_struct(&[self.scx.type_i8().into(), payload], false)
+    }
+
+    /// Check if a `TypeId` represents an Option type.
+    ///
+    /// Returns true if the type is `Option<T>`, false otherwise.
+    pub fn is_option_type(&self, type_id: TypeId) -> bool {
+        use ori_types::TypeData;
+
+        if let Some(interner) = self.type_interner {
+            matches!(interner.lookup(type_id), TypeData::Option(_))
+        } else {
+            false
+        }
+    }
+
+    /// Check if a `TypeId` represents a Result type.
+    ///
+    /// Returns true if the type is `Result<T, E>`, false otherwise.
+    /// This is needed for coalesce (`??`) where Option and Result have
+    /// different tag semantics (Option: tag=1 for Some, Result: tag=0 for Ok).
+    pub fn is_result_type(&self, type_id: TypeId) -> bool {
+        use ori_types::TypeData;
+
+        if let Some(interner) = self.type_interner {
+            matches!(interner.lookup(type_id), TypeData::Result { .. })
+        } else {
+            false
+        }
+    }
+
+    /// Check if a `TypeId` represents a coercible wrapper type (Option or Result).
+    ///
+    /// These types support the `??` coalesce operator.
+    pub fn is_wrapper_type(&self, type_id: TypeId) -> bool {
+        self.is_option_type(type_id) || self.is_result_type(type_id)
+    }
+
+    /// Get the inner type of an Option<T>.
+    ///
+    /// Returns `Some(T)` if the type is `Option<T>`, `None` otherwise.
+    pub fn option_inner_type(&self, type_id: TypeId) -> Option<TypeId> {
+        use ori_types::TypeData;
+
+        if let Some(interner) = self.type_interner {
+            if let TypeData::Option(inner) = interner.lookup(type_id) {
+                return Some(inner);
+            }
+        }
+        None
+    }
+
+    /// Get the Ok type of a Result<T, E>.
+    ///
+    /// Returns `Some(T)` if the type is `Result<T, E>`, `None` otherwise.
+    pub fn result_ok_type(&self, type_id: TypeId) -> Option<TypeId> {
+        use ori_types::TypeData;
+
+        if let Some(interner) = self.type_interner {
+            if let TypeData::Result { ok, .. } = interner.lookup(type_id) {
+                return Some(ok);
+            }
+        }
+        None
     }
 
     /// Get the list type: { i64 len, i64 cap, ptr data }

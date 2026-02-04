@@ -85,6 +85,12 @@ pub use ast::{
     ImplDef,
     ImplMethod,
     ImportPath,
+    // List with spread types
+    ListElement,
+    ListElementRange,
+    // Map types
+    MapElement,
+    MapElementRange,
     MapEntry,
     MapEntryRange,
     MatchArm,
@@ -101,6 +107,8 @@ pub use ast::{
     Stmt,
     StmtKind,
     StructField,
+    StructLitField,
+    StructLitFieldRange,
     TestDef,
     TraitAssocType,
     TraitBound,

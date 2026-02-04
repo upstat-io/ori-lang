@@ -76,6 +76,14 @@ pub enum ParsedType {
     /// A list type: `[T]`
     List(ParsedTypeId),
 
+    /// A fixed-capacity list type: `[T, max N]`
+    FixedList {
+        /// Element type ID.
+        elem: ParsedTypeId,
+        /// Maximum capacity as a parsed integer literal.
+        capacity: u64,
+    },
+
     /// A tuple type: `(T, U)` or unit `()`
     Tuple(ParsedTypeRange),
 
@@ -137,6 +145,12 @@ impl ParsedType {
     #[inline]
     pub fn list(elem: ParsedTypeId) -> Self {
         ParsedType::List(elem)
+    }
+
+    /// Create a fixed-capacity list type with element type ID and capacity.
+    #[inline]
+    pub fn fixed_list(elem: ParsedTypeId, capacity: u64) -> Self {
+        ParsedType::FixedList { elem, capacity }
     }
 
     /// Create a tuple type with element type IDs (already allocated in arena).

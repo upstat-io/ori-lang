@@ -6,11 +6,14 @@
 use ori_patterns::Value;
 
 /// Convert a value to string.
+///
+/// Uses `display_value()` for raw representation (char 'a' -> "a")
+/// rather than Display which adds quotes (char 'a' -> "'a'").
 pub fn function_val_str(args: &[Value]) -> Result<Value, String> {
     if args.len() != 1 {
         return Err("str expects 1 argument".to_string());
     }
-    Ok(Value::string(format!("{}", args[0])))
+    Ok(Value::string(args[0].display_value()))
 }
 
 /// Convert a value to int.

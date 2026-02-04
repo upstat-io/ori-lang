@@ -563,21 +563,16 @@ fn checked_shl_zero_shift() {
 
 #[test]
 fn checked_shl_max_shift() {
-    // shift by 63 is valid
-    assert_eq!(
-        ScalarInt::ONE.checked_shl(ScalarInt::new(63)),
-        Some(ScalarInt::MIN) // 1 << 63 = MIN (sign bit set)
-    );
+    // 1 << 63 overflows i64 (would set the sign bit, losing the original value)
+    // Per spec: `1 << 63` panics because it overflows
+    assert_eq!(ScalarInt::ONE.checked_shl(ScalarInt::new(63)), None);
 }
 
 #[test]
-fn checked_shl_max_wraps() {
-    // MAX << 1 wraps (checked_shl only guards shift amount, not bit loss)
-    // 0x7FFF...FFFE = -2
-    assert_eq!(
-        ScalarInt::MAX.checked_shl(ScalarInt::ONE),
-        Some(ScalarInt::new(-2))
-    );
+fn checked_shl_overflow_detected() {
+    // MAX << 1 would lose the high bit, which is overflow
+    // Per spec: shifts that overflow panic
+    assert_eq!(ScalarInt::MAX.checked_shl(ScalarInt::ONE), None);
 }
 
 #[test]

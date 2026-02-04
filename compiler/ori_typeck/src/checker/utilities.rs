@@ -305,6 +305,24 @@ impl TypeChecker<'_> {
         });
     }
 
+    /// Report that spread operator requires a list type.
+    #[inline]
+    pub(crate) fn error_spread_requires_list(&mut self, span: Span, found_type: &Type) {
+        self.push_typed_error(TypeCheckError::SpreadRequiresList {
+            span,
+            found_type: format!("{found_type:?}"),
+        });
+    }
+
+    /// Report that spread operator in map requires a map type.
+    #[inline]
+    pub(crate) fn error_spread_requires_map(&mut self, span: Span, found_type: &Type) {
+        self.push_typed_error(TypeCheckError::SpreadRequiresMap {
+            span,
+            found_type: format!("{found_type:?}"),
+        });
+    }
+
     /// Report an invalid variant pattern error.
     #[inline]
     pub(crate) fn error_invalid_variant_pattern(

@@ -180,6 +180,8 @@ pub enum TokenCategory {
     DotDot,
     /// ..=
     DotDotEq,
+    /// ...
+    DotDotDot,
     /// ->
     Arrow,
     /// =>
@@ -442,6 +444,7 @@ impl From<&TokenKind> for TokenCategory {
             TokenKind::Dot => TokenCategory::Dot,
             TokenKind::DotDot => TokenCategory::DotDot,
             TokenKind::DotDotEq => TokenCategory::DotDotEq,
+            TokenKind::DotDotDot => TokenCategory::DotDotDot,
             TokenKind::Arrow => TokenCategory::Arrow,
             TokenKind::FatArrow => TokenCategory::FatArrow,
             TokenKind::Pipe => TokenCategory::Pipe,

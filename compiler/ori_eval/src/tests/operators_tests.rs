@@ -355,11 +355,12 @@ fn rem_both_negative() {
 }
 
 #[test]
-fn shl_boundary_63() {
-    assert_eq!(
-        evaluate_binary(Value::int(1), Value::int(63), BinaryOp::Shl).unwrap(),
-        Value::int(i64::MIN) // sign bit set
-    );
+fn shl_boundary_63_overflows() {
+    // Per spec: `1 << 63` should panic due to signed overflow.
+    // Shifting 1 left by 63 positions would set only the sign bit,
+    // which is an overflow from positive to negative.
+    let result = evaluate_binary(Value::int(1), Value::int(63), BinaryOp::Shl);
+    assert!(result.is_err());
 }
 
 #[test]

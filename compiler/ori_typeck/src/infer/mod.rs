@@ -137,14 +137,25 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
         // List
         ExprKind::List(elements) => infer_list(checker, *elements),
 
+        // List with spread elements
+        ExprKind::ListWithSpread(elements) => infer_list_with_spread(checker, *elements),
+
         // Tuple
         ExprKind::Tuple(elements) => infer_tuple(checker, *elements),
 
         // Map
         ExprKind::Map(entries) => infer_map(checker, *entries, span),
 
+        // Map with spread elements
+        ExprKind::MapWithSpread(elements) => infer_map_with_spread(checker, *elements, span),
+
         // Struct literal
         ExprKind::Struct { name, fields } => infer_struct(checker, *name, *fields),
+
+        // Struct literal with spread
+        ExprKind::StructWithSpread { name, fields } => {
+            infer_struct_with_spread(checker, *name, *fields)
+        }
 
         // Range
         ExprKind::Range {
@@ -175,6 +186,8 @@ fn infer_expr_inner(checker: &mut TypeChecker<'_>, expr_id: ExprId) -> Type {
 
         ExprKind::Await(inner) => infer_await(checker, *inner, span),
         ExprKind::Try(inner) => infer_try(checker, *inner, span),
+
+        ExprKind::Cast { expr, ty, fallible } => infer_cast(checker, *expr, ty, *fallible, span),
 
         ExprKind::Assign { target, value } => infer_assign(checker, *target, *value, span),
 

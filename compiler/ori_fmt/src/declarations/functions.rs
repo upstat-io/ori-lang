@@ -76,10 +76,11 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             expr_formatter.format(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             self.ctx.emit(body_output);
-        } else if self.should_break_body_to_newline(body) {
-            // Conditionals and for loops break to new line when they don't fit
-            // " =\n    if cond then ... else ..."
-            // " =\n    for x in items yield ..."
+        } else if self.should_break_body_to_newline(body, body_width) {
+            // Break to newline when:
+            // 1. Body is a control flow expr (if/for) - per spec
+            // 2. Body is atomic but would fit on its own line with standard indent
+            // Don't break if body is wider than available space anyway (e.g., long strings)
             self.ctx.emit(" =");
             self.ctx.emit_newline();
             self.ctx.indent();
@@ -108,13 +109,68 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
     /// Check if an expression should break to a new line when it doesn't fit.
     ///
-    /// Per spec, conditionals (if-then-else) and for loops break to new line
-    /// rather than staying on the same line and breaking internally.
-    fn should_break_body_to_newline(&self, body: ExprId) -> bool {
-        matches!(
-            self.arena.get_expr(body).kind,
-            ori_ir::ExprKind::If { .. } | ori_ir::ExprKind::For { .. }
-        )
+    /// Returns true for:
+    /// 1. Conditionals (if-then-else) and for loops - per spec, these break to newline
+    /// 2. Method calls on For/If receivers - the receiver needs to break
+    /// 3. Atomic expressions that cannot break internally, IF breaking would help
+    ///
+    /// Returns false for:
+    /// - Expressions that can break internally (lists, maps, calls with args)
+    /// - Atomic expressions too wide for even their own line (e.g., long strings)
+    fn should_break_body_to_newline(&self, body: ExprId, body_width: usize) -> bool {
+        let expr = self.arena.get_expr(body);
+
+        match &expr.kind {
+            // Per spec: If/For always break to newline (they have internal breaking structure)
+            ori_ir::ExprKind::If { .. } | ori_ir::ExprKind::For { .. } => true,
+
+            // Method calls: break if receiver is If/For (needs to break internally)
+            ori_ir::ExprKind::MethodCall { receiver, args, .. } => {
+                let args_empty = self.arena.iter_expr_list(*args).next().is_none();
+                let receiver_is_complex = matches!(
+                    &self.arena.get_expr(*receiver).kind,
+                    ori_ir::ExprKind::If { .. } | ori_ir::ExprKind::For { .. }
+                );
+                // Break if receiver is complex with empty args, or recurse
+                (args_empty && receiver_is_complex)
+                    || self.should_break_body_to_newline(*receiver, body_width)
+            }
+            ori_ir::ExprKind::MethodCallNamed { receiver, args, .. } => {
+                let args_empty = self.arena.get_call_args(*args).is_empty();
+                let receiver_is_complex = matches!(
+                    &self.arena.get_expr(*receiver).kind,
+                    ori_ir::ExprKind::If { .. } | ori_ir::ExprKind::For { .. }
+                );
+                (args_empty && receiver_is_complex)
+                    || self.should_break_body_to_newline(*receiver, body_width)
+            }
+
+            // Atomic expressions: only break if it would actually help
+            // (body would fit on its own line at indent level 1)
+            ori_ir::ExprKind::Int(_)
+            | ori_ir::ExprKind::Float(_)
+            | ori_ir::ExprKind::Bool(_)
+            | ori_ir::ExprKind::String(_)
+            | ori_ir::ExprKind::Char(_)
+            | ori_ir::ExprKind::Unit
+            | ori_ir::ExprKind::Duration { .. }
+            | ori_ir::ExprKind::Size { .. }
+            | ori_ir::ExprKind::Ident(_)
+            | ori_ir::ExprKind::Config(_)
+            | ori_ir::ExprKind::SelfRef
+            | ori_ir::ExprKind::FunctionRef(_)
+            | ori_ir::ExprKind::HashLength
+            | ori_ir::ExprKind::Cast { .. }
+            | ori_ir::ExprKind::Unary { .. } => {
+                // Only break if body would fit on its own line
+                let indent_width = self.config.indent_size;
+                let max_width = self.config.max_width;
+                body_width != ALWAYS_STACKED && body_width + indent_width <= max_width
+            }
+
+            // Everything else can break internally (calls, lists, maps, binary ops, etc.)
+            _ => false,
+        }
     }
 
     /// Format params without considering trailing content (for method params, etc.).

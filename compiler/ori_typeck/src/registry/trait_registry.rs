@@ -442,6 +442,7 @@ impl TraitRegistry {
                 }
             }
             ori_ir::ParsedType::List(_)
+            | ori_ir::ParsedType::FixedList { .. }
             | ori_ir::ParsedType::Tuple(_)
             | ori_ir::ParsedType::Function { .. }
             | ori_ir::ParsedType::Map { .. }
