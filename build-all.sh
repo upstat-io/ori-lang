@@ -9,7 +9,7 @@ cargo b
 
 echo ""
 echo "=== Building LLVM crate ==="
-./llvm-build
+./llvm-build.sh
 
 echo ""
 echo "=== All builds complete ==="

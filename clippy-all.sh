@@ -9,7 +9,7 @@ cargo cl
 
 echo ""
 echo "=== Running clippy on LLVM crate ==="
-./llvm-clippy
+./llvm-clippy.sh
 
 echo ""
 echo "=== All clippy checks passed ==="
