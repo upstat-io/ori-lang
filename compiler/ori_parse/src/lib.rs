@@ -19,7 +19,7 @@ mod tests;
 
 pub use context::ParseContext;
 pub use cursor::Cursor;
-pub use error::{ErrorContext, ParseError};
+pub use error::{DetachmentReason, ErrorContext, ParseError, ParseWarning};
 pub use outcome::ParseOutcome;
 pub use progress::{ParseResult, Progress, WithProgress};
 pub use recovery::{synchronize, TokenSet, FUNCTION_BOUNDARY, STMT_BOUNDARY};
@@ -31,8 +31,8 @@ pub use snapshot::ParserSnapshot;
 // They're automatically available at crate root via #[macro_export]
 
 use ori_ir::{
-    ExprArena, Function, Module, Name, Span, StringInterner, TestDef, Token, TokenKind, TokenList,
-    Visibility,
+    ExprArena, Function, Module, ModuleExtra, Name, Span, StringInterner, TestDef, Token,
+    TokenKind, TokenList, Visibility,
 };
 
 /// Result of parsing a definition starting with @.
@@ -318,6 +318,95 @@ impl<'a> Parser<'a> {
     #[inline]
     fn expect(&mut self, kind: &TokenKind) -> Result<&Token, ParseError> {
         self.cursor.expect(kind)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Token Capture
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // These methods support lazy token capture for formatters and future macros.
+    // Instead of storing tokens directly, we capture index ranges into the
+    // cached TokenList, which is very memory efficient.
+
+    /// Mark the current position for starting a token capture.
+    ///
+    /// Use with `complete_capture()` to capture a range of tokens:
+    /// ```ignore
+    /// let start = parser.start_capture();
+    /// let expr = parser.parse_expr()?;
+    /// let capture = parser.complete_capture(start);
+    /// ```
+    #[inline]
+    #[allow(dead_code)] // Infrastructure for formatters and future macros
+    pub(crate) fn start_capture(&self) -> u32 {
+        self.cursor.start_capture()
+    }
+
+    /// Complete a token capture from a start position.
+    ///
+    /// Returns `TokenCapture::None` if no tokens were consumed.
+    #[inline]
+    #[allow(dead_code)] // Infrastructure for formatters and future macros
+    pub(crate) fn complete_capture(&self, start: u32) -> ori_ir::TokenCapture {
+        self.cursor.complete_capture(start)
+    }
+
+    /// Get the token list for accessing captured ranges.
+    #[inline]
+    #[allow(dead_code)] // Infrastructure for formatters and future macros
+    pub(crate) fn tokens(&self) -> &TokenList {
+        self.cursor.tokens()
+    }
+
+    /// Execute a parser and capture its tokens.
+    ///
+    /// This is a convenience method that combines `start_capture()` and
+    /// `complete_capture()` with a parsing closure. Use when you always
+    /// need to capture tokens.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let (expr, capture) = parser.with_capture(|p| p.parse_expr())?;
+    /// ```
+    #[inline]
+    #[allow(dead_code)] // Infrastructure for formatters and future macros
+    pub(crate) fn with_capture<T, F>(&mut self, f: F) -> (T, ori_ir::TokenCapture)
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let start = self.start_capture();
+        let result = f(self);
+        let capture = self.complete_capture(start);
+        (result, capture)
+    }
+
+    /// Execute a parser and optionally capture its tokens.
+    ///
+    /// When `needs_capture` is false, returns `TokenCapture::None` without
+    /// the overhead of tracking positions.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let needs_tokens = self.context.has(ParseContext::CAPTURE_TOKENS);
+    /// let (expr, capture) = parser.capture_if(needs_tokens, |p| p.parse_expr())?;
+    /// ```
+    #[inline]
+    #[allow(dead_code)] // Infrastructure for formatters and future macros
+    pub(crate) fn capture_if<T, F>(
+        &mut self,
+        needs_capture: bool,
+        f: F,
+    ) -> (T, ori_ir::TokenCapture)
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        if needs_capture {
+            self.with_capture(f)
+        } else {
+            (f(self), ori_ir::TokenCapture::None)
+        }
     }
 
     /// Check if the current token matches any kind in the set.
@@ -710,6 +799,10 @@ impl<'a> Parser<'a> {
             module,
             arena: self.arena,
             errors,
+            warnings: Vec::new(),
+            // Note: For metadata support, use parse_with_metadata() which
+            // overwrites this with lexer-captured metadata
+            metadata: ModuleExtra::new(),
         }
     }
 
@@ -951,6 +1044,11 @@ impl<'a> Parser<'a> {
             module,
             arena: self.arena,
             errors,
+            warnings: Vec::new(),
+            // Note: Incremental metadata merging not yet implemented.
+            // For now, caller should re-lex with lex_with_comments() and
+            // pass to parse_with_metadata() for full metadata support.
+            metadata: ModuleExtra::new(),
         }
     }
 
@@ -973,18 +1071,129 @@ pub struct ParseOutput {
     pub module: Module,
     pub arena: ExprArena,
     pub errors: Vec<ParseError>,
+    /// Non-fatal warnings (e.g., detached doc comments).
+    pub warnings: Vec<ParseWarning>,
+    /// Non-semantic metadata for formatting and IDE support.
+    ///
+    /// Contains comments, blank line positions, and other trivia
+    /// that enables lossless roundtrip formatting.
+    pub metadata: ModuleExtra,
 }
 
 impl ParseOutput {
     pub fn has_errors(&self) -> bool {
         !self.errors.is_empty()
     }
+
+    pub fn has_warnings(&self) -> bool {
+        !self.warnings.is_empty()
+    }
+
+    /// Generate warnings for detached doc comments.
+    ///
+    /// Call this after parsing to populate the warnings field with any
+    /// doc comments that aren't attached to declarations.
+    pub fn check_detached_doc_comments(&mut self) {
+        // Collect all declaration start positions
+        let mut decl_starts: Vec<u32> = Vec::new();
+
+        for func in &self.module.functions {
+            decl_starts.push(func.span.start);
+        }
+        for test in &self.module.tests {
+            decl_starts.push(test.span.start);
+        }
+        for typ in &self.module.types {
+            decl_starts.push(typ.span.start);
+        }
+        for trait_def in &self.module.traits {
+            decl_starts.push(trait_def.span.start);
+        }
+        for impl_def in &self.module.impls {
+            decl_starts.push(impl_def.span.start);
+        }
+
+        // Sort for binary search efficiency (though unattached_doc_comments does linear scan)
+        decl_starts.sort_unstable();
+
+        // Find unattached doc comments
+        let unattached = self.metadata.unattached_doc_comments(&decl_starts);
+
+        for comment in unattached {
+            // Determine why it's detached
+            let reason = if decl_starts.is_empty() {
+                DetachmentReason::NoFollowingDeclaration
+            } else {
+                // Find next declaration after this comment
+                let next_decl = decl_starts.iter().find(|&&start| start > comment.span.end);
+
+                match next_decl {
+                    Some(&decl_start) => {
+                        if self
+                            .metadata
+                            .has_blank_line_between(comment.span.end, decl_start)
+                        {
+                            DetachmentReason::BlankLine
+                        } else if self
+                            .metadata
+                            .has_comment_between(comment.span.end, decl_start)
+                        {
+                            DetachmentReason::RegularCommentInterrupting
+                        } else {
+                            DetachmentReason::TooFarFromDeclaration
+                        }
+                    }
+                    None => DetachmentReason::NoFollowingDeclaration,
+                }
+            };
+
+            self.warnings
+                .push(ParseWarning::detached_doc_comment(comment.span, reason));
+        }
+    }
 }
 
 /// Parse tokens into a module.
+///
+/// This is the basic parsing function that doesn't preserve formatting metadata.
+/// For formatters and IDEs, use [`parse_with_metadata`] instead.
 pub fn parse(tokens: &TokenList, interner: &StringInterner) -> ParseOutput {
     let parser = Parser::new(tokens, interner);
     parser.parse_module()
+}
+
+/// Parse tokens with full metadata preservation.
+///
+/// This function takes tokens and pre-collected metadata from the lexer,
+/// producing a `ParseOutput` with full formatting information. Use this for:
+/// - Formatters (lossless roundtrip)
+/// - IDEs (doc comment display)
+/// - Tooling that needs comment information
+///
+/// # Usage
+///
+/// Call [`ori_lexer::lex_with_comments`] first, then convert to metadata:
+///
+/// ```ignore
+/// let lex_output = ori_lexer::lex_with_comments(source, &interner);
+/// let metadata = lex_output.into_metadata();
+/// let parse_output = ori_parse::parse_with_metadata(&lex_output.tokens, metadata, &interner);
+///
+/// // Access comments attached to declarations
+/// let docs = parse_output.metadata.doc_comments_for(fn_start);
+/// ```
+pub fn parse_with_metadata(
+    tokens: &TokenList,
+    metadata: ModuleExtra,
+    interner: &StringInterner,
+) -> ParseOutput {
+    let parser = Parser::new(tokens, interner);
+    let mut output = parser.parse_module();
+
+    // Transfer metadata from lexer
+    output.metadata = metadata;
+
+    output
 }
 
 /// Parse tokens with incremental reuse from a previous parse result.

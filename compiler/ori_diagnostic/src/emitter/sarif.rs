@@ -47,6 +47,8 @@ struct SarifLocation {
     end_line: usize,
     end_column: usize,
     message: Option<String>,
+    /// Artifact URI for cross-file locations (overrides default).
+    artifact_uri: Option<String>,
 }
 
 impl<W: Write> SarifEmitter<W> {
@@ -209,7 +211,9 @@ impl<W: Write> SarifEmitter<W> {
 
         let _ = writeln!(self.writer, "            \"physicalLocation\": {{");
 
-        if let Some(uri) = &self.artifact_uri {
+        // Use per-location artifact URI for cross-file labels, otherwise use default
+        let uri = loc.artifact_uri.as_ref().or(self.artifact_uri.as_ref());
+        if let Some(uri) = uri {
             let _ = writeln!(self.writer, "              \"artifactLocation\": {{");
             let _ = writeln!(
                 self.writer,
@@ -269,6 +273,9 @@ impl<W: Write> DiagnosticEmitter for SarifEmitter<W> {
             let (start_line, start_col) = self.offset_to_line_col(label.span.start);
             let (end_line, end_col) = self.offset_to_line_col(label.span.end);
 
+            // For cross-file labels, use the source_info's path as the artifact URI
+            let artifact_uri = label.source_info.as_ref().map(|src| src.path.clone());
+
             let loc = SarifLocation {
                 start_line,
                 start_column: start_col,
@@ -279,6 +286,7 @@ impl<W: Write> DiagnosticEmitter for SarifEmitter<W> {
                 } else {
                     Some(label.message.clone())
                 },
+                artifact_uri,
             };
 
             if label.is_primary {
@@ -296,6 +304,7 @@ impl<W: Write> DiagnosticEmitter for SarifEmitter<W> {
                 end_line: 1,
                 end_column: 1,
                 message: None,
+                artifact_uri: None,
             });
         }
 

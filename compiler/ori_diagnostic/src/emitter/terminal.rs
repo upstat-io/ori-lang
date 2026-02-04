@@ -166,9 +166,33 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
 
         // Labels
         for label in &diagnostic.labels {
-            let marker = if label.is_primary { "-->" } else { "   " };
-            let _ = write!(self.writer, "  {} {:?}: ", marker, label.span);
-            if label.is_primary {
+            // Cross-file labels use ::: notation to indicate a different file
+            let marker = if label.is_cross_file() {
+                ":::"
+            } else if label.is_primary {
+                "-->"
+            } else {
+                "   "
+            };
+
+            let _ = write!(self.writer, "  {marker} ");
+
+            // Include file path for cross-file labels
+            if let Some(ref src) = label.source_info {
+                if self.colors {
+                    let _ = write!(self.writer, "{}{}{}", colors::BOLD, src.path, colors::RESET);
+                } else {
+                    let _ = write!(self.writer, "{}", src.path);
+                }
+                let _ = write!(self.writer, " ");
+            }
+
+            let _ = write!(self.writer, "{:?}: ", label.span);
+
+            if label.is_cross_file() {
+                // Cross-file labels use secondary color (blue)
+                self.write_secondary(&label.message);
+            } else if label.is_primary {
                 self.write_primary(&label.message);
             } else {
                 self.write_secondary(&label.message);
@@ -427,5 +451,68 @@ mod tests {
         let text = String::from_utf8(output).unwrap();
         // Without TTY, Auto mode produces no ANSI codes
         assert!(!text.contains("\x1b["));
+    }
+
+    // --- Cross-file Label Tests ---
+
+    #[test]
+    fn test_terminal_emitter_cross_file_label() {
+        use crate::SourceInfo;
+
+        let diag = Diagnostic::error(ErrorCode::E2001)
+            .with_message("type mismatch")
+            .with_label(Span::new(10, 20), "expected `int`, found `str`")
+            .with_cross_file_secondary_label(
+                Span::new(0, 19),
+                "return type defined here",
+                SourceInfo::new("src/lib.ori", "@get_name () -> str"),
+            );
+
+        let mut output = Vec::new();
+        let mut emitter = TerminalEmitter::new(&mut output, false);
+        emitter.emit(&diag);
+        emitter.flush();
+
+        let text = String::from_utf8(output).unwrap();
+        // Should use ::: marker for cross-file labels
+        assert!(text.contains(":::"), "Expected ::: marker, got:\n{text}");
+        // Should include the file path
+        assert!(
+            text.contains("src/lib.ori"),
+            "Expected file path, got:\n{text}"
+        );
+        // Should include the label message
+        assert!(
+            text.contains("return type defined here"),
+            "Expected label message, got:\n{text}"
+        );
+        // Should still have --> for same-file primary
+        assert!(text.contains("-->"), "Expected --> marker, got:\n{text}");
+    }
+
+    #[test]
+    fn test_terminal_emitter_cross_file_with_colors() {
+        use crate::SourceInfo;
+
+        let diag = Diagnostic::error(ErrorCode::E2001)
+            .with_message("type mismatch")
+            .with_label(Span::new(10, 20), "expected `int`")
+            .with_cross_file_secondary_label(
+                Span::new(0, 19),
+                "defined here",
+                SourceInfo::new("src/lib.ori", "@foo () -> str"),
+            );
+
+        let mut output = Vec::new();
+        let mut emitter = TerminalEmitter::new(&mut output, true);
+        emitter.emit(&diag);
+        emitter.flush();
+
+        let text = String::from_utf8(output).unwrap();
+        // Cross-file labels should have ::: and file path
+        assert!(text.contains(":::"));
+        assert!(text.contains("src/lib.ori"));
+        // File path should be bold (check for ANSI bold code before path)
+        assert!(text.contains("\x1b[1m")); // Bold ANSI code
     }
 }

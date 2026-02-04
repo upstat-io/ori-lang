@@ -737,3 +737,316 @@ fn test_context_methods() {
     assert_eq!(result, 43);
     assert!(parser.has_context(ParseContext::IN_LOOP)); // restored
 }
+
+// === Metadata Tests ===
+
+mod metadata_tests {
+    use crate::parse_with_metadata;
+    use ori_ir::{ModuleExtra, StringInterner};
+
+    fn parse_with_comments(source: &str) -> crate::ParseOutput {
+        let interner = StringInterner::new();
+        let lex_output = ori_lexer::lex_with_comments(source, &interner);
+        let (tokens, metadata) = lex_output.into_parts();
+        parse_with_metadata(&tokens, metadata, &interner)
+    }
+
+    #[test]
+    fn test_metadata_preserved_in_parse_output() {
+        let source = r"// #Description
+// This is a test
+
+@main () -> void = ()
+";
+        let output = parse_with_comments(source);
+
+        // Comments should be preserved
+        assert_eq!(output.metadata.comments.len(), 2);
+
+        // Blank line should be detected
+        assert!(!output.metadata.blank_lines.is_empty());
+
+        // Newlines should be tracked
+        assert!(!output.metadata.newlines.is_empty());
+    }
+
+    #[test]
+    fn test_metadata_doc_comments_for_function() {
+        let source = r"// #Description
+// A simple function
+
+@main () -> int = 42
+";
+        let output = parse_with_comments(source);
+
+        // Get the function start position
+        assert_eq!(
+            output.module.functions.len(),
+            1,
+            "Should parse one function"
+        );
+        let func = &output.module.functions[0];
+        let fn_start = func.span.start;
+
+        // Doc comments should be available (though blocked by blank line in this case)
+        let docs = output.metadata.doc_comments_for(fn_start);
+        // Blank line blocks the doc comments from attaching
+        assert!(
+            docs.is_empty(),
+            "Blank line should block doc comment attachment"
+        );
+    }
+
+    #[test]
+    fn test_metadata_blank_line_blocks_doc_comment() {
+        // Use # prefix for doc comments
+        let source = r"// #First description
+// #Second description
+
+// #This one should attach
+@main () -> int = 42
+";
+        let output = parse_with_comments(source);
+
+        // Get the function start position
+        assert_eq!(
+            output.module.functions.len(),
+            1,
+            "Should parse one function"
+        );
+        let func = &output.module.functions[0];
+        let fn_start = func.span.start;
+
+        // Only the last doc comment should attach (blank line blocks the first two)
+        let docs = output.metadata.doc_comments_for(fn_start);
+        assert_eq!(
+            docs.len(),
+            1,
+            "Only doc comment after blank line should attach"
+        );
+        // Verify it's the right one
+        assert!(docs[0].kind.is_doc());
+    }
+
+    #[test]
+    fn test_metadata_no_comments() {
+        let output = parse_with_comments("@main () -> int = 42");
+
+        assert!(output.metadata.comments.is_empty());
+    }
+
+    #[test]
+    fn test_metadata_regular_vs_doc_comments() {
+        let source = r"// Regular comment
+// #Doc comment
+@main () -> int = 42
+";
+        let output = parse_with_comments(source);
+
+        assert_eq!(output.metadata.comments.len(), 2);
+
+        // Check comment kinds
+        let comments: Vec<_> = output.metadata.comments.iter().collect();
+        assert!(!comments[0].kind.is_doc()); // Regular
+        assert!(comments[1].kind.is_doc()); // DocDescription
+    }
+
+    #[test]
+    fn test_metadata_multiple_functions_with_comments() {
+        let source = r"// #Function 1
+@foo () -> int = 1
+
+// #Function 2
+@bar () -> int = 2
+";
+        let output = parse_with_comments(source);
+
+        assert_eq!(
+            output.module.functions.len(),
+            2,
+            "Should parse two functions"
+        );
+        assert_eq!(output.metadata.comments.len(), 2);
+
+        // Each function should have its own doc comment
+        let foo = &output.module.functions[0];
+        let bar = &output.module.functions[1];
+
+        let foo_docs = output.metadata.doc_comments_for(foo.span.start);
+        let bar_docs = output.metadata.doc_comments_for(bar.span.start);
+
+        assert_eq!(foo_docs.len(), 1, "foo should have one doc comment");
+        assert_eq!(bar_docs.len(), 1, "bar should have one doc comment");
+    }
+
+    #[test]
+    fn test_metadata_multiline() {
+        let source = "@main () -> int =\n    let x = 1\n    x + 1\n";
+        let output = parse_with_comments(source);
+
+        assert_eq!(
+            output.module.functions.len(),
+            1,
+            "Should parse one function"
+        );
+        // Function body spans multiple lines
+        let func = &output.module.functions[0];
+        let is_multi = output.metadata.is_multiline(func.span);
+        assert!(is_multi);
+    }
+
+    #[test]
+    fn test_metadata_line_number() {
+        let source = "// Comment\n@main () -> int = 42\n";
+        let output = parse_with_comments(source);
+
+        assert_eq!(
+            output.module.functions.len(),
+            1,
+            "Should parse one function"
+        );
+        // Function starts on line 2
+        let func = &output.module.functions[0];
+        let line = output.metadata.line_number(func.span.start);
+        assert_eq!(line, 2);
+    }
+
+    #[test]
+    fn test_parse_with_empty_metadata() {
+        // Test that parse() produces empty metadata by default
+        let interner = StringInterner::new();
+        let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
+        let output = crate::parse(&tokens, &interner);
+
+        // Default parse produces empty metadata
+        assert!(output.metadata.comments.is_empty());
+        assert!(output.metadata.blank_lines.is_empty());
+        assert!(output.metadata.newlines.is_empty());
+    }
+
+    #[test]
+    fn test_parse_with_explicit_metadata() {
+        // Test that parse_with_metadata correctly transfers metadata
+        let interner = StringInterner::new();
+        let lex_output = ori_lexer::lex_with_comments("// test\n@main () -> int = 42", &interner);
+
+        // Extract metadata before giving to parser
+        let expected_comment_count = lex_output.comments.len();
+        let expected_newline_count = lex_output.newlines.len();
+
+        let metadata = ModuleExtra {
+            comments: lex_output.comments.clone(),
+            blank_lines: lex_output.blank_lines.clone(),
+            newlines: lex_output.newlines.clone(),
+            trailing_commas: Vec::new(),
+        };
+
+        let output = parse_with_metadata(&lex_output.tokens, metadata, &interner);
+
+        assert_eq!(output.metadata.comments.len(), expected_comment_count);
+        assert_eq!(output.metadata.newlines.len(), expected_newline_count);
+    }
+
+    // === Warning Tests ===
+
+    #[test]
+    fn test_no_warnings_when_doc_comments_attached() {
+        let source = r"// #Description
+@main () -> int = 42
+";
+        let mut output = parse_with_comments(source);
+        output.check_detached_doc_comments();
+
+        assert!(
+            output.warnings.is_empty(),
+            "Should have no warnings when doc comment is attached"
+        );
+    }
+
+    #[test]
+    fn test_warning_for_detached_doc_comment_blank_line() {
+        let source = r"// #Detached doc
+
+@main () -> int = 42
+";
+        let mut output = parse_with_comments(source);
+        output.check_detached_doc_comments();
+
+        assert_eq!(output.warnings.len(), 1, "Should have one warning");
+        match &output.warnings[0] {
+            crate::ParseWarning::DetachedDocComment { reason, .. } => {
+                assert_eq!(*reason, crate::DetachmentReason::BlankLine);
+            }
+        }
+    }
+
+    #[test]
+    fn test_warning_for_doc_comment_at_end_of_file() {
+        let source = r"@main () -> int = 42
+// #Orphan at end
+";
+        let mut output = parse_with_comments(source);
+        output.check_detached_doc_comments();
+
+        assert_eq!(
+            output.warnings.len(),
+            1,
+            "Should have one warning for orphan at end"
+        );
+        match &output.warnings[0] {
+            crate::ParseWarning::DetachedDocComment { reason, .. } => {
+                assert_eq!(*reason, crate::DetachmentReason::NoFollowingDeclaration);
+            }
+        }
+    }
+
+    #[test]
+    fn test_no_warning_for_regular_comments() {
+        let source = r"// Regular comment (not a doc comment)
+
+@main () -> int = 42
+";
+        let mut output = parse_with_comments(source);
+        output.check_detached_doc_comments();
+
+        // Regular comments don't generate warnings
+        assert!(
+            output.warnings.is_empty(),
+            "Regular comments should not generate warnings"
+        );
+    }
+
+    #[test]
+    fn test_warning_includes_helpful_hint() {
+        let source = r"// #Detached
+
+@main () -> int = 42
+";
+        let mut output = parse_with_comments(source);
+        output.check_detached_doc_comments();
+
+        assert!(!output.warnings.is_empty());
+        let warning = &output.warnings[0];
+        let message = warning.message();
+        assert!(
+            message.contains("blank line"),
+            "Warning should mention blank line"
+        );
+    }
+
+    #[test]
+    fn test_warning_to_diagnostic() {
+        let source = r"// #Detached
+
+@main () -> int = 42
+";
+        let mut output = parse_with_comments(source);
+        output.check_detached_doc_comments();
+
+        assert!(!output.warnings.is_empty());
+        let diagnostic = output.warnings[0].to_diagnostic();
+
+        // Verify diagnostic has correct severity
+        assert!(diagnostic.code.is_warning());
+    }
+}

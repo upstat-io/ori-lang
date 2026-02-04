@@ -71,7 +71,18 @@ impl<W: Write> DiagnosticEmitter for JsonEmitter<W> {
                 "        \"message\": \"{}\",",
                 escape_json(&label.message)
             );
-            let _ = writeln!(self.writer, "        \"primary\": {}", label.is_primary);
+            let _ = writeln!(self.writer, "        \"primary\": {},", label.is_primary);
+            // Include source info for cross-file labels
+            if let Some(ref src) = label.source_info {
+                let _ = writeln!(
+                    self.writer,
+                    "        \"file\": \"{}\",",
+                    escape_json(&src.path)
+                );
+                let _ = writeln!(self.writer, "        \"cross_file\": true");
+            } else {
+                let _ = writeln!(self.writer, "        \"cross_file\": false");
+            }
             let _ = writeln!(self.writer, "      }}{comma}");
         }
         let _ = writeln!(self.writer, "    ],");

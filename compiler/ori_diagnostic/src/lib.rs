@@ -36,7 +36,7 @@ pub use errors::ErrorDocs;
 pub use diagnostic::{
     expected_expression, missing_pattern_arg, type_mismatch, unclosed_delimiter, unexpected_token,
     unknown_identifier, unknown_pattern_arg, Applicability, Diagnostic, Label, Severity,
-    Substitution, Suggestion,
+    SourceInfo, Substitution, Suggestion,
 };
 pub use error_code::ErrorCode;
 pub use guarantee::ErrorGuaranteed;

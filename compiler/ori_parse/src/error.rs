@@ -6,7 +6,9 @@
 //! - Related location tracking for better diagnostics
 //! - `ErrorContext` for Elm-style "while parsing X" messages
 
-use ori_diagnostic::ErrorCode;
+use ori_diagnostic::{Diagnostic, ErrorCode, Label};
+// Re-export SourceInfo from ori_diagnostic for use in cross-file error labels
+pub use ori_diagnostic::SourceInfo;
 use ori_ir::{Span, TokenKind};
 
 /// Context describing what was being parsed when an error occurred.
@@ -1507,20 +1509,8 @@ pub enum Applicability {
     HasPlaceholders,
 }
 
-/// Source information for cross-file error labels.
-///
-/// When an error references code in a different file (e.g., showing where
-/// an imported function is defined), this struct provides the context.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SourceInfo {
-    /// The file path relative to the project root.
-    pub path: String,
-    /// The source content (or relevant portion).
-    ///
-    /// For efficiency, this may contain just the lines around the span
-    /// rather than the entire file.
-    pub content: String,
-}
+// NOTE: SourceInfo is re-exported from ori_diagnostic at the top of this file.
+// This keeps a single source of truth for the cross-file label infrastructure.
 
 /// A secondary label pointing to related code.
 ///
@@ -1751,6 +1741,60 @@ impl ParseErrorDetails {
     pub fn has_extra_context(&self) -> bool {
         !self.extra_labels.is_empty() || self.hint.is_some() || self.suggestion.is_some()
     }
+
+    /// Convert to a `Diagnostic` for rendering.
+    ///
+    /// This bridges the parser's rich error infrastructure with the diagnostic
+    /// system, enabling cross-file labels and structured suggestions to flow
+    /// through to the terminal/JSON/SARIF emitters.
+    ///
+    /// # Arguments
+    ///
+    /// * `primary_span` - The span of the primary error location
+    pub fn to_diagnostic(&self, primary_span: Span) -> Diagnostic {
+        let mut diag = Diagnostic::error(self.error_code)
+            .with_message(&self.text)
+            .with_label(primary_span, &self.label_text);
+
+        // Add extra labels (supports both same-file and cross-file)
+        for extra in &self.extra_labels {
+            if let Some(ref src_info) = extra.src_info {
+                // Cross-file label
+                diag.labels.push(Label::secondary_cross_file(
+                    extra.span,
+                    &extra.text,
+                    src_info.clone(),
+                ));
+            } else {
+                // Same-file label
+                diag.labels.push(Label::secondary(extra.span, &extra.text));
+            }
+        }
+
+        // Add hint as a suggestion
+        if let Some(ref hint) = self.hint {
+            diag = diag.with_suggestion(hint);
+        }
+
+        // Add code suggestion as structured fix
+        if let Some(ref suggestion) = self.suggestion {
+            let applicability = match suggestion.applicability {
+                Applicability::MachineApplicable => {
+                    ori_diagnostic::Applicability::MachineApplicable
+                }
+                Applicability::MaybeIncorrect => ori_diagnostic::Applicability::MaybeIncorrect,
+                Applicability::HasPlaceholders => ori_diagnostic::Applicability::HasPlaceholders,
+            };
+            diag = diag.with_structured_suggestion(ori_diagnostic::Suggestion::new(
+                &suggestion.message,
+                suggestion.span,
+                &suggestion.replacement,
+                applicability,
+            ));
+        }
+
+        diag
+    }
 }
 
 /// Parse error with error code for rich diagnostics.
@@ -1974,6 +2018,101 @@ impl ParseError {
 impl From<(ParseErrorKind, Span)> for ParseError {
     fn from((kind, span): (ParseErrorKind, Span)) -> Self {
         ParseError::from_kind(&kind, span)
+    }
+}
+
+/// Reason why a doc comment is detached from any declaration.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DetachmentReason {
+    /// A blank line separates the comment from the next declaration.
+    BlankLine,
+    /// A regular (non-doc) comment interrupts between this doc comment
+    /// and the declaration.
+    RegularCommentInterrupting,
+    /// The doc comment appears at end of file with no following declaration.
+    NoFollowingDeclaration,
+    /// Multiple blank lines or other content separates from declaration.
+    TooFarFromDeclaration,
+}
+
+impl DetachmentReason {
+    /// Get a user-friendly hint explaining why the comment is detached.
+    pub fn hint(&self) -> &'static str {
+        match self {
+            DetachmentReason::BlankLine => {
+                "There's a blank line between this doc comment and the next \
+                 declaration. Remove the blank line to attach the comment."
+            }
+            DetachmentReason::RegularCommentInterrupting => {
+                "A regular comment (`//`) appears between this doc comment and \
+                 the declaration. Doc comments must be immediately before the \
+                 declaration they document."
+            }
+            DetachmentReason::NoFollowingDeclaration => {
+                "This doc comment isn't followed by any declaration. Doc comments \
+                 should appear immediately before functions, types, or other \
+                 declarations."
+            }
+            DetachmentReason::TooFarFromDeclaration => {
+                "This doc comment is too far from the next declaration. Move it \
+                 directly above the item you want to document."
+            }
+        }
+    }
+}
+
+/// A parse warning (non-fatal diagnostic).
+///
+/// Warnings don't prevent compilation but indicate potential issues
+/// like detached doc comments.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ParseWarning {
+    /// A doc comment that isn't attached to any declaration.
+    DetachedDocComment {
+        /// Location of the doc comment.
+        span: Span,
+        /// Why the comment is considered detached.
+        reason: DetachmentReason,
+    },
+}
+
+impl ParseWarning {
+    /// Create a warning for a detached doc comment.
+    pub fn detached_doc_comment(span: Span, reason: DetachmentReason) -> Self {
+        ParseWarning::DetachedDocComment { span, reason }
+    }
+
+    /// Get the span of the warning.
+    pub fn span(&self) -> Span {
+        match self {
+            ParseWarning::DetachedDocComment { span, .. } => *span,
+        }
+    }
+
+    /// Get a title for the warning.
+    pub fn title(&self) -> &'static str {
+        match self {
+            ParseWarning::DetachedDocComment { .. } => "DETACHED DOC COMMENT",
+        }
+    }
+
+    /// Get the warning message.
+    pub fn message(&self) -> String {
+        match self {
+            ParseWarning::DetachedDocComment { reason, .. } => {
+                format!(
+                    "This doc comment isn't attached to any declaration. {}",
+                    reason.hint()
+                )
+            }
+        }
+    }
+
+    /// Convert to a diagnostic for display.
+    pub fn to_diagnostic(&self) -> Diagnostic {
+        Diagnostic::warning(ErrorCode::W1001)
+            .with_message(self.message())
+            .with_label(self.span(), "detached doc comment")
     }
 }
 
@@ -2739,5 +2878,100 @@ mod tests {
                 "Label text should not be empty for {kind:?}"
             );
         }
+    }
+
+    // === Diagnostic Conversion Tests ===
+
+    #[test]
+    fn test_parse_error_details_to_diagnostic() {
+        let details = ParseErrorDetails::new(
+            "UNEXPECTED TOKEN",
+            "I ran into something unexpected",
+            "expected expression",
+            ErrorCode::E1001,
+        )
+        .with_hint("Try removing this");
+
+        let diag = details.to_diagnostic(Span::new(10, 20));
+
+        assert_eq!(diag.code, ErrorCode::E1001);
+        assert!(diag.message.contains("I ran into"));
+        assert_eq!(diag.labels.len(), 1);
+        assert!(diag.labels[0].is_primary);
+        assert_eq!(diag.labels[0].span, Span::new(10, 20));
+        assert!(diag.labels[0].message.contains("expected expression"));
+        assert!(!diag.suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_parse_error_details_to_diagnostic_with_extra_labels() {
+        let details = ParseErrorDetails::new(
+            "UNCLOSED DELIMITER",
+            "I found an unclosed `{`",
+            "expected `}` here",
+            ErrorCode::E1003,
+        )
+        .with_extra_label(ExtraLabel::same_file(
+            Span::new(0, 1),
+            "the `{` was opened here",
+        ));
+
+        let diag = details.to_diagnostic(Span::new(50, 50));
+
+        assert_eq!(diag.labels.len(), 2);
+        assert!(diag.labels[0].is_primary);
+        assert!(!diag.labels[1].is_primary);
+        assert_eq!(diag.labels[1].span, Span::new(0, 1));
+        assert!(diag.labels[1].message.contains("opened here"));
+    }
+
+    #[test]
+    fn test_parse_error_details_to_diagnostic_cross_file() {
+        let details = ParseErrorDetails::new(
+            "TYPE MISMATCH",
+            "Expected `int`, found `str`",
+            "this expression is `str`",
+            ErrorCode::E2001,
+        )
+        .with_extra_label(ExtraLabel::cross_file(
+            Span::new(0, 19),
+            "src/lib.ori",
+            "@get_name () -> str",
+            "return type defined here",
+        ));
+
+        let diag = details.to_diagnostic(Span::new(100, 110));
+
+        assert_eq!(diag.labels.len(), 2);
+        // Primary label should not be cross-file
+        assert!(!diag.labels[0].is_cross_file());
+        // Secondary label should be cross-file
+        assert!(diag.labels[1].is_cross_file());
+        assert_eq!(
+            diag.labels[1].source_info.as_ref().unwrap().path,
+            "src/lib.ori"
+        );
+    }
+
+    #[test]
+    fn test_parse_error_details_to_diagnostic_with_suggestion() {
+        let details = ParseErrorDetails::new(
+            "SYNTAX ERROR",
+            "Use `==` for equality",
+            "found `===`",
+            ErrorCode::E1001,
+        )
+        .with_suggestion(CodeSuggestion::machine_applicable(
+            Span::new(5, 8),
+            "==",
+            "Replace `===` with `==`",
+        ));
+
+        let diag = details.to_diagnostic(Span::new(5, 8));
+
+        assert!(!diag.structured_suggestions.is_empty());
+        let suggestion = &diag.structured_suggestions[0];
+        assert_eq!(suggestion.substitutions[0].snippet, "==");
+        assert!(suggestion.applicability.is_machine_applicable());
     }
 }

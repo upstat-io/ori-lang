@@ -107,6 +107,10 @@ pub enum ErrorCode {
     E9001,
     /// Too many errors
     E9002,
+
+    // Parser Warnings (W1xxx)
+    /// Detached doc comment
+    W1001,
 }
 
 impl ErrorCode {
@@ -167,7 +171,14 @@ impl ErrorCode {
             // Internal
             ErrorCode::E9001 => "E9001",
             ErrorCode::E9002 => "E9002",
+            // Warnings
+            ErrorCode::W1001 => "W1001",
         }
+    }
+
+    /// Check if this is a warning code (Wxxx range).
+    pub fn is_warning(&self) -> bool {
+        self.as_str().starts_with('W')
     }
 }
 

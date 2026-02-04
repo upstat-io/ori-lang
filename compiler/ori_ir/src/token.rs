@@ -801,6 +801,84 @@ impl fmt::Debug for SizeUnit {
     }
 }
 
+/// Lazy token capture for AST nodes that may need token access.
+///
+/// Instead of storing tokens directly (which would be expensive), this stores
+/// indices into the cached `TokenList`. Access is O(1) via `TokenList::get_range()`.
+///
+/// # Use Cases
+/// - **Formatters**: Know exact token boundaries for lossless roundtrip
+/// - **Future macros**: Store token ranges for macro expansion
+/// - **Attribute processing**: Preserve attribute syntax for IDE features
+///
+/// # Memory Efficiency
+/// - `None` variant: 0 bytes discriminant (most common)
+/// - `Range` variant: 8 bytes (start + end as u32)
+///
+/// # Salsa Compatibility
+/// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug, Default
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TokenCapture {
+    /// No tokens captured (default for most nodes).
+    #[default]
+    None,
+
+    /// Range of token indices `[start, end)` in the `TokenList`.
+    ///
+    /// Invariant: `start <= end`. An empty range has `start == end`.
+    Range {
+        /// Starting token index (inclusive).
+        start: u32,
+        /// Ending token index (exclusive).
+        end: u32,
+    },
+}
+
+impl TokenCapture {
+    /// Create a new capture range.
+    ///
+    /// Returns `None` if the range is empty (start == end).
+    #[inline]
+    pub fn new(start: u32, end: u32) -> Self {
+        debug_assert!(start <= end, "TokenCapture: start ({start}) > end ({end})");
+        if start == end {
+            Self::None
+        } else {
+            Self::Range { start, end }
+        }
+    }
+
+    /// Check if this capture is empty (no tokens).
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    /// Get the number of captured tokens.
+    #[inline]
+    pub fn len(&self) -> usize {
+        match self {
+            Self::None => 0,
+            Self::Range { start, end } => (end - start) as usize,
+        }
+    }
+
+    /// Get the byte span covered by this capture.
+    ///
+    /// Returns `None` if the capture is empty or the token list is unavailable.
+    #[inline]
+    pub fn span(&self, tokens: &TokenList) -> Option<Span> {
+        match self {
+            Self::None => None,
+            Self::Range { start, end } => {
+                let first = tokens.get(*start as usize)?;
+                let last = tokens.get((*end as usize).saturating_sub(1))?;
+                Some(first.span.merge(last.span))
+            }
+        }
+    }
+}
+
 /// A list of tokens with Salsa-compatible traits.
 ///
 /// Wraps `Vec<Token>` with Clone, Eq, Hash support.
@@ -862,6 +940,30 @@ impl TokenList {
         self.tokens.iter()
     }
 
+    /// Get tokens in a capture range.
+    ///
+    /// Returns an empty slice for `TokenCapture::None`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the capture range is out of bounds.
+    #[inline]
+    pub fn get_range(&self, capture: TokenCapture) -> &[Token] {
+        match capture {
+            TokenCapture::None => &[],
+            TokenCapture::Range { start, end } => &self.tokens[start as usize..end as usize],
+        }
+    }
+
+    /// Get tokens in a capture range, returning None if out of bounds.
+    #[inline]
+    pub fn try_get_range(&self, capture: TokenCapture) -> Option<&[Token]> {
+        match capture {
+            TokenCapture::None => Some(&[]),
+            TokenCapture::Range { start, end } => self.tokens.get(start as usize..end as usize),
+        }
+    }
+
     /// Consume into Vec.
     #[inline]
     pub fn into_vec(self) -> Vec<Token> {
@@ -905,7 +1007,7 @@ impl<'a> IntoIterator for &'a TokenList {
 // These are compile-time checks that will fail the build if sizes change.
 #[cfg(target_pointer_width = "64")]
 mod size_asserts {
-    use super::{DurationUnit, SizeUnit, Token, TokenKind};
+    use super::{DurationUnit, SizeUnit, Token, TokenCapture, TokenKind};
     // Token is frequently allocated in TokenList, keep it compact.
     // Contains: TokenKind (16 bytes) + Span (8 bytes) = 24 bytes
     crate::static_assert_size!(Token, 24);
@@ -915,6 +1017,9 @@ mod size_asserts {
     // Compact unit types
     crate::static_assert_size!(DurationUnit, 1);
     crate::static_assert_size!(SizeUnit, 1);
+    // TokenCapture: discriminant (4 bytes) + start (4 bytes) + end (4 bytes) = 12 bytes
+    // Optimized to 12 bytes thanks to niche optimization (None has no payload)
+    crate::static_assert_size!(TokenCapture, 12);
 }
 
 #[cfg(test)]
@@ -1232,5 +1337,108 @@ mod tests {
                 "Mismatch for {token:?} at index {index}"
             );
         }
+    }
+
+    // TokenCapture tests
+    #[test]
+    fn test_token_capture_none() {
+        let capture = TokenCapture::None;
+        assert!(capture.is_empty());
+        assert_eq!(capture.len(), 0);
+
+        let list = TokenList::new();
+        assert_eq!(list.get_range(capture), &[]);
+    }
+
+    #[test]
+    fn test_token_capture_range() {
+        let capture = TokenCapture::Range { start: 1, end: 3 };
+        assert!(!capture.is_empty());
+        assert_eq!(capture.len(), 2);
+    }
+
+    #[test]
+    fn test_token_capture_new() {
+        // Empty range becomes None
+        assert_eq!(TokenCapture::new(5, 5), TokenCapture::None);
+
+        // Non-empty range becomes Range
+        assert_eq!(
+            TokenCapture::new(1, 4),
+            TokenCapture::Range { start: 1, end: 4 }
+        );
+    }
+
+    #[test]
+    fn test_token_capture_default() {
+        let capture = TokenCapture::default();
+        assert!(matches!(capture, TokenCapture::None));
+    }
+
+    #[test]
+    fn test_token_list_get_range() {
+        let mut list = TokenList::new();
+        list.push(Token::new(TokenKind::Let, Span::new(0, 3)));
+        list.push(Token::new(
+            TokenKind::Ident(crate::Name::EMPTY),
+            Span::new(4, 5),
+        ));
+        list.push(Token::new(TokenKind::Eq, Span::new(6, 7)));
+        list.push(Token::new(TokenKind::Int(42), Span::new(8, 10)));
+
+        // Get range [1, 3) = tokens at indices 1 and 2
+        let capture = TokenCapture::Range { start: 1, end: 3 };
+        let range = list.get_range(capture);
+        assert_eq!(range.len(), 2);
+        assert!(matches!(range[0].kind, TokenKind::Ident(_)));
+        assert!(matches!(range[1].kind, TokenKind::Eq));
+    }
+
+    #[test]
+    fn test_token_list_try_get_range() {
+        let mut list = TokenList::new();
+        list.push(Token::new(TokenKind::Let, Span::new(0, 3)));
+
+        // Valid range
+        let capture = TokenCapture::Range { start: 0, end: 1 };
+        assert!(list.try_get_range(capture).is_some());
+
+        // Invalid range (out of bounds)
+        let capture = TokenCapture::Range { start: 0, end: 5 };
+        assert!(list.try_get_range(capture).is_none());
+    }
+
+    #[test]
+    fn test_token_capture_span() {
+        let mut list = TokenList::new();
+        list.push(Token::new(TokenKind::Let, Span::new(0, 3)));
+        list.push(Token::new(
+            TokenKind::Ident(crate::Name::EMPTY),
+            Span::new(4, 5),
+        ));
+        list.push(Token::new(TokenKind::Eq, Span::new(6, 7)));
+
+        // Span of range [0, 3) should merge first and last token spans
+        let capture = TokenCapture::Range { start: 0, end: 3 };
+        let span = capture.span(&list).unwrap();
+        assert_eq!(span.start, 0);
+        assert_eq!(span.end, 7);
+
+        // None capture has no span
+        assert!(TokenCapture::None.span(&list).is_none());
+    }
+
+    #[test]
+    fn test_token_capture_hash() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+
+        set.insert(TokenCapture::None);
+        set.insert(TokenCapture::None); // duplicate
+        set.insert(TokenCapture::Range { start: 0, end: 3 });
+        set.insert(TokenCapture::Range { start: 0, end: 3 }); // duplicate
+        set.insert(TokenCapture::Range { start: 1, end: 4 });
+
+        assert_eq!(set.len(), 3);
     }
 }

@@ -33,9 +33,12 @@
 
 use crate::{ParseError, Parser};
 use ori_diagnostic::ErrorCode;
-use ori_ir::{ExpectedError, Name, TokenKind};
+use ori_ir::{ExpectedError, Name, TokenCapture, TokenKind};
 
 /// Parsed attributes for a function or test.
+///
+/// Contains both the semantic attribute values and an optional token capture
+/// for formatters and IDE features.
 #[derive(Default, Clone, Debug)]
 pub struct ParsedAttrs {
     /// Skip reason for `#skip("reason")`.
@@ -52,6 +55,13 @@ pub struct ParsedAttrs {
     pub target: Option<TargetAttr>,
     /// Config conditional compilation for `#cfg(debug)`.
     pub cfg: Option<CfgAttr>,
+
+    /// Token range covering all attributes (for formatters/IDE).
+    ///
+    /// This captures the indices of tokens from the first `#` to the last
+    /// attribute closing token. Use `TokenList::get_range()` to access
+    /// the actual tokens.
+    pub token_range: TokenCapture,
 }
 
 /// Representation attribute values.
@@ -93,6 +103,10 @@ pub struct CfgAttr {
 
 impl ParsedAttrs {
     /// Returns true if no attributes are set.
+    ///
+    /// Note: This checks semantic content, not token capture.
+    /// An empty `ParsedAttrs` may still have `token_range` set if there
+    /// were malformed attributes that didn't parse correctly.
     pub fn is_empty(&self) -> bool {
         self.skip_reason.is_none()
             && self.expected_errors.is_empty()
@@ -101,6 +115,12 @@ impl ParsedAttrs {
             && self.repr.is_none()
             && self.target.is_none()
             && self.cfg.is_none()
+    }
+
+    /// Returns true if any tokens were captured for attributes.
+    #[allow(dead_code)] // Infrastructure for formatters and IDE features
+    pub fn has_tokens(&self) -> bool {
+        !self.token_range.is_empty()
     }
 }
 
@@ -135,8 +155,13 @@ impl AttrKind {
 impl Parser<'_> {
     /// Parse zero or more attributes: `#attr("value")` or `#derive(Trait)`.
     /// Grammar: `attribute = "#" identifier [ "(" [ attribute_arg { "," attribute_arg } ] ")" ] .`
+    ///
+    /// Also captures the token range for all attributes (for formatters/IDE).
     pub(crate) fn parse_attributes(&mut self, errors: &mut Vec<ParseError>) -> ParsedAttrs {
         let mut attrs = ParsedAttrs::default();
+
+        // Start capture at the first attribute token (if any)
+        let capture_start = self.start_capture();
 
         // Accept both old `#[...]` syntax and new `#...` syntax for backwards compatibility
         while self.check(&TokenKind::Hash) || self.check(&TokenKind::HashBracket) {
@@ -178,6 +203,9 @@ impl Parser<'_> {
 
             self.skip_newlines();
         }
+
+        // Complete the capture (None if no attributes were parsed)
+        attrs.token_range = self.complete_capture(capture_start);
 
         attrs
     }
@@ -957,6 +985,7 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::parse;
     use ori_ir::StringInterner;
 
@@ -965,6 +994,50 @@ mod tests {
         let tokens = ori_lexer::lex(source, &interner);
         let result = parse(&tokens, &interner);
         (result, interner)
+    }
+
+    #[test]
+    fn test_parsed_attrs_token_capture() {
+        // Create a parser and parse attributes directly to verify token capture
+        let interner = StringInterner::new();
+        let source = r#"#skip("reason") #compile_fail("error")"#;
+        let tokens = ori_lexer::lex(source, &interner);
+        let mut parser = crate::Parser::new(&tokens, &interner);
+        let mut errors = Vec::new();
+
+        let attrs = parser.parse_attributes(&mut errors);
+
+        // Should have captured tokens
+        assert!(attrs.has_tokens(), "Expected tokens to be captured");
+        assert!(!attrs.token_range.is_empty());
+
+        // Verify we can access the captured tokens
+        let captured = tokens.get_range(attrs.token_range);
+        assert!(captured.len() >= 2, "Should capture multiple tokens");
+
+        // First token should be # (Hash)
+        assert!(
+            matches!(captured[0].kind, TokenKind::Hash),
+            "First captured token should be #"
+        );
+    }
+
+    #[test]
+    fn test_parsed_attrs_no_tokens_when_no_attributes() {
+        let interner = StringInterner::new();
+        let source = r"def foo() -> int = 42";
+        let tokens = ori_lexer::lex(source, &interner);
+        let mut parser = crate::Parser::new(&tokens, &interner);
+        let mut errors = Vec::new();
+
+        let attrs = parser.parse_attributes(&mut errors);
+
+        // Should NOT have captured tokens (no attributes)
+        assert!(
+            !attrs.has_tokens(),
+            "Should not capture tokens when no attributes"
+        );
+        assert!(attrs.token_range.is_empty());
     }
 
     #[test]
