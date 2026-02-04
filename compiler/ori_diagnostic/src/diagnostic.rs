@@ -140,12 +140,65 @@ impl Suggestion {
     }
 }
 
+/// Source information for cross-file error labels.
+///
+/// When an error references code in a different file (e.g., showing where
+/// an imported function is defined), this struct provides the file path
+/// and content needed to render the snippet.
+///
+/// # Example
+///
+/// ```text
+/// error[E2001]: type mismatch
+///   --> src/main.ori:10:5
+///    |
+/// 10 |     let x: int = get_name()
+///    |                  ^^^^^^^^^^ expected `int`, found `str`
+///    |
+///   ::: src/lib.ori:25:1
+///    |
+/// 25 | @get_name () -> str
+///    | ------------------- return type defined here
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SourceInfo {
+    /// The file path relative to the project root.
+    pub path: String,
+    /// The source content (or relevant portion).
+    ///
+    /// For efficiency, this may contain just the lines around the span
+    /// rather than the entire file.
+    pub content: String,
+}
+
+impl SourceInfo {
+    /// Create new source info for a file.
+    pub fn new(path: impl Into<String>, content: impl Into<String>) -> Self {
+        SourceInfo {
+            path: path.into(),
+            content: content.into(),
+        }
+    }
+}
+
 /// A labeled span with a message.
+///
+/// Labels highlight specific locations in source code and attach explanatory
+/// messages. They can reference the primary file or cross-reference other files.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Label {
+    /// The source location to highlight.
     pub span: Span,
+    /// The label text explaining this location.
     pub message: String,
+    /// Whether this is the primary error location.
     pub is_primary: bool,
+    /// Optional source info for cross-file references.
+    ///
+    /// When `None`, the label refers to the primary file being diagnosed.
+    /// When `Some`, the label refers to a different file and the emitter
+    /// should render it with `::: path` notation.
+    pub source_info: Option<SourceInfo>,
 }
 
 impl Label {
@@ -155,6 +208,7 @@ impl Label {
             span,
             message: message.into(),
             is_primary: true,
+            source_info: None,
         }
     }
 
@@ -164,7 +218,41 @@ impl Label {
             span,
             message: message.into(),
             is_primary: false,
+            source_info: None,
         }
+    }
+
+    /// Create a primary label referencing a different file.
+    pub fn primary_cross_file(
+        span: Span,
+        message: impl Into<String>,
+        source_info: SourceInfo,
+    ) -> Self {
+        Label {
+            span,
+            message: message.into(),
+            is_primary: true,
+            source_info: Some(source_info),
+        }
+    }
+
+    /// Create a secondary label referencing a different file.
+    pub fn secondary_cross_file(
+        span: Span,
+        message: impl Into<String>,
+        source_info: SourceInfo,
+    ) -> Self {
+        Label {
+            span,
+            message: message.into(),
+            is_primary: false,
+            source_info: Some(source_info),
+        }
+    }
+
+    /// Check if this label references a different file.
+    pub fn is_cross_file(&self) -> bool {
+        self.source_info.is_some()
     }
 }
 
@@ -232,6 +320,38 @@ impl Diagnostic {
     /// Add a secondary label for context.
     pub fn with_secondary_label(mut self, span: Span, message: impl Into<String>) -> Self {
         self.labels.push(Label::secondary(span, message));
+        self
+    }
+
+    /// Add a primary label referencing a different file.
+    ///
+    /// Cross-file labels are rendered with `::: path` notation to distinguish
+    /// them from same-file labels.
+    pub fn with_cross_file_label(
+        mut self,
+        span: Span,
+        message: impl Into<String>,
+        source_info: SourceInfo,
+    ) -> Self {
+        self.labels
+            .push(Label::primary_cross_file(span, message, source_info));
+        self
+    }
+
+    /// Add a secondary label referencing a different file.
+    ///
+    /// Use this for related context in other files, such as:
+    /// - Where an imported symbol is defined
+    /// - Where a type was declared
+    /// - Where a conflicting definition exists
+    pub fn with_cross_file_secondary_label(
+        mut self,
+        span: Span,
+        message: impl Into<String>,
+        source_info: SourceInfo,
+    ) -> Self {
+        self.labels
+            .push(Label::secondary_cross_file(span, message, source_info));
         self
     }
 
@@ -318,8 +438,25 @@ impl fmt::Display for Diagnostic {
         write!(f, "{} [{}]: {}", self.severity, self.code, self.message)?;
 
         for label in &self.labels {
-            let marker = if label.is_primary { "-->" } else { "   " };
-            write!(f, "\n  {} {:?}: {}", marker, label.span, label.message)?;
+            // Cross-file labels use `::: path` notation
+            let marker = if label.is_cross_file() {
+                ":::"
+            } else if label.is_primary {
+                "-->"
+            } else {
+                "   "
+            };
+
+            // Include file path for cross-file labels
+            if let Some(ref src) = label.source_info {
+                write!(
+                    f,
+                    "\n  {} {} {:?}: {}",
+                    marker, src.path, label.span, label.message
+                )?;
+            } else {
+                write!(f, "\n  {} {:?}: {}", marker, label.span, label.message)?;
+            }
         }
 
         for note in &self.notes {
@@ -474,6 +611,7 @@ pub fn unknown_pattern_arg(span: Span, pattern: &str, arg: &str, valid: &[&str])
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
 
@@ -572,5 +710,64 @@ mod tests {
         set.insert(d2); // duplicate
         set.insert(d3);
         assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_source_info_creation() {
+        let info = SourceInfo::new("src/lib.ori", "let x = 42");
+        assert_eq!(info.path, "src/lib.ori");
+        assert_eq!(info.content, "let x = 42");
+    }
+
+    #[test]
+    fn test_label_cross_file() {
+        let same_file = Label::primary(Span::new(0, 5), "in this file");
+        assert!(!same_file.is_cross_file());
+        assert!(same_file.source_info.is_none());
+
+        let cross_file = Label::secondary_cross_file(
+            Span::new(10, 20),
+            "defined here",
+            SourceInfo::new("src/lib.ori", "@foo () -> int"),
+        );
+        assert!(cross_file.is_cross_file());
+        assert!(!cross_file.is_primary);
+        assert_eq!(cross_file.source_info.as_ref().unwrap().path, "src/lib.ori");
+    }
+
+    #[test]
+    fn test_diagnostic_with_cross_file_label() {
+        let diag = Diagnostic::error(ErrorCode::E2001)
+            .with_message("type mismatch")
+            .with_label(Span::new(0, 10), "expected `int`, found `str`")
+            .with_cross_file_secondary_label(
+                Span::new(0, 20),
+                "return type defined here",
+                SourceInfo::new("src/lib.ori", "@get_name () -> str"),
+            );
+
+        assert_eq!(diag.labels.len(), 2);
+        assert!(!diag.labels[0].is_cross_file()); // same-file primary
+        assert!(diag.labels[1].is_cross_file()); // cross-file secondary
+    }
+
+    #[test]
+    fn test_diagnostic_display_cross_file() {
+        let diag = Diagnostic::error(ErrorCode::E2001)
+            .with_message("type mismatch")
+            .with_label(Span::new(0, 10), "expected `int`")
+            .with_cross_file_secondary_label(
+                Span::new(0, 20),
+                "defined here",
+                SourceInfo::new("src/lib.ori", "@foo () -> str"),
+            );
+
+        let output = diag.to_string();
+        // Should contain ::: marker for cross-file labels
+        assert!(output.contains(":::"));
+        // Should contain the file path
+        assert!(output.contains("src/lib.ori"));
+        // Should still have --> for same-file primary
+        assert!(output.contains("-->"));
     }
 }

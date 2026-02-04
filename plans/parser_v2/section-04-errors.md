@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: Structured Errors
-status: partial
+status: complete
 goal: Build Elm-quality error messages with actionable suggestions
 sections:
   - id: "04.1"
@@ -15,7 +15,7 @@ sections:
     status: complete
   - id: "04.4"
     title: Cross-file Error Labels
-    status: not-started
+    status: complete
 ---
 
 # Section 04: Structured Errors
@@ -484,78 +484,88 @@ impl ParseError {
 
 ## 04.4 Cross-file Error Labels
 
+**Status:** ✅ Complete (2026-02-04)
 **Goal:** Show related code from other files when relevant
+
+### Implementation Summary
+
+The cross-file label infrastructure is now fully implemented:
+
+#### 1. `SourceInfo` in `ori_diagnostic`
+```rust
+pub struct SourceInfo {
+    pub path: String,
+    pub content: String,
+}
+```
+Moved to `ori_diagnostic` as the canonical location. Re-exported from `ori_parse::error`.
+
+#### 2. `Label` Extended with Cross-file Support
+```rust
+pub struct Label {
+    pub span: Span,
+    pub message: String,
+    pub is_primary: bool,
+    pub source_info: Option<SourceInfo>,  // NEW
+}
+
+impl Label {
+    pub fn primary_cross_file(span, message, source_info) -> Self;
+    pub fn secondary_cross_file(span, message, source_info) -> Self;
+    pub fn is_cross_file(&self) -> bool;
+}
+```
+
+#### 3. `Diagnostic` Builder Methods
+```rust
+impl Diagnostic {
+    pub fn with_cross_file_label(self, span, message, source_info) -> Self;
+    pub fn with_cross_file_secondary_label(self, span, message, source_info) -> Self;
+}
+```
+
+#### 4. Terminal Emitter Rendering
+Cross-file labels render with `::: path` notation:
+```
+error[E2001]: type mismatch
+  --> Span { start: 10, end: 20 }: expected `int`, found `str`
+  ::: src/lib.ori Span { start: 0, end: 19 }: return type defined here
+```
+
+#### 5. JSON/SARIF Emitters Updated
+- JSON: Labels include `"file"` and `"cross_file"` fields
+- SARIF: Per-location `artifactLocation.uri` for cross-file labels
+
+#### 6. `ParseErrorDetails::to_diagnostic()` Conversion
+```rust
+impl ParseErrorDetails {
+    pub fn to_diagnostic(&self, primary_span: Span) -> Diagnostic;
+}
+```
+Converts parser's rich error details to diagnostic system, preserving cross-file labels.
 
 ### Tasks
 
-- [ ] Extend `ExtraLabel` with source info
-  ```rust
-  #[derive(Clone, Debug)]
-  pub struct SourceInfo {
-      pub path: PathBuf,
-      pub content: String,  // Or reference to cached content
-  }
-  ```
-
-- [ ] Implement cross-file label rendering
-  ```rust
-  impl ParseErrorDetails {
-      pub fn render(&self, primary_source: &str) -> String {
-          let mut output = String::new();
-
-          // Primary error
-          writeln!(output, "-- {} --", self.title);
-          writeln!(output);
-          writeln!(output, "{}", self.text);
-          writeln!(output);
-
-          // Primary location
-          render_code_snippet(&mut output, primary_source, self.primary_span, &self.label_text);
-
-          // Extra labels
-          for label in &self.extra_labels {
-              writeln!(output);
-              let source = label.src_info
-                  .as_ref()
-                  .map(|s| s.content.as_str())
-                  .unwrap_or(primary_source);
-              render_code_snippet(&mut output, source, label.span, &label.text);
-          }
-
-          // Hint
-          if let Some(hint) = &self.hint {
-              writeln!(output);
-              writeln!(output, "Hint: {}", hint);
-          }
-
-          output
-      }
-  }
-  ```
-
-- [ ] Use case: Import errors referencing definition site
-  ```rust
-  // Error in src/main.ori points to definition in src/lib.ori
-  ExtraLabel {
-      span: definition_span,
-      src_info: Some(SourceInfo {
-          path: "src/lib.ori".into(),
-          content: lib_source.clone(),
-      }),
-      text: "the function is defined here".into(),
-  }
-  ```
+- [x] Extend `Label` with `source_info: Option<SourceInfo>`
+- [x] Add `Label::primary_cross_file()` and `Label::secondary_cross_file()` constructors
+- [x] Add `Diagnostic::with_cross_file_label()` and `with_cross_file_secondary_label()`
+- [x] Update `TerminalEmitter` with `::: path` notation
+- [x] Update `JsonEmitter` with `file` and `cross_file` fields
+- [x] Update `SarifEmitter` with per-location `artifactLocation`
+- [x] Add `ParseErrorDetails::to_diagnostic()` conversion
+- [x] Move `SourceInfo` to `ori_diagnostic` (re-export in `ori_parse`)
+- [x] Add comprehensive tests (6 new tests in ori_diagnostic, 4 new tests in ori_parse)
 
 ---
 
 ## 04.5 Completion Checklist
 
-- [ ] `ParseErrorDetails` structure implemented
-- [ ] All error variants have detailed messages
-- [ ] Empathetic language used throughout
-- [ ] Common mistakes detected and explained
-- [ ] Cross-file labels working
-- [ ] Error rendering produces beautiful output
+- [x] `ParseErrorDetails` structure implemented
+- [x] All error variants have detailed messages
+- [x] Empathetic language used throughout
+- [x] Common mistakes detected and explained
+- [x] Cross-file labels working
+- [x] Error rendering produces beautiful output
 
 **Exit Criteria:**
 - Error messages match Elm/Gleam quality

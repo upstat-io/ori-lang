@@ -4,7 +4,7 @@
 
 use super::ParseError;
 use ori_diagnostic::ErrorCode;
-use ori_ir::{Name, Span, StringInterner, Token, TokenKind, TokenList};
+use ori_ir::{Name, Span, StringInterner, Token, TokenCapture, TokenKind, TokenList};
 
 /// Cursor for navigating tokens.
 ///
@@ -259,6 +259,46 @@ impl<'a> Cursor<'a> {
         &self.tokens[self.pos - 1]
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Token Capture
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Mark the current position for starting a token capture.
+    ///
+    /// Use with `complete_capture()` to capture a range of tokens:
+    /// ```ignore
+    /// let start = cursor.start_capture();
+    /// // ... parse some tokens ...
+    /// let capture = cursor.complete_capture(start);
+    /// ```
+    #[inline]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Token count cannot exceed u32::MAX (4 billion tokens would require ~100GB of source)"
+    )]
+    pub fn start_capture(&self) -> u32 {
+        self.pos as u32
+    }
+
+    /// Complete a token capture from a start position.
+    ///
+    /// Returns `TokenCapture::None` if no tokens were consumed.
+    /// Returns `TokenCapture::Range { start, end }` otherwise.
+    #[inline]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Token count cannot exceed u32::MAX (4 billion tokens would require ~100GB of source)"
+    )]
+    pub fn complete_capture(&self, start: u32) -> TokenCapture {
+        TokenCapture::new(start, self.pos as u32)
+    }
+
+    /// Get the token list reference for accessing captured ranges.
+    #[inline]
+    pub fn tokens(&self) -> &'a TokenList {
+        self.tokens
+    }
+
     /// Skip all newline tokens.
     pub fn skip_newlines(&mut self) {
         while self.check(&TokenKind::Newline) {
@@ -454,5 +494,47 @@ mod tests {
         assert!(cursor.check_type_keyword()); // bool
         cursor.advance();
         assert!(cursor.check_type_keyword()); // str
+    }
+
+    #[test]
+    fn test_token_capture() {
+        let interner = StringInterner::new();
+        let tokens = ori_lexer::lex("let x = 42", &interner);
+        let tokens = Box::leak(Box::new(tokens));
+        let interner = Box::leak(Box::new(interner));
+        let mut cursor = Cursor::new(tokens, interner);
+
+        // Capture range covering "let x ="
+        let start = cursor.start_capture();
+        cursor.advance(); // let
+        cursor.advance(); // x
+        cursor.advance(); // =
+        let capture = cursor.complete_capture(start);
+
+        assert!(!capture.is_empty());
+        assert_eq!(capture.len(), 3);
+
+        // Verify the captured tokens
+        let captured = cursor.tokens().get_range(capture);
+        assert_eq!(captured.len(), 3);
+        assert!(matches!(captured[0].kind, TokenKind::Let));
+        assert!(matches!(captured[1].kind, TokenKind::Ident(_)));
+        assert!(matches!(captured[2].kind, TokenKind::Eq));
+    }
+
+    #[test]
+    fn test_token_capture_empty() {
+        let interner = StringInterner::new();
+        let tokens = ori_lexer::lex("let", &interner);
+        let tokens = Box::leak(Box::new(tokens));
+        let interner = Box::leak(Box::new(interner));
+        let cursor = Cursor::new(tokens, interner);
+
+        // Capture with no advancement
+        let start = cursor.start_capture();
+        let capture = cursor.complete_capture(start);
+
+        assert!(capture.is_empty());
+        assert_eq!(capture.len(), 0);
     }
 }

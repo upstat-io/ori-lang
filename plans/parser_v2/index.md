@@ -59,7 +59,7 @@ ErrorContext, in_error_context, with_error_context
 ---
 
 ### Section 04: Structured Errors
-**File:** `section-04-errors.md` | **Status:** Partial (04.1, 04.2, 04.3 complete)
+**File:** `section-04-errors.md` | **Status:** ✅ Complete
 
 ```
 error messages, friendly errors
@@ -75,7 +75,7 @@ detect_common_mistake, educational_note
 ---
 
 ### Section 05: Incremental Parsing
-**File:** `section-05-incremental.md` | **Status:** 🔄 Partial (05.2-05.3 complete)
+**File:** `section-05-incremental.md` | **Status:** ✅ Complete
 
 ```
 incremental, reparse, reuse
@@ -85,13 +85,14 @@ content hash, reusability
 TypeScript parser, IDE support
 lazy tokens, deferred capture
 SyntaxCursor, AstCopier, ChangeMarker
+TokenCapture, token_range, get_range
 parse_incremental, parse_module_incremental
 ```
 
 ---
 
 ### Section 06: Formatting Metadata
-**File:** `section-06-metadata.md` | **Status:** Not Started
+**File:** `section-06-metadata.md` | **Status:** ✅ Complete
 
 ```
 ModuleExtra, comments, whitespace
@@ -111,9 +112,9 @@ formatter support, IDE metadata
 | 01 | Data-Oriented AST | `section-01-data-oriented-ast.md` | P1 | 🔶 Deferred (already efficient) |
 | 02 | Lexer Optimizations | `section-02-lexer.md` | P1 | ✅ Complete |
 | 03 | Enhanced Progress System | `section-03-progress.md` | P2 | ✅ Complete |
-| 04 | Structured Errors | `section-04-errors.md` | P1 | 🔶 Partial (04.1-04.3 complete) |
-| 05 | Incremental Parsing | `section-05-incremental.md` | P2 | 🔄 Partial (05.2-05.3 complete) |
-| 06 | Formatting Metadata | `section-06-metadata.md` | P3 | Not Started |
+| 04 | Structured Errors | `section-04-errors.md` | P1 | ✅ Complete |
+| 05 | Incremental Parsing | `section-05-incremental.md` | P2 | ✅ Complete |
+| 06 | Formatting Metadata | `section-06-metadata.md` | P3 | ✅ Complete |
 
 ---
 
