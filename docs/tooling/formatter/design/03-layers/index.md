@@ -143,13 +143,13 @@ See [Breaking Rules](04-rules.md) for details on each rule.
 ## Module Structure
 
 ```
-ori_fmt/
+ori_fmt/src/
 ├── spacing/           # Layer 1: Token spacing
 │   ├── action.rs      # SpaceAction enum
-│   ├── category.rs    # TokenCategory grouping
+│   ├── category.rs    # TokenCategory (117 variants)
 │   ├── matcher.rs     # TokenMatcher patterns
-│   ├── rules.rs       # Declarative rules
-│   ├── lookup.rs      # O(1) RulesMap
+│   ├── rules.rs       # Declarative rules (SPACE_RULES)
+│   ├── lookup.rs      # Hybrid RulesMap (O(1) exact + fallback)
 │   └── tests.rs
 ├── packing/           # Layer 2: Container packing
 │   ├── strategy.rs    # Packing enum, determine_packing()
@@ -161,17 +161,17 @@ ori_fmt/
 │   ├── core.rs        # Shape struct
 │   └── tests.rs
 ├── rules/             # Layer 4: Breaking rules
-│   ├── method_chain.rs
-│   ├── short_body.rs
-│   ├── boolean_break.rs
-│   ├── chained_else_if.rs
-│   ├── nested_for.rs
-│   ├── parentheses.rs
-│   ├── run_rule.rs
-│   ├── loop_rule.rs
+│   ├── method_chain.rs   # MethodChainRule (infrastructure)
+│   ├── short_body.rs     # ShortBodyRule
+│   ├── boolean_break.rs  # BooleanBreakRule
+│   ├── chained_else_if.rs# ChainedElseIfRule
+│   ├── nested_for.rs     # NestedForRule
+│   ├── parentheses.rs    # ParenthesesRule
+│   ├── run_rule.rs       # RunRule
+│   ├── loop_rule.rs      # LoopRule
 │   └── tests.rs
 ├── formatter/         # Layer 5: Orchestration
-│   ├── mod.rs         # Main Formatter struct
+│   ├── mod.rs         # Main Formatter<'a, I> struct
 │   ├── inline.rs      # Single-line rendering
 │   ├── broken.rs      # Multi-line rendering
 │   ├── stacked.rs     # Always-stacked constructs
@@ -180,11 +180,31 @@ ori_fmt/
 │   ├── literals.rs    # Literal rendering
 │   └── tests.rs
 ├── declarations/      # Module-level formatting
-├── comments/          # Comment preservation
-├── context/           # Formatting context
-├── emitter/           # Output abstraction
-├── width/             # Width calculation
-└── incremental/       # Incremental formatting
+│   ├── functions.rs   # Function declarations
+│   ├── types.rs       # Type definitions
+│   ├── traits.rs      # Trait definitions
+│   ├── impls.rs       # Impl blocks
+│   ├── imports.rs     # Use statements
+│   ├── configs.rs     # Config variables
+│   ├── comments.rs    # Comment handling
+│   ├── tests_fmt.rs   # Test formatting
+│   └── parsed_types.rs# Parsed type formatting
+├── comments.rs        # Comment preservation
+├── context.rs         # FormatContext<E> (column/indent tracking)
+├── emitter.rs         # StringEmitter output abstraction
+├── width/             # Width calculation (WidthCalculator)
+│   ├── mod.rs         # WidthCalculator with LRU cache
+│   ├── calls.rs       # Function/method call widths
+│   ├── collections.rs # List/map/tuple widths
+│   ├── compounds.rs   # Compound expression widths
+│   ├── control.rs     # Control flow widths
+│   ├── helpers.rs     # Width helper functions
+│   ├── literals.rs    # Literal widths
+│   ├── operators.rs   # Operator widths
+│   ├── patterns.rs    # Pattern widths
+│   ├── wrappers.rs    # Wrapper type widths
+│   └── tests.rs
+└── incremental.rs     # Incremental formatting (future)
 ```
 
 ## Relationship to Spec

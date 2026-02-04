@@ -78,7 +78,7 @@ LtLt,    // <<
 Arrow,       // ->
 FatArrow,    // =>
 Question,    // ?
-Coalesce,    // ??
+DoubleQuestion, // ??
 DotDot,      // ..
 DotDotEq,    // ..=
 ```
@@ -96,7 +96,7 @@ LBrace,      // {
 RBrace,      // }
 Comma,       // ,
 Colon,       // :
-ColonColon,  // ::
+DoubleColon, // ::
 Semicolon,   // ;
 Dot,         // .
 At,          // @
@@ -111,9 +111,9 @@ Newline,     // \n (significant for statement separation)
 Value-carrying tokens:
 
 ```rust
-Int(i64),           // 42, 1_000_000, 0xFF
+Int(u64),           // 42, 1_000_000, 0xFF (negation folded in parser)
 Float(f64),         // 3.14, 2.5e-8
-String(String),     // "hello"
+String(Name),       // "hello" (interned for Hash compatibility)
 Char(char),         // 'a'
 Bool(bool),         // true, false
 Duration(Duration), // 100ms, 5s
@@ -123,7 +123,7 @@ Size(Size),         // 4kb, 10mb
 ### Identifiers
 
 ```rust
-Identifier(Name),  // Interned identifier
+Ident(Name),       // Interned identifier
 ```
 
 ## Token Representation
@@ -144,10 +144,10 @@ pub enum TokenKind {
     // ...
 
     // Literals (with data)
-    Int(i64),
+    Int(u64),
     Float(f64),
-    String(String),
-    Identifier(Name),
+    String(Name),     // Interned
+    Ident(Name),      // Identifier
     // ...
 
     // Special

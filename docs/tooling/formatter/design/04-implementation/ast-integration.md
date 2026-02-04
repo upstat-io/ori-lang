@@ -160,47 +160,47 @@ fn format_identifier(&mut self, name: Name) {
 
 ## Creating the Formatter
 
+The formatter uses a generic parameter `I: StringLookup` for name resolution, enabling both the standard `StringInterner` and test mocks:
+
 ```rust
-pub struct Formatter<'a> {
+pub struct Formatter<'a, I: StringLookup> {
     arena: &'a ExprArena,
-    interner: &'a Interner,
-    source: &'a str,
-    width_cache: WidthCache,
-    comments: CommentMap,
-    output: String,
-    column: usize,
-    indent_level: usize,
+    interner: &'a I,
+    width_calc: WidthCalculator<'a, I>,
+    pub(crate) ctx: FormatContext<StringEmitter>,
 }
 
-impl<'a> Formatter<'a> {
-    pub fn new(
-        arena: &'a ExprArena,
-        interner: &'a Interner,
-        source: &'a str,
-        comments: Vec<Comment>,
-    ) -> Self {
-        let width_cache = WidthCache::compute(arena, interner);
-        let comments = attach_comments(arena, comments);
-
-        Self {
-            arena,
-            interner,
-            source,
-            width_cache,
-            comments,
-            output: String::new(),
-            column: 0,
-            indent_level: 0,
-        }
+impl<'a, I: StringLookup> Formatter<'a, I> {
+    /// Create a new formatter with default config.
+    pub fn new(arena: &'a ExprArena, interner: &'a I) -> Self {
+        Self::with_config(arena, interner, FormatConfig::default())
     }
 
+    /// Create a new formatter with custom config.
+    pub fn with_config(arena: &'a ExprArena, interner: &'a I, config: FormatConfig) -> Self {
+        let width_calc = WidthCalculator::new(arena, interner);
+        let ctx = FormatContext::new(StringEmitter::new(), config);
+        Self { arena, interner, width_calc, ctx }
+    }
+
+    /// Format a module and return the output string.
     pub fn format_module(&mut self, module: &Module) -> String {
-        for item in &module.items {
-            self.format_item(item);
-        }
-        std::mem::take(&mut self.output)
+        ModuleFormatter::new(self).format(module);
+        self.ctx.emitter.take()
     }
 }
+```
+
+**Key design decisions:**
+
+| Field | Purpose |
+|-------|---------|
+| `arena` | Read-only access to the flat AST |
+| `interner` | Resolve interned `Name` values to strings |
+| `width_calc` | Bottom-up width calculation with LRU caching |
+| `ctx` | Column/indent tracking via `FormatContext<StringEmitter>` |
+
+**Note:** The formatter does NOT store source text or comments directly. Comments are handled separately during module formatting via the parser's comment output.
 ```
 
 ## Integration with Salsa

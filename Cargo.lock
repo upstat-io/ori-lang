@@ -736,7 +736,6 @@ dependencies = [
  "ori_ir",
  "ori_lexer",
  "ori_llvm",
- "ori_macros",
  "ori_parse",
  "ori_patterns",
  "ori_rt",

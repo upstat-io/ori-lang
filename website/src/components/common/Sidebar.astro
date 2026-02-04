@@ -44,7 +44,7 @@ for (const section of sections) {
 }
 ---
 
-<aside class="sidebar" data-sidebar>
+<aside class="sidebar" data-sidebar data-scroll-restore>
   <button class="sidebar-toggle" data-sidebar-toggle aria-expanded="false">
     <span class="sidebar-toggle-text">{currentPageTitle}</span>
     <svg class="sidebar-toggle-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -100,23 +100,45 @@ for (const section of sections) {
 </aside>
 
 <script is:inline>
+  // Restore scroll position immediately (runs synchronously as HTML is parsed)
+  (function() {
+    var sidebar = document.currentScript.previousElementSibling;
+    if (sidebar && sidebar.hasAttribute('data-scroll-restore')) {
+      var savedScrollTop = sessionStorage.getItem('sidebarScrollTop');
+      if (savedScrollTop !== null) {
+        sidebar.scrollTop = parseInt(savedScrollTop, 10);
+      }
+      sidebar.removeAttribute('data-scroll-restore');
+    }
+  })();
+</script>
+
+<script is:inline>
+  // Set up event handlers after DOM is ready
   document.addEventListener('DOMContentLoaded', function() {
     var sidebar = document.querySelector('[data-sidebar]');
     var toggle = document.querySelector('[data-sidebar-toggle]');
     var nav = document.querySelector('[data-sidebar-nav]');
 
     if (!sidebar || !toggle || !nav) {
-      console.log('Sidebar elements not found');
       return;
     }
 
-    toggle.addEventListener('click', function(e) {
-      e.preventDefault();
-      var isOpen = sidebar.classList.toggle('open');
-      toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    // Save scroll position on scroll (debounced)
+    var scrollTimeout;
+    sidebar.addEventListener('scroll', function() {
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(function() {
+        sessionStorage.setItem('sidebarScrollTop', sidebar.scrollTop);
+      }, 100);
+    }, { passive: true });
+
+    // Also save before unload as backup
+    window.addEventListener('beforeunload', function() {
+      sessionStorage.setItem('sidebarScrollTop', sidebar.scrollTop);
     });
 
-    // Close dropdown when clicking a link
+    // Close mobile dropdown when clicking a link
     var links = nav.querySelectorAll('a');
     for (var i = 0; i < links.length; i++) {
       links[i].addEventListener('click', function() {
@@ -124,6 +146,12 @@ for (const section of sections) {
         toggle.setAttribute('aria-expanded', 'false');
       });
     }
+
+    toggle.addEventListener('click', function(e) {
+      e.preventDefault();
+      var isOpen = sidebar.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    });
   });
 </script>
 

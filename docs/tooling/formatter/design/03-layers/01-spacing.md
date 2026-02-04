@@ -65,7 +65,7 @@ pub enum TokenCategory {
     // Operators
     Plus, Minus, Star, Slash, ...
 
-    // ... (90+ categories total)
+    // ... (117 categories total)
 }
 ```
 
@@ -106,21 +106,40 @@ pub enum TokenMatcher {
 
 ### RulesMap
 
-O(1) lookup table built from declarative rules:
+Hybrid lookup table with O(1) for exact matches and fallback for pattern rules:
 
 ```rust
 pub struct RulesMap {
-    rules: FxHashMap<(TokenCategory, TokenCategory), SpaceAction>,
+    /// Direct lookup for exact (left, right) pairs.
+    exact: FxHashMap<(TokenCategory, TokenCategory), SpaceAction>,
+
+    /// Rules with Any or Category matchers (need linear scan).
+    fallback_rules: Vec<&'static SpaceRule>,
 }
 
 impl RulesMap {
     pub fn lookup(&self, left: TokenCategory, right: TokenCategory) -> SpaceAction {
-        self.rules
-            .get(&(left, right))
-            .copied()
-            .unwrap_or_default()  // Default: SpaceAction::None
+        // First try exact match (O(1))
+        if let Some(action) = self.exact.get(&(left, right)).copied() {
+            return action;
+        }
+
+        // Fall back to pattern rules (linear scan, sorted by priority)
+        for rule in &self.fallback_rules {
+            if rule.matches(left, right) {
+                return rule.action;
+            }
+        }
+
+        SpaceAction::None  // Default
     }
 }
+```
+
+**Hybrid lookup strategy:**
+- Exact `(TokenCategory, TokenCategory)` pairs → HashMap O(1)
+- Rules using `Any` or `Category` matchers → Linear scan with priority ordering
+- Rules are sorted by priority to ensure correct precedence
 ```
 
 ## Spacing Rules
@@ -295,10 +314,11 @@ impl TokenCategory {
 
 ## Performance
 
-- **O(1) lookup**: Hash map with `(TokenCategory, TokenCategory)` keys
+- **Hybrid lookup**: O(1) for exact pairs via hash map, linear scan for pattern rules
 - **No allocation**: Categories are `Copy`, lookup returns `Copy`
 - **Compile-time rules**: Rules are static, map built once at startup
-- **90+ categories**: Comprehensive coverage without explosion
+- **117 categories**: Comprehensive coverage without explosion
+- **Priority ordering**: Fallback rules sorted by priority for correct precedence
 
 ## Spec Reference
 

@@ -257,7 +257,21 @@ pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseResult { ... }
 
 #[salsa::tracked]
 pub fn typed(db: &dyn Db, file: SourceFile) -> TypedModule { ... }
+
+#[salsa::tracked]
+pub fn evaluated(db: &dyn Db, file: SourceFile) -> EvalResult { ... }
 ```
+
+### Query Characteristics
+
+| Query | Input | Output | Caching |
+|-------|-------|--------|---------|
+| `tokens` | `SourceFile` | `TokenList` | High reuse (syntax changes rare) |
+| `parsed` | `SourceFile` | `ParseResult` | Moderate (structure changes) |
+| `typed` | `SourceFile` | `TypedModule` | Type info changes with signatures |
+| `evaluated` | `SourceFile` | `EvalResult` | Re-run on any code change |
+
+**Early Cutoff**: If a query's output is identical to its cached result, Salsa skips recomputation of all dependent queries. For example, whitespace-only changes to a file may produce identical tokens, avoiding re-parsing.
 
 ### Flat Data Structures
 
@@ -303,13 +317,28 @@ Patterns and diagnostics use registries for extensibility:
 
 ```rust
 pub struct PatternRegistry {
-    patterns: HashMap<Name, Box<dyn PatternDefinition>>,
+    _private: (),  // Marker to prevent external construction
 }
 
 impl PatternRegistry {
-    pub fn register(&mut self, name: &str, pattern: impl PatternDefinition) { ... }
-    pub fn get(&self, name: Name) -> Option<&dyn PatternDefinition> { ... }
+    /// Get the pattern definition for a given kind.
+    /// Returns a static reference to avoid borrow issues.
+    pub fn get(&self, kind: FunctionExpKind) -> &'static dyn PatternDefinition {
+        match kind {
+            FunctionExpKind::Recurse => &RECURSE,
+            FunctionExpKind::Parallel => &PARALLEL,
+            // ... direct enum dispatch
+        }
+    }
 }
+```
+
+All patterns are zero-sized types (ZSTs) with static lifetime, providing:
+- Zero heap allocation overhead
+- Direct dispatch (no HashMap lookup)
+- No borrow issues with the registry
+
+```rust
 ```
 
 ## Key Types

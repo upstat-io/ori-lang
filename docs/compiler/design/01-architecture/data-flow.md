@@ -66,7 +66,7 @@ Example:
 ## Stage 2: Parsing
 
 **Input**: TokenList
-**Output**: ParseResult { module: Module, arena: ExprArena, errors }
+**Output**: ParseOutput { module: Module, arena: ExprArena, errors }
 
 ```rust
 pub struct Module {

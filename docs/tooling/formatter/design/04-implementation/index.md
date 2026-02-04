@@ -11,7 +11,7 @@ This document describes the implementation of the Ori formatter in `compiler/ori
 
 ## Reference: Go's gofmt
 
-The Ori formatter follows gofmt's philosophy: **zero-config, deterministic, implementation is the spec**.
+The Ori formatter follows gofmt's philosophy: **minimal-config (width only), deterministic, implementation is the spec**.
 
 Key techniques from gofmt that inform Ori's implementation:
 
@@ -19,7 +19,7 @@ Key techniques from gofmt that inform Ori's implementation:
 |-----------|-------|----------------|
 | **Two-phase pipeline** | AST printer → tabwriter | Width calculator → formatter |
 | **Idempotence** | Core guarantee | Core guarantee |
-| **No configuration** | Deliberately denied | Zero-config |
+| **Configuration** | Deliberately denied | Width only (`--width=N`) |
 
 ## Architecture
 
@@ -31,7 +31,7 @@ Source Text → Lexer → Parser → AST → Formatter → Formatted Text
 
 ### Crate Structure
 
-The formatter uses a 5-layer architecture. See [5-Layer Architecture](../03-layers/index.md) for design details.
+The formatter uses a 5-layer architecture. See [5-Layer Architecture](../03-layers/) for design details.
 
 ```
 compiler/ori_fmt/

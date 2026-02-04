@@ -128,11 +128,19 @@ fn typed(db: &dyn Db, file: SourceFile) -> Result<TypedModule, ErrorGuaranteed>
 
 | Range | Category | Examples |
 |-------|----------|----------|
-| E0xxx | Lexer | E0001: Invalid character |
-| E1xxx | Parser | E1001: Unexpected token |
-| E2xxx | Type checker | E2001: Type mismatch |
-| E3xxx | Patterns | E3001: Unknown pattern |
-| E9xxx | Internal | E9001: Compiler bug, E9002: Too many errors |
+| E0xxx | Lexer | E0001: Invalid character, E0002: Unterminated string |
+| E1xxx | Parser | E1001: Unexpected token, E1002: Expected expression |
+| E2xxx | Type checker | E2001: Type mismatch, E2002: Undefined variable, E2003: Missing capability |
+| E3xxx | Patterns | E3001: Unknown pattern, E3002: Missing required argument |
+| E9xxx | Internal | E9001: Internal compiler error, E9002: Too many errors |
+
+### Error Code Design
+
+Error codes follow the `EXXXX` format where:
+- First digit indicates the compiler phase (0=lexer, 1=parser, 2=type, 3=pattern, 9=internal)
+- Remaining digits are sequential within that phase
+- Codes are stable across versions for tooling compatibility
+- The `E` prefix distinguishes errors from warnings (future: `W` prefix)
 
 ## DiagnosticQueue
 
@@ -227,7 +235,8 @@ Each problem category has its own rendering module:
 |--------|--------------|-------------|
 | `parse.rs` | `ParseProblem` | E1xxx (parser errors) |
 | `semantic.rs` | `SemanticProblem` | E2xxx (name resolution, duplicates) |
-| `type_errors.rs` | `TypeProblem` | E2xxx (type mismatches, inference) |
+
+**Note:** Type errors (E2xxx type mismatches, inference) are handled through `TypeCheckError` in `ori_typeck`, not through the Problem rendering system
 
 This separation follows the Single Responsibility Principle—each module focuses on rendering one category of problems with domain-specific context and suggestions.
 
@@ -441,26 +450,25 @@ These utilities are used by `DiagnosticQueue` for position-based deduplication a
 
 ### Problem
 
-The `Problem` enum uses a three-tier hierarchy:
+The `Problem` enum uses a two-tier hierarchy (type checking errors use `TypeCheckError` directly):
 
 ```rust
 pub enum Problem {
     /// Parse-time problems (syntax errors).
     Parse(ParseProblem),
 
-    /// Type checking problems.
-    Type(TypeProblem),
-
-    /// Semantic analysis problems.
+    /// Semantic analysis problems (name resolution, duplicates).
     Semantic(SemanticProblem),
 }
 
 impl Problem {
     pub fn span(&self) -> Span;
     pub fn is_parse(&self) -> bool;
-    pub fn is_type(&self) -> bool;
     pub fn is_semantic(&self) -> bool;
 }
+```
+
+**Note:** Type checking errors use `TypeCheckError` from `ori_typeck` directly, rather than being wrapped in this enum. This allows the type checker to use structured error variants while other phases use this unified type
 ```
 
 Each category (ParseProblem, TypeProblem, SemanticProblem) is a separate enum with category-specific variants. See [Problem Types](problem-types.md) for details.

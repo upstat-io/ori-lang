@@ -208,7 +208,7 @@ let $ENABLE_VIRTUAL_TERMINAL_INPUT: c_uint = 0x0200
 
 ## Implementation Order
 
-### Phase 1: Core FFI (Weeks 1-2)
+### Phase 1: Core FFI
 
 1. **Lexer**: Add `extern` keyword
 2. **Parser**: Parse `extern "c" from "lib" { ... }` blocks
@@ -219,25 +219,25 @@ let $ENABLE_VIRTUAL_TERMINAL_INPUT: c_uint = 0x0200
    - Validate FFI-safe types in extern declarations
 5. **LLVM codegen**: Generate `declare` statements for extern functions
 
-### Phase 2: FFI Capability (Week 3)
+### Phase 2: FFI Capability
 
 1. **Prelude**: Add `FFI` trait and `AllowFFI` type
 2. **Type checker**: Require `uses FFI` for extern calls
 3. **Tests**: Verify capability enforcement
 
-### Phase 3: Struct Layout (Week 4)
+### Phase 3: Struct Layout
 
 1. **Parser**: Parse `#repr("c")` attribute
 2. **Type checker**: Validate #repr on structs
 3. **LLVM codegen**: Generate C-compatible struct layouts
 
-### Phase 4: CPtr Operations (Week 5)
+### Phase 4: CPtr Operations
 
 1. **Evaluator**: Implement `CPtr.null()`, `CPtr.is_null()`
 2. **LLVM codegen**: Implement `CPtr.from_bytes()`, `CPtr.from_struct()`
 3. **Tests**: Verify pointer operations
 
-### Phase 5: Conditional Compilation (Week 6)
+### Phase 5: Conditional Compilation
 
 1. **Parser**: Parse `#target(os: "...")` attribute
 2. **Type checker**: Evaluate target conditions

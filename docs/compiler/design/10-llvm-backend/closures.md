@@ -201,8 +201,8 @@ This is used when extracting captures from boxed closures and fields from struct
 
 ## Limitations
 
-- Maximum 8 captures supported for dynamic closure calls (sufficient for most use cases)
 - All captured values are coerced to i64 (type information reconstructed at call site)
+- Capture count stored in i8 field (theoretical 255 limit, though memory would limit earlier)
 - No closure deallocation currently (relies on program termination for cleanup)
 
 ## Source Files

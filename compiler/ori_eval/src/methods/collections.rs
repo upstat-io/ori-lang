@@ -22,6 +22,7 @@ pub fn dispatch_list_method(
         unreachable!("dispatch_list_method called with non-list receiver")
     };
 
+    // Note: Value clones in this function are cheap - Value uses Arc for heap types.
     match method {
         "len" => len_to_value(items.len(), "list"),
         "is_empty" => Ok(Value::Bool(items.is_empty())),
@@ -181,10 +182,12 @@ pub fn dispatch_map_method(receiver: Value, method: &str, args: Vec<Value>) -> E
             Ok(Value::Bool(map.contains_key(key)))
         }
         "keys" => {
+            // Clone Cow<str> keys to create Value::Str - required for owned return
             let keys: Vec<Value> = map.keys().map(|k| Value::string(k.clone())).collect();
             Ok(Value::list(keys))
         }
         "values" => {
+            // Clone values for return list. Cheap: Value uses Arc for heap types.
             let values: Vec<Value> = map.values().cloned().collect();
             Ok(Value::list(values))
         }

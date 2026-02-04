@@ -192,15 +192,20 @@ pub struct TestResult {
 }
 
 pub enum TestOutcome {
-    Passed,
-    Failed(String),          // Error message
-    Skipped(String),         // Skip reason
-    CompileFailMatched,      // Expected compile error matched
-    CompileFailMismatch {    // Expected compile error didn't match
-        expected: String,
-        actual: String,
-    },
-    UnexpectedCompileSuccess, // Expected compile error but compiled
+    Passed,              // Test passed (including matched compile_fail)
+    Failed(String),      // Test failed (error message)
+    Skipped(String),     // Test skipped (skip reason)
+}
+```
+
+**Note:** Compile-fail tests map to `Passed` when errors match or `Failed` when they don't. The distinction between compile-fail and runtime tests is handled at the runner logic level, not in the outcome enum.
+
+```rust
+// Compile-fail test handling (simplified)
+if expected_errors_matched {
+    TestOutcome::Passed
+} else {
+    TestOutcome::Failed(format!("expected error '{}', got '{}'", expected, actual))
 }
 ```
 

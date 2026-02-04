@@ -27,7 +27,9 @@ let result = run(
 // let result = run(let x = 1, x + 1)  // NO
 ```
 
-### With Contracts
+### With Contracts (Future)
+
+> **Note:** Pre-check and post-check formatting is defined in the spec but not yet implemented in the formatter. The patterns below show the intended behavior.
 
 Pre-check and post-check appear as named arguments:
 

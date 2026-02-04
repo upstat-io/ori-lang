@@ -62,6 +62,7 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
             let func = funcs[0];
             let params_slice = arena.get_params(func.params);
             let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
+            // Note: MatchPattern clone is cheap - small enum with u32 newtypes (no heap alloc)
             let patterns: Vec<_> = params_slice.iter().map(|p| p.pattern.clone()).collect();
             let defaults: Vec<_> = params_slice.iter().map(|p| p.default).collect();
             let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
@@ -97,6 +98,7 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
                 .map(|func| {
                     let params_slice = arena.get_params(func.params);
                     let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
+                    // Note: MatchPattern clone is cheap - small enum with u32 newtypes (no heap alloc)
                     let patterns: Vec<_> = params_slice.iter().map(|p| p.pattern.clone()).collect();
                     let defaults: Vec<_> = params_slice.iter().map(|p| p.default).collect();
                     let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();

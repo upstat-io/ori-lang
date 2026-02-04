@@ -36,11 +36,11 @@ Key characteristics:
 ### 2. Parsing (`parsed` query)
 
 **Input**: `SourceFile` (via `tokens` query)
-**Output**: `ParseResult { module: Module, arena: ExprArena, errors: Vec<ParseError> }`
+**Output**: `ParseOutput { module: Module, arena: ExprArena, errors: Vec<ParseError> }`
 
 ```rust
 #[salsa::tracked]
-pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseResult
+pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseOutput
 ```
 
 The parser builds a flat AST using recursive descent:

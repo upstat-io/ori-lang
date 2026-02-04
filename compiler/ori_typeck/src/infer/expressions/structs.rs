@@ -8,7 +8,7 @@ use crate::registry::TypeKind;
 use crate::suggest::{suggest_field, suggest_type};
 use ori_ir::{FieldInitRange, Name, Span, StructLitFieldRange};
 use ori_types::Type;
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Result of looking up a struct field.
 pub(super) enum FieldLookupResult {
@@ -30,7 +30,7 @@ pub(super) fn lookup_struct_field_in_entry(
     match &entry.kind {
         TypeKind::Struct { fields } => {
             // Build type param map if we have type arguments
-            let type_param_map: Option<HashMap<Name, Type>> = type_args.map(|args| {
+            let type_param_map: Option<FxHashMap<Name, Type>> = type_args.map(|args| {
                 entry
                     .type_params
                     .iter()
@@ -158,7 +158,7 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
             .map(|_| checker.inference.ctx.fresh_var())
             .collect();
 
-        let type_param_vars: HashMap<Name, Type> = type_params
+        let type_param_vars: FxHashMap<Name, Type> = type_params
             .iter()
             .zip(type_args.iter())
             .map(|(&param_name, type_var)| (param_name, type_var.clone()))
@@ -175,11 +175,13 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
         (substituted_fields, type_args)
     };
 
-    let expected_map: HashMap<Name, &Type> =
+    let expected_map: FxHashMap<Name, &Type> =
         expected_fields.iter().map(|(n, ty)| (*n, ty)).collect();
 
     let field_inits = checker.context.arena.get_field_inits(fields);
-    let mut provided_fields: HashSet<Name> = HashSet::new();
+    // Pre-allocate with known field count for better performance
+    let mut provided_fields: FxHashSet<Name> =
+        FxHashSet::with_capacity_and_hasher(field_inits.len(), rustc_hash::FxBuildHasher);
 
     for init in field_inits {
         if !provided_fields.insert(init.name) {
@@ -304,7 +306,7 @@ pub fn infer_struct_with_spread(
             .map(|_| checker.inference.ctx.fresh_var())
             .collect();
 
-        let type_param_vars: HashMap<Name, Type> = type_params
+        let type_param_vars: FxHashMap<Name, Type> = type_params
             .iter()
             .zip(type_args.iter())
             .map(|(&param_name, type_var)| (param_name, type_var.clone()))
@@ -321,7 +323,7 @@ pub fn infer_struct_with_spread(
         (substituted_fields, type_args)
     };
 
-    let expected_map: HashMap<Name, &Type> =
+    let expected_map: FxHashMap<Name, &Type> =
         expected_fields.iter().map(|(n, ty)| (*n, ty)).collect();
 
     let target_type = if type_args.is_empty() {
@@ -333,7 +335,9 @@ pub fn infer_struct_with_spread(
         }
     };
 
-    let mut provided_fields: HashSet<Name> = HashSet::new();
+    // Pre-allocate with known field count for better performance
+    let mut provided_fields: FxHashSet<Name> =
+        FxHashSet::with_capacity_and_hasher(struct_lit_fields.len(), rustc_hash::FxBuildHasher);
     let mut has_spread = false;
 
     for field in struct_lit_fields {

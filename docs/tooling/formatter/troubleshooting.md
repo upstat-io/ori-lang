@@ -50,7 +50,7 @@ In this case, add `=` before the function body:
 
 **Symptom**: The formatter makes changes you didn't expect.
 
-**Cause**: The formatter enforces a specific style with no configuration options. Some changes you might not expect:
+**Cause**: The formatter enforces a specific style with only line width being configurable. Some changes you might not expect:
 
 | You wrote | Formatter outputs | Why |
 |-----------|-------------------|-----|
@@ -60,7 +60,7 @@ In this case, add `=` before the function body:
 | Tabs | 4 spaces | Tabs converted to spaces |
 | Multiple blank lines | Single blank line | Consecutive blank lines collapsed |
 
-**Solution**: Accept the canonical style. The formatter intentionally has no options. See the [Style Guide](style-guide.md) for complete formatting rules.
+**Solution**: Accept the canonical style. Only line width is configurable (`--width=N`). See the [Style Guide](style-guide.md) for complete formatting rules.
 
 ### Exit Code 1 in CI
 

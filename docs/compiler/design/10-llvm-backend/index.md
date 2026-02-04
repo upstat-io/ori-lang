@@ -144,10 +144,47 @@ If/else expressions create three basic blocks (then, else, merge) with PHI nodes
 
 ### Loops
 
-Loop compilation creates header, body, and exit blocks:
-- `loop(...)` creates infinite loops with `break`/`continue` support
-- `for x in iter do body` creates indexed iteration with guard support
-- Loop context tracks header and exit blocks for nested control flow
+Loop compilation creates structured basic blocks with proper control flow:
+
+**Infinite loops (`loop(...)`)**:
+```
+entry → header → body → header (or exit via break)
+```
+
+**For loops** use a four-block structure with a dedicated latch block:
+```
+                    ┌──────────┐
+                    │  entry   │
+                    │(init idx)│
+                    └────┬─────┘
+                         │
+                    ┌────▼─────┐◄─────────┐
+                    │  header  │          │
+                    │(idx<len?)│          │
+                    └────┬─────┘          │
+              ┌─false────┴───true─┐       │
+              ▼                   ▼       │
+        ┌──────────┐        ┌──────────┐  │
+        │   exit   │        │   body   │  │
+        └──────────┘        │(loop code)│  │
+                            └────┬─────┘  │
+                                 │        │
+                            ┌────▼─────┐  │
+                            │  latch   │──┘
+                            │ (idx++)  │
+                            └──────────┘
+```
+
+**Critical:** `continue` jumps to the latch block (which increments the index), not the header. Jumping directly to the header would create an infinite loop on the same element.
+
+Loop context tracks continue and exit targets for nested control flow:
+```rust
+let for_loop_ctx = LoopContext {
+    header: latch_bb,  // continue → latch (increment then check)
+    exit: exit_bb,     // break → exit
+    break_phi: None,
+};
+```
 
 ## Runtime Functions
 

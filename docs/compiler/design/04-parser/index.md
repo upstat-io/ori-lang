@@ -18,6 +18,8 @@ compiler/ori_parse/src/
 ├── context.rs              # ParseContext for context-sensitive parsing
 ├── progress.rs             # Progress tracking (inspired by Roc)
 ├── recovery.rs             # RecoverySet and synchronization
+├── series.rs               # Series combinator for comma-separated lists
+├── snapshot.rs             # Parser snapshots for speculative parsing
 ├── error.rs                # Parse error types
 └── grammar/
     ├── mod.rs              # Grammar module organization
@@ -74,13 +76,18 @@ pub struct Cursor<'a> {
     pos: usize,
 }
 
-/// Context flags for context-sensitive parsing
-pub struct ParseContext(u8);
+/// Context flags for context-sensitive parsing (u16 for expansion room)
+pub struct ParseContext(u16);
 
 impl ParseContext {
-    const NO_STRUCT_LIT: Self = Self(0b0001);  // Disallow struct literals in conditions
-    const IN_MATCH_ARM: Self = Self(0b0010);   // Inside match arm
-    // ...
+    const IN_PATTERN: Self = Self(0b0000_0001);    // Inside pattern context
+    const IN_TYPE: Self = Self(0b0000_0010);       // Inside type annotation
+    const NO_STRUCT_LIT: Self = Self(0b0000_0100); // Disallow struct literals
+    const CONST_EXPR: Self = Self(0b0000_1000);    // Constant expression context
+    const IN_LOOP: Self = Self(0b0001_0000);       // Inside loop body
+    const ALLOW_YIELD: Self = Self(0b0010_0000);   // Yield allowed
+    const IN_FUNCTION: Self = Self(0b0100_0000);   // Inside function body
+    const IN_INDEX: Self = Self(0b1000_0000);      // Inside index brackets
 }
 ```
 
@@ -103,6 +110,29 @@ pub struct ParseResult<T> {
 This enables better error recovery:
 - `Progress::None` + error → can try alternative productions
 - `Progress::Made` + error → commit to this path and report error
+
+### Progress Tracking Implementation
+
+```rust
+impl Parser<'_> {
+    /// Parse with progress tracking.
+    fn parse_with_progress<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, ParseError>,
+    ) -> ParseResult<T> {
+        let start_pos = self.cursor.position();
+        let result = f(self);
+        let progress = if self.cursor.position() > start_pos {
+            Progress::Made
+        } else {
+            Progress::None
+        };
+        ParseResult { progress, result }
+    }
+}
+```
+
+This pattern is used throughout the parser to determine whether to commit to a parse path or try alternatives
 
 ## Parsing Flow
 
@@ -219,28 +249,32 @@ impl Parser<'_> {
 
 ## Error Recovery
 
-Error recovery uses the `RecoverySet` type to synchronize after errors:
+Error recovery uses the `TokenSet` type (bitset-based, O(1) membership):
 
 ```rust
-/// Defines a set of tokens that indicate safe recovery points.
-pub struct RecoverySet {
-    /// Tokens that indicate a new item starts
-    tokens: &'static [TokenKind],
-}
+/// Bitset for efficient token membership testing.
+/// Uses u128 to support up to 128 token kinds with O(1) lookup.
+pub struct TokenSet(u128);
 
-impl RecoverySet {
-    pub const ITEM: RecoverySet = RecoverySet {
-        tokens: &[TokenKind::At, TokenKind::Pub, TokenKind::Type, TokenKind::Trait, ...]
-    };
-}
+impl TokenSet {
+    /// Create a set containing a single token kind.
+    pub const fn single(kind: TokenKind) -> Self {
+        Self(1u128 << kind.discriminant_index())
+    }
 
-/// Skip tokens until we find a recovery point.
-pub fn synchronize(cursor: &mut Cursor, recovery: &RecoverySet) {
-    while !cursor.is_at_end() {
-        if recovery.contains(cursor.current_kind()) {
-            return;
-        }
-        cursor.advance();
+    /// Add a token kind to the set.
+    pub const fn with(self, kind: TokenKind) -> Self {
+        Self(self.0 | (1u128 << kind.discriminant_index()))
+    }
+
+    /// Check if a token kind is in the set (O(1) via bitwise AND).
+    pub const fn contains(&self, kind: &TokenKind) -> bool {
+        (self.0 & (1u128 << kind.discriminant_index())) != 0
+    }
+
+    /// Union of two token sets.
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
     }
 }
 ```
@@ -268,6 +302,80 @@ The authoritative grammar is defined in EBNF notation. Each production maps to p
 ```ebnf
 {{#include ../../../ori_lang/0.1-alpha/spec/grammar.ebnf}}
 ```
+
+## Series Combinator
+
+The parser uses a reusable series combinator (inspired by Gleam's `series_of()`) for parsing delimiter-separated lists. This unifies the common pattern found throughout the parser:
+
+```rust
+/// Configuration for parsing a series of items.
+pub struct SeriesConfig {
+    pub separator: TokenKind,      // Usually Comma
+    pub terminator: TokenKind,     // e.g., RParen, RBracket
+    pub trailing: TrailingSeparator,
+    pub skip_newlines: bool,
+    pub min_count: usize,
+    pub max_count: Option<usize>,
+}
+
+/// Policy for trailing separators.
+pub enum TrailingSeparator {
+    Allowed,   // Trailing separator accepted but not required
+    Forbidden, // Error if separator appears before terminator
+    Required,  // Separator required between items, not after last
+}
+```
+
+**Convenience methods** handle the most common patterns:
+
+| Method | Delimiters | Usage |
+|--------|------------|-------|
+| `paren_series()` | `(` `)` | Function arguments, tuples |
+| `bracket_series()` | `[` `]` | List literals, indexing |
+| `brace_series()` | `{` `}` | Struct literals, blocks |
+| `angle_series()` | `<` `>` | Generic parameters |
+
+**Example usage:**
+
+```rust
+// Parse function arguments: (arg1, arg2, ...)
+let args = self.paren_series(|p| {
+    if p.check(&TokenKind::RParen) {
+        Ok(None)  // No more items
+    } else {
+        Ok(Some(p.parse_expr()?))
+    }
+})?;
+```
+
+## Speculative Parsing
+
+The parser includes infrastructure for speculative parsing via snapshots. Snapshots are lightweight (~10 bytes) and capture only cursor position and context flags—arena state is not captured.
+
+**Use the right tool for the job:**
+
+| Approach | When to Use |
+|----------|-------------|
+| Direct lookahead | 1-2 token peek, token kind decisions |
+| `look_ahead(predicate)` | Multi-token patterns, complex predicates |
+| `try_parse(parser_fn)` | Full parse attempt with automatic restore |
+| `snapshot()`/`restore()` | Manual control, examine result before deciding |
+
+```rust
+// Simple lookahead
+fn is_typed_lambda_params(&self) -> bool {
+    self.check_ident() && self.next_is_colon()
+}
+
+// Full speculative parse
+if let Some(ty) = self.try_parse(|p| p.parse_type()) {
+    // Type parsed successfully
+} else {
+    // Fall back to expression parsing
+}
+```
+
+**Current usage:** The Ori parser primarily uses simple lookahead predicates for disambiguation, as they're sufficient and efficient. The snapshot infrastructure is available for IDE tooling, language extensions, and better error messages.
 
 ## Related Documents
 

@@ -164,13 +164,13 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: LLVM clippy
-        run: ./llvm-clippy
+        run: ./llvm-clippy.sh
 
       - name: LLVM tests
         id: llvm-tests
         continue-on-error: true
         run: |
-          ./llvm-test 2>&1 | tee llvm-test-output.txt
+          ./llvm-test.sh 2>&1 | tee llvm-test-output.txt
           # Sum all "X passed" counts from test output
           LLVM_TESTS=$(grep -oE '[0-9]+ passed' llvm-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
           LLVM_FAILED=$(grep -oE '[0-9]+ failed' llvm-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')

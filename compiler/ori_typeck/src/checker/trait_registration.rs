@@ -41,9 +41,9 @@ fn is_associated_function(
     params_list[0].name != self_name
 }
 
-/// Extract generic params for iteration.
-fn get_generic_params(arena: &ExprArena, generics: GenericParamRange) -> Vec<GenericParam> {
-    arena.get_generic_params(generics).to_vec()
+/// Get generic params as a slice reference (no allocation).
+fn get_generic_params(arena: &ExprArena, generics: GenericParamRange) -> &[GenericParam] {
+    arena.get_generic_params(generics)
 }
 
 impl TypeChecker<'_> {
@@ -62,7 +62,7 @@ impl TypeChecker<'_> {
                 .collect();
 
             // Validate ordering: parameters with defaults must follow parameters without defaults
-            self.validate_default_type_param_ordering(&generic_params, trait_def.span);
+            self.validate_default_type_param_ordering(generic_params, trait_def.span);
 
             // Convert super-traits to names
             let super_traits: Vec<Name> = trait_def
@@ -299,7 +299,9 @@ impl TypeChecker<'_> {
         let provided_arg_ids = self.context.arena.get_parsed_type_list(provided_args);
         let provided_count = provided_arg_ids.len();
 
-        // Convert provided args to Types
+        // Convert provided args to Types.
+        // Note: clone() on ParsedType is cheap (small enum with Copy-like fields, no heap).
+        // Clone is required to release the arena borrow before the mutable method call.
         let mut result: Vec<Type> = provided_arg_ids
             .iter()
             .map(|&id| {
@@ -337,6 +339,12 @@ impl TypeChecker<'_> {
     /// This is used when resolving default type parameters that may contain `Self`.
     /// For example, in `trait Add<Rhs = Self>`, when we have `impl Add for Point`,
     /// `Self` becomes `Point`.
+    ///
+    /// # Performance Note
+    /// Recursive calls clone `ParsedType` from the arena before recursing. This is
+    /// required to release the arena borrow before the mutable `&mut self` call.
+    /// The clone is cheap: `ParsedType` is a small enum with Copy-like fields
+    /// (`Name`, `TypeId`, `ParsedTypeId`) - no heap allocation.
     fn resolve_parsed_type_with_self_substitution(
         &mut self,
         parsed: &ori_ir::ParsedType,

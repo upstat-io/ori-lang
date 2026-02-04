@@ -67,6 +67,8 @@ let result = process(
 
 ## Method Chains
 
+> **Note:** The `MethodChainRule` infrastructure exists in `ori_fmt/src/rules/method_chain.rs` but is not yet invoked by the formatter. The patterns below show the intended behavior.
+
 ### Inline Format
 
 Used when the chain fits in 100 characters:
@@ -86,7 +88,7 @@ let result = items
     .fold(0, (a, b) -> a + b)
 ```
 
-**Important**: Once any break is needed, *all* calls in the chain break. No partial breaking.
+**Important**: Once any break is needed, *all* calls in the chain break. No partial breaking (all-or-nothing rule).
 
 ### Chains Starting from Calls
 

@@ -34,14 +34,14 @@ pub use variants::{infer_err, infer_none, infer_ok, infer_some};
 
 use ori_ir::Name;
 use ori_types::{Type, TypeFolder};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Substitute type parameter names with their corresponding type variables.
 ///
 /// Uses `TypeFolder` to recursively transform Named types to their replacements.
-pub(crate) fn substitute_type_params(ty: &Type, params: &HashMap<Name, Type>) -> Type {
+pub(crate) fn substitute_type_params(ty: &Type, params: &FxHashMap<Name, Type>) -> Type {
     struct ParamSubstitutor<'a> {
-        params: &'a HashMap<Name, Type>,
+        params: &'a FxHashMap<Name, Type>,
     }
 
     impl TypeFolder for ParamSubstitutor<'_> {
