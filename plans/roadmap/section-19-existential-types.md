@@ -53,9 +53,9 @@ sections:
 ### Rust
 
 ```
-~/lang_repos/rust/compiler/rustc_hir/src/hir.rs     # OpaqueTy definition
-~/lang_repos/rust/compiler/rustc_hir_typeck/src/   # Type inference for impl Trait
-~/lang_repos/rust/compiler/rustc_middle/src/ty/    # Type representation
+~/projects/reference_repos/lang_repos/rust/compiler/rustc_hir/src/hir.rs     # OpaqueTy definition
+~/projects/reference_repos/lang_repos/rust/compiler/rustc_hir_typeck/src/   # Type inference for impl Trait
+~/projects/reference_repos/lang_repos/rust/compiler/rustc_middle/src/ty/    # Type representation
 ```
 
 ---

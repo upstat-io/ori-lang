@@ -235,6 +235,6 @@ With structured output, an AI agent workflow becomes:
 
 ## References
 
-- Rust compiler diagnostics: `~/lang_repos/rust/compiler/rustc_errors/`
-- Go analysis framework: `~/lang_repos/golang/src/cmd/vendor/golang.org/x/tools/go/analysis/`
-- TypeScript code fixes: `~/lang_repos/typescript/src/services/codefixes/`
+- Rust compiler diagnostics: `~/projects/reference_repos/lang_repos/rust/compiler/rustc_errors/`
+- Go analysis framework: `~/projects/reference_repos/lang_repos/golang/src/cmd/vendor/golang.org/x/tools/go/analysis/`
+- TypeScript code fixes: `~/projects/reference_repos/lang_repos/typescript/src/services/codefixes/`

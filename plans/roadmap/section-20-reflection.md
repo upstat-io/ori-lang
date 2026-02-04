@@ -63,15 +63,15 @@ sections:
 ### Go
 
 ```
-~/lang_repos/golang/src/reflect/type.go     # Type representation
-~/lang_repos/golang/src/reflect/value.go    # Value manipulation
+~/projects/reference_repos/lang_repos/golang/src/reflect/type.go     # Type representation
+~/projects/reference_repos/lang_repos/golang/src/reflect/value.go    # Value manipulation
 ```
 
 ### Rust
 
 ```
 # Rust has minimal reflection; std::any::TypeId, std::any::type_name
-~/lang_repos/rust/library/core/src/any.rs
+~/projects/reference_repos/lang_repos/rust/library/core/src/any.rs
 ```
 
 ---
