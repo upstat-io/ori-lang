@@ -250,9 +250,7 @@ impl<'old> IncrementalState<'old> {
     }
 }
 
-// =============================================================================
 // Deep Copy Infrastructure
-// =============================================================================
 
 /// Deep copier for AST nodes with span adjustment.
 ///
@@ -1119,9 +1117,7 @@ impl<'old> AstCopier<'old> {
         }
     }
 
-    // =========================================================================
     // Declaration Copying
-    // =========================================================================
 
     /// Copy a function declaration.
     pub fn copy_function(&self, func: &Function, new_arena: &mut ExprArena) -> Function {
@@ -1496,9 +1492,7 @@ impl<'old> AstCopier<'old> {
         }
     }
 
-    // =========================================================================
     // Helper Methods
-    // =========================================================================
 
     /// Copy a generic parameter.
     fn copy_generic_param(&self, param: &GenericParam, new_arena: &mut ExprArena) -> GenericParam {

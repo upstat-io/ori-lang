@@ -80,9 +80,7 @@ use crate::ir::{Name, StringInterner};
 use crate::parser::ParseOutput;
 use crate::query::parsed;
 
-// =============================================================================
 // Prelude Auto-Loading for Type Checking
-// =============================================================================
 
 /// Generate candidate paths for the prelude by walking up from the current file.
 fn prelude_candidates(current_file: &Path) -> Vec<PathBuf> {

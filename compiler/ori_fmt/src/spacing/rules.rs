@@ -66,9 +66,7 @@ impl SpaceRule {
     }
 }
 
-// ============================================================================
 // Helper constants for rule definitions
-// ============================================================================
 
 // Allow wildcard import for TokenCategory - the 70+ spacing rules below
 // become much more readable with short names like `LParen` vs `TokenCategory::LParen`
@@ -79,9 +77,7 @@ use TokenMatcher::{Any, Category, Exact};
 // Common token groups as static slices
 static RANGE_OPS: &[TokenCategory] = &[DotDot, DotDotEq];
 
-// ============================================================================
 // All spacing rules
-// ============================================================================
 
 /// All spacing rules in evaluation order.
 ///
@@ -97,9 +93,7 @@ static RANGE_OPS: &[TokenCategory] = &[DotDot, DotDotEq];
 /// - Priority 50: Keyword rules (default)
 /// - Priority 90: Fallback rules
 pub static SPACE_RULES: &[SpaceRule] = &[
-    // ========================================================================
     // Priority 10: Empty delimiters (most specific matches)
-    // ========================================================================
     // No space inside empty delimiters: (), [], {}
     SpaceRule::new(
         "EmptyParens",
@@ -122,9 +116,7 @@ pub static SPACE_RULES: &[SpaceRule] = &[
         SpaceAction::None,
     )
     .with_priority(10),
-    // ========================================================================
     // Priority 20: Delimiter rules
-    // ========================================================================
     // No space after opening delimiters: (x, [x, {x
     SpaceRule::new("AfterLParen", Exact(LParen), Any, SpaceAction::None).with_priority(20),
     SpaceRule::new("AfterLBracket", Exact(LBracket), Any, SpaceAction::None).with_priority(20),
@@ -133,9 +125,7 @@ pub static SPACE_RULES: &[SpaceRule] = &[
     SpaceRule::new("BeforeRParen", Any, Exact(RParen), SpaceAction::None).with_priority(20),
     SpaceRule::new("BeforeRBracket", Any, Exact(RBracket), SpaceAction::None).with_priority(20),
     SpaceRule::new("BeforeRBrace", Any, Exact(RBrace), SpaceAction::None).with_priority(20),
-    // ========================================================================
     // Priority 25: Field access and method calls (highest priority for dot)
-    // ========================================================================
     // No space around dot: x.y, x.method()
     SpaceRule::new("BeforeDot", Any, Exact(Dot), SpaceAction::None).with_priority(25),
     SpaceRule::new("AfterDot", Exact(Dot), Any, SpaceAction::None).with_priority(25),
@@ -154,9 +144,7 @@ pub static SPACE_RULES: &[SpaceRule] = &[
         SpaceAction::None,
     )
     .with_priority(25),
-    // ========================================================================
     // Priority 30: Punctuation rules
-    // ========================================================================
     // Comma: space after, no space before
     SpaceRule::new("AfterComma", Exact(Comma), Any, SpaceAction::Space).with_priority(30),
     SpaceRule::new("BeforeComma", Any, Exact(Comma), SpaceAction::None).with_priority(30),
@@ -185,9 +173,7 @@ pub static SPACE_RULES: &[SpaceRule] = &[
     .with_priority(30),
     // Spread operator: no space after ...
     // Note: DotDotDot doesn't exist in TokenKind, it's parsed as DotDot + Dot
-    // ========================================================================
     // Priority 35: Special identifier-adjacent rules
-    // ========================================================================
     // No space between @ and identifier (function names): @foo
     SpaceRule::new("AtIdent", Exact(At), Exact(Ident), SpaceAction::None).with_priority(35),
     // No space between $ and identifier (constants): $FOO
@@ -208,9 +194,7 @@ pub static SPACE_RULES: &[SpaceRule] = &[
         SpaceAction::None,
     )
     .with_priority(35),
-    // ========================================================================
     // Priority 40: Operator rules
-    // ========================================================================
     // Space around binary operators: a + b, x == y
     SpaceRule::new(
         "BeforeBinaryOp",
@@ -250,9 +234,7 @@ pub static SPACE_RULES: &[SpaceRule] = &[
         SpaceAction::Space,
     )
     .with_priority(40),
-    // ========================================================================
     // Priority 45: Unary operators (after binary to not override)
-    // ========================================================================
     // No space after unary operators: -x, !y, ~z
     // Note: Context-dependent - only when actually unary (handled by lookup)
     SpaceRule::new(
@@ -264,9 +246,7 @@ pub static SPACE_RULES: &[SpaceRule] = &[
     .with_priority(45),
     SpaceRule::new("AfterBang", Exact(Bang), Any, SpaceAction::None).with_priority(45),
     SpaceRule::new("AfterTilde", Exact(Tilde), Any, SpaceAction::None).with_priority(45),
-    // ========================================================================
     // Priority 50: Keyword rules
-    // ========================================================================
     // Space after pub: pub @foo, pub type
     SpaceRule::new("AfterPub", Exact(Pub), Any, SpaceAction::Space).with_priority(50),
     // Space after let: let x
@@ -312,9 +292,7 @@ pub static SPACE_RULES: &[SpaceRule] = &[
     SpaceRule::new("AfterAs", Exact(As), Any, SpaceAction::Space).with_priority(50),
     // Space after tests: tests @foo
     SpaceRule::new("AfterTests", Exact(Tests), Any, SpaceAction::Space).with_priority(50),
-    // ========================================================================
     // Priority 55: Pattern keywords (run, try, match, etc.)
-    // ========================================================================
     // No space between pattern keyword and opening paren: run(, try(
     SpaceRule::new("RunParen", Exact(Run), Exact(LParen), SpaceAction::None).with_priority(55),
     SpaceRule::new("TryParen", Exact(Try), Exact(LParen), SpaceAction::None).with_priority(55),
@@ -359,21 +337,15 @@ pub static SPACE_RULES: &[SpaceRule] = &[
     SpaceRule::new("SomeParen", Exact(Some), Exact(LParen), SpaceAction::None).with_priority(55),
     // No space between loop and opening paren: loop(
     SpaceRule::new("LoopParen", Exact(Loop), Exact(LParen), SpaceAction::None).with_priority(55),
-    // ========================================================================
     // Priority 60: Sum type pipe (context-dependent in practice)
-    // ========================================================================
     // Space around | in sum types: A | B | C
     SpaceRule::new("BeforePipe", Any, Exact(Pipe), SpaceAction::Space).with_priority(60),
     SpaceRule::new("AfterPipe", Exact(Pipe), Any, SpaceAction::Space).with_priority(60),
-    // ========================================================================
     // Priority 70: Generic bounds
-    // ========================================================================
     // Space around + in bounds: T: A + B
     SpaceRule::new("BeforeBoundPlus", Any, Exact(Plus), SpaceAction::Space).with_priority(70),
     SpaceRule::new("AfterBoundPlus", Exact(Plus), Any, SpaceAction::Space).with_priority(70),
-    // ========================================================================
     // Priority 90: Fallback rules (lowest priority)
-    // ========================================================================
     // Default: no space between tokens not covered by other rules
     SpaceRule::new("Default", Any, Any, SpaceAction::None).with_priority(90),
 ];

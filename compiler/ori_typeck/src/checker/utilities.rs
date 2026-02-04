@@ -113,7 +113,7 @@ impl TypeChecker<'_> {
         self.diagnostics.errors.push(error);
     }
 
-    // ===== Typed Error Factory Methods =====
+    // Typed Error Factory Methods
     //
     // These methods create and push specific TypeCheckError variants,
     // providing better type safety and more consistent error messages.
