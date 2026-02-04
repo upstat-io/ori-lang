@@ -95,13 +95,15 @@ Preserve non-semantic information for formatters.
 
 ## Performance Targets
 
-| Metric | Current | Target | Improvement |
-|--------|---------|--------|-------------|
-| Memory per node | ~24 bytes | ~13 bytes | 46% reduction |
-| Keyword lookup | O(log n) switch | O(1) hash | ~3x faster |
-| Incremental reparse | Full reparse | 70-90% reuse | 5-10x faster |
-| AST traversal | Random access | Sequential (SoA) | 2-3x cache hits |
-| Error message quality | Good | Elm-tier | Qualitative |
+| Metric | Current | Target | Improvement | Status |
+|--------|---------|--------|-------------|--------|
+| Memory per node | ~64 bytes (Expr) | ~13 bytes (SoA) | 80% reduction | 🔶 Defer - needs profiling |
+| Keyword lookup | O(1) logos DFA | O(1) hash | N/A | ✅ Already optimal |
+| Incremental reparse | Full reparse | 70-90% reuse | 5-10x faster | ✅ Infrastructure complete |
+| AST traversal | Random access | Sequential (SoA) | 2-3x cache hits | 🔶 Defer - needs profiling |
+| Error message quality | Good | Elm-tier | Qualitative | ✅ Complete |
+
+**Note:** Memory per node assessment updated after analysis. Current `Expr` is ~64 bytes (ExprKind + Span), but `ExprId` references are only 4 bytes. The two-tier `ExprList` and flat `expr_lists` buffer already provide excellent memory efficiency for common patterns.
 
 ---
 
@@ -129,44 +131,62 @@ Section 3 (Progress) ──────────┼─► Section 4 (Errors)
 ## Implementation Phases
 
 ### Phase 1: Foundation (Low-risk, High-impact)
-**Target: Weeks 1-4**
+**Target: Weeks 1-4** | **Status: ✅ Complete (2026-02-04)**
 
-| Task | Section | Risk | Impact |
-|------|---------|------|--------|
-| Perfect hash keywords | 2.1-2.2 | Low | High |
-| Expected token accumulation | 3.3 | Low | High |
-| Integrate scratch buffer | 1.5 | Low | Medium |
-| Empathetic error templates | 4.2 | Low | High |
+| Task | Section | Risk | Impact | Status |
+|------|---------|------|--------|--------|
+| Perfect hash keywords | 2.1-2.2 | Low | High | ✅ Satisfied by logos |
+| Expected token accumulation | 3.3 | Low | High | ✅ Complete |
+| Integrate scratch buffer | 1.5 | Low | Medium | 🔶 Deferred |
+| Empathetic error templates | 4.2 | Low | High | ✅ Complete |
+
+**Phase 1 Summary:**
+- **2.1-2.2 Keywords:** Discovered logos lexer already provides O(1)-equivalent keyword recognition via DFA state machine. No changes needed.
+- **3.3 Expected Tokens:** Implemented `TokenSet` iterator, mutation methods, `format_expected()`, and `TokenKind::friendly_name_from_index()`.
+- **4.2 Error Templates:** Added `title()` and `empathetic_message()` methods to `ParseErrorKind` with Elm-style conversational phrasing.
+- **1.5 Scratch Buffer:** Deferred - infrastructure exists in `scratch.rs` but integration requires refactoring `series()` and all call sites.
 
 ### Phase 2: Core Architecture (Medium-risk, High-impact)
-**Target: Weeks 5-10**
+**Target: Weeks 5-10** | **Status: ✅ Complete (2026-02-04)**
 
-| Task | Section | Risk | Impact |
-|------|---------|------|--------|
-| MultiArrayList-style storage | 1.1-1.2 | Medium | High |
-| Extra data buffer | 1.3 | Medium | High |
-| Pre-allocation heuristics | 1.4 | Low | Medium |
-| ParseErrorDetails structure | 4.1 | Low | High |
+| Task | Section | Risk | Impact | Status |
+|------|---------|------|--------|--------|
+| MultiArrayList-style storage | 1.1-1.2 | Medium | High | 📊 Analysis complete - defer SoA |
+| Extra data buffer | 1.3 | Medium | High | ✅ Already implemented (`expr_lists`) |
+| Pre-allocation heuristics | 1.4 | Low | Medium | ✅ Already implemented |
+| ParseErrorDetails structure | 4.1 | Low | High | ✅ Complete |
+
+**Phase 2 Summary:**
+- **1.1-1.2 SoA Storage:** Analysis shows current `ExprArena` is already efficient. Full SoA migration deferred pending profiling.
+- **1.3-1.4 Extra Buffer & Pre-allocation:** Already implemented! `ExprArena` uses flat `Vec` storage with source-based capacity heuristics.
+- **4.1 ParseErrorDetails:** Comprehensive error detail structure with `ExtraLabel` for cross-references, `CodeSuggestion` for auto-fixes, and `details()` method on all `ParseErrorKind` variants.
 
 ### Phase 3: Enhanced Progress (Medium-risk, High-impact)
-**Target: Weeks 11-14**
+**Target: Weeks 11-14** | **Status: ✅ Complete (2026-02-04)**
 
-| Task | Section | Risk | Impact |
-|------|---------|------|--------|
-| ParseOutcome with context | 3.1 | Medium | High |
-| one_of! macro | 3.2 | Medium | High |
-| Context wrapping utilities | 3.4 | Medium | Medium |
-| Common mistake detection | 4.3 | Low | High |
+| Task | Section | Risk | Impact | Status |
+|------|---------|------|--------|--------|
+| ParseOutcome with context | 3.1 | Medium | High | ✅ Complete |
+| one_of! macro | 3.2 | Medium | High | ✅ Complete |
+| Context wrapping utilities | 3.4 | Medium | Medium | ✅ Complete |
+| Common mistake detection | 4.3 | Low | High | ✅ Complete |
 
 ### Phase 4: IDE Support (Medium-risk, High-impact)
-**Target: Weeks 15-20**
+**Target: Weeks 15-20** | **Status: 🔄 Partial (2026-02-04)**
 
-| Task | Section | Risk | Impact |
-|------|---------|------|--------|
-| Syntax cursor | 5.1-5.2 | Medium | High |
-| Change range propagation | 5.3 | Medium | High |
-| Lazy token capture | 5.4 | Medium | Medium |
-| ModuleExtra structure | 6.1-6.2 | Low | Medium |
+| Task | Section | Risk | Impact | Status |
+|------|---------|------|--------|--------|
+| Syntax cursor | 5.1 | Medium | High | ✅ Core exists, stats missing |
+| Reusability predicates | 5.2 | Medium | High | ✅ Complete |
+| Change range propagation | 5.3 | Medium | High | ✅ Complete (AstCopier) |
+| Lazy token capture | 5.4 | Medium | Medium | Not started |
+| ModuleExtra structure | 6.1-6.2 | Low | Medium | Not started |
+
+**Phase 4 Summary:**
+- **5.1 SyntaxCursor:** Core implementation exists (`find_at()`, `advance()`). Missing: CursorStats for performance tracking.
+- **5.2 Reusability:** `ChangeMarker::intersects()` handles all cases. All 9 DeclKind variants supported.
+- **5.3 Span Adjustment:** `AstCopier` provides deep copy with span adjustment for entire AST.
+- **5.4 Lazy Tokens:** Not started - this is the main remaining IDE infrastructure work.
 
 ### Phase 5: Polish (Low-risk, Medium-impact)
 **Target: Weeks 21-24**
@@ -237,12 +257,21 @@ The current Ori parser already has excellent foundations:
 | Feature | Quality | Notes |
 |---------|---------|-------|
 | Progress tracking | Excellent | Like Roc/Elm |
-| Arena allocation | Good | ExprArena + ExprId |
+| Arena allocation | **Excellent** | ExprArena + ExprId(u32) - already flat Vec |
 | Context flags | Good | Bitfield (u16) |
-| TokenSet recovery | Excellent | 128-bit bitset |
+| TokenSet recovery | **Excellent** | 128-bit bitset with O(1) membership |
 | Series combinator | Good | Like Gleam |
 | Snapshot isolation | Excellent | ~10 bytes |
 | Incremental infrastructure | Prepared | Not yet integrated |
 | Error hints | Good | Smart suggestions |
+| Keyword recognition | **Excellent** | Logos DFA - O(1) equivalent |
+| Two-tier storage | **Excellent** | ExprList inlines 0-2 items (~77% of calls) |
+| Extra data buffer | **Excellent** | expr_lists for variable-length data |
+| Pre-allocation | **Good** | ~1 expr per 20 bytes heuristic |
 
 This plan builds on these strengths rather than replacing them.
+
+**Key Finding (2026-02-04):** Many "planned" features were already implemented in Ori. The parser architecture is more mature than initially assessed. Focus should shift to:
+1. Completing the error infrastructure (Sections 3 & 4)
+2. IDE support via incremental parsing (Section 5)
+3. Formatter support via metadata preservation (Section 6)

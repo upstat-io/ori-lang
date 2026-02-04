@@ -349,7 +349,7 @@ Reserve architectural space in the type system for future low-level features (in
 
 - [x] All items above have all three checkboxes marked `[x]` (1.1-1.5)
 - [x] 80+% test coverage (241 unit tests passing, exceeds 152 target)
-- [x] Run full test suite: `./test-all` — **241 unit tests + 64 spec tests pass**
+- [x] Run full test suite: `./test-all.sh` — **241 unit tests + 64 spec tests pass**
 - [ ] Low-level future-proofing slots reserved (1.6)
 
 **Section 1 Status**: Complete (core), In Progress (1.6 pending)

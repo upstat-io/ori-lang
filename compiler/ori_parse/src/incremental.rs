@@ -131,6 +131,25 @@ pub fn collect_declarations(module: &Module) -> Vec<DeclRef> {
     decls
 }
 
+/// Statistics for cursor navigation (debugging/tuning).
+#[derive(Clone, Debug, Default)]
+pub struct CursorStats {
+    /// Total number of `find_at()` calls.
+    pub lookups: u32,
+    /// Declarations skipped during forward scan.
+    pub skipped: u32,
+    /// Declarations that could not be reused (intersected change).
+    pub intersected: u32,
+}
+
+impl CursorStats {
+    /// Total declarations examined.
+    #[inline]
+    pub fn total_examined(&self) -> u32 {
+        self.skipped + self.intersected
+    }
+}
+
 /// Navigator for finding reusable declarations in an old AST.
 pub struct SyntaxCursor<'old> {
     module: &'old Module,
@@ -138,6 +157,7 @@ pub struct SyntaxCursor<'old> {
     marker: ChangeMarker,
     declarations: Vec<DeclRef>,
     current_index: usize,
+    stats: CursorStats,
 }
 
 impl<'old> SyntaxCursor<'old> {
@@ -150,6 +170,7 @@ impl<'old> SyntaxCursor<'old> {
             marker,
             declarations,
             current_index: 0,
+            stats: CursorStats::default(),
         }
     }
 
@@ -176,12 +197,15 @@ impl<'old> SyntaxCursor<'old> {
     ///
     /// Returns `None` if no suitable declaration is found.
     pub fn find_at(&mut self, pos: u32) -> Option<DeclRef> {
+        self.stats.lookups += 1;
+
         // Advance past declarations that end before pos
         while self.current_index < self.declarations.len() {
             let decl = self.declarations[self.current_index];
             if decl.span.end > pos {
                 break;
             }
+            self.stats.skipped += 1;
             self.current_index += 1;
         }
 
@@ -193,6 +217,7 @@ impl<'old> SyntaxCursor<'old> {
 
         // Check if the declaration can be reused (doesn't intersect affected region)
         if self.marker.intersects(decl.span) {
+            self.stats.intersected += 1;
             None
         } else {
             Some(decl)
@@ -209,6 +234,16 @@ impl<'old> SyntaxCursor<'old> {
     /// Check if all declarations have been processed.
     pub fn is_exhausted(&self) -> bool {
         self.current_index >= self.declarations.len()
+    }
+
+    /// Get cursor navigation statistics.
+    pub fn stats(&self) -> &CursorStats {
+        &self.stats
+    }
+
+    /// Get the total number of declarations in the old AST.
+    pub fn total_declarations(&self) -> usize {
+        self.declarations.len()
     }
 }
 
@@ -1641,6 +1676,53 @@ mod tests {
         stats.reused_count = 8;
         stats.reparsed_count = 2;
         assert!((stats.reuse_rate() - 80.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_cursor_stats() {
+        let mut module = Module::new();
+
+        // Add three functions at non-overlapping spans
+        for (start, end) in [(0, 30), (40, 70), (80, 110)] {
+            module.functions.push(Function {
+                name: Name::EMPTY,
+                generics: ori_ir::GenericParamRange::EMPTY,
+                params: ori_ir::ParamRange::EMPTY,
+                return_ty: None,
+                capabilities: Vec::new(),
+                where_clauses: Vec::new(),
+                guard: None,
+                body: ExprId::INVALID,
+                span: Span::new(start, end),
+                visibility: ori_ir::Visibility::Private,
+            });
+        }
+
+        let arena = ExprArena::new();
+        // Change at position 50 (inside second function)
+        let change = TextChange::new(50, 55, 10);
+        let marker = ChangeMarker::from_change(&change, 45);
+        let mut cursor = SyntaxCursor::new(&module, &arena, marker);
+
+        // Stats should be zero initially
+        assert_eq!(cursor.stats().lookups, 0);
+        assert_eq!(cursor.stats().skipped, 0);
+
+        // Find first declaration (should succeed)
+        let first = cursor.find_at(0);
+        assert!(first.is_some());
+        assert_eq!(cursor.stats().lookups, 1);
+        assert_eq!(cursor.stats().skipped, 0); // No skipping needed
+
+        // Advance and look for second (which intersects change)
+        cursor.advance();
+        let second = cursor.find_at(40);
+        assert!(second.is_none()); // Can't reuse, intersects change
+        assert_eq!(cursor.stats().lookups, 2);
+        assert_eq!(cursor.stats().intersected, 1);
+
+        // Total declarations
+        assert_eq!(cursor.total_declarations(), 3);
     }
 
     #[test]

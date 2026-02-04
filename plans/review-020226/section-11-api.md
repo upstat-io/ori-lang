@@ -185,8 +185,8 @@ Look for manual save/restore patterns:
 - [ ] Config structs for 4+ parameter functions
 - [ ] RAII guards for context manipulation
 - [ ] Public items documented
-- [ ] `./clippy-all` passes
-- [ ] `./test-all` passes
+- [ ] `./clippy-all.sh` passes
+- [ ] `./test-all.sh` passes
 
 ---
 

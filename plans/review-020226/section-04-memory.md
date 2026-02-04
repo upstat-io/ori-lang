@@ -159,8 +159,8 @@ Error paths are now marked cold to help the optimizer focus on hot paths.
 
 ## 04.8 Verification
 
-- [x] `./clippy-all` passes
-- [x] `./test-all` passes (6,370 tests, 0 failures)
+- [x] `./clippy-all.sh` passes
+- [x] `./test-all.sh` passes (6,370 tests, 0 failures)
 - [ ] ~~Grep for `to_string()` in hot paths~~ (deferred with hot path work)
 - [ ] ~~Profile before/after~~ (deferred)
 

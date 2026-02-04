@@ -502,6 +502,6 @@ Package management for Ori projects with registry support.
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage
 - [ ] Benchmarks
-- [ ] Run full test suite: `./test-all`
+- [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: Full tooling support

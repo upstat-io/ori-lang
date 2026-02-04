@@ -145,8 +145,8 @@ After converting to `Result`, errors need to flow to the diagnostic system:
 
 - [ ] Grep for `panic!` in non-test code — should be minimal
 - [ ] Grep for `unwrap()` on user input paths — should be zero
-- [ ] `./clippy-all` passes
-- [ ] `./test-all` passes
+- [ ] `./clippy-all.sh` passes
+- [ ] `./test-all.sh` passes
 
 ---
 
@@ -159,6 +159,6 @@ After converting to `Result`, errors need to flow to the diagnostic system:
 - [x] `EvalError` has span field and `with_span()` builder
 - [ ] Evaluator consistently attaches spans at error sites
 - [ ] Error codes added for infrastructure errors (E9xxx)
-- [ ] `./test-all` passes
+- [ ] `./test-all.sh` passes
 
 **Exit Criteria:** No `panic!` on recoverable user-triggered errors; all errors flow to diagnostic system with source spans

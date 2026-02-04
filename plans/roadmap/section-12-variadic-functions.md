@@ -322,7 +322,7 @@ Defer to future consideration. Current section focuses on function parameters on
 - [ ] Homogeneous variadics work
 - [ ] Spread operator works
 - [ ] C variadic interop works (after Section 11)
-- [ ] All tests pass: `./test-all`
+- [ ] All tests pass: `./test-all.sh`
 
 **Exit Criteria**: Can implement `format()` and call C's `printf()`
 

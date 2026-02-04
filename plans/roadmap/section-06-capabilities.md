@@ -430,7 +430,7 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
 - [x] Spec updated: `spec/14-capabilities.md` reflects implementation
 - [x] CLAUDE.md updated with capabilities syntax
 - [x] 27 capability tests passing
-- [x] Full test suite: `./test-all`
+- [x] Full test suite: `./test-all.sh`
 
 **Exit Criteria**: Effect tracking works per spec (6.1-6.9, 6.10-6.14 pending)
 

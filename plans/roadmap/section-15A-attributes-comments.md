@@ -223,6 +223,6 @@ Simplify doc comment syntax by removing verbose markers:
 - [ ] All spec docs updated
 - [ ] CLAUDE.md updated with syntax changes
 - [ ] Migration tools working
-- [ ] All tests pass: `./test-all`
+- [ ] All tests pass: `./test-all.sh`
 
 **Exit Criteria**: Attribute syntax, comment rules, and doc comment syntax implemented

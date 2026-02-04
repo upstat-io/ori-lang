@@ -95,7 +95,7 @@ If you use [lefthook](https://github.com/evilmartians/lefthook), the `version-sy
 
 1. **Bump version**: `./scripts/release.sh <new-version>`
 2. **Review changes**: `git diff`
-3. **Run tests**: `./test-all`
+3. **Run tests**: `./test-all.sh`
 4. **Commit**: `git commit -am "chore: bump version to <new-version>"`
 5. **Tag**: `git tag v<new-version>`
 6. **Push**: `git push origin master --tags`

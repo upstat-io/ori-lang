@@ -95,6 +95,6 @@ All 13 compile-fail tests pass: `ori test tests/compile-fail/`
 - [x] All 2.3 items complete
 - [x] 256 unit tests pass
 - [x] Spec and compile-fail tests pass
-- [x] Run full test suite: `./test-all`
+- [x] Run full test suite: `./test-all.sh`
 
 **Exit Criteria Met**: Complete type inference with error messages and hints.

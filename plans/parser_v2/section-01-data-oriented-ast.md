@@ -1,31 +1,90 @@
 ---
 section: "01"
 title: Data-Oriented AST
-status: not-started
+status: in-progress
 goal: Replace pointer-based AST with index-based, cache-friendly storage
 sections:
   - id: "01.1"
     title: MultiArrayList-style Storage
-    status: not-started
+    status: analysis-complete
   - id: "01.2"
     title: Index-based Node References
-    status: not-started
+    status: already-implemented
   - id: "01.3"
     title: Extra Data Buffer
-    status: not-started
+    status: already-implemented
   - id: "01.4"
     title: Pre-allocation Heuristics
-    status: not-started
+    status: already-implemented
   - id: "01.5"
     title: Scratch Buffer Integration
-    status: not-started
+    status: deferred
 ---
 
 # Section 01: Data-Oriented AST
 
-**Status:** 📋 Planned
+**Status:** 🔄 In Progress (analysis complete, evaluating SoA migration)
 **Goal:** Achieve 2-3x memory efficiency and improved cache locality through Zig-inspired data layout
 **Source:** Zig compiler (`lib/std/zig/Parse.zig`, `lib/std/zig/Ast.zig`)
+
+---
+
+## Current State Analysis (2026-02-04)
+
+Investigation revealed that **Ori already has strong data-oriented foundations**:
+
+### Existing Implementation (Already Optimal)
+
+| Feature | Plan Target | Current Ori | Status |
+|---------|-------------|-------------|--------|
+| Index-based refs | `NodeIdx(u32)` | `ExprId(u32)` | ✅ Already 4 bytes |
+| Extra data buffer | `Vec<u32>` | `expr_lists: Vec<ExprId>` | ✅ Flat lists |
+| Pre-allocation | Source-based heuristics | `with_capacity(source_len/20)` | ✅ Implemented |
+| Two-tier storage | 0-2 inline | `ExprList` inline 0-2 | ✅ Implemented |
+| Range types | 8 bytes | `ExprRange { start: u32, len: u16 }` | ✅ 8 bytes |
+
+### Current Memory Layout
+
+```rust
+// ExprArena - flat Vec-based storage (good)
+pub struct ExprArena {
+    exprs: Vec<Expr>,           // Main expression storage
+    expr_lists: Vec<ExprId>,    // Flattened lists (extra buffer)
+    stmts: Vec<Stmt>,           // Statement storage
+    params: Vec<Param>,         // Parameter storage
+    // ... 10+ more specialized vectors
+}
+
+// Expr - two fields (could be split for SoA)
+pub struct Expr {
+    pub kind: ExprKind,  // ~56+ bytes (large enum)
+    pub span: Span,      // 8 bytes
+}
+```
+
+### SoA Migration Evaluation
+
+**Potential SoA structure:**
+```rust
+pub struct AstStorage {
+    tags: Vec<ExprTag>,      // 1 byte each
+    spans: Vec<Span>,        // 8 bytes each
+    data: Vec<ExprData>,     // Variable per kind
+}
+```
+
+**Trade-offs:**
+| Aspect | Current (AoS) | SoA |
+|--------|---------------|-----|
+| Cache locality for spans | Load 64+ bytes | Load 8 bytes |
+| Cache locality for kinds | Load 64+ bytes | Load 1 byte tag + data |
+| Code complexity | Simple `get_expr(id)` | Multiple arrays to sync |
+| Migration effort | N/A | ~40 ExprKind variants, entire codebase |
+| Risk | N/A | High - touches type checker, evaluator |
+
+**Decision:** The current implementation is already quite efficient. Full SoA migration would require significant refactoring across the entire codebase. Recommend **deferring** until profiling shows spans/tags are a bottleneck.
+
+---
 
 ---
 

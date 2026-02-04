@@ -272,9 +272,9 @@ The backend links against runtime functions for operations that require heap all
 The LLVM crate is built locally with LLVM 17+:
 
 ```bash
-./llvm-build    # Build the crate
-./llvm-test     # Run unit tests
-./llvm-clippy   # Run clippy
+./llvm-build.sh    # Build the crate
+./llvm-test.sh     # Run unit tests
+./llvm-clippy.sh   # Run clippy
 ```
 
 Formatting works without special setup:

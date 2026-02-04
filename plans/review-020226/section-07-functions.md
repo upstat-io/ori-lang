@@ -154,8 +154,8 @@ Lower priority, fix when touching these files:
 
 - [ ] No functions >100 lines (except complex match dispatchers)
 - [ ] All functions <50 lines (target <30)
-- [ ] `./clippy-all` passes
-- [ ] `./test-all` passes
+- [ ] `./clippy-all.sh` passes
+- [ ] `./test-all.sh` passes
 
 ---
 
@@ -167,6 +167,6 @@ Lower priority, fix when touching these files:
 - [x] main acceptable as flat command dispatch
 - [x] infer_expr_inner reviewed (similar pattern to eval_inner, already delegated)
 - [x] Large functions are dispatchers with clear structure
-- [x] `./test-all` passes (1693 Ori spec tests)
+- [x] `./test-all.sh` passes (1693 Ori spec tests)
 
 **Exit Criteria:** ✅ Key extractions complete; remaining large functions are acceptable dispatchers with single-line delegations

@@ -522,6 +522,6 @@ Test results are cached for incremental builds.
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage, tests against spec/design
-- [ ] Run full test suite: `./test-all`
+- [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: Tests are mandatory, dependency-aware, and run correctly

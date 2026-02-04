@@ -628,7 +628,7 @@ impl FixedSize for [int, max 5] {
 - [ ] `$N: int` const parameters in types work
 - [ ] Const expressions in type positions work
 - [ ] Const bounds work
-- [ ] All tests pass: `./test-all`
+- [ ] All tests pass: `./test-all.sh`
 
 **Exit Criteria**: Can implement a matrix library with compile-time dimension checking
 

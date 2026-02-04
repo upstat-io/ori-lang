@@ -7,6 +7,7 @@ mod cursor;
 mod error;
 mod grammar;
 pub mod incremental;
+mod outcome;
 mod progress;
 mod recovery;
 mod scratch;
@@ -18,11 +19,16 @@ mod tests;
 
 pub use context::ParseContext;
 pub use cursor::Cursor;
-pub use error::ParseError;
+pub use error::{ErrorContext, ParseError};
+pub use outcome::ParseOutcome;
 pub use progress::{ParseResult, Progress, WithProgress};
 pub use recovery::{synchronize, TokenSet, FUNCTION_BOUNDARY, STMT_BOUNDARY};
 pub use series::{SeriesConfig, TrailingSeparator};
 pub use snapshot::ParserSnapshot;
+
+// Re-export backtracking macros at crate root
+// Note: These are defined in outcome.rs and use #[macro_export]
+// They're automatically available at crate root via #[macro_export]
 
 use ori_ir::{
     ExprArena, Function, Module, Name, Span, StringInterner, TestDef, Token, TokenKind, TokenList,
@@ -135,6 +141,85 @@ impl<'a> Parser<'a> {
         self.context.allows_struct_lit()
     }
 
+    // --- Error Context ---
+    //
+    // These methods support Elm-style error context for better error messages.
+    // `ErrorContext` describes what was being parsed when an error occurred,
+    // enabling messages like "while parsing an if expression".
+    //
+    // Note: This is distinct from `ParseContext` (the bitfield for context-sensitive
+    // parsing behavior like NO_STRUCT_LIT).
+
+    /// Execute a parser and wrap any hard errors with context.
+    ///
+    /// This is the Elm-style `in_context` pattern. It:
+    /// 1. Runs the provided parser
+    /// 2. If it returns `ConsumedErr`, wraps the error with context
+    /// 3. Passes through all other outcomes unchanged
+    ///
+    /// Use this to provide better error messages like "while parsing an if expression".
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
+    ///     self.in_error_context(ErrorContext::IfExpression, |p| {
+    ///         p.expect(&TokenKind::If)?;
+    ///         let cond = p.parse_expr()?;
+    ///         // ...
+    ///     })
+    /// }
+    /// ```
+    ///
+    /// # Error Messages
+    ///
+    /// Without context: "expected expression, found `}`"
+    /// With context: "expected expression, found `}` (while parsing an if expression)"
+    #[inline]
+    #[allow(dead_code)] // Infrastructure for enhanced error messages
+    pub(crate) fn in_error_context<T, F>(
+        &mut self,
+        context: error::ErrorContext,
+        f: F,
+    ) -> ParseOutcome<T>
+    where
+        F: FnOnce(&mut Self) -> ParseOutcome<T>,
+    {
+        f(self).with_error_context(context)
+    }
+
+    /// Execute a parser returning `Result` and wrap any errors with context.
+    ///
+    /// Like `in_error_context` but for functions that return `Result<T, ParseError>`
+    /// instead of `ParseOutcome<T>`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// fn parse_pattern(&mut self) -> Result<PatternId, ParseError> {
+    ///     self.in_error_context_result(ErrorContext::Pattern, |p| {
+    ///         // ... parsing that returns Result ...
+    ///     })
+    /// }
+    /// ```
+    #[inline]
+    #[allow(dead_code)] // Infrastructure for enhanced error messages
+    pub(crate) fn in_error_context_result<T, F>(
+        &mut self,
+        context: error::ErrorContext,
+        f: F,
+    ) -> Result<T, ParseError>
+    where
+        F: FnOnce(&mut Self) -> Result<T, ParseError>,
+    {
+        f(self).map_err(|mut err| {
+            if err.context.is_none() {
+                err.context = Some(format!("while parsing {}", context.description()));
+            }
+            err
+        })
+    }
+
     /// Cursor delegation methods - delegate to the underlying Cursor for token navigation.
     #[inline]
     fn current(&self) -> &Token {
@@ -233,6 +318,42 @@ impl<'a> Parser<'a> {
     #[inline]
     fn expect(&mut self, kind: &TokenKind) -> Result<&Token, ParseError> {
         self.cursor.expect(kind)
+    }
+
+    /// Check if the current token matches any kind in the set.
+    ///
+    /// Unlike `check()`, this tests against multiple token kinds at once.
+    /// Returns `true` if any match is found.
+    #[inline]
+    #[allow(dead_code)] // Infrastructure for enhanced error messages
+    pub(crate) fn check_one_of(&self, expected: &TokenSet) -> bool {
+        expected.contains(self.current_kind())
+    }
+
+    /// Expect one of several token kinds, generating a helpful error if none match.
+    ///
+    /// Uses `TokenSet::format_expected()` to generate messages like
+    /// "expected `,`, `)`, or `}`, found `+`".
+    ///
+    /// Returns the matched token kind on success.
+    #[cold]
+    #[allow(dead_code)] // Infrastructure for enhanced error messages
+    pub(crate) fn expect_one_of(&mut self, expected: &TokenSet) -> Result<TokenKind, ParseError> {
+        let current = self.current_kind().clone();
+        if expected.contains(&current) {
+            self.advance();
+            Ok(current)
+        } else {
+            Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1001,
+                format!(
+                    "expected {}, found `{}`",
+                    expected.format_expected(),
+                    current.display_name()
+                ),
+                self.current_span(),
+            ))
+        }
     }
 
     #[inline]

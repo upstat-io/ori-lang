@@ -653,7 +653,7 @@ Causes a compile-time error with the given message. Valid only in compile-time e
 - [ ] Compile-time constants work
 - [ ] Dead code elimination works
 - [ ] Build system integration complete
-- [ ] All tests pass: `./test-all`
+- [ ] All tests pass: `./test-all.sh`
 
 **Exit Criteria**: Can build a cross-platform CLI tool with platform-specific implementations
 

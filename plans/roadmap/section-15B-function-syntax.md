@@ -471,6 +471,6 @@ error[E2011]: named arguments required for direct function calls
 - [ ] All spec docs updated
 - [ ] CLAUDE.md updated with syntax changes
 - [ ] Migration tools working
-- [ ] All tests pass: `./test-all`
+- [ ] All tests pass: `./test-all.sh`
 
 **Exit Criteria**: Function syntax proposals implemented

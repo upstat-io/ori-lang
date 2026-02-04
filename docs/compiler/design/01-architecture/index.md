@@ -427,8 +427,8 @@ The `ori_llvm` crate provides native code generation via LLVM 17. It is now **pa
 - `LlvmEvaluator`: JIT execution for running compiled code
 
 **Development workflow:**
-- Unit tests require Docker (LLVM environment): `./llvm-test`
-- Build/clippy/format run directly: `./llvm-build`, `./llvm-clippy`, `cargo fmt --manifest-path compiler/ori_llvm/Cargo.toml`
+- Unit tests require Docker (LLVM environment): `./llvm-test.sh`
+- Build/clippy/format run directly: `./llvm-build.sh`, `./llvm-clippy.sh`, `cargo fmt --manifest-path compiler/ori_llvm/Cargo.toml`
 
 See `.claude/rules/llvm.md` for development guidelines.
 

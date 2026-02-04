@@ -581,7 +581,7 @@ Formalizes semantics for `timeout` and `spawn` patterns including cancellation b
 - [ ] Cancellation semantics working (cooperative, checkpoints, is_cancelled)
 - [ ] Timeout pattern working (returns CancellationError, cooperative cancellation)
 - [ ] Spawn pattern working (fire-and-forget, task escapes scope, errors discarded)
-- [ ] All tests pass: `./test-all`
+- [ ] All tests pass: `./test-all.sh`
 
 **Exit Criteria**: Can write producer/consumer pipeline with ownership safety and proper cancellation
 

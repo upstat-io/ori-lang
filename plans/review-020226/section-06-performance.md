@@ -174,8 +174,8 @@ Location: `compiler/ori_typeck/src/checker/bound_checking.rs:294,299`
 ## 06.9 Verification
 
 - [ ] Profile before/after if benchmarks available
-- [ ] `./clippy-all` passes
-- [ ] `./test-all` passes
+- [ ] `./clippy-all.sh` passes
+- [ ] `./test-all.sh` passes
 - [ ] Large file compilation times improved
 
 ---
@@ -191,6 +191,6 @@ Location: `compiler/ori_typeck/src/checker/bound_checking.rs:294,299`
 - [x] FxHashMap used in ori_typeck/bound_checking.rs
 - [x] Repeated HashMap construction acceptable (low priority - see 06.5)
 - [x] `#[inline]` on hot accessors (CompileCtx methods)
-- [x] `./test-all` passes (1,693 Ori spec tests, 0 failures)
+- [x] `./test-all.sh` passes (1,693 Ori spec tests, 0 failures)
 
 **Exit Criteria:** ✅ All O(n²) patterns fixed or documented; FxHashMap used consistently in performance-critical code

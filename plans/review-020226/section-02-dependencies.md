@@ -63,7 +63,7 @@ files:
 
 - [x] Run `cargo machete` — reports no unused dependencies
 - [x] Run `cargo check --workspace` — compiles successfully
-- [x] Run `./test-all` — passes (6,367 tests, 0 failures)
+- [x] Run `./test-all.sh` — passes (6,367 tests, 0 failures)
 
 ---
 
@@ -72,7 +72,7 @@ files:
 - [x] 12 unused dependencies removed
 - [x] `cargo machete` reports clean
 - [x] `cargo check --workspace` passes
-- [x] `./test-all` passes
+- [x] `./test-all.sh` passes
 - [x] Build times potentially improved
 
 **Exit Criteria:** ✅ `cargo machete` reports no unused dependencies in compiler/
