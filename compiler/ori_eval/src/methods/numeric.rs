@@ -126,6 +126,28 @@ pub fn dispatch_int_method(
             let b = require_scalar_int_arg("compare", &args, 0)?;
             Ok(ordering_to_value(a.cmp(&b), interner))
         }
+        // Eq trait
+        "equals" => {
+            require_args("equals", 1, args.len())?;
+            let b = require_scalar_int_arg("equals", &args, 0)?;
+            Ok(Value::Bool(a == b))
+        }
+        // Clone trait (Copy semantics for primitives)
+        "clone" => {
+            require_args("clone", 0, args.len())?;
+            Ok(receiver)
+        }
+        // Printable and Debug traits
+        "to_str" | "debug" => {
+            require_args(method, 0, args.len())?;
+            Ok(Value::string(a.raw().to_string()))
+        }
+        // Hashable trait
+        "hash" => {
+            require_args("hash", 0, args.len())?;
+            // For integers, use the value itself as its hash (simple but effective)
+            Ok(Value::Int(a))
+        }
         _ => Err(no_such_method(method, "int")),
     }
 }
@@ -176,6 +198,32 @@ pub fn dispatch_float_method(
             let b = require_float_arg("compare", &args, 0)?;
             // Use total_cmp for IEEE 754 total ordering (handles NaN consistently)
             Ok(ordering_to_value(a.total_cmp(&b), interner))
+        }
+        // Eq trait - exact bit comparison (intentional for float equality)
+        "equals" => {
+            require_args("equals", 1, args.len())?;
+            let b = require_float_arg("equals", &args, 0)?;
+            #[expect(
+                clippy::float_cmp,
+                reason = "Exact float equality is intentional for Eq trait"
+            )]
+            Ok(Value::Bool(a == b))
+        }
+        // Clone trait (Copy semantics for primitives)
+        "clone" => {
+            require_args("clone", 0, args.len())?;
+            Ok(receiver)
+        }
+        // Printable and Debug traits
+        "to_str" | "debug" => {
+            require_args(method, 0, args.len())?;
+            Ok(Value::string(a.to_string()))
+        }
+        // Hashable trait
+        "hash" => {
+            require_args("hash", 0, args.len())?;
+            // Use bits representation for consistent hashing
+            Ok(Value::int(a.to_bits().cast_signed()))
         }
         _ => Err(no_such_method(method, "float")),
     }

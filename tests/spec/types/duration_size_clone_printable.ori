@@ -169,11 +169,12 @@ use std.testing { assert, assert_eq }
 
 @test_size_clone_independent tests @size_clone_indep () -> void = run(
     // Modifying original doesn't affect clone
+    // SI units: 1kb = 1000b, so 1kb + 512b = 1512b
     let s1 = 1kb,
     let s2 = s1.clone(),
     let s3 = s1 + 512b,
     assert_eq(actual: s2, expected: 1kb),
-    assert_eq(actual: s3, expected: 1536b),
+    assert_eq(actual: s3, expected: 1512b),
 )
 
 @size_clone_indep () -> bool = run(

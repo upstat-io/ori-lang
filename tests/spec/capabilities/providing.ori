@@ -1,4 +1,6 @@
 // Spec: 14-capabilities.md § Providing Capabilities
+
+use std.testing { assert_eq }
 // Tests for with...in expression (capability provision)
 
 // =============================================================================

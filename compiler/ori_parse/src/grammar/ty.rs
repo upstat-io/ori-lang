@@ -87,9 +87,36 @@ impl Parser<'_> {
                 Some(base_type)
             }
         } else if self.check(&TokenKind::LBracket) {
-            // [T] list type
+            // [T] list type or [T, max N] fixed-capacity list type
             self.advance(); // [
             let inner = self.parse_type()?;
+
+            // Check for fixed-capacity syntax: [T, max N]
+            if self.check(&TokenKind::Comma) {
+                self.advance(); // ,
+                                // Expect `max` identifier
+                if let TokenKind::Ident(name) = self.current_kind() {
+                    if self.interner().lookup(*name) == "max" {
+                        self.advance(); // max
+                                        // Parse capacity (integer literal)
+                        if let TokenKind::Int(capacity) = *self.current_kind() {
+                            self.advance(); // capacity
+                            if self.check(&TokenKind::RBracket) {
+                                self.advance(); // ]
+                            }
+                            let elem_id = self.arena.alloc_parsed_type(inner);
+                            return Some(ParsedType::fixed_list(elem_id, capacity));
+                        }
+                    }
+                }
+                // If we get here, malformed fixed-capacity syntax - just return list
+                if self.check(&TokenKind::RBracket) {
+                    self.advance(); // ]
+                }
+                let elem_id = self.arena.alloc_parsed_type(inner);
+                return Some(ParsedType::list(elem_id));
+            }
+
             if self.check(&TokenKind::RBracket) {
                 self.advance(); // ]
             }

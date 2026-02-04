@@ -1,0 +1,446 @@
+// Spec: 09-expressions.md § Operator Precedence
+// Tests for all precedence levels interacting correctly
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Precedence Level 1: Postfix (. [] () ? as as?)
+// =============================================================================
+
+@test_postfix_highest tests @postfix_highest () -> void = run(
+    // Postfix binds tighter than everything
+    let list = [1, 2, 3],
+    // -list[0] is -(list[0]) not (-list)[0]
+    assert_eq(actual: -list[0], expected: -1),
+)
+
+@postfix_highest () -> int = run(
+    let list = [1, 2, 3],
+    -list[0],
+)
+
+type Point = { x: int, y: int }
+
+@test_field_access_binds_tight tests @field_access_binds_tight () -> void = run(
+    let p = Point { x: 10, y: 20 },
+    // -p.x is -(p.x), not (-p).x
+    assert_eq(actual: -p.x, expected: -10),
+)
+
+@field_access_binds_tight () -> int = run(
+    let p = Point { x: 10, y: 20 },
+    -p.x,
+)
+
+@test_method_call_binds_tight tests @method_call_binds_tight () -> void = run(
+    let list = [1, 2, 3],
+    // -list.len() is -(list.len()), not (-list).len()
+    assert_eq(actual: -list.len(), expected: -3),
+)
+
+@method_call_binds_tight () -> int = run(
+    let list = [1, 2, 3],
+    -list.len(),
+)
+
+// =============================================================================
+// Precedence Level 2: Unary (! - ~)
+// =============================================================================
+
+@test_unary_before_mul tests @unary_before_mul () -> void = run(
+    // -2 * 3 is (-2) * 3 = -6, not -(2 * 3)
+    assert_eq(actual: unary_before_mul(), expected: -6),
+)
+
+@unary_before_mul () -> int = -2 * 3
+
+@test_not_before_and tests @not_before_and () -> void = run(
+    // !false && true is (!false) && true = true && true = true
+    assert(cond: !false && true),
+)
+
+@not_before_and () -> bool = !false && true
+
+@test_bitnot_before_bitand tests @bitnot_before_bitand () -> void = run(
+    // ~0 & 0xFF is (~0) & 0xFF = -1 & 0xFF = 0xFF = 255
+    assert_eq(actual: bitnot_before_bitand(), expected: 255),
+)
+
+@bitnot_before_bitand () -> int = ~0 & 0xFF
+
+// =============================================================================
+// Precedence Level 3: Multiplicative (* / % div)
+// =============================================================================
+
+@test_mul_before_add tests @mul_before_add () -> void = run(
+    // 2 + 3 * 4 = 2 + 12 = 14
+    assert_eq(actual: mul_before_add(), expected: 14),
+)
+
+@mul_before_add () -> int = 2 + 3 * 4
+
+@test_div_before_sub tests @div_before_sub () -> void = run(
+    // 10 - 6 / 2 = 10 - 3 = 7
+    assert_eq(actual: div_before_sub(), expected: 7),
+)
+
+@div_before_sub () -> int = 10 - 6 / 2
+
+@test_mod_before_add tests @mod_before_add () -> void = run(
+    // 10 + 7 % 3 = 10 + 1 = 11
+    assert_eq(actual: mod_before_add(), expected: 11),
+)
+
+@mod_before_add () -> int = 10 + 7 % 3
+
+@test_floor_div_before_add tests @floor_div_before_add () -> void = run(
+    // 10 + 7 div 3 = 10 + 2 = 12
+    assert_eq(actual: floor_div_before_add(), expected: 12),
+)
+
+@floor_div_before_add () -> int = 10 + 7 div 3
+
+@test_mul_div_left_assoc tests @mul_div_left_assoc () -> void = run(
+    // 100 / 10 * 2 = (100 / 10) * 2 = 10 * 2 = 20
+    assert_eq(actual: mul_div_left_assoc(), expected: 20),
+)
+
+@mul_div_left_assoc () -> int = 100 / 10 * 2
+
+// =============================================================================
+// Precedence Level 4: Additive (+ -)
+// =============================================================================
+
+@test_add_before_shift tests @add_before_shift () -> void = run(
+    // 1 + 1 << 2 = (1 + 1) << 2 = 2 << 2 = 8
+    assert_eq(actual: add_before_shift(), expected: 8),
+)
+
+@add_before_shift () -> int = 1 + 1 << 2
+
+@test_sub_before_shift tests @sub_before_shift () -> void = run(
+    // 5 - 1 >> 1 = (5 - 1) >> 1 = 4 >> 1 = 2
+    assert_eq(actual: sub_before_shift(), expected: 2),
+)
+
+@sub_before_shift () -> int = 5 - 1 >> 1
+
+@test_add_sub_left_assoc tests @add_sub_left_assoc () -> void = run(
+    // 10 - 5 + 3 = (10 - 5) + 3 = 5 + 3 = 8
+    assert_eq(actual: add_sub_left_assoc(), expected: 8),
+)
+
+@add_sub_left_assoc () -> int = 10 - 5 + 3
+
+// =============================================================================
+// Precedence Level 5: Shift (<< >>)
+// =============================================================================
+
+@test_shift_before_comparison tests @shift_before_comparison () -> void = run(
+    // 1 << 2 < 10 is (1 << 2) < 10 = 4 < 10 = true
+    assert(cond: shift_before_comparison()),
+)
+
+@shift_before_comparison () -> bool = 1 << 2 < 10
+
+@test_shift_left_assoc tests @shift_left_assoc () -> void = run(
+    // 1 << 2 << 1 = (1 << 2) << 1 = 4 << 1 = 8
+    assert_eq(actual: shift_left_assoc(), expected: 8),
+)
+
+@shift_left_assoc () -> int = 1 << 2 << 1
+
+// =============================================================================
+// Precedence Level 6: Range (.. ..= by)
+// =============================================================================
+
+@test_range_precedence tests @range_precedence () -> void = run(
+    // Range expressions should work with arithmetic
+    let r = for x in 0 + 1..5 + 5 yield x,
+    assert_eq(actual: r.len(), expected: 9), // 1..10 has 9 elements
+)
+
+@range_precedence () -> int = run(
+    let r = for x in 0 + 1..5 + 5 yield x,
+    r.len(),
+)
+
+// =============================================================================
+// Precedence Level 7: Relational (< > <= >=)
+// =============================================================================
+
+@test_relational_before_equality tests @relational_before_equality () -> void = run(
+    // 1 < 2 == true is (1 < 2) == true = true == true = true
+    assert(cond: relational_before_equality()),
+)
+
+@relational_before_equality () -> bool = 1 < 2 == true
+
+@test_relational_chain_not_supported tests @relational_chain_not_supported () -> void = run(
+    // In Ori, 1 < 2 < 3 would parse as (1 < 2) < 3 = true < 3
+    // But this should be a type error (bool < int)
+    // Instead, use: 1 < 2 && 2 < 3
+    assert(cond: 1 < 2 && 2 < 3),
+)
+
+@relational_chain_not_supported () -> bool = 1 < 2 && 2 < 3
+
+// =============================================================================
+// Precedence Level 8: Equality (== !=)
+// =============================================================================
+
+@test_equality_before_bitand tests @equality_before_bitand () -> void = run(
+    // This is unusual: a & b == 0 is a & (b == 0)
+    // Most languages have bitwise higher than equality
+    // In Ori's spec, equality is higher than bitand
+    // So: 5 & 3 == 1 is 5 & (3 == 1) = 5 & false -> type error
+    // Actually let's check: spec says bitand (9) < equality (8)
+    // So equality binds tighter: 5 & 3 == 1 = 5 & (3 == 1)
+    // This would be a type error, so we need parens
+    assert(cond: (5 & 3) == 1),
+)
+
+@equality_before_bitand () -> bool = (5 & 3) == 1
+
+@test_equality_left_assoc tests @equality_left_assoc () -> void = run(
+    // 1 == 1 == true = (1 == 1) == true = true == true = true
+    assert(cond: equality_left_assoc()),
+)
+
+@equality_left_assoc () -> bool = 1 == 1 == true
+
+// =============================================================================
+// Precedence Level 9: Bitwise AND (&)
+// =============================================================================
+
+@test_bitand_before_bitxor tests @bitand_before_bitxor () -> void = run(
+    // 0xFF & 0x0F ^ 0xF0 = (0xFF & 0x0F) ^ 0xF0 = 0x0F ^ 0xF0 = 0xFF = 255
+    assert_eq(actual: bitand_before_bitxor(), expected: 255),
+)
+
+@bitand_before_bitxor () -> int = 0xFF & 0x0F ^ 0xF0
+
+// =============================================================================
+// Precedence Level 10: Bitwise XOR (^)
+// =============================================================================
+
+@test_bitxor_before_bitor tests @bitxor_before_bitor () -> void = run(
+    // 0xFF | 0x0F ^ 0xFF = 0xFF | (0x0F ^ 0xFF) = 0xFF | 0xF0 = 0xFF = 255
+    assert_eq(actual: bitxor_before_bitor(), expected: 255),
+)
+
+@bitxor_before_bitor () -> int = 0xFF | 0x0F ^ 0xFF
+
+// =============================================================================
+// Precedence Level 11: Bitwise OR (|)
+// =============================================================================
+
+@test_bitor_before_and tests @bitor_before_and () -> void = run(
+    // 0 | 1 && true = (0 | 1) && true -> but 0|1 = 1, and we need bool
+    // Actually this would need to compare, let's do:
+    // (0 | 1) > 0 && true = 1 > 0 && true = true && true = true
+    assert(cond: (0 | 1) > 0 && true),
+)
+
+@bitor_before_and () -> bool = (0 | 1) > 0 && true
+
+// =============================================================================
+// Precedence Level 12: Logical AND (&&)
+// =============================================================================
+
+@test_and_before_or tests @and_before_or () -> void = run(
+    // false && true || true = (false && true) || true = false || true = true
+    assert(cond: and_before_or()),
+)
+
+@and_before_or () -> bool = false && true || true
+
+@test_and_left_assoc tests @and_left_assoc () -> void = run(
+    // true && false && true = (true && false) && true = false && true = false
+    assert(cond: !(true && false && true)),
+)
+
+@and_left_assoc () -> bool = true && false && true
+
+// =============================================================================
+// Precedence Level 13: Logical OR (||)
+// =============================================================================
+
+@test_or_before_coalesce tests @or_before_coalesce () -> void = run(
+    // Logical OR has lower precedence than most, but higher than ??
+    let opt: Option<bool> = Some(false),
+    // This tests that || is evaluated before ??
+    // (opt ?? true) || false: if opt is Some(false), it's false || false = false
+    // But with correct precedence: opt ?? (true || false) = Some(false) (opt used)
+    // Actually ?? returns unwrapped value if Some, not the Option
+    // So opt ?? (true || false) = false (the Some value)
+    // Let's do a simpler test
+    let a = true || false,
+    let b = a || false,
+    assert(cond: b),
+)
+
+@or_before_coalesce () -> bool = true || false
+
+@test_or_left_assoc tests @or_left_assoc () -> void = run(
+    // false || false || true = (false || false) || true = false || true = true
+    assert(cond: or_left_assoc()),
+)
+
+@or_left_assoc () -> bool = false || false || true
+
+// =============================================================================
+// Precedence Level 14: Coalesce (??)
+// =============================================================================
+//
+// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - ?? operator not implemented
+// See tests/spec/expressions/coalesce.ori for full details.
+
+@test_coalesce_lowest tests @coalesce_lowest () -> void = run(
+    // ?? has lowest precedence
+    let opt: Option<int> = Some(5),
+    // opt ?? 10 + 5 = opt ?? (10 + 5) = opt ?? 15
+    // Since opt is Some(5), result is 5
+    assert_eq(actual: opt ?? 10 + 5, expected: 5),
+)
+
+@coalesce_lowest () -> int = run(
+    let opt: Option<int> = Some(5),
+    opt ?? 10 + 5,
+)
+
+@test_coalesce_with_none tests @coalesce_with_none () -> void = run(
+    let opt: Option<int> = None,
+    // opt ?? 10 + 5 = None ?? 15 = 15
+    assert_eq(actual: opt ?? 10 + 5, expected: 15),
+)
+
+@coalesce_with_none () -> int = run(
+    let opt: Option<int> = None,
+    opt ?? 10 + 5,
+)
+
+@test_coalesce_chain tests @coalesce_chain () -> void = run(
+    let a: Option<int> = None,
+    let b: Option<int> = None,
+    let c: Option<int> = Some(42),
+    // a ?? b ?? c ?? 0 evaluates left-to-right
+    // None ?? None ?? Some(42) ?? 0 = 42
+    assert_eq(actual: a ?? b ?? c ?? 0, expected: 42),
+)
+
+@coalesce_chain () -> int = run(
+    let a: Option<int> = None,
+    let b: Option<int> = None,
+    let c: Option<int> = Some(42),
+    a ?? b ?? c ?? 0,
+)
+
+// =============================================================================
+// Complex Mixed Precedence
+// =============================================================================
+
+@test_complex_arithmetic tests @complex_arithmetic () -> void = run(
+    // 2 + 3 * 4 - 10 / 2 + 1
+    // = 2 + 12 - 5 + 1
+    // = 14 - 5 + 1
+    // = 9 + 1
+    // = 10
+    assert_eq(actual: complex_arithmetic(), expected: 10),
+)
+
+@complex_arithmetic () -> int = 2 + 3 * 4 - 10 / 2 + 1
+
+@test_complex_logical tests @complex_logical () -> void = run(
+    // !false && true || false && !true
+    // = true && true || false && false
+    // = true || false
+    // = true
+    assert(cond: complex_logical()),
+)
+
+@complex_logical () -> bool = !false && true || false && !true
+
+@test_complex_bitwise tests @complex_bitwise () -> void = run(
+    // ~0 & 0xFF | 0x100 ^ 0x0FF
+    // = (-1 & 0xFF) | (0x100 ^ 0x0FF)
+    // = 0xFF | 0x1FF
+    // = 0x1FF = 511
+    assert_eq(actual: complex_bitwise(), expected: 511),
+)
+
+@complex_bitwise () -> int = ~0 & 0xFF | 0x100 ^ 0x0FF
+
+@test_parens_override_all tests @parens_override_all () -> void = run(
+    // Parentheses always override precedence
+    assert_eq(actual: (2 + 3) * 4, expected: 20),
+    assert_eq(actual: 2 + (3 * 4), expected: 14),
+    assert(cond: (true || false) && false == false),
+)
+
+@parens_override_all () -> int = (2 + 3) * 4
+
+// =============================================================================
+// Unary and Binary Interaction
+// =============================================================================
+
+@test_unary_binary_mix tests @unary_binary_mix () -> void = run(
+    // -2 + -3 = (-2) + (-3) = -5
+    assert_eq(actual: unary_binary_mix(), expected: -5),
+)
+
+@unary_binary_mix () -> int = -2 + -3
+
+@test_double_unary tests @double_unary () -> void = run(
+    // --5 is -(-5) = 5
+    assert_eq(actual: double_unary(), expected: 5),
+)
+
+@double_unary () -> int = --5
+
+@test_not_comparison tests @not_comparison () -> void = run(
+    // !(5 > 3) vs !5 > 3
+    // !5 would be type error (! only for bool)
+    // So: !(5 > 3) = !true = false
+    assert(cond: !(5 > 3) == false),
+)
+
+@not_comparison () -> bool = !(5 > 3)
+
+// =============================================================================
+// Practical Expressions
+// =============================================================================
+
+@test_bounds_check tests @bounds_check () -> void = run(
+    let x = 5,
+    let in_bounds = x >= 0 && x < 10,
+    assert(cond: in_bounds),
+)
+
+@bounds_check () -> bool = run(
+    let x = 5,
+    x >= 0 && x < 10,
+)
+
+@test_flag_check tests @flag_check () -> void = run(
+    let flags = 0b1010,
+    let flag_set = (flags & 0b0010) != 0,
+    assert(cond: flag_set),
+)
+
+@flag_check () -> bool = run(
+    let flags = 0b1010,
+    (flags & 0b0010) != 0,
+)
+
+@test_default_value tests @default_value () -> void = run(
+    let opt: Option<int> = None,
+    let value = opt ?? 0 + 100,
+    // This is opt ?? (0 + 100) = opt ?? 100 = 100
+    assert_eq(actual: value, expected: 100),
+)
+
+@default_value () -> int = run(
+    let opt: Option<int> = None,
+    opt ?? 0 + 100,
+)

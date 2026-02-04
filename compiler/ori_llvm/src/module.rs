@@ -16,6 +16,7 @@ use inkwell::context::Context;
 use inkwell::values::FunctionValue;
 
 use ori_ir::{ExprArena, Function, Name, ParsedType, StringInterner, TestDef, TypeId};
+use ori_types::TypeInterner;
 
 use crate::builder::Builder;
 use crate::context::CodegenCx;
@@ -53,6 +54,21 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         Self { cx }
     }
 
+    /// Create a module compiler with a type interner for compound type resolution.
+    ///
+    /// The type interner allows proper LLVM type generation for compound types
+    /// like List, Map, Tuple, Option, Result, etc.
+    pub fn with_type_interner(
+        context: &'ll Context,
+        interner: &'tcx StringInterner,
+        type_interner: &'tcx TypeInterner,
+        module_name: &str,
+    ) -> Self {
+        let cx = CodegenCx::with_type_interner(context, interner, type_interner, module_name);
+
+        Self { cx }
+    }
+
     /// Get the codegen context.
     pub fn cx(&self) -> &CodegenCx<'ll, 'tcx> {
         &self.cx
@@ -68,18 +84,111 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         self.cx.declare_runtime_functions();
     }
 
-    /// Register a user-defined struct type.
+    /// Register a user-defined struct type with actual field types.
     ///
-    /// Creates an LLVM struct type with the given field names.
-    /// For now, all fields are mapped to i64 (matching the default fallback).
+    /// Creates an LLVM struct type with proper field types derived from
+    /// the parsed type annotations.
+    ///
+    /// # Arguments
+    /// - `name`: The struct type name
+    /// - `fields`: The struct fields with names and types
+    /// - `arena`: Expression arena for looking up nested types
+    pub fn register_struct_with_types(
+        &self,
+        name: Name,
+        fields: &[ori_ir::ast::StructField],
+        arena: &ExprArena,
+    ) {
+        let field_names: Vec<Name> = fields.iter().map(|f| f.name).collect();
+        let field_types: Vec<_> = fields
+            .iter()
+            .map(|f| self.parsed_type_to_llvm(&f.ty, arena))
+            .collect();
+
+        self.cx.register_struct(name, field_names, &field_types);
+    }
+
+    /// Register a user-defined struct type (simple version).
+    ///
+    /// **Deprecated**: Prefer `register_struct_with_types` which uses actual field types.
+    /// This version assumes all fields are i64.
     pub fn register_struct(&self, name: Name, field_names: Vec<Name>) {
-        // For now, all fields are i64 (matching the INT fallback)
+        // Fallback: all fields are i64
         let field_types: Vec<_> = field_names
             .iter()
             .map(|_| self.cx.scx.type_i64().into())
             .collect();
 
         self.cx.register_struct(name, field_names, &field_types);
+    }
+
+    /// Convert a parsed type annotation to an LLVM type.
+    ///
+    /// Handles primitives, named types (struct references), and compound types.
+    fn parsed_type_to_llvm(
+        &self,
+        ty: &ParsedType,
+        arena: &ExprArena,
+    ) -> inkwell::types::BasicTypeEnum<'ll> {
+        use inkwell::types::BasicTypeEnum;
+        match ty {
+            ParsedType::Primitive(type_id) => self.cx.llvm_type(*type_id),
+
+            ParsedType::Named { name, type_args } => {
+                // Named type: check if it's a registered struct
+                if type_args.is_empty() {
+                    // Non-generic: look up struct type
+                    if let Some(struct_ty) = self.cx.get_struct_type(*name) {
+                        struct_ty.into()
+                    } else {
+                        // Unknown named type, fall back to i64
+                        self.cx.scx.type_i64().into()
+                    }
+                } else {
+                    // Generic type: need to resolve type args
+                    // For now, fall back to i64 (generics need more infrastructure)
+                    self.cx.scx.type_i64().into()
+                }
+            }
+
+            ParsedType::List(_) => {
+                // List type: { len: i64, capacity: i64, data: ptr }
+                self.cx.list_type().into()
+            }
+
+            ParsedType::FixedList { .. } => {
+                // Fixed-capacity list, same representation as list
+                self.cx.list_type().into()
+            }
+
+            ParsedType::Tuple(elem_range) => {
+                // Tuple: struct of element types
+                let elem_ids = arena.get_parsed_type_list(*elem_range);
+                let field_types: Vec<BasicTypeEnum<'ll>> = elem_ids
+                    .iter()
+                    .map(|&elem_id| {
+                        let elem_ty = arena.get_parsed_type(elem_id);
+                        self.parsed_type_to_llvm(elem_ty, arena)
+                    })
+                    .collect();
+                self.cx.scx.type_struct(&field_types, false).into()
+            }
+
+            ParsedType::Function { .. } => {
+                // Function type: represented as pointer
+                self.cx.scx.type_ptr().into()
+            }
+
+            ParsedType::Map { .. } => {
+                // Map type: use map layout
+                self.cx.map_type().into()
+            }
+
+            // Other types fall back to i64
+            ParsedType::SelfType | ParsedType::Infer | ParsedType::AssociatedType { .. } => {
+                self.cx.scx.type_i64().into()
+            }
+        }
     }
 
     /// Compile a function definition using AST type annotations.
@@ -386,12 +495,18 @@ mod tests {
         let params = arena.alloc_params([
             Param {
                 name: a_name,
+                pattern: None,
                 ty: None,
+                default: None,
+                is_variadic: false,
                 span: ori_ir::Span::new(0, 1),
             },
             Param {
                 name: b_name,
+                pattern: None,
                 ty: None,
+                default: None,
+                is_variadic: false,
                 span: ori_ir::Span::new(0, 1),
             },
         ]);
@@ -403,6 +518,7 @@ mod tests {
             return_ty: None,
             capabilities: vec![],
             where_clauses: vec![],
+            guard: None,
             body: add_body,
             span: ori_ir::Span::new(0, 1),
             visibility: Visibility::Private,

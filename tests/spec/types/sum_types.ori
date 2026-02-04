@@ -1,4 +1,6 @@
 // Spec: 06-types.md § Sum Type
+
+use std.testing { assert_eq, assert }
 // Design: 03-type-system/sum-types.md
 
 // =============================================================================
@@ -15,7 +17,7 @@ type Status = Pending | Running | Completed
 // Test unit variant construction
 @test_unit_variant_construction tests @unit_variant () -> void = run(
     let status = Pending,
-    assert(condition: true),
+    assert(cond: true),
 )
 
 // Simple test: just check if pattern matches Pending
@@ -27,7 +29,7 @@ type Status = Pending | Running | Completed
 @test_unit_variant_matching tests @unit_variant () -> void = run(
     let s = Pending,
     let result = unit_variant(s: s),
-    assert(condition: result),
+    assert(cond: result),
 )
 
 // Test multiple unit variant patterns
@@ -58,7 +60,7 @@ type Message = Text(content: str) | Empty
 // Test single-field variant construction
 @test_single_field_construction tests @get_message () -> void = run(
     let msg = Text("hello"),
-    assert(condition: true),
+    assert(cond: true),
 )
 
 // Test single-field variant pattern matching
@@ -87,8 +89,8 @@ type Result2 = Success(value: int) | Failure(msg: str)
 )
 
 @test_wildcard_variant tests @is_success () -> void = run(
-    assert(condition: is_success(r: Success(42))),
-    assert(condition: !is_success(r: Failure("error"))),
+    assert(cond: is_success(r: Success(42))),
+    assert(cond: !is_success(r: Failure("error"))),
 )
 
 // Test extracting value from variant
@@ -201,10 +203,10 @@ type Event = Click(x: int, y: int) | Keypress(key: str, shift: bool) | Quit
 )
 
 @test_variant_equality tests @variants_equal () -> void = run(
-    assert(condition: variants_equal(a: Pending, b: Pending)),
-    assert(condition: variants_equal(a: Running, b: Running)),
-    assert(condition: !variants_equal(a: Pending, b: Running)),
-    assert(condition: !variants_equal(a: Running, b: Completed)),
+    assert(cond: variants_equal(a: Pending, b: Pending)),
+    assert(cond: variants_equal(a: Running, b: Running)),
+    assert(cond: !variants_equal(a: Pending, b: Running)),
+    assert(cond: !variants_equal(a: Running, b: Completed)),
 )
 
 // =============================================================================
@@ -256,11 +258,11 @@ type MaybeInt = JustInt(value: int) | NothingInt
     let still_none = maybe_double(m: none),
     match(doubled,
         JustInt(v) -> assert_eq(actual: v, expected: 42),
-        NothingInt -> assert(condition: false),
+        NothingInt -> assert(cond: false),
     ),
     match(still_none,
-        JustInt(_) -> assert(condition: false),
-        NothingInt -> assert(condition: true),
+        JustInt(_) -> assert(cond: false),
+        NothingInt -> assert(cond: true),
     ),
 )
 

@@ -38,12 +38,10 @@ mod numeric;
 mod ordering;
 mod units;
 
-use rustc_hash::FxHashMap;
-
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprId, Name, TypeId};
 
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
@@ -59,7 +57,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         arg_ids: &[ExprId],
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -73,20 +71,40 @@ impl<'ll> Builder<'_, 'll, '_> {
             })
             .collect();
 
+        // Verify LLVM value type matches receiver type to prevent panics
+        let is_float_val = matches!(recv_val, BasicValueEnum::FloatValue(_));
+        let is_int_val = matches!(recv_val, BasicValueEnum::IntValue(_));
+        let is_struct_val = matches!(recv_val, BasicValueEnum::StructValue(_));
+
         // Dispatch based on receiver type.
         // Note: Duration(8) and Size(9) overlap with INFER/SELF_TYPE indices,
         // but that's OK since INFER/SELF_TYPE are never passed to LLVM backend.
         match receiver_type {
-            TypeId::INT => numeric::compile_int_method(self, recv_val, method_str, &args),
-            TypeId::FLOAT => numeric::compile_float_method(self, recv_val, method_str, &args),
-            TypeId::BOOL => numeric::compile_bool_method(self, recv_val, method_str, &args),
-            TypeId::CHAR => numeric::compile_char_method(self, recv_val, method_str, &args),
-            TypeId::BYTE => numeric::compile_byte_method(self, recv_val, method_str, &args),
-            TypeId::DURATION => units::compile_duration_method(self, recv_val, method_str, &args),
-            TypeId::SIZE => units::compile_size_method(self, recv_val, method_str, &args),
-            TypeId::ORDERING => {
+            TypeId::INT if is_int_val => {
+                numeric::compile_int_method(self, recv_val, method_str, &args)
+            }
+            TypeId::FLOAT if is_float_val => {
+                numeric::compile_float_method(self, recv_val, method_str, &args)
+            }
+            TypeId::BOOL if is_int_val => {
+                numeric::compile_bool_method(self, recv_val, method_str, &args)
+            }
+            TypeId::CHAR if is_int_val => {
+                numeric::compile_char_method(self, recv_val, method_str, &args)
+            }
+            TypeId::BYTE if is_int_val => {
+                numeric::compile_byte_method(self, recv_val, method_str, &args)
+            }
+            TypeId::DURATION if is_int_val => {
+                units::compile_duration_method(self, recv_val, method_str, &args)
+            }
+            TypeId::SIZE if is_int_val => {
+                units::compile_size_method(self, recv_val, method_str, &args)
+            }
+            TypeId::ORDERING if is_int_val || is_struct_val => {
                 ordering::compile_ordering_method(self, recv_val, method_str, &args)
             }
+            // Type mismatch or unknown type - fall back to user method lookup
             _ => None,
         }
     }

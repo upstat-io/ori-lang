@@ -1,6 +1,11 @@
 //! Token types for the Ori lexer.
 //!
 //! Provides token representation with all Salsa-required traits (Clone, Eq, Hash, Debug).
+//!
+//! # Specification
+//!
+//! - Lexical grammar: `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` § LEXICAL GRAMMAR
+//! - Prose: `docs/ori_lang/0.1-alpha/spec/03-lexical-elements.md`
 
 use super::{Name, Span};
 use std::fmt;
@@ -144,6 +149,7 @@ pub enum TokenKind {
     Dot,            // .
     DotDot,         // ..
     DotDotEq,       // ..=
+    DotDotDot,      // ...
     Arrow,          // ->
     FatArrow,       // =>
     Pipe,           // |
@@ -191,7 +197,7 @@ pub enum TokenKind {
 
 /// Number of [`TokenKind`] variants. Used for bitset sizing and test verification.
 #[cfg(test)]
-pub(crate) const TOKEN_KIND_COUNT: usize = 115;
+pub(crate) const TOKEN_KIND_COUNT: usize = 116;
 
 impl TokenKind {
     /// Get a unique index for this token's discriminant (0-114).
@@ -300,43 +306,44 @@ impl TokenKind {
             Self::Dot => 79,
             Self::DotDot => 80,
             Self::DotDotEq => 81,
-            Self::Arrow => 82,
-            Self::FatArrow => 83,
-            Self::Pipe => 84,
-            Self::Question => 85,
-            Self::DoubleQuestion => 86,
-            Self::Underscore => 87,
-            Self::Semicolon => 88,
+            Self::DotDotDot => 82,
+            Self::Arrow => 83,
+            Self::FatArrow => 84,
+            Self::Pipe => 85,
+            Self::Question => 86,
+            Self::DoubleQuestion => 87,
+            Self::Underscore => 88,
+            Self::Semicolon => 89,
 
-            // Operators (indices 89-109)
-            Self::Eq => 89,
-            Self::EqEq => 90,
-            Self::NotEq => 91,
-            Self::Lt => 92,
-            Self::LtEq => 93,
-            Self::Shl => 94,
-            Self::Gt => 95,
-            Self::GtEq => 96,
-            Self::Shr => 97,
-            Self::Plus => 98,
-            Self::Minus => 99,
-            Self::Star => 100,
-            Self::Slash => 101,
-            Self::Percent => 102,
-            Self::Bang => 103,
-            Self::Tilde => 104,
-            Self::Amp => 105,
-            Self::AmpAmp => 106,
-            Self::PipePipe => 107,
-            Self::Caret => 108,
-            Self::Div => 109,
+            // Operators (indices 90-110)
+            Self::Eq => 90,
+            Self::EqEq => 91,
+            Self::NotEq => 92,
+            Self::Lt => 93,
+            Self::LtEq => 94,
+            Self::Shl => 95,
+            Self::Gt => 96,
+            Self::GtEq => 97,
+            Self::Shr => 98,
+            Self::Plus => 99,
+            Self::Minus => 100,
+            Self::Star => 101,
+            Self::Slash => 102,
+            Self::Percent => 103,
+            Self::Bang => 104,
+            Self::Tilde => 105,
+            Self::Amp => 106,
+            Self::AmpAmp => 107,
+            Self::PipePipe => 108,
+            Self::Caret => 109,
+            Self::Div => 110,
 
-            // Special tokens (indices 110-114)
-            Self::Newline => 110,
-            Self::Eof => 111,
-            Self::Error => 112,
-            Self::FloatDurationError => 113,
-            Self::FloatSizeError => 114,
+            // Special tokens (indices 111-115)
+            Self::Newline => 111,
+            Self::Eof => 112,
+            Self::Error => 113,
+            Self::FloatDurationError => 114,
+            Self::FloatSizeError => 115,
         }
     }
 
@@ -499,6 +506,7 @@ impl TokenKind {
             TokenKind::Dot => ".",
             TokenKind::DotDot => "..",
             TokenKind::DotDotEq => "..=",
+            TokenKind::DotDotDot => "...",
             TokenKind::Arrow => "->",
             TokenKind::FatArrow => "=>",
             TokenKind::Pipe => "|",
@@ -615,15 +623,18 @@ pub enum SizeUnit {
 }
 
 impl SizeUnit {
-    /// Convert value to bytes.
+    /// Convert value to bytes using SI units (powers of 1000).
+    ///
+    /// SI units: 1kb = 1000 bytes, 1mb = 1,000,000 bytes, etc.
+    /// For exact powers of 1024, use explicit byte counts: `1024b`, `1048576b`.
     #[inline]
     pub fn to_bytes(self, value: u64) -> u64 {
         match self {
             SizeUnit::Bytes => value,
-            SizeUnit::Kilobytes => value * 1024,
-            SizeUnit::Megabytes => value * 1024 * 1024,
-            SizeUnit::Gigabytes => value * 1024 * 1024 * 1024,
-            SizeUnit::Terabytes => value * 1024 * 1024 * 1024 * 1024,
+            SizeUnit::Kilobytes => value * 1000,
+            SizeUnit::Megabytes => value * 1_000_000,
+            SizeUnit::Gigabytes => value * 1_000_000_000,
+            SizeUnit::Terabytes => value * 1_000_000_000_000,
         }
     }
 
@@ -856,6 +867,7 @@ mod tests {
             TokenKind::Dot,
             TokenKind::DotDot,
             TokenKind::DotDotEq,
+            TokenKind::DotDotDot,
             TokenKind::Arrow,
             TokenKind::FatArrow,
             TokenKind::Pipe,
@@ -1002,10 +1014,11 @@ mod tests {
 
     #[test]
     fn test_size_unit() {
-        assert_eq!(SizeUnit::Kilobytes.to_bytes(4), 4096);
-        assert_eq!(SizeUnit::Megabytes.to_bytes(1), 1024 * 1024);
-        assert_eq!(SizeUnit::Gigabytes.to_bytes(1), 1024 * 1024 * 1024);
-        assert_eq!(SizeUnit::Terabytes.to_bytes(1), 1024 * 1024 * 1024 * 1024);
+        // SI units: decimal notation (1kb = 1000 bytes)
+        assert_eq!(SizeUnit::Kilobytes.to_bytes(4), 4_000);
+        assert_eq!(SizeUnit::Megabytes.to_bytes(1), 1_000_000);
+        assert_eq!(SizeUnit::Gigabytes.to_bytes(1), 1_000_000_000);
+        assert_eq!(SizeUnit::Terabytes.to_bytes(1), 1_000_000_000_000);
         assert_eq!(SizeUnit::Bytes.suffix(), "b");
         assert_eq!(SizeUnit::Terabytes.suffix(), "tb");
     }

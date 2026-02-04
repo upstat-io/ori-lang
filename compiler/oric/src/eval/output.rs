@@ -112,6 +112,13 @@ impl EvalOutput {
                 "<memoized function with {} params>",
                 mf.func.params.len()
             )),
+            Value::MultiClauseFunction(clauses) => {
+                let clause_count = clauses.len();
+                let param_count = clauses.first().map_or(0, |f| f.params.len());
+                EvalOutput::Function(format!(
+                    "<multi-clause function with {clause_count} clauses, {param_count} params>"
+                ))
+            }
             Value::FunctionVal(_, name) => EvalOutput::Function(format!("<{name}>")),
             Value::Struct(s) => {
                 EvalOutput::Struct(format!("<struct {}>", interner.lookup(s.name())))

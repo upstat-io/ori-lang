@@ -16,7 +16,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock};
 
-use ori_ir::{ExprArena, ExprId, Name, SharedArena};
+use ori_ir::{ExprArena, ExprId, MatchPattern, Name, SharedArena};
 
 use super::Value;
 
@@ -53,6 +53,11 @@ impl StructLayout {
     /// Check if the layout has no fields.
     pub fn is_empty(&self) -> bool {
         self.field_indices.is_empty()
+    }
+
+    /// Iterate over field names and their indices.
+    pub fn iter(&self) -> impl Iterator<Item = (Name, usize)> + '_ {
+        self.field_indices.iter().map(|(&n, &i)| (n, i))
     }
 }
 
@@ -119,6 +124,18 @@ impl StructValue {
 pub struct FunctionValue {
     /// Parameter names.
     pub params: Vec<Name>,
+    /// Parameter patterns for clause-based matching.
+    /// `patterns[i]` is `Some(pattern)` if parameter `i` has a pattern (e.g., literal `0`).
+    /// If `None`, the parameter is a simple name binding.
+    /// Length matches `params.len()`.
+    pub patterns: Vec<Option<MatchPattern>>,
+    /// Guard clause expression (evaluated after patterns match).
+    /// If present, clause only matches if guard evaluates to true.
+    pub guard: Option<ExprId>,
+    /// Default value expressions for each parameter.
+    /// `defaults[i]` is `Some(expr_id)` if parameter `i` has a default value.
+    /// The length matches `params.len()`.
+    pub defaults: Vec<Option<ExprId>>,
     /// Body expression.
     pub body: ExprId,
     /// Captured environment (frozen at creation).
@@ -152,8 +169,12 @@ impl FunctionValue {
         captures: FxHashMap<Name, Value>,
         arena: SharedArena,
     ) -> Self {
+        let len = params.len();
         FunctionValue {
             params,
+            patterns: vec![None; len],
+            guard: None,
+            defaults: vec![None; len],
             body,
             captures: Arc::new(captures),
             arena,
@@ -176,13 +197,97 @@ impl FunctionValue {
         arena: SharedArena,
         capabilities: Vec<Name>,
     ) -> Self {
+        let len = params.len();
         FunctionValue {
             params,
+            patterns: vec![None; len],
+            guard: None,
+            defaults: vec![None; len],
             body,
             captures: Arc::new(captures),
             arena,
             capabilities,
         }
+    }
+
+    /// Create a function value with capabilities and default parameter values.
+    ///
+    /// # Arguments
+    /// * `params` - Parameter names
+    /// * `defaults` - Default value expressions for each parameter (same length as params)
+    /// * `body` - Body expression ID
+    /// * `captures` - Captured environment (frozen at creation)
+    /// * `arena` - Arena for expression resolution (required for thread safety)
+    /// * `capabilities` - Required capabilities from `uses` clause
+    pub fn with_defaults(
+        params: Vec<Name>,
+        defaults: Vec<Option<ExprId>>,
+        body: ExprId,
+        captures: FxHashMap<Name, Value>,
+        arena: SharedArena,
+        capabilities: Vec<Name>,
+    ) -> Self {
+        debug_assert_eq!(params.len(), defaults.len());
+        let len = params.len();
+        FunctionValue {
+            params,
+            patterns: vec![None; len],
+            guard: None,
+            defaults,
+            body,
+            captures: Arc::new(captures),
+            arena,
+            capabilities,
+        }
+    }
+
+    /// Create a function value with patterns for clause-based matching.
+    ///
+    /// # Arguments
+    /// * `params` - Parameter names
+    /// * `patterns` - Pattern for each parameter (None for simple binding)
+    /// * `guard` - Optional guard clause expression
+    /// * `defaults` - Default value expressions for each parameter
+    /// * `body` - Body expression ID
+    /// * `captures` - Captured environment (frozen at creation)
+    /// * `arena` - Arena for expression resolution (required for thread safety)
+    /// * `capabilities` - Required capabilities from `uses` clause
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Builder pattern alternative would be more complex"
+    )]
+    pub fn with_patterns(
+        params: Vec<Name>,
+        patterns: Vec<Option<MatchPattern>>,
+        guard: Option<ExprId>,
+        defaults: Vec<Option<ExprId>>,
+        body: ExprId,
+        captures: FxHashMap<Name, Value>,
+        arena: SharedArena,
+        capabilities: Vec<Name>,
+    ) -> Self {
+        debug_assert_eq!(params.len(), patterns.len());
+        debug_assert_eq!(params.len(), defaults.len());
+        FunctionValue {
+            params,
+            patterns,
+            guard,
+            defaults,
+            body,
+            captures: Arc::new(captures),
+            arena,
+            capabilities,
+        }
+    }
+
+    /// Count the number of required parameters (those without defaults).
+    pub fn required_param_count(&self) -> usize {
+        self.defaults.iter().filter(|d| d.is_none()).count()
+    }
+
+    /// Check if this function has any patterns (is a clause function).
+    pub fn has_patterns(&self) -> bool {
+        self.patterns.iter().any(Option::is_some)
     }
 
     /// Create a function value with shared captures.
@@ -204,8 +309,77 @@ impl FunctionValue {
         arena: SharedArena,
         capabilities: Vec<Name>,
     ) -> Self {
+        let len = params.len();
         FunctionValue {
             params,
+            patterns: vec![None; len],
+            guard: None,
+            defaults: vec![None; len],
+            body,
+            captures,
+            arena,
+            capabilities,
+        }
+    }
+
+    /// Create a function value with shared captures and defaults.
+    ///
+    /// Use this when multiple functions should share the same captures
+    /// (e.g., module functions for mutual recursion) and have default parameters.
+    ///
+    /// # Arguments
+    /// * `params` - Parameter names
+    /// * `defaults` - Default value expressions for each parameter
+    /// * `body` - Body expression ID
+    /// * `captures` - Shared captured environment
+    /// * `arena` - Arena for expression resolution (required for thread safety)
+    /// * `capabilities` - Required capabilities from `uses` clause
+    pub fn with_shared_captures_and_defaults(
+        params: Vec<Name>,
+        defaults: Vec<Option<ExprId>>,
+        body: ExprId,
+        captures: Arc<FxHashMap<Name, Value>>,
+        arena: SharedArena,
+        capabilities: Vec<Name>,
+    ) -> Self {
+        debug_assert_eq!(params.len(), defaults.len());
+        let len = params.len();
+        FunctionValue {
+            params,
+            patterns: vec![None; len],
+            guard: None,
+            defaults,
+            body,
+            captures,
+            arena,
+            capabilities,
+        }
+    }
+
+    /// Create a function value with shared captures, patterns, and defaults.
+    ///
+    /// Full constructor for clause-based functions with pattern matching.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Full constructor for clause functions"
+    )]
+    pub fn with_shared_captures_and_patterns(
+        params: Vec<Name>,
+        patterns: Vec<Option<MatchPattern>>,
+        guard: Option<ExprId>,
+        defaults: Vec<Option<ExprId>>,
+        body: ExprId,
+        captures: Arc<FxHashMap<Name, Value>>,
+        arena: SharedArena,
+        capabilities: Vec<Name>,
+    ) -> Self {
+        debug_assert_eq!(params.len(), patterns.len());
+        debug_assert_eq!(params.len(), defaults.len());
+        FunctionValue {
+            params,
+            patterns,
+            guard,
+            defaults,
             body,
             captures,
             arena,

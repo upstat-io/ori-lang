@@ -218,6 +218,42 @@ impl Parser<'_> {
                     .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
 
+            // Context-sensitive keywords usable as identifiers when not followed by (
+            TokenKind::Timeout => {
+                self.advance();
+                let name = self.interner().intern("timeout");
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::Parallel => {
+                self.advance();
+                let name = self.interner().intern("parallel");
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::Cache => {
+                self.advance();
+                let name = self.interner().intern("cache");
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::Spawn => {
+                self.advance();
+                let name = self.interner().intern("spawn");
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
+            TokenKind::Recurse => {
+                self.advance();
+                let name = self.interner().intern("recurse");
+                Ok(self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+            }
             // Variant constructors
             TokenKind::Some => {
                 self.advance();
@@ -526,54 +562,133 @@ impl Parser<'_> {
 
     /// Parse list literal.
     fn parse_list_literal(&mut self) -> Result<ExprId, ParseError> {
+        use ori_ir::ListElement;
+
         let span = self.current_span();
         self.advance(); // [
 
-        let exprs: Vec<ExprId> = self.bracket_series(|p| {
+        // Track whether we see any spread elements
+        let mut has_spread = false;
+        let mut elements: Vec<ListElement> = Vec::new();
+
+        self.bracket_series(|p| {
             if p.check(&TokenKind::RBracket) {
-                Ok(None)
-            } else {
-                Ok(Some(p.parse_expr()?))
+                return Ok(None);
             }
+
+            let elem_span = p.current_span();
+            if p.check(&TokenKind::DotDotDot) {
+                // Spread element: ...expr
+                p.advance(); // consume ...
+                has_spread = true;
+                let expr = p.parse_expr()?;
+                let end_span = p.arena.get_expr(expr).span;
+                elements.push(ListElement::Spread {
+                    expr,
+                    span: elem_span.merge(end_span),
+                });
+            } else {
+                // Regular expression element
+                let expr = p.parse_expr()?;
+                let end_span = p.arena.get_expr(expr).span;
+                elements.push(ListElement::Expr {
+                    expr,
+                    span: elem_span.merge(end_span),
+                });
+            }
+            Ok(Some(()))
         })?;
 
         let end_span = self.previous_span();
-        let list = self.arena.alloc_expr_list_inline(&exprs);
-        Ok(self
-            .arena
-            .alloc_expr(Expr::new(ExprKind::List(list), span.merge(end_span))))
+        let full_span = span.merge(end_span);
+
+        if has_spread {
+            // Use ListWithSpread for lists containing spread elements
+            let range = self.arena.alloc_list_elements(elements);
+            Ok(self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::ListWithSpread(range), full_span)))
+        } else {
+            // Use optimized List for simple cases without spread
+            let exprs: Vec<ExprId> = elements
+                .into_iter()
+                .map(|e| match e {
+                    ListElement::Expr { expr, .. } => expr,
+                    ListElement::Spread { .. } => unreachable!(),
+                })
+                .collect();
+            let list = self.arena.alloc_expr_list_inline(&exprs);
+            Ok(self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::List(list), full_span)))
+        }
     }
 
-    /// Parse map literal: `{ key: value, ... }` or `{}`.
+    /// Parse map literal: `{ key: value, ... }`, `{ ...base, key: value }`, or `{}`.
     fn parse_map_literal(&mut self) -> Result<ExprId, ParseError> {
-        use ori_ir::MapEntry;
+        use ori_ir::{MapElement, MapEntry};
 
         let span = self.current_span();
         self.advance(); // {
 
-        let entries: Vec<MapEntry> = self.brace_series(|p| {
+        // Track whether we see any spread elements
+        let mut has_spread = false;
+        let mut elements: Vec<MapElement> = Vec::new();
+
+        self.brace_series(|p| {
             if p.check(&TokenKind::RBrace) {
                 return Ok(None);
             }
 
-            let entry_span = p.current_span();
-            let key = p.parse_expr()?;
-            p.expect(&TokenKind::Colon)?;
-            let value = p.parse_expr()?;
-            let end_span = p.arena.get_expr(value).span;
-
-            Ok(Some(MapEntry {
-                key,
-                value,
-                span: entry_span.merge(end_span),
-            }))
+            let elem_span = p.current_span();
+            if p.check(&TokenKind::DotDotDot) {
+                // Spread element: ...expr
+                p.advance(); // consume ...
+                has_spread = true;
+                let expr = p.parse_expr()?;
+                let end_span = p.arena.get_expr(expr).span;
+                elements.push(MapElement::Spread {
+                    expr,
+                    span: elem_span.merge(end_span),
+                });
+            } else {
+                // Regular entry: key: value
+                let key = p.parse_expr()?;
+                p.expect(&TokenKind::Colon)?;
+                let value = p.parse_expr()?;
+                let end_span = p.arena.get_expr(value).span;
+                elements.push(MapElement::Entry(MapEntry {
+                    key,
+                    value,
+                    span: elem_span.merge(end_span),
+                }));
+            }
+            Ok(Some(()))
         })?;
 
         let end_span = self.previous_span();
-        let range = self.arena.alloc_map_entries(entries);
-        Ok(self
-            .arena
-            .alloc_expr(Expr::new(ExprKind::Map(range), span.merge(end_span))))
+        let full_span = span.merge(end_span);
+
+        if has_spread {
+            // Use MapWithSpread for maps containing spread elements
+            let range = self.arena.alloc_map_elements(elements);
+            Ok(self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::MapWithSpread(range), full_span)))
+        } else {
+            // Use optimized Map for simple cases without spread
+            let entries: Vec<MapEntry> = elements
+                .into_iter()
+                .map(|e| match e {
+                    MapElement::Entry(entry) => entry,
+                    MapElement::Spread { .. } => unreachable!(),
+                })
+                .collect();
+            let range = self.arena.alloc_map_entries(entries);
+            Ok(self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::Map(range), full_span)))
+        }
     }
 
     /// Parse if expression.
@@ -619,15 +734,27 @@ impl Parser<'_> {
     }
 
     /// Parse let expression.
+    ///
+    /// Per spec (05-variables.md): Bindings are mutable by default.
+    /// - `let x = ...` → mutable (default)
+    /// - `let $x = ...` → immutable ($ prefix)
+    /// - `let mut x = ...` → mutable (legacy, redundant)
     fn parse_let_expr(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
         self.advance();
 
-        let mutable = if self.check(&TokenKind::Mut) {
+        // Per spec: mutable by default, $ prefix for immutable
+        // - `let x = ...` → mutable (default)
+        // - `let $x = ...` → immutable (spec syntax)
+        // - `let mut x = ...` → mutable (legacy, same as default)
+        let mutable = if self.check(&TokenKind::Dollar) {
             self.advance();
-            true
+            false // $ prefix means immutable
+        } else if self.check(&TokenKind::Mut) {
+            self.advance();
+            true // mut keyword (legacy, redundant since default is mutable)
         } else {
-            false
+            true // default is mutable per spec
         };
 
         let pattern = self.parse_binding_pattern()?;
@@ -784,8 +911,13 @@ impl Parser<'_> {
         let span = self.current_span();
         self.expect(&TokenKind::For)?;
 
-        // Parse binding name
-        let binding = self.expect_ident()?;
+        // Parse binding name or wildcard (_)
+        let binding = if self.check(&TokenKind::Underscore) {
+            self.advance();
+            self.interner().intern("_")
+        } else {
+            self.expect_ident()?
+        };
 
         // Expect `in` keyword
         self.expect(&TokenKind::In)?;
@@ -876,7 +1008,10 @@ impl Parser<'_> {
                 ExprKind::Ident(name) => {
                     params.push(Param {
                         name: *name,
+                        pattern: None,
                         ty: None,
+                        default: None,
+                        is_variadic: false,
                         span: expr.span,
                     });
                 }

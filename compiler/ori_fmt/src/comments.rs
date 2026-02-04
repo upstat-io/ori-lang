@@ -75,25 +75,22 @@ impl CommentIndex {
     ///
     /// Returns comments in the correct order (doc comments reordered, regular preserved).
     /// Marks the comments as consumed so they won't be returned again.
+    ///
+    /// Note: This only takes comments that are directly associated with `pos`, not all
+    /// comments before it. This is important because the formatter may process items
+    /// out of source order (e.g., all functions before all tests), and we don't want
+    /// to steal comments that belong to items that appear earlier in source.
     pub fn take_comments_before(&mut self, pos: u32) -> Vec<usize> {
-        // Find all comment groups that end before this position
-        let keys_to_take: Vec<u32> = self
-            .comments_by_position
-            .range(..=pos)
-            .map(|(k, _)| *k)
-            .collect();
-
         let mut result = Vec::new();
 
-        for key in keys_to_take {
-            if let Some(refs) = self.comments_by_position.remove(&key) {
-                // Sort doc comments, preserve regular comment order
-                let mut sorted = sort_comments_by_kind(refs);
-                for comment_ref in sorted.drain(..) {
-                    if !self.consumed[comment_ref.index] {
-                        self.consumed[comment_ref.index] = true;
-                        result.push(comment_ref.index);
-                    }
+        // Only take comments associated with this exact position
+        if let Some(refs) = self.comments_by_position.remove(&pos) {
+            // Sort doc comments, preserve regular comment order
+            let mut sorted = sort_comments_by_kind(refs);
+            for comment_ref in sorted.drain(..) {
+                if !self.consumed[comment_ref.index] {
+                    self.consumed[comment_ref.index] = true;
+                    result.push(comment_ref.index);
                 }
             }
         }
@@ -120,6 +117,8 @@ impl CommentIndex {
     ///
     /// Like `take_comments_before`, but additionally reorders `@param` doc comments
     /// to match the order of parameters in the function signature.
+    ///
+    /// Note: Only takes comments associated with the exact position `pos`.
     pub fn take_comments_before_function<I: StringLookup>(
         &mut self,
         pos: u32,
@@ -127,51 +126,43 @@ impl CommentIndex {
         comments: &CommentList,
         interner: &I,
     ) -> Vec<usize> {
-        // Find all comment groups that end before this position
-        let keys_to_take: Vec<u32> = self
-            .comments_by_position
-            .range(..=pos)
-            .map(|(k, _)| *k)
-            .collect();
-
         let mut result = Vec::new();
 
-        for key in keys_to_take {
-            if let Some(refs) = self.comments_by_position.remove(&key) {
-                // Sort doc comments by kind
-                let sorted = sort_comments_by_kind(refs);
+        // Only take comments associated with this exact position
+        if let Some(refs) = self.comments_by_position.remove(&pos) {
+            // Sort doc comments by kind
+            let sorted = sort_comments_by_kind(refs);
 
-                // Separate param comments from others for reordering
-                let mut param_indices = Vec::new();
-                let mut other_indices = Vec::new();
+            // Separate param comments from others for reordering
+            let mut param_indices = Vec::new();
+            let mut other_indices = Vec::new();
 
-                for comment_ref in sorted {
-                    if self.consumed[comment_ref.index] {
-                        continue;
-                    }
-                    self.consumed[comment_ref.index] = true;
-
-                    if comment_ref.kind == CommentKind::DocParam {
-                        param_indices.push(comment_ref.index);
-                    } else {
-                        other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
-                    }
+            for comment_ref in sorted {
+                if self.consumed[comment_ref.index] {
+                    continue;
                 }
+                self.consumed[comment_ref.index] = true;
 
-                // Reorder param comments by function signature order
-                let reordered_params =
-                    reorder_param_comments(&param_indices, comments, param_names, interner);
-
-                // Merge: collect by sort order, insert params at their position (sort_order=1)
-                let mut all_by_order: Vec<(u8, usize)> = other_indices;
-                for idx in reordered_params {
-                    all_by_order.push((1, idx)); // DocParam has sort_order 1
+                if comment_ref.kind == CommentKind::DocParam {
+                    param_indices.push(comment_ref.index);
+                } else {
+                    other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
                 }
-                all_by_order.sort_by_key(|(order, _)| *order);
+            }
 
-                for (_, idx) in all_by_order {
-                    result.push(idx);
-                }
+            // Reorder param comments by function signature order
+            let reordered_params =
+                reorder_param_comments(&param_indices, comments, param_names, interner);
+
+            // Merge: collect by sort order, insert params at their position (sort_order=1)
+            let mut all_by_order: Vec<(u8, usize)> = other_indices;
+            for idx in reordered_params {
+                all_by_order.push((1, idx)); // DocParam has sort_order 1
+            }
+            all_by_order.sort_by_key(|(order, _)| *order);
+
+            for (_, idx) in all_by_order {
+                result.push(idx);
             }
         }
 
@@ -182,6 +173,8 @@ impl CommentIndex {
     ///
     /// Like `take_comments_before`, but additionally reorders `@field` doc comments
     /// to match the order of fields in the struct definition.
+    ///
+    /// Note: Only takes comments associated with the exact position `pos`.
     pub fn take_comments_before_type<I: StringLookup>(
         &mut self,
         pos: u32,
@@ -189,51 +182,43 @@ impl CommentIndex {
         comments: &CommentList,
         interner: &I,
     ) -> Vec<usize> {
-        // Find all comment groups that end before this position
-        let keys_to_take: Vec<u32> = self
-            .comments_by_position
-            .range(..=pos)
-            .map(|(k, _)| *k)
-            .collect();
-
         let mut result = Vec::new();
 
-        for key in keys_to_take {
-            if let Some(refs) = self.comments_by_position.remove(&key) {
-                // Sort doc comments by kind
-                let sorted = sort_comments_by_kind(refs);
+        // Only take comments associated with this exact position
+        if let Some(refs) = self.comments_by_position.remove(&pos) {
+            // Sort doc comments by kind
+            let sorted = sort_comments_by_kind(refs);
 
-                // Separate field comments from others for reordering
-                let mut field_indices = Vec::new();
-                let mut other_indices = Vec::new();
+            // Separate field comments from others for reordering
+            let mut field_indices = Vec::new();
+            let mut other_indices = Vec::new();
 
-                for comment_ref in sorted {
-                    if self.consumed[comment_ref.index] {
-                        continue;
-                    }
-                    self.consumed[comment_ref.index] = true;
-
-                    if comment_ref.kind == CommentKind::DocField {
-                        field_indices.push(comment_ref.index);
-                    } else {
-                        other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
-                    }
+            for comment_ref in sorted {
+                if self.consumed[comment_ref.index] {
+                    continue;
                 }
+                self.consumed[comment_ref.index] = true;
 
-                // Reorder field comments by struct field order
-                let reordered_fields =
-                    reorder_field_comments(&field_indices, comments, field_names, interner);
-
-                // Merge: collect by sort order, insert fields at their position (sort_order=1)
-                let mut all_by_order: Vec<(u8, usize)> = other_indices;
-                for idx in reordered_fields {
-                    all_by_order.push((1, idx)); // DocField has sort_order 1
+                if comment_ref.kind == CommentKind::DocField {
+                    field_indices.push(comment_ref.index);
+                } else {
+                    other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
                 }
-                all_by_order.sort_by_key(|(order, _)| *order);
+            }
 
-                for (_, idx) in all_by_order {
-                    result.push(idx);
-                }
+            // Reorder field comments by struct field order
+            let reordered_fields =
+                reorder_field_comments(&field_indices, comments, field_names, interner);
+
+            // Merge: collect by sort order, insert fields at their position (sort_order=1)
+            let mut all_by_order: Vec<(u8, usize)> = other_indices;
+            for idx in reordered_fields {
+                all_by_order.push((1, idx)); // DocField has sort_order 1
+            }
+            all_by_order.sort_by_key(|(order, _)| *order);
+
+            for (_, idx) in all_by_order {
+                result.push(idx);
             }
         }
 

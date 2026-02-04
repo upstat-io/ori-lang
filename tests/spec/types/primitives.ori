@@ -1117,29 +1117,30 @@ use std.testing { assert, assert_eq, assert_ne }
 @size_zero () -> Size = 0b
 
 @test_size_unit_equivalence tests @size_unit_equivalence () -> void = run(
-    // 1024 bytes = 1 kilobyte (binary units)
+    // SI units: decimal notation - what you see is what you get
+    // 1000 bytes = 1 kilobyte
     assert_eq(
-        actual: 1024b,
+        actual: 1000b,
         expected: 1kb,
     ),
-    // 1024 kilobytes = 1 megabyte
+    // 1000 kilobytes = 1 megabyte
     assert_eq(
-        actual: 1024kb,
+        actual: 1000kb,
         expected: 1mb,
     ),
-    // 1024 megabytes = 1 gigabyte
+    // 1000 megabytes = 1 gigabyte
     assert_eq(
-        actual: 1024mb,
+        actual: 1000mb,
         expected: 1gb,
     ),
-    // 1024 gigabytes = 1 terabyte
+    // 1000 gigabytes = 1 terabyte
     assert_eq(
-        actual: 1024gb,
+        actual: 1000gb,
         expected: 1tb,
     ),
 )
 
-@size_unit_equivalence () -> Size = 1024b
+@size_unit_equivalence () -> Size = 1000b
 
 // =============================================================================
 // Duration — Extended Tests
@@ -1252,18 +1253,18 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 @test_size_mixed_unit_arithmetic tests @size_mixed_unit_arithmetic () -> void = run(
-    // Adding different units should work
+    // Adding different units - SI decimal: 1kb = 1000b
     assert_eq(
         actual: 1kb + 512b,
-        expected: 1536b,
+        expected: 1512b,
     ),
     assert_eq(
         actual: 1mb + 512kb,
-        expected: 1536kb,
+        expected: 1512kb,
     ),
     assert_eq(
         actual: 1gb + 512mb,
-        expected: 1536mb,
+        expected: 1512mb,
     ),
 )
 
@@ -1289,30 +1290,30 @@ use std.testing { assert, assert_eq, assert_ne }
 @size_int_multiplication () -> Size = 100b * 5
 
 @test_size_modulo tests @size_modulo () -> void = run(
-    // Size % Size
+    // Size % Size - SI decimal: 1kb = 1000b
     assert_eq(
-        actual: 1536b % 1kb,
-        expected: 512b,
+        actual: 1500b % 1kb,
+        expected: 500b,
     ),
     assert_eq(
-        actual: 2560kb % 1mb,
-        expected: 512kb,
+        actual: 2500kb % 1mb,
+        expected: 500kb,
     ),
 )
 
-@size_modulo () -> Size = 1536b % 1kb
+@size_modulo () -> Size = 1500b % 1kb
 
 @test_size_comparison_mixed_units tests @size_comparison_mixed_units () -> void = run(
-    // Comparing across units
-    assert(cond: 1024b == 1kb),
-    assert(cond: 1024kb == 1mb),
-    assert(cond: 1024mb == 1gb),
-    assert(cond: 1024gb == 1tb),
-    assert(cond: 1025b > 1kb),
-    assert(cond: 1023b < 1kb),
+    // Comparing across units - SI decimal notation
+    assert(cond: 1000b == 1kb),
+    assert(cond: 1000kb == 1mb),
+    assert(cond: 1000mb == 1gb),
+    assert(cond: 1000gb == 1tb),
+    assert(cond: 1001b > 1kb),
+    assert(cond: 999b < 1kb),
 )
 
-@size_comparison_mixed_units () -> bool = 1024b == 1kb
+@size_comparison_mixed_units () -> bool = 1000b == 1kb
 
 @test_size_large_values tests @size_large_values () -> void = run(
     // Working with terabytes
@@ -1414,46 +1415,46 @@ use std.testing { assert, assert_eq, assert_ne }
 // Spec: 06-types.md § Size Conversion Methods
 
 @test_size_bytes_method tests @size_bytes_method () -> void = run(
-    // Basic extraction
-    assert_eq(actual: 1024b.bytes(), expected: 1024),
-    assert_eq(actual: 1kb.bytes(), expected: 1024),
-    assert_eq(actual: 1mb.bytes(), expected: 1048576),
+    // Basic extraction - SI decimal: 1kb = 1000 bytes
+    assert_eq(actual: 1000b.bytes(), expected: 1000),
+    assert_eq(actual: 1kb.bytes(), expected: 1000),
+    assert_eq(actual: 1mb.bytes(), expected: 1000000),
 )
 
-@size_bytes_method () -> int = 1024b.bytes()
+@size_bytes_method () -> int = 1000b.bytes()
 
 @test_size_kilobytes_method tests @size_kilobytes_method () -> void = run(
-    // Truncating behavior - per spec: `1536kb.megabytes()` returns `1`
-    assert_eq(actual: 1536b.kilobytes(), expected: 1),
-    assert_eq(actual: 1024kb.kilobytes(), expected: 1024),
-    assert_eq(actual: 1mb.kilobytes(), expected: 1024),
-    assert_eq(actual: 1gb.kilobytes(), expected: 1048576),
+    // Truncating behavior - SI decimal: 1kb = 1000b, 1mb = 1000kb
+    assert_eq(actual: 1500b.kilobytes(), expected: 1),
+    assert_eq(actual: 1000kb.kilobytes(), expected: 1000),
+    assert_eq(actual: 1mb.kilobytes(), expected: 1000),
+    assert_eq(actual: 1gb.kilobytes(), expected: 1000000),
 )
 
-@size_kilobytes_method () -> int = 1024kb.kilobytes()
+@size_kilobytes_method () -> int = 1000kb.kilobytes()
 
 @test_size_megabytes_method tests @size_megabytes_method () -> void = run(
-    // Truncating behavior - per spec: `1536kb.megabytes()` returns `1`
-    assert_eq(actual: 1536kb.megabytes(), expected: 1),
-    assert_eq(actual: 1024mb.megabytes(), expected: 1024),
-    assert_eq(actual: 1gb.megabytes(), expected: 1024),
-    assert_eq(actual: 1tb.megabytes(), expected: 1048576),
+    // Truncating behavior - SI decimal: 1mb = 1000kb, 1gb = 1000mb
+    assert_eq(actual: 1500kb.megabytes(), expected: 1),
+    assert_eq(actual: 1000mb.megabytes(), expected: 1000),
+    assert_eq(actual: 1gb.megabytes(), expected: 1000),
+    assert_eq(actual: 1tb.megabytes(), expected: 1000000),
 )
 
-@size_megabytes_method () -> int = 1024mb.megabytes()
+@size_megabytes_method () -> int = 1000mb.megabytes()
 
 @test_size_gigabytes_method tests @size_gigabytes_method () -> void = run(
-    // Truncating behavior
-    assert_eq(actual: 1536mb.gigabytes(), expected: 1),
-    assert_eq(actual: 1024gb.gigabytes(), expected: 1024),
-    assert_eq(actual: 1tb.gigabytes(), expected: 1024),
+    // Truncating behavior - SI decimal: 1gb = 1000mb, 1tb = 1000gb
+    assert_eq(actual: 1500mb.gigabytes(), expected: 1),
+    assert_eq(actual: 1000gb.gigabytes(), expected: 1000),
+    assert_eq(actual: 1tb.gigabytes(), expected: 1000),
 )
 
-@size_gigabytes_method () -> int = 1024gb.gigabytes()
+@size_gigabytes_method () -> int = 1000gb.gigabytes()
 
 @test_size_terabytes_method tests @size_terabytes_method () -> void = run(
-    // Truncating behavior
-    assert_eq(actual: 1536gb.terabytes(), expected: 1),
+    // Truncating behavior - SI decimal: 1tb = 1000gb
+    assert_eq(actual: 1500gb.terabytes(), expected: 1),
     assert_eq(actual: 2tb.terabytes(), expected: 2),
 )
 
@@ -1556,7 +1557,8 @@ use std.testing { assert, assert_eq, assert_ne }
 @duration_chain_single () -> int = Duration.from_hours(h: 2).minutes()
 
 @test_size_chain_single tests @size_chain_single () -> void = run(
-    assert_eq(actual: Size.from_gigabytes(gb: 2).megabytes(), expected: 2048),
+    // SI decimal: 2gb = 2000mb
+    assert_eq(actual: Size.from_gigabytes(gb: 2).megabytes(), expected: 2000),
 )
 @size_chain_single () -> int = Size.from_gigabytes(gb: 2).megabytes()
 
@@ -1568,8 +1570,9 @@ use std.testing { assert, assert_eq, assert_ne }
 @duration_chain_arithmetic () -> int = (Duration.from_hours(h: 1) + Duration.from_minutes(m: 30)).minutes()
 
 @test_size_chain_after_arithmetic tests @size_chain_arithmetic () -> void = run(
+    // SI decimal: 1mb = 1000kb, so 1mb + 512kb = 1512kb
     let kb = (Size.from_megabytes(mb: 1) + Size.from_kilobytes(kb: 512)).kilobytes(),
-    assert_eq(actual: kb, expected: 1536),
+    assert_eq(actual: kb, expected: 1512),
 )
 @size_chain_arithmetic () -> int = (Size.from_megabytes(mb: 1) + Size.from_kilobytes(kb: 512)).kilobytes()
 
@@ -1653,16 +1656,17 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Comparisons with factory results
 @test_duration_factory_compare tests @duration_factory_lt () -> void = run(
-    assert(condition: Duration.from_seconds(s: 59) < Duration.from_minutes(m: 1)),
-    assert(condition: Duration.from_minutes(m: 60) == Duration.from_hours(h: 1)),
+    assert(cond: Duration.from_seconds(s: 59) < Duration.from_minutes(m: 1)),
+    assert(cond: Duration.from_minutes(m: 60) == Duration.from_hours(h: 1)),
 )
 @duration_factory_lt () -> bool = Duration.from_seconds(s: 59) < Duration.from_minutes(m: 1)
 
 @test_size_factory_compare tests @size_factory_lt () -> void = run(
-    assert(condition: Size.from_kilobytes(kb: 1023) < Size.from_megabytes(mb: 1)),
-    assert(condition: Size.from_megabytes(mb: 1024) == Size.from_gigabytes(gb: 1)),
+    // SI decimal: 1mb = 1000kb, 1gb = 1000mb
+    assert(cond: Size.from_kilobytes(kb: 999) < Size.from_megabytes(mb: 1)),
+    assert(cond: Size.from_megabytes(mb: 1000) == Size.from_gigabytes(gb: 1)),
 )
-@size_factory_lt () -> bool = Size.from_kilobytes(kb: 1023) < Size.from_megabytes(mb: 1)
+@size_factory_lt () -> bool = Size.from_kilobytes(kb: 999) < Size.from_megabytes(mb: 1)
 
 // Factory in conditional expressions
 @test_duration_factory_conditional tests @duration_conditional () -> void = run(
@@ -1702,6 +1706,6 @@ use std.testing { assert, assert_eq, assert_ne }
 // Multiple factories in single expression
 @test_multi_factory_expr tests @multi_factory () -> void = run(
     let total = Size.from_gigabytes(gb: 1) + Size.from_megabytes(mb: 500) + Size.from_kilobytes(kb: 256),
-    assert(condition: total > Size.from_gigabytes(gb: 1)),
+    assert(cond: total > Size.from_gigabytes(gb: 1)),
 )
 @multi_factory () -> Size = Size.from_gigabytes(gb: 1) + Size.from_megabytes(mb: 500) + Size.from_kilobytes(kb: 256)

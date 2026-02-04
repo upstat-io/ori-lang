@@ -42,15 +42,13 @@ mod type_conversion_tests;
 
 // Test helper for the new architecture
 pub mod helper {
-    use rustc_hash::FxHashMap;
-
     use inkwell::basic_block::BasicBlock;
     use inkwell::context::Context;
-    use inkwell::values::{BasicValueEnum, FunctionValue};
+    use inkwell::values::FunctionValue;
     use inkwell::OptimizationLevel;
     use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
 
-    use crate::builder::Builder;
+    use crate::builder::{Builder, Locals};
     use crate::context::CodegenCx;
     use crate::runtime;
 
@@ -120,12 +118,12 @@ pub mod helper {
             // Create builder and compile body
             let builder = Builder::build(&self.cx, entry_bb);
 
-            // Set up locals from parameters
-            let mut locals: FxHashMap<Name, BasicValueEnum<'ll>> = FxHashMap::default();
+            // Set up locals from parameters (function parameters are immutable)
+            let mut locals = Locals::new();
             for (i, &param_name) in param_names.iter().enumerate() {
                 let param = func.get_nth_param(i as u32).unwrap();
                 param.set_name(self.cx.interner.lookup(param_name));
-                locals.insert(param_name, param);
+                locals.bind_immutable(param_name, param);
             }
 
             // Compile body

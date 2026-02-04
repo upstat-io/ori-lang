@@ -174,6 +174,8 @@ pub(crate) enum RawToken {
     Colon,
     #[token(",")]
     Comma,
+    #[token("...")]
+    DotDotDot,
     #[token("..=")]
     DotDotEq,
     #[token("..")]

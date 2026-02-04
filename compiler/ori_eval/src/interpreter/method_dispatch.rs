@@ -61,6 +61,26 @@ impl Interpreter<'_> {
             return crate::methods::dispatch_associated_function(type_name_str, method_str, args);
         }
 
+        // Handle callable struct fields: if a struct has a field with the method name
+        // and that field is a function, call it instead of treating as a method.
+        // This enables patterns like: `Handler { callback: fn }.callback(arg)`
+        if let Value::Struct(s) = &receiver {
+            if let Some(field_value) = s.get_field(method) {
+                // Check if the field is callable
+                match &field_value {
+                    Value::Function(_)
+                    | Value::MemoizedFunction(_)
+                    | Value::MultiClauseFunction(_)
+                    | Value::FunctionVal(_, _) => {
+                        return self.eval_call(field_value, &args);
+                    }
+                    _ => {
+                        // Field exists but isn't callable - fall through to method dispatch
+                    }
+                }
+            }
+        }
+
         let type_name = self.get_value_type_name(&receiver);
 
         // Resolve the method using the resolver chain
@@ -386,7 +406,9 @@ impl Interpreter<'_> {
             | Value::Newtype { type_name, .. }
             | Value::NewtypeConstructor { type_name }
             | Value::TypeRef { type_name } => *type_name,
-            Value::Function(_) | Value::MemoizedFunction(_) => names.function,
+            Value::Function(_) | Value::MemoizedFunction(_) | Value::MultiClauseFunction(_) => {
+                names.function
+            }
             Value::FunctionVal(_, _) => names.function_val,
             Value::ModuleNamespace(_) => names.module,
             Value::Error(_) => names.error,

@@ -2,10 +2,9 @@
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprId, Name, TypeId};
-use rustc_hash::FxHashMap;
 use tracing::instrument;
 
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 
 /// Configuration for compiling a function body.
 ///
@@ -41,8 +40,8 @@ impl<'ll> Builder<'_, 'll, '_> {
             expr_types,
             function,
         } = *config;
-        // Build parameter map
-        let mut locals: FxHashMap<Name, BasicValueEnum<'ll>> = FxHashMap::default();
+        // Build parameter map (function parameters are immutable)
+        let mut locals = Locals::new();
 
         // Verify parameter count matches (debug assertion for internal consistency)
         debug_assert_eq!(
@@ -59,7 +58,7 @@ impl<'ll> Builder<'_, 'll, '_> {
                 .get_nth_param(i as u32)
                 .expect("internal error: parameter count verified but get_nth_param failed");
             param_value.set_name(self.cx().interner.lookup(param_name));
-            locals.insert(param_name, param_value);
+            locals.bind_immutable(param_name, param_value);
         }
 
         // Compile body (no loop context at top level)

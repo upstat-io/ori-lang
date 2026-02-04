@@ -10,8 +10,28 @@ use ori_patterns::{
 /// checker agree on which methods exist. Each entry is `(type_name, method_name)`.
 /// Sorted by type then method for deterministic comparison.
 pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
-    // bool
+    // bool - operators and traits
+    ("bool", "clone"),
+    ("bool", "compare"),
+    ("bool", "debug"),
+    ("bool", "equals"),
+    ("bool", "hash"),
     ("bool", "not"),
+    ("bool", "to_str"),
+    // byte - traits
+    ("byte", "clone"),
+    ("byte", "compare"),
+    ("byte", "debug"),
+    ("byte", "equals"),
+    ("byte", "hash"),
+    ("byte", "to_str"),
+    // char - traits
+    ("char", "clone"),
+    ("char", "compare"),
+    ("char", "debug"),
+    ("char", "equals"),
+    ("char", "hash"),
+    ("char", "to_str"),
     // duration
     ("duration", "add"),
     ("duration", "div"),
@@ -25,29 +45,43 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("duration", "rem"),
     ("duration", "seconds"),
     ("duration", "sub"),
-    // float
+    // float - operators and traits
     ("float", "add"),
+    ("float", "clone"),
+    ("float", "compare"),
+    ("float", "debug"),
     ("float", "div"),
+    ("float", "equals"),
+    ("float", "hash"),
     ("float", "mul"),
     ("float", "neg"),
     ("float", "sub"),
-    // int
+    ("float", "to_str"),
+    // int - operators and traits
     ("int", "add"),
     ("int", "bit_and"),
     ("int", "bit_not"),
     ("int", "bit_or"),
     ("int", "bit_xor"),
+    ("int", "clone"),
+    ("int", "compare"),
+    ("int", "debug"),
     ("int", "div"),
+    ("int", "equals"),
     ("int", "floor_div"),
+    ("int", "hash"),
     ("int", "mul"),
     ("int", "neg"),
     ("int", "rem"),
     ("int", "shl"),
     ("int", "shr"),
     ("int", "sub"),
-    // list
+    ("int", "to_str"),
+    // list - methods and traits
     ("list", "add"),
+    ("list", "clone"),
     ("list", "contains"),
+    ("list", "debug"),
     ("list", "first"),
     ("list", "is_empty"),
     ("list", "last"),
@@ -61,6 +95,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     // option
     ("option", "is_none"),
     ("option", "is_some"),
+    ("option", "ok_or"),
     ("option", "unwrap"),
     ("option", "unwrap_or"),
     // range
@@ -81,14 +116,20 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("size", "rem"),
     ("size", "sub"),
     ("size", "terabytes"),
-    // str
+    // str - methods and traits
     ("str", "add"),
+    ("str", "clone"),
+    ("str", "compare"),
     ("str", "contains"),
+    ("str", "debug"),
     ("str", "ends_with"),
+    ("str", "equals"),
+    ("str", "hash"),
     ("str", "is_empty"),
     ("str", "len"),
     ("str", "starts_with"),
     ("str", "to_lowercase"),
+    ("str", "to_str"),
     ("str", "to_uppercase"),
     ("str", "trim"),
 ];

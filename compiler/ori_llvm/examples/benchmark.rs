@@ -72,6 +72,7 @@ fn benchmark_arithmetic() {
         return_ty: None,
         capabilities: vec![],
         where_clauses: vec![],
+        guard: None,
         body: mul_expr,
         span: ori_ir::Span::new(0, 1),
         visibility: Visibility::Private,
@@ -132,12 +133,18 @@ fn benchmark_fib() {
     let params = arena.alloc_params([
         Param {
             name: a_name,
+            pattern: None,
             ty: None,
+            default: None,
+            is_variadic: false,
             span: ori_ir::Span::new(0, 1),
         },
         Param {
             name: b_name,
+            pattern: None,
             ty: None,
+            default: None,
+            is_variadic: false,
             span: ori_ir::Span::new(0, 1),
         },
     ]);
@@ -149,6 +156,7 @@ fn benchmark_fib() {
         return_ty: None,
         capabilities: vec![],
         where_clauses: vec![],
+        guard: None,
         body: add_expr,
         span: ori_ir::Span::new(0, 1),
         visibility: Visibility::Private,
@@ -197,7 +205,10 @@ fn create_standalone_benchmark() {
 
     let params = arena.alloc_params([Param {
         name: n_name,
+        pattern: None,
         ty: None,
+        default: None,
+        is_variadic: false,
         span: ori_ir::Span::new(0, 1),
     }]);
 
@@ -212,6 +223,7 @@ fn create_standalone_benchmark() {
         return_ty: None,
         capabilities: vec![],
         where_clauses: vec![],
+        guard: None,
         body,
         span: ori_ir::Span::new(0, 1),
         visibility: Visibility::Private,

@@ -12,4 +12,4 @@ pub @get () -> str = "HTTP GET response"
 // Tests
 @test_status tests @status_ok () -> void = assert_eq(actual: status_ok(), expected: 200)
 
-@test_get tests @get () -> void = assert(condition: get() == "HTTP GET response")
+@test_get tests @get () -> void = assert(cond: get() == "HTTP GET response")

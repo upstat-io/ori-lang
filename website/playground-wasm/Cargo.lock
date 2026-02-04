@@ -167,6 +167,7 @@ dependencies = [
  "ori_ir",
  "ori_patterns",
  "ori_stack",
+ "ori_types",
  "parking_lot",
  "rustc-hash",
 ]

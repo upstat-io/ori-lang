@@ -6,7 +6,7 @@ use super::substitute_type_params;
 use crate::checker::TypeChecker;
 use crate::registry::TypeKind;
 use crate::suggest::{suggest_field, suggest_type};
-use ori_ir::{FieldInitRange, Name, Span};
+use ori_ir::{FieldInitRange, Name, Span, StructLitFieldRange};
 use ori_types::Type;
 use std::collections::{HashMap, HashSet};
 
@@ -234,4 +234,167 @@ pub fn infer_struct(checker: &mut TypeChecker<'_>, name: Name, fields: FieldInit
             args: type_args,
         }
     }
+}
+
+/// Infer type for a struct literal with spread syntax.
+///
+/// Supports `Point { ...base, x: 10 }` where `base` provides fields
+/// that can be overridden by explicit field values.
+pub fn infer_struct_with_spread(
+    checker: &mut TypeChecker<'_>,
+    name: Name,
+    fields: StructLitFieldRange,
+) -> Type {
+    let struct_lit_fields = checker.context.arena.get_struct_lit_fields(fields);
+
+    // Get struct type info
+    let (expected_fields, type_params) = {
+        let Some(entry) = checker.registries.types.get_by_name(name) else {
+            let span = struct_lit_fields
+                .first()
+                .map_or_else(|| ori_ir::Span::new(0, 0), ori_ir::Spanned::span);
+
+            let name_str = checker.context.interner.lookup(name);
+            let suggestion = suggest_type(checker, name);
+            checker.error_unknown_struct(span, name_str, suggestion);
+
+            // Still type-check all expressions
+            for field in struct_lit_fields {
+                match field {
+                    ori_ir::StructLitField::Field(init) => {
+                        if let Some(value_id) = init.value {
+                            infer_expr(checker, value_id);
+                        }
+                    }
+                    ori_ir::StructLitField::Spread { expr, .. } => {
+                        infer_expr(checker, *expr);
+                    }
+                }
+            }
+            return Type::Error;
+        };
+
+        let fields_vec: Vec<(Name, Type)> = if let TypeKind::Struct {
+            fields: struct_fields,
+        } = &entry.kind
+        {
+            let interner = checker.registries.types.interner();
+            struct_fields
+                .iter()
+                .map(|(n, ty_id)| (*n, interner.to_type(*ty_id)))
+                .collect()
+        } else {
+            let span = struct_lit_fields
+                .first()
+                .map_or_else(|| ori_ir::Span::new(0, 0), ori_ir::Spanned::span);
+
+            let name_str = checker.context.interner.lookup(name);
+            checker.error_not_a_struct(span, name_str);
+            return Type::Error;
+        };
+
+        (fields_vec, entry.type_params.clone())
+    };
+
+    let (expected_fields, type_args) = if type_params.is_empty() {
+        (expected_fields, Vec::new())
+    } else {
+        let type_args: Vec<Type> = type_params
+            .iter()
+            .map(|_| checker.inference.ctx.fresh_var())
+            .collect();
+
+        let type_param_vars: HashMap<Name, Type> = type_params
+            .iter()
+            .zip(type_args.iter())
+            .map(|(&param_name, type_var)| (param_name, type_var.clone()))
+            .collect();
+
+        let substituted_fields = expected_fields
+            .into_iter()
+            .map(|(field_name, field_ty)| {
+                let substituted_ty = substitute_type_params(&field_ty, &type_param_vars);
+                (field_name, substituted_ty)
+            })
+            .collect();
+
+        (substituted_fields, type_args)
+    };
+
+    let expected_map: HashMap<Name, &Type> =
+        expected_fields.iter().map(|(n, ty)| (*n, ty)).collect();
+
+    let target_type = if type_args.is_empty() {
+        Type::Named(name)
+    } else {
+        Type::Applied {
+            name,
+            args: type_args.clone(),
+        }
+    };
+
+    let mut provided_fields: HashSet<Name> = HashSet::new();
+    let mut has_spread = false;
+
+    for field in struct_lit_fields {
+        match field {
+            ori_ir::StructLitField::Field(init) => {
+                if !provided_fields.insert(init.name) {
+                    let field_name = checker.context.interner.lookup(init.name);
+                    checker.error_duplicate_field(init.span, field_name);
+                    continue;
+                }
+
+                if let Some(&expected_ty) = expected_map.get(&init.name) {
+                    if let Some(value_id) = init.value {
+                        let actual_ty = infer_expr(checker, value_id);
+                        if let Err(e) = checker.inference.ctx.unify(&actual_ty, expected_ty) {
+                            checker.report_type_error(&e, init.span);
+                        }
+                    } else {
+                        let var_ty = infer_ident(checker, init.name, init.span);
+                        if let Err(e) = checker.inference.ctx.unify(&var_ty, expected_ty) {
+                            checker.report_type_error(&e, init.span);
+                        }
+                    }
+                } else {
+                    let struct_name = checker.context.interner.lookup(name);
+                    let field_name = checker.context.interner.lookup(init.name);
+                    let suggestion = suggest_field(checker, name, init.name);
+                    checker.error_no_such_field(init.span, struct_name, field_name, suggestion);
+
+                    if let Some(value_id) = init.value {
+                        infer_expr(checker, value_id);
+                    }
+                }
+            }
+            ori_ir::StructLitField::Spread { expr, span } => {
+                has_spread = true;
+                let spread_ty = infer_expr(checker, *expr);
+
+                // Spread expression must be the same struct type
+                if let Err(e) = checker.inference.ctx.unify(&spread_ty, &target_type) {
+                    checker.report_type_error(&e, *span);
+                }
+            }
+        }
+    }
+
+    // Only check for missing fields if no spread was provided
+    // (spread covers all unspecified fields)
+    if !has_spread {
+        for (field_name, _) in &expected_fields {
+            if !provided_fields.contains(field_name) {
+                let span = struct_lit_fields
+                    .last()
+                    .map_or_else(|| ori_ir::Span::new(0, 0), ori_ir::Spanned::span);
+
+                let field_name_str = checker.context.interner.lookup(*field_name);
+                let struct_name = checker.context.interner.lookup(name);
+                checker.error_missing_field(span, struct_name, field_name_str);
+            }
+        }
+    }
+
+    target_type
 }

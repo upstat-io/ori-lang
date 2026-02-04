@@ -1,14 +1,12 @@
 //! Tests for complex control flow scenarios: nested conditionals, loops, blocks.
 
-use rustc_hash::FxHashMap;
-
 use inkwell::context::Context;
 use ori_ir::ast::patterns::BindingPattern;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind, Stmt, StmtKind};
 use ori_ir::{ExprArena, Span, StmtRange, StringInterner, TypeId};
 
 use super::helper::setup_builder_test;
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 
 #[test]
 fn test_if_no_else_void_result() {
@@ -32,7 +30,7 @@ fn test_if_no_else_void_result() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::BOOL, TypeId::INT];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     // No else branch with void result
     let result = builder.compile_if(
@@ -68,7 +66,7 @@ fn test_loop_terminates_without_body_terminator() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::VOID];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_loop(
         break_expr,
@@ -100,7 +98,7 @@ fn test_loop_with_non_void_result() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::VOID];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_loop(
         break_expr,
@@ -126,7 +124,7 @@ fn test_break_without_loop_context() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     // Break without loop context should return None
     let result = builder.compile_break(
@@ -155,7 +153,7 @@ fn test_continue_without_loop_context() {
 
     let arena = ExprArena::new();
     let expr_types: Vec<ori_ir::TypeId> = vec![];
-    let mut locals = rustc_hash::FxHashMap::default();
+    let mut locals = Locals::new();
 
     // Continue without loop context should return None
     let result = builder.compile_continue(None, &arena, &expr_types, &mut locals, function, None);
@@ -231,7 +229,7 @@ fn test_block_with_multiple_statements() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT; 10];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_block(
         stmt_range,
@@ -266,7 +264,7 @@ fn test_block_with_empty_statements() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_block(
         empty_stmts,
@@ -314,7 +312,7 @@ fn test_block_with_statement_expr() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT; 5];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_block(
         stmt_range,
@@ -357,7 +355,7 @@ fn test_block_no_result() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_block(
         stmt_range,
@@ -380,8 +378,23 @@ fn test_assign_to_variable() {
 
     let mut arena = ExprArena::new();
 
-    // x = 42
+    // First declare: let mut x = 0
+    // Then assign: x = 42
     let x_name = interner.intern("x");
+
+    // Declare x as mutable with initial value 0
+    let initial_value = cx.scx.type_i64().const_int(0, false);
+    let entry_bb = cx.llcx().append_basic_block(function, "entry");
+    let builder = Builder::build(&cx, entry_bb);
+
+    // Create stack allocation for mutable variable
+    let ptr = builder.create_entry_alloca(function, "x", cx.scx.type_i64().into());
+    builder.store(initial_value.into(), ptr);
+
+    let mut locals = Locals::new();
+    locals.bind_mutable(x_name, ptr, cx.scx.type_i64().into());
+
+    // Now test assignment: x = 42
     let target = arena.alloc_expr(Expr {
         kind: ExprKind::Ident(x_name),
         span: Span::new(0, 1),
@@ -392,11 +405,7 @@ fn test_assign_to_variable() {
         span: Span::new(0, 1),
     });
 
-    let entry_bb = cx.llcx().append_basic_block(function, "entry");
-    let builder = Builder::build(&cx, entry_bb);
-
     let expr_types = vec![TypeId::INT, TypeId::INT];
-    let mut locals = FxHashMap::default();
 
     let result = builder.compile_assign(
         target,
@@ -410,7 +419,7 @@ fn test_assign_to_variable() {
 
     assert!(result.is_some(), "Assignment should produce the value");
     assert!(
-        locals.contains_key(&x_name),
+        locals.get_storage(&x_name).is_some(),
         "x should be in locals after assignment"
     );
 }
@@ -438,7 +447,7 @@ fn test_assign_non_ident_target() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT, TypeId::INT];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_assign(
         target,
@@ -506,7 +515,7 @@ fn test_nested_if_else() {
         TypeId::BOOL,
         TypeId::INT,
     ];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_if(
         outer_cond,

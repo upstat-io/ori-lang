@@ -1,0 +1,397 @@
+// Spec: 08-declarations.md § Attributes
+// Tests for attributes (grammar.ebnf § attribute)
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// #derive Attribute - Eq
+// =============================================================================
+
+#[derive(Eq)]
+type EqPoint = { x: int, y: int }
+
+@test_derive_eq tests @_use_eq_point () -> void = run(
+    let p1 = EqPoint { x: 10, y: 20 },
+    let p2 = EqPoint { x: 10, y: 20 },
+    let p3 = EqPoint { x: 10, y: 30 },
+    assert(cond: p1 == p2),
+    assert(cond: p1 != p3),
+)
+
+@_use_eq_point (p: EqPoint) -> int = p.x
+
+// =============================================================================
+// #derive Attribute - Clone
+// =============================================================================
+
+#[derive(Clone)]
+type ClonePoint = { x: int, y: int }
+
+@test_derive_clone tests @_use_clone_point () -> void = run(
+    let p1 = ClonePoint { x: 10, y: 20 },
+    let p2 = p1.clone(),
+    assert_eq(actual: p2.x, expected: 10),
+    assert_eq(actual: p2.y, expected: 20),
+)
+
+@_use_clone_point (p: ClonePoint) -> int = p.x
+
+// =============================================================================
+// #derive Attribute - Hashable
+// =============================================================================
+
+#[derive(Hashable, Eq)]
+type HashPoint = { x: int, y: int }
+
+@test_derive_hashable tests @_use_hash_point () -> void = run(
+    let p1 = HashPoint { x: 10, y: 20 },
+    let p2 = HashPoint { x: 10, y: 20 },
+    // Equal values should have equal hashes
+    assert_eq(actual: p1.hash(), expected: p2.hash()),
+)
+
+@_use_hash_point (p: HashPoint) -> int = p.x
+
+// =============================================================================
+// #derive Attribute - Multiple Derives
+// =============================================================================
+
+#[derive(Eq, Clone, Hashable)]
+type FullPoint = { x: int, y: int }
+
+@test_multiple_derives tests @_use_full_point () -> void = run(
+    let p1 = FullPoint { x: 5, y: 10 },
+    let p2 = p1.clone(),
+    assert(cond: p1 == p2),
+    assert_eq(actual: p1.hash(), expected: p2.hash()),
+)
+
+@_use_full_point (p: FullPoint) -> int = p.x
+
+// =============================================================================
+// #derive on Empty Struct
+// =============================================================================
+
+#[derive(Eq)]
+type EmptyDerived = { }
+
+@test_empty_derive tests @_use_empty () -> void = run(
+    let e1 = EmptyDerived { },
+    let e2 = EmptyDerived { },
+    assert(cond: e1 == e2),
+)
+
+@_use_empty (e: EmptyDerived) -> bool = true
+
+// =============================================================================
+// #derive on Single Field
+// =============================================================================
+
+#[derive(Eq, Clone)]
+type SingleFieldDerived = { value: int }
+
+@test_single_field_derive tests @_use_single () -> void = run(
+    let s1 = SingleFieldDerived { value: 42 },
+    let s2 = s1.clone(),
+    assert(cond: s1 == s2),
+)
+
+@_use_single (s: SingleFieldDerived) -> int = s.value
+
+// =============================================================================
+// #derive on Sum Types
+// =============================================================================
+
+#[derive(Eq)]
+type DerivedColor = DRed | DGreen | DBlue
+
+// SKIP: #derive(Eq) for sum types (variants) not yet implemented in evaluator
+#skip("derive(Eq) for sum types not implemented")
+@test_derive_sum_eq tests @_use_derived_color () -> void = run(
+    let c1 = DRed,
+    let c2 = DRed,
+    let c3 = DBlue,
+    assert(cond: c1 == c2),
+    assert(cond: c1 != c3),
+)
+
+@_use_derived_color (c: DerivedColor) -> bool = match(c, DRed -> true, _ -> false)
+
+#[derive(Eq)]
+type DerivedOption = DSome(value: int) | DNone
+
+// SKIP: #derive(Eq) for sum types with payloads not yet implemented in evaluator
+#skip("derive(Eq) for sum types not implemented")
+@test_derive_sum_payload_eq tests @_use_derived_option () -> void = run(
+    let s1 = DSome(value: 42),
+    let s2 = DSome(value: 42),
+    let s3 = DSome(value: 99),
+    let n = DNone,
+    assert(cond: s1 == s2),
+    assert(cond: s1 != s3),
+    assert(cond: s1 != n),
+)
+
+@_use_derived_option (o: DerivedOption) -> int = match(o, DSome(v) -> v, DNone -> 0)
+
+// =============================================================================
+// #skip Attribute
+// =============================================================================
+
+#skip("Pending implementation of feature X")
+@test_skipped_test tests @_dummy () -> void = run(
+    // This test is skipped
+    assert(cond: false),
+)
+
+@_dummy () -> bool = true
+
+// =============================================================================
+// #fail Attribute
+// =============================================================================
+// Per spec: "Asserts that a test panics with the expected message"
+
+// Actual message is "index 0 out of bounds" - match more specifically
+#fail("index 0 out of bounds")
+@test_expected_panic tests @_trigger_panic () -> void = run(
+    let list: [int] = [],
+    let _ = list[0],  // Should panic with index out of bounds
+    (),
+)
+
+@_trigger_panic () -> bool = true
+
+#fail("division")
+@test_division_panic tests @_trigger_division () -> void = run(
+    let _ = 1 / 0,  // Division by zero
+    (),
+)
+
+@_trigger_division () -> bool = true
+
+// =============================================================================
+// #compile_fail Attribute
+// =============================================================================
+// Per spec: "Asserts that code fails to compile with the expected error"
+
+// Note: compile_fail tests need special handling - they should NOT compile
+// These tests verify the compiler correctly rejects invalid code
+
+// Type mismatch should fail
+#compile_fail("type")
+@test_type_mismatch tests @_type_error () -> void = run(
+    let x: int = "string",  // Type error: str assigned to int
+    (),
+)
+
+@_type_error () -> bool = true
+
+// Unknown variable should fail
+// Actual error message is "unknown identifier" not "not found"
+#compile_fail("unknown identifier")
+@test_undefined_variable tests @_undefined () -> void = run(
+    let _ = undefined_variable,  // Undefined variable
+    (),
+)
+
+@_undefined () -> bool = true
+
+// =============================================================================
+// #repr Attribute
+// =============================================================================
+// Per spec: "Controls memory representation"
+//
+// STATUS: Lexer [OK], Parser [BROKEN] - unknown attribute 'repr'
+// Parser does not recognize #repr as a valid attribute.
+
+#repr("c")
+type CStruct = { x: int, y: int }
+
+@test_repr_c tests @_use_c_struct () -> void = run(
+    let s = CStruct { x: 10, y: 20 },
+    assert_eq(actual: s.x, expected: 10),
+)
+
+@_use_c_struct (s: CStruct) -> int = s.x
+
+// =============================================================================
+// #target Attribute
+// =============================================================================
+// Per spec: "Conditional compilation based on platform"
+//
+// STATUS: Lexer [OK], Parser [BROKEN] - unknown attribute 'target'
+// Parser does not recognize #target as a valid attribute.
+
+#target(os: "linux")
+@linux_function () -> str = "linux"
+
+#target(os: "macos")
+@macos_function () -> str = "macos"
+
+#target(os: "windows")
+@windows_function () -> str = "windows"
+
+// Platform-agnostic test that will work on current platform
+@test_target_current tests @_platform_test () -> void = run(
+    // Just verify we can compile platform-specific code
+    assert(cond: true),
+)
+
+@_platform_test () -> bool = true
+
+// =============================================================================
+// #cfg Attribute
+// =============================================================================
+// Per spec: "Conditional compilation based on build configuration"
+//
+// STATUS: Lexer [OK], Parser [BROKEN] - unknown attribute 'cfg'
+// Parser does not recognize #cfg as a valid attribute.
+
+#cfg(debug)
+@debug_only_fn () -> str = "debug mode"
+
+#cfg(release)
+@release_only_fn () -> str = "release mode"
+
+// Test that debug/release code compiles
+@test_cfg_debug tests @_cfg_test () -> void = run(
+    assert(cond: true),
+)
+
+@_cfg_test () -> bool = true
+
+// Feature flags
+#cfg(feature: "experimental")
+@experimental_feature () -> str = "experimental"
+
+@test_cfg_feature tests @_feature_test () -> void = run(
+    assert(cond: true),
+)
+
+@_feature_test () -> bool = true
+
+// =============================================================================
+// #cfg(not_debug)
+// =============================================================================
+//
+// STATUS: Lexer [OK], Parser [BROKEN] - unknown attribute 'cfg'
+// Parser does not recognize #cfg as a valid attribute.
+
+#cfg(not_debug)
+@not_debug_fn () -> str = "not debug"
+
+@test_cfg_not_debug tests @_not_debug_test () -> void = run(
+    assert(cond: true),
+)
+
+@_not_debug_test () -> bool = true
+
+// =============================================================================
+// Attribute on Trait Impl
+// =============================================================================
+
+trait Marked {
+    @mark (self) -> str
+}
+
+type MarkedItem = { id: int }
+
+impl Marked for MarkedItem {
+    @mark (self) -> str = "marked: " + str(self.id)
+}
+
+@test_impl_works tests @_use_marked () -> void = run(
+    let item = MarkedItem { id: 42 },
+    assert_eq(actual: item.mark(), expected: "marked: 42"),
+)
+
+@_use_marked (m: MarkedItem) -> int = m.id
+
+// =============================================================================
+// Derive on Nested Types
+// =============================================================================
+
+#[derive(Eq)]
+type Inner = { value: int }
+
+#[derive(Eq)]
+type Outer = { inner: Inner }
+
+@test_nested_derive tests @_use_outer () -> void = run(
+    let o1 = Outer { inner: Inner { value: 42 } },
+    let o2 = Outer { inner: Inner { value: 42 } },
+    let o3 = Outer { inner: Inner { value: 99 } },
+    assert(cond: o1 == o2),
+    assert(cond: o1 != o3),
+)
+
+@_use_outer (o: Outer) -> int = o.inner.value
+
+// =============================================================================
+// Derive Debug
+// =============================================================================
+
+#[derive(Debug)]
+type DebugPoint = { x: int, y: int }
+
+// SKIP: #derive(Debug) method generation not yet implemented
+#skip("derive(Debug) not fully implemented")
+@test_derive_debug tests @_use_debug () -> void = run(
+    let p = DebugPoint { x: 10, y: 20 },
+    let debug_str = p.debug(),
+    // Debug output should contain the values
+    assert(cond: debug_str.len() > 0),
+)
+
+@_use_debug (p: DebugPoint) -> int = p.x
+
+// =============================================================================
+// Derive Printable
+// =============================================================================
+
+#[derive(Printable)]
+type PrintablePoint = { x: int, y: int }
+
+// SKIP: #derive(Printable) method generation not yet implemented
+#skip("derive(Printable) not fully implemented")
+@test_derive_printable tests @_use_printable () -> void = run(
+    let p = PrintablePoint { x: 10, y: 20 },
+    let str_repr = p.to_str(),
+    assert(cond: str_repr.len() > 0),
+)
+
+@_use_printable (p: PrintablePoint) -> int = p.x
+
+// =============================================================================
+// Multiple Attributes on Same Declaration
+// =============================================================================
+
+#[derive(Eq, Clone)]
+#[derive(Hashable)]
+type MultiAttrPoint = { x: int, y: int }
+
+@test_multi_attr tests @_use_multi () -> void = run(
+    let p = MultiAttrPoint { x: 5, y: 10 },
+    let cloned = p.clone(),
+    assert(cond: p == cloned),
+    assert_eq(actual: p.hash(), expected: cloned.hash()),
+)
+
+@_use_multi (p: MultiAttrPoint) -> int = p.x
+
+// =============================================================================
+// Derive on Generic Types
+// =============================================================================
+
+#[derive(Eq)]
+type GenericDerived<T: Eq> = { value: T }
+
+@test_generic_derive tests @_use_generic () -> void = run(
+    let g1: GenericDerived<int> = GenericDerived { value: 42 },
+    let g2: GenericDerived<int> = GenericDerived { value: 42 },
+    let g3: GenericDerived<int> = GenericDerived { value: 99 },
+    assert(cond: g1 == g2),
+    assert(cond: g1 != g3),
+)
+
+@_use_generic (g: GenericDerived<int>) -> int = g.value

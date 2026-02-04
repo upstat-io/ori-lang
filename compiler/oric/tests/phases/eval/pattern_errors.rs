@@ -23,7 +23,7 @@ use ori_patterns::{
     hash_outside_index, index_assignment_not_implemented, index_out_of_bounds, integer_overflow,
     invalid_assignment_target, invalid_binary_op_for, invalid_literal_pattern, invalid_tuple_field,
     key_not_found, list_pattern_too_long, map_entries_not_implemented, map_entries_requires_map,
-    map_keys_must_be_strings, map_requires_collection, missing_struct_field, modulo_by_zero,
+    map_key_not_hashable, map_requires_collection, missing_struct_field, modulo_by_zero,
     no_field_on_struct, no_member_in_module, no_such_method, non_exhaustive_match,
     non_integer_in_index, not_callable, operator_not_supported_in_index, parse_error,
     propagated_error_message, range_bound_not_int, recursion_limit_exceeded, self_outside_method,
@@ -259,9 +259,9 @@ fn test_unbounded_range_end() {
 }
 
 #[test]
-fn test_map_keys_must_be_strings() {
-    let err = map_keys_must_be_strings();
-    assert!(err.message.contains("strings"));
+fn test_map_key_not_hashable() {
+    let err = map_key_not_hashable();
+    assert!(err.message.contains("hashable"));
 }
 
 // -- Control Flow Errors --
@@ -539,7 +539,7 @@ fn test_errors_are_distinct() {
         any_requires_list().message,
         all_requires_list().message,
         unbounded_range_end().message,
-        map_keys_must_be_strings().message,
+        map_key_not_hashable().message,
     ];
 
     // Ensure all messages are unique

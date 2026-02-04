@@ -308,6 +308,12 @@ pub enum TypeCheckError {
     /// Condition must be bool.
     ConditionNotBool { span: Span, found_type: String },
 
+    // ===== Collection Errors =====
+    /// Spread operator requires a list type.
+    SpreadRequiresList { span: Span, found_type: String },
+    /// Spread operator in map requires a map type.
+    SpreadRequiresMap { span: Span, found_type: String },
+
     // ===== Struct Errors =====
     /// Unknown struct type.
     UnknownStruct {
@@ -472,6 +478,9 @@ impl TypeCheckError {
             | TypeCheckError::InvalidTryOperand { span, .. }
             | TypeCheckError::AwaitNotSupported { span }
             | TypeCheckError::ConditionNotBool { span, .. }
+            // Collections
+            | TypeCheckError::SpreadRequiresList { span, .. }
+            | TypeCheckError::SpreadRequiresMap { span, .. }
             // Structs
             | TypeCheckError::UnknownStruct { span, .. }
             | TypeCheckError::NotAStruct { span, .. }
@@ -527,7 +536,9 @@ impl TypeCheckError {
             | TypeCheckError::TupleLengthMismatch { .. }
             | TypeCheckError::ListPatternMismatch { .. }
             | TypeCheckError::TuplePatternMismatch { .. }
-            | TypeCheckError::InvalidVariantPattern { .. } => ErrorCode::E2001,
+            | TypeCheckError::InvalidVariantPattern { .. }
+            | TypeCheckError::SpreadRequiresList { .. }
+            | TypeCheckError::SpreadRequiresMap { .. } => ErrorCode::E2001,
 
             // E2002: Method not found
             TypeCheckError::NoSuchMethod { .. } => ErrorCode::E2002,
@@ -903,6 +914,20 @@ impl TypeCheckError {
                     .with_message(format!("condition must be `bool`, found `{found_type}`"))
                     .with_label(*span, "expected `bool`")
                     .with_suggestion("use a comparison operator to get a bool value")
+            }
+
+            // ===== Collection Errors =====
+            TypeCheckError::SpreadRequiresList { span, found_type } => {
+                Diagnostic::error(ErrorCode::E2001)
+                    .with_message(format!("spread operator requires a list, found `{found_type}`"))
+                    .with_label(*span, "expected list type")
+                    .with_suggestion("spread can only be used with list values")
+            }
+            TypeCheckError::SpreadRequiresMap { span, found_type } => {
+                Diagnostic::error(ErrorCode::E2001)
+                    .with_message(format!("spread operator requires a map, found `{found_type}`"))
+                    .with_label(*span, "expected map type")
+                    .with_suggestion("spread in map literal can only be used with map values")
             }
 
             // ===== Struct Errors =====

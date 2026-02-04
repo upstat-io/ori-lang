@@ -365,23 +365,30 @@ impl StringLookup for StringInterner {
 /// This newtype enforces that all thread-safe interner sharing goes through
 /// this type, preventing accidental direct `Arc<StringInterner>` usage.
 ///
-/// # Purpose
-/// The string interner must be shared across lexer, parser, type checker,
-/// and evaluator. `SharedInterner` provides a clonable handle that can be
-/// passed to each compiler phase while ensuring all phases share the same
-/// interned string storage.
+/// # When to Use This vs `&StringInterner`
+///
+/// **Use `SharedInterner` (Arc) when:**
+/// - Creating the interner at a coordination point (e.g., Salsa database)
+/// - Passing to phases that may run concurrently or outlive the caller
+/// - The interner must be cloned into multiple owned handles
+///
+/// **Use `&'a StringInterner` (borrowed) when:**
+/// - The caller owns the interner and callees just need read access
+/// - Lifetime is well-defined (codegen borrows from earlier phase output)
+/// - Zero runtime cost is required (no atomic ref counting)
+///
+/// **Example - Correct patterns:**
+/// ```ignore
+/// // Salsa database owns the interner
+/// let db = CompilerDb::new(); // contains SharedInterner internally
+///
+/// // Codegen borrows - does NOT need Arc
+/// fn compile(cx: &CodegenCx, interner: &StringInterner) { ... }
+/// ```
 ///
 /// # Thread Safety
 /// Uses `Arc` internally for thread-safe reference counting. The underlying
 /// `StringInterner` uses per-shard `RwLocks` for concurrent access.
-///
-/// # Usage
-///
-/// ```text
-/// let interner = SharedInterner::new();
-/// let name = interner.intern("my_function");
-/// let lookup = interner.resolve(name);
-/// ```
 #[derive(Clone)]
 pub struct SharedInterner(Arc<StringInterner>);
 

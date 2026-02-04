@@ -106,7 +106,7 @@ pub mod runtime;
 pub mod aot;
 
 // Re-export key types from new architecture
-pub use builder::Builder;
+pub use builder::{Builder, LocalStorage, Locals};
 pub use compile_ctx::CompileCtx;
 pub use context::{CodegenCx, SimpleCx, TypeCache};
 pub use traits::{BackendTypes, BuilderMethods, CodegenMethods, TypeMethods};

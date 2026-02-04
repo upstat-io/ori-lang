@@ -2,6 +2,12 @@
 //!
 //! All operator types used in expressions.
 //!
+//! # Specification
+//!
+//! - Syntax: `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` § EXPRESSIONS
+//! - Semantics: `docs/ori_lang/0.1-alpha/spec/operator-rules.md`
+//! - Precedence: `docs/ori_lang/0.1-alpha/spec/operator-rules.md` § Precedence Table
+//!
 //! # Salsa Compatibility
 //! All types have Copy, Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
@@ -74,6 +80,53 @@ impl BinaryOp {
             Self::Range => "..",
             Self::RangeInclusive => "..=",
             Self::Coalesce => "??",
+        }
+    }
+
+    /// Returns the precedence level of this operator.
+    ///
+    /// Higher number = lower precedence (binds less tightly).
+    /// Used by the formatter to determine when parentheses are needed.
+    ///
+    /// Precedence levels (from operator-rules.md):
+    /// - 3: `*` `/` `%` `div`
+    /// - 4: `+` `-`
+    /// - 5: `<<` `>>`
+    /// - 6: `..` `..=`
+    /// - 7: `<` `>` `<=` `>=`
+    /// - 8: `==` `!=`
+    /// - 9: `&`
+    /// - 10: `^`
+    /// - 11: `|`
+    /// - 12: `&&`
+    /// - 13: `||`
+    /// - 14: `??`
+    pub const fn precedence(self) -> u8 {
+        match self {
+            // Multiplicative (highest binary precedence)
+            Self::Mul | Self::Div | Self::Mod | Self::FloorDiv => 3,
+            // Additive
+            Self::Add | Self::Sub => 4,
+            // Shift
+            Self::Shl | Self::Shr => 5,
+            // Range
+            Self::Range | Self::RangeInclusive => 6,
+            // Comparison
+            Self::Lt | Self::LtEq | Self::Gt | Self::GtEq => 7,
+            // Equality
+            Self::Eq | Self::NotEq => 8,
+            // Bitwise AND
+            Self::BitAnd => 9,
+            // Bitwise XOR
+            Self::BitXor => 10,
+            // Bitwise OR
+            Self::BitOr => 11,
+            // Logical AND
+            Self::And => 12,
+            // Logical OR
+            Self::Or => 13,
+            // Coalesce (lowest binary precedence)
+            Self::Coalesce => 14,
         }
     }
 }

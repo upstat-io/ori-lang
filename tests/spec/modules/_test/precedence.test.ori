@@ -1,4 +1,6 @@
 // Test that file modules take precedence over directory modules
+
+use std.testing { assert_eq }
 // When both ./precedence.ori and ./precedence/mod.ori exist,
 // `use "./precedence"` should resolve to ./precedence.ori
 

@@ -1,0 +1,33 @@
+// Spec: 02-source-code.md § Imports
+// Tests for import statements (grammar.ebnf § import)
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Module Import with Item List
+// =============================================================================
+
+// The above import demonstrates: use std.testing { assert, assert_eq }
+
+@imports_module () -> bool = true
+
+@test_imports_module tests @imports_module () -> void = run(
+    assert(cond: imports_module()),
+)
+
+// =============================================================================
+// Standard Library Imports
+// =============================================================================
+
+// Note: More complex import tests would need additional test modules
+// This file verifies the basic import syntax works
+
+@imports_std () -> int = run(
+    // Testing assert_eq which was imported from std.testing
+    let result = 42,
+    result,
+)
+
+@test_imports_std tests @imports_std () -> void = run(
+    assert_eq(actual: imports_std(), expected: 42),
+)

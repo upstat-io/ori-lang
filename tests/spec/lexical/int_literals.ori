@@ -1,0 +1,380 @@
+// Spec: 03-lexical-elements.md § Integer Literals
+// Tests for integer literals (grammar.ebnf § int_literal, decimal_lit, hex_lit)
+// int_literal = decimal_lit | hex_lit .
+// decimal_lit = digit { digit | "_" } .
+// hex_lit     = "0x" hex_digit { hex_digit | "_" } .
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Basic Decimal Integers
+// =============================================================================
+
+@decimal_zero () -> int = 0
+
+@test_decimal_zero tests @decimal_zero () -> void = run(
+    assert_eq(actual: decimal_zero(), expected: 0),
+)
+
+@decimal_one () -> int = 1
+
+@test_decimal_one tests @decimal_one () -> void = run(
+    assert_eq(actual: decimal_one(), expected: 1),
+)
+
+@decimal_single_digit () -> int = run(
+    let a = 0,
+    let b = 1,
+    let c = 2,
+    let d = 3,
+    let e = 4,
+    let f = 5,
+    let g = 6,
+    let h = 7,
+    let i = 8,
+    let j = 9,
+    a + b + c + d + e + f + g + h + i + j,
+)
+
+@test_decimal_single_digit tests @decimal_single_digit () -> void = run(
+    // 0+1+2+3+4+5+6+7+8+9 = 45
+    assert_eq(actual: decimal_single_digit(), expected: 45),
+)
+
+@decimal_multi_digit () -> int = 42
+
+@test_decimal_multi_digit tests @decimal_multi_digit () -> void = run(
+    assert_eq(actual: decimal_multi_digit(), expected: 42),
+    assert_eq(actual: 123, expected: 123),
+    assert_eq(actual: 999999, expected: 999999),
+)
+
+// =============================================================================
+// Decimal with Underscores (Readability Separators)
+// =============================================================================
+
+@decimal_underscore_thousands () -> int = 1_000
+
+@test_decimal_underscore_thousands tests @decimal_underscore_thousands () -> void = run(
+    assert_eq(actual: decimal_underscore_thousands(), expected: 1000),
+)
+
+@decimal_underscore_millions () -> int = 1_000_000
+
+@test_decimal_underscore_millions tests @decimal_underscore_millions () -> void = run(
+    assert_eq(actual: decimal_underscore_millions(), expected: 1000000),
+)
+
+@decimal_underscore_irregular () -> int = 1_23_456_7
+
+@test_decimal_underscore_irregular tests @decimal_underscore_irregular () -> void = run(
+    assert_eq(actual: decimal_underscore_irregular(), expected: 1234567),
+)
+
+@decimal_multiple_underscores () -> int = 1__000
+
+@test_decimal_multiple_underscores tests @decimal_multiple_underscores () -> void = run(
+    assert_eq(actual: decimal_multiple_underscores(), expected: 1000),
+)
+
+// =============================================================================
+// Hexadecimal Literals (0x prefix)
+// =============================================================================
+
+@hex_zero () -> int = 0x0
+
+@test_hex_zero tests @hex_zero () -> void = run(
+    assert_eq(actual: hex_zero(), expected: 0),
+)
+
+@hex_single_digit () -> int = run(
+    let a = 0x0,
+    let b = 0x1,
+    let c = 0x2,
+    let d = 0x3,
+    let e = 0x4,
+    let f = 0x5,
+    let g = 0x6,
+    let h = 0x7,
+    let i = 0x8,
+    let j = 0x9,
+    let k = 0xA,
+    let l = 0xB,
+    let m = 0xC,
+    let n = 0xD,
+    let o = 0xE,
+    let p = 0xF,
+    a + b + c + d + e + f + g + h + i + j + k + l + m + n + o + p,
+)
+
+@test_hex_single_digit tests @hex_single_digit () -> void = run(
+    // 0+1+2+3+4+5+6+7+8+9+10+11+12+13+14+15 = 120
+    assert_eq(actual: hex_single_digit(), expected: 120),
+)
+
+@hex_lowercase () -> int = 0xff
+
+@test_hex_lowercase tests @hex_lowercase () -> void = run(
+    assert_eq(actual: hex_lowercase(), expected: 255),
+)
+
+@hex_uppercase () -> int = 0xFF
+
+@test_hex_uppercase tests @hex_uppercase () -> void = run(
+    assert_eq(actual: hex_uppercase(), expected: 255),
+)
+
+@hex_mixed_case () -> int = 0xAbCdEf
+
+@test_hex_mixed_case tests @hex_mixed_case () -> void = run(
+    assert_eq(actual: hex_mixed_case(), expected: 11259375),
+)
+
+@hex_multi_byte () -> int = 0x100
+
+@test_hex_multi_byte tests @hex_multi_byte () -> void = run(
+    assert_eq(actual: hex_multi_byte(), expected: 256),
+)
+
+// =============================================================================
+// Hexadecimal with Underscores
+// =============================================================================
+
+@hex_underscore () -> int = 0xFF_FF
+
+@test_hex_underscore tests @hex_underscore () -> void = run(
+    assert_eq(actual: hex_underscore(), expected: 65535),
+)
+
+@hex_underscore_bytes () -> int = 0x1A_2B_3C_4D
+
+@test_hex_underscore_bytes tests @hex_underscore_bytes () -> void = run(
+    assert_eq(actual: hex_underscore_bytes(), expected: 439041101),
+)
+
+@hex_underscore_irregular () -> int = 0xA_BC_DEF
+
+@test_hex_underscore_irregular tests @hex_underscore_irregular () -> void = run(
+    assert_eq(actual: hex_underscore_irregular(), expected: 11259375),
+)
+
+// =============================================================================
+// Binary Literals (0b prefix)
+// =============================================================================
+
+@binary_zero () -> int = 0b0
+
+@test_binary_zero tests @binary_zero () -> void = run(
+    assert_eq(actual: binary_zero(), expected: 0),
+)
+
+@binary_one () -> int = 0b1
+
+@test_binary_one tests @binary_one () -> void = run(
+    assert_eq(actual: binary_one(), expected: 1),
+)
+
+@binary_multi () -> int = 0b1010
+
+@test_binary_multi tests @binary_multi () -> void = run(
+    assert_eq(actual: binary_multi(), expected: 10),
+)
+
+@binary_byte () -> int = 0b11111111
+
+@test_binary_byte tests @binary_byte () -> void = run(
+    assert_eq(actual: binary_byte(), expected: 255),
+)
+
+@binary_underscore () -> int = 0b1111_0000
+
+@test_binary_underscore tests @binary_underscore () -> void = run(
+    assert_eq(actual: binary_underscore(), expected: 240),
+)
+
+// =============================================================================
+// Large Integers (within i64 range)
+// =============================================================================
+
+@large_int () -> int = 9223372036854775807
+
+@test_large_int tests @large_int () -> void = run(
+    // Maximum i64 value
+    assert_eq(actual: large_int(), expected: 9223372036854775807),
+)
+
+@large_hex () -> int = 0x7FFFFFFFFFFFFFFF
+
+@test_large_hex tests @large_hex () -> void = run(
+    // Maximum i64 value in hex
+    assert_eq(actual: large_hex(), expected: 9223372036854775807),
+)
+
+// =============================================================================
+// Negative Integers (Unary Minus)
+// =============================================================================
+
+@neg_one () -> int = -1
+
+@test_neg_one tests @neg_one () -> void = run(
+    assert_eq(actual: neg_one(), expected: -1),
+)
+
+@neg_multi () -> int = -42
+
+@test_neg_multi tests @neg_multi () -> void = run(
+    assert_eq(actual: neg_multi(), expected: -42),
+)
+
+@neg_large () -> int = -1000000
+
+@test_neg_large tests @neg_large () -> void = run(
+    assert_eq(actual: neg_large(), expected: -1000000),
+)
+
+@neg_hex () -> int = -0xFF
+
+@test_neg_hex tests @neg_hex () -> void = run(
+    assert_eq(actual: neg_hex(), expected: -255),
+)
+
+// Minimum i64 value
+@neg_min () -> int = -9223372036854775808
+
+@test_neg_min tests @neg_min () -> void = run(
+    assert_eq(actual: neg_min(), expected: -9223372036854775808),
+)
+
+// =============================================================================
+// Edge Cases
+// =============================================================================
+
+@edge_leading_zeros () -> int = 00042
+
+@test_edge_leading_zeros tests @edge_leading_zeros () -> void = run(
+    // Leading zeros in decimal are allowed (not octal)
+    assert_eq(actual: edge_leading_zeros(), expected: 42),
+)
+
+@edge_zero_variations () -> int = run(
+    let a = 0,
+    let b = 0x0,
+    let c = 0b0,
+    a + b + c,
+)
+
+@test_edge_zero_variations tests @edge_zero_variations () -> void = run(
+    assert_eq(actual: edge_zero_variations(), expected: 0),
+)
+
+@edge_max_and_min () -> bool = run(
+    let max_val = 9223372036854775807,
+    let min_val = -9223372036854775808,
+    max_val > min_val,
+)
+
+@test_edge_max_and_min tests @edge_max_and_min () -> void = run(
+    assert(cond: edge_max_and_min()),
+)
+
+// =============================================================================
+// Integer Arithmetic Results
+// =============================================================================
+
+@arith_powers_of_two () -> int = run(
+    let p0 = 1,
+    let p1 = 2,
+    let p2 = 4,
+    let p3 = 8,
+    let p4 = 16,
+    let p5 = 32,
+    let p6 = 64,
+    let p7 = 128,
+    p0 + p1 + p2 + p3 + p4 + p5 + p6 + p7,
+)
+
+@test_arith_powers_of_two tests @arith_powers_of_two () -> void = run(
+    // 1+2+4+8+16+32+64+128 = 255
+    assert_eq(actual: arith_powers_of_two(), expected: 255),
+)
+
+@arith_in_expressions () -> int = 10 + 20 * 3
+
+@test_arith_in_expressions tests @arith_in_expressions () -> void = run(
+    assert_eq(actual: arith_in_expressions(), expected: 70),
+)
+
+// =============================================================================
+// Different Radix Same Value
+// =============================================================================
+
+@same_value_different_radix () -> bool = run(
+    let decimal = 255,
+    let hex = 0xFF,
+    let binary = 0b11111111,
+    decimal == hex && hex == binary,
+)
+
+@test_same_value_different_radix tests @same_value_different_radix () -> void = run(
+    assert(cond: same_value_different_radix()),
+)
+
+@same_value_42 () -> bool = run(
+    let decimal = 42,
+    let hex = 0x2A,
+    let binary = 0b101010,
+    decimal == hex && hex == binary,
+)
+
+@test_same_value_42 tests @same_value_42 () -> void = run(
+    assert(cond: same_value_42()),
+)
+
+// =============================================================================
+// Integers in Various Contexts
+// =============================================================================
+
+@int_in_list () -> int = [1, 2, 3, 0xFF, 0b1010].len()
+
+@test_int_in_list tests @int_in_list () -> void = run(
+    assert_eq(actual: int_in_list(), expected: 5),
+)
+
+type IntStruct = { value: int }
+
+@int_in_struct () -> int = run(
+    let s = IntStruct { value: 0xDEADBEEF },
+    s.value,
+)
+
+@test_int_in_struct tests @int_in_struct () -> void = run(
+    assert_eq(actual: int_in_struct(), expected: 3735928559),
+)
+
+@int_in_conditional () -> int = if 42 > 0 then 1 else 0
+
+@test_int_in_conditional tests @int_in_conditional () -> void = run(
+    assert_eq(actual: int_in_conditional(), expected: 1),
+)
+
+// =============================================================================
+// Bitwise Operations with Literals
+// =============================================================================
+
+@bitwise_and_literals () -> int = 0xFF & 0x0F
+
+@test_bitwise_and_literals tests @bitwise_and_literals () -> void = run(
+    assert_eq(actual: bitwise_and_literals(), expected: 0x0F),
+)
+
+@bitwise_or_literals () -> int = 0xF0 | 0x0F
+
+@test_bitwise_or_literals tests @bitwise_or_literals () -> void = run(
+    assert_eq(actual: bitwise_or_literals(), expected: 0xFF),
+)
+
+@bitwise_shift_literals () -> int = 1 << 8
+
+@test_bitwise_shift_literals tests @bitwise_shift_literals () -> void = run(
+    assert_eq(actual: bitwise_shift_literals(), expected: 256),
+)

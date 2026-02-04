@@ -9,6 +9,7 @@ use crate::input::SourceFile;
 use crate::ir::TokenList;
 use crate::parser::{self, ParseOutput};
 use crate::typeck::{self, TypedModule};
+use ori_types::SharedTypeInterner;
 use std::path::Path;
 
 #[cfg(test)]
@@ -135,8 +136,22 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
         return ModuleEvalResult::failure("parse errors".to_string());
     }
 
+    let interner = db.interner();
+    let file_path = file.path(db);
+
+    // Create a shared type interner for type-aware evaluation
+    // This allows the evaluator to look up type information for operators like ??
+    let type_interner = SharedTypeInterner::new();
+
+    // Type check with the shared interner so we can pass type info to the evaluator
+    let typed_module = typeck::type_check_with_imports_and_interner(
+        db,
+        &parse_result,
+        file_path,
+        Some(type_interner.clone()),
+    );
+
     // Check for type errors using the error guarantee
-    let typed_module = typed(db, file);
     if let Some(_guarantee) = typed_module.error_guarantee {
         // Type errors exist - cannot safely evaluate
         let error_count = typed_module.errors.len();
@@ -146,13 +161,13 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
         ));
     }
 
-    let interner = db.interner();
-
-    // Create evaluator with database for Salsa-tracked import loading
-    let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db).build();
+    // Create evaluator with type information for type-aware operations
+    let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
+        .expr_types(&typed_module.expr_types)
+        .type_interner(type_interner)
+        .build();
     evaluator.register_prelude();
 
-    let file_path = file.path(db);
     if let Err(e) = evaluator.load_module(&parse_result, file_path) {
         return ModuleEvalResult::failure(format!("module error: {e}"));
     }

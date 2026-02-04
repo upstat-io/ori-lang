@@ -457,6 +457,7 @@ mod extract_named_args_tests {
         let call_args = vec![CallArg {
             name: None,
             value: expr,
+            is_spread: false,
             span: Span::default(),
         }];
         let range = arena.alloc_call_args(call_args);
@@ -485,16 +486,19 @@ mod extract_named_args_tests {
             CallArg {
                 name: None,
                 value: expr1,
+                is_spread: false,
                 span: Span::default(),
             },
             CallArg {
                 name: None,
                 value: expr2,
+                is_spread: false,
                 span: Span::default(),
             },
             CallArg {
                 name: None,
                 value: expr3,
+                is_spread: false,
                 span: Span::default(),
             },
         ];
@@ -534,6 +538,7 @@ mod extract_named_args_tests {
         let call_args = vec![CallArg {
             name: None,
             value: expr,
+            is_spread: false,
             span: Span::default(),
         }];
         let range = arena.alloc_call_args(call_args);
@@ -560,11 +565,13 @@ mod extract_named_args_tests {
             CallArg {
                 name: None,
                 value: expr1,
+                is_spread: false,
                 span: Span::default(),
             },
             CallArg {
                 name: None,
                 value: expr2,
+                is_spread: false,
                 span: Span::default(),
             },
         ];

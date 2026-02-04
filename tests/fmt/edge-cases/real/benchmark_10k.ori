@@ -1,6 +1,8 @@
 // Benchmark file: 10,000+ lines for performance testing
 // This file tests formatter performance on large inputs
 
+use std.testing { assert_eq }
+
 // TODO: std.math functions not yet implemented
 // use std.math { sqrt, abs }
 

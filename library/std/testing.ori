@@ -1,28 +1,52 @@
 // std.testing - Testing assertions and utilities
 //
-// Note: Most testing functions are now in the prelude and auto-imported.
-// This module is kept for backwards compatibility with existing imports.
-//
-// Auto-available (from prelude):
-// - assert(cond:), assert_eq(actual:, expected:), assert_ne(actual:, unexpected:)
-// - assert_some(opt:), assert_none(opt:), assert_ok(res:), assert_err(res:)
-// - is_some(opt:), is_none(opt:), is_ok(res:), is_err(res:)
-// - len(items:), is_empty(items:)
-// - compare(a:, b:), min(a:, b:), max(a:, b:)
-//
-// This file re-exports prelude functions for `use std.testing { ... }` compatibility.
+// This module provides assertion functions for testing Ori code.
+// Import with: `use std.testing { assert, assert_eq, ... }`
 
-// Re-export assertion functions (these call the prelude versions)
-pub @assert (condition: bool) -> void = run(
-    if condition then () else panic(msg: "assertion failed")
+// Assert that a condition is true
+pub @assert (cond: bool) -> void = if !cond then panic(msg: "assertion failed")
+
+// Assert that two values are equal
+pub @assert_eq (actual: int, expected: int) -> void =
+    if actual != expected then
+        panic(msg: "assertion failed: " + str(actual) + " != " + str(expected))
+
+// Assert that two values are not equal
+pub @assert_ne (actual: int, unexpected: int) -> void =
+    if actual == unexpected then panic(msg: "assertion failed: values are equal: " + str(actual))
+
+// Assert that an Option is Some
+pub @assert_some (opt: Option<int>) -> void =
+    if is_none(opt: opt) then panic(msg: "assertion failed: expected Some, got None")
+
+// Assert that an Option is None
+pub @assert_none (opt: Option<int>) -> void =
+    if is_some(opt: opt) then panic(msg: "assertion failed: expected None, got Some")
+
+// Assert that a Result is Ok
+pub @assert_ok (result: Result<int, str>) -> void =
+    if is_err(result: result) then panic(msg: "assertion failed: expected Ok, got Err")
+
+// Assert that a Result is Err
+pub @assert_err (result: Result<int, str>) -> void =
+    if is_ok(result: result) then panic(msg: "assertion failed: expected Err, got Ok")
+
+// Assert that an expression panics
+pub @assert_panics (f: () -> void) -> void = run(
+    let res = catch(
+        expr: f(),
+    ),
+    if is_ok(result: res) then panic(msg: "assertion failed: expected panic but succeeded"),
 )
 
-pub @assert_eq (actual: int, expected: int) -> void = run(
-    if actual == expected then ()
-    else panic(msg: "assertion failed: " + str(actual) + " != " + str(expected))
-)
-
-pub @assert_ne (actual: int, unexpected: int) -> void = run(
-    if actual != unexpected then ()
-    else panic(msg: "assertion failed: values are equal: " + str(actual))
+// Assert that an expression panics with a specific message
+pub @assert_panics_with (f: () -> void, msg: str) -> void = run(
+    let result = catch(
+        expr: f(),
+    ),
+    match(result,
+        Err(actual_msg) -> if actual_msg != msg then
+            panic(msg: "assertion failed: expected panic with: " + msg + " but got: " + actual_msg),
+        Ok(_) -> panic(msg: "assertion failed: expected panic with: " + msg + " but succeeded"),
+    ),
 )

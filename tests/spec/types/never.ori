@@ -1,4 +1,6 @@
 // Never Type Tests
+
+use std.testing { assert_eq, assert }
 // Spec: 06-types.md § Never Type
 // Proposal: proposals/approved/never-type-proposal.md
 
@@ -45,7 +47,7 @@
 // Never coerces to Option type
 @test_never_coerces_to_option tests @never_to_option () -> void = run(
     let result: Option<int> = if true then Some(42) else panic(msg: "unreachable"),
-    assert(cond: is_some(option: result)),
+    assert(cond: is_some(opt: result)),
 )
 
 @never_to_option () -> Option<int> = if true then Some(42) else panic(msg: "unreachable")
@@ -152,10 +154,10 @@
 // Option<Never> can only be None (conceptually)
 @test_option_never tests @option_never () -> void = run(
     let opt: Option<int> = None,
-    assert(cond: is_none(option: opt)),
+    assert(cond: is_none(opt: opt)),
 )
 
-@option_never () -> bool = is_none(option: None)
+@option_never () -> bool = is_none(opt: None)
 
 // =============================================================================
 // Never in Else Branch

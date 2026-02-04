@@ -12,7 +12,8 @@ use crate::eval::Evaluator;
 use crate::input::SourceFile;
 use crate::ir::TestDef;
 use crate::query::parsed;
-use crate::typeck::type_check_with_imports_and_source;
+use crate::typeck::type_check_with_imports_source_and_interner;
+use ori_types::SharedTypeInterner;
 
 use super::discovery::{discover_tests_in, TestFile};
 use super::error_matching::{format_actual, format_expected, match_errors};
@@ -196,9 +197,18 @@ impl TestRunner {
 
         let interner = db.interner();
 
-        // Type check with import resolution (enables proper type checking of imported functions)
-        let typed_module =
-            type_check_with_imports_and_source(&db, &parse_result, path, source.clone());
+        // Create shared type interner for type-aware evaluation
+        // This allows the evaluator to look up type information for operators like ??
+        let type_interner = SharedTypeInterner::new();
+
+        // Type check with import resolution and shared type interner
+        let typed_module = type_check_with_imports_source_and_interner(
+            &db,
+            &parse_result,
+            path,
+            source.clone(),
+            Some(type_interner.clone()),
+        );
 
         // Separate compile_fail tests from regular tests
         // compile_fail tests don't need evaluation - they just check for type errors
@@ -234,12 +244,25 @@ impl TestRunner {
             return summary;
         }
 
+        // Check for type errors before running regular tests.
+        // compile_fail tests have already been handled above, but regular tests
+        // should not run if there are type errors (e.g., failed imports).
+        if !typed_module.errors.is_empty() {
+            for error in &typed_module.errors {
+                summary.add_error(error.message());
+            }
+            return summary;
+        }
+
         // Run regular tests based on backend
         match config.backend {
             Backend::Interpreter => {
-                // Create evaluator with database for proper Salsa-tracked import resolution
-                // load_module enforces type checking - will fail if there are type errors
-                let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db).build();
+                // Create evaluator with database and type information for proper evaluation
+                // Type info enables operators like ?? to distinguish chaining vs unwrapping
+                let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
+                    .expr_types(&typed_module.expr_types)
+                    .type_interner(type_interner.clone())
+                    .build();
 
                 evaluator.register_prelude();
 
@@ -279,6 +302,7 @@ impl TestRunner {
                     &typed_module,
                     &source,
                     interner,
+                    &type_interner,
                     config,
                 );
             }
@@ -294,6 +318,10 @@ impl TestRunner {
     }
 
     /// Run tests in a file using the LLVM backend.
+    ///
+    /// Uses the "compile once, run many" pattern: compiles all functions and test
+    /// wrappers into a single JIT engine, then runs each test from that engine.
+    /// This avoids O(n²) recompilation that caused LLVM resource exhaustion.
     #[cfg(feature = "llvm")]
     fn run_file_llvm(
         summary: &mut FileSummary,
@@ -301,19 +329,64 @@ impl TestRunner {
         typed_module: &crate::typeck::TypedModule,
         source: &str,
         interner: &crate::ir::StringInterner,
+        type_interner: &SharedTypeInterner,
         config: &TestRunnerConfig,
     ) {
         use ori_llvm::evaluator::OwnedLLVMEvaluator;
         use ori_llvm::FunctionSig;
 
-        // Create LLVM evaluator (owns its context)
-        let mut llvm_eval = OwnedLLVMEvaluator::new();
+        // Separate compile_fail tests (don't need LLVM) from regular tests
+        let (compile_fail_tests, regular_tests): (Vec<_>, Vec<_>) = parse_result
+            .module
+            .tests
+            .iter()
+            .partition(|t| t.is_compile_fail());
 
-        // Load the module
-        if let Err(e) = llvm_eval.load_module(&parse_result.module, &parse_result.arena) {
-            summary.add_error(e);
+        // Run compile_fail tests first (they just check type errors, no JIT needed)
+        for test in &compile_fail_tests {
+            if let Some(ref filter_str) = config.filter {
+                let test_name = interner.lookup(test.name);
+                if !test_name.contains(filter_str.as_str()) {
+                    continue;
+                }
+            }
+
+            let inner_result = Self::run_compile_fail_test(test, typed_module, source, interner);
+
+            let result = if let Some(expected_failure) = test.fail_expected {
+                Self::apply_fail_wrapper(inner_result, expected_failure, interner)
+            } else {
+                inner_result
+            };
+
+            summary.add_result(result);
+        }
+
+        // Skip LLVM compilation if no regular tests to run
+        if regular_tests.is_empty() {
             return;
         }
+
+        // Filter regular tests before compilation
+        let filtered_tests: Vec<_> = regular_tests
+            .iter()
+            .filter(|test| {
+                if let Some(ref filter_str) = config.filter {
+                    let test_name = interner.lookup(test.name);
+                    test_name.contains(filter_str.as_str())
+                } else {
+                    true
+                }
+            })
+            .copied()
+            .collect();
+
+        if filtered_tests.is_empty() {
+            return;
+        }
+
+        // Create LLVM evaluator with type interner
+        let llvm_eval = OwnedLLVMEvaluator::with_type_interner(type_interner);
 
         // Convert function types from typeck to LLVM format
         let function_sigs: Vec<FunctionSig> = typed_module
@@ -322,36 +395,30 @@ impl TestRunner {
             .map(|ft| FunctionSig {
                 params: ft.params.clone(),
                 return_type: ft.return_type,
+                is_generic: !ft.generics.is_empty(),
             })
             .collect();
 
-        // Run each test
-        for test in &parse_result.module.tests {
-            // Apply filter if set
-            if let Some(ref filter_str) = config.filter {
-                let test_name = interner.lookup(test.name);
-                if !test_name.contains(filter_str.as_str()) {
-                    continue;
-                }
+        // Compile module ONCE with all tests
+        let compiled = match llvm_eval.compile_module_with_tests(
+            &parse_result.module,
+            &filtered_tests,
+            &parse_result.arena,
+            interner,
+            &typed_module.expr_types,
+            &function_sigs,
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                summary.add_error(e.message);
+                return;
             }
+        };
 
-            // Run the inner test (compile_fail or regular)
-            let inner_result = if test.is_compile_fail() {
-                // compile_fail: test expects compilation to fail
-                Self::run_compile_fail_test(test, typed_module, source, interner)
-            } else {
-                Self::run_single_test_llvm(
-                    &llvm_eval,
-                    test,
-                    &parse_result.arena,
-                    &parse_result.module,
-                    interner,
-                    &typed_module.expr_types,
-                    &function_sigs,
-                )
-            };
+        // Run each test from the compiled module (no recompilation!)
+        for test in &filtered_tests {
+            let inner_result = Self::run_single_test_from_compiled(&compiled, test, interner);
 
-            // If #[fail] is present, wrap the result
             let result = if let Some(expected_failure) = test.fail_expected {
                 Self::apply_fail_wrapper(inner_result, expected_failure, interner)
             } else {
@@ -362,16 +429,15 @@ impl TestRunner {
         }
     }
 
-    /// Run a single test using LLVM.
+    /// Run a single test from an already-compiled module.
+    ///
+    /// This is the efficient path: the module was compiled once and we just
+    /// call into the JIT engine to run each test.
     #[cfg(feature = "llvm")]
-    fn run_single_test_llvm(
-        llvm_eval: &ori_llvm::evaluator::OwnedLLVMEvaluator,
+    fn run_single_test_from_compiled(
+        compiled: &ori_llvm::evaluator::CompiledTestModule,
         test: &TestDef,
-        arena: &crate::ir::ExprArena,
-        module: &crate::ir::Module,
         interner: &crate::ir::StringInterner,
-        expr_types: &[crate::ir::TypeId],
-        function_sigs: &[ori_llvm::FunctionSig],
     ) -> TestResult {
         // Check if test is skipped
         if let Some(reason) = test.skip_reason {
@@ -382,16 +448,8 @@ impl TestRunner {
         // Time the test execution
         let start = Instant::now();
 
-        // Evaluate the test body using LLVM JIT
-        match llvm_eval.eval_test(
-            test.name,
-            test.body,
-            arena,
-            module,
-            interner,
-            expr_types,
-            function_sigs,
-        ) {
+        // Run the test from the compiled module (no recompilation!)
+        match compiled.run_test(test.name) {
             Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
             Err(e) => {
                 TestResult::failed(test.name, test.targets.clone(), e.message, start.elapsed())

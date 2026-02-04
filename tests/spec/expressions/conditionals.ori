@@ -1,5 +1,7 @@
 // Spec: 09-expressions.md § Conditional
 
+use std.testing { assert_eq, assert }
+
 // =============================================================================
 // If-Then Without Else (void context)
 // =============================================================================

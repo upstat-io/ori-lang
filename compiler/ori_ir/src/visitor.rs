@@ -33,8 +33,8 @@
 
 use super::ast::{
     BindingPattern, CallArg, ConfigDef, Expr, ExprKind, FieldInit, Function, FunctionExp,
-    FunctionSeq, MapEntry, MatchArm, MatchPattern, Module, NamedExpr, Param, SeqBinding, Stmt,
-    StmtKind, TestDef, UseDef,
+    FunctionSeq, ListElement, MapElement, MapEntry, MatchArm, MatchPattern, Module, NamedExpr,
+    Param, SeqBinding, Stmt, StmtKind, StructLitField, TestDef, UseDef,
 };
 use super::{ExprArena, ExprId};
 
@@ -124,6 +124,31 @@ pub trait Visitor<'ast> {
         }
     }
 
+    /// Visit a struct literal field (for spread syntax).
+    fn visit_struct_lit_field(&mut self, field: &'ast StructLitField, arena: &'ast ExprArena) {
+        match field {
+            StructLitField::Field(init) => self.visit_field_init(init, arena),
+            StructLitField::Spread { expr, .. } => self.visit_expr_id(*expr, arena),
+        }
+    }
+
+    /// Visit a list element (for spread syntax).
+    fn visit_list_element(&mut self, element: &'ast ListElement, arena: &'ast ExprArena) {
+        match element {
+            ListElement::Expr { expr, .. } | ListElement::Spread { expr, .. } => {
+                self.visit_expr_id(*expr, arena);
+            }
+        }
+    }
+
+    /// Visit a map element (for spread syntax).
+    fn visit_map_element(&mut self, element: &'ast MapElement, arena: &'ast ExprArena) {
+        match element {
+            MapElement::Entry(entry) => self.visit_map_entry(entry, arena),
+            MapElement::Spread { expr, .. } => self.visit_expr_id(*expr, arena),
+        }
+    }
+
     /// Visit a sequence binding (`function_seq`).
     fn visit_seq_binding(&mut self, binding: &'ast SeqBinding, arena: &'ast ExprArena) {
         walk_seq_binding(self, binding, arena);
@@ -186,6 +211,10 @@ pub fn walk_function<'ast, V: Visitor<'ast> + ?Sized>(
     for param in arena.get_params(function.params) {
         visitor.visit_param(param, arena);
     }
+    // Visit guard clause if present
+    if let Some(guard) = function.guard {
+        visitor.visit_expr_id(guard, arena);
+    }
     visitor.visit_expr_id(function.body, arena);
 }
 
@@ -231,6 +260,9 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         }
         ExprKind::Try(inner) | ExprKind::Await(inner) | ExprKind::Some(inner) => {
             visitor.visit_expr_id(*inner, arena);
+        }
+        ExprKind::Cast { expr, .. } => {
+            visitor.visit_expr_id(*expr, arena);
         }
         ExprKind::Loop { body } => {
             visitor.visit_expr_id(*body, arena);
@@ -353,6 +385,21 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         ExprKind::Struct { fields, .. } => {
             for init in arena.get_field_inits(*fields) {
                 visitor.visit_field_init(init, arena);
+            }
+        }
+        ExprKind::StructWithSpread { fields, .. } => {
+            for field in arena.get_struct_lit_fields(*fields) {
+                visitor.visit_struct_lit_field(field, arena);
+            }
+        }
+        ExprKind::ListWithSpread(elements) => {
+            for element in arena.get_list_elements(*elements) {
+                visitor.visit_list_element(element, arena);
+            }
+        }
+        ExprKind::MapWithSpread(elements) => {
+            for element in arena.get_map_elements(*elements) {
+                visitor.visit_map_element(element, arena);
             }
         }
         ExprKind::Range {

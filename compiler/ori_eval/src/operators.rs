@@ -91,6 +91,7 @@ pub fn evaluate_binary(left: Value, right: Value, op: BinaryOp) -> EvalResult {
         (Value::Ok(_) | Value::Err(_), Value::Ok(_) | Value::Err(_)) => {
             eval_result_binary(&left, &right, op)
         }
+        (Value::Struct(a), Value::Struct(b)) => eval_struct_binary(a, b, op),
         _ => Err(binary_type_mismatch(left.type_name(), right.type_name())),
     }
 }
@@ -235,21 +236,36 @@ fn eval_tuple_binary(a: &Heap<Vec<Value>>, b: &Heap<Vec<Value>>, op: BinaryOp) -
 }
 
 /// Binary operations on Option values.
+///
+/// Per spec: `None < Some` - None is always less than any Some value.
+/// For `Some(a)` vs `Some(b)`, recursively compare inner values.
 fn eval_option_binary(left: &Value, right: &Value, op: BinaryOp) -> EvalResult {
     match (left, right) {
         (Value::Some(a), Value::Some(b)) => match op {
             BinaryOp::Eq => Ok(Value::Bool(*a == *b)),
             BinaryOp::NotEq => Ok(Value::Bool(*a != *b)),
+            // Recursive comparison for Some values
+            BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => {
+                // Compare inner values recursively
+                evaluate_binary((**a).clone(), (**b).clone(), op)
+            }
             _ => Err(invalid_binary_op_for("Option", op)),
         },
         (Value::None, Value::None) => match op {
-            BinaryOp::Eq => Ok(Value::Bool(true)),
-            BinaryOp::NotEq => Ok(Value::Bool(false)),
+            BinaryOp::Eq | BinaryOp::LtEq | BinaryOp::GtEq => Ok(Value::Bool(true)),
+            BinaryOp::NotEq | BinaryOp::Lt | BinaryOp::Gt => Ok(Value::Bool(false)),
             _ => Err(invalid_binary_op_for("Option", op)),
         },
-        (Value::Some(_), Value::None) | (Value::None, Value::Some(_)) => match op {
-            BinaryOp::Eq => Ok(Value::Bool(false)),
-            BinaryOp::NotEq => Ok(Value::Bool(true)),
+        (Value::None, Value::Some(_)) => match op {
+            // None < Some(_) - None is always less than Some
+            BinaryOp::Eq | BinaryOp::Gt | BinaryOp::GtEq => Ok(Value::Bool(false)),
+            BinaryOp::NotEq | BinaryOp::Lt | BinaryOp::LtEq => Ok(Value::Bool(true)),
+            _ => Err(invalid_binary_op_for("Option", op)),
+        },
+        (Value::Some(_), Value::None) => match op {
+            // Some(_) > None - Some is always greater than None
+            BinaryOp::Eq | BinaryOp::Lt | BinaryOp::LtEq => Ok(Value::Bool(false)),
+            BinaryOp::NotEq | BinaryOp::Gt | BinaryOp::GtEq => Ok(Value::Bool(true)),
             _ => Err(invalid_binary_op_for("Option", op)),
         },
         _ => unreachable!(),
@@ -383,5 +399,36 @@ fn eval_int_size_binary(a: ScalarInt, b: u64, op: BinaryOp) -> EvalResult {
                 .ok_or_else(|| integer_overflow("size multiplication")),
         },
         _ => Err(invalid_binary_op_for("int and Size", op)),
+    }
+}
+
+/// Binary operations on struct values.
+///
+/// Structs support equality comparison. The comparison is structural:
+/// both structs must have the same type and all fields must be equal.
+fn eval_struct_binary(
+    a: &ori_patterns::StructValue,
+    b: &ori_patterns::StructValue,
+    op: BinaryOp,
+) -> EvalResult {
+    match op {
+        BinaryOp::Eq => {
+            // Must be the same type
+            if a.type_name != b.type_name {
+                return Ok(Value::Bool(false));
+            }
+            // Compare all fields structurally using Value's PartialEq
+            let equal = a.fields == b.fields;
+            Ok(Value::Bool(equal))
+        }
+        BinaryOp::NotEq => {
+            // Must be the same type
+            if a.type_name != b.type_name {
+                return Ok(Value::Bool(true));
+            }
+            let equal = a.fields == b.fields;
+            Ok(Value::Bool(!equal))
+        }
+        _ => Err(invalid_binary_op_for("struct", op)),
     }
 }

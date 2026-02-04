@@ -173,11 +173,38 @@ fn collect_free_vars_impl(
             }
         }
 
+        // List with spread
+        ExprKind::ListWithSpread(elements) => {
+            for element in checker.context.arena.get_list_elements(*elements) {
+                match element {
+                    ori_ir::ListElement::Expr { expr, .. }
+                    | ori_ir::ListElement::Spread { expr, .. } => {
+                        collect_free_vars_impl(checker, *expr, bound, free);
+                    }
+                }
+            }
+        }
+
         // Map
         ExprKind::Map(entries) => {
             for entry in checker.context.arena.get_map_entries(*entries) {
                 collect_free_vars_impl(checker, entry.key, bound, free);
                 collect_free_vars_impl(checker, entry.value, bound, free);
+            }
+        }
+
+        // Map with spread
+        ExprKind::MapWithSpread(elements) => {
+            for element in checker.context.arena.get_map_elements(*elements) {
+                match element {
+                    ori_ir::MapElement::Entry(entry) => {
+                        collect_free_vars_impl(checker, entry.key, bound, free);
+                        collect_free_vars_impl(checker, entry.value, bound, free);
+                    }
+                    ori_ir::MapElement::Spread { expr, .. } => {
+                        collect_free_vars_impl(checker, *expr, bound, free);
+                    }
+                }
             }
         }
 
@@ -190,6 +217,27 @@ fn collect_free_vars_impl(
                     // Shorthand field: { x } is equivalent to { x: x }
                     if !bound.contains(init.name) {
                         free.insert(init.name);
+                    }
+                }
+            }
+        }
+
+        // Struct literal with spread
+        ExprKind::StructWithSpread { fields, .. } => {
+            for field in checker.context.arena.get_struct_lit_fields(*fields) {
+                match field {
+                    ori_ir::StructLitField::Field(init) => {
+                        if let Some(value_id) = init.value {
+                            collect_free_vars_impl(checker, value_id, bound, free);
+                        } else {
+                            // Shorthand field: { x } is equivalent to { x: x }
+                            if !bound.contains(init.name) {
+                                free.insert(init.name);
+                            }
+                        }
+                    }
+                    ori_ir::StructLitField::Spread { expr, .. } => {
+                        collect_free_vars_impl(checker, *expr, bound, free);
                     }
                 }
             }
@@ -215,6 +263,11 @@ fn collect_free_vars_impl(
         // Expressions with single inner expression
         ExprKind::Some(inner) | ExprKind::Await(inner) | ExprKind::Try(inner) => {
             collect_free_vars_impl(checker, *inner, bound, free);
+        }
+
+        // Cast expression - check inner, type annotation has no free variables
+        ExprKind::Cast { expr, .. } => {
+            collect_free_vars_impl(checker, *expr, bound, free);
         }
 
         // Control flow with optional value

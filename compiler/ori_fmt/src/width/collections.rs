@@ -3,7 +3,10 @@
 //! Handles list, tuple, map, and struct literals.
 
 use super::{WidthCalculator, ALWAYS_STACKED};
-use ori_ir::{ExprId, ExprList, FieldInitRange, MapEntryRange, Name, StringLookup};
+use ori_ir::{
+    ExprId, ExprList, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange, Name,
+    StringLookup, StructLitFieldRange,
+};
 
 /// Calculate width of a list literal: `[items]`.
 pub(super) fn list_width<I: StringLookup>(
@@ -22,6 +25,25 @@ pub(super) fn list_width<I: StringLookup>(
 
     // "[" + items + "]"
     1 + items_w + 1
+}
+
+/// Calculate width of a list literal with spread: `[...a, x, ...b]`.
+pub(super) fn list_with_spread_width<I: StringLookup>(
+    calc: &mut WidthCalculator<'_, I>,
+    elements: ListElementRange,
+) -> usize {
+    let elements_list = calc.arena.get_list_elements(elements);
+    if elements_list.is_empty() {
+        return 2; // "[]"
+    }
+
+    let elements_w = calc.width_of_list_elements(elements_list);
+    if elements_w == ALWAYS_STACKED {
+        return ALWAYS_STACKED;
+    }
+
+    // "[" + elements + "]"
+    1 + elements_w + 1
 }
 
 /// Calculate width of a tuple literal: `(items)`.
@@ -64,6 +86,25 @@ pub(super) fn map_width<I: StringLookup>(
     1 + entries_w + 1
 }
 
+/// Calculate width of a map literal with spread: `{...base, key: value}`.
+pub(super) fn map_with_spread_width<I: StringLookup>(
+    calc: &mut WidthCalculator<'_, I>,
+    elements: MapElementRange,
+) -> usize {
+    let elements_list = calc.arena.get_map_elements(elements);
+    if elements_list.is_empty() {
+        return 2; // "{}"
+    }
+
+    let elements_w = calc.width_of_map_elements(elements_list);
+    if elements_w == ALWAYS_STACKED {
+        return ALWAYS_STACKED;
+    }
+
+    // "{" + elements + "}"
+    1 + elements_w + 1
+}
+
 /// Calculate width of a struct literal: `Name { fields }`.
 pub(super) fn struct_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
@@ -79,6 +120,29 @@ pub(super) fn struct_width<I: StringLookup>(
     }
 
     let fields_w = calc.width_of_field_inits(fields_list);
+    if fields_w == ALWAYS_STACKED {
+        return ALWAYS_STACKED;
+    }
+
+    // "Name { " + fields + " }"
+    name_w + 3 + fields_w + 2
+}
+
+/// Calculate width of a struct literal with spread: `Name { ...base, x: 10 }`.
+pub(super) fn struct_with_spread_width<I: StringLookup>(
+    calc: &mut WidthCalculator<'_, I>,
+    name: Name,
+    fields: StructLitFieldRange,
+) -> usize {
+    let name_w = calc.interner.lookup(name).len();
+    let fields_list = calc.arena.get_struct_lit_fields(fields);
+
+    if fields_list.is_empty() {
+        // "Name {}"
+        return name_w + 3;
+    }
+
+    let fields_w = calc.width_of_struct_lit_fields(fields_list);
     if fields_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }

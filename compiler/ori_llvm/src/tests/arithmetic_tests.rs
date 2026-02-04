@@ -101,7 +101,8 @@ fn test_size_literal() {
     let interner = StringInterner::new();
     let codegen = TestCodegen::new(&context, &interner, "test");
 
-    // Create: fn test() -> int { 2kb } -> 2048 (bytes)
+    // Create: fn test() -> int { 2kb } -> 2000 (bytes)
+    // Ori uses SI units: 1kb = 1000 bytes (not 1024)
     let mut arena = ExprArena::new();
 
     let size_expr = arena.alloc_expr(Expr {
@@ -129,7 +130,7 @@ fn test_size_literal() {
         println!("Size IR:\n{}", codegen.print_to_string());
     }
 
-    // JIT execute - should return 2048 (2 * 1024)
+    // JIT execute - should return 2000 (2 * 1000, SI units)
     let result = codegen.jit_execute_i64("test_size").expect("JIT failed");
-    assert_eq!(result, 2048);
+    assert_eq!(result, 2000);
 }

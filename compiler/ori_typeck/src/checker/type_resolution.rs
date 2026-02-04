@@ -91,6 +91,12 @@ impl TypeChecker<'_> {
                 let elem_ty = self.resolve_parsed_type_id(*inner_id, generic_type_vars);
                 Type::List(Box::new(elem_ty))
             }
+            ParsedType::FixedList { elem, .. } => {
+                // Fixed-capacity lists resolve to List for now
+                // (full type system support in later phase)
+                let elem_ty = self.resolve_parsed_type_id(*elem, generic_type_vars);
+                Type::List(Box::new(elem_ty))
+            }
             ParsedType::Tuple(elems) => {
                 let types: Vec<Type> = self.resolve_type_range(*elems, generic_type_vars);
                 Type::Tuple(types)
@@ -203,8 +209,21 @@ impl TypeChecker<'_> {
             }
             _ => {
                 // User-defined type or type parameter
-                // Treat as a named type reference - resolution happens during unification
-                Type::Named(name)
+                if arg_ids.is_empty() {
+                    // No type arguments - simple named type reference
+                    Type::Named(name)
+                } else {
+                    // Has type arguments - create an Applied type
+                    // This preserves the full generic instantiation (e.g., Container<int> vs Container<str>)
+                    let resolved_args: Vec<Type> = arg_ids
+                        .iter()
+                        .map(|&id| self.resolve_parsed_type_id(id, generic_type_vars))
+                        .collect();
+                    Type::Applied {
+                        name,
+                        args: resolved_args,
+                    }
+                }
             }
         }
     }

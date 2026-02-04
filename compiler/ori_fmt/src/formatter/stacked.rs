@@ -201,15 +201,19 @@ impl<I: StringLookup> Formatter<'_, I> {
     /// Emit a sequence binding.
     fn emit_seq_binding(&mut self, binding: &SeqBinding) {
         match binding {
-            // Note: mutable is default, immutable uses $ prefix in pattern
+            // Per spec: mutable is default, $ prefix for immutable
             SeqBinding::Let {
                 pattern,
                 ty: _,
                 value,
-                mutable: _,
+                mutable,
                 span: _,
             } => {
-                self.ctx.emit("let ");
+                if *mutable {
+                    self.ctx.emit("let ");
+                } else {
+                    self.ctx.emit("let $");
+                }
                 self.emit_binding_pattern(pattern);
                 self.ctx.emit(" = ");
                 self.format(*value);
@@ -224,14 +228,18 @@ impl<I: StringLookup> Formatter<'_, I> {
     pub(super) fn emit_stmt(&mut self, stmt: &ori_ir::Stmt) {
         match &stmt.kind {
             ori_ir::StmtKind::Expr(expr) => self.format(*expr),
-            // Note: mutable is default, immutable uses $ prefix in pattern
+            // Per spec: mutable is default, $ prefix for immutable
             ori_ir::StmtKind::Let {
                 pattern,
                 ty: _,
                 init,
-                mutable: _,
+                mutable,
             } => {
-                self.ctx.emit("let ");
+                if *mutable {
+                    self.ctx.emit("let ");
+                } else {
+                    self.ctx.emit("let $");
+                }
                 self.emit_binding_pattern(pattern);
                 self.ctx.emit(" = ");
                 self.format(*init);

@@ -41,7 +41,7 @@ type Pair<A, B> = { first: A, second: B }
 @test_pair_str_bool () -> void = run(
     let p = Pair { first: "active", second: true },
     assert_eq(actual: p.first, expected: "active"),
-    assert(condition: p.second),
+    assert(cond: p.second),
 )
 
 // =============================================================================

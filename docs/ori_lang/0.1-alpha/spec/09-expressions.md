@@ -382,7 +382,7 @@ Operators are listed from highest to lowest precedence:
 | 11 | `\|` | Left | Bitwise OR |
 | 12 | `&&` | Left | Logical AND |
 | 13 | `\|\|` | Left | Logical OR |
-| 14 | `??` | Left | Coalesce |
+| 14 | `??` | Right | Coalesce |
 
 Parentheses override precedence:
 

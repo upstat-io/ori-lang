@@ -1251,7 +1251,7 @@ impl<'ctx> DebugContext<'ctx> {
 mod tests {
     use super::*;
 
-    /// Test that `to_emission_kind` correctly maps DebugLevel variants.
+    /// Test that `to_emission_kind` correctly maps `DebugLevel` variants.
     /// This test must remain inline as it tests a private method.
     #[test]
     fn test_debug_level_emission_kind() {

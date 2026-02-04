@@ -147,6 +147,16 @@ impl Parser<'_> {
                 Vec::new()
             };
 
+            // Optional guard clause: if condition
+            // Grammar: guard_clause = "if" expression
+            // Use parse_non_assign_expr because `=` is the body delimiter, not assignment
+            let guard = if self.check(&TokenKind::If) {
+                self.advance(); // consume `if`
+                Some(self.parse_non_assign_expr()?)
+            } else {
+                None
+            };
+
             // = body
             self.expect(&TokenKind::Eq)?;
             self.skip_newlines();
@@ -162,6 +172,7 @@ impl Parser<'_> {
                 return_ty,
                 capabilities,
                 where_clauses,
+                guard,
                 body,
                 span,
                 visibility,
@@ -169,8 +180,16 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse parameter list.
-    /// Accepts both regular identifiers and `self` for trait methods.
+    /// Parse parameter list with support for clause parameters.
+    ///
+    /// Grammar: `clause_param = match_pattern [ ":" type ] [ "=" expression ]`
+    ///
+    /// Supports:
+    /// - Simple names: `(x: int)`
+    /// - `self` for methods: `(self)`
+    /// - Literal patterns: `(0: int)` — clause-based functions
+    /// - List patterns: `([]: [T])`, `([_, ..tail]: [T])` — clause-based functions
+    /// - Default values: `(x: int = 42)`
     pub(crate) fn parse_params(&mut self) -> Result<ParamRange, ParseError> {
         use crate::series::SeriesConfig;
 
@@ -182,26 +201,131 @@ impl Parser<'_> {
 
                 let param_span = p.current_span();
 
-                // Accept `self` as a special parameter name for trait/impl methods
-                let name = if p.check(&TokenKind::SelfLower) {
-                    p.advance();
-                    p.interner().intern("self")
-                } else {
-                    p.expect_ident()?
+                // Determine if this is a pattern or simple identifier
+                let (name, pattern) = match *p.current_kind() {
+                    // `self` for trait/impl methods
+                    TokenKind::SelfLower => {
+                        p.advance();
+                        (p.interner().intern("self"), None)
+                    }
+
+                    // Literal patterns for clause-based functions
+                    TokenKind::Int(_)
+                    | TokenKind::Float(_)
+                    | TokenKind::True
+                    | TokenKind::False
+                    | TokenKind::String(_)
+                    | TokenKind::Char(_)
+                    | TokenKind::Underscore => {
+                        let pat = p.parse_match_pattern()?;
+                        // Generate synthetic name for literal patterns
+                        let gen_name = p.interner().intern("_arg");
+                        (gen_name, Some(pat))
+                    }
+
+                    // List patterns for clause-based functions: [], [_, ..tail]
+                    TokenKind::LBracket => {
+                        let pat = p.parse_match_pattern()?;
+                        // Generate synthetic name for list patterns
+                        let gen_name = p.interner().intern("_arg");
+                        (gen_name, Some(pat))
+                    }
+
+                    // Negative literal: -42
+                    TokenKind::Minus => {
+                        let pat = p.parse_match_pattern()?;
+                        let gen_name = p.interner().intern("_arg");
+                        (gen_name, Some(pat))
+                    }
+
+                    // Simple identifier (most common case)
+                    TokenKind::Ident(name) => {
+                        p.advance();
+                        (name, None)
+                    }
+
+                    // Context-sensitive keywords usable as parameter names
+                    TokenKind::Timeout => {
+                        p.advance();
+                        (p.interner().intern("timeout"), None)
+                    }
+                    TokenKind::Parallel => {
+                        p.advance();
+                        (p.interner().intern("parallel"), None)
+                    }
+                    TokenKind::Cache => {
+                        p.advance();
+                        (p.interner().intern("cache"), None)
+                    }
+                    TokenKind::Catch => {
+                        p.advance();
+                        (p.interner().intern("catch"), None)
+                    }
+                    TokenKind::Spawn => {
+                        p.advance();
+                        (p.interner().intern("spawn"), None)
+                    }
+                    TokenKind::Recurse => {
+                        p.advance();
+                        (p.interner().intern("recurse"), None)
+                    }
+                    TokenKind::Run => {
+                        p.advance();
+                        (p.interner().intern("run"), None)
+                    }
+                    TokenKind::Try => {
+                        p.advance();
+                        (p.interner().intern("try"), None)
+                    }
+
+                    _ => {
+                        return Err(ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            format!(
+                                "expected parameter name or pattern, found {}",
+                                p.current_kind().display_name()
+                            ),
+                            p.current_span(),
+                        ));
+                    }
                 };
 
-                // : Type (optional, not required for `self`)
-                let ty = if p.check(&TokenKind::Colon) {
+                // : [...] Type (optional, not required for `self`)
+                // Variadic syntax: `: ...Type`
+                let (is_variadic, ty) = if p.check(&TokenKind::Colon) {
                     p.advance();
-                    p.parse_type()
+                    // Check for variadic: ...Type
+                    if p.check(&TokenKind::DotDotDot) {
+                        p.advance();
+                        (true, p.parse_type())
+                    } else {
+                        (false, p.parse_type())
+                    }
+                } else {
+                    (false, None)
+                };
+
+                // = default_value (optional)
+                let default = if p.check(&TokenKind::Eq) {
+                    p.advance();
+                    Some(p.parse_expr()?)
                 } else {
                     None
                 };
 
+                let end_span = if default.is_some() || ty.is_some() {
+                    p.previous_span()
+                } else {
+                    param_span
+                };
+
                 Ok(Some(Param {
                     name,
+                    pattern,
                     ty,
-                    span: param_span,
+                    default,
+                    is_variadic,
+                    span: param_span.merge(end_span),
                 }))
             })?;
 

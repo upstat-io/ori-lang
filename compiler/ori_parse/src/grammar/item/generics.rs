@@ -24,9 +24,12 @@ impl Parser<'_> {
         ))
     }
 
-    /// Parse generic parameters: `<T, U: Bound>` or `<T, U: Bound = DefaultType>`
+    /// Parse generic parameters: `<T, U: Bound>`, `<T, U: Bound = DefaultType>`, or `<$N: int>`.
     ///
-    /// Supports default type parameters for traits: `trait Add<Rhs = Self>`.
+    /// Supports:
+    /// - Type parameters: `T`, `T: Bound`, `T = DefaultType`
+    /// - Const generics: `$N: int`, `$N: int = 10`
+    /// - Default type parameters for traits: `trait Add<Rhs = Self>`
     pub(crate) fn parse_generics(&mut self) -> Result<GenericParamRange, ParseError> {
         use crate::series::SeriesConfig;
 
@@ -39,30 +42,67 @@ impl Parser<'_> {
                 }
 
                 let param_span = p.current_span();
+
+                // Check for const generic: $N
+                let is_const = p.check(&TokenKind::Dollar);
+                if is_const {
+                    p.advance(); // consume $
+                }
+
                 let name = p.expect_ident()?;
 
-                // Optional bounds: : Bound + OtherBound
-                let bounds = if p.check(&TokenKind::Colon) {
-                    p.advance();
-                    p.parse_bounds()?
-                } else {
-                    Vec::new()
-                };
+                if is_const {
+                    // Const generic: $N: int [= default]
+                    // Type is required for const generics
+                    p.expect(&TokenKind::Colon)?;
+                    let const_type = Some(p.parse_type_required()?);
 
-                // Optional default type: = Type
-                let default_type = if p.check(&TokenKind::Eq) {
-                    p.advance();
-                    Some(p.parse_type_required()?)
-                } else {
-                    None
-                };
+                    // Optional default value (expression, not type)
+                    // Use parse_non_comparison_expr to avoid `>` being treated as comparison
+                    let default_value = if p.check(&TokenKind::Eq) {
+                        p.advance();
+                        Some(p.parse_non_comparison_expr()?)
+                    } else {
+                        None
+                    };
 
-                Ok(Some(GenericParam {
-                    name,
-                    bounds,
-                    default_type,
-                    span: param_span.merge(p.previous_span()),
-                }))
+                    Ok(Some(GenericParam {
+                        name,
+                        bounds: Vec::new(),
+                        default_type: None,
+                        is_const: true,
+                        const_type,
+                        default_value,
+                        span: param_span.merge(p.previous_span()),
+                    }))
+                } else {
+                    // Type parameter: T [: Bounds] [= Default]
+                    // Optional bounds: : Bound + OtherBound
+                    let bounds = if p.check(&TokenKind::Colon) {
+                        p.advance();
+                        p.parse_bounds()?
+                    } else {
+                        Vec::new()
+                    };
+
+                    // Optional default type: = Type
+                    let default_type = if p.check(&TokenKind::Eq) {
+                        p.advance();
+                        Some(p.parse_type_required()?)
+                    } else {
+                        None
+                    };
+
+                    Ok(Some(GenericParam {
+                        name,
+                        bounds,
+                        default_type,
+                        is_const: false,
+                        const_type: None,
+                        default_value: None,
+                        span: param_span.merge(p.previous_span()),
+                    }))
+                }
             })?;
 
         self.expect(&TokenKind::Gt)?;

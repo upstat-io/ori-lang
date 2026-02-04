@@ -117,6 +117,29 @@ impl TypeId {
     pub const fn is_self_type(self) -> bool {
         self.0 == Self::SELF_TYPE.0
     }
+
+    /// Get the display name for primitive types.
+    ///
+    /// Returns `Some(name)` for pre-interned primitive types,
+    /// `None` for compound types that require lookup.
+    #[must_use]
+    pub const fn name(self) -> Option<&'static str> {
+        match self.0 {
+            0 => Some("int"),
+            1 => Some("float"),
+            2 => Some("bool"),
+            3 => Some("str"),
+            4 => Some("char"),
+            5 => Some("byte"),
+            6 => Some("void"),
+            7 => Some("Never"),
+            8 => Some("Duration"),
+            9 => Some("Size"),
+            // 10 = ERROR (no name)
+            11 => Some("Ordering"),
+            _ => None, // ERROR and compound types
+        }
+    }
 }
 
 impl Hash for TypeId {

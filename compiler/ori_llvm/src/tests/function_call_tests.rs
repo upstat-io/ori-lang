@@ -1,13 +1,11 @@
 //! Tests for function call compilation including closures and indirect calls.
 
-use rustc_hash::FxHashMap;
-
 use inkwell::context::Context;
 use ori_ir::ast::{Expr, ExprKind};
 use ori_ir::{ExprArena, Span, StringInterner, TypeId};
 
 use super::helper::setup_builder_test;
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 
 #[test]
 fn test_call_builtin_str() {
@@ -34,7 +32,7 @@ fn test_call_builtin_str() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::STR];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_call(
         func_ident,
@@ -74,7 +72,7 @@ fn test_call_builtin_int() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::FLOAT, TypeId::FLOAT, TypeId::INT];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_call(
         func_ident,
@@ -114,7 +112,7 @@ fn test_call_builtin_float() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::FLOAT];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_call(
         func_ident,
@@ -154,7 +152,7 @@ fn test_call_builtin_byte() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::BYTE];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_call(
         func_ident,
@@ -188,7 +186,7 @@ fn test_call_non_ident_returns_none() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_call(
         func_int,
@@ -223,7 +221,7 @@ fn test_call_unknown_function_returns_none() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::VOID];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     let result = builder.compile_call(
         func_ident,
@@ -266,11 +264,11 @@ fn test_call_closure_from_locals() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT; 5];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     // Add a closure to locals as an i64 (function pointer)
     let fn_ptr_val = cx.scx.type_i64().const_int(0, false);
-    locals.insert(f_name, fn_ptr_val.into());
+    locals.bind_immutable(f_name, fn_ptr_val.into());
 
     let result = builder.compile_call(
         func_ident,
@@ -305,11 +303,11 @@ fn test_call_closure_as_pointer() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     // Add a closure to locals as a pointer
     let ptr_val = cx.scx.type_ptr().const_null();
-    locals.insert(f_name, ptr_val.into());
+    locals.bind_immutable(f_name, ptr_val.into());
 
     let result = builder.compile_call(
         func_ident,
@@ -346,7 +344,7 @@ fn test_call_closure_as_struct_with_captures() {
     let builder = Builder::build(&cx, entry_bb);
 
     let expr_types = vec![TypeId::INT];
-    let mut locals = FxHashMap::default();
+    let mut locals = Locals::new();
 
     // Add a closure struct: { i8 tag, i64 fn_ptr, i64 capture0 }
     let struct_type = cx.llcx().struct_type(
@@ -358,7 +356,7 @@ fn test_call_closure_as_struct_with_captures() {
         false,
     );
     let struct_val = struct_type.const_zero();
-    locals.insert(f_name, struct_val.into());
+    locals.bind_immutable(f_name, struct_val.into());
 
     let result = builder.compile_call(
         func_ident,

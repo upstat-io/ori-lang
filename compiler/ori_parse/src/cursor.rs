@@ -227,13 +227,26 @@ impl<'a> Cursor<'a> {
         )
     }
 
-    /// Check if current token is a built-in I/O primitive that can be used as an identifier.
-    /// These are only treated as keywords when followed by `(`.
+    /// Check if current token is a context-sensitive keyword that can be used as an identifier.
+    /// These are only treated as keywords in specific contexts (e.g., when followed by `(`).
+    /// Per spec, context-sensitive keywords: by cache catch for max parallel recurse run spawn timeout try with without
     /// Returns the interned name if it's a soft keyword, None otherwise.
     pub fn soft_keyword_to_name(&self) -> Option<&'static str> {
         match self.current_kind() {
+            // I/O primitives
             TokenKind::Print => Some("print"),
             TokenKind::Panic => Some("panic"),
+            // Context-sensitive pattern keywords
+            TokenKind::By => Some("by"),
+            TokenKind::Cache => Some("cache"),
+            TokenKind::Catch => Some("catch"),
+            TokenKind::Parallel => Some("parallel"),
+            TokenKind::Recurse => Some("recurse"),
+            TokenKind::Run => Some("run"),
+            TokenKind::Spawn => Some("spawn"),
+            TokenKind::Timeout => Some("timeout"),
+            TokenKind::Try => Some("try"),
+            TokenKind::With => Some("with"),
             _ => None,
         }
     }

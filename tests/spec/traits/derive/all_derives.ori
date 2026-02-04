@@ -1,5 +1,7 @@
 // Comprehensive derive trait tests
 
+use std.testing { assert_eq, assert }
+
 #[derive(Eq, Clone, Hashable, Printable)]
 type Point = { x: int, y: int }
 

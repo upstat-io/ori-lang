@@ -430,7 +430,10 @@ fn test_lambda_simple() {
     // Parameter list with one param
     let params = arena.alloc_params([ori_ir::ast::Param {
         name: x_name,
+        pattern: None,
         ty: None,
+        default: None,
+        is_variadic: false,
         span: ori_ir::Span::new(0, 1),
     }]);
 

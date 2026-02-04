@@ -2,6 +2,13 @@
 //!
 //! Uses direct enum-based dispatch for the fixed set of built-in operators.
 //! Pattern matching provides exhaustiveness checking and avoids trait object overhead.
+//!
+//! # Specification
+//!
+//! - Type rules: `docs/ori_lang/0.1-alpha/spec/operator-rules.md`
+//! - Prose: `docs/ori_lang/0.1-alpha/spec/09-expressions.md`
+//!
+//! Implementation must match the inference rules in operator-rules.md.
 
 use ori_diagnostic::ErrorCode;
 use ori_ir::{BinaryOp, Span, StringInterner};
@@ -321,28 +328,100 @@ pub fn check_binary_operation(
         }
 
         // Coalesce: ??
+        // Supports two patterns:
+        // - Option<T> ?? Option<T> -> Option<T> (chaining)
+        // - Option<T> ?? T -> T (unwrapping with default)
+        // Similarly for Result<T, E>
         BinaryOp::Coalesce => {
             let inner = ctx.fresh_var();
             let option_ty = Type::Option(Box::new(inner.clone()));
 
+            // Left must be Option<T> (or Result<T, E>)
+            let left_resolved = ctx.resolve(left);
+            let is_result = matches!(left_resolved, Type::Result { .. });
+
+            if is_result {
+                // Handle Result<T, E> ?? ...
+                if let Type::Result { ok: ok_ty, .. } = &left_resolved {
+                    let ok_inner = ok_ty.as_ref().clone();
+                    // Check if right is also Result<T, E> (chaining) or T (unwrap)
+                    let right_resolved = ctx.resolve(right);
+
+                    // Chaining: Result<T, E> ?? Result<T, E> -> Result<T, E>
+                    if let Type::Result { ok: right_ok, .. } = &right_resolved {
+                        if ctx.unify(&ok_inner, right_ok).is_ok() {
+                            return TypeOpResult::Ok(left_resolved);
+                        }
+                    }
+
+                    // Never type on the right: unwrap semantics (same reasoning as Option)
+                    if matches!(right_resolved, Type::Never) {
+                        return TypeOpResult::Ok(ctx.resolve(&ok_inner));
+                    }
+
+                    // Unwrapping: Result<T, E> ?? T -> T
+                    if ctx.unify(&ok_inner, right).is_ok() {
+                        return TypeOpResult::Ok(ctx.resolve(&ok_inner));
+                    }
+                    return TypeOpResult::Err(TypeOpError::new(
+                        format!(
+                            "right operand of `??` must be `{}` or `Result<{}, _>`, found `{}`",
+                            ok_inner.display(interner),
+                            ok_inner.display(interner),
+                            right.display(interner)
+                        ),
+                        ErrorCode::E2001,
+                    ));
+                }
+                unreachable!()
+            }
+
+            // Handle Option<T> ?? ...
             if ctx.unify(left, &option_ty).is_err() {
                 return TypeOpResult::Err(TypeOpError::new(
                     format!(
-                        "left operand of `??` must be `Option<T>`, found `{}`",
+                        "left operand of `??` must be `Option<T>` or `Result<T, E>`, found `{}`",
                         left.display(interner)
                     ),
                     ErrorCode::E2001,
                 ));
             }
+
+            // Check if right is also Option<T> (chaining) or T (unwrap)
+            let right_resolved = ctx.resolve(right);
+
+            // Chaining: Option<T> ?? Option<T> -> Option<T>
+            if let Type::Option(right_inner) = &right_resolved {
+                let inner_resolved = ctx.resolve(&inner);
+                if ctx.unify(&inner_resolved, right_inner).is_ok() {
+                    return TypeOpResult::Ok(Type::Option(Box::new(ctx.resolve(&inner))));
+                }
+            }
+
+            // Never type on the right: unwrap semantics
+            // With right-associative parsing, `Never` on the right only appears at
+            // chain terminals (e.g., `opt ?? panic()`). Since the expression diverges
+            // if we reach the right operand, return the unwrapped type T.
+            // Chains like `a ?? panic() ?? 99` work because they parse as
+            // `a ?? (panic() ?? 99)` where `panic()` is on the LEFT (unifies with Option<T>).
+            if matches!(right_resolved, Type::Never) {
+                return TypeOpResult::Ok(ctx.resolve(&inner));
+            }
+
+            // Unwrapping: Option<T> ?? T -> T
             if let Err(e) = ctx.unify(&inner, right) {
+                let inner_resolved = ctx.resolve(&inner);
                 let msg = match e {
                     ori_types::TypeError::TypeMismatch { expected, found } => format!(
-                        "right operand of `??` must match Option inner type: expected `{}`, found `{}`",
+                        "right operand of `??` must be `{}` or `Option<{}>`, found `{}`",
+                        expected.display(interner),
                         expected.display(interner),
                         found.display(interner)
                     ),
                     _ => format!(
-                        "right operand of `??` must match Option inner type, found `{}`",
+                        "right operand of `??` must be `{}` or `Option<{}>`, found `{}`",
+                        inner_resolved.display(interner),
+                        inner_resolved.display(interner),
                         right.display(interner)
                     ),
                 };

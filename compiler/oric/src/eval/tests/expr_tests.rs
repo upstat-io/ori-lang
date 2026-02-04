@@ -327,28 +327,30 @@ mod index_access {
     mod string_indexing {
         use super::*;
 
+        // String indexing returns a single-codepoint str (not char)
+
         #[test]
         fn first_char() {
             let s = Value::string("hello");
-            assert_eq!(eval_index(s, Value::int(0)).unwrap(), Value::Char('h'));
+            assert_eq!(eval_index(s, Value::int(0)).unwrap(), Value::string("h"));
         }
 
         #[test]
         fn last_char() {
             let s = Value::string("hello");
-            assert_eq!(eval_index(s, Value::int(4)).unwrap(), Value::Char('o'));
+            assert_eq!(eval_index(s, Value::int(4)).unwrap(), Value::string("o"));
         }
 
         #[test]
         fn negative_index() {
             let s = Value::string("hello");
-            assert_eq!(eval_index(s, Value::int(-1)).unwrap(), Value::Char('o'));
+            assert_eq!(eval_index(s, Value::int(-1)).unwrap(), Value::string("o"));
         }
 
         #[test]
         fn unicode_char() {
             let s = Value::string("héllo");
-            assert_eq!(eval_index(s, Value::int(1)).unwrap(), Value::Char('é'));
+            assert_eq!(eval_index(s, Value::int(1)).unwrap(), Value::string("é"));
         }
 
         #[test]
@@ -356,13 +358,13 @@ mod index_access {
             let s = Value::string("a😀b");
             assert_eq!(
                 eval_index(s.clone(), Value::int(0)).unwrap(),
-                Value::Char('a')
+                Value::string("a")
             );
             assert_eq!(
                 eval_index(s.clone(), Value::int(1)).unwrap(),
-                Value::Char('😀')
+                Value::string("😀")
             );
-            assert_eq!(eval_index(s, Value::int(2)).unwrap(), Value::Char('b'));
+            assert_eq!(eval_index(s, Value::int(2)).unwrap(), Value::string("b"));
         }
 
         #[test]
@@ -383,28 +385,41 @@ mod index_access {
     mod map_indexing {
         use super::*;
 
+        // Map indexing returns Option<V>: Some(value) if found, None if not
+
         #[test]
         fn existing_key() {
             let mut map = std::collections::BTreeMap::new();
-            map.insert("key".to_string(), Value::int(42));
+            // Map keys must use type-prefixed format (e.g., "s:key" for strings)
+            // This matches how the interpreter stores keys via Value::to_map_key()
+            map.insert("s:key".to_string(), Value::int(42));
             let m = Value::map(map);
-            assert_eq!(eval_index(m, Value::string("key")).unwrap(), Value::int(42));
+            assert_eq!(
+                eval_index(m, Value::string("key")).unwrap(),
+                Value::some(Value::int(42))
+            );
         }
 
         #[test]
         fn missing_key() {
             let map: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
             let m = Value::map(map);
-            let result = eval_index(m, Value::string("missing"));
-            assert!(result.is_err());
+            assert_eq!(
+                eval_index(m, Value::string("missing")).unwrap(),
+                Value::None
+            );
         }
 
         #[test]
         fn empty_string_key() {
             let mut map = std::collections::BTreeMap::new();
-            map.insert(String::new(), Value::int(1));
+            // Empty string key is "s:" (type prefix only)
+            map.insert("s:".to_string(), Value::int(1));
             let m = Value::map(map);
-            assert_eq!(eval_index(m, Value::string("")).unwrap(), Value::int(1));
+            assert_eq!(
+                eval_index(m, Value::string("")).unwrap(),
+                Value::some(Value::int(1))
+            );
         }
     }
 
@@ -465,17 +480,19 @@ mod boundaries {
     #[test]
     fn long_string_first() {
         let s = Value::string("a".repeat(10000));
-        assert_eq!(eval_index(s, Value::int(0)).unwrap(), Value::Char('a'));
+        // String indexing returns single-codepoint str
+        assert_eq!(eval_index(s, Value::int(0)).unwrap(), Value::string("a"));
     }
 
     #[test]
     fn long_string_last() {
         let s = Value::string("a".repeat(10000));
+        // String indexing returns single-codepoint str
         assert_eq!(
             eval_index(s.clone(), Value::int(9999)).unwrap(),
-            Value::Char('a')
+            Value::string("a")
         );
-        assert_eq!(eval_index(s, Value::int(-1)).unwrap(), Value::Char('a'));
+        assert_eq!(eval_index(s, Value::int(-1)).unwrap(), Value::string("a"));
     }
 
     #[test]

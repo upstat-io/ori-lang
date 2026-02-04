@@ -1,0 +1,9 @@
+use std.testing { assert_eq }
+
+@bar () -> void = ()
+
+@test_bar tests @bar () -> void = run(
+    let result: Result<int, str> = Ok(42),
+    let value = result ?? panic(msg: "oops"),
+    assert_eq(actual: value, expected: 42),
+)

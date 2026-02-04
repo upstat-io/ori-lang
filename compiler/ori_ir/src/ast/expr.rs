@@ -2,6 +2,12 @@
 //!
 //! Core expression nodes and variants.
 //!
+//! # Specification
+//!
+//! - Syntax: `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` § EXPRESSIONS
+//! - Semantics: `docs/ori_lang/0.1-alpha/spec/operator-rules.md`
+//! - Prose: `docs/ori_lang/0.1-alpha/spec/09-expressions.md`
+//!
 //! # Design Notes
 //! Per design spec A-data-structures.md:
 //! - No `Box<Expr>`, use `ExprId(u32)` indices
@@ -13,7 +19,10 @@ use std::hash::{Hash, Hasher};
 
 use super::operators::{BinaryOp, UnaryOp};
 use super::patterns::{BindingPattern, FunctionExp, FunctionSeq};
-use super::ranges::{ArmRange, CallArgRange, FieldInitRange, MapEntryRange};
+use super::ranges::{
+    ArmRange, CallArgRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange,
+    StructLitFieldRange,
+};
 use crate::token::{DurationUnit, SizeUnit};
 use crate::{ExprId, ExprList, Name, ParsedType, Span, Spanned, StmtRange};
 
@@ -195,11 +204,35 @@ pub enum ExprKind {
     /// Uses `ExprList` for inline storage of 0-2 elements (~62% of lists).
     List(ExprList),
 
+    /// List literal with spread: [...a, x, ...b]
+    ///
+    /// Uses `ListElementRange` which can contain both regular values and spreads.
+    /// Spread elements are expanded at runtime, concatenating their contents
+    /// into the resulting list in order.
+    ListWithSpread(ListElementRange),
+
     /// Map literal: {k: v, ...}
     Map(MapEntryRange),
 
+    /// Map literal with spread: {...base, k: v}
+    ///
+    /// Uses `MapElementRange` which can contain both entries and spreads.
+    /// The "later wins" semantics means spreads and explicit entries are applied
+    /// in order, with later values overwriting earlier ones.
+    MapWithSpread(MapElementRange),
+
     /// Struct literal: Point { x: 0, y: 0 }
     Struct { name: Name, fields: FieldInitRange },
+
+    /// Struct literal with spread: Point { ...base, x: 10 }
+    ///
+    /// Uses `StructLitFieldRange` which can contain both field inits and spreads.
+    /// The "later wins" semantics means spreads and explicit fields are applied
+    /// in order, with later values overwriting earlier ones.
+    StructWithSpread {
+        name: Name,
+        fields: StructLitFieldRange,
+    },
 
     /// Tuple: (a, b, c)
     ///
@@ -240,6 +273,17 @@ pub enum ExprKind {
 
     /// Propagate error: expr?
     Try(ExprId),
+
+    /// Type cast: `expr as type` (infallible) or `expr as? type` (fallible)
+    ///
+    /// - `as`: Infallible conversion (e.g., `42 as float`)
+    /// - `as?`: Fallible conversion returning `Option<T>` (e.g., `"42" as? int`)
+    Cast {
+        expr: ExprId,
+        ty: ParsedType,
+        /// True for `as?` (fallible), false for `as` (infallible)
+        fallible: bool,
+    },
 
     /// Assignment: target = value
     Assign { target: ExprId, value: ExprId },
@@ -352,8 +396,13 @@ impl fmt::Debug for ExprKind {
                 write!(f, "Lambda({params:?}, {ret_ty:?}, {body:?})")
             }
             ExprKind::List(exprs) => write!(f, "List({exprs:?})"),
+            ExprKind::ListWithSpread(elements) => write!(f, "ListWithSpread({elements:?})"),
             ExprKind::Map(entries) => write!(f, "Map({entries:?})"),
+            ExprKind::MapWithSpread(elements) => write!(f, "MapWithSpread({elements:?})"),
             ExprKind::Struct { name, fields } => write!(f, "Struct({name:?}, {fields:?})"),
+            ExprKind::StructWithSpread { name, fields } => {
+                write!(f, "StructWithSpread({name:?}, {fields:?})")
+            }
             ExprKind::Tuple(exprs) => write!(f, "Tuple({exprs:?})"),
             ExprKind::Range {
                 start,
@@ -374,6 +423,10 @@ impl fmt::Debug for ExprKind {
             ExprKind::Continue(val) => write!(f, "Continue({val:?})"),
             ExprKind::Await(inner) => write!(f, "Await({inner:?})"),
             ExprKind::Try(inner) => write!(f, "Try({inner:?})"),
+            ExprKind::Cast { expr, ty, fallible } => {
+                let op = if *fallible { "as?" } else { "as" };
+                write!(f, "Cast({expr:?} {op} {ty:?})")
+            }
             ExprKind::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),
             ExprKind::WithCapability {
                 capability,

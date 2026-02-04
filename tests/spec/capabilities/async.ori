@@ -1,4 +1,6 @@
 // Spec: 14-capabilities.md § Async Capability
+
+use std.testing { assert_eq }
 // Tests for the Async marker capability
 
 // =============================================================================

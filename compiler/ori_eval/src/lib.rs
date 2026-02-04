@@ -91,7 +91,7 @@ pub use errors::{
     map_entries_not_implemented,
     map_entries_requires_map,
     // Type conversion errors
-    map_keys_must_be_strings,
+    map_key_not_hashable,
     map_requires_collection,
     missing_struct_field,
     modulo_by_zero,
@@ -107,6 +107,7 @@ pub use errors::{
     parse_error,
     range_bound_not_int,
     self_outside_method,
+    spread_requires_map,
     tuple_index_out_of_bounds,
     tuple_pattern_mismatch,
     unbounded_range_end,

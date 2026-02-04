@@ -3,7 +3,7 @@
 //! Methods for emitting expressions inline (single line).
 //! Used when expressions fit within the line width.
 
-use ori_ir::{ExprId, ExprKind, StringLookup};
+use ori_ir::{BinaryOp, ExprId, ExprKind, StringLookup};
 
 use super::{binary_op_str, unary_op_str, Formatter};
 
@@ -38,15 +38,27 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             // Binary/unary operations
             ExprKind::Binary { op, left, right } => {
-                self.emit_inline(*left);
+                self.emit_binary_operand_inline(*left, *op, true);
                 self.ctx.emit_space();
                 self.ctx.emit(binary_op_str(*op));
                 self.ctx.emit_space();
-                self.emit_inline(*right);
+                self.emit_binary_operand_inline(*right, *op, false);
             }
             ExprKind::Unary { op, operand } => {
                 self.ctx.emit(unary_op_str(*op));
-                self.emit_inline(*operand);
+                // Unary operators bind tighter than binary - wrap binary operands
+                let operand_expr = self.arena.get_expr(*operand);
+                let needs_parens = matches!(
+                    &operand_expr.kind,
+                    ExprKind::Binary { .. } | ExprKind::If { .. } | ExprKind::Lambda { .. }
+                );
+                if needs_parens {
+                    self.ctx.emit("(");
+                    self.emit_inline(*operand);
+                    self.ctx.emit(")");
+                } else {
+                    self.emit_inline(*operand);
+                }
             }
 
             // Calls
@@ -117,14 +129,18 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
 
             // Let binding
-            // Note: mutable is default, immutable uses $ prefix in pattern
+            // Per spec: mutable is default, $ prefix for immutable
             ExprKind::Let {
                 pattern,
                 ty: _,
                 init,
-                mutable: _,
+                mutable,
             } => {
-                self.ctx.emit("let ");
+                if *mutable {
+                    self.ctx.emit("let ");
+                } else {
+                    self.ctx.emit("let $");
+                }
                 self.emit_binding_pattern(pattern);
                 self.ctx.emit(" = ");
                 self.emit_inline(*init);
@@ -164,6 +180,24 @@ impl<I: StringLookup> Formatter<'_, I> {
                 }
                 self.ctx.emit("]");
             }
+            ExprKind::ListWithSpread(elements) => {
+                self.ctx.emit("[");
+                for (i, element) in self.arena.get_list_elements(*elements).iter().enumerate() {
+                    if i > 0 {
+                        self.ctx.emit(", ");
+                    }
+                    match element {
+                        ori_ir::ListElement::Expr { expr, .. } => {
+                            self.emit_inline(*expr);
+                        }
+                        ori_ir::ListElement::Spread { expr, .. } => {
+                            self.ctx.emit("...");
+                            self.emit_inline(*expr);
+                        }
+                    }
+                }
+                self.ctx.emit("]");
+            }
             ExprKind::Map(entries) => {
                 let entries_list = self.arena.get_map_entries(*entries);
                 self.ctx.emit("{");
@@ -174,6 +208,26 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.emit_inline(entry.key);
                     self.ctx.emit(": ");
                     self.emit_inline(entry.value);
+                }
+                self.ctx.emit("}");
+            }
+            ExprKind::MapWithSpread(elements) => {
+                self.ctx.emit("{");
+                for (i, element) in self.arena.get_map_elements(*elements).iter().enumerate() {
+                    if i > 0 {
+                        self.ctx.emit(", ");
+                    }
+                    match element {
+                        ori_ir::MapElement::Entry(entry) => {
+                            self.emit_inline(entry.key);
+                            self.ctx.emit(": ");
+                            self.emit_inline(entry.value);
+                        }
+                        ori_ir::MapElement::Spread { expr, .. } => {
+                            self.ctx.emit("...");
+                            self.emit_inline(*expr);
+                        }
+                    }
                 }
                 self.ctx.emit("}");
             }
@@ -192,6 +246,34 @@ impl<I: StringLookup> Formatter<'_, I> {
                         if let Some(value) = field.value {
                             self.ctx.emit(": ");
                             self.emit_inline(value);
+                        }
+                    }
+                    self.ctx.emit(" }");
+                }
+            }
+            ExprKind::StructWithSpread { name, fields } => {
+                self.ctx.emit(self.interner.lookup(*name));
+                let fields_list = self.arena.get_struct_lit_fields(*fields);
+                if fields_list.is_empty() {
+                    self.ctx.emit(" {}");
+                } else {
+                    self.ctx.emit(" { ");
+                    for (i, field) in fields_list.iter().enumerate() {
+                        if i > 0 {
+                            self.ctx.emit(", ");
+                        }
+                        match field {
+                            ori_ir::StructLitField::Field(init) => {
+                                self.ctx.emit(self.interner.lookup(init.name));
+                                if let Some(value) = init.value {
+                                    self.ctx.emit(": ");
+                                    self.emit_inline(value);
+                                }
+                            }
+                            ori_ir::StructLitField::Spread { expr, .. } => {
+                                self.ctx.emit("...");
+                                self.emit_inline(*expr);
+                            }
                         }
                     }
                     self.ctx.emit(" }");
@@ -265,6 +347,15 @@ impl<I: StringLookup> Formatter<'_, I> {
             ExprKind::Try(inner) => {
                 self.emit_inline(*inner);
                 self.ctx.emit("?");
+            }
+            ExprKind::Cast { expr, ty, fallible } => {
+                self.emit_inline(*expr);
+                if *fallible {
+                    self.ctx.emit(" as? ");
+                } else {
+                    self.ctx.emit(" as ");
+                }
+                self.emit_type(ty);
             }
 
             // Assignment
@@ -362,6 +453,58 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             // Error node (preserve as-is, shouldn't format)
             ExprKind::Error => self.ctx.emit("/* error */"),
+        }
+    }
+
+    /// Emit a binary operand, wrapping in parentheses if needed for precedence.
+    ///
+    /// Parentheses are needed when:
+    /// - The operand is a binary expression with lower precedence (higher number)
+    /// - The operand has equal precedence but is on the "wrong" side for associativity
+    ///   (all binary ops are left-associative except `??` which is right-associative)
+    fn emit_binary_operand_inline(&mut self, operand: ExprId, parent_op: BinaryOp, is_left: bool) {
+        let expr = self.arena.get_expr(operand);
+
+        let needs_parens = match &expr.kind {
+            ExprKind::Binary { op: child_op, .. } => {
+                let parent_prec = parent_op.precedence();
+                let child_prec = child_op.precedence();
+
+                match child_prec.cmp(&parent_prec) {
+                    std::cmp::Ordering::Greater => {
+                        // Child has lower precedence (higher number) - needs parens
+                        true
+                    }
+                    std::cmp::Ordering::Equal => {
+                        // Same precedence - check associativity
+                        // All ops are left-associative except ??
+                        // For left-assoc: a + b + c = (a + b) + c, so right operand needs parens
+                        // For right-assoc (??): a ?? b ?? c = a ?? (b ?? c), so left operand needs parens
+                        let is_right_assoc = matches!(parent_op, BinaryOp::Coalesce);
+                        // Left operand of right-assoc needs parens, else right operand
+                        if is_right_assoc {
+                            is_left
+                        } else {
+                            !is_left
+                        }
+                    }
+                    std::cmp::Ordering::Less => {
+                        // Child has higher precedence - no parens needed
+                        false
+                    }
+                }
+            }
+            // Lambda/Let/If as operands also need parens
+            ExprKind::Lambda { .. } | ExprKind::Let { .. } | ExprKind::If { .. } => true,
+            _ => false,
+        };
+
+        if needs_parens {
+            self.ctx.emit("(");
+            self.emit_inline(operand);
+            self.ctx.emit(")");
+        } else {
+            self.emit_inline(operand);
         }
     }
 }

@@ -31,6 +31,27 @@ pub fn dispatch_bool_method(
             let b = require_bool_arg("compare", &args, 0)?;
             Ok(ordering_to_value(a.cmp(&b), interner))
         }
+        // Eq trait
+        "equals" => {
+            require_args("equals", 1, args.len())?;
+            let b = require_bool_arg("equals", &args, 0)?;
+            Ok(Value::Bool(a == b))
+        }
+        // Clone trait
+        "clone" => {
+            require_args("clone", 0, args.len())?;
+            Ok(receiver)
+        }
+        // Printable and Debug traits
+        "to_str" | "debug" => {
+            require_args(method, 0, args.len())?;
+            Ok(Value::string(if a { "true" } else { "false" }))
+        }
+        // Hashable trait
+        "hash" => {
+            require_args("hash", 0, args.len())?;
+            Ok(Value::int(i64::from(a)))
+        }
         _ => Err(no_such_method(method, "bool")),
     }
 }
@@ -57,6 +78,31 @@ pub fn dispatch_char_method(
             let other = require_char_arg("compare", &args, 0)?;
             Ok(ordering_to_value(c.cmp(&other), interner))
         }
+        // Eq trait
+        "equals" => {
+            require_args("equals", 1, args.len())?;
+            let other = require_char_arg("equals", &args, 0)?;
+            Ok(Value::Bool(c == other))
+        }
+        // Clone trait
+        "clone" => {
+            require_args("clone", 0, args.len())?;
+            Ok(receiver)
+        }
+        // Printable and Debug traits
+        "to_str" => {
+            require_args("to_str", 0, args.len())?;
+            Ok(Value::string(c.to_string()))
+        }
+        "debug" => {
+            require_args("debug", 0, args.len())?;
+            Ok(Value::string(format!("'{c}'")))
+        }
+        // Hashable trait
+        "hash" => {
+            require_args("hash", 0, args.len())?;
+            Ok(Value::int(i64::from(c as u32)))
+        }
         _ => Err(no_such_method(method, "char")),
     }
 }
@@ -82,6 +128,27 @@ pub fn dispatch_byte_method(
             require_args("compare", 1, args.len())?;
             let other = require_byte_arg("compare", &args, 0)?;
             Ok(ordering_to_value(b.cmp(&other), interner))
+        }
+        // Eq trait
+        "equals" => {
+            require_args("equals", 1, args.len())?;
+            let other = require_byte_arg("equals", &args, 0)?;
+            Ok(Value::Bool(b == other))
+        }
+        // Clone trait
+        "clone" => {
+            require_args("clone", 0, args.len())?;
+            Ok(receiver)
+        }
+        // Printable and Debug traits
+        "to_str" | "debug" => {
+            require_args(method, 0, args.len())?;
+            Ok(Value::string(format!("0x{b:02x}")))
+        }
+        // Hashable trait
+        "hash" => {
+            require_args("hash", 0, args.len())?;
+            Ok(Value::int(i64::from(b)))
         }
         _ => Err(no_such_method(method, "byte")),
     }
@@ -128,6 +195,20 @@ pub fn dispatch_option_method(
             require_args("unwrap_or", 1, args.len())?;
             match args.into_iter().next() {
                 Some(default) => Ok(default),
+                None => unreachable!("require_args verified length is 1"),
+            }
+        }
+        // ok_or: Convert Option to Result
+        // Some(v).ok_or(error:) -> Ok(v)
+        // None.ok_or(error:) -> Err(error)
+        ("ok_or", Value::Some(v)) => {
+            require_args("ok_or", 1, args.len())?;
+            Ok(Value::ok((**v).clone()))
+        }
+        ("ok_or", Value::None) => {
+            require_args("ok_or", 1, args.len())?;
+            match args.into_iter().next() {
+                Some(error) => Ok(Value::err(error)),
                 None => unreachable!("require_args verified length is 1"),
             }
         }

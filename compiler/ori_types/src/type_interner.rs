@@ -470,11 +470,27 @@ impl Default for TypeInterner {
 /// This newtype enforces that all thread-safe interner sharing goes through
 /// this type, preventing accidental direct `Arc<TypeInterner>` usage.
 ///
-/// # Purpose
-/// The type interner must be shared across type checking, pattern checking,
-/// and evaluation phases. `SharedTypeInterner` provides a clonable handle
-/// that can be passed to each compiler phase while ensuring all phases share
-/// the same interned type storage.
+/// # When to Use This vs `&TypeInterner`
+///
+/// **Use `SharedTypeInterner` (Arc) when:**
+/// - Creating the interner at a coordination point (e.g., query system)
+/// - Passing to phases that may run concurrently or outlive the caller
+/// - The interner must be cloned into multiple owned handles
+///
+/// **Use `&'a TypeInterner` (borrowed) when:**
+/// - The caller owns the interner and callees just need read access
+/// - Lifetime is well-defined (codegen borrows from type-check output)
+/// - Zero runtime cost is required (no atomic ref counting)
+///
+/// **Example - Correct patterns:**
+/// ```ignore
+/// // Query system creates and owns the interner
+/// let interner = SharedTypeInterner::new();
+/// let typed = type_check(..., Some(interner.clone()));
+///
+/// // Codegen borrows - does NOT need Arc
+/// fn compile(cx: &CodegenCx, type_interner: &TypeInterner) { ... }
+/// ```
 ///
 /// # Thread Safety
 /// Uses `Arc` internally for thread-safe reference counting. The underlying

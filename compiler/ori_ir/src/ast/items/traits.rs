@@ -9,16 +9,28 @@ use super::super::ranges::{GenericParamRange, ParamRange};
 use super::super::Visibility;
 use crate::{ExprId, Name, ParsedType, ParsedTypeRange, Span, Spanned};
 
-/// Generic parameter: `T` or `T: Bound` or `T: A + B` or `T = DefaultType`.
+/// Generic parameter: type param (`T`, `T: Bound`) or const param (`$N: int`).
 ///
 /// Default type parameters allow trait definitions like `trait Add<Rhs = Self>`.
+/// Const generics allow compile-time values: `@f<$N: int>`, `@f<$B: bool = true>`.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct GenericParam {
     pub name: Name,
+    /// Trait bounds for type parameters (e.g., `T: Eq + Clone`).
+    /// Empty for const parameters.
     pub bounds: Vec<TraitBound>,
     /// Default type for this parameter (e.g., `Self` in `trait Add<Rhs = Self>`).
     /// When present, this type is used if the impl omits the type argument.
     pub default_type: Option<ParsedType>,
+    /// If true, this is a const generic parameter (`$N: int`).
+    /// The type is stored in `const_type`, not `bounds`.
+    pub is_const: bool,
+    /// For const parameters: the type (e.g., `int` in `$N: int`).
+    /// None for type parameters.
+    pub const_type: Option<ParsedType>,
+    /// For const params: the default value (e.g., `10` in `$N: int = 10`).
+    /// None for type parameters (which use `default_type` instead).
+    pub default_value: Option<ExprId>,
     pub span: Span,
 }
 

@@ -8,7 +8,6 @@
 //! When calling a closure, we extract the function pointer and captured
 //! values, then call the function with both regular args and captures.
 
-use rustc_hash::FxHashMap;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -17,7 +16,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ast::ExprKind;
 use ori_ir::{ExprArena, ExprId, Name, TypeId};
 
-use crate::builder::Builder;
+use crate::builder::{Builder, LocalStorage, Locals};
 
 /// Counter for generating unique lambda function names.
 static LAMBDA_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -34,7 +33,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         body: ExprId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &Locals<'ll>,
         _parent_function: FunctionValue<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {
         let parameters = arena.get_params(params);
@@ -69,23 +68,23 @@ impl<'ll> Builder<'_, 'll, '_> {
         self.position_at_end(entry);
 
         // Build parameter map for lambda body
-        let mut lambda_locals: FxHashMap<Name, BasicValueEnum<'ll>> = FxHashMap::default();
+        let mut lambda_locals = Locals::new();
 
-        // Add regular parameters
+        // Add regular parameters (lambda parameters are immutable)
         for (i, param) in parameters.iter().enumerate() {
             if let Some(param_val) = lambda_fn.get_nth_param(i as u32) {
                 param_val.set_name(self.cx().interner.lookup(param.name));
-                lambda_locals.insert(param.name, param_val);
+                lambda_locals.bind_immutable(param.name, param_val);
             }
         }
 
-        // Add captured variables as parameters
+        // Add captured variables as parameters (captures are immutable copies)
         for (i, (name, _)) in captures.iter().enumerate() {
             let param_idx = (parameters.len() + i) as u32;
             if let Some(param_val) = lambda_fn.get_nth_param(param_idx) {
                 let name_str = self.cx().interner.lookup(*name);
                 param_val.set_name(&format!("capture_{name_str}"));
-                lambda_locals.insert(*name, param_val);
+                lambda_locals.bind_immutable(*name, param_val);
             }
         }
 
@@ -181,12 +180,14 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// - Are used in the lambda body
     /// - Are in the outer locals
     /// - Are not lambda parameters
+    ///
+    /// For mutable variables, captures the current value (Ori's "capture by value" semantics).
     fn find_captures(
         &self,
         body: ExprId,
         arena: &ExprArena,
         param_names: &HashSet<Name>,
-        locals: &FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &Locals<'ll>,
     ) -> Vec<(Name, BasicValueEnum<'ll>)> {
         let mut captures = Vec::new();
         let mut seen = HashSet::new();
@@ -197,16 +198,12 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Recursively collect free variables in an expression.
-    #[expect(
-        clippy::self_only_used_in_recursion,
-        reason = "self provides access to cx().interner for future Name resolution"
-    )]
     fn collect_free_vars(
         &self,
         expr_id: ExprId,
         arena: &ExprArena,
         bound: &HashSet<Name>,
-        locals: &FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &Locals<'ll>,
         captures: &mut Vec<(Name, BasicValueEnum<'ll>)>,
         seen: &mut HashSet<Name>,
     ) {
@@ -216,8 +213,18 @@ impl<'ll> Builder<'_, 'll, '_> {
             ExprKind::Ident(name) => {
                 // If this name is not bound locally and exists in outer locals, capture it
                 if !bound.contains(name) && !seen.contains(name) {
-                    if let Some(val) = locals.get(name) {
-                        captures.push((*name, *val));
+                    // Load the current value - for mutable vars, this captures the current value
+                    // (Ori's "capture by value" semantics)
+                    if let Some(storage) = locals.get_storage(name) {
+                        let val = match storage {
+                            LocalStorage::Immutable(v) => *v,
+                            LocalStorage::Mutable { ptr, ty } => {
+                                // Load current value for capture
+                                let name_str = self.cx().interner.lookup(*name);
+                                self.load(*ty, *ptr, &format!("capture_{name_str}"))
+                            }
+                        };
+                        captures.push((*name, val));
                         seen.insert(*name);
                     }
                 }

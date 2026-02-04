@@ -1,13 +1,12 @@
 //! Function sequence patterns (run, try, match).
 
-use rustc_hash::FxHashMap;
-
+use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use inkwell::IntPredicate;
 use ori_ir::ast::patterns::{BindingPattern, FunctionSeq, SeqBinding};
-use ori_ir::{ExprArena, Name, TypeId};
+use ori_ir::{ExprArena, TypeId};
 
-use crate::builder::Builder;
+use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
@@ -18,7 +17,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         result_type: TypeId,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -97,13 +96,18 @@ impl<'ll> Builder<'_, 'll, '_> {
         binding: &SeqBinding,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         match binding {
-            SeqBinding::Let { pattern, value, .. } => self.compile_let(
-                pattern, *value, arena, expr_types, locals, function, loop_ctx,
+            SeqBinding::Let {
+                pattern,
+                value,
+                mutable,
+                ..
+            } => self.compile_let(
+                pattern, *value, *mutable, arena, expr_types, locals, function, loop_ctx,
             ),
             SeqBinding::Stmt { expr, .. } => {
                 self.compile_expr(*expr, arena, expr_types, locals, function, loop_ctx)
@@ -120,12 +124,17 @@ impl<'ll> Builder<'_, 'll, '_> {
         binding: &SeqBinding,
         arena: &ExprArena,
         expr_types: &[TypeId],
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         match binding {
-            SeqBinding::Let { pattern, value, .. } => {
+            SeqBinding::Let {
+                pattern,
+                value,
+                mutable,
+                ..
+            } => {
                 // Compile the value expression
                 let result_val =
                     self.compile_expr(*value, arena, expr_types, locals, function, loop_ctx)?;
@@ -167,15 +176,17 @@ impl<'ll> Builder<'_, 'll, '_> {
                         // Continue block
                         self.position_at_end(cont_bb);
 
-                        // Bind the unwrapped value to the pattern
-                        self.bind_pattern(pattern, inner_val, locals);
+                        // Bind the unwrapped value to the pattern (try bindings are immutable unwrap)
+                        let ty = inner_val.get_type();
+                        self.bind_pattern(pattern, inner_val, *mutable, ty, function, locals);
 
                         return Some(inner_val);
                     }
                 }
 
                 // Not a Result type - bind directly
-                self.bind_pattern(pattern, result_val, locals);
+                let ty = result_val.get_type();
+                self.bind_pattern(pattern, result_val, *mutable, ty, function, locals);
                 Some(result_val)
             }
             SeqBinding::Stmt { expr, .. } => {
@@ -185,15 +196,31 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Bind a pattern to a value, populating locals.
+    ///
+    /// For mutable bindings, creates stack allocation with `alloca`/`store`.
+    /// For immutable bindings, uses direct SSA values.
+    #[allow(clippy::too_many_lines)] // Pattern matching compilation is inherently cohesive; splitting would reduce clarity
     pub(crate) fn bind_pattern(
         &self,
         pattern: &BindingPattern,
         value: BasicValueEnum<'ll>,
-        locals: &mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        mutable: bool,
+        ty: BasicTypeEnum<'ll>,
+        function: FunctionValue<'ll>,
+        locals: &mut Locals<'ll>,
     ) {
         match pattern {
             BindingPattern::Name(name) => {
-                locals.insert(*name, value);
+                if mutable {
+                    // Mutable: allocate stack slot, store value, register as mutable
+                    let name_str = self.cx().interner.lookup(*name);
+                    let ptr = self.create_entry_alloca(function, name_str, ty);
+                    self.store(value, ptr);
+                    locals.bind_mutable(*name, ptr, ty);
+                } else {
+                    // Immutable: use direct SSA value
+                    locals.bind_immutable(*name, value);
+                }
             }
             BindingPattern::Wildcard => {
                 // Discard the value
@@ -205,7 +232,15 @@ impl<'ll> Builder<'_, 'll, '_> {
                         if let Some(elem) =
                             self.extract_value(struct_val, i as u32, &format!("tuple_{i}"))
                         {
-                            self.bind_pattern(pat, elem, locals);
+                            // Tuple destructuring passes mutable flag to all elements
+                            self.bind_pattern(
+                                pat,
+                                elem,
+                                mutable,
+                                elem.get_type(),
+                                function,
+                                locals,
+                            );
                         }
                     }
                 }
@@ -221,12 +256,25 @@ impl<'ll> Builder<'_, 'll, '_> {
                             field_index,
                             &format!("field_{field_name_str}"),
                         ) {
+                            let field_ty = field_val.get_type();
                             // If there's an inner pattern (rename), bind to that; otherwise bind to field name
                             if let Some(inner) = inner_pattern {
-                                self.bind_pattern(inner, field_val, locals);
+                                self.bind_pattern(
+                                    inner, field_val, mutable, field_ty, function, locals,
+                                );
                             } else {
                                 // Shorthand: { x } binds field x to variable x
-                                locals.insert(*field_name, field_val);
+                                if mutable {
+                                    let ptr = self.create_entry_alloca(
+                                        function,
+                                        field_name_str,
+                                        field_ty,
+                                    );
+                                    self.store(field_val, ptr);
+                                    locals.bind_mutable(*field_name, ptr, field_ty);
+                                } else {
+                                    locals.bind_immutable(*field_name, field_val);
+                                }
                             }
                         }
                     }
@@ -258,7 +306,14 @@ impl<'ll> Builder<'_, 'll, '_> {
                             &format!("elem_{i}_ptr"),
                         );
                         let elem_val = self.load(elem_type.into(), elem_ptr, &format!("elem_{i}"));
-                        self.bind_pattern(pat, elem_val, locals);
+                        self.bind_pattern(
+                            pat,
+                            elem_val,
+                            mutable,
+                            elem_type.into(),
+                            function,
+                            locals,
+                        );
                     }
 
                     // Handle rest pattern (..rest)
@@ -303,7 +358,15 @@ impl<'ll> Builder<'_, 'll, '_> {
                             "rest_list",
                         );
 
-                        locals.insert(*rest_name, rest_list.into());
+                        let list_ty: BasicTypeEnum<'ll> = list_type.into();
+                        if mutable {
+                            let rest_name_str = self.cx().interner.lookup(*rest_name);
+                            let ptr = self.create_entry_alloca(function, rest_name_str, list_ty);
+                            self.store(rest_list.into(), ptr);
+                            locals.bind_mutable(*rest_name, ptr, list_ty);
+                        } else {
+                            locals.bind_immutable(*rest_name, rest_list.into());
+                        }
                     }
                 }
             }

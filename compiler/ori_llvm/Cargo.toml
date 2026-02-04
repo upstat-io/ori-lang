@@ -13,6 +13,7 @@ repository = "https://github.com/upstat-io/ori-lang"
 # Ori crates (relative paths since excluded from workspace)
 ori_ir = { path = "../ori_ir" }
 ori_rt = { path = "../ori_rt" }
+ori_types = { path = "../ori_types" }
 
 # Fast hash map for compiler internals
 rustc-hash = "2.1"

@@ -1,4 +1,6 @@
 // Golden test: Large file for performance testing (5000+ lines)
+
+use std.testing { assert_eq }
 // Spec: All syntax constructs
 // Design: tooling/formatter/design/appendices/A-edge-cases.md
 

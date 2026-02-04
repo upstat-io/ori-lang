@@ -52,16 +52,17 @@ pub mod duration {
 /// Size constants for byte-based storage representation.
 ///
 /// Size values are stored as `u64` bytes (semantically non-negative).
-/// Uses binary units (1024-based), not SI units (1000-based).
+/// Uses SI units (1000-based): 1kb = 1000 bytes, 1mb = 1,000,000 bytes, etc.
+/// For exact powers of 1024, use explicit byte counts: `1024b`, `1048576b`.
 pub mod size {
-    /// Bytes per kilobyte (1024).
-    pub const BYTES_PER_KB: u64 = 1024;
-    /// Bytes per megabyte (1024^2).
-    pub const BYTES_PER_MB: u64 = 1024 * 1024;
-    /// Bytes per gigabyte (1024^3).
-    pub const BYTES_PER_GB: u64 = 1024 * 1024 * 1024;
-    /// Bytes per terabyte (1024^4).
-    pub const BYTES_PER_TB: u64 = 1024 * 1024 * 1024 * 1024;
+    /// Bytes per kilobyte (1000, SI units).
+    pub const BYTES_PER_KB: u64 = 1000;
+    /// Bytes per megabyte (1000^2 = 1,000,000, SI units).
+    pub const BYTES_PER_MB: u64 = 1_000_000;
+    /// Bytes per gigabyte (1000^3 = 1,000,000,000, SI units).
+    pub const BYTES_PER_GB: u64 = 1_000_000_000;
+    /// Bytes per terabyte (1000^4 = 1,000,000,000,000, SI units).
+    pub const BYTES_PER_TB: u64 = 1_000_000_000_000;
 }
 
 /// Ordering variant tag constants.
@@ -106,10 +107,11 @@ mod tests {
 
     #[test]
     fn test_size_constants() {
-        assert_eq!(size::BYTES_PER_KB, 1024);
-        assert_eq!(size::BYTES_PER_MB, 1024 * 1024);
-        assert_eq!(size::BYTES_PER_GB, 1024 * 1024 * 1024);
-        assert_eq!(size::BYTES_PER_TB, 1024 * 1024 * 1024 * 1024);
+        // SI units: powers of 1000
+        assert_eq!(size::BYTES_PER_KB, 1_000);
+        assert_eq!(size::BYTES_PER_MB, 1_000_000);
+        assert_eq!(size::BYTES_PER_GB, 1_000_000_000);
+        assert_eq!(size::BYTES_PER_TB, 1_000_000_000_000);
     }
 
     #[test]

@@ -34,7 +34,9 @@ pub use ori_patterns::{
 
 // Type Conversion and Validation Errors
 
-pub use ori_patterns::{map_keys_must_be_strings, range_bound_not_int, unbounded_range_end};
+pub use ori_patterns::{
+    map_key_not_hashable, range_bound_not_int, spread_requires_map, unbounded_range_end,
+};
 
 // Control Flow Errors
 

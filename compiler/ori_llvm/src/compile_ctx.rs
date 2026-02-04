@@ -16,10 +16,9 @@
 //!
 //! `CompileCtx` is available for users who prefer bundled parameters.
 
-use inkwell::values::BasicValueEnum;
-use ori_ir::{ExprArena, Name, TypeId};
-use rustc_hash::FxHashMap;
+use ori_ir::{ExprArena, TypeId};
 
+use crate::builder::Locals;
 use crate::LoopContext;
 
 /// Compilation context passed through expression compilation.
@@ -36,7 +35,7 @@ pub struct CompileCtx<'a, 'll> {
     /// Type of each expression (indexed by `ExprId`).
     pub expr_types: &'a [TypeId],
     /// Local variable bindings (mutable for let bindings).
-    pub locals: &'a mut FxHashMap<Name, BasicValueEnum<'ll>>,
+    pub locals: &'a mut Locals<'ll>,
     /// Current loop context for break/continue (if inside a loop).
     pub loop_ctx: Option<&'a LoopContext<'ll>>,
 }
@@ -47,7 +46,7 @@ impl<'a, 'll> CompileCtx<'a, 'll> {
     pub fn new(
         arena: &'a ExprArena,
         expr_types: &'a [TypeId],
-        locals: &'a mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &'a mut Locals<'ll>,
         loop_ctx: Option<&'a LoopContext<'ll>>,
     ) -> Self {
         Self {
@@ -63,7 +62,7 @@ impl<'a, 'll> CompileCtx<'a, 'll> {
     pub fn without_loop(
         arena: &'a ExprArena,
         expr_types: &'a [TypeId],
-        locals: &'a mut FxHashMap<Name, BasicValueEnum<'ll>>,
+        locals: &'a mut Locals<'ll>,
     ) -> Self {
         Self {
             arena,
