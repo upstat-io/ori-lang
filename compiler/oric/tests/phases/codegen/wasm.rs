@@ -16,7 +16,7 @@ use std::path::Path;
 
 // Helper function for pascal_case (reimplemented for testing since it's module-private)
 fn pascal_case(s: &str) -> String {
-    s.split(|c| c == '_' || c == '-')
+    s.split(['_', '-'])
         .filter(|part| !part.is_empty())
         .map(|part| {
             let mut chars = part.chars();

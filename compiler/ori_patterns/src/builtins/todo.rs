@@ -7,12 +7,13 @@ use crate::{
 };
 
 #[cfg(test)]
-use crate::{test_helpers::MockPatternExecutor, Value};
+use crate::Value;
 
 /// The `todo` pattern halts execution indicating unfinished code.
 ///
 /// Syntax: `todo()` or `todo(reason: expr)`
 /// Type: `todo() -> Never` or `todo(reason: str) -> Never`
+#[derive(Clone, Copy)]
 pub struct TodoPattern;
 
 impl PatternDefinition for TodoPattern {
@@ -48,15 +49,8 @@ impl PatternDefinition for TodoPattern {
 #[allow(clippy::unwrap_used, clippy::default_trait_access)]
 mod tests {
     use super::*;
+    use crate::test_helpers::{make_ctx, MockPatternExecutor};
     use ori_ir::{ExprArena, ExprId, NamedExpr, SharedInterner, Span};
-
-    fn make_ctx<'a>(
-        interner: &'a SharedInterner,
-        arena: &'a ExprArena,
-        props: &'a [NamedExpr],
-    ) -> EvalContext<'a> {
-        EvalContext::new(interner, arena, props)
-    }
 
     #[test]
     fn todo_returns_error_without_reason() {

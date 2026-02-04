@@ -28,6 +28,7 @@ use crate::{
 ///
 /// All tasks run to completion. Errors are captured as `Err` values in the result list.
 /// The pattern itself never fails - it always returns a list of results.
+#[derive(Clone, Copy)]
 pub struct ParallelPattern;
 
 impl PatternDefinition for ParallelPattern {

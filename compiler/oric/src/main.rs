@@ -5,7 +5,7 @@
 use oric::commands::{
     add_target, build_file, check_file, demangle_symbol, explain_error, lex_file,
     list_installed_targets, list_targets, parse_build_options, parse_file, remove_target, run_file,
-    run_file_compiled, run_format, run_tests, BuildOptions, TargetSubcommand,
+    run_file_compiled, run_format, run_tests, BuildOptions, TargetFilter, TargetSubcommand,
 };
 use oric::test::TestRunnerConfig;
 
@@ -190,8 +190,12 @@ fn main() {
             }
         }
         "targets" => {
-            let installed_only = args.iter().any(|a| a == "--installed");
-            list_targets(installed_only);
+            let filter = if args.iter().any(|a| a == "--installed") {
+                TargetFilter::InstalledOnly
+            } else {
+                TargetFilter::All
+            };
+            list_targets(filter);
         }
         "demangle" => {
             if args.len() < 3 {

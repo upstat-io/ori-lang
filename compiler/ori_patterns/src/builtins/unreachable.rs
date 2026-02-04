@@ -7,12 +7,13 @@ use crate::{
 };
 
 #[cfg(test)]
-use crate::{test_helpers::MockPatternExecutor, Value};
+use crate::Value;
 
 /// The `unreachable` pattern halts execution indicating impossible code path.
 ///
 /// Syntax: `unreachable()` or `unreachable(reason: expr)`
 /// Type: `unreachable() -> Never` or `unreachable(reason: str) -> Never`
+#[derive(Clone, Copy)]
 pub struct UnreachablePattern;
 
 impl PatternDefinition for UnreachablePattern {
@@ -48,15 +49,8 @@ impl PatternDefinition for UnreachablePattern {
 #[allow(clippy::unwrap_used, clippy::default_trait_access)]
 mod tests {
     use super::*;
+    use crate::test_helpers::{make_ctx, MockPatternExecutor};
     use ori_ir::{ExprArena, ExprId, NamedExpr, SharedInterner, Span};
-
-    fn make_ctx<'a>(
-        interner: &'a SharedInterner,
-        arena: &'a ExprArena,
-        props: &'a [NamedExpr],
-    ) -> EvalContext<'a> {
-        EvalContext::new(interner, arena, props)
-    }
 
     #[test]
     fn unreachable_returns_error_without_reason() {

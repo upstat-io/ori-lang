@@ -52,20 +52,16 @@ pub fn get_variant_field_types(
             _ => vec![checker.inference.ctx.fresh_var()],
         },
         _ => {
-            // User-defined variant
+            // User-defined variant - use O(1) lookup via registry
             if let Type::Named(type_name) = scrutinee_ty {
                 if let Some(entry) = checker.registries.types.get_by_name(*type_name) {
-                    if let TypeKind::Enum { variants } = &entry.kind {
-                        for variant in variants {
-                            if variant.name == variant_name {
-                                let interner = checker.registries.types.interner();
-                                return variant
-                                    .fields
-                                    .iter()
-                                    .map(|(_, ty_id)| interner.to_type(*ty_id))
-                                    .collect();
-                            }
-                        }
+                    // Use registry's O(1) variant lookup instead of linear scan
+                    if let Some(fields) = checker
+                        .registries
+                        .types
+                        .get_variant_fields(entry.type_id, variant_name)
+                    {
+                        return fields.into_iter().map(|(_, ty)| ty).collect();
                     }
                 }
             }

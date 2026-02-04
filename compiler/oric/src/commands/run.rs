@@ -106,7 +106,7 @@ pub fn run_file_compiled(path: &str) {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("program");
-    let binary_name = format!("{}-{:016x}", source_name, content_hash);
+    let binary_name = format!("{source_name}-{content_hash:016x}");
     let binary_path = cache_dir.join(&binary_name);
 
     // Check if cached binary exists and is valid
@@ -140,15 +140,14 @@ pub fn run_file_compiled(path: &str) {
     }
 
     // Cache miss - need to compile
-    eprintln!("  Compiling {} (first run)...", path);
+    eprintln!("  Compiling {path} (first run)...");
 
     // Parse and type-check (shared with build_file)
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content.clone());
 
-    let (parse_result, type_result) = match check_source(&db, file, path) {
-        Some(results) => results,
-        None => std::process::exit(1),
+    let Some((parse_result, type_result)) = check_source(&db, file, path) else {
+        std::process::exit(1)
     };
 
     // Configure target (native)
@@ -193,7 +192,7 @@ pub fn run_file_compiled(path: &str) {
     }
 
     // Emit object file to temp location
-    let obj_path = cache_dir.join(format!("{}.o", binary_name));
+    let obj_path = cache_dir.join(format!("{binary_name}.o"));
 
     if let Err(e) = emitter.emit(&llvm_module, &obj_path, OutputFormat::Object) {
         eprintln!("error: failed to emit object file: {e}");
@@ -313,8 +312,7 @@ mod tests {
             let is_in_temp = cache_dir.starts_with(std::env::temp_dir());
             assert!(
                 is_absolute || is_in_temp,
-                "cache dir should be absolute or in temp: {:?}",
-                cache_dir
+                "cache dir should be absolute or in temp: {cache_dir:?}"
             );
         }
 
@@ -367,8 +365,8 @@ mod tests {
         #[test]
         fn test_binary_name_format() {
             let source_name = "hello";
-            let content_hash: u64 = 0x1234567890ABCDEF;
-            let binary_name = format!("{}-{:016x}", source_name, content_hash);
+            let content_hash: u64 = 0x1234_5678_90AB_CDEF;
+            let binary_name = format!("{source_name}-{content_hash:016x}");
 
             assert_eq!(binary_name, "hello-1234567890abcdef");
             assert!(binary_name.contains(source_name));

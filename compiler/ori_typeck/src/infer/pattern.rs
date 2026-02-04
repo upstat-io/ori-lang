@@ -5,7 +5,7 @@
 use super::infer_expr;
 use crate::checker::TypeChecker;
 use ori_ir::{FunctionExp, FunctionSeq, Name, SeqBinding, Span};
-use ori_patterns::TypeCheckContext;
+use ori_patterns::{PatternDefinition, TypeCheckContext};
 use ori_types::Type;
 use rustc_hash::FxHashMap;
 
@@ -215,7 +215,7 @@ pub fn infer_function_exp(checker: &mut TypeChecker<'_>, func_exp: &FunctionExp)
     }
 
     // Handle scoped bindings: type-check in phases
-    infer_function_exp_with_scoped_bindings(checker, props, pattern, scoped_bindings)
+    infer_function_exp_with_scoped_bindings(checker, props, &pattern, scoped_bindings)
 }
 
 /// Infer type for a `function_exp` that has scoped bindings.
@@ -225,7 +225,7 @@ pub fn infer_function_exp(checker: &mut TypeChecker<'_>, func_exp: &FunctionExp)
 fn infer_function_exp_with_scoped_bindings(
     checker: &mut TypeChecker<'_>,
     props: &[ori_ir::NamedExpr],
-    pattern: &dyn ori_patterns::PatternDefinition,
+    pattern: &impl ori_patterns::PatternDefinition,
     scoped_bindings: &[ori_patterns::ScopedBinding],
 ) -> Type {
     use ori_patterns::ScopedBindingType;

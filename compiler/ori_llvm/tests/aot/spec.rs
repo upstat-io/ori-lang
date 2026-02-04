@@ -6,9 +6,9 @@
 //! These tests mirror patterns from `tests/spec/` but run through AOT instead
 //! of the interpreter or JIT backends.
 //!
-//! **NOTE**: These tests must run serially (`--test-threads=1`) due to a race
-//! condition where the AOT compiler uses `/tmp/test.o` as an intermediate file.
-//! TODO: Fix the AOT build path to use unique temp file names.
+//! These tests can run in parallel - each test uses unique temp files via
+//! atomic counters, and the AOT compiler uses `tempfile::TempDir` for
+//! intermediate object files.
 
 // Allow raw string hashes for readability in test program literals
 #![allow(clippy::needless_raw_string_hashes)]

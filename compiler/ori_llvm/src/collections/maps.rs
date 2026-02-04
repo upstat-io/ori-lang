@@ -35,8 +35,8 @@ impl<'ll> Builder<'_, 'll, '_> {
         }
 
         // Compile each key-value pair
-        let mut keys: Vec<BasicValueEnum<'ll>> = Vec::new();
-        let mut vals: Vec<BasicValueEnum<'ll>> = Vec::new();
+        let mut keys: Vec<BasicValueEnum<'ll>> = Vec::with_capacity(map_entries.len());
+        let mut vals: Vec<BasicValueEnum<'ll>> = Vec::with_capacity(map_entries.len());
 
         for entry in map_entries {
             if let Some(key) =

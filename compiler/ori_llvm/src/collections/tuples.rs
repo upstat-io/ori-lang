@@ -27,8 +27,8 @@ impl<'ll> Builder<'_, 'll, '_> {
         }
 
         // Compile each element
-        let mut values: Vec<BasicValueEnum<'ll>> = Vec::new();
-        let mut types: Vec<BasicTypeEnum<'ll>> = Vec::new();
+        let mut values: Vec<BasicValueEnum<'ll>> = Vec::with_capacity(element_ids.len());
+        let mut types: Vec<BasicTypeEnum<'ll>> = Vec::with_capacity(element_ids.len());
 
         for elem_id in &element_ids {
             if let Some(val) =

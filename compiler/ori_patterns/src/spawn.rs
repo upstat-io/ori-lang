@@ -23,6 +23,7 @@ use crate::test_helpers::MockPatternExecutor;
 ///
 /// Tasks are started but not awaited. Errors are silently discarded.
 /// Use for fire-and-forget side effects where results don't matter.
+#[derive(Clone, Copy)]
 pub struct SpawnPattern;
 
 impl PatternDefinition for SpawnPattern {

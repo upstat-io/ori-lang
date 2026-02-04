@@ -117,22 +117,28 @@ mod tests {
             // Generic types with angle brackets
             let mangled = "_ori_Option$LTint$GT";
             let demangled = demangle(mangled);
-            assert!(demangled.is_some());
-            assert!(demangled.as_ref().unwrap().contains('<'));
+            assert!(
+                demangled.as_ref().is_some_and(|d| d.contains('<')),
+                "generic type should demangle and contain '<'"
+            );
 
             // Array types with square brackets
             let mangled = "_ori_$LBint$RB";
             let demangled = demangle(mangled);
-            assert!(demangled.is_some());
-            assert!(demangled.as_ref().unwrap().contains('['));
+            assert!(
+                demangled.as_ref().is_some_and(|d| d.contains('[')),
+                "array type should demangle and contain '['"
+            );
         }
 
         #[test]
         fn test_demangle_associated_function() {
             let mangled = "_ori_Option$A$some";
             let demangled = demangle(mangled);
-            assert!(demangled.is_some());
-            assert!(demangled.as_ref().unwrap().contains('.'));
+            assert!(
+                demangled.as_ref().is_some_and(|d| d.contains('.')),
+                "associated function should demangle and contain '.'"
+            );
         }
 
         #[test]
@@ -140,8 +146,10 @@ mod tests {
             // Generic marker $G
             let mangled = "_ori_identity$Gint";
             let demangled = demangle(mangled);
-            assert!(demangled.is_some());
-            assert!(demangled.unwrap().contains('<'));
+            assert!(
+                demangled.as_ref().is_some_and(|d| d.contains('<')),
+                "generic instantiation should demangle and contain '<'"
+            );
         }
     }
 }

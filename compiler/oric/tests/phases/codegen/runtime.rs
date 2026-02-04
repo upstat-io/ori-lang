@@ -1,11 +1,11 @@
 //! Tests for runtime library configuration (`ori_llvm::aot::runtime`).
 //!
 //! These tests verify:
-//! - RuntimeConfig construction and defaults
+//! - `RuntimeConfig` construction and defaults
 //! - Static/dynamic linking configuration
 //! - Link input configuration
 //! - Platform-specific library naming
-//! - RuntimeNotFound error display
+//! - `RuntimeNotFound` error display
 
 use ori_llvm::aot::{LibraryKind, LinkInput, RuntimeConfig, RuntimeNotFound};
 use std::path::PathBuf;

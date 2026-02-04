@@ -151,7 +151,8 @@ impl TypeNames {
 #[cfg(target_arch = "wasm32")]
 use ori_patterns::recursion_limit_exceeded;
 use ori_patterns::{
-    propagated_error_message, EvalContext, EvalError, EvalResult, PatternExecutor, PatternRegistry,
+    propagated_error_message, EvalContext, EvalError, EvalResult, PatternDefinition,
+    PatternExecutor, PatternRegistry,
 };
 use ori_stack::ensure_sufficient_stack;
 
@@ -385,6 +386,19 @@ impl<'a> Interpreter<'a> {
         ensure_sufficient_stack(|| self.eval_inner(expr_id))
     }
 
+    /// Attach a span to an error if it doesn't already have one.
+    ///
+    /// This ensures errors from operator evaluation have source location
+    /// information for better error messages.
+    #[inline]
+    fn attach_span(err: EvalError, span: ori_ir::Span) -> EvalError {
+        if err.span.is_none() {
+            err.with_span(span)
+        } else {
+            err
+        }
+    }
+
     /// Evaluate a list of expressions from an `ExprList`.
     ///
     /// Helper to reduce repetition in collection and call evaluation.
@@ -446,7 +460,7 @@ impl<'a> Interpreter<'a> {
 
             // Operators
             ExprKind::Binary { left, op, right } => self.eval_binary(expr_id, *left, *op, *right),
-            ExprKind::Unary { op, operand } => self.eval_unary(*op, *operand),
+            ExprKind::Unary { op, operand } => self.eval_unary(expr_id, *op, *operand),
 
             // Control flow
             ExprKind::If {
@@ -870,12 +884,13 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluate a unary operation.
-    fn eval_unary(&mut self, op: UnaryOp, operand: ExprId) -> EvalResult {
+    fn eval_unary(&mut self, expr_id: ExprId, op: UnaryOp, operand: ExprId) -> EvalResult {
         let value = self.eval(operand)?;
+        let span = self.arena.get_expr(expr_id).span;
 
         // Primitive types use direct evaluation (built-in operators)
         if is_primitive_value(&value) {
-            return evaluate_unary(value, op);
+            return evaluate_unary(value, op).map_err(|e| Self::attach_span(e, span));
         }
 
         // User-defined types dispatch unary operators through trait methods
@@ -885,7 +900,7 @@ impl<'a> Interpreter<'a> {
         }
 
         // Try operator (?) doesn't have a trait
-        evaluate_unary(value, op)
+        evaluate_unary(value, op).map_err(|e| Self::attach_span(e, span))
     }
 
     /// Evaluate a binary operation.
@@ -904,6 +919,7 @@ impl<'a> Interpreter<'a> {
         right: ExprId,
     ) -> EvalResult {
         let left_val = self.eval(left)?;
+        let span = self.arena.get_expr(binary_expr_id).span;
 
         // Short-circuit for &&, ||, and ??
         match op {
@@ -959,10 +975,11 @@ impl<'a> Interpreter<'a> {
                         return self.eval(right);
                     }
                     _ => {
-                        return Err(EvalError::new(format!(
+                        let err = EvalError::new(format!(
                             "operator '??' requires Option or Result, got {}",
                             left_val.type_name()
-                        )));
+                        ));
+                        return Err(Self::attach_span(err, span));
                     }
                 }
             }
@@ -974,7 +991,8 @@ impl<'a> Interpreter<'a> {
         // Primitive types use direct evaluation (built-in operators)
         // User-defined types dispatch through operator trait methods
         if is_primitive_value(&left_val) {
-            return evaluate_binary(left_val, right_val, op);
+            return evaluate_binary(left_val, right_val, op)
+                .map_err(|e| Self::attach_span(e, span));
         }
 
         // For user-defined types, dispatch arithmetic/bitwise operators through trait methods
@@ -984,12 +1002,13 @@ impl<'a> Interpreter<'a> {
         }
 
         // Comparison, range, and null-coalescing operators use direct evaluation
-        evaluate_binary(left_val, right_val, op)
+        evaluate_binary(left_val, right_val, op).map_err(|e| Self::attach_span(e, span))
     }
 
     /// Evaluate an expression with # (`HashLength`) resolved to a specific length.
     fn eval_with_hash_length(&mut self, expr_id: ExprId, length: i64) -> EvalResult {
         let expr = self.arena.get_expr(expr_id);
+        let span = expr.span;
         match &expr.kind {
             ExprKind::HashLength => Ok(Value::int(length)),
             ExprKind::Binary { left, op, right } => {
@@ -998,12 +1017,14 @@ impl<'a> Interpreter<'a> {
 
                 // Primitive types use direct evaluation (built-in operators)
                 if is_primitive_value(&left_val) {
-                    return evaluate_binary(left_val, right_val, *op);
+                    return evaluate_binary(left_val, right_val, *op)
+                        .map_err(|e| Self::attach_span(e, span));
                 }
 
                 // Check if this is a mixed-type operation that needs special handling
                 if is_mixed_primitive_op(&left_val, &right_val) {
-                    return evaluate_binary(left_val, right_val, *op);
+                    return evaluate_binary(left_val, right_val, *op)
+                        .map_err(|e| Self::attach_span(e, span));
                 }
 
                 // Dispatch through methods for operators with trait implementations
@@ -1013,7 +1034,7 @@ impl<'a> Interpreter<'a> {
                 }
 
                 // Comparison, range, and null-coalescing operators use direct evaluation
-                evaluate_binary(left_val, right_val, *op)
+                evaluate_binary(left_val, right_val, *op).map_err(|e| Self::attach_span(e, span))
             }
             _ => self.eval(expr_id),
         }

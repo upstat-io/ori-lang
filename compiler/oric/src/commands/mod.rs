@@ -31,7 +31,7 @@ pub use explain::explain_error;
 pub use fmt::run_format;
 pub use run::{run_file, run_file_compiled};
 pub use target::{add_target, list_installed_targets, remove_target, TargetSubcommand};
-pub use targets::list_targets;
+pub use targets::{list_targets, TargetFilter};
 pub use test::run_tests;
 
 /// Read a file from disk, exiting with a user-friendly error message on failure.

@@ -1,3 +1,6 @@
+// Test code uses unwrap/expect for clarity - panics provide good test failure messages
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Phase-based compiler tests.
 //!
 //! This test module organizes compiler tests by compilation phase rather than
