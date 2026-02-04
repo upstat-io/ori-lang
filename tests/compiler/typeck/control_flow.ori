@@ -180,10 +180,10 @@ use std.testing { assert, assert_eq, assert_ne }
 // Valid: try returns Result with correct types
 @test_try_result_type () -> void = run(
     let result = try(
-        let x = succeed(21),
+        let x = succeed(x: 21),
         Ok(x * 2),
     ),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 // Valid: try with Option
@@ -193,7 +193,7 @@ use std.testing { assert, assert_eq, assert_ne }
         let x = opt,
         Ok(x),
     ),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 // =============================================================================
@@ -218,7 +218,7 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @test_recurse_type tests @countdown () -> void = run(
-    let result = countdown(3),
+    let result = countdown(n: 3),
     assert_eq(actual: result, expected: [3, 2, 1]),
 )
 
@@ -230,5 +230,5 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @test_recurse_int tests @sum_to_n () -> void = run(
-    assert_eq(actual: sum_to_n(5), expected: 15),
+    assert_eq(actual: sum_to_n(n: 5), expected: 15),
 )

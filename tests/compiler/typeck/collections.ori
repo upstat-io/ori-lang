@@ -135,13 +135,13 @@ use std.testing { assert, assert_eq, assert_ne }
 // Valid: Ok
 @test_result_ok () -> void = run(
     let res = Ok(42),
-    assert(cond: is_ok(result: res)),
+    assert(cond: is_ok(r: res)),
 )
 
 // Valid: Err
 @test_result_err () -> void = run(
     let res = Err("error"),
-    assert(cond: is_err(result: res)),
+    assert(cond: is_err(r: res)),
 )
 
 // =============================================================================

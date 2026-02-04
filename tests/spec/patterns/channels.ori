@@ -242,7 +242,7 @@ use std.testing { assert, assert_eq }
 //         timeout: 1ms,
 //     ),
 //     // Should timeout
-//     assert(cond: is_err(result: results[0])),
+//     assert(cond: is_err(r: results[0])),
 // )
 
 // =============================================================================

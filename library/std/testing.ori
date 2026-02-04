@@ -7,36 +7,34 @@
 pub @assert (cond: bool) -> void = if !cond then panic(msg: "assertion failed")
 
 // Assert that two values are equal
-pub @assert_eq (actual: int, expected: int) -> void =
+pub @assert_eq<T: Eq> (actual: T, expected: T) -> void =
     if actual != expected then
         panic(msg: "assertion failed: " + str(actual) + " != " + str(expected))
 
 // Assert that two values are not equal
-pub @assert_ne (actual: int, unexpected: int) -> void =
+pub @assert_ne<T: Eq> (actual: T, unexpected: T) -> void =
     if actual == unexpected then panic(msg: "assertion failed: values are equal: " + str(actual))
 
 // Assert that an Option is Some
-pub @assert_some (opt: Option<int>) -> void =
-    if is_none(opt: opt) then panic(msg: "assertion failed: expected Some, got None")
+pub @assert_some<T> (opt: Option<T>) -> void =
+    match(opt, Some(_) -> (), None -> panic(msg: "assertion failed: expected Some, got None"))
 
 // Assert that an Option is None
-pub @assert_none (opt: Option<int>) -> void =
-    if is_some(opt: opt) then panic(msg: "assertion failed: expected None, got Some")
+pub @assert_none<T> (opt: Option<T>) -> void =
+    match(opt, Some(_) -> panic(msg: "assertion failed: expected None, got Some"), None -> ())
 
 // Assert that a Result is Ok
-pub @assert_ok (result: Result<int, str>) -> void =
-    if is_err(result: result) then panic(msg: "assertion failed: expected Ok, got Err")
+pub @assert_ok<T, E> (result: Result<T, E>) -> void =
+    match(result, Ok(_) -> (), Err(_) -> panic(msg: "assertion failed: expected Ok, got Err"))
 
 // Assert that a Result is Err
-pub @assert_err (result: Result<int, str>) -> void =
-    if is_ok(result: result) then panic(msg: "assertion failed: expected Err, got Ok")
+pub @assert_err<T, E> (result: Result<T, E>) -> void =
+    match(result, Ok(_) -> panic(msg: "assertion failed: expected Err, got Ok"), Err(_) -> ())
 
 // Assert that an expression panics
 pub @assert_panics (f: () -> void) -> void = run(
-    let res = catch(
-        expr: f(),
-    ),
-    if is_ok(result: res) then panic(msg: "assertion failed: expected panic but succeeded"),
+    let res = catch(expr: f()),
+    match(res, Ok(_) -> panic(msg: "assertion failed: expected panic but succeeded"), Err(_) -> ()),
 )
 
 // Assert that an expression panics with a specific message

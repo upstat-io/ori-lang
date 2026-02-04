@@ -112,23 +112,23 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 @test_try_success tests @try_success () -> void = run(
     let result = try_success(),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 @test_try_early_return tests @try_early_return () -> void = run(
     let result = try_early_return(),
-    assert(cond: is_err(result: result)),
+    assert(cond: is_err(r: result)),
 )
 
 // This should not execute
 @test_try_chain tests @try_chain () -> void = run(
     let result = try_chain(5),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 @test_try_chain_fail tests @try_chain_fail () -> void = run(
     let result = try_chain(0),
-    assert(cond: is_err(result: result)),
+    assert(cond: is_err(r: result)),
 )
 
 // =============================================================================
@@ -136,33 +136,33 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 @test_try_with_transform tests @try_with_transform () -> void = run(
     let result = try_with_transform(3),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 @test_try_question_mark tests @try_question_mark () -> void = run(
     let result = try_question_mark("1", "2"),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 @test_try_question_mark_err tests @try_question_mark_err () -> void = run(
     let result = try_question_mark("1", "invalid"),
-    assert(cond: is_err(result: result)),
+    assert(cond: is_err(r: result)),
 )
 
 @test_try_nested tests @try_nested () -> void = run(
     let result = outer_op(5),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 @test_try_nested_err tests @try_nested_err () -> void = run(
     let result = outer_op(-1),
-    assert(cond: is_err(result: result)),
+    assert(cond: is_err(r: result)),
 )
 
 // Using try with Option requires converting to Result
 @test_try_with_option tests @try_with_option () -> void = run(
     let result = try_with_option("a", "b"),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 // =============================================================================
@@ -181,7 +181,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 @test_try_complex tests @try_complex () -> void = run(
     let result = try_complex(5),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 // =============================================================================
@@ -193,5 +193,5 @@ use std.testing { assert, assert_eq, assert_ne }
         let _ = succeed(x: 100)?,
         Ok("done"),
     ),
-    assert(cond: is_err(result: result)),
+    assert(cond: is_err(r: result)),
 )

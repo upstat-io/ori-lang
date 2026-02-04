@@ -152,14 +152,14 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 // Invalid: bitwise with float
-#[compile_fail("type mismatch")]
+#[compile_fail("left operand of bitwise operator must be `int`")]
 @test_float_bitwise () -> void = run(
     let result = 5.0 & 3.0,
     (),
 )
 
 // Invalid: shift with float
-#[compile_fail("type mismatch")]
+#[compile_fail("left operand of bitwise operator must be `int`")]
 @test_float_shift () -> void = run(
     let result = 1.0 << 4,
     (),
@@ -259,13 +259,13 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 // Invalid: logical with non-bool
-#[compile_fail("type mismatch")]
+#[compile_fail("left operand of logical operator must be `bool`")]
 @test_int_logical_and () -> void = run(
     let result = 1 && 2,
     (),
 )
 
-#[compile_fail("type mismatch")]
+#[compile_fail("left operand of logical operator must be `bool`")]
 @test_str_logical_or () -> void = run(
     let result = "a" || "b",
     (),
@@ -322,14 +322,14 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 // Invalid: negate string
-#[compile_fail("type mismatch")]
+#[compile_fail("cannot apply `-` to `str`")]
 @test_str_negate () -> void = run(
     let result = -"hello",
     (),
 )
 
 // Invalid: logical not on int
-#[compile_fail("type mismatch")]
+#[compile_fail("cannot apply `!` to `int`")]
 @test_int_not () -> void = run(
     let result = !42,
     (),

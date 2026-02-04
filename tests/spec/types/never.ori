@@ -55,7 +55,7 @@ use std.testing { assert_eq, assert }
 // Never coerces to Result type
 @test_never_coerces_to_result tests @never_to_result () -> void = run(
     let result: Result<int, str> = if true then Ok(42) else panic(msg: "unreachable"),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 @never_to_result () -> Result<int, str> = if true then Ok(42) else panic(msg: "unreachable")
@@ -146,10 +146,10 @@ use std.testing { assert_eq, assert }
 // We can't construct Result<Never, E>::Ok, so this tests the type system
 @test_result_never_ok tests @result_never_ok () -> void = run(
     let result: Result<int, str> = Err("error"),
-    assert(cond: is_err(result: result)),
+    assert(cond: is_err(r: result)),
 )
 
-@result_never_ok () -> bool = is_err(result: Err("error"))
+@result_never_ok () -> bool = is_err(r: Err("error"))
 
 // Option<Never> can only be None (conceptually)
 @test_option_never tests @option_never () -> void = run(

@@ -208,8 +208,8 @@ use std.testing { assert, assert_eq }
 
 @test_fn_returns_result tests @fn_returns_result () -> void = run(
     let f: (int) -> Result<int, str> = n -> if n >= 0 then Ok(n) else Err("negative"),
-    assert(cond: is_ok(result: f(5))),
-    assert(cond: is_err(result: f(-1))),
+    assert(cond: is_ok(r: f(5))),
+    assert(cond: is_err(r: f(-1))),
 )
 
 @fn_returns_result () -> Result<int, str> = run(

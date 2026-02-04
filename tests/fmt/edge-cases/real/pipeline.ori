@@ -2,6 +2,8 @@
 // Spec: 10-patterns.md § Pattern Expressions
 // Design: tooling/formatter/design/appendices/A-edge-cases.md
 
+use std.testing { assert_eq }
+
 type DataRecord = { id: int, value: int, category: str, valid: bool }
 
 type ProcessedRecord = { id: int, transformed_value: int, category: str }

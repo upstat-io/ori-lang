@@ -5,6 +5,7 @@
 // Type annotations on let bindings must match the inferred type of the initializer.
 
 use std.testing { assert, assert_eq, assert_ne }
+use std.prelude { is_ok }
 
 // =============================================================================
 // Basic let bindings (outside patterns)
@@ -99,17 +100,17 @@ use std.testing { assert, assert_eq, assert_ne }
 // Valid: try with Result unwrapping and type annotation
 @test_try_result_annotation () -> void = run(
     let result = try(
-        let x: int = succeed(42),
+        let x: int = succeed(x: 42),
         Ok(x * 2),
     ),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 // Invalid: wrong annotation for unwrapped Result
 #[compile_fail("type mismatch")]
 @test_try_result_wrong_annotation () -> void = run(
     let result = try(
-        let x: str = succeed(42),
+        let x: str = succeed(x: 42),
         Ok(x),
     ),
     (),
@@ -118,19 +119,19 @@ use std.testing { assert, assert_eq, assert_ne }
 // Valid: try with multiple bindings
 @test_try_multiple_bindings () -> void = run(
     let result = try(
-        let a: int = succeed(10),
-        let b: int = succeed(20),
+        let a: int = succeed(x: 10),
+        let b: int = succeed(x: 20),
         Ok(a + b),
     ),
-    assert(cond: is_ok(result: result)),
+    assert(cond: is_ok(r: result)),
 )
 
 // Invalid: try with type mismatch in middle binding
 #[compile_fail("type mismatch")]
 @test_try_middle_mismatch () -> void = run(
     let result = try(
-        let a: int = succeed(10),
-        let b: str = succeed(20),
+        let a: int = succeed(x: 10),
+        let b: str = succeed(x: 20),
         Ok(a),
     ),
     (),

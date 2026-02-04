@@ -1,0 +1,29 @@
+// Test: importing generic functions from std.testing and prelude
+// This verifies that generic type parameters are properly instantiated for imported functions
+
+use std.testing { assert_eq, assert }
+use std.prelude { is_some, is_none, is_ok, is_err }
+
+// Test assert_eq with int
+@test_generic_import_int () -> void = assert_eq(actual: 1, expected: 1)
+
+// Test assert_eq with str
+@test_generic_import_str () -> void = assert_eq(actual: "hello", expected: "hello")
+
+// Test assert_eq with bool
+@test_generic_import_bool () -> void = assert_eq(actual: true, expected: true)
+
+// Test is_some with Option<int>
+@test_is_some_int () -> void = assert(cond: is_some(opt: Some(1)))
+
+// Test is_some with Option<str>
+@test_is_some_str () -> void = assert(cond: is_some(opt: Some("hello")))
+
+// Test is_none with Option<int>
+@test_is_none_int () -> void = assert(cond: is_none(opt: None))
+
+// Test is_ok with Result<int, str>
+@test_is_ok () -> void = assert(cond: is_ok(r: Ok(42)))
+
+// Test is_err with Result<int, str>
+@test_is_err () -> void = assert(cond: is_err(r: Err("error")))

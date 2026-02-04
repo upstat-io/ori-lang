@@ -207,6 +207,10 @@ impl TypeChecker<'_> {
                 };
                 Type::Channel(Box::new(inner))
             }
+            // Built-in unit types (no type arguments)
+            "Duration" => Type::Duration,
+            "Size" => Type::Size,
+            "Ordering" => Type::Ordering,
             _ => {
                 // User-defined type or type parameter
                 if arg_ids.is_empty() {

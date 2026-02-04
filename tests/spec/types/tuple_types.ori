@@ -2,6 +2,7 @@
 // Tests for (), (T,), (T, U), and nested tuples
 
 use std.testing { assert, assert_eq }
+use std.prelude { is_some, is_none, is_ok }
 
 // =============================================================================
 // Unit Type ()
@@ -189,7 +190,7 @@ use std.testing { assert, assert_eq }
 @test_tuple_with_result tests @tuple_with_result () -> void = run(
     let t: (Result<int, str>, bool) = (Ok(100), true),
     let (r, b) = t,
-    assert(cond: is_ok(result: r)),
+    assert(cond: is_ok(r: r)),
     assert(cond: b),
 )
 

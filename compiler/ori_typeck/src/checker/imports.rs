@@ -17,7 +17,8 @@
 use super::types::{FunctionType, GenericBound};
 use super::TypeChecker;
 use ori_ir::Name;
-use ori_types::Type;
+use ori_types::{Type, TypeFolder, TypeVar};
+use rustc_hash::FxHashMap;
 
 /// A generic parameter with its trait bounds for imported functions.
 ///
@@ -28,6 +29,9 @@ pub struct ImportedGeneric {
     pub param: Name,
     /// Trait bounds as paths (e.g., `["Eq"]`, `["Comparable"]`)
     pub bounds: Vec<Vec<Name>>,
+    /// The original type variable used in the function's type signature.
+    /// Used to substitute with fresh type variables when importing.
+    pub type_var: TypeVar,
 }
 
 /// An imported function signature for type checking.
@@ -75,13 +79,22 @@ impl ImportedFunction {
         // Convert return type
         let return_type = interner.to_type(func_type.return_type);
 
-        // Convert generics (bounds are already Names, just copy them)
+        // Convert generics (bounds are already Names, extract TypeVar for substitution)
         let generics: Vec<ImportedGeneric> = func_type
             .generics
             .iter()
-            .map(|g| ImportedGeneric {
-                param: g.param,
-                bounds: g.bounds.clone(),
+            .filter_map(|g| {
+                // Extract the TypeVar from the TypeId
+                if let ori_types::TypeData::Var(tv) = interner.lookup(g.type_var) {
+                    Some(ImportedGeneric {
+                        param: g.param,
+                        bounds: g.bounds.clone(),
+                        type_var: tv,
+                    })
+                } else {
+                    // Should not happen: generic bounds should always have TypeVar
+                    None
+                }
             })
             .collect();
 
@@ -165,74 +178,83 @@ impl TypeChecker<'_> {
     /// let typed = checker.check_module(&module);
     /// ```
     pub fn register_imported_functions(&mut self, imports: &[ImportedFunction]) {
-        // First pass: collect all data that needs the interner (immutable borrow)
-        struct PreparedImport {
-            name: Name,
-            params: Vec<ori_ir::TypeId>,
-            return_type: ori_ir::TypeId,
-            fn_type: Type,
-            capabilities: Vec<Name>,
-        }
-
-        let prepared: Vec<PreparedImport> = {
-            let interner = self.inference.env.interner();
-            imports
-                .iter()
-                .map(|import| {
-                    // Convert portable Types to TypeIds
-                    let params: Vec<ori_ir::TypeId> = import
-                        .params
-                        .iter()
-                        .map(|t| t.to_type_id(interner))
-                        .collect();
-                    let return_type = import.return_type.to_type_id(interner);
-
-                    // Create Type::Function for environment binding
-                    let fn_type = Type::Function {
-                        params: import.params.clone(),
-                        ret: Box::new(import.return_type.clone()),
-                    };
-
-                    PreparedImport {
-                        name: import.name,
-                        params,
-                        return_type,
-                        fn_type,
-                        capabilities: import.capabilities.clone(),
-                    }
-                })
-                .collect()
-        };
-
-        // Second pass: create fresh type vars and do mutations
-        for (import, prep) in imports.iter().zip(prepared.into_iter()) {
-            // Create generics with fresh type variables for this context
+        for import in imports {
+            // Create fresh type variables for each generic parameter and build
+            // a substitution map from original TypeVars to fresh ones.
+            let mut substitution: FxHashMap<TypeVar, TypeVar> = FxHashMap::default();
             let mut generics = Vec::new();
+
             for g in &import.generics {
-                let type_var_id = self.inference.ctx.fresh_var_id();
-                generics.push(GenericBound {
-                    param: g.param,
-                    bounds: g.bounds.clone(),
-                    type_var: type_var_id,
-                });
+                let fresh_type_id = self.inference.ctx.fresh_var_id();
+                // Use ctx's interner since fresh_var_id() creates TypeId there
+                let interner = self.inference.ctx.interner();
+                if let ori_types::TypeData::Var(fresh_tv) = interner.lookup(fresh_type_id) {
+                    // Map original TypeVar to fresh TypeVar
+                    substitution.insert(g.type_var, fresh_tv);
+                    generics.push(GenericBound {
+                        param: g.param,
+                        bounds: g.bounds.clone(),
+                        type_var: fresh_type_id,
+                    });
+                }
             }
 
-            // Create FunctionType for scope context
+            // Substitute original type vars with fresh ones in the function type.
+            // This ensures the TypeScheme's quantified vars match the vars in the type.
+            let fn_type = Type::Function {
+                params: import.params.clone(),
+                ret: Box::new(import.return_type.clone()),
+            };
+
+            let substituted_fn_type = if substitution.is_empty() {
+                fn_type
+            } else {
+                struct TypeVarSubstituter<'a> {
+                    substitution: &'a FxHashMap<TypeVar, TypeVar>,
+                }
+                impl TypeFolder for TypeVarSubstituter<'_> {
+                    fn fold_var(&mut self, var: TypeVar) -> Type {
+                        if let Some(&fresh) = self.substitution.get(&var) {
+                            Type::Var(fresh)
+                        } else {
+                            Type::Var(var)
+                        }
+                    }
+                }
+                let mut folder = TypeVarSubstituter {
+                    substitution: &substitution,
+                };
+                folder.fold(&fn_type)
+            };
+
+            // Convert to TypeIds for FunctionType (use ctx's interner for consistency)
+            let interner = self.inference.ctx.interner();
+            let params: Vec<ori_ir::TypeId> = match &substituted_fn_type {
+                Type::Function { params, .. } => {
+                    params.iter().map(|t| t.to_type_id(interner)).collect()
+                }
+                _ => unreachable!(),
+            };
+            let return_type = match &substituted_fn_type {
+                Type::Function { ret, .. } => ret.to_type_id(interner),
+                _ => unreachable!(),
+            };
+
+            // Create FunctionType for scope context (for constraint checking)
             let func_type = FunctionType {
-                name: prep.name,
+                name: import.name,
                 generics: generics.clone(),
                 where_constraints: Vec::new(), // TODO: Support where clauses on imports
-                params: prep.params,
-                return_type: prep.return_type,
-                capabilities: prep.capabilities,
+                params,
+                return_type,
+                capabilities: import.capabilities.clone(),
             };
 
             // Store in function_sigs for constraint checking during calls
-            self.scope.function_sigs.insert(prep.name, func_type);
+            self.scope.function_sigs.insert(import.name, func_type);
 
-            // Bind to environment
-            // For generic functions, create a polymorphic type scheme
-            let interner = self.inference.env.interner();
+            // Bind to environment as a type scheme
+            let interner = self.inference.ctx.interner();
             let type_vars: Vec<_> = generics
                 .iter()
                 .filter_map(|g| {
@@ -245,10 +267,10 @@ impl TypeChecker<'_> {
                 .collect();
 
             if type_vars.is_empty() {
-                self.inference.env.bind(prep.name, prep.fn_type);
+                self.inference.env.bind(import.name, substituted_fn_type);
             } else {
-                let scheme = ori_types::TypeScheme::poly(type_vars, prep.fn_type);
-                self.inference.env.bind_scheme(prep.name, scheme);
+                let scheme = ori_types::TypeScheme::poly(type_vars, substituted_fn_type);
+                self.inference.env.bind_scheme(import.name, scheme);
             }
         }
     }

@@ -2,6 +2,8 @@
 // Spec: 08-declarations.md § All declaration types
 // Design: tooling/formatter/design/appendices/A-edge-cases.md
 
+use std.testing { assert_eq }
+
 // TODO: std.math functions not yet implemented
 // use std.math { sqrt, abs }
 // TODO: std.time not yet implemented

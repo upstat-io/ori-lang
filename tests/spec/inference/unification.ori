@@ -165,22 +165,22 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_unify_result_ok tests @unify_result_ok () -> void = run(
     let res = Ok(42),
-    assert(cond: is_ok(result: res)),
+    assert(cond: is_ok(r: res)),
 )
 
 @unify_result_ok () -> bool = run(
     let res = Ok(42),
-    is_ok(result: res),
+    is_ok(r: res),
 )
 
 @test_unify_result_err tests @unify_result_err () -> void = run(
     let res = Err("error"),
-    assert(cond: is_err(result: res)),
+    assert(cond: is_err(r: res)),
 )
 
 @unify_result_err () -> bool = run(
     let res = Err("error"),
-    is_err(result: res),
+    is_err(r: res),
 )
 
 // =============================================================================
@@ -234,12 +234,12 @@ use std.testing { assert, assert_eq, assert_ne }
 @test_unify_result_branches tests @unify_result_branches () -> void = run(
     // Result in conditional branches
     let res = if true then Ok(1) else Err("fail"),
-    assert(cond: is_ok(result: res)),
+    assert(cond: is_ok(r: res)),
 )
 
 @unify_result_branches () -> bool = run(
     let res = if true then Ok(1) else Err("fail"),
-    is_ok(result: res),
+    is_ok(r: res),
 )
 
 @test_unify_list_element_assignment tests @unify_list_element_assignment () -> void = run(

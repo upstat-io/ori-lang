@@ -16,7 +16,7 @@ use crate::typeck::type_check_with_imports_source_and_interner;
 use ori_types::SharedTypeInterner;
 
 use super::discovery::{discover_tests_in, TestFile};
-use super::error_matching::{format_actual, format_expected, match_errors};
+use super::error_matching::{format_actual, format_expected, match_errors_refs};
 use super::result::{CoverageReport, FileSummary, TestResult, TestSummary};
 
 /// Backend for test execution.
@@ -97,7 +97,12 @@ impl TestRunner {
     pub fn run(&self, path: &Path) -> TestSummary {
         let test_files = discover_tests_in(path);
 
-        if self.config.parallel && test_files.len() > 1 {
+        // LLVM backend must run sequentially due to context creation contention.
+        // LLVM's Context::create() has global lock contention - when rayon spawns
+        // many parallel tasks that each create an LLVM context, they serialize at
+        // the LLVM library level despite appearing parallel. Sequential execution
+        // is actually faster (1-2s vs 57s) and matches Roc/rustc patterns.
+        if self.config.parallel && self.config.backend != Backend::LLVM {
             self.run_parallel(&test_files)
         } else {
             self.run_sequential(&test_files)
@@ -119,11 +124,15 @@ impl TestRunner {
         summary
     }
 
-    /// Run tests in parallel using rayon.
+    /// Run tests in parallel using a scoped rayon thread pool.
     ///
     /// Each parallel task creates its own `CompilerDb` but shares the interner.
     /// This is thread-safe because `SharedInterner` is `Arc<StringInterner>`
     /// and `StringInterner` uses `RwLock` per shard for concurrent access.
+    ///
+    /// Uses `build_scoped` to create a thread pool that's guaranteed to be
+    /// cleaned up before this function returns. This avoids the hang that
+    /// occurs with rayon's global pool atexit handlers.
     fn run_parallel(&self, files: &[TestFile]) -> TestSummary {
         let start = Instant::now();
 
@@ -132,10 +141,31 @@ impl TestRunner {
         let interner = self.interner.clone();
         let config = self.config.clone();
 
-        let file_summaries: Vec<_> = files
-            .par_iter()
-            .map(|file| Self::run_file_with_interner(&file.path, &interner, &config))
-            .collect();
+        // Use build_scoped to create a thread pool that's cleaned up before returning.
+        // This avoids atexit handler hangs that occur with the global rayon pool.
+        let file_summaries = rayon::ThreadPoolBuilder::new()
+            .build_scoped(
+                // Thread initialization wrapper - just run the thread
+                rayon::ThreadBuilder::run,
+                // Work to execute in the pool
+                |pool| {
+                    pool.install(|| {
+                        files
+                            .par_iter()
+                            .map(|file| {
+                                Self::run_file_with_interner(&file.path, &interner, &config)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                },
+            )
+            .unwrap_or_else(|e| {
+                eprintln!("Warning: failed to create thread pool ({e}), running sequentially");
+                files
+                    .iter()
+                    .map(|file| Self::run_file_with_interner(&file.path, &interner, &config))
+                    .collect()
+            });
 
         let mut summary = TestSummary::new();
         for file_summary in file_summaries {
@@ -245,10 +275,23 @@ impl TestRunner {
         }
 
         // Check for type errors before running regular tests.
-        // compile_fail tests have already been handled above, but regular tests
-        // should not run if there are type errors (e.g., failed imports).
-        if !typed_module.errors.is_empty() {
-            for error in &typed_module.errors {
+        // Errors within compile_fail test bodies are expected and should not block
+        // regular tests. Only errors OUTSIDE compile_fail tests indicate real problems.
+        let compile_fail_spans: Vec<_> = compile_fail_tests.iter().map(|t| t.span).collect();
+        let non_compile_fail_errors: Vec<_> = typed_module
+            .errors
+            .iter()
+            .filter(|error| {
+                let error_span = error.span();
+                // Keep error if it's NOT contained in any compile_fail test span
+                !compile_fail_spans
+                    .iter()
+                    .any(|test_span| test_span.contains_span(error_span))
+            })
+            .collect();
+
+        if !non_compile_fail_errors.is_empty() {
+            for error in non_compile_fail_errors {
                 summary.add_error(error.message());
             }
             return summary;
@@ -460,7 +503,12 @@ impl TestRunner {
     /// Run a `compile_fail` test.
     ///
     /// The test passes if all expected errors are matched by actual errors.
-    /// Multiple expected errors can be specified, and each must be matched.
+    ///
+    /// Error matching strategy:
+    /// 1. First try to match errors within this test's span (isolation for tests
+    ///    that produce errors in their body, like `add("hello", 2)`)
+    /// 2. If no errors in test span, fall back to matching all module errors
+    ///    (for tests checking module-level errors like missing impl members)
     fn run_compile_fail_test(
         test: &TestDef,
         typed_module: &crate::typeck::TypedModule,
@@ -475,8 +523,26 @@ impl TestRunner {
 
         let start = Instant::now();
 
+        // Try span-filtered errors first for better isolation.
+        // This helps when multiple compile_fail tests exist in the same file,
+        // each should only see errors from their own body.
+        let test_errors: Vec<_> = typed_module
+            .errors
+            .iter()
+            .filter(|e| test.span.contains_span(e.span()))
+            .collect();
+
+        // If no errors within test span, use all module errors.
+        // This handles tests that check for module-level errors (like missing
+        // associated types in impl blocks) where the error is outside the test body.
+        let errors_to_match: Vec<&_> = if test_errors.is_empty() {
+            typed_module.errors.iter().collect()
+        } else {
+            test_errors
+        };
+
         // If no errors were produced but we expected some
-        if typed_module.errors.is_empty() {
+        if errors_to_match.is_empty() {
             let expected_strs: Vec<String> = test
                 .expected_errors
                 .iter()
@@ -500,12 +566,8 @@ impl TestRunner {
         }
 
         // Match actual errors against expectations
-        let match_result = match_errors(
-            &typed_module.errors,
-            &test.expected_errors,
-            source,
-            interner,
-        );
+        let match_result =
+            match_errors_refs(&errors_to_match, &test.expected_errors, source, interner);
 
         if match_result.all_matched() {
             // All expectations matched - test passes
@@ -518,8 +580,7 @@ impl TestRunner {
                 .map(|&i| format_expected(&test.expected_errors[i], interner))
                 .collect();
 
-            let actual: Vec<String> = typed_module
-                .errors
+            let actual: Vec<String> = errors_to_match
                 .iter()
                 .map(|e| format_actual(e, source))
                 .collect();

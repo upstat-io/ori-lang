@@ -21,7 +21,7 @@ use std.testing { assert, assert_eq }
 //     ]),
 //     assert_eq(actual: results.len(), expected: 3),
 //     // All should be Ok
-//     for r in results do assert(cond: is_ok(result: r)),
+//     for r in results do assert(cond: is_ok(r: r)),
 // )
 
 // @parallel_basic () -> [Result<int, CancellationError>] = parallel(tasks: [
@@ -84,7 +84,7 @@ use std.testing { assert, assert_eq }
 //         timeout: Some(1ms),
 //     ),
 //     // Should timeout
-//     assert(cond: is_err(result: results[0])),
+//     assert(cond: is_err(r: results[0])),
 // )
 
 // =============================================================================
@@ -126,9 +126,9 @@ use std.testing { assert, assert_eq }
 //         () -> simple_task(n: 3),
 //     ]),
 //     assert_eq(actual: results.len(), expected: 3),
-//     assert(cond: is_ok(result: results[0])),
-//     assert(cond: is_err(result: results[1])),
-//     assert(cond: is_ok(result: results[2])),
+//     assert(cond: is_ok(r: results[0])),
+//     assert(cond: is_err(r: results[1])),
+//     assert(cond: is_ok(r: results[2])),
 // )
 
 // =============================================================================
@@ -171,11 +171,11 @@ use std.testing { assert, assert_eq }
     let items = [1, -2, 3, -4, 5],
     let results = for n in items yield process_item(n: n),
     assert_eq(actual: results.len(), expected: 5),
-    assert(cond: is_ok(result: results[0])),
-    assert(cond: is_err(result: results[1])),
-    assert(cond: is_ok(result: results[2])),
-    assert(cond: is_err(result: results[3])),
-    assert(cond: is_ok(result: results[4])),
+    assert(cond: is_ok(r: results[0])),
+    assert(cond: is_err(r: results[1])),
+    assert(cond: is_ok(r: results[2])),
+    assert(cond: is_err(r: results[3])),
+    assert(cond: is_ok(r: results[4])),
 )
 
 @task_results () -> [Result<int, str>] = for n in [1, -2, 3] yield process_item(n: n)
@@ -203,7 +203,7 @@ use std.testing { assert, assert_eq }
 
 // @test_timeout_success tests @timeout_success () -> void = run(
 //     let result = timeout(op: simple_task(n: 5), after: 1s),
-//     assert(cond: is_ok(result: result)),
+//     assert(cond: is_ok(r: result)),
 //     match(result,
 //         Ok(v) -> assert_eq(actual: v, expected: 10),
 //         Err(_) -> assert(cond: false),
@@ -217,7 +217,7 @@ use std.testing { assert, assert_eq }
 
 // @test_timeout_expires tests @timeout_expires () -> void = run(
 //     let result = timeout(op: slow_task(), after: 1ms),
-//     assert(cond: is_err(result: result)),
+//     assert(cond: is_err(r: result)),
 // )
 
 // =============================================================================
@@ -239,7 +239,7 @@ use std.testing { assert, assert_eq }
 @test_collect_all_semantics tests @collect_all_semantics () -> void = run(
     let items = [1, 0, 3, 0, 5],
     let results = for n in items yield if n == 0 then Err("zero") else Ok(n * 2),
-    let oks = for r in results if is_ok(result: r) yield match(r, Ok(v) -> v, Err(_) -> 0),
+    let oks = for r in results if is_ok(r: r) yield match(r, Ok(v) -> v, Err(_) -> 0),
     assert_eq(actual: oks, expected: [2, 6, 10]),
 )
 
