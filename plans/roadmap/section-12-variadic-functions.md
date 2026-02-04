@@ -54,14 +54,14 @@ sections:
 
 Rust doesn't have variadic functions in the language; uses macros instead.
 ```
-~/lang_repos/rust/library/core/src/fmt/mod.rs    # format! handles variadics via macro
+~/projects/reference_repos/lang_repos/rust/library/core/src/fmt/mod.rs    # format! handles variadics via macro
 ```
 
 ### Go
 
 ```
-~/lang_repos/golang/src/go/types/signature.go    # Variadic signature handling
-~/lang_repos/golang/src/cmd/compile/internal/types2/signature.go
+~/projects/reference_repos/lang_repos/golang/src/go/types/signature.go    # Variadic signature handling
+~/projects/reference_repos/lang_repos/golang/src/cmd/compile/internal/types2/signature.go
 ```
 
 ---

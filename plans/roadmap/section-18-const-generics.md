@@ -62,9 +62,9 @@ sections:
 ### Rust
 
 ```
-~/lang_repos/rust/compiler/rustc_middle/src/ty/consts.rs    # Const type representation
-~/lang_repos/rust/compiler/rustc_hir/src/def.rs             # ConstParam definition
-~/lang_repos/rust/compiler/rustc_hir_typeck/src/lib.rs      # Const generic checking
+~/projects/reference_repos/lang_repos/rust/compiler/rustc_middle/src/ty/consts.rs    # Const type representation
+~/projects/reference_repos/lang_repos/rust/compiler/rustc_hir/src/def.rs             # ConstParam definition
+~/projects/reference_repos/lang_repos/rust/compiler/rustc_hir_typeck/src/lib.rs      # Const generic checking
 ```
 
 ---

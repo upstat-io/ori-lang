@@ -609,7 +609,7 @@ use std.console { StreamWriter }
 
 ## References
 
-### Research Repositories (~/console_repos/)
+### Research Repositories (~/projects/reference_repos/console_repos/)
 
 | Repository | Insights |
 |------------|----------|

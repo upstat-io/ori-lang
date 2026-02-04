@@ -68,15 +68,15 @@ sections:
 ### Rust
 
 ```
-~/lang_repos/rust/compiler/rustc_attr_parsing/src/cfg.rs  # cfg parsing
-~/lang_repos/rust/compiler/rustc_expand/src/cfg.rs        # cfg evaluation
+~/projects/reference_repos/lang_repos/rust/compiler/rustc_attr_parsing/src/cfg.rs  # cfg parsing
+~/projects/reference_repos/lang_repos/rust/compiler/rustc_expand/src/cfg.rs        # cfg evaluation
 ```
 
 ### Go
 
 ```
-~/lang_repos/golang/src/go/build/constraint/             # Build constraints
-~/lang_repos/golang/src/cmd/go/internal/work/build.go    # Build tags handling
+~/projects/reference_repos/lang_repos/golang/src/go/build/constraint/             # Build constraints
+~/projects/reference_repos/lang_repos/golang/src/cmd/go/internal/work/build.go    # Build tags handling
 ```
 
 ---

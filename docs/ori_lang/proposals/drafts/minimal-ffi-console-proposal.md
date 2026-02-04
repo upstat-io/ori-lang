@@ -414,5 +414,5 @@ The minimal FFI is complete when:
 
 - Section 11: FFI Roadmap (`plans/roadmap/section-11-ffi.md`)
 - Section 13: Conditional Compilation (`plans/roadmap/section-13-conditional-compilation.md`)
-- Crossterm source: `~/console_repos/crossterm/src/terminal/sys/unix.rs`
+- Crossterm source: `~/projects/reference_repos/console_repos/crossterm/src/terminal/sys/unix.rs`
 - Rust libc crate: termios struct definitions
