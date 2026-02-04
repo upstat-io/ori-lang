@@ -264,9 +264,7 @@ impl<E: Emitter> FormatContext<E> {
         self.shape = self.shape.consume(1);
     }
 
-    // ========================================================================
     // Layer 1 (Spacing) Integration
-    // ========================================================================
 
     /// Get the spacing action required between the last emitted token and a new token.
     ///

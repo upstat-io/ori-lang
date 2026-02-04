@@ -153,7 +153,7 @@ pub struct FunctionType {
 /// Has Clone, Eq, `PartialEq`, Hash, Debug for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum TypeCheckError {
-    // ===== Type Mismatches =====
+    // Type Mismatches
     /// Type mismatch between expected and found types.
     TypeMismatch {
         span: Span,
@@ -184,7 +184,7 @@ pub enum TypeCheckError {
         found: String,
     },
 
-    // ===== Function Call Errors =====
+    // Function Call Errors
     /// Argument count mismatch in function call.
     ArgCountMismatch {
         span: Span,
@@ -209,7 +209,7 @@ pub enum TypeCheckError {
         capability: String,
     },
 
-    // ===== Identifier/Resolution Errors =====
+    // Identifier/Resolution Errors
     /// Unknown identifier.
     UnknownIdentifier {
         span: Span,
@@ -237,7 +237,7 @@ pub enum TypeCheckError {
     /// Self used outside impl block.
     SelfOutsideImpl { span: Span },
 
-    // ===== Field/Method Access Errors =====
+    // Field/Method Access Errors
     /// Type doesn't have the accessed field.
     NoSuchField {
         span: Span,
@@ -271,7 +271,7 @@ pub enum TypeCheckError {
     /// Module has no exported item.
     NoSuchExport { span: Span, item_name: String },
 
-    // ===== Operator Errors =====
+    // Operator Errors
     /// Binary operation not supported for types.
     InvalidBinaryOp {
         span: Span,
@@ -295,7 +295,7 @@ pub enum TypeCheckError {
         found: String,
     },
 
-    // ===== Control Flow Errors =====
+    // Control Flow Errors
     /// Type is not iterable.
     NotIterable { span: Span, found_type: String },
 
@@ -308,13 +308,13 @@ pub enum TypeCheckError {
     /// Condition must be bool.
     ConditionNotBool { span: Span, found_type: String },
 
-    // ===== Collection Errors =====
+    // Collection Errors
     /// Spread operator requires a list type.
     SpreadRequiresList { span: Span, found_type: String },
     /// Spread operator in map requires a map type.
     SpreadRequiresMap { span: Span, found_type: String },
 
-    // ===== Struct Errors =====
+    // Struct Errors
     /// Unknown struct type.
     UnknownStruct {
         span: Span,
@@ -335,7 +335,7 @@ pub enum TypeCheckError {
         field_name: String,
     },
 
-    // ===== Pattern Errors =====
+    // Pattern Errors
     /// Tuple pattern length mismatch.
     TupleLengthMismatch {
         span: Span,
@@ -356,14 +356,14 @@ pub enum TypeCheckError {
         scrutinee_type: String,
     },
 
-    // ===== Inference Errors =====
+    // Inference Errors
     /// Cannot infer type.
     CannotInfer { span: Span, context: String },
 
     /// Infinite type detected (occurs check failure).
     InfiniteType { span: Span },
 
-    // ===== Trait/Impl Errors =====
+    // Trait/Impl Errors
     /// Type does not satisfy trait bound.
     BoundNotSatisfied {
         span: Span,
@@ -422,14 +422,14 @@ pub enum TypeCheckError {
         default_param: String,
     },
 
-    // ===== Closure/Cycle Errors =====
+    // Closure/Cycle Errors
     /// Closure cannot capture itself.
     ClosureSelfCapture { span: Span, name: String },
 
     /// Cyclic type definition.
     CyclicType { span: Span, type_name: String },
 
-    // ===== Generic/Fallback =====
+    // Generic/Fallback
     /// Generic type error with custom message.
     ///
     /// This variant is used for errors that don't fit other categories
@@ -693,7 +693,7 @@ impl TypeCheckError {
     )]
     pub fn to_diagnostic_with_interner(&self, interner: &StringInterner) -> Diagnostic {
         match self {
-            // ===== Type Mismatches =====
+            // Type Mismatches
             TypeCheckError::TypeMismatch { span, expected, found } => {
                 Diagnostic::error(ErrorCode::E2001)
                     .with_message(format!("type mismatch: expected `{expected}`, found `{found}`"))
@@ -725,7 +725,7 @@ impl TypeCheckError {
                     .with_label(*span, format!("expected `{expected}`"))
             }
 
-            // ===== Function Call Errors =====
+            // Function Call Errors
             TypeCheckError::ArgCountMismatch { span, expected, found, func_name } => {
                 let plural = if *expected == 1 { "" } else { "s" };
                 let message = match func_name {
@@ -772,7 +772,7 @@ impl TypeCheckError {
                     .with_suggestion(format!("add `uses {capability}` to the caller"))
             }
 
-            // ===== Identifier/Resolution Errors =====
+            // Identifier/Resolution Errors
             TypeCheckError::UnknownIdentifier { span, name, suggestion } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("unknown identifier `{name}`"))
@@ -815,7 +815,7 @@ impl TypeCheckError {
                     .with_label(*span, "invalid use of `self`")
             }
 
-            // ===== Field/Method Access Errors =====
+            // Field/Method Access Errors
             TypeCheckError::NoSuchField { span, type_name, field_name, suggestion } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("no field `{field_name}` on type `{type_name}`"))
@@ -862,7 +862,7 @@ impl TypeCheckError {
                     .with_label(*span, "item not exported")
             }
 
-            // ===== Operator Errors =====
+            // Operator Errors
             TypeCheckError::InvalidBinaryOp { span, op, left_type, right_type } => {
                 Diagnostic::error(ErrorCode::E2001)
                     .with_message(format!(
@@ -885,7 +885,7 @@ impl TypeCheckError {
                     .with_label(*span, format!("expected `{expected}`"))
             }
 
-            // ===== Control Flow Errors =====
+            // Control Flow Errors
             TypeCheckError::NotIterable { span, found_type } => {
                 Diagnostic::error(ErrorCode::E2001)
                     .with_message(format!("`{found_type}` is not iterable"))
@@ -916,7 +916,7 @@ impl TypeCheckError {
                     .with_suggestion("use a comparison operator to get a bool value")
             }
 
-            // ===== Collection Errors =====
+            // Collection Errors
             TypeCheckError::SpreadRequiresList { span, found_type } => {
                 Diagnostic::error(ErrorCode::E2001)
                     .with_message(format!("spread operator requires a list, found `{found_type}`"))
@@ -930,7 +930,7 @@ impl TypeCheckError {
                     .with_suggestion("spread in map literal can only be used with map values")
             }
 
-            // ===== Struct Errors =====
+            // Struct Errors
             TypeCheckError::UnknownStruct { span, name, suggestion } => {
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("unknown struct type `{name}`"))
@@ -959,7 +959,7 @@ impl TypeCheckError {
                     .with_label(*span, "field required")
             }
 
-            // ===== Pattern Errors =====
+            // Pattern Errors
             TypeCheckError::TupleLengthMismatch { span, expected, found } => {
                 Diagnostic::error(ErrorCode::E2001)
                     .with_message(format!(
@@ -988,7 +988,7 @@ impl TypeCheckError {
                     .with_label(*span, "invalid variant")
             }
 
-            // ===== Inference Errors =====
+            // Inference Errors
             TypeCheckError::CannotInfer { span, context } => {
                 Diagnostic::error(ErrorCode::E2005)
                     .with_message(format!("cannot infer type for {context}"))
@@ -1003,7 +1003,7 @@ impl TypeCheckError {
                     .with_note("a type cannot contain itself")
             }
 
-            // ===== Trait/Impl Errors =====
+            // Trait/Impl Errors
             TypeCheckError::BoundNotSatisfied { span, type_name, bound_name, generic_name } => {
                 let message = match generic_name {
                     Some(gen) => format!(
@@ -1079,7 +1079,7 @@ impl TypeCheckError {
                     .with_label(*span, "invalid parameter order")
             }
 
-            // ===== Closure/Cycle Errors =====
+            // Closure/Cycle Errors
             TypeCheckError::ClosureSelfCapture { span, name } => {
                 Diagnostic::error(ErrorCode::E2007)
                     .with_message(format!(
@@ -1095,7 +1095,7 @@ impl TypeCheckError {
                     .with_label(*span, "cycle detected here")
             }
 
-            // ===== Generic/Fallback =====
+            // Generic/Fallback
             TypeCheckError::Generic { span, message, code, suggestion } => {
                 let mut diag = Diagnostic::error(*code)
                     .with_message(message.clone())

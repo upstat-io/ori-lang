@@ -146,9 +146,7 @@ impl Shape {
         !self.fits(content_width)
     }
 
-    // ========================================================================
     // Nested construct handling
-    // ========================================================================
 
     /// Create shape for nested construct (Spec lines 93-95).
     ///
@@ -177,9 +175,7 @@ impl Shape {
         }
     }
 
-    // ========================================================================
     // Integration helpers
-    // ========================================================================
 
     /// Get shape for function body (indented block).
     #[inline]

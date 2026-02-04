@@ -45,9 +45,7 @@ use ori_ir::{ExprArena, ExprId, Name, TypeId};
 use crate::context::CodegenCx;
 use crate::LoopContext;
 
-// ============================================================================
 // Local Variable Storage
-// ============================================================================
 
 /// Storage strategy for a local variable.
 ///
