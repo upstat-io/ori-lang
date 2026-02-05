@@ -4,7 +4,8 @@
 #![allow(clippy::used_underscore_binding)]
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, ExprId, TypeId};
+use ori_ir::{ExprArena, ExprId};
+use ori_types::Idx;
 use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
@@ -23,9 +24,9 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_some(
         &self,
         inner: ExprId,
-        _type_id: TypeId,
+        _type_id: Idx,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -58,7 +59,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Compile None.
-    pub(crate) fn compile_none(&self, type_id: TypeId) -> Option<BasicValueEnum<'ll>> {
+    pub(crate) fn compile_none(&self, type_id: Idx) -> Option<BasicValueEnum<'ll>> {
         // type_id is the type of the whole Option<T> expression.
         // We need to extract the inner type T to build the correct struct.
         let payload_type = if let Some(inner) = self.cx().option_inner_type(type_id) {
@@ -90,9 +91,9 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_ok(
         &self,
         inner: Option<ExprId>,
-        _type_id: TypeId,
+        _type_id: Idx,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -129,9 +130,9 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_err(
         &self,
         inner: Option<ExprId>,
-        _type_id: TypeId,
+        _type_id: Idx,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,

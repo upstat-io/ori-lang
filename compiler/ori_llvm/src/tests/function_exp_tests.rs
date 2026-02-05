@@ -3,7 +3,8 @@
 use inkwell::context::Context;
 use ori_ir::ast::patterns::{FunctionExp, FunctionExpKind, NamedExpr};
 use ori_ir::ast::{Expr, ExprKind};
-use ori_ir::{ExprArena, NamedExprRange, Span, StringInterner, TypeId};
+use ori_ir::{ExprArena, NamedExprRange, Span, StringInterner};
+use ori_types::Idx;
 
 use super::helper::setup_builder_test;
 use crate::builder::{Builder, Locals};
@@ -68,12 +69,12 @@ fn test_function_exp_recurse_with_condition() {
     let entry_bb = cx.llcx().append_basic_block(function, "recurse_entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::BOOL, Idx::INT, Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_function_exp(
         &func_exp,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -130,13 +131,13 @@ fn test_function_exp_recurse_incomplete_props() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry2");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::BOOL];
+    let expr_types = vec![Idx::BOOL];
     let mut locals = Locals::new();
 
     // Should return None because base and step are missing
     let result = builder.compile_function_exp(
         &func_exp,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -179,13 +180,13 @@ fn test_function_exp_print() {
     let entry_bb = cx.llcx().append_basic_block(function, "print_entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::STR];
+    let expr_types = vec![Idx::STR];
     let mut locals = Locals::new();
 
     // Print returns void (None)
     let result = builder.compile_function_exp(
         &func_exp,
-        TypeId::VOID,
+        Idx::UNIT,
         &arena,
         &expr_types,
         &mut locals,
@@ -218,7 +219,7 @@ fn test_function_exp_panic() {
 
     let result = builder.compile_function_exp(
         &func_exp,
-        TypeId::VOID,
+        Idx::UNIT,
         &arena,
         &expr_types,
         &mut locals,
@@ -260,7 +261,7 @@ fn test_function_exp_default_fallback_void() {
     // For void return type, should return None
     let result = builder.compile_function_exp(
         &func_exp,
-        TypeId::VOID,
+        Idx::UNIT,
         &arena,
         &expr_types,
         &mut locals,
@@ -295,7 +296,7 @@ fn test_function_exp_default_fallback_int() {
     // For int return type, should return a default value
     let result = builder.compile_function_exp(
         &func_exp,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -332,7 +333,7 @@ fn test_function_exp_timeout() {
     // Timeout falls through to default
     let result = builder.compile_function_exp(
         &func_exp,
-        TypeId::BOOL,
+        Idx::BOOL,
         &arena,
         &expr_types,
         &mut locals,

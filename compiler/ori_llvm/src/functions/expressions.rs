@@ -2,7 +2,8 @@
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ast::patterns::FunctionExp;
-use ori_ir::{ExprArena, TypeId};
+use ori_ir::ExprArena;
+use ori_types::Idx;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
@@ -13,9 +14,9 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_function_exp(
         &self,
         exp: &FunctionExp,
-        result_type: TypeId,
+        result_type: Idx,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -173,8 +174,8 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Return the default value for a result type, handling void specially.
-    fn default_for_result_type(&self, result_type: TypeId) -> Option<BasicValueEnum<'ll>> {
-        if result_type == TypeId::VOID {
+    fn default_for_result_type(&self, result_type: Idx) -> Option<BasicValueEnum<'ll>> {
+        if result_type == Idx::UNIT {
             None
         } else {
             Some(self.cx().default_value(result_type))

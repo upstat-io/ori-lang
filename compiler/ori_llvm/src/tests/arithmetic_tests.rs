@@ -1,6 +1,7 @@
 use inkwell::context::Context;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind};
-use ori_ir::{ExprArena, StringInterner, TypeId};
+use ori_ir::{ExprArena, StringInterner};
+use ori_types::Idx;
 
 use super::helper::TestCodegen;
 
@@ -32,17 +33,9 @@ fn test_simple_add() {
     });
 
     let fn_name = interner.intern("test_add");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        add_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, add_expr, &arena, &expr_types);
 
     // Print IR for debugging
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
@@ -72,13 +65,13 @@ fn test_duration_literal() {
     });
 
     let fn_name = interner.intern("test_duration");
-    let expr_types = vec![TypeId::INT];
+    let expr_types = vec![Idx::INT];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT,
+        Idx::INT,
         duration_expr,
         &arena,
         &expr_types,
@@ -114,17 +107,9 @@ fn test_size_literal() {
     });
 
     let fn_name = interner.intern("test_size");
-    let expr_types = vec![TypeId::INT];
+    let expr_types = vec![Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        size_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, size_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Size IR:\n{}", codegen.print_to_string());

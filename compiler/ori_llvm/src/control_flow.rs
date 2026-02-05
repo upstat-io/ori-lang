@@ -2,7 +2,8 @@
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ast::ExprKind;
-use ori_ir::{ExprArena, ExprId, Name, StmtRange, TypeId};
+use ori_ir::{ExprArena, ExprId, Name, StmtRange};
+use ori_types::Idx;
 use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
@@ -19,7 +20,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         left: ExprId,
         right: ExprId,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -60,7 +61,7 @@ impl<'ll> Builder<'_, 'll, '_> {
             } else {
                 // Both paths reach merge: false from left, rhs from right
                 self.build_phi_from_incoming(
-                    TypeId::BOOL,
+                    Idx::BOOL,
                     &[(false_val.into(), entry_bb), (rhs_val, rhs_exit_bb)],
                 )
             }
@@ -79,7 +80,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         left: ExprId,
         right: ExprId,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -120,7 +121,7 @@ impl<'ll> Builder<'_, 'll, '_> {
             } else {
                 // Both paths reach merge: true from left, rhs from right
                 self.build_phi_from_incoming(
-                    TypeId::BOOL,
+                    Idx::BOOL,
                     &[(true_val.into(), entry_bb), (rhs_val, rhs_exit_bb)],
                 )
             }
@@ -142,18 +143,15 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         left: ExprId,
         right: ExprId,
-        result_type: TypeId,
+        result_type: Idx,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Get the type of the left operand to distinguish Option from Result
-        let left_type = expr_types
-            .get(left.index())
-            .copied()
-            .unwrap_or(TypeId::INFER);
+        let left_type = expr_types.get(left.index()).copied().unwrap_or(Idx::NONE);
         let is_result = self.cx().is_result_type(left_type);
         let is_wrapper = self.cx().is_wrapper_type(left_type);
 
@@ -291,9 +289,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         cond: ExprId,
         then_branch: ExprId,
         else_branch: Option<ExprId>,
-        result_type: TypeId,
+        result_type: Idx,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -327,7 +325,7 @@ impl<'ll> Builder<'_, 'll, '_> {
             self.compile_expr(else_id, arena, expr_types, locals, function, loop_ctx)
         } else {
             // No else branch - produce default value or unit
-            if result_type == TypeId::VOID {
+            if result_type == Idx::UNIT {
                 None
             } else {
                 Some(self.cx().default_value(result_type))
@@ -371,9 +369,9 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_loop(
         &self,
         body: ExprId,
-        result_type: TypeId,
+        result_type: Idx,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -413,7 +411,7 @@ impl<'ll> Builder<'_, 'll, '_> {
 
         // Loops with break values would need phi nodes here
         // For now, return default value for non-void results
-        if result_type == TypeId::VOID {
+        if result_type == Idx::UNIT {
             None
         } else {
             Some(self.cx().default_value(result_type))
@@ -425,7 +423,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         value: Option<ExprId>,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -450,7 +448,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         value: Option<ExprId>,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -486,9 +484,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         guard: Option<ExprId>,
         body: ExprId,
         is_yield: bool,
-        result_type: TypeId,
+        result_type: Idx,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {
@@ -645,7 +643,7 @@ impl<'ll> Builder<'_, 'll, '_> {
             );
 
             Some(list_val.into())
-        } else if result_type == TypeId::VOID {
+        } else if result_type == Idx::UNIT {
             None
         } else {
             Some(self.cx().default_value(result_type))
@@ -661,7 +659,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         inner: ExprId,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -715,7 +713,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         stmts: StmtRange,
         result: Option<ExprId>,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -758,7 +756,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         target: ExprId,
         value: ExprId,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,

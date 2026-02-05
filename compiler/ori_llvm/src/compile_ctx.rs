@@ -16,7 +16,8 @@
 //!
 //! `CompileCtx` is available for users who prefer bundled parameters.
 
-use ori_ir::{ExprArena, TypeId};
+use ori_ir::ExprArena;
+use ori_types::Idx;
 
 use crate::builder::Locals;
 use crate::LoopContext;
@@ -33,7 +34,7 @@ pub struct CompileCtx<'a, 'll> {
     /// The expression arena containing all AST nodes.
     pub arena: &'a ExprArena,
     /// Type of each expression (indexed by `ExprId`).
-    pub expr_types: &'a [TypeId],
+    pub expr_types: &'a [Idx],
     /// Local variable bindings (mutable for let bindings).
     pub locals: &'a mut Locals<'ll>,
     /// Current loop context for break/continue (if inside a loop).
@@ -45,7 +46,7 @@ impl<'a, 'll> CompileCtx<'a, 'll> {
     #[inline]
     pub fn new(
         arena: &'a ExprArena,
-        expr_types: &'a [TypeId],
+        expr_types: &'a [Idx],
         locals: &'a mut Locals<'ll>,
         loop_ctx: Option<&'a LoopContext<'ll>>,
     ) -> Self {
@@ -61,7 +62,7 @@ impl<'a, 'll> CompileCtx<'a, 'll> {
     #[inline]
     pub fn without_loop(
         arena: &'a ExprArena,
-        expr_types: &'a [TypeId],
+        expr_types: &'a [Idx],
         locals: &'a mut Locals<'ll>,
     ) -> Self {
         Self {

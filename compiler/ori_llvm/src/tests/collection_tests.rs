@@ -2,7 +2,8 @@
 
 use inkwell::context::Context;
 use ori_ir::ast::{Expr, ExprKind, FieldInit, MapEntry};
-use ori_ir::{ExprArena, StringInterner, TypeId};
+use ori_ir::{ExprArena, StringInterner};
+use ori_types::Idx;
 
 use super::helper::TestCodegen;
 
@@ -36,13 +37,13 @@ fn test_tuple_creation() {
 
     let fn_name = interner.intern("test_tuple");
     // The result type would be a tuple, but we're using opaque ptr for now
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT, // Placeholder - we'd need a tuple TypeId
+        Idx::INT, // Placeholder - we'd need a tuple Idx
         tuple_expr,
         &arena,
         &expr_types,
@@ -107,13 +108,13 @@ fn test_struct_creation() {
     });
 
     let fn_name = interner.intern("test_struct");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT, // Placeholder
+        Idx::INT, // Placeholder
         struct_expr,
         &arena,
         &expr_types,
@@ -182,17 +183,9 @@ fn test_field_access() {
     });
 
     let fn_name = interner.intern("test_field");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        field_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, field_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Field Access IR:\n{}", codegen.print_to_string());
@@ -225,13 +218,13 @@ fn test_some() {
     });
 
     let fn_name = interner.intern("test_some");
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT, // Placeholder - actual type would be Option<int>
+        Idx::INT, // Placeholder - actual type would be Option<int>
         some_expr,
         &arena,
         &expr_types,
@@ -265,13 +258,13 @@ fn test_none() {
     });
 
     let fn_name = interner.intern("test_none");
-    let expr_types = vec![TypeId::INT];
+    let expr_types = vec![Idx::INT];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT, // Placeholder
+        Idx::INT, // Placeholder
         none_expr,
         &arena,
         &expr_types,
@@ -311,13 +304,13 @@ fn test_ok() {
     });
 
     let fn_name = interner.intern("test_ok");
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT, // Placeholder
+        Idx::INT, // Placeholder
         ok_expr,
         &arena,
         &expr_types,
@@ -357,13 +350,13 @@ fn test_err() {
     });
 
     let fn_name = interner.intern("test_err");
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT, // Placeholder
+        Idx::INT, // Placeholder
         err_expr,
         &arena,
         &expr_types,
@@ -410,13 +403,13 @@ fn test_range_literal() {
     });
 
     let fn_name = interner.intern("test_range");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT, // Returns struct, but we test IR generation
+        Idx::INT, // Returns struct, but we test IR generation
         range_expr,
         &arena,
         &expr_types,
@@ -447,17 +440,9 @@ fn test_list_literal_empty() {
     });
 
     let fn_name = interner.intern("test_empty_list");
-    let expr_types = vec![TypeId::INT];
+    let expr_types = vec![Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        list_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, list_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Empty List IR:\n{}", codegen.print_to_string());
@@ -497,17 +482,9 @@ fn test_list_literal_with_elements() {
     });
 
     let fn_name = interner.intern("test_list_elems");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        list_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, list_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("List with Elements IR:\n{}", codegen.print_to_string());
@@ -535,17 +512,9 @@ fn test_map_empty() {
     });
 
     let fn_name = interner.intern("test_empty_map");
-    let expr_types = vec![TypeId::INT];
+    let expr_types = vec![Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        map_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, map_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Empty Map IR:\n{}", codegen.print_to_string());
@@ -601,23 +570,9 @@ fn test_map_with_entries() {
     });
 
     let fn_name = interner.intern("test_map_entries");
-    let expr_types = vec![
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-    ];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        map_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, map_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Map with Entries IR:\n{}", codegen.print_to_string());
@@ -670,23 +625,9 @@ fn test_tuple_index() {
     });
 
     let fn_name = interner.intern("test_tuple_idx");
-    let expr_types = vec![
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-    ];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        index_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, index_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Tuple Index IR:\n{}", codegen.print_to_string());
@@ -740,23 +681,9 @@ fn test_tuple_index_second() {
     });
 
     let fn_name = interner.intern("test_tuple_idx2");
-    let expr_types = vec![
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-    ];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        index_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, index_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Tuple Index Second IR:\n{}", codegen.print_to_string());

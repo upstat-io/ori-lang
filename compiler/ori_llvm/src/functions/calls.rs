@@ -1,7 +1,8 @@
 //! Function call compilation.
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{CallArgRange, ExprArena, ExprId, ExprList, Name, TypeId};
+use ori_ir::{CallArgRange, ExprArena, ExprId, ExprList, Name};
+use ori_types::Idx;
 use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
@@ -18,7 +19,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         func: ExprId,
         args: ExprList,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -112,7 +113,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         closure_val: BasicValueEnum<'ll>,
         arg_ids: &[ExprId],
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -180,7 +181,7 @@ impl<'ll> Builder<'_, 'll, '_> {
                 // === Merge results ===
                 self.position_at_end(merge_bb);
                 self.build_phi_from_incoming(
-                    TypeId::INT,
+                    Idx::INT,
                     &[(boxed_result, boxed_exit_bb), (plain_result, plain_exit_bb)],
                 )
             }
@@ -298,7 +299,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         func: ExprId,
         args: CallArgRange,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -346,7 +347,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         method: Name,
         args: ExprList,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -355,7 +356,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let receiver_type = expr_types
             .get(receiver.index())
             .copied()
-            .unwrap_or(TypeId::INFER);
+            .unwrap_or(Idx::NONE);
 
         // Try to compile receiver
         let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx);
@@ -418,7 +419,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         method: Name,
         args: CallArgRange,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -427,7 +428,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let receiver_type = expr_types
             .get(receiver.index())
             .copied()
-            .unwrap_or(TypeId::INFER);
+            .unwrap_or(Idx::NONE);
 
         // Try to compile receiver
         let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx);

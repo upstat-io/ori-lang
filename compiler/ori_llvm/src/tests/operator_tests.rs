@@ -2,7 +2,8 @@
 
 use inkwell::context::Context;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind, UnaryOp};
-use ori_ir::{ExprArena, StringInterner, TypeId};
+use ori_ir::{ExprArena, StringInterner};
+use ori_types::Idx;
 
 use super::helper::TestCodegen;
 
@@ -35,9 +36,9 @@ fn test_subtract() {
     });
 
     let fn_name = interner.intern("test_sub");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_sub").expect("JIT failed");
     assert_eq!(result, 7);
@@ -70,9 +71,9 @@ fn test_multiply() {
     });
 
     let fn_name = interner.intern("test_mul");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_mul").expect("JIT failed");
     assert_eq!(result, 42);
@@ -105,9 +106,9 @@ fn test_divide() {
     });
 
     let fn_name = interner.intern("test_div");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_div").expect("JIT failed");
     assert_eq!(result, 5);
@@ -140,9 +141,9 @@ fn test_modulo() {
     });
 
     let fn_name = interner.intern("test_mod");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_mod").expect("JIT failed");
     assert_eq!(result, 2);
@@ -177,9 +178,9 @@ fn test_less_than_true() {
     });
 
     let fn_name = interner.intern("test_lt");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::BOOL];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_bool("test_lt").expect("JIT failed");
     assert!(result);
@@ -212,9 +213,9 @@ fn test_less_than_false() {
     });
 
     let fn_name = interner.intern("test_lt_false");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::BOOL];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_bool("test_lt_false")
@@ -249,9 +250,9 @@ fn test_greater_than() {
     });
 
     let fn_name = interner.intern("test_gt");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::BOOL];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_bool("test_gt").expect("JIT failed");
     assert!(result);
@@ -284,9 +285,9 @@ fn test_less_than_or_equal() {
     });
 
     let fn_name = interner.intern("test_le");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::BOOL];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_bool("test_le").expect("JIT failed");
     assert!(result);
@@ -319,9 +320,9 @@ fn test_greater_than_or_equal() {
     });
 
     let fn_name = interner.intern("test_ge");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::BOOL];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_bool("test_ge").expect("JIT failed");
     assert!(result);
@@ -354,9 +355,9 @@ fn test_equal() {
     });
 
     let fn_name = interner.intern("test_eq");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::BOOL];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_bool("test_eq").expect("JIT failed");
     assert!(result);
@@ -389,9 +390,9 @@ fn test_not_equal() {
     });
 
     let fn_name = interner.intern("test_ne");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::BOOL];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_bool("test_ne").expect("JIT failed");
     assert!(result);
@@ -426,9 +427,9 @@ fn test_logical_and_true() {
     });
 
     let fn_name = interner.intern("test_and");
-    let expr_types = vec![TypeId::BOOL, TypeId::BOOL, TypeId::BOOL];
+    let expr_types = vec![Idx::BOOL, Idx::BOOL, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_bool("test_and").expect("JIT failed");
     assert!(result);
@@ -461,9 +462,9 @@ fn test_logical_and_false() {
     });
 
     let fn_name = interner.intern("test_and_false");
-    let expr_types = vec![TypeId::BOOL, TypeId::BOOL, TypeId::BOOL];
+    let expr_types = vec![Idx::BOOL, Idx::BOOL, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_bool("test_and_false")
@@ -498,9 +499,9 @@ fn test_logical_or_true() {
     });
 
     let fn_name = interner.intern("test_or");
-    let expr_types = vec![TypeId::BOOL, TypeId::BOOL, TypeId::BOOL];
+    let expr_types = vec![Idx::BOOL, Idx::BOOL, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_bool("test_or").expect("JIT failed");
     assert!(result);
@@ -533,9 +534,9 @@ fn test_logical_or_false() {
     });
 
     let fn_name = interner.intern("test_or_false");
-    let expr_types = vec![TypeId::BOOL, TypeId::BOOL, TypeId::BOOL];
+    let expr_types = vec![Idx::BOOL, Idx::BOOL, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_bool("test_or_false")
@@ -567,9 +568,9 @@ fn test_unary_negate() {
     });
 
     let fn_name = interner.intern("test_neg");
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_neg").expect("JIT failed");
     assert_eq!(result, -42);
@@ -597,9 +598,9 @@ fn test_unary_not() {
     });
 
     let fn_name = interner.intern("test_not");
-    let expr_types = vec![TypeId::BOOL, TypeId::BOOL];
+    let expr_types = vec![Idx::BOOL, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_bool("test_not").expect("JIT failed");
     assert!(!result);
@@ -627,9 +628,9 @@ fn test_unary_not_false() {
     });
 
     let fn_name = interner.intern("test_not_false");
-    let expr_types = vec![TypeId::BOOL, TypeId::BOOL];
+    let expr_types = vec![Idx::BOOL, Idx::BOOL];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::BOOL, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::BOOL, expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_bool("test_not_false")
@@ -666,9 +667,9 @@ fn test_bitwise_and() {
     });
 
     let fn_name = interner.intern("test_bitand");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_bitand").expect("JIT failed");
     assert_eq!(result, 0b1000);
@@ -701,9 +702,9 @@ fn test_bitwise_or() {
     });
 
     let fn_name = interner.intern("test_bitor");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_bitor").expect("JIT failed");
     assert_eq!(result, 0b1111);
@@ -736,9 +737,9 @@ fn test_bitwise_xor() {
     });
 
     let fn_name = interner.intern("test_bitxor");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_bitxor").expect("JIT failed");
     assert_eq!(result, 0b0110);
@@ -771,9 +772,9 @@ fn test_shift_left() {
     });
 
     let fn_name = interner.intern("test_shl");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_shl").expect("JIT failed");
     assert_eq!(result, 16);
@@ -806,9 +807,9 @@ fn test_shift_right() {
     });
 
     let fn_name = interner.intern("test_shr");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_shr").expect("JIT failed");
     assert_eq!(result, 4);
@@ -859,23 +860,15 @@ fn test_float_add() {
 
     let fn_name = interner.intern("test_float_add");
     let expr_types = vec![
-        TypeId::FLOAT,
-        TypeId::FLOAT,
-        TypeId::FLOAT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
+        Idx::FLOAT,
+        Idx::FLOAT,
+        Idx::FLOAT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
     ];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        call_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, call_expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_i64("test_float_add")
@@ -926,23 +919,15 @@ fn test_float_mul() {
 
     let fn_name = interner.intern("test_float_mul");
     let expr_types = vec![
-        TypeId::FLOAT,
-        TypeId::FLOAT,
-        TypeId::FLOAT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
+        Idx::FLOAT,
+        Idx::FLOAT,
+        Idx::FLOAT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
     ];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        call_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, call_expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_i64("test_float_mul")

@@ -35,7 +35,7 @@ use inkwell::values::FunctionValue;
 use inkwell::AddressSpace;
 use rustc_hash::FxHashMap;
 
-use ori_ir::{Name, StringInterner, TypeId};
+use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool, Tag};
 
 /// Layout information for a user-defined struct type.
@@ -77,9 +77,9 @@ impl StructLayout {
 #[derive(Default)]
 pub struct TypeCache<'ll> {
     /// Cache for scalar types (int, float, bool, etc.)
-    pub scalars: FxHashMap<TypeId, BasicTypeEnum<'ll>>,
+    pub scalars: FxHashMap<Idx, BasicTypeEnum<'ll>>,
     /// Cache for complex types (structs, arrays, etc.)
-    pub complex: FxHashMap<TypeId, BasicTypeEnum<'ll>>,
+    pub complex: FxHashMap<Idx, BasicTypeEnum<'ll>>,
     /// Named struct types for forward references.
     ///
     /// Uses interned `Name` as key for O(1) lookup without string hashing.
@@ -99,21 +99,21 @@ impl<'ll> TypeCache<'ll> {
 
     /// Look up a cached type.
     #[must_use]
-    pub fn get(&self, type_id: TypeId) -> Option<BasicTypeEnum<'ll>> {
+    pub fn get(&self, idx: Idx) -> Option<BasicTypeEnum<'ll>> {
         self.scalars
-            .get(&type_id)
-            .or_else(|| self.complex.get(&type_id))
+            .get(&idx)
+            .or_else(|| self.complex.get(&idx))
             .copied()
     }
 
     /// Cache a scalar type.
-    pub fn cache_scalar(&mut self, type_id: TypeId, ty: BasicTypeEnum<'ll>) {
-        self.scalars.insert(type_id, ty);
+    pub fn cache_scalar(&mut self, idx: Idx, ty: BasicTypeEnum<'ll>) {
+        self.scalars.insert(idx, ty);
     }
 
     /// Cache a complex type.
-    pub fn cache_complex(&mut self, type_id: TypeId, ty: BasicTypeEnum<'ll>) {
-        self.complex.insert(type_id, ty);
+    pub fn cache_complex(&mut self, idx: Idx, ty: BasicTypeEnum<'ll>) {
+        self.complex.insert(idx, ty);
     }
 
     /// Get or create a named struct type for forward references.
@@ -264,7 +264,7 @@ pub struct CodegenCx<'ll, 'tcx> {
     pub scx: SimpleCx<'ll>,
     /// String interner for name lookup.
     pub interner: &'tcx StringInterner,
-    /// Type pool for resolving `TypeId` to type information.
+    /// Type pool for resolving `Idx` to type information.
     ///
     /// Used by `compute_llvm_type` to determine LLVM representation
     /// for compound types (List, Map, Tuple, etc.).
@@ -327,46 +327,46 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
 
     // -- Type methods (with caching) --
 
-    /// Get the LLVM type for an Ori `TypeId`.
+    /// Get the LLVM type for an Ori type `Idx`.
     ///
     /// Uses two-level cache: scalars first, then complex types.
     /// Fast path (cache hit): single `borrow()` check.
     /// Slow path (cache miss): compute + `borrow_mut()` to cache.
-    pub fn llvm_type(&self, type_id: TypeId) -> BasicTypeEnum<'ll> {
+    pub fn llvm_type(&self, idx: Idx) -> BasicTypeEnum<'ll> {
         // Fast path: check cache with read-only borrow
-        if let Some(ty) = self.type_cache.borrow().get(type_id) {
+        if let Some(ty) = self.type_cache.borrow().get(idx) {
             return ty;
         }
 
         // Slow path: compute and cache
-        let ty = self.compute_llvm_type(type_id);
+        let ty = self.compute_llvm_type(idx);
 
         // Cache in appropriate level
         let mut cache = self.type_cache.borrow_mut();
-        if type_id.is_primitive() {
-            cache.cache_scalar(type_id, ty);
+        if idx.is_primitive() {
+            cache.cache_scalar(idx, ty);
         } else {
-            cache.cache_complex(type_id, ty);
+            cache.cache_complex(idx, ty);
         }
 
         ty
     }
 
-    /// Compute the LLVM type for a `TypeId` (uncached).
+    /// Compute the LLVM type for an `Idx` (uncached).
     ///
     /// For compound types, uses the type pool to look up the type information
     /// and return the appropriate LLVM struct type.
-    fn compute_llvm_type(&self, type_id: TypeId) -> BasicTypeEnum<'ll> {
-        // Fast path: primitive types by TypeId constant
-        match type_id {
-            TypeId::FLOAT => return self.scx.type_f64().into(),
-            TypeId::BOOL => return self.scx.type_i1().into(),
-            TypeId::CHAR => return self.scx.type_i32().into(), // Unicode codepoint
-            TypeId::STR => return self.string_type().into(),
+    fn compute_llvm_type(&self, idx: Idx) -> BasicTypeEnum<'ll> {
+        // Fast path: primitive types by constant
+        match idx {
+            Idx::FLOAT => return self.scx.type_f64().into(),
+            Idx::BOOL => return self.scx.type_i1().into(),
+            Idx::CHAR => return self.scx.type_i32().into(), // Unicode codepoint
+            Idx::STR => return self.string_type().into(),
             // BYTE and ORDERING are both i8 (Ordering: Less=0, Equal=1, Greater=2)
-            TypeId::BYTE | TypeId::ORDERING => return self.scx.type_i8().into(),
-            // INT, DURATION, SIZE, VOID, NEVER use i64
-            TypeId::INT | TypeId::DURATION | TypeId::SIZE | TypeId::VOID | TypeId::NEVER => {
+            Idx::BYTE | Idx::ORDERING => return self.scx.type_i8().into(),
+            // INT, DURATION, SIZE, UNIT, NEVER use i64
+            Idx::INT | Idx::DURATION | Idx::SIZE | Idx::UNIT | Idx::NEVER => {
                 return self.scx.type_i64().into();
             }
             _ => {}
@@ -374,7 +374,6 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
 
         // Use type pool for compound types
         if let Some(pool) = self.pool {
-            let idx = Idx::from_raw(type_id.raw());
             match pool.tag(idx) {
                 Tag::Float => self.scx.type_f64().into(),
                 Tag::Bool => self.scx.type_i1().into(),
@@ -392,24 +391,22 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
                 // Option and Result need payload type
                 Tag::Option => {
                     let inner = pool.option_inner(idx);
-                    let payload = self.llvm_type(TypeId::from_raw(inner.raw()));
+                    let payload = self.llvm_type(inner);
                     self.option_type(payload).into()
                 }
                 Tag::Result => {
                     // For Result, use the larger of ok/err as payload
                     // For simplicity, use ok type (error handling TBD)
                     let ok = pool.result_ok(idx);
-                    let payload = self.llvm_type(TypeId::from_raw(ok.raw()));
+                    let payload = self.llvm_type(ok);
                     self.result_type(payload).into()
                 }
 
                 // Tuple: struct of element types
                 Tag::Tuple => {
                     let elements = pool.tuple_elems(idx);
-                    let field_types: Vec<BasicTypeEnum<'ll>> = elements
-                        .iter()
-                        .map(|&id| self.llvm_type(TypeId::from_raw(id.raw())))
-                        .collect();
+                    let field_types: Vec<BasicTypeEnum<'ll>> =
+                        elements.iter().map(|&id| self.llvm_type(id)).collect();
                     self.scx.type_struct(&field_types, false).into()
                 }
 
@@ -440,10 +437,8 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
                     } else {
                         // Generic instantiation: create anonymous struct from type args
                         // This assumes a simple pattern where type args map to fields
-                        let field_types: Vec<BasicTypeEnum<'ll>> = args
-                            .iter()
-                            .map(|&arg| self.llvm_type(TypeId::from_raw(arg.raw())))
-                            .collect();
+                        let field_types: Vec<BasicTypeEnum<'ll>> =
+                            args.iter().map(|&arg| self.llvm_type(arg)).collect();
                         self.scx.type_struct(&field_types, false).into()
                     }
                 }
@@ -489,48 +484,41 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
             .type_struct(&[self.scx.type_i8().into(), payload], false)
     }
 
-    /// Check if a `TypeId` represents an Option type.
-    ///
-    /// Returns true if the type is `Option<T>`, false otherwise.
-    pub fn is_option_type(&self, type_id: TypeId) -> bool {
+    /// Check if an `Idx` represents an Option type.
+    pub fn is_option_type(&self, idx: Idx) -> bool {
         if let Some(pool) = self.pool {
-            let idx = Idx::from_raw(type_id.raw());
             matches!(pool.tag(idx), Tag::Option)
         } else {
             false
         }
     }
 
-    /// Check if a `TypeId` represents a Result type.
+    /// Check if an `Idx` represents a Result type.
     ///
-    /// Returns true if the type is `Result<T, E>`, false otherwise.
     /// This is needed for coalesce (`??`) where Option and Result have
     /// different tag semantics (Option: tag=1 for Some, Result: tag=0 for Ok).
-    pub fn is_result_type(&self, type_id: TypeId) -> bool {
+    pub fn is_result_type(&self, idx: Idx) -> bool {
         if let Some(pool) = self.pool {
-            let idx = Idx::from_raw(type_id.raw());
             matches!(pool.tag(idx), Tag::Result)
         } else {
             false
         }
     }
 
-    /// Check if a `TypeId` represents a coercible wrapper type (Option or Result).
+    /// Check if an `Idx` represents a coercible wrapper type (Option or Result).
     ///
     /// These types support the `??` coalesce operator.
-    pub fn is_wrapper_type(&self, type_id: TypeId) -> bool {
-        self.is_option_type(type_id) || self.is_result_type(type_id)
+    pub fn is_wrapper_type(&self, idx: Idx) -> bool {
+        self.is_option_type(idx) || self.is_result_type(idx)
     }
 
     /// Get the inner type of an Option<T>.
     ///
     /// Returns `Some(T)` if the type is `Option<T>`, `None` otherwise.
-    pub fn option_inner_type(&self, type_id: TypeId) -> Option<TypeId> {
+    pub fn option_inner_type(&self, idx: Idx) -> Option<Idx> {
         if let Some(pool) = self.pool {
-            let idx = Idx::from_raw(type_id.raw());
             if matches!(pool.tag(idx), Tag::Option) {
-                let inner = pool.option_inner(idx);
-                return Some(TypeId::from_raw(inner.raw()));
+                return Some(pool.option_inner(idx));
             }
         }
         None
@@ -539,12 +527,10 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     /// Get the Ok type of a Result<T, E>.
     ///
     /// Returns `Some(T)` if the type is `Result<T, E>`, `None` otherwise.
-    pub fn result_ok_type(&self, type_id: TypeId) -> Option<TypeId> {
+    pub fn result_ok_type(&self, idx: Idx) -> Option<Idx> {
         if let Some(pool) = self.pool {
-            let idx = Idx::from_raw(type_id.raw());
             if matches!(pool.tag(idx), Tag::Result) {
-                let ok = pool.result_ok(idx);
-                return Some(TypeId::from_raw(ok.raw()));
+                return Some(pool.result_ok(idx));
             }
         }
         None
@@ -683,16 +669,16 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     // -- Default values --
 
     /// Get a default value for a type.
-    pub fn default_value(&self, type_id: TypeId) -> inkwell::values::BasicValueEnum<'ll> {
+    pub fn default_value(&self, idx: Idx) -> inkwell::values::BasicValueEnum<'ll> {
         use ori_ir::builtin_constants::ordering::unsigned as ord;
-        match type_id {
-            TypeId::INT => self.scx.type_i64().const_int(0, false).into(),
-            TypeId::FLOAT => self.scx.type_f64().const_float(0.0).into(),
-            TypeId::BOOL => self.scx.type_i1().const_int(0, false).into(),
-            TypeId::CHAR => self.scx.type_i32().const_int(0, false).into(),
-            TypeId::BYTE => self.scx.type_i8().const_int(0, false).into(),
+        match idx {
+            Idx::INT => self.scx.type_i64().const_int(0, false).into(),
+            Idx::FLOAT => self.scx.type_f64().const_float(0.0).into(),
+            Idx::BOOL => self.scx.type_i1().const_int(0, false).into(),
+            Idx::CHAR => self.scx.type_i32().const_int(0, false).into(),
+            Idx::BYTE => self.scx.type_i8().const_int(0, false).into(),
             // Ordering defaults to Equal (as per spec)
-            TypeId::ORDERING => self.scx.type_i8().const_int(ord::EQUAL, false).into(),
+            Idx::ORDERING => self.scx.type_i8().const_int(ord::EQUAL, false).into(),
             _ => self.scx.type_ptr().const_null().into(),
         }
     }
@@ -736,10 +722,10 @@ mod tests {
         let cx = CodegenCx::new(&context, &interner, "test");
 
         // First lookup should compute
-        let int_ty = cx.llvm_type(TypeId::INT);
+        let int_ty = cx.llvm_type(Idx::INT);
 
         // Second lookup should hit cache
-        let int_ty2 = cx.llvm_type(TypeId::INT);
+        let int_ty2 = cx.llvm_type(Idx::INT);
 
         // Should be the same type
         assert_eq!(int_ty, int_ty2);

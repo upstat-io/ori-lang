@@ -2,7 +2,8 @@
 
 use inkwell::context::Context;
 use ori_ir::ast::{BinaryOp, BindingPattern, Expr, ExprKind, Stmt, StmtKind};
-use ori_ir::{ExprArena, StringInterner, TypeId};
+use ori_ir::{ExprArena, StringInterner};
+use ori_types::Idx;
 
 use super::helper::TestCodegen;
 
@@ -57,24 +58,16 @@ fn test_nested_if() {
 
     let fn_name = interner.intern("test_nested_if");
     let expr_types = vec![
-        TypeId::BOOL,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::BOOL,
-        TypeId::INT,
-        TypeId::INT,
+        Idx::BOOL,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::BOOL,
+        Idx::INT,
+        Idx::INT,
     ];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        outer_if,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, outer_if, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_i64("test_nested_if")
@@ -127,16 +120,9 @@ fn test_if_with_comparison() {
     });
 
     let fn_name = interner.intern("test_if_cmp");
-    let expr_types = vec![
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::BOOL,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-    ];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::BOOL, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, if_expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, if_expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_if_cmp").expect("JIT failed");
     assert_eq!(result, 100);
@@ -170,9 +156,9 @@ fn test_if_without_else() {
     });
 
     let fn_name = interner.intern("test_if_no_else");
-    let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::BOOL, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, if_expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, if_expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_i64("test_if_no_else")
@@ -230,24 +216,16 @@ fn test_if_chain() {
 
     let fn_name = interner.intern("test_if_chain");
     let expr_types = vec![
-        TypeId::BOOL,
-        TypeId::BOOL,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
+        Idx::BOOL,
+        Idx::BOOL,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
     ];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        outer_if,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, outer_if, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_i64("test_if_chain")
@@ -327,16 +305,9 @@ fn test_multiple_let_bindings() {
     });
 
     let fn_name = interner.intern("test_multi_let");
-    let expr_types = vec![
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-    ];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, block, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, block, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_i64("test_multi_let")
@@ -401,9 +372,9 @@ fn test_shadowing() {
     });
 
     let fn_name = interner.intern("test_shadow");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, block, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, block, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_shadow").expect("JIT failed");
     assert_eq!(result, 10);

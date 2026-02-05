@@ -148,7 +148,7 @@ scope management, capabilities
 ---
 
 ### Section 09: Migration
-**File:** `section-09-migration.md` | **Status:** In Progress (8/10 phases complete)
+**File:** `section-09-migration.md` | **Status:** In Progress (9/10 phases complete)
 
 ```
 DELETE, remove, replace
@@ -175,7 +175,7 @@ error rendering, message, code, span
 | 07 | Registries | `section-07-registries.md` | P2 | In Progress (~85%) |
 | 08 | Salsa Integration | `section-08-salsa.md` | P2 | In Progress (~80%) |
 | 08b | Module-Level Type Checker | `section-08b-module-checker.md` | P1 | In Progress (~85%) ¹ |
-| 09 | Migration | `section-09-migration.md` | P3 | In Progress (8/10) |
+| 09 | Migration | `section-09-migration.md` | P3 | In Progress (9/10) |
 
 ---
 

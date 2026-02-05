@@ -1,7 +1,8 @@
 use inkwell::context::Context;
 use ori_ir::ast::patterns::BindingPattern;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind};
-use ori_ir::{ExprArena, StringInterner, TypeId};
+use ori_ir::{ExprArena, StringInterner};
+use ori_types::Idx;
 
 use super::helper::TestCodegen;
 
@@ -86,23 +87,23 @@ fn test_let_binding() {
     // The let binding returns the value, so the body is just the let
     // which should return 42
     let expr_types = vec![
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
     ];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT,
+        Idx::INT,
         let_x, // Use the first let which returns the value
         &arena,
         &expr_types,
@@ -148,9 +149,9 @@ fn test_if_else() {
     });
 
     let fn_name = interner.intern("test_if_true");
-    let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::BOOL, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, if_expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, if_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("If/Else IR:\n{}", codegen.print_to_string());
@@ -192,9 +193,9 @@ fn test_if_else_false() {
     });
 
     let fn_name = interner.intern("test_if_false");
-    let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::BOOL, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, if_expr, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, if_expr, &arena, &expr_types);
 
     // JIT execute - if false then 10 else 20 = 20
     let result = codegen
@@ -224,17 +225,9 @@ fn test_loop_with_break() {
     });
 
     let fn_name = interner.intern("test_loop");
-    let expr_types = vec![TypeId::VOID, TypeId::VOID];
+    let expr_types = vec![Idx::UNIT, Idx::UNIT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::VOID,
-        loop_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::UNIT, loop_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Loop IR:\n{}", codegen.print_to_string());
@@ -290,23 +283,9 @@ fn test_loop_ir_structure() {
     });
 
     let fn_name = interner.intern("test_loop_cond");
-    let expr_types = vec![
-        TypeId::BOOL,
-        TypeId::VOID,
-        TypeId::VOID,
-        TypeId::VOID,
-        TypeId::VOID,
-    ];
+    let expr_types = vec![Idx::BOOL, Idx::UNIT, Idx::UNIT, Idx::UNIT, Idx::UNIT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::VOID,
-        loop_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::UNIT, loop_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Loop with conditional IR:\n{}", codegen.print_to_string());
@@ -346,9 +325,9 @@ fn test_assign() {
     });
 
     let fn_name = interner.intern("test_assign");
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
 
-    codegen.compile_function(fn_name, &[], &[], TypeId::INT, let_x, &arena, &expr_types);
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, let_x, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Assign IR:\n{}", codegen.print_to_string());
@@ -386,17 +365,9 @@ fn test_break_with_value() {
     });
 
     let fn_name = interner.intern("test_break_val");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        loop_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, loop_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Break with Value IR:\n{}", codegen.print_to_string());
@@ -450,23 +421,9 @@ fn test_continue() {
     });
 
     let fn_name = interner.intern("test_continue");
-    let expr_types = vec![
-        TypeId::BOOL,
-        TypeId::VOID,
-        TypeId::VOID,
-        TypeId::VOID,
-        TypeId::VOID,
-    ];
+    let expr_types = vec![Idx::BOOL, Idx::UNIT, Idx::UNIT, Idx::UNIT, Idx::UNIT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::VOID,
-        loop_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::UNIT, loop_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Continue IR:\n{}", codegen.print_to_string());

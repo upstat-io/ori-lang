@@ -1,7 +1,8 @@
 use inkwell::context::Context;
 use ori_ir::ast::patterns::{MatchArm, MatchPattern};
 use ori_ir::ast::{BinaryOp, Expr, ExprKind};
-use ori_ir::{ExprArena, StringInterner, TypeId};
+use ori_ir::{ExprArena, StringInterner};
+use ori_types::Idx;
 
 use super::helper::TestCodegen;
 
@@ -63,23 +64,9 @@ fn test_match_literal() {
     });
 
     let fn_name = interner.intern("test_match_lit");
-    let expr_types = vec![
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-    ];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        match_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, match_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Match Literal IR:\n{}", codegen.print_to_string());
@@ -150,23 +137,9 @@ fn test_match_wildcard() {
     });
 
     let fn_name = interner.intern("test_match_wild");
-    let expr_types = vec![
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-    ];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        match_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, match_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Match Wildcard IR:\n{}", codegen.print_to_string());
@@ -232,17 +205,9 @@ fn test_match_binding() {
     });
 
     let fn_name = interner.intern("test_match_bind");
-    let expr_types = vec![TypeId::INT; 10];
+    let expr_types = vec![Idx::INT; 10];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        match_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, match_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Match Binding IR:\n{}", codegen.print_to_string());
@@ -328,17 +293,9 @@ fn test_match_with_guard_pass() {
     });
 
     let fn_name = interner.intern("test_guard_pass");
-    let expr_types = vec![TypeId::INT; 15];
+    let expr_types = vec![Idx::INT; 15];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        match_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, match_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Match Guard Pass IR:\n{}", codegen.print_to_string());
@@ -424,17 +381,9 @@ fn test_match_with_guard_fail() {
     });
 
     let fn_name = interner.intern("test_guard_fail");
-    let expr_types = vec![TypeId::INT; 15];
+    let expr_types = vec![Idx::INT; 15];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        match_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, match_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Match Guard Fail IR:\n{}", codegen.print_to_string());
@@ -469,17 +418,9 @@ fn test_match_empty() {
     });
 
     let fn_name = interner.intern("test_match_empty");
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        match_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, match_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Match Empty IR:\n{}", codegen.print_to_string());
@@ -576,17 +517,9 @@ fn test_match_multiple_literals() {
     });
 
     let fn_name = interner.intern("test_multi_lit");
-    let expr_types = vec![TypeId::INT; 15];
+    let expr_types = vec![Idx::INT; 15];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        match_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, match_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Match Multiple Literals IR:\n{}", codegen.print_to_string());

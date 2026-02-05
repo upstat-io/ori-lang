@@ -2,14 +2,14 @@
 
 use inkwell::types::BasicMetadataTypeEnum;
 use inkwell::values::BasicValueEnum;
-use ori_ir::TypeId;
+use ori_types::Idx;
 
 use crate::builder::Builder;
 use crate::context::CodegenCx;
 
 impl<'ll> CodegenCx<'ll, '_> {
-    /// Map a Ori `TypeId` to an LLVM metadata type (for function params).
-    pub fn llvm_metadata_type(&self, type_id: TypeId) -> BasicMetadataTypeEnum<'ll> {
+    /// Map a Ori `Idx` to an LLVM metadata type (for function params).
+    pub fn llvm_metadata_type(&self, type_id: Idx) -> BasicMetadataTypeEnum<'ll> {
         self.llvm_type(type_id).into()
     }
 }
@@ -77,7 +77,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn coerce_from_i64(
         &self,
         val: inkwell::values::IntValue<'ll>,
-        target_type: TypeId,
+        target_type: Idx,
     ) -> Option<BasicValueEnum<'ll>> {
         use inkwell::types::BasicTypeEnum;
 

@@ -39,7 +39,8 @@ mod ordering;
 mod units;
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, ExprId, Name, TypeId};
+use ori_ir::{ExprArena, ExprId, Name};
+use ori_types::Idx;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
@@ -52,11 +53,11 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_builtin_method(
         &self,
         recv_val: BasicValueEnum<'ll>,
-        receiver_type: TypeId,
+        receiver_type: Idx,
         method: Name,
         arg_ids: &[ExprId],
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -80,28 +81,28 @@ impl<'ll> Builder<'_, 'll, '_> {
         // Note: Duration(8) and Size(9) overlap with INFER/SELF_TYPE indices,
         // but that's OK since INFER/SELF_TYPE are never passed to LLVM backend.
         match receiver_type {
-            TypeId::INT if is_int_val => {
+            Idx::INT if is_int_val => {
                 numeric::compile_int_method(self, recv_val, method_str, &args)
             }
-            TypeId::FLOAT if is_float_val => {
+            Idx::FLOAT if is_float_val => {
                 numeric::compile_float_method(self, recv_val, method_str, &args)
             }
-            TypeId::BOOL if is_int_val => {
+            Idx::BOOL if is_int_val => {
                 numeric::compile_bool_method(self, recv_val, method_str, &args)
             }
-            TypeId::CHAR if is_int_val => {
+            Idx::CHAR if is_int_val => {
                 numeric::compile_char_method(self, recv_val, method_str, &args)
             }
-            TypeId::BYTE if is_int_val => {
+            Idx::BYTE if is_int_val => {
                 numeric::compile_byte_method(self, recv_val, method_str, &args)
             }
-            TypeId::DURATION if is_int_val => {
+            Idx::DURATION if is_int_val => {
                 units::compile_duration_method(self, recv_val, method_str, &args)
             }
-            TypeId::SIZE if is_int_val => {
+            Idx::SIZE if is_int_val => {
                 units::compile_size_method(self, recv_val, method_str, &args)
             }
-            TypeId::ORDERING if is_int_val || is_struct_val => {
+            Idx::ORDERING if is_int_val || is_struct_val => {
                 ordering::compile_ordering_method(self, recv_val, method_str, &args)
             }
             // Type mismatch or unknown type - fall back to user method lookup

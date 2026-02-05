@@ -16,7 +16,8 @@ use inkwell::module::Linkage;
 use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum};
 use inkwell::values::FunctionValue;
 
-use ori_ir::{Name, TypeId};
+use ori_ir::Name;
+use ori_types::Idx;
 
 use crate::context::CodegenCx;
 
@@ -29,8 +30,8 @@ impl<'ll> CodegenCx<'ll, '_> {
     pub fn declare_fn(
         &self,
         name: Name,
-        param_types: &[TypeId],
-        return_type: TypeId,
+        param_types: &[Idx],
+        return_type: Idx,
     ) -> FunctionValue<'ll> {
         let fn_name = self.interner.lookup(name);
 
@@ -46,7 +47,7 @@ impl<'ll> CodegenCx<'ll, '_> {
             .collect();
 
         // Build function type
-        let fn_type = if return_type == TypeId::VOID {
+        let fn_type = if return_type == Idx::UNIT {
             self.scx.type_void_func(&param_llvm_types)
         } else {
             self.scx
@@ -293,14 +294,14 @@ mod tests {
         let cx = CodegenCx::new(&context, &interner, "test");
 
         let name = interner.intern("add");
-        let func = cx.declare_fn(name, &[TypeId::INT, TypeId::INT], TypeId::INT);
+        let func = cx.declare_fn(name, &[Idx::INT, Idx::INT], Idx::INT);
 
         // Verify function was created
         assert_eq!(func.get_name().to_str().unwrap(), "add");
         assert_eq!(func.count_params(), 2);
 
         // Second declaration should return same function
-        let func2 = cx.declare_fn(name, &[TypeId::INT, TypeId::INT], TypeId::INT);
+        let func2 = cx.declare_fn(name, &[Idx::INT, Idx::INT], Idx::INT);
         assert_eq!(func, func2);
     }
 
@@ -311,7 +312,7 @@ mod tests {
         let cx = CodegenCx::new(&context, &interner, "test");
 
         let name = interner.intern("print_hello");
-        let func = cx.declare_fn(name, &[], TypeId::VOID);
+        let func = cx.declare_fn(name, &[], Idx::UNIT);
 
         assert_eq!(func.get_name().to_str().unwrap(), "print_hello");
         assert_eq!(func.count_params(), 0);

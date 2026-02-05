@@ -3,7 +3,8 @@
 use inkwell::context::Context;
 use ori_ir::ast::patterns::{BindingPattern, FunctionSeq, MatchArm, MatchPattern, SeqBinding};
 use ori_ir::ast::{Expr, ExprKind};
-use ori_ir::{ExprArena, SeqBindingRange, Span, StringInterner, TypeId};
+use ori_ir::{ExprArena, SeqBindingRange, Span, StringInterner};
+use ori_types::Idx;
 
 use super::helper::setup_builder_test;
 use crate::builder::{Builder, LocalStorage, Locals};
@@ -31,12 +32,12 @@ fn test_function_seq_run_empty_bindings() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT];
+    let expr_types = vec![Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_function_seq(
         &run_seq,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -86,12 +87,12 @@ fn test_function_seq_run_with_let_binding() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_function_seq(
         &run_seq,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -138,12 +139,12 @@ fn test_function_seq_run_with_stmt() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_function_seq(
         &run_seq,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -177,12 +178,12 @@ fn test_function_seq_try_empty_bindings() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT];
+    let expr_types = vec![Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_function_seq(
         &try_seq,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -232,12 +233,12 @@ fn test_function_seq_try_with_let_binding() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_function_seq(
         &try_seq,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -284,12 +285,12 @@ fn test_function_seq_match() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_function_seq(
         &match_seq,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -358,12 +359,12 @@ fn test_function_seq_for_pattern_basic() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT; 10];
+    let expr_types = vec![Idx::INT; 10];
     let mut locals = Locals::new();
 
     let result = builder.compile_function_seq(
         &for_seq,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -428,12 +429,12 @@ fn test_function_seq_for_pattern_with_map() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT; 10];
+    let expr_types = vec![Idx::INT; 10];
     let mut locals = Locals::new();
 
     let result = builder.compile_function_seq(
         &for_seq,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,

@@ -2,7 +2,8 @@
 
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, ExprId, Name, TypeId};
+use ori_ir::{ExprArena, ExprId, Name};
+use ori_types::Idx;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
@@ -17,7 +18,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         _name: Name,
         fields: ori_ir::ast::FieldInitRange,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -66,7 +67,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         receiver: ExprId,
         field: Name,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,

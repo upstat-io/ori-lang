@@ -2,7 +2,8 @@
 
 use inkwell::context::Context;
 use ori_ir::ast::{Expr, ExprKind, Module, Visibility};
-use ori_ir::{ExprArena, Function, GenericParamRange, ParamRange, Span, StringInterner, TypeId};
+use ori_ir::{ExprArena, Function, GenericParamRange, ParamRange, Span, StringInterner};
+use ori_types::Idx;
 
 use crate::evaluator::{FunctionSig, LLVMEvalError, LLVMEvaluator, LLVMValue, OwnedLLVMEvaluator};
 
@@ -203,7 +204,7 @@ fn test_owned_llvm_evaluator_eval_test() {
 
     let module = empty_module();
 
-    let expr_types = vec![TypeId::VOID];
+    let expr_types = vec![Idx::UNIT];
     let function_sigs = vec![];
 
     let result = evaluator.eval_test(
@@ -223,8 +224,8 @@ fn test_owned_llvm_evaluator_eval_test() {
 #[test]
 fn test_function_sig_debug() {
     let sig = FunctionSig {
-        params: vec![TypeId::INT, TypeId::BOOL],
-        return_type: TypeId::STR,
+        params: vec![Idx::INT, Idx::BOOL],
+        return_type: Idx::STR,
         is_generic: false,
     };
 
@@ -239,8 +240,8 @@ fn test_function_sig_debug() {
 #[test]
 fn test_function_sig_clone() {
     let sig = FunctionSig {
-        params: vec![TypeId::INT],
-        return_type: TypeId::BOOL,
+        params: vec![Idx::INT],
+        return_type: Idx::BOOL,
         is_generic: false,
     };
 

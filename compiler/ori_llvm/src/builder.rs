@@ -40,7 +40,8 @@ use tracing::{instrument, warn};
 
 use ori_ir::ast::patterns::BindingPattern;
 use ori_ir::ast::{BinaryOp, ExprKind};
-use ori_ir::{ExprArena, ExprId, Name, TypeId};
+use ori_ir::{ExprArena, ExprId, Name};
+use ori_types::Idx;
 
 use crate::context::CodegenCx;
 use crate::LoopContext;
@@ -816,13 +817,13 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         &self,
         id: ExprId,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         let expr = arena.get_expr(id);
-        let type_id = expr_types.get(id.index()).copied().unwrap_or(TypeId::INFER);
+        let type_id = expr_types.get(id.index()).copied().unwrap_or(Idx::NONE);
 
         match &expr.kind {
             // Literals
@@ -886,10 +887,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 let rhs =
                     self.compile_expr(*right, arena, expr_types, locals, function, loop_ctx)?;
                 // Pass the left operand's type to help distinguish struct types
-                let left_type = expr_types
-                    .get(left.index())
-                    .copied()
-                    .unwrap_or(TypeId::INFER);
+                let left_type = expr_types.get(left.index()).copied().unwrap_or(Idx::NONE);
                 self.compile_binary_op(*op, lhs, rhs, left_type)
             }
 
@@ -1196,7 +1194,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         init: ExprId,
         mutable: bool,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,

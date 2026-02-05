@@ -2,7 +2,7 @@
 
 use inkwell::values::BasicValueEnum;
 use ori_ir::ast::{BinaryOp, UnaryOp};
-use ori_ir::TypeId;
+use ori_types::Idx;
 
 use crate::builder::Builder;
 
@@ -12,7 +12,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// # Parameters
     /// - `op`: The binary operator
     /// - `lhs`, `rhs`: The compiled operand values
-    /// - `operand_type`: The `TypeId` of the left operand (used to distinguish struct types)
+    /// - `operand_type`: The `Idx` of the left operand (used to distinguish struct types)
     #[expect(
         clippy::too_many_lines,
         reason = "large match on BinaryOp - splitting would obscure the operation dispatch"
@@ -22,7 +22,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         op: BinaryOp,
         lhs: BasicValueEnum<'ll>,
         rhs: BasicValueEnum<'ll>,
-        operand_type: TypeId,
+        operand_type: Idx,
     ) -> Option<BasicValueEnum<'ll>> {
         // Determine the operand type - both must be the same type for binary ops
         let lhs_is_struct = matches!(lhs, BasicValueEnum::StructValue(_));
@@ -36,7 +36,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let is_struct = lhs_is_struct || rhs_is_struct;
 
         // Check if this is specifically a string type (for struct operations)
-        let is_string_type = operand_type == TypeId::STR;
+        let is_string_type = operand_type == Idx::STR;
 
         // Pointer arithmetic is not supported through normal binary ops
         if is_ptr {
@@ -342,7 +342,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         op: UnaryOp,
         val: BasicValueEnum<'ll>,
-        _result_type: TypeId,
+        _result_type: Idx,
     ) -> Option<BasicValueEnum<'ll>> {
         match op {
             UnaryOp::Neg => match val {

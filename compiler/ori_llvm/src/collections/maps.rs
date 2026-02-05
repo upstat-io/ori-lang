@@ -1,7 +1,8 @@
 //! Map compilation.
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, TypeId};
+use ori_ir::ExprArena;
+use ori_types::Idx;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
@@ -12,7 +13,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         entries: ori_ir::ast::MapEntryRange,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,

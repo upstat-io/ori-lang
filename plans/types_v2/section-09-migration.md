@@ -294,21 +294,22 @@ Removed all V1 type checking infrastructure from ori_patterns (dead code since V
 
 ---
 
-## 09.10 ori_llvm Migration (Deferred)
+## 09.10 ori_llvm Migration ✅
 
-**Status:** Not Started
+**Status:** Complete
 
-**Goal:** Replace `TypeInterner`/`TypeData` matching with `Pool`/`Tag` in LLVM backend.
+**Goal:** Eliminate dual TypeId/Idx system by aligning indices and migrating ori_llvm to Idx.
 
-Behind `#[cfg(feature = "llvm")]` with separate build/test cycle. Temporary `Idx → TypeId` conversions at the boundary bridge the gap (added in Phase 09.5).
+### Completed
 
-### Tasks
-
-- [ ] Update `ori_llvm/src/context.rs` — TypeData → Tag matching
-- [ ] Update `ori_llvm/src/module.rs` — TypeInterner → Pool
-- [ ] Update `ori_llvm/src/evaluator.rs` — TypeInterner → Pool
-- [ ] Remove `Idx → TypeId` bridge conversions from oric
-- [ ] `./llvm-test.sh` passes
+- [x] Aligned TypeId constants with Idx layout (INFER=12, SELF_TYPE=13, ERROR=8, FIRST_COMPOUND=64)
+- [x] Removed dead V1 shard infrastructure from TypeId (shard/local/from_shard_local)
+- [x] Simplified resolve_type_id() from 12-arm match to identity mapping
+- [x] Migrated all 41 ori_llvm source files from TypeId to Idx
+- [x] Removed `Idx → TypeId` bridge conversions from compile_common.rs
+- [x] Eliminated all TypeId::from_raw(idx.raw()) / Idx::from_raw(type_id.raw()) bridges
+- [x] `./test-all.sh` passes (8,364 tests, 0 failures)
+- [x] `./llvm-test.sh` passes (500 tests)
 
 ---
 
@@ -323,8 +324,8 @@ Behind `#[cfg(feature = "llvm")]` with separate build/test cycle. Temporary `Idx
 - [x] Legacy types removed from ori_types
 - [x] ori_patterns updated (remove dead type_check)
 - [ ] V2 naming removed
-- [ ] ori_llvm migrated
-- [ ] ./test-all.sh passes
+- [x] ori_llvm migrated (TypeId → Idx, bridge removed)
+- [x] ./test-all.sh passes
 - [ ] ./clippy-all.sh passes with no warnings
 - [ ] No remnants of old type system anywhere
 

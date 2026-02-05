@@ -16,7 +16,7 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use inkwell::IntPredicate;
-use ori_ir::TypeId;
+use ori_types::Idx;
 
 /// Associated types for a codegen backend.
 ///
@@ -34,15 +34,15 @@ pub trait BackendTypes {
 
 /// Type construction and lookup methods.
 pub trait TypeMethods: BackendTypes {
-    /// Get the LLVM type for an Ori `TypeId`.
-    fn llvm_type(&self, type_id: TypeId) -> Self::Type;
+    /// Get the LLVM type for an Ori `Idx`.
+    fn llvm_type(&self, type_id: Idx) -> Self::Type;
 
     /// Get a default value for a type.
-    fn default_value(&self, type_id: TypeId) -> Self::Value;
+    fn default_value(&self, type_id: Idx) -> Self::Value;
 
     /// Check if a type is void.
-    fn is_void_type(&self, type_id: TypeId) -> bool {
-        type_id == TypeId::VOID || type_id == TypeId::NEVER
+    fn is_void_type(&self, type_id: Idx) -> bool {
+        type_id == Idx::UNIT || type_id == Idx::NEVER
     }
 }
 
@@ -121,8 +121,7 @@ pub trait BuilderMethods<'a>: BackendTypes {
 /// High-level operations on the codegen context.
 pub trait CodegenMethods<'tcx>: TypeMethods {
     /// Declare a function.
-    fn declare_fn(&self, name: &str, param_types: &[TypeId], return_type: TypeId)
-        -> Self::Function;
+    fn declare_fn(&self, name: &str, param_types: &[Idx], return_type: Idx) -> Self::Function;
 
     /// Get a declared function by name.
     fn get_fn(&self, name: &str) -> Option<Self::Function>;
@@ -143,12 +142,12 @@ impl<'ll> BackendTypes for crate::context::CodegenCx<'ll, '_> {
 
 /// LLVM type methods.
 impl TypeMethods for crate::context::CodegenCx<'_, '_> {
-    fn llvm_type(&self, type_id: TypeId) -> Self::Type {
+    fn llvm_type(&self, type_id: Idx) -> Self::Type {
         // Delegate to CodegenCx method
         crate::context::CodegenCx::llvm_type(self, type_id)
     }
 
-    fn default_value(&self, type_id: TypeId) -> Self::Value {
+    fn default_value(&self, type_id: Idx) -> Self::Value {
         crate::context::CodegenCx::default_value(self, type_id)
     }
 }
@@ -240,12 +239,7 @@ impl<'a, 'll, 'tcx> BuilderMethods<'a> for crate::builder::Builder<'a, 'll, 'tcx
 
 /// LLVM codegen methods.
 impl<'tcx> CodegenMethods<'tcx> for crate::context::CodegenCx<'_, 'tcx> {
-    fn declare_fn(
-        &self,
-        name: &str,
-        param_types: &[TypeId],
-        return_type: TypeId,
-    ) -> Self::Function {
+    fn declare_fn(&self, name: &str, param_types: &[Idx], return_type: Idx) -> Self::Function {
         let fn_name = self.interner.intern(name);
         crate::context::CodegenCx::declare_fn(self, fn_name, param_types, return_type)
     }
@@ -272,10 +266,10 @@ mod tests {
         let cx = crate::context::CodegenCx::new(&context, &interner, "test");
 
         // Test TypeMethods
-        let int_ty = TypeMethods::llvm_type(&cx, TypeId::INT);
+        let int_ty = TypeMethods::llvm_type(&cx, Idx::INT);
         assert!(matches!(int_ty, BasicTypeEnum::IntType(_)));
 
-        let default = TypeMethods::default_value(&cx, TypeId::INT);
+        let default = TypeMethods::default_value(&cx, Idx::INT);
         assert!(matches!(default, BasicValueEnum::IntValue(_)));
     }
 
@@ -286,7 +280,7 @@ mod tests {
         let cx = crate::context::CodegenCx::new(&context, &interner, "test");
 
         // Test CodegenMethods
-        let func = CodegenMethods::declare_fn(&cx, "test_fn", &[TypeId::INT], TypeId::INT);
+        let func = CodegenMethods::declare_fn(&cx, "test_fn", &[Idx::INT], Idx::INT);
         assert_eq!(func.get_name().to_str().unwrap(), "test_fn");
 
         let retrieved = CodegenMethods::get_fn(&cx, "test_fn");
@@ -300,7 +294,7 @@ mod tests {
         let interner = StringInterner::new();
         let cx = crate::context::CodegenCx::new(&context, &interner, "test");
 
-        let func = CodegenMethods::declare_fn(&cx, "test_fn", &[], TypeId::INT);
+        let func = CodegenMethods::declare_fn(&cx, "test_fn", &[], Idx::INT);
         let entry = CodegenMethods::append_block(&cx, func, "entry");
 
         let bx = <crate::builder::Builder as BuilderMethods>::build(&cx, entry);

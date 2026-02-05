@@ -1,6 +1,7 @@
 use inkwell::context::Context;
 use ori_ir::ast::{Expr, ExprKind};
-use ori_ir::{ExprArena, StringInterner, TypeId};
+use ori_ir::{ExprArena, StringInterner};
+use ori_types::Idx;
 
 use super::helper::TestCodegen;
 
@@ -21,17 +22,9 @@ fn test_string_literal() {
     });
 
     let fn_name = interner.intern("test_str");
-    let expr_types = vec![TypeId::STR];
+    let expr_types = vec![Idx::STR];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::STR,
-        str_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::STR, str_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("String IR:\n{}", codegen.print_to_string());
@@ -66,27 +59,11 @@ fn test_string_multiple() {
 
     let fn1_name = interner.intern("test_str1");
     let fn2_name = interner.intern("test_str2");
-    let expr_types = vec![TypeId::STR];
+    let expr_types = vec![Idx::STR];
 
-    codegen.compile_function(
-        fn1_name,
-        &[],
-        &[],
-        TypeId::STR,
-        str_expr1,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn1_name, &[], &[], Idx::STR, str_expr1, &arena, &expr_types);
 
-    codegen.compile_function(
-        fn2_name,
-        &[],
-        &[],
-        TypeId::STR,
-        str_expr2,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn2_name, &[], &[], Idx::STR, str_expr2, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Multiple Strings IR:\n{}", codegen.print_to_string());
@@ -123,17 +100,9 @@ fn test_string_empty() {
     });
 
     let fn_name = interner.intern("test_empty_str");
-    let expr_types = vec![TypeId::STR];
+    let expr_types = vec![Idx::STR];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::STR,
-        str_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::STR, str_expr, &arena, &expr_types);
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         println!("Empty String IR:\n{}", codegen.print_to_string());

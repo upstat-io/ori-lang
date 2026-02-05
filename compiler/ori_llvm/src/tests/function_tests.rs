@@ -1,6 +1,7 @@
 use inkwell::context::Context;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind};
-use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
+use ori_ir::{ExprArena, ExprId, Name, StringInterner};
+use ori_types::Idx;
 
 use super::helper::TestCodegen;
 
@@ -77,13 +78,13 @@ fn test_function_with_params() {
     });
 
     let fn_name = interner.intern("add");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
     codegen.compile_function(
         fn_name,
         &[a_name, b_name],
-        &[TypeId::INT, TypeId::INT],
-        TypeId::INT,
+        &[Idx::INT, Idx::INT],
+        Idx::INT,
         add_expr,
         &arena,
         &expr_types,
@@ -132,13 +133,13 @@ fn test_function_call_simple() {
     });
 
     let add_fn_name = interner.intern("add");
-    let add_expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let add_expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
     codegen.compile_function(
         add_fn_name,
         &[a_name, b_name],
-        &[TypeId::INT, TypeId::INT],
-        TypeId::INT,
+        &[Idx::INT, Idx::INT],
+        Idx::INT,
         add_body,
         &arena,
         &add_expr_types,
@@ -174,13 +175,13 @@ fn test_function_call_simple() {
     });
 
     let main_fn_name = interner.intern("main");
-    let main_expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let main_expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
     codegen.compile_function(
         main_fn_name,
         &[],
         &[],
-        TypeId::INT,
+        Idx::INT,
         call_expr,
         &arena2,
         &main_expr_types,
@@ -228,13 +229,13 @@ fn test_function_call_nested() {
     });
 
     let double_fn_name = interner.intern("double");
-    let double_expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let double_expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
     codegen.compile_function(
         double_fn_name,
         &[x_name],
-        &[TypeId::INT],
-        TypeId::INT,
+        &[Idx::INT],
+        Idx::INT,
         double_body,
         &arena,
         &double_expr_types,
@@ -276,13 +277,13 @@ fn test_function_call_nested() {
     });
 
     let main_fn_name = interner.intern("main");
-    let main_expr_types = vec![TypeId::INT; 10];
+    let main_expr_types = vec![Idx::INT; 10];
 
     codegen.compile_function(
         main_fn_name,
         &[],
         &[],
-        TypeId::INT,
+        Idx::INT,
         outer_call,
         &arena2,
         &main_expr_types,
@@ -335,11 +336,11 @@ fn test_recursive_function() {
     codegen.compile_function(
         factorial_fn_name,
         &[n_name],
-        &[TypeId::INT],
-        TypeId::INT,
+        &[Idx::INT],
+        Idx::INT,
         factorial_body,
         &arena,
-        &[TypeId::INT; 20],
+        &[Idx::INT; 20],
     );
 
     // main function: factorial(5)
@@ -352,10 +353,10 @@ fn test_recursive_function() {
         main_fn_name,
         &[],
         &[],
-        TypeId::INT,
+        Idx::INT,
         call,
         &arena2,
-        &[TypeId::INT; 5],
+        &[Idx::INT; 5],
     );
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
@@ -382,9 +383,9 @@ fn test_function_ref() {
     });
 
     let helper_name = interner.intern("helper");
-    let expr_types = vec![TypeId::INT];
+    let expr_types = vec![Idx::INT];
 
-    codegen.compile_function(helper_name, &[], &[], TypeId::INT, x, &arena, &expr_types);
+    codegen.compile_function(helper_name, &[], &[], Idx::INT, x, &arena, &expr_types);
 
     // Now test FunctionRef
     let mut arena2 = ExprArena::new();
@@ -395,13 +396,13 @@ fn test_function_ref() {
     });
 
     let fn_name = interner.intern("test_func_ref");
-    let expr_types2 = vec![TypeId::INT];
+    let expr_types2 = vec![Idx::INT];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT, // Returns function pointer
+        Idx::INT, // Returns function pointer
         func_ref_expr,
         &arena2,
         &expr_types2,
@@ -465,13 +466,13 @@ fn test_lambda_simple() {
     });
 
     let fn_name = interner.intern("test_lambda");
-    let expr_types = vec![TypeId::INT; 5];
+    let expr_types = vec![Idx::INT; 5];
 
     codegen.compile_function(
         fn_name,
         &[],
         &[],
-        TypeId::INT, // Returns function pointer
+        Idx::INT, // Returns function pointer
         lambda_expr,
         &arena,
         &expr_types,
