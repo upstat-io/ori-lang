@@ -10,11 +10,8 @@ pre-commit:
     fmt:
       run: ./fmt-all.sh
       stage_fixed: true
-    clippy:
-      run: ./clippy-all.sh
-      stage_fixed: true
-    test:
-      run: ./test-all.sh
+    full-check:
+      run: ./full-check.sh
     version-sync:
       glob: "**/Cargo.toml|**/package.json"
       run: ./scripts/sync-version.sh --check
