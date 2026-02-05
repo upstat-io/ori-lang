@@ -145,6 +145,8 @@ pub struct TestSummary {
     pub failed: usize,
     /// Total tests skipped.
     pub skipped: usize,
+    /// Number of files with type/parse errors (these are failures).
+    pub error_files: usize,
     /// Total time for all tests.
     pub duration: Duration,
 }
@@ -158,6 +160,9 @@ impl TestSummary {
         self.passed += summary.passed;
         self.failed += summary.failed;
         self.skipped += summary.skipped;
+        if !summary.errors.is_empty() {
+            self.error_files += 1;
+        }
         self.duration += summary.duration;
         self.files.push(summary);
     }
@@ -166,23 +171,21 @@ impl TestSummary {
         self.passed + self.failed + self.skipped
     }
 
-    /// Returns true if any test function failed.
+    /// Returns true if any test function failed or any file had type/parse errors.
+    ///
+    /// Files with type errors that aren't marked `#compile_fail` are failures.
     pub fn has_failures(&self) -> bool {
-        self.failed > 0
+        self.failed > 0 || self.error_files > 0
     }
 
     /// Returns true if any file had errors (type check, parse, etc.).
-    /// These prevent tests from running but aren't test failures themselves.
     pub fn has_file_errors(&self) -> bool {
-        self.files.iter().any(|f| !f.errors.is_empty())
+        self.error_files > 0
     }
 
-    /// Get exit code: 0 = all pass, 1 = test failures, 2 = no tests found.
-    ///
-    /// Note: File-level errors (type check failures) are reported but don't
-    /// affect the exit code. Tests in those files simply don't run.
+    /// Get exit code: 0 = all pass, 1 = failures (tests or type errors), 2 = no tests found.
     pub fn exit_code(&self) -> i32 {
-        if self.total() == 0 {
+        if self.total() == 0 && self.error_files == 0 {
             2
         } else {
             i32::from(self.has_failures())
@@ -325,7 +328,13 @@ mod tests {
         assert_eq!(summary.exit_code(), 0); // All pass
 
         summary.failed = 1;
-        assert_eq!(summary.exit_code(), 1); // Failures
+        assert_eq!(summary.exit_code(), 1); // Test failures
+
+        // File errors should also cause failure
+        let mut summary2 = TestSummary::new();
+        summary2.passed = 5;
+        summary2.error_files = 1;
+        assert_eq!(summary2.exit_code(), 1); // File errors = failure
     }
 
     #[test]

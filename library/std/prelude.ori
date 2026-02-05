@@ -236,10 +236,10 @@ pub trait Env {
 // Utility Functions
 // =============================================================================
 // Get the length of a list
-pub @len (collection: [int]) -> int = collection.len()
+pub @len<T> (collection: [T]) -> int = collection.len()
 
 // Check if a list is empty
-pub @is_empty (collection: [int]) -> bool = collection.len() == 0
+pub @is_empty<T> (collection: [T]) -> bool = collection.len() == 0
 
 // Check if Option is Some
 pub @is_some<T> (opt: Option<T>) -> bool = match(opt,

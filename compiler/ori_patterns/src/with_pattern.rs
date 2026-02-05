@@ -4,9 +4,7 @@
 //!
 //! The property is named `action` rather than `use` because `use` is a reserved keyword.
 
-use ori_types::Type;
-
-use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext};
+use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor};
 
 #[cfg(test)]
 use crate::{test_helpers::MockPatternExecutor, Value};
@@ -33,11 +31,6 @@ impl PatternDefinition for WithPattern {
 
     fn optional_props(&self) -> &'static [&'static str] {
         &["release"]
-    }
-
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // with(acquire: R, action: R -> T, release: R -> void) -> T
-        ctx.get_function_return_type("action")
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
@@ -118,26 +111,5 @@ mod tests {
         let result = WithPattern.evaluate(&ctx, &mut exec).unwrap();
 
         assert_eq!(result, Value::int(42));
-    }
-
-    #[test]
-    fn with_extracts_action_return_type() {
-        let interner = SharedInterner::default();
-        let mut ctx = ori_types::InferenceContext::new();
-
-        let mut prop_types = rustc_hash::FxHashMap::default();
-        let action_name = interner.intern("action");
-        prop_types.insert(
-            action_name,
-            Type::Function {
-                params: vec![Type::Str],
-                ret: Box::new(Type::Int),
-            },
-        );
-
-        let mut type_ctx = TypeCheckContext::new(&interner, &mut ctx, prop_types);
-        let result = WithPattern.type_check(&mut type_ctx);
-
-        assert!(matches!(result, Type::Int));
     }
 }

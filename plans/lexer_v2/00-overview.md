@@ -15,6 +15,18 @@ Based on deep analysis of 7 production-grade lexers (~30,000+ lines of lexer cod
 6. **Gold-Standard Errors** — Elm/Gleam-style empathetic, educational messages
 7. **SIMD Optimizations** — Roc-style fast paths for whitespace and comments
 
+### Cross-System Cohesion
+
+Lexer V2 follows shared V2 conventions (`plans/v2-conventions.md`) for consistency with parser V2 and types V2:
+
+- **Index types** — `TokenIdx(u32)` follows the same `#[repr(transparent)]` / `NONE = u32::MAX` pattern as `ExprId`, `Idx`
+- **Tag enums** — `RawTag` (in `ori_lexer_core`) and `TokenTag` (in `ori_ir`) use `#[repr(u8)]` with semantic ranges
+- **SoA accessors** — `TokenStorage` exposes `.tag(idx)`, `.flags(idx)`, `.len()` matching `Pool`'s API
+- **Flag types** — `TokenFlags` uses `bitflags!` with semantic bit ranges (u8 width, vs TypeFlags' u32)
+- **Error shape** — `LexError` follows WHERE + WHAT + WHY + HOW: `span`, `kind`, `context`, `suggestions`
+
+**Two-layer crate pattern:** `ori_lexer_core` is standalone with `RawTag` (no `ori_*` deps). `ori_lexer` maps `RawTag` → `ori_ir::TokenTag` at the integration boundary — the same pattern as Rust's `rustc_lexer` → `rustc_parse::lexer`.
+
 The goal is to create a lexer that is:
 - **50% smaller tokens** (8 bytes vs 24 bytes)
 - **2-3x faster keyword lookup** via perfect hash
@@ -278,7 +290,7 @@ This plan **extends** the Parser V2 plan (`plans/parser_v2/section-02-lexer.md`)
 | Current | Replaced By | Reason |
 |---------|-------------|--------|
 | Logos DFA | Hand-written state machine | Full control, better errors |
-| `TokenKind` (16 bytes) | `Tag` (1 byte) + `TokenValue` | Compact, cache-friendly |
+| `TokenKind` (16 bytes) | `RawTag`/`TokenTag` (1 byte) + `TokenValue` | Compact, cache-friendly |
 | `Token` (24 bytes) | `TokenStorage` (SoA) | 67% memory reduction |
 | `TokenList` | `TokenStorage` | Structure-of-arrays |
 | `RawToken` (Logos) | `RawToken` (hand-written) | No external dependency |
@@ -302,6 +314,10 @@ This plan **extends** the Parser V2 plan (`plans/parser_v2/section-02-lexer.md`)
 | **Phase** | Source → Tokens → AST | AST → Typed AST |
 | **Crates** | `ori_lexer`, `ori_lexer_core`, `ori_parse` | `ori_types`, `ori_typeck` |
 | **Boundary** | Produces AST | Consumes AST |
+
+### Shared Conventions
+
+Both lexer V2 and types V2 follow the patterns in `plans/v2-conventions.md`: index types, tag enums, SoA accessors, flag types, error shapes, and phase output shapes. This is a shared design language, not a shared dependency.
 
 ### No Type System Changes Required
 
@@ -330,3 +346,4 @@ Both plans can proceed simultaneously. The AST (`ori_ir`) is the stable interfac
 | `section-06-errors.md` | Rich error messages |
 | `section-07-performance.md` | SIMD and optimizations |
 | `section-08-integration.md` | Parser V2 integration |
+| `../v2-conventions.md` | Cross-system V2 conventions |

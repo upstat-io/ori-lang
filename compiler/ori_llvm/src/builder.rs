@@ -1003,8 +1003,8 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             // Unit produces no value; Error is a placeholder that shouldn't be reached
             ExprKind::Unit | ExprKind::Error => None,
 
-            // Config variable (compile-time constant)
-            ExprKind::Config(name) => self.compile_config(*name, locals),
+            // Constant (compile-time constant)
+            ExprKind::Const(name) => self.compile_const(*name, locals),
 
             // Self reference (for recursion)
             ExprKind::SelfRef => {

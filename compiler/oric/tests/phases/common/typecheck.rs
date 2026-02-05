@@ -5,24 +5,30 @@
 use ori_ir::StringInterner;
 use ori_lexer::lex;
 use ori_parse::parse;
-use ori_typeck::{type_check, type_check_with_source, TypeCheckError, TypedModule};
+use ori_types::{TypeCheckError, TypeCheckResult};
 
 /// Type check source code.
 ///
 /// Handles lexing, parsing, and type checking in one step. Returns the
-/// `TypedModule` which contains type information and any errors.
+/// `TypeCheckResult` which contains type information and any errors.
 ///
 /// # Example
 ///
 /// ```ignore
 /// let result = typecheck_source("@add(a: int, b: int) -> int = a + b");
-/// assert!(result.errors.is_empty());
+/// assert!(!result.has_errors());
 /// ```
-pub fn typecheck_source(source: &str) -> TypedModule {
+pub fn typecheck_source(source: &str) -> TypeCheckResult {
     let interner = StringInterner::new();
     let tokens = lex(source, &interner);
     let parsed = parse(&tokens, &interner);
-    type_check_with_source(&parsed, &interner, source.to_string())
+    let (result, _pool) = ori_types::check_module_with_imports(
+        &parsed.module,
+        &parsed.arena,
+        &interner,
+        |_checker| {},
+    );
+    result
 }
 
 /// Type check source and assert it succeeds.
@@ -34,7 +40,7 @@ pub fn typecheck_source(source: &str) -> TypedModule {
 /// ```ignore
 /// let typed = typecheck_ok("@main () -> int = 42");
 /// ```
-pub fn typecheck_ok(source: &str) -> TypedModule {
+pub fn typecheck_ok(source: &str) -> TypeCheckResult {
     let interner = StringInterner::new();
     let tokens = lex(source, &interner);
     let parsed = parse(&tokens, &interner);
@@ -45,15 +51,20 @@ pub fn typecheck_ok(source: &str) -> TypedModule {
         parsed.errors
     );
 
-    let typed = type_check(&parsed, &interner);
-
-    assert!(
-        typed.errors.is_empty(),
-        "Expected successful type check, but got errors:\n{}\nSource:\n{source}",
-        format_typecheck_errors(&typed.errors)
+    let (result, _pool) = ori_types::check_module_with_imports(
+        &parsed.module,
+        &parsed.arena,
+        &interner,
+        |_checker| {},
     );
 
-    typed
+    assert!(
+        !result.has_errors(),
+        "Expected successful type check, but got errors:\n{}\nSource:\n{source}",
+        format_typecheck_errors(result.errors())
+    );
+
+    result
 }
 
 /// Type check source and assert it fails with an error containing the expected message.
@@ -81,22 +92,27 @@ pub fn typecheck_err(source: &str, expected_error: &str) {
         }
     }
 
-    let typed = type_check(&parsed, &interner);
+    let (result, _pool) = ori_types::check_module_with_imports(
+        &parsed.module,
+        &parsed.arena,
+        &interner,
+        |_checker| {},
+    );
 
     assert!(
-        !typed.errors.is_empty() || parsed.has_errors(),
+        result.has_errors() || parsed.has_errors(),
         "Expected type check error containing '{expected_error}', but checking succeeded.\nSource: {source}"
     );
 
-    let has_expected = typed
-        .errors
+    let has_expected = result
+        .errors()
         .iter()
-        .any(|e| format!("{e:?}").contains(expected_error));
+        .any(|e| e.message().contains(expected_error));
 
     assert!(
         has_expected,
         "Expected type check error containing '{expected_error}', but got:\n{}\nSource:\n{source}",
-        format_typecheck_errors(&typed.errors)
+        format_typecheck_errors(result.errors())
     );
 }
 
@@ -108,7 +124,7 @@ fn format_typecheck_errors(errors: &[TypeCheckError]) -> String {
         if i > 0 {
             result.push('\n');
         }
-        let _ = write!(result, "Error {}: {error:?}", i + 1);
+        let _ = write!(result, "Error {}: {}", i + 1, error.message());
     }
     result
 }
@@ -119,13 +135,13 @@ mod tests {
 
     #[test]
     fn test_typecheck_source_simple() {
-        let typed = typecheck_source("@add(a: int, b: int) -> int = a + b");
-        assert!(typed.errors.is_empty());
+        let result = typecheck_source("@add(a: int, b: int) -> int = a + b");
+        assert!(!result.has_errors());
     }
 
     #[test]
     fn test_typecheck_ok_succeeds() {
-        let _typed = typecheck_ok("@main () -> int = 42");
+        let _result = typecheck_ok("@main () -> int = 42");
     }
 
     #[test]

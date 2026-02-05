@@ -18,11 +18,11 @@ use ori_llvm::inkwell::context::Context;
 #[cfg(feature = "llvm")]
 use ori_llvm::module::ModuleCompiler;
 #[cfg(feature = "llvm")]
+use ori_types::TypeCheckResult;
+#[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
 use oric::query::{parsed, typed};
-#[cfg(feature = "llvm")]
-use oric::typeck::TypedModule;
 #[cfg(feature = "llvm")]
 use oric::{CompilerDb, Db, SourceFile};
 
@@ -47,7 +47,7 @@ pub fn check_source(
     db: &CompilerDb,
     file: SourceFile,
     path: &str,
-) -> Option<(ParseOutput, TypedModule)> {
+) -> Option<(ParseOutput, TypeCheckResult)> {
     let mut has_errors = false;
 
     // Check for parse errors
@@ -65,9 +65,8 @@ pub fn check_source(
     let type_result = typed(db, file);
     if type_result.has_errors() {
         eprintln!("error: type errors in '{path}':");
-        for error in &type_result.errors {
-            let diag = error.to_diagnostic();
-            eprintln!("  {diag}");
+        for error in type_result.errors() {
+            eprintln!("  {}: {}", error.span, error.message());
         }
         has_errors = true;
     }
@@ -88,7 +87,7 @@ pub fn compile_to_llvm<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,
     parse_result: &ParseOutput,
-    type_result: &TypedModule,
+    type_result: &TypeCheckResult,
     source_path: &str,
 ) -> ori_llvm::inkwell::module::Module<'ctx> {
     // Use the interner from the database - Names in the AST reference this interner
@@ -111,10 +110,16 @@ pub fn compile_to_llvm<'ctx>(
     }
 
     // Compile all functions
+    // Convert Idx to TypeId at the LLVM boundary (both are u32 newtypes)
     let arena = &parse_result.arena;
-    let expr_types = &type_result.expr_types;
+    let expr_types: Vec<ori_ir::TypeId> = type_result
+        .typed
+        .expr_types
+        .iter()
+        .map(|idx| ori_ir::TypeId::from_raw(idx.raw()))
+        .collect();
     for func in &module.functions {
-        compiler.compile_function(func, arena, expr_types);
+        compiler.compile_function(func, arena, &expr_types);
     }
 
     compiler.module().clone()
@@ -140,7 +145,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,
     parse_result: &ParseOutput,
-    type_result: &TypedModule,
+    type_result: &TypeCheckResult,
     source_path: &str,
     module_name: &str,
     imported_functions: &[ImportedFunctionInfo],
@@ -187,10 +192,16 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     }
 
     // Compile all functions
+    // Convert Idx to TypeId at the LLVM boundary (both are u32 newtypes)
     let arena = &parse_result.arena;
-    let expr_types = &type_result.expr_types;
+    let expr_types: Vec<ori_ir::TypeId> = type_result
+        .typed
+        .expr_types
+        .iter()
+        .map(|idx| ori_ir::TypeId::from_raw(idx.raw()))
+        .collect();
     for func in &module.functions {
-        compiler.compile_function(func, arena, expr_types);
+        compiler.compile_function(func, arena, &expr_types);
     }
 
     // Log the source path for debugging (avoids unused variable warning)

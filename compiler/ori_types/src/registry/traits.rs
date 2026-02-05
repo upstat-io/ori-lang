@@ -132,6 +132,9 @@ pub struct ImplMethodDef {
     /// Method signature (function type).
     pub signature: Idx,
 
+    /// Whether the first parameter is `self` (instance method vs associated function).
+    pub has_self: bool,
+
     /// Method body expression.
     pub body: ExprId,
 
@@ -501,6 +504,7 @@ mod tests {
             ImplMethodDef {
                 name: test_name("show"),
                 signature: Idx::from_raw(301),
+                has_self: true,
                 body: test_expr(),
                 span: test_span(),
             },
@@ -547,6 +551,7 @@ mod tests {
             ImplMethodDef {
                 name: test_name("len"),
                 signature: Idx::from_raw(400),
+                has_self: true,
                 body: test_expr(),
                 span: test_span(),
             },
@@ -599,6 +604,7 @@ mod tests {
             ImplMethodDef {
                 name: method_name,
                 signature: Idx::from_raw(300),
+                has_self: true,
                 body: test_expr(),
                 span: test_span(),
             },
@@ -621,6 +627,7 @@ mod tests {
             ImplMethodDef {
                 name: method_name,
                 signature: Idx::from_raw(400),
+                has_self: true,
                 body: test_expr(),
                 span: test_span(),
             },

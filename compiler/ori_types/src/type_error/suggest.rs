@@ -24,7 +24,10 @@ use ori_ir::Span;
 use super::TypeProblem;
 
 /// A suggestion for fixing a type error.
-#[derive(Clone, Debug)]
+///
+/// # Salsa Compatibility
+/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Suggestion {
     /// Human-readable message describing the suggestion.
     pub message: String,
@@ -79,7 +82,10 @@ impl Suggestion {
 }
 
 /// A code replacement suggestion.
-#[derive(Clone, Debug)]
+///
+/// # Salsa Compatibility
+/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Replacement {
     /// Span of code to replace.
     pub span: Span,
@@ -362,6 +368,31 @@ impl TypeProblem {
                     ),
                 ]
             }
+
+            // === Operator Problems ===
+            Self::BadOperandType {
+                op,
+                op_category,
+                found_type: _,
+                required_type,
+            } => {
+                if *op_category == "unary" {
+                    vec![Suggestion::new(
+                        format!("operator `{op}` can only be applied to `{required_type}`"),
+                        0,
+                    )]
+                } else {
+                    vec![Suggestion::new(
+                        format!("{op_category} operators require `{required_type}` operands"),
+                        0,
+                    )]
+                }
+            }
+
+            Self::ClosureSelfCapture => vec![Suggestion::new(
+                "use recursion through named functions instead",
+                0,
+            )],
 
             // === Generic Fallback ===
             Self::TypeMismatch {

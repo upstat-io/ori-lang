@@ -6,11 +6,7 @@
 
 use std::thread;
 
-use ori_types::Type;
-
-use crate::{
-    EvalContext, EvalError, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value,
-};
+use crate::{EvalContext, EvalError, EvalResult, PatternDefinition, PatternExecutor, Value};
 
 #[cfg(test)]
 use crate::test_helpers::MockPatternExecutor;
@@ -37,11 +33,6 @@ impl PatternDefinition for SpawnPattern {
 
     fn allows_arbitrary_props(&self) -> bool {
         false
-    }
-
-    fn type_check(&self, _ctx: &mut TypeCheckContext) -> Type {
-        // spawn always returns unit (void)
-        Type::Unit
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
@@ -140,15 +131,6 @@ mod tests {
     #[test]
     fn spawn_required_props() {
         assert_eq!(SpawnPattern.required_props(), &["tasks"]);
-    }
-
-    #[test]
-    fn spawn_returns_unit_type() {
-        let interner = SharedInterner::default();
-        let mut ctx = ori_types::InferenceContext::new();
-        let mut type_ctx = TypeCheckContext::new(&interner, &mut ctx, Default::default());
-        let result = SpawnPattern.type_check(&mut type_ctx);
-        assert!(matches!(result, Type::Unit));
     }
 
     #[test]

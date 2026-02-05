@@ -64,7 +64,8 @@ pub use ast::{
     CallArgRange,
     // Capability types
     CapabilityRef,
-    ConfigDef,
+    // Constant definition
+    ConstDef,
     // Default implementation types
     DefImplDef,
     ExpectedError,

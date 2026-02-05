@@ -10,7 +10,6 @@
 //! # Organization
 //!
 //! - `parse/` - Lexer and parser tests (`ori_lexer`, `ori_parse`)
-//! - `typeck/` - Type checker tests (`ori_typeck`, `ori_types`)
 //! - `eval/` - Interpreter tests (`ori_eval`, `ori_patterns`)
 //! - `codegen/` - LLVM backend tests (`ori_llvm`) [requires `llvm` feature]
 //! - `common/` - Shared test utilities
@@ -45,9 +44,6 @@ mod common;
 
 #[path = "phases/parse/mod.rs"]
 mod parse;
-
-#[path = "phases/typeck/mod.rs"]
-mod typeck;
 
 #[path = "phases/eval/mod.rs"]
 mod eval;

@@ -192,10 +192,10 @@ pub fn undefined_function(name: &str) -> EvalError {
     EvalError::new(format!("undefined function: @{name}"))
 }
 
-/// Undefined config.
+/// Undefined constant.
 #[cold]
-pub fn undefined_config(name: &str) -> EvalError {
-    EvalError::new(format!("undefined config: ${name}"))
+pub fn undefined_const(name: &str) -> EvalError {
+    EvalError::new(format!("undefined constant: ${name}"))
 }
 
 /// Value is not callable.

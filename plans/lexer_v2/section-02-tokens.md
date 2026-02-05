@@ -27,6 +27,35 @@ sections:
 **Goal:** Minimize token size while maximizing information density
 **Source:** Zig (`lib/std/zig/Ast.zig`), TypeScript, Roc
 
+> **Conventions:** Follows `plans/v2-conventions.md` §1 (Index Types), §2 (Tags), §3 (SoA Containers), §4 (Flags)
+
+---
+
+## 02.0 TokenIdx — Typed Index into Token Storage
+
+**Goal:** Strongly-typed index following the conventions §1 pattern
+
+`TokenIdx` is defined in `ori_ir` (not in `ori_lexer`) because the parser and other phases reference tokens by index.
+
+```rust
+// Defined in ori_ir
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[repr(transparent)]
+pub struct TokenIdx(u32);
+
+impl TokenIdx {
+    pub const NONE: Self = Self(u32::MAX);
+
+    #[inline]
+    pub const fn from_raw(raw: u32) -> Self { Self(raw) }
+
+    #[inline]
+    pub const fn raw(self) -> u32 { self.0 }
+}
+
+const _: () = assert!(std::mem::size_of::<TokenIdx>() == 4);
+```
+
 ---
 
 ## Background
@@ -51,16 +80,16 @@ Zig recomputes `end` on demand via `Tag.lexeme()` or re-tokenization.
 
 ### Target: 8-Byte Tokens + SoA Storage
 ```rust
-// Raw token in low-level layer
+// Raw token in low-level layer (ori_lexer_core)
 struct RawToken {
-    tag: Tag,      // 1 byte
+    tag: RawTag,   // 1 byte
     _pad: [u8; 3], // 3 bytes alignment
     start: u32,    // 4 bytes
 }  // Total: 8 bytes
 
-// High-level storage uses SoA
+// High-level storage uses SoA (ori_lexer, uses TokenTag from ori_ir)
 struct TokenStorage {
-    tags: Vec<Tag>,           // 1 byte each
+    tags: Vec<TokenTag>,      // 1 byte each
     starts: Vec<u32>,         // 4 bytes each
     values: Vec<TokenValue>,  // Variable, only for literals
     flags: Vec<TokenFlags>,   // 1 byte each
@@ -81,8 +110,8 @@ struct TokenStorage {
   #[derive(Clone, Copy, Debug)]
   #[repr(C)]
   pub struct RawToken {
-      /// Token kind
-      pub tag: Tag,
+      /// Token kind (see conventions §2 — standalone, no ori_* deps)
+      pub tag: RawTag,
       /// Padding for alignment
       _pad: [u8; 3],
       /// Byte length (not end position!)
@@ -93,12 +122,14 @@ struct TokenStorage {
   const _: () = assert!(std::mem::size_of::<RawToken>() == 8);
   ```
 
-- [ ] Design `Tag` enum to fit in 1 byte
+- [ ] Design `RawTag` enum to fit in 1 byte
   ```rust
-  /// Token tag - must fit in u8 (< 256 variants)
+  /// Raw token tag — lightweight, standalone (no ori_* dependencies).
+  /// Mapped to `ori_ir::TokenTag` in the integration layer (`ori_lexer`).
+  /// See plans/v2-conventions.md §2 (Tag/Discriminant Enums), §10 (Two-Layer Pattern).
   #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
   #[repr(u8)]
-  pub enum Tag {
+  pub enum RawTag {
       // === Literals (0-9) ===
       Ident = 0,
       Int = 1,
@@ -209,9 +240,9 @@ struct TokenStorage {
   }
   ```
 
-- [ ] Implement `lexeme()` for fixed tokens
+- [ ] Implement `lexeme()` and `name()` for `RawTag`
   ```rust
-  impl Tag {
+  impl RawTag {
       /// Get the fixed lexeme for this tag, if any
       #[inline]
       pub const fn lexeme(self) -> Option<&'static str> {
@@ -233,6 +264,17 @@ struct TokenStorage {
       pub const fn is_fixed_length(self) -> bool {
           self.lexeme().is_some()
       }
+
+      /// Human-readable name for debugging (conventions §2)
+      pub fn name(self) -> &'static str {
+          match self {
+              Self::Ident => "identifier",
+              Self::Int => "integer",
+              Self::Plus => "+",
+              Self::KwLet => "let",
+              // ...
+          }
+      }
   }
   ```
 
@@ -240,8 +282,8 @@ struct TokenStorage {
 
 ```rust
 #[test]
-fn tag_fits_in_u8() {
-    assert!(std::mem::size_of::<Tag>() == 1);
+fn raw_tag_fits_in_u8() {
+    assert!(std::mem::size_of::<RawTag>() == 1);
 }
 
 #[test]
@@ -261,8 +303,8 @@ fn raw_token_is_8_bytes() {
 - [ ] Store only `start` in token storage
   ```rust
   struct TokenStorage {
-      tags: Vec<Tag>,
-      starts: Vec<u32>,  // Only start positions!
+      tags: Vec<TokenTag>,   // TokenTag from ori_ir (cooked from RawTag)
+      starts: Vec<u32>,      // Only start positions!
       // No ends: Vec<u32>
   }
   ```
@@ -291,7 +333,7 @@ fn raw_token_is_8_bytes() {
 - [ ] Handle variable-length tokens with auxiliary storage
   ```rust
   struct TokenStorage {
-      tags: Vec<Tag>,
+      tags: Vec<TokenTag>,
       starts: Vec<u32>,
       // For variable-length tokens (ident, string, number)
       // Store end offset only when needed
@@ -338,11 +380,12 @@ fn raw_token_is_8_bytes() {
 
 - [ ] Implement `TokenStorage` with SoA layout
   ```rust
-  /// Structure-of-Arrays token storage
-  /// Optimized for sequential access patterns
+  /// Structure-of-Arrays token storage (conventions §3).
+  /// Uses `TokenTag` from `ori_ir` (cooked from `RawTag` by the integration layer).
+  /// Indexed by `TokenIdx` (conventions §1).
   pub struct TokenStorage {
       /// Token tags - hot path during parsing
-      tags: Vec<Tag>,
+      tags: Vec<TokenTag>,
       /// Token start positions
       starts: Vec<u32>,
       /// Token values (interned strings, parsed numbers)
@@ -365,35 +408,45 @@ fn raw_token_is_8_bytes() {
   }
   ```
 
-- [ ] Provide efficient accessors
+- [ ] Provide efficient accessors (matching `Pool` pattern — conventions §3)
   ```rust
   impl TokenStorage {
+      /// Number of tokens
+      #[inline]
+      pub fn len(&self) -> usize {
+          self.tags.len()
+      }
+
       /// Get tag at index - most common operation
       #[inline]
-      pub fn tag(&self, index: usize) -> Tag {
-          self.tags[index]
+      pub fn tag(&self, idx: TokenIdx) -> TokenTag {
+          debug_assert!((idx.raw() as usize) < self.tags.len());
+          self.tags[idx.raw() as usize]
       }
 
       /// Get start position
       #[inline]
-      pub fn start(&self, index: usize) -> u32 {
-          self.starts[index]
+      pub fn start(&self, idx: TokenIdx) -> u32 {
+          debug_assert!((idx.raw() as usize) < self.starts.len());
+          self.starts[idx.raw() as usize]
       }
 
       /// Get value (may be None for keywords/operators)
       #[inline]
-      pub fn value(&self, index: usize) -> &TokenValue {
-          &self.values[index]
+      pub fn value(&self, idx: TokenIdx) -> &TokenValue {
+          debug_assert!((idx.raw() as usize) < self.values.len());
+          &self.values[idx.raw() as usize]
       }
 
       /// Get flags
       #[inline]
-      pub fn flags(&self, index: usize) -> TokenFlags {
-          self.flags[index]
+      pub fn flags(&self, idx: TokenIdx) -> TokenFlags {
+          debug_assert!((idx.raw() as usize) < self.flags.len());
+          self.flags[idx.raw() as usize]
       }
 
       /// Iterate just tags (hot path for token matching)
-      pub fn tags(&self) -> &[Tag] {
+      pub fn tags(&self) -> &[TokenTag] {
           &self.tags
       }
   }
@@ -402,9 +455,9 @@ fn raw_token_is_8_bytes() {
 - [ ] Implement bulk operations
   ```rust
   impl TokenStorage {
-      /// Pre-allocate based on source size heuristic
+      /// Pre-allocate based on source size heuristic (conventions §9)
+      /// N=6: ~1 token per 6 source bytes (empirical, matches Zig measurements)
       pub fn with_capacity(source_len: usize) -> Self {
-          // ~1 token per 6 bytes (empirical from Zig)
           let estimated = source_len / 6;
           Self {
               tags: Vec::with_capacity(estimated),
@@ -414,12 +467,14 @@ fn raw_token_is_8_bytes() {
           }
       }
 
-      /// Push a token
-      pub fn push(&mut self, tag: Tag, start: u32, value: TokenValue, flags: TokenFlags) {
+      /// Push a token, returning its index
+      pub fn push(&mut self, tag: TokenTag, start: u32, value: TokenValue, flags: TokenFlags) -> TokenIdx {
+          let idx = TokenIdx::from_raw(self.tags.len() as u32);
           self.tags.push(tag);
           self.starts.push(start);
           self.values.push(value);
           self.flags.push(flags);
+          idx
       }
   }
   ```
@@ -437,6 +492,11 @@ fn raw_token_is_8_bytes() {
 ## 02.4 TokenFlags Bitfield
 
 **Goal:** Compact metadata for whitespace-sensitive parsing
+
+> **Width rationale (conventions §4):** `TokenFlags` uses `u8` while `TypeFlags` uses `u32`.
+> Tokens need only ~8 flags (space_before, newline_before, adjacent, line_start, trivia_before, contextual_kw, has_error, is_doc).
+> Types need ~20+ flags across 4 categories (presence, category, optimization, capability).
+> Both use `bitflags!` with semantic bit ranges — the convention is the **pattern**, not the width.
 
 ### Tasks
 
@@ -482,7 +542,7 @@ fn raw_token_is_8_bytes() {
 
       /// Check for function call syntax: `foo(` with no space
       pub fn is_call_syntax(&self) -> bool {
-          self.check(Tag::LParen) && self.is_adjacent()
+          self.check(TokenTag::LParen) && self.is_adjacent()
       }
   }
   ```
@@ -490,7 +550,7 @@ fn raw_token_is_8_bytes() {
 - [ ] Set flags during tokenization
   ```rust
   impl TokenProcessor<'_> {
-      fn process_token(&mut self, raw: RawToken) -> (Tag, TokenValue, TokenFlags) {
+      fn process_token(&mut self, raw: RawToken) -> (TokenTag, TokenValue, TokenFlags) {
           let mut flags = TokenFlags::empty();
 
           // Check preceding whitespace
@@ -613,7 +673,7 @@ fn raw_token_is_8_bytes() {
 ## 02.6 Completion Checklist
 
 - [ ] `RawToken` is 8 bytes
-- [ ] `Tag` fits in 1 byte (< 256 variants)
+- [ ] `RawTag` fits in 1 byte (< 256 variants)
 - [ ] `TokenStorage` uses SoA layout
 - [ ] Token end computed on demand
 - [ ] `TokenFlags` captures whitespace info

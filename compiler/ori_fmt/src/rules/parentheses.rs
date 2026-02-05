@@ -176,7 +176,7 @@ pub fn is_simple_expr(arena: &ExprArena, expr_id: ExprId) -> bool {
             | ExprKind::Unit
             | ExprKind::None
             | ExprKind::SelfRef
-            | ExprKind::Config(_)
+            | ExprKind::Const(_)
             | ExprKind::Call { .. }
             | ExprKind::CallNamed { .. }
             | ExprKind::MethodCall { .. }

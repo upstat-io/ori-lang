@@ -1,8 +1,6 @@
 //! Catch pattern implementation.
 
-use ori_types::Type;
-
-use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value};
+use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, Value};
 
 /// The `catch` pattern captures panics and converts them to `Result<T, str>`.
 ///
@@ -18,12 +16,6 @@ impl PatternDefinition for CatchPattern {
 
     fn required_props(&self) -> &'static [&'static str] {
         &["expr"]
-    }
-
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // catch(expr: T) -> Result<T, str>
-        let expr_ty = ctx.get_prop_type("expr").unwrap_or_else(|| ctx.fresh_var());
-        ctx.result_of(expr_ty, Type::Str)
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {

@@ -75,7 +75,7 @@ pub fn is_short_body(arena: &ExprArena, expr_id: ExprId) -> bool {
         | ExprKind::None
         | ExprKind::Unit
         | ExprKind::SelfRef
-        | ExprKind::Config(_)
+        | ExprKind::Const(_)
         | ExprKind::Continue(None)
         | ExprKind::Break(None) => true,
 

@@ -27,7 +27,10 @@ use crate::Idx;
 ///
 /// These are more actionable than generic "type mismatch" because each
 /// variant knows what went wrong and can generate targeted suggestions.
-#[derive(Clone, Debug)]
+///
+/// # Salsa Compatibility
+/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum TypeProblem {
     // ════════════════════════════════════════════════════════════════════════
     // Numeric Problems
@@ -256,6 +259,28 @@ pub enum TypeProblem {
     },
 
     // ════════════════════════════════════════════════════════════════════════
+    // Operator Problems
+    // ════════════════════════════════════════════════════════════════════════
+    /// Operator applied to an unsupported type.
+    ///
+    /// Example: `5.0 & 3.0` - bitwise operator requires int operands.
+    BadOperandType {
+        /// The operator symbol (e.g., "-", "!", "&", "&&").
+        op: &'static str,
+        /// The category of the operator (e.g., "bitwise", "logical").
+        op_category: &'static str,
+        /// The display name of the type that was found.
+        found_type: &'static str,
+        /// The required type for this operator.
+        required_type: &'static str,
+    },
+
+    /// Closure attempts to capture its own binding name (self-referential).
+    ///
+    /// Example: `let f = () -> f` - closure body references `f`.
+    ClosureSelfCapture,
+
+    // ════════════════════════════════════════════════════════════════════════
     // Generic Fallback
     // ════════════════════════════════════════════════════════════════════════
     /// Generic type mismatch when no specific problem is identified.
@@ -327,6 +352,9 @@ impl TypeProblem {
             Self::PatternMismatch { .. } => "pattern type mismatch",
             Self::NonExhaustiveMatch { .. } => "non-exhaustive match",
 
+            Self::BadOperandType { .. } => "operator type error",
+            Self::ClosureSelfCapture => "closure cannot capture itself",
+
             Self::TypeMismatch { .. } => "type mismatch",
         }
     }
@@ -366,6 +394,8 @@ impl TypeProblem {
             Self::NonExhaustiveMatch { .. } => {
                 Some("add missing patterns or use `_ =>` as a catch-all")
             }
+
+            Self::ClosureSelfCapture => Some("use recursion through named functions instead"),
 
             _ => None,
         }

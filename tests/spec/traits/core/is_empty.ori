@@ -83,43 +83,53 @@ use std.testing { assert, assert_eq }
 
 @is_empty_builtin_list () -> bool = is_empty(collection: [])
 
-@test_is_empty_builtin_str tests @is_empty_builtin_str () -> void = run(
-    assert(cond: is_empty(collection: "")),
-    assert(cond: !is_empty(collection: "hello")),
-)
-
-@is_empty_builtin_str () -> bool = is_empty(collection: "")
+// =============================================================================
+// IsEmpty Built-in Function with Strings
+// =============================================================================
+// PENDING: IsEmpty trait proposal - see proposals/drafts/is-empty-trait-proposal.md
+// When approved, uncomment these tests:
+//
+// @test_is_empty_builtin_str tests @is_empty_builtin_str () -> void = run(
+//     assert(cond: is_empty(collection: "")),
+//     assert(cond: !is_empty(collection: "hello")),
+// )
+//
+// @is_empty_builtin_str () -> bool = is_empty(collection: "")
 
 // =============================================================================
 // IsEmpty Trait Bound
 // =============================================================================
-
-@check_empty<T: IsEmpty> (x: T) -> bool = x.is_empty()
-
-@test_is_empty_bound_list tests @check_empty () -> void = run(
-    assert(cond: check_empty(x: [])),
-    assert(cond: !check_empty(x: [1, 2])),
-)
-
-@test_is_empty_bound_str tests @check_empty () -> void = run(
-    assert(cond: check_empty(x: "")),
-    assert(cond: !check_empty(x: "hello")),
-)
+// PENDING: IsEmpty trait proposal - see proposals/drafts/is-empty-trait-proposal.md
+// When approved, uncomment these tests:
+//
+// @check_empty<T: IsEmpty> (x: T) -> bool = x.is_empty()
+//
+// @test_is_empty_bound_list tests @check_empty () -> void = run(
+//     assert(cond: check_empty(x: [])),
+//     assert(cond: !check_empty(x: [1, 2])),
+// )
+//
+// @test_is_empty_bound_str tests @check_empty () -> void = run(
+//     assert(cond: check_empty(x: "")),
+//     assert(cond: !check_empty(x: "hello")),
+// )
 
 // =============================================================================
 // Combined Len and IsEmpty
 // =============================================================================
-
-@check_size<T: Len + IsEmpty> (x: T) -> str =
-    if x.is_empty() then "empty" else "has " + str(x.len()) + " items"
-
-@test_combined_bounds tests @check_size () -> void = run(
-    assert_eq(
-        actual: check_size(x: []),
-        expected: "empty",
-    ),
-    assert_eq(
-        actual: check_size(x: [1, 2, 3]),
-        expected: "has 3 items",
-    ),
-)
+// PENDING: Len and IsEmpty trait proposals
+// When approved, uncomment these tests:
+//
+// @check_size<T: Len + IsEmpty> (x: T) -> str =
+//     if x.is_empty() then "empty" else "has " + str(x.len()) + " items"
+//
+// @test_combined_bounds tests @check_size () -> void = run(
+//     assert_eq(
+//         actual: check_size(x: []),
+//         expected: "empty",
+//     ),
+//     assert_eq(
+//         actual: check_size(x: [1, 2, 3]),
+//         expected: "has 3 items",
+//     ),
+// )

@@ -762,10 +762,10 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Dollar) {
-                let result = self.parse_config_with_progress(visibility);
+                let result = self.parse_const_with_progress(visibility);
                 self.handle_parse_result(
                     result,
-                    &mut module.configs,
+                    &mut module.consts,
                     &mut errors,
                     Self::recover_to_function,
                 );
@@ -923,10 +923,10 @@ impl<'a> Parser<'a> {
                             let new_extend = copier.copy_extend(old_extend, &mut self.arena);
                             module.extends.push(new_extend);
                         }
-                        DeclKind::Config => {
-                            let old_config = &state.cursor.module().configs[decl_ref.index];
-                            let new_config = copier.copy_config(old_config, &mut self.arena);
-                            module.configs.push(new_config);
+                        DeclKind::Const => {
+                            let old_const = &state.cursor.module().consts[decl_ref.index];
+                            let new_const = copier.copy_const(old_const, &mut self.arena);
+                            module.consts.push(new_const);
                         }
                         DeclKind::Import => {
                             // Imports already handled above
@@ -1012,10 +1012,10 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Dollar) {
-                let result = self.parse_config_with_progress(visibility);
+                let result = self.parse_const_with_progress(visibility);
                 self.handle_parse_result(
                     result,
-                    &mut module.configs,
+                    &mut module.consts,
                     &mut errors,
                     Self::recover_to_function,
                 );

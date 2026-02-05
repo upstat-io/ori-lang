@@ -1,4 +1,4 @@
-//! Expression type inference for Types V2.
+//! Expression type inference.
 //!
 //! This module provides expression-level type inference using the
 //! `InferEngine` infrastructure. It dispatches on `ExprKind` to
@@ -34,10 +34,17 @@
 //! let ty = infer_expr(&mut engine, &arena, expr_id);
 //! ```
 
-use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, Name, Span, UnaryOp};
+use ori_ir::{
+    BinaryOp, ExprArena, ExprId, ExprKind, Name, ParsedType, ParsedTypeRange, Span, TypeId, UnaryOp,
+};
+
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::InferEngine;
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag, TypeCheckError};
+use crate::{
+    ContextKind, Expected, ExpectedOrigin, Idx, Pool, SequenceKind, Tag, TypeCheckError, TypeKind,
+    VariantFields,
+};
 
 /// Infer the type of an expression.
 ///
@@ -62,7 +69,7 @@ pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Expr
         ExprKind::Ident(name) => infer_ident(engine, *name, span),
         ExprKind::FunctionRef(name) => infer_function_ref(engine, *name, span),
         ExprKind::SelfRef => infer_self_ref(engine, span),
-        ExprKind::Config(name) => infer_config(engine, *name, span),
+        ExprKind::Const(name) => infer_const(engine, *name, span),
 
         // === Operators ===
         ExprKind::Binary { op, left, right } => {
@@ -179,20 +186,273 @@ pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Expr
     ty
 }
 
+/// Check an expression against an expected type.
+///
+/// This is the "check" direction of bidirectional type checking.
+/// It handles cases where the expected type can guide literal typing:
+///
+/// - Integer literals in range 0-255 are coerced to `byte` when expected type is `byte`
+///
+/// For all other expressions, this infers the type and then checks against expected.
+pub fn check_expr(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    expr_id: ExprId,
+    expected: &Expected,
+    span: Span,
+) -> Idx {
+    let expr = arena.get_expr(expr_id);
+
+    // Resolve the expected type to see what we're checking against
+    let expected_ty = engine.resolve(expected.ty);
+    let expected_tag = engine.pool().tag(expected_ty);
+
+    // Special case: integer literals can coerce to byte when in range
+    if let ExprKind::Int(value) = &expr.kind {
+        if expected_tag == Tag::Byte {
+            // Check if the literal is in the valid byte range (0-255)
+            if *value >= 0 && *value <= 255 {
+                // Coerce the literal to byte
+                engine.store_type(expr_id.raw() as usize, Idx::BYTE);
+                return Idx::BYTE;
+            }
+            // Out of range - infer as int and let check_type report the mismatch
+        }
+    }
+
+    // Default: infer the type and check against expected
+    let inferred = infer_expr(engine, arena, expr_id);
+    let _ = engine.check_type(inferred, expected, span);
+    inferred
+}
+
 // ============================================================================
 // Identifier Inference
 // ============================================================================
 
 /// Infer the type of an identifier reference.
 fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
+    // 1. Environment lookup (functions, parameters, let bindings)
     if let Some(scheme) = engine.env().lookup(name) {
-        // Instantiate the type scheme with fresh variables
-        engine.instantiate(scheme)
-    } else {
-        // Unknown identifier - report error
-        engine.push_error(TypeCheckError::undefined_identifier(name, span));
-        Idx::ERROR
+        return engine.instantiate(scheme);
     }
+
+    // 2. Resolve name to string for constructor/builtin matching
+    let name_str = engine.lookup_name(name).map(String::from);
+
+    // 2a. Special case for "self" - if not in env, check for recursive self_type
+    // This handles `self()` calls inside recursive patterns like `recurse`.
+    if name_str.as_deref() == Some("self") {
+        if let Some(self_ty) = engine.self_type() {
+            return self_ty;
+        }
+    }
+
+    if let Some(ref s) = name_str {
+        // 3. Built-in variant constructors (Option/Result are primitive types)
+        match s.as_str() {
+            "Some" => {
+                let t = engine.pool_mut().fresh_var();
+                let opt_t = engine.pool_mut().option(t);
+                return engine.pool_mut().function(&[t], opt_t);
+            }
+            "None" => {
+                let t = engine.pool_mut().fresh_var();
+                return engine.pool_mut().option(t);
+            }
+            "Ok" => {
+                let t = engine.pool_mut().fresh_var();
+                let e = engine.pool_mut().fresh_var();
+                let res = engine.pool_mut().result(t, e);
+                return engine.pool_mut().function(&[t], res);
+            }
+            "Err" => {
+                let t = engine.pool_mut().fresh_var();
+                let e = engine.pool_mut().fresh_var();
+                let res = engine.pool_mut().result(t, e);
+                return engine.pool_mut().function(&[e], res);
+            }
+            _ => {}
+        }
+
+        // 4. Built-in conversion functions
+        let conversion_target = match s.as_str() {
+            "int" => Some(Idx::INT),
+            "float" => Some(Idx::FLOAT),
+            "str" => Some(Idx::STR),
+            "byte" => Some(Idx::BYTE),
+            "bool" => Some(Idx::BOOL),
+            "char" => Some(Idx::CHAR),
+            _ => None,
+        };
+        if let Some(target) = conversion_target {
+            let t = engine.pool_mut().fresh_var();
+            return engine.pool_mut().function(&[t], target);
+        }
+
+        // 5. Type names used as expression-level receivers for associated functions
+        //    e.g., Duration.from_seconds(s: 5), Size.from_bytes(b: 100)
+        match s.as_str() {
+            "Duration" | "duration" => return Idx::DURATION,
+            "Size" | "size" => return Idx::SIZE,
+            "Ordering" | "ordering" => return Idx::ORDERING,
+            _ => {}
+        }
+    }
+
+    // 5. TypeRegistry: newtype constructors, enum variant constructors
+    //    Extract data with immutable borrow, then release before pool_mut
+    if let Some(ctor) = resolve_type_constructor_info(engine, name) {
+        return match ctor {
+            ConstructorInfo::Newtype {
+                underlying,
+                type_idx,
+            } => engine.pool_mut().function(&[underlying], type_idx),
+            ConstructorInfo::UnitVariant {
+                enum_idx,
+                enum_name,
+                type_params,
+            } => {
+                if type_params.is_empty() {
+                    // Non-generic enum: return bare idx
+                    enum_idx
+                } else {
+                    // Generic enum unit variant: instantiate fresh vars
+                    // e.g., `MyNone` becomes `MyOption<$fresh>`
+                    let fresh_vars: Vec<Idx> = type_params
+                        .iter()
+                        .map(|_| engine.pool_mut().fresh_var())
+                        .collect();
+                    engine.pool_mut().applied(enum_name, &fresh_vars)
+                }
+            }
+            ConstructorInfo::TupleVariant {
+                field_types,
+                enum_idx,
+                enum_name,
+                type_params,
+            } => {
+                if type_params.is_empty() {
+                    // Non-generic enum: use field types directly
+                    engine.pool_mut().function(&field_types, enum_idx)
+                } else {
+                    // Generic enum: instantiate fresh type variables for type parameters
+                    // Create fresh vars for each type parameter
+                    let fresh_vars: Vec<Idx> = type_params
+                        .iter()
+                        .map(|_| engine.pool_mut().fresh_var())
+                        .collect();
+
+                    // Build substitution map: type_param_name -> fresh_var
+                    let subst_map: Vec<(Name, Idx)> = type_params
+                        .into_iter()
+                        .zip(fresh_vars.iter().copied())
+                        .collect();
+
+                    // Substitute type params in field types
+                    let substituted_fields: Vec<Idx> = field_types
+                        .iter()
+                        .map(|&ft| substitute_type_params_with_map(engine, ft, &subst_map))
+                        .collect();
+
+                    // Build the return type: Applied(enum_name, fresh_vars) for generics
+                    // This creates e.g. MyResult<$0, $1> for a generic MyResult<T, E>
+                    let ret_type = engine.pool_mut().applied(enum_name, &fresh_vars);
+
+                    engine.pool_mut().function(&substituted_fields, ret_type)
+                }
+            }
+        };
+    }
+
+    // 7. Unknown identifier
+    engine.push_error(TypeCheckError::undefined_identifier(name, span));
+    Idx::ERROR
+}
+
+/// Constructor info extracted from `TypeRegistry` (avoids borrow conflicts).
+enum ConstructorInfo {
+    Newtype {
+        underlying: Idx,
+        type_idx: Idx,
+    },
+    /// Unit variant (no fields).
+    /// For generic enums (e.g., `MyNone` from `MyOption<T>`), we need the type params
+    /// to instantiate fresh variables so that `MyNone` becomes `MyOption<$fresh>`.
+    UnitVariant {
+        enum_idx: Idx,
+        enum_name: Name,
+        type_params: Vec<Name>,
+    },
+    /// Tuple variant constructor with field types, base enum idx/name, and type parameter names.
+    /// For generic enums (e.g., `MyOk(value: T)` from `MyResult<T, E>`), the field types
+    /// may contain `Named(param_name)` indices that need substitution with fresh variables.
+    TupleVariant {
+        field_types: Vec<Idx>,
+        enum_idx: Idx,
+        enum_name: Name,
+        type_params: Vec<Name>,
+    },
+}
+
+/// Look up a name in the `TypeRegistry` to find constructor info.
+///
+/// Returns constructor info that can be used to build the appropriate type
+/// after the registry borrow is released.
+fn resolve_type_constructor_info(engine: &InferEngine<'_>, name: Name) -> Option<ConstructorInfo> {
+    let registry = engine.type_registry()?;
+
+    // Check if name is a type name
+    if let Some(entry) = registry.get_by_name(name) {
+        return match &entry.kind {
+            TypeKind::Newtype { underlying } => Some(ConstructorInfo::Newtype {
+                underlying: *underlying,
+                type_idx: entry.idx,
+            }),
+            // Struct/Enum type names used as expressions: return as unit variant
+            // (enables associated function calls like Type.new(...))
+            TypeKind::Struct(_) | TypeKind::Enum { .. } => Some(ConstructorInfo::UnitVariant {
+                enum_idx: entry.idx,
+                enum_name: entry.name,
+                type_params: entry.type_params.clone(),
+            }),
+            TypeKind::Alias { target } => Some(ConstructorInfo::UnitVariant {
+                enum_idx: *target,
+                enum_name: entry.name,
+                type_params: entry.type_params.clone(),
+            }),
+        };
+    }
+
+    // Check if name is an enum variant constructor
+    let (type_entry, variant_def) = registry.lookup_variant_def(name)?;
+    let enum_idx = type_entry.idx;
+    let enum_name = type_entry.name;
+    let type_params = type_entry.type_params.clone();
+
+    Some(match &variant_def.fields {
+        VariantFields::Unit => ConstructorInfo::UnitVariant {
+            enum_idx,
+            enum_name,
+            type_params,
+        },
+        VariantFields::Tuple(types) => ConstructorInfo::TupleVariant {
+            field_types: types.clone(),
+            enum_idx,
+            enum_name,
+            type_params,
+        },
+        VariantFields::Record(fields) => {
+            // Record variants can be constructed with positional args
+            let field_types: Vec<Idx> = fields.iter().map(|f| f.ty).collect();
+            ConstructorInfo::TupleVariant {
+                field_types,
+                enum_idx,
+                enum_name,
+                type_params,
+            }
+        }
+    })
 }
 
 /// Infer the type of a function reference (@name).
@@ -203,18 +463,23 @@ fn infer_function_ref(engine: &mut InferEngine<'_>, name: Name, span: Span) -> I
 }
 
 /// Infer the type of self reference.
+///
+/// `self` can refer to:
+/// - The current function type (for recursive calls in patterns like `recurse`)
+/// - The impl `Self` type (in method bodies)
 fn infer_self_ref(engine: &mut InferEngine<'_>, span: Span) -> Idx {
-    // Self type should be tracked in scope context
-    // For now, report an error if used outside impl
+    if let Some(self_ty) = engine.self_type() {
+        return self_ty;
+    }
     engine.push_error(TypeCheckError::self_outside_impl(span));
     Idx::ERROR
 }
 
-/// Infer the type of a config reference ($name).
-fn infer_config(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
-    // Config values should be tracked in scope context
+/// Infer the type of a constant reference ($name).
+fn infer_const(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
+    // Constants should be tracked in scope context
     // For now, report an error
-    engine.push_error(TypeCheckError::undefined_config(name, span));
+    engine.push_error(TypeCheckError::undefined_const(name, span));
     Idx::ERROR
 }
 
@@ -235,15 +500,50 @@ fn infer_binary(
     let right_ty = infer_expr(engine, arena, right);
     let op_str = op.as_symbol();
 
+    // Never propagation: if the left operand is Never (e.g. panic()), the right
+    // operand is unreachable and the whole expression is Never.
+    let resolved_left_top = engine.resolve(left_ty);
+    if engine.pool().tag(resolved_left_top) == Tag::Never {
+        return Idx::NEVER;
+    }
+
     match op {
-        // Arithmetic: same type in, same type out
+        // Arithmetic: same type in, same type out (with Duration/Size mixed support)
         BinaryOp::Add
         | BinaryOp::Sub
         | BinaryOp::Mul
         | BinaryOp::Div
         | BinaryOp::Mod
         | BinaryOp::FloorDiv => {
-            // Unify left and right operands
+            let resolved_left = engine.resolve(left_ty);
+            let resolved_right = engine.resolve(right_ty);
+            let left_tag = engine.pool().tag(resolved_left);
+            let right_tag = engine.pool().tag(resolved_right);
+
+            // Special case: Duration/Size * Int, Int * Duration/Size, Duration/Size / Int
+            let mixed_result = match (left_tag, right_tag, op) {
+                // Duration + Duration, Duration * int, Duration / int, int * Duration = Duration
+                (Tag::Duration, Tag::Duration, _)
+                | (Tag::Duration, Tag::Int, BinaryOp::Mul | BinaryOp::Div | BinaryOp::FloorDiv)
+                | (Tag::Int, Tag::Duration, BinaryOp::Mul) => Some(Idx::DURATION),
+                // Size + Size, Size * int, Size / int, int * Size = Size
+                (Tag::Size, Tag::Size, _)
+                | (Tag::Size, Tag::Int, BinaryOp::Mul | BinaryOp::Div | BinaryOp::FloorDiv)
+                | (Tag::Int, Tag::Size, BinaryOp::Mul) => Some(Idx::SIZE),
+                // String concatenation
+                (Tag::Str, Tag::Str, BinaryOp::Add) => Some(Idx::STR),
+                // Never propagation: right operand diverges
+                (_, Tag::Never, _) => Some(Idx::NEVER),
+                // Error propagation
+                (_, Tag::Error, _) | (Tag::Error, _, _) => Some(Idx::ERROR),
+                _ => None,
+            };
+
+            if let Some(result) = mixed_result {
+                return result;
+            }
+
+            // Default: unify left and right operands
             engine.push_context(ContextKind::BinaryOpRight { op: op_str });
             let left_span = arena.get_expr(left).span;
             let expected = Expected {
@@ -288,30 +588,90 @@ fn infer_binary(
             let left_span = arena.get_expr(left).span;
             let right_span = arena.get_expr(right).span;
 
-            // Check left is bool
-            engine.push_context(ContextKind::BinaryOpLeft { op: op_str });
-            let bool_expected = Expected {
-                ty: Idx::BOOL,
-                origin: ExpectedOrigin::NoExpectation,
-            };
-            let _ = engine.check_type(left_ty, &bool_expected, left_span);
-            engine.pop_context();
+            // Check left is bool — produce operator-specific message on failure
+            let resolved_left = engine.resolve(left_ty);
+            let left_tag = engine.pool().tag(resolved_left);
+            match left_tag {
+                Tag::Bool | Tag::Error | Tag::Var | Tag::Never => {
+                    // Bool is correct, Error/Never propagate silently, Var defers
+                    if left_tag != Tag::Never {
+                        let bool_expected = Expected {
+                            ty: Idx::BOOL,
+                            origin: ExpectedOrigin::NoExpectation,
+                        };
+                        let _ = engine.check_type(left_ty, &bool_expected, left_span);
+                    }
+                }
+                _ => {
+                    engine.push_error(TypeCheckError::bad_binary_operand(
+                        left_span,
+                        "logical",
+                        "bool",
+                        resolved_left,
+                    ));
+                }
+            }
 
-            // Check right is bool
-            engine.push_context(ContextKind::BinaryOpRight { op: op_str });
-            let _ = engine.check_type(right_ty, &bool_expected, right_span);
-            engine.pop_context();
+            // Check right is bool (Never accepted: e.g. `false && panic()`)
+            let resolved_right = engine.resolve(right_ty);
+            let right_tag = engine.pool().tag(resolved_right);
+            match right_tag {
+                Tag::Bool | Tag::Error | Tag::Var | Tag::Never => {
+                    if right_tag != Tag::Never {
+                        let bool_expected = Expected {
+                            ty: Idx::BOOL,
+                            origin: ExpectedOrigin::NoExpectation,
+                        };
+                        let _ = engine.check_type(right_ty, &bool_expected, right_span);
+                    }
+                }
+                _ => {
+                    engine.push_error(TypeCheckError::bad_binary_operand(
+                        right_span,
+                        "logical",
+                        "bool",
+                        resolved_right,
+                    ));
+                }
+            }
 
             Idx::BOOL
         }
 
-        // Bitwise operations: same integer types
+        // Bitwise operations: int operands only
         BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => {
-            // Unify left and right operands
-            engine.push_context(ContextKind::BinaryOpRight { op: op_str });
             let left_span = arena.get_expr(left).span;
+
+            // Check left operand is int (skip Error/Never to prevent cascading)
+            let resolved_left = engine.resolve(left_ty);
+            let left_tag = engine.pool().tag(resolved_left);
+            match left_tag {
+                Tag::Int | Tag::Var => {}
+                Tag::Error => return Idx::ERROR,
+                Tag::Never => return Idx::NEVER,
+                _ => {
+                    engine.push_error(TypeCheckError::bad_binary_operand(
+                        left_span,
+                        "bitwise",
+                        "int",
+                        resolved_left,
+                    ));
+                    return Idx::ERROR;
+                }
+            }
+
+            // Check right operand (also skip Error/Never)
+            let resolved_right = engine.resolve(right_ty);
+            match engine.pool().tag(resolved_right) {
+                Tag::Error => return Idx::ERROR,
+                Tag::Never => return Idx::NEVER,
+                _ => {}
+            }
+
+            // Unify left and right as int
+            engine.push_context(ContextKind::BinaryOpRight { op: op_str });
             let expected = Expected {
-                ty: left_ty,
+                ty: Idx::INT,
                 origin: ExpectedOrigin::Context {
                     span: left_span,
                     kind: ContextKind::BinaryOpLeft { op: op_str },
@@ -320,8 +680,7 @@ fn infer_binary(
             let _ = engine.check_type(right_ty, &expected, arena.get_expr(right).span);
             engine.pop_context();
 
-            // Result type is the left operand type
-            engine.resolve(left_ty)
+            Idx::INT
         }
 
         // Range creation
@@ -342,17 +701,30 @@ fn infer_binary(
             engine.pool_mut().range(elem_ty)
         }
 
-        // Coalesce: Option<T> ?? T -> T
+        // Coalesce: Option<T> ?? T -> T  or  Result<T, E> ?? T -> T
         BinaryOp::Coalesce => {
-            // Left should be Option<T>, right should be T
             let resolved_left = engine.resolve(left_ty);
-            if engine.pool().tag(resolved_left) == Tag::Option {
-                let inner = engine.pool().option_inner(resolved_left);
-                let _ = engine.unify_types(inner, right_ty);
-                engine.resolve(inner)
-            } else {
-                engine.push_error(TypeCheckError::coalesce_requires_option(span));
-                Idx::ERROR
+            let left_tag = engine.pool().tag(resolved_left);
+            match left_tag {
+                Tag::Option => {
+                    let inner = engine.pool().option_inner(resolved_left);
+                    let _ = engine.unify_types(inner, right_ty);
+                    engine.resolve(inner)
+                }
+                Tag::Result => {
+                    let ok_ty = engine.pool().result_ok(resolved_left);
+                    let _ = engine.unify_types(ok_ty, right_ty);
+                    engine.resolve(ok_ty)
+                }
+                // Unresolved variable — defer via fresh var
+                Tag::Var => engine.fresh_var(),
+                Tag::Error => Idx::ERROR,
+                // Never is the bottom type — expression diverges before coalesce
+                Tag::Never => Idx::NEVER,
+                _ => {
+                    engine.push_error(TypeCheckError::coalesce_requires_option(span));
+                    Idx::ERROR
+                }
             }
         }
     }
@@ -370,29 +742,51 @@ fn infer_unary(
     let operand_span = arena.get_expr(operand).span;
 
     match op {
-        // Negation: numeric -> numeric
+        // Negation: numeric/duration/size -> same type
         UnaryOp::Neg => {
-            // operand must be numeric
             let resolved = engine.resolve(operand_ty);
             let tag = engine.pool().tag(resolved);
-            if tag == Tag::Int || tag == Tag::Float {
-                resolved
-            } else {
-                engine.push_error(TypeCheckError::negation_requires_numeric(operand_span));
-                Idx::ERROR
+            match tag {
+                Tag::Int | Tag::Float | Tag::Duration => resolved,
+                // Propagate errors and defer type variables
+                Tag::Error => Idx::ERROR,
+                Tag::Var => {
+                    // Type variable not yet resolved — unify with int as default
+                    let _ = engine.unify_types(operand_ty, Idx::INT);
+                    engine.resolve(operand_ty)
+                }
+                _ => {
+                    engine.push_error(TypeCheckError::bad_unary_operand(
+                        operand_span,
+                        "-",
+                        resolved,
+                    ));
+                    Idx::ERROR
+                }
             }
         }
 
         // Logical not: bool -> bool
         UnaryOp::Not => {
-            engine.push_context(ContextKind::UnaryOpOperand { op: "!" });
-            let expected = Expected {
-                ty: Idx::BOOL,
-                origin: ExpectedOrigin::NoExpectation,
-            };
-            let _ = engine.check_type(operand_ty, &expected, operand_span);
-            engine.pop_context();
-            Idx::BOOL
+            let resolved = engine.resolve(operand_ty);
+            let tag = engine.pool().tag(resolved);
+            match tag {
+                Tag::Bool => Idx::BOOL,
+                // Propagate errors and defer type variables
+                Tag::Error => Idx::ERROR,
+                Tag::Var => {
+                    let _ = engine.unify_types(operand_ty, Idx::BOOL);
+                    Idx::BOOL
+                }
+                _ => {
+                    engine.push_error(TypeCheckError::bad_unary_operand(
+                        operand_span,
+                        "!",
+                        resolved,
+                    ));
+                    Idx::ERROR
+                }
+            }
         }
 
         // Bitwise not: int -> int
@@ -415,6 +809,7 @@ fn infer_unary(
             match tag {
                 Tag::Option => engine.pool().option_inner(resolved),
                 Tag::Result => engine.pool().result_ok(resolved),
+                Tag::Error => Idx::ERROR,
                 _ => {
                     engine.push_error(TypeCheckError::try_requires_option_or_result(
                         span, resolved,
@@ -623,15 +1018,67 @@ fn check_match_pattern(
                     vec![engine.pool().option_inner(resolved)]
                 }
                 Tag::Result => {
-                    // Ok(x) or Err(e) pattern - check which variant
-                    // For now, assume we can infer from context
-                    // TODO: Use name to determine Ok vs Err
-                    let _ = name; // Will be used for variant discrimination
-                    vec![engine.pool().result_ok(resolved)]
+                    // Ok(x) or Err(e) pattern - use variant name to select inner type
+                    let variant_str = engine.lookup_name(*name);
+                    match variant_str {
+                        Some("Err") => vec![engine.pool().result_err(resolved)],
+                        _ => vec![engine.pool().result_ok(resolved)],
+                    }
+                }
+                Tag::Named | Tag::Applied => {
+                    // User-defined enum: look up variant field types from TypeRegistry,
+                    // substituting any generic type parameters with concrete types from
+                    // the scrutinee's type arguments.
+                    let result = engine.type_registry().and_then(|reg| {
+                        let (type_entry, variant_def) = reg.lookup_variant_def(*name)?;
+                        let field_types: Vec<Idx> = match &variant_def.fields {
+                            VariantFields::Unit => vec![],
+                            VariantFields::Tuple(types) => types.clone(),
+                            VariantFields::Record(fields) => fields.iter().map(|f| f.ty).collect(),
+                        };
+                        Some((type_entry.type_params.clone(), field_types))
+                    });
+
+                    match result {
+                        Some((type_params, field_types)) if type_params.is_empty() => {
+                            // Non-generic enum: field types are concrete, use directly
+                            field_types
+                        }
+                        Some((type_params, field_types)) => {
+                            // Generic enum: substitute type parameters with concrete
+                            // type arguments from the scrutinee.
+                            // e.g., scrutinee `MyResult<int, str>` → T=int, E=str
+                            let type_args = if tag == Tag::Applied {
+                                engine.pool().applied_args(resolved)
+                            } else {
+                                vec![]
+                            };
+
+                            if type_args.len() == type_params.len() {
+                                // Build param→arg mapping and substitute
+                                let substituted: Vec<Idx> = field_types
+                                    .iter()
+                                    .map(|&ft| {
+                                        substitute_type_params(engine, ft, &type_params, &type_args)
+                                    })
+                                    .collect();
+                                substituted
+                            } else {
+                                // Mismatch between expected and actual type args — use
+                                // fresh variables as fallback
+                                let inner_ids = arena.get_match_pattern_list(*inner);
+                                inner_ids.iter().map(|_| engine.fresh_var()).collect()
+                            }
+                        }
+                        None => {
+                            // Variant not found — fall back to fresh variables
+                            let inner_ids = arena.get_match_pattern_list(*inner);
+                            inner_ids.iter().map(|_| engine.fresh_var()).collect()
+                        }
+                    }
                 }
                 _ => {
-                    // User-defined enum - needs registry lookup (Section 07)
-                    // For now, create fresh variables for inner patterns
+                    // Unknown tag — fall back to fresh variables
                     let inner_ids = arena.get_match_pattern_list(*inner);
                     inner_ids.iter().map(|_| engine.fresh_var()).collect()
                 }
@@ -764,6 +1211,106 @@ fn check_match_pattern(
     }
 }
 
+/// Substitute generic type parameters in a field type with concrete type arguments.
+///
+/// Given a field type like `Named("T")` and a mapping `[T] → [int]`, returns `int`.
+/// For compound types (lists, tuples, functions, applied types), recurses into children.
+/// Non-parameterized types (primitives, error, etc.) are returned unchanged.
+fn substitute_type_params(
+    engine: &mut InferEngine<'_>,
+    field_ty: Idx,
+    type_params: &[ori_ir::Name],
+    type_args: &[Idx],
+) -> Idx {
+    let resolved = engine.resolve(field_ty);
+    let tag = engine.pool().tag(resolved);
+
+    match tag {
+        Tag::Named => {
+            // Check if this named type is one of the type parameters
+            let name = engine.pool().named_name(resolved);
+            for (i, &param_name) in type_params.iter().enumerate() {
+                if name == param_name {
+                    return type_args[i];
+                }
+            }
+            // Not a type parameter — return as-is (concrete named type)
+            resolved
+        }
+        Tag::Applied => {
+            // Recurse into applied type arguments: e.g., List<T> → List<int>
+            let app_name = engine.pool().applied_name(resolved);
+            let args = engine.pool().applied_args(resolved);
+            let substituted_args: Vec<Idx> = args
+                .iter()
+                .map(|&arg| substitute_type_params(engine, arg, type_params, type_args))
+                .collect();
+            engine.pool_mut().applied(app_name, &substituted_args)
+        }
+        Tag::List => {
+            let elem = engine.pool().list_elem(resolved);
+            let sub_elem = substitute_type_params(engine, elem, type_params, type_args);
+            engine.pool_mut().list(sub_elem)
+        }
+        Tag::Tuple => {
+            let elems = engine.pool().tuple_elems(resolved);
+            let sub_elems: Vec<Idx> = elems
+                .iter()
+                .map(|&e| substitute_type_params(engine, e, type_params, type_args))
+                .collect();
+            engine.pool_mut().tuple(&sub_elems)
+        }
+        Tag::Function => {
+            let params = engine.pool().function_params(resolved);
+            let ret = engine.pool().function_return(resolved);
+            let sub_params: Vec<Idx> = params
+                .iter()
+                .map(|&p| substitute_type_params(engine, p, type_params, type_args))
+                .collect();
+            let sub_ret = substitute_type_params(engine, ret, type_params, type_args);
+            engine.pool_mut().function(&sub_params, sub_ret)
+        }
+        Tag::Option => {
+            let inner = engine.pool().option_inner(resolved);
+            let sub_inner = substitute_type_params(engine, inner, type_params, type_args);
+            engine.pool_mut().option(sub_inner)
+        }
+        Tag::Result => {
+            let ok = engine.pool().result_ok(resolved);
+            let err = engine.pool().result_err(resolved);
+            let sub_ok = substitute_type_params(engine, ok, type_params, type_args);
+            let sub_err = substitute_type_params(engine, err, type_params, type_args);
+            engine.pool_mut().result(sub_ok, sub_err)
+        }
+        Tag::Map => {
+            let key = engine.pool().map_key(resolved);
+            let val = engine.pool().map_value(resolved);
+            let sub_key = substitute_type_params(engine, key, type_params, type_args);
+            let sub_val = substitute_type_params(engine, val, type_params, type_args);
+            engine.pool_mut().map(sub_key, sub_val)
+        }
+        // Primitives and other leaf types — no substitution needed
+        _ => resolved,
+    }
+}
+
+/// Substitute type parameters using a pre-built map of (Name, Idx) pairs.
+///
+/// This is a convenience wrapper around `substitute_type_params` that accepts
+/// a map representation rather than parallel arrays.
+fn substitute_type_params_with_map(
+    engine: &mut InferEngine<'_>,
+    field_ty: Idx,
+    subst_map: &[(Name, Idx)],
+) -> Idx {
+    if subst_map.is_empty() {
+        return field_ty;
+    }
+    let type_params: Vec<Name> = subst_map.iter().map(|(n, _)| *n).collect();
+    let type_args: Vec<Idx> = subst_map.iter().map(|(_, i)| *i).collect();
+    substitute_type_params(engine, field_ty, &type_params, &type_args)
+}
+
 // ============================================================================
 // Loop Inference
 // ============================================================================
@@ -864,21 +1411,33 @@ fn infer_for(
 /// - If breaks have values, the loop returns that type
 /// - If no breaks, the loop returns `never` (runs forever)
 fn infer_loop(engine: &mut InferEngine<'_>, arena: &ExprArena, body: ExprId, _span: Span) -> Idx {
+    // Create a fresh type variable for the loop's result (determined by break values)
+    let break_ty = engine.fresh_var();
+    engine.push_loop_break_type(break_ty);
+
     // Enter scope for loop
     engine.enter_scope();
 
-    // Infer body type (usually unit, break determines actual return)
+    // Infer body type (break expressions unify their value with break_ty)
     engine.push_context(ContextKind::LoopBody);
     let _body_ty = infer_expr(engine, arena, body);
     engine.pop_context();
 
     // Exit loop scope
     engine.exit_scope();
+    engine.pop_loop_break_type();
 
-    // Infinite loop without break tracking returns never
-    // TODO: Track break values to determine actual return type
-    // For now, return unit (most common case when breaks are present)
-    Idx::UNIT
+    // Resolve the break type — if no break was encountered, the variable
+    // stays unresolved (infinite loop returns Never). If breaks exist,
+    // it unifies to their value type.
+    let resolved = engine.resolve(break_ty);
+    if engine.pool().tag(resolved) == Tag::Var {
+        // No break was encountered — this is an infinite loop (returns Never)
+        // or a loop that only uses `break` without a value (returns unit)
+        Idx::UNIT
+    } else {
+        resolved
+    }
 }
 
 fn infer_block(
@@ -888,6 +1447,10 @@ fn infer_block(
     result: Option<ExprId>,
     _span: Span,
 ) -> Idx {
+    // Enter binding scope for the block.
+    // All let bindings within this block will be isolated from parent scope.
+    engine.enter_scope();
+
     // Process statements
     for stmt in arena.get_stmt_range(stmts) {
         match &stmt.kind {
@@ -898,29 +1461,48 @@ fn infer_block(
                 pattern,
                 ty,
                 init,
-                mutable,
+                mutable: _,
             } => {
+                // Enter rank scope for let-polymorphism (not binding scope).
+                // This allows type variables in the initializer to be generalized.
+                engine.enter_rank_scope();
+
                 // Infer initializer
                 let init_ty = infer_expr(engine, arena, *init);
 
-                // TODO: Check against type annotation if present
-                let _ = ty;
-                let _ = mutable;
+                // Generalize or use annotation type
+                // NOTE: ty is Option<TypeId> (old type system), not Option<ParsedType>
+                // For now, we ignore it and always generalize. Type annotation support
+                // for StmtKind::Let will be added during migration (Section 09).
+                let final_ty = if ty.is_some() {
+                    // TODO(migration): Convert TypeId to Idx and use as expected type
+                    // For now, just use the inferred type
+                    init_ty
+                } else {
+                    // Generalize free type variables for let-polymorphism
+                    engine.generalize(init_ty)
+                };
 
-                // Bind pattern to type
-                if let ori_ir::BindingPattern::Name(name) = pattern {
-                    engine.env_mut().bind(*name, init_ty);
-                }
-                // TODO: Handle complex patterns
+                // Exit rank scope (but stay in block's binding scope)
+                engine.exit_rank_scope();
+
+                // Bind pattern to the block's scope.
+                // The binding is visible to subsequent statements and the result.
+                bind_pattern(engine, arena, pattern, final_ty);
             }
         }
     }
 
     // Block type is the result expression type, or unit
-    match result {
+    let block_ty = match result {
         Some(result_id) => infer_expr(engine, arena, result_id),
         None => Idx::UNIT,
-    }
+    };
+
+    // Exit block scope - bindings are no longer visible
+    engine.exit_scope();
+
+    block_ty
 }
 
 fn infer_let(
@@ -930,25 +1512,71 @@ fn infer_let(
     ty_annotation: Option<&ori_ir::ParsedType>,
     init: ExprId,
     _mutable: bool,
-    _span: Span,
+    span: Span,
 ) -> Idx {
-    // Infer the initializer type
-    let init_ty = infer_expr(engine, arena, init);
+    // Enter scope for let-polymorphism.
+    // This increases the rank so that type variables created during
+    // initializer inference can be generalized.
+    engine.enter_scope();
 
-    // If there's a type annotation, check against it
-    if let Some(_parsed_ty) = ty_annotation {
-        // TODO: Convert ParsedType to Idx and check
-    }
+    let binding_name = pattern_first_name(pattern);
+    let errors_before = engine.error_count();
 
-    // Bind the pattern to the type
-    // For simple patterns, just bind the name
-    if let ori_ir::BindingPattern::Name(name) = pattern {
-        engine.env_mut().bind(*name, init_ty);
-    }
-    // TODO: Handle complex patterns (tuple, struct destructuring)
+    // Check/infer the initializer type based on presence of annotation
+    let final_ty = if let Some(parsed_ty) = ty_annotation {
+        // With type annotation: use bidirectional checking (allows literal coercion)
+        let expected_ty = resolve_parsed_type(engine, arena, parsed_ty);
+        let expected = Expected {
+            ty: expected_ty,
+            origin: ExpectedOrigin::Annotation {
+                name: pattern_first_name(pattern).unwrap_or(Name::EMPTY),
+                span,
+            },
+        };
+        // Use check_expr for bidirectional type checking (literal coercion)
+        let _init_ty = check_expr(engine, arena, init, &expected, span);
+        expected_ty
+    } else {
+        // No annotation: infer the initializer type
+        let init_ty = infer_expr(engine, arena, init);
+
+        // Detect closure self-capture: if the init is a lambda and any new errors
+        // are UnknownIdent matching the binding name, it's a self-capture attempt.
+        // Example: `let f = () -> f` — the closure body references `f`, which isn't
+        // yet in scope. This would create a reference cycle under ARC.
+        if let Some(name) = binding_name {
+            if matches!(arena.get_expr(init).kind, ExprKind::Lambda { .. }) {
+                engine.rewrite_self_capture_errors(name, errors_before);
+            }
+        }
+
+        // Generalize free type variables for let-polymorphism.
+        // Variables created at the current (elevated) rank will be quantified.
+        engine.generalize(init_ty)
+    };
+
+    // Exit scope (rank goes back down).
+    // The binding will be added to the outer environment.
+    engine.exit_scope();
+
+    // Bind the pattern to the (possibly generalized) type
+    bind_pattern(engine, arena, pattern, final_ty);
 
     // Let expression returns unit
     Idx::UNIT
+}
+
+/// Get the first name from a binding pattern (for error messages).
+fn pattern_first_name(pattern: &ori_ir::BindingPattern) -> Option<Name> {
+    match pattern {
+        ori_ir::BindingPattern::Name(name) => Some(*name),
+        ori_ir::BindingPattern::Tuple(pats) => pats.first().and_then(pattern_first_name),
+        ori_ir::BindingPattern::Struct { fields } => fields.first().map(|(name, _)| *name),
+        ori_ir::BindingPattern::List { elements, .. } => {
+            elements.first().and_then(pattern_first_name)
+        }
+        ori_ir::BindingPattern::Wildcard => None,
+    }
 }
 
 fn infer_lambda(
@@ -957,7 +1585,7 @@ fn infer_lambda(
     params: ori_ir::ParamRange,
     ret_ty: Option<&ori_ir::ParsedType>,
     body: ExprId,
-    _span: Span,
+    span: Span,
 ) -> Idx {
     // Enter a new scope for the lambda
     engine.enter_scope();
@@ -965,9 +1593,8 @@ fn infer_lambda(
     // Create types for parameters
     let mut param_types = Vec::new();
     for param in arena.get_params(params) {
-        let param_ty = if param.ty.is_some() {
-            // TODO: Convert ParsedType to Idx
-            engine.fresh_var()
+        let param_ty = if let Some(ref parsed_ty) = param.ty {
+            resolve_parsed_type(engine, arena, parsed_ty)
         } else {
             engine.fresh_var()
         };
@@ -975,10 +1602,19 @@ fn infer_lambda(
         param_types.push(param_ty);
     }
 
-    // Infer body type
-    let body_ty = if let Some(_ret) = ret_ty {
-        // TODO: Check body against return type annotation
-        infer_expr(engine, arena, body)
+    // Infer body type, checking against return annotation if present
+    let body_ty = if let Some(ret_parsed) = ret_ty {
+        let expected_ty = resolve_parsed_type(engine, arena, ret_parsed);
+        let inferred = infer_expr(engine, arena, body);
+        let expected = Expected {
+            ty: expected_ty,
+            origin: ExpectedOrigin::Context {
+                span,
+                kind: ContextKind::FunctionReturn { func_name: None },
+            },
+        };
+        let _ = engine.check_type(inferred, &expected, arena.get_expr(body).span);
+        expected_ty
     } else {
         infer_expr(engine, arena, body)
     };
@@ -1125,27 +1761,459 @@ fn infer_range(
     engine.pool_mut().range(resolved)
 }
 
-// Struct inference stubs
+// ============================================================================
+// Struct Inference
+// ============================================================================
+
+/// Infer type for a struct literal: `Point { x: 1, y: 2 }`.
+///
+/// Performs:
+/// 1. Type registry lookup to find the struct definition
+/// 2. Fresh type variable creation for generic type parameters
+/// 3. Type parameter substitution in field types
+/// 4. Field validation (unknown fields, duplicate fields, missing fields)
+/// 5. Unification of provided field values with expected field types
 fn infer_struct(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _name: Name,
-    _fields: ori_ir::FieldInitRange,
-    _span: Span,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    name: Name,
+    fields: ori_ir::FieldInitRange,
+    span: Span,
 ) -> Idx {
-    // TODO: Implement struct inference
-    Idx::ERROR
+    // Step 1: Look up the struct type in the registry
+    let Some(type_registry) = engine.type_registry() else {
+        // No type registry — infer field values but can't validate
+        let field_inits = arena.get_field_inits(fields);
+        for init in field_inits {
+            if let Some(value_id) = init.value {
+                infer_expr(engine, arena, value_id);
+            }
+        }
+        return Idx::ERROR;
+    };
+
+    let Some(entry) = type_registry.get_by_name(name).cloned() else {
+        // Unknown type name — still infer field values to avoid cascading errors
+        engine.push_error(TypeCheckError::unknown_ident(span, name, vec![]));
+        let field_inits = arena.get_field_inits(fields);
+        for init in field_inits {
+            if let Some(value_id) = init.value {
+                infer_expr(engine, arena, value_id);
+            }
+        }
+        return Idx::ERROR;
+    };
+
+    // Step 2: Verify it's a struct
+    let TypeKind::Struct(struct_def) = &entry.kind else {
+        engine.push_error(TypeCheckError::not_a_struct(span, name));
+        let field_inits = arena.get_field_inits(fields);
+        for init in field_inits {
+            if let Some(value_id) = init.value {
+                infer_expr(engine, arena, value_id);
+            }
+        }
+        return Idx::ERROR;
+    };
+    let struct_def = struct_def.clone();
+
+    // Step 3: Create fresh type variables for generic params
+    let type_param_subst: FxHashMap<Name, Idx> = entry
+        .type_params
+        .iter()
+        .map(|&param_name| (param_name, engine.fresh_var()))
+        .collect();
+
+    // Step 4: Build expected field types with substitution
+    let expected_fields: Vec<(Name, Idx)> = struct_def
+        .fields
+        .iter()
+        .map(|f| {
+            let ty = if type_param_subst.is_empty() {
+                f.ty
+            } else {
+                substitute_named_types(engine.pool_mut(), f.ty, &type_param_subst)
+            };
+            (f.name, ty)
+        })
+        .collect();
+
+    let expected_map: FxHashMap<Name, Idx> = expected_fields.iter().copied().collect();
+
+    // Step 5: Check provided fields
+    let field_inits = arena.get_field_inits(fields);
+    let mut provided_fields: FxHashSet<Name> =
+        FxHashSet::with_capacity_and_hasher(field_inits.len(), rustc_hash::FxBuildHasher);
+
+    for init in field_inits {
+        // Check for duplicate fields
+        if !provided_fields.insert(init.name) {
+            engine.push_error(TypeCheckError::duplicate_field(init.span, name, init.name));
+            continue;
+        }
+
+        if let Some(&expected_ty) = expected_map.get(&init.name) {
+            // Known field — infer value and unify with expected type
+            let actual_ty = if let Some(value_id) = init.value {
+                infer_expr(engine, arena, value_id)
+            } else {
+                // Shorthand: `Point { x }` means `Point { x: x }`
+                infer_ident(engine, init.name, init.span)
+            };
+            let _ = engine.unify_types(actual_ty, expected_ty);
+        } else {
+            // Unknown field — report error, still infer value
+            let available: Vec<Name> = expected_fields.iter().map(|(n, _)| *n).collect();
+            engine.push_error(TypeCheckError::undefined_field(
+                init.span, entry.idx, init.name, available,
+            ));
+            if let Some(value_id) = init.value {
+                infer_expr(engine, arena, value_id);
+            }
+        }
+    }
+
+    // Step 6: Check for missing fields
+    let missing: Vec<Name> = expected_fields
+        .iter()
+        .filter(|(field_name, _)| !provided_fields.contains(field_name))
+        .map(|(field_name, _)| *field_name)
+        .collect();
+
+    if !missing.is_empty() {
+        engine.push_error(TypeCheckError::missing_fields(span, name, missing));
+    }
+
+    // Step 7: Return the struct type
+    if type_param_subst.is_empty() {
+        engine.pool_mut().named(name)
+    } else {
+        let type_args: Vec<Idx> = entry
+            .type_params
+            .iter()
+            .map(|param_name| type_param_subst[param_name])
+            .collect();
+        engine.pool_mut().applied(name, &type_args)
+    }
 }
 
+/// Infer type for a struct literal with spread syntax: `Point { ...base, x: 10 }`.
 fn infer_struct_spread(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _name: Name,
-    _fields: ori_ir::StructLitFieldRange,
-    _span: Span,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    name: Name,
+    fields: ori_ir::StructLitFieldRange,
+    span: Span,
 ) -> Idx {
-    // TODO: Implement struct spread inference
-    Idx::ERROR
+    let struct_lit_fields = arena.get_struct_lit_fields(fields);
+
+    // Step 1: Look up the struct type in the registry
+    let Some(type_registry) = engine.type_registry() else {
+        for field in struct_lit_fields {
+            match field {
+                ori_ir::StructLitField::Field(init) => {
+                    if let Some(value_id) = init.value {
+                        infer_expr(engine, arena, value_id);
+                    }
+                }
+                ori_ir::StructLitField::Spread { expr, .. } => {
+                    infer_expr(engine, arena, *expr);
+                }
+            }
+        }
+        return Idx::ERROR;
+    };
+
+    let Some(entry) = type_registry.get_by_name(name).cloned() else {
+        engine.push_error(TypeCheckError::unknown_ident(span, name, vec![]));
+        for field in struct_lit_fields {
+            match field {
+                ori_ir::StructLitField::Field(init) => {
+                    if let Some(value_id) = init.value {
+                        infer_expr(engine, arena, value_id);
+                    }
+                }
+                ori_ir::StructLitField::Spread { expr, .. } => {
+                    infer_expr(engine, arena, *expr);
+                }
+            }
+        }
+        return Idx::ERROR;
+    };
+
+    let TypeKind::Struct(struct_def) = &entry.kind else {
+        engine.push_error(TypeCheckError::not_a_struct(span, name));
+        for field in struct_lit_fields {
+            match field {
+                ori_ir::StructLitField::Field(init) => {
+                    if let Some(value_id) = init.value {
+                        infer_expr(engine, arena, value_id);
+                    }
+                }
+                ori_ir::StructLitField::Spread { expr, .. } => {
+                    infer_expr(engine, arena, *expr);
+                }
+            }
+        }
+        return Idx::ERROR;
+    };
+    let struct_def = struct_def.clone();
+
+    // Step 2: Create fresh type variables for generic params
+    let type_param_subst: FxHashMap<Name, Idx> = entry
+        .type_params
+        .iter()
+        .map(|&param_name| (param_name, engine.fresh_var()))
+        .collect();
+
+    // Step 3: Build expected field types with substitution
+    let expected_fields: Vec<(Name, Idx)> = struct_def
+        .fields
+        .iter()
+        .map(|f| {
+            let ty = if type_param_subst.is_empty() {
+                f.ty
+            } else {
+                substitute_named_types(engine.pool_mut(), f.ty, &type_param_subst)
+            };
+            (f.name, ty)
+        })
+        .collect();
+
+    let expected_map: FxHashMap<Name, Idx> = expected_fields.iter().copied().collect();
+
+    // Build the target type for spread unification
+    let target_type = if type_param_subst.is_empty() {
+        engine.pool_mut().named(name)
+    } else {
+        let type_args: Vec<Idx> = entry
+            .type_params
+            .iter()
+            .map(|param_name| type_param_subst[param_name])
+            .collect();
+        engine.pool_mut().applied(name, &type_args)
+    };
+
+    // Step 4: Check provided fields
+    let mut provided_fields: FxHashSet<Name> =
+        FxHashSet::with_capacity_and_hasher(struct_lit_fields.len(), rustc_hash::FxBuildHasher);
+    let mut has_spread = false;
+
+    for field in struct_lit_fields {
+        match field {
+            ori_ir::StructLitField::Field(init) => {
+                if !provided_fields.insert(init.name) {
+                    engine.push_error(TypeCheckError::duplicate_field(init.span, name, init.name));
+                    continue;
+                }
+
+                if let Some(&expected_ty) = expected_map.get(&init.name) {
+                    let actual_ty = if let Some(value_id) = init.value {
+                        infer_expr(engine, arena, value_id)
+                    } else {
+                        infer_ident(engine, init.name, init.span)
+                    };
+                    let _ = engine.unify_types(actual_ty, expected_ty);
+                } else {
+                    let available: Vec<Name> = expected_fields.iter().map(|(n, _)| *n).collect();
+                    engine.push_error(TypeCheckError::undefined_field(
+                        init.span, entry.idx, init.name, available,
+                    ));
+                    if let Some(value_id) = init.value {
+                        infer_expr(engine, arena, value_id);
+                    }
+                }
+            }
+            ori_ir::StructLitField::Spread { expr, .. } => {
+                has_spread = true;
+                let spread_ty = infer_expr(engine, arena, *expr);
+                // Spread expression must be the same struct type
+                let _ = engine.unify_types(spread_ty, target_type);
+            }
+        }
+    }
+
+    // Step 5: Check for missing fields (only if no spread)
+    if !has_spread {
+        let missing: Vec<Name> = expected_fields
+            .iter()
+            .filter(|(field_name, _)| !provided_fields.contains(field_name))
+            .map(|(field_name, _)| *field_name)
+            .collect();
+
+        if !missing.is_empty() {
+            engine.push_error(TypeCheckError::missing_fields(span, name, missing));
+        }
+    }
+
+    target_type
+}
+
+/// Substitute Named types that match type parameter names with replacement types.
+///
+/// Walks the pool type structure recursively. For a generic struct `type Box<T> = { value: T }`,
+/// field type `Named(T)` is replaced with the fresh type variable allocated for T.
+fn substitute_named_types(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>) -> Idx {
+    match pool.tag(ty) {
+        Tag::Named => {
+            let name = pool.named_name(ty);
+            if let Some(&replacement) = subst.get(&name) {
+                replacement
+            } else {
+                ty
+            }
+        }
+
+        Tag::List => {
+            let elem = Idx::from_raw(pool.data(ty));
+            let new_elem = substitute_named_types(pool, elem, subst);
+            if new_elem == elem {
+                ty
+            } else {
+                pool.list(new_elem)
+            }
+        }
+
+        Tag::Option => {
+            let elem = Idx::from_raw(pool.data(ty));
+            let new_elem = substitute_named_types(pool, elem, subst);
+            if new_elem == elem {
+                ty
+            } else {
+                pool.option(new_elem)
+            }
+        }
+
+        Tag::Set => {
+            let elem = Idx::from_raw(pool.data(ty));
+            let new_elem = substitute_named_types(pool, elem, subst);
+            if new_elem == elem {
+                ty
+            } else {
+                pool.set(new_elem)
+            }
+        }
+
+        Tag::Channel => {
+            let elem = Idx::from_raw(pool.data(ty));
+            let new_elem = substitute_named_types(pool, elem, subst);
+            if new_elem == elem {
+                ty
+            } else {
+                pool.channel(new_elem)
+            }
+        }
+
+        Tag::Range => {
+            let elem = Idx::from_raw(pool.data(ty));
+            let new_elem = substitute_named_types(pool, elem, subst);
+            if new_elem == elem {
+                ty
+            } else {
+                pool.range(new_elem)
+            }
+        }
+
+        Tag::Map => {
+            let key = pool.map_key(ty);
+            let value = pool.map_value(ty);
+            let new_key = substitute_named_types(pool, key, subst);
+            let new_value = substitute_named_types(pool, value, subst);
+            if new_key == key && new_value == value {
+                ty
+            } else {
+                pool.map(new_key, new_value)
+            }
+        }
+
+        Tag::Result => {
+            let ok = pool.result_ok(ty);
+            let err = pool.result_err(ty);
+            let new_ok = substitute_named_types(pool, ok, subst);
+            let new_err = substitute_named_types(pool, err, subst);
+            if new_ok == ok && new_err == err {
+                ty
+            } else {
+                pool.result(new_ok, new_err)
+            }
+        }
+
+        Tag::Function => {
+            let params = pool.function_params(ty);
+            let ret = pool.function_return(ty);
+
+            let mut changed = false;
+            let new_params: Vec<Idx> = params
+                .iter()
+                .map(|&p| {
+                    let new_p = substitute_named_types(pool, p, subst);
+                    if new_p != p {
+                        changed = true;
+                    }
+                    new_p
+                })
+                .collect();
+
+            let new_ret = substitute_named_types(pool, ret, subst);
+            if new_ret != ret {
+                changed = true;
+            }
+
+            if changed {
+                pool.function(&new_params, new_ret)
+            } else {
+                ty
+            }
+        }
+
+        Tag::Tuple => {
+            let elems = pool.tuple_elems(ty);
+
+            let mut changed = false;
+            let new_elems: Vec<Idx> = elems
+                .iter()
+                .map(|&e| {
+                    let new_e = substitute_named_types(pool, e, subst);
+                    if new_e != e {
+                        changed = true;
+                    }
+                    new_e
+                })
+                .collect();
+
+            if changed {
+                pool.tuple(&new_elems)
+            } else {
+                ty
+            }
+        }
+
+        Tag::Applied => {
+            let app_name = pool.applied_name(ty);
+            let args = pool.applied_args(ty);
+
+            let mut changed = false;
+            let new_args: Vec<Idx> = args
+                .iter()
+                .map(|&a| {
+                    let new_a = substitute_named_types(pool, a, subst);
+                    if new_a != a {
+                        changed = true;
+                    }
+                    new_a
+                })
+                .collect();
+
+            if changed {
+                pool.applied(app_name, &new_args)
+            } else {
+                ty
+            }
+        }
+
+        // Primitives, Error, Var, BoundVar, RigidVar, etc. — no substitution needed
+        _ => ty,
+    }
 }
 
 // Option/Result constructors
@@ -1189,11 +2257,23 @@ fn infer_none(engine: &mut InferEngine<'_>) -> Idx {
 
 // Control flow expression stubs
 fn infer_break(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _value: Option<ExprId>,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    value: Option<ExprId>,
     _span: Span,
 ) -> Idx {
+    // Infer the break value's type (unit if no value)
+    let value_ty = match value {
+        Some(expr_id) => infer_expr(engine, arena, expr_id),
+        None => Idx::UNIT,
+    };
+
+    // Unify with the enclosing loop's break type variable
+    if let Some(loop_break_ty) = engine.current_loop_break_type() {
+        let _ = engine.unify_types(value_ty, loop_break_ty);
+    }
+
+    // Break itself is a diverging expression (control transfers to loop exit)
     Idx::NEVER
 }
 
@@ -1240,15 +2320,25 @@ fn infer_await(
 }
 
 fn infer_cast(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _expr: ExprId,
-    _ty: &ori_ir::ParsedType,
-    _fallible: bool,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    expr: ExprId,
+    ty: &ori_ir::ParsedType,
+    fallible: bool,
     _span: Span,
 ) -> Idx {
-    // TODO: Implement cast inference
-    Idx::ERROR
+    // Infer the expression type (for validation, though we don't check cast validity here)
+    let _expr_ty = infer_expr(engine, arena, expr);
+
+    // Resolve the target type
+    let target_ty = resolve_parsed_type(engine, arena, ty);
+
+    // Fallible casts return Option<T>, infallible return T directly
+    if fallible {
+        engine.pool_mut().option(target_ty)
+    } else {
+        target_ty
+    }
 }
 
 fn infer_assign(
@@ -1313,8 +2403,16 @@ fn infer_call(
 
     let arg_ids: Vec<_> = arena.iter_expr_list(args).collect();
 
-    // Check arity
-    if arg_ids.len() != params.len() {
+    // Look up required_params from function signature if available
+    let required_params = match &arena.get_expr(func).kind {
+        ExprKind::FunctionRef(name) | ExprKind::Ident(name) => engine
+            .get_signature(*name)
+            .map_or(params.len(), |sig| sig.required_params),
+        _ => params.len(),
+    };
+
+    // Check arity: allow fewer args if defaults fill the gap
+    if arg_ids.len() < required_params || arg_ids.len() > params.len() {
         engine.push_error(TypeCheckError::arity_mismatch(
             span,
             params.len(),
@@ -1324,7 +2422,7 @@ fn infer_call(
         return Idx::ERROR;
     }
 
-    // Check each argument
+    // Check each provided argument
     for (i, (&arg_id, &param_ty)) in arg_ids.iter().zip(params.iter()).enumerate() {
         let expected = Expected {
             ty: param_ty,
@@ -1345,60 +2443,1142 @@ fn infer_call(
 }
 
 fn infer_call_named(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _func: ExprId,
-    _args: ori_ir::CallArgRange,
-    _span: Span,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    func: ExprId,
+    args: ori_ir::CallArgRange,
+    span: Span,
 ) -> Idx {
-    // TODO: Implement named call inference
-    Idx::ERROR
+    let func_ty = infer_expr(engine, arena, func);
+    let resolved = engine.resolve(func_ty);
+
+    if engine.pool().tag(resolved) != Tag::Function {
+        if resolved != Idx::ERROR {
+            engine.push_error(TypeCheckError::not_callable(span, resolved));
+        }
+        return Idx::ERROR;
+    }
+
+    let params = engine.pool().function_params(resolved);
+    let ret = engine.pool().function_return(resolved);
+
+    let call_args = arena.get_call_args(args);
+
+    // Extract function name for error messages and signature lookup
+    let func_name_id = match &arena.get_expr(func).kind {
+        ExprKind::FunctionRef(name) | ExprKind::Ident(name) => Some(*name),
+        _ => None,
+    };
+    let func_name = func_name_id.and_then(|n| engine.lookup_name(n).map(String::from));
+
+    // Look up required_params from function signature if available
+    let required_params = func_name_id
+        .and_then(|n| engine.get_signature(n))
+        .map_or(params.len(), |sig| sig.required_params);
+
+    // Check arity: allow fewer args if defaults fill the gap
+    if call_args.len() < required_params || call_args.len() > params.len() {
+        if let Some(name) = &func_name {
+            engine.push_error(TypeCheckError::arity_mismatch_named(
+                span,
+                name.clone(),
+                params.len(),
+                call_args.len(),
+            ));
+        } else {
+            engine.push_error(TypeCheckError::arity_mismatch(
+                span,
+                params.len(),
+                call_args.len(),
+                crate::ArityMismatchKind::Function,
+            ));
+        }
+        return Idx::ERROR;
+    }
+
+    // Check each argument type by position
+    for (i, (arg, &param_ty)) in call_args.iter().zip(params.iter()).enumerate() {
+        let expected = Expected {
+            ty: param_ty,
+            origin: ExpectedOrigin::Context {
+                span: arena.get_expr(func).span,
+                kind: ContextKind::FunctionArgument {
+                    func_name: func_name.as_deref().and_then(|_| {
+                        // Use the Name from the expression for context tracking
+                        match &arena.get_expr(func).kind {
+                            ExprKind::FunctionRef(n) | ExprKind::Ident(n) => Some(*n),
+                            _ => None,
+                        }
+                    }),
+                    arg_index: i,
+                    param_name: arg.name,
+                },
+            },
+        };
+        let arg_ty = infer_expr(engine, arena, arg.value);
+        let _ = engine.check_type(arg_ty, &expected, arg.span);
+    }
+
+    // Validate where-clause constraints after argument type-checking.
+    // At this point, generic type variables have been unified with concrete types.
+    if let Some(func_name) = match &arena.get_expr(func).kind {
+        ExprKind::FunctionRef(n) | ExprKind::Ident(n) => Some(*n),
+        _ => None,
+    } {
+        check_where_clauses(engine, func_name, &params, span);
+    }
+
+    ret
 }
 
+/// Validate where-clause constraints for a generic function call.
+///
+/// After argument type-checking has unified generic type variables with concrete
+/// types, this checks constraints like `where C.Item: Eq` by:
+/// 1. Resolving the concrete type for the generic param
+/// 2. Finding the trait impl that defines the associated type
+/// 3. Looking up the projected type
+/// 4. Checking the projected type satisfies the required trait bound
+///
+/// Uses a three-phase approach to satisfy the borrow checker:
+/// 1. Mutable phase: resolve types and create pool entries
+/// 2. Immutable phase: check trait registry and collect violations
+/// 3. Mutable phase: push collected errors
+fn check_where_clauses(
+    engine: &mut InferEngine<'_>,
+    func_name: Name,
+    params: &[Idx],
+    call_span: Span,
+) {
+    struct PreparedCheck {
+        concrete_type: Idx,
+        projection: Option<Name>,
+        bound_entries: Vec<(Name, Idx)>,
+        trait_bound_entries: Vec<Idx>,
+    }
+
+    let Some(sig) = engine.get_signature(func_name) else {
+        return;
+    };
+    let sig = sig.clone();
+
+    if sig.where_clauses.is_empty() {
+        return;
+    }
+
+    // Phase 1 (mutable): Resolve concrete types and create named Idx entries
+
+    let mut prepared = Vec::new();
+
+    for wc in &sig.where_clauses {
+        let Some(tp_idx) = sig.type_params.iter().position(|&n| n == wc.param) else {
+            continue;
+        };
+        let Some(Some(param_idx)) = sig.generic_param_mapping.get(tp_idx) else {
+            continue;
+        };
+        let Some(&instantiated_param) = params.get(*param_idx) else {
+            continue;
+        };
+        let concrete_type = engine.resolve(instantiated_param);
+        if concrete_type == Idx::ERROR {
+            continue;
+        }
+
+        // Pre-create named Idx for each bound (needs &mut pool)
+        let bound_entries: Vec<(Name, Idx)> = wc
+            .bounds
+            .iter()
+            .map(|&name| (name, engine.pool_mut().named(name)))
+            .collect();
+
+        // Pre-create named Idx for type param bounds (for projection lookup)
+        let type_param_bounds = sig
+            .type_param_bounds
+            .get(tp_idx)
+            .cloned()
+            .unwrap_or_default();
+        let trait_bound_entries: Vec<Idx> = type_param_bounds
+            .iter()
+            .map(|&name| engine.pool_mut().named(name))
+            .collect();
+
+        prepared.push(PreparedCheck {
+            concrete_type,
+            projection: wc.projection,
+            bound_entries,
+            trait_bound_entries,
+        });
+    }
+
+    // Phase 2 (immutable): Check trait registry and collect error messages
+    let errors = {
+        let Some(trait_registry) = engine.trait_registry() else {
+            return;
+        };
+        let pool = engine.pool();
+
+        let mut errors: Vec<String> = Vec::new();
+
+        for check in &prepared {
+            if let Some(projection) = check.projection {
+                // Where-clause with projection: `where C.Item: Eq`
+                for &trait_idx in &check.trait_bound_entries {
+                    let Some((_, impl_entry)) =
+                        trait_registry.find_impl(trait_idx, check.concrete_type)
+                    else {
+                        continue;
+                    };
+                    let Some(&projected_type) = impl_entry.assoc_types.get(&projection) else {
+                        continue;
+                    };
+                    for &(bound_name, bound_idx) in &check.bound_entries {
+                        let bound_str = engine.lookup_name(bound_name).unwrap_or("");
+                        if !trait_registry.has_impl(bound_idx, projected_type)
+                            && !type_satisfies_trait(projected_type, bound_str, pool)
+                        {
+                            errors.push(format!("does not satisfy trait bound `{bound_str}`",));
+                        }
+                    }
+                }
+            } else {
+                // Direct bound: `where T: Clone`
+                for &(bound_name, bound_idx) in &check.bound_entries {
+                    let bound_str = engine.lookup_name(bound_name).unwrap_or("");
+                    if !trait_registry.has_impl(bound_idx, check.concrete_type)
+                        && !type_satisfies_trait(check.concrete_type, bound_str, pool)
+                    {
+                        errors.push(format!("does not satisfy trait bound `{bound_str}`",));
+                    }
+                }
+            }
+        }
+
+        errors
+    };
+
+    // Phase 3 (mutable): Push collected errors
+    for msg in errors {
+        engine.push_error(TypeCheckError::unsatisfied_bound(call_span, msg));
+    }
+}
+
+/// Check if a type inherently satisfies a trait without needing an explicit impl.
+///
+/// Mirrors V1's `primitive_implements_trait()` from `bound_checking.rs`.
+/// Primitive and built-in types have known trait implementations that don't
+/// require explicit `impl` blocks in the trait registry.
+fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
+    // Trait sets for each primitive type, matching V1's const arrays.
+    const INT_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Default",
+        "Printable",
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "FloorDiv",
+        "Rem",
+        "Neg",
+        "BitAnd",
+        "BitOr",
+        "BitXor",
+        "BitNot",
+        "Shl",
+        "Shr",
+    ];
+    const FLOAT_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Default",
+        "Printable",
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "Neg",
+    ];
+    const BOOL_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Default", "Printable", "Not"];
+    const STR_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Default",
+        "Printable",
+        "Len",
+        "IsEmpty",
+        "Add",
+    ];
+    const CHAR_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
+    const BYTE_TRAITS: &[&str] = &[
+        "Eq",
+        "Clone",
+        "Hashable",
+        "Printable",
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "Rem",
+        "BitAnd",
+        "BitOr",
+        "BitXor",
+        "BitNot",
+        "Shl",
+        "Shr",
+    ];
+    const UNIT_TRAITS: &[&str] = &["Eq", "Clone", "Default"];
+    const DURATION_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Default",
+        "Printable",
+        "Sendable",
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "Rem",
+        "Neg",
+    ];
+    const SIZE_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Default",
+        "Printable",
+        "Sendable",
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "Rem",
+    ];
+    const ORDERING_TRAITS: &[&str] = &["Eq", "Clone", "Printable"];
+
+    // Check primitive types by Idx constant
+    if ty == Idx::INT {
+        return INT_TRAITS.contains(&trait_name);
+    }
+    if ty == Idx::FLOAT {
+        return FLOAT_TRAITS.contains(&trait_name);
+    }
+    if ty == Idx::BOOL {
+        return BOOL_TRAITS.contains(&trait_name);
+    }
+    if ty == Idx::STR {
+        return STR_TRAITS.contains(&trait_name);
+    }
+    if ty == Idx::CHAR {
+        return CHAR_TRAITS.contains(&trait_name);
+    }
+    if ty == Idx::BYTE {
+        return BYTE_TRAITS.contains(&trait_name);
+    }
+    if ty == Idx::UNIT {
+        return UNIT_TRAITS.contains(&trait_name);
+    }
+    if ty == Idx::DURATION {
+        return DURATION_TRAITS.contains(&trait_name);
+    }
+    if ty == Idx::SIZE {
+        return SIZE_TRAITS.contains(&trait_name);
+    }
+    if ty == Idx::ORDERING {
+        return ORDERING_TRAITS.contains(&trait_name);
+    }
+
+    false
+}
+
+/// Extended trait satisfaction check that also handles compound types via Pool tags.
+///
+/// This extends `primitive_satisfies_trait` to handle List, Map, Option, Result,
+/// Tuple, Set, and Range — types that aren't simple Idx constants but can be
+/// identified by their Pool tag.
+fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bool {
+    const COLLECTION_TRAITS: &[&str] = &["Clone", "Eq", "Len", "IsEmpty"];
+    const WRAPPER_TRAITS: &[&str] = &["Clone", "Eq", "Default"];
+    const RESULT_TRAITS: &[&str] = &["Clone", "Eq"];
+
+    // First check primitives (no pool access needed)
+    if primitive_satisfies_trait(ty, trait_name) {
+        return true;
+    }
+
+    // Then check compound types by tag
+
+    match pool.tag(ty) {
+        Tag::List | Tag::Map | Tag::Set => COLLECTION_TRAITS.contains(&trait_name),
+        Tag::Option => WRAPPER_TRAITS.contains(&trait_name),
+        Tag::Result | Tag::Tuple => RESULT_TRAITS.contains(&trait_name),
+        Tag::Range => trait_name == "Len",
+        _ => false,
+    }
+}
+
+/// Infer the type of a method call expression: `receiver.method(args)`.
+///
+/// Resolution priority:
+/// 1. Built-in methods on primitives/collections (len, `is_empty`, first, etc.)
+/// 2. User-defined inherent methods (from `impl Type { ... }`)
+/// 3. User-defined trait methods (from `impl Trait for Type { ... }`)
+///
+/// For unresolved type variables, returns a fresh variable to defer resolution.
 fn infer_method_call(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _receiver: ExprId,
-    _method: Name,
-    _args: ori_ir::ExprList,
-    _span: Span,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    receiver: ExprId,
+    method: Name,
+    args: ori_ir::ExprList,
+    span: Span,
 ) -> Idx {
-    // TODO: Implement method call inference
+    let receiver_ty = infer_expr(engine, arena, receiver);
+    let resolved = engine.resolve(receiver_ty);
+
+    // Propagate errors silently, but still infer args
+    if resolved == Idx::ERROR {
+        for arg_id in arena.iter_expr_list(args) {
+            infer_expr(engine, arena, arg_id);
+        }
+        return Idx::ERROR;
+    }
+
+    // If receiver is a scheme, instantiate it to get the concrete type
+    let resolved = if engine.pool().tag(resolved) == Tag::Scheme {
+        engine.instantiate(resolved)
+    } else {
+        resolved
+    };
+
+    // For unresolved type variables, infer args and return fresh var
+    let tag = engine.pool().tag(resolved);
+    if tag == Tag::Var {
+        for arg_id in arena.iter_expr_list(args) {
+            infer_expr(engine, arena, arg_id);
+        }
+        return engine.pool_mut().fresh_var();
+    }
+
+    // Resolve method name to string for built-in lookup
+    let method_str = engine.lookup_name(method).map(String::from);
+
+    // 1. Try built-in method resolution
+    if let Some(ref name_str) = method_str {
+        if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
+            // Infer arguments (built-in methods don't have formal param types yet)
+            for arg_id in arena.iter_expr_list(args) {
+                infer_expr(engine, arena, arg_id);
+            }
+            return ret;
+        }
+    }
+
+    // 2. Try user-defined method resolution via TraitRegistry
+    if let Some(ret) = resolve_impl_method(engine, arena, resolved, method, args, span) {
+        return ret;
+    }
+
+    // 3. No method found — silently return ERROR to preserve backward compatibility.
+    // Once impl method registration is complete, this should report an error instead.
+    for arg_id in arena.iter_expr_list(args) {
+        infer_expr(engine, arena, arg_id);
+    }
     Idx::ERROR
 }
 
+/// Infer the type of a named-argument method call: `receiver.method(name: value)`.
 fn infer_method_call_named(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _receiver: ExprId,
-    _method: Name,
-    _args: ori_ir::CallArgRange,
-    _span: Span,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    receiver: ExprId,
+    method: Name,
+    args: ori_ir::CallArgRange,
+    span: Span,
 ) -> Idx {
-    // TODO: Implement named method call inference
+    let receiver_ty = infer_expr(engine, arena, receiver);
+    let resolved = engine.resolve(receiver_ty);
+
+    // Propagate errors silently, but still infer args
+    if resolved == Idx::ERROR {
+        for arg in arena.get_call_args(args) {
+            infer_expr(engine, arena, arg.value);
+        }
+        return Idx::ERROR;
+    }
+
+    // If receiver is a scheme, instantiate it
+    let resolved = if engine.pool().tag(resolved) == Tag::Scheme {
+        engine.instantiate(resolved)
+    } else {
+        resolved
+    };
+
+    // For unresolved type variables, infer args and return fresh var
+    let tag = engine.pool().tag(resolved);
+    if tag == Tag::Var {
+        for arg in arena.get_call_args(args) {
+            infer_expr(engine, arena, arg.value);
+        }
+        return engine.pool_mut().fresh_var();
+    }
+
+    // Resolve method name to string for built-in lookup
+    let method_str = engine.lookup_name(method).map(String::from);
+
+    // 1. Try built-in method resolution
+    if let Some(ref name_str) = method_str {
+        if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
+            for arg in arena.get_call_args(args) {
+                infer_expr(engine, arena, arg.value);
+            }
+            return ret;
+        }
+    }
+
+    // 2. Try user-defined method resolution via TraitRegistry
+    if let Some(ret) = resolve_impl_method_named(engine, arena, resolved, method, args, span) {
+        return ret;
+    }
+
+    // 3. No method found — silently return ERROR to preserve backward compatibility.
+    for arg in arena.get_call_args(args) {
+        infer_expr(engine, arena, arg.value);
+    }
     Idx::ERROR
 }
 
+/// Resolve a built-in method call on a known type tag.
+///
+/// Returns `Some(return_type)` if the method is a known built-in,
+/// `None` if the method is not recognized for this type tag.
+fn resolve_builtin_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    tag: Tag,
+    method_name: &str,
+) -> Option<Idx> {
+    match tag {
+        Tag::List => resolve_list_method(engine, receiver_ty, method_name),
+        Tag::Option => resolve_option_method(engine, receiver_ty, method_name),
+        Tag::Result => resolve_result_method(engine, receiver_ty, method_name),
+        Tag::Map => resolve_map_method(engine, receiver_ty, method_name),
+        Tag::Set => resolve_set_method(engine, receiver_ty, method_name),
+        Tag::Str => resolve_str_method(engine, method_name),
+        Tag::Int => resolve_int_method(method_name),
+        Tag::Float => resolve_float_method(method_name),
+        Tag::Duration => resolve_duration_method(method_name),
+        Tag::Size => resolve_size_method(method_name),
+        Tag::Channel => resolve_channel_method(engine, receiver_ty, method_name),
+        Tag::Range => resolve_range_method(engine, receiver_ty, method_name),
+        Tag::Named | Tag::Applied => resolve_named_type_method(engine, receiver_ty, method_name),
+        Tag::Bool => resolve_bool_method(method_name),
+        Tag::Byte => resolve_byte_method(method_name),
+        Tag::Char => resolve_char_method(method_name),
+        Tag::Tuple => resolve_tuple_method(engine, receiver_ty, method_name),
+        _ => None,
+    }
+}
+
+fn resolve_list_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: &str,
+) -> Option<Idx> {
+    let elem = Idx::from_raw(engine.pool().data(receiver_ty));
+    match method {
+        "len" | "count" => Some(Idx::INT),
+        "is_empty" | "contains" => Some(Idx::BOOL),
+        "first" | "last" | "pop" | "get" => Some(engine.pool_mut().option(elem)),
+        "reverse" | "sort" | "sorted" | "unique" | "flatten" | "push" | "append" | "prepend" => {
+            Some(receiver_ty)
+        }
+        "join" => Some(Idx::STR),
+        "enumerate" => {
+            let pair = engine.pool_mut().tuple(&[Idx::INT, elem]);
+            Some(engine.pool_mut().list(pair))
+        }
+        "zip" => {
+            // zip takes another list and returns list of tuples
+            // Without knowing the other list's element type, return fresh var
+            let other_elem = engine.pool_mut().fresh_var();
+            let pair = engine.pool_mut().tuple(&[elem, other_elem]);
+            Some(engine.pool_mut().list(pair))
+        }
+        "map" | "filter" | "flat_map" | "find" | "any" | "all" | "fold" | "reduce" | "for_each"
+        | "take" | "skip" | "take_while" | "skip_while" | "chunk" | "window" | "min" | "max"
+        | "sum" | "product" | "min_by" | "max_by" | "sort_by" | "group_by" | "partition" => {
+            // Higher-order methods — return type depends on closure argument.
+            // For now return fresh var; proper HO method inference is a follow-up.
+            Some(engine.pool_mut().fresh_var())
+        }
+        _ => None,
+    }
+}
+
+fn resolve_option_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: &str,
+) -> Option<Idx> {
+    let inner = Idx::from_raw(engine.pool().data(receiver_ty));
+    match method {
+        "is_some" | "is_none" => Some(Idx::BOOL),
+        "unwrap" | "expect" | "unwrap_or" => Some(inner),
+        "map" | "and_then" | "flat_map" | "filter" | "or_else" => {
+            Some(engine.pool_mut().fresh_var())
+        }
+        "or" => Some(receiver_ty),
+        _ => None,
+    }
+}
+
+fn resolve_result_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: &str,
+) -> Option<Idx> {
+    let ok_ty = engine.pool().result_ok(receiver_ty);
+    let err_ty = engine.pool().result_err(receiver_ty);
+    match method {
+        "is_ok" | "is_err" => Some(Idx::BOOL),
+        "unwrap" | "expect" | "unwrap_or" => Some(ok_ty),
+        "unwrap_err" | "expect_err" => Some(err_ty),
+        "ok" => Some(engine.pool_mut().option(ok_ty)),
+        "err" => Some(engine.pool_mut().option(err_ty)),
+        "map" | "map_err" | "and_then" | "or_else" => Some(engine.pool_mut().fresh_var()),
+        _ => None,
+    }
+}
+
+fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &str) -> Option<Idx> {
+    let key_ty = engine.pool().map_key(receiver_ty);
+    let value_ty = engine.pool().map_value(receiver_ty);
+    match method {
+        "len" => Some(Idx::INT),
+        "is_empty" | "contains_key" | "contains" => Some(Idx::BOOL),
+        "get" => Some(engine.pool_mut().option(value_ty)),
+        "keys" => Some(engine.pool_mut().list(key_ty)),
+        "values" => Some(engine.pool_mut().list(value_ty)),
+        "entries" => {
+            let pair = engine.pool_mut().tuple(&[key_ty, value_ty]);
+            Some(engine.pool_mut().list(pair))
+        }
+        "insert" | "remove" | "update" | "merge" => Some(receiver_ty),
+        _ => None,
+    }
+}
+
+fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &str) -> Option<Idx> {
+    let elem = Idx::from_raw(engine.pool().data(receiver_ty));
+    match method {
+        "len" => Some(Idx::INT),
+        "is_empty" | "contains" => Some(Idx::BOOL),
+        "insert" | "remove" | "union" | "intersection" | "difference" => Some(receiver_ty),
+        "to_list" => Some(engine.pool_mut().list(elem)),
+        _ => None,
+    }
+}
+
+fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx> {
+    match method {
+        "len" | "byte_len" => Some(Idx::INT),
+        "is_empty" | "starts_with" | "ends_with" | "contains" => Some(Idx::BOOL),
+        "to_upper" | "to_lower" | "trim" | "trim_start" | "trim_end" | "replace" | "repeat"
+        | "pad_start" | "pad_end" | "slice" | "substring" => Some(Idx::STR),
+        "chars" => Some(engine.pool_mut().list(Idx::CHAR)),
+        "bytes" => Some(engine.pool_mut().list(Idx::BYTE)),
+        "split" | "lines" => Some(engine.pool_mut().list(Idx::STR)),
+        "index_of" | "last_index_of" | "to_int" | "parse_int" => {
+            Some(engine.pool_mut().option(Idx::INT))
+        }
+        "to_float" | "parse_float" => Some(engine.pool_mut().option(Idx::FLOAT)),
+        _ => None,
+    }
+}
+
+fn resolve_int_method(method: &str) -> Option<Idx> {
+    match method {
+        "abs" | "min" | "max" | "clamp" | "pow" | "signum" => Some(Idx::INT),
+        "to_float" => Some(Idx::FLOAT),
+        "to_str" => Some(Idx::STR),
+        "to_byte" => Some(Idx::BYTE),
+        "is_positive" | "is_negative" | "is_zero" | "is_even" | "is_odd" => Some(Idx::BOOL),
+        _ => None,
+    }
+}
+
+fn resolve_float_method(method: &str) -> Option<Idx> {
+    match method {
+        "abs" | "sqrt" | "cbrt" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2"
+        | "ln" | "log2" | "log10" | "exp" | "pow" | "min" | "max" | "clamp" | "signum" => {
+            Some(Idx::FLOAT)
+        }
+        "floor" | "ceil" | "round" | "trunc" | "to_int" => Some(Idx::INT),
+        "to_str" => Some(Idx::STR),
+        "is_nan" | "is_infinite" | "is_finite" | "is_normal" | "is_positive" | "is_negative"
+        | "is_zero" => Some(Idx::BOOL),
+        _ => None,
+    }
+}
+
+fn resolve_duration_method(method: &str) -> Option<Idx> {
+    match method {
+        // Instance methods
+        "to_seconds" | "to_millis" | "to_micros" | "to_nanos" | "as_seconds" | "as_millis"
+        | "as_micros" | "as_nanos" => Some(Idx::FLOAT),
+        "to_str" | "format" => Some(Idx::STR),
+        "abs" | "from_nanoseconds" | "from_microseconds" | "from_milliseconds" | "from_seconds"
+        | "from_minutes" | "from_hours" | "from_nanos" | "from_micros" | "from_millis" | "zero" => {
+            Some(Idx::DURATION)
+        }
+        "is_zero" | "is_negative" | "is_positive" => Some(Idx::BOOL),
+        "nanoseconds" | "microseconds" | "milliseconds" | "seconds" | "minutes" | "hours" => {
+            Some(Idx::INT)
+        }
+        _ => None,
+    }
+}
+
+fn resolve_size_method(method: &str) -> Option<Idx> {
+    match method {
+        // Instance methods
+        "to_bytes" | "as_bytes" | "to_kb" | "to_mb" | "to_gb" | "to_tb" => Some(Idx::INT),
+        "to_str" | "format" => Some(Idx::STR),
+        "is_zero" => Some(Idx::BOOL),
+        // Associated functions (static constructors): Size.from_bytes(b: 100)
+        "from_bytes" | "from_kilobytes" | "from_megabytes" | "from_gigabytes"
+        | "from_terabytes" | "from_kb" | "from_mb" | "from_gb" | "from_tb" | "zero" => {
+            Some(Idx::SIZE)
+        }
+        _ => None,
+    }
+}
+
+fn resolve_channel_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: &str,
+) -> Option<Idx> {
+    let elem = Idx::from_raw(engine.pool().data(receiver_ty));
+    match method {
+        "send" | "close" => Some(Idx::UNIT),
+        "recv" | "receive" | "try_recv" | "try_receive" => Some(engine.pool_mut().option(elem)),
+        "is_closed" | "is_empty" => Some(Idx::BOOL),
+        "len" => Some(Idx::INT),
+        _ => None,
+    }
+}
+
+fn resolve_range_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: &str,
+) -> Option<Idx> {
+    let elem = Idx::from_raw(engine.pool().data(receiver_ty));
+    match method {
+        "len" | "count" => Some(Idx::INT),
+        "is_empty" | "contains" => Some(Idx::BOOL),
+        "to_list" | "collect" => Some(engine.pool_mut().list(elem)),
+        "step_by" => Some(receiver_ty),
+        _ => None,
+    }
+}
+
+/// Resolve methods on Named/Applied types (user-defined structs, enums, newtypes).
+///
+/// For newtypes, supports `.unwrap()` to extract the inner value.
+fn resolve_named_type_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method_name: &str,
+) -> Option<Idx> {
+    // Check type registry for newtype unwrap
+    if method_name == "unwrap" || method_name == "inner" || method_name == "value" {
+        if let Some(type_registry) = engine.type_registry() {
+            if let Some(entry) = type_registry.get_by_idx(receiver_ty) {
+                if let crate::TypeKind::Newtype { underlying } = &entry.kind {
+                    return Some(*underlying);
+                }
+            }
+        }
+    }
+
+    // Common methods on any user-defined type
+    match method_name {
+        "to_str" => Some(Idx::STR),
+        _ => None,
+    }
+}
+
+fn resolve_bool_method(method_name: &str) -> Option<Idx> {
+    match method_name {
+        "to_str" => Some(Idx::STR),
+        "to_int" => Some(Idx::INT),
+        _ => None,
+    }
+}
+
+fn resolve_byte_method(method_name: &str) -> Option<Idx> {
+    match method_name {
+        "to_int" => Some(Idx::INT),
+        "to_char" => Some(Idx::CHAR),
+        "to_str" => Some(Idx::STR),
+        "is_ascii" | "is_ascii_digit" | "is_ascii_alpha" | "is_ascii_whitespace" => Some(Idx::BOOL),
+        _ => None,
+    }
+}
+
+fn resolve_char_method(method_name: &str) -> Option<Idx> {
+    match method_name {
+        "to_str" => Some(Idx::STR),
+        "to_int" | "to_byte" => Some(Idx::INT),
+        "is_digit" | "is_alpha" | "is_whitespace" | "is_uppercase" | "is_lowercase"
+        | "is_ascii" => Some(Idx::BOOL),
+        "to_upper" | "to_lower" => Some(Idx::CHAR),
+        _ => None,
+    }
+}
+
+fn resolve_tuple_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method_name: &str,
+) -> Option<Idx> {
+    match method_name {
+        "len" => Some(Idx::INT),
+        "to_list" => {
+            // Only works if all elements are the same type
+            let count = engine.pool().tuple_elem_count(receiver_ty);
+            if count > 0 {
+                let first = engine.pool().tuple_elem(receiver_ty, 0);
+                Some(engine.pool_mut().list(first))
+            } else {
+                Some(engine.pool_mut().list(Idx::UNIT))
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Try to resolve a method call through the `TraitRegistry` (user-defined impls).
+///
+/// Returns `Some(return_type)` if the method was found, `None` otherwise.
+fn resolve_impl_method(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    receiver_ty: Idx,
+    method: Name,
+    args: ori_ir::ExprList,
+    span: Span,
+) -> Option<Idx> {
+    // Look up the method signature and self-ness from user-defined impls
+    let (sig_ty, has_self) = {
+        let trait_registry = engine.trait_registry()?;
+        let lookup = trait_registry.lookup_method(receiver_ty, method)?;
+        (lookup.method().signature, lookup.method().has_self)
+    };
+
+    let resolved_sig = engine.resolve(sig_ty);
+    if engine.pool().tag(resolved_sig) != Tag::Function {
+        // Signature exists but isn't a proper function type
+        for arg_id in arena.iter_expr_list(args) {
+            infer_expr(engine, arena, arg_id);
+        }
+        return Some(Idx::ERROR);
+    }
+
+    let params = engine.pool().function_params(resolved_sig);
+    let ret = engine.pool().function_return(resolved_sig);
+
+    // For instance methods (has_self), skip the first `self` param.
+    // For associated functions, use all params.
+    let skip = usize::from(has_self);
+    let method_params: Vec<Idx> = params[skip..].to_vec();
+
+    let arg_ids: Vec<_> = arena.iter_expr_list(args).collect();
+
+    // Check arity
+    if arg_ids.len() != method_params.len() {
+        engine.push_error(TypeCheckError::arity_mismatch(
+            span,
+            method_params.len(),
+            arg_ids.len(),
+            crate::ArityMismatchKind::Function,
+        ));
+        return Some(Idx::ERROR);
+    }
+
+    // Check each argument
+    for (i, (&arg_id, &param_ty)) in arg_ids.iter().zip(method_params.iter()).enumerate() {
+        let expected = Expected {
+            ty: param_ty,
+            origin: ExpectedOrigin::Context {
+                span,
+                kind: ContextKind::FunctionArgument {
+                    func_name: None,
+                    arg_index: i,
+                    param_name: None,
+                },
+            },
+        };
+        let arg_ty = infer_expr(engine, arena, arg_id);
+        let _ = engine.check_type(arg_ty, &expected, arena.get_expr(arg_id).span);
+    }
+
+    Some(ret)
+}
+
+/// Try to resolve a named-argument method call through the `TraitRegistry`.
+fn resolve_impl_method_named(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    receiver_ty: Idx,
+    method: Name,
+    args: ori_ir::CallArgRange,
+    span: Span,
+) -> Option<Idx> {
+    let (sig_ty, has_self) = {
+        let trait_registry = engine.trait_registry()?;
+        let lookup = trait_registry.lookup_method(receiver_ty, method)?;
+        (lookup.method().signature, lookup.method().has_self)
+    };
+
+    let resolved_sig = engine.resolve(sig_ty);
+    if engine.pool().tag(resolved_sig) != Tag::Function {
+        for arg in arena.get_call_args(args) {
+            infer_expr(engine, arena, arg.value);
+        }
+        return Some(Idx::ERROR);
+    }
+
+    let params = engine.pool().function_params(resolved_sig);
+    let ret = engine.pool().function_return(resolved_sig);
+
+    // For instance methods (has_self), skip the first `self` param.
+    // For associated functions, use all params.
+    let skip = usize::from(has_self);
+    let method_params: Vec<Idx> = params[skip..].to_vec();
+
+    let call_args = arena.get_call_args(args);
+
+    if call_args.len() != method_params.len() {
+        engine.push_error(TypeCheckError::arity_mismatch(
+            span,
+            method_params.len(),
+            call_args.len(),
+            crate::ArityMismatchKind::Function,
+        ));
+        return Some(Idx::ERROR);
+    }
+
+    for (i, (arg, &param_ty)) in call_args.iter().zip(method_params.iter()).enumerate() {
+        let expected = Expected {
+            ty: param_ty,
+            origin: ExpectedOrigin::Context {
+                span,
+                kind: ContextKind::FunctionArgument {
+                    func_name: None,
+                    arg_index: i,
+                    param_name: arg.name,
+                },
+            },
+        };
+        let arg_ty = infer_expr(engine, arena, arg.value);
+        let _ = engine.check_type(arg_ty, &expected, arena.get_expr(arg.value).span);
+    }
+
+    Some(ret)
+}
+
+/// Infer the type of a field access expression: `receiver.field`.
+///
+/// Handles:
+/// - Tuple field access by numeric index (`.0`, `.1`, etc.)
+/// - Struct field access by name (`.x`, `.name`)
+/// - Generic struct field access with type parameter substitution
+/// - Module namespace access (`Counter.new`)
+///
+/// For unresolved type variables, returns a fresh variable to defer resolution.
+/// For error types, propagates ERROR silently. For types where field access
+/// is genuinely unsupported (primitives, functions, etc.), returns ERROR
+/// without reporting an error — method resolution may handle these separately.
 fn infer_field(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _receiver: ExprId,
-    _field: Name,
-    _span: Span,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    receiver: ExprId,
+    field: Name,
+    span: Span,
 ) -> Idx {
-    // TODO: Implement field access inference
-    Idx::ERROR
+    let receiver_ty = infer_expr(engine, arena, receiver);
+    let resolved = engine.resolve(receiver_ty);
+
+    match engine.pool().tag(resolved) {
+        Tag::Tuple => {
+            // Tuple field access: `.0`, `.1`, etc.
+            let Some(field_str) = engine.lookup_name(field) else {
+                return Idx::ERROR;
+            };
+            if let Ok(index) = field_str.parse::<usize>() {
+                let elems = engine.pool().tuple_elems(resolved);
+                if index < elems.len() {
+                    elems[index]
+                } else {
+                    engine.push_error(TypeCheckError::undefined_field(
+                        span,
+                        resolved,
+                        field,
+                        vec![],
+                    ));
+                    Idx::ERROR
+                }
+            } else {
+                engine.push_error(TypeCheckError::undefined_field(
+                    span,
+                    resolved,
+                    field,
+                    vec![],
+                ));
+                Idx::ERROR
+            }
+        }
+
+        Tag::Named => {
+            let type_name = engine.pool().named_name(resolved);
+            infer_struct_field(engine, type_name, None, field, span)
+        }
+
+        Tag::Applied => {
+            let type_name = engine.pool().applied_name(resolved);
+            let type_args = engine.pool().applied_args(resolved);
+            infer_struct_field(engine, type_name, Some(type_args), field, span)
+        }
+
+        // Unresolved type variable — return fresh var to defer resolution
+        // (following V1 pattern: the actual field type will be resolved later)
+        Tag::Var => engine.fresh_var(),
+
+        // Error, or unsupported types for field access — return ERROR silently.
+        // Don't report errors here since module namespace access
+        // (e.g., `Counter.new`) and other patterns may reach this point
+        // and would require method/namespace resolution to diagnose properly.
+        _ => Idx::ERROR,
+    }
 }
 
+/// Look up a field on a struct type, with optional type argument substitution.
+///
+/// For types not in the registry or non-struct types, returns ERROR silently.
+/// This avoids false positives for imported types or types that aren't yet
+/// fully registered (e.g., from other modules).
+///
+/// Only reports errors when the struct is known but the field doesn't exist —
+/// a case where we can give a definitive, useful error message.
+fn infer_struct_field(
+    engine: &mut InferEngine<'_>,
+    type_name: Name,
+    type_args: Option<Vec<Idx>>,
+    field: Name,
+    span: Span,
+) -> Idx {
+    let Some(type_registry) = engine.type_registry() else {
+        return Idx::ERROR;
+    };
+
+    let Some(entry) = type_registry.get_by_name(type_name).cloned() else {
+        return Idx::ERROR; // Not registered — likely imported
+    };
+
+    let TypeKind::Struct(struct_def) = &entry.kind else {
+        return Idx::ERROR; // Enum/newtype/alias — not a struct
+    };
+
+    // Find the field
+    let Some(field_def) = struct_def.fields.iter().find(|f| f.name == field).cloned() else {
+        let available: Vec<Name> = struct_def.fields.iter().map(|f| f.name).collect();
+        let receiver_idx = engine.pool_mut().named(type_name);
+        engine.push_error(TypeCheckError::undefined_field(
+            span,
+            receiver_idx,
+            field,
+            available,
+        ));
+        return Idx::ERROR;
+    };
+
+    // Substitute type parameters for generic structs
+    if let Some(args) = type_args {
+        if !entry.type_params.is_empty() && args.len() == entry.type_params.len() {
+            let subst: FxHashMap<Name, Idx> = entry
+                .type_params
+                .iter()
+                .zip(args.iter())
+                .map(|(&param, &arg)| (param, arg))
+                .collect();
+            return substitute_named_types(engine.pool_mut(), field_def.ty, &subst);
+        }
+    }
+
+    field_def.ty
+}
+
+/// Infer the type of an index access expression (e.g., `list[0]`, `map["key"]`).
+///
+/// Validates that the receiver is indexable and the index type matches:
+/// - `[T]` indexed by `int` returns `T`
+/// - `Map<K, V>` indexed by `K` returns `Option<V>`
+/// - `str` indexed by `int` returns `str`
+///
+/// Returns ERROR silently for non-indexable types to avoid false positives
+/// when the receiver type is unknown or not yet fully resolved.
 fn infer_index(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _receiver: ExprId,
-    _index: ExprId,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    receiver: ExprId,
+    index: ExprId,
     _span: Span,
 ) -> Idx {
-    // TODO: Implement index access inference
-    Idx::ERROR
+    let receiver_ty = infer_expr(engine, arena, receiver);
+    let index_ty = infer_expr(engine, arena, index);
+    let resolved = engine.resolve(receiver_ty);
+
+    match engine.pool().tag(resolved) {
+        Tag::List => {
+            let elem_ty = engine.pool().list_elem(resolved);
+            let _ = engine.unify_types(index_ty, Idx::INT);
+            elem_ty
+        }
+
+        Tag::Map => {
+            let key_ty = engine.pool().map_key(resolved);
+            let value_ty = engine.pool().map_value(resolved);
+            let _ = engine.unify_types(index_ty, key_ty);
+            // Map indexing returns Option<V>
+            engine.pool_mut().option(value_ty)
+        }
+
+        Tag::Str => {
+            let _ = engine.unify_types(index_ty, Idx::INT);
+            Idx::STR
+        }
+
+        // Unresolved type variable — return fresh var
+        Tag::Var => engine.fresh_var(),
+
+        // Error, non-indexable, or unknown types — return ERROR silently.
+        // Avoids false positives for types that may support custom indexing
+        // or types not yet fully resolved in inference.
+        _ => Idx::ERROR,
+    }
 }
 
 /// Infer type for a `function_seq` expression (run, try, match, for).
@@ -1617,26 +3797,79 @@ fn infer_seq_binding(
 
     match binding {
         SeqBinding::Let {
-            pattern, ty, value, ..
+            pattern,
+            ty,
+            value,
+            span,
+            ..
         } => {
-            // Infer the initializer type
-            let init_ty = infer_expr(engine, arena, *value);
+            // Track error count for closure self-capture detection
+            let binding_name = pattern_first_name(pattern);
+            let errors_before = engine.error_count();
 
-            // For try blocks, unwrap Result/Option
-            let bound_ty = if try_unwrap {
-                unwrap_result_or_option(engine, init_ty)
-            } else {
-                init_ty
-            };
+            // Enter scope for let-polymorphism (allows generalization of lambdas)
+            engine.enter_scope();
 
-            // Handle type annotation if present
+            // Handle type annotation if present, or generalize for let-polymorphism
             let final_ty = if let Some(parsed_ty) = ty {
-                // TODO: Convert ParsedType to Idx
-                let _ = parsed_ty;
-                bound_ty
+                // With type annotation
+                let expected_ty = resolve_parsed_type(engine, arena, parsed_ty);
+
+                if try_unwrap {
+                    // For try blocks: infer, unwrap, then check against annotation
+                    // e.g., `let x: int = succeed(42)` where succeed returns Result<int>
+                    let init_ty = infer_expr(engine, arena, *value);
+                    let unwrapped = unwrap_result_or_option(engine, init_ty);
+
+                    let expected = Expected {
+                        ty: expected_ty,
+                        origin: ExpectedOrigin::Annotation {
+                            name: pattern_first_name(pattern).unwrap_or(Name::EMPTY),
+                            span: *span,
+                        },
+                    };
+                    let _ = engine.check_type(unwrapped, &expected, *span);
+                    expected_ty
+                } else {
+                    // For run blocks: use bidirectional checking (allows literal coercion)
+                    // e.g., `let x: byte = 65` coerces int literal to byte
+                    let expected = Expected {
+                        ty: expected_ty,
+                        origin: ExpectedOrigin::Annotation {
+                            name: pattern_first_name(pattern).unwrap_or(Name::EMPTY),
+                            span: *span,
+                        },
+                    };
+                    let _init_ty = check_expr(engine, arena, *value, &expected, *span);
+                    expected_ty
+                }
             } else {
-                bound_ty
+                // No annotation: infer the initializer type
+                let init_ty = infer_expr(engine, arena, *value);
+
+                // Detect closure self-capture: if the init is a lambda and any new
+                // errors are UnknownIdent matching the binding name, rewrite them.
+                // Example: `run(let f = () -> f, ...)` — f isn't yet in scope.
+                if let Some(name) = binding_name {
+                    if matches!(arena.get_expr(*value).kind, ExprKind::Lambda { .. }) {
+                        engine.rewrite_self_capture_errors(name, errors_before);
+                    }
+                }
+
+                // For try blocks, unwrap Result/Option
+                let bound_ty = if try_unwrap {
+                    unwrap_result_or_option(engine, init_ty)
+                } else {
+                    init_ty
+                };
+
+                // Generalize free type variables for let-polymorphism
+                // This enables: `let id = x -> x, id(42), id("hello")`
+                engine.generalize(bound_ty)
             };
+
+            // Exit scope before binding (generalization happens at current rank)
+            engine.exit_scope();
 
             // Bind pattern to type
             bind_pattern(engine, arena, pattern, final_ty);
@@ -2008,6 +4241,223 @@ fn infer_with(engine: &mut InferEngine<'_>, arena: &ExprArena, props: &[ori_ir::
     }
 
     body_ty.unwrap_or_else(|| engine.fresh_var())
+}
+
+// =============================================================================
+// ParsedType → Idx Resolution
+// =============================================================================
+
+/// Resolve a `ParsedType` from the AST into a pool `Idx`.
+///
+/// This converts parsed type annotations into the pool representation.
+/// The conversion is recursive for compound types (functions, containers, etc.).
+///
+/// # Type Mapping
+///
+/// | `ParsedType` | `Idx` |
+/// |--------------|-------|
+/// | `Primitive(TypeId::INT)` | `Idx::INT` |
+/// | `Primitive(TypeId::VOID)` | `Idx::UNIT` |
+/// | `Primitive(TypeId::INFER)` | fresh variable |
+/// | `List(elem)` | `pool.list(resolve(elem))` |
+/// | `Function { params, ret }` | `pool.function(...)` |
+/// | `Named { name, args }` | lookup or fresh var |
+/// | `Infer` | fresh variable |
+/// | `SelfType` | fresh variable (TODO: context lookup) |
+///
+/// # Future Work
+///
+/// - Named type lookup requires `TypeRegistry` integration (section 07)
+/// - `SelfType` requires trait/impl context
+/// - `AssociatedType` requires projection support
+pub fn resolve_parsed_type(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    parsed: &ParsedType,
+) -> Idx {
+    match parsed {
+        // === Primitive Types ===
+        ParsedType::Primitive(type_id) => resolve_type_id(engine, *type_id),
+
+        // === Container Types ===
+        ParsedType::List(elem_id) => {
+            let elem = arena.get_parsed_type(*elem_id);
+            let elem_ty = resolve_parsed_type(engine, arena, elem);
+            engine.pool_mut().list(elem_ty)
+        }
+
+        ParsedType::FixedList { elem, capacity: _ } => {
+            // Fixed lists are treated as regular lists for now
+            // TODO: Add fixed list support when needed
+            let elem_parsed = arena.get_parsed_type(*elem);
+            let elem_ty = resolve_parsed_type(engine, arena, elem_parsed);
+            engine.pool_mut().list(elem_ty)
+        }
+
+        ParsedType::Map { key, value } => {
+            let key_parsed = arena.get_parsed_type(*key);
+            let value_parsed = arena.get_parsed_type(*value);
+            let key_ty = resolve_parsed_type(engine, arena, key_parsed);
+            let value_ty = resolve_parsed_type(engine, arena, value_parsed);
+            engine.pool_mut().map(key_ty, value_ty)
+        }
+
+        // === Tuple Types ===
+        ParsedType::Tuple(elems) => {
+            if elems.is_empty() {
+                Idx::UNIT
+            } else {
+                let elem_types = resolve_parsed_type_list(engine, arena, *elems);
+                engine.pool_mut().tuple(&elem_types)
+            }
+        }
+
+        // === Function Types ===
+        ParsedType::Function { params, ret } => {
+            let param_types = resolve_parsed_type_list(engine, arena, *params);
+            let ret_parsed = arena.get_parsed_type(*ret);
+            let ret_ty = resolve_parsed_type(engine, arena, ret_parsed);
+            engine.pool_mut().function(&param_types, ret_ty)
+        }
+
+        // === Named Types ===
+        ParsedType::Named { name, type_args } => {
+            // Resolve type arguments if present
+            let resolved_args: Vec<Idx> = if type_args.is_empty() {
+                Vec::new()
+            } else {
+                resolve_parsed_type_list(engine, arena, *type_args)
+            };
+
+            // Check for well-known generic types that have dedicated Pool tags.
+            // Must use the correct Pool constructors to match types created during inference.
+            if !resolved_args.is_empty() {
+                if let Some(name_str) = engine.lookup_name(*name) {
+                    match (name_str, resolved_args.len()) {
+                        ("Option", 1) => return engine.pool_mut().option(resolved_args[0]),
+                        ("Result", 2) => {
+                            return engine.pool_mut().result(resolved_args[0], resolved_args[1]);
+                        }
+                        ("Set", 1) => return engine.pool_mut().set(resolved_args[0]),
+                        ("Channel" | "Chan", 1) => {
+                            return engine.pool_mut().channel(resolved_args[0]);
+                        }
+                        ("Range", 1) => return engine.pool_mut().range(resolved_args[0]),
+                        _ => {
+                            // User-defined generic: Applied type
+                            return engine.pool_mut().applied(*name, &resolved_args);
+                        }
+                    }
+                }
+                // No interner — create Applied type with name and args
+                return engine.pool_mut().applied(*name, &resolved_args);
+            }
+
+            // No type args — check for builtin primitive names
+            if let Some(name_str) = engine.lookup_name(*name) {
+                match name_str {
+                    "int" => return Idx::INT,
+                    "float" => return Idx::FLOAT,
+                    "bool" => return Idx::BOOL,
+                    "str" => return Idx::STR,
+                    "char" => return Idx::CHAR,
+                    "byte" => return Idx::BYTE,
+                    "void" | "()" => return Idx::UNIT,
+                    "never" | "Never" => return Idx::NEVER,
+                    "duration" => return Idx::DURATION,
+                    "size" => return Idx::SIZE,
+                    "ordering" | "Ordering" => return Idx::ORDERING,
+                    _ => {}
+                }
+            }
+
+            // Check if it's a known user-defined type in the TypeRegistry
+            if let Some(registry) = engine.type_registry() {
+                if registry.get_by_name(*name).is_some() {
+                    return engine.pool_mut().named(*name);
+                }
+            }
+
+            // Check if it's bound in the current environment (type parameter or local)
+            if let Some(ty) = engine.env().lookup(*name) {
+                return engine.instantiate(ty);
+            }
+
+            // Unknown type — create a named var for inference
+            engine.fresh_named_var(*name)
+        }
+
+        // === Inference Markers ===
+        ParsedType::Infer => engine.fresh_var(),
+
+        ParsedType::SelfType => {
+            // TODO: Look up Self type from trait/impl context
+            // For now, create a fresh variable
+            engine.fresh_var()
+        }
+
+        ParsedType::AssociatedType { base, assoc_name } => {
+            // TODO: Resolve associated type projection
+            // For now, just resolve base and create a fresh var for the projection
+            let base_parsed = arena.get_parsed_type(*base);
+            let _base_ty = resolve_parsed_type(engine, arena, base_parsed);
+            let _ = assoc_name; // Will be used for projection lookup
+            engine.fresh_var()
+        }
+    }
+}
+
+/// Resolve a list of parsed types into a vector of pool indices.
+fn resolve_parsed_type_list(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    range: ParsedTypeRange,
+) -> Vec<Idx> {
+    let ids = arena.get_parsed_type_list(range);
+    ids.iter()
+        .map(|id| {
+            let parsed = arena.get_parsed_type(*id);
+            resolve_parsed_type(engine, arena, parsed)
+        })
+        .collect()
+}
+
+/// Resolve a `TypeId` primitive to an `Idx`.
+///
+/// Handles the mapping between `TypeId` constants (from `ori_ir`) and `Idx` constants.
+///
+/// # `TypeId` Overlap
+///
+/// `TypeId` has intentional overlaps for markers vs runtime types:
+/// - `TypeId::INFER` (8) = `TypeId::DURATION` (8) - `INFER` is a parsing marker, `DURATION` is runtime
+/// - `TypeId::SELF_TYPE` (9) = `TypeId::SIZE` (9) - `SELF_TYPE` is a parsing marker, `SIZE` is runtime
+///
+/// When resolving `ParsedType::Primitive`, we interpret:
+/// - Value 8 as `DURATION` (`INFER` comes through `ParsedType::Infer`, not `Primitive`)
+/// - Value 9 as `SIZE` (`SELF_TYPE` comes through `ParsedType::SelfType`, not `Primitive`)
+fn resolve_type_id(engine: &mut InferEngine<'_>, type_id: TypeId) -> Idx {
+    // Note: We match on raw values for overlapping constants.
+    // TypeId::INFER (8) and TypeId::DURATION (8) have the same value.
+    // TypeId::SELF_TYPE (9) and TypeId::SIZE (9) have the same value.
+    // In ParsedType::Primitive, we interpret these as DURATION and SIZE.
+    match type_id.raw() {
+        0 => Idx::INT,
+        1 => Idx::FLOAT,
+        2 => Idx::BOOL,
+        3 => Idx::STR,
+        4 => Idx::CHAR,
+        5 => Idx::BYTE,
+        6 => Idx::UNIT, // TypeId::VOID
+        7 => Idx::NEVER,
+        8 => Idx::DURATION, // TypeId::DURATION (also INFER, but Infer uses ParsedType::Infer)
+        9 => Idx::SIZE,     // TypeId::SIZE (also SELF_TYPE, but Self uses ParsedType::SelfType)
+        10 => Idx::ERROR,
+        11 => Idx::ORDERING,
+        _ => {
+            // Unknown primitive - treat as inference variable
+            engine.fresh_var()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -3775,5 +6225,179 @@ mod tests {
             "timeout should return Option"
         );
         assert!(!engine.has_errors());
+    }
+
+    // ========================================================================
+    // ParsedType Resolution Tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_primitive_int() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let arena = ExprArena::new();
+
+        let parsed = ParsedType::Primitive(ori_ir::TypeId::INT);
+        let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        assert_eq!(ty, Idx::INT);
+    }
+
+    #[test]
+    fn test_resolve_primitive_void_to_unit() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let arena = ExprArena::new();
+
+        // TypeId::VOID (6) should map to Idx::UNIT (6)
+        let parsed = ParsedType::Primitive(ori_ir::TypeId::VOID);
+        let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        assert_eq!(ty, Idx::UNIT);
+    }
+
+    #[test]
+    fn test_resolve_primitive_duration() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let arena = ExprArena::new();
+
+        let parsed = ParsedType::Primitive(ori_ir::TypeId::DURATION);
+        let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        assert_eq!(ty, Idx::DURATION);
+    }
+
+    #[test]
+    fn test_resolve_primitive_size() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let arena = ExprArena::new();
+
+        let parsed = ParsedType::Primitive(ori_ir::TypeId::SIZE);
+        let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        assert_eq!(ty, Idx::SIZE);
+    }
+
+    #[test]
+    fn test_resolve_list_type() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let mut arena = ExprArena::new();
+
+        // [int]
+        let elem_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+        let parsed = ParsedType::List(elem_id);
+        let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        assert_eq!(engine.pool().tag(ty), Tag::List);
+        assert_eq!(engine.pool().list_elem(ty), Idx::INT);
+    }
+
+    #[test]
+    fn test_resolve_tuple_type() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let mut arena = ExprArena::new();
+
+        // (int, str)
+        let int_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+        let str_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::STR));
+        let elems = arena.alloc_parsed_type_list([int_id, str_id]);
+        let parsed = ParsedType::Tuple(elems);
+        let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        assert_eq!(engine.pool().tag(ty), Tag::Tuple);
+        let tuple_elems = engine.pool().tuple_elems(ty);
+        assert_eq!(tuple_elems.len(), 2);
+        assert_eq!(tuple_elems[0], Idx::INT);
+        assert_eq!(tuple_elems[1], Idx::STR);
+    }
+
+    #[test]
+    fn test_resolve_function_type() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let mut arena = ExprArena::new();
+
+        // (int, int) -> bool
+        let int_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+        let int_id2 = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+        let bool_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::BOOL));
+        let params = arena.alloc_parsed_type_list([int_id, int_id2]);
+        let parsed = ParsedType::Function {
+            params,
+            ret: bool_id,
+        };
+        let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        assert_eq!(engine.pool().tag(ty), Tag::Function);
+        let fn_params = engine.pool().function_params(ty);
+        assert_eq!(fn_params.len(), 2);
+        assert_eq!(fn_params[0], Idx::INT);
+        assert_eq!(fn_params[1], Idx::INT);
+        assert_eq!(engine.pool().function_return(ty), Idx::BOOL);
+    }
+
+    #[test]
+    fn test_resolve_map_type() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let mut arena = ExprArena::new();
+
+        // {str: int}
+        let key_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::STR));
+        let value_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+        let parsed = ParsedType::Map {
+            key: key_id,
+            value: value_id,
+        };
+        let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        assert_eq!(engine.pool().tag(ty), Tag::Map);
+        assert_eq!(engine.pool().map_key(ty), Idx::STR);
+        assert_eq!(engine.pool().map_value(ty), Idx::INT);
+    }
+
+    #[test]
+    fn test_resolve_infer_creates_fresh_var() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let arena = ExprArena::new();
+
+        let parsed = ParsedType::Infer;
+        let ty1 = resolve_parsed_type(&mut engine, &arena, &parsed);
+        let ty2 = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        // Should create different fresh variables
+        assert_eq!(engine.pool().tag(ty1), Tag::Var);
+        assert_eq!(engine.pool().tag(ty2), Tag::Var);
+        assert_ne!(ty1, ty2);
+    }
+
+    #[test]
+    fn test_resolve_self_type_creates_fresh_var() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let arena = ExprArena::new();
+
+        let parsed = ParsedType::SelfType;
+        let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        // For now, SelfType creates a fresh variable
+        assert_eq!(engine.pool().tag(ty), Tag::Var);
+    }
+
+    #[test]
+    fn test_resolve_empty_tuple_is_unit() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let arena = ExprArena::new();
+
+        let parsed = ParsedType::unit();
+        let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
+
+        assert_eq!(ty, Idx::UNIT);
     }
 }

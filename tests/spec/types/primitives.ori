@@ -260,7 +260,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_str_escape tests @str_escape () -> void = run(
     let x = "line1\nline2",
-    assert(cond: len(collection: x) > 6),
+    assert(cond: x.len() > 6),
 )
 
 @str_escape () -> str = "line1\nline2"
@@ -299,16 +299,16 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_str_len tests @str_len () -> void = run(
     assert_eq(
-        actual: len(collection: "hello"),
+        actual: "hello".len(),
         expected: 5,
     ),
     assert_eq(
-        actual: len(collection: ""),
+        actual: "".len(),
         expected: 0,
     ),
 )
 
-@str_len () -> int = len(collection: "hello")
+@str_len () -> int = "hello".len()
 
 // =============================================================================
 // char — Unicode Character
@@ -666,43 +666,43 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @test_str_unicode_byte_len tests @str_unicode_byte_len () -> void = run(
     let x = "こんにちは",
-    // len() returns byte count, not character count
-    assert(cond: len(collection: x) == 15),
+    // .len() returns byte count, not character count
+    assert(cond: x.len() == 15),
 )
 
-@str_unicode_byte_len () -> int = len(collection: "こんにちは")
+@str_unicode_byte_len () -> int = "こんにちは".len()
 
 @test_str_emoji tests @str_emoji () -> void = run(
     let x = "Hello 👋 World",
-    assert(cond: len(collection: x) > 10),
+    assert(cond: x.len() > 10),
 )
 
 @str_emoji () -> str = "Hello 👋 World"
 
 @test_str_multiline_escape tests @str_multiline_escape () -> void = run(
     let x = "line1\nline2\nline3",
-    assert(cond: len(collection: x) > 15),
+    assert(cond: x.len() > 15),
 )
 
 @str_multiline_escape () -> str = "line1\nline2\nline3"
 
 @test_str_tab_escape tests @str_tab_escape () -> void = run(
     let x = "col1\tcol2",
-    assert(cond: len(collection: x) == 9),
+    assert(cond: x.len() == 9),
 )
 
 @str_tab_escape () -> str = "col1\tcol2"
 
 @test_str_quote_escape tests @str_quote_escape () -> void = run(
     let x = "He said \"hello\"",
-    assert(cond: len(collection: x) > 10),
+    assert(cond: x.len() > 10),
 )
 
 @str_quote_escape () -> str = "He said \"hello\""
 
 @test_str_backslash_escape tests @str_backslash_escape () -> void = run(
     let x = "path\\to\\file",
-    assert(cond: len(collection: x) == 12),
+    assert(cond: x.len() == 12),
 )
 
 @str_backslash_escape () -> str = "path\\to\\file"
@@ -806,7 +806,7 @@ use std.testing { assert, assert_eq, assert_ne }
 @test_float_to_str tests @float_to_str () -> void = run(
     let x: float = 3.14,
     let s: str = str(x),
-    assert(cond: len(collection: s) > 0),
+    assert(cond: s.len() > 0),
 )
 
 @float_to_str () -> str = str(3.14)

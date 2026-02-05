@@ -6,7 +6,10 @@
 use crate::Idx;
 
 /// Error from type unification.
-#[derive(Clone, Debug)]
+///
+/// # Salsa Compatibility
+/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum UnifyError {
     /// Types could not be unified.
     Mismatch {
@@ -58,7 +61,7 @@ pub enum UnifyError {
 }
 
 /// What kind of construct has an arity mismatch.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum ArityKind {
     /// Function parameter count.
     Function,
@@ -72,7 +75,10 @@ pub enum ArityKind {
 ///
 /// Used for generating helpful error messages that point to
 /// the specific part of the type that failed to unify.
-#[derive(Copy, Clone, Debug, Default)]
+///
+/// # Salsa Compatibility
+/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub enum UnifyContext {
     /// Top-level unification (no specific context).
     #[default]

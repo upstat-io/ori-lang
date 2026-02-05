@@ -1,10 +1,6 @@
 //! Todo pattern implementation.
 
-use ori_types::Type;
-
-use crate::{
-    EvalContext, EvalError, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext,
-};
+use crate::{EvalContext, EvalError, EvalResult, PatternDefinition, PatternExecutor};
 
 #[cfg(test)]
 use crate::Value;
@@ -27,10 +23,6 @@ impl PatternDefinition for TodoPattern {
 
     fn optional_props(&self) -> &'static [&'static str] {
         &["reason"]
-    }
-
-    fn type_check(&self, _ctx: &mut TypeCheckContext) -> Type {
-        Type::Never
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
@@ -104,14 +96,5 @@ mod tests {
     #[test]
     fn todo_optional_props() {
         assert_eq!(TodoPattern.optional_props(), &["reason"]);
-    }
-
-    #[test]
-    fn todo_returns_never_type() {
-        let interner = SharedInterner::default();
-        let mut ctx = ori_types::InferenceContext::new();
-        let mut type_ctx = TypeCheckContext::new(&interner, &mut ctx, Default::default());
-        let result = TodoPattern.type_check(&mut type_ctx);
-        assert!(matches!(result, Type::Never));
     }
 }

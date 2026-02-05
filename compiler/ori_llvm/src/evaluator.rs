@@ -9,7 +9,7 @@ use rustc_hash::FxHashMap;
 
 use ori_ir::ast::{Module, TestDef, TypeDeclKind, Visibility};
 use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
-use ori_types::TypeInterner;
+use ori_types::Pool;
 
 use crate::module::ModuleCompiler;
 use crate::runtime;
@@ -304,8 +304,8 @@ pub struct OwnedLLVMEvaluator<'tcx> {
     context: Context,
     /// Compiled functions by name
     functions: FxHashMap<Name, CompiledFunction>,
-    /// Type interner for resolving compound types (List, Map, etc.)
-    type_interner: Option<&'tcx TypeInterner>,
+    /// Type pool for resolving compound types (List, Map, etc.)
+    pool: Option<&'tcx Pool>,
 }
 
 impl<'tcx> OwnedLLVMEvaluator<'tcx> {
@@ -315,20 +315,20 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         OwnedLLVMEvaluator {
             context: Context::create(),
             functions: FxHashMap::default(),
-            type_interner: None,
+            pool: None,
         }
     }
 
-    /// Create an evaluator with a type interner for compound type resolution.
+    /// Create an evaluator with a type pool for compound type resolution.
     ///
-    /// The type interner allows proper LLVM type generation for compound types
-    /// like List, Map, Tuple, etc., which require looking up `TypeId` -> `TypeData`.
+    /// The type pool allows proper LLVM type generation for compound types
+    /// like List, Map, Tuple, etc., which require looking up `TypeId` -> type info.
     #[must_use]
-    pub fn with_type_interner(type_interner: &'tcx TypeInterner) -> Self {
+    pub fn with_pool(pool: &'tcx Pool) -> Self {
         OwnedLLVMEvaluator {
             context: Context::create(),
             functions: FxHashMap::default(),
-            type_interner: Some(type_interner),
+            pool: Some(pool),
         }
     }
 
@@ -380,14 +380,9 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         runtime::reset_panic_state();
 
         // Create a fresh module compiler for this test
-        // Use type interner if available for proper compound type handling
-        let compiler = if let Some(type_interner) = self.type_interner {
-            ModuleCompiler::with_type_interner(
-                &self.context,
-                interner,
-                type_interner,
-                "test_module",
-            )
+        // Use type pool if available for proper compound type handling
+        let compiler = if let Some(pool) = self.pool {
+            ModuleCompiler::with_pool(&self.context, interner, pool, "test_module")
         } else {
             ModuleCompiler::new(&self.context, interner, "test_module")
         };
@@ -500,13 +495,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         use inkwell::OptimizationLevel;
 
         // Create a single module compiler for all functions and tests
-        let compiler = if let Some(type_interner) = self.type_interner {
-            ModuleCompiler::with_type_interner(
-                &self.context,
-                interner,
-                type_interner,
-                "test_module",
-            )
+        let compiler = if let Some(pool) = self.pool {
+            ModuleCompiler::with_pool(&self.context, interner, pool, "test_module")
         } else {
             ModuleCompiler::new(&self.context, interner, "test_module")
         };

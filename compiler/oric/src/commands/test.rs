@@ -93,11 +93,19 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
             continue;
         }
 
-        // Print file errors (parse/type errors)
+        // Print file errors (parse/type errors) and blocked tests
         if !file.errors.is_empty() {
             println!("\n{}", file.path.display());
+            // Show which tests were blocked
+            for result in &file.results {
+                if result.outcome.is_failed() {
+                    let name = result.name_str(interner);
+                    println!("  FAIL: {name} - blocked by type errors");
+                }
+            }
+            // Then show the actual errors
             for error in &file.errors {
-                println!("  ERROR: {error}");
+                println!("    ERROR: {error}");
             }
             continue;
         }
@@ -134,13 +142,20 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
     // Print summary
     println!();
     println!("Test Summary:");
-    println!(
-        "  {} passed, {} failed, {} skipped ({} total)",
-        summary.passed,
-        summary.failed,
-        summary.skipped,
-        summary.total()
-    );
+    if summary.error_files > 0 {
+        println!(
+            "  {} passed, {} failed, {} skipped, {} files with errors",
+            summary.passed, summary.failed, summary.skipped, summary.error_files
+        );
+    } else {
+        println!(
+            "  {} passed, {} failed, {} skipped ({} total)",
+            summary.passed,
+            summary.failed,
+            summary.skipped,
+            summary.total()
+        );
+    }
     println!("  Completed in {:.2?}", summary.duration);
 
     if summary.has_failures() {
@@ -149,10 +164,6 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
     } else if summary.total() == 0 {
         println!();
         println!("NO TESTS FOUND");
-    } else if summary.has_file_errors() {
-        // Tests passed but some files had errors (couldn't run tests in those files)
-        println!();
-        println!("OK (some files had errors)");
     } else {
         println!();
         println!("OK");

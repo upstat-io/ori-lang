@@ -8,8 +8,8 @@ use crate::eval::{EvalOutput, Evaluator, ModuleEvalResult};
 use crate::input::SourceFile;
 use crate::ir::TokenList;
 use crate::parser::{self, ParseOutput};
-use crate::typeck::{self, TypedModule};
-use ori_types::SharedTypeInterner;
+use crate::typeck;
+use ori_types::TypeCheckResult;
 use std::path::Path;
 
 #[cfg(test)]
@@ -71,24 +71,28 @@ pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseOutput {
 
 /// Type check a source file.
 ///
-/// This query performs type inference and checking on a parsed module.
+/// This query performs type inference and checking on a parsed module
+/// using the Pool-based type representation with unified interning.
+///
 /// - Depends on `parsed` query (not tokens directly)
 /// - If parsed result is unchanged, type checking is skipped
-/// - `TypedModule` includes inferred types and any type errors
+/// - `TypeCheckResult` includes inferred types (`Idx`) and any type errors
 ///
 /// # Caching Behavior
 ///
 /// - First call: performs type checking, caches result
-/// - Subsequent calls (same input): returns cached `TypedModule`
+/// - Subsequent calls (same input): returns cached `TypeCheckResult`
 /// - After source changes: re-checks only if parsed result changed
 ///
 /// # Import Resolution
 ///
-/// This query now resolves imports before type checking, making imported
-/// functions available to the type checker. This prevents false "unknown
-/// identifier" errors for imported functions.
+/// Resolves imports before type checking, making imported functions
+/// available to the type checker.
+///
+/// The Pool is created per-module and discarded after checking — only
+/// the `TypeCheckResult` is cached by Salsa.
 #[salsa::tracked]
-pub fn typed(db: &dyn Db, file: SourceFile) -> TypedModule {
+pub fn typed(db: &dyn Db, file: SourceFile) -> TypeCheckResult {
     let parse_result = parsed(db, file);
     let file_path = file.path(db);
     typeck::type_check_with_imports(db, &parse_result, file_path)
@@ -139,32 +143,22 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
     let interner = db.interner();
     let file_path = file.path(db);
 
-    // Create a shared type interner for type-aware evaluation
-    // This allows the evaluator to look up type information for operators like ??
-    let type_interner = SharedTypeInterner::new();
-
-    // Type check with the shared interner so we can pass type info to the evaluator
-    let typed_module = typeck::type_check_with_imports_and_interner(
-        db,
-        &parse_result,
-        file_path,
-        Some(type_interner.clone()),
-    );
+    // Type check (returns result + pool)
+    let (type_result, _pool) =
+        typeck::type_check_with_imports_and_pool(db, &parse_result, file_path);
 
     // Check for type errors using the error guarantee
-    if let Some(_guarantee) = typed_module.error_guarantee {
-        // Type errors exist - cannot safely evaluate
-        let error_count = typed_module.errors.len();
+    if type_result.has_errors() {
+        let error_count = type_result.errors().len();
         return ModuleEvalResult::failure(format!(
             "{error_count} type error{} found",
             if error_count == 1 { "" } else { "s" }
         ));
     }
 
-    // Create evaluator with type information for type-aware operations
+    // Create evaluator with type information (Idx-based)
     let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
-        .expr_types(&typed_module.expr_types)
-        .type_interner(type_interner)
+        .expr_types(&type_result.typed.expr_types)
         .build();
     evaluator.register_prelude();
 

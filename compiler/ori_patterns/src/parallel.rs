@@ -14,11 +14,7 @@ use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use ori_types::Type;
-
-use crate::{
-    EvalContext, EvalError, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value,
-};
+use crate::{EvalContext, EvalError, EvalResult, PatternDefinition, PatternExecutor, Value};
 
 /// The `parallel` pattern executes multiple tasks concurrently with all-settled semantics.
 ///
@@ -42,23 +38,6 @@ impl PatternDefinition for ParallelPattern {
 
     fn allows_arbitrary_props(&self) -> bool {
         false
-    }
-
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // parallel(tasks: [() -> T]) -> [Result<T, E>]
-        // Get the element type from tasks and wrap in Result, then List
-        let tasks_type = ctx.require_prop_type("tasks");
-        if let Type::List(elem_type) = tasks_type {
-            // elem_type is () -> T, we want Result<T, Error>
-            let result_type = if let Type::Function { ret, .. } = elem_type.as_ref() {
-                ctx.result_of(*ret.clone(), Type::Error)
-            } else {
-                ctx.result_of(*elem_type.clone(), Type::Error)
-            };
-            return ctx.list_of(result_type);
-        }
-        // Fallback: [Result<Unit, Error>]
-        ctx.list_of(ctx.result_of(Type::Unit, Type::Error))
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {

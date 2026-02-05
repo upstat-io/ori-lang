@@ -25,7 +25,7 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             // Identifiers
             ExprKind::Ident(name) => self.ctx.emit(self.interner.lookup(*name)),
-            ExprKind::Config(name) => {
+            ExprKind::Const(name) => {
                 self.ctx.emit("$");
                 self.ctx.emit(self.interner.lookup(*name));
             }

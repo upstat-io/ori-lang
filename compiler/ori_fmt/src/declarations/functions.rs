@@ -156,7 +156,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             | ori_ir::ExprKind::Duration { .. }
             | ori_ir::ExprKind::Size { .. }
             | ori_ir::ExprKind::Ident(_)
-            | ori_ir::ExprKind::Config(_)
+            | ori_ir::ExprKind::Const(_)
             | ori_ir::ExprKind::SelfRef
             | ori_ir::ExprKind::FunctionRef(_)
             | ori_ir::ExprKind::HashLength

@@ -6,13 +6,10 @@
 use wasm_bindgen::prelude::*;
 use ori_ir::{SharedArena, SharedInterner};
 use ori_eval::{
-    buffer_handler, collect_extend_methods, collect_impl_methods, register_module_functions,
-    register_newtype_constructors, register_variant_constructors, InterpreterBuilder,
-    UserMethodRegistry, Value, DEFAULT_MAX_CALL_DEPTH,
+    buffer_handler, collect_extend_methods, collect_impl_methods, process_derives,
+    register_module_functions, register_newtype_constructors, register_variant_constructors,
+    InterpreterBuilder, UserMethodRegistry, Value, DEFAULT_MAX_CALL_DEPTH,
 };
-use ori_typeck::derives::process_derives;
-use ori_typeck::type_check;
-use ori_typeck::TypeRegistry;
 use serde::Serialize;
 
 // Import console.log from JavaScript
@@ -93,13 +90,18 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
         };
     }
 
-    // Type check
-    let typed_module = type_check(&parse_result, &interner);
-    if typed_module.error_guarantee.is_some() {
-        let errors: Vec<String> = typed_module
-            .errors
+    // Type check (V2 pipeline)
+    let (type_result, _pool) = ori_types::check_module_with_imports(
+        &parse_result.module,
+        &parse_result.arena,
+        &interner,
+        |_checker| {},
+    );
+    if type_result.has_errors() {
+        let errors: Vec<String> = type_result
+            .errors()
             .iter()
-            .map(|e| format!("At {}: {}", e.span(), e.message()))
+            .map(|e| format!("At {}: {}", e.span, e.message()))
             .collect();
         return RunResult {
             success: false,
@@ -131,10 +133,8 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     collect_extend_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
 
     // Process derived traits (Eq, Clone, Hashable, Printable, Default)
-    let type_registry = TypeRegistry::new();
     process_derives(
         &parse_result.module,
-        &type_registry,
         &mut user_methods,
         &interner,
     );

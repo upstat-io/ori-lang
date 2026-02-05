@@ -1,7 +1,7 @@
 //! Compiler context for dependency injection.
 //!
 //! `CompilerContext` holds shared registries and configuration that can be
-//! passed to various compiler components (`TypeChecker`, Evaluator, etc.).
+//! passed to various compiler components (Evaluator, etc.).
 //!
 //! This enables:
 //! - Dependency injection for testing with mock registries
@@ -14,13 +14,10 @@
     reason = "Arc is the implementation of SharedMutableRegistry"
 )]
 
+use ori_eval::SharedRegistry;
 use ori_patterns::PatternRegistry;
-use ori_types::SharedTypeInterner;
 use std::fmt;
 use std::sync::Arc;
-
-// Re-export SharedRegistry from ori_typeck so we have a single source of truth
-pub use ori_typeck::SharedRegistry;
 
 // SharedMutableRegistry Newtype
 
@@ -33,16 +30,6 @@ pub use ori_typeck::SharedRegistry;
 ///
 /// # Thread Safety
 /// Uses `Arc<RwLock<T>>` internally for thread-safe mutable access.
-///
-/// # Usage
-///
-/// ```text
-/// let registry = SharedMutableRegistry::new(UserMethodRegistry::new());
-/// // Read access
-/// registry.read().lookup("Point", "distance");
-/// // Write access
-/// registry.write().register("Point".into(), "distance".into(), method);
-/// ```
 pub struct SharedMutableRegistry<T>(Arc<parking_lot::RwLock<T>>);
 
 impl<T> SharedMutableRegistry<T> {
@@ -79,29 +66,12 @@ impl<T: fmt::Debug> fmt::Debug for SharedMutableRegistry<T> {
 /// Shared compiler context containing registries and configuration.
 ///
 /// This struct is designed for dependency injection, allowing components
-/// like `TypeChecker` and Evaluator to receive pre-configured registries
-/// rather than creating their own.
-///
-/// # Thread Safety
-///
-/// Uses `Arc` for registries that need to be shared across threads.
-/// Individual registries use internal synchronization if needed.
-///
-/// # Testing
-///
-/// Create a custom context with mock registries:
-///
-/// ```text
-/// let ctx = CompilerContext::new()
-///     .with_pattern_registry(mock_pattern_registry);
-/// let checker = TypeChecker::with_context(&arena, &interner, &ctx);
-/// ```
+/// like the Evaluator to receive pre-configured registries rather than
+/// creating their own.
 #[derive(Clone)]
 pub struct CompilerContext {
     /// Pattern registry for `function_exp` patterns (map, filter, fold, etc.).
     pub pattern_registry: SharedRegistry<PatternRegistry>,
-    /// Type interner for efficient type storage and O(1) equality comparison.
-    pub type_interner: SharedTypeInterner,
 }
 
 impl CompilerContext {
@@ -109,7 +79,6 @@ impl CompilerContext {
     pub fn new() -> Self {
         CompilerContext {
             pattern_registry: SharedRegistry::new(PatternRegistry::new()),
-            type_interner: SharedTypeInterner::new(),
         }
     }
 
@@ -119,15 +88,6 @@ impl CompilerContext {
     #[must_use]
     pub fn with_pattern_registry(mut self, registry: PatternRegistry) -> Self {
         self.pattern_registry = SharedRegistry::new(registry);
-        self
-    }
-
-    /// Create a context with a custom type interner.
-    ///
-    /// Useful for sharing a type interner across compilation phases.
-    #[must_use]
-    pub fn with_type_interner(mut self, interner: SharedTypeInterner) -> Self {
-        self.type_interner = interner;
         self
     }
 }
@@ -141,8 +101,6 @@ impl Default for CompilerContext {
 // Shared Context
 
 /// Thread-safe shared context reference.
-///
-/// This type alias makes it clear when a context is being shared.
 pub type SharedContext = Arc<CompilerContext>;
 
 /// Create a shared context from an owned context.
@@ -170,7 +128,6 @@ mod tests {
     fn test_context_clone() {
         let ctx1 = CompilerContext::new();
         let ctx2 = ctx1.clone();
-
         let _ = &ctx1.pattern_registry;
         let _ = &ctx2.pattern_registry;
     }
@@ -179,7 +136,6 @@ mod tests {
     fn test_context_builder() {
         let custom_pattern_registry = PatternRegistry::new();
         let ctx = CompilerContext::new().with_pattern_registry(custom_pattern_registry);
-
         let _ = &ctx.pattern_registry;
     }
 
@@ -187,7 +143,6 @@ mod tests {
     fn test_shared_context() {
         let ctx = CompilerContext::new();
         let shared = shared_context(ctx);
-
         let shared2 = shared.clone();
         let _ = &shared.pattern_registry;
         let _ = &shared2.pattern_registry;

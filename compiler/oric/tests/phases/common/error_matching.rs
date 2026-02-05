@@ -8,18 +8,29 @@
 //! - Batch error matching
 //! - Unmatched expectation detection
 
-use ori_diagnostic::ErrorCode;
+use ori_ir::Name;
+use ori_types::{ErrorContext, Idx, TypeCheckError};
 use oric::ir::{ExpectedError, SharedInterner, Span};
 use oric::test::{match_errors, matches_expected, MatchResult};
-use oric::TypeCheckError;
 
-fn make_error(code: ErrorCode, message: &str, offset: u32) -> TypeCheckError {
-    TypeCheckError::Generic {
-        code,
-        message: message.to_string(),
-        span: Span::new(offset, offset + 5),
-        suggestion: None,
-    }
+/// Create a mismatch error (E2001) at the given offset.
+///
+/// Produces message like "expected int, found float".
+fn make_mismatch(offset: u32) -> TypeCheckError {
+    TypeCheckError::mismatch(
+        Span::new(offset, offset + 5),
+        Idx::INT,
+        Idx::FLOAT,
+        vec![],
+        ErrorContext::default(),
+    )
+}
+
+/// Create an unknown identifier error (E2003) at the given offset.
+///
+/// Produces message containing "unknown identifier".
+fn make_unknown_ident(offset: u32) -> TypeCheckError {
+    TypeCheckError::unknown_ident(Span::new(offset, offset + 5), Name::from_raw(999), vec![])
 }
 
 #[test]
@@ -27,7 +38,7 @@ fn test_match_message() {
     let interner = SharedInterner::default();
     let source = "let x = 1\nlet y = 2";
 
-    let err = make_error(ErrorCode::E2001, "type mismatch: expected int", 0);
+    let err = make_mismatch(0);
     let exp = ExpectedError {
         message: Some(interner.intern("type mismatch")),
         code: None,
@@ -43,7 +54,7 @@ fn test_match_code() {
     let interner = SharedInterner::default();
     let source = "let x = 1";
 
-    let err = make_error(ErrorCode::E2001, "some error", 0);
+    let err = make_mismatch(0);
     let exp = ExpectedError {
         message: None,
         code: Some(interner.intern("E2001")),
@@ -68,7 +79,7 @@ fn test_match_line() {
     let source = "line1\nline2\nline3";
 
     // Error at line 2 (offset 6 is start of "line2")
-    let err = make_error(ErrorCode::E2001, "error", 6);
+    let err = make_mismatch(6);
     let exp = ExpectedError {
         message: None,
         code: None,
@@ -92,9 +103,9 @@ fn test_match_multiple_criteria() {
     let interner = SharedInterner::default();
     let source = "line1\nline2";
 
-    let err = make_error(ErrorCode::E2001, "type mismatch", 6);
+    let err = make_mismatch(6);
     let exp = ExpectedError {
-        message: Some(interner.intern("type")),
+        message: Some(interner.intern("type mismatch")),
         code: Some(interner.intern("E2001")),
         line: Some(2),
         column: Some(1),
@@ -108,10 +119,7 @@ fn test_match_errors_all_matched() {
     let interner = SharedInterner::default();
     let source = "line1\nline2";
 
-    let errors = vec![
-        make_error(ErrorCode::E2001, "type mismatch", 0),
-        make_error(ErrorCode::E2003, "unknown identifier", 6),
-    ];
+    let errors = vec![make_mismatch(0), make_unknown_ident(6)];
     let expectations = vec![
         ExpectedError {
             message: Some(interner.intern("type mismatch")),
@@ -137,9 +145,9 @@ fn test_match_errors_unmatched_expectation() {
     let interner = SharedInterner::default();
     let source = "line1";
 
-    let errors = vec![make_error(ErrorCode::E2001, "actual error", 0)];
+    let errors = vec![make_mismatch(0)];
     let expectations = vec![ExpectedError {
-        message: Some(interner.intern("different error")),
+        message: Some(interner.intern("completely different")),
         code: None,
         line: None,
         column: None,

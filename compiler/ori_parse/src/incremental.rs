@@ -21,7 +21,7 @@
 use ori_ir::incremental::ChangeMarker;
 use ori_ir::{
     ast::{BindingPattern, FunctionExp, FunctionSeq, MatchArm, MatchPattern, SeqBinding},
-    CallArg, ConfigDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef, FieldInit,
+    CallArg, ConstDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef, FieldInit,
     Function, GenericParam, ImplAssocType, ImplDef, ImplMethod, MapEntry, MatchPatternId,
     MatchPatternRange, Module, Name, NamedExpr, Param, ParsedType, ParsedTypeId, ParsedTypeRange,
     Span, Stmt, StmtKind, TestDef, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
@@ -32,7 +32,7 @@ use ori_ir::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeclKind {
     Import,
-    Config,
+    Const,
     Function,
     Test,
     Type,
@@ -62,11 +62,11 @@ pub fn collect_declarations(module: &Module) -> Vec<DeclRef> {
         });
     }
 
-    for (i, config) in module.configs.iter().enumerate() {
+    for (i, const_def) in module.consts.iter().enumerate() {
         decls.push(DeclRef {
-            kind: DeclKind::Config,
+            kind: DeclKind::Const,
             index: i,
-            span: config.span,
+            span: const_def.span,
         });
     }
 
@@ -329,7 +329,7 @@ impl<'old> AstCopier<'old> {
             },
             ExprKind::Unit => ExprKind::Unit,
             ExprKind::Ident(name) => ExprKind::Ident(*name),
-            ExprKind::Config(name) => ExprKind::Config(*name),
+            ExprKind::Const(name) => ExprKind::Const(*name),
             ExprKind::SelfRef => ExprKind::SelfRef,
             ExprKind::FunctionRef(name) => ExprKind::FunctionRef(*name),
             ExprKind::HashLength => ExprKind::HashLength,
@@ -1506,13 +1506,13 @@ impl<'old> AstCopier<'old> {
         }
     }
 
-    /// Copy a config definition.
-    pub fn copy_config(&self, config: &ConfigDef, new_arena: &mut ExprArena) -> ConfigDef {
-        ConfigDef {
-            name: config.name,
-            value: self.copy_expr(config.value, new_arena),
-            span: self.adjust_span(config.span),
-            visibility: config.visibility,
+    /// Copy a constant definition.
+    pub fn copy_const(&self, const_def: &ConstDef, new_arena: &mut ExprArena) -> ConstDef {
+        ConstDef {
+            name: const_def.name,
+            value: self.copy_expr(const_def.value, new_arena),
+            span: self.adjust_span(const_def.span),
+            visibility: const_def.visibility,
         }
     }
 
@@ -1593,8 +1593,8 @@ mod tests {
         // Create a module with declarations in various orders
         let mut module = Module::new();
 
-        // Add configs, functions in non-sorted order
-        module.configs.push(ConfigDef {
+        // Add consts, functions in non-sorted order
+        module.consts.push(ConstDef {
             name: ori_ir::Name::EMPTY,
             value: ExprId::INVALID,
             span: Span::new(100, 150),

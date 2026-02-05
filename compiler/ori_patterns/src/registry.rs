@@ -1,7 +1,6 @@
 //! Pattern registry for looking up pattern definitions by kind.
 
 use ori_ir::FunctionExpKind;
-use ori_types::Type;
 
 use crate::builtins::{CatchPattern, PanicPattern, PrintPattern, TodoPattern, UnreachablePattern};
 use crate::cache::CachePattern;
@@ -12,7 +11,7 @@ use crate::timeout::TimeoutPattern;
 use crate::with_pattern::WithPattern;
 use crate::{
     EvalContext, EvalResult, FusedPattern, OptionalArg, PatternDefinition, PatternExecutor,
-    PatternSignature, ScopedBinding, TypeCheckContext,
+    ScopedBinding,
 };
 
 /// Enum dispatch for all built-in patterns.
@@ -136,22 +135,6 @@ impl PatternDefinition for Pattern {
         }
     }
 
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        match self {
-            Pattern::Recurse(p) => p.type_check(ctx),
-            Pattern::Parallel(p) => p.type_check(ctx),
-            Pattern::Spawn(p) => p.type_check(ctx),
-            Pattern::Timeout(p) => p.type_check(ctx),
-            Pattern::Cache(p) => p.type_check(ctx),
-            Pattern::With(p) => p.type_check(ctx),
-            Pattern::Print(p) => p.type_check(ctx),
-            Pattern::Panic(p) => p.type_check(ctx),
-            Pattern::Catch(p) => p.type_check(ctx),
-            Pattern::Todo(p) => p.type_check(ctx),
-            Pattern::Unreachable(p) => p.type_check(ctx),
-        }
-    }
-
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
         match self {
             Pattern::Recurse(p) => p.evaluate(ctx, exec),
@@ -165,22 +148,6 @@ impl PatternDefinition for Pattern {
             Pattern::Catch(p) => p.evaluate(ctx, exec),
             Pattern::Todo(p) => p.evaluate(ctx, exec),
             Pattern::Unreachable(p) => p.evaluate(ctx, exec),
-        }
-    }
-
-    fn signature(&self, ctx: &TypeCheckContext) -> PatternSignature {
-        match self {
-            Pattern::Recurse(p) => p.signature(ctx),
-            Pattern::Parallel(p) => p.signature(ctx),
-            Pattern::Spawn(p) => p.signature(ctx),
-            Pattern::Timeout(p) => p.signature(ctx),
-            Pattern::Cache(p) => p.signature(ctx),
-            Pattern::With(p) => p.signature(ctx),
-            Pattern::Print(p) => p.signature(ctx),
-            Pattern::Panic(p) => p.signature(ctx),
-            Pattern::Catch(p) => p.signature(ctx),
-            Pattern::Todo(p) => p.signature(ctx),
-            Pattern::Unreachable(p) => p.signature(ctx),
         }
     }
 

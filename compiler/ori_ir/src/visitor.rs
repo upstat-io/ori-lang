@@ -32,7 +32,7 @@
 //! ```
 
 use super::ast::{
-    BindingPattern, CallArg, ConfigDef, Expr, ExprKind, FieldInit, Function, FunctionExp,
+    BindingPattern, CallArg, ConstDef, Expr, ExprKind, FieldInit, Function, FunctionExp,
     FunctionSeq, ListElement, MapElement, MapEntry, MatchArm, MatchPattern, Module, NamedExpr,
     Param, SeqBinding, Stmt, StmtKind, StructLitField, TestDef, UseDef,
 };
@@ -69,10 +69,10 @@ pub trait Visitor<'ast> {
         let _ = use_def;
     }
 
-    /// Visit a config variable definition.
-    fn visit_config(&mut self, config: &'ast ConfigDef, arena: &'ast ExprArena) {
-        // Walk the config value expression
-        self.visit_expr_id(config.value, arena);
+    /// Visit a constant definition.
+    fn visit_const(&mut self, const_def: &'ast ConstDef, arena: &'ast ExprArena) {
+        // Walk the constant value expression
+        self.visit_expr_id(const_def.value, arena);
     }
 
     /// Visit an expression.
@@ -182,7 +182,7 @@ pub trait Visitor<'ast> {
 // child is visited before the right. For collections (lists, tuples), elements
 // are visited in declaration order.
 
-/// Walk a module's children (imports, configs, functions, tests in order).
+/// Walk a module's children (imports, consts, functions, tests in order).
 pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
     module: &'ast Module,
@@ -191,8 +191,8 @@ pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(
     for use_def in &module.imports {
         visitor.visit_use(use_def, arena);
     }
-    for config in &module.configs {
-        visitor.visit_config(config, arena);
+    for const_def in &module.consts {
+        visitor.visit_const(const_def, arena);
     }
     for function in &module.functions {
         visitor.visit_function(function, arena);
@@ -247,7 +247,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         | ExprKind::Size { .. }
         | ExprKind::Unit
         | ExprKind::Ident(_)
-        | ExprKind::Config(_)
+        | ExprKind::Const(_)
         | ExprKind::SelfRef
         | ExprKind::FunctionRef(_)
         | ExprKind::HashLength

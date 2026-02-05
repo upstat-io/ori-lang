@@ -111,14 +111,14 @@ impl Parser<'_> {
                     .alloc_expr(Expr::new(ExprKind::Size { value, unit }, span)))
             }
 
-            // Config reference: $name
+            // Constant reference: $name
             TokenKind::Dollar => {
                 self.advance();
                 let name = self.expect_ident()?;
                 let full_span = span.merge(self.previous_span());
                 Ok(self
                     .arena
-                    .alloc_expr(Expr::new(ExprKind::Config(name), full_span)))
+                    .alloc_expr(Expr::new(ExprKind::Const(name), full_span)))
             }
 
             // Hash length symbol: # (only valid inside index brackets)
@@ -166,7 +166,7 @@ impl Parser<'_> {
                     .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
             }
 
-            // self
+            // self - identifier for method receiver or recursive self-reference
             TokenKind::SelfLower => {
                 self.advance();
                 let name = self.interner().intern("self");

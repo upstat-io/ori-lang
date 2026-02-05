@@ -194,7 +194,7 @@ fn test_width_config_ref() {
     let interner = StringInterner::new();
 
     let name = interner.intern("timeout");
-    let expr = make_expr(&mut arena, ExprKind::Config(name));
+    let expr = make_expr(&mut arena, ExprKind::Const(name));
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(expr), 8); // "$timeout"

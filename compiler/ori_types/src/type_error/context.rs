@@ -21,7 +21,10 @@ use ori_ir::Name;
 ///
 /// Used to generate precise error messages describing WHERE
 /// a type mismatch occurred.
-#[derive(Clone, Debug)]
+///
+/// # Salsa Compatibility
+/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum ContextKind {
     // ════════════════════════════════════════════════════════════════════════
     // Literals

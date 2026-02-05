@@ -31,9 +31,8 @@ pub fn check_file(path: &str) {
     let type_result = typed(&db, file);
     if type_result.has_errors() {
         eprintln!("Type errors in '{path}':");
-        for error in &type_result.errors {
-            let diag = error.to_diagnostic();
-            eprintln!("  {diag}");
+        for error in type_result.errors() {
+            eprintln!("  {}: {}", error.span, error.message());
         }
         has_errors = true;
     }

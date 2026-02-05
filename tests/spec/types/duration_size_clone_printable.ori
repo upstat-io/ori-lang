@@ -63,7 +63,7 @@ use std.testing { assert, assert_eq }
 @test_duration_to_str_basic tests @duration_to_str_basic () -> void = run(
     // to_str returns human-readable format
     let s = 100ms.to_str(),
-    assert(cond: len(collection: s) > 0),
+    assert(cond: s.len() > 0),
 )
 
 @duration_to_str_basic () -> str = 100ms.to_str()
@@ -190,7 +190,7 @@ use std.testing { assert, assert_eq }
 @test_size_to_str_basic tests @size_to_str_basic () -> void = run(
     // to_str returns human-readable format
     let s = 1kb.to_str(),
-    assert(cond: len(collection: s) > 0),
+    assert(cond: s.len() > 0),
 )
 
 @size_to_str_basic () -> str = 1kb.to_str()

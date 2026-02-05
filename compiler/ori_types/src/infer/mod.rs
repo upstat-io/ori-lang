@@ -1,4 +1,4 @@
-//! Type inference engine for Types V2.
+//! Type inference engine.
 //!
 //! This module provides the main orchestrator for Hindley-Milner type inference,
 //! connecting the Pool, `UnifyEngine`, and error system into a unified inference API.
@@ -7,7 +7,7 @@
 //!
 //! `InferEngine` wraps `UnifyEngine` and adds:
 //! - Expression type storage (`expr_types`)
-//! - Type environment management (`TypeEnvV2`)
+//! - Type environment management (`TypeEnv`)
 //! - Context-aware error reporting
 //! - Bidirectional type checking (`infer` vs `check`)
 //!
@@ -27,7 +27,7 @@
 //!
 //! # Design Notes
 //!
-//! This is part of the Types V2 migration. The engine uses:
+//! The engine uses:
 //! - `Idx` as the canonical type handle (not `Type` or `TypeId`)
 //! - `UnifyEngine` for O(α(n)) unification
 //! - `Pool` for O(1) type equality
@@ -36,15 +36,16 @@
 mod env;
 mod expr;
 
-pub use env::TypeEnvV2;
-pub use expr::infer_expr;
+pub use env::TypeEnv;
+pub use expr::{check_expr, infer_expr, resolve_parsed_type};
 
-use ori_ir::Name;
+use ori_ir::{Name, StringInterner};
 use rustc_hash::FxHashMap;
 
 use crate::{
-    diff_types, ContextKind, ErrorContext, Expected, Idx, Pool, Suggestion, TypeCheckError,
-    TypeErrorKind, TypeProblem, UnifyEngine, UnifyError,
+    diff_types, ContextKind, ErrorContext, Expected, FunctionSig, Idx, Pool, Suggestion,
+    TraitRegistry, TypeCheckError, TypeErrorKind, TypeProblem, TypeRegistry, UnifyEngine,
+    UnifyError,
 };
 
 /// Expression ID type (mirrors `ori_ir::ExprId`).
@@ -55,10 +56,10 @@ pub type ExprIndex = usize;
 
 /// The type inference engine.
 ///
-/// Orchestrates Hindley-Milner type inference using the Types V2 infrastructure:
+/// Orchestrates Hindley-Milner type inference:
 /// - `Pool` for type storage and interning
 /// - `UnifyEngine` for unification with path compression
-/// - `TypeEnvV2` for name bindings
+/// - `TypeEnv` for name bindings
 /// - Error accumulation for comprehensive diagnostics
 ///
 /// # Component Structure
@@ -67,7 +68,7 @@ pub type ExprIndex = usize;
 /// InferEngine
 /// ├── UnifyEngine (unification, resolution, generalization)
 /// │   └── Pool (type storage, interning, flags)
-/// ├── TypeEnvV2 (name → type scheme bindings)
+/// ├── TypeEnv (name → type scheme bindings)
 /// ├── expr_types (expression → inferred type)
 /// ├── context_stack (error context tracking)
 /// └── errors (accumulated type errors)
@@ -77,7 +78,7 @@ pub struct InferEngine<'pool> {
     unify: UnifyEngine<'pool>,
 
     /// Type environment for name bindings.
-    env: TypeEnvV2,
+    env: TypeEnv,
 
     /// Inferred types for expressions (expr index → type).
     expr_types: FxHashMap<ExprIndex, Idx>,
@@ -87,6 +88,25 @@ pub struct InferEngine<'pool> {
 
     /// Accumulated type check errors.
     errors: Vec<TypeCheckError>,
+
+    /// String interner for resolving names in error messages.
+    interner: Option<&'pool StringInterner>,
+
+    /// Trait registry for where-clause validation at call sites.
+    trait_registry: Option<&'pool TraitRegistry>,
+
+    /// Function signatures for where-clause lookup.
+    signatures: Option<&'pool FxHashMap<Name, FunctionSig>>,
+
+    /// Type registry for struct/enum/newtype lookup during inference.
+    type_registry: Option<&'pool TypeRegistry>,
+
+    /// Current function type for `self` references (recursive calls in patterns).
+    self_type: Option<Idx>,
+
+    /// Stack of expected break value types for nested loops.
+    /// Each `loop()` pushes a fresh type variable; `break expr` unifies with it.
+    loop_break_types: Vec<Idx>,
 }
 
 impl<'pool> InferEngine<'pool> {
@@ -94,24 +114,103 @@ impl<'pool> InferEngine<'pool> {
     pub fn new(pool: &'pool mut Pool) -> Self {
         Self {
             unify: UnifyEngine::new(pool),
-            env: TypeEnvV2::new(),
+            env: TypeEnv::new(),
             expr_types: FxHashMap::default(),
             context_stack: Vec::new(),
             errors: Vec::new(),
+            interner: None,
+            trait_registry: None,
+            signatures: None,
+            type_registry: None,
+            self_type: None,
+            loop_break_types: Vec::new(),
         }
     }
 
     /// Create a new inference engine with an existing environment.
     ///
     /// Use this when you need to share type bindings across inference sessions.
-    pub fn with_env(pool: &'pool mut Pool, env: TypeEnvV2) -> Self {
+    pub fn with_env(pool: &'pool mut Pool, env: TypeEnv) -> Self {
         Self {
             unify: UnifyEngine::new(pool),
             env,
             expr_types: FxHashMap::default(),
             context_stack: Vec::new(),
             errors: Vec::new(),
+            interner: None,
+            trait_registry: None,
+            signatures: None,
+            type_registry: None,
+            self_type: None,
+            loop_break_types: Vec::new(),
         }
+    }
+
+    /// Set the string interner for resolving names in error messages.
+    pub fn set_interner(&mut self, interner: &'pool StringInterner) {
+        self.interner = Some(interner);
+    }
+
+    /// Set the trait registry for where-clause validation.
+    pub fn set_trait_registry(&mut self, registry: &'pool TraitRegistry) {
+        self.trait_registry = Some(registry);
+    }
+
+    /// Set function signatures for where-clause lookup.
+    pub fn set_signatures(&mut self, sigs: &'pool FxHashMap<Name, FunctionSig>) {
+        self.signatures = Some(sigs);
+    }
+
+    /// Set the type registry for struct/enum/newtype lookup.
+    pub fn set_type_registry(&mut self, registry: &'pool TypeRegistry) {
+        self.type_registry = Some(registry);
+    }
+
+    /// Set the current function type for `self` references.
+    pub fn set_self_type(&mut self, ty: Idx) {
+        self.self_type = Some(ty);
+    }
+
+    /// Get the current function type for `self` references.
+    pub fn self_type(&self) -> Option<Idx> {
+        self.self_type
+    }
+
+    /// Push a loop break type variable onto the stack.
+    /// Called when entering a `loop()` expression.
+    pub fn push_loop_break_type(&mut self, ty: Idx) {
+        self.loop_break_types.push(ty);
+    }
+
+    /// Pop the loop break type variable.
+    /// Called when exiting a `loop()` expression.
+    pub fn pop_loop_break_type(&mut self) -> Option<Idx> {
+        self.loop_break_types.pop()
+    }
+
+    /// Get the current loop's break type variable (innermost loop).
+    pub fn current_loop_break_type(&self) -> Option<Idx> {
+        self.loop_break_types.last().copied()
+    }
+
+    /// Get the trait registry (if set).
+    pub fn trait_registry(&self) -> Option<&TraitRegistry> {
+        self.trait_registry
+    }
+
+    /// Get the type registry (if set).
+    pub fn type_registry(&self) -> Option<&TypeRegistry> {
+        self.type_registry
+    }
+
+    /// Look up a function signature by name.
+    pub fn get_signature(&self, name: Name) -> Option<&FunctionSig> {
+        self.signatures.and_then(|s| s.get(&name))
+    }
+
+    /// Resolve a `Name` to its string representation, if the interner is available.
+    pub fn lookup_name(&self, name: Name) -> Option<&str> {
+        self.interner.map(|i| i.lookup(name))
     }
 
     // ========================================
@@ -136,19 +235,25 @@ impl<'pool> InferEngine<'pool> {
         &mut self.unify
     }
 
+    /// Get read-only access to the unification engine.
+    #[inline]
+    pub fn unify_ref(&self) -> &UnifyEngine<'pool> {
+        &self.unify
+    }
+
     // ========================================
     // Environment Access
     // ========================================
 
     /// Get the type environment.
     #[inline]
-    pub fn env(&self) -> &TypeEnvV2 {
+    pub fn env(&self) -> &TypeEnv {
         &self.env
     }
 
     /// Get mutable access to the type environment.
     #[inline]
-    pub fn env_mut(&mut self) -> &mut TypeEnvV2 {
+    pub fn env_mut(&mut self) -> &mut TypeEnv {
         &mut self.env
     }
 
@@ -175,6 +280,24 @@ impl<'pool> InferEngine<'pool> {
         if let Some(parent) = self.env.parent() {
             self.env = parent;
         }
+    }
+
+    /// Enter a rank scope only (for let-polymorphism).
+    ///
+    /// This only increases the unification rank, without creating
+    /// a child environment scope. Use this within blocks where
+    /// bindings should remain visible to subsequent statements.
+    #[inline]
+    pub fn enter_rank_scope(&mut self) {
+        self.unify.enter_scope();
+    }
+
+    /// Exit a rank scope only.
+    ///
+    /// Call `generalize()` on relevant types BEFORE exiting.
+    #[inline]
+    pub fn exit_rank_scope(&mut self) {
+        self.unify.exit_scope();
     }
 
     // ========================================
@@ -310,6 +433,26 @@ impl<'pool> InferEngine<'pool> {
     /// Push a type check error.
     pub fn push_error(&mut self, error: TypeCheckError) {
         self.errors.push(error);
+    }
+
+    /// Get the current error count (for detecting new errors after a section).
+    pub fn error_count(&self) -> usize {
+        self.errors.len()
+    }
+
+    /// Rewrite `UnknownIdent` errors matching `name` (added since `errors_before`)
+    /// into `ClosureSelfCapture` errors.
+    ///
+    /// This detects patterns like `let f = () -> f` where a closure body
+    /// references its own binding name.
+    pub fn rewrite_self_capture_errors(&mut self, binding_name: Name, errors_before: usize) {
+        for error in &mut self.errors[errors_before..] {
+            if let TypeErrorKind::UnknownIdent { name, .. } = &error.kind {
+                if *name == binding_name {
+                    *error = TypeCheckError::closure_self_capture(error.span);
+                }
+            }
+        }
     }
 
     // ========================================

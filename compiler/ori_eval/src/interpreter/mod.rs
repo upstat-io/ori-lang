@@ -73,7 +73,7 @@ use crate::{
     parse_error,
     self_outside_method,
     spread_requires_map,
-    undefined_config,
+    undefined_const,
     undefined_function,
     undefined_variable,
     Environment,
@@ -87,9 +87,9 @@ use crate::{
 };
 use ori_ir::{
     ArmRange, BinaryOp, BindingPattern, ExprArena, ExprId, ExprKind, Name, SharedArena, StmtKind,
-    StringInterner, TypeId, UnaryOp,
+    StringInterner, UnaryOp,
 };
-use ori_types::SharedTypeInterner;
+use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
 /// Pre-interned type names for hot-path method dispatch.
@@ -240,16 +240,10 @@ pub struct Interpreter<'a> {
     pub(crate) owns_scoped_env: bool,
     /// Expression type table from type checking.
     ///
-    /// Maps `ExprId.index()` to `TypeId`. Used by operators like `??` that need
+    /// Maps `ExprId.index()` to `Idx`. Used by operators like `??` that need
     /// type information to determine correct behavior (e.g., chaining vs unwrapping).
     /// Optional because some evaluator uses don't require type info.
-    pub(crate) expr_types: Option<&'a [TypeId]>,
-    /// Type interner for resolving `TypeId` to `TypeData`.
-    ///
-    /// Required when `expr_types` is set to look up actual type information.
-    /// Currently unused but retained for future error message improvements.
-    #[allow(dead_code)]
-    pub(crate) type_interner: Option<SharedTypeInterner>,
+    pub(crate) expr_types: Option<&'a [Idx]>,
 }
 
 /// RAII Drop implementation for panic-safe scope cleanup.
@@ -375,6 +369,11 @@ impl<'a> Interpreter<'a> {
         let expr_types = self.expr_types?;
         let type1 = expr_types.get(expr1.index())?;
         let type2 = expr_types.get(expr2.index())?;
+        // Error types don't represent real types — return None (unknown)
+        // to prevent incorrect chaining/unwrapping decisions in ??
+        if *type1 == ori_types::Idx::ERROR || *type2 == ori_types::Idx::ERROR {
+            return None;
+        }
         Some(type1 == type2)
     }
 
@@ -750,10 +749,10 @@ impl<'a> Interpreter<'a> {
                 let value = self.eval(*expr)?;
                 self.eval_cast(value, ty, *fallible)
             }
-            ExprKind::Config(name) => self
+            ExprKind::Const(name) => self
                 .env
                 .lookup(*name)
-                .ok_or_else(|| undefined_config(self.interner.lookup(*name))),
+                .ok_or_else(|| undefined_const(self.interner.lookup(*name))),
             // Capability provision: with Capability = Provider in body
             // For now, we evaluate the provider (which may have side effects),
             // then bind it to the capability name in a new scope and evaluate the body.

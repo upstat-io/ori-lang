@@ -36,7 +36,7 @@ use inkwell::AddressSpace;
 use rustc_hash::FxHashMap;
 
 use ori_ir::{Name, StringInterner, TypeId};
-use ori_types::{TypeData, TypeInterner};
+use ori_types::{Idx, Pool, Tag};
 
 /// Layout information for a user-defined struct type.
 ///
@@ -264,11 +264,11 @@ pub struct CodegenCx<'ll, 'tcx> {
     pub scx: SimpleCx<'ll>,
     /// String interner for name lookup.
     pub interner: &'tcx StringInterner,
-    /// Type interner for resolving `TypeId` to `TypeData`.
+    /// Type pool for resolving `TypeId` to type information.
     ///
     /// Used by `compute_llvm_type` to determine LLVM representation
     /// for compound types (List, Map, Tuple, etc.).
-    pub type_interner: Option<&'tcx TypeInterner>,
+    pub pool: Option<&'tcx Pool>,
     /// Cache of compiled functions by name.
     pub instances: RefCell<FxHashMap<Name, FunctionValue<'ll>>>,
     /// Cache of compiled test functions.
@@ -285,18 +285,18 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
         Self {
             scx,
             interner,
-            type_interner: None,
+            pool: None,
             instances: RefCell::new(FxHashMap::default()),
             tests: RefCell::new(FxHashMap::default()),
             type_cache: RefCell::new(TypeCache::new()),
         }
     }
 
-    /// Create a codegen context with a type interner for compound type resolution.
-    pub fn with_type_interner(
+    /// Create a codegen context with a type pool for compound type resolution.
+    pub fn with_pool(
         context: &'ll Context,
         interner: &'tcx StringInterner,
-        type_interner: &'tcx TypeInterner,
+        pool: &'tcx Pool,
         module_name: &str,
     ) -> Self {
         let scx = SimpleCx::new(context, module_name);
@@ -304,7 +304,7 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
         Self {
             scx,
             interner,
-            type_interner: Some(type_interner),
+            pool: Some(pool),
             instances: RefCell::new(FxHashMap::default()),
             tests: RefCell::new(FxHashMap::default()),
             type_cache: RefCell::new(TypeCache::new()),
@@ -354,7 +354,7 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
 
     /// Compute the LLVM type for a `TypeId` (uncached).
     ///
-    /// For compound types, uses the type interner to look up the `TypeData`
+    /// For compound types, uses the type pool to look up the type information
     /// and return the appropriate LLVM struct type.
     fn compute_llvm_type(&self, type_id: TypeId) -> BasicTypeEnum<'ll> {
         // Fast path: primitive types by TypeId constant
@@ -372,57 +372,50 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
             _ => {}
         }
 
-        // Use type interner for compound types
-        if let Some(interner) = self.type_interner {
-            let type_data = interner.lookup(type_id);
-            match type_data {
-                // Primitives and fallback types all use i64 representation.
-                // Primitives: Int, Duration, Size, Unit, Never are intentionally i64.
-                // Fallback: Var, Projection, ModuleNamespace, Error shouldn't appear at codegen
-                // but we fall back to i64 if they do (shouldn't happen in well-typed code).
-                TypeData::Int
-                | TypeData::Duration
-                | TypeData::Size
-                | TypeData::Unit
-                | TypeData::Never
-                | TypeData::Var(_)
-                | TypeData::Projection { .. }
-                | TypeData::ModuleNamespace { .. }
-                | TypeData::Error => self.scx.type_i64().into(),
-                TypeData::Float => self.scx.type_f64().into(),
-                TypeData::Bool => self.scx.type_i1().into(),
-                TypeData::Str => self.string_type().into(),
-                TypeData::Char => self.scx.type_i32().into(),
-                TypeData::Byte | TypeData::Ordering => self.scx.type_i8().into(),
+        // Use type pool for compound types
+        if let Some(pool) = self.pool {
+            let idx = Idx::from_raw(type_id.raw());
+            match pool.tag(idx) {
+                Tag::Float => self.scx.type_f64().into(),
+                Tag::Bool => self.scx.type_i1().into(),
+                Tag::Str => self.string_type().into(),
+                Tag::Char => self.scx.type_i32().into(),
+                Tag::Byte | Tag::Ordering => self.scx.type_i8().into(),
 
                 // Compound types (Set uses same layout as List)
-                TypeData::List(_) | TypeData::Set(_) => self.list_type().into(),
-                TypeData::Map { .. } => self.map_type().into(),
-                TypeData::Range(_) => self.range_type().into(),
+                Tag::List | Tag::Set => self.list_type().into(),
+                Tag::Map => self.map_type().into(),
+                Tag::Range => self.range_type().into(),
                 // Channel and Function are handles (pointers)
-                TypeData::Channel(_) | TypeData::Function { .. } => self.scx.type_ptr().into(),
+                Tag::Channel | Tag::Function => self.scx.type_ptr().into(),
 
                 // Option and Result need payload type
-                TypeData::Option(inner) => {
-                    let payload = self.llvm_type(inner);
+                Tag::Option => {
+                    let inner = pool.option_inner(idx);
+                    let payload = self.llvm_type(TypeId::from_raw(inner.raw()));
                     self.option_type(payload).into()
                 }
-                TypeData::Result { ok, err: _ } => {
+                Tag::Result => {
                     // For Result, use the larger of ok/err as payload
                     // For simplicity, use ok type (error handling TBD)
-                    let payload = self.llvm_type(ok);
+                    let ok = pool.result_ok(idx);
+                    let payload = self.llvm_type(TypeId::from_raw(ok.raw()));
                     self.result_type(payload).into()
                 }
 
                 // Tuple: struct of element types
-                TypeData::Tuple(elements) => {
-                    let field_types: Vec<BasicTypeEnum<'ll>> =
-                        elements.iter().map(|&id| self.llvm_type(id)).collect();
+                Tag::Tuple => {
+                    let elements = pool.tuple_elems(idx);
+                    let field_types: Vec<BasicTypeEnum<'ll>> = elements
+                        .iter()
+                        .map(|&id| self.llvm_type(TypeId::from_raw(id.raw())))
+                        .collect();
                     self.scx.type_struct(&field_types, false).into()
                 }
 
                 // Named types: look up struct or fall back to i64
-                TypeData::Named(name) => {
+                Tag::Named => {
+                    let name = pool.named_name(idx);
                     if let Some(struct_ty) = self.get_struct_type(name) {
                         struct_ty.into()
                     } else {
@@ -432,7 +425,9 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
                 // Applied (generic) types: compute layout from type arguments
                 // Don't use named structs because Container<int> and Container<str>
                 // have different layouts despite sharing the same name.
-                TypeData::Applied { name, ref args } => {
+                Tag::Applied => {
+                    let name = pool.applied_name(idx);
+                    let args = pool.applied_args(idx);
                     // For now, create an anonymous struct with the resolved arg types
                     // This is a simplified approach - full support needs field definitions
                     if args.is_empty() {
@@ -445,14 +440,21 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
                     } else {
                         // Generic instantiation: create anonymous struct from type args
                         // This assumes a simple pattern where type args map to fields
-                        let field_types: Vec<BasicTypeEnum<'ll>> =
-                            args.iter().map(|&arg| self.llvm_type(arg)).collect();
+                        let field_types: Vec<BasicTypeEnum<'ll>> = args
+                            .iter()
+                            .map(|&arg| self.llvm_type(TypeId::from_raw(arg.raw())))
+                            .collect();
                         self.scx.type_struct(&field_types, false).into()
                     }
                 }
+
+                // All other tags (Int, Duration, Size, Unit, Never, Var, Error, etc.)
+                // use i64 representation. Var/Error shouldn't appear at codegen
+                // but we fall back to i64 if they do.
+                _ => self.scx.type_i64().into(),
             }
         } else {
-            // No type interner available: fall back to i64 for unknown types
+            // No type pool available: fall back to i64 for unknown types
             self.scx.type_i64().into()
         }
     }
@@ -491,10 +493,9 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     ///
     /// Returns true if the type is `Option<T>`, false otherwise.
     pub fn is_option_type(&self, type_id: TypeId) -> bool {
-        use ori_types::TypeData;
-
-        if let Some(interner) = self.type_interner {
-            matches!(interner.lookup(type_id), TypeData::Option(_))
+        if let Some(pool) = self.pool {
+            let idx = Idx::from_raw(type_id.raw());
+            matches!(pool.tag(idx), Tag::Option)
         } else {
             false
         }
@@ -506,10 +507,9 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     /// This is needed for coalesce (`??`) where Option and Result have
     /// different tag semantics (Option: tag=1 for Some, Result: tag=0 for Ok).
     pub fn is_result_type(&self, type_id: TypeId) -> bool {
-        use ori_types::TypeData;
-
-        if let Some(interner) = self.type_interner {
-            matches!(interner.lookup(type_id), TypeData::Result { .. })
+        if let Some(pool) = self.pool {
+            let idx = Idx::from_raw(type_id.raw());
+            matches!(pool.tag(idx), Tag::Result)
         } else {
             false
         }
@@ -526,11 +526,11 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     ///
     /// Returns `Some(T)` if the type is `Option<T>`, `None` otherwise.
     pub fn option_inner_type(&self, type_id: TypeId) -> Option<TypeId> {
-        use ori_types::TypeData;
-
-        if let Some(interner) = self.type_interner {
-            if let TypeData::Option(inner) = interner.lookup(type_id) {
-                return Some(inner);
+        if let Some(pool) = self.pool {
+            let idx = Idx::from_raw(type_id.raw());
+            if matches!(pool.tag(idx), Tag::Option) {
+                let inner = pool.option_inner(idx);
+                return Some(TypeId::from_raw(inner.raw()));
             }
         }
         None
@@ -540,11 +540,11 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     ///
     /// Returns `Some(T)` if the type is `Result<T, E>`, `None` otherwise.
     pub fn result_ok_type(&self, type_id: TypeId) -> Option<TypeId> {
-        use ori_types::TypeData;
-
-        if let Some(interner) = self.type_interner {
-            if let TypeData::Result { ok, .. } = interner.lookup(type_id) {
-                return Some(ok);
+        if let Some(pool) = self.pool {
+            let idx = Idx::from_raw(type_id.raw());
+            if matches!(pool.tag(idx), Tag::Result) {
+                let ok = pool.result_ok(idx);
+                return Some(TypeId::from_raw(ok.raw()));
             }
         }
         None

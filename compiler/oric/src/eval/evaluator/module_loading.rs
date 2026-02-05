@@ -8,10 +8,8 @@ use super::Evaluator;
 use crate::ir::SharedArena;
 use crate::parser::ParseOutput;
 use crate::query::parsed;
-use crate::typeck::derives::process_derives;
-use crate::typeck::type_registry::TypeRegistry;
 use ori_eval::{
-    collect_def_impl_methods, collect_extend_methods, collect_impl_methods,
+    collect_def_impl_methods, collect_extend_methods, collect_impl_methods, process_derives,
     register_module_functions, register_newtype_constructors, register_variant_constructors,
     UserMethodRegistry,
 };
@@ -168,15 +166,7 @@ impl Evaluator<'_> {
         );
 
         // Process derived traits (Eq, Clone, Hashable, Printable, Default)
-        // Note: We use an empty TypeRegistry here since derive processing doesn't need it
-        // (field information comes from the AST, not the type registry)
-        let type_registry = TypeRegistry::new();
-        process_derives(
-            &parse_result.module,
-            &type_registry,
-            &mut user_methods,
-            self.interner(),
-        );
+        process_derives(&parse_result.module, &mut user_methods, self.interner());
 
         // Merge the collected methods into the existing registry.
         // Using merge() instead of replacing allows the cached MethodDispatcher
