@@ -144,10 +144,17 @@ pub fn check_module_with_imports<F>(
 where
     F: FnOnce(&mut ModuleChecker<'_>),
 {
-    let mut checker = ModuleChecker::new(arena, interner);
-    register_fn(&mut checker);
-    check_module_impl(&mut checker, module);
-    checker.finish_with_pool()
+    // Ensure sufficient stack for the entire type checking pipeline.
+    // The register_fn closure triggers Salsa queries (parsed, tokens) for imports,
+    // and check_module_impl processes all function bodies. On macOS ARM64, the
+    // combined depth of Salsa framework + tracing spans + body checking can
+    // exhaust worker thread stacks.
+    ori_stack::ensure_sufficient_stack(|| {
+        let mut checker = ModuleChecker::new(arena, interner);
+        register_fn(&mut checker);
+        check_module_impl(&mut checker, module);
+        checker.finish_with_pool()
+    })
 }
 
 /// Internal implementation of module checking.

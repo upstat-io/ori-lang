@@ -140,8 +140,6 @@ jobs:
 
       - name: Ori language tests
         run: cargo run -p oric --bin ori -- test tests/
-        env:
-          ORI_LOG: debug
 
   # LLVM backend - runs in Docker, non-blocking for now
   # TODO: Make this blocking once LLVM backend is stable

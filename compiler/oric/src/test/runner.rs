@@ -149,8 +149,12 @@ impl TestRunner {
         // on macOS, 1MB on Windows) and can overflow on complex type expressions.
         // The stacker crate handles growth dynamically, but a larger initial stack
         // reduces the frequency of mmap-based growth on worker threads.
+        //
+        // 16 MiB accommodates macOS ARM64 where stack frames are larger (16 KB pages,
+        // more registers saved per call) and Salsa memo verification adds depth that
+        // can't be protected by ensure_sufficient_stack.
         let file_summaries = rayon::ThreadPoolBuilder::new()
-            .stack_size(8 * 1024 * 1024) // 8 MiB, matching typical Linux main thread
+            .stack_size(16 * 1024 * 1024) // 16 MiB: needed for macOS ARM64 + Salsa overhead
             .build_scoped(
                 // Thread initialization wrapper - just run the thread
                 rayon::ThreadBuilder::run,
