@@ -8,7 +8,7 @@ use crate::db::{CompilerDb, Db};
 use crate::eval::{EvalError, EvalResult, Evaluator, Value};
 use crate::ir::SharedInterner;
 use crate::parser::{self, ParseOutput};
-use crate::typeck::{type_check, TypedModule};
+use ori_types::TypeCheckResult;
 
 // Expression Evaluation Helpers
 
@@ -86,12 +86,17 @@ pub fn parse_source(source: &str) -> (ParseOutput, SharedInterner) {
 }
 
 /// Parse and type check source code.
-pub fn type_check_source(source: &str) -> (ParseOutput, TypedModule, SharedInterner) {
+pub fn type_check_source(source: &str) -> (ParseOutput, TypeCheckResult, SharedInterner) {
     let interner = SharedInterner::default();
     let tokens = ori_lexer::lex(source, &interner);
     let parsed = parser::parse(&tokens, &interner);
-    let typed = type_check(&parsed, &interner);
-    (parsed, typed, interner)
+    let (result, _pool) = ori_types::check_module_with_imports(
+        &parsed.module,
+        &parsed.arena,
+        &interner,
+        |_checker| {},
+    );
+    (parsed, result, interner)
 }
 
 // Assertion Helpers
@@ -152,9 +157,9 @@ pub fn assert_parse_error(source: &str) {
 
 /// Assert that type checking produces an error.
 pub fn assert_type_error(source: &str) {
-    let (_, typed, _interner) = type_check_source(source);
+    let (_, result, _interner) = type_check_source(source);
     assert!(
-        typed.has_errors(),
+        result.has_errors(),
         "expected type error but type checking succeeded for: {source}"
     );
 }
@@ -208,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_type_check_source() {
-        let (_, typed, _interner) = type_check_source("@main () -> int = 42");
-        assert!(!typed.has_errors());
+        let (_, result, _interner) = type_check_source("@main () -> int = 42");
+        assert!(!result.has_errors());
     }
 }

@@ -7,7 +7,7 @@
 //! # Module Structure
 //!
 //! - `use_def.rs`: Import/use statement parsing
-//! - `config.rs`: Config variable parsing
+//! - `config.rs`: Constant parsing
 //! - `function.rs`: Function and test definition parsing
 //! - `trait_def.rs`: Trait definition parsing
 //! - `impl_def.rs`: Impl block parsing

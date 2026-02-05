@@ -19,7 +19,7 @@
 //! - [`traits`]: Trait definition formatting
 //! - [`impls`]: Impl block formatting
 //! - [`imports`]: Import statement formatting
-//! - [`configs`]: Constant/config definition formatting
+//! - [`configs`]: Constant definition formatting
 //! - [`tests_fmt`]: Test definition formatting
 //! - [`comments`]: Comment handling and emission
 
@@ -104,8 +104,8 @@ fn collect_module_positions(module: &Module) -> Vec<u32> {
     for import in &module.imports {
         positions.push(import.span.start);
     }
-    for config in &module.configs {
-        positions.push(config.span.start);
+    for const_def in &module.consts {
+        positions.push(const_def.span.start);
     }
     for type_decl in &module.types {
         positions.push(type_decl.span.start);
@@ -180,11 +180,11 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         }
 
         // Constants
-        if !module.configs.is_empty() {
+        if !module.consts.is_empty() {
             if !first_item {
                 self.ctx.emit_newline();
             }
-            self.format_configs(&module.configs);
+            self.format_consts(&module.consts);
             first_item = false;
         }
 
@@ -255,11 +255,11 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         }
 
         // Constants
-        if !module.configs.is_empty() {
+        if !module.consts.is_empty() {
             if !first_item {
                 self.ctx.emit_newline();
             }
-            self.format_configs_with_comments(&module.configs, comments, comment_index);
+            self.format_consts_with_comments(&module.consts, comments, comment_index);
             first_item = false;
         }
 

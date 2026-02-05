@@ -2,11 +2,9 @@
 //!
 //! `recurse(condition: bool, base: value, step: expr)` - Conditional recursion.
 
-use ori_types::Type;
-
 use crate::{
     DefaultValue, EvalContext, EvalResult, MemoizedFunctionValue, OptionalArg, PatternDefinition,
-    PatternExecutor, ScopedBinding, ScopedBindingType, TypeCheckContext, Value,
+    PatternExecutor, ScopedBinding, ScopedBindingType, Value,
 };
 
 #[cfg(test)]
@@ -34,12 +32,6 @@ impl PatternDefinition for RecursePattern {
 
     fn optional_props(&self) -> &'static [&'static str] {
         &["memo"]
-    }
-
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // recurse(cond: bool, base: T, step: T) -> T
-
-        ctx.get_prop_type("base").unwrap_or_else(|| ctx.fresh_var())
     }
 
     fn optional_args(&self) -> &'static [OptionalArg] {
@@ -200,20 +192,5 @@ mod tests {
         assert_eq!(bindings.len(), 1);
         assert_eq!(bindings[0].name, "self");
         assert_eq!(bindings[0].for_props, &["step"]);
-    }
-
-    #[test]
-    fn recurse_returns_base_type() {
-        let interner = SharedInterner::default();
-        let mut ctx = ori_types::InferenceContext::new();
-
-        let mut prop_types = rustc_hash::FxHashMap::default();
-        let base_name = interner.intern("base");
-        prop_types.insert(base_name, Type::Int);
-
-        let mut type_ctx = TypeCheckContext::new(&interner, &mut ctx, prop_types);
-        let result = RecursePattern.type_check(&mut type_ctx);
-
-        assert!(matches!(result, Type::Int));
     }
 }

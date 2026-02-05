@@ -2,9 +2,7 @@
 //!
 //! `cache(operation: fn)` - Memoize computation result.
 
-use ori_types::Type;
-
-use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value};
+use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, Value};
 
 #[cfg(test)]
 use crate::test_helpers::MockPatternExecutor;
@@ -33,17 +31,6 @@ impl PatternDefinition for CachePattern {
 
     fn optional_props(&self) -> &'static [&'static str] {
         &["key", "ttl"]
-    }
-
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // cache(operation: () -> T) -> T
-        // Or cache(operation: fn) where fn is called to get T
-        let compute_ty = ctx.require_prop_type("operation");
-        match compute_ty {
-            Type::Function { ret, .. } => *ret,
-            // If operation is not a function, return its type directly
-            other => other,
-        }
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
@@ -107,41 +94,5 @@ mod tests {
     #[test]
     fn cache_optional_props() {
         assert_eq!(CachePattern.optional_props(), &["key", "ttl"]);
-    }
-
-    #[test]
-    fn cache_extracts_function_return_type() {
-        let interner = SharedInterner::default();
-        let mut ctx = ori_types::InferenceContext::new();
-
-        let mut prop_types = rustc_hash::FxHashMap::default();
-        let op_name = interner.intern("operation");
-        prop_types.insert(
-            op_name,
-            Type::Function {
-                params: vec![],
-                ret: Box::new(Type::Int),
-            },
-        );
-
-        let mut type_ctx = TypeCheckContext::new(&interner, &mut ctx, prop_types);
-        let result = CachePattern.type_check(&mut type_ctx);
-
-        assert!(matches!(result, Type::Int));
-    }
-
-    #[test]
-    fn cache_non_function_type_returns_as_is() {
-        let interner = SharedInterner::default();
-        let mut ctx = ori_types::InferenceContext::new();
-
-        let mut prop_types = rustc_hash::FxHashMap::default();
-        let op_name = interner.intern("operation");
-        prop_types.insert(op_name, Type::Str);
-
-        let mut type_ctx = TypeCheckContext::new(&interner, &mut ctx, prop_types);
-        let result = CachePattern.type_check(&mut type_ctx);
-
-        assert!(matches!(result, Type::Str));
     }
 }

@@ -130,31 +130,39 @@ use std.testing { assert, assert_eq }
 
 @len_builtin_list () -> int = len(collection: [1, 2, 3])
 
-@test_len_builtin_str tests @len_builtin_str () -> void = run(
-    assert_eq(
-        actual: len(collection: "world"),
-        expected: 5,
-    ),
-)
-
-@len_builtin_str () -> int = len(collection: "hello")
+// =============================================================================
+// Len Built-in Function with Strings
+// =============================================================================
+// PENDING: Len trait proposal - see proposals/drafts/len-trait-proposal.md
+// When approved, uncomment these tests:
+//
+// @test_len_builtin_str tests @len_builtin_str () -> void = run(
+//     assert_eq(
+//         actual: len(collection: "world"),
+//         expected: 5,
+//     ),
+// )
+//
+// @len_builtin_str () -> int = len(collection: "hello")
 
 // =============================================================================
 // Len Trait Bound
 // =============================================================================
-
-@get_length<T: Len> (x: T) -> int = x.len()
-
-@test_len_bound_list tests @get_length () -> void = run(
-    assert_eq(
-        actual: get_length(x: [1, 2, 3]),
-        expected: 3,
-    ),
-)
-
-@test_len_bound_str tests @get_length () -> void = run(
-    assert_eq(
-        actual: get_length(x: "hello"),
-        expected: 5,
-    ),
-)
+// PENDING: Len trait proposal - see proposals/drafts/len-trait-proposal.md
+// When approved, uncomment these tests:
+//
+// @get_length<T: Len> (x: T) -> int = x.len()
+//
+// @test_len_bound_list tests @get_length () -> void = run(
+//     assert_eq(
+//         actual: get_length(x: [1, 2, 3]),
+//         expected: 3,
+//     ),
+// )
+//
+// @test_len_bound_str tests @get_length () -> void = run(
+//     assert_eq(
+//         actual: get_length(x: "hello"),
+//         expected: 5,
+//     ),
+// )

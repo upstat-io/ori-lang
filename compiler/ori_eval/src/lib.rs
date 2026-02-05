@@ -21,6 +21,7 @@
 //! - `Value`, `FunctionValue`, `RangeValue`, `StructValue`, `StructLayout`, `Heap`
 //! - `EvalError`, `EvalResult`
 
+mod derives;
 mod environment;
 pub mod errors;
 pub mod exec;
@@ -43,7 +44,7 @@ mod tests;
 pub use ori_patterns::{
     EvalContext, EvalError, EvalResult, FunctionValFn, FunctionValue, Heap, MemoizedFunctionValue,
     PatternDefinition, PatternExecutor, PatternRegistry, RangeValue, ScalarInt, StructLayout,
-    StructValue, TypeCheckContext, Value,
+    StructValue, Value,
 };
 
 // Re-export error constructors for convenience (canonical path is ori_eval::errors::*)
@@ -111,7 +112,7 @@ pub use errors::{
     tuple_index_out_of_bounds,
     tuple_pattern_mismatch,
     unbounded_range_end,
-    undefined_config,
+    undefined_const,
     undefined_function,
     undefined_variable,
     unknown_pattern,
@@ -129,6 +130,7 @@ pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};
 // Re-export from ori_ir for backward compatibility
 pub use ori_ir::{DerivedMethodInfo, DerivedTrait};
 
+pub use derives::process_derives;
 pub use function_val::{
     function_val_byte, function_val_float, function_val_int, function_val_str,
     function_val_thread_id,

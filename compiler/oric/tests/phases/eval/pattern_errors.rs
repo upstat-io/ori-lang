@@ -27,7 +27,7 @@ use ori_patterns::{
     no_field_on_struct, no_member_in_module, no_such_method, non_exhaustive_match,
     non_integer_in_index, not_callable, operator_not_supported_in_index, parse_error,
     propagated_error_message, range_bound_not_int, recursion_limit_exceeded, self_outside_method,
-    tuple_index_out_of_bounds, tuple_pattern_mismatch, unbounded_range_end, undefined_config,
+    tuple_index_out_of_bounds, tuple_pattern_mismatch, unbounded_range_end, undefined_const,
     undefined_function, undefined_variable, unknown_pattern, wrong_arg_count, wrong_arg_type,
     wrong_function_args,
 };
@@ -163,9 +163,9 @@ fn test_undefined_function() {
 }
 
 #[test]
-fn test_undefined_config() {
-    let err = undefined_config("PORT");
-    assert!(err.message.contains("config"));
+fn test_undefined_const() {
+    let err = undefined_const("PORT");
+    assert!(err.message.contains("constant"));
     assert!(err.message.contains("$PORT"));
 }
 

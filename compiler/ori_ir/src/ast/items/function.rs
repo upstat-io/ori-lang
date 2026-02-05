@@ -186,34 +186,34 @@ impl Spanned for TestDef {
     }
 }
 
-/// Config variable definition.
+/// Constant definition.
 ///
-/// Syntax: `[pub] $name = literal`
+/// Syntax: `[pub] let $name = literal`
 ///
-/// Config variables are compile-time constants. The type is inferred from the literal.
-/// They can be imported via `use "./module" { $config_name }`.
+/// Constants are compile-time immutable bindings. The type is inferred from the literal.
+/// They can be imported via `use "./module" { $const_name }`.
 ///
 /// # Fields
 ///
-/// - `name`: The interned name of the config variable (without the `$` prefix).
+/// - `name`: The interned name of the constant (without the `$` prefix).
 /// - `value`: The initializer expression ID (must resolve to a literal).
 /// - `span`: The source span covering the entire definition.
-/// - `visibility`: The visibility of this config variable.
+/// - `visibility`: The visibility of this constant.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct ConfigDef {
-    /// The interned name of the config variable (without the `$` prefix).
+pub struct ConstDef {
+    /// The interned name of the constant (without the `$` prefix).
     pub name: Name,
     /// The initializer expression (must be a literal).
     /// At parse time, this points to an `ExprKind::Int`, `ExprKind::Float`,
     /// `ExprKind::String`, `ExprKind::Bool`, or similar literal node.
     pub value: ExprId,
-    /// Source span covering the entire config definition (`$name = value`).
+    /// Source span covering the entire constant definition (`let $name = value`).
     pub span: Span,
-    /// Visibility of this config variable (`pub $name = ...` or private).
+    /// Visibility of this constant (`pub let $name = ...` or private).
     pub visibility: Visibility,
 }
 
-impl Spanned for ConfigDef {
+impl Spanned for ConstDef {
     fn span(&self) -> Span {
         self.span
     }
@@ -224,8 +224,8 @@ impl Spanned for ConfigDef {
 pub struct Module {
     /// Import statements
     pub imports: Vec<UseDef>,
-    /// Config variable definitions
-    pub configs: Vec<ConfigDef>,
+    /// Constant definitions
+    pub consts: Vec<ConstDef>,
     /// Function definitions
     pub functions: Vec<Function>,
     /// Test definitions
@@ -246,7 +246,7 @@ impl Module {
     pub fn new() -> Self {
         Module {
             imports: Vec::new(),
-            configs: Vec::new(),
+            consts: Vec::new(),
             functions: Vec::new(),
             tests: Vec::new(),
             types: Vec::new(),
@@ -272,7 +272,7 @@ impl Module {
 
         Module {
             imports: Vec::with_capacity(4),
-            configs: Vec::with_capacity(2),
+            consts: Vec::with_capacity(2),
             functions: Vec::with_capacity(func_estimate),
             tests: Vec::with_capacity(test_estimate),
             types: Vec::with_capacity(type_estimate),
@@ -288,8 +288,8 @@ impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Module {{ {} configs, {} functions, {} tests, {} types, {} traits, {} impls, {} def_impls, {} extends }}",
-            self.configs.len(),
+            "Module {{ {} consts, {} functions, {} tests, {} types, {} traits, {} impls, {} def_impls, {} extends }}",
+            self.consts.len(),
             self.functions.len(),
             self.tests.len(),
             self.types.len(),

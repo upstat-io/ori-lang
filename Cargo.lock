@@ -674,7 +674,6 @@ name = "ori_patterns"
 version = "0.1.0-alpha.8"
 dependencies = [
  "ori_ir",
- "ori_types",
  "pretty_assertions",
  "rustc-hash",
 ]
@@ -691,27 +690,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "ori_typeck"
-version = "0.1.0-alpha.8"
-dependencies = [
- "ori_diagnostic",
- "ori_ir",
- "ori_lexer",
- "ori_parse",
- "ori_patterns",
- "ori_stack",
- "ori_types",
- "pretty_assertions",
- "rustc-hash",
-]
-
-[[package]]
 name = "ori_types"
 version = "0.1.0-alpha.8"
 dependencies = [
  "bitflags",
  "ori_diagnostic",
  "ori_ir",
+ "ori_lexer",
+ "ori_parse",
  "parking_lot",
  "pretty_assertions",
  "rustc-hash",
@@ -731,7 +717,6 @@ dependencies = [
  "ori_parse",
  "ori_patterns",
  "ori_rt",
- "ori_typeck",
  "ori_types",
  "parking_lot",
  "pretty_assertions",

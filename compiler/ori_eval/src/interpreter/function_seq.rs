@@ -11,87 +11,95 @@ impl Interpreter<'_> {
             FunctionSeq::Run {
                 bindings, result, ..
             } => {
-                // Evaluate bindings and statements in sequence
-                let seq_bindings = self.arena.get_seq_bindings(*bindings);
-                for binding in seq_bindings {
-                    match binding {
-                        SeqBinding::Let {
-                            pattern,
-                            value,
-                            mutable,
-                            ..
-                        } => {
-                            let val = self.eval(*value)?;
-                            let mutability = if *mutable {
-                                Mutability::Mutable
-                            } else {
-                                Mutability::Immutable
-                            };
-                            self.bind_pattern(pattern, val, mutability)?;
-                        }
-                        SeqBinding::Stmt { expr, .. } => {
-                            // Evaluate for side effects (e.g., assignment)
-                            self.eval(*expr)?;
+                // Use scoped environment so bindings don't leak
+                self.with_env_scope(|scoped| {
+                    // Evaluate bindings and statements in sequence
+                    let seq_bindings = scoped.arena.get_seq_bindings(*bindings);
+                    for binding in seq_bindings {
+                        match binding {
+                            SeqBinding::Let {
+                                pattern,
+                                value,
+                                mutable,
+                                ..
+                            } => {
+                                let val = scoped.eval(*value)?;
+                                let mutability = if *mutable {
+                                    Mutability::Mutable
+                                } else {
+                                    Mutability::Immutable
+                                };
+                                scoped.bind_pattern(pattern, val, mutability)?;
+                            }
+                            SeqBinding::Stmt { expr, .. } => {
+                                // Evaluate for side effects (e.g., assignment)
+                                scoped.eval(*expr)?;
+                            }
                         }
                     }
-                }
-                // Evaluate and return result
-                self.eval(*result)
+                    // Evaluate and return result
+                    scoped.eval(*result)
+                })
             }
 
             FunctionSeq::Try {
                 bindings, result, ..
             } => {
-                // Evaluate bindings, unwrapping Result/Option and short-circuiting on error
-                let seq_bindings = self.arena.get_seq_bindings(*bindings);
-                for binding in seq_bindings {
-                    match binding {
-                        SeqBinding::Let {
-                            pattern,
-                            value,
-                            mutable,
-                            ..
-                        } => {
-                            match self.eval(*value) {
-                                Ok(value) => {
-                                    // Unwrap Result/Option types per spec:
-                                    // "If any binding expression returns a Result<T, E>, the binding variable has type T"
-                                    let unwrapped = match value {
-                                        Value::Err(e) => {
-                                            // Early return with the error
-                                            return Ok(Value::Err(e));
-                                        }
-                                        Value::None => {
-                                            // Early return with None
-                                            return Ok(Value::None);
-                                        }
-                                        Value::Ok(inner) | Value::Some(inner) => (*inner).clone(),
-                                        other => other,
-                                    };
-                                    let mutability = if *mutable {
-                                        Mutability::Mutable
-                                    } else {
-                                        Mutability::Immutable
-                                    };
-                                    self.bind_pattern(pattern, unwrapped, mutability)?;
-                                }
-                                Err(e) => {
-                                    // If this is a propagated error, return the value
-                                    if let Some(propagated) = e.propagated_value {
-                                        return Ok(propagated);
+                // Use scoped environment so bindings don't leak
+                self.with_env_scope(|scoped| {
+                    // Evaluate bindings, unwrapping Result/Option and short-circuiting on error
+                    let seq_bindings = scoped.arena.get_seq_bindings(*bindings);
+                    for binding in seq_bindings {
+                        match binding {
+                            SeqBinding::Let {
+                                pattern,
+                                value,
+                                mutable,
+                                ..
+                            } => {
+                                match scoped.eval(*value) {
+                                    Ok(value) => {
+                                        // Unwrap Result/Option types per spec:
+                                        // "If any binding expression returns a Result<T, E>, the binding variable has type T"
+                                        let unwrapped = match value {
+                                            Value::Err(e) => {
+                                                // Early return with the error
+                                                return Ok(Value::Err(e));
+                                            }
+                                            Value::None => {
+                                                // Early return with None
+                                                return Ok(Value::None);
+                                            }
+                                            Value::Ok(inner) | Value::Some(inner) => {
+                                                (*inner).clone()
+                                            }
+                                            other => other,
+                                        };
+                                        let mutability = if *mutable {
+                                            Mutability::Mutable
+                                        } else {
+                                            Mutability::Immutable
+                                        };
+                                        scoped.bind_pattern(pattern, unwrapped, mutability)?;
                                     }
-                                    return Err(e);
+                                    Err(e) => {
+                                        // If this is a propagated error, return the value
+                                        if let Some(propagated) = e.propagated_value {
+                                            return Ok(propagated);
+                                        }
+                                        return Err(e);
+                                    }
                                 }
                             }
-                        }
-                        SeqBinding::Stmt { expr, .. } => {
-                            // Evaluate for side effects
-                            self.eval(*expr)?;
+                            SeqBinding::Stmt { expr, .. } => {
+                                // Evaluate for side effects
+                                scoped.eval(*expr)?;
+                            }
                         }
                     }
-                }
-                // Evaluate and return result
-                self.eval(*result)
+                    // Evaluate and return result
+                    scoped.eval(*result)
+                })
             }
 
             FunctionSeq::Match {

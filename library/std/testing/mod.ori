@@ -22,8 +22,8 @@
 // - assert_none<T>(option: Option<T>) -> void
 //
 // Panic assertions:
-// - assert_panics(f: () -> void) -> void
-// - assert_panics_with(f: () -> void, message: str) -> void
+// - assert_panics<T>(f: () -> T) -> void
+// - assert_panics_with<T>(f: () -> T, message: str) -> void
 //
 // Approximate equality (for floats):
 // - assert_approx_eq(a: float, b: float, epsilon: float) -> void

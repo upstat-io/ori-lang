@@ -26,7 +26,6 @@ mod semantic;
 use crate::diagnostic::queue::{DiagnosticConfig, DiagnosticQueue, DiagnosticSeverity};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::problem::Problem;
-use crate::typeck::TypeCheckError;
 use ori_ir::StringInterner;
 
 /// Trait for rendering problems into diagnostics.
@@ -49,45 +48,6 @@ impl Render for Problem {
 /// Render a collection of problems into diagnostics.
 pub fn render_all(problems: &[Problem], interner: &StringInterner) -> Vec<Diagnostic> {
     problems.iter().map(|p| p.render(interner)).collect()
-}
-
-/// Process type check errors through the diagnostic queue for filtering and sorting.
-///
-/// Applies the following error handling strategies:
-/// - Error limits to prevent overwhelming output
-/// - Deduplication of same-line errors
-/// - Soft error suppression after hard errors
-/// - Follow-on error filtering
-/// - Sorting by source position
-///
-/// # Arguments
-///
-/// * `errors` - Type check errors to process
-/// * `source` - Source code for computing line numbers
-/// * `config` - Optional configuration (uses defaults if None)
-///
-/// # Returns
-///
-/// Filtered and sorted diagnostics, ready for display.
-pub fn process_type_errors(
-    errors: Vec<TypeCheckError>,
-    source: &str,
-    config: Option<DiagnosticConfig>,
-) -> Vec<Diagnostic> {
-    let config = config.unwrap_or_default();
-    let mut queue = DiagnosticQueue::with_config(config);
-
-    for error in errors {
-        let diag = error.to_diagnostic();
-        let severity = if error.is_soft() {
-            DiagnosticSeverity::Soft
-        } else {
-            DiagnosticSeverity::Hard
-        };
-        queue.add_with_source_and_severity(diag, source, severity);
-    }
-
-    queue.flush()
 }
 
 /// Process raw diagnostics through the queue for filtering and sorting.

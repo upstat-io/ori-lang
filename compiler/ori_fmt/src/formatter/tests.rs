@@ -305,7 +305,7 @@ fn format_config_identifier() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
     let name = interner.intern("timeout");
-    let expr = make_expr(&mut arena, ExprKind::Config(name));
+    let expr = make_expr(&mut arena, ExprKind::Const(name));
     assert_eq!(format_to_string(&arena, &interner, expr), "$timeout\n");
 }
 

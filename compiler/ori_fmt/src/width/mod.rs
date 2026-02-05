@@ -144,10 +144,10 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
 
             // Identifiers - simple inline calculations
             ExprKind::Ident(name) => self.interner.lookup(*name).len(),
-            ExprKind::Config(name) => self.interner.lookup(*name).len() + 1, // "$name"
-            ExprKind::SelfRef => 4,                                          // "self"
+            ExprKind::Const(name) => self.interner.lookup(*name).len() + 1, // "$name"
+            ExprKind::SelfRef => 4,                                         // "self"
             ExprKind::FunctionRef(name) => self.interner.lookup(*name).len() + 1, // "@name"
-            ExprKind::HashLength => 1,                                       // "#"
+            ExprKind::HashLength => 1,                                      // "#"
 
             // Binary/unary operations - delegated to operators module
             ExprKind::Binary { op, left, right } => {

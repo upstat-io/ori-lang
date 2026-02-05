@@ -33,7 +33,7 @@ ori_lexer_core, ori_lexer
 
 ```
 token, compact, 8-byte, memory, size
-RawToken, Tag, TokenStorage, TokenList
+RawToken, RawTag, TokenTag, TokenIdx, TokenStorage, TokenList
 SoA, Structure-of-Arrays, MultiArrayList
 no end offset, lazy computation, derive end
 TokenFlags, bitfield, space before, newline before
@@ -165,14 +165,17 @@ adjacent, compound, context
 | `plans/types_v2/` | **Independent** — operates on AST, not tokens |
 | `plans/roadmap/` | Overall language roadmap |
 | `plans/ori_lsp/` | Uses tokens for syntax highlighting |
+| `plans/v2-conventions.md` | **Cross-system conventions** — shared patterns for all V2 systems |
 
-### Types V2 Independence
+### Cross-System Cohesion
 
-Lexer V2 and Types V2 are **completely independent**:
+Lexer V2 and Types V2 are **independent in dependency** but share design conventions:
 - Different compiler phases (lexing vs type checking)
 - Different crates (`ori_lexer` vs `ori_types`/`ori_typeck`)
-- Communicate only via `ori_ir` AST
+- Communicate only via `ori_ir` shared types (`Span`, `Name`, `TokenTag`, `ModuleExtra`)
 - Can be developed in parallel
+
+Both systems follow the same structural patterns — index types, tag enums, SoA accessors, flag types, error shapes — codified in `plans/v2-conventions.md`. This consistency means knowledge transfers between systems: understanding how `Pool.tag(idx)` works in types V2 immediately tells you how `TokenStorage.tag(idx)` works in lexer V2.
 
 ---
 

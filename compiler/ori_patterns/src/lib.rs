@@ -46,10 +46,7 @@ mod parallel_tests;
 #[cfg(test)]
 mod test_helpers;
 
-use rustc_hash::FxHashMap;
-
 use ori_ir::{ExprArena, ExprId, NamedExpr, StringInterner};
-use ori_types::{InferenceContext, Type};
 
 pub use errors::{ControlFlow, EvalError, EvalResult};
 pub use fusion::{ChainLink, FusedPattern, FusionHints, PatternChain};
@@ -61,8 +58,6 @@ pub use value::{
     FunctionValFn, FunctionValue, Heap, MemoizedFunctionValue, OrderingValue, RangeValue,
     ScalarInt, StringLookup, StructLayout, StructValue, Value,
 };
-
-// Note: ScopedBinding and ScopedBindingType are defined later in this file and auto-exported
 
 // Re-export error constructors for use by other crates
 pub use errors::{
@@ -133,7 +128,7 @@ pub use errors::{
     tuple_index_out_of_bounds,
     tuple_pattern_mismatch,
     unbounded_range_end,
-    undefined_config,
+    undefined_const,
     undefined_function,
     undefined_variable,
     unknown_pattern,
@@ -141,77 +136,6 @@ pub use errors::{
     wrong_arg_type,
     wrong_function_args,
 };
-
-use ori_ir::Name;
-
-/// Context for type checking a pattern.
-///
-/// Wraps the necessary components for type inference during pattern type checking.
-pub struct TypeCheckContext<'a> {
-    pub interner: &'a StringInterner,
-    pub ctx: &'a mut InferenceContext,
-    /// Types of evaluated properties, keyed by property name.
-    pub prop_types: FxHashMap<Name, Type>,
-}
-
-impl<'a> TypeCheckContext<'a> {
-    /// Create a new type check context.
-    pub fn new(
-        interner: &'a StringInterner,
-        ctx: &'a mut InferenceContext,
-        prop_types: FxHashMap<Name, Type>,
-    ) -> Self {
-        TypeCheckContext {
-            interner,
-            ctx,
-            prop_types,
-        }
-    }
-
-    /// Get the type of a required property.
-    pub fn get_prop_type(&self, name: &str) -> Option<Type> {
-        let name_id = self.interner.intern(name);
-        self.prop_types.get(&name_id).cloned()
-    }
-
-    /// Get the type of a required property, returning Error type if missing.
-    pub fn require_prop_type(&self, name: &str) -> Type {
-        self.get_prop_type(name).unwrap_or(Type::Error)
-    }
-
-    /// Create a fresh type variable.
-    pub fn fresh_var(&mut self) -> Type {
-        self.ctx.fresh_var()
-    }
-
-    /// Get the return type of a function-typed property.
-    ///
-    /// Returns a fresh type variable if the property is missing or not a function type.
-    pub fn get_function_return_type(&mut self, prop_name: &str) -> Type {
-        match self.get_prop_type(prop_name) {
-            Some(Type::Function { ret, .. }) => *ret,
-            _ => self.fresh_var(),
-        }
-    }
-
-    /// Wrap a type in List.
-    pub fn list_of(&self, elem: Type) -> Type {
-        Type::List(Box::new(elem))
-    }
-
-    /// Wrap a type in Option.
-    pub fn option_of(&self, elem: Type) -> Type {
-        Type::Option(Box::new(elem))
-    }
-
-    /// Create a Result type with the given ok and error types.
-    pub fn result_of(&self, ok: Type, err: Type) -> Type {
-        Type::Result {
-            ok: Box::new(ok),
-            err: Box::new(err),
-        }
-    }
-}
 
 /// Context for evaluating a pattern.
 ///
@@ -550,9 +474,6 @@ pub trait PatternCore: Send + Sync {
     /// Required property names for this pattern.
     fn required_props(&self) -> &'static [&'static str];
 
-    /// Type check this pattern and return its result type.
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type;
-
     /// Evaluate this pattern.
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult;
 }
@@ -616,7 +537,8 @@ pub enum ScopedBindingType {
 /// Trait defining a pattern's behavior across compilation phases.
 ///
 /// Each pattern (map, filter, fold, etc.) implements this trait to define
-/// its type checking and evaluation semantics.
+/// its evaluation semantics. Type checking is handled by `ModuleChecker`
+/// in `ori_types`.
 ///
 /// # Open/Closed Principle
 /// Adding a new pattern requires:
@@ -624,20 +546,18 @@ pub enum ScopedBindingType {
 /// 2. Implement `PatternDefinition`
 /// 3. Register in `PatternRegistry::new()`
 ///
-/// No modifications to evaluator.rs or typeck.rs needed.
+/// No modifications to evaluator.rs needed.
 ///
 /// # Interface Segregation
-/// This trait provides a complete interface for backward compatibility.
+/// This trait provides a complete interface.
 /// For cleaner interfaces, consider implementing the focused traits:
 /// - `PatternCore`: Required for all patterns
 /// - `PatternFusable`: For patterns that support fusion
 /// - `PatternVariadic`: For patterns accepting arbitrary properties
 ///
 /// # Compilation Phases
-/// Patterns participate in multiple compilation phases:
-/// - **Type checking**: `type_check()` infers and validates types
+/// Patterns participate in:
 /// - **Evaluation**: `evaluate()` executes in the interpreter
-/// - **Code generation**: `signature()` enables template caching
 /// - **Optimization**: `can_fuse_with()`/`fuse_with()` enable fusion
 pub trait PatternDefinition: Send + Sync {
     /// The pattern's name (e.g., "map", "filter").
@@ -675,29 +595,11 @@ pub trait PatternDefinition: Send + Sync {
         false
     }
 
-    /// Type check this pattern and return its result type.
-    ///
-    /// Called during type checking with the types of all property expressions.
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type;
-
     /// Evaluate this pattern.
     ///
     /// Called during interpretation with the property expressions.
     /// The executor provides methods to evaluate expressions and call functions.
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult;
-
-    /// Compute the pattern signature for template caching.
-    ///
-    /// Two patterns with the same signature can share compiled templates.
-    /// This enables efficient code generation through template reuse.
-    ///
-    /// Default implementation returns a basic signature with just the pattern name.
-    fn signature(&self, ctx: &TypeCheckContext) -> PatternSignature {
-        // Default: minimal signature with pattern name only
-        // Patterns should override this for proper template caching
-        let kind = ctx.interner.intern(self.name());
-        PatternSignature::new(kind, ori_ir::TypeId::INFER)
-    }
 
     /// Check if this pattern can be fused with the given next pattern.
     ///
@@ -740,10 +642,6 @@ impl<T: PatternDefinition> PatternCore for T {
 
     fn required_props(&self) -> &'static [&'static str] {
         PatternDefinition::required_props(self)
-    }
-
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        PatternDefinition::type_check(self, ctx)
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {

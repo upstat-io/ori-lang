@@ -89,6 +89,28 @@ sections:
 
 ---
 
+## Implementation Location
+
+> **Cross-Reference:** `plans/types_v2/section-08b-module-checker.md`
+
+Trait support exists in **two type checker implementations**:
+
+| System | Location | Status | Notes |
+|--------|----------|--------|-------|
+| **Current** (`ori_typeck`) | `compiler/ori_typeck/` | ✅ Working | This section's items implemented here |
+| **Types V2** (`ori_types`) | `compiler/ori_types/src/check/` | ❌ Stubbed | Migration target |
+
+All items in this section (3.0-3.21) are implemented in `ori_typeck`. The **Types V2 migration**
+(`plans/types_v2/`) will re-implement trait support using the new `Pool`/`Idx` infrastructure.
+
+**Key Files (Current Implementation):**
+- `ori_typeck/src/registry/trait_registry.rs` — Trait/impl storage
+- `ori_typeck/src/checker/trait_registration.rs` — Registration passes
+- `ori_typeck/src/checker/bound_checking.rs` — Constraint satisfaction
+- `ori_typeck/src/infer/builtin_methods/` — Built-in trait methods
+
+---
+
 ## PRIORITY NOTE
 
 Per the "Lean Core, Rich Libraries" principle, most built-in functions have been moved

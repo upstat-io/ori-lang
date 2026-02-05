@@ -1,4 +1,4 @@
-//! Type, trait, and method registries for Types V2.
+//! Type, trait, and method registries.
 //!
 //! Registries provide lookup tables for user-defined types, traits, and methods.
 //! Unlike the Pool (which stores all type representations), registries store

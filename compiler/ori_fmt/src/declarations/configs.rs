@@ -1,38 +1,38 @@
-//! Config/Constant Formatting
+//! Constant Formatting
 //!
 //! Formatting for module-level constant definitions.
 
 use crate::comments::{format_comment, CommentIndex};
 use crate::formatter::Formatter;
-use ori_ir::ast::items::ConfigDef;
+use ori_ir::ast::items::ConstDef;
 use ori_ir::{CommentList, StringLookup, Visibility};
 
 use super::ModuleFormatter;
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
-    /// Format constant/config definitions.
-    pub(super) fn format_configs(&mut self, configs: &[ConfigDef]) {
-        for config in configs {
-            self.format_config(config);
+    /// Format constant definitions.
+    pub(super) fn format_consts(&mut self, consts: &[ConstDef]) {
+        for const_def in consts {
+            self.format_const(const_def);
             self.ctx.emit_newline();
         }
     }
 
     /// Format constant definitions with comments.
-    pub(super) fn format_configs_with_comments(
+    pub(super) fn format_consts_with_comments(
         &mut self,
-        configs: &[ConfigDef],
+        consts: &[ConstDef],
         comments: &CommentList,
         comment_index: &mut CommentIndex,
     ) {
-        for config in configs {
-            self.emit_comments_before_config(config.span.start, comments, comment_index);
-            self.format_config(config);
+        for const_def in consts {
+            self.emit_comments_before_const(const_def.span.start, comments, comment_index);
+            self.format_const(const_def);
             self.ctx.emit_newline();
         }
     }
 
-    fn emit_comments_before_config(
+    fn emit_comments_before_const(
         &mut self,
         pos: u32,
         comments: &CommentList,
@@ -46,12 +46,12 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         }
     }
 
-    fn format_config(&mut self, config: &ConfigDef) {
-        if config.visibility == Visibility::Public {
+    fn format_const(&mut self, const_def: &ConstDef) {
+        if const_def.visibility == Visibility::Public {
             self.ctx.emit("pub ");
         }
         self.ctx.emit("$");
-        self.ctx.emit(self.interner.lookup(config.name));
+        self.ctx.emit(self.interner.lookup(const_def.name));
         self.ctx.emit(" = ");
 
         // Format the value expression
@@ -59,7 +59,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         let current_column = self.ctx.column();
         let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
             .with_starting_column(current_column);
-        expr_formatter.format(config.value);
+        expr_formatter.format(const_def.value);
         // Get the output without trailing newline
         let expr_output = expr_formatter.ctx.as_str().trim_end();
         self.ctx.emit(expr_output);

@@ -1,11 +1,11 @@
-//! Type environment for the Types V2 inference engine.
+//! Type environment for the inference engine.
 //!
 //! This provides name → type scheme bindings with scope support,
 //! using the new `Idx` type handles instead of `TypeId`.
 
 #![expect(
     clippy::disallowed_types,
-    reason = "Rc<TypeEnvV2Inner> is intentional for O(1) parent chain cloning via Rc::make_mut copy-on-write semantics. This matches TypeEnv in env.rs."
+    reason = "Rc<TypeEnvInner> is intentional for O(1) parent chain cloning via Rc::make_mut copy-on-write semantics. This matches TypeEnv in env.rs."
 )]
 
 use ori_ir::Name;
@@ -14,18 +14,18 @@ use std::rc::Rc;
 
 use crate::Idx;
 
-/// Internal storage for `TypeEnvV2`.
+/// Internal storage for `TypeEnv`.
 #[derive(Clone, Debug)]
-struct TypeEnvV2Inner {
+struct TypeEnvInner {
     /// Name → type scheme bindings.
     /// Schemes are just `Idx` (could be a Scheme tag or a monomorphic type).
     bindings: FxHashMap<Name, Idx>,
 
     /// Parent scope for lookup chaining.
-    parent: Option<TypeEnvV2>,
+    parent: Option<TypeEnv>,
 }
 
-/// Type environment for Types V2.
+/// Type environment.
 ///
 /// Maps names to type schemes (polymorphic types) using `Idx` handles.
 ///
@@ -37,7 +37,7 @@ struct TypeEnvV2Inner {
 /// # Usage
 ///
 /// ```ignore
-/// let mut env = TypeEnvV2::new();
+/// let mut env = TypeEnv::new();
 ///
 /// // Bind a monomorphic type
 /// env.bind(name, Idx::INT);
@@ -50,12 +50,12 @@ struct TypeEnvV2Inner {
 /// assert_eq!(child.lookup(name), Some(Idx::INT));
 /// ```
 #[derive(Clone, Debug)]
-pub struct TypeEnvV2(Rc<TypeEnvV2Inner>);
+pub struct TypeEnv(Rc<TypeEnvInner>);
 
-impl TypeEnvV2 {
+impl TypeEnv {
     /// Create a new empty environment.
     pub fn new() -> Self {
-        TypeEnvV2(Rc::new(TypeEnvV2Inner {
+        TypeEnv(Rc::new(TypeEnvInner {
             bindings: FxHashMap::default(),
             parent: None,
         }))
@@ -66,7 +66,7 @@ impl TypeEnvV2 {
     /// This is O(1) due to Rc-based parent sharing.
     #[must_use]
     pub fn child(&self) -> Self {
-        TypeEnvV2(Rc::new(TypeEnvV2Inner {
+        TypeEnv(Rc::new(TypeEnvInner {
             bindings: FxHashMap::default(),
             parent: Some(self.clone()),
         }))
@@ -147,15 +147,15 @@ impl TypeEnvV2 {
     }
 }
 
-impl Default for TypeEnvV2 {
+impl Default for TypeEnv {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Iterator over all bound names in a `TypeEnvV2`.
+/// Iterator over all bound names in a `TypeEnv`.
 struct NamesIterator<'a> {
-    current: Option<&'a TypeEnvV2>,
+    current: Option<&'a TypeEnv>,
     current_iter: Option<std::collections::hash_map::Keys<'a, Name, Idx>>,
 }
 
@@ -187,14 +187,14 @@ mod tests {
 
     #[test]
     fn test_new_env_is_empty() {
-        let env = TypeEnvV2::new();
+        let env = TypeEnv::new();
         assert!(env.lookup(name(1)).is_none());
         assert!(!env.is_bound_locally(name(1)));
     }
 
     #[test]
     fn test_bind_and_lookup() {
-        let mut env = TypeEnvV2::new();
+        let mut env = TypeEnv::new();
         env.bind(name(1), Idx::INT);
 
         assert_eq!(env.lookup(name(1)), Some(Idx::INT));
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn test_child_scope_shadows_parent() {
-        let mut parent = TypeEnvV2::new();
+        let mut parent = TypeEnv::new();
         parent.bind(name(1), Idx::INT);
 
         let mut child = parent.child();
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_child_sees_parent_bindings() {
-        let mut parent = TypeEnvV2::new();
+        let mut parent = TypeEnv::new();
         parent.bind(name(1), Idx::INT);
 
         let child = parent.child();
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_is_bound_locally() {
-        let mut parent = TypeEnvV2::new();
+        let mut parent = TypeEnv::new();
         parent.bind(name(1), Idx::INT);
 
         let child = parent.child();
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_names_iterator() {
-        let mut parent = TypeEnvV2::new();
+        let mut parent = TypeEnv::new();
         parent.bind(name(1), Idx::INT);
         parent.bind(name(2), Idx::BOOL);
 
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_local_count() {
-        let mut env = TypeEnvV2::new();
+        let mut env = TypeEnv::new();
         assert_eq!(env.local_count(), 0);
 
         env.bind(name(1), Idx::INT);
@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_parent() {
-        let parent = TypeEnvV2::new();
+        let parent = TypeEnv::new();
         let child = parent.child();
 
         assert!(parent.parent().is_none());

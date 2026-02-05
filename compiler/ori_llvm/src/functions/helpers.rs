@@ -6,14 +6,14 @@ use ori_ir::{DurationUnit, Name, SizeUnit};
 use crate::builder::{Builder, Locals};
 
 impl<'ll> Builder<'_, 'll, '_> {
-    /// Compile a config variable reference.
-    /// Config variables are compile-time constants stored in locals.
-    pub(crate) fn compile_config(
+    /// Compile a constant reference.
+    /// Constants are compile-time values stored in locals.
+    pub(crate) fn compile_const(
         &self,
         name: Name,
         locals: &Locals<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {
-        // Config variables should be pre-populated in locals by the caller
+        // Constants should be pre-populated in locals by the caller
         self.load_variable(name, locals)
     }
 

@@ -208,7 +208,7 @@ fn test_visit_module() {
 
     let module = Module {
         imports: vec![],
-        configs: vec![],
+        consts: vec![],
         functions: vec![func1, func2],
         tests: vec![],
         types: vec![],
@@ -250,7 +250,7 @@ fn test_visit_empty_module() {
     let arena = ExprArena::new();
     let module = Module {
         imports: vec![],
-        configs: vec![],
+        consts: vec![],
         functions: vec![],
         tests: vec![],
         types: vec![],

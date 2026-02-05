@@ -74,14 +74,16 @@ This enables code reuse across tools while keeping the compiler's lexer optimize
   ```rust
   /// Raw token from low-level tokenizer
   pub struct RawToken {
-      pub tag: Tag,
+      pub tag: RawTag,
       pub len: u32,  // Byte length only
   }
 
-  /// Token kind without semantic payload
+  /// Raw token kind — lightweight, no compiler dependencies.
+  /// Mapped to `ori_ir::TokenTag` in the integration layer (`ori_lexer`).
+  /// See plans/v2-conventions.md §2 (Tag/Discriminant Enums), §10 (Two-Layer Pattern).
   #[derive(Clone, Copy, Debug, PartialEq, Eq)]
   #[repr(u8)]
-  pub enum Tag {
+  pub enum RawTag {
       // Literals
       Ident,
       Int,
@@ -120,13 +122,24 @@ This enables code reuse across tools while keeping the compiler's lexer optimize
   }
 
   /// Get the lexeme for a fixed token
-  impl Tag {
+  impl RawTag {
       pub fn lexeme(self) -> Option<&'static str> {
           match self {
-              Tag::Plus => Some("+"),
-              Tag::KwLet => Some("let"),
+              RawTag::Plus => Some("+"),
+              RawTag::KwLet => Some("let"),
               // Variable-length tokens return None
-              Tag::Ident | Tag::Int | Tag::String => None,
+              RawTag::Ident | RawTag::Int | RawTag::String => None,
+              // ...
+          }
+      }
+
+      /// Human-readable name for debugging (conventions §2)
+      pub fn name(self) -> &'static str {
+          match self {
+              RawTag::Ident => "identifier",
+              RawTag::Int => "integer",
+              RawTag::Plus => "+",
+              RawTag::KwLet => "let",
               // ...
           }
       }
@@ -134,7 +147,7 @@ This enables code reuse across tools while keeping the compiler's lexer optimize
   ```
 
 - [ ] Ensure no panics in public API
-  - All errors become `Tag::Unknown` or specific error tags
+  - All errors become `RawTag::Unknown` or specific error tags
   - Invalid UTF-8 handled gracefully
 
 ### Validation
@@ -149,7 +162,7 @@ fn no_compiler_dependencies() {
 #[test]
 fn tokenize_simple() {
     let tokens: Vec<_> = tokenize("let x = 42").collect();
-    assert_eq!(tokens[0].tag, Tag::KwLet);
+    assert_eq!(tokens[0].tag, RawTag::KwLet);
     assert_eq!(tokens[0].len, 3);
 }
 ```
@@ -161,6 +174,8 @@ fn tokenize_simple() {
 **Goal:** Rewrite `ori_lexer` to process raw tokens into compiler tokens
 
 **NOTE:** This completely replaces the current `ori_lexer` implementation. All existing files (`raw_token.rs`, `convert.rs`, etc.) are deleted and rewritten.
+
+> **Key responsibility:** The cooking layer maps `ori_lexer_core::RawTag` → `ori_ir::TokenTag`. This is where `ori_ir` types enter the picture. `TokenTag` follows the conventions doc pattern (`#[repr(u8)]`, semantic ranges, `name()` method) — see `plans/v2-conventions.md` §2, §10.
 
 ### Tasks
 
@@ -202,19 +217,19 @@ fn tokenize_simple() {
           Token::new(kind, span)
       }
 
-      fn cook_token(&self, tag: Tag, start: u32, end: u32) -> TokenKind {
+      fn cook_token(&self, tag: RawTag, start: u32, end: u32) -> TokenKind {
           match tag {
-              Tag::Ident => {
+              RawTag::Ident => {
                   let text = &self.source[start as usize..end as usize];
                   let name = self.interner.get_or_intern(text);
                   TokenKind::Ident(name)
               }
-              Tag::Int => {
+              RawTag::Int => {
                   let text = &self.source[start as usize..end as usize];
                   let value = parse_int(text);
                   TokenKind::Int(value)
               }
-              Tag::KwLet => TokenKind::Let,
+              RawTag::KwLet => TokenKind::Let,
               // ... etc
           }
       }
@@ -245,13 +260,13 @@ fn tokenize_simple() {
 
 - [ ] Emit diagnostics for lexical errors
   ```rust
-  fn cook_token(&self, tag: Tag, ...) -> TokenKind {
+  fn cook_token(&self, tag: RawTag, ...) -> TokenKind {
       match tag {
-          Tag::InvalidStringEscape => {
+          RawTag::InvalidStringEscape => {
               self.emit_error(LexError::InvalidEscape { span });
               TokenKind::Error
           }
-          Tag::UnterminatedString => {
+          RawTag::UnterminatedString => {
               self.emit_error(LexError::UnterminatedString { start: span.start });
               TokenKind::Error
           }
@@ -297,7 +312,7 @@ fn cooking_interns_identifiers() {
   //! ## Usage
   //!
   //! ```rust
-  //! use ori_lexer_core::{tokenize, Tag};
+  //! use ori_lexer_core::{tokenize, RawTag};
   //!
   //! for token in tokenize("let x = 42") {
   //!     println!("{:?}: {} bytes", token.tag, token.len);
@@ -310,7 +325,7 @@ fn cooking_interns_identifiers() {
   | Concern | `ori_lexer_core` | `ori_lexer` |
   |---------|------------------|-------------|
   | Tokenization | ✓ | |
-  | Token tags | ✓ | |
+  | Tag definition | `RawTag` (local) | `TokenTag` (from `ori_ir`) |
   | Byte lengths | ✓ | |
   | Spans | | ✓ |
   | Interning | | ✓ |
@@ -318,14 +333,15 @@ fn cooking_interns_identifiers() {
   | Error messages | | ✓ |
   | Trivia handling | | ✓ |
   | Salsa integration | | ✓ |
+  | Conventions | None | `plans/v2-conventions.md` |
 
 - [ ] Create re-exports in `ori_lexer`
   ```rust
   // ori_lexer/src/lib.rs
-  pub use ori_lexer_core::{Tag, RawToken, tokenize as tokenize_raw};
+  pub use ori_lexer_core::{RawTag, RawToken, tokenize as tokenize_raw};
 
   // High-level API
-  pub fn lex(source: &str, interner: &StringInterner) -> TokenList { ... }
+  pub fn lex(source: &str, interner: &StringInterner) -> LexOutput { ... }
   ```
 
 ---
@@ -349,7 +365,7 @@ fn cooking_interns_identifiers() {
   ```rust
   //! ## Stability
   //!
-  //! - `Tag` enum: Variants may be added (non-exhaustive)
+  //! - `RawTag` enum: Variants may be added (non-exhaustive)
   //! - `RawToken` struct: Fields are stable
   //! - `tokenize()`: Signature is stable
   //! - Error tags: May be refined (new error kinds)
@@ -359,7 +375,7 @@ fn cooking_interns_identifiers() {
   ```rust
   #[non_exhaustive]
   #[repr(u8)]
-  pub enum Tag {
+  pub enum RawTag {
       // ...
   }
   ```
@@ -369,12 +385,12 @@ fn cooking_interns_identifiers() {
   #[test]
   fn api_stability() {
       // These patterns must continue to work
-      let tok = RawToken { tag: Tag::Ident, len: 3 };
-      assert!(tok.tag == Tag::Ident);
+      let tok = RawToken { tag: RawTag::Ident, len: 3 };
+      assert!(tok.tag == RawTag::Ident);
       assert!(tok.len == 3);
 
-      // Tag must have lexeme method
-      assert_eq!(Tag::Plus.lexeme(), Some("+"));
+      // RawTag must have lexeme method
+      assert_eq!(RawTag::Plus.lexeme(), Some("+"));
   }
   ```
 

@@ -1,6 +1,6 @@
 //! Unified type index handle.
 //!
-//! `Idx` is THE canonical type representation in Types V2.
+//! `Idx` is THE canonical type representation.
 //! All types are stored in a unified pool and referenced by their 32-bit index.
 //!
 //! # Design (from Zig's `InternPool`)
@@ -104,6 +104,38 @@ impl Idx {
     #[inline]
     pub const fn is_unit(self) -> bool {
         self.0 == Self::UNIT.0
+    }
+
+    /// Get the human-readable name for primitive types.
+    ///
+    /// Returns `Some("int")`, `Some("bool")`, etc. for known primitives,
+    /// or `None` for dynamic (non-primitive) types that require a Pool
+    /// to render their names.
+    #[inline]
+    pub const fn name(self) -> Option<&'static str> {
+        match self.0 {
+            0 => Some("int"),
+            1 => Some("float"),
+            2 => Some("bool"),
+            3 => Some("str"),
+            4 => Some("char"),
+            5 => Some("byte"),
+            6 => Some("()"),
+            7 => Some("never"),
+            8 => Some("<error>"),
+            9 => Some("duration"),
+            10 => Some("size"),
+            11 => Some("ordering"),
+            _ => None,
+        }
+    }
+
+    /// Get the display name, using `"<type>"` as a fallback for dynamic types.
+    ///
+    /// Useful for error messages where a Pool is not available.
+    #[inline]
+    pub fn display_name(self) -> &'static str {
+        self.name().unwrap_or("<type>")
     }
 }
 

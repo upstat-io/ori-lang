@@ -10,7 +10,7 @@ use crate::evaluator::{FunctionSig, LLVMEvalError, LLVMEvaluator, LLVMValue, Own
 fn empty_module() -> Module {
     Module {
         imports: vec![],
-        configs: vec![],
+        consts: vec![],
         functions: vec![],
         tests: vec![],
         types: vec![],

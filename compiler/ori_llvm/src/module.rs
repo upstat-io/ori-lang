@@ -16,7 +16,7 @@ use inkwell::context::Context;
 use inkwell::values::FunctionValue;
 
 use ori_ir::{ExprArena, Function, Name, ParsedType, StringInterner, TestDef, TypeId};
-use ori_types::TypeInterner;
+use ori_types::Pool;
 
 use crate::builder::Builder;
 use crate::context::CodegenCx;
@@ -54,17 +54,17 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         Self { cx }
     }
 
-    /// Create a module compiler with a type interner for compound type resolution.
+    /// Create a module compiler with a type pool for compound type resolution.
     ///
-    /// The type interner allows proper LLVM type generation for compound types
+    /// The type pool allows proper LLVM type generation for compound types
     /// like List, Map, Tuple, Option, Result, etc.
-    pub fn with_type_interner(
+    pub fn with_pool(
         context: &'ll Context,
         interner: &'tcx StringInterner,
-        type_interner: &'tcx TypeInterner,
+        pool: &'tcx Pool,
         module_name: &str,
     ) -> Self {
-        let cx = CodegenCx::with_type_interner(context, interner, type_interner, module_name);
+        let cx = CodegenCx::with_pool(context, interner, pool, module_name);
 
         Self { cx }
     }

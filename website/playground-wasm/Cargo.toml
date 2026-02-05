@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 ori_ir = { path = "../../compiler/ori_ir" }
 ori_lexer = { path = "../../compiler/ori_lexer" }
 ori_parse = { path = "../../compiler/ori_parse" }
-ori_typeck = { path = "../../compiler/ori_typeck" }
+ori_types = { path = "../../compiler/ori_types" }
 ori_eval = { path = "../../compiler/ori_eval" }
 ori_fmt = { path = "../../compiler/ori_fmt" }
 

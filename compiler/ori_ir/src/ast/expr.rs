@@ -97,8 +97,8 @@ pub enum ExprKind {
     /// Variable reference
     Ident(Name),
 
-    /// Config reference: $name
-    Config(Name),
+    /// Constant reference: $name
+    Const(Name),
 
     /// Self reference: self
     SelfRef,
@@ -326,7 +326,7 @@ impl fmt::Debug for ExprKind {
             ExprKind::Size { value, unit } => write!(f, "Size({value}{unit:?})"),
             ExprKind::Unit => write!(f, "Unit"),
             ExprKind::Ident(n) => write!(f, "Ident({n:?})"),
-            ExprKind::Config(n) => write!(f, "Config({n:?})"),
+            ExprKind::Const(n) => write!(f, "Const({n:?})"),
             ExprKind::SelfRef => write!(f, "SelfRef"),
             ExprKind::FunctionRef(n) => write!(f, "FunctionRef({n:?})"),
             ExprKind::HashLength => write!(f, "HashLength"),

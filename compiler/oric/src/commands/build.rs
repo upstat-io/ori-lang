@@ -783,7 +783,7 @@ fn compile_single_module(
 #[cfg(feature = "llvm")]
 fn extract_public_function_types(
     parse_result: &ori_parse::ParseOutput,
-    type_result: &ori_typeck::TypedModule,
+    type_result: &ori_types::TypeCheckResult,
     module_name: &str,
     mangler: &ori_llvm::aot::Mangler,
     db: &oric::CompilerDb,
@@ -799,16 +799,20 @@ fn extract_public_function_types(
             continue;
         }
 
-        // Get the corresponding FunctionType from type checking
-        if let Some(func_type) = type_result.function_types.get(idx) {
+        // Get the corresponding FunctionSig from type checking
+        if let Some(func_sig) = type_result.typed.functions.get(idx) {
             let func_name_str = interner.lookup(func.name);
             let mangled_name = mangler.mangle_function(module_name, func_name_str);
 
-            public_functions.push((
-                mangled_name,
-                func_type.params.clone(),
-                func_type.return_type,
-            ));
+            // Convert Idx to TypeId at the LLVM boundary (both are u32 newtypes)
+            let param_types: Vec<ori_ir::TypeId> = func_sig
+                .param_types
+                .iter()
+                .map(|idx| ori_ir::TypeId::from_raw(idx.raw()))
+                .collect();
+            let return_type = ori_ir::TypeId::from_raw(func_sig.return_type.raw());
+
+            public_functions.push((mangled_name, param_types, return_type));
         }
     }
 

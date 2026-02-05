@@ -90,7 +90,7 @@ IntFloat, MissingField, FieldTypo
 ---
 
 ### Section 06: Type Inference Engine
-**File:** `section-06-inference.md` | **Status:** ✅ Complete (~95%)
+**File:** `section-06-inference.md` | **Status:** ✅ Complete (~98%)
 
 ```
 InferEngine, infer, inference
@@ -117,20 +117,38 @@ coherence, orphan rules
 ---
 
 ### Section 08: Salsa Integration
-**File:** `section-08-salsa.md` | **Status:** Not Started
+**File:** `section-08-salsa.md` | **Status:** In Progress (~80%)
 
 ```
 Salsa, incremental, query
 Clone, Eq, Hash, Debug
 deterministic, pure
-type_check query, TypedModule
-oric integration
+typed_v2 query, TypeCheckResultV2
+oric integration, typeck_v2
+import registration, cross-arena
+Pool sharing, per-module
+error rendering bridge
+```
+
+---
+
+### Section 08b: Module-Level Type Checker
+**File:** `section-08b-module-checker.md` | **Status:** ✅ Complete
+
+> **Cross-Reference:** `plans/roadmap/section-03-traits.md` — Trait features in current `ori_typeck`
+
+```
+ModuleChecker, check_module
+registration passes, types, traits
+function signatures, body checking
+statement inference, let binding
+scope management, capabilities
 ```
 
 ---
 
 ### Section 09: Migration
-**File:** `section-09-migration.md` | **Status:** Not Started
+**File:** `section-09-migration.md` | **Status:** In Progress (8/10 phases complete)
 
 ```
 DELETE, remove, replace
@@ -138,6 +156,8 @@ ori_types, ori_typeck
 ori_eval, ori_patterns
 ori_llvm, oric
 dependent crates, imports
+V2 pipeline, production, TypeCheckResultV2
+error rendering, message, code, span
 ```
 
 ---
@@ -151,10 +171,11 @@ dependent crates, imports
 | 03 | Unification Engine | `section-03-unification.md` | P0 | ✅ Complete |
 | 04 | Rank-Based Generalization | `section-04-ranks.md` | P1 | ✅ Complete |
 | 05 | Context-Aware Errors | `section-05-errors.md` | P1 | ✅ Complete |
-| 06 | Type Inference Engine | `section-06-inference.md` | P1 | ✅ Complete (~95%) |
+| 06 | Type Inference Engine | `section-06-inference.md` | P1 | ✅ Complete (~98%) |
 | 07 | Registries | `section-07-registries.md` | P2 | In Progress (~85%) |
-| 08 | Salsa Integration | `section-08-salsa.md` | P2 | Not Started |
-| 09 | Migration | `section-09-migration.md` | P3 | Not Started |
+| 08 | Salsa Integration | `section-08-salsa.md` | P2 | In Progress (~80%) |
+| 08b | Module-Level Type Checker | `section-08b-module-checker.md` | P1 | In Progress (~85%) ¹ |
+| 09 | Migration | `section-09-migration.md` | P3 | In Progress (8/10) |
 
 ---
 
@@ -162,7 +183,8 @@ dependent crates, imports
 
 | Related Plan | Relevance |
 |--------------|-----------|
-| `plans/roadmap/section-02-types.md` | Type system roadmap |
+| `plans/roadmap/section-03-traits.md` | ¹ Trait features in current `ori_typeck` — Types V2 must re-implement |
+| `plans/roadmap/section-02-type-inference.md` | Type inference roadmap (complete in `ori_typeck`) |
 | `plans/parser_v2/` | AST representation consumed by type checker (✅ Complete, no changes needed) |
 | `plans/parser_v2/section-06-metadata.md` | Parser's `ModuleExtra` — **unrelated** to Types' `TypeFlags` |
 | `plans/ori_lsp/` | LSP depends on type checking |
@@ -174,6 +196,21 @@ Types V2 does **not** require changes to Parser V2. The systems are decoupled:
 - Parser's "metadata" = `ModuleExtra` (formatting trivia)
 - Types' "metadata" = `TypeFlags` (type properties)
 - Different files, different purposes, no conflicts
+
+### Roadmap Section 03 Relationship
+
+Types V2 is a **parallel rewrite** of the type checker, not an extension:
+
+| Aspect | Current (`ori_typeck`) | Types V2 (`ori_types`) |
+|--------|------------------------|------------------------|
+| **Location** | `compiler/ori_typeck/` | `compiler/ori_types/src/check/` |
+| **Traits** | ✅ Working (Roadmap 3.0-3.6) | ❌ Stubbed (08b.3) |
+| **Type Storage** | `TypeInterner` + `TypeId` | `Pool` + `Idx` |
+| **Unification** | Basic | Path-compressed union-find |
+
+Roadmap Section 03 items are implemented in `ori_typeck`. Section 08b.3 (Registration Passes)
+must **re-implement** trait/impl support using Types V2 infrastructure — it is not blocked
+by Roadmap Section 03.
 
 ---
 

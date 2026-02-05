@@ -20,7 +20,10 @@ use crate::Idx;
 ///
 /// Used during type inference to track not just WHAT type is expected,
 /// but WHY we expect it. This enables precise error messages.
-#[derive(Clone, Debug)]
+///
+/// # Salsa Compatibility
+/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Expected {
     /// The expected type.
     pub ty: Idx,
@@ -85,7 +88,10 @@ impl Expected {
 /// - `Annotation`: Type comes from an explicit annotation in source
 /// - `Context`: Type comes from surrounding code structure
 /// - `PreviousInSequence`: Type comes from an earlier element in a homogeneous sequence
-#[derive(Clone, Debug)]
+///
+/// # Salsa Compatibility
+/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum ExpectedOrigin {
     /// No specific expectation - inference determines the type.
     ///
@@ -180,7 +186,7 @@ impl ExpectedOrigin {
 }
 
 /// What kind of homogeneous sequence set the type expectation.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum SequenceKind {
     /// Elements of a list literal: `[a, b, c]`
     ListLiteral,

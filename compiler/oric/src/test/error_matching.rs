@@ -4,8 +4,8 @@
 //! expected error specifications.
 
 use crate::ir::{ExpectedError, StringInterner};
-use crate::typeck::TypeCheckError;
 use ori_diagnostic::span_utils;
+use ori_types::TypeCheckError;
 
 /// Result of matching errors against expectations.
 #[derive(Debug)]

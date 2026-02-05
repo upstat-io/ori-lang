@@ -2,9 +2,7 @@
 //!
 //! `timeout(operation: expr, after: duration)` - Execute with timeout.
 
-use ori_types::Type;
-
-use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value};
+use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, Value};
 
 #[cfg(test)]
 use crate::test_helpers::MockPatternExecutor;
@@ -27,14 +25,6 @@ impl PatternDefinition for TimeoutPattern {
 
     fn required_props(&self) -> &'static [&'static str] {
         &["operation", "after"]
-    }
-
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // timeout(operation: T, after: Duration) -> Result<T, Error>
-        let op_ty = ctx
-            .get_prop_type("operation")
-            .unwrap_or_else(|| ctx.fresh_var());
-        ctx.result_of(op_ty, Type::Error)
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
@@ -132,26 +122,5 @@ mod tests {
     #[test]
     fn timeout_required_props() {
         assert_eq!(TimeoutPattern.required_props(), &["operation", "after"]);
-    }
-
-    #[test]
-    fn timeout_returns_result_type() {
-        let interner = SharedInterner::default();
-        let mut ctx = ori_types::InferenceContext::new();
-
-        let mut prop_types = rustc_hash::FxHashMap::default();
-        let op_name = interner.intern("operation");
-        prop_types.insert(op_name, Type::Int);
-
-        let mut type_ctx = TypeCheckContext::new(&interner, &mut ctx, prop_types);
-        let result = TimeoutPattern.type_check(&mut type_ctx);
-
-        match result {
-            Type::Result { ok, err } => {
-                assert!(matches!(*ok, Type::Int));
-                assert!(matches!(*err, Type::Error));
-            }
-            _ => panic!("expected Result type"),
-        }
     }
 }

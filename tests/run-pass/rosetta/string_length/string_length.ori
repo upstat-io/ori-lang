@@ -1,11 +1,12 @@
 // Rosetta Code: String length
 // Task: Find the character length of a string
 
-// Get character length of a string
-@string_length (s: str) -> int = len(collection: s)
+// Get byte length of a string
+// Note: Uses method syntax since Len trait is pending approval
+@string_length (s: str) -> int = s.len()
 
 // Check if string is empty
-@is_empty_str (s: str) -> bool = len(collection: s) == 0
+@is_empty_str (s: str) -> bool = s.len() == 0
 
 // Check if string has content
-@has_content (s: str) -> bool = len(collection: s) > 0
+@has_content (s: str) -> bool = s.len() > 0

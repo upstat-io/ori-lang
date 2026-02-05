@@ -697,25 +697,29 @@ Implemented in `ori_types/src/infer/expr.rs`:
 - [x] Function call inference with arity checking
 - [x] All operators typed correctly
 - [x] Control flow (if/match/loops) working ✅ (2026-02-04)
-- [x] Lambda inference with closures - basic done, annotations need ParsedType conversion
+- [x] Lambda inference with closures ✅ (2026-02-04)
 - [x] Pattern expressions integrated ✅ (2026-02-04)
 - [x] All existing tests passing (213 tests) ✅ (2026-02-04)
 - [x] Comprehensive unit tests for expression inference ✅ (2026-02-04, 71 tests)
+- [x] `ParsedType` → `Idx` conversion ✅ (2026-02-04)
+- [x] Type annotation checking for let bindings ✅ (2026-02-04)
+- [x] Type annotation checking for lambdas ✅ (2026-02-04)
+- [x] Cast expression inference ✅ (2026-02-04)
+- [x] 11 new tests for ParsedType resolution ✅ (2026-02-04, 243 total)
 
 **Exit Criteria:** The inference engine can type check all Ori expressions with correct HM inference, producing rich error messages when types don't match.
 
-**Section 06 Status:** ✅ Complete (~95%)
+**Section 06 Status:** ✅ Complete (~98%)
 
 **Remaining blockers for 100%:**
-1. `ParsedType` → `Idx` conversion for type annotations
-2. Method call and field access inference (needs Section 07 Registries)
-3. Scoped bindings for `recurse` pattern (needs Section 07)
+1. Method call and field access inference (needs Section 07 Registries)
+2. Scoped bindings for `recurse` pattern (needs Section 07)
 
 ---
 
 ## Next Steps
 
-1. Implement `ParsedType` → `Idx` conversion for type annotations
+1. ~~Implement `ParsedType` → `Idx` conversion for type annotations~~ ✅ Done (2026-02-04)
 2. Implement method call and field access inference (needs Section 07 Registries)
 3. ~~Add unit tests for match/loop inference~~ ✅ Done (2026-02-04)
 4. ~~Implement pattern expressions (FunctionSeq, FunctionExp)~~ ✅ Done (2026-02-04)

@@ -1,21 +1,21 @@
-//! Config variable parsing.
+//! Constant parsing.
 
 use crate::{ParseError, ParseResult, Parser};
-use ori_ir::{ConfigDef, Expr, ExprKind, TokenKind, Visibility};
+use ori_ir::{ConstDef, Expr, ExprKind, TokenKind, Visibility};
 
 impl Parser<'_> {
-    /// Parse a config variable with progress tracking.
-    pub(crate) fn parse_config_with_progress(
+    /// Parse a constant with progress tracking.
+    pub(crate) fn parse_const_with_progress(
         &mut self,
         visibility: Visibility,
-    ) -> ParseResult<ConfigDef> {
-        self.with_progress(|p| p.parse_config(visibility))
+    ) -> ParseResult<ConstDef> {
+        self.with_progress(|p| p.parse_const(visibility))
     }
 
-    /// Parse a config variable declaration.
+    /// Parse a constant declaration.
     ///
-    /// Syntax: `[pub] $name = literal`
-    pub(crate) fn parse_config(&mut self, visibility: Visibility) -> Result<ConfigDef, ParseError> {
+    /// Syntax: `[pub] let $name = literal`
+    pub(crate) fn parse_const(&mut self, visibility: Visibility) -> Result<ConstDef, ParseError> {
         let start_span = self.current_span();
 
         // $
@@ -32,7 +32,7 @@ impl Parser<'_> {
 
         let span = start_span.merge(self.previous_span());
 
-        Ok(ConfigDef {
+        Ok(ConstDef {
             name,
             value,
             span,
@@ -40,7 +40,7 @@ impl Parser<'_> {
         })
     }
 
-    /// Parse a literal expression for config values.
+    /// Parse a literal expression for constant values.
     fn parse_literal_expr(&mut self) -> Result<ori_ir::ExprId, ParseError> {
         let span = self.current_span();
         let kind = match *self.current_kind() {
@@ -88,7 +88,7 @@ impl Parser<'_> {
             _ => {
                 return Err(ParseError::new(
                     ori_diagnostic::ErrorCode::E1002,
-                    "config variable must be initialized with a literal value".to_string(),
+                    "constant must be initialized with a literal value".to_string(),
                     span,
                 ));
             }

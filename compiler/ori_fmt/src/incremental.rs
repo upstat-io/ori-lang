@@ -53,7 +53,7 @@ struct DeclInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DeclKind {
     Import,
-    Config,
+    Const,
     Type,
     Trait,
     Impl,
@@ -74,11 +74,11 @@ fn collect_declarations(module: &Module) -> Vec<DeclInfo> {
         });
     }
 
-    for (i, config) in module.configs.iter().enumerate() {
+    for (i, const_def) in module.consts.iter().enumerate() {
         decls.push(DeclInfo {
-            start: config.span.start,
-            end: config.span.end,
-            kind: DeclKind::Config,
+            start: const_def.span.start,
+            end: const_def.span.end,
+            kind: DeclKind::Const,
             index: i,
         });
     }
@@ -195,11 +195,11 @@ pub fn format_incremental<I: StringLookup>(
 
     // If change overlaps with imports or configs, we need to format all of them as a block
     let has_import = overlapping.iter().any(|d| d.kind == DeclKind::Import);
-    let has_config = overlapping.iter().any(|d| d.kind == DeclKind::Config);
+    let has_const = overlapping.iter().any(|d| d.kind == DeclKind::Const);
 
     // For simplicity, if the change affects imports or configs, do full format
     // (these are block-formatted and order matters)
-    if has_import || has_config {
+    if has_import || has_const {
         return IncrementalResult::FullFormatNeeded;
     }
 
@@ -293,7 +293,7 @@ fn format_single_declaration<I: StringLookup>(
             formatter.format_test(test);
         }
         // Import and Config are handled as blocks, not individually
-        DeclKind::Import | DeclKind::Config => {
+        DeclKind::Import | DeclKind::Const => {
             unreachable!("Import and Config should trigger full format")
         }
     }

@@ -3,9 +3,7 @@
 //! The `print` pattern uses the `Print` capability to output text.
 //! This allows output to be redirected (e.g., to a buffer in WASM or tests).
 
-use ori_types::Type;
-
-use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext, Value};
+use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, Value};
 
 /// The `print` pattern prints a message using the Print capability.
 ///
@@ -26,10 +24,6 @@ impl PatternDefinition for PrintPattern {
 
     fn required_props(&self) -> &'static [&'static str] {
         &["msg"]
-    }
-
-    fn type_check(&self, _ctx: &mut TypeCheckContext) -> Type {
-        Type::Unit
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {

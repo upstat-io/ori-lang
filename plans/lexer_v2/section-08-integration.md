@@ -24,6 +24,8 @@ sections:
 **Goal:** Seamless integration with Parser V2
 **Source:** Gleam (`ModuleExtra`), TypeScript, Roc
 
+> **Conventions:** Follows `plans/v2-conventions.md` §6 (Phase Output), §7 (Shared Types in ori_ir)
+
 ---
 
 ## Background
@@ -33,7 +35,7 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
 | Parser V2 Requirement | Lexer V2 Solution |
 |----------------------|-------------------|
 | Trivia preservation (Section 6) | `ModuleExtra` structure |
-| Expected tokens (Section 3) | `TokenSet` from `Tag` |
+| Expected tokens (Section 3) | `TokenSet` from `TokenTag` |
 | Incremental parsing (Section 5) | Range re-lexing API |
 | Error context (Section 4) | Rich `LexError` types |
 
@@ -45,44 +47,19 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
 
 ### Tasks
 
-- [ ] Define `ModuleExtra` structure (Gleam pattern)
-  ```rust
-  /// Non-semantic information preserved for formatting
-  #[derive(Clone, Debug, Default)]
-  pub struct ModuleExtra {
-      /// All comments in the module
-      pub comments: Vec<Comment>,
-      /// Positions of blank lines (empty lines)
-      pub blank_lines: Vec<u32>,
-      /// Positions of newlines
-      pub newlines: Vec<u32>,
-      /// Trailing commas in lists
-      pub trailing_commas: Vec<Span>,
-  }
+- [ ] Use `ModuleExtra` from `ori_ir` (conventions §7 — shared types live in ori_ir)
 
-  #[derive(Clone, Debug)]
-  pub struct Comment {
-      pub kind: CommentKind,
-      pub span: Span,
-      pub content: String,
-  }
+  > **Note:** `ModuleExtra` is defined in `ori_ir::metadata` (not here).
+  > The lexer populates it; the parser may extend it (e.g., trailing commas).
+  > See `plans/v2-conventions.md` §7: all types that cross phase boundaries are defined once in `ori_ir`.
 
-  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-  pub enum CommentKind {
-      /// `// comment`
-      Line,
-      /// `/* comment */`
-      Block,
-      /// `/// doc comment`
-      DocLine,
-      /// `/** doc comment */`
-      DocBlock,
-      /// `//! module doc`
-      ModuleLine,
-      /// `/*! module doc */`
-      ModuleBlock,
-  }
-  ```
+  The existing `ori_ir::metadata::ModuleExtra` structure includes:
+  - `comments: Vec<Comment>` — all comments in the module
+  - `blank_lines: Vec<u32>` — positions of blank lines
+  - `newlines: Vec<u32>` — positions of newlines
+  - `trailing_commas: Vec<Span>` — trailing commas (populated by parser)
+
+  Comment classification (`CommentKind::Line`, `Block`, `DocLine`, `DocBlock`, `ModuleLine`, `ModuleBlock`) is also defined in `ori_ir`.
 
 - [ ] Collect trivia during lexing
   ```rust
@@ -95,6 +72,7 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
   }
 
   impl TriviaCollector {
+      /// Returns `ori_ir::ModuleExtra` — the shared metadata type (conventions §7)
       pub fn on_newline(&mut self, pos: u32) {
           self.newlines.push(pos);
           self.consecutive_newlines += 1;
@@ -115,8 +93,9 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
           self.comments.push(Comment { kind, span, content });
       }
 
-      pub fn finish(self) -> ModuleExtra {
-          ModuleExtra {
+      /// Produce `ori_ir::ModuleExtra` (conventions §6, §7)
+      pub fn finish(self) -> ori_ir::ModuleExtra {
+          ori_ir::ModuleExtra {
               comments: self.comments,
               blank_lines: self.blank_lines,
               newlines: self.newlines,
@@ -126,32 +105,40 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
   }
   ```
 
-- [ ] Integrate with lexer API
+- [ ] Integrate with lexer API — return `LexOutput` (conventions §6)
   ```rust
+  /// Phase output for the lexer (conventions §6 — Phase Output Shape).
+  /// Immutable after creation. Next phase borrows read-only.
+  pub struct LexOutput {
+      pub tokens: TokenStorage,
+      pub errors: Vec<LexError>,
+      pub metadata: ori_ir::ModuleExtra,  // Shared type (conventions §7)
+  }
+
   /// Lex with trivia collection (for formatter)
   pub fn lex_with_trivia(
       source: &str,
       interner: &StringInterner,
-  ) -> (TokenStorage, ModuleExtra) {
+  ) -> LexOutput {
       let mut tokenizer = Tokenizer::new(source);
-      let mut storage = TokenStorage::with_source_size(source.len());
+      let mut storage = TokenStorage::with_capacity(source.len());
       let mut trivia = TriviaCollector::new();
 
       loop {
           let token = tokenizer.next_token();
 
           match token.tag {
-              Tag::Eof => break,
+              RawTag::Eof => break,
 
-              Tag::Newline => {
+              RawTag::Newline => {
                   trivia.on_newline(token.start);
                   // Don't add to token storage
               }
 
-              Tag::LineComment | Tag::BlockComment => {
+              RawTag::LineComment | RawTag::BlockComment => {
                   let kind = match token.tag {
-                      Tag::LineComment => CommentKind::Line,
-                      Tag::BlockComment => CommentKind::Block,
+                      RawTag::LineComment => CommentKind::Line,
+                      RawTag::BlockComment => CommentKind::Block,
                       _ => unreachable!(),
                   };
                   let span = Span::new(token.start, token.start + token.len);
@@ -159,7 +146,7 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
                   trivia.on_comment(kind, span, content);
               }
 
-              Tag::DocComment => {
+              RawTag::DocComment => {
                   let span = Span::new(token.start, token.start + token.len);
                   let content = source[span.start as usize..span.end as usize].to_string();
                   trivia.on_comment(CommentKind::DocLine, span, content);
@@ -172,7 +159,12 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
           }
       }
 
-      (storage, trivia.finish())
+      let (_, errors) = tokenizer.finish();
+      LexOutput {
+          tokens: storage,
+          errors,
+          metadata: trivia.finish(),
+      }
   }
   ```
 
@@ -186,22 +178,22 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
 
 - [ ] Detect doc comments during lexing
   ```rust
-  fn handle_slash(&mut self, tag: &mut Tag) -> State {
+  fn handle_slash(&mut self, tag: &mut RawTag) -> State {
       match self.current() {
           b'/' => {
               self.advance();
               if self.current() == b'/' {
                   // /// doc comment
                   self.advance();
-                  *tag = Tag::DocComment;
+                  *tag = RawTag::DocComment;
                   return State::LineComment;
               } else if self.current() == b'!' {
                   // //! module doc
                   self.advance();
-                  *tag = Tag::ModuleDocComment;
+                  *tag = RawTag::ModuleDocComment;
                   return State::LineComment;
               }
-              *tag = Tag::LineComment;
+              *tag = RawTag::LineComment;
               State::LineComment
           }
 
@@ -210,20 +202,20 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
               if self.current() == b'*' && self.peek() != b'/' {
                   // /** doc comment */
                   self.advance();
-                  *tag = Tag::DocBlockComment;
+                  *tag = RawTag::DocBlockComment;
                   return State::BlockComment;
               } else if self.current() == b'!' {
                   // /*! module doc */
                   self.advance();
-                  *tag = Tag::ModuleDocBlockComment;
+                  *tag = RawTag::ModuleDocBlockComment;
                   return State::BlockComment;
               }
-              *tag = Tag::BlockComment;
+              *tag = RawTag::BlockComment;
               State::BlockComment
           }
 
           _ => {
-              *tag = Tag::Slash;
+              *tag = RawTag::Slash;
               State::Done
           }
       }
@@ -326,25 +318,25 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
 
 - [ ] Define reusability predicates for tokens
   ```rust
-  impl Tag {
+  impl TokenTag {
       /// Can this token be reused after an edit?
       /// Returns false for tokens that might span the edit point
       pub fn is_atomic(self) -> bool {
           match self {
               // These can always be reused
-              Tag::Ident
-              | Tag::Int
-              | Tag::Float
-              | Tag::LParen
-              | Tag::RParen
+              TokenTag::Ident
+              | TokenTag::Int
+              | TokenTag::Float
+              | TokenTag::LParen
+              | TokenTag::RParen
               // ... simple tokens
               => true,
 
               // These might span edit points
-              Tag::String
-              | Tag::RawString
-              | Tag::BlockComment
-              | Tag::DocBlockComment
+              TokenTag::String
+              | TokenTag::RawString
+              | TokenTag::BlockComment
+              | TokenTag::DocBlockComment
               => false,
 
               // Keywords are atomic
@@ -462,19 +454,19 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
       /// `foo(x)` = call, `foo (x)` = function ref + grouped
       fn parse_postfix(&mut self, lhs: Expr) -> ParseResult<Expr> {
           match self.cursor.current_tag() {
-              Tag::LParen if self.cursor.is_adjacent() => {
+              TokenTag::LParen if self.cursor.is_adjacent() => {
                   // No space before ( = function call
                   self.parse_call(lhs)
               }
-              Tag::LParen => {
+              TokenTag::LParen => {
                   // Space before ( = not a call
                   Ok(lhs)
               }
-              Tag::Dot if self.cursor.is_adjacent() => {
+              TokenTag::Dot if self.cursor.is_adjacent() => {
                   // foo.bar = field access
                   self.parse_field_access(lhs)
               }
-              Tag::Dot => {
+              TokenTag::Dot => {
                   // foo . bar = might be different (operator?)
                   self.parse_method_operator(lhs)
               }
@@ -484,12 +476,12 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
 
       /// Parse generic closing vs shift-right
       fn parse_generic_args(&mut self) -> ParseResult<Vec<Type>> {
-          self.expect(Tag::Lt)?;
+          self.expect(TokenTag::Lt)?;
           let args = self.parse_type_list()?;
 
           // Handle >> as two > tokens
-          if self.cursor.current_tag() == Tag::Gt
-              && self.cursor.peek_tag() == Tag::Gt
+          if self.cursor.current_tag() == TokenTag::Gt
+              && self.cursor.peek_tag() == TokenTag::Gt
               && self.cursor.is_adjacent()
           {
               // This is >> - only consume first >
@@ -497,7 +489,7 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
               return Ok(args);
           }
 
-          self.expect(Tag::Gt)?;
+          self.expect(TokenTag::Gt)?;
           Ok(args)
       }
   }

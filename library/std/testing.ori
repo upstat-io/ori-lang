@@ -32,13 +32,13 @@ pub @assert_err<T, E> (result: Result<T, E>) -> void =
     match(result, Ok(_) -> panic(msg: "assertion failed: expected Err, got Ok"), Err(_) -> ())
 
 // Assert that an expression panics
-pub @assert_panics (f: () -> void) -> void = run(
+pub @assert_panics<T> (f: () -> T) -> void = run(
     let res = catch(expr: f()),
     match(res, Ok(_) -> panic(msg: "assertion failed: expected panic but succeeded"), Err(_) -> ()),
 )
 
 // Assert that an expression panics with a specific message
-pub @assert_panics_with (f: () -> void, msg: str) -> void = run(
+pub @assert_panics_with<T> (f: () -> T, msg: str) -> void = run(
     let result = catch(
         expr: f(),
     ),

@@ -1,0 +1,42 @@
+// Spec: 08-expressions.md § Block Expressions
+// Tests for block-level let binding scoping within patterns
+
+use std.testing { assert_eq }
+
+// Test that let bindings work properly within run blocks
+@test_let_bindings_in_run () -> void = run(
+    let outer = 1,
+    let inner_result = run(
+        let inner = 42,
+        inner
+    ),
+    // inner_result should be 42
+    assert_eq(actual: inner_result, expected: 42),
+    assert_eq(actual: outer, expected: 1),
+)
+
+// Test nested run blocks with shadowing
+@test_nested_run_shadowing () -> void = run(
+    let x = 1,
+    let y = run(
+        let x = 2,
+        run(
+            let x = 3,
+            x
+        )
+    ),
+    // x should still be 1 (outer)
+    // y should be 3 (from innermost block)
+    assert_eq(actual: x, expected: 1),
+    assert_eq(actual: y, expected: 3),
+)
+
+// Test that run returns its last expression
+@test_run_returns_last_expression () -> void = run(
+    let result = run(
+        let a = 10,
+        let b = 20,
+        a + b
+    ),
+    assert_eq(actual: result, expected: 30),
+)

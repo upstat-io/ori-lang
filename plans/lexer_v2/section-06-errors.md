@@ -24,6 +24,8 @@ sections:
 **Goal:** Rich, educational lexical error messages
 **Source:** Elm, Gleam (`compiler-core/src/parse/error.rs`)
 
+> **Conventions:** Follows `plans/v2-conventions.md` §5 (Error Shape)
+
 ---
 
 ## Background
@@ -59,16 +61,19 @@ to end statements. You can simply remove it.
 
 ### Tasks
 
-- [ ] Define comprehensive `LexError` enum
+- [ ] Define `LexError` following conventions §5 (WHERE + WHAT + WHY + HOW)
   ```rust
-  /// Lexical error with detailed information
-  #[derive(Clone, Debug, PartialEq, Eq)]
+  /// Lexical error — follows the cross-system error shape (plans/v2-conventions.md §5).
+  /// All fields derive Clone, Eq, PartialEq, Hash, Debug for Salsa compatibility (§8).
+  #[derive(Clone, Debug, Eq, PartialEq, Hash)]
   pub struct LexError {
-      pub kind: LexErrorKind,
-      pub span: Span,
+      pub span: Span,                         // WHERE (from ori_ir)
+      pub kind: LexErrorKind,                 // WHAT went wrong
+      pub context: LexErrorContext,            // WHY we were checking
+      pub suggestions: Vec<LexSuggestion>,    // HOW to fix
   }
 
-  #[derive(Clone, Debug, PartialEq, Eq)]
+  #[derive(Clone, Debug, Eq, PartialEq, Hash)]
   pub enum LexErrorKind {
       // === String Errors ===
       UnterminatedString {
@@ -143,7 +148,7 @@ to end statements. You can simply remove it.
       HashComment,         // # comment (Python style)
   }
 
-  #[derive(Clone, Debug, PartialEq, Eq)]
+  #[derive(Clone, Debug, Eq, PartialEq, Hash)]
   pub enum UnicodeEscapeError {
       MissingOpenBrace,
       MissingCloseBrace,
@@ -154,7 +159,7 @@ to end statements. You can simply remove it.
       SurrogateCodepoint { value: u32 },
   }
 
-  #[derive(Clone, Debug, PartialEq, Eq)]
+  #[derive(Clone, Debug, Eq, PartialEq, Hash)]
   pub enum IdentifierError {
       StartsWithDigit,
       InvalidChar { char: char, suggestion: Option<char> },
@@ -162,12 +167,104 @@ to end statements. You can simply remove it.
       Confusable { found: char, looks_like: char, name: &'static str },
   }
 
-  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+  #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
   pub enum NumBase {
       Binary,
       Octal,
       Decimal,
       Hex,
+  }
+  ```
+
+- [ ] Define `LexErrorContext` (WHERE we were when the error occurred)
+  ```rust
+  /// Lexing context at the point of error — the WHY (conventions §5).
+  /// Matches the `ErrorContext` pattern from types V2's `TypeCheckError`.
+  #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+  pub enum LexErrorContext {
+      TopLevel,
+      InsideString { start: u32 },
+      InsideChar,
+      InsideComment { start: u32, depth: u32 },
+      InsideInterpolation { nesting: u32 },
+      NumberLiteral { base: NumBase },
+  }
+
+  impl Default for LexErrorContext {
+      fn default() -> Self { Self::TopLevel }
+  }
+  ```
+
+- [ ] Define `LexSuggestion` (follows `ori_types::type_error::Suggestion` pattern)
+  ```rust
+  /// Suggestion for fixing a lexical error — the HOW (conventions §5).
+  /// Internal type; final rendering in `oric` maps to `ori_diagnostic::Suggestion`
+  /// (with Applicability). Same pattern as types V2.
+  #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+  pub struct LexSuggestion {
+      pub message: String,
+      pub replacement: Option<LexReplacement>,
+      pub priority: u8,
+  }
+
+  #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+  pub struct LexReplacement {
+      pub span: Span,
+      pub text: String,
+  }
+  ```
+
+- [ ] Add factory methods with `#[cold]` and fluent builders with `#[must_use]`
+  ```rust
+  impl LexError {
+      #[cold]
+      pub fn unterminated_string(start: u32, span: Span) -> Self {
+          Self {
+              span,
+              kind: LexErrorKind::UnterminatedString { start },
+              context: LexErrorContext::InsideString { start },
+              suggestions: Vec::new(),
+          }
+      }
+
+      #[cold]
+      pub fn invalid_escape(escape_char: char, span: Span) -> Self {
+          Self {
+              span,
+              kind: LexErrorKind::InvalidStringEscape { escape_char },
+              context: LexErrorContext::default(),
+              suggestions: Vec::new(),
+          }
+      }
+
+      #[cold]
+      pub fn semicolon(span: Span) -> Self {
+          Self {
+              span,
+              kind: LexErrorKind::Semicolon,
+              context: LexErrorContext::TopLevel,
+              suggestions: vec![LexSuggestion {
+                  message: "Remove the semicolon".to_string(),
+                  replacement: Some(LexReplacement {
+                      span,
+                      text: String::new(),
+                  }),
+                  priority: 0,
+              }],
+          }
+      }
+
+      #[must_use]
+      pub fn with_context(mut self, ctx: LexErrorContext) -> Self {
+          self.context = ctx;
+          self
+      }
+
+      #[must_use]
+      pub fn with_suggestion(mut self, suggestion: LexSuggestion) -> Self {
+          self.suggestions.push(suggestion);
+          self
+      }
   }
   ```
 
@@ -177,11 +274,17 @@ to end statements. You can simply remove it.
       buffer: &'a [u8],
       index: usize,
       errors: Vec<LexError>,
+      context: LexErrorContext,  // Current lexing context
   }
 
   impl<'a> Tokenizer<'a> {
       fn emit_error(&mut self, kind: LexErrorKind, span: Span) {
-          self.errors.push(LexError { kind, span });
+          self.errors.push(LexError {
+              span,
+              kind,
+              context: self.context.clone(),
+              suggestions: Vec::new(),
+          });
       }
 
       pub fn finish(self) -> (Vec<RawToken>, Vec<LexError>) {
@@ -285,41 +388,46 @@ to end statements. You can simply remove it.
           }
       }
 
-      /// Get a code suggestion for auto-fix
-      pub fn suggestion(&self, source: &str, span: Span) -> Option<CodeSuggestion> {
+      /// Get a suggestion for auto-fix (uses LexSuggestion — conventions §5)
+      pub fn suggestion(&self, source: &str, span: Span) -> Option<LexSuggestion> {
           match self {
-              Self::Semicolon => Some(CodeSuggestion {
-                  span,
-                  replacement: "".to_string(),
+              Self::Semicolon => Some(LexSuggestion {
                   message: "Remove the semicolon".to_string(),
+                  replacement: Some(LexReplacement {
+                      span,
+                      text: String::new(),
+                  }),
+                  priority: 0,
               }),
 
               Self::SingleQuoteString => {
                   let content = &source[span.start as usize + 1..span.end as usize - 1];
-                  Some(CodeSuggestion {
-                      span,
-                      replacement: format!("\"{}\"", content),
+                  Some(LexSuggestion {
                       message: "Use double quotes".to_string(),
+                      replacement: Some(LexReplacement {
+                          span,
+                          text: format!("\"{}\"", content),
+                      }),
+                      priority: 0,
                   })
               }
 
-              Self::TripleEquals => Some(CodeSuggestion {
-                  span,
-                  replacement: "==".to_string(),
+              Self::TripleEquals => Some(LexSuggestion {
                   message: "Use == instead".to_string(),
+                  replacement: Some(LexReplacement {
+                      span,
+                      text: "==".to_string(),
+                  }),
+                  priority: 0,
               }),
 
               _ => None,
           }
       }
   }
-
-  pub struct CodeSuggestion {
-      pub span: Span,
-      pub replacement: String,
-      pub message: String,
-  }
   ```
+
+  > **Note:** `LexSuggestion` is internal to the lexer phase. Final rendering in `oric` maps `LexSuggestion` → `ori_diagnostic::Suggestion` (with `Applicability`). This is the same separation pattern types V2 uses.
 
 ---
 
@@ -331,14 +439,14 @@ to end statements. You can simply remove it.
 
 - [ ] Detect semicolons
   ```rust
-  fn handle_start(&mut self, tag: &mut Tag) -> State {
+  fn handle_start(&mut self, tag: &mut RawTag) -> State {
       match self.current() {
           b';' => {
               self.emit_error(
                   LexErrorKind::Semicolon,
                   Span::new(self.index as u32, self.index as u32 + 1),
               );
-              *tag = Tag::Error;
+              *tag = RawTag::Error;
               self.advance();
               State::Done
           }
@@ -349,7 +457,7 @@ to end statements. You can simply remove it.
 
 - [ ] Detect single-quote strings
   ```rust
-  fn handle_single_quote(&mut self, tag: &mut Tag) -> State {
+  fn handle_single_quote(&mut self, tag: &mut RawTag) -> State {
       let start = self.index;
       self.advance(); // Skip opening '
 
@@ -370,14 +478,14 @@ to end statements. You can simply remove it.
               Span::new(start as u32, self.index as u32 + 1),
           );
           self.advance(); // Skip closing '
-          *tag = Tag::Error;
+          *tag = RawTag::Error;
       } else if char_count == 1 {
           // Valid char literal
           self.advance(); // Skip closing '
-          *tag = Tag::Char;
+          *tag = RawTag::Char;
       } else {
           // Error in char literal
-          *tag = Tag::Error;
+          *tag = RawTag::Error;
       }
 
       State::Done
@@ -386,7 +494,7 @@ to end statements. You can simply remove it.
 
 - [ ] Detect JavaScript/C patterns
   ```rust
-  fn handle_equals(&mut self, tag: &mut Tag) -> State {
+  fn handle_equals(&mut self, tag: &mut RawTag) -> State {
       match self.current() {
           b'=' => {
               self.advance();
@@ -397,17 +505,17 @@ to end statements. You can simply remove it.
                       Span::new(self.start as u32, self.index as u32 + 1),
                   );
                   self.advance();
-                  *tag = Tag::Error;
+                  *tag = RawTag::Error;
               } else {
-                  *tag = Tag::EqEq;
+                  *tag = RawTag::EqEq;
               }
           }
           b'>' => {
               self.advance();
-              *tag = Tag::FatArrow;
+              *tag = RawTag::FatArrow;
           }
           _ => {
-              *tag = Tag::Eq;
+              *tag = RawTag::Eq;
           }
       }
       State::Done
@@ -486,7 +594,7 @@ to end statements. You can simply remove it.
 
 - [ ] Implement string recovery
   ```rust
-  fn handle_unterminated_string(&mut self, tag: &mut Tag, start: u32) -> State {
+  fn handle_unterminated_string(&mut self, tag: &mut RawTag, start: u32) -> State {
       // Emit error
       self.emit_error(
           LexErrorKind::UnterminatedString { start },
@@ -495,7 +603,7 @@ to end statements. You can simply remove it.
 
       // Try to find end of string (might be on next line)
       // But don't consume more than one line
-      *tag = Tag::UnterminatedString;
+      *tag = RawTag::UnterminatedString;
       State::Done
   }
   ```
@@ -524,7 +632,7 @@ to end statements. You can simply remove it.
           loop {
               let token = self.next_token();
 
-              if token.tag == Tag::Eof {
+              if token.tag == RawTag::Eof {
                   return None;
               }
 

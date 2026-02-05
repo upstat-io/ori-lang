@@ -22,7 +22,7 @@ pub use ori_patterns::{no_such_method, wrong_arg_count, wrong_arg_type};
 // Variable and Function Errors
 
 pub use ori_patterns::{
-    not_callable, undefined_config, undefined_function, undefined_variable, wrong_function_args,
+    not_callable, undefined_const, undefined_function, undefined_variable, wrong_function_args,
 };
 
 // Index and Field Access Errors
