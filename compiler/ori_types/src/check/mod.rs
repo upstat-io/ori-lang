@@ -528,11 +528,15 @@ impl<'a> ModuleChecker<'a> {
         let traits = &self.traits;
         let sigs = &self.signatures;
         let types = &self.types;
+        let impl_self = self.current_impl_self;
         let mut engine = InferEngine::new(&mut self.pool);
         engine.set_interner(interner);
         engine.set_trait_registry(traits);
         engine.set_signatures(sigs);
         engine.set_type_registry(types);
+        if let Some(self_ty) = impl_self {
+            engine.set_impl_self_type(self_ty);
+        }
         engine
     }
 
@@ -546,11 +550,15 @@ impl<'a> ModuleChecker<'a> {
         let traits = &self.traits;
         let sigs = &self.signatures;
         let types = &self.types;
+        let impl_self = self.current_impl_self;
         let mut engine = InferEngine::with_env(&mut self.pool, env);
         engine.set_interner(interner);
         engine.set_trait_registry(traits);
         engine.set_signatures(sigs);
         engine.set_type_registry(types);
+        if let Some(self_ty) = impl_self {
+            engine.set_impl_self_type(self_ty);
+        }
         engine
     }
 
