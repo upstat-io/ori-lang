@@ -150,11 +150,12 @@ impl TestRunner {
         // The stacker crate handles growth dynamically, but a larger initial stack
         // reduces the frequency of mmap-based growth on worker threads.
         //
-        // 16 MiB accommodates macOS ARM64 where stack frames are larger (16 KB pages,
-        // more registers saved per call) and Salsa memo verification adds depth that
-        // can't be protected by ensure_sufficient_stack.
+        // 32 MiB accommodates debug builds on Windows/macOS where unoptimized frames
+        // are much larger (no inlining, no frame optimization) and the Salsa memo
+        // verification + tracing spans + type checking pipeline can exhaust smaller
+        // stacks. rustc itself uses 16 MiB for release builds; debug CI needs more.
         let file_summaries = rayon::ThreadPoolBuilder::new()
-            .stack_size(16 * 1024 * 1024) // 16 MiB: needed for macOS ARM64 + Salsa overhead
+            .stack_size(32 * 1024 * 1024) // 32 MiB: debug builds + Salsa + tracing overhead
             .build_scoped(
                 // Thread initialization wrapper - just run the thread
                 rayon::ThreadBuilder::run,
