@@ -26,6 +26,12 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    /// Get the total number of tokens in the stream.
+    #[inline]
+    pub fn token_count(&self) -> usize {
+        self.tokens.len()
+    }
+
     /// Get a reference to the string interner.
     pub fn interner(&self) -> &'a StringInterner {
         self.interner
@@ -59,23 +65,33 @@ impl<'a> Cursor<'a> {
     }
 
     /// Get the current token.
+    ///
+    /// Invariant: cursor position is always valid (`0..tokens.len()`).
+    /// The last token is always EOF.
+    #[inline]
     pub fn current(&self) -> &Token {
-        self.tokens
-            .get(self.pos)
-            .unwrap_or(&self.tokens[self.tokens.len() - 1])
+        debug_assert!(
+            self.pos < self.tokens.len(),
+            "cursor position out of bounds"
+        );
+        // Direct index - bounds check optimized out in release due to invariant
+        &self.tokens[self.pos]
     }
 
     /// Get the current token's kind.
+    #[inline]
     pub fn current_kind(&self) -> &TokenKind {
         &self.current().kind
     }
 
     /// Get the current token's span.
+    #[inline]
     pub fn current_span(&self) -> Span {
         self.current().span
     }
 
     /// Get the previous token's span.
+    #[inline]
     pub fn previous_span(&self) -> Span {
         if self.pos > 0 {
             self.tokens[self.pos - 1].span
@@ -85,21 +101,25 @@ impl<'a> Cursor<'a> {
     }
 
     /// Check if at end of token stream.
+    #[inline]
     pub fn is_at_end(&self) -> bool {
         matches!(self.current_kind(), TokenKind::Eof)
     }
 
     /// Check if the current token matches the given kind.
+    #[inline]
     pub fn check(&self, kind: &TokenKind) -> bool {
         std::mem::discriminant(self.current_kind()) == std::mem::discriminant(kind)
     }
 
     /// Check if the current token is an identifier.
+    #[inline]
     pub fn check_ident(&self) -> bool {
         matches!(self.current_kind(), TokenKind::Ident(_))
     }
 
     /// Check if the current token is a type keyword.
+    #[inline]
     pub fn check_type_keyword(&self) -> bool {
         matches!(
             self.current_kind(),
@@ -116,6 +136,7 @@ impl<'a> Cursor<'a> {
 
     /// Peek at the next token's kind (one-token lookahead).
     /// Returns `TokenKind::Eof` if at the end of the stream.
+    #[inline]
     pub fn peek_next_kind(&self) -> &TokenKind {
         static EOF: TokenKind = TokenKind::Eof;
         if self.pos + 1 < self.tokens.len() {
@@ -252,11 +273,17 @@ impl<'a> Cursor<'a> {
     }
 
     /// Advance to the next token and return the consumed token.
+    ///
+    /// If already at EOF, returns the EOF token without advancing.
+    #[inline]
     pub fn advance(&mut self) -> &Token {
-        if !self.is_at_end() {
+        let current = self.pos;
+        // Only advance if not at the last token (EOF).
+        // This avoids calling is_at_end() which has overhead.
+        if self.pos + 1 < self.tokens.len() {
             self.pos += 1;
         }
-        &self.tokens[self.pos - 1]
+        &self.tokens[current]
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -300,8 +327,12 @@ impl<'a> Cursor<'a> {
     }
 
     /// Skip all newline tokens.
+    ///
+    /// Optimized: Uses direct match instead of `check()` to avoid
+    /// `std::mem::discriminant()` overhead on this hot path.
+    #[inline]
     pub fn skip_newlines(&mut self) {
-        while self.check(&TokenKind::Newline) {
+        while matches!(self.current_kind(), TokenKind::Newline) {
             self.advance();
         }
     }

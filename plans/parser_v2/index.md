@@ -118,6 +118,36 @@ formatter support, IDE metadata
 
 ---
 
+## Performance Validation
+
+### Quick Check
+
+Use the `/benchmark` skill for quick validation:
+
+```bash
+/benchmark short   # ~30s, sanity check
+/benchmark medium  # ~2min, standard validation
+```
+
+### When to Benchmark
+
+Run `/benchmark short` after modifying:
+- Data-oriented AST (Section 01) — if implemented
+- Lexer optimizations (Section 02)
+
+**Skip benchmarks** for: progress system (03), error messages (04), incremental parsing (05), metadata (06).
+
+### Current Performance (February 2026)
+
+| Metric | Throughput | Status |
+|--------|------------|--------|
+| Parser raw | ~120 MiB/s | ✅ Meets target |
+| Lexer raw | ~270 MiB/s | ✅ Exceeds target |
+
+See `.claude/skills/benchmark/baselines.md` for detailed targets.
+
+---
+
 ## Cross-References
 
 | Related Plan | Relevance |

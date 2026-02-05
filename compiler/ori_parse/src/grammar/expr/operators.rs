@@ -26,6 +26,7 @@ use ori_ir::{BinaryOp, FunctionExpKind, TokenKind, UnaryOp};
 impl Parser<'_> {
     /// Match equality operators: `==`, `!=`
     /// Returns `(op, token_count)` where `token_count` is always 1.
+    #[inline]
     pub(crate) fn match_equality_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
             TokenKind::EqEq => Some((BinaryOp::Eq, 1)),
@@ -38,6 +39,7 @@ impl Parser<'_> {
     ///
     /// Note: `>=` is detected as adjacent `>` and `=` tokens (2 tokens).
     /// Returns `(op, token_count)`.
+    #[inline]
     pub(crate) fn match_comparison_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
             TokenKind::Lt => Some((BinaryOp::Lt, 1)),
@@ -58,6 +60,7 @@ impl Parser<'_> {
     ///
     /// Note: `>>` is detected as adjacent `>` and `>` tokens (2 tokens).
     /// Returns `(op, token_count)`.
+    #[inline]
     pub(crate) fn match_shift_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
             TokenKind::Shl => Some((BinaryOp::Shl, 1)),
@@ -75,6 +78,7 @@ impl Parser<'_> {
 
     /// Match additive operators: `+`, `-`
     /// Returns `(op, token_count)` where `token_count` is always 1.
+    #[inline]
     pub(crate) fn match_additive_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
             TokenKind::Plus => Some((BinaryOp::Add, 1)),
@@ -85,6 +89,7 @@ impl Parser<'_> {
 
     /// Match multiplicative operators: `*`, `/`, `%`, `div`
     /// Returns `(op, token_count)` where `token_count` is always 1.
+    #[inline]
     pub(crate) fn match_multiplicative_op(&self) -> Option<(BinaryOp, usize)> {
         match self.current_kind() {
             TokenKind::Star => Some((BinaryOp::Mul, 1)),
@@ -95,6 +100,7 @@ impl Parser<'_> {
         }
     }
 
+    #[inline]
     pub(crate) fn match_unary_op(&self) -> Option<UnaryOp> {
         match self.current_kind() {
             TokenKind::Minus => Some(UnaryOp::Neg),

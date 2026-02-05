@@ -980,6 +980,7 @@ impl fmt::Debug for TokenList {
 impl std::ops::Index<usize> for TokenList {
     type Output = Token;
 
+    #[inline]
     fn index(&self, index: usize) -> &Self::Output {
         &self.tokens[index]
     }

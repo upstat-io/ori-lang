@@ -56,11 +56,21 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     /// Create a new parser.
     pub fn new(tokens: &'a TokenList, interner: &'a StringInterner) -> Self {
+        // Estimate source size for pre-allocation (~5 bytes per token)
+        let estimated_source_len = tokens.len() * 5;
         Parser {
             cursor: Cursor::new(tokens, interner),
-            arena: ExprArena::new(),
+            arena: ExprArena::with_capacity(estimated_source_len),
             context: ParseContext::new(),
         }
+    }
+
+    /// Estimate source size from token count for capacity hints.
+    ///
+    /// Heuristic: ~5 bytes per token on average.
+    #[inline]
+    fn estimated_source_len(&self) -> usize {
+        self.cursor.token_count() * 5
     }
 
     /// Take ownership of the arena, replacing it with an empty one.
@@ -640,7 +650,7 @@ impl<'a> Parser<'a> {
     /// - If parsing fails without progress (no tokens consumed), we skip unknown tokens
     /// - If parsing fails with progress (tokens consumed), we synchronize to a recovery point
     pub fn parse_module(mut self) -> ParseOutput {
-        let mut module = Module::new();
+        let mut module = Module::with_capacity_hint(self.estimated_source_len());
         let mut errors = Vec::new();
 
         // Parse imports first (must appear at beginning per spec)
@@ -826,7 +836,7 @@ impl<'a> Parser<'a> {
     ) -> ParseOutput {
         use incremental::{AstCopier, DeclKind};
 
-        let mut module = Module::new();
+        let mut module = Module::with_capacity_hint(self.estimated_source_len());
         let mut errors = Vec::new();
 
         // Parse imports first - imports always get re-parsed since they affect resolution

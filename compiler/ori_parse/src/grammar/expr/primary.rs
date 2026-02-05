@@ -17,6 +17,7 @@ impl Parser<'_> {
     }
 
     /// Parse primary expressions.
+    #[inline]
     pub(crate) fn parse_primary(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
 

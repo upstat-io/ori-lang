@@ -709,6 +709,7 @@ dependencies = [
 name = "ori_types"
 version = "0.1.0-alpha.8"
 dependencies = [
+ "bitflags",
  "ori_diagnostic",
  "ori_ir",
  "parking_lot",

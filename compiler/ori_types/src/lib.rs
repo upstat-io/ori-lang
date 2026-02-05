@@ -5,14 +5,76 @@
 //! - Interned type representations for efficiency
 //! - Flat structures for cache locality
 //!
-//! # Type Interning
+//! # Types V2 (NEW)
 //!
-//! This crate provides two type representations:
-//! - `Type`: The traditional boxed representation for compatibility
-//! - `TypeData`/`TypeId`: The interned representation for O(1) equality
+//! The new unified type system provides:
+//! - [`Idx`]: 32-bit type index (THE canonical type handle)
+//! - [`Tag`]: Type kind discriminant
+//! - [`Item`]: Compact type storage (tag + data)
+//! - [`TypeFlags`]: Pre-computed metadata for O(1) queries
+//! - [`Pool`]: Unified type pool with interning
+//!
+//! # Legacy Type System
+//!
+//! The old type system is still available during migration:
+//! - `Type`: The traditional boxed representation
+//! - `TypeData`/`TypeId`: The interned representation
 //!
 //! Use `TypeInterner` to intern types and get `TypeId` handles.
 
+// === Types V2 (New Unified System) ===
+mod flags;
+mod idx;
+mod infer;
+mod item;
+mod pool;
+mod registry;
+mod tag;
+mod type_error;
+mod unify;
+
+// Re-export new types
+pub use flags::{TypeCategory, TypeFlags};
+pub use idx::Idx;
+pub use infer::{infer_expr, ExprIndex, InferEngine, TypeEnvV2};
+pub use item::Item;
+pub use pool::{Pool, VarState, DEFAULT_RANK};
+pub use registry::{
+    // Method registry
+    BuiltinMethod,
+    BuiltinMethodKind,
+    // Type registry
+    FieldDef,
+    HigherOrderMethod,
+    // Trait registry
+    ImplEntry,
+    ImplMethodDef,
+    MethodLookup,
+    MethodRegistry,
+    MethodResolution,
+    MethodTransform,
+    StructDef,
+    TraitAssocTypeDef,
+    TraitEntry,
+    TraitMethodDef,
+    TraitRegistry,
+    TypeEntry,
+    TypeKind,
+    TypeRegistry,
+    VariantDef,
+    VariantFields,
+    Visibility,
+    WhereConstraint,
+};
+pub use tag::Tag;
+pub use type_error::{
+    diff_types, edit_distance, find_closest_field, suggest_field_typo, ArityMismatchKind,
+    ContextKind, ErrorContext, Expected, ExpectedOrigin, Replacement, SequenceKind, Severity,
+    Suggestion, TypeCheckError, TypeErrorKind, TypeProblem,
+};
+pub use unify::{ArityKind, Rank, UnifyContext, UnifyEngine, UnifyError};
+
+// === Legacy Type System ===
 mod context;
 mod core;
 mod data;

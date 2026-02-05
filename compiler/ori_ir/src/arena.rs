@@ -199,6 +199,7 @@ impl ExprArena {
     }
 
     /// Allocate expression list, return range.
+    #[inline]
     pub fn alloc_expr_list(&mut self, exprs: impl IntoIterator<Item = ExprId>) -> ExprRange {
         let start = to_u32(self.expr_lists.len(), "expression lists");
         self.expr_lists.extend(exprs);
@@ -231,6 +232,7 @@ impl ExprArena {
     ///
     /// ~77% of function call arguments have 0-2 items and will use inline storage,
     /// eliminating indirection and improving cache locality.
+    #[inline]
     pub fn alloc_expr_list_inline(&mut self, exprs: &[ExprId]) -> super::ExprList {
         super::ExprList::from_items(exprs, |items| {
             let start = to_u32(self.expr_lists.len(), "expression lists");

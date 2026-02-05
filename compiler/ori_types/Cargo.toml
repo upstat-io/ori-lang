@@ -11,6 +11,7 @@ ori_ir.workspace = true
 ori_diagnostic.workspace = true
 parking_lot.workspace = true
 rustc-hash.workspace = true
+bitflags.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

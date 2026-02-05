@@ -1,34 +1,54 @@
 ---
 section: "02"
 title: Pre-Computed Metadata
-status: not-started
+status: in-progress
 goal: Cache type properties at interning time for O(1) queries
 sections:
   - id: "02.1"
     title: TypeFlags Definition
-    status: not-started
+    status: complete
   - id: "02.2"
     title: Presence Flags
-    status: not-started
+    status: complete
   - id: "02.3"
     title: Category Flags
-    status: not-started
+    status: complete
   - id: "02.4"
     title: Optimization Flags
-    status: not-started
+    status: complete
   - id: "02.5"
     title: Capability Flags
-    status: not-started
+    status: in-progress
   - id: "02.6"
     title: Flag Computation
-    status: not-started
+    status: complete
+  - id: "02.7"
+    title: Stable Hash Caching
+    status: complete
+  - id: "02.8"
+    title: Completion Checklist
+    status: in-progress
 ---
 
 # Section 02: Pre-Computed Metadata
 
-**Status:** Not Started
+**Status:** In Progress (~90% complete)
 **Goal:** Cache type properties at interning time for O(1) queries
 **Source:** Rust (`rustc_type_ir/src/flags.rs`), TypeScript (`types.ts`)
+
+---
+
+## Naming Clarification
+
+> **Note:** This section's "metadata" (`TypeFlags`) is unrelated to Parser V2's "metadata" (`ModuleExtra`).
+>
+> | This Section | Parser V2 Section 6 |
+> |--------------|---------------------|
+> | `TypeFlags` — type properties | `ModuleExtra` — formatting trivia |
+> | `ori_types/src/flags.rs` | `ori_ir/src/metadata.rs` |
+> | Optimization gates | Formatter/IDE support |
+>
+> The naming overlap is coincidental. These are orthogonal systems.
 
 ---
 
@@ -97,11 +117,11 @@ bitflags::bitflags! {
 
 ### Tasks
 
-- [ ] Create `ori_types/src/flags.rs`
-- [ ] Define `TypeFlags` using `bitflags!` macro
-- [ ] Ensure derives: `Copy, Clone, Eq, PartialEq, Hash, Debug`
-- [ ] Document each flag's meaning
-- [ ] Add helper methods for common flag combinations
+- [x] Create `ori_types/src/flags.rs` ✅
+- [x] Define `TypeFlags` using `bitflags!` macro ✅
+- [x] Ensure derives: `Copy, Clone, Eq, PartialEq, Hash, Debug` ✅
+- [x] Document each flag's meaning ✅
+- [x] Add helper methods for common flag combinations ✅
 
 ---
 
@@ -123,10 +143,10 @@ bitflags::bitflags! {
 
 ### Tasks
 
-- [ ] Define all presence flags
-- [ ] Add `has_vars(&self) -> bool` helper
-- [ ] Add `has_any_var(&self) -> bool` (VAR | BOUND_VAR | RIGID_VAR)
-- [ ] Add `has_errors(&self) -> bool`
+- [x] Define all presence flags ✅
+- [x] Add `has_vars(&self) -> bool` helper ✅
+- [x] Add `has_any_var(&self) -> bool` (VAR | BOUND_VAR | RIGID_VAR) ✅
+- [x] Add `has_errors(&self) -> bool` ✅
 
 ---
 
@@ -147,9 +167,9 @@ bitflags::bitflags! {
 
 ### Tasks
 
-- [ ] Define all category flags
-- [ ] Add `category(&self) -> TypeCategory` helper
-- [ ] Ensure categories are mutually exclusive where appropriate
+- [x] Define all category flags ✅
+- [x] Add `category(&self) -> TypeCategory` helper ✅ (2026-02-04)
+- [x] Ensure categories are mutually exclusive where appropriate ✅ (tested)
 
 ---
 
@@ -168,9 +188,9 @@ bitflags::bitflags! {
 
 ### Tasks
 
-- [ ] Define all optimization flags
-- [ ] Add `needs_work(&self) -> bool` helper
-- [ ] Document when each optimization applies
+- [x] Define all optimization flags ✅
+- [x] Add `needs_work(&self) -> bool` helper ✅
+- [x] Document when each optimization applies ✅
 
 ---
 
@@ -189,9 +209,9 @@ bitflags::bitflags! {
 
 ### Tasks
 
-- [ ] Define capability flags
-- [ ] Integrate with Ori's capability system
-- [ ] Add `effects(&self) -> EffectFlags` helper
+- [x] Define capability flags ✅
+- [ ] Integrate with Ori's capability system — deferred to Section 06/07
+- [ ] Add `effects(&self) -> EffectFlags` helper — deferred to capability integration
 
 ---
 
@@ -274,10 +294,10 @@ impl Pool {
 
 ### Tasks
 
-- [ ] Implement `compute_flags()` for all tags
-- [ ] Implement `propagate_presence()` for child flag inheritance
-- [ ] Implement specialized flag computation for complex types
-- [ ] Add tests verifying flag correctness
+- [x] Implement `compute_flags()` for all tags ✅ (in pool/mod.rs)
+- [x] Implement `propagate_presence()` for child flag inheritance ✅ (TypeFlags::propagate_from)
+- [x] Implement specialized flag computation for complex types ✅
+- [x] Add tests verifying flag correctness ✅
 
 ---
 
@@ -309,21 +329,30 @@ impl Pool {
 
 ### Tasks
 
-- [ ] Implement `compute_hash()` for all tag types
-- [ ] Ensure hashes are stable across runs (no pointer-based hashing)
-- [ ] Add `Pool::hash(idx: Idx) -> u64` accessor
+- [x] Implement `compute_hash()` for all tag types ✅
+- [x] Ensure hashes are stable across runs (no pointer-based hashing) ✅
+- [x] Add `Pool::hash(idx: Idx) -> u64` accessor ✅
 - [ ] Verify Salsa compatibility with hash values
 
 ---
 
 ## 02.8 Completion Checklist
 
-- [ ] `flags.rs` complete with all flag definitions
-- [ ] `compute_flags()` implemented for all tags
-- [ ] `compute_hash()` implemented and stable
-- [ ] All flags arrays parallel to items array
-- [ ] O(1) flag queries working
-- [ ] Optimization gates tested (e.g., skip subst when !NEEDS_SUBST)
-- [ ] Salsa compatibility verified
+- [x] `flags.rs` complete with all flag definitions ✅
+- [x] `compute_flags()` implemented for all tags ✅
+- [x] `compute_hash()` implemented and stable ✅
+- [x] All flags arrays parallel to items array ✅
+- [x] O(1) flag queries working ✅
+- [ ] Optimization gates tested (e.g., skip subst when !NEEDS_SUBST) — needs Sections 03-06
+- [ ] Salsa compatibility verified — needs Sections 03-06
+- [x] `category() -> TypeCategory` helper ✅ (2026-02-04)
+- [ ] Capability system integration (`effects()` helper) — blocked on Section 06/07
+
+**Section 02 Status:** In Progress (~90%)
+
+**Remaining:**
+1. Capability system integration (`effects()` helper) — blocked on Section 06/07
+2. Salsa compatibility verification — needs unification engine
+3. Optimization gate tests — verified during Sections 03-06
 
 **Exit Criteria:** Every type has pre-computed flags accessible via `pool.flags(idx)`. Flag checks are O(1) and enable optimization shortcuts throughout the type checker.

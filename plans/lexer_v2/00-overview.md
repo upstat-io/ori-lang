@@ -293,6 +293,29 @@ This plan **extends** the Parser V2 plan (`plans/parser_v2/section-02-lexer.md`)
 
 ---
 
+## Relationship with Types V2
+
+**Lexer V2 is independent of Types V2.** The two systems are cleanly decoupled:
+
+| Aspect | Lexer V2 | Types V2 |
+|--------|----------|----------|
+| **Phase** | Source → Tokens → AST | AST → Typed AST |
+| **Crates** | `ori_lexer`, `ori_lexer_core`, `ori_parse` | `ori_types`, `ori_typeck` |
+| **Boundary** | Produces AST | Consumes AST |
+
+### No Type System Changes Required
+
+Lexer V2 does **not** modify:
+- `ori_types` — unchanged
+- `ori_typeck` — unchanged
+- `ori_eval` — unchanged
+
+### Parallel Development Safe
+
+Both plans can proceed simultaneously. The AST (`ori_ir`) is the stable interface.
+
+---
+
 ## Quick Reference
 
 | Document | Purpose |

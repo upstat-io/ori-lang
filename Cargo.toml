@@ -43,6 +43,7 @@ crossbeam = "0.8"
 rustc-hash = "2.1"
 stacker = "0.1"
 proptest = "1.4"
+bitflags = "2.6"
 
 # Internal crates (workspace members only; excluded crates use path deps directly)
 ori_ir = { path = "compiler/ori_ir" }

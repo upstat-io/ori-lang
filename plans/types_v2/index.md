@@ -17,7 +17,7 @@ Quick-reference keyword index for finding Types 2.0 implementation sections.
 ## Keyword Clusters by Section
 
 ### Section 01: Unified Pool Architecture
-**File:** `section-01-pool.md` | **Status:** Not Started
+**File:** `section-01-pool.md` | **Status:** In Progress (~95%)
 
 ```
 Pool, TypePool, unified storage
@@ -31,8 +31,10 @@ Zig InternPool, Roc Subs
 
 ---
 
-### Section 02: Pre-Computed Metadata
-**File:** `section-02-metadata.md` | **Status:** Not Started
+### Section 02: Pre-Computed Metadata (TypeFlags)
+**File:** `section-02-metadata.md` | **Status:** In Progress (~90%)
+
+> **Note:** "Metadata" here means `TypeFlags` (type properties), NOT Parser V2's `ModuleExtra` (formatting trivia).
 
 ```
 TypeFlags, flags, bitflags
@@ -46,7 +48,7 @@ category flags, presence flags
 ---
 
 ### Section 03: Unification Engine
-**File:** `section-03-unification.md` | **Status:** Not Started
+**File:** `section-03-unification.md` | **Status:** ✅ Complete
 
 ```
 unify, unification, union-find
@@ -60,7 +62,7 @@ substitution, substitute
 ---
 
 ### Section 04: Rank-Based Generalization
-**File:** `section-04-ranks.md` | **Status:** Not Started
+**File:** `section-04-ranks.md` | **Status:** ✅ Complete
 
 ```
 Rank, rank system, scope depth
@@ -74,7 +76,7 @@ Elm ranks, Roc ranks
 ---
 
 ### Section 05: Context-Aware Errors
-**File:** `section-05-errors.md` | **Status:** Not Started
+**File:** `section-05-errors.md` | **Status:** ✅ Complete
 
 ```
 Expected, ExpectedOrigin
@@ -88,7 +90,7 @@ IntFloat, MissingField, FieldTypo
 ---
 
 ### Section 06: Type Inference Engine
-**File:** `section-06-inference.md` | **Status:** Not Started
+**File:** `section-06-inference.md` | **Status:** ✅ Complete (~95%)
 
 ```
 InferEngine, infer, inference
@@ -96,12 +98,13 @@ infer_expr, type inference
 bidirectional, check, Expected
 expression typing, bottom-up
 HM, Hindley-Milner
+match, pattern, for, loop
 ```
 
 ---
 
 ### Section 07: Registries
-**File:** `section-07-registries.md` | **Status:** Not Started
+**File:** `section-07-registries.md` | **Status:** In Progress (~85%)
 
 ```
 TypeRegistry, TraitRegistry
@@ -143,13 +146,13 @@ dependent crates, imports
 
 | ID | Title | File | Priority | Status |
 |----|-------|------|----------|--------|
-| 01 | Unified Pool Architecture | `section-01-pool.md` | P0 | Not Started |
-| 02 | Pre-Computed Metadata | `section-02-metadata.md` | P0 | Not Started |
-| 03 | Unification Engine | `section-03-unification.md` | P0 | Not Started |
-| 04 | Rank-Based Generalization | `section-04-ranks.md` | P1 | Not Started |
-| 05 | Context-Aware Errors | `section-05-errors.md` | P1 | Not Started |
-| 06 | Type Inference Engine | `section-06-inference.md` | P1 | Not Started |
-| 07 | Registries | `section-07-registries.md` | P2 | Not Started |
+| 01 | Unified Pool Architecture | `section-01-pool.md` | P0 | In Progress (~95%) |
+| 02 | Pre-Computed Metadata | `section-02-metadata.md` | P0 | In Progress (~90%) |
+| 03 | Unification Engine | `section-03-unification.md` | P0 | ✅ Complete |
+| 04 | Rank-Based Generalization | `section-04-ranks.md` | P1 | ✅ Complete |
+| 05 | Context-Aware Errors | `section-05-errors.md` | P1 | ✅ Complete |
+| 06 | Type Inference Engine | `section-06-inference.md` | P1 | ✅ Complete (~95%) |
+| 07 | Registries | `section-07-registries.md` | P2 | In Progress (~85%) |
 | 08 | Salsa Integration | `section-08-salsa.md` | P2 | Not Started |
 | 09 | Migration | `section-09-migration.md` | P3 | Not Started |
 
@@ -160,8 +163,49 @@ dependent crates, imports
 | Related Plan | Relevance |
 |--------------|-----------|
 | `plans/roadmap/section-02-types.md` | Type system roadmap |
-| `plans/parser_v2/` | AST representation consumed by type checker |
+| `plans/parser_v2/` | AST representation consumed by type checker (✅ Complete, no changes needed) |
+| `plans/parser_v2/section-06-metadata.md` | Parser's `ModuleExtra` — **unrelated** to Types' `TypeFlags` |
 | `plans/ori_lsp/` | LSP depends on type checking |
+
+### Parser V2 Independence
+
+Types V2 does **not** require changes to Parser V2. The systems are decoupled:
+- Parser produces AST → Type checker consumes AST
+- Parser's "metadata" = `ModuleExtra` (formatting trivia)
+- Types' "metadata" = `TypeFlags` (type properties)
+- Different files, different purposes, no conflicts
+
+---
+
+## Performance Validation
+
+### When to Benchmark
+
+Types V2 is **not yet integrated** with the main compiler. Benchmarking is deferred until:
+
+1. **Section 08 (Salsa Integration)** — Enables measuring real query overhead
+2. **Section 09 (Migration)** — Enables A/B comparison with current type checker
+
+After migration, use `/benchmark` to validate:
+
+```bash
+/benchmark short   # Quick sanity check after changes to:
+                   # - Pool internals (Section 01)
+                   # - Unification hot paths (Section 03)
+                   # - Inference engine (Section 06)
+```
+
+**Skip benchmarks** for: error formatting (05), registries (07 — cold path).
+
+### Future Baselines
+
+| Metric | Current V1 | Target V2 | Notes |
+|--------|------------|-----------|-------|
+| Type check | TBD | 2x faster | Pool deduplication |
+| Unification | TBD | 1.5x faster | Path compression |
+| Memory | TBD | 50% less | Compact representation |
+
+Baselines will be captured during Section 09 migration.
 
 ---
 

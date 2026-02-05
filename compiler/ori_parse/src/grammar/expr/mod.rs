@@ -32,10 +32,14 @@ use ori_stack::ensure_sufficient_stack;
 /// Two forms:
 /// - `(fn_name, next, token: tok, op: op)` — single-token operator levels
 /// - `(fn_name, next, matcher)` — multi-token levels using a matcher method
+///
+/// All generated functions are `#[inline]` to allow the compiler to optimize
+/// the entire precedence chain together.
 macro_rules! parse_binary_level {
     // Single-token operator level: check for one specific token, use fixed op
     ($(#[doc = $doc:literal])* $fn_name:ident, $next:ident, token: $tok:expr, op: $op:expr) => {
         $(#[doc = $doc])*
+        #[inline]
         fn $fn_name(&mut self) -> Result<ExprId, ParseError> {
             let mut left = self.$next()?;
             // Skip newlines to allow binary operators at line start
@@ -59,6 +63,7 @@ macro_rules! parse_binary_level {
     // where the usize is the number of tokens to consume (1 for single-token ops, 2 for compound ops like >> or >=)
     ($(#[doc = $doc:literal])* $fn_name:ident, $next:ident, $matcher:ident) => {
         $(#[doc = $doc])*
+        #[inline]
         fn $fn_name(&mut self) -> Result<ExprId, ParseError> {
             let mut left = self.$next()?;
             // Skip newlines to allow binary operators at line start
@@ -149,6 +154,7 @@ impl Parser<'_> {
     /// - `opt ?? panic() ?? 99` → `opt ?? (panic() ?? 99)`
     /// - Inner: `Never ?? int` → `int` (Never coerces to Option<int>)
     /// - Outer: `Option<int> ?? int` → `int`
+    #[inline]
     fn parse_coalesce(&mut self) -> Result<ExprId, ParseError> {
         let left = self.parse_binary_or()?;
 
@@ -222,6 +228,7 @@ impl Parser<'_> {
     /// Parse range operators (.. and ..=) with optional step (by).
     ///
     /// Grammar: `range_expr = shift_expr [ ( ".." | "..=" ) [ shift_expr ] [ "by" shift_expr ] ]`
+    #[inline]
     fn parse_range(&mut self) -> Result<ExprId, ParseError> {
         let mut left = self.parse_shift()?;
 
@@ -300,6 +307,7 @@ impl Parser<'_> {
     /// When the operator is `-` and the next token is an integer literal,
     /// folds them into a single `ExprKind::Int` node. This allows
     /// `-9223372036854775808` (`i64::MIN`) to be represented directly.
+    #[inline]
     fn parse_unary(&mut self) -> Result<ExprId, ParseError> {
         /// Absolute value of `i64::MIN` as `u64` (for negation folding).
         const I64_MIN_ABS: u64 = 9_223_372_036_854_775_808;
