@@ -3,7 +3,8 @@
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ast::patterns::MatchPattern;
 use ori_ir::ast::ExprKind;
-use ori_ir::{ArmRange, ExprArena, ExprId, TypeId};
+use ori_ir::{ArmRange, ExprArena, ExprId};
+use ori_types::Idx;
 use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
@@ -24,9 +25,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         scrutinee: ExprId,
         arms: ArmRange,
-        result_type: TypeId,
+        result_type: Idx,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -40,7 +41,7 @@ impl<'ll> Builder<'_, 'll, '_> {
 
         if arms.is_empty() {
             // No arms - return default value
-            return if result_type == TypeId::VOID {
+            return if result_type == Idx::UNIT {
                 None
             } else {
                 Some(self.cx().default_value(result_type))
@@ -142,7 +143,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         pattern: &MatchPattern,
         scrutinee: BasicValueEnum<'ll>,
         arena: &ExprArena,
-        _expr_types: &[TypeId],
+        _expr_types: &[Idx],
     ) -> Option<inkwell::values::IntValue<'ll>> {
         match pattern {
             MatchPattern::Wildcard | MatchPattern::Binding(_) => {

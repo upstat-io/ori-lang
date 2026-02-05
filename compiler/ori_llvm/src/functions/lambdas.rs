@@ -14,7 +14,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use inkwell::types::BasicMetadataTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ast::ExprKind;
-use ori_ir::{ExprArena, ExprId, Name, TypeId};
+use ori_ir::{ExprArena, ExprId, Name};
+use ori_types::Idx;
 
 use crate::builder::{Builder, LocalStorage, Locals};
 
@@ -32,7 +33,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         params: ori_ir::ast::ParamRange,
         body: ExprId,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &Locals<'ll>,
         _parent_function: FunctionValue<'ll>,
     ) -> Option<BasicValueEnum<'ll>> {

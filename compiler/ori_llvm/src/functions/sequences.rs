@@ -4,7 +4,8 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use inkwell::IntPredicate;
 use ori_ir::ast::patterns::{BindingPattern, FunctionSeq, SeqBinding};
-use ori_ir::{ExprArena, TypeId};
+use ori_ir::ExprArena;
+use ori_types::Idx;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
@@ -14,9 +15,9 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_function_seq(
         &self,
         seq: &FunctionSeq,
-        result_type: TypeId,
+        result_type: Idx,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -95,7 +96,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         binding: &SeqBinding,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
@@ -123,7 +124,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         binding: &SeqBinding,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,

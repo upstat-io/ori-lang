@@ -1,7 +1,8 @@
 //! Function body compilation.
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, ExprId, Name, TypeId};
+use ori_ir::{ExprArena, ExprId, Name};
+use ori_types::Idx;
 use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
@@ -14,13 +15,13 @@ pub struct FunctionBodyConfig<'a, 'll> {
     /// Parameter names for the function.
     pub param_names: &'a [Name],
     /// The return type of the function.
-    pub return_type: TypeId,
+    pub return_type: Idx,
     /// The expression ID of the function body.
     pub body: ExprId,
     /// The expression arena containing the body expressions.
     pub arena: &'a ExprArena,
     /// Expression type annotations.
-    pub expr_types: &'a [TypeId],
+    pub expr_types: &'a [Idx],
     /// The LLVM function value to compile into.
     pub function: FunctionValue<'ll>,
 }
@@ -76,7 +77,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let fn_ret_type = function.get_type().get_return_type();
 
         // Return
-        if return_type == TypeId::VOID {
+        if return_type == Idx::UNIT {
             self.ret_void();
         } else if let (Some(val), Some(expected_type)) = (result, fn_ret_type) {
             // Check if the result type matches the declared return type
@@ -92,7 +93,7 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
         } else {
             // Fallback: return default value matching the LLVM function's declared return type
-            // We use the LLVM type (not TypeId) to ensure the value matches the declaration
+            // We use the LLVM type (not Idx) to ensure the value matches the declaration
             if let Some(llvm_ret_type) = fn_ret_type {
                 let default = self.cx().default_value_for_type(llvm_ret_type);
                 self.ret(default);

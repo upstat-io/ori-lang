@@ -13,9 +13,10 @@ use inkwell::OptimizationLevel;
 
 use ori_ir::{
     ast::{BinaryOp, Expr, ExprKind, Visibility},
-    ExprArena, Function, GenericParamRange, Param, StringInterner, TypeId,
+    ExprArena, Function, GenericParamRange, Param, StringInterner,
 };
 use ori_llvm::module::ModuleCompiler;
+use ori_types::Idx;
 
 fn main() {
     println!("=== Ori LLVM Backend Benchmark ===\n");
@@ -63,7 +64,7 @@ fn benchmark_arithmetic() {
     });
 
     let fn_name = interner.intern("big_mul");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
     let func = Function {
         name: fn_name,
@@ -128,7 +129,7 @@ fn benchmark_fib() {
     });
 
     let fn_name = interner.intern("fib_step");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT];
 
     let params = arena.alloc_params([
         Param {
@@ -240,7 +241,7 @@ fn create_standalone_benchmark() {
 }
 
 /// Build the compute function AST: `fn ori_compute(n: int) -> int { (n * 42) + (n / 2) }`
-fn build_compute_function(interner: &StringInterner) -> (ExprArena, Vec<TypeId>) {
+fn build_compute_function(interner: &StringInterner) -> (ExprArena, Vec<Idx>) {
     let mut arena = ExprArena::new();
     let n_name = interner.intern("n");
 
@@ -291,13 +292,13 @@ fn build_compute_function(interner: &StringInterner) -> (ExprArena, Vec<TypeId>)
     });
 
     let expr_types = vec![
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT, // mul
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT, // div
-        TypeId::INT, // add
+        Idx::INT,
+        Idx::INT,
+        Idx::INT, // mul
+        Idx::INT,
+        Idx::INT,
+        Idx::INT, // div
+        Idx::INT, // add
     ];
 
     (arena, expr_types)

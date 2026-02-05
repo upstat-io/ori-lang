@@ -46,7 +46,8 @@ pub mod helper {
     use inkwell::context::Context;
     use inkwell::values::FunctionValue;
     use inkwell::OptimizationLevel;
-    use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
+    use ori_ir::{ExprArena, ExprId, Name, StringInterner};
+    use ori_types::Idx;
 
     use crate::builder::{Builder, Locals};
     use crate::context::CodegenCx;
@@ -103,11 +104,11 @@ pub mod helper {
             &self,
             name: Name,
             param_names: &[Name],
-            param_types: &[TypeId],
-            return_type: TypeId,
+            param_types: &[Idx],
+            return_type: Idx,
             body: ExprId,
             arena: &ExprArena,
-            expr_types: &[TypeId],
+            expr_types: &[Idx],
         ) {
             // Declare the function
             let func = self.cx.declare_fn(name, param_types, return_type);
@@ -130,7 +131,7 @@ pub mod helper {
             let result = builder.compile_expr(body, arena, expr_types, &mut locals, func, None);
 
             // Return
-            if return_type == TypeId::VOID {
+            if return_type == Idx::UNIT {
                 builder.ret_void();
             } else if let Some(val) = result {
                 builder.ret(val);

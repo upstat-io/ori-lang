@@ -8,8 +8,8 @@ use inkwell::execution_engine::ExecutionEngine;
 use rustc_hash::FxHashMap;
 
 use ori_ir::ast::{Module, TestDef, TypeDeclKind, Visibility};
-use ori_ir::{ExprArena, ExprId, Name, StringInterner, TypeId};
-use ori_types::Pool;
+use ori_ir::{ExprArena, ExprId, Name, StringInterner};
+use ori_types::{Idx, Pool};
 
 use crate::module::ModuleCompiler;
 use crate::runtime;
@@ -61,7 +61,7 @@ pub struct LLVMEvaluator<'ctx> {
     /// Compiled functions by name
     functions: FxHashMap<Name, CompiledFunction>,
     /// Type information for expressions
-    expr_types: Vec<TypeId>,
+    expr_types: Vec<Idx>,
 }
 
 /// A compiled function ready for execution.
@@ -116,7 +116,7 @@ impl<'ctx> LLVMEvaluator<'ctx> {
 
         // Initialize expr_types with a reasonable size
         // In practice, this would come from type checking
-        self.expr_types = vec![TypeId::INT; 1000];
+        self.expr_types = vec![Idx::INT; 1000];
 
         Ok(())
     }
@@ -233,9 +233,9 @@ impl<'ctx> LLVMEvaluator<'ctx> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionSig {
     /// Parameter types
-    pub params: Vec<TypeId>,
+    pub params: Vec<Idx>,
     /// Return type
-    pub return_type: TypeId,
+    pub return_type: Idx,
     /// Whether this function is generic (has type parameters).
     /// Generic functions cannot be directly compiled to LLVM without monomorphization.
     pub is_generic: bool,
@@ -322,7 +322,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
     /// Create an evaluator with a type pool for compound type resolution.
     ///
     /// The type pool allows proper LLVM type generation for compound types
-    /// like List, Map, Tuple, etc., which require looking up `TypeId` -> type info.
+    /// like List, Map, Tuple, etc., which require looking up `Idx` -> type info.
     #[must_use]
     pub fn with_pool(pool: &'tcx Pool) -> Self {
         OwnedLLVMEvaluator {
@@ -373,7 +373,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         arena: &ExprArena,
         module: &Module,
         interner: &StringInterner,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         function_sigs: &[FunctionSig],
     ) -> LLVMEvalResult {
         // Reset panic state
@@ -448,7 +448,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         };
         let void_sig = FunctionSig {
             params: vec![],
-            return_type: TypeId::VOID,
+            return_type: Idx::UNIT,
             is_generic: false,
         };
         compiler.compile_function_with_sig(&test_func, arena, expr_types, Some(&void_sig));
@@ -489,7 +489,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         tests: &[&TestDef],
         arena: &ExprArena,
         interner: &StringInterner,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         function_sigs: &[FunctionSig],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         use inkwell::OptimizationLevel;
@@ -542,7 +542,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         let mut test_wrappers = FxHashMap::default();
         let void_sig = FunctionSig {
             params: vec![],
-            return_type: TypeId::VOID,
+            return_type: Idx::UNIT,
             is_generic: false,
         };
 

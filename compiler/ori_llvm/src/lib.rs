@@ -69,7 +69,8 @@
 //!
 //! ```ignore
 //! use ori_llvm::{CodegenCx, Builder};
-//! use ori_ir::{StringInterner, TypeId};
+//! use ori_ir::StringInterner;
+//! use ori_types::Idx;
 //! use inkwell::context::Context;
 //!
 //! let context = Context::create();
@@ -81,7 +82,7 @@
 //!
 //! // Declare a function
 //! let name = interner.intern("my_func");
-//! let func = cx.declare_fn(name, &[TypeId::INT], TypeId::INT);
+//! let func = cx.declare_fn(name, &[Idx::INT], Idx::INT);
 //! let entry = cx.llcx().append_basic_block(func, "entry");
 //!
 //! // Build instructions and compile expressions

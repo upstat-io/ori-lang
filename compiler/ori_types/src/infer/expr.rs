@@ -4257,8 +4257,7 @@ fn infer_with(engine: &mut InferEngine<'_>, arena: &ExprArena, props: &[ori_ir::
 /// | `ParsedType` | `Idx` |
 /// |--------------|-------|
 /// | `Primitive(TypeId::INT)` | `Idx::INT` |
-/// | `Primitive(TypeId::VOID)` | `Idx::UNIT` |
-/// | `Primitive(TypeId::INFER)` | fresh variable |
+/// | `Primitive(TypeId::UNIT)` | `Idx::UNIT` |
 /// | `List(elem)` | `pool.list(resolve(elem))` |
 /// | `Function { params, ret }` | `pool.function(...)` |
 /// | `Named { name, args }` | lookup or fresh var |
@@ -4428,35 +4427,17 @@ fn resolve_parsed_type_list(
 ///
 /// # `TypeId` Overlap
 ///
-/// `TypeId` has intentional overlaps for markers vs runtime types:
-/// - `TypeId::INFER` (8) = `TypeId::DURATION` (8) - `INFER` is a parsing marker, `DURATION` is runtime
-/// - `TypeId::SELF_TYPE` (9) = `TypeId::SIZE` (9) - `SELF_TYPE` is a parsing marker, `SIZE` is runtime
-///
-/// When resolving `ParsedType::Primitive`, we interpret:
-/// - Value 8 as `DURATION` (`INFER` comes through `ParsedType::Infer`, not `Primitive`)
-/// - Value 9 as `SIZE` (`SELF_TYPE` comes through `ParsedType::SelfType`, not `Primitive`)
+/// `TypeId` and `Idx` now share the same index layout for primitives (0-11),
+/// so this is an identity mapping. INFER (12) and `SELF_TYPE` (13) are markers
+/// that become fresh inference variables.
 fn resolve_type_id(engine: &mut InferEngine<'_>, type_id: TypeId) -> Idx {
-    // Note: We match on raw values for overlapping constants.
-    // TypeId::INFER (8) and TypeId::DURATION (8) have the same value.
-    // TypeId::SELF_TYPE (9) and TypeId::SIZE (9) have the same value.
-    // In ParsedType::Primitive, we interpret these as DURATION and SIZE.
-    match type_id.raw() {
-        0 => Idx::INT,
-        1 => Idx::FLOAT,
-        2 => Idx::BOOL,
-        3 => Idx::STR,
-        4 => Idx::CHAR,
-        5 => Idx::BYTE,
-        6 => Idx::UNIT, // TypeId::VOID
-        7 => Idx::NEVER,
-        8 => Idx::DURATION, // TypeId::DURATION (also INFER, but Infer uses ParsedType::Infer)
-        9 => Idx::SIZE,     // TypeId::SIZE (also SELF_TYPE, but Self uses ParsedType::SelfType)
-        10 => Idx::ERROR,
-        11 => Idx::ORDERING,
-        _ => {
-            // Unknown primitive - treat as inference variable
-            engine.fresh_var()
-        }
+    let raw = type_id.raw();
+    if raw < TypeId::PRIMITIVE_COUNT {
+        // Primitives 0-11 map by identity (TypeId and Idx share the same layout)
+        Idx::from_raw(raw)
+    } else {
+        // INFER (12), SELF_TYPE (13), or unknown — create a fresh variable
+        engine.fresh_var()
     }
 }
 

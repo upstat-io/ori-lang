@@ -1,7 +1,7 @@
 //! PHI node construction utilities.
 
 use inkwell::values::BasicValueEnum;
-use ori_ir::TypeId;
+use ori_types::Idx;
 use tracing::{debug, trace};
 
 use crate::builder::Builder;
@@ -16,7 +16,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Returns the single value directly (no phi) if there's only one incoming.
     pub(crate) fn build_phi_from_incoming(
         &self,
-        _type_id: TypeId,
+        _type_id: Idx,
         incoming: &[(BasicValueEnum<'ll>, inkwell::basic_block::BasicBlock<'ll>)],
     ) -> Option<BasicValueEnum<'ll>> {
         trace!(

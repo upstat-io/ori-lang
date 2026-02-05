@@ -2,7 +2,8 @@
 
 use inkwell::context::Context;
 use ori_ir::ast::{Expr, ExprKind};
-use ori_ir::{ExprArena, StringInterner, TypeId};
+use ori_ir::{ExprArena, StringInterner};
+use ori_types::Idx;
 
 use super::helper::TestCodegen;
 
@@ -36,17 +37,9 @@ fn test_builtin_int_from_int() {
     });
 
     let fn_name = interner.intern("test_int");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        call_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, call_expr, &arena, &expr_types);
 
     let result = codegen.jit_execute_i64("test_int").expect("JIT failed");
     assert_eq!(result, 42);
@@ -82,17 +75,9 @@ fn test_builtin_int_from_bool_true() {
     });
 
     let fn_name = interner.intern("test_int_bool");
-    let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::BOOL, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        call_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, call_expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_i64("test_int_bool")
@@ -130,17 +115,9 @@ fn test_builtin_int_from_bool_false() {
     });
 
     let fn_name = interner.intern("test_int_bool_false");
-    let expr_types = vec![TypeId::BOOL, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::BOOL, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        call_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, call_expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_i64("test_int_bool_false")
@@ -178,17 +155,9 @@ fn test_builtin_int_from_float() {
     });
 
     let fn_name = interner.intern("test_int_float");
-    let expr_types = vec![TypeId::FLOAT, TypeId::INT, TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::FLOAT, Idx::INT, Idx::INT, Idx::INT];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        call_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, call_expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_i64("test_int_float")
@@ -226,17 +195,9 @@ fn test_builtin_byte_from_int() {
     });
 
     let fn_name = interner.intern("test_byte");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::BYTE];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::BYTE];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        call_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, call_expr, &arena, &expr_types);
 
     // Note: byte gets zero-extended to i64 for the return
     let result = codegen.jit_execute_i64("test_byte").expect("JIT failed");
@@ -273,17 +234,9 @@ fn test_builtin_byte_truncation() {
     });
 
     let fn_name = interner.intern("test_byte_trunc");
-    let expr_types = vec![TypeId::INT, TypeId::INT, TypeId::INT, TypeId::BYTE];
+    let expr_types = vec![Idx::INT, Idx::INT, Idx::INT, Idx::BYTE];
 
-    codegen.compile_function(
-        fn_name,
-        &[],
-        &[],
-        TypeId::INT,
-        call_expr,
-        &arena,
-        &expr_types,
-    );
+    codegen.compile_function(fn_name, &[], &[], Idx::INT, call_expr, &arena, &expr_types);
 
     let result = codegen
         .jit_execute_i64("test_byte_trunc")

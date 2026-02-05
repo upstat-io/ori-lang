@@ -3,7 +3,8 @@
 use inkwell::context::Context;
 use ori_ir::ast::patterns::BindingPattern;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind, Stmt, StmtKind};
-use ori_ir::{ExprArena, Span, StmtRange, StringInterner, TypeId};
+use ori_ir::{ExprArena, Span, StmtRange, StringInterner};
+use ori_types::Idx;
 
 use super::helper::setup_builder_test;
 use crate::builder::{Builder, Locals};
@@ -29,7 +30,7 @@ fn test_if_no_else_void_result() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::BOOL, TypeId::INT];
+    let expr_types = vec![Idx::BOOL, Idx::INT];
     let mut locals = Locals::new();
 
     // No else branch with void result
@@ -37,7 +38,7 @@ fn test_if_no_else_void_result() {
         cond,
         then_val,
         None,
-        TypeId::VOID,
+        Idx::UNIT,
         &arena,
         &expr_types,
         &mut locals,
@@ -65,12 +66,12 @@ fn test_loop_terminates_without_body_terminator() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::VOID];
+    let expr_types = vec![Idx::UNIT];
     let mut locals = Locals::new();
 
     let result = builder.compile_loop(
         break_expr,
-        TypeId::VOID,
+        Idx::UNIT,
         &arena,
         &expr_types,
         &mut locals,
@@ -97,12 +98,12 @@ fn test_loop_with_non_void_result() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::VOID];
+    let expr_types = vec![Idx::UNIT];
     let mut locals = Locals::new();
 
     let result = builder.compile_loop(
         break_expr,
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,
@@ -152,7 +153,7 @@ fn test_continue_without_loop_context() {
     let builder = Builder::build(&cx, entry_bb);
 
     let arena = ExprArena::new();
-    let expr_types: Vec<ori_ir::TypeId> = vec![];
+    let expr_types: Vec<ori_types::Idx> = vec![];
     let mut locals = Locals::new();
 
     // Continue without loop context should return None
@@ -228,7 +229,7 @@ fn test_block_with_multiple_statements() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT; 10];
+    let expr_types = vec![Idx::INT; 10];
     let mut locals = Locals::new();
 
     let result = builder.compile_block(
@@ -263,7 +264,7 @@ fn test_block_with_empty_statements() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT];
+    let expr_types = vec![Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_block(
@@ -311,7 +312,7 @@ fn test_block_with_statement_expr() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT; 5];
+    let expr_types = vec![Idx::INT; 5];
     let mut locals = Locals::new();
 
     let result = builder.compile_block(
@@ -354,7 +355,7 @@ fn test_block_no_result() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT];
+    let expr_types = vec![Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_block(
@@ -405,7 +406,7 @@ fn test_assign_to_variable() {
         span: Span::new(0, 1),
     });
 
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
 
     let result = builder.compile_assign(
         target,
@@ -446,7 +447,7 @@ fn test_assign_non_ident_target() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![TypeId::INT, TypeId::INT];
+    let expr_types = vec![Idx::INT, Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_assign(
@@ -507,21 +508,14 @@ fn test_nested_if_else() {
     let entry_bb = cx.llcx().append_basic_block(function, "entry");
     let builder = Builder::build(&cx, entry_bb);
 
-    let expr_types = vec![
-        TypeId::BOOL,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::INT,
-        TypeId::BOOL,
-        TypeId::INT,
-    ];
+    let expr_types = vec![Idx::BOOL, Idx::INT, Idx::INT, Idx::INT, Idx::BOOL, Idx::INT];
     let mut locals = Locals::new();
 
     let result = builder.compile_if(
         outer_cond,
         inner_if,
         Some(three),
-        TypeId::INT,
+        Idx::INT,
         &arena,
         &expr_types,
         &mut locals,

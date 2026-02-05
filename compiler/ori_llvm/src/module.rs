@@ -15,14 +15,14 @@
 use inkwell::context::Context;
 use inkwell::values::FunctionValue;
 
-use ori_ir::{ExprArena, Function, Name, ParsedType, StringInterner, TestDef, TypeId};
-use ori_types::Pool;
+use ori_ir::{ExprArena, Function, Name, ParsedType, StringInterner, TestDef};
+use ori_types::{Idx, Pool};
 
 use crate::builder::Builder;
 use crate::context::CodegenCx;
 use crate::functions::body::FunctionBodyConfig;
 
-/// Convert a `ParsedType` to a `TypeId`.
+/// Convert a `ParsedType` to a `Idx`.
 ///
 /// Only handles primitive types. Returns `None` for complex types
 /// (tuples, lists, functions, generics, etc.), which causes the caller
@@ -30,9 +30,9 @@ use crate::functions::body::FunctionBodyConfig;
 ///
 /// For accurate type handling of complex types, callers should use
 /// `compile_function_with_sig` with type information from the type checker.
-fn parsed_type_to_type_id(ty: &ParsedType) -> Option<TypeId> {
+fn parsed_type_to_type_id(ty: &ParsedType) -> Option<Idx> {
     match ty {
-        ParsedType::Primitive(id) => Some(*id),
+        ParsedType::Primitive(id) => Some(Idx::from_raw(id.raw())),
         _ => None,
     }
 }
@@ -132,7 +132,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
     ) -> inkwell::types::BasicTypeEnum<'ll> {
         use inkwell::types::BasicTypeEnum;
         match ty {
-            ParsedType::Primitive(type_id) => self.cx.llvm_type(*type_id),
+            ParsedType::Primitive(type_id) => self.cx.llvm_type(Idx::from_raw(type_id.raw())),
 
             ParsedType::Named { name, type_args } => {
                 // Named type: check if it's a registered struct
@@ -194,12 +194,12 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
     /// Compile a function definition using AST type annotations.
     ///
     /// **Note**: This method extracts types from AST `ParsedType` annotations.
-    /// For parameters without type annotations, it defaults to `TypeId::INT`.
-    /// For return types without annotations, it defaults to `TypeId::VOID`.
+    /// For parameters without type annotations, it defaults to `Idx::INT`.
+    /// For return types without annotations, it defaults to `Idx::UNIT`.
     ///
     /// For functions with known type signatures from the type checker, prefer
     /// using [`compile_function_with_sig`](Self::compile_function_with_sig) instead.
-    pub fn compile_function(&self, func: &Function, arena: &ExprArena, expr_types: &[TypeId]) {
+    pub fn compile_function(&self, func: &Function, arena: &ExprArena, expr_types: &[Idx]) {
         self.compile_function_with_sig(func, arena, expr_types, None);
     }
 
@@ -211,7 +211,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         &self,
         func: &Function,
         arena: &ExprArena,
-        expr_types: &[TypeId],
+        expr_types: &[Idx],
         sig: Option<&crate::evaluator::FunctionSig>,
     ) {
         // Get parameter names
@@ -227,12 +227,12 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
             // Extract types from parameter declarations.
             // Defaults: parameters without type annotations -> INT,
             //           functions without return type -> VOID.
-            let param_types: Vec<TypeId> = params
+            let param_types: Vec<Idx> = params
                 .iter()
                 .map(|p| {
                     p.ty.as_ref()
                         .and_then(parsed_type_to_type_id)
-                        .unwrap_or(TypeId::INT)
+                        .unwrap_or(Idx::INT)
                 })
                 .collect();
 
@@ -240,7 +240,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
                 .return_ty
                 .as_ref()
                 .and_then(parsed_type_to_type_id)
-                .unwrap_or(TypeId::VOID);
+                .unwrap_or(Idx::UNIT);
 
             (param_types, return_type)
         };
@@ -269,10 +269,10 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
     /// Compile a test definition.
     ///
     /// Tests are compiled as void functions that call assertions.
-    pub fn compile_test(&self, test: &TestDef, arena: &ExprArena, expr_types: &[TypeId]) {
+    pub fn compile_test(&self, test: &TestDef, arena: &ExprArena, expr_types: &[Idx]) {
         // Tests are void -> void functions
         // Phase 1: Declare
-        let llvm_func = self.cx.declare_fn(test.name, &[], TypeId::VOID);
+        let llvm_func = self.cx.declare_fn(test.name, &[], Idx::UNIT);
 
         // Register as test
         self.cx.register_test(test.name, llvm_func);
@@ -283,7 +283,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
 
         builder.compile_function_body(&FunctionBodyConfig {
             param_names: &[],
-            return_type: TypeId::VOID,
+            return_type: Idx::UNIT,
             body: test.body,
             arena,
             expr_types,
@@ -524,7 +524,7 @@ mod tests {
             visibility: Visibility::Private,
         };
 
-        let expr_types = vec![TypeId::INT; 10];
+        let expr_types = vec![Idx::INT; 10];
         compiler.compile_function(&func, &arena, &expr_types);
 
         if std::env::var("ORI_DEBUG_LLVM").is_ok() {
@@ -572,7 +572,7 @@ mod tests {
             fail_expected: None,
         };
 
-        let expr_types = vec![TypeId::BOOL];
+        let expr_types = vec![Idx::BOOL];
         compiler.compile_test(&test_def, &arena, &expr_types);
 
         if std::env::var("ORI_DEBUG_LLVM").is_ok() {

@@ -18,7 +18,7 @@ use ori_llvm::inkwell::context::Context;
 #[cfg(feature = "llvm")]
 use ori_llvm::module::ModuleCompiler;
 #[cfg(feature = "llvm")]
-use ori_types::TypeCheckResult;
+use ori_types::{Idx, TypeCheckResult};
 #[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
@@ -32,10 +32,10 @@ use oric::{CompilerDb, Db, SourceFile};
 pub struct ImportedFunctionInfo {
     /// The mangled name of the function (e.g., `_ori_helper$add`).
     pub mangled_name: String,
-    /// Parameter types as `TypeId`s.
-    pub param_types: Vec<ori_ir::TypeId>,
+    /// Parameter types as `Idx`.
+    pub param_types: Vec<Idx>,
     /// Return type.
-    pub return_type: ori_ir::TypeId,
+    pub return_type: Idx,
 }
 
 /// Check a source file for parse and type errors.
@@ -109,17 +109,11 @@ pub fn compile_to_llvm<'ctx>(
         }
     }
 
-    // Compile all functions
-    // Convert Idx to TypeId at the LLVM boundary (both are u32 newtypes)
+    // Compile all functions — expr_types are already Idx, no bridge needed
     let arena = &parse_result.arena;
-    let expr_types: Vec<ori_ir::TypeId> = type_result
-        .typed
-        .expr_types
-        .iter()
-        .map(|idx| ori_ir::TypeId::from_raw(idx.raw()))
-        .collect();
+    let expr_types = &type_result.typed.expr_types;
     for func in &module.functions {
-        compiler.compile_function(func, arena, &expr_types);
+        compiler.compile_function(func, arena, expr_types);
     }
 
     compiler.module().clone()
@@ -162,14 +156,14 @@ pub fn compile_to_llvm_with_imports<'ctx>(
 
     // Declare imported functions as external symbols
     for import_info in imported_functions {
-        // Convert TypeIds to LLVM types
+        // Convert Idx to LLVM types
         let param_llvm_types: Vec<BasicMetadataTypeEnum<'ctx>> = import_info
             .param_types
             .iter()
             .map(|&t| cx.llvm_type(t).into())
             .collect();
 
-        let return_llvm_type = if import_info.return_type == ori_ir::TypeId::VOID {
+        let return_llvm_type = if import_info.return_type == Idx::UNIT {
             None
         } else {
             Some(cx.llvm_type(import_info.return_type))
@@ -191,17 +185,11 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         }
     }
 
-    // Compile all functions
-    // Convert Idx to TypeId at the LLVM boundary (both are u32 newtypes)
+    // Compile all functions — expr_types are already Idx, no bridge needed
     let arena = &parse_result.arena;
-    let expr_types: Vec<ori_ir::TypeId> = type_result
-        .typed
-        .expr_types
-        .iter()
-        .map(|idx| ori_ir::TypeId::from_raw(idx.raw()))
-        .collect();
+    let expr_types = &type_result.typed.expr_types;
     for func in &module.functions {
-        compiler.compile_function(func, arena, &expr_types);
+        compiler.compile_function(func, arena, expr_types);
     }
 
     // Log the source path for debugging (avoids unused variable warning)
