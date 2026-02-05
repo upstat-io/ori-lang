@@ -7,6 +7,7 @@ use ori_ir::{CallArg, Expr, ExprId, ExprKind, FieldInit, Param, StructLitField, 
 
 impl Parser<'_> {
     /// Parse function calls and field access.
+    #[inline]
     pub(crate) fn parse_call(&mut self) -> Result<ExprId, ParseError> {
         let expr = self.parse_primary()?;
         self.apply_postfix_ops(expr)
@@ -17,6 +18,7 @@ impl Parser<'_> {
     /// This is factored out from `parse_call()` to be reusable in `parse_unary()`
     /// for cases like `-100 as float` where negative integer folding produces
     /// an expression that still needs postfix operator handling.
+    #[inline]
     pub(crate) fn apply_postfix_ops(&mut self, mut expr: ExprId) -> Result<ExprId, ParseError> {
         loop {
             // Skip newlines to allow method chaining across lines:

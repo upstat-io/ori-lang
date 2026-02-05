@@ -256,6 +256,32 @@ impl Module {
             extends: Vec::new(),
         }
     }
+
+    /// Create a new module with pre-allocated capacity based on source length.
+    ///
+    /// Heuristic: ~1 function per 50 bytes of source code.
+    /// This reduces allocation overhead during parsing.
+    #[inline]
+    pub fn with_capacity_hint(source_len: usize) -> Self {
+        // Estimate: 1 function per ~50 bytes, minimum 8
+        let func_estimate = (source_len / 50).max(8);
+        // Tests are usually fewer than functions
+        let test_estimate = func_estimate / 4;
+        // Types, traits, impls are typically sparse
+        let type_estimate = (func_estimate / 8).max(2);
+
+        Module {
+            imports: Vec::with_capacity(4),
+            configs: Vec::with_capacity(2),
+            functions: Vec::with_capacity(func_estimate),
+            tests: Vec::with_capacity(test_estimate),
+            types: Vec::with_capacity(type_estimate),
+            traits: Vec::with_capacity(type_estimate),
+            impls: Vec::with_capacity(type_estimate),
+            def_impls: Vec::with_capacity(2),
+            extends: Vec::with_capacity(2),
+        }
+    }
 }
 
 impl fmt::Debug for Module {

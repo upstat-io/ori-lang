@@ -154,3 +154,71 @@ adjacent, compound, context
 | Error messages | 06.x | 04.x |
 | Incremental | 08.3 | 05.x |
 | Trivia/Metadata | 08.1-08.2 | 06.x |
+
+---
+
+## Related Plans
+
+| Plan | Relationship |
+|------|--------------|
+| `plans/parser_v2/` | Lexer V2 feeds into Parser V2 (tight integration) |
+| `plans/types_v2/` | **Independent** — operates on AST, not tokens |
+| `plans/roadmap/` | Overall language roadmap |
+| `plans/ori_lsp/` | Uses tokens for syntax highlighting |
+
+### Types V2 Independence
+
+Lexer V2 and Types V2 are **completely independent**:
+- Different compiler phases (lexing vs type checking)
+- Different crates (`ori_lexer` vs `ori_types`/`ori_typeck`)
+- Communicate only via `ori_ir` AST
+- Can be developed in parallel
+
+---
+
+## Performance Validation
+
+### Quick Check
+
+Use the `/benchmark` skill for quick validation:
+
+```bash
+/benchmark short   # ~30s, sanity check
+/benchmark medium  # ~2min, standard validation
+/benchmark long    # ~5min, release validation
+```
+
+### Baseline (February 2026)
+
+| Metric | Current | Target | Industry Reference |
+|--------|---------|--------|-------------------|
+| **Lexer throughput** | ~270 MiB/s | 400 MiB/s | Zig ~1000, Go ~300, Rust ~100 |
+| **Parser throughput** | ~120 MiB/s | 150 MiB/s | Go ~100-150, Rust ~50-100 |
+
+### When to Benchmark
+
+Run `/benchmark short` after modifying:
+- Token representation (Section 02)
+- State machine (Section 03)
+- Keyword/operator handling (Section 04)
+- Performance optimizations (Section 07)
+
+**Skip benchmarks** for: error messages (06), unicode handling (05), integration glue (08).
+
+### Manual Comparison
+
+```bash
+# Compare against saved baseline
+cargo bench --bench lexer -p oric -- --baseline before_v2
+
+# Raw benchmarks (fair comparison to other compilers)
+cargo bench --bench lexer -p oric -- "lexer/raw"
+```
+
+### Benchmark Categories
+
+| Category | What It Measures | Use For |
+|----------|------------------|---------|
+| `lexer/raw/*` | Pure lexer, no Salsa | Comparing to Zig/Go/Rust |
+| `lexer/scaling/*` | Lexer via Salsa queries | Real-world usage |
+| `parser/raw/*` | Lexer + parser, no Salsa | Full frontend comparison |

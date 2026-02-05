@@ -1,32 +1,38 @@
 ---
 section: "01"
 title: Unified Pool Architecture
-status: not-started
+status: in-progress
 goal: Replace dual Type/TypeData with single unified pool using 32-bit indices
 sections:
   - id: "01.1"
     title: Idx Universal Handle
-    status: not-started
+    status: complete
   - id: "01.2"
     title: Tag Enum
-    status: not-started
+    status: complete
   - id: "01.3"
     title: Item Compact Storage
-    status: not-started
+    status: complete
   - id: "01.4"
     title: Pool Implementation
-    status: not-started
+    status: complete
   - id: "01.5"
     title: Pre-interned Primitives
-    status: not-started
+    status: complete
   - id: "01.6"
     title: Extra Arrays (SoA)
-    status: not-started
+    status: complete
+  - id: "01.7"
+    title: Type Construction Helpers
+    status: complete
+  - id: "01.8"
+    title: Completion Checklist
+    status: in-progress
 ---
 
 # Section 01: Unified Pool Architecture
 
-**Status:** Not Started
+**Status:** In Progress (~90% complete)
 **Goal:** Replace dual Type/TypeData representation with single unified pool
 **Source:** Zig (`InternPool.zig`), Roc (`types/src/subs.rs`)
 
@@ -103,12 +109,12 @@ impl Idx {
 
 ### Tasks
 
-- [ ] Create `ori_types/src/idx.rs`
-- [ ] Define `Idx` struct with `Copy, Clone, Eq, PartialEq, Hash, Debug`
-- [ ] Define primitive constants (INT, FLOAT, BOOL, etc.)
-- [ ] Define NONE sentinel and FIRST_DYNAMIC boundary
-- [ ] Add helper methods (is_primitive, is_none, raw)
-- [ ] Add compile-time size assertion: `assert!(size_of::<Idx>() == 4)`
+- [x] Create `ori_types/src/idx.rs` ✅
+- [x] Define `Idx` struct with `Copy, Clone, Eq, PartialEq, Hash, Debug` ✅
+- [x] Define primitive constants (INT, FLOAT, BOOL, etc.) ✅
+- [x] Define NONE sentinel and FIRST_DYNAMIC boundary ✅
+- [x] Add helper methods (is_primitive, is_none, raw) ✅
+- [x] Add compile-time size assertion: `assert!(size_of::<Idx>() == 4)` ✅
 
 ---
 
@@ -155,12 +161,12 @@ pub enum Tag {
 
 ### Tasks
 
-- [ ] Create `ori_types/src/tag.rs`
-- [ ] Define `Tag` enum with `#[repr(u8)]`
-- [ ] Organize tags by category with reserved ranges
-- [ ] Document data field interpretation for each tag
-- [ ] Add `Tag::uses_extra(&self) -> bool` helper
-- [ ] Add compile-time assertion: `assert!(size_of::<Tag>() == 1)`
+- [x] Create `ori_types/src/tag.rs` ✅
+- [x] Define `Tag` enum with `#[repr(u8)]` ✅
+- [x] Organize tags by category with reserved ranges ✅
+- [x] Document data field interpretation for each tag ✅
+- [x] Add `Tag::uses_extra(&self) -> bool` helper ✅
+- [x] Add compile-time assertion: `assert!(size_of::<Tag>() == 1)` ✅
 
 ---
 
@@ -197,10 +203,10 @@ const _: () = assert!(std::mem::size_of::<Item>() == 5);
 
 ### Tasks
 
-- [ ] Create `ori_types/src/item.rs`
-- [ ] Define `Item` struct with `#[repr(C)]`
-- [ ] Add compile-time size assertion
-- [ ] Document data interpretation for each tag category
+- [x] Create `ori_types/src/item.rs` ✅
+- [x] Define `Item` struct with `#[repr(C)]` ✅
+- [x] Add compile-time size assertion ✅
+- [x] Document data interpretation for each tag category ✅
 
 ---
 
@@ -259,13 +265,13 @@ impl Pool {
 
 ### Tasks
 
-- [ ] Create `ori_types/src/pool/mod.rs`
-- [ ] Define `Pool` struct with all fields
-- [ ] Implement `Pool::new()` with primitive pre-interning
-- [ ] Implement `Pool::intern()` with hash-based deduplication
-- [ ] Implement `Pool::intern_complex()` for complex types
-- [ ] Implement query methods (tag, data, flags, hash)
-- [ ] Add `Pool::format_type(idx: Idx) -> String` for debugging
+- [x] Create `ori_types/src/pool/mod.rs` ✅
+- [x] Define `Pool` struct with all fields ✅
+- [x] Implement `Pool::new()` with primitive pre-interning ✅
+- [x] Implement `Pool::intern()` with hash-based deduplication ✅
+- [x] Implement `Pool::intern_complex()` for complex types ✅
+- [x] Implement query methods (tag, data, flags, hash) ✅
+- [x] Add `Pool::format_type(idx: Idx) -> String` for debugging ✅ (in pool/format.rs)
 
 ---
 
@@ -308,11 +314,11 @@ impl Pool {
 
 ### Tasks
 
-- [ ] Implement `intern_primitive()` helper
-- [ ] Pre-intern all 12 primitive types
-- [ ] Pad to FIRST_DYNAMIC with error placeholders
-- [ ] Verify `Idx::INT.raw() == 0`, `Idx::FLOAT.raw() == 1`, etc.
-- [ ] Add tests verifying primitive indices
+- [x] Implement `intern_primitive()` helper ✅
+- [x] Pre-intern all 12 primitive types ✅
+- [x] Pad to FIRST_DYNAMIC with error placeholders ✅
+- [x] Verify `Idx::INT.raw() == 0`, `Idx::FLOAT.raw() == 1`, etc. ✅
+- [x] Add tests verifying primitive indices ✅
 
 ---
 
@@ -364,13 +370,13 @@ impl Pool {
 
 ### Tasks
 
-- [ ] Implement `function_params()`, `function_return()`
-- [ ] Implement `tuple_elems()`
-- [ ] Implement `map_key()`, `map_value()`
-- [ ] Implement `result_ok()`, `result_err()`
-- [ ] Implement `applied_name()`, `applied_args()`
-- [ ] Implement `scheme_vars()`, `scheme_body()`
-- [ ] Add comprehensive tests for each accessor
+- [x] Implement `function_params()`, `function_return()` ✅
+- [x] Implement `tuple_elems()` ✅
+- [x] Implement `map_key()`, `map_value()` ✅
+- [x] Implement `result_ok()`, `result_err()` ✅
+- [x] Implement `applied_name()`, `applied_args()` ✅ (2026-02-04)
+- [x] Implement `scheme_vars()`, `scheme_body()` ✅
+- [x] Add comprehensive tests for each accessor ✅
 
 ---
 
@@ -431,24 +437,29 @@ impl Pool {
 
 ### Tasks
 
-- [ ] Create `ori_types/src/pool/construct.rs`
-- [ ] Implement all construction helpers
-- [ ] Add `fresh_var()` and `fresh_named_var()`
-- [ ] Add tests for each constructor
-- [ ] Verify deduplication (same inputs = same Idx)
+- [x] Create `ori_types/src/pool/construct.rs` ✅
+- [x] Implement all construction helpers ✅
+- [x] Add `fresh_var()` and `fresh_named_var()` ✅
+- [x] Add tests for each constructor ✅
+- [x] Verify deduplication (same inputs = same Idx) ✅
 
 ---
 
 ## 01.8 Completion Checklist
 
-- [ ] `idx.rs` complete with all constants and helpers
-- [ ] `tag.rs` complete with all 256 tag variants organized
-- [ ] `item.rs` complete with size assertion
-- [ ] `pool/mod.rs` complete with interning
-- [ ] `pool/construct.rs` complete with all builders
-- [ ] All primitives pre-interned at correct indices
-- [ ] Extra array accessors working for all complex types
-- [ ] Comprehensive test suite passing
-- [ ] No remnants of old `Type` or `TypeData`
+- [x] `idx.rs` complete with all constants and helpers ✅
+- [x] `tag.rs` complete with all tag variants organized ✅
+- [x] `item.rs` complete with size assertion ✅
+- [x] `pool/mod.rs` complete with interning ✅
+- [x] `pool/construct.rs` complete with all builders ✅
+- [x] All primitives pre-interned at correct indices ✅
+- [x] Extra array accessors working for all complex types ✅ (2026-02-04)
+- [x] Comprehensive test suite passing ✅
+- [ ] No remnants of old `Type` or `TypeData` — legacy still present during migration (Section 09)
+
+**Section 01 Status:** In Progress (~95%)
+
+**Remaining:**
+- Migration of old type system (Section 09)
 
 **Exit Criteria:** `Idx` is the only type handle used throughout the codebase. Pool provides all type construction and query operations.

@@ -1,27 +1,27 @@
 ---
 section: "04"
 title: Rank-Based Generalization
-status: not-started
+status: complete
 goal: Correct let-polymorphism with rank tracking
 sections:
   - id: "04.1"
     title: Rank Type
-    status: not-started
+    status: complete
   - id: "04.2"
     title: Scope Management
-    status: not-started
+    status: complete
   - id: "04.3"
     title: Rank Updates During Unification
-    status: not-started
+    status: complete
   - id: "04.4"
     title: Generalization
-    status: not-started
+    status: complete
   - id: "04.5"
     title: Instantiation
-    status: not-started
+    status: complete
   - id: "04.6"
     title: Type Scheme Storage
-    status: not-started
+    status: complete
 ---
 
 # Section 04: Rank-Based Generalization
@@ -101,10 +101,10 @@ impl Rank {
 
 ### Tasks
 
-- [ ] Create `ori_types/src/unify/rank.rs`
-- [ ] Define `Rank` with constants and methods
-- [ ] Add overflow protection
-- [ ] Add tests for rank arithmetic
+- [x] Create `ori_types/src/unify/rank.rs` ✅
+- [x] Define `Rank` with constants and methods ✅
+- [x] Add overflow protection ✅
+- [x] Add tests for rank arithmetic ✅
 
 ---
 
@@ -153,10 +153,10 @@ impl<'pool> UnifyEngine<'pool> {
 
 ### Tasks
 
-- [ ] Implement `enter_scope()`
-- [ ] Implement `exit_scope()` with var collection
-- [ ] Add scope depth tracking for debugging
-- [ ] Add tests for nested scopes
+- [x] Implement `enter_scope()` ✅
+- [x] Implement `exit_scope()` ✅
+- [x] Add scope depth tracking for debugging ✅
+- [x] Add tests for nested scopes ✅
 
 ---
 
@@ -223,10 +223,10 @@ impl<'pool> UnifyEngine<'pool> {
 
 ### Tasks
 
-- [ ] Implement `update_ranks()` with flag gating
-- [ ] Implement `update_ranks_inner()` for all type kinds
-- [ ] Integrate into `unify_var_with()`
-- [ ] Add tests for rank propagation
+- [x] Implement `update_ranks()` with flag gating ✅ (done in Section 03)
+- [x] Implement `update_ranks_inner()` for all type kinds ✅
+- [x] Integrate into `unify_var_with()` ✅ (done in Section 03)
+- [x] Add tests for rank propagation ✅
 
 ---
 
@@ -303,10 +303,10 @@ impl<'pool> UnifyEngine<'pool> {
 
 ### Tasks
 
-- [ ] Create `ori_types/src/unify/generalize.rs`
-- [ ] Implement `generalize()` with scheme creation
-- [ ] Implement `collect_free_vars_at_rank()`
-- [ ] Add tests for polymorphic generalization
+- [x] ~~Create `ori_types/src/unify/generalize.rs`~~ Added to `unify/mod.rs` ✅
+- [x] Implement `generalize()` with scheme creation ✅
+- [x] Implement `collect_free_vars_at_rank()` ✅
+- [x] Add tests for polymorphic generalization ✅
 
 ---
 
@@ -395,10 +395,10 @@ impl<'pool> UnifyEngine<'pool> {
 
 ### Tasks
 
-- [ ] Implement `instantiate()` for scheme instantiation
-- [ ] Implement `substitute()` for all type kinds
-- [ ] Optimize to avoid allocation when no changes
-- [ ] Add tests for polymorphic instantiation
+- [x] Implement `instantiate()` for scheme instantiation ✅
+- [x] Implement `substitute()` for all type kinds ✅
+- [x] Optimize to avoid allocation when no changes ✅
+- [x] Add tests for polymorphic instantiation ✅
 
 ---
 
@@ -446,22 +446,24 @@ impl Pool {
 
 ### Tasks
 
-- [ ] Implement `Pool::scheme()` construction
-- [ ] Implement `Pool::scheme_vars()` accessor
-- [ ] Implement `Pool::scheme_body()` accessor
-- [ ] Add tests for scheme storage and retrieval
+- [x] Implement `Pool::scheme()` construction ✅ (done in Section 01)
+- [x] Implement `Pool::scheme_vars()` accessor ✅ (done in Section 01)
+- [x] Implement `Pool::scheme_body()` accessor ✅ (done in Section 01)
+- [x] Add tests for scheme storage and retrieval ✅
 
 ---
 
 ## 04.7 Completion Checklist
 
-- [ ] `Rank` type complete with all methods
-- [ ] Scope entry/exit working correctly
-- [ ] Rank updates during unification correct
-- [ ] `generalize()` producing correct schemes
-- [ ] `instantiate()` creating fresh variables
-- [ ] Type schemes stored and retrieved correctly
-- [ ] Let-polymorphism working (id can be both int->int and str->str)
-- [ ] All tests passing
+- [x] `Rank` type complete with all methods ✅
+- [x] Scope entry/exit working correctly ✅
+- [x] Rank updates during unification correct ✅
+- [x] `generalize()` producing correct schemes ✅
+- [x] `instantiate()` creating fresh variables ✅
+- [x] Type schemes stored and retrieved correctly ✅
+- [x] Let-polymorphism working (id can be both int->int and str->str) ✅
+- [x] All tests passing ✅ (92 tests)
+
+**Section 04 Status:** ✅ Complete (2026-02-04)
 
 **Exit Criteria:** The identity function `|x| x` can be used with different types in the same scope. Generalization correctly quantifies variables at scope exit. Instantiation creates fresh variables for each use.

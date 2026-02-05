@@ -245,3 +245,34 @@ Dependent crate updates.
 3. **Reference repos** — Consult Zig/Roc/Gleam for edge cases
 4. **No shortcuts** — Proper implementation only, no hacks
 5. **Ask when unclear** — Don't guess architectural decisions
+
+---
+
+## Relationship with Parser V2
+
+**Types V2 is independent of Parser V2.** The two systems are cleanly decoupled:
+
+| Aspect | Parser V2 | Types V2 |
+|--------|-----------|----------|
+| **Phase** | Syntax → AST | AST → Typed AST |
+| **Crates** | `ori_lexer`, `ori_parse`, `ori_ir` | `ori_types`, `ori_typeck` |
+| **Status** | ✅ Complete | Not started |
+
+### Terminology Clarification
+
+Both plans use the word "metadata" but for **completely different concepts**:
+
+| Term | Parser V2 | Types V2 |
+|------|-----------|----------|
+| **"Metadata"** | `ModuleExtra` — formatting trivia (comments, blank lines) | `TypeFlags` — type properties (HAS_VAR, IS_PRIMITIVE) |
+| **Location** | `ori_ir/src/metadata.rs` | `ori_types/src/flags.rs` (new) |
+| **Purpose** | Formatter/IDE support | Type checker optimization |
+
+### No Parser Changes Required
+
+Types V2 does **not** modify:
+- `ori_lexer` — unchanged
+- `ori_parse` — unchanged
+- `ori_ir` — unchanged (may add new files, but no conflicts with `metadata.rs`)
+
+The parser produces AST; the type checker consumes it. One-way dependency only.

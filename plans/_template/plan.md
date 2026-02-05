@@ -126,6 +126,43 @@ sections:
 
 ---
 
+## Performance-Sensitive Plans
+
+For plans touching **performance-critical components** (lexer, parser, type checker, evaluator, codegen), include benchmark checkpoints:
+
+### When to Benchmark
+
+| Component | Benchmark? | Skill |
+|-----------|------------|-------|
+| Lexer (`ori_lexer`) | ✅ Yes | `/benchmark short` |
+| Parser (`ori_parse`) | ✅ Yes | `/benchmark short` |
+| Type checker (`ori_typeck`) | ✅ Yes | `/benchmark short` |
+| Evaluator (`ori_eval`) | ⚠️ Maybe | Manual profiling |
+| Codegen (`ori_llvm`) | ⚠️ Maybe | Manual profiling |
+| CLI, formatting, LSP | ❌ No | Not perf-critical |
+
+### Adding Benchmark Checkpoints
+
+In sections that modify hot paths, add:
+
+```markdown
+## X.N Performance Validation
+
+- [ ] Run `/benchmark short` before changes (record baseline)
+- [ ] Run `/benchmark short` after changes
+- [ ] No regressions >5% vs baseline
+- [ ] Document any intentional tradeoffs
+```
+
+Only add this for sections that:
+1. Modify hot code paths (token processing, expression parsing, type unification)
+2. Change data structures (token storage, AST nodes, type representations)
+3. Add new algorithmic complexity
+
+**Do NOT add benchmarks for**: error messages, CLI flags, documentation, tests, non-hot-path features.
+
+---
+
 ## Reference
 
 See `plans/roadmap/` for a complete example:

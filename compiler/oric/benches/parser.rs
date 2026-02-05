@@ -1,10 +1,15 @@
 //! Parser benchmarks for Ori.
 //!
 //! Measures parsing performance for various AST structures.
+//!
+//! Two benchmark categories:
+//! - `parser/*` — Through Salsa query system (measures real-world usage)
+//! - `parser/raw/*` — Direct parser calls (for comparison with other compilers)
 
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use ori_ir::StringInterner;
 use oric::query::parsed;
 use oric::{CompilerDb, SourceFile};
 use std::path::PathBuf;
@@ -339,8 +344,145 @@ fn bench_incremental_reuse_rate(c: &mut Criterion) {
     incremental_benches::bench_incremental_reuse_rate(c);
 }
 
+/// Raw parser benchmarks — bypasses Salsa for fair comparison with other compilers.
+///
+/// These benchmarks call `ori_lexer::lex()` and `ori_parse::parse()` directly,
+/// measuring pure parsing throughput without query system overhead.
+mod raw_benches {
+    use super::{
+        black_box, generate_n_functions, BenchmarkId, Criterion, StringInterner, Throughput,
+    };
+
+    /// Benchmark raw parser throughput (lexer + parser, no Salsa).
+    pub fn bench_raw_throughput(c: &mut Criterion) {
+        let interner = StringInterner::new();
+        let mut group = c.benchmark_group("parser/raw");
+
+        for num_functions in [10, 50, 100, 500, 1000] {
+            let source = generate_n_functions(num_functions);
+            let bytes = source.len() as u64;
+
+            group.throughput(Throughput::Bytes(bytes));
+            group.bench_with_input(
+                BenchmarkId::new("throughput", num_functions),
+                &source,
+                |b, src| {
+                    b.iter(|| {
+                        let tokens = ori_lexer::lex(src, &interner);
+                        black_box(ori_parse::parse(&tokens, &interner));
+                    });
+                },
+            );
+        }
+
+        group.finish();
+    }
+
+    /// Benchmark parser-only throughput (tokens already lexed).
+    pub fn bench_raw_parser_only(c: &mut Criterion) {
+        let interner = StringInterner::new();
+        let mut group = c.benchmark_group("parser/raw/parser_only");
+
+        for num_functions in [100, 500, 1000] {
+            let source = generate_n_functions(num_functions);
+            let tokens = ori_lexer::lex(&source, &interner);
+            let bytes = source.len() as u64;
+
+            group.throughput(Throughput::Bytes(bytes));
+            group.bench_with_input(
+                BenchmarkId::new("throughput", num_functions),
+                &tokens,
+                |b, toks| {
+                    b.iter(|| {
+                        black_box(ori_parse::parse(toks, &interner));
+                    });
+                },
+            );
+        }
+
+        group.finish();
+    }
+
+    /// Benchmark with realistic file sizes.
+    pub fn bench_raw_realistic(c: &mut Criterion) {
+        let interner = StringInterner::new();
+        let mut group = c.benchmark_group("parser/raw/realistic");
+
+        // Small file (~1KB)
+        let small = generate_n_functions(30);
+        group.throughput(Throughput::Bytes(small.len() as u64));
+        group.bench_function("small_1kb", |b| {
+            b.iter(|| {
+                let tokens = ori_lexer::lex(&small, &interner);
+                black_box(ori_parse::parse(&tokens, &interner));
+            });
+        });
+
+        // Medium file (~10KB)
+        let medium = generate_n_functions(300);
+        group.throughput(Throughput::Bytes(medium.len() as u64));
+        group.bench_function("medium_10kb", |b| {
+            b.iter(|| {
+                let tokens = ori_lexer::lex(&medium, &interner);
+                black_box(ori_parse::parse(&tokens, &interner));
+            });
+        });
+
+        // Large file (~50KB)
+        let large = generate_n_functions(1500);
+        group.throughput(Throughput::Bytes(large.len() as u64));
+        group.bench_function("large_50kb", |b| {
+            b.iter(|| {
+                let tokens = ori_lexer::lex(&large, &interner);
+                black_box(ori_parse::parse(&tokens, &interner));
+            });
+        });
+
+        group.finish();
+    }
+
+    /// AST node throughput (nodes/second).
+    pub fn bench_raw_ast_nodes(c: &mut Criterion) {
+        let interner = StringInterner::new();
+        let mut group = c.benchmark_group("parser/raw/ast_nodes");
+
+        let source = generate_n_functions(500);
+        let tokens = ori_lexer::lex(&source, &interner);
+
+        // Each function generates: 1 decl + 1 signature + ~3 exprs = ~5 nodes
+        // 500 functions ≈ 2500 nodes (rough estimate)
+        let estimated_nodes = 500u64 * 5;
+
+        group.throughput(Throughput::Elements(estimated_nodes));
+        group.bench_function("500_functions", |b| {
+            b.iter(|| {
+                black_box(ori_parse::parse(&tokens, &interner));
+            });
+        });
+
+        group.finish();
+    }
+}
+
+fn bench_raw_throughput(c: &mut Criterion) {
+    raw_benches::bench_raw_throughput(c);
+}
+
+fn bench_raw_parser_only(c: &mut Criterion) {
+    raw_benches::bench_raw_parser_only(c);
+}
+
+fn bench_raw_realistic(c: &mut Criterion) {
+    raw_benches::bench_raw_realistic(c);
+}
+
+fn bench_raw_ast_nodes(c: &mut Criterion) {
+    raw_benches::bench_raw_ast_nodes(c);
+}
+
 criterion_group!(
     benches,
+    // Salsa query benchmarks (real-world usage)
     bench_parser_simple,
     bench_parser_nested_arithmetic,
     bench_parser_conditional,
@@ -351,5 +493,10 @@ criterion_group!(
     bench_parser_incremental,
     bench_incremental_vs_full,
     bench_incremental_reuse_rate,
+    // Raw benchmarks (for comparison with other compilers)
+    bench_raw_throughput,
+    bench_raw_parser_only,
+    bench_raw_realistic,
+    bench_raw_ast_nodes,
 );
 criterion_main!(benches);
