@@ -17,7 +17,7 @@ Quick-reference keyword index for finding Types 2.0 implementation sections.
 ## Keyword Clusters by Section
 
 ### Section 01: Unified Pool Architecture
-**File:** `section-01-pool.md` | **Status:** In Progress (~95%)
+**File:** `section-01-pool.md` | **Status:** ✅ Complete
 
 ```
 Pool, TypePool, unified storage
@@ -117,7 +117,7 @@ coherence, orphan rules
 ---
 
 ### Section 08: Salsa Integration
-**File:** `section-08-salsa.md` | **Status:** In Progress (~80%)
+**File:** `section-08-salsa.md` | **Status:** ✅ Complete
 
 ```
 Salsa, incremental, query
@@ -148,7 +148,7 @@ scope management, capabilities
 ---
 
 ### Section 09: Migration
-**File:** `section-09-migration.md` | **Status:** In Progress (9/10 phases complete)
+**File:** `section-09-migration.md` | **Status:** ✅ Complete (all 10 phases done)
 
 ```
 DELETE, remove, replace
@@ -166,16 +166,16 @@ error rendering, message, code, span
 
 | ID | Title | File | Priority | Status |
 |----|-------|------|----------|--------|
-| 01 | Unified Pool Architecture | `section-01-pool.md` | P0 | In Progress (~95%) |
+| 01 | Unified Pool Architecture | `section-01-pool.md` | P0 | ✅ Complete |
 | 02 | Pre-Computed Metadata | `section-02-metadata.md` | P0 | In Progress (~90%) |
 | 03 | Unification Engine | `section-03-unification.md` | P0 | ✅ Complete |
 | 04 | Rank-Based Generalization | `section-04-ranks.md` | P1 | ✅ Complete |
 | 05 | Context-Aware Errors | `section-05-errors.md` | P1 | ✅ Complete |
 | 06 | Type Inference Engine | `section-06-inference.md` | P1 | ✅ Complete (~98%) |
 | 07 | Registries | `section-07-registries.md` | P2 | In Progress (~85%) |
-| 08 | Salsa Integration | `section-08-salsa.md` | P2 | In Progress (~80%) |
-| 08b | Module-Level Type Checker | `section-08b-module-checker.md` | P1 | In Progress (~85%) ¹ |
-| 09 | Migration | `section-09-migration.md` | P3 | In Progress (9/10) |
+| 08 | Salsa Integration | `section-08-salsa.md` | P2 | ✅ Complete |
+| 08b | Module-Level Type Checker | `section-08b-module-checker.md` | P1 | ✅ Complete ¹ |
+| 09 | Migration | `section-09-migration.md` | P3 | ✅ Complete |
 
 ---
 

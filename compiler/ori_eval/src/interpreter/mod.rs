@@ -381,6 +381,7 @@ impl<'a> Interpreter<'a> {
     ///
     /// Uses `ensure_sufficient_stack` to prevent stack overflow
     /// on deeply nested expressions.
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn eval(&mut self, expr_id: ExprId) -> EvalResult {
         ensure_sufficient_stack(|| self.eval_inner(expr_id))
     }

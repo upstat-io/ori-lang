@@ -44,6 +44,9 @@ rustc-hash.workspace = true
 
 # Parallel test execution
 rayon.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-tree.workspace = true
 
 # Temp files for AOT intermediate objects
 tempfile = "3.10"

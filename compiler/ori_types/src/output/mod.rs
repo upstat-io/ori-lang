@@ -14,6 +14,7 @@
 use ori_diagnostic::ErrorGuaranteed;
 use ori_ir::{Name, Span};
 
+use crate::registry::TypeEntry;
 use crate::{Idx, TypeCheckError};
 
 /// Type-checked module.
@@ -47,9 +48,14 @@ pub struct TypedModule {
 
     /// Function signatures by name.
     ///
-    /// Indexed by the function's `Name` for O(1) lookup when resolving
-    /// function calls from other modules.
+    /// Sorted by name for deterministic output.
     pub functions: Vec<FunctionSig>,
+
+    /// User-defined type definitions (structs, enums, newtypes, aliases).
+    ///
+    /// Exported from the module's `TypeRegistry` for cross-module type
+    /// resolution. Sorted by name (from `BTreeMap` iteration order).
+    pub types: Vec<TypeEntry>,
 
     /// Type errors accumulated during type checking.
     pub errors: Vec<TypeCheckError>,
@@ -66,6 +72,7 @@ impl TypedModule {
         Self {
             expr_types: Vec::with_capacity(expr_count),
             functions: Vec::with_capacity(function_count),
+            types: Vec::new(),
             errors: Vec::new(),
         }
     }
@@ -85,6 +92,16 @@ impl TypedModule {
     /// Get a function signature by name.
     pub fn function(&self, name: Name) -> Option<&FunctionSig> {
         self.functions.iter().find(|f| f.name == name)
+    }
+
+    /// Get a type definition by name.
+    pub fn type_def(&self, name: Name) -> Option<&TypeEntry> {
+        self.types.iter().find(|t| t.name == name)
+    }
+
+    /// Get the number of type definitions.
+    pub fn type_count(&self) -> usize {
+        self.types.len()
     }
 
     /// Get the number of typed expressions.
@@ -284,6 +301,7 @@ impl TypeCheckResult {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
     use crate::Pool;
@@ -399,5 +417,51 @@ mod tests {
 
         assert_eq!(module.function(foo).map(FunctionSig::arity), Some(0));
         assert_eq!(module.function(bar).map(FunctionSig::arity), Some(1));
+    }
+
+    #[test]
+    fn type_def_export() {
+        use crate::registry::{FieldDef, StructDef, TypeKind, Visibility};
+
+        let mut module = TypedModule::new();
+        let point_name = Name::from_raw(10);
+        let x_name = Name::from_raw(11);
+        let y_name = Name::from_raw(12);
+
+        module.types.push(TypeEntry {
+            name: point_name,
+            idx: Idx::from_raw(100),
+            kind: TypeKind::Struct(StructDef {
+                fields: vec![
+                    FieldDef {
+                        name: x_name,
+                        ty: Idx::INT,
+                        span: Span::DUMMY,
+                        visibility: Visibility::Public,
+                    },
+                    FieldDef {
+                        name: y_name,
+                        ty: Idx::INT,
+                        span: Span::DUMMY,
+                        visibility: Visibility::Public,
+                    },
+                ],
+            }),
+            span: Span::DUMMY,
+            type_params: vec![],
+            visibility: Visibility::Public,
+        });
+
+        assert_eq!(module.type_count(), 1);
+        assert!(module.type_def(point_name).is_some());
+        assert!(module.type_def(Name::from_raw(99)).is_none());
+
+        let entry = module.type_def(point_name).unwrap();
+        assert!(matches!(entry.kind, TypeKind::Struct(_)));
+
+        if let TypeKind::Struct(ref s) = entry.kind {
+            assert_eq!(s.fields.len(), 2);
+            assert_eq!(s.fields[0].ty, Idx::INT);
+        }
     }
 }

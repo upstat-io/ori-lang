@@ -37,6 +37,7 @@
 use ori_ir::{
     BinaryOp, ExprArena, ExprId, ExprKind, Name, ParsedType, ParsedTypeRange, Span, TypeId, UnaryOp,
 };
+use ori_stack::ensure_sufficient_stack;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -50,7 +51,13 @@ use crate::{
 ///
 /// This is the main entry point for expression type inference.
 /// It dispatches to specialized handlers based on expression kind.
+#[tracing::instrument(level = "trace", skip(engine, arena))]
 pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx {
+    ensure_sufficient_stack(|| infer_expr_inner(engine, arena, expr_id))
+}
+
+/// Inner implementation of expression inference, dispatching on `ExprKind`.
+fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx {
     let expr = arena.get_expr(expr_id);
     let span = expr.span;
 
@@ -194,6 +201,7 @@ pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Expr
 /// - Integer literals in range 0-255 are coerced to `byte` when expected type is `byte`
 ///
 /// For all other expressions, this infers the type and then checks against expected.
+#[tracing::instrument(level = "trace", skip(engine, arena, expected))]
 pub fn check_expr(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -1467,19 +1475,22 @@ fn infer_block(
                 // This allows type variables in the initializer to be generalized.
                 engine.enter_rank_scope();
 
-                // Infer initializer
-                let init_ty = infer_expr(engine, arena, *init);
-
-                // Generalize or use annotation type
-                // NOTE: ty is Option<TypeId> (old type system), not Option<ParsedType>
-                // For now, we ignore it and always generalize. Type annotation support
-                // for StmtKind::Let will be added during migration (Section 09).
-                let final_ty = if ty.is_some() {
-                    // TODO(migration): Convert TypeId to Idx and use as expected type
-                    // For now, just use the inferred type
-                    init_ty
+                // Check/infer the initializer type based on presence of annotation
+                let final_ty = if let Some(parsed_ty) = ty {
+                    // With type annotation: use bidirectional checking
+                    let expected_ty = resolve_parsed_type(engine, arena, parsed_ty);
+                    let expected = Expected {
+                        ty: expected_ty,
+                        origin: ExpectedOrigin::Annotation {
+                            name: pattern_first_name(pattern).unwrap_or(Name::EMPTY),
+                            span: stmt.span,
+                        },
+                    };
+                    let _init_ty = check_expr(engine, arena, *init, &expected, stmt.span);
+                    expected_ty
                 } else {
-                    // Generalize free type variables for let-polymorphism
+                    // No annotation: infer and generalize for let-polymorphism
+                    let init_ty = infer_expr(engine, arena, *init);
                     engine.generalize(init_ty)
                 };
 
@@ -5720,6 +5731,130 @@ mod tests {
 
         assert_eq!(ty, Idx::INT, "Block should resolve x to int");
         assert!(!engine.has_errors());
+    }
+
+    #[test]
+    fn test_infer_block_let_with_type_annotation() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let mut arena = ExprArena::new();
+
+        // { let x: int = 42; x }
+        let init = alloc(&mut arena, ExprKind::Int(42));
+        let _stmt = arena.alloc_stmt(Stmt {
+            kind: StmtKind::Let {
+                pattern: BindingPattern::Name(name(1)),
+                ty: Some(ParsedType::Primitive(ori_ir::TypeId::INT)),
+                init,
+                mutable: false,
+            },
+            span: span(),
+        });
+
+        let result_expr = alloc(&mut arena, ExprKind::Ident(name(1)));
+        let stmts = arena.alloc_stmt_range(0, 1);
+        let block = alloc(
+            &mut arena,
+            ExprKind::Block {
+                stmts,
+                result: Some(result_expr),
+            },
+        );
+
+        let ty = infer_expr(&mut engine, &arena, block);
+
+        assert_eq!(
+            ty,
+            Idx::INT,
+            "Block let with annotation should resolve to int"
+        );
+        assert!(!engine.has_errors());
+    }
+
+    #[test]
+    fn test_infer_block_let_annotation_list_type() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let mut arena = ExprArena::new();
+
+        // { let xs: [int] = [1, 2, 3]; xs }
+        let elem1 = alloc(&mut arena, ExprKind::Int(1));
+        let elem2 = alloc(&mut arena, ExprKind::Int(2));
+        let elem3 = alloc(&mut arena, ExprKind::Int(3));
+        let list_exprs = arena.alloc_expr_list_inline(&[elem1, elem2, elem3]);
+        let list = alloc(&mut arena, ExprKind::List(list_exprs));
+
+        // Create [int] parsed type
+        let int_type_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+        let list_annotation = ParsedType::List(int_type_id);
+
+        let _stmt = arena.alloc_stmt(Stmt {
+            kind: StmtKind::Let {
+                pattern: BindingPattern::Name(name(1)),
+                ty: Some(list_annotation),
+                init: list,
+                mutable: false,
+            },
+            span: span(),
+        });
+
+        let result_expr = alloc(&mut arena, ExprKind::Ident(name(1)));
+        let stmts = arena.alloc_stmt_range(0, 1);
+        let block = alloc(
+            &mut arena,
+            ExprKind::Block {
+                stmts,
+                result: Some(result_expr),
+            },
+        );
+
+        let ty = infer_expr(&mut engine, &arena, block);
+
+        // Should be List<int>
+        assert_eq!(engine.pool().tag(ty), Tag::List);
+        let inner = engine.pool().list_elem(ty);
+        assert_eq!(inner, Idx::INT);
+        assert!(!engine.has_errors());
+    }
+
+    #[test]
+    fn test_infer_block_let_annotation_type_mismatch() {
+        let mut pool = Pool::new();
+        let mut engine = InferEngine::new(&mut pool);
+        let mut arena = ExprArena::new();
+
+        // { let x: str = 42; x }
+        // Type mismatch: annotated str but init is int
+        let init = alloc(&mut arena, ExprKind::Int(42));
+        let _stmt = arena.alloc_stmt(Stmt {
+            kind: StmtKind::Let {
+                pattern: BindingPattern::Name(name(1)),
+                ty: Some(ParsedType::Primitive(ori_ir::TypeId::STR)),
+                init,
+                mutable: false,
+            },
+            span: span(),
+        });
+
+        let result_expr = alloc(&mut arena, ExprKind::Ident(name(1)));
+        let stmts = arena.alloc_stmt_range(0, 1);
+        let block = alloc(
+            &mut arena,
+            ExprKind::Block {
+                stmts,
+                result: Some(result_expr),
+            },
+        );
+
+        let ty = infer_expr(&mut engine, &arena, block);
+
+        // The annotation type should be used (str), but an error should be reported
+        assert_eq!(
+            ty,
+            Idx::STR,
+            "Annotation type should be used even on mismatch"
+        );
+        assert!(engine.has_errors(), "Type mismatch should produce an error");
     }
 
     // ========================================================================

@@ -602,6 +602,7 @@ dependencies = [
  "parking_lot",
  "pretty_assertions",
  "rustc-hash",
+ "tracing",
 ]
 
 [[package]]
@@ -667,6 +668,7 @@ dependencies = [
  "ori_lexer",
  "ori_stack",
  "pretty_assertions",
+ "tracing",
 ]
 
 [[package]]
@@ -676,6 +678,7 @@ dependencies = [
  "ori_ir",
  "pretty_assertions",
  "rustc-hash",
+ "tracing",
 ]
 
 [[package]]
@@ -698,9 +701,11 @@ dependencies = [
  "ori_ir",
  "ori_lexer",
  "ori_parse",
+ "ori_stack",
  "parking_lot",
  "pretty_assertions",
  "rustc-hash",
+ "tracing",
 ]
 
 [[package]]
@@ -724,6 +729,9 @@ dependencies = [
  "rustc-hash",
  "salsa",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-tree",
 ]
 
 [[package]]
@@ -1345,6 +1353,18 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "tracing-tree"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac87aa03b6a4d5a7e4810d1a80c19601dbe0f8a837e9177f23af721c7ba7beec"
+dependencies = [
+ "nu-ansi-term",
+ "tracing-core",
+ "tracing-log",
+ "tracing-subscriber",
 ]
 
 [[package]]

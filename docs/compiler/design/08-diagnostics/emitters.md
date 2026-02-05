@@ -309,8 +309,8 @@ impl DiagnosticEmitter for SarifEmitter {
 ```rust
 pub fn create_emitter(format: OutputFormat) -> Box<dyn DiagnosticEmitter> {
     match format {
-        OutputFormat::Terminal => Box::new(TerminalEmitter::new(true)),
-        OutputFormat::Plain => Box::new(TerminalEmitter::new(false)),
+        OutputFormat::Terminal => Box::new(TerminalEmitter::stdout(ColorMode::Auto, true)),
+        OutputFormat::Plain => Box::new(TerminalEmitter::stdout(ColorMode::Never, false)),
         OutputFormat::Json => Box::new(JsonEmitter::new()),
         OutputFormat::Sarif => Box::new(SarifEmitter::new()),
     }

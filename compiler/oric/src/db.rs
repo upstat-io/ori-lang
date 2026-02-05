@@ -181,13 +181,35 @@ impl Db for CompilerDb {
 #[salsa::db]
 impl salsa::Database for CompilerDb {
     fn salsa_event(&self, event: &dyn Fn() -> salsa::Event) {
-        // Log events if logging is enabled
-        // parking_lot::Mutex doesn't have poison errors
-        if let Some(logs) = &mut *self.logs.lock() {
-            let event = event();
-            // Only log execution events (most interesting for debugging)
+        let has_logs = self.logs.lock().is_some();
+        let has_tracing = tracing::enabled!(tracing::Level::TRACE);
+
+        // Skip event evaluation entirely if neither consumer is active
+        if !has_logs && !has_tracing {
+            return;
+        }
+
+        let event = event();
+
+        // Bridge Salsa events to tracing
+        match &event.kind {
+            salsa::EventKind::WillExecute { .. } => {
+                tracing::debug!(event = ?event.kind, "salsa: will execute");
+            }
+            salsa::EventKind::DidValidateMemoizedValue { .. } => {
+                tracing::trace!(event = ?event.kind, "salsa: cache hit");
+            }
+            _ => {
+                tracing::trace!(event = ?event.kind, "salsa event");
+            }
+        }
+
+        // Keep in-memory log for tests
+        if has_logs {
             if let salsa::EventKind::WillExecute { .. } = event.kind {
-                logs.push(format!("{event:?}"));
+                if let Some(logs) = &mut *self.logs.lock() {
+                    logs.push(format!("{event:?}"));
+                }
             }
         }
     }

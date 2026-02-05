@@ -33,6 +33,10 @@ use crate::{FnWhereClause, FunctionSig, Idx};
 ///
 /// This pass runs before body checking to enable mutual recursion and forward
 /// references. After collection, the base environment is frozen.
+#[tracing::instrument(level = "debug", skip_all, fields(
+    functions = module.functions.len(),
+    tests = module.tests.len(),
+))]
 pub fn collect_signatures(checker: &mut ModuleChecker<'_>, module: &Module) {
     // Create a child of the import environment so imported bindings are
     // visible as the parent scope. Local function bindings shadow imports.

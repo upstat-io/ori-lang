@@ -621,9 +621,13 @@ impl<'a> ModuleChecker<'a> {
         let mut functions: Vec<FunctionSig> = self.signatures.into_values().collect();
         functions.sort_by_key(|f| f.name);
 
+        // Extract type definitions (already sorted by name via BTreeMap).
+        let types = self.types.into_entries();
+
         let typed = TypedModule {
             expr_types: self.expr_types,
             functions,
+            types,
             errors: self.errors,
         };
 
@@ -641,9 +645,13 @@ impl<'a> ModuleChecker<'a> {
         let mut functions: Vec<FunctionSig> = self.signatures.into_values().collect();
         functions.sort_by_key(|f| f.name);
 
+        // Extract type definitions (already sorted by name via BTreeMap).
+        let types = self.types.into_entries();
+
         let typed = TypedModule {
             expr_types: self.expr_types,
             functions,
+            types,
             errors: self.errors,
         };
 

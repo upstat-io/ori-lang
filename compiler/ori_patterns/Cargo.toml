@@ -10,6 +10,7 @@ repository.workspace = true
 ori_ir.workspace = true
 # Fast hash map for compiler internals
 rustc-hash.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

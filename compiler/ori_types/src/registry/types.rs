@@ -361,6 +361,11 @@ impl TypeRegistry {
         self.types_by_name.values()
     }
 
+    /// Consume the registry and return all type entries in name order.
+    pub fn into_entries(self) -> Vec<TypeEntry> {
+        self.types_by_name.into_values().collect()
+    }
+
     /// Get the number of registered types.
     #[inline]
     pub fn len(&self) -> usize {

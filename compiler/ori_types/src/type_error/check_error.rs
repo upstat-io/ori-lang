@@ -17,7 +17,9 @@
 use ori_diagnostic::ErrorCode;
 use ori_ir::{Name, Span};
 
-use super::{ContextKind, ExpectedOrigin, Suggestion, TypeProblem};
+use ori_diagnostic::Suggestion;
+
+use super::{ContextKind, ExpectedOrigin, TypeProblem};
 use crate::Idx;
 
 /// A type checking error with full context.
@@ -64,7 +66,7 @@ impl TypeCheckError {
     /// Create an unknown identifier error.
     pub fn unknown_ident(span: Span, name: Name, similar: Vec<Name>) -> Self {
         let suggestions = if similar.is_empty() {
-            vec![Suggestion::new(
+            vec![Suggestion::text(
                 format!("check spelling or add a definition for `{name:?}`"),
                 1,
             )]
@@ -86,13 +88,13 @@ impl TypeCheckError {
     /// Create an undefined field error.
     pub fn undefined_field(span: Span, ty: Idx, field: Name, available: Vec<Name>) -> Self {
         let suggestions = if available.is_empty() {
-            vec![Suggestion::new("this type has no fields", 1)]
+            vec![Suggestion::text("this type has no fields", 1)]
         } else {
             // Try to find a similar field name
             let mut suggestions = Vec::new();
             for &avail in &available {
                 // In real implementation, we'd use edit_distance here
-                suggestions.push(Suggestion::new(format!("available field: `{avail:?}`"), 2));
+                suggestions.push(Suggestion::text(format!("available field: `{avail:?}`"), 2));
             }
             if suggestions.len() > 5 {
                 suggestions.truncate(5);
@@ -122,14 +124,14 @@ impl TypeCheckError {
         let suggestions = if found > expected {
             let diff = found - expected;
             let s = if diff == 1 { "" } else { "s" };
-            vec![Suggestion::new(
+            vec![Suggestion::text(
                 format!("remove {diff} extra argument{s}"),
                 0,
             )]
         } else {
             let diff = expected - found;
             let s = if diff == 1 { "" } else { "s" };
-            vec![Suggestion::new(
+            vec![Suggestion::text(
                 format!("add {diff} missing argument{s}"),
                 0,
             )]
@@ -158,14 +160,14 @@ impl TypeCheckError {
         let suggestions = if found > expected {
             let diff = found - expected;
             let s = if diff == 1 { "" } else { "s" };
-            vec![Suggestion::new(
+            vec![Suggestion::text(
                 format!("remove {diff} extra argument{s}"),
                 0,
             )]
         } else {
             let diff = expected - found;
             let s = if diff == 1 { "" } else { "s" };
-            vec![Suggestion::new(
+            vec![Suggestion::text(
                 format!("add {diff} missing argument{s}"),
                 0,
             )]
@@ -193,7 +195,7 @@ impl TypeCheckError {
                 available: available.to_vec(),
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(
+            suggestions: vec![Suggestion::text(
                 format!("add `uses {required:?}` to the function signature"),
                 0,
             )],
@@ -207,8 +209,8 @@ impl TypeCheckError {
             kind: TypeErrorKind::InfiniteType { var_name },
             context: ErrorContext::default(),
             suggestions: vec![
-                Suggestion::new("this creates a self-referential type", 1),
-                Suggestion::new(
+                Suggestion::text("this creates a self-referential type", 1),
+                Suggestion::text(
                     "use a newtype wrapper to break the cycle: `type Wrapper = { inner: T }`",
                     2,
                 ),
@@ -225,7 +227,7 @@ impl TypeCheckError {
                 context: context_desc,
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(
+            suggestions: vec![Suggestion::text(
                 "add a type annotation to clarify the expected type",
                 0,
             )],
@@ -410,7 +412,7 @@ impl TypeCheckError {
                 similar: vec![],
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(
+            suggestions: vec![Suggestion::text(
                 "`self` can only be used inside impl blocks",
                 0,
             )],
@@ -426,7 +428,7 @@ impl TypeCheckError {
                 similar: vec![],
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(
+            suggestions: vec![Suggestion::text(
                 format!("constant `${name:?}` is not defined in this scope"),
                 0,
             )],
@@ -445,7 +447,7 @@ impl TypeCheckError {
                 message: msg.clone(),
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(format!("check the import path: {msg}"), 0)],
+            suggestions: vec![Suggestion::text(format!("check the import path: {msg}"), 0)],
         }
     }
 
@@ -460,7 +462,7 @@ impl TypeCheckError {
                 trait_name,
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(
+            suggestions: vec![Suggestion::text(
                 "add `type <Name> = <Type>` to the impl block",
                 0,
             )],
@@ -478,7 +480,7 @@ impl TypeCheckError {
                 message: msg.clone(),
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(msg, 1)],
+            suggestions: vec![Suggestion::text(msg, 1)],
         }
     }
 
@@ -488,7 +490,7 @@ impl TypeCheckError {
             span,
             kind: TypeErrorKind::NotAStruct { name },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(
+            suggestions: vec![Suggestion::text(
                 "only struct types can be constructed with `Name { field: value }` syntax",
                 0,
             )],
@@ -506,7 +508,7 @@ impl TypeCheckError {
                 fields,
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(
+            suggestions: vec![Suggestion::text(
                 format!("add the missing field{s} to the struct literal"),
                 0,
             )],
@@ -519,7 +521,7 @@ impl TypeCheckError {
             span,
             kind: TypeErrorKind::DuplicateField { struct_name, field },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new("remove the duplicate field", 0)],
+            suggestions: vec![Suggestion::text("remove the duplicate field", 0)],
         }
     }
 
@@ -533,7 +535,7 @@ impl TypeCheckError {
                 problems: vec![TypeProblem::NotCallable { actual_type }],
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new("only functions can be called", 0)],
+            suggestions: vec![Suggestion::text("only functions can be called", 0)],
         }
     }
 
@@ -596,7 +598,7 @@ impl TypeCheckError {
                 problems: vec![TypeProblem::ClosureSelfCapture],
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(
+            suggestions: vec![Suggestion::text(
                 "use recursion through named functions instead",
                 0,
             )],
@@ -613,7 +615,7 @@ impl TypeCheckError {
                 problems: vec![],
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(
+            suggestions: vec![Suggestion::text(
                 "right side of pipe (|>) must be a function that takes one argument",
                 0,
             )],
@@ -630,7 +632,7 @@ impl TypeCheckError {
                 problems: vec![TypeProblem::ExpectedOption],
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new("left side of ?? must be an Option", 0)],
+            suggestions: vec![Suggestion::text("left side of ?? must be an Option", 0)],
         }
     }
 
@@ -646,7 +648,7 @@ impl TypeCheckError {
                 }],
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::new(
+            suggestions: vec![Suggestion::text(
                 "the ? operator can only be used on Option or Result types",
                 0,
             )],

@@ -76,18 +76,28 @@ impl Substitution {
 
 /// A structured suggestion with substitutions and applicability.
 ///
-/// Unlike simple string suggestions, this provides:
-/// - Exact spans for what to replace
-/// - Replacement text
-/// - Confidence level for auto-application
+/// Supports two forms:
+/// - **Text-only**: A human-readable message with no code substitutions.
+///   Created via `text()`, `did_you_mean()`, `use_function()`, `wrap_in()`.
+/// - **Span-bearing**: A message with exact code substitutions for `ori fix`.
+///   Created via `new()`, `machine_applicable()`, `maybe_incorrect()`, etc.
+///
+/// Suggestions have a `priority` field (lower = more likely relevant) used
+/// for ordering when multiple suggestions are presented.
+///
+/// # Salsa Compatibility
+/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Suggestion {
     /// Human-readable message describing the fix.
     pub message: String,
-    /// The text substitutions to make.
+    /// The text substitutions to make (empty for text-only suggestions).
     pub substitutions: Vec<Substitution>,
     /// How confident we are in this suggestion.
     pub applicability: Applicability,
+    /// Priority (lower = more likely to be relevant).
+    /// 0 = most likely, 1 = likely, 2 = possible, 3 = unlikely.
+    pub priority: u8,
 }
 
 impl Suggestion {
@@ -97,12 +107,54 @@ impl Suggestion {
         span: Span,
         snippet: impl Into<String>,
         applicability: Applicability,
+        priority: u8,
     ) -> Self {
         Suggestion {
             message: message.into(),
             substitutions: vec![Substitution::new(span, snippet)],
             applicability,
+            priority,
         }
+    }
+
+    /// Create a text-only suggestion (no code substitution).
+    pub fn text(message: impl Into<String>, priority: u8) -> Self {
+        Suggestion {
+            message: message.into(),
+            substitutions: Vec::new(),
+            applicability: Applicability::Unspecified,
+            priority,
+        }
+    }
+
+    /// Create a text-only suggestion with a single code replacement.
+    pub fn text_with_replacement(
+        message: impl Into<String>,
+        priority: u8,
+        span: Span,
+        new_text: impl Into<String>,
+    ) -> Self {
+        Suggestion {
+            message: message.into(),
+            substitutions: vec![Substitution::new(span, new_text)],
+            applicability: Applicability::MaybeIncorrect,
+            priority,
+        }
+    }
+
+    /// Create a "did you mean" suggestion (priority 0).
+    pub fn did_you_mean(suggestion: impl Into<String>) -> Self {
+        Self::text(format!("did you mean `{}`?", suggestion.into()), 0)
+    }
+
+    /// Create a suggestion to use a specific function/method (priority 1).
+    pub fn use_function(func_name: &str, description: &str) -> Self {
+        Self::text(format!("use `{func_name}` {description}"), 1)
+    }
+
+    /// Create a suggestion to wrap in something (priority 1).
+    pub fn wrap_in(wrapper: &str, example: &str) -> Self {
+        Self::text(format!("wrap the value in `{wrapper}`: `{example}`"), 1)
     }
 
     /// Create a machine-applicable suggestion (safe to auto-apply).
@@ -111,7 +163,7 @@ impl Suggestion {
         span: Span,
         snippet: impl Into<String>,
     ) -> Self {
-        Self::new(message, span, snippet, Applicability::MachineApplicable)
+        Self::new(message, span, snippet, Applicability::MachineApplicable, 0)
     }
 
     /// Create a suggestion that might be incorrect.
@@ -120,7 +172,7 @@ impl Suggestion {
         span: Span,
         snippet: impl Into<String>,
     ) -> Self {
-        Self::new(message, span, snippet, Applicability::MaybeIncorrect)
+        Self::new(message, span, snippet, Applicability::MaybeIncorrect, 0)
     }
 
     /// Create a suggestion with placeholders.
@@ -129,7 +181,7 @@ impl Suggestion {
         span: Span,
         snippet: impl Into<String>,
     ) -> Self {
-        Self::new(message, span, snippet, Applicability::HasPlaceholders)
+        Self::new(message, span, snippet, Applicability::HasPlaceholders, 0)
     }
 
     /// Add another substitution to this suggestion.
@@ -137,6 +189,11 @@ impl Suggestion {
     pub fn with_substitution(mut self, span: Span, snippet: impl Into<String>) -> Self {
         self.substitutions.push(Substitution::new(span, snippet));
         self
+    }
+
+    /// Check if this is a text-only suggestion (no code substitutions).
+    pub fn is_text_only(&self) -> bool {
+        self.substitutions.is_empty()
     }
 }
 

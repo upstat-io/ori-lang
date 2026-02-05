@@ -775,7 +775,7 @@ impl<'old> AstCopier<'old> {
                 mutable,
             } => StmtKind::Let {
                 pattern: self.copy_binding_pattern(pattern),
-                ty: *ty, // Option<TypeId> is Copy, no adjustment needed
+                ty: ty.as_ref().map(|t| self.copy_parsed_type(t, new_arena)),
                 init: self.copy_expr(*init, new_arena),
                 mutable: *mutable,
             },

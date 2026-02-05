@@ -95,6 +95,28 @@ impl LineOffsetTable {
         self.offsets.get((line - 1) as usize).copied()
     }
 
+    /// Get the byte offset of a line's end (exclusive, before `\n`).
+    ///
+    /// Takes a 1-based line number. Returns the byte offset just past the
+    /// last character of the line (excluding the trailing newline).
+    pub fn line_end_offset(&self, source: &str, line: u32) -> Option<u32> {
+        // Verify line exists
+        self.line_start_offset(line)?;
+        // End is either next line's start - 1 (the \n), or source end
+        let end = self
+            .line_start_offset(line + 1)
+            .map_or(source.len(), |o| (o as usize).saturating_sub(1));
+        #[allow(clippy::cast_possible_truncation)] // Source files are limited to u32::MAX bytes
+        Some(end as u32)
+    }
+
+    /// Extract the text of a 1-based line number (without trailing newline).
+    pub fn line_text<'a>(&self, source: &'a str, line: u32) -> Option<&'a str> {
+        let start = self.line_start_offset(line)? as usize;
+        let end = self.line_end_offset(source, line)? as usize;
+        Some(&source[start..end])
+    }
+
     /// Get the number of lines in the source.
     pub fn line_count(&self) -> usize {
         self.offsets.len()
@@ -322,5 +344,88 @@ mod tests {
     fn test_line_offset_table_line_start_offset_zero() {
         let table = LineOffsetTable::build("test");
         assert_eq!(table.line_start_offset(0), None); // Line 0 doesn't exist
+    }
+
+    // --- line_end_offset / line_text tests ---
+
+    #[test]
+    fn test_line_end_offset_single_line() {
+        let source = "hello world";
+        let table = LineOffsetTable::build(source);
+        assert_eq!(table.line_end_offset(source, 1), Some(11));
+        assert_eq!(table.line_end_offset(source, 2), None);
+    }
+
+    #[test]
+    fn test_line_end_offset_multiple_lines() {
+        let source = "line1\nline2\nline3";
+        let table = LineOffsetTable::build(source);
+        assert_eq!(table.line_end_offset(source, 1), Some(5)); // before \n
+        assert_eq!(table.line_end_offset(source, 2), Some(11)); // before \n
+        assert_eq!(table.line_end_offset(source, 3), Some(17)); // end of source
+    }
+
+    #[test]
+    fn test_line_end_offset_trailing_newline() {
+        let source = "line1\nline2\n";
+        let table = LineOffsetTable::build(source);
+        assert_eq!(table.line_end_offset(source, 1), Some(5));
+        assert_eq!(table.line_end_offset(source, 2), Some(11));
+        assert_eq!(table.line_end_offset(source, 3), Some(12)); // empty line at end
+    }
+
+    #[test]
+    fn test_line_end_offset_empty_source() {
+        let source = "";
+        let table = LineOffsetTable::build(source);
+        assert_eq!(table.line_end_offset(source, 1), Some(0));
+    }
+
+    #[test]
+    fn test_line_end_offset_zero_line() {
+        let source = "test";
+        let table = LineOffsetTable::build(source);
+        assert_eq!(table.line_end_offset(source, 0), None);
+    }
+
+    #[test]
+    fn test_line_text_single_line() {
+        let source = "hello world";
+        let table = LineOffsetTable::build(source);
+        assert_eq!(table.line_text(source, 1), Some("hello world"));
+    }
+
+    #[test]
+    fn test_line_text_multiple_lines() {
+        let source = "first\nsecond\nthird";
+        let table = LineOffsetTable::build(source);
+        assert_eq!(table.line_text(source, 1), Some("first"));
+        assert_eq!(table.line_text(source, 2), Some("second"));
+        assert_eq!(table.line_text(source, 3), Some("third"));
+    }
+
+    #[test]
+    fn test_line_text_empty_line() {
+        let source = "before\n\nafter";
+        let table = LineOffsetTable::build(source);
+        assert_eq!(table.line_text(source, 1), Some("before"));
+        assert_eq!(table.line_text(source, 2), Some(""));
+        assert_eq!(table.line_text(source, 3), Some("after"));
+    }
+
+    #[test]
+    fn test_line_text_out_of_range() {
+        let source = "hello";
+        let table = LineOffsetTable::build(source);
+        assert_eq!(table.line_text(source, 0), None);
+        assert_eq!(table.line_text(source, 2), None);
+    }
+
+    #[test]
+    fn test_line_text_unicode() {
+        let source = "αβγ\nδε";
+        let table = LineOffsetTable::build(source);
+        assert_eq!(table.line_text(source, 1), Some("αβγ"));
+        assert_eq!(table.line_text(source, 2), Some("δε"));
     }
 }

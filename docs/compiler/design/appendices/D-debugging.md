@@ -7,218 +7,113 @@ section: "Appendices"
 
 # Appendix D: Debugging
 
-Debug flags and techniques for the Ori compiler.
+Structured tracing and debugging techniques for the Ori compiler.
 
-## Debug Flags
+## Tracing Infrastructure
 
-The `debug.rs` module provides debug flags:
+The Ori compiler uses the `tracing` crate for structured, hierarchical logging.
+All output goes to stderr, so it never interferes with program output.
 
-```rust
-pub struct DebugFlags(u32);
+Setup: `compiler/oric/src/tracing_setup.rs`, initialized in `main()`.
 
-impl DebugFlags {
-    pub const TOKENS: Self = Self(0b0000_0001);
-    pub const AST: Self = Self(0b0000_0010);
-    pub const TYPES: Self = Self(0b0000_0100);
-    pub const EVAL: Self = Self(0b0000_1000);
-    pub const IMPORTS: Self = Self(0b0001_0000);
-    pub const PATTERNS: Self = Self(0b0010_0000);
-    pub const SALSA: Self = Self(0b0100_0000);
-    pub const ALL: Self = Self(0b0111_1111);
-}
-```
+## Environment Variables
 
-## Environment Variable
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `ORI_LOG` | Filter string (`RUST_LOG` syntax) | `ORI_LOG=debug` |
+| `ORI_LOG_TREE` | Enable hierarchical tree output | `ORI_LOG_TREE=1` |
+| `RUST_LOG` | Fallback if `ORI_LOG` not set | `RUST_LOG=debug` |
 
-Enable debugging via `ORI_DEBUG`:
+When neither `ORI_LOG` nor `RUST_LOG` is set, only warnings and above are shown.
+This ensures zero noise in normal usage.
 
-```bash
-# Enable all debug output
-ORI_DEBUG=all ori run file.ori
+## Filter Syntax
 
-# Enable specific flags
-ORI_DEBUG=tokens,ast ori run file.ori
-
-# Enable single flag
-ORI_DEBUG=types ori run file.ori
-```
-
-## Debug Macros
-
-```rust
-// In compiler code
-debug_tokens!("Tokenized: {:?}", tokens);
-debug_ast!("Parsed: {:?}", module);
-debug_types!("Inferred type: {:?}", ty);
-debug_eval!("Evaluating: {:?}", expr);
-```
-
-## Token Debugging
+Filters use `EnvFilter` syntax (same as `RUST_LOG`):
 
 ```bash
-ORI_DEBUG=tokens ori run file.ori
+# All crates at debug level
+ORI_LOG=debug ori check file.ori
+
+# Specific crate at trace level
+ORI_LOG=ori_types=trace ori check file.ori
+
+# Multiple crates at different levels
+ORI_LOG=ori_types=debug,oric::query=trace ori check file.ori
+
+# Everything at trace with hierarchical tree output
+ORI_LOG=trace ORI_LOG_TREE=1 ori check file.ori
 ```
 
-Output:
-```
-[TOKENS] let x = 42
-  Token { kind: Let, span: 0..3 }
-  Token { kind: Ident("x"), span: 4..5 }
-  Token { kind: Eq, span: 6..7 }
-  Token { kind: Int(42), span: 8..10 }
-```
+## Tracing Levels
 
-## AST Debugging
+| Level | Use Case | Example |
+|-------|----------|---------|
+| `error` | Should never happen; internal invariant violations | — |
+| `warn` | Recoverable issues worth investigating | — |
+| `debug` | Phase boundaries, query execution, Salsa events | Type check passes, signature collection |
+| `trace` | Per-expression inference, hot-path evaluation | `infer_expr`, `eval`, method dispatch |
+
+## Common Debug Scenarios
+
+### "Why is this type wrong?"
 
 ```bash
-ORI_DEBUG=ast ori run file.ori
+ORI_LOG=ori_types=debug ori check file.ori
 ```
 
-Output:
-```
-[AST] Module {
-  functions: [
-    Function {
-      name: "main",
-      params: [],
-      body: ExprId(0),
-    }
-  ]
-}
-
-[AST] ExprArena:
-  [0] Let { name: "x", value: ExprId(1), body: ExprId(2) }
-  [1] Literal(Int(42))
-  [2] Ident("x")
-```
-
-## Type Debugging
+Shows type checker passes, signature collection, and body checking.
+For per-expression detail:
 
 ```bash
-ORI_DEBUG=types ori run file.ori
+ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check file.ori
 ```
 
-Output:
-```
-[TYPES] Inferring: let x = 42
-  x : T0 (fresh)
-  42 : Int
-  Unify(T0, Int) -> Ok
-  x : Int
-
-[TYPES] Expression types:
-  ExprId(0): Int
-  ExprId(1): Int
-  ExprId(2): Int
-```
-
-## Evaluation Debugging
+### "Why is Salsa recomputing?"
 
 ```bash
-ORI_DEBUG=eval ori run file.ori
+ORI_LOG=oric::db=debug ori run file.ori
 ```
 
-Output:
-```
-[EVAL] Evaluating ExprId(0): Let
-  Evaluating value ExprId(1): Literal
-    -> Value::Int(42)
-  Binding x = Int(42)
-  Evaluating body ExprId(2): Ident
-    Lookup x -> Int(42)
-    -> Value::Int(42)
-  -> Value::Int(42)
-```
+Shows Salsa `WillExecute` events (cache misses). At trace level, also shows cache hits.
 
-## Salsa Debugging
+### "What's the query pipeline doing?"
 
 ```bash
-ORI_DEBUG=salsa ori run file.ori
+ORI_LOG=oric::query=debug ori run file.ori
 ```
 
-Output:
-```
-[SALSA] will_execute: tokens(SourceFile(0))
-[SALSA] did_execute: tokens(SourceFile(0)) in 1.2ms
-[SALSA] will_execute: parsed(SourceFile(0))
-[SALSA] did_execute: parsed(SourceFile(0)) in 3.4ms
-[SALSA] will_execute: typed(SourceFile(0))
-[SALSA] did_execute: typed(SourceFile(0)) in 2.1ms
-```
+Shows when each Salsa query (tokens, parsed, typed, evaluated) executes.
 
-## Import Debugging
+### "What's happening during evaluation?"
 
 ```bash
-ORI_DEBUG=imports ori run file.ori
+ORI_LOG=ori_eval=debug ori run file.ori
 ```
 
-Output:
-```
-[IMPORTS] Resolving: './math'
-  Base: /home/user/project/src/main.ori
-  Resolved: /home/user/project/src/math.ori
-  Cache: miss
-  Loading...
+Shows function calls and method dispatch at debug level.
+Use `trace` for per-expression evaluation.
 
-[IMPORTS] Module './math' exports:
-  add: (int, int) -> int
-  subtract: (int, int) -> int
-```
+## Hierarchical Tree Output
 
-## Pattern Debugging
+Set `ORI_LOG_TREE=1` to get indented, hierarchical output that shows the
+call tree of instrumented spans:
 
 ```bash
-ORI_DEBUG=patterns ori run file.ori
+ORI_LOG=ori_types=debug ORI_LOG_TREE=1 ori check file.ori
 ```
 
-Output:
-```
-[PATTERNS] Evaluating: map
-  over: [1, 2, 3]
-  transform: <function>
+## Instrumentation Guide
 
-[PATTERNS] map iteration:
-  [0] transform(1) -> 2
-  [1] transform(2) -> 4
-  [2] transform(3) -> 6
+When adding tracing to new compiler code:
 
-[PATTERNS] Result: [2, 4, 6]
-```
+- **Public API entry points**: `#[tracing::instrument(level = "debug", skip_all)]`
+- **Per-expression functions**: `#[tracing::instrument(level = "trace", skip(engine, arena))]`
+- **Salsa tracked functions**: Manual `tracing::debug!()` events (not `#[instrument]`)
+- **Error accumulation**: `tracing::debug!(kind = ?error.kind, "type error recorded")`
+- **Phase completion**: `tracing::debug!("phase X complete")`
 
-## Programmatic Debugging
-
-```rust
-// Enable in code
-debug::set_flags(DebugFlags::TYPES | DebugFlags::EVAL);
-
-// Check if enabled
-if debug::is_enabled(DebugFlags::TOKENS) {
-    eprintln!("Tokens: {:?}", tokens);
-}
-```
-
-## IDE Integration
-
-For VS Code debugging, launchjson:
-
-```json
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Debug Compiler",
-      "type": "lldb",
-      "request": "launch",
-      "program": "${workspaceFolder}/target/debug/oric",
-      "args": ["run", "${file}"],
-      "env": {
-        "ORI_DEBUG": "all",
-        "RUST_BACKTRACE": "1"
-      }
-    }
-  ]
-}
-```
+Always `skip` large or non-Debug arguments (arenas, engines, pools).
 
 ## Panic Debugging
 
@@ -229,21 +124,37 @@ RUST_BACKTRACE=1 ori run file.ori
 RUST_BACKTRACE=full ori run file.ori
 ```
 
-## Memory Debugging
-
-Using valgrind:
-
-```bash
-valgrind --leak-check=full target/debug/oric run file.ori
-```
-
 ## Performance Profiling
 
 Using perf:
 
 ```bash
-perf record target/release/oric run large_file.ori
+perf record target/release/ori run large_file.ori
 perf report
+```
+
+## IDE Integration
+
+For VS Code debugging, launch.json:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Compiler",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/ori",
+      "args": ["run", "${file}"],
+      "env": {
+        "ORI_LOG": "debug",
+        "ORI_LOG_TREE": "1",
+        "RUST_BACKTRACE": "1"
+      }
+    }
+  ]
+}
 ```
 
 ## Test Debugging
@@ -251,40 +162,5 @@ perf report
 Debug specific test:
 
 ```bash
-ORI_DEBUG=all cargo test test_type_inference -- --nocapture
+ORI_LOG=debug cargo test test_type_inference -- --nocapture
 ```
-
-## Common Debug Scenarios
-
-### "Why is this type wrong?"
-
-```bash
-ORI_DEBUG=types ori check file.ori
-```
-
-Look for:
-- Constraint generation
-- Unification steps
-- Final substitution
-
-### "Why isn't this imported?"
-
-```bash
-ORI_DEBUG=imports ori run file.ori
-```
-
-Look for:
-- Path resolution
-- Export list
-- Cache hits/misses
-
-### "Why is Salsa recomputing?"
-
-```bash
-ORI_DEBUG=salsa ori run file.ori
-```
-
-Look for:
-- Which queries run
-- Early cutoff misses
-- Dependency changes

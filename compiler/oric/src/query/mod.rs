@@ -48,6 +48,7 @@ pub fn parsed_path(db: &dyn Db, path: &Path) -> Option<ParseOutput> {
 /// identical (same hash), downstream queries won't recompute.
 #[salsa::tracked]
 pub fn tokens(db: &dyn Db, file: SourceFile) -> TokenList {
+    tracing::debug!(path = %file.path(db).display(), "lexing");
     let text = file.text(db);
     ori_lexer::lex(text, db.interner())
 }
@@ -65,6 +66,7 @@ pub fn tokens(db: &dyn Db, file: SourceFile) -> TokenList {
 /// resulting tokens are identical, this query returns cached result.
 #[salsa::tracked]
 pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseOutput {
+    tracing::debug!(path = %file.path(db).display(), "parsing");
     let toks = tokens(db, file);
     parser::parse(&toks, db.interner())
 }
@@ -93,6 +95,7 @@ pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseOutput {
 /// the `TypeCheckResult` is cached by Salsa.
 #[salsa::tracked]
 pub fn typed(db: &dyn Db, file: SourceFile) -> TypeCheckResult {
+    tracing::debug!(path = %file.path(db).display(), "type checking");
     let parse_result = parsed(db, file);
     let file_path = file.path(db);
     typeck::type_check_with_imports(db, &parse_result, file_path)
@@ -133,6 +136,7 @@ pub fn typed(db: &dyn Db, file: SourceFile) -> TypeCheckResult {
 /// re-evaluation. For fresh evaluation, create a new `SourceFile` input.
 #[salsa::tracked]
 pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
+    tracing::debug!(path = %file.path(db).display(), "evaluating");
     let parse_result = parsed(db, file);
 
     // Check for parse errors

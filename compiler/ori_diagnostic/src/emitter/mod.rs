@@ -14,7 +14,7 @@ mod terminal;
 
 pub use json::JsonEmitter;
 pub use sarif::SarifEmitter;
-pub use terminal::TerminalEmitter;
+pub use terminal::{ColorMode, TerminalEmitter};
 
 use std::fmt::Write;
 

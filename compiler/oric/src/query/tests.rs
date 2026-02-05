@@ -921,6 +921,63 @@ fn test_typed_field_in_arithmetic() {
 }
 
 #[test]
+fn test_typed_whitespace_invariance() {
+    // Different horizontal whitespace should produce identical TypeCheckResult.
+    // The type checker output depends on semantic content (tokens), not formatting.
+    let compact = "@add (x: int, y: int) -> int = x + y";
+    let spaced = "@add  ( x : int ,  y : int )  ->  int  =  x  +  y";
+    let tabbed = "@add\t(x:\tint,\ty:\tint)\t->\tint\t=\tx\t+\ty";
+
+    let db1 = CompilerDb::new();
+    let file1 = SourceFile::new(&db1, PathBuf::from("/test.ori"), compact.to_string());
+    let result_compact = typed(&db1, file1);
+
+    let db2 = CompilerDb::new();
+    let file2 = SourceFile::new(&db2, PathBuf::from("/test.ori"), spaced.to_string());
+    let result_spaced = typed(&db2, file2);
+
+    let db3 = CompilerDb::new();
+    let file3 = SourceFile::new(&db3, PathBuf::from("/test.ori"), tabbed.to_string());
+    let result_tabbed = typed(&db3, file3);
+
+    // All three should type check without errors
+    assert!(!result_compact.has_errors(), "compact should succeed");
+    assert!(!result_spaced.has_errors(), "spaced should succeed");
+    assert!(!result_tabbed.has_errors(), "tabbed should succeed");
+
+    // All three should produce the same function signature
+    assert_eq!(result_compact.typed.functions.len(), 1);
+    assert_eq!(result_spaced.typed.functions.len(), 1);
+    assert_eq!(result_tabbed.typed.functions.len(), 1);
+
+    let sig_compact = &result_compact.typed.functions[0];
+    let sig_spaced = &result_spaced.typed.functions[0];
+    let sig_tabbed = &result_tabbed.typed.functions[0];
+
+    // Same function name
+    assert_eq!(sig_compact.name, sig_spaced.name);
+    assert_eq!(sig_compact.name, sig_tabbed.name);
+
+    // Same parameter types
+    assert_eq!(sig_compact.param_types, sig_spaced.param_types);
+    assert_eq!(sig_compact.param_types, sig_tabbed.param_types);
+
+    // Same return type
+    assert_eq!(sig_compact.return_type, sig_spaced.return_type);
+    assert_eq!(sig_compact.return_type, sig_tabbed.return_type);
+
+    // Same error state (no errors)
+    assert_eq!(
+        result_compact.typed.errors.len(),
+        result_spaced.typed.errors.len()
+    );
+    assert_eq!(
+        result_compact.typed.errors.len(),
+        result_tabbed.typed.errors.len()
+    );
+}
+
+#[test]
 fn test_typed_result_coalesce() {
     let db = CompilerDb::new();
 

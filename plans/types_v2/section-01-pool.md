@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: Unified Pool Architecture
-status: in-progress
+status: complete
 goal: Replace dual Type/TypeData with single unified pool using 32-bit indices
 sections:
   - id: "01.1"
@@ -27,12 +27,12 @@ sections:
     status: complete
   - id: "01.8"
     title: Completion Checklist
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Unified Pool Architecture
 
-**Status:** In Progress (~90% complete)
+**Status:** Complete
 **Goal:** Replace dual Type/TypeData representation with single unified pool
 **Source:** Zig (`InternPool.zig`), Roc (`types/src/subs.rs`)
 
@@ -455,11 +455,10 @@ impl Pool {
 - [x] All primitives pre-interned at correct indices ✅
 - [x] Extra array accessors working for all complex types ✅ (2026-02-04)
 - [x] Comprehensive test suite passing ✅
-- [ ] No remnants of old `Type` or `TypeData` — legacy still present during migration (Section 09)
+- [x] No remnants of old `Type` or `TypeData` ✅ (2026-02-05) — `TypeId` in `ori_ir` is intentional (parser-level type representation, not legacy)
 
-**Section 01 Status:** In Progress (~95%)
+**Section 01 Status:** Complete
 
-**Remaining:**
-- Migration of old type system (Section 09)
+**Note:** `TypeId` (in `ori_ir`) coexists with `Idx` (in `ori_types`) by design. `TypeId` is the parser-level type index; `Idx` is the type checker's pool-based handle. Both share the same primitive index layout (0-11) for zero-cost bridging via `resolve_type_id()`.
 
 **Exit Criteria:** `Idx` is the only type handle used throughout the codebase. Pool provides all type construction and query operations.

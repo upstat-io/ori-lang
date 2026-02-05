@@ -12,6 +12,8 @@
 use std::path::Path;
 
 #[cfg(feature = "llvm")]
+use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
+#[cfg(feature = "llvm")]
 use ori_ir::ast::TypeDeclKind;
 #[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
@@ -50,12 +52,17 @@ pub fn check_source(
 ) -> Option<(ParseOutput, TypeCheckResult)> {
     let mut has_errors = false;
 
+    // Create emitter with source context for rich snippet rendering
+    let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
+    let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty)
+        .with_source(file.text(db).as_str())
+        .with_file_path(path);
+
     // Check for parse errors
     let parse_result = parsed(db, file);
     if parse_result.has_errors() {
-        eprintln!("error: parse errors in '{path}':");
         for error in &parse_result.errors {
-            eprintln!("  {}: {}", error.span, error.message);
+            emitter.emit(&error.to_diagnostic());
         }
         has_errors = true;
     }
@@ -64,14 +71,17 @@ pub fn check_source(
     // This helps users see all issues at once
     let type_result = typed(db, file);
     if type_result.has_errors() {
-        eprintln!("error: type errors in '{path}':");
         for error in type_result.errors() {
-            eprintln!("  {}: {}", error.span, error.message());
+            let diag = ori_diagnostic::Diagnostic::error(error.code())
+                .with_message(&error.message())
+                .with_label(error.span(), "here");
+            emitter.emit(&diag);
         }
         has_errors = true;
     }
 
     if has_errors {
+        emitter.flush();
         None
     } else {
         Some((parse_result, type_result))

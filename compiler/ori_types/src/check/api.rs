@@ -1,6 +1,29 @@
 //! Public API for module-level type checking.
 //!
 //! Provides the main entry points for checking modules.
+//!
+//! # Pool Lifecycle
+//!
+//! Each `check_module*` call creates a fresh [`Pool`] inside a [`ModuleChecker`].
+//! The Pool owns all type data for that module. After checking:
+//!
+//! - **`check_module()`**: Pool is discarded. Use when only the [`TypeCheckResult`]
+//!   is needed (e.g., Salsa `typed()` query).
+//! - **`check_module_with_pool()`** / **`check_module_with_imports()`**: Returns
+//!   `(TypeCheckResult, Pool)`. Use when the Pool is needed for:
+//!   - Error rendering (`Pool::format_type()` resolves `Idx` to type names)
+//!   - Code generation (LLVM codegen needs full type information)
+//!   - LSP features (hover, completion)
+//!
+//! The evaluator (`ori_eval`) only needs `&[Idx]` (expression types) for
+//! type-directed dispatch — it does NOT need the Pool at runtime.
+//!
+//! In the Salsa pipeline (`oric/src/query/mod.rs`):
+//! ```text
+//! typed()     → calls type_check_with_imports() → discards Pool
+//! evaluated() → calls type_check_with_imports_and_pool() → passes &[Idx] to evaluator
+//! ori check   → calls type_check_with_imports_and_pool() → uses Pool for error rendering
+//! ```
 
 use ori_ir::{ExprArena, Module, StringInterner};
 
@@ -34,6 +57,7 @@ use crate::{Pool, TraitRegistry, TypeCheckResult, TypeRegistry};
 /// // Access expression types
 /// let expr_ty = result.typed.expr_type(expr_index);
 /// ```
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn check_module(
     module: &Module,
     arena: &ExprArena,
@@ -59,6 +83,7 @@ pub fn check_module(
 ///     &module, &arena, &interner, types, traits
 /// );
 /// ```
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn check_module_with_registries(
     module: &Module,
     arena: &ExprArena,
@@ -75,6 +100,7 @@ pub fn check_module_with_registries(
 ///
 /// Use this when you need access to the pool for type resolution
 /// after checking (e.g., for code generation or LSP features).
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn check_module_with_pool(
     module: &Module,
     arena: &ExprArena,
@@ -108,6 +134,7 @@ pub fn check_module_with_pool(
 ///     },
 /// );
 /// ```
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn check_module_with_imports<F>(
     module: &Module,
     arena: &ExprArena,
@@ -131,6 +158,11 @@ where
 /// 3. Function body checking
 /// 4. Test body checking
 /// 5. Impl method body checking
+#[tracing::instrument(level = "debug", skip_all, fields(
+    functions = module.functions.len(),
+    tests = module.tests.len(),
+    impls = module.impls.len(),
+))]
 fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
     // Pass 0a: Register built-in types
     register_builtin_types(checker);
@@ -147,9 +179,11 @@ fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
 
     // Pass 0e: Register config variables
     register_consts(checker, module);
+    tracing::debug!("registration passes complete");
 
     // Pass 1: Collect function signatures
     collect_signatures(checker, module);
+    tracing::debug!("signature collection complete");
 
     // Pass 2: Check function bodies
     check_function_bodies(checker, module);
@@ -162,6 +196,7 @@ fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
 
     // Pass 5: Check def impl method bodies
     check_def_impl_bodies(checker, module);
+    tracing::debug!("body checking complete");
 }
 
 #[cfg(test)]

@@ -1,6 +1,9 @@
 //! The `check` command: type-check an Ori source file and verify test coverage.
 
-use oric::query::{parsed, typed};
+use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
+use oric::query::parsed;
+use oric::reporting::typeck::TypeErrorRenderer;
+use oric::typeck;
 use oric::{CompilerDb, Db, SourceFile};
 use std::path::PathBuf;
 
@@ -17,24 +20,35 @@ pub fn check_file(path: &str) {
 
     let mut has_errors = false;
 
+    // Create emitter once with source context for rich snippet rendering
+    let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
+    let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty)
+        .with_source(file.text(&db).as_str())
+        .with_file_path(path);
+
     // Check for parse errors
     let parse_result = parsed(&db, file);
     if parse_result.has_errors() {
-        eprintln!("Parse errors in '{path}':");
         for error in &parse_result.errors {
-            eprintln!("  {}: {}", error.span, error.message);
+            emitter.emit(&error.to_diagnostic());
         }
         has_errors = true;
     }
 
-    // Check for type errors even if there were parse errors
-    let type_result = typed(&db, file);
+    // Check for type errors using direct call to get Pool for rich rendering
+    let (type_result, pool) =
+        typeck::type_check_with_imports_and_pool(&db, &parse_result, file.path(&db));
     if type_result.has_errors() {
-        eprintln!("Type errors in '{path}':");
+        let renderer = TypeErrorRenderer::new(&pool, db.interner());
+
         for error in type_result.errors() {
-            eprintln!("  {}: {}", error.span, error.message());
+            emitter.emit(&renderer.render(error));
         }
         has_errors = true;
+    }
+
+    if has_errors {
+        emitter.flush();
     }
 
     // Check test coverage: every function (except @main) must have at least one test

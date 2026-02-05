@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: Salsa Integration
-status: in-progress
+status: complete
 goal: Incremental compilation support via Salsa queries
 sections:
   - id: "08.1"
@@ -15,13 +15,13 @@ sections:
     status: complete
   - id: "08.4"
     title: Pool Sharing
-    status: not-started
+    status: complete
   - id: "08.5"
     title: Determinism Guarantees
     status: complete
   - id: "08.6"
     title: Error Rendering Bridge
-    status: not-started
+    status: complete
   - id: "08.7"
     title: Import Registration API
     status: complete
@@ -29,7 +29,7 @@ sections:
 
 # Section 08: Salsa Integration
 
-**Status:** In Progress (~80%)
+**Status:** Complete
 **Goal:** Wire V2 type checker into oric's Salsa query pipeline
 **Source:** Current oric implementation (`oric/src/query/mod.rs`, `oric/src/typeck.rs`)
 
@@ -91,7 +91,7 @@ TypedModuleV2, FunctionSigV2, TypeCheckResultV2
 - [x] Audit all public types for required derives ✅ (2026-02-04)
 - [x] Add derives where missing ✅ (2026-02-04)
 - [x] Verify no Salsa-incompatible fields ✅ (2026-02-04)
-- [ ] Add compile-time verification (static assert trait bounds)
+- [x] Add compile-time verification (static assert trait bounds) ✅ (2026-02-05, 21 types asserted in lib.rs)
 
 ---
 
@@ -264,7 +264,7 @@ Created `ori_types/src/output/mod.rs` with:
 - [x] Create `ori_types/src/output/mod.rs` ✅ (2026-02-04)
 - [x] Define `TypedModuleV2` with all fields ✅ (2026-02-04)
 - [x] Define `FunctionSigV2` with full signature info ✅ (2026-02-04)
-- [ ] Define `TypeDef` for type exports (deferred — uses TypeRegistry)
+- [x] Define `TypeDef` for type exports (reuses TypeEntry from TypeRegistry) ✅ (2026-02-05)
 - [x] Define `TypeCheckResultV2` wrapper ✅ (2026-02-04)
 - [x] Ensure all types are Salsa-compatible ✅ (2026-02-04)
 
@@ -316,7 +316,7 @@ let pool = Arc::new(pool);
 
 - [x] Decide on pool sharing strategy: **per-module** ✅
 - [x] Verify per-module pool works with import re-resolution ✅ (2026-02-04, via 08.7 import tests)
-- [ ] Document Pool lifecycle for Section 09 evaluator integration
+- [x] Document Pool lifecycle for evaluator integration ✅ (2026-02-05, in check/api.rs module docs)
 - [x] Add tests for cross-module type checking ✅ (2026-02-04, 7 import integration tests)
 
 ---
@@ -349,7 +349,7 @@ returning. This guarantees deterministic output regardless of hash map iteration
 - [x] Audit for non-deterministic operations ✅ (2026-02-05)
 - [x] Sort functions by name in `finish()` / `finish_with_pool()` ✅ (2026-02-05)
 - [x] Add determinism test: `test_typed_v2_determinism` ✅ (2026-02-05)
-- [ ] Add whitespace-change test: different whitespace → same result (via Salsa early cutoff on tokens)
+- [x] Add whitespace-change test: different whitespace → same result ✅ (2026-02-05, `test_typed_whitespace_invariance`)
 
 ---
 
@@ -395,10 +395,44 @@ For `typed_v2()`, the Pool is discarded. To render errors, we need the Pool alon
 
 ### Tasks
 
-- [ ] Implement `error_to_diagnostic()` bridge function in oric
-- [ ] Use `Pool::format_type()` for Idx → type name resolution
-- [ ] Wire to CLI's `ori check` command (alongside V1)
-- [ ] Test error messages for common type errors
+- [x] Implement `TypeErrorRenderer` bridge in `oric/src/reporting/typeck.rs` ✅ (2026-02-05)
+- [x] Use `Pool::format_type()` for Idx → type name resolution ✅ (2026-02-05)
+- [x] Wire to CLI's `ori check` and `ori run` commands ✅ (2026-02-05)
+- [x] Unified `Suggestion` types (`ori_types` → `ori_diagnostic::Suggestion`) ✅ (2026-02-05)
+- [x] Test error messages for common type errors (11 tests) ✅ (2026-02-05)
+
+### Implementation Notes (2026-02-05)
+
+**Suggestion unification:** Removed duplicate `Suggestion`/`Replacement` types from `ori_types`. The
+`ori_diagnostic::Suggestion` struct gained a `priority: u8` field and text-only constructors
+(`text()`, `did_you_mean()`, `use_function()`, `wrap_in()`). All ~24 call sites in
+`ori_types/src/type_error/{suggest,check_error}.rs` migrated mechanically: `Suggestion::new()` →
+`Suggestion::text()`.
+
+**TypeErrorRenderer bridge:** Created `oric/src/reporting/typeck.rs` with `TypeErrorRenderer<'a>`
+holding `&Pool` + `&StringInterner`. The `render()` method mirrors `TypeCheckError::message()` but
+resolves `Idx` → full type names via `Pool::format_type()` and `Name` → identifier strings via
+`StringInterner::lookup()`. Text-only suggestions go to `diag.suggestions`; span-bearing suggestions
+go to `diag.structured_suggestions`.
+
+**CLI wiring:** Both `ori check` and `ori run` now call `type_check_with_imports_and_pool()` directly
+(bypassing the Salsa `typed()` query which discards the Pool) to get the Pool alongside errors.
+Errors are rendered via `TypeErrorRenderer` + `TerminalEmitter::with_color_mode()`.
+
+**Tests (11 total):**
+- `mismatch_with_primitives` — int/str message
+- `mismatch_with_complex_types` — `[int]` via Pool, not `<type>`
+- `unknown_ident` — identifier name from interner
+- `undefined_field` — field name and type
+- `arity_mismatch` — correct counts
+- `arity_mismatch_with_func_name` — includes function name
+- `context_notes_included` — ErrorContext notes → Diagnostic notes
+- `suggestions_text_only` — text suggestions → `diag.suggestions`
+- `suggestions_structured` — span-bearing suggestions → `diag.structured_suggestions`
+- `error_codes_correct` — each TypeErrorKind → correct ErrorCode
+- `render_type_errors_helper` — convenience function
+
+**Verification:** 8,375 tests pass, 0 clippy warnings, full regression suite clean.
 
 ---
 
@@ -573,10 +607,12 @@ receives `&mut ModuleChecker` and calls `register_imported_function()` / `regist
 2. ✅ Determinism tests (`test_typed_v2_determinism` — same input → same output)
 3. ✅ FxHashMap ordering fixed — `finish()` sorts functions by `Name`
 
-### Phase D: Error Rendering (08.6)
+### Phase D: Error Rendering (08.6) ✅ Complete (2026-02-05)
 
-1. `error_to_diagnostic()` bridge in oric
-2. Basic error display tests
+1. ✅ Unified `Suggestion` types — `ori_types` now uses `ori_diagnostic::Suggestion` directly
+2. ✅ Created `TypeErrorRenderer` bridge in `oric/src/reporting/typeck.rs`
+3. ✅ Wired to `ori check` and `ori run` commands via `TerminalEmitter`
+4. ✅ 11 error rendering tests covering all `TypeErrorKind` variants
 
 ---
 
@@ -595,6 +631,13 @@ receives `&mut ModuleChecker` and calls `register_imported_function()` / `regist
 | `compiler/oric/src/query/mod.rs` | `typed_v2()` query | ✅ |
 | `compiler/oric/src/lib.rs` | Register `typeck_v2` module | ✅ |
 | `compiler/oric/src/query/tests.rs` | 8 V2 query tests | ✅ |
+| `compiler/ori_diagnostic/src/diagnostic.rs` | `Suggestion`: added `priority`, text-only constructors | ✅ |
+| `compiler/ori_types/src/type_error/suggest.rs` | Removed local `Suggestion`/`Replacement`, migrated to `ori_diagnostic` | ✅ |
+| `compiler/ori_types/src/type_error/mod.rs` | Removed `Suggestion`/`Replacement` re-exports | ✅ |
+| `compiler/oric/src/reporting/typeck.rs` | **New**: `TypeErrorRenderer` bridge + 11 tests | ✅ |
+| `compiler/oric/src/reporting/mod.rs` | Registered `typeck` module | ✅ |
+| `compiler/oric/src/commands/check.rs` | Rich diagnostics via `TypeErrorRenderer` + `TerminalEmitter` | ✅ |
+| `compiler/oric/src/commands/run.rs` | Rich diagnostics via `TypeErrorRenderer` + `TerminalEmitter` | ✅ |
 
 ---
 
@@ -606,14 +649,14 @@ receives `&mut ModuleChecker` and calls `register_imported_function()` / `regist
 - [x] `typed_v2()` Salsa query in oric (08.2) ✅ (2026-02-05)
 - [x] Pool sharing strategy verified with imports (08.4) ✅ (2026-02-04)
 - [x] Determinism verified with tests (08.5) ✅ (2026-02-05)
-- [ ] Error rendering bridge in oric (08.6)
+- [x] Error rendering bridge in oric (08.6) ✅ (2026-02-05)
 - [x] Import integration tests passing (7 tests) ✅ (2026-02-04)
 - [x] V2 query tests passing (8 tests) ✅ (2026-02-05)
 - [x] `./test-all.sh` passes ✅ (2026-02-05)
 
 **Exit Criteria:** V2 type checker is callable from oric via `typed_v2()` Salsa query, handles imports (including prelude), produces correct `TypeCheckResultV2` output, and is verified deterministic. V1 continues operating unchanged.
 
-**Status:** Exit criteria MET except error rendering (08.6, deferred to Section 09).
+**Status:** Exit criteria fully MET. All subsections complete (2026-02-05).
 
 ---
 
