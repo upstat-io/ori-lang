@@ -1170,12 +1170,27 @@ fn check_match_pattern(
             }
         }
 
-        // Struct pattern: check field types (needs registry - Section 07)
+        // Struct pattern: check field types against registry
         MatchPattern::Struct { fields } => {
-            // For now, bind field names to fresh variables
-            // Full implementation needs struct registry
+            let resolved = engine.resolve(expected_ty);
+            let field_type_map = match engine.pool().tag(resolved) {
+                Tag::Named => {
+                    let type_name = engine.pool().named_name(resolved);
+                    lookup_struct_field_types(engine, type_name, None)
+                }
+                Tag::Applied => {
+                    let type_name = engine.pool().applied_name(resolved);
+                    let type_args = engine.pool().applied_args(resolved);
+                    lookup_struct_field_types(engine, type_name, Some(&type_args))
+                }
+                _ => None,
+            };
+
             for (name, inner_pattern) in fields {
-                let field_ty = engine.fresh_var();
+                let field_ty = field_type_map
+                    .as_ref()
+                    .and_then(|m| m.get(name).copied())
+                    .unwrap_or_else(|| engine.fresh_var());
                 if let Some(inner_id) = inner_pattern {
                     let inner = arena.get_match_pattern(*inner_id);
                     check_match_pattern(engine, arena, inner, field_ty);
@@ -1673,13 +1688,74 @@ fn infer_list(
 }
 
 fn infer_list_spread(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _elements: ori_ir::ListElementRange,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    elements: ori_ir::ListElementRange,
     _span: Span,
 ) -> Idx {
-    // TODO: Implement list spread inference
-    Idx::ERROR
+    use ori_ir::ListElement;
+
+    let elems = arena.get_list_elements(elements);
+    if elems.is_empty() {
+        return engine.infer_empty_list();
+    }
+
+    // Unified element type — start with a fresh variable
+    let elem_ty = engine.fresh_var();
+
+    for element in elems {
+        match element {
+            ListElement::Expr {
+                expr,
+                span: el_span,
+            } => {
+                let ty = infer_expr(engine, arena, *expr);
+                if engine.unify_types(ty, elem_ty).is_err() {
+                    engine.push_error(TypeCheckError::mismatch(
+                        *el_span,
+                        elem_ty,
+                        ty,
+                        vec![],
+                        crate::ErrorContext::new(ContextKind::ListElement { index: 0 }),
+                    ));
+                }
+            }
+            ListElement::Spread {
+                expr,
+                span: sp_span,
+            } => {
+                let spread_ty = infer_expr(engine, arena, *expr);
+                let resolved = engine.resolve(spread_ty);
+                if engine.pool().tag(resolved) == Tag::List {
+                    let inner = engine.pool().list_elem(resolved);
+                    if engine.unify_types(inner, elem_ty).is_err() {
+                        engine.push_error(TypeCheckError::mismatch(
+                            *sp_span,
+                            elem_ty,
+                            inner,
+                            vec![],
+                            crate::ErrorContext::new(ContextKind::ListElement { index: 0 }),
+                        ));
+                    }
+                } else if resolved != Idx::ERROR {
+                    // Spread target must be a list
+                    let expected_list = engine.infer_list(elem_ty);
+                    engine.push_error(TypeCheckError::mismatch(
+                        *sp_span,
+                        expected_list,
+                        resolved,
+                        vec![],
+                        crate::ErrorContext::new(ContextKind::PatternMatch {
+                            pattern_kind: "list spread",
+                        }),
+                    ));
+                }
+            }
+        }
+    }
+
+    let resolved_elem = engine.resolve(elem_ty);
+    engine.infer_list(resolved_elem)
 }
 
 fn infer_tuple(
@@ -1727,13 +1803,61 @@ fn infer_map_literal(
 }
 
 fn infer_map_spread(
-    _engine: &mut InferEngine<'_>,
-    _arena: &ExprArena,
-    _elements: ori_ir::MapElementRange,
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    elements: ori_ir::MapElementRange,
     _span: Span,
 ) -> Idx {
-    // TODO: Implement map spread inference
-    Idx::ERROR
+    use ori_ir::MapElement;
+
+    let elems = arena.get_map_elements(elements);
+    if elems.is_empty() {
+        return engine.infer_empty_map();
+    }
+
+    // Unified key and value types — start with fresh variables
+    let key_ty = engine.fresh_var();
+    let val_ty = engine.fresh_var();
+
+    for element in elems {
+        match element {
+            MapElement::Entry(entry) => {
+                let k = infer_expr(engine, arena, entry.key);
+                let v = infer_expr(engine, arena, entry.value);
+                let _ = engine.unify_types(k, key_ty);
+                let _ = engine.unify_types(v, val_ty);
+            }
+            MapElement::Spread {
+                expr,
+                span: sp_span,
+            } => {
+                let spread_ty = infer_expr(engine, arena, *expr);
+                let resolved = engine.resolve(spread_ty);
+                if engine.pool().tag(resolved) == Tag::Map {
+                    let k = engine.pool().map_key(resolved);
+                    let v = engine.pool().map_value(resolved);
+                    let _ = engine.unify_types(k, key_ty);
+                    let _ = engine.unify_types(v, val_ty);
+                } else if resolved != Idx::ERROR {
+                    // Spread target must be a map
+                    let expected_map = engine.infer_map(key_ty, val_ty);
+                    engine.push_error(TypeCheckError::mismatch(
+                        *sp_span,
+                        expected_map,
+                        resolved,
+                        vec![],
+                        crate::ErrorContext::new(ContextKind::PatternMatch {
+                            pattern_kind: "map spread",
+                        }),
+                    ));
+                }
+            }
+        }
+    }
+
+    let resolved_key = engine.resolve(key_ty);
+    let resolved_val = engine.resolve(val_ty);
+    engine.infer_map(resolved_key, resolved_val)
 }
 
 fn infer_range(
@@ -3542,6 +3666,49 @@ fn infer_struct_field(
     field_def.ty
 }
 
+/// Look up all field types for a struct, with optional generic substitution.
+///
+/// Returns a `Name → Idx` map of field types if the type is a known struct
+/// in the registry. Returns `None` for unknown or non-struct types.
+fn lookup_struct_field_types(
+    engine: &mut InferEngine<'_>,
+    type_name: Name,
+    type_args: Option<&[Idx]>,
+) -> Option<FxHashMap<Name, Idx>> {
+    let type_registry = engine.type_registry()?;
+    let entry = type_registry.get_by_name(type_name)?.clone();
+
+    let TypeKind::Struct(struct_def) = &entry.kind else {
+        return None;
+    };
+
+    let subst: Option<FxHashMap<Name, Idx>> = type_args.and_then(|args| {
+        if !entry.type_params.is_empty() && args.len() == entry.type_params.len() {
+            Some(
+                entry
+                    .type_params
+                    .iter()
+                    .zip(args.iter())
+                    .map(|(&param, &arg)| (param, arg))
+                    .collect(),
+            )
+        } else {
+            None
+        }
+    });
+
+    let mut field_types = FxHashMap::default();
+    for field in &struct_def.fields {
+        let ty = if let Some(ref subst) = subst {
+            substitute_named_types(engine.pool_mut(), field.ty, subst)
+        } else {
+            field.ty
+        };
+        field_types.insert(field.name, ty);
+    }
+    Some(field_types)
+}
+
 /// Infer the type of an index access expression (e.g., `list[0]`, `map["key"]`).
 ///
 /// Validates that the receiver is indexable and the index type matches:
@@ -3908,7 +4075,7 @@ fn unwrap_result_or_option(engine: &mut InferEngine<'_>, ty: Idx) -> Idx {
 /// Bind a binding pattern to a type, introducing variables into scope.
 #[expect(
     clippy::only_used_in_recursion,
-    reason = "Arena will be used for struct field lookup in Section 07"
+    reason = "Arena is threaded through for recursive sub-pattern binding"
 )]
 fn bind_pattern(
     engine: &mut InferEngine<'_>,
@@ -3940,10 +4107,25 @@ fn bind_pattern(
         }
 
         BindingPattern::Struct { fields } => {
-            // TODO: Need registry to look up struct field types (Section 07)
-            // For now, bind each field to a fresh variable
+            let resolved = engine.resolve(ty);
+            let field_type_map = match engine.pool().tag(resolved) {
+                Tag::Named => {
+                    let type_name = engine.pool().named_name(resolved);
+                    lookup_struct_field_types(engine, type_name, None)
+                }
+                Tag::Applied => {
+                    let type_name = engine.pool().applied_name(resolved);
+                    let type_args = engine.pool().applied_args(resolved);
+                    lookup_struct_field_types(engine, type_name, Some(&type_args))
+                }
+                _ => None,
+            };
+
             for (name, sub_pattern) in fields {
-                let field_ty = engine.fresh_var();
+                let field_ty = field_type_map
+                    .as_ref()
+                    .and_then(|m| m.get(name).copied())
+                    .unwrap_or_else(|| engine.fresh_var());
                 if let Some(sub_pat) = sub_pattern {
                     bind_pattern(engine, arena, sub_pat, field_ty);
                 } else {
@@ -4400,18 +4582,25 @@ pub fn resolve_parsed_type(
         // === Inference Markers ===
         ParsedType::Infer => engine.fresh_var(),
 
-        ParsedType::SelfType => {
-            // TODO: Look up Self type from trait/impl context
-            // For now, create a fresh variable
-            engine.fresh_var()
-        }
+        ParsedType::SelfType => engine
+            .impl_self_type()
+            .unwrap_or_else(|| engine.fresh_var()),
 
         ParsedType::AssociatedType { base, assoc_name } => {
-            // TODO: Resolve associated type projection
-            // For now, just resolve base and create a fresh var for the projection
             let base_parsed = arena.get_parsed_type(*base);
-            let _base_ty = resolve_parsed_type(engine, arena, base_parsed);
-            let _ = assoc_name; // Will be used for projection lookup
+            let base_ty = resolve_parsed_type(engine, arena, base_parsed);
+            let resolved_base = engine.resolve(base_ty);
+
+            // Search trait impls for the associated type
+            if let Some(trait_registry) = engine.trait_registry() {
+                for impl_entry in trait_registry.impls_for_type(resolved_base) {
+                    if let Some(&assoc_ty) = impl_entry.assoc_types.get(assoc_name) {
+                        return assoc_ty;
+                    }
+                }
+            }
+
+            // Not found — return fresh variable for deferred resolution
             engine.fresh_var()
         }
     }

@@ -105,6 +105,9 @@ pub struct InferEngine<'pool> {
     /// Current function type for `self` references (recursive calls in patterns).
     self_type: Option<Idx>,
 
+    /// Current impl's `Self` type (for `Self` in type annotations within impl blocks).
+    impl_self_type: Option<Idx>,
+
     /// Stack of expected break value types for nested loops.
     /// Each `loop()` pushes a fresh type variable; `break expr` unifies with it.
     loop_break_types: Vec<Idx>,
@@ -124,6 +127,7 @@ impl<'pool> InferEngine<'pool> {
             signatures: None,
             type_registry: None,
             self_type: None,
+            impl_self_type: None,
             loop_break_types: Vec::new(),
         }
     }
@@ -143,6 +147,7 @@ impl<'pool> InferEngine<'pool> {
             signatures: None,
             type_registry: None,
             self_type: None,
+            impl_self_type: None,
             loop_break_types: Vec::new(),
         }
     }
@@ -175,6 +180,16 @@ impl<'pool> InferEngine<'pool> {
     /// Get the current function type for `self` references.
     pub fn self_type(&self) -> Option<Idx> {
         self.self_type
+    }
+
+    /// Set the current impl's `Self` type for type annotation resolution.
+    pub fn set_impl_self_type(&mut self, ty: Idx) {
+        self.impl_self_type = Some(ty);
+    }
+
+    /// Get the current impl's `Self` type.
+    pub fn impl_self_type(&self) -> Option<Idx> {
+        self.impl_self_type
     }
 
     /// Push a loop break type variable onto the stack.
