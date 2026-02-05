@@ -63,9 +63,11 @@ pub fn check_module(
     arena: &ExprArena,
     interner: &StringInterner,
 ) -> TypeCheckResult {
-    let mut checker = ModuleChecker::new(arena, interner);
-    check_module_impl(&mut checker, module);
-    checker.finish()
+    ori_stack::ensure_sufficient_stack(|| {
+        let mut checker = ModuleChecker::new(arena, interner);
+        check_module_impl(&mut checker, module);
+        checker.finish()
+    })
 }
 
 /// Type check a module with pre-populated registries.
@@ -91,9 +93,11 @@ pub fn check_module_with_registries(
     types: TypeRegistry,
     traits: TraitRegistry,
 ) -> TypeCheckResult {
-    let mut checker = ModuleChecker::with_registries(arena, interner, types, traits);
-    check_module_impl(&mut checker, module);
-    checker.finish()
+    ori_stack::ensure_sufficient_stack(|| {
+        let mut checker = ModuleChecker::with_registries(arena, interner, types, traits);
+        check_module_impl(&mut checker, module);
+        checker.finish()
+    })
 }
 
 /// Type check a module and return both the result and the pool.
@@ -106,9 +110,11 @@ pub fn check_module_with_pool(
     arena: &ExprArena,
     interner: &StringInterner,
 ) -> (TypeCheckResult, Pool) {
-    let mut checker = ModuleChecker::new(arena, interner);
-    check_module_impl(&mut checker, module);
-    checker.finish_with_pool()
+    ori_stack::ensure_sufficient_stack(|| {
+        let mut checker = ModuleChecker::new(arena, interner);
+        check_module_impl(&mut checker, module);
+        checker.finish_with_pool()
+    })
 }
 
 /// Type check a module with imports registered via a closure.
