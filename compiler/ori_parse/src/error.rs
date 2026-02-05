@@ -1790,6 +1790,7 @@ impl ParseErrorDetails {
                 suggestion.span,
                 &suggestion.replacement,
                 applicability,
+                0,
             ));
         }
 

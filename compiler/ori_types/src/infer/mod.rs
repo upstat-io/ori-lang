@@ -42,10 +42,11 @@ pub use expr::{check_expr, infer_expr, resolve_parsed_type};
 use ori_ir::{Name, StringInterner};
 use rustc_hash::FxHashMap;
 
+use ori_diagnostic::Suggestion;
+
 use crate::{
-    diff_types, ContextKind, ErrorContext, Expected, FunctionSig, Idx, Pool, Suggestion,
-    TraitRegistry, TypeCheckError, TypeErrorKind, TypeProblem, TypeRegistry, UnifyEngine,
-    UnifyError,
+    diff_types, ContextKind, ErrorContext, Expected, FunctionSig, Idx, Pool, TraitRegistry,
+    TypeCheckError, TypeErrorKind, TypeProblem, TypeRegistry, UnifyEngine, UnifyError,
 };
 
 /// Expression ID type (mirrors `ori_ir::ExprId`).
@@ -432,6 +433,7 @@ impl<'pool> InferEngine<'pool> {
 
     /// Push a type check error.
     pub fn push_error(&mut self, error: TypeCheckError) {
+        tracing::debug!(kind = ?error.kind, "type error recorded");
         self.errors.push(error);
     }
 

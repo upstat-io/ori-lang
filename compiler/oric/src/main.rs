@@ -10,6 +10,8 @@ use oric::commands::{
 use oric::test::TestRunnerConfig;
 
 fn main() {
+    oric::tracing_setup::init();
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {

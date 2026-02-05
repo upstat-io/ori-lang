@@ -1,6 +1,9 @@
 //! The `run` command: parse, type-check, and evaluate an Ori source file.
 
-use oric::query::{evaluated, parsed, typed};
+use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
+use oric::query::{evaluated, parsed};
+use oric::reporting::typeck::TypeErrorRenderer;
+use oric::typeck;
 use oric::{CompilerDb, Db, SourceFile};
 use std::path::PathBuf;
 
@@ -20,25 +23,35 @@ pub fn run_file(path: &str) {
 
     let mut has_errors = false;
 
+    // Create emitter once with source context for rich snippet rendering
+    let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
+    let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty)
+        .with_source(file.text(&db).as_str())
+        .with_file_path(path);
+
     // Check for parse errors
     let parse_result = parsed(&db, file);
     if parse_result.has_errors() {
-        eprintln!("Parse errors in '{path}':");
         for error in &parse_result.errors {
-            eprintln!("  {}: {}", error.span, error.message);
+            emitter.emit(&error.to_diagnostic());
         }
         has_errors = true;
     }
 
-    // Check for type errors even if there were parse errors
-    // This helps users see all issues at once
-    let type_result = typed(&db, file);
+    // Check for type errors using direct call to get Pool for rich rendering
+    let (type_result, pool) =
+        typeck::type_check_with_imports_and_pool(&db, &parse_result, file.path(&db));
     if type_result.has_errors() {
-        eprintln!("Type errors in '{path}':");
+        let renderer = TypeErrorRenderer::new(&pool, db.interner());
+
         for error in type_result.errors() {
-            eprintln!("  {}: {}", error.span, error.message());
+            emitter.emit(&renderer.render(error));
         }
         has_errors = true;
+    }
+
+    if has_errors {
+        emitter.flush();
     }
 
     // Exit if any errors occurred
@@ -128,12 +141,10 @@ pub fn run_file_compiled(path: &str) {
             }
         };
 
-        if std::env::var("ORI_DEBUG").is_ok() {
-            eprintln!(
-                "  Cache hit: executed in {:.2}ms",
-                exec_start.elapsed().as_secs_f64() * 1000.0
-            );
-        }
+        tracing::debug!(
+            elapsed_ms = exec_start.elapsed().as_secs_f64() * 1000.0,
+            "cache hit: executed compiled binary"
+        );
 
         std::process::exit(status.code().unwrap_or(1));
     }

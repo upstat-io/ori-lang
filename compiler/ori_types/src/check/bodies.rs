@@ -39,6 +39,7 @@ use crate::{check_expr, infer_expr, ContextKind, Expected, ExpectedOrigin, Idx};
 ///
 /// This pass runs after signature collection (Pass 1). Each function body
 /// is type-checked against its declared return type.
+#[tracing::instrument(level = "debug", skip_all, fields(count = module.functions.len()))]
 pub fn check_function_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
     for func in &module.functions {
         check_function(checker, func);
@@ -145,6 +146,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
 /// Tests are similar to functions but:
 /// - Always return unit (void)
 /// - May have special test parameters
+#[tracing::instrument(level = "debug", skip_all, fields(count = module.tests.len()))]
 pub fn check_test_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
     for test in &module.tests {
         check_test(checker, test);
@@ -218,6 +220,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
 // ============================================================================
 
 /// Check all impl method bodies.
+#[tracing::instrument(level = "debug", skip_all, fields(count = module.impls.len()))]
 pub fn check_impl_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
     for impl_def in &module.impls {
         check_impl_block(checker, impl_def);
@@ -319,6 +322,7 @@ fn check_impl_method(
 // ============================================================================
 
 /// Check all def impl method bodies.
+#[tracing::instrument(level = "debug", skip_all, fields(count = module.def_impls.len()))]
 pub fn check_def_impl_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
     for def_impl in &module.def_impls {
         check_def_impl_block(checker, def_impl);

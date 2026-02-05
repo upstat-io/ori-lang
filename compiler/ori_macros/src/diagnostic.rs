@@ -301,6 +301,7 @@ fn generate_suggestion_additions<'a>(
                                     span,
                                     format!(#code, #(#format_args),*),
                                     #applicability,
+                                    0,
                                 )
                             );
                         }
@@ -313,6 +314,7 @@ fn generate_suggestion_additions<'a>(
                                 self.#field_name,
                                 format!(#code, #(#format_args),*),
                                 #applicability,
+                                0,
                             )
                         );
                     });

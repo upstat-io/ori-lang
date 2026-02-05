@@ -36,4 +36,4 @@ pub use context::ContextKind;
 pub use diff::{diff_types, edit_distance, find_closest_field, suggest_field_typo};
 pub use expected::{Expected, ExpectedOrigin, SequenceKind};
 pub use problem::{Severity, TypeProblem};
-pub use suggest::{Replacement, Suggestion};
+// Suggestion is re-exported from ori_diagnostic (unified type).

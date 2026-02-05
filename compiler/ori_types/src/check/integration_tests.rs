@@ -834,3 +834,81 @@ fn many_functions() {
     assert!(!result.has_errors());
     assert_eq!(result.function_count(), 5);
 }
+
+// ============================================================================
+// Type Definition Exports
+// ============================================================================
+
+#[test]
+fn struct_type_exported() {
+    let source = "\
+type Point = { x: int, y: int }
+
+@main () -> int = 42
+";
+    let result = check_source(source);
+    assert!(!result.has_errors());
+
+    // Includes built-in Ordering + user-defined Point
+    let types = &result.result.typed.types;
+    let point = types.iter().find(|t| {
+        let name = result.interner.lookup(t.name);
+        name == "Point"
+    });
+    assert!(point.is_some(), "Point type should be exported");
+
+    if let crate::TypeKind::Struct(ref s) = point.unwrap().kind {
+        assert_eq!(s.fields.len(), 2);
+        assert_eq!(s.fields[0].ty, Idx::INT);
+        assert_eq!(s.fields[1].ty, Idx::INT);
+    } else {
+        panic!("Expected Struct type kind, got {:?}", point.unwrap().kind);
+    }
+}
+
+#[test]
+fn enum_type_exported() {
+    let source = "\
+type Color = Red | Green | Blue
+
+@main () -> int = 42
+";
+    let result = check_source(source);
+    assert!(!result.has_errors());
+
+    let types = &result.result.typed.types;
+    let color = types.iter().find(|t| {
+        let name = result.interner.lookup(t.name);
+        name == "Color"
+    });
+    assert!(color.is_some(), "Color type should be exported");
+
+    if let crate::TypeKind::Enum { ref variants } = color.unwrap().kind {
+        assert_eq!(variants.len(), 3);
+    } else {
+        panic!("Expected Enum type kind, got {:?}", color.unwrap().kind);
+    }
+}
+
+#[test]
+fn builtin_ordering_always_exported() {
+    // Even an empty module has the built-in Ordering type registered.
+    let result = check_source("");
+    let ordering = result.result.typed.types.iter().find(|t| {
+        let name = result.interner.lookup(t.name);
+        name == "Ordering"
+    });
+    assert!(
+        ordering.is_some(),
+        "Built-in Ordering type should always be exported"
+    );
+    if let crate::TypeKind::Enum { ref variants } = ordering.unwrap().kind {
+        assert_eq!(
+            variants.len(),
+            3,
+            "Ordering should have Less, Equal, Greater"
+        );
+    } else {
+        panic!("Ordering should be an enum");
+    }
+}

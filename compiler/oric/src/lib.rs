@@ -61,7 +61,6 @@ pub mod query;
 // Re-export lex function from the ori_lexer crate (single source of truth)
 pub use ori_lexer::lex;
 pub mod context;
-pub mod debug;
 pub mod diagnostic;
 pub mod edit;
 pub mod eval;
@@ -70,6 +69,7 @@ pub mod reporting;
 pub mod suggest;
 pub mod test;
 pub mod testing;
+pub mod tracing_setup;
 pub mod typeck;
 
 // Re-exports for convenience

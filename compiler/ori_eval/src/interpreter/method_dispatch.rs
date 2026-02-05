@@ -35,6 +35,7 @@ impl Interpreter<'_> {
     /// 2. Derived methods from `#[derive(...)]` (priority 1)
     /// 3. Collection methods requiring interpreter (priority 2)
     /// 4. Built-in methods in `MethodRegistry` (priority 3)
+    #[tracing::instrument(level = "debug", skip(self, receiver, args))]
     pub fn eval_method_call(
         &mut self,
         receiver: Value,

@@ -143,7 +143,14 @@ impl TestRunner {
 
         // Use build_scoped to create a thread pool that's cleaned up before returning.
         // This avoids atexit handler hangs that occur with the global rayon pool.
+        //
+        // Explicit stack size ensures sufficient space for deep recursion in type
+        // inference and evaluation. Default thread stacks vary by platform (512KB
+        // on macOS, 1MB on Windows) and can overflow on complex type expressions.
+        // The stacker crate handles growth dynamically, but a larger initial stack
+        // reduces the frequency of mmap-based growth on worker threads.
         let file_summaries = rayon::ThreadPoolBuilder::new()
+            .stack_size(8 * 1024 * 1024) // 8 MiB, matching typical Linux main thread
             .build_scoped(
                 // Thread initialization wrapper - just run the thread
                 rayon::ThreadBuilder::run,

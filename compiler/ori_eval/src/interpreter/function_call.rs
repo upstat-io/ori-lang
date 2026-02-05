@@ -11,6 +11,7 @@ use ori_ir::CallArgRange;
 
 impl Interpreter<'_> {
     /// Evaluate a function call.
+    #[tracing::instrument(level = "debug", skip_all)]
     pub(super) fn eval_call(&mut self, func: &Value, args: &[Value]) -> EvalResult {
         match func {
             Value::Function(f) => {
