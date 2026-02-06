@@ -71,6 +71,11 @@ run_rust_workspace() {
 
 run_rust_llvm() {
     echo "=== Running Rust unit tests (LLVM crates) ==="
+    # AOT integration tests (spec.rs, cli.rs) invoke the `ori` binary as a
+    # subprocess. They need an LLVM-enabled build at target/release/ori.
+    # Without this, parallel workspace tests may overwrite target/debug/ori
+    # with a non-LLVM build, causing all AOT tests to fail.
+    cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null || true
     if cargo test --manifest-path compiler/ori_llvm/Cargo.toml 2>&1 > "$RUST_LLVM_OUTPUT"; then
         echo "  ✓ Rust LLVM tests passed"
         return 0
@@ -185,40 +190,38 @@ if [[ $PARALLEL -eq 1 ]]; then
     echo -e "${BOLD}Running tests in parallel...${NC}"
     echo ""
 
-    # Phase 1: Run independent tests in parallel
-    # Start LLVM build early in background (for phase 2)
+    # Phase 1: Non-LLVM tests + LLVM build (in parallel)
+    # Start LLVM build early — Phase 2 tests depend on it
     cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null &
     LLVM_BUILD_PID=$!
 
-    # Run parallel tests
     run_rust_workspace &
     RUST_PID=$!
-
-    run_rust_llvm &
-    RUST_LLVM_PID=$!
 
     run_wasm_build &
     WASM_PID=$!
 
-    # Wait for phase 1 tests
+    # Wait for phase 1
     wait $RUST_PID || RUST_EXIT=1
-    wait $RUST_LLVM_PID || RUST_LLVM_EXIT=1
     wait $WASM_PID || WASM_EXIT=1
 
     echo ""
 
-    # Phase 2: Run Ori tests (can run in parallel with each other)
-    # Interpreter uses debug build via cargo run, LLVM uses release build
+    # Phase 2: LLVM-dependent tests + interpreter (in parallel)
+    # Wait for LLVM build — AOT integration tests need target/release/ori
+    wait $LLVM_BUILD_PID 2>/dev/null || true
+
+    run_rust_llvm &
+    RUST_LLVM_PID=$!
+
     run_ori_interpreter &
     ORI_INTERP_PID=$!
-
-    # Wait for LLVM build before starting LLVM tests
-    wait $LLVM_BUILD_PID 2>/dev/null || true
 
     run_ori_llvm &
     ORI_LLVM_PID=$!
 
-    # Wait for Ori tests and capture actual exit codes
+    # Wait for phase 2
+    wait $RUST_LLVM_PID || RUST_LLVM_EXIT=1
     ORI_INTERP_EXIT=0
     wait $ORI_INTERP_PID || ORI_INTERP_EXIT=$?
     ORI_LLVM_EXIT=0
