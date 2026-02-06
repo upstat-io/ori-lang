@@ -143,19 +143,21 @@ impl Parser<'_> {
 
             // This is a newtype with generic args
             self.advance(); // <
-            let arg_ids: Vec<ParsedTypeId> =
-                self.series(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
-                    if p.check(&TokenKind::Gt) {
-                        return Ok(None);
-                    }
-                    let ty = p.parse_type_required().into_result()?;
-                    let id = p.arena.alloc_parsed_type(ty);
-                    Ok(Some(id))
-                })?;
+                            // Type arg lists use a Vec because nested generic args share the
+                            // same `parsed_type_lists` buffer (e.g., `NewType<Option<T>>`).
+            let mut type_arg_list: Vec<ParsedTypeId> = Vec::new();
+            self.series_direct(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
+                if p.check(&TokenKind::Gt) {
+                    return Ok(false);
+                }
+                let ty = p.parse_type_required().into_result()?;
+                type_arg_list.push(p.arena.alloc_parsed_type(ty));
+                Ok(true)
+            })?;
             if self.check(&TokenKind::Gt) {
                 self.advance(); // >
             }
-            let type_args = self.arena.alloc_parsed_type_list(arg_ids);
+            let type_args = self.arena.alloc_parsed_type_list(type_arg_list);
             return Ok(TypeDeclKind::Newtype(ParsedType::Named {
                 name: first_name,
                 type_args,

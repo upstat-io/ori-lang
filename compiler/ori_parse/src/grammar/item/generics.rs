@@ -47,11 +47,11 @@ impl Parser<'_> {
         // Committed: `<` confirmed, all errors from here are hard errors
         committed!(self.expect(&TokenKind::Lt));
 
-        let params: Vec<GenericParam> = committed!(self.series(
-            &SeriesConfig::comma(TokenKind::Gt).no_newlines(),
-            |p| {
+        let start = self.arena.start_generic_params();
+        committed!(
+            self.series_direct(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
                 if p.check(&TokenKind::Gt) {
-                    return Ok(None);
+                    return Ok(false);
                 }
 
                 let param_span = p.current_span();
@@ -79,7 +79,7 @@ impl Parser<'_> {
                         None
                     };
 
-                    Ok(Some(GenericParam {
+                    p.arena.push_generic_param(GenericParam {
                         name,
                         bounds: Vec::new(),
                         default_type: None,
@@ -87,7 +87,7 @@ impl Parser<'_> {
                         const_type,
                         default_value,
                         span: param_span.merge(p.previous_span()),
-                    }))
+                    });
                 } else {
                     // Type parameter: T [: Bounds] [= Default]
                     // Optional bounds: : Bound + OtherBound
@@ -106,7 +106,7 @@ impl Parser<'_> {
                         None
                     };
 
-                    Ok(Some(GenericParam {
+                    p.arena.push_generic_param(GenericParam {
                         name,
                         bounds,
                         default_type,
@@ -114,13 +114,14 @@ impl Parser<'_> {
                         const_type: None,
                         default_value: None,
                         span: param_span.merge(p.previous_span()),
-                    }))
+                    });
                 }
-            }
-        ));
+                Ok(true)
+            })
+        );
 
         committed!(self.expect(&TokenKind::Gt));
-        ParseOutcome::consumed_ok(self.arena.alloc_generic_params(params))
+        ParseOutcome::consumed_ok(self.arena.finish_generic_params(start))
     }
 
     /// Parse trait bounds: `Eq + Clone + Printable`
@@ -207,21 +208,24 @@ impl Parser<'_> {
             use crate::series::SeriesConfig;
 
             self.advance(); // <
-            let arg_ids: Vec<ParsedTypeId> = committed!(self.series(
+                            // Type arg lists use a Vec because nested generic args share the
+                            // same `parsed_type_lists` buffer (e.g., `Impl<Option<T>>`).
+            let mut type_args: Vec<ParsedTypeId> = Vec::new();
+            committed!(self.series_direct(
                 &SeriesConfig::comma(TokenKind::Gt).no_newlines(),
                 |p| {
                     if p.check(&TokenKind::Gt) {
-                        return Ok(None);
+                        return Ok(false);
                     }
                     let ty = p.parse_type_required().into_result()?;
-                    let id = p.arena.alloc_parsed_type(ty);
-                    Ok(Some(id))
+                    type_args.push(p.arena.alloc_parsed_type(ty));
+                    Ok(true)
                 }
             ));
             if self.check(&TokenKind::Gt) {
                 self.advance(); // >
             }
-            self.arena.alloc_parsed_type_list(arg_ids)
+            self.arena.alloc_parsed_type_list(type_args)
         } else {
             ParsedTypeRange::EMPTY
         };

@@ -113,11 +113,52 @@ impl Parser<'_> {
             return self.parse_function_exp(kind);
         }
 
-        // === Token-dispatched alternatives via one_of! ===
+        // === Fast path: tag-based direct dispatch ===
         //
-        // Each sub-parser checks its leading token and returns EmptyErr if wrong.
-        // one_of! tries each in order, accumulating expected tokens on EmptyErr,
-        // and stops on the first ConsumedOk/EmptyOk/ConsumedErr.
+        // For the most common primary tokens, dispatch directly to the correct
+        // sub-parser without going through one_of!'s snapshot/restore/TokenSet
+        // machinery. Each sub-parser has its own guard that returns EmptyErr
+        // if the token doesn't match, so correctness is preserved — but we
+        // know these tags map 1:1 to a specific sub-parser, so the guard
+        // always succeeds and we skip the overhead of probing alternatives.
+        match self.current_tag() {
+            TokenKind::TAG_INT
+            | TokenKind::TAG_FLOAT
+            | TokenKind::TAG_STRING
+            | TokenKind::TAG_CHAR
+            | TokenKind::TAG_TRUE
+            | TokenKind::TAG_FALSE
+            | TokenKind::TAG_DURATION
+            | TokenKind::TAG_SIZE => {
+                return self.parse_literal_primary();
+            }
+            TokenKind::TAG_IDENT => return self.parse_ident_primary(),
+            TokenKind::TAG_LPAREN => return self.parse_parenthesized(),
+            TokenKind::TAG_LBRACKET => return self.parse_list_literal(),
+            TokenKind::TAG_LBRACE => return self.parse_map_literal(),
+            TokenKind::TAG_IF => return self.parse_if_expr(),
+            TokenKind::TAG_LET => return self.parse_let_expr(),
+            TokenKind::TAG_LOOP => return self.parse_loop_expr(),
+            TokenKind::TAG_SOME | TokenKind::TAG_NONE | TokenKind::TAG_OK | TokenKind::TAG_ERR => {
+                return self.parse_variant_primary()
+            }
+            TokenKind::TAG_DOLLAR | TokenKind::TAG_HASH => {
+                return self.parse_misc_primary();
+            }
+            TokenKind::TAG_BREAK | TokenKind::TAG_CONTINUE | TokenKind::TAG_RETURN => {
+                return self.parse_control_flow_primary();
+            }
+            TokenKind::TAG_FLOAT_DURATION_ERROR | TokenKind::TAG_FLOAT_SIZE_ERROR => {
+                return self.parse_error_literal_primary();
+            }
+            _ => {}
+        }
+
+        // === Fallback: full one_of! dispatch ===
+        //
+        // Handles soft keywords and other rare cases not covered by the fast
+        // path (e.g., `print`/`panic` as identifiers, `for` as loop).
+        // Also provides accumulated expected-token error messages on failure.
         one_of!(
             self,
             self.parse_literal_primary(),
@@ -642,13 +683,16 @@ impl Parser<'_> {
         let span = self.current_span();
         self.advance(); // [
 
-        // Track whether we see any spread elements
+        // List elements use a Vec because nested lists share the same
+        // `list_elements` buffer, causing same-buffer nesting conflicts
+        // with direct arena push. The Vec overhead is acceptable since
+        // list literals are less frequent than params/arms/generics.
         let mut has_spread = false;
         let mut elements: Vec<ListElement> = Vec::new();
 
-        committed!(self.bracket_series(|p| {
+        committed!(self.bracket_series_direct(|p| {
             if p.check(&TokenKind::RBracket) {
-                return Ok(None);
+                return Ok(false);
             }
 
             let elem_span = p.current_span();
@@ -671,7 +715,7 @@ impl Parser<'_> {
                     span: elem_span.merge(end_span),
                 });
             }
-            Ok(Some(()))
+            Ok(true)
         }));
 
         let end_span = self.previous_span();
@@ -720,13 +764,15 @@ impl Parser<'_> {
         let span = self.current_span();
         self.advance(); // {
 
-        // Track whether we see any spread elements
+        // Map elements use a Vec because nested maps share the same
+        // `map_elements` buffer, causing same-buffer nesting conflicts
+        // with direct arena push. Same reasoning as list literals.
         let mut has_spread = false;
         let mut elements: Vec<MapElement> = Vec::new();
 
-        committed!(self.brace_series(|p| {
+        committed!(self.brace_series_direct(|p| {
             if p.check(&TokenKind::RBrace) {
-                return Ok(None);
+                return Ok(false);
             }
 
             let elem_span = p.current_span();
@@ -752,7 +798,7 @@ impl Parser<'_> {
                     span: elem_span.merge(end_span),
                 }));
             }
-            Ok(Some(()))
+            Ok(true)
         }));
 
         let end_span = self.previous_span();

@@ -41,6 +41,20 @@ Key optimization opportunities:
 3. **Character classification**: Hot path
 4. **Memory layout**: Cache efficiency
 
+### Lessons from Parser Hot Path Work (2026-02-06)
+
+The parser hot path optimization work (see `plans/parser_v2/section-01-data-oriented-ast.md` §01.7) yielded several techniques that apply equally to the lexer:
+
+| Technique | Parser Result | Lexer Application |
+|-----------|--------------|-------------------|
+| `#[cold]` + `#[inline(never)]` on error paths | Prevented `format!()` from poisoning LLVM inlining | Apply to all lexer error construction (`LexError::new`, unterminated string, etc.) |
+| Branchless advance with EOF sentinel | Eliminated bounds check on every `advance()` | Sentinel-terminated source buffer (§07.4) enables the same pattern |
+| Static lookup tables (`OPER_TABLE[128]`) | Replaced 20-arm match with one memory read | Character classification table (§07.3) uses the same idea |
+| Bitset membership (`POSTFIX_BITSET`) | O(1) token set check via two `u64`s | Apply to character class sets, keyword-start chars |
+| Tag-based dispatch | Skip snapshot/restore for 95% of cases | Direct state machine dispatch on first byte |
+
+These are **proven patterns** that delivered +12-16% parser throughput. The lexer V2 should adopt them from the start.
+
 ---
 
 ## 07.1 SIMD Whitespace Skipping
@@ -415,6 +429,12 @@ Key optimization opportunities:
 ## 07.4 Buffer Management
 
 **Goal:** Optimize memory access patterns
+
+> **Already proven (parser-side):** The parser's `advance()` uses a branchless pattern that
+> relies on the lexer always appending an EOF token as a sentinel. This means the sentinel
+> pattern is not theoretical — it's a **load-bearing contract** between the lexer and parser.
+> The sentinel-terminated source buffer proposed here extends the same principle to the lexer
+> itself (null byte at end of source), enabling bounds-check-free byte reads during tokenization.
 
 ### Tasks
 

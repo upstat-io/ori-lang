@@ -7,6 +7,39 @@ use ori_ir::{
     CallArg, Expr, ExprId, ExprKind, FieldInit, Param, ParsedTypeId, StructLitField, TokenKind,
 };
 
+/// Bitset of tags that can start a postfix operation.
+/// Bit N is set if tag N can start a postfix op.
+/// Uses two u64s to cover tags 0-127.
+const POSTFIX_BITSET: [u64; 2] = {
+    let mut bits = [0u64; 2];
+    let tags: [u8; 7] = [
+        TokenKind::TAG_LPAREN,   // 70
+        TokenKind::TAG_DOT,      // 79
+        TokenKind::TAG_LBRACKET, // 74
+        TokenKind::TAG_LBRACE,   // 72
+        TokenKind::TAG_QUESTION, // 86
+        TokenKind::TAG_AS,       // 37
+        TokenKind::TAG_ARROW,    // 83
+    ];
+    let mut i = 0;
+    while i < tags.len() {
+        let t = tags[i] as usize;
+        bits[t / 64] |= 1u64 << (t % 64);
+        i += 1;
+    }
+    bits
+};
+
+/// O(1) bitset check for postfix-starting tokens.
+#[inline]
+fn is_postfix_tag(tag: u8) -> bool {
+    let idx = tag as usize;
+    if idx >= 128 {
+        return false;
+    }
+    (POSTFIX_BITSET[idx / 64] >> (idx % 64)) & 1 != 0
+}
+
 impl Parser<'_> {
     /// Parse function calls and field access.
     ///
@@ -32,6 +65,12 @@ impl Parser<'_> {
             //     .with_name(name: "example")
             //     .with_value(value: 42)
             self.skip_newlines();
+
+            // Fast exit: O(1) bitset check — if current tag can't start any
+            // postfix op, break immediately without testing each alternative.
+            if !is_postfix_tag(self.current_tag()) {
+                break;
+            }
 
             if self.check(&TokenKind::LParen) {
                 // Function call
@@ -139,10 +178,15 @@ impl Parser<'_> {
                     let start_span = expr_data.span;
                     self.advance(); // {
 
-                    // Parse struct literal fields (may include spread)
-                    let struct_lit_fields: Vec<StructLitField> = self.brace_series(|p| {
+                    // Struct literal fields use a Vec because nested struct
+                    // literals (e.g., `Outer { x: Inner { a: 1 } }`) share the
+                    // same `struct_lit_fields` buffer, causing same-buffer
+                    // nesting conflicts with direct arena push.
+                    let mut fields: Vec<StructLitField> = Vec::new();
+                    let mut has_spread = false;
+                    self.brace_series_direct(|p| {
                         if p.check(&TokenKind::RBrace) {
-                            return Ok(None);
+                            return Ok(false);
                         }
 
                         let field_span = p.current_span();
@@ -150,12 +194,14 @@ impl Parser<'_> {
                         // Check for spread syntax: ...expr
                         if p.check(&TokenKind::DotDotDot) {
                             p.advance();
+                            has_spread = true;
                             let spread_expr = p.parse_expr().into_result()?;
                             let end_span = p.arena.get_expr(spread_expr).span;
-                            return Ok(Some(StructLitField::Spread {
+                            fields.push(StructLitField::Spread {
                                 expr: spread_expr,
                                 span: field_span.merge(end_span),
-                            }));
+                            });
+                            return Ok(true);
                         }
 
                         // Regular field: name or name: value
@@ -176,23 +222,19 @@ impl Parser<'_> {
                             p.previous_span()
                         };
 
-                        Ok(Some(StructLitField::Field(FieldInit {
+                        fields.push(StructLitField::Field(FieldInit {
                             name: field_name,
                             value,
                             span: field_span.merge(end_span),
-                        })))
+                        }));
+                        Ok(true)
                     })?;
 
                     let end_span = self.previous_span();
 
-                    // Check if any element is a spread
-                    let has_spread = struct_lit_fields
-                        .iter()
-                        .any(|f| matches!(f, StructLitField::Spread { .. }));
-
                     if has_spread {
                         // Use StructWithSpread for literals with spread syntax
-                        let fields_range = self.arena.alloc_struct_lit_fields(struct_lit_fields);
+                        let fields_range = self.arena.alloc_struct_lit_fields(fields);
                         expr = self.arena.alloc_expr(Expr::new(
                             ExprKind::StructWithSpread {
                                 name: struct_name,
@@ -202,14 +244,14 @@ impl Parser<'_> {
                         ));
                     } else {
                         // Use regular Struct for efficiency (common case)
-                        let fields: Vec<FieldInit> = struct_lit_fields
+                        let field_inits: Vec<FieldInit> = fields
                             .into_iter()
                             .filter_map(|f| match f {
                                 StructLitField::Field(init) => Some(init),
                                 StructLitField::Spread { .. } => None,
                             })
                             .collect();
-                        let fields_range = self.arena.alloc_field_inits(fields);
+                        let fields_range = self.arena.alloc_field_inits(field_inits);
                         expr = self.arena.alloc_expr(Expr::new(
                             ExprKind::Struct {
                                 name: struct_name,

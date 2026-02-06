@@ -10,7 +10,6 @@ pub mod incremental;
 mod outcome;
 mod progress;
 mod recovery;
-mod scratch;
 pub mod series;
 mod snapshot;
 
@@ -201,6 +200,12 @@ impl<'a> Parser<'a> {
     #[inline]
     fn current(&self) -> &Token {
         self.cursor.current()
+    }
+
+    /// Get the discriminant tag of the current token (fast u8 lookup).
+    #[inline]
+    fn current_tag(&self) -> u8 {
+        self.cursor.current_tag()
     }
 
     #[inline]

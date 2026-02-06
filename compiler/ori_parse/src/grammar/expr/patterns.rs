@@ -195,9 +195,12 @@ impl Parser<'_> {
         committed!(self.expect(&TokenKind::Comma));
         self.skip_newlines();
 
-        let arms: Vec<MatchArm> = committed!(self.paren_series(|p| {
+        // Match arms use a Vec because nested match expressions share
+        // the same `arms` buffer, causing same-buffer nesting conflicts.
+        let mut arms: Vec<MatchArm> = Vec::new();
+        committed!(self.paren_series_direct(|p| {
             if p.check(&TokenKind::RParen) {
-                return Ok(None);
+                return Ok(false);
             }
 
             let arm_span = p.current_span();
@@ -210,12 +213,13 @@ impl Parser<'_> {
             let body = p.parse_expr().into_result()?;
             let end_span = p.arena.get_expr(body).span;
 
-            Ok(Some(MatchArm {
+            arms.push(MatchArm {
                 pattern,
                 guard,
                 body,
                 span: arm_span.merge(end_span),
-            }))
+            });
+            Ok(true)
         }));
         let end_span = self.previous_span();
 
@@ -392,14 +396,15 @@ impl Parser<'_> {
         let base = self.parse_match_pattern_base().into_result()?;
 
         // Check for or-pattern continuation: pattern | pattern | ...
+        // Uses a Vec because patterns can recursively nest (same buffer).
         if self.check(&TokenKind::Pipe) {
-            let mut alt_ids = vec![self.arena.alloc_match_pattern(base)];
+            let mut alternatives = vec![self.arena.alloc_match_pattern(base)];
             while self.check(&TokenKind::Pipe) {
                 self.advance();
                 let alt = self.parse_match_pattern_base().into_result()?;
-                alt_ids.push(self.arena.alloc_match_pattern(alt));
+                alternatives.push(self.arena.alloc_match_pattern(alt));
             }
-            let range = self.arena.alloc_match_pattern_list(alt_ids);
+            let range = self.arena.alloc_match_pattern_list(alternatives);
             return Ok(MatchPattern::Or(range));
         }
 
@@ -609,7 +614,9 @@ impl Parser<'_> {
             return ParseOutcome::empty_err_expected(&TokenKind::LBracket, self.position());
         }
         self.advance();
-        let mut element_ids = Vec::new();
+        // Pattern elements use a Vec because patterns can recursively
+        // nest (e.g., `[a, (b, c), [d, e]]`), sharing the same buffer.
+        let mut elements: Vec<MatchPatternId> = Vec::new();
         let mut rest = None;
 
         while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
@@ -632,7 +639,7 @@ impl Parser<'_> {
                 Ok(e) => e,
                 Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
             };
-            element_ids.push(self.arena.alloc_match_pattern(elem));
+            elements.push(self.arena.alloc_match_pattern(elem));
 
             if !self.check(&TokenKind::RBracket) && !self.check(&TokenKind::DotDot) {
                 match self.expect(&TokenKind::Comma) {
@@ -646,7 +653,7 @@ impl Parser<'_> {
             Ok(_) => {}
             Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
         }
-        let elements = self.arena.alloc_match_pattern_list(element_ids);
+        let elements = self.arena.alloc_match_pattern_list(elements);
         ParseOutcome::consumed_ok(MatchPattern::List { elements, rest })
     }
 
@@ -691,22 +698,25 @@ impl Parser<'_> {
         }
 
         self.advance();
-        let pattern_ids: Vec<MatchPatternId> =
-            match self.series(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
-                if p.check(&TokenKind::RParen) {
-                    return Ok(None);
-                }
-                let pat = p.parse_match_pattern()?;
-                Ok(Some(p.arena.alloc_match_pattern(pat)))
-            }) {
-                Ok(ids) => ids,
-                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
-            };
+        // Tuple patterns use a Vec because patterns can recursively
+        // nest (e.g., `(a, (b, c))`), sharing the same buffer.
+        let mut elements: Vec<MatchPatternId> = Vec::new();
+        match self.series_direct(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
+            if p.check(&TokenKind::RParen) {
+                return Ok(false);
+            }
+            let pat = p.parse_match_pattern()?;
+            elements.push(p.arena.alloc_match_pattern(pat));
+            Ok(true)
+        }) {
+            Ok(_) => {}
+            Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+        }
         match self.expect(&TokenKind::RParen) {
             Ok(_) => {}
             Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
         }
-        let range = self.arena.alloc_match_pattern_list(pattern_ids);
+        let range = self.arena.alloc_match_pattern_list(elements);
         ParseOutcome::consumed_ok(MatchPattern::Tuple(range))
     }
 
@@ -718,9 +728,12 @@ impl Parser<'_> {
         committed!(self.expect(&TokenKind::LParen));
         self.skip_newlines();
 
-        let props: Vec<NamedExpr> = committed!(self.paren_series(|p| {
+        // Named exprs use a Vec because function expressions can nest
+        // (e.g., `parallel(f: timeout(t: 5s, ...))`), sharing the same buffer.
+        let mut props: Vec<NamedExpr> = Vec::new();
+        committed!(self.paren_series_direct(|p| {
             if p.check(&TokenKind::RParen) {
-                return Ok(None);
+                return Ok(false);
             }
 
             if !p.is_named_arg_start() {
@@ -737,11 +750,12 @@ impl Parser<'_> {
             let value = p.parse_expr().into_result()?;
             let end_span = p.arena.get_expr(value).span;
 
-            Ok(Some(NamedExpr {
+            props.push(NamedExpr {
                 name,
                 value,
                 span: prop_span.merge(end_span),
-            }))
+            });
+            Ok(true)
         }));
         let end_span = self.previous_span();
 
@@ -766,19 +780,22 @@ impl Parser<'_> {
     fn parse_variant_inner_patterns(&mut self) -> Result<MatchPatternRange, ParseError> {
         use crate::series::SeriesConfig;
 
-        let pattern_ids: Vec<MatchPatternId> =
-            self.series(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
-                if p.check(&TokenKind::RParen) {
-                    return Ok(None);
-                }
-                let pat = p.parse_match_pattern()?;
-                Ok(Some(p.arena.alloc_match_pattern(pat)))
-            })?;
+        // Variant inner patterns use a Vec because patterns can recursively
+        // nest (e.g., `Ok(Some(x))`), sharing the same buffer.
+        let mut elements: Vec<MatchPatternId> = Vec::new();
+        self.series_direct(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
+            if p.check(&TokenKind::RParen) {
+                return Ok(false);
+            }
+            let pat = p.parse_match_pattern()?;
+            elements.push(p.arena.alloc_match_pattern(pat));
+            Ok(true)
+        })?;
 
-        if pattern_ids.is_empty() {
+        if elements.is_empty() {
             Ok(MatchPatternRange::EMPTY)
         } else {
-            Ok(self.arena.alloc_match_pattern_list(pattern_ids))
+            Ok(self.arena.alloc_match_pattern_list(elements))
         }
     }
 

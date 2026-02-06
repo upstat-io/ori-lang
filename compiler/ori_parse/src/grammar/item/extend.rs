@@ -1,7 +1,9 @@
 //! Extend block parsing.
 
 use crate::{committed, ParseOutcome, Parser};
-use ori_ir::{ExtendDef, GenericParamRange, ParsedType, ParsedTypeRange, TokenKind, TypeId};
+use ori_ir::{
+    ExtendDef, GenericParamRange, ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind, TypeId,
+};
 
 impl Parser<'_> {
     /// Parse an extend block.
@@ -66,11 +68,12 @@ impl Parser<'_> {
             // Check for generic parameters like Option<T>
             let type_args = if self.check(&TokenKind::Lt) {
                 self.advance(); // <
-                let mut arg_ids = Vec::new();
+                                // Type arg lists use a Vec because nested generic args share the
+                                // same `parsed_type_lists` buffer (e.g., `extend Option<List<T>>`).
+                let mut type_arg_list: Vec<ParsedTypeId> = Vec::new();
                 while !self.check(&TokenKind::Gt) && !self.is_at_end() {
                     let ty = committed!(self.parse_type_required().into_result());
-                    let id = self.arena.alloc_parsed_type(ty);
-                    arg_ids.push(id);
+                    type_arg_list.push(self.arena.alloc_parsed_type(ty));
                     if self.check(&TokenKind::Comma) {
                         self.advance();
                     } else {
@@ -80,7 +83,7 @@ impl Parser<'_> {
                 if self.check(&TokenKind::Gt) {
                     self.advance(); // >
                 }
-                self.arena.alloc_parsed_type_list(arg_ids)
+                self.arena.alloc_parsed_type_list(type_arg_list)
             } else {
                 ParsedTypeRange::EMPTY
             };
