@@ -1,19 +1,19 @@
 //! Type declaration parsing (struct, enum, newtype).
 
-use crate::{ParseError, ParseResult, ParsedAttrs, Parser};
+use crate::{ParseError, ParseOutcome, ParsedAttrs, Parser};
 use ori_ir::{
     GenericParamRange, Name, ParsedType, ParsedTypeId, ParsedTypeRange, Span, StructField,
     TokenKind, TypeDecl, TypeDeclKind, Variant, VariantField, Visibility,
 };
 
 impl Parser<'_> {
-    /// Parse a type declaration with progress tracking.
-    pub(crate) fn parse_type_decl_with_progress(
+    /// Parse a type declaration with outcome tracking.
+    pub(crate) fn parse_type_decl_with_outcome(
         &mut self,
         attrs: ParsedAttrs,
         visibility: Visibility,
-    ) -> ParseResult<TypeDecl> {
-        self.with_progress(|p| p.parse_type_decl(attrs, visibility))
+    ) -> ParseOutcome<TypeDecl> {
+        self.with_outcome(|p| p.parse_type_decl(attrs, visibility))
     }
 
     /// Parse a type declaration.
@@ -25,6 +25,16 @@ impl Parser<'_> {
     /// - Generic: `type Name<T> = ...`
     /// - With derives: `#[derive(Eq, Clone)] type Name = ...`
     pub(crate) fn parse_type_decl(
+        &mut self,
+        attrs: ParsedAttrs,
+        visibility: Visibility,
+    ) -> Result<TypeDecl, ParseError> {
+        self.in_error_context_result(crate::ErrorContext::TypeDef, |p| {
+            p.parse_type_decl_inner(attrs, visibility)
+        })
+    }
+
+    fn parse_type_decl_inner(
         &mut self,
         attrs: ParsedAttrs,
         visibility: Visibility,

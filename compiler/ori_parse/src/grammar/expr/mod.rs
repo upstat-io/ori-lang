@@ -23,7 +23,7 @@ mod patterns;
 mod postfix;
 mod primary;
 
-use crate::{ParseError, ParseResult, Parser};
+use crate::{ParseError, ParseOutcome, Parser};
 use ori_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind, UnaryOp};
 use ori_stack::ensure_sufficient_stack;
 
@@ -88,13 +88,13 @@ macro_rules! parse_binary_level {
 }
 
 impl Parser<'_> {
-    /// Parse an expression with progress tracking.
+    /// Parse an expression with outcome tracking.
     ///
-    /// Returns `Progress::None` if no tokens were consumed (not a valid expression start).
-    /// Returns `Progress::Made` if tokens were consumed (success or error after consuming).
+    /// Returns `EmptyOk`/`EmptyErr` if no tokens were consumed.
+    /// Returns `ConsumedOk`/`ConsumedErr` if tokens were consumed.
     #[allow(dead_code)] // Available for expression-level error recovery
-    pub(crate) fn parse_expr_with_progress(&mut self) -> ParseResult<ExprId> {
-        self.with_progress(Self::parse_expr)
+    pub(crate) fn parse_expr_with_outcome(&mut self) -> ParseOutcome<ExprId> {
+        self.with_outcome(Self::parse_expr)
     }
 
     /// Parse an expression.

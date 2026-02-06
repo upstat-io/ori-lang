@@ -9,7 +9,7 @@ impl Parser<'_> {
     /// Parse function calls and field access.
     #[inline]
     pub(crate) fn parse_call(&mut self) -> Result<ExprId, ParseError> {
-        let expr = self.parse_primary()?;
+        let expr = self.parse_primary().into_result()?;
         self.apply_postfix_ops(expr)
     }
 

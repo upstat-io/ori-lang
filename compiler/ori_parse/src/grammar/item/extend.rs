@@ -1,12 +1,12 @@
 //! Extend block parsing.
 
-use crate::{ParseError, ParseResult, Parser};
+use crate::{ParseError, ParseOutcome, Parser};
 use ori_ir::{ExtendDef, GenericParamRange, ParsedType, ParsedTypeRange, TokenKind, TypeId};
 
 impl Parser<'_> {
-    /// Parse an extend block with progress tracking.
-    pub(crate) fn parse_extend_with_progress(&mut self) -> ParseResult<ExtendDef> {
-        self.with_progress(Self::parse_extend)
+    /// Parse an extend block with outcome tracking.
+    pub(crate) fn parse_extend_with_outcome(&mut self) -> ParseOutcome<ExtendDef> {
+        self.with_outcome(Self::parse_extend)
     }
 
     /// Parse an extend block.

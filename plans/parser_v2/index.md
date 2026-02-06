@@ -54,6 +54,9 @@ Elm parser, Roc parser
 context capture, error context
 ParseOutcome, ConsumedOk, EmptyErr
 ErrorContext, in_error_context, with_error_context
+with_outcome, handle_outcome, module dispatch
+in_error_context_result, while parsing
+ParseResult migration, _with_outcome wrappers
 ```
 
 ---

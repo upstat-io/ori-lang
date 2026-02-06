@@ -15,7 +15,7 @@
 //!
 //! The parser uses recursive descent with these patterns:
 //!
-//! - **Progress tracking**: `ParseResult<T>` distinguishes "made progress" from "no progress"
+//! - **Progress tracking**: `ParseOutcome<T>` distinguishes consumed/empty and success/failure
 //! - **Context flags**: `ParseContext` controls context-sensitive parsing
 //! - **Error recovery**: Failed parses can recover at synchronization points
 //!

@@ -1,23 +1,29 @@
 //! Trait definition parsing.
 
-use crate::{ParseError, ParseResult, Parser};
+use crate::{ParseError, ParseOutcome, Parser};
 use ori_ir::{
     GenericParamRange, TokenKind, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
     TraitMethodSig, Visibility,
 };
 
 impl Parser<'_> {
-    /// Parse a trait definition with progress tracking.
-    pub(crate) fn parse_trait_with_progress(
+    /// Parse a trait definition with outcome tracking.
+    pub(crate) fn parse_trait_with_outcome(
         &mut self,
         visibility: Visibility,
-    ) -> ParseResult<TraitDef> {
-        self.with_progress(|p| p.parse_trait(visibility))
+    ) -> ParseOutcome<TraitDef> {
+        self.with_outcome(|p| p.parse_trait(visibility))
     }
 
     /// Parse a trait definition.
     /// Syntax: [pub] trait Name [<T>] [: Super] { items }
     pub(crate) fn parse_trait(&mut self, visibility: Visibility) -> Result<TraitDef, ParseError> {
+        self.in_error_context_result(crate::ErrorContext::TraitDef, |p| {
+            p.parse_trait_inner(visibility)
+        })
+    }
+
+    fn parse_trait_inner(&mut self, visibility: Visibility) -> Result<TraitDef, ParseError> {
         let start_span = self.current_span();
         self.expect(&TokenKind::Trait)?;
 
