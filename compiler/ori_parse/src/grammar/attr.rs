@@ -32,6 +32,7 @@
 //! ```
 
 use crate::{ParseError, Parser};
+use ori_diagnostic::queue::DiagnosticSeverity;
 use ori_diagnostic::ErrorCode;
 use ori_ir::{ExpectedError, Name, TokenCapture, TokenKind};
 
@@ -269,6 +270,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
             if uses_brackets {
                 self.skip_to_rbracket();
@@ -288,6 +290,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
             None
         };
@@ -302,6 +305,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
         }
 
@@ -316,6 +320,7 @@ impl Parser<'_> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: DiagnosticSeverity::Hard,
                 });
             }
         }
@@ -356,6 +361,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
             if uses_brackets {
                 self.skip_to_rbracket();
@@ -384,6 +390,7 @@ impl Parser<'_> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: DiagnosticSeverity::Hard,
                 });
             }
         } else {
@@ -403,6 +410,7 @@ impl Parser<'_> {
                         span: self.current_span(),
                         context: None,
                         help: Vec::new(),
+                        severity: DiagnosticSeverity::Hard,
                     });
                     if uses_brackets {
                         self.skip_to_rbracket();
@@ -420,6 +428,7 @@ impl Parser<'_> {
                         span: self.current_span(),
                         context: None,
                         help: Vec::new(),
+                        severity: DiagnosticSeverity::Hard,
                     });
                     if uses_brackets {
                         self.skip_to_rbracket();
@@ -443,6 +452,7 @@ impl Parser<'_> {
                                 span: self.current_span(),
                                 context: None,
                                 help: Vec::new(),
+                                severity: DiagnosticSeverity::Hard,
                             });
                         }
                     }
@@ -457,6 +467,7 @@ impl Parser<'_> {
                                 span: self.current_span(),
                                 context: None,
                                 help: Vec::new(),
+                                severity: DiagnosticSeverity::Hard,
                             });
                         }
                     }
@@ -471,6 +482,7 @@ impl Parser<'_> {
                                 span: self.current_span(),
                                 context: None,
                                 help: Vec::new(),
+                                severity: DiagnosticSeverity::Hard,
                             });
                         }
                     }
@@ -485,6 +497,7 @@ impl Parser<'_> {
                                 span: self.current_span(),
                                 context: None,
                                 help: Vec::new(),
+                                severity: DiagnosticSeverity::Hard,
                             });
                         }
                     }
@@ -495,6 +508,7 @@ impl Parser<'_> {
                             span: self.previous_span(),
                             context: None,
                             help: Vec::new(),
+                            severity: DiagnosticSeverity::Hard,
                         });
                     }
                 }
@@ -522,6 +536,7 @@ impl Parser<'_> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: DiagnosticSeverity::Hard,
                 });
             }
         }
@@ -537,6 +552,7 @@ impl Parser<'_> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: DiagnosticSeverity::Hard,
                 });
             }
         }
@@ -557,6 +573,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
             if uses_brackets {
                 self.skip_to_rbracket();
@@ -602,6 +619,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
         }
 
@@ -616,6 +634,7 @@ impl Parser<'_> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: DiagnosticSeverity::Hard,
                 });
             }
         }
@@ -636,6 +655,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
             if uses_brackets {
                 self.skip_to_rbracket();
@@ -668,6 +688,7 @@ impl Parser<'_> {
                                 span: self.current_span(),
                                 context: None,
                                 help: Vec::new(),
+                                severity: DiagnosticSeverity::Hard,
                             });
                             None
                         }
@@ -678,6 +699,7 @@ impl Parser<'_> {
                             span: self.current_span(),
                             context: None,
                             help: Vec::new(),
+                            severity: DiagnosticSeverity::Hard,
                         });
                         None
                     }
@@ -689,6 +711,7 @@ impl Parser<'_> {
                         span: self.previous_span(),
                         context: None,
                         help: Vec::new(),
+                        severity: DiagnosticSeverity::Hard,
                     });
                     None
                 }
@@ -707,6 +730,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
         }
 
@@ -728,6 +752,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
             if uses_brackets {
                 self.skip_to_rbracket();
@@ -753,6 +778,7 @@ impl Parser<'_> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: DiagnosticSeverity::Hard,
                 });
                 if uses_brackets {
                     self.skip_to_rbracket();
@@ -770,6 +796,7 @@ impl Parser<'_> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: DiagnosticSeverity::Hard,
                 });
                 if uses_brackets {
                     self.skip_to_rbracket();
@@ -813,6 +840,7 @@ impl Parser<'_> {
                         span: self.previous_span(),
                         context: None,
                         help: Vec::new(),
+                        severity: DiagnosticSeverity::Hard,
                     });
                 }
             }
@@ -844,6 +872,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
             if uses_brackets {
                 self.skip_to_rbracket();
@@ -885,6 +914,7 @@ impl Parser<'_> {
                                 span: self.previous_span(),
                                 context: None,
                                 help: Vec::new(),
+                                severity: DiagnosticSeverity::Hard,
                             });
                         }
                     }
@@ -901,6 +931,7 @@ impl Parser<'_> {
                                 span: self.previous_span(),
                                 context: None,
                                 help: Vec::new(),
+                                severity: DiagnosticSeverity::Hard,
                             });
                         }
                     }
@@ -912,6 +943,7 @@ impl Parser<'_> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: DiagnosticSeverity::Hard,
                 });
                 break;
             }
@@ -940,6 +972,7 @@ impl Parser<'_> {
                 span: self.current_span(),
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             });
         }
 
@@ -954,6 +987,7 @@ impl Parser<'_> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: DiagnosticSeverity::Hard,
                 });
             }
         }
