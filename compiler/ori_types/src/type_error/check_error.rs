@@ -260,6 +260,171 @@ impl TypeCheckError {
         self.span
     }
 
+    /// Format a rich error message using closures for type and name resolution.
+    ///
+    /// This produces the same output as `TypeErrorRenderer::format_message()` in `oric`,
+    /// but is available at the `ori_types` level for consumers like the WASM playground
+    /// that can't depend on `oric`.
+    ///
+    /// # Parameters
+    ///
+    /// - `format_type`: Resolves a type `Idx` to a human-readable string
+    ///   (e.g., `|idx| pool.format_type(idx)`)
+    /// - `format_name`: Resolves an interned `Name` to its string value
+    ///   (e.g., `|name| interner.lookup(name).to_string()`)
+    pub fn format_message_rich(
+        &self,
+        format_type: &dyn Fn(Idx) -> String,
+        format_name: &dyn Fn(Name) -> String,
+    ) -> String {
+        use std::fmt::Write;
+        match &self.kind {
+            TypeErrorKind::Mismatch {
+                expected,
+                found,
+                problems,
+            } => {
+                for problem in problems {
+                    if let Some(detail) = problem_message_rich(problem, format_type) {
+                        return format!("type mismatch: {detail}");
+                    }
+                }
+                format!(
+                    "type mismatch: expected `{}`, found `{}`",
+                    format_type(*expected),
+                    format_type(*found)
+                )
+            }
+            TypeErrorKind::UnknownIdent { name, similar } => {
+                let mut msg = format!("unknown identifier `{}`", format_name(*name));
+                if !similar.is_empty() {
+                    let suggestions: Vec<String> = similar
+                        .iter()
+                        .map(|s| format!("`{}`", format_name(*s)))
+                        .collect();
+                    write!(msg, "; did you mean {}?", suggestions.join(" or ")).ok();
+                }
+                msg
+            }
+            TypeErrorKind::UndefinedField { ty, field, .. } => {
+                format!(
+                    "no such field `{}` on type `{}`",
+                    format_name(*field),
+                    format_type(*ty)
+                )
+            }
+            TypeErrorKind::ArityMismatch {
+                expected,
+                found,
+                kind,
+                func_name,
+            } => {
+                if let Some(name) = func_name {
+                    let s = if *expected == 1 { "" } else { "s" };
+                    format!(
+                        "function `{name}` expects {expected} argument{s}, but {found} {} provided",
+                        if *found == 1 { "was" } else { "were" }
+                    )
+                } else {
+                    let desc = kind.description();
+                    format!("expected {expected} {desc}, found {found}")
+                }
+            }
+            TypeErrorKind::MissingCapability { required, .. } => {
+                format!("missing required capability `{}`", format_name(*required))
+            }
+            TypeErrorKind::InfiniteType { var_name } => {
+                if let Some(name) = var_name {
+                    format!(
+                        "infinite type detected: `{}` refers to itself",
+                        format_name(*name)
+                    )
+                } else {
+                    "infinite type detected".to_string()
+                }
+            }
+            TypeErrorKind::AmbiguousType { context, .. } => {
+                format!("cannot infer type in {context}")
+            }
+            TypeErrorKind::PatternMismatch { expected, found } => {
+                format!(
+                    "pattern type mismatch: expected `{}`, found `{}`",
+                    format_type(*expected),
+                    format_type(*found)
+                )
+            }
+            TypeErrorKind::NonExhaustiveMatch { missing } => {
+                format!("non-exhaustive match: missing {}", missing.join(", "))
+            }
+            TypeErrorKind::RigidMismatch { name, concrete } => {
+                format!(
+                    "type parameter `{}` cannot be unified with `{}`",
+                    format_name(*name),
+                    format_type(*concrete)
+                )
+            }
+            TypeErrorKind::ImportError { message } => {
+                format!("import error: {message}")
+            }
+            TypeErrorKind::MissingAssocType {
+                assoc_name,
+                trait_name,
+            } => {
+                format!(
+                    "missing associated type `{}` in impl for `{}`",
+                    format_name(*assoc_name),
+                    format_name(*trait_name)
+                )
+            }
+            TypeErrorKind::UnsatisfiedBound { message } => message.clone(),
+            TypeErrorKind::NotAStruct { name } => {
+                format!("`{}` is not a struct type", format_name(*name))
+            }
+            TypeErrorKind::MissingFields {
+                struct_name,
+                fields,
+            } => {
+                let field_names: Vec<_> = fields
+                    .iter()
+                    .map(|f| format!("`{}`", format_name(*f)))
+                    .collect();
+                let count = fields.len();
+                let s = if count == 1 { "" } else { "s" };
+                format!(
+                    "missing {count} required field{s} in `{}`: {}",
+                    format_name(*struct_name),
+                    field_names.join(", ")
+                )
+            }
+            TypeErrorKind::DuplicateField { struct_name, field } => {
+                format!(
+                    "duplicate field `{}` in `{}`",
+                    format_name(*field),
+                    format_name(*struct_name)
+                )
+            }
+        }
+    }
+
+    /// Convenience wrapper for `format_message_rich` using a `Pool` and `StringInterner`.
+    ///
+    /// This is the easiest way to get rich error messages when you have both
+    /// a Pool (for type formatting) and a `StringInterner` (for name resolution).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let (result, pool) = check_module_with_imports(&module, &arena, &interner, |_| {});
+    /// for error in result.errors() {
+    ///     println!("{}", error.format_with(&pool, &interner));
+    /// }
+    /// ```
+    pub fn format_with(&self, pool: &crate::Pool, interner: &ori_ir::StringInterner) -> String {
+        self.format_message_rich(&|idx| pool.format_type(idx), &|name| {
+            interner.lookup(name).to_string()
+        })
+    }
+
     /// Get a human-readable error message.
     ///
     /// Uses `Idx::display_name()` for type names, which renders primitives
@@ -930,6 +1095,71 @@ fn problem_message(problem: &TypeProblem) -> Option<String> {
     }
 }
 
+/// Generate a rich problem message using a type formatter.
+///
+/// Same as `problem_message` but uses the provided formatter for full type names
+/// instead of `Idx::display_name()`.
+fn problem_message_rich(
+    problem: &TypeProblem,
+    format_type: &dyn Fn(Idx) -> String,
+) -> Option<String> {
+    match problem {
+        TypeProblem::NotCallable { actual_type } => Some(format!(
+            "expected a function, found `{}`",
+            format_type(*actual_type)
+        )),
+        TypeProblem::WrongArity { expected, found } => {
+            let s = if *expected == 1 { "" } else { "s" };
+            Some(format!("expected {expected} argument{s}, found {found}"))
+        }
+        TypeProblem::IntFloat => {
+            Some("int and float are different types; use explicit conversion".to_string())
+        }
+        TypeProblem::NumberToString => {
+            Some("cannot use number as string; use `str()` to convert".to_string())
+        }
+        TypeProblem::StringToNumber => {
+            Some("cannot use string as number; use `int()` or `float()` to convert".to_string())
+        }
+        TypeProblem::ExpectedOption => Some("expected an Option type".to_string()),
+        TypeProblem::NeedsUnwrap { inner_type } => Some(format!(
+            "value needs to be unwrapped; inner type is `{}`",
+            format_type(*inner_type)
+        )),
+        TypeProblem::ReturnMismatch { expected, found } => Some(format!(
+            "return type mismatch: expected `{}`, found `{}`",
+            format_type(*expected),
+            format_type(*found)
+        )),
+        TypeProblem::ArgumentMismatch {
+            arg_index,
+            expected,
+            found,
+        } => Some(format!(
+            "argument {} has type `{}`, expected `{}`",
+            arg_index + 1,
+            format_type(*found),
+            format_type(*expected)
+        )),
+        TypeProblem::BadOperandType {
+            op,
+            op_category,
+            found_type,
+            required_type,
+        } => {
+            if *op_category == "unary" {
+                Some(format!("cannot apply `{op}` to `{found_type}`"))
+            } else {
+                Some(format!(
+                    "left operand of {op_category} operator must be `{required_type}`"
+                ))
+            }
+        }
+        TypeProblem::ClosureSelfCapture => Some("closure cannot capture itself".to_string()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1031,5 +1261,138 @@ mod tests {
             ErrorContext::default(),
         );
         assert_eq!(error.span(), error.span);
+    }
+
+    // ====================================================================
+    // format_message_rich tests
+    // ====================================================================
+
+    fn identity_type(idx: Idx) -> String {
+        idx.display_name().to_string()
+    }
+
+    fn test_name_resolver(name: Name) -> String {
+        match name.raw() {
+            1 => "foo".to_string(),
+            2 => "bar".to_string(),
+            3 => "baz".to_string(),
+            10 => "MyStruct".to_string(),
+            11 => "length".to_string(),
+            12 => "width".to_string(),
+            20 => "Http".to_string(),
+            30 => "Iter".to_string(),
+            31 => "Container".to_string(),
+            _ => format!("<name:{}>", name.raw()),
+        }
+    }
+
+    #[test]
+    fn rich_message_unknown_ident_with_name() {
+        let error = TypeCheckError::unknown_ident(Span::new(0, 3), Name::from_raw(1), vec![]);
+        let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+        assert_eq!(msg, "unknown identifier `foo`");
+    }
+
+    #[test]
+    fn rich_message_unknown_ident_with_suggestions() {
+        let error = TypeCheckError::unknown_ident(
+            Span::new(0, 3),
+            Name::from_raw(1),
+            vec![Name::from_raw(2), Name::from_raw(3)],
+        );
+        let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+        assert_eq!(
+            msg,
+            "unknown identifier `foo`; did you mean `bar` or `baz`?"
+        );
+    }
+
+    #[test]
+    fn rich_message_mismatch_primitives() {
+        let error = TypeCheckError::mismatch(
+            Span::new(0, 10),
+            Idx::INT,
+            Idx::STR,
+            vec![],
+            ErrorContext::default(),
+        );
+        let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+        assert_eq!(msg, "type mismatch: expected `int`, found `str`");
+    }
+
+    #[test]
+    fn rich_message_undefined_field() {
+        let error = TypeCheckError::undefined_field(
+            Span::new(0, 5),
+            Idx::INT,
+            Name::from_raw(11),
+            vec![Name::from_raw(12)],
+        );
+        let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+        assert_eq!(msg, "no such field `length` on type `int`");
+    }
+
+    #[test]
+    fn rich_message_missing_capability() {
+        let error = TypeCheckError::missing_capability(Span::new(0, 5), Name::from_raw(20), &[]);
+        let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+        assert_eq!(msg, "missing required capability `Http`");
+    }
+
+    #[test]
+    fn rich_message_missing_fields() {
+        let error = TypeCheckError::missing_fields(
+            Span::new(0, 10),
+            Name::from_raw(10),
+            vec![Name::from_raw(11), Name::from_raw(12)],
+        );
+        let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+        assert_eq!(
+            msg,
+            "missing 2 required fields in `MyStruct`: `length`, `width`"
+        );
+    }
+
+    #[test]
+    fn rich_message_duplicate_field() {
+        let error = TypeCheckError::duplicate_field(
+            Span::new(0, 5),
+            Name::from_raw(10),
+            Name::from_raw(11),
+        );
+        let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+        assert_eq!(msg, "duplicate field `length` in `MyStruct`");
+    }
+
+    #[test]
+    fn rich_message_not_a_struct() {
+        let error = TypeCheckError::not_a_struct(Span::new(0, 5), Name::from_raw(1));
+        let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+        assert_eq!(msg, "`foo` is not a struct type");
+    }
+
+    #[test]
+    fn rich_message_missing_assoc_type() {
+        let error = TypeCheckError::missing_assoc_type(
+            Span::new(0, 5),
+            Name::from_raw(30),
+            Name::from_raw(31),
+        );
+        let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+        assert_eq!(
+            msg,
+            "missing associated type `Iter` in impl for `Container`"
+        );
+    }
+
+    #[test]
+    fn format_with_uses_pool_and_interner() {
+        let pool = crate::Pool::new();
+        let interner = ori_ir::StringInterner::new();
+        let name = interner.intern("my_var");
+
+        let error = TypeCheckError::unknown_ident(Span::new(0, 6), name, vec![]);
+        let msg = error.format_with(&pool, &interner);
+        assert_eq!(msg, "unknown identifier `my_var`");
     }
 }

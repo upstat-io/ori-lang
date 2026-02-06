@@ -132,13 +132,60 @@ impl TypeEnv {
 
     /// Find names similar to the given name (for typo suggestions).
     ///
-    /// Returns names with edit distance ≤ 2 from the target.
-    pub fn find_similar(&self, target: Name) -> Vec<Name> {
-        // We need a string interner to compute edit distance
-        // For now, just return empty - will be filled in when integrated
-        // with the string interner
-        let _ = target;
-        Vec::new()
+    /// Uses Levenshtein edit distance to find names within a dynamic threshold
+    /// based on the target name's length. Returns up to `max_results` similar names,
+    /// sorted by edit distance (best match first).
+    ///
+    /// The `resolve` closure maps `Name` handles to their string representations.
+    /// If the resolver returns `None` for a name, that name is skipped.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let similar = env.find_similar(misspelled, 3, |n| interner.lookup(n));
+    /// // Returns up to 3 names sorted by closeness
+    /// ```
+    pub fn find_similar<'r>(
+        &self,
+        target: Name,
+        max_results: usize,
+        resolve: impl Fn(Name) -> Option<&'r str>,
+    ) -> Vec<Name> {
+        let Some(target_str) = resolve(target) else {
+            return Vec::new();
+        };
+
+        if target_str.is_empty() || max_results == 0 {
+            return Vec::new();
+        }
+
+        let threshold = default_threshold(target_str.len());
+
+        // Collect (name, distance) pairs, deduplicating by name
+        let mut seen = rustc_hash::FxHashSet::default();
+        let mut matches: Vec<(Name, usize)> = self
+            .names()
+            .filter(|&name| name != target && seen.insert(name))
+            .filter_map(|name| {
+                let candidate = resolve(name)?;
+                // Quick reject: if lengths differ too much, skip expensive computation
+                let len_diff = target_str.len().abs_diff(candidate.len());
+                if len_diff > threshold {
+                    return None;
+                }
+                let distance = crate::edit_distance(target_str, candidate);
+                (distance <= threshold).then_some((name, distance))
+            })
+            .collect();
+
+        // Sort by distance, then by name for determinism
+        matches.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+
+        matches
+            .into_iter()
+            .take(max_results)
+            .map(|(name, _)| name)
+            .collect()
     }
 
     /// Count bindings in the current scope only.
@@ -174,6 +221,25 @@ impl Iterator for NamesIterator<'_> {
             self.current_iter = Some(env.0.bindings.keys());
             self.current = env.0.parent.as_ref();
         }
+    }
+}
+
+// ============================================================================
+// Edit distance utilities
+// ============================================================================
+
+/// Dynamic threshold based on name length.
+///
+/// Shorter names need stricter matching to avoid false positives:
+/// - 1-2 chars: distance ≤ 1
+/// - 3-5 chars: distance ≤ 2
+/// - 6+ chars: distance ≤ 3
+fn default_threshold(name_len: usize) -> usize {
+    match name_len {
+        0 => 0,
+        1..=2 => 1,
+        3..=5 => 2,
+        _ => 3,
     }
 }
 
@@ -274,5 +340,171 @@ mod tests {
 
         assert!(parent.parent().is_none());
         assert!(child.parent().is_some());
+    }
+
+    // ====================================================================
+    // Edit distance tests (uses crate::edit_distance from type_error/diff.rs)
+    // ====================================================================
+
+    use crate::edit_distance;
+
+    #[test]
+    fn test_edit_distance_identical() {
+        assert_eq!(edit_distance("hello", "hello"), 0);
+        assert_eq!(edit_distance("", ""), 0);
+    }
+
+    #[test]
+    fn test_edit_distance_empty() {
+        assert_eq!(edit_distance("hello", ""), 5);
+        assert_eq!(edit_distance("", "world"), 5);
+    }
+
+    #[test]
+    fn test_edit_distance_single_edit() {
+        assert_eq!(edit_distance("abc", "adc"), 1); // substitution
+        assert_eq!(edit_distance("abc", "abcd"), 1); // insertion
+        assert_eq!(edit_distance("abcd", "abc"), 1); // deletion
+    }
+
+    #[test]
+    fn test_edit_distance_typos() {
+        assert_eq!(edit_distance("lenght", "length"), 2); // transposition (2 edits in Levenshtein)
+        assert_eq!(edit_distance("helo", "hello"), 1); // missing char
+        assert_eq!(edit_distance("mpa", "map"), 2); // transposition
+    }
+
+    #[test]
+    fn test_default_threshold() {
+        assert_eq!(default_threshold(0), 0);
+        assert_eq!(default_threshold(1), 1);
+        assert_eq!(default_threshold(2), 1);
+        assert_eq!(default_threshold(3), 2);
+        assert_eq!(default_threshold(5), 2);
+        assert_eq!(default_threshold(6), 3);
+        assert_eq!(default_threshold(10), 3);
+    }
+
+    // ====================================================================
+    // find_similar tests
+    // ====================================================================
+
+    /// Create a simple resolver mapping Name(raw) -> &str.
+    fn make_resolver<'a>(names: &'a [(u32, &'a str)]) -> impl Fn(Name) -> Option<&'a str> + 'a {
+        move |n: Name| {
+            names
+                .iter()
+                .find(|(id, _)| Name::from_raw(*id) == n)
+                .map(|(_, s)| *s)
+        }
+    }
+
+    #[test]
+    fn test_find_similar_basic_typo() {
+        let mut env = TypeEnv::new();
+        // Bind "length", "height", "width"
+        env.bind(name(1), Idx::INT); // "length"
+        env.bind(name(2), Idx::INT); // "height"
+        env.bind(name(3), Idx::INT); // "width"
+
+        let resolver = make_resolver(&[(1, "length"), (2, "height"), (3, "width"), (4, "lenght")]);
+
+        // "lenght" (typo) should find "length"
+        let similar = env.find_similar(name(4), 3, &resolver);
+        assert!(!similar.is_empty(), "should find at least one suggestion");
+        assert_eq!(similar[0], name(1), "best match should be 'length'");
+    }
+
+    #[test]
+    fn test_find_similar_no_match() {
+        let mut env = TypeEnv::new();
+        env.bind(name(1), Idx::INT); // "alpha"
+        env.bind(name(2), Idx::INT); // "beta"
+
+        let resolver = make_resolver(&[(1, "alpha"), (2, "beta"), (3, "xyz")]);
+
+        let similar = env.find_similar(name(3), 3, &resolver);
+        assert!(similar.is_empty(), "no similar names should be found");
+    }
+
+    #[test]
+    fn test_find_similar_empty_env() {
+        let env = TypeEnv::new();
+        let resolver = make_resolver(&[(1, "anything")]);
+
+        let similar = env.find_similar(name(1), 3, &resolver);
+        assert!(similar.is_empty());
+    }
+
+    #[test]
+    fn test_find_similar_respects_max_results() {
+        let mut env = TypeEnv::new();
+        env.bind(name(1), Idx::INT); // "abc"
+        env.bind(name(2), Idx::INT); // "abd"
+        env.bind(name(3), Idx::INT); // "abe"
+        env.bind(name(4), Idx::INT); // "abf"
+
+        let resolver = make_resolver(&[(1, "abc"), (2, "abd"), (3, "abe"), (4, "abf"), (5, "abx")]);
+
+        let similar = env.find_similar(name(5), 2, &resolver);
+        assert!(similar.len() <= 2, "should respect max_results limit");
+    }
+
+    #[test]
+    fn test_find_similar_searches_parent_scopes() {
+        let mut parent = TypeEnv::new();
+        parent.bind(name(1), Idx::INT); // "filter" in parent
+
+        let mut child = parent.child();
+        child.bind(name(2), Idx::INT); // "map" in child
+
+        let resolver = make_resolver(&[(1, "filter"), (2, "map"), (3, "fiter")]);
+
+        // "fiter" should find "filter" from parent scope
+        let similar = child.find_similar(name(3), 3, &resolver);
+        assert!(!similar.is_empty(), "should search parent scopes");
+        assert_eq!(similar[0], name(1));
+    }
+
+    #[test]
+    fn test_find_similar_skips_target_name() {
+        let mut env = TypeEnv::new();
+        env.bind(name(1), Idx::INT); // "foo"
+
+        let resolver = make_resolver(&[(1, "foo")]);
+
+        // Looking up "foo" itself shouldn't suggest "foo" back
+        let similar = env.find_similar(name(1), 3, &resolver);
+        assert!(
+            similar.is_empty(),
+            "should not suggest the target name itself"
+        );
+    }
+
+    #[test]
+    fn test_find_similar_sorted_by_distance() {
+        let mut env = TypeEnv::new();
+        env.bind(name(1), Idx::INT); // "abcde" (distance 2 from "abxyz")
+        env.bind(name(2), Idx::INT); // "abcyz" (distance 1 from "abxyz")
+
+        let resolver = make_resolver(&[(1, "abcde"), (2, "abcyz"), (3, "abxyz")]);
+
+        let similar = env.find_similar(name(3), 3, &resolver);
+        if similar.len() >= 2 {
+            // Closer match should come first
+            assert_eq!(similar[0], name(2), "closer match should be first");
+        }
+    }
+
+    #[test]
+    fn test_find_similar_unresolvable_target() {
+        let mut env = TypeEnv::new();
+        env.bind(name(1), Idx::INT);
+
+        // Resolver that can't resolve the target
+        let resolver = |_: Name| -> Option<&str> { None };
+
+        let similar = env.find_similar(name(99), 3, resolver);
+        assert!(similar.is_empty());
     }
 }

@@ -44,7 +44,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use super::InferEngine;
 use crate::{
     ContextKind, Expected, ExpectedOrigin, Idx, Pool, SequenceKind, Tag, TypeCheckError, TypeKind,
-    VariantFields,
+    TypeRegistry, VariantFields,
 };
 
 /// Infer the type of an expression.
@@ -373,8 +373,11 @@ fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
         };
     }
 
-    // 7. Unknown identifier
-    engine.push_error(TypeCheckError::undefined_identifier(name, span));
+    // 7. Unknown identifier — find similar names for typo suggestions
+    let similar = engine
+        .env()
+        .find_similar(name, 3, |n| engine.lookup_name(n));
+    engine.push_error(TypeCheckError::unknown_ident(span, name, similar));
     Idx::ERROR
 }
 
@@ -1900,6 +1903,45 @@ fn infer_range(
 // Struct Inference
 // ============================================================================
 
+/// Find type names similar to `target` in the type registry (for typo suggestions).
+fn find_similar_type_names(
+    engine: &InferEngine<'_>,
+    type_registry: &TypeRegistry,
+    target: Name,
+) -> Vec<Name> {
+    let Some(target_str) = engine.lookup_name(target) else {
+        return Vec::new();
+    };
+
+    if target_str.is_empty() {
+        return Vec::new();
+    }
+
+    let threshold = match target_str.len() {
+        0 => return Vec::new(),
+        1..=2 => 1,
+        3..=5 => 2,
+        _ => 3,
+    };
+
+    let mut matches: Vec<(Name, usize)> = type_registry
+        .names()
+        .filter(|&n| n != target)
+        .filter_map(|candidate_name| {
+            let candidate_str = engine.lookup_name(candidate_name)?;
+            let len_diff = target_str.len().abs_diff(candidate_str.len());
+            if len_diff > threshold {
+                return None;
+            }
+            let distance = crate::edit_distance(target_str, candidate_str);
+            (distance <= threshold).then_some((candidate_name, distance))
+        })
+        .collect();
+
+    matches.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    matches.into_iter().take(3).map(|(n, _)| n).collect()
+}
+
 /// Infer type for a struct literal: `Point { x: 1, y: 2 }`.
 ///
 /// Performs:
@@ -1928,8 +1970,9 @@ fn infer_struct(
     };
 
     let Some(entry) = type_registry.get_by_name(name).cloned() else {
-        // Unknown type name — still infer field values to avoid cascading errors
-        engine.push_error(TypeCheckError::unknown_ident(span, name, vec![]));
+        // Unknown type name — find similar type names for suggestions
+        let similar = find_similar_type_names(engine, type_registry, name);
+        engine.push_error(TypeCheckError::unknown_ident(span, name, similar));
         let field_inits = arena.get_field_inits(fields);
         for init in field_inits {
             if let Some(value_id) = init.value {
@@ -2060,7 +2103,9 @@ fn infer_struct_spread(
     };
 
     let Some(entry) = type_registry.get_by_name(name).cloned() else {
-        engine.push_error(TypeCheckError::unknown_ident(span, name, vec![]));
+        // Unknown type name — find similar type names for suggestions
+        let similar = find_similar_type_names(engine, type_registry, name);
+        engine.push_error(TypeCheckError::unknown_ident(span, name, similar));
         for field in struct_lit_fields {
             match field {
                 ori_ir::StructLitField::Field(init) => {

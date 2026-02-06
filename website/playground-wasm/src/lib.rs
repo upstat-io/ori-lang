@@ -91,7 +91,7 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     }
 
     // Type check (V2 pipeline)
-    let (type_result, _pool) = ori_types::check_module_with_imports(
+    let (type_result, pool) = ori_types::check_module_with_imports(
         &parse_result.module,
         &parse_result.arena,
         &interner,
@@ -101,7 +101,7 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
         let errors: Vec<String> = type_result
             .errors()
             .iter()
-            .map(|e| format!("At {}: {}", e.span, e.message()))
+            .map(|e| format!("At {}: {}", e.span, e.format_with(&pool, &interner)))
             .collect();
         return RunResult {
             success: false,
