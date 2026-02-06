@@ -2501,18 +2501,26 @@ fn infer_assign(
 fn infer_with_capability(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    _capability: Name,
+    capability: Name,
     provider: ExprId,
     body: ExprId,
     _span: Span,
 ) -> Idx {
-    // Infer provider type (for validation)
-    let _ = infer_expr(engine, arena, provider);
+    // Infer provider type (validates the provider expression)
+    let provider_ty = infer_expr(engine, arena, provider);
 
-    // TODO: Track capability provision for propagation checking
+    // Bind the capability name in a child scope so the body can
+    // reference it as an identifier (e.g., `with Http = mock in Http`).
+    engine.enter_scope();
+    engine.env_mut().bind(capability, provider_ty);
 
-    // Expression type is the body type
-    infer_expr(engine, arena, body)
+    // Provide the capability for the duration of the body.
+    // This makes calls to functions `uses <capability>` valid within.
+    let body_ty =
+        engine.with_provided_capability(capability, |engine| infer_expr(engine, arena, body));
+
+    engine.exit_scope();
+    body_ty
 }
 
 // Call inference stubs
@@ -2538,13 +2546,16 @@ fn infer_call(
 
     let arg_ids: Vec<_> = arena.iter_expr_list(args).collect();
 
-    // Look up required_params from function signature if available
-    let required_params = match &arena.get_expr(func).kind {
-        ExprKind::FunctionRef(name) | ExprKind::Ident(name) => engine
-            .get_signature(*name)
-            .map_or(params.len(), |sig| sig.required_params),
-        _ => params.len(),
+    // Extract function name for signature lookup
+    let func_name_id = match &arena.get_expr(func).kind {
+        ExprKind::FunctionRef(name) | ExprKind::Ident(name) => Some(*name),
+        _ => None,
     };
+
+    // Look up required_params from function signature if available
+    let required_params = func_name_id
+        .and_then(|n| engine.get_signature(n))
+        .map_or(params.len(), |sig| sig.required_params);
 
     // Check arity: allow fewer args if defaults fill the gap
     if arg_ids.len() < required_params || arg_ids.len() > params.len() {
@@ -2556,6 +2567,9 @@ fn infer_call(
         ));
         return Idx::ERROR;
     }
+
+    // Validate capability requirements
+    check_call_capabilities(engine, func_name_id, span);
 
     // Check each provided argument
     for (i, (&arg_id, &param_ty)) in arg_ids.iter().zip(params.iter()).enumerate() {
@@ -2631,6 +2645,9 @@ fn infer_call_named(
         return Idx::ERROR;
     }
 
+    // Validate capability requirements
+    check_call_capabilities(engine, func_name_id, span);
+
     // Check each argument type by position
     for (i, (arg, &param_ty)) in call_args.iter().zip(params.iter()).enumerate() {
         let expected = Expected {
@@ -2664,6 +2681,33 @@ fn infer_call_named(
     }
 
     ret
+}
+
+/// Validate that required capabilities are available at a call site.
+///
+/// Looks up the callee's signature to find its `uses` capabilities,
+/// then checks each one against the caller's declared + provided capabilities.
+/// Emits `E2014 MissingCapability` for each missing capability.
+fn check_call_capabilities(engine: &mut InferEngine<'_>, func_name: Option<Name>, span: Span) {
+    let Some(name) = func_name else { return };
+    let Some(sig) = engine.get_signature(name) else {
+        return;
+    };
+
+    // Clone capabilities to avoid borrow conflict with push_error
+    let required_caps: Vec<Name> = sig.capabilities.clone();
+    if required_caps.is_empty() {
+        return;
+    }
+
+    let available = engine.available_capabilities();
+
+    for &cap in &required_caps {
+        if !engine.has_capability(cap) {
+            tracing::debug!(?cap, "missing capability at call site");
+            engine.push_error(TypeCheckError::missing_capability(span, cap, &available));
+        }
+    }
 }
 
 /// Validate where-clause constraints for a generic function call.

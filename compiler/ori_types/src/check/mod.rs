@@ -522,6 +522,7 @@ impl<'a> ModuleChecker<'a> {
     /// Create an inference engine for checking a scope.
     ///
     /// The engine borrows the pool mutably and starts with a fresh environment.
+    /// Propagates capability state so the engine can validate call-site capabilities.
     pub fn create_engine(&mut self) -> InferEngine<'_> {
         let interner = self.interner;
         // Split borrow: pool (mut) + traits, signatures, types (shared)
@@ -529,11 +530,14 @@ impl<'a> ModuleChecker<'a> {
         let sigs = &self.signatures;
         let types = &self.types;
         let impl_self = self.current_impl_self;
+        let current_caps = self.current_capabilities.clone();
+        let provided_caps = self.provided_capabilities.clone();
         let mut engine = InferEngine::new(&mut self.pool);
         engine.set_interner(interner);
         engine.set_trait_registry(traits);
         engine.set_signatures(sigs);
         engine.set_type_registry(types);
+        engine.set_capabilities(current_caps, provided_caps);
         if let Some(self_ty) = impl_self {
             engine.set_impl_self_type(self_ty);
         }
@@ -544,6 +548,7 @@ impl<'a> ModuleChecker<'a> {
     ///
     /// Use this when you need to start with pre-bound variables
     /// (e.g., function parameters).
+    /// Propagates capability state so the engine can validate call-site capabilities.
     pub fn create_engine_with_env(&mut self, env: TypeEnv) -> InferEngine<'_> {
         let interner = self.interner;
         // Split borrow: pool (mut) + traits, signatures, types (shared)
@@ -551,11 +556,14 @@ impl<'a> ModuleChecker<'a> {
         let sigs = &self.signatures;
         let types = &self.types;
         let impl_self = self.current_impl_self;
+        let current_caps = self.current_capabilities.clone();
+        let provided_caps = self.provided_capabilities.clone();
         let mut engine = InferEngine::with_env(&mut self.pool, env);
         engine.set_interner(interner);
         engine.set_trait_registry(traits);
         engine.set_signatures(sigs);
         engine.set_type_registry(types);
+        engine.set_capabilities(current_caps, provided_caps);
         if let Some(self_ty) = impl_self {
             engine.set_impl_self_type(self_ty);
         }
