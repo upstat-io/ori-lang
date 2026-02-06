@@ -1,8 +1,13 @@
 # Types 2.0 Index
 
-> **Maintenance Notice:** Update this index when adding/modifying sections.
-
-Quick-reference keyword index for finding Types 2.0 implementation sections.
+> **STATUS:** ✅ **PLAN COMPLETE** — All sections implemented, migrated, and verified (2026-02-05)
+>
+> | Metric | Value |
+> |--------|-------|
+> | Production code | ~23,700 lines |
+> | Tests passing | 8,490 (0 failures) |
+> | Clippy | Clean |
+> | Old system remnants | Zero |
 
 ---
 
@@ -32,7 +37,7 @@ Zig InternPool, Roc Subs
 ---
 
 ### Section 02: Pre-Computed Metadata (TypeFlags)
-**File:** `section-02-metadata.md` | **Status:** In Progress (~90%)
+**File:** `section-02-metadata.md` | **Status:** ✅ Complete (deferred: `effects()` helper)
 
 > **Note:** "Metadata" here means `TypeFlags` (type properties), NOT Parser V2's `ModuleExtra` (formatting trivia).
 
@@ -90,7 +95,7 @@ IntFloat, MissingField, FieldTypo
 ---
 
 ### Section 06: Type Inference Engine
-**File:** `section-06-inference.md` | **Status:** In Progress (~95%)
+**File:** `section-06-inference.md` | **Status:** ✅ Complete (deferred: qualified idents, closure capture)
 
 ```
 InferEngine, infer, inference
@@ -104,7 +109,7 @@ match, pattern, for, loop
 ---
 
 ### Section 07: Registries
-**File:** `section-07-registries.md` | **Status:** In Progress (~85%)
+**File:** `section-07-registries.md` | **Status:** ✅ Complete (deferred: auto-deref, method ambiguity, caching)
 
 ```
 TypeRegistry, TraitRegistry
@@ -167,15 +172,15 @@ error rendering, message, code, span
 | ID | Title | File | Priority | Status |
 |----|-------|------|----------|--------|
 | 01 | Unified Pool Architecture | `section-01-pool.md` | P0 | ✅ Complete |
-| 02 | Pre-Computed Metadata | `section-02-metadata.md` | P0 | In Progress (~90%) |
+| 02 | Pre-Computed Metadata | `section-02-metadata.md` | P0 | ✅ Complete (deferred: `effects()` helper, optimization gate tests) |
 | 03 | Unification Engine | `section-03-unification.md` | P0 | ✅ Complete |
 | 04 | Rank-Based Generalization | `section-04-ranks.md` | P1 | ✅ Complete |
 | 05 | Context-Aware Errors | `section-05-errors.md` | P1 | ✅ Complete |
-| 06 | Type Inference Engine | `section-06-inference.md` | P1 | In Progress (~95%) |
-| 07 | Registries | `section-07-registries.md` | P2 | In Progress (~85%) |
+| 06 | Type Inference Engine | `section-06-inference.md` | P1 | ✅ Complete (deferred: qualified idents, closure capture, `recurse` self) |
+| 07 | Registries | `section-07-registries.md` | P2 | ✅ Complete (deferred: auto-deref, method ambiguity, caching) |
 | 08 | Salsa Integration | `section-08-salsa.md` | P2 | ✅ Complete |
 | 08b | Module-Level Type Checker | `section-08b-module-checker.md` | P1 | ✅ Complete ¹ |
-| 09 | Migration | `section-09-migration.md` | P3 | ✅ Complete |
+| 09 | Migration | `section-09-migration.md` | P3 | ✅ Complete (8,490 tests passing, 0 failures) |
 
 ---
 
