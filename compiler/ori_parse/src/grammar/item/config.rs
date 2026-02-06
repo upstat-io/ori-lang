@@ -1,7 +1,19 @@
 //! Constant parsing.
 
-use crate::{committed, ParseError, ParseOutcome, Parser};
-use ori_ir::{ConstDef, Expr, ExprKind, TokenKind, Visibility};
+use crate::recovery::TokenSet;
+use crate::{committed, require, ParseError, ParseOutcome, Parser};
+use ori_ir::{ConstDef, DurationUnit, Expr, ExprKind, Name, SizeUnit, TokenKind, Visibility};
+
+/// Tokens valid as constant literal values.
+const CONST_LITERAL_TOKENS: TokenSet = TokenSet::new()
+    .with(TokenKind::Int(0))
+    .with(TokenKind::Float(0))
+    .with(TokenKind::String(Name::EMPTY))
+    .with(TokenKind::True)
+    .with(TokenKind::False)
+    .with(TokenKind::Char('\0'))
+    .with(TokenKind::Duration(0, DurationUnit::Nanoseconds))
+    .with(TokenKind::Size(0, SizeUnit::Bytes));
 
 impl Parser<'_> {
     /// Parse a constant declaration.
@@ -30,7 +42,7 @@ impl Parser<'_> {
         committed!(self.expect(&TokenKind::Eq));
 
         // literal value
-        let value = committed!(self.parse_literal_expr());
+        let value = require!(self, self.parse_literal_expr(), "literal value");
 
         let span = start_span.merge(self.previous_span());
 
@@ -43,18 +55,23 @@ impl Parser<'_> {
     }
 
     /// Parse a literal expression for constant values.
-    fn parse_literal_expr(&mut self) -> Result<ori_ir::ExprId, ParseError> {
+    ///
+    /// Returns `EmptyErr` if the current token is not a valid literal.
+    fn parse_literal_expr(&mut self) -> ParseOutcome<ori_ir::ExprId> {
         let span = self.current_span();
         let kind = match *self.current_kind() {
             TokenKind::Int(n) => {
                 self.advance();
-                let value = i64::try_from(n).map_err(|_| {
-                    ParseError::new(
-                        ori_diagnostic::ErrorCode::E1002,
-                        "integer literal too large".to_string(),
+                let Ok(value) = i64::try_from(n) else {
+                    return ParseOutcome::consumed_err(
+                        ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            "integer literal too large".to_string(),
+                            span,
+                        ),
                         span,
-                    )
-                })?;
+                    );
+                };
                 ExprKind::Int(value)
             }
             TokenKind::Float(bits) => {
@@ -88,14 +105,10 @@ impl Parser<'_> {
                 ExprKind::Size { value, unit }
             }
             _ => {
-                return Err(ParseError::new(
-                    ori_diagnostic::ErrorCode::E1002,
-                    "constant must be initialized with a literal value".to_string(),
-                    span,
-                ));
+                return ParseOutcome::empty_err(CONST_LITERAL_TOKENS, self.position());
             }
         };
 
-        Ok(self.arena.alloc_expr(Expr::new(kind, span)))
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(kind, span)))
     }
 }
