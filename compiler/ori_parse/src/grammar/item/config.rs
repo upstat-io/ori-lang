@@ -1,15 +1,15 @@
 //! Constant parsing.
 
-use crate::{ParseError, ParseResult, Parser};
+use crate::{ParseError, ParseOutcome, Parser};
 use ori_ir::{ConstDef, Expr, ExprKind, TokenKind, Visibility};
 
 impl Parser<'_> {
-    /// Parse a constant with progress tracking.
-    pub(crate) fn parse_const_with_progress(
+    /// Parse a constant with outcome tracking.
+    pub(crate) fn parse_const_with_outcome(
         &mut self,
         visibility: Visibility,
-    ) -> ParseResult<ConstDef> {
-        self.with_progress(|p| p.parse_const(visibility))
+    ) -> ParseOutcome<ConstDef> {
+        self.with_outcome(|p| p.parse_const(visibility))
     }
 
     /// Parse a constant declaration.

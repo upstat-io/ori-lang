@@ -1,17 +1,17 @@
 //! Function and test definition parsing.
 
 use crate::context::ParseContext;
-use crate::{FunctionOrTest, ParseError, ParseResult, ParsedAttrs, Parser};
+use crate::{FunctionOrTest, ParseError, ParseOutcome, ParsedAttrs, Parser};
 use ori_ir::{Function, GenericParamRange, Param, ParamRange, TestDef, TokenKind, Visibility};
 
 impl Parser<'_> {
-    /// Parse a function or test definition with progress tracking.
-    pub(crate) fn parse_function_or_test_with_progress(
+    /// Parse a function or test definition with outcome tracking.
+    pub(crate) fn parse_function_or_test_with_outcome(
         &mut self,
         attrs: ParsedAttrs,
         visibility: Visibility,
-    ) -> ParseResult<FunctionOrTest> {
-        self.with_progress(|p| p.parse_function_or_test_with_attrs(attrs, visibility))
+    ) -> ParseOutcome<FunctionOrTest> {
+        self.with_outcome(|p| p.parse_function_or_test_with_attrs(attrs, visibility))
     }
 
     /// Parse a function or test definition with attributes.
@@ -20,6 +20,16 @@ impl Parser<'_> {
     /// Targeted test: @name tests @target1 tests @target2 (params) -> Type = body
     /// Free-floating test: @`test_name` (params) -> void = body
     pub(crate) fn parse_function_or_test_with_attrs(
+        &mut self,
+        attrs: ParsedAttrs,
+        visibility: Visibility,
+    ) -> Result<FunctionOrTest, ParseError> {
+        self.in_error_context_result(crate::ErrorContext::FunctionDef, |p| {
+            p.parse_function_or_test_with_attrs_inner(attrs, visibility)
+        })
+    }
+
+    fn parse_function_or_test_with_attrs_inner(
         &mut self,
         attrs: ParsedAttrs,
         visibility: Visibility,

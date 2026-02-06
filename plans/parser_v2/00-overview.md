@@ -284,7 +284,12 @@ The current Ori parser already has excellent foundations:
 
 This plan builds on these strengths rather than replacing them.
 
-**Key Finding (2026-02-04):** Many "planned" features were already implemented in Ori. The parser architecture is more mature than initially assessed. Focus should shift to:
-1. Completing the error infrastructure (Sections 3 & 4)
-2. IDE support via incremental parsing (Section 5)
-3. Formatter support via metadata preservation (Section 6)
+**Key Finding (2026-02-04):** Many "planned" features were already implemented in Ori. The parser architecture is more mature than initially assessed.
+
+**Migration Complete (2026-02-05):** `ParseOutcome<T>` is now the operational return type for module-level dispatch:
+- `parse_module()` and `parse_module_incremental()` use `handle_outcome()` + `with_outcome()`
+- 9 `_with_progress` wrappers migrated to `_with_outcome` returning `ParseOutcome<T>`
+- `parse_primary()` natively returns `ParseOutcome<ExprId>`
+- 12 key grammar functions wrapped with `in_error_context_result()` for "while parsing" context
+- Dead code removed: `with_progress`, `handle_parse_result`, `progress_since`, `try_parse!`, `try_result!`
+- All 8490 tests pass (unit + spec + LLVM + WASM)

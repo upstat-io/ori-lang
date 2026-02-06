@@ -3,22 +3,26 @@
 //! Parses literals, identifiers, variant constructors, parenthesized expressions,
 //! lists, if expressions, and let expressions.
 
-use crate::{ParseError, ParseResult, Parser};
+use crate::{ParseError, ParseOutcome, Parser};
 use ori_ir::{BindingPattern, Expr, ExprId, ExprKind, ExprList, Param, ParamRange, TokenKind};
 
 impl Parser<'_> {
-    /// Parse primary expressions with progress tracking.
+    /// Parse primary expressions with outcome tracking.
     ///
-    /// Returns `Progress::None` if the current token is not a valid expression start.
-    /// Returns `Progress::Made` if tokens were consumed (success or error after consuming).
-    #[allow(dead_code)] // Available for expression-level error recovery
-    pub(crate) fn parse_primary_with_progress(&mut self) -> ParseResult<ExprId> {
-        self.with_progress(Self::parse_primary)
+    /// Returns `EmptyErr` if the current token is not a valid expression start
+    /// (no tokens consumed — enables backtracking in `one_of!` chains).
+    /// Returns `ConsumedOk` on successful parse, `ConsumedErr` on error after
+    /// consuming tokens.
+    pub(crate) fn parse_primary(&mut self) -> ParseOutcome<ExprId> {
+        self.with_outcome(Self::parse_primary_inner)
     }
 
-    /// Parse primary expressions.
+    /// Inner implementation of primary expression parsing.
+    ///
+    /// Returns `Result` — wrapped by `parse_primary()` into `ParseOutcome`
+    /// using position-based progress detection.
     #[inline]
-    pub(crate) fn parse_primary(&mut self) -> Result<ExprId, ParseError> {
+    fn parse_primary_inner(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
 
         // function_seq keywords (run, try)
@@ -440,6 +444,13 @@ impl Parser<'_> {
 
     /// Parse parenthesized expression, tuple, or lambda.
     fn parse_parenthesized(&mut self) -> Result<ExprId, ParseError> {
+        self.in_error_context_result(
+            crate::ErrorContext::Expression,
+            Self::parse_parenthesized_inner,
+        )
+    }
+
+    fn parse_parenthesized_inner(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
         self.advance(); // (
         self.skip_newlines();
@@ -563,6 +574,13 @@ impl Parser<'_> {
 
     /// Parse list literal.
     fn parse_list_literal(&mut self) -> Result<ExprId, ParseError> {
+        self.in_error_context_result(
+            crate::ErrorContext::ListLiteral,
+            Self::parse_list_literal_inner,
+        )
+    }
+
+    fn parse_list_literal_inner(&mut self) -> Result<ExprId, ParseError> {
         use ori_ir::ListElement;
 
         let span = self.current_span();
@@ -627,6 +645,13 @@ impl Parser<'_> {
 
     /// Parse map literal: `{ key: value, ... }`, `{ ...base, key: value }`, or `{}`.
     fn parse_map_literal(&mut self) -> Result<ExprId, ParseError> {
+        self.in_error_context_result(
+            crate::ErrorContext::MapLiteral,
+            Self::parse_map_literal_inner,
+        )
+    }
+
+    fn parse_map_literal_inner(&mut self) -> Result<ExprId, ParseError> {
         use ori_ir::{MapElement, MapEntry};
 
         let span = self.current_span();
@@ -694,6 +719,10 @@ impl Parser<'_> {
 
     /// Parse if expression.
     fn parse_if_expr(&mut self) -> Result<ExprId, ParseError> {
+        self.in_error_context_result(crate::ErrorContext::IfExpression, Self::parse_if_expr_inner)
+    }
+
+    fn parse_if_expr_inner(&mut self) -> Result<ExprId, ParseError> {
         use crate::ParseContext;
 
         let span = self.current_span();
@@ -741,6 +770,10 @@ impl Parser<'_> {
     /// - `let $x = ...` → immutable ($ prefix)
     /// - `let mut x = ...` → mutable (legacy, redundant)
     fn parse_let_expr(&mut self) -> Result<ExprId, ParseError> {
+        self.in_error_context_result(crate::ErrorContext::LetPattern, Self::parse_let_expr_inner)
+    }
+
+    fn parse_let_expr_inner(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
         self.advance();
 
@@ -907,6 +940,10 @@ impl Parser<'_> {
     ///
     /// Also supports optional guard: `for x in items if condition do body`
     fn parse_for_loop(&mut self) -> Result<ExprId, ParseError> {
+        self.in_error_context_result(crate::ErrorContext::ForLoop, Self::parse_for_loop_inner)
+    }
+
+    fn parse_for_loop_inner(&mut self) -> Result<ExprId, ParseError> {
         use crate::context::ParseContext;
 
         let span = self.current_span();

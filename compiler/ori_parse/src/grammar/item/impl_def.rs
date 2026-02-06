@@ -1,21 +1,25 @@
 //! Impl block parsing.
 
 use crate::context::ParseContext;
-use crate::{ParseError, ParseResult, Parser};
+use crate::{ParseError, ParseOutcome, Parser};
 use ori_ir::{
     DefImplDef, GenericParamRange, ImplAssocType, ImplDef, ImplMethod, ParsedTypeRange, TokenKind,
     Visibility,
 };
 
 impl Parser<'_> {
-    /// Parse an impl block with progress tracking.
-    pub(crate) fn parse_impl_with_progress(&mut self) -> ParseResult<ImplDef> {
-        self.with_progress(Self::parse_impl)
+    /// Parse an impl block with outcome tracking.
+    pub(crate) fn parse_impl_with_outcome(&mut self) -> ParseOutcome<ImplDef> {
+        self.with_outcome(Self::parse_impl)
     }
 
     /// Parse an impl block.
     /// Syntax: impl [<T>] Type { methods } or impl [<T>] Trait for Type { methods }
     pub(crate) fn parse_impl(&mut self) -> Result<ImplDef, ParseError> {
+        self.in_error_context_result(crate::ErrorContext::ImplBlock, Self::parse_impl_inner)
+    }
+
+    fn parse_impl_inner(&mut self) -> Result<ImplDef, ParseError> {
         let start_span = self.current_span();
         self.expect(&TokenKind::Impl)?;
 
@@ -158,12 +162,12 @@ impl Parser<'_> {
         })
     }
 
-    /// Parse a default implementation block with progress tracking.
-    pub(crate) fn parse_def_impl_with_progress(
+    /// Parse a default implementation block with outcome tracking.
+    pub(crate) fn parse_def_impl_with_outcome(
         &mut self,
         visibility: Visibility,
-    ) -> ParseResult<DefImplDef> {
-        self.with_progress(|p| p.parse_def_impl(visibility))
+    ) -> ParseOutcome<DefImplDef> {
+        self.with_outcome(|p| p.parse_def_impl(visibility))
     }
 
     /// Parse a default implementation block.

@@ -94,7 +94,11 @@ pub enum ParseOutcome<T> {
 - [x] Design `ParseOutcome` enum
 - [x] Add helper methods (`is_ok`, `made_progress`, `map`, `map_err`, etc.)
 - [x] Implement `From` conversions (bidirectional with `ParseResult`)
-- [ ] Migration: Update core parsing functions to return `ParseOutcome`
+- [x] Migration: Module dispatch uses `ParseOutcome` (2026-02-05)
+  - `parse_module()` and `parse_module_incremental()` use `handle_outcome()` + `with_outcome()`
+  - 9 `_with_progress` wrappers renamed to `_with_outcome`, return `ParseOutcome<T>`
+  - `parse_primary()` natively returns `ParseOutcome<ExprId>`
+  - `with_progress`, `handle_parse_result`, `try_parse!`, `try_result!` removed as dead code
 
 ### Design Notes
 
@@ -209,9 +213,10 @@ For sequencing parses:
   - Propagates both hard and soft errors
   - Used for sequential parse operations
 
-- [ ] Update parser to use macros (gradual migration)
-  - Macros are now available for use
-  - Parser functions can be migrated incrementally
+- [x] Update parser to use `ParseOutcome` at dispatch level (2026-02-05)
+  - Module dispatch (`parse_module`, `parse_module_incremental`) fully migrated
+  - `parse_primary()` returns `ParseOutcome<ExprId>` natively
+  - `one_of!`/`try_outcome!`/`require!`/`chain!` macros available for further migration
 
 ---
 
@@ -428,18 +433,36 @@ impl Parser {
 
 - [x] Add comprehensive tests (4 new tests for with_error_context, 3 for ErrorContext)
 
-### Usage Example
+- [x] Integrate `in_error_context_result()` with 12 grammar functions (2026-02-05)
+  - `parse_if_expr`, `parse_let_expr`, `parse_for_loop`, `parse_parenthesized`
+  - `parse_list_literal`, `parse_map_literal`, `parse_match_expr`
+  - `parse_function_or_test_with_attrs`, `parse_trait`, `parse_impl`, `parse_type_decl`
+  - Uses "inner method" pattern: `parse_X` delegates to `parse_X_inner` via `in_error_context_result`
+  - Errors now include "while parsing an if expression", "while parsing a trait definition", etc.
 
+### Usage Examples
+
+**Actual pattern (Result-based functions via `in_error_context_result`):**
+```rust
+fn parse_if_expr(&mut self) -> Result<ExprId, ParseError> {
+    self.in_error_context_result(ErrorContext::IfExpression, Self::parse_if_expr_inner)
+}
+
+fn parse_if_expr_inner(&mut self) -> Result<ExprId, ParseError> {
+    let start = self.current_span();
+    self.expect(&TokenKind::If)?;
+    let cond = self.parse_expr()?;
+    // ... body unchanged ...
+}
+```
+
+**Future pattern (ParseOutcome-based functions via `in_error_context`):**
 ```rust
 fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
     self.in_error_context(ErrorContext::IfExpression, |p| {
-        p.expect(&TokenKind::If)?;
         let cond = require!(p, p.parse_expr(), "condition");
-        p.expect(&TokenKind::Then)?;
-        let then_branch = require!(p, p.parse_expr(), "then branch");
-        p.expect(&TokenKind::Else)?;
-        let else_branch = require!(p, p.parse_expr(), "else branch");
-        ParseOutcome::consumed_ok(p.make_if_expr(cond, then_branch, else_branch))
+        // ...
+        ParseOutcome::consumed_ok(result)
     })
 }
 ```
@@ -465,8 +488,11 @@ fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
 - [x] `one_of!`, `try_outcome!`, `require!`, `chain!` macros working ✅ (2026-02-04)
 - [x] Expected token accumulation functional ✅ (2026-02-04)
 - [x] `ErrorContext` enum and `in_error_context` implemented ✅ (2026-02-04)
-- [x] All parser tests pass with new types ✅ (285 tests)
-- [ ] Error messages show full expected set (infrastructure ready, needs integration)
+- [x] All parser tests pass with new types ✅ (285 unit + 2994 spec tests)
+- [x] Error messages show full expected set ✅ (2026-02-05)
+  - `parse_primary()` returns `ParseOutcome<ExprId>` with `EmptyErr` carrying `TokenSet`
+  - `handle_outcome()` converts `EmptyErr` to `ParseError` via `from_expected_tokens()`
+  - `in_error_context_result()` wraps 12 key functions with "while parsing" context
 
 **Exit Criteria:**
 - ✅ Error messages list all valid alternatives

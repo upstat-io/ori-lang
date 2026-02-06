@@ -147,6 +147,13 @@ impl Parser<'_> {
 
     /// Parse match as `function_seq`: match(scrutinee, Pattern -> expr, ...)
     pub(crate) fn parse_match_expr(&mut self) -> Result<ExprId, ParseError> {
+        self.in_error_context_result(
+            crate::ErrorContext::MatchExpression,
+            Self::parse_match_expr_inner,
+        )
+    }
+
+    fn parse_match_expr_inner(&mut self) -> Result<ExprId, ParseError> {
         let start_span = self.previous_span();
         self.expect(&TokenKind::LParen)?;
         self.skip_newlines();
