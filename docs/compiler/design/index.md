@@ -79,7 +79,7 @@ The compiler features:
 |-----------|--------------|---------|
 | IR | ~4,500 | AST types, arena, visitor, interning |
 | Evaluator | ~5,500 | Tree-walking interpreter |
-| Type System | ~4,300 | Type checking, inference, TypeContext |
+| Type System | ~24,000 | Pool, inference, unification, registries, checking |
 | Parser | ~3,200 | Recursive descent parsing |
 | Patterns | ~3,000 | Pattern system and builtins |
 | Diagnostics | ~2,800 | Error reporting, DiagnosticQueue, fixes |
@@ -125,17 +125,19 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 ### Parser
 
 - [Parser Overview](04-parser/index.md) - Parsing architecture
-- [Recursive Descent](04-parser/recursive-descent.md) - Parsing approach
-- [Error Recovery](04-parser/error-recovery.md) - Handling syntax errors
-- [Grammar Modules](04-parser/grammar-modules.md) - Module organization
+- [Pratt Parser](04-parser/pratt-parser.md) - Binding power table and operator precedence
+- [Error Recovery](04-parser/error-recovery.md) - ParseOutcome, TokenSet, synchronization
+- [Grammar Modules](04-parser/grammar-modules.md) - Module organization and naming
+- [Incremental Parsing](04-parser/incremental-parsing.md) - IDE reuse of unchanged declarations
 
 ### Type System
 
 - [Type System Overview](05-type-system/index.md) - Type checking architecture
+- [Pool Architecture](05-type-system/pool-architecture.md) - SoA storage, interning, type construction
 - [Type Inference](05-type-system/type-inference.md) - Hindley-Milner inference
-- [Unification](05-type-system/unification.md) - Type constraint solving
+- [Unification](05-type-system/unification.md) - Union-find, rank system, occurs check
 - [Type Environment](05-type-system/type-environment.md) - Scope-based type tracking
-- [Type Registry](05-type-system/type-registry.md) - User-defined type storage
+- [Type Registry](05-type-system/type-registry.md) - User-defined types, traits, methods
 
 ### Pattern System
 
@@ -195,9 +197,8 @@ The compiler is organized as a multi-crate workspace:
 | `ori_ir` | `compiler/ori_ir/src/` | Core IR types (tokens, spans, AST, arena, interning, derives) |
 | `ori_diagnostic` | `compiler/ori_diagnostic/src/` | DiagnosticQueue, error reporting, suggestions, emitters |
 | `ori_lexer` | `compiler/ori_lexer/src/` | Tokenization via logos |
-| `ori_types` | `compiler/ori_types/src/` | Type, TypeError, TypeContext, InferenceContext |
+| `ori_types` | `compiler/ori_types/src/` | Pool, Idx, InferEngine, ModuleChecker, registries |
 | `ori_parse` | `compiler/ori_parse/src/` | Recursive descent parser |
-| `ori_typeck` | `compiler/ori_typeck/src/` | Type checking, inference, BuiltinMethodRegistry |
 | `ori_patterns` | `compiler/ori_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
 | `ori_eval` | `compiler/ori_eval/src/` | Environment, OperatorRegistry (core eval components) |
 | `ori_llvm` | `compiler/ori_llvm/src/` | LLVM backend for JIT/AOT compilation (requires Docker) |

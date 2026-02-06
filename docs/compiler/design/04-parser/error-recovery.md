@@ -7,349 +7,280 @@ section: "Parser"
 
 # Parser Error Recovery
 
-The Ori parser uses error recovery to parse as much as possible despite syntax errors. This enables reporting multiple errors in one pass.
+The Ori parser uses a multi-layered error recovery system that combines Elm-style four-way progress tracking with bitset-based token synchronization. This enables reporting multiple errors per parse, producing partial ASTs for downstream phases, and avoiding cascading false errors.
 
 ## Goals
 
-1. **Report multiple errors** - Don't stop at first error
-2. **Continue parsing** - Produce partial AST
-3. **Avoid cascading errors** - One error shouldn't cause many false errors
-4. **Preserve spans** - Track where errors occurred
+1. **Report multiple errors** — Continue parsing after the first error
+2. **Produce partial AST** — Downstream phases (type checking, evaluation) can work with `ExprKind::Error` placeholders
+3. **Avoid cascading errors** — Progress tracking prevents one error from triggering many false errors
+4. **Preserve spans** — Every error has a source location for precise diagnostics
+
+## ParseOutcome: Four-Way Progress Tracking
+
+The `ParseOutcome` type encodes both success/failure and whether input was consumed, creating four distinct parsing states:
+
+| Progress | Result | Variant | Meaning |
+|----------|--------|---------|---------|
+| Consumed | Ok | `ConsumedOk` | Committed to parse path, succeeded |
+| Empty | Ok | `EmptyOk` | Optional content absent, succeeded |
+| Consumed | Err | `ConsumedErr` | Hard error — don't backtrack, report error |
+| Empty | Err | `EmptyErr` | Soft error — try next alternative |
+
+```rust
+pub enum ParseOutcome<T> {
+    ConsumedOk { value: T },
+    EmptyOk { value: T },
+    ConsumedErr { error: ParseError, consumed_span: Span },
+    EmptyErr { expected: TokenSet, position: usize },
+}
+```
+
+The key insight from Elm/Roc: the **combination of progress and result** determines the correct recovery strategy. If tokens were consumed before the error, the parser has committed to a production and should report the error. If no tokens were consumed, the parser can silently try alternative productions.
+
+### Backtracking Macros
+
+Four macros build on `ParseOutcome` for clean parsing logic:
+
+#### `one_of!` — Try alternatives with automatic backtracking
+
+```rust
+fn parse_atom(&mut self) -> ParseOutcome<ExprId> {
+    one_of!(self,
+        self.parse_literal(),      // Try literal first
+        self.parse_ident(),        // Then identifier
+        self.parse_paren_expr(),   // Then parenthesized expression
+    )
+}
+```
+
+Each alternative is evaluated in order. On `EmptyErr` (soft failure), the parser restores position and tries the next alternative. On `ConsumedErr` (hard failure), the error propagates immediately — no further alternatives are tried. Expected token sets are accumulated across all soft failures for precise error messages like "expected `(`, `[`, or identifier".
+
+#### `try_outcome!` — Parse optional elements
+
+```rust
+fn parse_optional_type_annotation(&mut self) -> ParseOutcome<Option<TypeId>> {
+    let ty = try_outcome!(self, self.parse_type_annotation());
+    ParseOutcome::consumed_ok(Some(ty))
+}
+```
+
+Returns `Some(value)` on success, `None` on soft error, and propagates hard errors.
+
+#### `require!` — Mandatory elements after commitment
+
+```rust
+fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
+    self.expect(&TokenKind::If)?;  // Already consumed 'if'
+    let cond = require!(self, self.parse_expr(), "condition in if expression");
+    // ...
+}
+```
+
+Upgrades soft errors to hard errors with context. Used after the parser has committed to a production (consumed the leading keyword).
+
+#### `chain!` — Sequence operations
+
+```rust
+fn parse_binary(&mut self) -> ParseOutcome<ExprId> {
+    let lhs = chain!(self, self.parse_atom());
+    let op = chain!(self, self.parse_operator());
+    let rhs = chain!(self, self.parse_atom());
+    ParseOutcome::consumed_ok(self.make_binary(lhs, op, rhs))
+}
+```
+
+Extracts the value on success, returns early on any error.
+
+### Combinators
+
+`ParseOutcome` also provides functional combinators:
+
+| Method | Behavior |
+|--------|----------|
+| `map(f)` | Transform success value, preserve progress |
+| `map_err(f)` | Transform error, preserve progress |
+| `and_then(f)` | Chain operations, upgrade progress if either consumed |
+| `or_else(f)` | Try alternative on soft error only |
+| `or_else_accumulate(f)` | Like `or_else`, but merge expected token sets |
+| `with_error_context(ctx)` | Attach "while parsing X" to hard errors |
+
+### Error Context
+
+The `in_error_context` method wraps parser functions to add context:
+
+```rust
+fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
+    self.in_error_context(ErrorContext::IfExpression, |p| {
+        // ...
+    })
+}
+```
+
+This produces messages like "expected expression, found `}` (while parsing an if expression)" rather than bare "expected expression".
+
+### Coexistence with ParseResult
+
+`ParseOutcome` coexists with the legacy `ParseResult` (two-part progress + result) during migration. `From` conversions bridge between the types:
+
+```rust
+pub struct ParseResult<T> {
+    pub progress: Progress,       // Made | None
+    pub result: Result<T, ParseError>,
+}
+
+// Bidirectional conversion
+impl<T> From<ParseResult<T>> for ParseOutcome<T> { ... }
+impl<T> From<ParseOutcome<T>> for ParseResult<T> { ... }
+```
+
+The `with_outcome` method on `Parser` wraps `Result`-returning functions into `ParseOutcome`:
+
+```rust
+let outcome = self.with_outcome(|p| p.parse_use_inner(visibility));
+```
+
+## TokenSet: Bitset-Based Recovery Points
+
+Token sets use a `u128` bitfield for O(1) membership testing. Each bit corresponds to a `TokenKind` discriminant index, supporting all 115 token kinds.
+
+```rust
+pub struct TokenSet(u128);
+
+impl TokenSet {
+    pub const fn single(kind: TokenKind) -> Self;
+    pub const fn with(self, kind: TokenKind) -> Self;  // Builder pattern
+    pub const fn contains(&self, kind: &TokenKind) -> bool;  // O(1) lookup
+    pub const fn union(self, other: Self) -> Self;
+    pub fn format_expected(&self) -> String;  // "`,`, `)`, or `}`"
+}
+```
+
+### Pre-Defined Recovery Sets
+
+```rust
+/// Top-level statement boundaries.
+pub const STMT_BOUNDARY: TokenSet = TokenSet::new()
+    .with(TokenKind::At)      // Function/test definition
+    .with(TokenKind::Use)     // Import statement
+    .with(TokenKind::Type)    // Type declaration
+    .with(TokenKind::Trait)   // Trait definition
+    .with(TokenKind::Impl)    // Impl block
+    .with(TokenKind::Pub)     // Public declaration
+    .with(TokenKind::Let)     // Module-level constant
+    .with(TokenKind::Extend)  // Extension
+    .with(TokenKind::Eof);    // End of file
+
+/// Function-level boundaries.
+pub const FUNCTION_BOUNDARY: TokenSet = TokenSet::new()
+    .with(TokenKind::At)      // Next function/test
+    .with(TokenKind::Eof);    // End of file
+```
+
+### Synchronization
+
+When recovery is needed, the `synchronize` function skips tokens until reaching a member of the recovery set:
+
+```rust
+pub fn synchronize(cursor: &mut Cursor<'_>, recovery: TokenSet) -> bool {
+    while !cursor.is_at_end() {
+        if recovery.contains(cursor.current_kind()) {
+            return true;
+        }
+        cursor.advance();
+    }
+    false
+}
+```
+
+### Error Message Formatting
+
+`TokenSet::format_expected()` produces English-formatted lists:
+
+| Set Contents | Output |
+|-------------|--------|
+| Empty | `"nothing"` |
+| `{(}` | `` "`(`" `` |
+| `{(, [}` | `` "`(` or `[`" `` |
+| `{,, ), }}` | `` "`,`, `)`, or `}`" `` |
+
+This is used in `EmptyErr` to generate "expected X" messages automatically from the accumulated token set.
+
+## Module-Level Recovery
+
+The `parse_module()` function uses `handle_outcome` for uniform error handling across all declaration types:
+
+```rust
+fn handle_outcome<T>(
+    &mut self,
+    outcome: ParseOutcome<T>,
+    collection: &mut Vec<T>,
+    errors: &mut Vec<ParseError>,
+    recover: impl FnOnce(&mut Self),
+) {
+    match outcome {
+        ConsumedOk { value } | EmptyOk { value } => collection.push(value),
+        ConsumedErr { error, .. } => {
+            recover(self);  // Skip to recovery point
+            errors.push(error);
+        }
+        EmptyErr { expected, position } => {
+            errors.push(ParseError::from_expected_tokens(&expected, position));
+        }
+    }
+}
+```
+
+Recovery functions:
+
+| Function | Recovery Point | Used For |
+|----------|----------------|----------|
+| `recover_to_next_statement()` | `STMT_BOUNDARY` | Import parsing errors |
+| `recover_to_function()` | `FUNCTION_BOUNDARY` | Function/type/trait parsing errors |
 
 ## Error Types
 
-Parse errors use structured `ErrorCode` + message (not an enum):
-
 ```rust
 pub struct ParseError {
-    /// Error code for searchability (e.g., E1001)
-    pub code: ori_diagnostic::ErrorCode,
-    /// Human-readable message
-    pub message: String,
-    /// Location of the error
-    pub span: Span,
-    /// Optional context for suggestions
-    pub context: Option<String>,
-}
-
-impl ParseError {
-    pub fn new(code: ErrorCode, message: impl Into<String>, span: Span) -> Self;
-    pub fn with_context(self, context: impl Into<String>) -> Self;
-    pub fn to_diagnostic(&self) -> Diagnostic;
+    pub code: ErrorCode,       // E1xxx range
+    pub message: String,       // Human-readable description
+    pub span: Span,            // Source location
+    pub context: Option<String>, // "while parsing X"
+    pub help: Vec<String>,     // Suggestion messages
 }
 ```
 
-Error codes follow the E1xxx range (see Appendix C):
-- `E1001` - Unexpected token
-- `E1002` - Expected expression
-- `E1003` - Unclosed delimiter
-- `E1004` - Expected identifier
+Error codes:
 
-## Recovery Strategies
+| Code | Meaning |
+|------|---------|
+| `E1001` | Unexpected token |
+| `E1002` | Expected expression / import position |
+| `E1003` | Unclosed delimiter |
+| `E1004` | Expected identifier |
+| `E1006` | Orphaned attributes |
 
-### 1. Synchronization
+## Placeholder Nodes
 
-Skip tokens until a "synchronization point" is found:
+When expression parsing fails, the parser allocates `ExprKind::Error` placeholder nodes. These flow through downstream phases (type checking, evaluation) without crashing, enabling partial compilation and multi-error reporting.
+
+## Speculative Parsing
+
+For disambiguation that goes beyond simple lookahead, the parser uses lightweight snapshots:
 
 ```rust
-fn synchronize(&mut self) {
-    self.advance();  // Skip error token
-
-    while !self.at_end() {
-        // Statement/item boundaries are sync points
-        if self.previous_was(TokenKind::Semicolon) {
-            return;
-        }
-
-        match self.current() {
-            // Keywords that start statements/items
-            TokenKind::Let |
-            TokenKind::If |
-            TokenKind::For |
-            TokenKind::At |
-            TokenKind::Type |
-            TokenKind::Use => return,
-            _ => { self.advance(); }
-        }
-    }
+pub struct ParserSnapshot {
+    pub cursor_pos: usize,
+    pub context: ParseContext,
 }
 ```
 
-### 2. Insertion
+Snapshots capture cursor position and context flags (~10 bytes). Arena state is intentionally not captured — speculative parsing examines tokens without allocating AST nodes.
 
-Insert a missing token and continue:
+| Method | Behavior | Use Case |
+|--------|----------|----------|
+| `snapshot()` / `restore()` | Manual control | Complex disambiguation |
+| `try_parse(f)` | Auto-restore on failure | Full parse attempts |
+| `look_ahead(f)` | Always restores | Multi-token predicates |
 
-```rust
-fn expect(&mut self, kind: &TokenKind) -> Result<(), ParseError> {
-    if self.cursor.check(kind) {
-        self.cursor.advance();
-        Ok(())
-    } else {
-        let span = self.cursor.current_span();
-        Err(ParseError::new(E1001, format!("expected {:?}", kind), span))
-    }
-}
-
-fn expect_recover(&mut self, kind: &TokenKind) {
-    if !self.cursor.check(kind) {
-        self.error_expected(kind);
-        // Don't advance - continue as if token was present
-    } else {
-        self.cursor.advance();
-    }
-}
-```
-
-### 3. Deletion
-
-Skip unexpected tokens:
-
-```rust
-fn parse_list(&mut self) -> Vec<ExprId> {
-    let mut items = Vec::new();
-    self.expect(TokenKind::LBracket);
-
-    while !self.check(&TokenKind::RBracket) && !self.at_end() {
-        // Skip unexpected tokens
-        if !self.can_start_expr() {
-            self.error_unexpected();
-            self.advance();
-            continue;
-        }
-
-        items.push(self.parse_expr());
-
-        if !self.check(&TokenKind::RBracket) {
-            self.expect_recover(TokenKind::Comma);
-        }
-    }
-
-    self.expect_recover(TokenKind::RBracket);
-    items
-}
-```
-
-### 4. Dummy Values
-
-Return placeholder nodes for invalid input:
-
-```rust
-fn parse_expr_or_error(&mut self) -> ExprId {
-    if self.can_start_expr() {
-        self.parse_expr()
-    } else {
-        let span = self.cursor.current_span();
-        self.push_error(ParseError::new(E1002, "expected expression", span));
-        // Return error placeholder
-        self.alloc(ExprKind::Error)
-    }
-}
-```
-
-## Recovery Points
-
-### Statement Level
-
-```rust
-fn parse_statements(&mut self) -> Vec<Stmt> {
-    let mut stmts = Vec::new();
-
-    while !self.at_block_end() {
-        match self.try_parse_statement() {
-            Ok(stmt) => stmts.push(stmt),
-            Err(_) => {
-                self.synchronize();
-                // Continue with next statement
-            }
-        }
-    }
-
-    stmts
-}
-```
-
-### Expression Level
-
-```rust
-fn parse_primary(&mut self) -> ExprId {
-    match self.current() {
-        TokenKind::Int(n) => {
-            self.advance();
-            self.alloc(ExprKind::Literal(Literal::Int(*n)))
-        }
-        TokenKind::LParen => {
-            self.advance();
-            let expr = self.parse_expr();
-            self.expect_recover(TokenKind::RParen);
-            expr
-        }
-        _ => {
-            self.error_expected_expression();
-            self.alloc(ExprKind::Error)
-        }
-    }
-}
-```
-
-### Item Level
-
-```rust
-fn parse_module(&mut self) -> Module {
-    let mut functions = Vec::new();
-
-    while !self.at_end() {
-        match self.try_parse_item() {
-            Ok(item) => {
-                match item {
-                    Item::Function(f) => functions.push(f),
-                    // ...
-                }
-            }
-            Err(_) => {
-                // Skip to next item
-                self.synchronize_to_item();
-            }
-        }
-    }
-
-    Module { functions, ... }
-}
-```
-
-## Preventing Cascading Errors
-
-### Error Limit
-
-```rust
-### Progress-Based Recovery
-
-Instead of traditional panic mode, Ori uses progress tracking for error recovery:
-
-```rust
-pub enum Progress {
-    Made,  // Tokens were consumed
-    None,  // No tokens consumed
-}
-
-pub struct ParseResult<T> {
-    pub progress: Progress,
-    pub result: Result<T, ParseError>,
-}
-```
-
-Recovery decisions are based on progress:
-- `Progress::None` + error → try alternative productions
-- `Progress::Made` + error → commit to path and report error
-
-```rust
-fn parse_item_with_progress(&mut self) -> ParseResult<Item> {
-    let start_pos = self.cursor.position();
-    let result = self.try_parse_item();
-    let progress = if self.cursor.position() > start_pos {
-        Progress::Made
-    } else {
-        Progress::None
-    };
-    ParseResult { progress, result }
-}
-```
-
-### Context Tracking
-
-The parser uses bitflag-based context for disambiguation:
-
-```rust
-pub struct ParseContext(u8);
-
-impl ParseContext {
-    const NO_STRUCT_LIT: Self = Self(0b0001);  // In if/while conditions
-    const IN_PATTERN: Self = Self(0b0010);     // Parsing match patterns
-    const IN_TYPE: Self = Self(0b0100);        // Parsing type annotations
-    const IN_LOOP: Self = Self(0b1000);        // Inside loop body
-}
-
-fn with_context<T>(&mut self, add: ParseContext, f: impl FnOnce(&mut Self) -> T) -> T {
-    let old = self.context;
-    self.context = self.context.with(add);
-    let result = f(self);
-    self.context = old;
-    result
-}
-```
-
-Used to prevent struct literals in conditions:
-
-```rust
-fn parse_if_condition(&mut self) -> ExprId {
-    self.with_context(ParseContext::NO_STRUCT_LIT, |p| p.parse_expr())
-}
-```
-
-## Error Messages
-
-### Context-Aware Messages
-
-```rust
-fn error_expected(&mut self, kind: &TokenKind) {
-    let span = self.cursor.current_span();
-    let message = format!("expected {:?}", kind);
-
-    // Add context based on current parsing state
-    let context = if self.context.has(ParseContext::NO_STRUCT_LIT) {
-        Some("in if condition".to_string())
-    } else if self.context.has(ParseContext::IN_LOOP) {
-        Some("in loop body".to_string())
-    } else {
-        None
-    };
-
-    let error = ParseError::new(E1001, message, span);
-    self.push_error(if let Some(ctx) = context {
-        error.with_context(ctx)
-    } else {
-        error
-    });
-}
-```
-
-### Suggestions
-
-```rust
-fn error_unexpected_token(&mut self) {
-    let span = self.cursor.current_span();
-    let found = self.cursor.current_kind();
-
-    // Suggest common fixes
-    let (message, context) = match found {
-        TokenKind::Eq =>
-            ("unexpected '='", Some("did you mean '=='?")),
-        TokenKind::Semicolon =>
-            ("unexpected ';'", Some("Ori uses expressions, not statements")),
-        _ =>
-            ("unexpected token", None),
-    };
-
-    let error = ParseError::new(E1001, message, span);
-    self.push_error(if let Some(ctx) = context {
-        error.with_context(ctx)
-    } else {
-        error
-    });
-}
-```
-
-## Result
-
-After parsing with errors:
-
-```rust
-ParseResult {
-    module: Module { ... },  // Partial, with Error nodes
-    arena: ExprArena { ... },
-    errors: vec![
-        ParseError { kind: UnexpectedToken { ... }, span: ... },
-        ParseError { kind: MissingExpression, span: ... },
-        // Multiple errors reported
-    ],
-}
-```
+The `one_of!` macro uses snapshots internally — each alternative gets a fresh snapshot and automatic restore on soft failure.

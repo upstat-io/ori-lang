@@ -38,7 +38,7 @@
 #![allow(clippy::ptr_cast_constness)]
 #![allow(clippy::cast_slice_from_raw_parts)]
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::CStr;
 
 /// Ori string representation: { i64 len, *const u8 data }
@@ -103,6 +103,91 @@ pub struct RcHeader {
     /// Size of the data following the header (for deallocation).
     pub size: i64,
 }
+
+// ── setjmp/longjmp JIT recovery ──────────────────────────────────────────
+
+/// Buffer for `setjmp`/`longjmp` JIT error recovery.
+///
+/// Oversized to accommodate all platform `jmp_buf` layouts:
+/// - x86-64 Linux: 200 bytes (8 × 25)
+/// - x86-64 macOS: 148 bytes (4 × 37)
+/// - aarch64: ~392 bytes
+///
+/// 512 bytes with 64-byte alignment covers all targets with margin.
+#[repr(C, align(64))]
+pub struct JmpBuf {
+    _buf: [u8; 512],
+}
+
+impl JmpBuf {
+    /// Create a zero-initialized jump buffer.
+    #[must_use]
+    pub fn new() -> Self {
+        JmpBuf { _buf: [0u8; 512] }
+    }
+}
+
+impl Default for JmpBuf {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+extern "C" {
+    /// Save the current execution state. Returns 0 on direct call,
+    /// non-zero when returning via `longjmp`.
+    ///
+    /// Uses `_setjmp` (POSIX): does NOT save the signal mask, which is faster
+    /// and sufficient for JIT error recovery.
+    #[link_name = "_setjmp"]
+    fn c_setjmp(buf: *mut JmpBuf) -> i32;
+
+    /// Restore execution state saved by `setjmp`. Never returns to caller.
+    fn longjmp(buf: *mut JmpBuf, val: i32) -> !;
+}
+
+thread_local! {
+    /// Whether the current thread is running JIT-compiled code.
+    /// When true, `ori_panic`/`ori_panic_cstr` will `longjmp` instead of `exit(1)`.
+    static JIT_MODE: Cell<bool> = const { Cell::new(false) };
+
+    /// Pointer to the active `JmpBuf` for JIT recovery.
+    /// Only valid when `JIT_MODE` is true.
+    static JIT_RECOVERY_BUF: Cell<*mut JmpBuf> = const { Cell::new(std::ptr::null_mut()) };
+}
+
+/// Enter JIT mode: panics will `longjmp` to `buf` instead of terminating.
+///
+/// # Safety
+///
+/// `buf` must point to a valid `JmpBuf` that outlives the JIT execution.
+/// The caller must call `leave_jit_mode()` when done (even on `longjmp` return).
+pub fn enter_jit_mode(buf: *mut JmpBuf) {
+    JIT_MODE.with(|m| m.set(true));
+    JIT_RECOVERY_BUF.with(|b| b.set(buf));
+}
+
+/// Leave JIT mode: panics will `exit(1)` again (AOT behavior).
+pub fn leave_jit_mode() {
+    JIT_MODE.with(|m| m.set(false));
+    JIT_RECOVERY_BUF.with(|b| b.set(std::ptr::null_mut()));
+}
+
+/// Check if we're currently in JIT mode.
+fn is_jit_mode() -> bool {
+    JIT_MODE.with(|m| m.get())
+}
+
+/// Call `setjmp` on a `JmpBuf`. Returns 0 on direct call, non-zero on `longjmp`.
+///
+/// # Safety
+///
+/// `buf` must point to a valid, properly aligned `JmpBuf`.
+pub unsafe fn jit_setjmp(buf: *mut JmpBuf) -> i32 {
+    c_setjmp(buf)
+}
+
+// ── Thread-local panic state ─────────────────────────────────────────────
 
 thread_local! {
     static PANIC_OCCURRED: RefCell<bool> = const { RefCell::new(false) };
@@ -339,8 +424,8 @@ pub extern "C" fn ori_print_bool(b: bool) {
 
 /// Panic with a message.
 ///
-/// In JIT mode, sets thread-local panic state for test isolation.
-/// In AOT mode, prints to stderr and terminates.
+/// In JIT mode, sets thread-local panic state and `longjmp`s back to the
+/// test runner. In AOT mode, prints to stderr and terminates.
 #[no_mangle]
 pub extern "C" fn ori_panic(s: *const OriStr) {
     let msg = if s.is_null() {
@@ -352,19 +437,28 @@ pub extern "C" fn ori_panic(s: *const OriStr) {
         text.to_string()
     };
 
-    // Store panic state in thread-local storage (for JIT tests)
+    // Store panic state in thread-local storage
     PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
     PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.clone()));
 
-    // Print to stderr
-    eprintln!("ori panic: {msg}");
+    // In JIT mode, longjmp back to the test runner instead of terminating
+    if is_jit_mode() {
+        let buf = JIT_RECOVERY_BUF.with(|b| b.get());
+        if !buf.is_null() {
+            // SAFETY: buf is valid — set by enter_jit_mode, stack-allocated in run_test
+            unsafe { longjmp(buf, 1) };
+        }
+    }
 
-    // Terminate the process - in JIT mode, the execution engine catches this
-    // before it reaches here by checking did_panic() after each execution.
+    // AOT path: print and terminate
+    eprintln!("ori panic: {msg}");
     std::process::exit(1);
 }
 
 /// Panic with a C string message.
+///
+/// In JIT mode, sets panic state and `longjmp`s back to the test runner.
+/// In AOT mode, prints to stderr and terminates.
 #[no_mangle]
 pub extern "C" fn ori_panic_cstr(s: *const i8) {
     let msg = if s.is_null() {
@@ -378,8 +472,17 @@ pub extern "C" fn ori_panic_cstr(s: *const i8) {
     PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
     PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.clone()));
 
-    eprintln!("ori panic: {msg}");
+    // In JIT mode, longjmp back to the test runner instead of terminating
+    if is_jit_mode() {
+        let buf = JIT_RECOVERY_BUF.with(|b| b.get());
+        if !buf.is_null() {
+            // SAFETY: buf is valid — set by enter_jit_mode, stack-allocated in run_test
+            unsafe { longjmp(buf, 1) };
+        }
+    }
 
+    // AOT path: print and terminate
+    eprintln!("ori panic: {msg}");
     std::process::exit(1);
 }
 

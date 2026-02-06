@@ -1,0 +1,15 @@
+use std.testing { assert_eq }
+
+// Test disambiguation: Pending is variant, status is binding
+type Status = Pending | Running | Completed
+
+@check_pending (s: Status) -> str = match(s,
+    Pending -> "is pending",
+    other -> "not pending",
+)
+
+@test_binding_vs_variant tests @check_pending () -> void = run(
+    assert_eq(actual: check_pending(s: Pending), expected: "is pending"),
+    assert_eq(actual: check_pending(s: Running), expected: "not pending"),
+    assert_eq(actual: check_pending(s: Completed), expected: "not pending"),
+)

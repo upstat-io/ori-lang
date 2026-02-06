@@ -3,6 +3,7 @@
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprId};
 use ori_types::Idx;
+use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
@@ -10,6 +11,10 @@ use crate::LoopContext;
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a range expression.
     /// Ranges are represented as { i64 start, i64 end, i1 inclusive }.
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "trace"
+    )]
     pub(crate) fn compile_range(
         &self,
         start: ExprId,

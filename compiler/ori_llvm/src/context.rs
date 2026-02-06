@@ -36,7 +36,7 @@ use inkwell::AddressSpace;
 use rustc_hash::FxHashMap;
 
 use ori_ir::{Name, StringInterner};
-use ori_types::{Idx, Pool, Tag};
+use ori_types::{Idx, PatternKey, PatternResolution, Pool, Tag};
 
 /// Layout information for a user-defined struct type.
 ///
@@ -69,6 +69,38 @@ impl StructLayout {
     }
 }
 
+/// Layout for a user-defined sum type (tagged union).
+///
+/// Sum types are represented as `{ i8 tag, [M x i64] payload }` where:
+/// - `tag`: variant discriminant (0..n for n variants)
+/// - `payload`: fixed-size array large enough for the largest variant's fields
+///
+/// Using `[M x i64]` (not `[N x i8]`) ensures 8-byte alignment. LLVM auto-pads
+/// 7 bytes between the i8 tag and the i64 array, giving all stores natural alignment.
+#[derive(Clone, Debug)]
+pub struct SumTypeLayout {
+    /// The sum type's name.
+    pub type_name: Name,
+    /// Variants in declaration order (index = tag value).
+    pub variants: Vec<SumVariantLayout>,
+    /// Payload size in i64 units: `ceil(max_payload_bytes / 8)`.
+    ///
+    /// For built-in sum types (Option/Result), this is 0 as a sentinel —
+    /// their LLVM layout comes from Pool-based generation, not from this system.
+    pub payload_i64_count: u32,
+}
+
+/// Layout for a single variant of a sum type.
+#[derive(Clone, Debug)]
+pub struct SumVariantLayout {
+    /// Variant name (e.g., `Pending`, `Running`, `Done`).
+    pub name: Name,
+    /// Tag value (= index in parent's variants vec).
+    pub tag: u8,
+    /// Field type `Idx`s (empty for unit variants).
+    pub field_types: Vec<Idx>,
+}
+
 /// Type cache for avoiding repeated LLVM type construction.
 ///
 /// Two-level cache following Rust's pattern:
@@ -88,6 +120,10 @@ pub struct TypeCache<'ll> {
     ///
     /// Maps type name to field layout for field access code generation.
     pub struct_layouts: FxHashMap<Name, StructLayout>,
+    /// Sum type layouts for user-defined and built-in tagged unions.
+    ///
+    /// Maps type name to layout for tag/variant lookup.
+    pub sum_types: FxHashMap<Name, SumTypeLayout>,
 }
 
 impl<'ll> TypeCache<'ll> {
@@ -259,6 +295,7 @@ impl<'ll> SimpleCx<'ll> {
 /// - Function instance cache
 /// - Type cache for efficient type lookups
 /// - Test function registry
+/// - sret tracking for functions returning large structs
 pub struct CodegenCx<'ll, 'tcx> {
     /// The underlying simple context.
     pub scx: SimpleCx<'ll>,
@@ -275,6 +312,20 @@ pub struct CodegenCx<'ll, 'tcx> {
     pub tests: RefCell<FxHashMap<Name, FunctionValue<'ll>>>,
     /// Type cache for efficient lookups.
     pub type_cache: RefCell<TypeCache<'ll>>,
+    /// Functions that use the sret (structured return) calling convention.
+    ///
+    /// On x86-64 `SysV` ABI, structs >16 bytes cannot be returned in registers.
+    /// These functions have their return type transformed: the original struct
+    /// return becomes a hidden first parameter (`ptr sret(T) noalias`), and the
+    /// function returns void. Maps function name → original LLVM struct type.
+    pub sret_types: RefCell<FxHashMap<Name, StructType<'ll>>>,
+
+    /// Resolved pattern bindings from the type checker.
+    ///
+    /// Sorted by `PatternKey` for O(log n) binary search.
+    /// Used by the matching compiler to distinguish unit variant patterns
+    /// from regular variable bindings.
+    pub pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
 }
 
 impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
@@ -282,14 +333,18 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     pub fn new(context: &'ll Context, interner: &'tcx StringInterner, module_name: &str) -> Self {
         let scx = SimpleCx::new(context, module_name);
 
-        Self {
+        let cx = Self {
             scx,
             interner,
             pool: None,
             instances: RefCell::new(FxHashMap::default()),
             tests: RefCell::new(FxHashMap::default()),
             type_cache: RefCell::new(TypeCache::new()),
-        }
+            sret_types: RefCell::new(FxHashMap::default()),
+            pattern_resolutions: Vec::new(),
+        };
+        cx.register_builtin_sum_types();
+        cx
     }
 
     /// Create a codegen context with a type pool for compound type resolution.
@@ -301,14 +356,18 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     ) -> Self {
         let scx = SimpleCx::new(context, module_name);
 
-        Self {
+        let cx = Self {
             scx,
             interner,
             pool: Some(pool),
             instances: RefCell::new(FxHashMap::default()),
             tests: RefCell::new(FxHashMap::default()),
             type_cache: RefCell::new(TypeCache::new()),
-        }
+            sret_types: RefCell::new(FxHashMap::default()),
+            pattern_resolutions: Vec::new(),
+        };
+        cx.register_builtin_sum_types();
+        cx
     }
 
     // -- Delegate to SimpleCx --
@@ -410,12 +469,15 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
                     self.scx.type_struct(&field_types, false).into()
                 }
 
-                // Named types: look up struct or fall back to i64
+                // Named types: look up struct, then sum type, then fall back to i64
                 Tag::Named => {
                     let name = pool.named_name(idx);
                     if let Some(struct_ty) = self.get_struct_type(name) {
                         struct_ty.into()
                     } else {
+                        // Sum types are also registered as named structs via
+                        // register_sum_type, so get_struct_type should find them.
+                        // This fallback handles edge cases.
                         self.scx.type_i64().into()
                     }
                 }
@@ -628,6 +690,116 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
         self.type_cache.borrow().struct_layouts.get(&name).cloned()
     }
 
+    // -- Sum type layout management --
+
+    /// Register a user-defined sum type.
+    ///
+    /// Creates an LLVM struct type: `{ i8 tag, [M x i64] payload }` where
+    /// `M = layout.payload_i64_count`.
+    pub fn register_sum_type(&self, layout: SumTypeLayout) {
+        let name = layout.type_name;
+        let tag_ty = self.scx.type_i8();
+        let payload_ty = self.scx.type_i64().array_type(layout.payload_i64_count);
+        let named = self.get_or_create_named_struct(name);
+        self.scx
+            .set_struct_body(named, &[tag_ty.into(), payload_ty.into()], false);
+        self.type_cache.borrow_mut().sum_types.insert(name, layout);
+    }
+
+    /// Register a built-in sum type (Option/Result) for tag lookup only.
+    ///
+    /// Does NOT create an LLVM struct — their types come from Pool-based generation
+    /// (`option_type()`/`result_type()` in `compute_llvm_type`). This only provides
+    /// unified tag lookup so `matching.rs` doesn't need hardcoded variant→tag mappings.
+    fn register_builtin_sum_type(&self, layout: SumTypeLayout) {
+        self.type_cache
+            .borrow_mut()
+            .sum_types
+            .insert(layout.type_name, layout);
+    }
+
+    /// Register Option and Result as built-in sum types.
+    ///
+    /// Called once during initialization. Provides unified tag lookup so
+    /// `matching.rs` can use `lookup_variant_constructor` for all sum types
+    /// without hardcoded variant→tag mappings.
+    fn register_builtin_sum_types(&self) {
+        let intern = |s: &str| self.interner.intern(s);
+
+        // Option<T>: None=0, Some=1
+        self.register_builtin_sum_type(SumTypeLayout {
+            type_name: intern("Option"),
+            variants: vec![
+                SumVariantLayout {
+                    name: intern("None"),
+                    tag: 0,
+                    field_types: vec![],
+                },
+                SumVariantLayout {
+                    name: intern("Some"),
+                    tag: 1,
+                    field_types: vec![],
+                },
+            ],
+            payload_i64_count: 0,
+        });
+
+        // Result<T, E>: Ok=0, Err=1
+        self.register_builtin_sum_type(SumTypeLayout {
+            type_name: intern("Result"),
+            variants: vec![
+                SumVariantLayout {
+                    name: intern("Ok"),
+                    tag: 0,
+                    field_types: vec![],
+                },
+                SumVariantLayout {
+                    name: intern("Err"),
+                    tag: 1,
+                    field_types: vec![],
+                },
+            ],
+            payload_i64_count: 0,
+        });
+    }
+
+    /// Look up sum type layout by type name.
+    pub fn get_sum_type_layout(&self, name: Name) -> Option<SumTypeLayout> {
+        self.type_cache.borrow().sum_types.get(&name).cloned()
+    }
+
+    /// Check if a variant name belongs to a registered sum type.
+    ///
+    /// Returns `(type_name, variant_layout)` if found.
+    /// Works for both user-defined and built-in (Option/Result) sum types.
+    pub fn lookup_variant_constructor(
+        &self,
+        variant_name: Name,
+    ) -> Option<(Name, SumVariantLayout)> {
+        let cache = self.type_cache.borrow();
+        for (type_name, layout) in &cache.sum_types {
+            for variant in &layout.variants {
+                if variant.name == variant_name {
+                    return Some((*type_name, variant.clone()));
+                }
+            }
+        }
+        None
+    }
+
+    // -- Pattern resolution --
+
+    /// Look up a pattern resolution by key.
+    ///
+    /// Returns `Some(&PatternResolution)` if the pattern was resolved to a
+    /// unit variant, `None` if it's a normal variable binding.
+    pub fn resolve_pattern(&self, key: PatternKey) -> Option<PatternResolution> {
+        self.pattern_resolutions
+            .binary_search_by_key(&key, |(k, _)| *k)
+            .ok()
+            .map(|idx| self.pattern_resolutions[idx].1)
+    }
+
     // -- Function instance management --
 
     /// Look up a function by name (checking cache first).
@@ -664,6 +836,36 @@ impl<'ll, 'tcx> CodegenCx<'ll, 'tcx> {
     /// The clone is cheap since `FunctionValue` is a thin pointer wrapper.
     pub fn all_tests(&self) -> FxHashMap<Name, FunctionValue<'ll>> {
         self.tests.borrow().clone()
+    }
+
+    // -- sret (structured return) management --
+
+    /// Check if a return type needs the sret calling convention.
+    ///
+    /// On x86-64 `SysV` ABI, structs >16 bytes (i.e., >2 eight-byte fields)
+    /// cannot be returned in registers and must use a hidden pointer parameter.
+    /// Ori struct fields are each 8 bytes (i64/f64/ptr), so >2 fields = >16 bytes.
+    pub fn needs_sret(&self, return_type: Idx) -> bool {
+        if return_type == Idx::UNIT || return_type == Idx::NEVER {
+            return false;
+        }
+        let llvm_ty = self.llvm_type(return_type);
+        matches!(llvm_ty, BasicTypeEnum::StructType(st) if st.count_fields() > 2)
+    }
+
+    /// Record that a function uses the sret convention.
+    pub fn mark_sret(&self, name: Name, ty: StructType<'ll>) {
+        self.sret_types.borrow_mut().insert(name, ty);
+    }
+
+    /// Check if a function uses the sret convention.
+    pub fn is_sret(&self, name: Name) -> bool {
+        self.sret_types.borrow().contains_key(&name)
+    }
+
+    /// Get the original struct return type for an sret function.
+    pub fn get_sret_type(&self, name: Name) -> Option<StructType<'ll>> {
+        self.sret_types.borrow().get(&name).copied()
     }
 
     // -- Default values --

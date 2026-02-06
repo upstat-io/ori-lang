@@ -1,0 +1,16 @@
+use std.testing { assert_eq }
+
+// Recursive sum type
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree)
+
+@tree_sum (t: Tree) -> int = match(t,
+    Leaf(v) -> v,
+    Node(l, r) -> tree_sum(t: l) + tree_sum(t: r),
+)
+
+@test_recursive tests @tree_sum () -> void = run(
+    let leaf1 = Leaf(value: 5),
+    let leaf2 = Leaf(value: 10),
+    let tree = Node(left: leaf1, right: leaf2),
+    assert_eq(actual: tree_sum(t: tree), expected: 15),
+)

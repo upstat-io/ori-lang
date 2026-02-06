@@ -7,306 +7,275 @@ section: "Type System"
 
 # Unification
 
-Unification is the process of finding a substitution that makes two types equal. It's the core algorithm for type inference.
+Unification finds whether two types can be made equal by binding type variables. The `UnifyEngine` implements link-based union-find with path compression, providing near-constant-time unification.
 
 ## Location
 
 ```
-compiler/ori_types/src/context.rs
+compiler/ori_types/src/unify/
+├── mod.rs    # UnifyEngine — core unification
+├── rank.rs   # Rank system for let-polymorphism
+└── error.rs  # UnifyError, UnifyContext
 ```
 
-## TypeId-Based Unification
-
-The implementation uses `TypeId` internally for O(1) equality fast-paths:
+## UnifyEngine
 
 ```rust
-impl InferenceContext {
-    /// Public API: accepts Type references.
-    pub fn unify(&mut self, t1: &Type, t2: &Type) -> Result<(), TypeError> {
-        let id1 = t1.to_type_id(&self.interner);
-        let id2 = t2.to_type_id(&self.interner);
-        self.unify_ids(id1, id2)
-    }
+pub struct UnifyEngine<'pool> {
+    pool: &'pool mut Pool,
+    current_rank: Rank,
+    errors: Vec<UnifyError>,
+}
+```
 
-    /// Internal: uses interned TypeIds for efficiency.
-    pub fn unify_ids(&mut self, id1: TypeId, id2: TypeId) -> Result<(), TypeError> {
-        // O(1) fast path: identical TypeIds always unify
-        if id1 == id2 {
-            return Ok(());
-        }
+The engine borrows the pool mutably to update `VarState` links during unification. Errors are accumulated rather than returned immediately, enabling continued type checking after failures.
 
-        let id1 = self.resolve_id(id1);
-        let id2 = self.resolve_id(id2);
+## Link-Based Union-Find
 
-        // Check again after resolution
-        if id1 == id2 {
-            return Ok(());
-        }
+Unlike the substitution-map approach used in textbook HM implementations, the unification engine uses **direct linking** through the pool's `VarState`:
 
-        let data1 = self.interner.lookup(id1);
-        let data2 = self.interner.lookup(id2);
+```rust
+pub enum VarState {
+    Unbound { id: u32, rank: Rank, name: Option<Name> },
+    Link { target: Idx },     // Points to unified type
+    Rigid { name: Name },     // From annotation, cannot unify
+    Generalized { id: u32, name: Option<Name> },
+}
+```
 
-        match (&data1, &data2) {
-            // Type variable unifies with anything (with occurs check)
-            (TypeData::Var(v), _) => {
-                if self.occurs_id(*v, id2) {
-                    return Err(TypeError::InfiniteType);
-                }
-                self.substitutions.insert(*v, id2);
-                Ok(())
+When variable `T0` unifies with `int`, the engine sets `var_states[T0] = Link { target: Idx::INT }`. No separate substitution map is needed.
+
+### Path Compression
+
+During `resolve()`, intermediate links are updated to point directly to the final target, achieving O(α(n)) amortized complexity (where α is the inverse Ackermann function):
+
+```rust
+pub fn resolve(&mut self, idx: Idx) -> Idx {
+    // If idx is a type variable, follow links
+    if pool.tag(idx) == Tag::Var {
+        let var_id = pool.data(idx);
+        match pool.var_state(var_id) {
+            VarState::Link { target } => {
+                let resolved = self.resolve(target);
+                // Path compression: update link to point directly to final
+                pool.set_var_state(var_id, VarState::Link { target: resolved });
+                resolved
             }
-            (_, TypeData::Var(v)) => {
-                if self.occurs_id(*v, id1) {
-                    return Err(TypeError::InfiniteType);
-                }
-                self.substitutions.insert(*v, id1);
-                Ok(())
-            }
-
-            // Error/Never unify with anything (see Special Type Handling)
-            (TypeData::Error | TypeData::Never, _) |
-            (_, TypeData::Error | TypeData::Never) => Ok(()),
-
-            // Compound types unify component-wise
-            (TypeData::List(a), TypeData::List(b)) => self.unify_ids(*a, *b),
-
-            (TypeData::Option(a), TypeData::Option(b)) => self.unify_ids(*a, *b),
-
-            (TypeData::Result { ok: ok1, err: err1 },
-             TypeData::Result { ok: ok2, err: err2 }) => {
-                self.unify_ids(*ok1, *ok2)?;
-                self.unify_ids(*err1, *err2)
-            }
-
-            (TypeData::Function { params: p1, ret: r1 },
-             TypeData::Function { params: p2, ret: r2 }) => {
-                if p1.len() != p2.len() {
-                    return Err(TypeError::ArgCountMismatch {
-                        expected: p1.len(),
-                        found: p2.len(),
-                    });
-                }
-                for (a, b) in p1.iter().zip(p2.iter()) {
-                    self.unify_ids(*a, *b)?;
-                }
-                self.unify_ids(*r1, *r2)
-            }
-
-            // Different types don't unify
-            _ => Err(TypeError::Mismatch {
-                expected: self.interner.to_type(id1),
-                found: self.interner.to_type(id2),
-            }),
+            _ => idx,  // Unbound, rigid, or generalized
         }
+    } else {
+        idx  // Not a variable, return as-is
     }
 }
 ```
 
-## Resolution
-
-The `resolve` methods apply substitutions to resolve type variables:
+### Core Unification Algorithm
 
 ```rust
-impl InferenceContext {
-    /// Resolve a Type by applying all substitutions.
-    pub fn resolve(&self, ty: &Type) -> Type {
-        let id = ty.to_type_id(&self.interner);
-        let resolved = self.resolve_id(id);
-        self.interner.to_type(resolved)
-    }
+pub fn unify(&mut self, left: Idx, right: Idx) {
+    // O(1) fast path: identical indices
+    if left == right { return; }
 
-    /// Resolve a TypeId by applying all substitutions.
-    pub fn resolve_id(&self, id: TypeId) -> TypeId {
-        let mut resolver = TypeIdResolver {
-            interner: &self.interner,
-            substitutions: &self.substitutions,
-        };
-        resolver.fold(id)
-    }
-}
+    let left = self.resolve(left);
+    let right = self.resolve(right);
 
-/// TypeIdFolder that resolves type variables through substitutions.
-struct TypeIdResolver<'a> {
-    interner: &'a TypeInterner,
-    substitutions: &'a HashMap<TypeVar, TypeId>,
-}
+    // Check again after resolution
+    if left == right { return; }
 
-impl TypeIdFolder for TypeIdResolver<'_> {
-    fn interner(&self) -> &TypeInterner { self.interner }
+    let left_tag = self.pool.tag(left);
+    let right_tag = self.pool.tag(right);
 
-    fn fold_var(&mut self, var: TypeVar) -> TypeId {
-        if let Some(&resolved) = self.substitutions.get(&var) {
-            self.fold(resolved)  // Recursively resolve chains
-        } else {
-            self.interner.intern(TypeData::Var(var))
+    match (left_tag, right_tag) {
+        // Variable unifies with anything (after occurs check)
+        (Tag::Var, _) => self.unify_var(left, right),
+        (_, Tag::Var) => self.unify_var(right, left),
+
+        // Error/Never unify with anything (error recovery)
+        (Tag::Error, _) | (_, Tag::Error) => {},
+        (Tag::Never, _) | (_, Tag::Never) => {},
+
+        // Structural unification for matching tags
+        (Tag::List, Tag::List) => {
+            self.unify(self.pool.list_elem(left), self.pool.list_elem(right));
         }
-    }
-}
-```
 
-## Occurs Check
-
-The occurs check prevents creating infinite types:
-
-```rust
-// Would create: T0 = [T0] = [[T0]] = ...
-let xs = [xs]  // Error: infinite type
-```
-
-```rust
-impl InferenceContext {
-    /// Check if a type variable occurs in a type (prevents infinite types).
-    fn occurs_id(&self, var: TypeVar, id: TypeId) -> bool {
-        let mut checker = OccursChecker {
-            interner: &self.interner,
-            substitutions: &self.substitutions,
-            target: var,
-            found: false,
-        };
-        checker.visit(id);
-        checker.found
-    }
-}
-
-/// TypeIdVisitor that checks for occurrence of a type variable.
-struct OccursChecker<'a> {
-    interner: &'a TypeInterner,
-    substitutions: &'a HashMap<TypeVar, TypeId>,
-    target: TypeVar,
-    found: bool,
-}
-
-impl TypeIdVisitor for OccursChecker<'_> {
-    fn interner(&self) -> &TypeInterner { self.interner }
-
-    fn visit_var(&mut self, var: TypeVar) {
-        if var == self.target {
-            self.found = true;
-        } else if let Some(&resolved) = self.substitutions.get(&var) {
-            self.visit(resolved);  // Check through substitution chain
+        (Tag::Function, Tag::Function) => {
+            // Check parameter count, then unify each param + return
         }
+
+        // ... other compound types
+
+        // Mismatch
+        _ => self.push_error(UnifyError::Mismatch { expected: left, got: right }),
     }
 }
 ```
 
-## Substitution Storage
+## Flag-Gated Occurs Check
 
-Substitutions are stored as a simple `HashMap<TypeVar, TypeId>`:
+The occurs check prevents infinite types (e.g., `T = [T]`). The pool's `TypeFlags` enable an important optimization:
 
 ```rust
-pub struct InferenceContext {
-    /// Type variable substitutions.
-    substitutions: FxHashMap<TypeVar, TypeId>,
-    // ... other fields
+fn occurs_check(&self, var_id: u32, in_type: Idx) -> bool {
+    // O(1) fast path: if the type has no variables, no need to traverse
+    if !self.pool.flags(in_type).contains(TypeFlags::HAS_VAR) {
+        return false;
+    }
+    // Only traverse if HAS_VAR flag is set
+    self.occurs_check_inner(var_id, in_type)
 }
 ```
 
-The `TypeIdResolver` (shown above) handles recursive resolution through substitution chains. No union-find is used — the simple HashMap approach is sufficient for Ori's type inference needs.
+Since `TypeFlags::HAS_VAR` propagates during construction, the occurs check skips the entire traversal for monomorphic types — which is the common case.
+
+## Rank System
+
+The rank system controls let-polymorphism by tracking the scope depth of type variables.
+
+### Rank Type
+
+```rust
+#[repr(transparent)]
+pub struct Rank(u16);
+
+impl Rank {
+    pub const TOP: Self = Self(0);      // Universally quantified
+    pub const IMPORT: Self = Self(1);   // Imported from modules
+    pub const FIRST: Self = Self(2);    // Top-level in current module
+    pub const MAX: Self = Self(u16::MAX - 1);
+}
+```
+
+### Rank Semantics
+
+Each type variable is created at a specific rank corresponding to its scope depth. When the type checker enters a `let` binding, the rank increases; when it exits, variables at the current rank can be generalized:
+
+```
+Rank 2 (module level):
+  let id = x -> x         ← infer at rank 3
+                           ← generalize at rank 3: forall T. T -> T
+  let a = id(42)           ← instantiate with fresh vars at rank 2
+  let b = id("hello")      ← instantiate with fresh vars at rank 2
+```
+
+A variable at rank N can be generalized when exiting rank N:
+
+```rust
+impl Rank {
+    pub fn can_generalize_at(&self, gen_rank: Rank) -> bool {
+        self.0 >= gen_rank.0
+    }
+    pub fn is_generalized(&self) -> bool { self.0 == Self::TOP.0 }
+}
+```
+
+### Generalization
+
+When a `let`-bound value's type is complete, the engine generalizes unbound variables at the current rank into a type scheme:
+
+```rust
+pub fn generalize(&mut self, ty: Idx, rank: Rank) -> Idx {
+    // Walk the type, converting Unbound vars at rank >= current to Generalized
+    // Returns a Scheme if any variables were generalized
+}
+```
+
+### Instantiation
+
+When a polymorphic value is used, its scheme is instantiated with fresh variables:
+
+```rust
+pub fn instantiate(&mut self, scheme: Idx) -> Idx {
+    // For each generalized variable in the scheme, create a fresh var
+    // Substitute into the body
+}
+```
 
 ## Special Type Handling
 
-### Never Type (Bottom Type)
+### Never Type (Bottom)
 
-The `Never` type is the bottom type — an uninhabited type with no values. It represents computations that never complete normally (diverge). In unification, `Never` coerces to any type `T`:
+`Never` is the bottom type — an uninhabited type representing diverging computations. It unifies with any type:
 
 ```rust
-// In unify_ids():
-(TypeData::Never, _) | (_, TypeData::Never) => Ok(()),
+(Tag::Never, _) | (_, Tag::Never) => {},  // Always succeeds
 ```
 
-This enables diverging expressions to appear in any context:
+This enables diverging expressions in any context:
 
 ```ori
-let x: int = if false then panic(msg: "fail") else 42  // Never coerces to int
-let y: str = if true then "hello" else todo()          // Never coerces to str
+let x: int = if false then panic(msg: "fail") else 42
+let y: str = if true then "hello" else todo()
 ```
 
-**Rationale:** Since `Never` has no values, the coercion never actually executes — the expression diverges before producing a value. This is safe because unreachable code has no runtime behavior.
-
-**Expressions producing Never:**
-- `panic(msg:)` — halt with error message
-- `todo()` / `todo(reason:)` — mark unfinished code
-- `unreachable()` / `unreachable(reason:)` — mark impossible code paths
-- `break` / `continue` (inside loops)
-- Infinite `loop(...)` with no break
+Expressions producing `Never`: `panic(msg:)`, `todo()`, `unreachable()`, `break`, `continue`, infinite `loop(...)`.
 
 ### Error Type
 
-The `Error` type is a sentinel for error recovery during type checking:
+`Error` is a sentinel for error recovery. It unifies with anything to prevent cascading errors:
 
 ```rust
-// In unify_ids():
-(TypeData::Error, _) | (_, TypeData::Error) => Ok(()),
+(Tag::Error, _) | (_, Tag::Error) => {},  // Suppress secondary errors
 ```
 
-Unlike `Never` (a legitimate language type), `Error` indicates a type checking failure. It unifies with anything to prevent cascading errors — one type error shouldn't cause dozens of "mismatched types" errors downstream.
+Unlike `Never` (a legitimate language type), `Error` indicates a type checking failure occurred earlier. Without this, a single type error would cascade into many "mismatched types" errors downstream.
 
 ## Unification Examples
 
-### Simple Unification
+### Simple
 
 ```
-unify(Int, Int) = Ok(())
-unify(Int, String) = Err(Mismatch)
+unify(int, int) = Ok           (identical Idx)
+unify(int, str) = Err(Mismatch)
 ```
 
-### Variable Unification
+### Variables
 
 ```
-unify(T0, Int) = Ok(substitution[T0] = Int)
-unify(T0, T1) = Ok(substitution[T0] = T1)
+unify(T0, int)
+  → set var_states[T0] = Link { target: Idx::INT }
+  → Ok
+
+unify(T0, T1)
+  → set var_states[T0] = Link { target: T1_idx }
+  → Ok
 ```
 
-### Never Unification
+### Compound Types
 
 ```
-unify(Never, Int) = Ok()      // Never coerces to Int
-unify(String, Never) = Ok()   // Never coerces to String
-unify(Never, [T0]) = Ok()     // Never coerces to any compound type
-unify(Never, Never) = Ok()    // Never unifies with itself
+unify([T0], [int])
+  → unify(T0, int) → Link T0 to int
+  → Ok
+
+unify((int, T0), (int, str))
+  → unify(int, int) → Ok
+  → unify(T0, str) → Link T0 to str
+  → Ok
 ```
 
-### Compound Unification
+### Functions
 
 ```
-unify([T0], [Int])
-  = unify(T0, Int)
-  = Ok(substitution[T0] = Int)
-
-unify((Int, T0), (Int, String))
-  = unify(Int, Int) = Ok
-  = unify(T0, String) = Ok(substitution[T0] = String)
-```
-
-### Function Unification
-
-```
-unify((T0) -> T0, (Int) -> Int)
-  = unify(T0, Int) = Ok
-  = unify(T0, Int) = Ok (T0 already Int)
-  = Ok(substitution[T0] = Int)
+unify((T0) -> T0, (int) -> int)
+  → unify(T0, int) → Link T0 to int
+  → unify(T0, int) → resolve T0 = int, Ok
+  → Ok
 ```
 
 ### Failure Cases
 
 ```
-// Length mismatch
-unify((Int, Int), (Int,)) = Err(TupleLengthMismatch)
-
-// Type mismatch
-unify([Int], {String: Int}) = Err(Mismatch)
-
-// Occurs check failure
-unify(T0, [T0]) = Err(InfiniteType)
+unify((int, int), (int,))    → Err(TupleLengthMismatch)
+unify([int], {str: int})     → Err(Mismatch)
+unify(T0, [T0])              → Err(InfiniteType) via occurs check
 ```
 
 ## Immediate Unification
 
-Ori uses **immediate unification** during type inference — constraints are unified as they're generated, not collected and solved later. This simplifies the implementation while still supporting Hindley-Milner inference.
+Ori uses **immediate unification** — constraints are solved as they are generated during AST traversal, not collected and solved later. This simplifies the implementation while fully supporting Hindley-Milner inference:
 
-Benefits of immediate unification:
-- Simpler implementation (no constraint storage)
-- Errors reported at point of occurrence
+- Simpler implementation (no constraint storage or solver)
+- Errors reported at the point of occurrence
 - Substitutions available immediately for subsequent inference
-
-The trade-off is that some advanced type system features (like ranked types or bidirectional type checking) would require refactoring to constraint-based approach.
+- Rank-based let-polymorphism handles generalization correctly

@@ -45,8 +45,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_diagnostic::Suggestion;
 
 use crate::{
-    diff_types, ContextKind, ErrorContext, Expected, FunctionSig, Idx, Pool, TraitRegistry,
-    TypeCheckError, TypeErrorKind, TypeProblem, TypeRegistry, UnifyEngine, UnifyError,
+    diff_types, ContextKind, ErrorContext, Expected, FunctionSig, Idx, PatternKey,
+    PatternResolution, Pool, TraitRegistry, TypeCheckError, TypeErrorKind, TypeProblem,
+    TypeRegistry, UnifyEngine, UnifyError,
 };
 
 /// Expression ID type (mirrors `ori_ir::ExprId`).
@@ -117,6 +118,12 @@ pub struct InferEngine<'pool> {
 
     /// Capabilities provided in scope (`with...in`).
     provided_capabilities: FxHashSet<Name>,
+
+    /// Pattern resolutions accumulated during match checking.
+    ///
+    /// Records `Binding` patterns that were resolved to unit variants.
+    /// Extracted via `take_pattern_resolutions()` after checking.
+    pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
 }
 
 impl<'pool> InferEngine<'pool> {
@@ -137,6 +144,7 @@ impl<'pool> InferEngine<'pool> {
             loop_break_types: Vec::new(),
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
+            pattern_resolutions: Vec::new(),
         }
     }
 
@@ -159,6 +167,7 @@ impl<'pool> InferEngine<'pool> {
             loop_break_types: Vec::new(),
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
+            pattern_resolutions: Vec::new(),
         }
     }
 
@@ -517,6 +526,20 @@ impl<'pool> InferEngine<'pool> {
     /// Get the current error count (for detecting new errors after a section).
     pub fn error_count(&self) -> usize {
         self.errors.len()
+    }
+
+    // ========================================
+    // Pattern Resolution
+    // ========================================
+
+    /// Record that a `Binding` pattern was resolved to a unit variant.
+    pub fn record_pattern_resolution(&mut self, key: PatternKey, res: PatternResolution) {
+        self.pattern_resolutions.push((key, res));
+    }
+
+    /// Take pattern resolutions, leaving an empty vector.
+    pub fn take_pattern_resolutions(&mut self) -> Vec<(PatternKey, PatternResolution)> {
+        std::mem::take(&mut self.pattern_resolutions)
     }
 
     /// Rewrite `UnknownIdent` errors matching `name` (added since `errors_before`)

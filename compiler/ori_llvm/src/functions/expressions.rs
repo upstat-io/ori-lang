@@ -4,6 +4,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ast::patterns::FunctionExp;
 use ori_ir::ExprArena;
 use ori_types::Idx;
+use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
@@ -11,6 +12,11 @@ use crate::LoopContext;
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a `FunctionExp` (recurse, parallel, etc.).
     #[allow(clippy::too_many_lines)]
+    #[instrument(
+        skip(self, exp, arena, expr_types, locals, function, loop_ctx),
+        fields(kind = %exp.kind.name()),
+        level = "debug"
+    )]
     pub(crate) fn compile_function_exp(
         &self,
         exp: &FunctionExp,
@@ -151,12 +157,7 @@ impl<'ll> Builder<'_, 'll, '_> {
                 None
             }
 
-            FunctionExpKind::Catch => {
-                // TODO: Implement catch pattern for panic recovery
-                // For now, just compile the inner expression and return default
-                tracing::debug!("catch pattern not yet implemented in LLVM backend");
-                self.default_for_result_type(result_type)
-            }
+            FunctionExpKind::Catch => self.emit_not_implemented("catch pattern"),
 
             // Concurrency patterns - not yet implemented in LLVM backend
             FunctionExpKind::Parallel
@@ -164,21 +165,9 @@ impl<'ll> Builder<'_, 'll, '_> {
             | FunctionExpKind::Timeout
             | FunctionExpKind::Cache
             | FunctionExpKind::With => {
-                tracing::debug!(
-                    pattern = %exp.kind.name(),
-                    "concurrency/capability pattern not yet implemented in LLVM backend"
-                );
-                self.default_for_result_type(result_type)
+                let name = exp.kind.name();
+                self.emit_not_implemented(&format!("{name} pattern"))
             }
-        }
-    }
-
-    /// Return the default value for a result type, handling void specially.
-    fn default_for_result_type(&self, result_type: Idx) -> Option<BasicValueEnum<'ll>> {
-        if result_type == Idx::UNIT {
-            None
-        } else {
-            Some(self.cx().default_value(result_type))
         }
     }
 }

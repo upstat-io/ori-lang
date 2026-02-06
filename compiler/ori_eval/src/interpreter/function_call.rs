@@ -121,9 +121,14 @@ impl Interpreter<'_> {
                     for (i, arg) in args.iter().enumerate() {
                         if let Some(pattern) = f.patterns.get(i).and_then(|p| p.as_ref()) {
                             // There's a pattern for this parameter - match against it
-                            if let Some(bindings) =
-                                try_match(pattern, arg, func_arena, self.interner)?
-                            {
+                            if let Some(bindings) = try_match(
+                                pattern,
+                                arg,
+                                func_arena,
+                                self.interner,
+                                None,
+                                self.pattern_resolutions,
+                            )? {
                                 all_bindings.extend(bindings);
                             } else {
                                 all_match = false;

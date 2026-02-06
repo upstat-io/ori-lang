@@ -18,6 +18,7 @@ use ori_types::TypeCheckResult;
 use super::discovery::{discover_tests_in, TestFile};
 use super::error_matching::{format_actual, format_expected, match_errors_refs};
 use super::result::{CoverageReport, FileSummary, TestResult, TestSummary};
+use super::xfail::XFailSet;
 
 /// Backend for test execution.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -97,26 +98,41 @@ impl TestRunner {
     pub fn run(&self, path: &Path) -> TestSummary {
         let test_files = discover_tests_in(path);
 
+        // Load expected failures for the backend.
+        // The xfail file lives next to the test directory (e.g., tests/xfail-llvm.txt).
+        let xfail = match self.config.backend {
+            Backend::LLVM => {
+                // Resolve test_dir: if path is a file, use its parent; if dir, use it directly
+                let test_dir = if path.is_file() {
+                    path.parent().unwrap_or(path)
+                } else {
+                    path
+                };
+                XFailSet::load(test_dir, "llvm")
+            }
+            Backend::Interpreter => XFailSet::empty(),
+        };
+
         // LLVM backend must run sequentially due to context creation contention.
         // LLVM's Context::create() has global lock contention - when rayon spawns
         // many parallel tasks that each create an LLVM context, they serialize at
         // the LLVM library level despite appearing parallel. Sequential execution
         // is actually faster (1-2s vs 57s) and matches Roc/rustc patterns.
         if self.config.parallel && self.config.backend != Backend::LLVM {
-            self.run_parallel(&test_files)
+            self.run_parallel(&test_files, &xfail)
         } else {
-            self.run_sequential(&test_files)
+            self.run_sequential(&test_files, &xfail)
         }
     }
 
     /// Run tests sequentially.
-    fn run_sequential(&self, files: &[TestFile]) -> TestSummary {
+    fn run_sequential(&self, files: &[TestFile], xfail: &XFailSet) -> TestSummary {
         let mut summary = TestSummary::new();
         let start = Instant::now();
 
         for file in files {
             let file_summary =
-                Self::run_file_with_interner(&file.path, &self.interner, &self.config);
+                Self::run_file_with_interner(&file.path, &self.interner, &self.config, xfail);
             summary.add_file(file_summary);
         }
 
@@ -133,7 +149,7 @@ impl TestRunner {
     /// Uses `build_scoped` to create a thread pool that's guaranteed to be
     /// cleaned up before this function returns. This avoids the hang that
     /// occurs with rayon's global pool atexit handlers.
-    fn run_parallel(&self, files: &[TestFile]) -> TestSummary {
+    fn run_parallel(&self, files: &[TestFile], xfail: &XFailSet) -> TestSummary {
         let start = Instant::now();
 
         // Clone the shared interner and config for the parallel closure.
@@ -165,7 +181,7 @@ impl TestRunner {
                         files
                             .par_iter()
                             .map(|file| {
-                                Self::run_file_with_interner(&file.path, &interner, &config)
+                                Self::run_file_with_interner(&file.path, &interner, &config, xfail)
                             })
                             .collect::<Vec<_>>()
                     })
@@ -175,7 +191,7 @@ impl TestRunner {
                 eprintln!("Warning: failed to create thread pool ({e}), running sequentially");
                 files
                     .iter()
-                    .map(|file| Self::run_file_with_interner(&file.path, &interner, &config))
+                    .map(|file| Self::run_file_with_interner(&file.path, &interner, &config, xfail))
                     .collect()
             });
 
@@ -190,7 +206,8 @@ impl TestRunner {
 
     /// Run all tests in a single file (instance method for convenience).
     fn run_file(&self, path: &Path) -> FileSummary {
-        Self::run_file_with_interner(path, &self.interner, &self.config)
+        let xfail = XFailSet::empty();
+        Self::run_file_with_interner(path, &self.interner, &self.config, &xfail)
     }
 
     /// Run all tests in a single file with a shared interner.
@@ -203,6 +220,7 @@ impl TestRunner {
         path: &Path,
         interner: &crate::ir::SharedInterner,
         config: &TestRunnerConfig,
+        xfail: &XFailSet,
     ) -> FileSummary {
         let mut summary = FileSummary::new(path.to_path_buf());
 
@@ -229,6 +247,9 @@ impl TestRunner {
             for error in &parse_result.errors {
                 summary.add_error(format!("{}: {}", error.span, error.message));
             }
+            if xfail.is_expected_file_error(path) {
+                summary.expected_file_error = true;
+            }
             return summary;
         }
 
@@ -239,7 +260,9 @@ impl TestRunner {
 
         let interner = db.interner();
 
-        // Type check with import resolution
+        // Type check with import resolution.
+        // Pool is used by the LLVM backend for compound type resolution (sret convention).
+        // Prefixed with _ to suppress unused-variable warning when LLVM feature is disabled.
         let (type_result, _pool) =
             typeck::type_check_with_imports_and_pool(&db, &parse_result, path);
 
@@ -294,18 +317,36 @@ impl TestRunner {
             .collect();
 
         if !non_compile_fail_errors.is_empty() {
+            // Check if this file's errors are expected (xfail)
+            let is_xfail_file = xfail.is_expected_file_error(path);
+
             // Record which tests couldn't run due to type errors
             for test in &regular_tests {
-                summary.add_result(TestResult::failed(
-                    test.name,
-                    test.targets.clone(),
-                    "blocked by type errors in file".to_string(),
-                    Duration::ZERO,
-                ));
+                let test_name = interner.lookup(test.name);
+                if is_xfail_file || xfail.is_expected_test_failure(test_name) {
+                    summary.add_result(TestResult {
+                        name: test.name,
+                        targets: test.targets.clone(),
+                        outcome: super::result::TestOutcome::ExpectedFailure(
+                            "blocked by type errors in file (xfail)".to_string(),
+                        ),
+                        duration: Duration::ZERO,
+                    });
+                } else {
+                    summary.add_result(TestResult::failed(
+                        test.name,
+                        test.targets.clone(),
+                        "blocked by type errors in file".to_string(),
+                        Duration::ZERO,
+                    ));
+                }
             }
             // Also record the actual error messages
             for error in non_compile_fail_errors {
                 summary.add_error(error.message());
+            }
+            if is_xfail_file {
+                summary.expected_file_error = true;
             }
             return summary;
         }
@@ -317,12 +358,14 @@ impl TestRunner {
                 // Type info enables operators like ?? to distinguish chaining vs unwrapping
                 let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
                     .expr_types(&type_result.typed.expr_types)
+                    .pattern_resolutions(&type_result.typed.pattern_resolutions)
                     .build();
 
                 evaluator.register_prelude();
 
                 if let Err(e) = evaluator.load_module(&parse_result, path) {
                     summary.add_error(e);
+                    Self::apply_xfail(&mut summary, xfail, interner);
                     return summary;
                 }
 
@@ -355,6 +398,7 @@ impl TestRunner {
                     &mut summary,
                     &parse_result,
                     &type_result,
+                    &_pool,
                     &source,
                     interner,
                     config,
@@ -368,7 +412,56 @@ impl TestRunner {
             }
         }
 
+        // Apply xfail conversions to individual test results.
+        // Failed tests in the xfail set become ExpectedFailure.
+        // Passed tests in the xfail set trigger XPASS warnings.
+        Self::apply_xfail(&mut summary, xfail, interner);
+
         summary
+    }
+
+    /// Apply xfail conversions to a file's test results.
+    ///
+    /// - Failed + in xfail → `ExpectedFailure` (counter adjustment)
+    /// - Passed + in xfail → keep Passed, emit XPASS warning to stderr
+    /// - File errors + in xfail → mark `expected_file_error`
+    fn apply_xfail(
+        summary: &mut FileSummary,
+        xfail: &XFailSet,
+        interner: &crate::ir::StringInterner,
+    ) {
+        if xfail.is_empty() {
+            return;
+        }
+
+        // Check file-level errors
+        if !summary.errors.is_empty() && xfail.is_expected_file_error(&summary.path) {
+            summary.expected_file_error = true;
+        }
+
+        // Convert individual test results
+        for result in &mut summary.results {
+            let test_name = interner.lookup(result.name);
+
+            if !xfail.is_expected_test_failure(test_name) {
+                continue;
+            }
+
+            match &result.outcome {
+                super::result::TestOutcome::Failed(msg) => {
+                    // Expected failure: convert to ExpectedFailure, adjust counters
+                    result.outcome = super::result::TestOutcome::ExpectedFailure(msg.clone());
+                    summary.failed -= 1;
+                    summary.xfail += 1;
+                }
+                super::result::TestOutcome::Passed => {
+                    // Unexpected pass: keep as Passed, warn on stderr
+                    eprintln!("  XPASS: {test_name} (remove from xfail list)");
+                }
+                // Skipped and ExpectedFailure: no change needed
+                _ => {}
+            }
+        }
     }
 
     /// Run tests in a file using the LLVM backend.
@@ -381,6 +474,7 @@ impl TestRunner {
         summary: &mut FileSummary,
         parse_result: &ori_parse::ParseOutput,
         type_result: &TypeCheckResult,
+        pool: &ori_types::Pool,
         source: &str,
         interner: &crate::ir::StringInterner,
         config: &TestRunnerConfig,
@@ -438,46 +532,74 @@ impl TestRunner {
             return;
         }
 
-        // Create LLVM evaluator (LLVM migration to Pool is tracked in Phase 10)
-        let llvm_eval = OwnedLLVMEvaluator::new();
+        // Install custom LLVM fatal error handler so LLVM errors panic
+        // instead of aborting the process (allows catch_unwind recovery).
+        ori_llvm::install_fatal_error_handler();
 
-        // Convert function signatures to LLVM format
-        // Idx → TypeId bridge (LLVM migration to Pool tracked in Phase 10)
-        let function_sigs: Vec<FunctionSig> = type_result
+        // Create LLVM evaluator with type pool for proper compound type resolution
+        // (needed for sret convention on large struct returns like List, Map, etc.)
+        let llvm_eval = OwnedLLVMEvaluator::with_pool(pool);
+
+        // Convert function signatures to LLVM format.
+        // Build a name-based lookup map because typed.functions is sorted by name
+        // (for Salsa determinism) while module.functions is in source order.
+        let sig_map: std::collections::HashMap<ori_ir::Name, &ori_types::FunctionSig> = type_result
             .typed
             .functions
             .iter()
-            .map(|ft| FunctionSig {
-                params: ft
-                    .params
-                    .iter()
-                    .map(|&idx| ori_ir::TypeId::from_raw(idx.raw()))
-                    .collect(),
-                return_type: ori_ir::TypeId::from_raw(ft.return_type.raw()),
-                is_generic: ft.is_generic,
+            .map(|ft| (ft.name, ft))
+            .collect();
+
+        let function_sigs: Vec<FunctionSig> = parse_result
+            .module
+            .functions
+            .iter()
+            .map(|func| {
+                sig_map.get(&func.name).map_or(
+                    FunctionSig {
+                        params: vec![],
+                        return_type: ori_types::Idx::UNIT,
+                        is_generic: false,
+                    },
+                    |ft| FunctionSig {
+                        params: ft.param_types.clone(),
+                        return_type: ft.return_type,
+                        is_generic: ft.is_generic(),
+                    },
+                )
             })
             .collect();
 
-        // Bridge expr_types: &[Idx] → &[TypeId] for LLVM
-        let expr_types_bridge: Vec<ori_ir::TypeId> = type_result
-            .typed
-            .expr_types
-            .iter()
-            .map(|idx| ori_ir::TypeId::from_raw(idx.raw()))
-            .collect();
+        // Compile module ONCE with all tests.
+        // Wrap in catch_unwind to gracefully handle LLVM fatal errors
+        // (e.g., "unable to allocate function return" for unsupported types).
+        let compile_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            llvm_eval.compile_module_with_tests(
+                &parse_result.module,
+                &filtered_tests,
+                &parse_result.arena,
+                interner,
+                &type_result.typed.expr_types,
+                &function_sigs,
+                &type_result.typed.pattern_resolutions,
+            )
+        }));
 
-        // Compile module ONCE with all tests
-        let compiled = match llvm_eval.compile_module_with_tests(
-            &parse_result.module,
-            &filtered_tests,
-            &parse_result.arena,
-            interner,
-            &expr_types_bridge,
-            &function_sigs,
-        ) {
-            Ok(c) => c,
-            Err(e) => {
+        let compiled = match compile_result {
+            Ok(Ok(c)) => c,
+            Ok(Err(e)) => {
                 summary.add_error(e.message);
+                return;
+            }
+            Err(panic_info) => {
+                let msg = if let Some(s) = panic_info.downcast_ref::<String>() {
+                    s.clone()
+                } else if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    (*s).to_string()
+                } else {
+                    "LLVM compilation panicked".to_string()
+                };
+                summary.add_error(format!("LLVM backend error: {msg}"));
                 return;
             }
         };
@@ -639,8 +761,8 @@ impl TestRunner {
         let expected_substr = interner.lookup(expected_failure);
 
         match inner_result.outcome {
-            TestOutcome::Skipped(_) => {
-                // Skipped tests remain skipped
+            TestOutcome::Skipped(_) | TestOutcome::ExpectedFailure(_) => {
+                // Skipped and expected-failure tests pass through unchanged
                 inner_result
             }
             TestOutcome::Passed => {

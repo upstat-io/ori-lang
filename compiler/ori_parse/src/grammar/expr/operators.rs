@@ -1,6 +1,9 @@
 //! Operator Matching Helpers
 //!
-//! Helper methods for matching binary and unary operators during parsing.
+//! Helper methods for matching operators during parsing:
+//! - `infix_binding_power`: Pratt parser binding power table for binary operators
+//! - `match_unary_op`: Unary operator detection
+//! - `match_function_exp_kind`: Pattern/function keyword detection
 //!
 //! # Specification
 //!
@@ -16,86 +19,64 @@
 //!
 //! - `>` followed by `>` (no whitespace) → `>>` (right shift)
 //! - `>` followed by `=` (no whitespace) → `>=` (greater-equal)
-//!
-//! The match functions return `(BinaryOp, usize)` where usize is the number
-//! of tokens to consume (1 for single-token ops, 2 for compound ops).
 
+use super::bp;
 use crate::Parser;
 use ori_ir::{BinaryOp, FunctionExpKind, TokenKind, UnaryOp};
 
 impl Parser<'_> {
-    /// Match equality operators: `==`, `!=`
-    /// Returns `(op, token_count)` where `token_count` is always 1.
-    #[inline]
-    pub(crate) fn match_equality_op(&self) -> Option<(BinaryOp, usize)> {
-        match self.current_kind() {
-            TokenKind::EqEq => Some((BinaryOp::Eq, 1)),
-            TokenKind::NotEq => Some((BinaryOp::NotEq, 1)),
-            _ => None,
-        }
-    }
-
-    /// Match comparison operators: `<`, `<=`, `>`, `>=`
+    /// Get the infix binding power for the current token.
     ///
-    /// Note: `>=` is detected as adjacent `>` and `=` tokens (2 tokens).
-    /// Returns `(op, token_count)`.
+    /// Returns `(left_bp, right_bp, op, token_count)` or `None` if the
+    /// current token is not a binary operator.
+    ///
+    /// - `left_bp`: compared against `min_bp` to decide if this operator binds here
+    /// - `right_bp`: the `min_bp` for parsing the right operand
+    /// - `op`: the `BinaryOp` variant
+    /// - `token_count`: tokens to consume (1 for most, 2 for compound `>=`/`>>`)
     #[inline]
-    pub(crate) fn match_comparison_op(&self) -> Option<(BinaryOp, usize)> {
+    pub(crate) fn infix_binding_power(&self) -> Option<(u8, u8, BinaryOp, usize)> {
         match self.current_kind() {
-            TokenKind::Lt => Some((BinaryOp::Lt, 1)),
-            TokenKind::LtEq => Some((BinaryOp::LtEq, 1)),
+            // Right-associative: right_bp < left_bp
+            TokenKind::DoubleQuestion => {
+                Some((bp::COALESCE.0, bp::COALESCE.1, BinaryOp::Coalesce, 1))
+            }
+            // Left-associative (ascending precedence): right_bp = left_bp + 1
+            TokenKind::PipePipe => Some((bp::OR.0, bp::OR.1, BinaryOp::Or, 1)),
+            TokenKind::AmpAmp => Some((bp::AND.0, bp::AND.1, BinaryOp::And, 1)),
+            TokenKind::Pipe => Some((bp::BIT_OR.0, bp::BIT_OR.1, BinaryOp::BitOr, 1)),
+            TokenKind::Caret => Some((bp::BIT_XOR.0, bp::BIT_XOR.1, BinaryOp::BitXor, 1)),
+            TokenKind::Amp => Some((bp::BIT_AND.0, bp::BIT_AND.1, BinaryOp::BitAnd, 1)),
+            TokenKind::EqEq => Some((bp::EQUALITY.0, bp::EQUALITY.1, BinaryOp::Eq, 1)),
+            TokenKind::NotEq => Some((bp::EQUALITY.0, bp::EQUALITY.1, BinaryOp::NotEq, 1)),
+            TokenKind::Lt => Some((bp::COMPARISON.0, bp::COMPARISON.1, BinaryOp::Lt, 1)),
+            TokenKind::LtEq => Some((bp::COMPARISON.0, bp::COMPARISON.1, BinaryOp::LtEq, 1)),
             TokenKind::Gt => {
-                // Check for compound >= (adjacent > and =)
+                // Compound operators: adjacent `>` tokens combined in expression context
                 if self.is_greater_equal() {
-                    Some((BinaryOp::GtEq, 2))
+                    Some((bp::COMPARISON.0, bp::COMPARISON.1, BinaryOp::GtEq, 2))
+                } else if self.is_shift_right() {
+                    Some((bp::SHIFT.0, bp::SHIFT.1, BinaryOp::Shr, 2))
                 } else {
-                    Some((BinaryOp::Gt, 1))
+                    Some((bp::COMPARISON.0, bp::COMPARISON.1, BinaryOp::Gt, 1))
                 }
             }
-            _ => None,
-        }
-    }
-
-    /// Match shift operators: `<<`, `>>`
-    ///
-    /// Note: `>>` is detected as adjacent `>` and `>` tokens (2 tokens).
-    /// Returns `(op, token_count)`.
-    #[inline]
-    pub(crate) fn match_shift_op(&self) -> Option<(BinaryOp, usize)> {
-        match self.current_kind() {
-            TokenKind::Shl => Some((BinaryOp::Shl, 1)),
-            TokenKind::Gt => {
-                // Check for compound >> (adjacent > and >)
-                if self.is_shift_right() {
-                    Some((BinaryOp::Shr, 2))
-                } else {
-                    None
-                }
+            TokenKind::Shl => Some((bp::SHIFT.0, bp::SHIFT.1, BinaryOp::Shl, 1)),
+            TokenKind::Plus => Some((bp::ADDITIVE.0, bp::ADDITIVE.1, BinaryOp::Add, 1)),
+            TokenKind::Minus => Some((bp::ADDITIVE.0, bp::ADDITIVE.1, BinaryOp::Sub, 1)),
+            TokenKind::Star => Some((bp::MULTIPLICATIVE.0, bp::MULTIPLICATIVE.1, BinaryOp::Mul, 1)),
+            TokenKind::Slash => {
+                Some((bp::MULTIPLICATIVE.0, bp::MULTIPLICATIVE.1, BinaryOp::Div, 1))
             }
-            _ => None,
-        }
-    }
-
-    /// Match additive operators: `+`, `-`
-    /// Returns `(op, token_count)` where `token_count` is always 1.
-    #[inline]
-    pub(crate) fn match_additive_op(&self) -> Option<(BinaryOp, usize)> {
-        match self.current_kind() {
-            TokenKind::Plus => Some((BinaryOp::Add, 1)),
-            TokenKind::Minus => Some((BinaryOp::Sub, 1)),
-            _ => None,
-        }
-    }
-
-    /// Match multiplicative operators: `*`, `/`, `%`, `div`
-    /// Returns `(op, token_count)` where `token_count` is always 1.
-    #[inline]
-    pub(crate) fn match_multiplicative_op(&self) -> Option<(BinaryOp, usize)> {
-        match self.current_kind() {
-            TokenKind::Star => Some((BinaryOp::Mul, 1)),
-            TokenKind::Slash => Some((BinaryOp::Div, 1)),
-            TokenKind::Percent => Some((BinaryOp::Mod, 1)),
-            TokenKind::Div => Some((BinaryOp::FloorDiv, 1)),
+            TokenKind::Percent => {
+                Some((bp::MULTIPLICATIVE.0, bp::MULTIPLICATIVE.1, BinaryOp::Mod, 1))
+            }
+            TokenKind::Div => Some((
+                bp::MULTIPLICATIVE.0,
+                bp::MULTIPLICATIVE.1,
+                BinaryOp::FloorDiv,
+                1,
+            )),
             _ => None,
         }
     }

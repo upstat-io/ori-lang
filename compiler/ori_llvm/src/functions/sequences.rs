@@ -6,12 +6,18 @@ use inkwell::IntPredicate;
 use ori_ir::ast::patterns::{BindingPattern, FunctionSeq, SeqBinding};
 use ori_ir::ExprArena;
 use ori_types::Idx;
+use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a `FunctionSeq` (run, try, match).
+    #[instrument(
+        skip(self, seq, arena, expr_types, locals, function, loop_ctx),
+        fields(kind = %seq.name()),
+        level = "debug"
+    )]
     pub(crate) fn compile_function_seq(
         &self,
         seq: &FunctionSeq,
@@ -206,6 +212,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// For mutable bindings, creates stack allocation with `alloca`/`store`.
     /// For immutable bindings, uses direct SSA values.
     #[allow(clippy::too_many_lines)] // Pattern matching compilation is inherently cohesive; splitting would reduce clarity
+    #[instrument(skip(self, pattern, value, ty, function, locals), level = "trace")]
     pub(crate) fn bind_pattern(
         &self,
         pattern: &BindingPattern,

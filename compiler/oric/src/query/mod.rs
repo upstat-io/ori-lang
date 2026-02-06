@@ -163,6 +163,7 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
     // Create evaluator with type information (Idx-based)
     let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
         .expr_types(&type_result.typed.expr_types)
+        .pattern_resolutions(&type_result.typed.pattern_resolutions)
         .build();
     evaluator.register_prelude();
 

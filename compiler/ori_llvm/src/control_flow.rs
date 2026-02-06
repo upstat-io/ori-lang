@@ -15,6 +15,10 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Evaluates left operand first. If false, returns false without evaluating right.
     /// Otherwise, evaluates and returns the right operand.
     #[expect(clippy::too_many_arguments, reason = "matches compile_expr signature")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "trace"
+    )]
     pub(crate) fn compile_short_circuit_and(
         &self,
         left: ExprId,
@@ -75,6 +79,10 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Evaluates left operand first. If true, returns true without evaluating right.
     /// Otherwise, evaluates and returns the right operand.
     #[expect(clippy::too_many_arguments, reason = "matches compile_expr signature")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "trace"
+    )]
     pub(crate) fn compile_short_circuit_or(
         &self,
         left: ExprId,
@@ -139,6 +147,10 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// - Option: tag=0 (None), tag=1 (Some) — "has value" when tag != 0
     /// - Result: tag=0 (Ok), tag=1 (Err) — "has value" when tag == 0
     #[expect(clippy::too_many_arguments, reason = "matches compile_expr signature")]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "debug"
+    )]
     pub(crate) fn compile_short_circuit_coalesce(
         &self,
         left: ExprId,
@@ -218,6 +230,21 @@ impl<'ll> Builder<'_, 'll, '_> {
                 self.materialize_constant_struct(payload_raw)
             }
         };
+
+        // Ensure the payload type matches the expected result type.
+        // When the type checker leaves unresolved type variables (Tag::Var) in expr_types,
+        // Option<str> gets compiled as { i8, i64 } instead of { i8, { i64, ptr } }.
+        // The extracted payload is then i64 but the result type is str ({ i64, ptr }).
+        // This path is only reachable for Some values (tag != 0), and when the Option was
+        // actually None, this basic block is dead code. Either way, we need type-correct
+        // values for the phi node. Use a default value of the correct result type.
+        let expected_type = self.cx().llvm_type(result_type);
+        let payload = if payload.get_type() == expected_type {
+            payload
+        } else {
+            self.cx().default_value_for_type(expected_type)
+        };
+
         let has_value_exit_bb = self.current_block()?;
         self.br(merge_bb);
 
@@ -366,6 +393,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Compile a loop expression.
+    #[instrument(skip(self, arena, expr_types, locals, function), level = "debug")]
     pub(crate) fn compile_loop(
         &self,
         body: ExprId,
@@ -401,12 +429,17 @@ impl<'ll> Builder<'_, 'll, '_> {
         let _body_val =
             self.compile_expr(body, arena, expr_types, locals, function, Some(&loop_ctx));
 
-        // If we haven't branched away (no break/continue), loop back
-        if self.current_block()?.get_terminator().is_none() {
-            self.br(header_bb);
+        // If we haven't branched away (no break/continue), loop back.
+        // current_block() may return None if the body ended with an unreachable
+        // instruction. In that case, we still must ensure exit_bb is well-formed.
+        if let Some(block) = self.current_block() {
+            if block.get_terminator().is_none() {
+                self.br(header_bb);
+            }
         }
 
-        // Position at exit block
+        // Position at exit block.
+        // Even if unreachable (no predecessors), it must have a terminator for valid IR.
         self.position_at_end(exit_bb);
 
         // Loops with break values would need phi nodes here
@@ -477,6 +510,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         clippy::too_many_lines,
         reason = "handles both range and list iteration"
     )]
+    #[instrument(skip(self, arena, expr_types, locals, function), level = "debug")]
     pub(crate) fn compile_for(
         &self,
         binding: Name,
@@ -509,8 +543,11 @@ impl<'ll> Builder<'_, 'll, '_> {
         // Allocate index counter
         let idx_ptr = self.alloca(self.cx().scx.type_i64().into(), "for_idx");
 
-        // Set up iteration bounds based on type
-        let (start_val, end_val, use_inclusive) = if is_range {
+        // Set up iteration bounds based on type.
+        // Returns (start, end, inclusive_flag, list_data_ptr).
+        // For ranges: data_ptr is None (the index IS the value).
+        // For lists: data_ptr is Some (elements must be loaded from the data array).
+        let (start_val, end_val, use_inclusive, list_data) = if is_range {
             // Range: { i64 start, i64 end, i1 inclusive }
             let range_struct = iter_val.into_struct_value();
             let start = self
@@ -522,17 +559,25 @@ impl<'ll> Builder<'_, 'll, '_> {
             let inclusive = self
                 .extract_value(range_struct, 2, "range_inclusive")?
                 .into_int_value();
-            (start, end, Some(inclusive))
+            (start, end, Some(inclusive), None)
         } else if let BasicValueEnum::StructValue(iter_struct) = iter_val {
             // List: { i64 len, i64 cap, ptr data }
             let len = self
                 .extract_value(iter_struct, 0, "iter_len")?
                 .into_int_value();
-            let _data_ptr = self.extract_value(iter_struct, 2, "iter_data")?;
+            let data_ptr = self
+                .extract_value(iter_struct, 2, "iter_data")?
+                .into_pointer_value();
             let start = self.cx().scx.type_i64().const_int(0, false);
-            (start, len, None)
+            (start, len, None, Some(data_ptr))
         } else {
-            // Unsupported iterable type
+            // Unsupported iterable type. Clean up orphan blocks before returning —
+            // every block must have a terminator for valid LLVM IR.
+            for bb in [header_bb, body_bb, latch_bb] {
+                self.position_at_end(bb);
+                self.unreachable();
+            }
+            self.position_at_end(exit_bb);
             return None;
         };
 
@@ -565,9 +610,22 @@ impl<'ll> Builder<'_, 'll, '_> {
         // Body: bind element and execute
         self.position_at_end(body_bb);
 
-        // Bind the current index value to the binding name
-        // For-loop variables are re-bound each iteration (immutable within iteration)
-        locals.bind_immutable(binding, idx.into());
+        // Bind the current element to the loop variable.
+        // For ranges: the index IS the value (e.g., `for i in 0..10`).
+        // For lists: load the element from the data pointer at the current index.
+        if let Some(data_ptr) = list_data {
+            let iter_type_idx = expr_types[iter.raw() as usize];
+            let elem_type_idx = self
+                .cx()
+                .pool
+                .map_or(Idx::INT, |p| p.list_elem(iter_type_idx));
+            let elem_llvm_type = self.cx().llvm_type(elem_type_idx);
+            let elem_ptr = self.gep(elem_llvm_type, data_ptr, &[idx], "for_elem_ptr");
+            let elem = self.load(elem_llvm_type, elem_ptr, "for_elem");
+            locals.bind_immutable(binding, elem);
+        } else {
+            locals.bind_immutable(binding, idx.into());
+        }
 
         // Create loop context for break/continue in for-loop body.
         // IMPORTANT: `continue` must jump to the latch block (which increments the
@@ -578,42 +636,68 @@ impl<'ll> Builder<'_, 'll, '_> {
             break_phi: None,
         };
 
-        // Handle guard if present
+        // Handle guard if present.
+        // IMPORTANT: Do NOT use `?` here — early return would leave latch/exit
+        // blocks without terminators, causing LLVM IR verification failure.
         if guard.is_present() {
-            let guard_val = self.compile_expr(
+            match self.compile_expr(
                 guard,
                 arena,
                 expr_types,
                 locals,
                 function,
                 Some(&for_loop_ctx),
-            )?;
-            let guard_bool = guard_val.into_int_value();
-
-            let guard_pass_bb = self.append_block(function, "guard_pass");
-
-            // Guard fail: go to latch (increment and continue)
-            self.cond_br(guard_bool, guard_pass_bb, latch_bb);
-
-            self.position_at_end(guard_pass_bb);
+            ) {
+                Some(guard_val) => {
+                    let guard_bool = guard_val.into_int_value();
+                    let guard_pass_bb = self.append_block(function, "guard_pass");
+                    // Guard fail: go to latch (increment and continue)
+                    self.cond_br(guard_bool, guard_pass_bb, latch_bb);
+                    self.position_at_end(guard_pass_bb);
+                }
+                None => {
+                    // Guard compilation failed (e.g., unimplemented function call).
+                    // Terminate body_bb with a branch to latch to maintain valid
+                    // control flow. The body compilation below will be skipped
+                    // since the current block already has a terminator.
+                    if let Some(block) = self.current_block() {
+                        if block.get_terminator().is_none() {
+                            self.br(latch_bb);
+                        }
+                    }
+                }
+            }
         }
 
-        // Compile body with loop context for break/continue support
-        let _body_val = self.compile_expr(
-            body,
-            arena,
-            expr_types,
-            locals,
-            function,
-            Some(&for_loop_ctx),
-        );
-
-        // Fall through to latch if body didn't terminate
-        if self.current_block()?.get_terminator().is_none() {
-            self.br(latch_bb);
+        // Compile body only if the current block doesn't already have a
+        // terminator (guard failure adds br→latch, skipping the body).
+        let current_terminated = self
+            .current_block()
+            .is_some_and(|b| b.get_terminator().is_some());
+        if !current_terminated {
+            let _body_val = self.compile_expr(
+                body,
+                arena,
+                expr_types,
+                locals,
+                function,
+                Some(&for_loop_ctx),
+            );
         }
 
-        // Latch block: increment index and loop back to header
+        // Fall through to latch if body didn't terminate.
+        // current_block() may return None if the body ended with an unreachable
+        // instruction (e.g., from emit_not_implemented). In that case, we skip the
+        // branch but still must populate the latch block to produce valid IR.
+        if let Some(block) = self.current_block() {
+            if block.get_terminator().is_none() {
+                self.br(latch_bb);
+            }
+        }
+
+        // Latch block: increment index and loop back to header.
+        // This must execute unconditionally — even if no predecessors branch here,
+        // LLVM requires every basic block to have a terminator.
         self.position_at_end(latch_bb);
         let current_idx = self
             .load(self.cx().scx.type_i64().into(), idx_ptr, "cur_idx")
@@ -708,6 +792,10 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Compile a block expression.
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "trace"
+    )]
     pub(crate) fn compile_block(
         &self,
         stmts: StmtRange,

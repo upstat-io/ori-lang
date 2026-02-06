@@ -20,13 +20,13 @@ use ori_llvm::inkwell::context::Context;
 #[cfg(feature = "llvm")]
 use ori_llvm::module::ModuleCompiler;
 #[cfg(feature = "llvm")]
-use ori_types::{Idx, TypeCheckResult};
+use ori_types::{Idx, Pool, TypeCheckResult};
 #[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
-use oric::query::{parsed, typed};
+use oric::query::parsed;
 #[cfg(feature = "llvm")]
-use oric::{CompilerDb, Db, SourceFile};
+use oric::{typeck, CompilerDb, Db, SourceFile};
 
 /// Information about an imported function for codegen.
 #[cfg(feature = "llvm")]
@@ -44,12 +44,15 @@ pub struct ImportedFunctionInfo {
 ///
 /// Prints all errors to stderr and returns `None` if any errors occurred.
 /// This accumulates all errors before reporting, giving users a complete picture.
+///
+/// Returns the Pool alongside parse/type results so callers can pass it to
+/// LLVM codegen (needed for sret convention on large struct returns).
 #[cfg(feature = "llvm")]
 pub fn check_source(
     db: &CompilerDb,
     file: SourceFile,
     path: &str,
-) -> Option<(ParseOutput, TypeCheckResult)> {
+) -> Option<(ParseOutput, TypeCheckResult, Pool)> {
     let mut has_errors = false;
 
     // Create emitter with source context for rich snippet rendering
@@ -67,13 +70,15 @@ pub fn check_source(
         has_errors = true;
     }
 
-    // Check for type errors even if there were parse errors
-    // This helps users see all issues at once
-    let type_result = typed(db, file);
+    // Type check with pool retention — the Pool is needed downstream by
+    // LLVM codegen to resolve compound types (List, Map, Tuple, etc.) for
+    // the sret calling convention.
+    let (type_result, pool) =
+        typeck::type_check_with_imports_and_pool(db, &parse_result, file.path(db));
     if type_result.has_errors() {
         for error in type_result.errors() {
             let diag = ori_diagnostic::Diagnostic::error(error.code())
-                .with_message(&error.message())
+                .with_message(error.message())
                 .with_label(error.span(), "here");
             emitter.emit(&diag);
         }
@@ -84,20 +89,22 @@ pub fn check_source(
         emitter.flush();
         None
     } else {
-        Some((parse_result, type_result))
+        Some((parse_result, type_result, pool))
     }
 }
 
 /// Compile source to LLVM IR.
 ///
 /// Takes checked parse and type results and generates LLVM IR.
-/// Returns the LLVM module ready for optimization and emission.
+/// The Pool is required for proper compound type resolution during codegen
+/// (e.g., determining which return types need the sret calling convention).
 #[cfg(feature = "llvm")]
 pub fn compile_to_llvm<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
+    pool: &Pool,
     source_path: &str,
 ) -> ori_llvm::inkwell::module::Module<'ctx> {
     // Use the interner from the database - Names in the AST reference this interner
@@ -107,20 +114,25 @@ pub fn compile_to_llvm<'ctx>(
         .and_then(|s| s.to_str())
         .unwrap_or("module");
 
-    let compiler = ModuleCompiler::new(context, interner, module_name);
+    let compiler = ModuleCompiler::with_pool(context, interner, pool, module_name);
     compiler.declare_runtime();
 
-    // Register user-defined struct types
+    // Register user-defined types
     let module = &parse_result.module;
+    let arena = &parse_result.arena;
     for type_decl in &module.types {
-        if let TypeDeclKind::Struct(fields) = &type_decl.kind {
-            let field_names: Vec<_> = fields.iter().map(|f| f.name).collect();
-            compiler.register_struct(type_decl.name, field_names);
+        match &type_decl.kind {
+            TypeDeclKind::Struct(fields) => {
+                compiler.register_struct_with_types(type_decl.name, fields, arena);
+            }
+            TypeDeclKind::Sum(variants) => {
+                compiler.register_sum_type_from_decl(type_decl.name, variants);
+            }
+            TypeDeclKind::Newtype(_) => {}
         }
     }
 
     // Compile all functions — expr_types are already Idx, no bridge needed
-    let arena = &parse_result.arena;
     let expr_types = &type_result.typed.expr_types;
     for func in &module.functions {
         compiler.compile_function(func, arena, expr_types);
@@ -135,12 +147,15 @@ pub fn compile_to_llvm<'ctx>(
 /// - The module name is explicitly provided for proper symbol mangling
 /// - Imported functions are declared as external symbols
 ///
+/// The Pool is required for proper compound type resolution during codegen.
+///
 /// # Arguments
 ///
 /// * `context` - The LLVM context
 /// * `db` - The compiler database
 /// * `parse_result` - Parsed AST
 /// * `type_result` - Type checking results
+/// * `pool` - Type pool for resolving compound types
 /// * `source_path` - Path to the source file
 /// * `module_name` - Explicit module name for symbol mangling
 /// * `imported_functions` - Functions imported from other modules (declared as external)
@@ -150,6 +165,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     db: &CompilerDb,
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
+    pool: &Pool,
     source_path: &str,
     module_name: &str,
     imported_functions: &[ImportedFunctionInfo],
@@ -159,7 +175,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     // Use the interner from the database
     let interner = db.interner();
 
-    let compiler = ModuleCompiler::new(context, interner, module_name);
+    let compiler = ModuleCompiler::with_pool(context, interner, pool, module_name);
     compiler.declare_runtime();
 
     let cx = compiler.cx();
@@ -186,17 +202,22 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         );
     }
 
-    // Register user-defined struct types
+    // Register user-defined types
     let module = &parse_result.module;
+    let arena = &parse_result.arena;
     for type_decl in &module.types {
-        if let TypeDeclKind::Struct(fields) = &type_decl.kind {
-            let field_names: Vec<_> = fields.iter().map(|f| f.name).collect();
-            compiler.register_struct(type_decl.name, field_names);
+        match &type_decl.kind {
+            TypeDeclKind::Struct(fields) => {
+                compiler.register_struct_with_types(type_decl.name, fields, arena);
+            }
+            TypeDeclKind::Sum(variants) => {
+                compiler.register_sum_type_from_decl(type_decl.name, variants);
+            }
+            TypeDeclKind::Newtype(_) => {}
         }
     }
 
     // Compile all functions — expr_types are already Idx, no bridge needed
-    let arena = &parse_result.arena;
     let expr_types = &type_result.typed.expr_types;
     for func in &module.functions {
         compiler.compile_function(func, arena, expr_types);

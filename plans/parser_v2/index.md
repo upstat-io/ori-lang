@@ -32,21 +32,26 @@ sentinel pattern, ExprId::INVALID, is_present
 
 ---
 
-### Section 02: Lexer Optimizations
-**File:** `section-02-lexer.md` | **Status:** ✅ Complete (logos already optimal)
+### Section 02: Lexer Modernization
+**File:** `section-02-lexer.md` | **Status:** In Progress (02.1-02.4 satisfied; 02.5-02.10 not started)
 
 ```
-perfect hash, keyword lookup
-O(1) keyword, hash table
-precedence metadata, operator precedence
-scanner optimization, token lookup
-Go parser, keyword recognition
+perfect hash, keyword lookup, logos DFA
+precedence metadata, satisfied by parser
+adjacent token, compound operator synthesis
+HashBracket removal, simplified attributes
+decimal duration, decimal size, compile-time sugar
+doc comments, CommentKind, DocMember
+template strings, string interpolation, backtick
+TokenList SoA, cache locality, split storage
+GtEq, Shr, dead token audit
+phase separation, context-free lexer
 ```
 
 ---
 
 ### Section 03: Enhanced Progress System
-**File:** `section-03-progress.md` | **Status:** ✅ Complete
+**File:** `section-03-progress.md` | **Status:** ✅ Complete (infrastructure — see Section 07 for full adoption)
 
 ```
 progress tracking, consumed, empty
@@ -110,16 +115,36 @@ formatter support, IDE metadata
 
 ---
 
+### Section 07: Full ParseOutcome Migration
+**File:** `section-07-parseoutcome-migration.md` | **Status:** Not started
+
+```
+ParseOutcome migration, native adoption
+one_of! macro, try_outcome!, require!, chain!
+Result to ParseOutcome, grammar conversion
+with_outcome removal, wrapper elimination
+_inner pattern, collapse indirection
+ConsumedOk, EmptyOk, ConsumedErr, EmptyErr
+soft error, hard error, backtracking
+primary expressions, Pratt loop, postfix
+item declarations, type parsing, generics
+in_error_context_result removal
+parse_X_inner collapse, _with_outcome removal
+```
+
+---
+
 ## Quick Reference
 
 | ID | Title | File | Priority | Status |
 |----|-------|------|----------|--------|
 | 01 | Data-Oriented AST | `section-01-data-oriented-ast.md` | P1 | ✅ Complete (SoA, 64% reduction) |
-| 02 | Lexer Optimizations | `section-02-lexer.md` | P1 | ✅ Complete |
-| 03 | Enhanced Progress System | `section-03-progress.md` | P2 | ✅ Complete |
+| 02 | Lexer Modernization | `section-02-lexer.md` | P1 | In Progress |
+| 03 | Enhanced Progress System | `section-03-progress.md` | P2 | ✅ Complete (infrastructure) |
 | 04 | Structured Errors | `section-04-errors.md` | P1 | ✅ Complete |
 | 05 | Incremental Parsing | `section-05-incremental.md` | P2 | ✅ Complete |
 | 06 | Formatting Metadata | `section-06-metadata.md` | P3 | ✅ Complete |
+| 07 | Full ParseOutcome Migration | `section-07-parseoutcome-migration.md` | P1 | Not started |
 
 ---
 
@@ -140,7 +165,7 @@ Run `/benchmark short` after modifying:
 - Data-oriented AST (Section 01) — if implemented
 - Lexer optimizations (Section 02)
 
-**Skip benchmarks** for: progress system (03), error messages (04), incremental parsing (05), metadata (06).
+**Skip benchmarks** for: progress system (03), error messages (04), incremental parsing (05), metadata (06), ParseOutcome migration (07).
 
 ### Current Performance (February 2026)
 

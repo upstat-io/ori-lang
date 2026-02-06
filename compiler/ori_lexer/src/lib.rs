@@ -82,7 +82,8 @@ use raw_token::RawToken;
 /// Source files larger than `u32::MAX` bytes (~4GB) will produce an error token.
 /// Positions are stored as `u32` to keep tokens compact (24 bytes each).
 pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
-    let mut result = TokenList::new();
+    // Pre-allocate based on ~4 bytes per token heuristic (avoids Vec reallocation)
+    let mut result = TokenList::with_capacity(source.len() / 4 + 1);
     let mut logos = RawToken::lexer(source);
 
     while let Some(token_result) = logos.next() {
@@ -156,7 +157,7 @@ impl LexOutput {
     /// Create with pre-allocated capacity based on source length.
     pub fn with_capacity(source_len: usize) -> Self {
         LexOutput {
-            tokens: TokenList::new(),
+            tokens: TokenList::with_capacity(source_len / 4 + 1),
             comments: CommentList::new(),
             blank_lines: Vec::with_capacity(source_len / 400),
             newlines: Vec::with_capacity(source_len / 40),

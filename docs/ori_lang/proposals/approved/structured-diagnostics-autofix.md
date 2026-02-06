@@ -238,3 +238,5 @@ With structured output, an AI agent workflow becomes:
 - Rust compiler diagnostics: `~/projects/reference_repos/lang_repos/rust/compiler/rustc_errors/`
 - Go analysis framework: `~/projects/reference_repos/lang_repos/golang/src/cmd/vendor/golang.org/x/tools/go/analysis/`
 - TypeScript code fixes: `~/projects/reference_repos/lang_repos/typescript/src/services/codefixes/`
+- Swift constraint solver diagnostics: `~/projects/reference_repos/lang_repos/swift/lib/Sema/CSDiagnostics.cpp`
+- Koka effect inference: `~/projects/reference_repos/lang_repos/koka/src/Type/Infer.hs`

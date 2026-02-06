@@ -14,12 +14,13 @@
 
 use inkwell::context::Context;
 use inkwell::values::FunctionValue;
+use tracing::{debug, instrument};
 
 use ori_ir::{ExprArena, Function, Name, ParsedType, StringInterner, TestDef};
 use ori_types::{Idx, Pool};
 
 use crate::builder::Builder;
-use crate::context::CodegenCx;
+use crate::context::{CodegenCx, SumTypeLayout, SumVariantLayout};
 use crate::functions::body::FunctionBodyConfig;
 
 /// Convert a `ParsedType` to a `Idx`.
@@ -34,6 +35,20 @@ fn parsed_type_to_type_id(ty: &ParsedType) -> Option<Idx> {
     match ty {
         ParsedType::Primitive(id) => Some(Idx::from_raw(id.raw())),
         _ => None,
+    }
+}
+
+/// Byte size of a field type for sum type payload sizing.
+///
+/// Returns the size in bytes that a value of the given type occupies
+/// in a sum type's payload array. Defaults to 8 (pointer/i64 sized)
+/// for complex or unknown types.
+pub(crate) fn field_byte_size(idx: Idx) -> u32 {
+    match idx {
+        Idx::BOOL | Idx::BYTE | Idx::ORDERING => 1,
+        Idx::CHAR => 4,
+        Idx::STR => 16, // { i64, ptr }
+        _ => 8,         // Default: pointer/i64 sized (int, float, duration, size, etc.)
     }
 }
 
@@ -74,6 +89,14 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         &self.cx
     }
 
+    /// Store pattern resolutions from the type checker for use during codegen.
+    pub fn set_pattern_resolutions(
+        &mut self,
+        resolutions: &[(ori_types::PatternKey, ori_types::PatternResolution)],
+    ) {
+        self.cx.pattern_resolutions = resolutions.to_vec();
+    }
+
     /// Get the LLVM module.
     pub fn module(&self) -> &inkwell::module::Module<'ll> {
         self.cx.llmod()
@@ -93,6 +116,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
     /// - `name`: The struct type name
     /// - `fields`: The struct fields with names and types
     /// - `arena`: Expression arena for looking up nested types
+    #[instrument(skip(self, fields, arena), level = "debug", fields(name = %self.cx.interner.lookup(name)))]
     pub fn register_struct_with_types(
         &self,
         name: Name,
@@ -106,6 +130,47 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
             .collect();
 
         self.cx.register_struct(name, field_names, &field_types);
+    }
+
+    /// Register a user-defined sum type with actual variant field types.
+    ///
+    /// Creates an LLVM struct type `{ i8 tag, [M x i64] payload }` where
+    /// `M = ceil(max_payload_bytes / 8)`. Each variant's fields contribute to
+    /// the payload size; the largest variant determines `M`.
+    ///
+    /// # Arguments
+    /// - `name`: The sum type name
+    /// - `variants`: The variant definitions from the AST
+    /// - `arena`: Expression arena for looking up nested types
+    #[instrument(skip(self, variants), level = "debug", fields(name = %self.cx.interner.lookup(name)))]
+    pub fn register_sum_type_from_decl(&self, name: Name, variants: &[ori_ir::ast::Variant]) {
+        let mut variant_layouts = Vec::with_capacity(variants.len());
+        let mut max_payload_bytes: u32 = 0;
+
+        for (i, variant) in variants.iter().enumerate() {
+            let field_types: Vec<Idx> = variant
+                .fields
+                .iter()
+                .map(|f| parsed_type_to_type_id(&f.ty).unwrap_or(Idx::INT))
+                .collect();
+
+            // Compute payload size: sum of field sizes
+            let payload_bytes: u32 = field_types.iter().map(|idx| field_byte_size(*idx)).sum();
+            max_payload_bytes = max_payload_bytes.max(payload_bytes);
+
+            variant_layouts.push(SumVariantLayout {
+                name: variant.name,
+                tag: i as u8,
+                field_types,
+            });
+        }
+
+        let layout = SumTypeLayout {
+            type_name: name,
+            variants: variant_layouts,
+            payload_i64_count: max_payload_bytes.div_ceil(8),
+        };
+        self.cx.register_sum_type(layout);
     }
 
     /// Register a user-defined struct type (simple version).
@@ -207,6 +272,8 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
     ///
     /// This is the preferred method when type information is available from
     /// the type checker. It avoids fallback to default types.
+    #[instrument(skip(self, func, arena, expr_types, sig), level = "debug",
+        fields(name = %self.cx.interner.lookup(func.name)))]
     pub fn compile_function_with_sig(
         &self,
         func: &Function,
@@ -245,7 +312,15 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
             (param_types, return_type)
         };
 
-        // Phase 1: Declare the function
+        let uses_sret = self.cx.needs_sret(return_type);
+        debug!(
+            params = param_types.len(),
+            ?return_type,
+            uses_sret,
+            "declaring function"
+        );
+
+        // Phase 1: Declare the function (applies sret convention automatically)
         let llvm_func = self.cx.declare_fn(func.name, &param_types, return_type);
 
         // Phase 2: Define the function body
@@ -263,12 +338,15 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
             arena,
             expr_types,
             function: llvm_func,
+            uses_sret,
         });
     }
 
     /// Compile a test definition.
     ///
     /// Tests are compiled as void functions that call assertions.
+    #[instrument(skip(self, test, arena, expr_types), level = "debug",
+        fields(name = %self.cx.interner.lookup(test.name)))]
     pub fn compile_test(&self, test: &TestDef, arena: &ExprArena, expr_types: &[Idx]) {
         // Tests are void -> void functions
         // Phase 1: Declare
@@ -288,6 +366,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
             arena,
             expr_types,
             function: llvm_func,
+            uses_sret: false,
         });
     }
 
@@ -313,6 +392,7 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
 
     /// Create JIT execution engine and run a test.
     ///
+    /// Uses `setjmp`/`longjmp` to recover from panics in JIT-compiled code.
     /// Returns Ok(()) if test passed, Err(message) if failed.
     #[allow(unsafe_code)]
     pub fn run_test(&self, test_name: &str) -> Result<(), String> {
@@ -328,6 +408,12 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
             eprintln!("=== END IR ===");
         }
 
+        // Verify IR before JIT compilation to catch invalid IR that would
+        // cause LLVM to segfault during machine code generation.
+        if let Err(msg) = self.cx.llmod().verify() {
+            return Err(format!("LLVM IR verification failed: {}", msg.to_string()));
+        }
+
         // Create JIT execution engine
         let ee = self
             .cx
@@ -338,19 +424,37 @@ impl<'ll, 'tcx> ModuleCompiler<'ll, 'tcx> {
         // Add runtime function mappings
         self.add_runtime_mappings(&ee)?;
 
-        // Find the test function
-        // SAFETY: We trust LLVM's JIT to correctly compile and execute.
-        // The function must exist with signature () -> void.
-        unsafe {
-            let test_fn = ee
-                .get_function::<unsafe extern "C" fn()>(test_name)
-                .map_err(|e| format!("Test function '{test_name}' not found: {e}"))?;
+        // Get function pointer
+        // SAFETY: We compiled this test with signature () -> void.
+        let test_fn = unsafe {
+            ee.get_function::<unsafe extern "C" fn()>(test_name)
+                .map_err(|e| format!("Test function '{test_name}' not found: {e}"))?
+        };
 
-            // Run the test
-            test_fn.call();
+        // Set up setjmp/longjmp recovery for JIT panics
+        let mut jmp_buf = crate::runtime::JmpBuf::new();
+        let buf_ptr: *mut crate::runtime::JmpBuf = &raw mut jmp_buf;
+        crate::runtime::enter_jit_mode(buf_ptr);
+
+        // SAFETY: jmp_buf is stack-allocated and valid for the duration of this call.
+        // setjmp returns 0 on direct call, non-zero when longjmp fires.
+        let longjmp_fired = unsafe { crate::runtime::jit_setjmp(buf_ptr) } != 0;
+
+        if longjmp_fired {
+            // longjmp returned us here — JIT code hit a panic
+            crate::runtime::leave_jit_mode();
+            let msg =
+                crate::runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+            return Err(msg);
         }
 
-        // Check if panic occurred
+        // Normal path: execute the test
+        // SAFETY: test_fn has signature () -> void, compiled by us
+        unsafe { test_fn.call() };
+
+        crate::runtime::leave_jit_mode();
+
+        // Check if panic occurred via assertions (ori_assert sets state without longjmp)
         if crate::runtime::did_panic() {
             let msg =
                 crate::runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());

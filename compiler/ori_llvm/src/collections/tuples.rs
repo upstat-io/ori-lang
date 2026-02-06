@@ -4,12 +4,17 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprRange};
 use ori_types::Idx;
+use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a tuple expression.
+    #[instrument(
+        skip(self, elements, arena, expr_types, locals, function, loop_ctx),
+        level = "trace"
+    )]
     pub(crate) fn compile_tuple(
         &self,
         elements: ExprRange,

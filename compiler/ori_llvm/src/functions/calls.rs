@@ -3,12 +3,43 @@
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{CallArgRange, ExprArena, ExprId, ExprRange, Name};
 use ori_types::Idx;
-use tracing::instrument;
+use tracing::{instrument, trace};
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
+    /// Call a function, handling the sret convention transparently.
+    ///
+    /// If the callee uses sret, this:
+    /// 1. Allocates a stack slot for the return struct
+    /// 2. Prepends the pointer as the first argument
+    /// 3. Calls the (now void-returning) function
+    /// 4. Loads and returns the result from the stack slot
+    ///
+    /// Otherwise, delegates to the normal `call` path.
+    fn call_with_sret(
+        &self,
+        callee: FunctionValue<'ll>,
+        func_name: Name,
+        compiled_args: &mut Vec<BasicValueEnum<'ll>>,
+        function: FunctionValue<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        if let Some(sret_ty) = self.cx().get_sret_type(func_name) {
+            trace!(
+                func = %self.cx().interner.lookup(func_name),
+                sret_type = ?sret_ty,
+                "calling with sret convention"
+            );
+            let ptr = self.create_entry_alloca(function, "sret_slot", sret_ty.into());
+            compiled_args.insert(0, ptr.into());
+            self.call(callee, compiled_args, "call");
+            Some(self.load(sret_ty.into(), ptr, "sret_result"))
+        } else {
+            self.call(callee, compiled_args, "call")
+        }
+    }
+
     /// Compile a function call with positional arguments.
     #[instrument(
         skip(self, arena, expr_types, locals, function, loop_ctx),
@@ -31,9 +62,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let func_name = match &func_expr.kind {
             ori_ir::ast::ExprKind::Ident(name) => *name,
             _ => {
-                // Check if it's a closure call (variable holding a function)
-                // TODO: handle closure calls properly
-                return None;
+                return self.emit_not_implemented("first-class function calls");
             }
         };
 
@@ -98,8 +127,8 @@ impl<'ll> Builder<'_, 'll, '_> {
             compiled_args.push(arg_val);
         }
 
-        // Build the call
-        self.call(callee, &compiled_args, "call")
+        // Build the call (handles sret transparently)
+        self.call_with_sret(callee, func_name, &mut compiled_args, function)
     }
 
     /// Compile a closure call.
@@ -189,10 +218,7 @@ impl<'ll> Builder<'_, 'll, '_> {
                 // Already a pointer - call directly
                 self.call_closure_with_args(ptr, &compiled_args)
             }
-            _ => {
-                // Unsupported closure type
-                None
-            }
+            _ => self.emit_not_implemented("closure call (unsupported type)"),
         }
     }
 
@@ -311,7 +337,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let func_name = match &func_expr.kind {
             ori_ir::ast::ExprKind::Ident(name) => *name,
             _ => {
-                return None;
+                return self.emit_not_implemented("first-class function calls (named args)");
             }
         };
 
@@ -330,8 +356,8 @@ impl<'ll> Builder<'_, 'll, '_> {
             compiled_args.push(arg_val);
         }
 
-        // Build the call
-        self.call(callee, &compiled_args, "call")
+        // Build the call (handles sret transparently)
+        self.call_with_sret(callee, func_name, &mut compiled_args, function)
     }
 
     /// Compile a method call: receiver.method(args)
@@ -397,12 +423,12 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
         }
 
-        // Look up method function
+        // Look up method function (handles sret transparently)
         let method_name = self.cx().interner.lookup(method);
         if let Some(callee) = self.cx().llmod().get_function(method_name) {
-            self.call(callee, &compiled_args, "method_call")
+            self.call_with_sret(callee, method, &mut compiled_args, function)
         } else {
-            None
+            self.emit_not_implemented(&format!("method '{method_name}'"))
         }
     }
 
@@ -470,12 +496,12 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
         }
 
-        // Look up method function
+        // Look up method function (handles sret transparently)
         let method_name = self.cx().interner.lookup(method);
         if let Some(callee) = self.cx().llmod().get_function(method_name) {
-            self.call(callee, &compiled_args, "method_call")
+            self.call_with_sret(callee, method, &mut compiled_args, function)
         } else {
-            None
+            self.emit_not_implemented(&format!("method '{method_name}' (named args)"))
         }
     }
 }

@@ -43,8 +43,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::InferEngine;
 use crate::{
-    ContextKind, Expected, ExpectedOrigin, Idx, Pool, SequenceKind, Tag, TypeCheckError, TypeKind,
-    TypeRegistry, VariantFields,
+    ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, PatternResolution, Pool, SequenceKind,
+    Tag, TypeCheckError, TypeKind, TypeRegistry, VariantFields,
 };
 
 /// Infer the type of an expression.
@@ -954,7 +954,9 @@ fn infer_match(
     for (i, arm) in arms_slice.iter().enumerate() {
         // Check pattern against scrutinee type (and bind variables)
         engine.push_context(ContextKind::MatchArmPattern { arm_index: i });
-        check_match_pattern(engine, arena, &arm.pattern, scrutinee_ty);
+        #[expect(clippy::cast_possible_truncation, reason = "arm index fits in u32")]
+        let arm_key = PatternKey::Arm(arms.start + i as u32);
+        check_match_pattern(engine, arena, &arm.pattern, scrutinee_ty, arm_key);
         engine.pop_context();
 
         // Check guard is bool (if present)
@@ -1020,11 +1022,16 @@ fn infer_match(
 ///
 /// This function validates that a pattern can match values of the given type,
 /// and binds any variable names introduced by the pattern.
+///
+/// The `pattern_key` identifies this pattern for resolution lookup. For top-level
+/// arm patterns it's `PatternKey::Arm(arms.start + i)`, for nested patterns it's
+/// `PatternKey::Nested(match_pattern_id.raw())`.
 fn check_match_pattern(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     pattern: &ori_ir::MatchPattern,
     expected_ty: Idx,
+    pattern_key: PatternKey,
 ) {
     use ori_ir::MatchPattern;
 
@@ -1032,9 +1039,54 @@ fn check_match_pattern(
         // Wildcard matches anything
         MatchPattern::Wildcard => {}
 
-        // Binding introduces a variable with the expected type
+        // Binding: either a variable binding or an ambiguous unit variant.
+        //
+        // The parser can't distinguish `Pending` (unit variant) from `x` (binding)
+        // without type context. We resolve this here by checking if the name is a
+        // unit variant of the scrutinee's enum type.
         MatchPattern::Binding(name) => {
-            engine.env_mut().bind(*name, expected_ty);
+            let resolved = engine.resolve(expected_ty);
+            let tag = engine.pool().tag(resolved);
+
+            // Check if this name is a unit variant of the scrutinee's enum type
+            let is_unit_variant = if matches!(tag, Tag::Named | Tag::Applied) {
+                let scrutinee_name = if tag == Tag::Named {
+                    engine.pool().named_name(resolved)
+                } else {
+                    engine.pool().applied_name(resolved)
+                };
+                engine.type_registry().and_then(|reg| {
+                    let (type_entry, variant_def) = reg.lookup_variant_def(*name)?;
+                    // CRITICAL: variant must belong to the scrutinee's type, not any enum
+                    if type_entry.name != scrutinee_name {
+                        return None;
+                    }
+                    if !variant_def.fields.is_unit() {
+                        return None;
+                    }
+                    let (_, variant_idx) = reg.lookup_variant(*name)?;
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "enums are limited to 256 variants"
+                    )]
+                    Some((type_entry.name, variant_idx as u8))
+                })
+            } else {
+                None
+            };
+
+            if let Some((type_name, variant_index)) = is_unit_variant {
+                engine.record_pattern_resolution(
+                    pattern_key,
+                    PatternResolution::UnitVariant {
+                        type_name,
+                        variant_index,
+                    },
+                );
+                // Do NOT bind name — it's a constructor, not a variable
+            } else {
+                engine.env_mut().bind(*name, expected_ty);
+            }
         }
 
         // Literal must have compatible type
@@ -1125,7 +1177,8 @@ fn check_match_pattern(
             let inner_ids = arena.get_match_pattern_list(*inner);
             for (inner_id, inner_ty) in inner_ids.iter().zip(inner_types.iter()) {
                 let inner_pattern = arena.get_match_pattern(*inner_id);
-                check_match_pattern(engine, arena, inner_pattern, *inner_ty);
+                let nested_key = PatternKey::Nested(inner_id.raw());
+                check_match_pattern(engine, arena, inner_pattern, *inner_ty, nested_key);
             }
         }
 
@@ -1151,7 +1204,8 @@ fn check_match_pattern(
                 // Check each element
                 for (inner_id, elem_ty) in inner_ids.iter().zip(elem_types.iter()) {
                     let inner_pattern = arena.get_match_pattern(*inner_id);
-                    check_match_pattern(engine, arena, inner_pattern, *elem_ty);
+                    let nested_key = PatternKey::Nested(inner_id.raw());
+                    check_match_pattern(engine, arena, inner_pattern, *elem_ty, nested_key);
                 }
             } else if resolved != Idx::ERROR {
                 // Not a tuple type
@@ -1178,7 +1232,8 @@ fn check_match_pattern(
                 // Check each element pattern
                 for inner_id in elem_ids {
                     let inner_pattern = arena.get_match_pattern(*inner_id);
-                    check_match_pattern(engine, arena, inner_pattern, elem_ty);
+                    let nested_key = PatternKey::Nested(inner_id.raw());
+                    check_match_pattern(engine, arena, inner_pattern, elem_ty, nested_key);
                 }
 
                 // Bind rest pattern to list type
@@ -1222,7 +1277,8 @@ fn check_match_pattern(
                     .unwrap_or_else(|| engine.fresh_var());
                 if let Some(inner_id) = inner_pattern {
                     let inner = arena.get_match_pattern(*inner_id);
-                    check_match_pattern(engine, arena, inner, field_ty);
+                    let nested_key = PatternKey::Nested(inner_id.raw());
+                    check_match_pattern(engine, arena, inner, field_ty, nested_key);
                 } else {
                     // Shorthand: `{ x }` binds x to the field value
                     engine.env_mut().bind(*name, field_ty);
@@ -1247,7 +1303,8 @@ fn check_match_pattern(
             let alt_ids = arena.get_match_pattern_list(*alternatives);
             for alt_id in alt_ids {
                 let alt_pattern = arena.get_match_pattern(*alt_id);
-                check_match_pattern(engine, arena, alt_pattern, expected_ty);
+                let nested_key = PatternKey::Nested(alt_id.raw());
+                check_match_pattern(engine, arena, alt_pattern, expected_ty, nested_key);
             }
         }
 
@@ -1258,7 +1315,8 @@ fn check_match_pattern(
         } => {
             engine.env_mut().bind(*name, expected_ty);
             let inner_pattern = arena.get_match_pattern(*inner_id);
-            check_match_pattern(engine, arena, inner_pattern, expected_ty);
+            let nested_key = PatternKey::Nested(inner_id.raw());
+            check_match_pattern(engine, arena, inner_pattern, expected_ty, nested_key);
         }
     }
 }
@@ -4043,8 +4101,15 @@ fn infer_for_pattern(
     // Enter scope for pattern bindings
     engine.enter_scope();
 
-    // Check pattern against scrutinee type
-    check_match_pattern(engine, arena, &arm.pattern, scrutinee_ty);
+    // Check pattern against scrutinee type.
+    // for-pattern arms don't have an ArmRange, use a sentinel key.
+    check_match_pattern(
+        engine,
+        arena,
+        &arm.pattern,
+        scrutinee_ty,
+        PatternKey::Arm(u32::MAX),
+    );
 
     // Check guard if present
     if let Some(guard_id) = arm.guard {

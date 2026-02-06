@@ -1,0 +1,26 @@
+use std.testing { assert }
+
+// Nested match: variant equality via nested match
+type Status = Pending | Running | Completed
+
+@variants_equal (a: Status, b: Status) -> bool = match(a,
+    Pending -> match(b,
+        Pending -> true,
+        _ -> false,
+    ),
+    Running -> match(b,
+        Running -> true,
+        _ -> false,
+    ),
+    Completed -> match(b,
+        Completed -> true,
+        _ -> false,
+    ),
+)
+
+@test_nested_match tests @variants_equal () -> void = run(
+    assert(cond: variants_equal(a: Pending, b: Pending)),
+    assert(cond: variants_equal(a: Running, b: Running)),
+    assert(cond: !variants_equal(a: Pending, b: Running)),
+    assert(cond: !variants_equal(a: Running, b: Completed)),
+)

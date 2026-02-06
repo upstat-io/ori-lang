@@ -7,129 +7,94 @@ section: "Type System"
 
 # Type Inference
 
-Ori uses Hindley-Milner (HM) type inference, extended with features for patterns and capabilities.
+Ori uses Hindley-Milner (HM) type inference, extended with rank-based let-polymorphism, capability tracking, and pattern resolution. The `InferEngine` orchestrates inference for individual expressions, while `ModuleChecker` coordinates module-level type checking.
 
-## How HM Inference Works
+## Location
 
-### 1. Fresh Type Variables
+```
+compiler/ori_types/src/infer/
+├── mod.rs    # InferEngine struct, configuration, error handling
+├── expr.rs   # infer_expr() — per-expression type inference dispatch
+└── env.rs    # TypeEnv — scope chain for name resolution
+```
 
-When a type is unknown, create a fresh type variable:
+## InferEngine
 
 ```rust
-impl InferenceContext {
-    pub fn fresh_var(&mut self) -> Type {
-        let var = TypeVar::new(self.next_var);
-        self.next_var += 1;
-        Type::Var(var)
-    }
+pub struct InferEngine<'pool> {
+    unify: UnifyEngine<'pool>,              // Unification engine (borrows Pool)
+    env: TypeEnv,                           // Name → scheme bindings
+    expr_types: FxHashMap<ExprIndex, Idx>,  // Expression → inferred type
+    context_stack: Vec<ContextKind>,        // For error reporting context
+    errors: Vec<TypeCheckError>,            // Accumulated errors
 
-    pub fn fresh_var_id(&mut self) -> TypeId {
-        let var = TypeVar::new(self.next_var);
-        self.next_var += 1;
-        self.interner.intern(TypeData::Var(var))
-    }
+    interner: Option<&'pool StringInterner>,
+    trait_registry: Option<&'pool TraitRegistry>,
+    signatures: Option<&'pool FxHashMap<Name, FunctionSig>>,
+    type_registry: Option<&'pool TypeRegistry>,
+
+    self_type: Option<Idx>,                 // For recursive call patterns
+    impl_self_type: Option<Idx>,            // For `Self` in impl blocks
+    loop_break_types: Vec<Idx>,             // Stack of break value types
+    current_capabilities: FxHashSet<Name>,  // `uses` clause capabilities
+    provided_capabilities: FxHashSet<Name>, // `with...in` capabilities
+    pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
 }
 ```
 
-### 2. Expression Inference
+The engine is created fresh for each function body check, receiving the pool, environment, and registries from `ModuleChecker`.
 
-Walk the AST and infer types, unifying immediately:
+## Expression Inference
+
+The core inference function dispatches on `ExprKind`:
 
 ```rust
-fn infer_expr(&mut self, expr: ExprId) -> Type {
-    let expr_data = self.arena.get(expr);
+#[tracing::instrument(level = "trace", skip(engine, arena))]
+pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx
+```
 
-    match &expr_data.kind {
-        ExprKind::Literal(Literal::Int(_)) => Type::Int,
+### Dispatch Table
 
-        ExprKind::Ident(name) => {
-            self.env.lookup(*name)
-                .unwrap_or_else(|| self.error_undefined(*name))
-        }
+| Expression Kind | Inference Rule |
+|----------------|---------------|
+| `Literal(Int)` | `Idx::INT` |
+| `Literal(Float)` | `Idx::FLOAT` |
+| `Literal(Str)` | `Idx::STR` |
+| `Literal(Bool)` | `Idx::BOOL` |
+| `Ident(name)` | Lookup in `TypeEnv`, instantiate if polymorphic |
+| `Binary { op, left, right }` | Infer operands, check operator type rules |
+| `Call { func, args }` | Infer function type, unify args with params |
+| `FieldAccess { expr, field }` | Infer receiver, look up field/method |
+| `Index { expr, index }` | Infer collection type, return element type |
+| `If { cond, then, else }` | Cond must be `bool`, unify branch types |
+| `Match { scrutinee, arms }` | Infer scrutinee, check patterns, unify arm types |
+| `For { var, iter, body }` | Infer iterable element type, bind loop var |
+| `Loop { body }` | Fresh break type, infer body |
+| `Let { pattern, value, body }` | Infer value, bind pattern, infer body |
+| `Lambda { params, body }` | Create function type with fresh param vars |
+| `List { elems }` | Unify all elements, return `[T]` |
+| `Map { entries }` | Unify all keys and values, return `{K: V}` |
+| `Tuple { elems }` | Infer each element, return tuple type |
+| `Block { stmts, expr }` | Infer statements in sequence, return last expr |
+| `Run { stmts }` | Sequential pattern — infer each, return last |
+| `Try { stmts }` | Like run, but wraps in `result` and enables `?` |
 
-        ExprKind::Binary { left, op, right } => {
-            let left_ty = self.infer_expr(*left);
-            let right_ty = self.infer_expr(*right);
-            self.infer_binary_op(*op, left_ty, right_ty)
-        }
+### Identifier Resolution
 
-        ExprKind::Let { name, value, body } => {
-            let value_ty = self.infer_expr(*value);
-            let mut child_env = self.env.child();
-            child_env.bind(*name, value_ty);
-            self.infer_expr_with_env(*body, &child_env)
-        }
+When an identifier is looked up, the result may be a polymorphic type scheme. The engine instantiates it with fresh variables:
 
-        // ...
-    }
+```rust
+// Lookup returns an Idx which may be a Scheme
+let ty = engine.env.lookup(name)?;
+// If it's a scheme, instantiate with fresh variables
+if engine.pool.tag(ty) == Tag::Scheme {
+    engine.unify.instantiate(ty)  // Creates fresh vars for each quantified var
+} else {
+    ty
 }
 ```
 
-### 3. Unification
-
-Unification happens immediately via `InferenceContext`:
-
-```rust
-impl InferenceContext {
-    pub fn unify(&mut self, t1: &Type, t2: &Type) -> Result<(), TypeError> {
-        let id1 = t1.to_type_id(&self.interner);
-        let id2 = t2.to_type_id(&self.interner);
-        self.unify_ids(id1, id2)  // O(1) fast path if identical
-    }
-
-    pub fn unify_ids(&mut self, id1: TypeId, id2: TypeId) -> Result<(), TypeError> {
-        if id1 == id2 { return Ok(()); }  // O(1) fast path
-
-        let data1 = self.interner.lookup(self.resolve_id(id1));
-        let data2 = self.interner.lookup(self.resolve_id(id2));
-
-        match (&data1, &data2) {
-            // Type variable - bind it (after occurs check)
-            (TypeData::Var(v), _) => {
-                if self.occurs_id(*v, id2) { return Err(TypeError::InfiniteType); }
-                self.substitutions.insert(*v, id2);
-                Ok(())
-            }
-
-            // Compound types - recurse
-            (TypeData::List(a), TypeData::List(b)) => self.unify_ids(*a, *b),
-
-            // Error/Never unify with anything
-            (TypeData::Error | TypeData::Never, _) |
-            (_, TypeData::Error | TypeData::Never) => Ok(()),
-
-            // Mismatch
-            _ => Err(TypeError::Mismatch { /* ... */ }),
-        }
-    }
-}
-```
-
-See [Unification](unification.md) for the complete algorithm.
-
-### 4. Resolution
-
-Apply substitutions to resolve type variables:
-
-```rust
-impl InferenceContext {
-    /// Resolve a Type by applying all substitutions.
-    pub fn resolve(&self, ty: &Type) -> Type {
-        let id = ty.to_type_id(&self.interner);
-        let resolved = self.resolve_id(id);
-        self.interner.to_type(resolved)
-    }
-
-    /// Resolve a TypeId (internal, uses TypeIdFolder).
-    pub fn resolve_id(&self, id: TypeId) -> TypeId {
-        let mut resolver = TypeIdResolver {
-            interner: &self.interner,
-            substitutions: &self.substitutions,
-        };
-        resolver.fold(id)
-    }
-}
-```
+This ensures each use of a polymorphic function gets independent type variables.
 
 ## Inference Examples
 
@@ -141,25 +106,12 @@ let y = x + 1
 ```
 
 ```
-1. x : T0 (fresh)
-2. 42 : Int
-3. Unify(T0, Int) -> substitution[T0] = Int
-4. y : T1 (fresh)
-5. x + 1 : lookup(+, Int, Int) = Int
-6. Unify(T1, Int) -> substitution[T1] = Int
-```
-
-### Function Application
-
-```ori
-@double (x: int) -> int = x * 2
-double(21)
-```
-
-```
-1. double : (Int) -> Int
-2. 21 : Int
-3. double(21) : apply (Int) -> Int to (Int) = Int
+1. x : T0 (fresh var at current rank)
+2. 42 : int (literal)
+3. unify(T0, int) → Link T0 → int
+4. y : T1 (fresh var)
+5. x + 1 : lookup(+, int, int) = int
+6. unify(T1, int) → Link T1 → int
 ```
 
 ### Generic Function
@@ -171,113 +123,129 @@ identity("hello")
 ```
 
 ```
-1. identity : forall T. (T) -> T
+1. identity : forall T. (T) -> T  (scheme with one generalized var)
 2. identity(42):
-   - Instantiate: (T0) -> T0
-   - Unify(T0, int)
-   - Result: int
+   - Instantiate: (T0) -> T0   (fresh vars)
+   - Unify arg: T0 = int       (Link T0 → int)
+   - Return: int
 3. identity("hello"):
-   - Instantiate: (T1) -> T1
-   - Unify(T1, str)
-   - Result: str
+   - Instantiate: (T1) -> T1   (new fresh vars)
+   - Unify arg: T1 = str       (Link T1 → str)
+   - Return: str
 ```
 
-### List Inference
+### Let Polymorphism
+
+```ori
+let id = x -> x
+let a = id(42)
+let b = id("hello")
+```
+
+```
+1. Infer lambda at rank 3:
+   - x : T0 at rank 3
+   - body returns T0
+   - type: (T0) -> T0
+2. Exit rank 3 — generalize:
+   - T0 is unbound at rank 3 → generalize
+   - id : forall T. T -> T (scheme)
+3. id(42) — instantiate scheme:
+   - (T1) -> T1, unify T1 = int → result: int
+4. id("hello") — instantiate scheme:
+   - (T2) -> T2, unify T2 = str → result: str
+```
+
+The rank system ensures that `T0` is generalized correctly — see [Unification](unification.md) for rank details.
+
+### Collection Inference
 
 ```ori
 let xs = [1, 2, 3]
-let ys = map(over: xs, transform: x -> x * 2)
+let ys = xs.map(x -> x * 2)
 ```
 
 ```
-1. [1, 2, 3] : [T0] where each element unifies with T0
-   - 1 : Int, unify(T0, Int)
-   - Result: [Int]
-2. map:
-   - over: [Int]
-   - transform: T1 -> T2
-   - Unify(T1, Int) from element type
-   - x * 2 : Int, so T2 = Int
-   - Result: [Int]
+1. [1, 2, 3]:
+   - Fresh elem var T0
+   - Unify T0 = int (from first element)
+   - Check remaining elements: all int
+   - Result: [int]
+2. xs.map(x -> x * 2):
+   - Receiver: [int]
+   - Method: map<A, B>(self, f: (A) -> B) -> [B]
+   - Instantiate: A = int, B = T1
+   - Lambda: (int) -> int, so T1 = int
+   - Result: [int]
 ```
 
-## Let Polymorphism
+## Capability Tracking
 
-Variables bound with `let` can be polymorphic:
+Functions declare required capabilities with `uses`:
 
 ```ori
-let id = x -> x           // forall T. T -> T
-let a = id(42)            // int
-let b = id("hello")       // str
+@fetch_data (url: str) -> str uses Http = ...
 ```
 
-This is called "let-generalization":
+The `InferEngine` tracks capabilities in two sets:
+
+- `current_capabilities` — Capabilities declared by the current function's `uses` clause
+- `provided_capabilities` — Capabilities injected by `with...in` expressions
+
+When a called function requires a capability, the engine verifies it is available:
+
+```ori
+@process () -> str uses Http =
+    let data = fetch_data(url: "/api")  // Ok: Http is in current_capabilities
+    data
+
+@main () -> void =
+    with Http = MockHttp in
+        process()  // Ok: Http is provided
+```
+
+## Pattern Resolutions
+
+During inference of `match` expressions, the engine records how patterns resolve. This information is needed by the LLVM backend for code generation:
 
 ```rust
-impl InferenceContext {
-    /// Generalize a type by quantifying over free type variables.
-    pub fn generalize(&self, ty: &Type, env: &TypeEnv) -> TypeScheme {
-        let ty_vars = self.free_vars(ty);
-        let env_vars: HashSet<_> = env.free_vars(self).into_iter().collect();
-
-        // Quantify over variables free in ty but not in env
-        let generalizable: Vec<_> = ty_vars.iter()
-            .filter(|v| !env_vars.contains(v))
-            .cloned()
-            .collect();
-
-        TypeScheme {
-            vars: generalizable,
-            ty: ty.clone(),
-        }
-    }
+pub enum PatternResolution {
+    UnitVariant {
+        type_name: Name,
+        variant_index: u8,  // Tag value for LLVM discriminant
+    },
 }
 ```
 
-The `TypeScheme` is stored in the environment and instantiated with fresh variables on each use.
+Pattern resolutions are accumulated in `InferEngine::pattern_resolutions` and emitted as part of `TypedModule`.
 
-## Occurs Check
+## Error Accumulation
 
-Prevent infinite types like `T = [T]`:
+The engine accumulates errors rather than bailing on the first failure. Each error includes rich context:
 
 ```rust
-impl InferenceContext {
-    /// Check if type variable occurs in a type (prevents infinite types).
-    fn occurs_id(&self, var: TypeVar, id: TypeId) -> bool {
-        let mut checker = OccursChecker {
-            interner: &self.interner,
-            substitutions: &self.substitutions,
-            target: var,
-            found: false,
-        };
-        checker.visit(id);
-        checker.found
-    }
+pub struct TypeCheckError {
+    pub kind: TypeErrorKind,
+    pub span: Span,
+    pub context: ErrorContext,
+    pub severity: Severity,
+    pub suggestions: Vec<Suggestion>,
 }
 ```
 
-See [Unification](unification.md) for the `OccursChecker` implementation using `TypeIdVisitor`.
+The `ErrorContext` tracks the origin of type expectations (e.g., "2nd argument to `foo`", "return type of function") for clear error messages.
 
-## Error Reporting
+## Tracing
 
-When unification fails, report the mismatch:
+The inference engine is instrumented with `tracing` for debugging:
 
-```rust
-Err(TypeError::Mismatch {
-    expected: Type::Int,
-    found: Type::String,
-    span: expr.span,
-    context: "in binary addition",
-})
+```bash
+ORI_LOG=ori_types=trace ori check file.ori          # Per-expression inference
+ORI_LOG=ori_types=debug ori check file.ori          # Phase boundaries
+ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check f.ori  # Hierarchical call tree
 ```
 
-Output:
-```
-error[E2001]: type mismatch
- --> src/mainsi:5:10
-  |
-5 |     42 + "hello"
-  |          ^^^^^^^ expected int, found str
-  |
-  = note: in binary addition
-```
+Key instrumented functions:
+- `infer_expr()` — trace level (per-expression, very verbose)
+- `check_module()` — debug level (phase boundaries)
+- `collect_signatures()`, `check_function_bodies()` — debug level

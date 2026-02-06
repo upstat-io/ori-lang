@@ -161,6 +161,7 @@ parse_ori_results() {
         eval "${prefix}_PASSED=0"
         eval "${prefix}_FAILED=0"
         eval "${prefix}_SKIPPED=0"
+        eval "${prefix}_XFAIL=0"
         eval "${prefix}_CRASHED=1"
         return
     fi
@@ -172,6 +173,10 @@ parse_ori_results() {
     eval "${prefix}_FAILED=${nums[1]:-0}"
     eval "${prefix}_SKIPPED=${nums[2]:-0}"
     eval "${prefix}_CRASHED=0"
+
+    # Extract xfail count (appears as "N expected failures" in summary)
+    local xfail=$(echo "$line" | grep -oP '[0-9]+(?= expected failures)' || echo "0")
+    eval "${prefix}_XFAIL=${xfail:-0}"
 }
 
 # --- Main execution ---
@@ -306,25 +311,26 @@ echo "=============================================="
 echo -e "${BOLD}                TEST SUMMARY${NC}"
 echo "=============================================="
 echo ""
-printf "%-30s %8s %8s %8s\n" "Test Suite" "Passed" "Failed" "Skipped"
-printf "%-30s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------"
-printf "%-30s %8d %8d %8d\n" "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED"
-printf "%-30s %8d %8d %8d\n" "Rust unit tests (LLVM)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED"
+printf "%-30s %8s %8s %8s %8s\n" "Test Suite" "Passed" "Failed" "Skipped" "XFail"
+printf "%-30s %8s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------" "--------"
+printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED" "-"
+printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (LLVM)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED" "-"
 printf "%-30s %8s\n" "WASM playground build" "$WASM_STATUS"
-printf "%-30s %8d %8d %8d\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED"
+printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
 if [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
     printf "%-30s %8s\n" "Ori spec (LLVM backend)" "CRASHED"
 else
-    printf "%-30s %8d %8d %8d\n" "Ori spec (LLVM backend)" "$ORI_LLVM_PASSED" "$ORI_LLVM_FAILED" "$ORI_LLVM_SKIPPED"
+    printf "%-30s %8d %8d %8d %8d\n" "Ori spec (LLVM backend)" "$ORI_LLVM_PASSED" "$ORI_LLVM_FAILED" "$ORI_LLVM_SKIPPED" "${ORI_LLVM_XFAIL:-0}"
 fi
-printf "%-30s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------"
+printf "%-30s %8s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------" "--------"
 
 # Calculate totals
 TOTAL_PASSED=$((RUST_PASSED + RUST_LLVM_PASSED + ORI_INTERP_PASSED + ORI_LLVM_PASSED))
 TOTAL_FAILED=$((RUST_FAILED + RUST_LLVM_FAILED + ORI_INTERP_FAILED + ORI_LLVM_FAILED))
 TOTAL_SKIPPED=$((RUST_IGNORED + RUST_LLVM_IGNORED + ORI_INTERP_SKIPPED + ORI_LLVM_SKIPPED))
+TOTAL_XFAIL=$((${ORI_LLVM_XFAIL:-0}))
 
-printf "${BOLD}%-30s %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED"
+printf "${BOLD}%-30s %8d %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED" "$TOTAL_XFAIL"
 echo ""
 
 # Final status

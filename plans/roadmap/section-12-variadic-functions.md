@@ -64,6 +64,14 @@ Rust doesn't have variadic functions in the language; uses macros instead.
 ~/projects/reference_repos/lang_repos/golang/src/cmd/compile/internal/types2/signature.go
 ```
 
+### Swift
+
+```
+# Swift has variadic generics (parameter packs: each T, repeat each T)
+~/projects/reference_repos/lang_repos/swift/lib/Sema/CSSimplify.cpp       # Pack expansion type checking
+~/projects/reference_repos/lang_repos/swift/include/swift/AST/Types.h     # PackExpansionType
+```
+
 ---
 
 ## 12.1 Homogeneous Variadics

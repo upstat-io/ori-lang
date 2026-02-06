@@ -141,6 +141,8 @@ impl Interpreter<'_> {
                         &match_item,
                         self.arena,
                         self.interner,
+                        None,
+                        self.pattern_resolutions,
                     )? {
                         // Pattern matched - use RAII guard for scope safety
                         return self.with_match_bindings(bindings, |eval| eval.eval(arm.body));

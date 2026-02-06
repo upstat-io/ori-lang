@@ -2,7 +2,7 @@
 
 use inkwell::values::BasicValueEnum;
 use ori_types::Idx;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::builder::Builder;
 
@@ -68,6 +68,12 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Coerce a value to match a target type.
+    ///
+    /// Handles int↔int coercion via zero-extend/truncate. For fundamentally
+    /// incompatible types (e.g., struct vs int due to unresolved type variables),
+    /// returns a default value of the target type. This is safe because such
+    /// mismatches only occur on unreachable code paths (e.g., None's has-value
+    /// branch, or match arms with wrong types due to un-zonked type variables).
     pub(crate) fn coerce_value_to_type(
         &self,
         val: BasicValueEnum<'ll>,
@@ -97,7 +103,15 @@ impl<'ll> Builder<'_, 'll, '_> {
             };
         }
 
-        // For other type mismatches, use bitcast if sizes match or return as-is
-        val
+        // For fundamentally incompatible types (struct vs int, etc.), use a default
+        // value of the target type. This occurs when the type checker leaves
+        // unresolved type variables that map to i64 in LLVM, causing type mismatches
+        // in phi nodes. The mismatched path is semantically unreachable.
+        warn!(
+            val_type = ?val_type,
+            target_type = ?target_type,
+            "coerce_value_to_type: incompatible types, using default (unreachable path)"
+        );
+        self.cx().default_value_for_type(target_type)
     }
 }

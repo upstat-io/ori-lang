@@ -17,6 +17,48 @@ use ori_ir::{Name, Span};
 use crate::registry::TypeEntry;
 use crate::{Idx, TypeCheckError};
 
+/// Key identifying a match pattern in the AST.
+///
+/// Used to look up whether a `Binding` pattern was resolved to a unit variant
+/// by the type checker. Keys are either top-level arm patterns (indexed by
+/// the arm's absolute position in the arena) or nested patterns (indexed by
+/// their `MatchPatternId`).
+///
+/// # Salsa Compatibility
+///
+/// Derives all traits required for Salsa query results plus `Ord` for sorted
+/// storage and binary search in `TypedModule::pattern_resolutions`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum PatternKey {
+    /// Top-level arm pattern. Value = `ArmRange.start + arm_index`.
+    Arm(u32),
+    /// Nested pattern stored via `MatchPatternId`. Value = `MatchPatternId::raw()`.
+    Nested(u32),
+}
+
+/// Type-checker resolution of an ambiguous `Binding` pattern.
+///
+/// When the parser encounters `Pending` in a match arm, it creates
+/// `MatchPattern::Binding("Pending")` because it lacks type context.
+/// The type checker resolves this to a `UnitVariant` if the name matches
+/// a unit variant of the scrutinee's enum type.
+///
+/// # Invariant
+///
+/// If a `PatternKey` has no entry in `pattern_resolutions`, the `Binding`
+/// is a normal variable binding (the common case). Only resolved patterns
+/// are stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PatternResolution {
+    /// This `Binding` is actually a unit variant of the scrutinee's enum type.
+    UnitVariant {
+        /// The enum type's name (e.g., `Status`).
+        type_name: Name,
+        /// The variant's index in declaration order (= tag value in LLVM).
+        variant_index: u8,
+    },
+}
+
 /// Type-checked module.
 ///
 /// Contains all type information computed by the inference engine.
@@ -59,6 +101,13 @@ pub struct TypedModule {
 
     /// Type errors accumulated during type checking.
     pub errors: Vec<TypeCheckError>,
+
+    /// Resolved patterns: `Binding` names disambiguated to unit variants.
+    ///
+    /// Sorted by `PatternKey` for O(log n) binary search via `resolve_pattern()`.
+    /// Only patterns that were resolved are stored — unresolved bindings are
+    /// normal variable bindings and have no entry.
+    pub pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
 }
 
 impl TypedModule {
@@ -74,6 +123,7 @@ impl TypedModule {
             functions: Vec::with_capacity(function_count),
             types: Vec::new(),
             errors: Vec::new(),
+            pattern_resolutions: Vec::new(),
         }
     }
 
@@ -112,6 +162,19 @@ impl TypedModule {
     /// Get the number of functions.
     pub fn function_count(&self) -> usize {
         self.functions.len()
+    }
+
+    /// Look up a pattern resolution by key.
+    ///
+    /// Returns `Some(&PatternResolution)` if the pattern was resolved to a
+    /// unit variant, `None` if it's a normal variable binding.
+    ///
+    /// Uses O(log n) binary search on the sorted `pattern_resolutions` vec.
+    pub fn resolve_pattern(&self, key: PatternKey) -> Option<&PatternResolution> {
+        self.pattern_resolutions
+            .binary_search_by_key(&key, |(k, _)| *k)
+            .ok()
+            .map(|idx| &self.pattern_resolutions[idx].1)
     }
 }
 

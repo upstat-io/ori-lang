@@ -79,6 +79,14 @@ sections:
 ~/projects/reference_repos/lang_repos/golang/src/cmd/go/internal/work/build.go    # Build tags handling
 ```
 
+### Swift
+
+```
+# Swift uses #if os(...), #if arch(...), #if canImport(...)
+~/projects/reference_repos/lang_repos/swift/lib/Parse/ParseIfConfig.cpp           # #if config parsing
+~/projects/reference_repos/lang_repos/swift/lib/AST/PlatformKind.cpp              # Platform enumeration
+```
+
 ---
 
 ## 13.1 Target Attribute

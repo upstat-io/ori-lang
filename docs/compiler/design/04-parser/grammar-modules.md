@@ -7,7 +7,7 @@ section: "Parser"
 
 # Grammar Modules
 
-The Ori parser organizes grammar rules into separate modules for maintainability. The authoritative grammar is in [Parser Overview § Formal Grammar](index.md#formal-grammar). Each production maps to parsing functions in the modules below.
+The Ori parser organizes grammar rules into separate modules for maintainability. The authoritative grammar is in [Parser Overview — Formal Grammar](index.md#grammar). Each production maps to parsing functions in the modules below.
 
 ## Module Structure
 
@@ -18,10 +18,10 @@ compiler/ori_parse/src/
 └── grammar/
     ├── mod.rs              # Re-exports
     ├── expr/               # Expression parsing (split into submodules)
-    │   ├── mod.rs              # Entry point, binary operators
-    │   ├── operators.rs        # Operator matching helpers
-    │   ├── primary.rs          # Literals, identifiers, lambdas
-    │   ├── postfix.rs          # Call, method call, field, index
+    │   ├── mod.rs              # Entry point, Pratt parser for binary operators
+    │   ├── operators.rs        # Binding power table, operator matching
+    │   ├── primary.rs          # Literals, identifiers, lambdas, let bindings
+    │   ├── postfix.rs          # Call, method call, field, index, await, try, cast
     │   └── patterns.rs         # run, try, match, for, function_exp
     ├── item/               # Top-level items (split into submodules)
     │   ├── mod.rs              # Re-exports
@@ -29,8 +29,8 @@ compiler/ori_parse/src/
     │   ├── config.rs           # Config variable parsing
     │   ├── function.rs         # Function and test definitions
     │   ├── trait_def.rs        # Trait definitions
-    │   ├── impl_def.rs         # Impl blocks
-    │   ├── type_decl.rs        # Type declarations (struct, enum, newtype)
+    │   ├── impl_def.rs         # Impl blocks, def impl blocks
+    │   ├── type_decl.rs        # Type declarations (struct, sum, newtype)
     │   ├── extend.rs           # Extend blocks
     │   └── generics.rs         # Generic params, bounds, where clauses
     ├── ty.rs               # Type annotations
@@ -39,410 +39,296 @@ compiler/ori_parse/src/
 
 ## Module Responsibilities
 
-### expr.rs (~1,337 lines)
+### expr/ — Expressions
 
-Handles all expression parsing:
+#### mod.rs — Pratt Parser Entry
+
+The core expression parsing entry point. Handles binary operators via a Pratt parser with a binding power table (see [Pratt Parser](pratt-parser.md)):
+
+```rust
+parse_expr()                 // Full expression (includes assignment)
+parse_non_assign_expr()      // No top-level = (guard clauses)
+parse_non_comparison_expr()  // No < > (const generic defaults)
+parse_binary_pratt(min_bp)   // Pratt loop: single-loop precedence climbing
+parse_unary()                // - ! ~ with constant folding for negation
+parse_range_continuation()   // left .. end by step
+```
+
+#### operators.rs — Binding Power Table
+
+Maps `TokenKind` to `(left_bp, right_bp, BinaryOp, token_count)`:
+
+```rust
+infix_binding_power()        // Binary operator → binding power + token count
+match_unary_op()             // - ! ~ → UnaryOp
+match_function_exp_kind()    // Keyword → FunctionExpKind (recurse, parallel, spawn, ...)
+```
+
+Compound operators (`>=`, `>>`) return `token_count = 2` since they consume two `>` tokens.
+
+#### primary.rs — Literals and Atoms
 
 ```rust
 // Literals
-parse_literal()       // 42, "hello", true
+parse_literal()              // 42, "hello", true, 3.14, 'c', 5s, 1MB
+parse_string()               // String literal with escape handling
 
-// Operators
-parse_binary_expr()   // a + b, x && y
-parse_unary_expr()    // -x, !cond
+// Identifiers and special names
+parse_ident()                // x, my_var
+parse_self_ref()             // self
+parse_function_ref()         // @name (function references)
+parse_hash_length()          // # (collection length in index context)
 
-// Control flow
-parse_if()            // if cond then x else y
-parse_for()           // for x in items do/yield
-parse_loop()          // loop(...) with break/continue
-parse_match()         // match(value, ...)
+// Variant constructors
+parse_ok_expr()              // Ok(value)
+parse_err_expr()             // Err(value)
+parse_some_expr()            // Some(value)
+parse_none()                 // None
 
-// Calls
-parse_call()          // func(args)
-parse_method_call()   // obj.method(args)
-parse_pattern_call()  // map(over: items, ...)
-
-// Structures
-parse_list()          // [1, 2, 3]
-parse_map()           // {"key": value}
-parse_struct()        // Point { x: 0, y: 0 }
+// Bindings
+parse_let()                  // let x = value, let mut x = value
+parse_binding_pattern()      // Destructuring: (a, b), { x, y }, [head, ..rest]
 
 // Lambdas
-parse_lambda()        // x -> x + 1
+parse_lambda()               // x -> x + 1, (a, b) -> a + b
 ```
 
-### item/ (~1,112 lines total, split into 8 modules)
-
-Handles top-level declarations:
+#### postfix.rs — Postfix Operations
 
 ```rust
-// use_def.rs - Imports
-parse_use_inner()     // use "./math" { add, subtract }
-                      // use std.net.http as http (module alias)
-                      // pub use "./internal" { helper } (re-exports)
+apply_postfix_ops(base)      // Loop applying postfix operators to base expression
 
-// config.rs - Config variables
-parse_config()        // $timeout = 30s
-
-// function.rs - Functions and tests
-parse_function_or_test_with_attrs()  // @name (params) -> Type = body
-parse_params()        // (a: int, b: str)
-
-// trait_def.rs - Traits
-parse_trait()         // trait Name { ... }
-parse_trait_item()    // Method signatures, default methods, associated types
-                      // Associated types: type Item, type Output = Self
-
-// impl_def.rs - Implementations
-parse_impl()          // impl Trait for Type { ... }
-parse_impl_method()   // @method (self) -> Type = body
-
-// type_decl.rs - Type declarations
-parse_type_decl()     // type Name = ...
-parse_struct_body()   // { x: int, y: int }
-parse_sum_or_newtype()// Some(T) | None
-
-// extend.rs - Extension methods
-parse_extend()        // extend [T] { @map... }
-
-// generics.rs - Generic parameters
-parse_generics()      // <T, U: Bound>, <T = Self>, <T: Clone = int>
-parse_bounds()        // Eq + Clone + Printable
-parse_where_clauses() // where T: Clone, U: Default
-parse_uses_clause()   // uses Http, FileSystem
-
-// Note: Associated type defaults (type Output = Self) are parsed in trait_def.rs
+// Individual operations:
+parse_call_args()            // f(a, b, c)
+parse_named_call_args()      // f(a: 1, b: 2)
+parse_method_call()          // obj.method(args)
+parse_field_access()         // obj.field
+parse_index()                // arr[i]
+parse_try()                  // expr?
+parse_await()                // expr.await
+parse_cast()                 // expr as Type, expr as? Type
 ```
 
-### type.rs
-
-Handles type annotations:
+#### patterns.rs — Control Flow and Pattern Expressions
 
 ```rust
-// Simple types
-parse_type()          // int, str, bool
+// Sequential execution
+parse_run()                  // run(expr, expr, result)
+parse_try_expr()             // try(expr, expr, result)
+
+// Pattern matching
+parse_match()                // match(value, pattern -> body, ...)
+parse_match_pattern()        // Literal, binding, struct, list, variant patterns
+parse_variant_inner_patterns() // Comma-separated patterns inside variants
+
+// Loops
+parse_for()                  // for x in items do body / yield transform
+parse_loop()                 // loop(init, cond, step, body)
+
+// Function expressions (compiler patterns)
+parse_function_exp()         // recurse(...), parallel(...), spawn(...), with(...)
+```
+
+### item/ — Top-Level Declarations
+
+#### function.rs — Functions and Tests
+
+```rust
+parse_function_or_test_with_outcome()  // Dispatches @ to function or test
+parse_function()                       // @name (params) -> Type = body
+parse_test()                           // @test_name tests @target (args) -> void = body
+parse_params()                         // (a: int, b: str = "default")
+parse_return_type()                    // -> Type
+parse_capabilities()                   // uses Http, FileSystem
+```
+
+#### type_decl.rs — Type Declarations
+
+```rust
+parse_type_decl()            // type Name = ...
+parse_struct_body()          // { x: int, y: int }
+parse_sum_or_newtype()       // Some(T) | None
+```
+
+#### trait_def.rs — Trait Definitions
+
+```rust
+parse_trait()                // trait Name { ... }
+parse_trait_item()           // Method signatures, default methods
+                             // Associated types: type Item, type Output = Self
+```
+
+#### impl_def.rs — Implementations
+
+```rust
+parse_impl()                 // impl Trait for Type { ... }
+parse_def_impl()             // def impl Trait { ... }
+parse_impl_method()          // @method (self) -> Type = body
+```
+
+#### use_def.rs — Imports
+
+```rust
+parse_use_inner()            // use "./math" { add, subtract }
+                             // use std.net.http as http
+                             // pub use "./internal" { helper }
+```
+
+#### extend.rs — Extension Methods
+
+```rust
+parse_extend()               // extend [T] { @map ... }
+```
+
+#### generics.rs — Generic Parameters
+
+```rust
+parse_generics()             // <T, U: Bound>, <T = Self>, <$N: int = 10>
+parse_bounds()               // Eq + Clone + Printable
+parse_where_clauses()        // where T: Clone, U: Default
+parse_uses_clause()          // uses Http, FileSystem
+```
+
+#### config.rs — Config Variables
+
+```rust
+parse_const()                // $TIMEOUT = 30s
+```
+
+### ty.rs — Type Annotations
+
+```rust
+parse_type()                 // int, str, bool, void, never
 
 // Compound types
-parse_list_type()     // [int]
-parse_map_type()      // {str: int}
-parse_tuple_type()    // (int, str)
-parse_option_type()   // Option<T>
-parse_result_type()   // Result<T, E>
+parse_list_type()            // [int]
+parse_map_type()             // {str: int}
+parse_tuple_type()           // (int, str)
+
+// Named types
+parse_named_type()           // Result<T, E>, Option<T>
+parse_generic_args()         // <T, U>
 
 // Function types
-parse_function_type() // (int, int) -> int
+parse_function_type()        // (int, int) -> int
 
-// Generics
-parse_generic_args()  // <T, U>
-parse_type_bounds()   // T: Eq + Clone
+// Special types
+parse_self_type()            // Self
+parse_associated_type()      // T.Assoc
+parse_infer_type()           // _ (infer)
 ```
 
-### pattern.rs (Match Patterns)
-
-Handles match arm patterns in `expr/patterns.rs`:
+### attr.rs — Attributes
 
 ```rust
-// Literal patterns
-parse_literal_pattern()  // 42, "hello"
-
-// Binding patterns
-parse_binding()          // x, _
-
-// Struct patterns
-parse_struct_pattern()   // { x, y }
-
-// List patterns
-parse_list_pattern()     // [head, ..tail]
-
-// Variant patterns (single and multi-field)
-parse_variant_pattern()       // Some(x), None, Click(x, y)
-parse_variant_inner_patterns() // Helper for comma-separated patterns
-
-// Guards
-parse_guard()            // x.match(x > 0)
+parse_attributes()           // All attributes before a declaration
+parse_derive()               // #derive(Eq, Clone)
+parse_test_attr()            // #test
+parse_skip()                 // #skip("reason")
+parse_compile_fail()         // #compile_fail("error")
 ```
 
-#### Multi-Field Variant Patterns
-
-Variant patterns support multiple fields via `parse_variant_inner_patterns()`:
+`ParsedAttrs` collects all parsed attributes into a struct:
 
 ```rust
-// Grammar: type_path [ "(" pattern { "," pattern } ")" ]
-fn parse_variant_inner_patterns(&mut self) -> Result<Vec<MatchPattern>, ParseError> {
-    let mut patterns = Vec::new();
-    if self.check(&TokenKind::RParen) {
-        return Ok(patterns);  // Unit variant: None, Quit
-    }
-    patterns.push(self.parse_match_pattern()?);
-    while self.check(&TokenKind::Comma) {
-        self.advance();
-        if self.check(&TokenKind::RParen) { break; }  // Trailing comma
-        patterns.push(self.parse_match_pattern()?);
-    }
-    Ok(patterns)
+pub struct ParsedAttrs {
+    pub derives: Vec<Name>,
+    pub test_target: Option<TestTarget>,
+    pub skip_reason: Option<String>,
+    pub compile_fail: Option<String>,
+    // ...
 }
-```
-
-Examples:
-- Unit variant: `None` → `inner: []`
-- Single-field: `Some(x)` → `inner: [Binding("x")]`
-- Multi-field: `Click(x, y)` → `inner: [Binding("x"), Binding("y")]`
-- Nested: `Event(Click(x, _))` → `inner: [Variant { name: "Click", inner: [...] }]`
-
-### Binding Patterns (in primary.rs)
-
-Handles let binding patterns in `expr/primary.rs`:
-
-```rust
-// parse_binding_pattern() handles:
-parse_binding_pattern()  // Entry point
-
-// Name binding
-// let x = value
-BindingPattern::Name(name)
-
-// Wildcard
-// let _ = value
-BindingPattern::Wildcard
-
-// Tuple destructuring
-// let (a, b) = pair
-BindingPattern::Tuple(patterns)
-
-// Struct destructuring
-// let { x, y } = point
-// let { x: px, y: py } = point  (rename)
-// let { position: { x, y } } = entity  (nested)
-BindingPattern::Struct { fields }
-
-// List destructuring
-// let [a, b, c] = items
-// let [head, ..rest] = items
-BindingPattern::List { elements, rest }
-```
-
-### stmt.rs
-
-Handles statement-like constructs:
-
-```rust
-// Let bindings
-parse_let()              // let x = value
-parse_let_mut()          // let mut x = value
-
-// Sequences (in run/try)
-parse_sequence()         // expr, expr, result
-```
-
-### attr.rs
-
-Handles attributes:
-
-```rust
-// Simple attributes
-parse_attribute()        // #[skip("reason")]
-
-// Derive attributes
-parse_derive()           // #[derive(Eq, Clone)]
-
-// Test attributes
-parse_test_attr()        // #[compile_fail("error")]
 ```
 
 ## Cross-Module Dependencies
 
 ```
-         mod.rs (entry)
-            |
-            v
+         lib.rs (entry: parse_module)
+            │
+            ▼
      ┌──────┴──────┐
-     |             |
-  item.rs      expr.rs
-     |             |
+     │             │
+  item/         expr/
+     │             │
      ├─────────────┤
-     |             |
-  type.rs    pattern.rs
-     |             |
+     │             │
+   ty.rs     patterns.rs
+     │             │
      └──────┬──────┘
-            |
+            │
          attr.rs
 ```
 
-- `mod.rs` calls `item.rs` for top-level parsing
-- `item.rs` calls `expr.rs` for function bodies
-- `item.rs` calls `type.rs` for type annotations
-- `expr.rs` calls `pattern.rs` for match arms
-- All modules can call `attr.rs` for attributes
+- `lib.rs` calls `item/` for top-level declarations
+- `item/` calls `expr/` for function bodies
+- `item/` calls `ty.rs` for type annotations
+- `expr/` calls `patterns.rs` for match arms and binding patterns
+- All modules call `attr.rs` for attributes
 
 ## Naming Conventions
 
-### Function Names
+### Parse Functions
 
 ```rust
-// parse_X - parse and return X
-fn parse_expr(&mut self) -> ExprId
-fn parse_function(&mut self) -> Function
-
-// try_parse_X - parse X or return None
-fn try_parse_named_arg(&mut self) -> Option<NamedArg>
-
-// expect_X - must find X or error
-fn expect_type(&mut self) -> Type
-
-// parse_X_list - parse comma-separated X
-fn parse_param_list(&mut self) -> Vec<Param>
+parse_X()                    // Parse X, return Result<X, ParseError>
+parse_X_with_outcome()       // Parse X, return ParseOutcome<X>
 ```
-
-### Helper Functions
-
-```rust
-// check_X - test without consuming
-fn check_keyword(&self, kw: &str) -> bool
-
-// eat_X - consume if present
-fn eat_comma(&mut self) -> bool
-
-// skip_X - skip over X (for recovery)
-fn skip_to_close_brace(&mut self)
-```
-
-## Adding New Grammar
-
-### 1. Choose Module
-
-- New expression → `expr.rs`
-- New declaration → `item.rs`
-- New type syntax → `type.rs`
-
-### 2. Add Parse Function
-
-```rust
-// In expr.rs
-fn parse_new_feature(&mut self) -> ExprId {
-    // Parse the new syntax
-    self.expect(TokenKind::NewKeyword);
-    let value = self.parse_expr();
-    self.alloc(ExprKind::NewFeature { value })
-}
-```
-
-### 3. Wire Into Grammar
-
-```rust
-// In parse_primary or appropriate caller
-fn parse_primary(&mut self) -> ExprId {
-    match self.current() {
-        TokenKind::NewKeyword => self.parse_new_feature(),
-        // ...existing cases...
-    }
-}
-```
-
-### 4. Add Tests
-
-```rust
-#[test]
-fn test_parse_new_feature() {
-    let result = parse("new_keyword 42");
-    assert_matches!(result.module.expressions[0], Expr::NewFeature { .. });
-}
-```
-
-## File Size Guidelines
-
-| Module | Target | Maximum | Current |
-|--------|--------|---------|---------|
-| expr/ (total) | 800 | 1,500 | ~1,100 |
-| item/ (total) | 800 | 1,500 | ~1,112 |
-| ty.rs | 200 | 400 | ~400 |
-| attr.rs | 200 | 400 | ~400 |
-
-Both `expr/` and `item/` are split into sub-modules for maintainability:
-- `expr/` → `mod.rs`, `operators.rs`, `primary.rs`, `postfix.rs`, `patterns.rs`
-- `item/` → `mod.rs`, `use_def.rs`, `config.rs`, `function.rs`, `trait_def.rs`, `impl_def.rs`, `type_decl.rs`, `extend.rs`, `generics.rs`
-
-## Compound Operator Synthesis
-
-The lexer produces individual `>` tokens. The parser synthesizes `>>` and `>=` from adjacent tokens in expression context. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary).
 
 ### Cursor Methods
 
-The `Cursor` type (`cursor.rs`) detects adjacent tokens:
+```rust
+check(&kind)                 // Test current token without consuming
+check_ident()                // Test if current is identifier
+peek_next_kind()             // Look ahead one token
+advance()                    // Consume and return current token
+expect(&kind)                // Consume specific token or error
+expect_ident()               // Consume identifier or error
+skip_newlines()              // Skip newline tokens
+```
+
+### Context Methods
 
 ```rust
-impl Cursor<'_> {
-    fn spans_adjacent(&self, span1: Span, span2: Span) -> bool {
-        span1.end == span2.start
-    }
+with_context(flags, f)       // Add context flags, run f, restore
+without_context(flags, f)    // Remove context flags, run f, restore
+allows_struct_lit()           // Check NO_STRUCT_LIT flag
+in_error_context(ctx, f)     // Wrap errors with "while parsing X"
+```
 
-    fn is_shift_right(&self) -> bool {  // >>
-        self.check(&TokenKind::Gt)
-            && matches!(self.peek_next_kind(), TokenKind::Gt)
-            && self.current_and_next_adjacent()
-    }
+## Series Combinator
 
-    fn is_greater_equal(&self) -> bool {  // >=
-        self.check(&TokenKind::Gt)
-            && matches!(self.peek_next_kind(), TokenKind::Eq)
-            && self.current_and_next_adjacent()
-    }
+The `SeriesConfig` type provides a reusable combinator for parsing delimiter-separated lists (inspired by Gleam's `series_of()`):
+
+```rust
+pub struct SeriesConfig {
+    pub separator: TokenKind,        // Usually Comma
+    pub terminator: TokenKind,       // e.g., RParen, RBracket
+    pub trailing: TrailingSeparator, // Allowed, Forbidden, Required
+    pub skip_newlines: bool,
+    pub min_count: usize,
+    pub max_count: Option<usize>,
+}
+
+pub enum TrailingSeparator {
+    Allowed,    // Trailing separator accepted
+    Forbidden,  // Error on trailing separator
+    Required,   // Must have separator between items
 }
 ```
 
-### Operator Matching
+Convenience methods:
 
-Matcher functions in `operators.rs` return `(BinaryOp, usize)` — the operator and token count to consume:
+| Method | Delimiters | Usage |
+|--------|------------|-------|
+| `paren_series()` | `(` `)` | Function arguments, tuples |
+| `bracket_series()` | `[` `]` | List literals, indexing |
+| `brace_series()` | `{` `}` | Struct literals, blocks |
+| `angle_series()` | `<` `>` | Generic parameters |
 
-```rust
-fn match_comparison_op(&self) -> Option<(BinaryOp, usize)> {
-    match self.current_kind() {
-        TokenKind::Lt => Some((BinaryOp::Lt, 1)),
-        TokenKind::LtEq => Some((BinaryOp::LtEq, 1)),
-        TokenKind::Gt => {
-            if self.is_greater_equal() {
-                Some((BinaryOp::GtEq, 2))  // >= consumes 2 tokens
-            } else {
-                Some((BinaryOp::Gt, 1))
-            }
-        }
-        _ => None,
-    }
-}
+## Compound Operator Synthesis
 
-fn match_shift_op(&self) -> Option<(BinaryOp, usize)> {
-    match self.current_kind() {
-        TokenKind::Shl => Some((BinaryOp::Shl, 1)),
-        TokenKind::Gt if self.is_shift_right() => Some((BinaryOp::Shr, 2)),  // >> consumes 2
-        _ => None,
-    }
-}
-```
+The lexer produces individual `>` tokens. The parser synthesizes `>>` and `>=` from adjacent tokens in expression context. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary) and [Pratt Parser](pratt-parser.md#compound-operator-synthesis).
 
-### Binary Level Macro
+## Soft Keywords
 
-The `parse_binary_level!` macro uses the token count:
-
-```rust
-while let Some((op, token_count)) = self.$matcher() {
-    for _ in 0..token_count { self.advance(); }
-    let right = self.$next()?;
-    // ... build binary expression ...
-}
-```
-
-### Type Parser
-
-The type parser uses single `>` tokens to close generic parameter lists:
-
-```rust
-fn parse_optional_generic_args_full(&mut self) -> Vec<ParsedType> {
-    self.advance(); // <
-    // ... parse type arguments ...
-    if self.check(&TokenKind::Gt) {
-        self.advance(); // > (single token)
-    }
-    args
-}
-```
-
-Nested generics use multiple `>` tokens: `Result<Result<int, str>, str>` has two `>` tokens.
+Several Ori keywords are context-sensitive ("soft keywords"). The `Cursor::soft_keyword_to_name()` method maps tokens that are keywords in some contexts to identifiers in others. For example, `print` is a soft keyword — it is treated as a keyword when followed by `(`, but as an identifier otherwise. The `match_function_exp_kind()` method in `operators.rs` similarly gates keywords like `recurse`, `parallel`, `spawn`, and `with` on the presence of a following `(`.
