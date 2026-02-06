@@ -34,6 +34,7 @@ jobs:
           branch: master
           name: test-results
           path: website/public
+          run_id: ${{ github.event.workflow_run.id }}
           if_no_artifact_found: warn
         continue-on-error: true
 
@@ -44,6 +45,7 @@ jobs:
           branch: master
           name: llvm-test-results
           path: website/public
+          run_id: ${{ github.event.workflow_run.id }}
           if_no_artifact_found: warn
         continue-on-error: true
 
@@ -54,13 +56,19 @@ jobs:
           if [ ! -f test-results.json ]; then
             echo '{"rust_tests": 0, "ori_tests": 0, "rust_failed": 0, "ori_failed": 0}' > test-results.json
           fi
-          if [ ! -f llvm-test-results.json ]; then
-            echo '{"llvm_tests": 0, "llvm_failed": 0}' > llvm-test-results.json
+          # Only merge LLVM results if artifact was actually downloaded;
+          # don't create default zeros that overwrite existing data
+          if [ -f llvm-test-results.json ]; then
+            jq -s '.[0] * .[1]' test-results.json llvm-test-results.json > combined-test-results.json
+            mv combined-test-results.json test-results.json
+            rm -f llvm-test-results.json
+          else
+            echo "LLVM test results artifact not found, preserving existing data"
+            # Add default llvm keys only if they don't already exist
+            if ! jq -e '.llvm_tests' test-results.json > /dev/null 2>&1; then
+              jq '. + {"llvm_tests": 0, "llvm_failed": 0}' test-results.json > tmp.json && mv tmp.json test-results.json
+            fi
           fi
-          # Merge into single file
-          jq -s '.[0] * .[1]' test-results.json llvm-test-results.json > combined-test-results.json
-          mv combined-test-results.json test-results.json
-          rm -f llvm-test-results.json
           echo "Test results:"
           cat test-results.json
 
