@@ -206,7 +206,7 @@ fn format_value(value: &Value) -> String {
 /// Get version information for the playground footer.
 #[wasm_bindgen]
 pub fn version() -> String {
-    format!("Ori build {}", include_str!("../../../BUILD").trim())
+    format!("Ori build {}", include_str!("../../../BUILD_NUMBER").trim())
 }
 
 // TODO: Switch to LSP-based formatting once ori_lsp is implemented.
