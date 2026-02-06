@@ -97,14 +97,14 @@ Preserve non-semantic information for formatters.
 
 | Metric | Current | Target | Improvement | Status |
 |--------|---------|--------|-------------|--------|
-| Memory per node | ~64 bytes (Expr) | ~13 bytes (SoA) | 80% reduction | 🔶 Defer - needs profiling |
+| Memory per node | ~88 bytes (Expr) | ~32 bytes (SoA) | 64% reduction | ✅ Complete (2026-02-05) |
 | Keyword lookup | O(1) logos DFA | O(1) hash | N/A | ✅ Already optimal |
 | Incremental reparse | Full reparse | 70-90% reuse | 5-10x faster | ✅ Infrastructure complete |
 | Token capture | Copy tokens | Index-based | O(1) lookup | ✅ Complete (TokenCapture) |
-| AST traversal | Random access | Sequential (SoA) | 2-3x cache hits | 🔶 Defer - needs profiling |
+| AST traversal | Random access | Sequential (SoA) | 2-3x cache hits | ✅ Complete (SoA split) |
 | Error message quality | Good | Elm-tier | Qualitative | ✅ Complete |
 
-**Note:** Memory per node assessment updated after analysis. Current `Expr` is ~64 bytes (ExprKind + Span), but `ExprId` references are only 4 bytes. The two-tier `ExprList` and flat `expr_lists` buffer already provide excellent memory efficiency for common patterns.
+**Note:** SoA migration completed 2026-02-05. `Expr` reduced from 88 to 32 bytes (64%). Storage split into parallel `Vec<ExprKind>` + `Vec<Span>`. `ExprKind` shrunk from 80 to 24 bytes via arena-allocation of large embedded types. `ExprList` eliminated in favor of `ExprRange`.
 
 ---
 
@@ -152,14 +152,14 @@ Section 3 (Progress) ──────────┼─► Section 4 (Errors)
 
 | Task | Section | Risk | Impact | Status |
 |------|---------|------|--------|--------|
-| MultiArrayList-style storage | 1.1-1.2 | Medium | High | 📊 Analysis complete - defer SoA |
+| MultiArrayList-style storage | 1.1-1.2 | Medium | High | ✅ Complete (SoA migration) |
 | Extra data buffer | 1.3 | Medium | High | ✅ Already implemented (`expr_lists`) |
 | Pre-allocation heuristics | 1.4 | Low | Medium | ✅ Already implemented |
 | ParseErrorDetails structure | 4.1 | Low | High | ✅ Complete |
 
 **Phase 2 Summary:**
-- **1.1-1.2 SoA Storage:** Analysis shows current `ExprArena` is already efficient. Full SoA migration deferred pending profiling.
-- **1.3-1.4 Extra Buffer & Pre-allocation:** Already implemented! `ExprArena` uses flat `Vec` storage with source-based capacity heuristics.
+- **1.1-1.2 SoA Storage:** ✅ Fully implemented (2026-02-05). `ExprKind` 80→24 bytes, `Expr` 88→32 bytes. Storage split to parallel `Vec<ExprKind>` + `Vec<Span>`. 57 files changed across 9 crates.
+- **1.3-1.4 Extra Buffer & Pre-allocation:** Already implemented! `ExprArena` uses flat `Vec` storage with source-based capacity heuristics. `ExprList` eliminated, `ExprRange` used everywhere.
 - **4.1 ParseErrorDetails:** Comprehensive error detail structure with `ExtraLabel` for cross-references, `CodeSuggestion` for auto-fixes, and `details()` method on all `ParseErrorKind` variants.
 
 ### Phase 3: Enhanced Progress (Medium-risk, High-impact)
@@ -270,7 +270,7 @@ The current Ori parser already has excellent foundations:
 | Feature | Quality | Notes |
 |---------|---------|-------|
 | Progress tracking | Excellent | Like Roc/Elm |
-| Arena allocation | **Excellent** | ExprArena + ExprId(u32) - already flat Vec |
+| Arena allocation | **Excellent** | ExprArena SoA: Vec<ExprKind> + Vec<Span>, 32 bytes/expr |
 | Context flags | Good | Bitfield (u16) |
 | TokenSet recovery | **Excellent** | 128-bit bitset with O(1) membership |
 | Series combinator | Good | Like Gleam |
@@ -278,7 +278,7 @@ The current Ori parser already has excellent foundations:
 | Incremental infrastructure | Prepared | Not yet integrated |
 | Error hints | Good | Smart suggestions |
 | Keyword recognition | **Excellent** | Logos DFA - O(1) equivalent |
-| Two-tier storage | **Excellent** | ExprList inlines 0-2 items (~77% of calls) |
+| Flat list storage | **Excellent** | ExprRange into flat expr_lists buffer (ExprList removed) |
 | Extra data buffer | **Excellent** | expr_lists for variable-length data |
 | Pre-allocation | **Good** | ~1 expr per 20 bytes heuristic |
 

@@ -17,15 +17,17 @@ Quick-reference keyword index for finding Parser 2.0 implementation sections.
 ## Keyword Clusters by Section
 
 ### Section 01: Data-Oriented AST
-**File:** `section-01-data-oriented-ast.md` | **Status:** In Progress (01.1-01.2 analysis complete)
+**File:** `section-01-data-oriented-ast.md` | **Status:** ✅ Complete (SoA migration, 2026-02-05)
 
 ```
 MultiArrayList, SoA, struct of arrays
-index-based, u32 indices, node index
-cache-friendly, memory layout
-extra data buffer, variable-length
+index-based, u32 indices, ExprId, FunctionSeqId, FunctionExpId, BindingPatternId
+cache-friendly, memory layout, parallel arrays
+extra data buffer, ExprRange, expr_lists
 pre-allocation, capacity heuristics
 Zig parser, data-oriented design
+ExprKind 24 bytes, Expr 32 bytes, Copy semantics
+sentinel pattern, ExprId::INVALID, is_present
 ```
 
 ---
@@ -112,7 +114,7 @@ formatter support, IDE metadata
 
 | ID | Title | File | Priority | Status |
 |----|-------|------|----------|--------|
-| 01 | Data-Oriented AST | `section-01-data-oriented-ast.md` | P1 | 🔶 Deferred (already efficient) |
+| 01 | Data-Oriented AST | `section-01-data-oriented-ast.md` | P1 | ✅ Complete (SoA, 64% reduction) |
 | 02 | Lexer Optimizations | `section-02-lexer.md` | P1 | ✅ Complete |
 | 03 | Enhanced Progress System | `section-03-progress.md` | P2 | ✅ Complete |
 | 04 | Structured Errors | `section-04-errors.md` | P1 | ✅ Complete |
