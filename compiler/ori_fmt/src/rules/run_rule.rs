@@ -98,7 +98,8 @@ impl RunContext {
 pub fn is_run(arena: &ExprArena, expr_id: ExprId) -> bool {
     let expr = arena.get_expr(expr_id);
 
-    if let ExprKind::FunctionSeq(seq) = &expr.kind {
+    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
+        let seq = arena.get_function_seq(*seq_id);
         return matches!(seq, FunctionSeq::Run { .. });
     }
 
@@ -109,7 +110,8 @@ pub fn is_run(arena: &ExprArena, expr_id: ExprId) -> bool {
 pub fn is_try(arena: &ExprArena, expr_id: ExprId) -> bool {
     let expr = arena.get_expr(expr_id);
 
-    if let ExprKind::FunctionSeq(seq) = &expr.kind {
+    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
+        let seq = arena.get_function_seq(*seq_id);
         return matches!(seq, FunctionSeq::Try { .. });
     }
 
@@ -120,7 +122,8 @@ pub fn is_try(arena: &ExprArena, expr_id: ExprId) -> bool {
 pub fn is_match_seq(arena: &ExprArena, expr_id: ExprId) -> bool {
     let expr = arena.get_expr(expr_id);
 
-    if let ExprKind::FunctionSeq(seq) = &expr.kind {
+    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
+        let seq = arena.get_function_seq(*seq_id);
         return matches!(seq, FunctionSeq::Match { .. });
     }
 
@@ -137,8 +140,8 @@ pub fn is_function_seq(arena: &ExprArena, expr_id: ExprId) -> bool {
 pub fn get_function_seq(arena: &ExprArena, expr_id: ExprId) -> Option<&FunctionSeq> {
     let expr = arena.get_expr(expr_id);
 
-    if let ExprKind::FunctionSeq(seq) = &expr.kind {
-        Some(seq)
+    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
+        Some(arena.get_function_seq(*seq_id))
     } else {
         None
     }

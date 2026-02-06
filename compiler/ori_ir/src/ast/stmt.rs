@@ -7,8 +7,7 @@
 
 use std::fmt;
 
-use super::patterns::BindingPattern;
-use crate::{ExprId, ParsedType, Span, Spanned};
+use crate::{BindingPatternId, ExprId, ParsedTypeId, Span, Spanned};
 
 /// Statement node.
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -43,8 +42,9 @@ pub enum StmtKind {
 
     /// Let binding (also available as expression)
     Let {
-        pattern: BindingPattern,
-        ty: Option<ParsedType>,
+        pattern: BindingPatternId,
+        /// Type annotation (`ParsedTypeId::INVALID` = no annotation).
+        ty: ParsedTypeId,
         init: ExprId,
         mutable: bool,
     },

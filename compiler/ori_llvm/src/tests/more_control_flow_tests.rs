@@ -2,7 +2,7 @@
 
 use inkwell::context::Context;
 use ori_ir::ast::{BinaryOp, BindingPattern, Expr, ExprKind, Stmt, StmtKind};
-use ori_ir::{ExprArena, StringInterner};
+use ori_ir::{ExprArena, ExprId, StringInterner};
 use ori_types::Idx;
 
 use super::helper::TestCodegen;
@@ -37,7 +37,7 @@ fn test_nested_if() {
         kind: ExprKind::If {
             cond: inner_cond,
             then_branch: one,
-            else_branch: Some(two),
+            else_branch: two,
         },
         span: ori_ir::Span::new(0, 1),
     });
@@ -51,7 +51,7 @@ fn test_nested_if() {
         kind: ExprKind::If {
             cond: outer_cond,
             then_branch: inner_if,
-            else_branch: Some(three),
+            else_branch: three,
         },
         span: ori_ir::Span::new(0, 1),
     });
@@ -114,7 +114,7 @@ fn test_if_with_comparison() {
         kind: ExprKind::If {
             cond,
             then_branch: then_val,
-            else_branch: Some(else_val),
+            else_branch: else_val,
         },
         span: ori_ir::Span::new(0, 1),
     });
@@ -150,7 +150,7 @@ fn test_if_without_else() {
         kind: ExprKind::If {
             cond,
             then_branch: then_val,
-            else_branch: None,
+            else_branch: ExprId::INVALID,
         },
         span: ori_ir::Span::new(0, 1),
     });
@@ -200,7 +200,7 @@ fn test_if_chain() {
         kind: ExprKind::If {
             cond: false2,
             then_branch: two,
-            else_branch: Some(three),
+            else_branch: three,
         },
         span: ori_ir::Span::new(0, 1),
     });
@@ -209,7 +209,7 @@ fn test_if_chain() {
         kind: ExprKind::If {
             cond: false1,
             then_branch: one,
-            else_branch: Some(inner_if),
+            else_branch: inner_if,
         },
         span: ori_ir::Span::new(0, 1),
     });
@@ -272,19 +272,21 @@ fn test_multiple_let_bindings() {
     });
 
     // Create block with two let bindings
+    let x_pattern = arena.alloc_binding_pattern(BindingPattern::Name(x_name));
     let let_x = Stmt {
         kind: StmtKind::Let {
-            pattern: BindingPattern::Name(x_name),
-            ty: None,
+            pattern: x_pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
             mutable: false,
             init: ten,
         },
         span: ori_ir::Span::new(0, 1),
     };
+    let y_pattern = arena.alloc_binding_pattern(BindingPattern::Name(y_name));
     let let_y = Stmt {
         kind: StmtKind::Let {
-            pattern: BindingPattern::Name(y_name),
-            ty: None,
+            pattern: y_pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
             mutable: false,
             init: twenty,
         },
@@ -299,7 +301,7 @@ fn test_multiple_let_bindings() {
     let block = arena.alloc_expr(Expr {
         kind: ExprKind::Block {
             stmts: stmt_range,
-            result: Some(add_expr),
+            result: add_expr,
         },
         span: ori_ir::Span::new(0, 1),
     });
@@ -339,19 +341,21 @@ fn test_shadowing() {
         span: ori_ir::Span::new(0, 1),
     });
 
+    let x_pattern_first = arena.alloc_binding_pattern(BindingPattern::Name(x_name));
     let let_x_first = Stmt {
         kind: StmtKind::Let {
-            pattern: BindingPattern::Name(x_name),
-            ty: None,
+            pattern: x_pattern_first,
+            ty: ori_ir::ParsedTypeId::INVALID,
             mutable: false,
             init: five,
         },
         span: ori_ir::Span::new(0, 1),
     };
+    let x_pattern_shadow = arena.alloc_binding_pattern(BindingPattern::Name(x_name));
     let let_x_shadow = Stmt {
         kind: StmtKind::Let {
-            pattern: BindingPattern::Name(x_name),
-            ty: None,
+            pattern: x_pattern_shadow,
+            ty: ori_ir::ParsedTypeId::INVALID,
             mutable: false,
             init: ten,
         },
@@ -366,7 +370,7 @@ fn test_shadowing() {
     let block = arena.alloc_expr(Expr {
         kind: ExprKind::Block {
             stmts: stmt_range,
-            result: Some(x_ref),
+            result: x_ref,
         },
         span: ori_ir::Span::new(0, 1),
     });

@@ -76,13 +76,17 @@ pub trait Visitor<'ast> {
     }
 
     /// Visit an expression.
-    fn visit_expr(&mut self, expr: &'ast Expr, arena: &'ast ExprArena) {
+    ///
+    /// Note: Takes `&Expr` (not `&'ast Expr`) because expressions are
+    /// reconstructed by value from parallel arrays.
+    fn visit_expr(&mut self, expr: &Expr, arena: &'ast ExprArena) {
         walk_expr(self, expr, arena);
     }
 
     /// Visit an expression by ID.
     fn visit_expr_id(&mut self, id: ExprId, arena: &'ast ExprArena) {
-        self.visit_expr(arena.get_expr(id), arena);
+        let expr = arena.get_expr(id);
+        self.visit_expr(&expr, arena);
     }
 
     /// Visit a statement.
@@ -233,7 +237,7 @@ pub fn walk_test<'ast, V: Visitor<'ast> + ?Sized>(
 /// Walk an expression's children.
 pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
-    expr: &'ast Expr,
+    expr: &Expr,
     arena: &'ast ExprArena,
 ) {
     match &expr.kind {
@@ -268,13 +272,13 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
             visitor.visit_expr_id(*body, arena);
         }
         ExprKind::Break(val) | ExprKind::Continue(val) => {
-            if let Some(id) = val {
-                visitor.visit_expr_id(*id, arena);
+            if val.is_present() {
+                visitor.visit_expr_id(*val, arena);
             }
         }
         ExprKind::Ok(inner) | ExprKind::Err(inner) => {
-            if let Some(id) = inner {
-                visitor.visit_expr_id(*id, arena);
+            if inner.is_present() {
+                visitor.visit_expr_id(*inner, arena);
             }
         }
 
@@ -300,7 +304,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         // Calls
         ExprKind::Call { func, args } => {
             visitor.visit_expr_id(*func, arena);
-            for arg_id in arena.iter_expr_list(*args) {
+            for arg_id in arena.get_expr_list(*args).iter().copied() {
                 visitor.visit_expr_id(arg_id, arena);
             }
         }
@@ -312,7 +316,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         }
         ExprKind::MethodCall { receiver, args, .. } => {
             visitor.visit_expr_id(*receiver, arena);
-            for arg_id in arena.iter_expr_list(*args) {
+            for arg_id in arena.get_expr_list(*args).iter().copied() {
                 visitor.visit_expr_id(arg_id, arena);
             }
         }
@@ -331,8 +335,8 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         } => {
             visitor.visit_expr_id(*cond, arena);
             visitor.visit_expr_id(*then_branch, arena);
-            if let Some(else_id) = else_branch {
-                visitor.visit_expr_id(*else_id, arena);
+            if else_branch.is_present() {
+                visitor.visit_expr_id(*else_branch, arena);
             }
         }
         ExprKind::Match { scrutinee, arms } => {
@@ -345,8 +349,8 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
             iter, guard, body, ..
         } => {
             visitor.visit_expr_id(*iter, arena);
-            if let Some(guard_id) = guard {
-                visitor.visit_expr_id(*guard_id, arena);
+            if guard.is_present() {
+                visitor.visit_expr_id(*guard, arena);
             }
             visitor.visit_expr_id(*body, arena);
         }
@@ -354,14 +358,15 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
             for stmt in arena.get_stmt_range(*stmts) {
                 visitor.visit_stmt(stmt, arena);
             }
-            if let Some(result_id) = result {
-                visitor.visit_expr_id(*result_id, arena);
+            if result.is_present() {
+                visitor.visit_expr_id(*result, arena);
             }
         }
 
         // Binding
         ExprKind::Let { pattern, init, .. } => {
-            visitor.visit_binding_pattern(pattern);
+            let pat = arena.get_binding_pattern(*pattern);
+            visitor.visit_binding_pattern(pat);
             visitor.visit_expr_id(*init, arena);
         }
         ExprKind::Lambda { params, body, .. } => {
@@ -373,7 +378,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
 
         // Collections
         ExprKind::List(items) | ExprKind::Tuple(items) => {
-            for item_id in arena.iter_expr_list(*items) {
+            for item_id in arena.get_expr_list(*items).iter().copied() {
                 visitor.visit_expr_id(item_id, arena);
             }
         }
@@ -408,14 +413,14 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
             step,
             inclusive: _,
         } => {
-            if let Some(start_id) = start {
-                visitor.visit_expr_id(*start_id, arena);
+            if start.is_present() {
+                visitor.visit_expr_id(*start, arena);
             }
-            if let Some(end_id) = end {
-                visitor.visit_expr_id(*end_id, arena);
+            if end.is_present() {
+                visitor.visit_expr_id(*end, arena);
             }
-            if let Some(step_id) = step {
-                visitor.visit_expr_id(*step_id, arena);
+            if step.is_present() {
+                visitor.visit_expr_id(*step, arena);
             }
         }
 
@@ -425,11 +430,13 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
             visitor.visit_expr_id(*body, arena);
         }
 
-        // function_seq / function_exp
-        ExprKind::FunctionSeq(seq) => {
+        // function_seq / function_exp (arena-allocated)
+        ExprKind::FunctionSeq(id) => {
+            let seq = arena.get_function_seq(*id);
             visitor.visit_function_seq(seq, arena);
         }
-        ExprKind::FunctionExp(exp) => {
+        ExprKind::FunctionExp(id) => {
+            let exp = arena.get_function_exp(*id);
             visitor.visit_function_exp(exp, arena);
         }
     }
@@ -446,7 +453,8 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(
             visitor.visit_expr_id(*expr_id, arena);
         }
         StmtKind::Let { pattern, init, .. } => {
-            visitor.visit_binding_pattern(pattern);
+            let pat = arena.get_binding_pattern(*pattern);
+            visitor.visit_binding_pattern(pat);
             visitor.visit_expr_id(*init, arena);
         }
     }
@@ -547,7 +555,8 @@ pub fn walk_seq_binding<'ast, V: Visitor<'ast> + ?Sized>(
 ) {
     match binding {
         SeqBinding::Let { pattern, value, .. } => {
-            visitor.visit_binding_pattern(pattern);
+            let pat = arena.get_binding_pattern(*pattern);
+            visitor.visit_binding_pattern(pat);
             visitor.visit_expr_id(*value, arena);
         }
         SeqBinding::Stmt { expr, .. } => {

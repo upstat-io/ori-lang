@@ -83,7 +83,7 @@ fn test_parse_if_expr() {
             result.arena.get_expr(*then_branch).kind,
             ExprKind::Int(1)
         ));
-        assert!(else_branch.is_some());
+        assert!(else_branch.is_present());
     } else {
         panic!("Expected if expression");
     }
@@ -101,9 +101,14 @@ fn test_parse_function_seq_run() {
     let func = &result.module.functions[0];
     let body = result.arena.get_expr(func.body);
 
-    if let ExprKind::FunctionSeq(FunctionSeq::Run { bindings, .. }) = &body.kind {
-        let seq_bindings = result.arena.get_seq_bindings(*bindings);
-        assert_eq!(seq_bindings.len(), 2);
+    if let ExprKind::FunctionSeq(seq_id) = &body.kind {
+        let seq = result.arena.get_function_seq(*seq_id);
+        if let FunctionSeq::Run { bindings, .. } = seq {
+            let seq_bindings = result.arena.get_seq_bindings(*bindings);
+            assert_eq!(seq_bindings.len(), 2);
+        } else {
+            panic!("Expected FunctionSeq::Run, got {seq:?}");
+        }
     } else {
         panic!("Expected run function_seq, got {:?}", body.kind);
     }
@@ -122,14 +127,15 @@ fn test_parse_let_expression() {
     let body = result.arena.get_expr(func.body);
 
     if let ExprKind::Let {
-        pattern,
+        pattern: pattern_id,
         ty,
         mutable,
         ..
     } = &body.kind
     {
+        let pattern = result.arena.get_binding_pattern(*pattern_id);
         assert!(matches!(pattern, BindingPattern::Name(_)));
-        assert!(ty.is_none());
+        assert!(!ty.is_valid());
         // Per spec: let x = v is mutable by default
         assert!(mutable);
     } else {
@@ -150,7 +156,7 @@ fn test_parse_let_with_type() {
     let body = result.arena.get_expr(func.body);
 
     if let ExprKind::Let { ty, .. } = &body.kind {
-        assert!(ty.is_some());
+        assert!(ty.is_valid());
     } else {
         panic!("Expected let expression");
     }
@@ -168,9 +174,14 @@ fn test_parse_run_with_let() {
     let func = &result.module.functions[0];
     let body = result.arena.get_expr(func.body);
 
-    if let ExprKind::FunctionSeq(FunctionSeq::Run { bindings, .. }) = &body.kind {
-        let seq_bindings = result.arena.get_seq_bindings(*bindings);
-        assert_eq!(seq_bindings.len(), 1);
+    if let ExprKind::FunctionSeq(seq_id) = &body.kind {
+        let seq = result.arena.get_function_seq(*seq_id);
+        if let FunctionSeq::Run { bindings, .. } = seq {
+            let seq_bindings = result.arena.get_seq_bindings(*bindings);
+            assert_eq!(seq_bindings.len(), 1);
+        } else {
+            panic!("Expected FunctionSeq::Run, got {seq:?}");
+        }
     } else {
         panic!("Expected run function_seq, got {:?}", body.kind);
     }
@@ -189,7 +200,8 @@ fn test_parse_function_exp_print() {
     let func = &result.module.functions[0];
     let body = result.arena.get_expr(func.body);
 
-    if let ExprKind::FunctionExp(func_exp) = &body.kind {
+    if let ExprKind::FunctionExp(exp_id) = &body.kind {
+        let func_exp = result.arena.get_function_exp(*exp_id);
         assert!(matches!(func_exp.kind, FunctionExpKind::Print));
         let props = result.arena.get_named_exprs(func_exp.props);
         assert_eq!(props.len(), 1);

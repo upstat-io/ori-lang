@@ -107,9 +107,12 @@ impl<'ll> Builder<'_, 'll, '_> {
                 value,
                 mutable,
                 ..
-            } => self.compile_let(
-                pattern, *value, *mutable, arena, expr_types, locals, function, loop_ctx,
-            ),
+            } => {
+                let pattern = arena.get_binding_pattern(*pattern);
+                self.compile_let(
+                    pattern, *value, *mutable, arena, expr_types, locals, function, loop_ctx,
+                )
+            }
             SeqBinding::Stmt { expr, .. } => {
                 self.compile_expr(*expr, arena, expr_types, locals, function, loop_ctx)
             }
@@ -179,6 +182,7 @@ impl<'ll> Builder<'_, 'll, '_> {
 
                         // Bind the unwrapped value to the pattern (try bindings are immutable unwrap)
                         let ty = inner_val.get_type();
+                        let pattern = arena.get_binding_pattern(*pattern);
                         self.bind_pattern(pattern, inner_val, *mutable, ty, function, locals);
 
                         return Some(inner_val);
@@ -187,6 +191,7 @@ impl<'ll> Builder<'_, 'll, '_> {
 
                 // Not a Result type - bind directly
                 let ty = result_val.get_type();
+                let pattern = arena.get_binding_pattern(*pattern);
                 self.bind_pattern(pattern, result_val, *mutable, ty, function, locals);
                 Some(result_val)
             }

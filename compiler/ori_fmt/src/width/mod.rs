@@ -215,8 +215,9 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
 
                 // "let " or "let mut "
                 let mut total = if *mutable { 8 } else { 4 };
-                total += binding_pattern_width(pattern, self.interner);
-                if ty.is_some() {
+                let pat = self.arena.get_binding_pattern(*pattern);
+                total += binding_pattern_width(pat, self.interner);
+                if ty.is_valid() {
                     total += TYPE_ANNOTATION_WIDTH_ESTIMATE;
                 }
                 total += 3 + init_w; // " = " + init
@@ -238,14 +239,14 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 let params_list = self.arena.get_params(*params);
                 let params_w = self.width_of_params(params_list);
 
-                let mut total = if params_list.len() == 1 && ret_ty.is_none() {
+                let mut total = if params_list.len() == 1 && !ret_ty.is_valid() {
                     params_w // Single param without parens
                 } else {
                     1 + params_w + 1 // (params)
                 };
 
                 total += 4 + body_w; // " -> " + body
-                if ret_ty.is_some() {
+                if ret_ty.is_valid() {
                     total += TYPE_ANNOTATION_WIDTH_ESTIMATE;
                 }
 
@@ -282,7 +283,9 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             // Postfix operators - delegated to wrappers module
             ExprKind::Await(inner) => await_width(self, *inner),
             ExprKind::Try(inner) => try_width(self, *inner),
-            ExprKind::Cast { expr, ty, fallible } => cast_width(self, *expr, ty, *fallible),
+            ExprKind::Cast { expr, ty, fallible } => {
+                cast_width(self, *expr, self.arena.get_parsed_type(*ty), *fallible)
+            }
 
             // Assignment and capability - delegated to control module
             ExprKind::Assign { target, value } => assign_width(self, *target, *value),
@@ -293,35 +296,41 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             } => with_capability_width(self, *capability, *provider, *body),
 
             // Sequential patterns - always stacked
-            ExprKind::FunctionSeq(seq) => match seq {
-                FunctionSeq::Run { .. }
-                | FunctionSeq::Try { .. }
-                | FunctionSeq::Match { .. }
-                | FunctionSeq::ForPattern { .. } => ALWAYS_STACKED,
-            },
+            ExprKind::FunctionSeq(seq_id) => {
+                let seq = self.arena.get_function_seq(*seq_id);
+                match seq {
+                    FunctionSeq::Run { .. }
+                    | FunctionSeq::Try { .. }
+                    | FunctionSeq::Match { .. }
+                    | FunctionSeq::ForPattern { .. } => ALWAYS_STACKED,
+                }
+            }
 
             // Named expression patterns
-            ExprKind::FunctionExp(exp) => match exp.kind {
-                FunctionExpKind::Recurse
-                | FunctionExpKind::Parallel
-                | FunctionExpKind::Spawn
-                | FunctionExpKind::Catch => ALWAYS_STACKED,
+            ExprKind::FunctionExp(exp_id) => {
+                let exp = self.arena.get_function_exp(*exp_id);
+                match exp.kind {
+                    FunctionExpKind::Recurse
+                    | FunctionExpKind::Parallel
+                    | FunctionExpKind::Spawn
+                    | FunctionExpKind::Catch => ALWAYS_STACKED,
 
-                FunctionExpKind::Timeout
-                | FunctionExpKind::Cache
-                | FunctionExpKind::With
-                | FunctionExpKind::Print
-                | FunctionExpKind::Panic
-                | FunctionExpKind::Todo
-                | FunctionExpKind::Unreachable => {
-                    let props = self.arena.get_named_exprs(exp.props);
-                    let props_w = self.width_of_named_exprs(props);
-                    if props_w == ALWAYS_STACKED {
-                        return ALWAYS_STACKED;
+                    FunctionExpKind::Timeout
+                    | FunctionExpKind::Cache
+                    | FunctionExpKind::With
+                    | FunctionExpKind::Print
+                    | FunctionExpKind::Panic
+                    | FunctionExpKind::Todo
+                    | FunctionExpKind::Unreachable => {
+                        let props = self.arena.get_named_exprs(exp.props);
+                        let props_w = self.width_of_named_exprs(props);
+                        if props_w == ALWAYS_STACKED {
+                            return ALWAYS_STACKED;
+                        }
+                        exp.kind.name().len() + 1 + props_w + 1
                     }
-                    exp.kind.name().len() + 1 + props_w + 1
                 }
-            },
+            }
 
             // Parse error - always stack
             ExprKind::Error => ALWAYS_STACKED,

@@ -9,7 +9,7 @@ use crate::context::{FormatContext, MAX_LINE_WIDTH};
 use crate::formatter::format_expr;
 use ori_ir::{
     ast::{Expr, ExprKind},
-    BinaryOp, ExprArena, Span, StringInterner, UnaryOp,
+    BinaryOp, ExprArena, ExprId, Span, StringInterner, UnaryOp,
 };
 
 /// Helper to create a test expression in the arena.
@@ -332,7 +332,7 @@ fn format_self_ref() {
 fn format_break_void() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
-    let expr = make_expr(&mut arena, ExprKind::Break(None));
+    let expr = make_expr(&mut arena, ExprKind::Break(ExprId::INVALID));
     assert_eq!(format_to_string(&arena, &interner, expr), "break\n");
 }
 
@@ -340,7 +340,7 @@ fn format_break_void() {
 fn format_continue() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
-    let expr = make_expr(&mut arena, ExprKind::Continue(None));
+    let expr = make_expr(&mut arena, ExprKind::Continue(ExprId::INVALID));
     assert_eq!(format_to_string(&arena, &interner, expr), "continue\n");
 }
 
@@ -368,7 +368,7 @@ fn format_ok_with_value() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
     let inner = make_expr(&mut arena, ExprKind::Int(42));
-    let expr = make_expr(&mut arena, ExprKind::Ok(Some(inner)));
+    let expr = make_expr(&mut arena, ExprKind::Ok(inner));
     assert_eq!(format_to_string(&arena, &interner, expr), "Ok(42)\n");
 }
 
@@ -376,7 +376,7 @@ fn format_ok_with_value() {
 fn format_ok_void() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
-    let expr = make_expr(&mut arena, ExprKind::Ok(None));
+    let expr = make_expr(&mut arena, ExprKind::Ok(ExprId::INVALID));
     assert_eq!(format_to_string(&arena, &interner, expr), "Ok()\n");
 }
 
@@ -386,7 +386,7 @@ fn format_err() {
     let interner = StringInterner::new();
     let name = interner.intern("error message");
     let inner = make_expr(&mut arena, ExprKind::String(name));
-    let expr = make_expr(&mut arena, ExprKind::Err(Some(inner)));
+    let expr = make_expr(&mut arena, ExprKind::Err(inner));
     assert_eq!(
         format_to_string(&arena, &interner, expr),
         "Err(\"error message\")\n"
@@ -405,9 +405,9 @@ fn format_range_exclusive() {
     let expr = make_expr(
         &mut arena,
         ExprKind::Range {
-            start: Some(start),
-            end: Some(end),
-            step: None,
+            start,
+            end,
+            step: ExprId::INVALID,
             inclusive: false,
         },
     );
@@ -425,9 +425,9 @@ fn format_range_inclusive() {
     let expr = make_expr(
         &mut arena,
         ExprKind::Range {
-            start: Some(start),
-            end: Some(end),
-            step: None,
+            start,
+            end,
+            step: ExprId::INVALID,
             inclusive: true,
         },
     );

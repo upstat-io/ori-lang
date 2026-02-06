@@ -4,7 +4,9 @@
 //! lists, if expressions, and let expressions.
 
 use crate::{ParseError, ParseOutcome, Parser};
-use ori_ir::{BindingPattern, Expr, ExprId, ExprKind, ExprList, Param, ParamRange, TokenKind};
+use ori_ir::{
+    BindingPattern, Expr, ExprId, ExprKind, ExprRange, Param, ParamRange, ParsedTypeId, TokenKind,
+};
 
 impl Parser<'_> {
     /// Parse primary expressions with outcome tracking.
@@ -280,9 +282,9 @@ impl Parser<'_> {
                     self.advance();
                     let expr = self.parse_expr()?;
                     self.expect(&TokenKind::RParen)?;
-                    Some(expr)
+                    expr
                 } else {
-                    None
+                    ExprId::INVALID
                 };
                 let end_span = self.previous_span();
                 Ok(self
@@ -295,9 +297,9 @@ impl Parser<'_> {
                     self.advance();
                     let expr = self.parse_expr()?;
                     self.expect(&TokenKind::RParen)?;
-                    Some(expr)
+                    expr
                 } else {
-                    None
+                    ExprId::INVALID
                 };
                 let end_span = self.previous_span();
                 Ok(self
@@ -345,11 +347,15 @@ impl Parser<'_> {
                     && !self.check(&TokenKind::Yield)
                     && !self.is_at_end()
                 {
-                    Some(self.parse_expr()?)
+                    self.parse_expr()?
                 } else {
-                    None
+                    ExprId::INVALID
                 };
-                let end_span = value.map_or(span, |v| self.arena.get_expr(v).span);
+                let end_span = if value.is_present() {
+                    self.arena.get_expr(value).span
+                } else {
+                    span
+                };
                 Ok(self
                     .arena
                     .alloc_expr(Expr::new(ExprKind::Break(value), span.merge(end_span))))
@@ -379,11 +385,15 @@ impl Parser<'_> {
                     && !self.check(&TokenKind::Yield)
                     && !self.is_at_end()
                 {
-                    Some(self.parse_expr()?)
+                    self.parse_expr()?
                 } else {
-                    None
+                    ExprId::INVALID
                 };
-                let end_span = value.map_or(span, |v| self.arena.get_expr(v).span);
+                let end_span = if value.is_present() {
+                    self.arena.get_expr(value).span
+                } else {
+                    span
+                };
                 Ok(self
                     .arena
                     .alloc_expr(Expr::new(ExprKind::Continue(value), span.merge(end_span))))
@@ -464,9 +474,9 @@ impl Parser<'_> {
                 let ret_ty = if self.check_type_keyword() {
                     let ty = self.parse_type();
                     self.expect(&TokenKind::Eq)?;
-                    ty
+                    ty.map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
                 } else {
-                    None
+                    ParsedTypeId::INVALID
                 };
                 let body = self.parse_expr()?;
                 let end_span = self.arena.get_expr(body).span;
@@ -482,7 +492,7 @@ impl Parser<'_> {
 
             let end_span = self.previous_span();
             return Ok(self.arena.alloc_expr(Expr::new(
-                ExprKind::Tuple(ExprList::EMPTY),
+                ExprKind::Tuple(ExprRange::EMPTY),
                 span.merge(end_span),
             )));
         }
@@ -496,9 +506,9 @@ impl Parser<'_> {
             let ret_ty = if self.check_type_keyword() {
                 let ty = self.parse_type();
                 self.expect(&TokenKind::Eq)?;
-                ty
+                ty.map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
             } else {
-                None
+                ParsedTypeId::INVALID
             };
 
             let body = self.parse_expr()?;
@@ -538,7 +548,7 @@ impl Parser<'_> {
                 return Ok(self.arena.alloc_expr(Expr::new(
                     ExprKind::Lambda {
                         params,
-                        ret_ty: None,
+                        ret_ty: ParsedTypeId::INVALID,
                         body,
                     },
                     span.merge(end_span),
@@ -562,7 +572,7 @@ impl Parser<'_> {
             return Ok(self.arena.alloc_expr(Expr::new(
                 ExprKind::Lambda {
                     params,
-                    ret_ty: None,
+                    ret_ty: ParsedTypeId::INVALID,
                     body,
                 },
                 span.merge(end_span),
@@ -742,13 +752,13 @@ impl Parser<'_> {
         let else_branch = if self.check(&TokenKind::Else) {
             self.advance();
             self.skip_newlines();
-            Some(self.parse_expr()?)
+            self.parse_expr()?
         } else {
-            None
+            ExprId::INVALID
         };
 
-        let end_span = if let Some(else_id) = else_branch {
-            self.arena.get_expr(else_id).span
+        let end_span = if else_branch.is_present() {
+            self.arena.get_expr(else_branch).span
         } else {
             self.arena.get_expr(then_branch).span
         };
@@ -792,12 +802,14 @@ impl Parser<'_> {
         };
 
         let pattern = self.parse_binding_pattern()?;
+        let pattern_id = self.arena.alloc_binding_pattern(pattern);
 
         let ty = if self.check(&TokenKind::Colon) {
             self.advance();
             self.parse_type()
+                .map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
         } else {
-            None
+            ParsedTypeId::INVALID
         };
 
         self.expect(&TokenKind::Eq)?;
@@ -806,7 +818,7 @@ impl Parser<'_> {
         let end_span = self.arena.get_expr(init).span;
         Ok(self.arena.alloc_expr(Expr::new(
             ExprKind::Let {
-                pattern,
+                pattern: pattern_id,
                 ty,
                 init,
                 mutable,
@@ -966,9 +978,9 @@ impl Parser<'_> {
         // Check for optional guard: `if condition`
         let guard = if self.check(&TokenKind::If) {
             self.advance();
-            Some(self.parse_expr()?)
+            self.parse_expr()?
         } else {
-            None
+            ExprId::INVALID
         };
 
         // Expect `do` or `yield`

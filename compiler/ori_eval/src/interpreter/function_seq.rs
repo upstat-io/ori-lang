@@ -23,13 +23,14 @@ impl Interpreter<'_> {
                                 mutable,
                                 ..
                             } => {
+                                let pat = scoped.arena.get_binding_pattern(*pattern);
                                 let val = scoped.eval(*value)?;
                                 let mutability = if *mutable {
                                     Mutability::Mutable
                                 } else {
                                     Mutability::Immutable
                                 };
-                                scoped.bind_pattern(pattern, val, mutability)?;
+                                scoped.bind_pattern(pat, val, mutability)?;
                             }
                             SeqBinding::Stmt { expr, .. } => {
                                 // Evaluate for side effects (e.g., assignment)
@@ -75,12 +76,13 @@ impl Interpreter<'_> {
                                             }
                                             other => other,
                                         };
+                                        let pat = scoped.arena.get_binding_pattern(*pattern);
                                         let mutability = if *mutable {
                                             Mutability::Mutable
                                         } else {
                                             Mutability::Immutable
                                         };
-                                        scoped.bind_pattern(pattern, unwrapped, mutability)?;
+                                        scoped.bind_pattern(pat, unwrapped, mutability)?;
                                     }
                                     Err(e) => {
                                         // If this is a propagated error, return the value

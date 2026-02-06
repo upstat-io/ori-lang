@@ -904,9 +904,12 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 init,
                 mutable,
                 ..
-            } => self.compile_let(
-                pattern, *init, *mutable, arena, expr_types, locals, function, loop_ctx,
-            ),
+            } => {
+                let pattern = arena.get_binding_pattern(*pattern);
+                self.compile_let(
+                    pattern, *init, *mutable, arena, expr_types, locals, function, loop_ctx,
+                )
+            }
 
             // If/else expression
             ExprKind::If {
@@ -1120,12 +1123,20 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // Sequential expression patterns (run, try, match)
-            ExprKind::FunctionSeq(seq) => self
-                .compile_function_seq(seq, type_id, arena, expr_types, locals, function, loop_ctx),
+            ExprKind::FunctionSeq(seq_id) => {
+                let seq = arena.get_function_seq(*seq_id);
+                self.compile_function_seq(
+                    seq, type_id, arena, expr_types, locals, function, loop_ctx,
+                )
+            }
 
             // Named expression patterns (recurse, parallel, etc.)
-            ExprKind::FunctionExp(exp) => self
-                .compile_function_exp(exp, type_id, arena, expr_types, locals, function, loop_ctx),
+            ExprKind::FunctionExp(exp_id) => {
+                let exp = arena.get_function_exp(*exp_id);
+                self.compile_function_exp(
+                    exp, type_id, arena, expr_types, locals, function, loop_ctx,
+                )
+            }
 
             // Type cast: expr as Type or expr as? Type
             ExprKind::Cast {

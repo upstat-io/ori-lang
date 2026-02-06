@@ -242,7 +242,7 @@ impl<'ll> Builder<'_, 'll, '_> {
 
             ExprKind::Call { func, args } => {
                 self.collect_free_vars(*func, arena, bound, locals, captures, seen);
-                for arg_id in arena.iter_expr_list(*args) {
+                for arg_id in arena.get_expr_list(*args).iter().copied() {
                     self.collect_free_vars(arg_id, arena, bound, locals, captures, seen);
                 }
             }
@@ -261,8 +261,8 @@ impl<'ll> Builder<'_, 'll, '_> {
             } => {
                 self.collect_free_vars(*cond, arena, bound, locals, captures, seen);
                 self.collect_free_vars(*then_branch, arena, bound, locals, captures, seen);
-                if let Some(else_id) = else_branch {
-                    self.collect_free_vars(*else_id, arena, bound, locals, captures, seen);
+                if else_branch.is_present() {
+                    self.collect_free_vars(*else_branch, arena, bound, locals, captures, seen);
                 }
             }
 
@@ -279,8 +279,8 @@ impl<'ll> Builder<'_, 'll, '_> {
                         }
                     }
                 }
-                if let Some(result_id) = result {
-                    self.collect_free_vars(*result_id, arena, bound, locals, captures, seen);
+                if result.is_present() {
+                    self.collect_free_vars(*result, arena, bound, locals, captures, seen);
                 }
             }
 

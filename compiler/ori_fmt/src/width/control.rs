@@ -26,36 +26,34 @@ fn receiver_needs_parens<I: StringLookup>(calc: &WidthCalculator<'_, I>, receive
 /// Calculate width of `break` or `break value`.
 pub(super) fn break_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
-    value: Option<ExprId>,
+    value: ExprId,
 ) -> usize {
-    match value {
-        Some(expr) => {
-            let val_w = calc.width(expr);
-            if val_w == ALWAYS_STACKED {
-                return ALWAYS_STACKED;
-            }
-            // "break " + val
-            6 + val_w
+    if value.is_present() {
+        let val_w = calc.width(value);
+        if val_w == ALWAYS_STACKED {
+            return ALWAYS_STACKED;
         }
-        None => 5, // "break"
+        // "break " + val
+        6 + val_w
+    } else {
+        5 // "break"
     }
 }
 
 /// Calculate width of `continue` or `continue value`.
 pub(super) fn continue_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
-    value: Option<ExprId>,
+    value: ExprId,
 ) -> usize {
-    match value {
-        Some(expr) => {
-            let val_w = calc.width(expr);
-            if val_w == ALWAYS_STACKED {
-                return ALWAYS_STACKED;
-            }
-            // "continue " + val
-            9 + val_w
+    if value.is_present() {
+        let val_w = calc.width(value);
+        if val_w == ALWAYS_STACKED {
+            return ALWAYS_STACKED;
         }
-        None => 8, // "continue"
+        // "continue " + val
+        9 + val_w
+    } else {
+        8 // "continue"
     }
 }
 
@@ -64,7 +62,7 @@ pub(super) fn if_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     cond: ExprId,
     then_branch: ExprId,
-    else_branch: Option<ExprId>,
+    else_branch: ExprId,
 ) -> usize {
     let cond_w = calc.width(cond);
     let then_w = calc.width(then_branch);
@@ -75,8 +73,8 @@ pub(super) fn if_width<I: StringLookup>(
     // "if " + cond + " then " + then
     let mut total = 3 + cond_w + 6 + then_w;
 
-    if let Some(else_expr) = else_branch {
-        let else_w = calc.width(else_expr);
+    if else_branch.is_present() {
+        let else_w = calc.width(else_branch);
         if else_w == ALWAYS_STACKED {
             return ALWAYS_STACKED;
         }
@@ -92,7 +90,7 @@ pub(super) fn for_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     binding: Name,
     iter: ExprId,
-    guard: Option<ExprId>,
+    guard: ExprId,
     body: ExprId,
     is_yield: bool,
 ) -> usize {
@@ -106,8 +104,8 @@ pub(super) fn for_width<I: StringLookup>(
     // "for " + binding + " in " + iter
     let mut total = 4 + binding_w + 4 + iter_w;
 
-    if let Some(guard_expr) = guard {
-        let guard_w = calc.width(guard_expr);
+    if guard.is_present() {
+        let guard_w = calc.width(guard);
         if guard_w == ALWAYS_STACKED {
             return ALWAYS_STACKED;
         }
@@ -129,23 +127,22 @@ pub(super) fn for_width<I: StringLookup>(
 pub(super) fn block_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     stmts: StmtRange,
-    result: Option<ExprId>,
+    result: ExprId,
 ) -> usize {
     // Always stacked if has statements
     if !stmts.is_empty() {
         return ALWAYS_STACKED;
     }
 
-    match result {
-        Some(result_expr) => {
-            let result_w = calc.width(result_expr);
-            if result_w == ALWAYS_STACKED {
-                return ALWAYS_STACKED;
-            }
-            // "{ " + result + " }"
-            2 + result_w + 2
+    if result.is_present() {
+        let result_w = calc.width(result);
+        if result_w == ALWAYS_STACKED {
+            return ALWAYS_STACKED;
         }
-        None => 2, // "{}"
+        // "{ " + result + " }"
+        2 + result_w + 2
+    } else {
+        2 // "{}"
     }
 }
 

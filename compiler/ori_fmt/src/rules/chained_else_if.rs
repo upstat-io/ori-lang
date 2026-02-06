@@ -43,13 +43,11 @@ impl ChainedElseIfRule {
     pub fn has_else_if_chain(arena: &ExprArena, expr_id: ExprId) -> bool {
         let expr = arena.get_expr(expr_id);
 
-        if let ExprKind::If {
-            else_branch: Some(else_id),
-            ..
-        } = &expr.kind
-        {
-            let else_expr = arena.get_expr(*else_id);
-            return matches!(else_expr.kind, ExprKind::If { .. });
+        if let ExprKind::If { else_branch, .. } = &expr.kind {
+            if else_branch.is_present() {
+                let else_expr = arena.get_expr(*else_branch);
+                return matches!(else_expr.kind, ExprKind::If { .. });
+            }
         }
 
         false
@@ -62,13 +60,10 @@ impl ChainedElseIfRule {
         let expr = arena.get_expr(expr_id);
 
         match &expr.kind {
-            ExprKind::If {
-                else_branch: Some(else_id),
-                ..
-            } => {
-                let else_expr = arena.get_expr(*else_id);
+            ExprKind::If { else_branch, .. } if else_branch.is_present() => {
+                let else_expr = arena.get_expr(*else_branch);
                 if matches!(else_expr.kind, ExprKind::If { .. }) {
-                    1 + Self::chain_depth(arena, *else_id)
+                    1 + Self::chain_depth(arena, *else_branch)
                 } else {
                     1
                 }
@@ -134,8 +129,8 @@ pub fn collect_if_chain(arena: &ExprArena, expr_id: ExprId) -> Option<IfChain> {
     let mut current_else = *else_branch;
 
     // Walk through else-if chain
-    while let Some(else_id) = current_else {
-        let else_expr = arena.get_expr(else_id);
+    while current_else.is_present() {
+        let else_expr = arena.get_expr(current_else);
 
         if let ExprKind::If {
             cond: else_cond,
@@ -154,7 +149,7 @@ pub fn collect_if_chain(arena: &ExprArena, expr_id: ExprId) -> Option<IfChain> {
                 condition: *cond,
                 then_branch: *then_branch,
                 else_ifs,
-                final_else: Some(else_id),
+                final_else: Some(current_else),
             });
         }
     }

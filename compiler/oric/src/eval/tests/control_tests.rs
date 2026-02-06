@@ -14,7 +14,7 @@ mod if_else {
     #[test]
     fn true_branch() {
         let mut call_count = 0;
-        let result = eval_if(ExprId::new(0), ExprId::new(1), None, |_| {
+        let result = eval_if(ExprId::new(0), ExprId::new(1), ExprId::INVALID, |_| {
             call_count += 1;
             if call_count == 1 {
                 Ok(Value::Bool(true)) // condition
@@ -27,7 +27,7 @@ mod if_else {
 
     #[test]
     fn false_no_else() {
-        let result = eval_if(ExprId::new(0), ExprId::new(1), None, |_| {
+        let result = eval_if(ExprId::new(0), ExprId::new(1), ExprId::INVALID, |_| {
             Ok(Value::Bool(false))
         });
         assert_eq!(result.unwrap(), Value::Void);
@@ -36,7 +36,7 @@ mod if_else {
     #[test]
     fn false_with_else() {
         let mut call_count = 0;
-        let result = eval_if(ExprId::new(0), ExprId::new(1), Some(ExprId::new(2)), |id| {
+        let result = eval_if(ExprId::new(0), ExprId::new(1), ExprId::new(2), |id| {
             call_count += 1;
             match id.raw() {
                 0 => Ok(Value::Bool(false)), // condition
@@ -50,7 +50,7 @@ mod if_else {
     #[test]
     fn truthy_int_nonzero() {
         let mut call_count = 0;
-        let result = eval_if(ExprId::new(0), ExprId::new(1), None, |_| {
+        let result = eval_if(ExprId::new(0), ExprId::new(1), ExprId::INVALID, |_| {
             call_count += 1;
             if call_count == 1 {
                 Ok(Value::int(1)) // truthy: nonzero
@@ -66,7 +66,7 @@ mod if_else {
         let result = eval_if(
             ExprId::new(0),
             ExprId::new(1),
-            None,
+            ExprId::INVALID,
             |_| Ok(Value::int(0)), // falsy: zero
         );
         assert_eq!(result.unwrap(), Value::Void);
@@ -74,7 +74,7 @@ mod if_else {
 
     #[test]
     fn condition_error_propagates() {
-        let result = eval_if(ExprId::new(0), ExprId::new(1), None, |_| {
+        let result = eval_if(ExprId::new(0), ExprId::new(1), ExprId::INVALID, |_| {
             Err(crate::eval::EvalError::new("condition error"))
         });
         assert!(result.is_err());

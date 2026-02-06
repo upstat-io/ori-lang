@@ -399,13 +399,14 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    /// Evaluate a list of expressions from an `ExprList`.
+    /// Evaluate a list of expressions from an `ExprRange`.
     ///
     /// Helper to reduce repetition in collection and call evaluation.
-    /// Works with both inline and overflow storage transparently.
-    fn eval_expr_list(&mut self, list: ori_ir::ExprList) -> Result<Vec<Value>, EvalError> {
+    fn eval_expr_list(&mut self, range: ori_ir::ExprRange) -> Result<Vec<Value>, EvalError> {
         self.arena
-            .iter_expr_list(list)
+            .get_expr_list(range)
+            .iter()
+            .copied()
             .map(|id| self.eval(id))
             .collect()
     }
@@ -470,11 +471,10 @@ impl<'a> Interpreter<'a> {
             } => {
                 if self.eval(*cond)?.is_truthy() {
                     self.eval(*then_branch)
+                } else if else_branch.is_present() {
+                    self.eval(*else_branch)
                 } else {
-                    else_branch
-                        .map(|e| self.eval(e))
-                        .transpose()?
-                        .map_or(Ok(Value::Void), Ok)
+                    Ok(Value::Void)
                 }
             }
 
@@ -550,18 +550,16 @@ impl<'a> Interpreter<'a> {
             // Variant constructors
             ExprKind::Some(inner) => Ok(Value::some(self.eval(*inner)?)),
             ExprKind::None => Ok(Value::None),
-            ExprKind::Ok(inner) => Ok(Value::ok(
-                inner
-                    .map(|e| self.eval(e))
-                    .transpose()?
-                    .unwrap_or(Value::Void),
-            )),
-            ExprKind::Err(inner) => Ok(Value::err(
-                inner
-                    .map(|e| self.eval(e))
-                    .transpose()?
-                    .unwrap_or(Value::Void),
-            )),
+            ExprKind::Ok(inner) => Ok(Value::ok(if inner.is_present() {
+                self.eval(*inner)?
+            } else {
+                Value::Void
+            })),
+            ExprKind::Err(inner) => Ok(Value::err(if inner.is_present() {
+                self.eval(*inner)?
+            } else {
+                Value::Void
+            })),
 
             // Let binding
             ExprKind::Let {
@@ -570,18 +568,25 @@ impl<'a> Interpreter<'a> {
                 mutable,
                 ..
             } => {
+                let pat = self.arena.get_binding_pattern(*pattern);
                 let value = self.eval(*init)?;
                 let mutability = if *mutable {
                     Mutability::Mutable
                 } else {
                     Mutability::Immutable
                 };
-                self.bind_pattern(pattern, value, mutability)?;
+                self.bind_pattern(pat, value, mutability)?;
                 Ok(Value::Void)
             }
 
-            ExprKind::FunctionSeq(seq) => self.eval_function_seq(seq),
-            ExprKind::FunctionExp(exp) => self.eval_function_exp(exp),
+            ExprKind::FunctionSeq(seq_id) => {
+                let seq = self.arena.get_function_seq(*seq_id);
+                self.eval_function_seq(seq)
+            }
+            ExprKind::FunctionExp(exp_id) => {
+                let exp = self.arena.get_function_exp(*exp_id);
+                self.eval_function_exp(exp)
+            }
             ExprKind::CallNamed { func, args } => {
                 let func_val = self.eval(*func)?;
                 self.eval_call_named(&func_val, *args)
@@ -726,11 +731,19 @@ impl<'a> Interpreter<'a> {
             }
 
             ExprKind::Break(v) => {
-                let val = v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void);
+                let val = if v.is_present() {
+                    self.eval(*v)?
+                } else {
+                    Value::Void
+                };
                 Err(EvalError::break_with(val))
             }
             ExprKind::Continue(v) => {
-                let val = v.map(|x| self.eval(x)).transpose()?.unwrap_or(Value::Void);
+                let val = if v.is_present() {
+                    self.eval(*v)?
+                } else {
+                    Value::Void
+                };
                 Err(EvalError::continue_with(val))
             }
             ExprKind::Assign { target, value } => {
@@ -748,7 +761,7 @@ impl<'a> Interpreter<'a> {
             },
             ExprKind::Cast { expr, ty, fallible } => {
                 let value = self.eval(*expr)?;
-                self.eval_cast(value, ty, *fallible)
+                self.eval_cast(value, self.arena.get_parsed_type(*ty), *fallible)
             }
             ExprKind::Const(name) => self
                 .env
@@ -1041,7 +1054,7 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluate a block of statements.
-    fn eval_block(&mut self, stmts: ori_ir::StmtRange, result: Option<ExprId>) -> EvalResult {
+    fn eval_block(&mut self, stmts: ori_ir::StmtRange, result: ExprId) -> EvalResult {
         self.with_env_scope_result(|eval| {
             for stmt in eval.arena.get_stmt_range(stmts) {
                 match &stmt.kind {
@@ -1054,20 +1067,22 @@ impl<'a> Interpreter<'a> {
                         mutable,
                         ..
                     } => {
+                        let pat = eval.arena.get_binding_pattern(*pattern);
                         let value = eval.eval(*init)?;
                         let mutability = if *mutable {
                             Mutability::Mutable
                         } else {
                             Mutability::Immutable
                         };
-                        eval.bind_pattern(pattern, value, mutability)?;
+                        eval.bind_pattern(pat, value, mutability)?;
                     }
                 }
             }
-            result
-                .map(|r| eval.eval(r))
-                .transpose()
-                .map(|v| v.unwrap_or(Value::Void))
+            if result.is_present() {
+                eval.eval(result)
+            } else {
+                Ok(Value::Void)
+            }
         })
     }
 
@@ -1142,7 +1157,7 @@ impl<'a> Interpreter<'a> {
         &mut self,
         binding: Name,
         iter: Value,
-        guard: Option<ExprId>,
+        guard: ExprId,
         body: ExprId,
         is_yield: bool,
     ) -> EvalResult {
@@ -1258,8 +1273,8 @@ impl<'a> Interpreter<'a> {
                 // Use RAII guard for scope safety
                 let iter_result = self.with_binding(binding, item, Mutability::Immutable, |eval| {
                     // Check guard
-                    if let Some(g) = guard {
-                        match eval.eval(g) {
+                    if guard.is_present() {
+                        match eval.eval(guard) {
                             Ok(v) if !v.is_truthy() => return IterResult::Continue,
                             Err(e) => return IterResult::Error(e),
                             Ok(_) => {}
@@ -1296,8 +1311,8 @@ impl<'a> Interpreter<'a> {
                 // Use RAII guard for scope safety
                 let iter_result = self.with_binding(binding, item, Mutability::Immutable, |eval| {
                     // Check guard
-                    if let Some(g) = guard {
-                        match eval.eval(g) {
+                    if guard.is_present() {
+                        match eval.eval(guard) {
                             Ok(v) if !v.is_truthy() => return IterResult::Continue,
                             Err(e) => return IterResult::Error(e),
                             Ok(_) => {}

@@ -803,8 +803,7 @@ fn register_const(checker: &mut ModuleChecker<'_>, const_def: &ori_ir::ConstDef)
 
 /// Infer the type of a constant value expression.
 fn infer_const_type(checker: &mut ModuleChecker<'_>, value_id: ori_ir::ExprId) -> Idx {
-    // Clone the expression kind to avoid borrow conflicts
-    let expr_kind = checker.arena().get_expr(value_id).kind.clone();
+    let expr_kind = checker.arena().get_expr(value_id).kind;
 
     // Constant values must be literals, so we can infer directly
     match expr_kind {

@@ -4,20 +4,20 @@
 
 use super::{WidthCalculator, ALWAYS_STACKED};
 use ori_ir::{
-    ExprId, ExprList, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange, Name,
+    ExprId, ExprRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange, Name,
     StringLookup, StructLitFieldRange,
 };
 
 /// Calculate width of a list literal: `[items]`.
 pub(super) fn list_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
-    items: ExprList,
+    items: ExprRange,
 ) -> usize {
     if items.is_empty() {
         return 2; // "[]"
     }
 
-    let items_vec: Vec<_> = calc.arena.iter_expr_list(items).collect();
+    let items_vec: Vec<_> = calc.arena.get_expr_list(items).to_vec();
     let items_w = calc.width_of_expr_list(&items_vec);
     if items_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
@@ -50,13 +50,13 @@ pub(super) fn list_with_spread_width<I: StringLookup>(
 /// Single-element tuples need trailing comma: `(x,)`.
 pub(super) fn tuple_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
-    items: ExprList,
+    items: ExprRange,
 ) -> usize {
     if items.is_empty() {
         return 2; // "()"
     }
 
-    let items_vec: Vec<_> = calc.arena.iter_expr_list(items).collect();
+    let items_vec: Vec<_> = calc.arena.get_expr_list(items).to_vec();
     let items_w = calc.width_of_expr_list(&items_vec);
     if items_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
@@ -152,17 +152,19 @@ pub(super) fn struct_with_spread_width<I: StringLookup>(
 }
 
 /// Calculate width of a range expression: `start..end` or `start..=end` or `start..end by step`.
+///
+/// Uses `ExprId::INVALID` sentinel to represent absent start/end/step.
 pub(super) fn range_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
-    start: Option<ExprId>,
-    end: Option<ExprId>,
-    step: Option<ExprId>,
+    start: ExprId,
+    end: ExprId,
+    step: ExprId,
     inclusive: bool,
 ) -> usize {
     let mut total = 0;
 
-    if let Some(start_expr) = start {
-        let start_w = calc.width(start_expr);
+    if start.is_present() {
+        let start_w = calc.width(start);
         if start_w == ALWAYS_STACKED {
             return ALWAYS_STACKED;
         }
@@ -172,8 +174,8 @@ pub(super) fn range_width<I: StringLookup>(
     // ".." or "..="
     total += if inclusive { 3 } else { 2 };
 
-    if let Some(end_expr) = end {
-        let end_w = calc.width(end_expr);
+    if end.is_present() {
+        let end_w = calc.width(end);
         if end_w == ALWAYS_STACKED {
             return ALWAYS_STACKED;
         }
@@ -181,8 +183,8 @@ pub(super) fn range_width<I: StringLookup>(
     }
 
     // " by " + step
-    if let Some(step_expr) = step {
-        let step_w = calc.width(step_expr);
+    if step.is_present() {
+        let step_w = calc.width(step);
         if step_w == ALWAYS_STACKED {
             return ALWAYS_STACKED;
         }

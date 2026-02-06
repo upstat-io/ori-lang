@@ -6,8 +6,8 @@
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use super::super::ranges::{ArmRange, SeqBindingRange};
-use super::binding::{BindingPattern, MatchArm};
-use crate::{ExprId, ParsedType, Span, Spanned};
+use super::binding::MatchArm;
+use crate::{BindingPatternId, ExprId, ParsedTypeId, Span, Spanned};
 
 /// Element within a `function_seq` (run/try).
 ///
@@ -16,9 +16,9 @@ use crate::{ExprId, ParsedType, Span, Spanned};
 pub enum SeqBinding {
     /// `let [mut] pattern [: Type] = expr`
     Let {
-        pattern: BindingPattern,
-        /// Optional type annotation.
-        ty: Option<ParsedType>,
+        pattern: BindingPatternId,
+        /// Type annotation (`ParsedTypeId::INVALID` = no annotation).
+        ty: ParsedTypeId,
         value: ExprId,
         mutable: bool,
         span: Span,

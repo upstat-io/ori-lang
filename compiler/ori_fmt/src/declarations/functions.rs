@@ -126,7 +126,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
             // Method calls: break if receiver is If/For (needs to break internally)
             ori_ir::ExprKind::MethodCall { receiver, args, .. } => {
-                let args_empty = self.arena.iter_expr_list(*args).next().is_none();
+                let args_empty = self.arena.get_expr_list(*args).is_empty();
                 let receiver_is_complex = matches!(
                     &self.arena.get_expr(*receiver).kind,
                     ori_ir::ExprKind::If { .. } | ori_ir::ExprKind::For { .. }

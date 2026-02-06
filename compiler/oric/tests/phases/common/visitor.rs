@@ -13,7 +13,7 @@ use ori_ir::ast::{
     Module, Param, ParamRange, Visibility,
 };
 use ori_ir::visitor::{walk_expr, Visitor};
-use ori_ir::{ExprArena, Name, Span};
+use ori_ir::{ExprArena, ExprId, Name, Span};
 
 /// Visitor that counts expressions.
 struct ExprCounter {
@@ -21,7 +21,7 @@ struct ExprCounter {
 }
 
 impl<'ast> Visitor<'ast> for ExprCounter {
-    fn visit_expr(&mut self, expr: &'ast Expr, arena: &'ast ExprArena) {
+    fn visit_expr(&mut self, expr: &Expr, arena: &'ast ExprArena) {
         self.count += 1;
         walk_expr(self, expr, arena);
     }
@@ -39,7 +39,7 @@ struct LiteralCounter {
 }
 
 impl<'ast> Visitor<'ast> for LiteralCounter {
-    fn visit_expr(&mut self, expr: &'ast Expr, arena: &'ast ExprArena) {
+    fn visit_expr(&mut self, expr: &Expr, arena: &'ast ExprArena) {
         match &expr.kind {
             ExprKind::Int(_) => self.int_count += 1,
             ExprKind::Bool(_) => self.bool_count += 1,
@@ -56,7 +56,7 @@ struct IdentCollector {
 }
 
 impl<'ast> Visitor<'ast> for IdentCollector {
-    fn visit_expr(&mut self, expr: &'ast Expr, arena: &'ast ExprArena) {
+    fn visit_expr(&mut self, expr: &Expr, arena: &'ast ExprArena) {
         if let ExprKind::Ident(name) = &expr.kind {
             self.idents.push(name.raw());
         }
@@ -129,7 +129,7 @@ fn test_visit_if_expr() {
         ExprKind::If {
             cond,
             then_branch,
-            else_branch: Some(else_branch),
+            else_branch,
         },
         Span::new(0, 21),
     ));
@@ -329,7 +329,7 @@ fn test_visit_lambda_with_params() {
     let lambda = arena.alloc_expr(Expr::new(
         ExprKind::Lambda {
             params,
-            ret_ty: None,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
             body,
         },
         Span::new(0, 17),
@@ -381,7 +381,7 @@ fn test_visit_optional_children() {
         ExprKind::If {
             cond,
             then_branch,
-            else_branch: None,
+            else_branch: ExprId::INVALID,
         },
         Span::new(0, 14),
     ));

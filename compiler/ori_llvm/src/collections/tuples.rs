@@ -2,7 +2,7 @@
 
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, ExprList};
+use ori_ir::{ExprArena, ExprRange};
 use ori_types::Idx;
 
 use crate::builder::{Builder, Locals};
@@ -12,7 +12,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a tuple expression.
     pub(crate) fn compile_tuple(
         &self,
-        elements: ExprList,
+        elements: ExprRange,
         arena: &ExprArena,
         expr_types: &[Idx],
         locals: &mut Locals<'ll>,
@@ -20,7 +20,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
         // Get tuple elements
-        let element_ids: Vec<_> = arena.iter_expr_list(elements).collect();
+        let element_ids: Vec<_> = arena.get_expr_list(elements).to_vec();
 
         if element_ids.is_empty() {
             // Empty tuple = unit
