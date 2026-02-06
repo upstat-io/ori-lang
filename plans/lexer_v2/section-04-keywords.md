@@ -271,168 +271,45 @@ Rust lexes `>` and `>` separately, then glues them into `>>` in the parser. This
 
 **Goal:** Pre-computed operator metadata for parser
 
+> **Already Done (2026-02-06):** The parser already has a static `OPER_TABLE[128]` lookup table
+> in `compiler/ori_parse/src/grammar/expr/operators.rs` that maps token tags to binding powers
+> for the Pratt parser. This table uses packed 4-byte `OperInfo` entries (`left_bp`, `right_bp`,
+> `op`, `token_count`) indexed by the `u8` tag value. It replaced a 20-arm match and delivers
+> O(1) operator dispatch.
+>
+> **Phase separation principle:** Operator precedence/binding power belongs in the **parser**, not
+> the lexer. The lexer's job is to produce tokens; the parser owns operator semantics. This matches
+> the conclusion in `plans/parser_v2/section-02-lexer.md` §02.3: "Satisfied by existing parser-side
+> `OPER_TABLE`."
+>
+> **Recommendation:** Do NOT duplicate precedence in the lexer. The existing parser-side
+> `OPER_TABLE[128]` works well and should be preserved as-is. If the lexer V2 needs to expose
+> "is this an operator?" for error recovery, a simple `is_operator()` method on `TokenTag` is
+> sufficient — it doesn't need precedence or associativity.
+
 ### Tasks
 
-- [ ] Define operator info structure
+- [ ] Add simple `is_operator()` / `is_binary_operator()` helpers to `TokenTag`
   ```rust
-  /// Operator metadata
-  #[derive(Clone, Copy, Debug)]
-  pub struct OperatorInfo {
-      pub precedence: u8,
-      pub associativity: Associativity,
-      pub is_comparison: bool,
-      pub is_assignment: bool,
-  }
-
-  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-  pub enum Associativity {
-      Left,
-      Right,
-      None, // Non-associative (comparisons)
-  }
-
-  impl OperatorInfo {
-      pub const NONE: Self = Self {
-          precedence: 0,
-          associativity: Associativity::Left,
-          is_comparison: false,
-          is_assignment: false,
-      };
-  }
-  ```
-
-- [ ] Create precedence table
-  ```rust
-  /// Operator precedence table indexed by Tag
-  /// Precedence levels (higher binds tighter):
-  ///   1: Assignment (=, +=, etc.)
-  ///   2: Or (or)
-  ///   3: And (and)
-  ///   4: Not (not) - prefix
-  ///   5: Comparison (==, !=, <, >, <=, >=)
-  ///   6: Bitwise Or (|)
-  ///   7: Bitwise Xor (^)
-  ///   8: Bitwise And (&)
-  ///   9: Shift (<<, >>)
-  ///  10: Range (.., ..=)
-  ///  11: Addition (+, -)
-  ///  12: Multiplication (*, /, %)
-  ///  13: Unary (-, !, ~) - prefix
-  ///  14: Exponentiation (**)
-  ///  15: Call, Index, Field access
-
-  const OPERATOR_TABLE: [OperatorInfo; 256] = {
-      let mut table = [OperatorInfo::NONE; 256];
-
-      // Assignment (level 1, right associative)
-      table[Tag::Eq as usize] = OperatorInfo {
-          precedence: 1,
-          associativity: Associativity::Right,
-          is_comparison: false,
-          is_assignment: true,
-      };
-      table[Tag::PlusEq as usize] = OperatorInfo {
-          precedence: 1,
-          associativity: Associativity::Right,
-          is_comparison: false,
-          is_assignment: true,
-      };
-      // ... other compound assignments
-
-      // Logical Or (level 2, left associative)
-      table[Tag::KwOr as usize] = OperatorInfo {
-          precedence: 2,
-          associativity: Associativity::Left,
-          is_comparison: false,
-          is_assignment: false,
-      };
-
-      // Logical And (level 3, left associative)
-      table[Tag::KwAnd as usize] = OperatorInfo {
-          precedence: 3,
-          associativity: Associativity::Left,
-          is_comparison: false,
-          is_assignment: false,
-      };
-
-      // Comparison (level 5, non-associative)
-      table[Tag::EqEq as usize] = OperatorInfo {
-          precedence: 5,
-          associativity: Associativity::None,
-          is_comparison: true,
-          is_assignment: false,
-      };
-      table[Tag::BangEq as usize] = OperatorInfo {
-          precedence: 5,
-          associativity: Associativity::None,
-          is_comparison: true,
-          is_assignment: false,
-      };
-      table[Tag::Lt as usize] = OperatorInfo {
-          precedence: 5,
-          associativity: Associativity::None,
-          is_comparison: true,
-          is_assignment: false,
-      };
-      // ... other comparisons
-
-      // Addition (level 11, left associative)
-      table[Tag::Plus as usize] = OperatorInfo {
-          precedence: 11,
-          associativity: Associativity::Left,
-          is_comparison: false,
-          is_assignment: false,
-      };
-      table[Tag::Minus as usize] = OperatorInfo {
-          precedence: 11,
-          associativity: Associativity::Left,
-          is_comparison: false,
-          is_assignment: false,
-      };
-
-      // Multiplication (level 12, left associative)
-      table[Tag::Star as usize] = OperatorInfo {
-          precedence: 12,
-          associativity: Associativity::Left,
-          is_comparison: false,
-          is_assignment: false,
-      };
-      table[Tag::Slash as usize] = OperatorInfo {
-          precedence: 12,
-          associativity: Associativity::Left,
-          is_comparison: false,
-          is_assignment: false,
-      };
-      table[Tag::Percent as usize] = OperatorInfo {
-          precedence: 12,
-          associativity: Associativity::Left,
-          is_comparison: false,
-          is_assignment: false,
-      };
-
-      table
-  };
-
-  impl Tag {
-      /// Get operator info for this tag
-      #[inline]
-      pub fn operator_info(self) -> OperatorInfo {
-          OPERATOR_TABLE[self as usize]
-      }
-
-      /// Get precedence (0 if not an operator)
-      #[inline]
-      pub fn precedence(self) -> u8 {
-          self.operator_info().precedence
-      }
-
-      /// Is this tag an operator?
+  impl TokenTag {
+      /// Is this tag any operator token? (for error recovery, not precedence)
       #[inline]
       pub fn is_operator(self) -> bool {
-          self.operator_info().precedence > 0
+          // Uses semantic ranges from RawTag design
+          let v = self as u8;
+          v >= 60 && v < 120
       }
   }
   ```
+
+- [ ] ~~Create precedence table in lexer~~ **Skipped** — parser owns precedence via `OPER_TABLE[128]`
+  (see `compiler/ori_parse/src/grammar/expr/operators.rs`)
+
+- [ ] Ensure new `TokenTag` values are compatible with parser's `OPER_TABLE`
+  - The parser's `OPER_TABLE` is indexed by `u8` tag values (currently `TAG_*` constants)
+  - When migrating to `TokenTag` enum, the discriminant values for operator tokens must
+    either match the existing `TAG_*` constants or `OPER_TABLE` must be rebuilt from the
+    new values — a straightforward const-time rebuild
 
 ---
 

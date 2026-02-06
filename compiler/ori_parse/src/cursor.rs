@@ -10,8 +10,13 @@ use ori_ir::{Name, Span, StringInterner, Token, TokenCapture, TokenKind, TokenLi
 ///
 /// Provides methods for accessing, consuming, and checking tokens
 /// during parsing. Tracks current position in the token stream.
+///
+/// Includes a `tags` slice for fast O(1) discriminant checks without
+/// touching the full 16-byte `TokenKind`.
 pub struct Cursor<'a> {
     tokens: &'a TokenList,
+    /// Dense array of discriminant tags, parallel to `tokens`.
+    tags: &'a [u8],
     interner: &'a StringInterner,
     pos: usize,
 }
@@ -21,6 +26,7 @@ impl<'a> Cursor<'a> {
     pub fn new(tokens: &'a TokenList, interner: &'a StringInterner) -> Self {
         Cursor {
             tokens,
+            tags: tokens.tags(),
             interner,
             pos: 0,
         }
@@ -100,38 +106,46 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    /// Get the discriminant tag of the current token.
+    ///
+    /// Reads from the dense `u8` tag array — a single byte load
+    /// instead of accessing the full 16-byte `TokenKind`.
+    #[inline]
+    pub fn current_tag(&self) -> u8 {
+        // Safety: tags.len() == tokens.len(), and pos is always valid.
+        self.tags[self.pos]
+    }
+
+    /// Check if the current token's tag matches a specific tag value.
+    #[inline]
+    pub fn check_tag(&self, tag: u8) -> bool {
+        self.current_tag() == tag
+    }
+
     /// Check if at end of token stream.
     #[inline]
     pub fn is_at_end(&self) -> bool {
-        matches!(self.current_kind(), TokenKind::Eof)
+        self.current_tag() == TokenKind::TAG_EOF
     }
 
     /// Check if the current token matches the given kind.
     #[inline]
     pub fn check(&self, kind: &TokenKind) -> bool {
-        std::mem::discriminant(self.current_kind()) == std::mem::discriminant(kind)
+        self.current_tag() == kind.discriminant_index()
     }
 
     /// Check if the current token is an identifier.
     #[inline]
     pub fn check_ident(&self) -> bool {
-        matches!(self.current_kind(), TokenKind::Ident(_))
+        self.current_tag() == TokenKind::TAG_IDENT
     }
 
     /// Check if the current token is a type keyword.
     #[inline]
     pub fn check_type_keyword(&self) -> bool {
-        matches!(
-            self.current_kind(),
-            TokenKind::IntType
-                | TokenKind::FloatType
-                | TokenKind::BoolType
-                | TokenKind::StrType
-                | TokenKind::CharType
-                | TokenKind::ByteType
-                | TokenKind::Void
-                | TokenKind::NeverType
-        )
+        let tag = self.current_tag();
+        (TokenKind::TAG_INT_TYPE..=TokenKind::TAG_NEVER_TYPE).contains(&tag)
+            || tag == TokenKind::TAG_VOID
     }
 
     /// Peek at the next token's kind (one-token lookahead).
@@ -173,16 +187,18 @@ impl<'a> Cursor<'a> {
     /// Check if looking at `>` followed immediately by `>` (no whitespace).
     /// Used for detecting `>>` shift operator in expression context.
     pub fn is_shift_right(&self) -> bool {
-        self.check(&TokenKind::Gt)
-            && matches!(self.peek_next_kind(), TokenKind::Gt)
+        self.current_tag() == TokenKind::TAG_GT
+            && self.pos + 1 < self.tags.len()
+            && self.tags[self.pos + 1] == TokenKind::TAG_GT
             && self.current_and_next_adjacent()
     }
 
     /// Check if looking at `>` followed immediately by `=` (no whitespace).
     /// Used for detecting `>=` comparison operator in expression context.
     pub fn is_greater_equal(&self) -> bool {
-        self.check(&TokenKind::Gt)
-            && matches!(self.peek_next_kind(), TokenKind::Eq)
+        self.current_tag() == TokenKind::TAG_GT
+            && self.pos + 1 < self.tags.len()
+            && self.tags[self.pos + 1] == TokenKind::TAG_EQ
             && self.current_and_next_adjacent()
     }
 
@@ -198,15 +214,15 @@ impl<'a> Cursor<'a> {
     }
 
     /// Check if the next token (lookahead) is a left paren.
+    #[inline]
     pub fn next_is_lparen(&self) -> bool {
-        self.pos + 1 < self.tokens.len()
-            && matches!(self.tokens[self.pos + 1].kind, TokenKind::LParen)
+        self.pos + 1 < self.tags.len() && self.tags[self.pos + 1] == TokenKind::TAG_LPAREN
     }
 
     /// Check if the next token (lookahead) is a colon.
+    #[inline]
     pub fn next_is_colon(&self) -> bool {
-        self.pos + 1 < self.tokens.len()
-            && matches!(self.tokens[self.pos + 1].kind, TokenKind::Colon)
+        self.pos + 1 < self.tags.len() && self.tags[self.pos + 1] == TokenKind::TAG_COLON
     }
 
     /// Check if this is capability provision syntax: `with Ident =`
@@ -274,15 +290,20 @@ impl<'a> Cursor<'a> {
 
     /// Advance to the next token and return the consumed token.
     ///
-    /// If already at EOF, returns the EOF token without advancing.
+    /// # Safety invariant
+    ///
+    /// The lexer always appends an EOF token, and grammar rules always check
+    /// the current token kind before calling `advance()`. This means the parser
+    /// can never advance past the last token. The unconditional increment avoids
+    /// a branch on every token consumption.
     #[inline]
     pub fn advance(&mut self) -> &Token {
         let current = self.pos;
-        // Only advance if not at the last token (EOF).
-        // This avoids calling is_at_end() which has overhead.
-        if self.pos + 1 < self.tokens.len() {
-            self.pos += 1;
-        }
+        debug_assert!(
+            self.pos < self.tokens.len(),
+            "advance past end of token stream"
+        );
+        self.pos += 1;
         &self.tokens[current]
     }
 
@@ -328,36 +349,52 @@ impl<'a> Cursor<'a> {
 
     /// Skip all newline tokens.
     ///
-    /// Optimized: Uses direct match instead of `check()` to avoid
-    /// `std::mem::discriminant()` overhead on this hot path.
+    /// Uses tag-based check for maximum speed on this hot path.
     #[inline]
     pub fn skip_newlines(&mut self) {
-        while matches!(self.current_kind(), TokenKind::Newline) {
+        while self.current_tag() == TokenKind::TAG_NEWLINE {
             self.advance();
         }
     }
 
     /// Expect the current token to be of the given kind, advance and return it.
     /// Returns an error if the token kind doesn't match.
+    ///
+    /// Split into inline happy path + `#[cold]` error path so that
+    /// `format!()` allocations don't prevent LLVM from inlining the fast case.
+    #[inline]
     pub fn expect(&mut self, kind: &TokenKind) -> Result<&Token, ParseError> {
         if self.check(kind) {
             Ok(self.advance())
         } else {
-            Err(ParseError::new(
-                ErrorCode::E1001,
-                format!(
-                    "expected {}, found {}",
-                    kind.display_name(),
-                    self.current_kind().display_name()
-                ),
-                self.current_span(),
-            )
-            .with_context(format!("expected {}", kind.display_name())))
+            Err(self.make_expect_error(kind))
         }
+    }
+
+    /// Build the error for a failed `expect()` call.
+    ///
+    /// Separated as `#[cold]` so the `format!()` allocation doesn't
+    /// prevent LLVM from inlining the hot `expect()` fast path.
+    #[cold]
+    #[inline(never)]
+    fn make_expect_error(&self, kind: &TokenKind) -> ParseError {
+        ParseError::new(
+            ErrorCode::E1001,
+            format!(
+                "expected {}, found {}",
+                kind.display_name(),
+                self.current_kind().display_name()
+            ),
+            self.current_span(),
+        )
+        .with_context(format!("expected {}", kind.display_name()))
     }
 
     /// Expect and consume an identifier, returning its interned name.
     /// Also accepts soft keywords (len, min, max, etc.) as identifiers.
+    ///
+    /// Split into inline happy path + `#[cold]` error path for inlining.
+    #[inline]
     pub fn expect_ident(&mut self) -> Result<Name, ParseError> {
         // Accept regular identifiers
         if let TokenKind::Ident(name) = *self.current_kind() {
@@ -369,15 +406,22 @@ impl<'a> Cursor<'a> {
             self.advance();
             Ok(name)
         } else {
-            Err(ParseError::new(
-                ErrorCode::E1004,
-                format!(
-                    "expected identifier, found {}",
-                    self.current_kind().display_name()
-                ),
-                self.current_span(),
-            ))
+            Err(self.make_expect_ident_error())
         }
+    }
+
+    /// Build the error for a failed `expect_ident()` call.
+    #[cold]
+    #[inline(never)]
+    fn make_expect_ident_error(&self) -> ParseError {
+        ParseError::new(
+            ErrorCode::E1004,
+            format!(
+                "expected identifier, found {}",
+                self.current_kind().display_name()
+            ),
+            self.current_span(),
+        )
     }
 
     /// Accept an identifier or a keyword that can be used as a named argument name.

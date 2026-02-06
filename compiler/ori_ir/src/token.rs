@@ -200,7 +200,118 @@ pub enum TokenKind {
 pub(crate) const TOKEN_KIND_COUNT: usize = 116;
 
 impl TokenKind {
-    /// Get a unique index for this token's discriminant (0-114).
+    // ─────────────────────────────────────────────────────────────────────────
+    // Discriminant tag constants for O(1) tag-based dispatch.
+    //
+    // These are the values returned by `discriminant_index()` and stored in
+    // `TokenList::tags`. Use these instead of magic numbers in match arms.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Data-carrying variants
+    pub const TAG_INT: u8 = 0;
+    pub const TAG_FLOAT: u8 = 1;
+    pub const TAG_STRING: u8 = 2;
+    pub const TAG_CHAR: u8 = 3;
+    pub const TAG_DURATION: u8 = 4;
+    pub const TAG_SIZE: u8 = 5;
+    pub const TAG_IDENT: u8 = 6;
+
+    // Keywords
+    pub const TAG_BREAK: u8 = 8;
+    pub const TAG_CONTINUE: u8 = 9;
+    pub const TAG_RETURN: u8 = 10;
+    pub const TAG_FALSE: u8 = 14;
+    pub const TAG_FOR: u8 = 15;
+    pub const TAG_IF: u8 = 16;
+    pub const TAG_IN: u8 = 18;
+    pub const TAG_LET: u8 = 19;
+    pub const TAG_LOOP: u8 = 20;
+    pub const TAG_MATCH: u8 = 21;
+    pub const TAG_SELF_LOWER: u8 = 24;
+    pub const TAG_SELF_UPPER: u8 = 25;
+    pub const TAG_TRUE: u8 = 28;
+    pub const TAG_VOID: u8 = 32;
+    pub const TAG_WITH: u8 = 34;
+    pub const TAG_TESTS: u8 = 36;
+    pub const TAG_AS: u8 = 37;
+
+    // Type keywords
+    pub const TAG_INT_TYPE: u8 = 42;
+    pub const TAG_FLOAT_TYPE: u8 = 43;
+    pub const TAG_BOOL_TYPE: u8 = 44;
+    pub const TAG_STR_TYPE: u8 = 45;
+    pub const TAG_CHAR_TYPE: u8 = 46;
+    pub const TAG_BYTE_TYPE: u8 = 47;
+    pub const TAG_NEVER_TYPE: u8 = 48;
+
+    // Result/Option constructors
+    pub const TAG_OK: u8 = 49;
+    pub const TAG_ERR: u8 = 50;
+    pub const TAG_SOME: u8 = 51;
+    pub const TAG_NONE: u8 = 52;
+
+    // Pattern keywords
+    pub const TAG_CACHE: u8 = 53;
+    pub const TAG_CATCH: u8 = 54;
+    pub const TAG_PARALLEL: u8 = 55;
+    pub const TAG_SPAWN: u8 = 56;
+    pub const TAG_RECURSE: u8 = 57;
+    pub const TAG_RUN: u8 = 58;
+    pub const TAG_TIMEOUT: u8 = 59;
+    pub const TAG_TRY: u8 = 60;
+    pub const TAG_PRINT: u8 = 62;
+    pub const TAG_PANIC: u8 = 63;
+    pub const TAG_TODO: u8 = 64;
+    pub const TAG_UNREACHABLE: u8 = 65;
+
+    // Punctuation
+    pub const TAG_AT: u8 = 67;
+    pub const TAG_DOLLAR: u8 = 68;
+    pub const TAG_HASH: u8 = 69;
+    pub const TAG_LPAREN: u8 = 70;
+    pub const TAG_RPAREN: u8 = 71;
+    pub const TAG_LBRACE: u8 = 72;
+    pub const TAG_RBRACE: u8 = 73;
+    pub const TAG_LBRACKET: u8 = 74;
+    pub const TAG_RBRACKET: u8 = 75;
+    pub const TAG_COLON: u8 = 76;
+    pub const TAG_DOT: u8 = 79;
+    pub const TAG_DOTDOT: u8 = 80;
+    pub const TAG_DOTDOTEQ: u8 = 81;
+    pub const TAG_DOTDOTDOT: u8 = 82;
+    pub const TAG_ARROW: u8 = 83;
+    pub const TAG_PIPE: u8 = 85;
+    pub const TAG_QUESTION: u8 = 86;
+    pub const TAG_DOUBLE_QUESTION: u8 = 87;
+
+    // Operators
+    pub const TAG_EQ: u8 = 90;
+    pub const TAG_EQEQ: u8 = 91;
+    pub const TAG_NOTEQ: u8 = 92;
+    pub const TAG_LT: u8 = 93;
+    pub const TAG_LTEQ: u8 = 94;
+    pub const TAG_SHL: u8 = 95;
+    pub const TAG_GT: u8 = 96;
+    pub const TAG_PLUS: u8 = 99;
+    pub const TAG_MINUS: u8 = 100;
+    pub const TAG_STAR: u8 = 101;
+    pub const TAG_SLASH: u8 = 102;
+    pub const TAG_PERCENT: u8 = 103;
+    pub const TAG_BANG: u8 = 104;
+    pub const TAG_TILDE: u8 = 105;
+    pub const TAG_AMP: u8 = 106;
+    pub const TAG_AMPAMP: u8 = 107;
+    pub const TAG_PIPEPIPE: u8 = 108;
+    pub const TAG_CARET: u8 = 109;
+    pub const TAG_DIV: u8 = 110;
+
+    // Special tokens
+    pub const TAG_NEWLINE: u8 = 111;
+    pub const TAG_EOF: u8 = 112;
+    pub const TAG_FLOAT_DURATION_ERROR: u8 = 114;
+    pub const TAG_FLOAT_SIZE_ERROR: u8 = 115;
+
+    /// Get a unique index for this token's discriminant (0-115).
     ///
     /// This is used for O(1) bitset membership testing in `TokenSet`.
     /// The index is stable across calls but may change between compiler versions.
@@ -884,18 +995,42 @@ impl TokenCapture {
 /// Wraps `Vec<Token>` with Clone, Eq, Hash support.
 /// Uses the tokens' own Hash impl for content hashing.
 ///
+/// Includes a parallel `tags` array of `u8` discriminant indices for fast
+/// dispatch. The tags are derived from `token.kind.discriminant_index()` at
+/// insertion time, enabling O(1) tag comparison without touching the full
+/// 16-byte `TokenKind`.
+///
 /// # Salsa Compatibility
 /// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug, Default
-#[derive(Clone, Eq, PartialEq, Hash, Default)]
+#[derive(Clone, Default)]
 pub struct TokenList {
     tokens: Vec<Token>,
+    /// Parallel array of discriminant tags, one per token.
+    /// `tags[i] == tokens[i].kind.discriminant_index()` for all `i`.
+    tags: Vec<u8>,
+}
+
+// Manual Eq/PartialEq/Hash: `tags` is derived from `tokens`, so only compare/hash tokens.
+impl PartialEq for TokenList {
+    fn eq(&self, other: &Self) -> bool {
+        self.tokens == other.tokens
+    }
+}
+impl Eq for TokenList {}
+impl Hash for TokenList {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.tokens.hash(state);
+    }
 }
 
 impl TokenList {
     /// Create a new empty token list.
     #[inline]
     pub fn new() -> Self {
-        TokenList { tokens: Vec::new() }
+        TokenList {
+            tokens: Vec::new(),
+            tags: Vec::new(),
+        }
     }
 
     /// Create a new token list with pre-allocated capacity.
@@ -903,18 +1038,21 @@ impl TokenList {
     pub fn with_capacity(capacity: usize) -> Self {
         TokenList {
             tokens: Vec::with_capacity(capacity),
+            tags: Vec::with_capacity(capacity),
         }
     }
 
     /// Create from a Vec of tokens.
     #[inline]
     pub fn from_vec(tokens: Vec<Token>) -> Self {
-        TokenList { tokens }
+        let tags = tokens.iter().map(|t| t.kind.discriminant_index()).collect();
+        TokenList { tokens, tags }
     }
 
     /// Push a token.
     #[inline]
     pub fn push(&mut self, token: Token) {
+        self.tags.push(token.kind.discriminant_index());
         self.tokens.push(token);
     }
 
@@ -970,6 +1108,21 @@ impl TokenList {
             TokenCapture::None => Some(&[]),
             TokenCapture::Range { start, end } => self.tokens.get(start as usize..end as usize),
         }
+    }
+
+    /// Get the tag (discriminant index) at the given position.
+    ///
+    /// This is a fast O(1) read from the dense tag array, avoiding
+    /// the need to access the full 16-byte `TokenKind`.
+    #[inline]
+    pub fn tag(&self, index: usize) -> u8 {
+        self.tags[index]
+    }
+
+    /// Get the full tags slice.
+    #[inline]
+    pub fn tags(&self) -> &[u8] {
+        &self.tags
     }
 
     /// Consume into Vec.

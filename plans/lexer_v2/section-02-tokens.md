@@ -60,13 +60,29 @@ const _: () = assert!(std::mem::size_of::<TokenIdx>() == 4);
 
 ## Background
 
-### Current Ori Token (24 bytes)
+### Current Ori Token (24 bytes AoS + partial SoA)
+
+The current `TokenList` stores tokens in AoS layout with a **parallel tag array** added during the parser hot path optimization work (2026-02-06):
+
 ```rust
+pub struct TokenList {
+    tokens: Vec<Token>,   // 24 bytes each (AoS: kind + span)
+    tags: Vec<u8>,        // 1 byte each (partial SoA: discriminant tags)
+}
+
 pub struct Token {
     pub kind: TokenKind,  // 16 bytes (enum with String, u64 payloads)
     pub span: Span,       // 8 bytes (start: u32, end: u32)
 }
 ```
+
+The `tags: Vec<u8>` array is populated at lex time via `token.kind.discriminant_index()` and provides O(1) tag checks via `current_tag()`. This partial SoA already powers:
+- `OPER_TABLE[128]` — static Pratt parser lookup table indexed by tag
+- `POSTFIX_BITSET` — two-u64 bitset for postfix token membership
+- Direct tag dispatch in `parse_primary()` — covers ~95% of common cases
+- All hot-path token comparisons in the Pratt loop and postfix loop
+
+**The lexer V2 `TokenStorage` should be the natural evolution of this existing partial SoA into a full SoA layout** — the `tags: Vec<u8>` is already the foundation; we add `starts: Vec<u32>`, `values`, and `flags` while removing the fat `Vec<Token>`.
 
 ### Zig's Approach (5 bytes per token!)
 ```zig
@@ -78,7 +94,7 @@ pub const Token = struct {
 
 Zig recomputes `end` on demand via `Tag.lexeme()` or re-tokenization.
 
-### Target: 8-Byte Tokens + SoA Storage
+### Target: 8-Byte Tokens + Full SoA Storage
 ```rust
 // Raw token in low-level layer (ori_lexer_core)
 struct RawToken {
@@ -87,14 +103,23 @@ struct RawToken {
     start: u32,    // 4 bytes
 }  // Total: 8 bytes
 
-// High-level storage uses SoA (ori_lexer, uses TokenTag from ori_ir)
+// High-level storage uses full SoA (evolves existing partial SoA)
+// Replaces: Vec<Token> + Vec<u8> tags → pure SoA
 struct TokenStorage {
-    tags: Vec<TokenTag>,      // 1 byte each
-    starts: Vec<u32>,         // 4 bytes each
+    tags: Vec<TokenTag>,      // 1 byte each (already exists as Vec<u8>)
+    starts: Vec<u32>,         // 4 bytes each (extracted from Span)
     values: Vec<TokenValue>,  // Variable, only for literals
-    flags: Vec<TokenFlags>,   // 1 byte each
+    flags: Vec<TokenFlags>,   // 1 byte each (new)
 }
 ```
+
+### Migration Path from Existing Partial SoA
+
+The existing `tags: Vec<u8>` with `TAG_*` constants (116 values, all < 128) maps directly to the new `TokenTag` enum. The migration is incremental:
+
+1. **Already done**: Tag array, `current_tag()`, `check_tag()`, all tag-based dispatch
+2. **Lexer V2 adds**: Split `starts` out of `Span`, add `values` and `flags`, remove `Vec<Token>`
+3. **Parser adapts**: `current_tag()` continues working — just reads from `TokenStorage.tags` instead of `TokenList.tags`
 
 ---
 

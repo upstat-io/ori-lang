@@ -11,6 +11,9 @@
 
 use ori_ir::{ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind, TypeId};
 
+// Tag constants for type keyword dispatch (avoids cloning TokenKind).
+use ori_ir::TokenKind as TK;
+
 use crate::Parser;
 
 impl Parser<'_> {
@@ -20,17 +23,18 @@ impl Parser<'_> {
     /// Recursive types use arena-allocated IDs for their children.
     pub(crate) fn parse_type(&mut self) -> Option<ParsedType> {
         if self.check_type_keyword() {
-            let kind = self.current().kind.clone();
+            // Read discriminant tag before advancing to avoid cloning the 16-byte TokenKind.
+            let tag = self.current_tag();
             self.advance();
-            match kind {
-                TokenKind::IntType => Some(ParsedType::primitive(TypeId::INT)),
-                TokenKind::FloatType => Some(ParsedType::primitive(TypeId::FLOAT)),
-                TokenKind::BoolType => Some(ParsedType::primitive(TypeId::BOOL)),
-                TokenKind::StrType => Some(ParsedType::primitive(TypeId::STR)),
-                TokenKind::CharType => Some(ParsedType::primitive(TypeId::CHAR)),
-                TokenKind::ByteType => Some(ParsedType::primitive(TypeId::BYTE)),
-                TokenKind::Void => Some(ParsedType::primitive(TypeId::VOID)),
-                TokenKind::NeverType => Some(ParsedType::primitive(TypeId::NEVER)),
+            match tag {
+                TK::TAG_INT_TYPE => Some(ParsedType::primitive(TypeId::INT)),
+                TK::TAG_FLOAT_TYPE => Some(ParsedType::primitive(TypeId::FLOAT)),
+                TK::TAG_BOOL_TYPE => Some(ParsedType::primitive(TypeId::BOOL)),
+                TK::TAG_STR_TYPE => Some(ParsedType::primitive(TypeId::STR)),
+                TK::TAG_CHAR_TYPE => Some(ParsedType::primitive(TypeId::CHAR)),
+                TK::TAG_BYTE_TYPE => Some(ParsedType::primitive(TypeId::BYTE)),
+                TK::TAG_VOID => Some(ParsedType::primitive(TypeId::VOID)),
+                TK::TAG_NEVER_TYPE => Some(ParsedType::primitive(TypeId::NEVER)),
                 _ => None,
             }
         } else if self.check(&TokenKind::SelfUpper) {
@@ -148,32 +152,32 @@ impl Parser<'_> {
     /// Returns a range into the arena's type list storage.
     fn parse_optional_generic_args_range(&mut self) -> ParsedTypeRange {
         use crate::series::SeriesConfig;
-        use ori_ir::ParsedTypeId;
 
         if !self.check(&TokenKind::Lt) {
             return ParsedTypeRange::EMPTY;
         }
         self.advance(); // <
 
-        let arg_ids: Vec<ParsedTypeId> = self
-            .series(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
-                if p.check(&TokenKind::Gt) {
-                    return Ok(None);
-                }
-                if let Some(ty) = p.parse_type() {
-                    let id = p.arena.alloc_parsed_type(ty);
-                    Ok(Some(id))
-                } else {
-                    Ok(None)
-                }
-            })
-            .unwrap_or_default();
+        // Type arg lists use a Vec because nested generic args share the
+        // same `parsed_type_lists` buffer (e.g., `Map<str, List<int>>`).
+        let mut type_args: Vec<ParsedTypeId> = Vec::new();
+        let _ = self.series_direct(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
+            if p.check(&TokenKind::Gt) {
+                return Ok(false);
+            }
+            if let Some(ty) = p.parse_type() {
+                type_args.push(p.arena.alloc_parsed_type(ty));
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        });
 
         if self.check(&TokenKind::Gt) {
             self.advance(); // >
         }
 
-        self.arena.alloc_parsed_type_list(arg_ids)
+        self.arena.alloc_parsed_type_list(type_args)
     }
 
     /// Parse map type: {K: V}

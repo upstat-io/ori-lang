@@ -39,6 +39,23 @@ The lexer must integrate smoothly with Parser V2 (see `plans/parser_v2/`):
 | Incremental parsing (Section 5) | Range re-lexing API |
 | Error context (Section 4) | Rich `LexError` types |
 
+### Existing Parser Infrastructure (2026-02-06)
+
+The parser already has significant tag-based infrastructure that the lexer V2 `TokenStorage` must integrate with seamlessly. These are not workarounds — they're the **established contract** between lexer output and parser consumption:
+
+| Parser Component | Location | What It Does | Lexer V2 Must Provide |
+|-----------------|----------|-------------|----------------------|
+| `Cursor::current_tag() -> u8` | `cursor.rs` | Reads tag from `tags: &[u8]` slice | `TokenStorage.tags` as a contiguous `&[u8]` or `&[TokenTag]` slice |
+| `OPER_TABLE[128]` | `operators.rs` | Static binding power lookup indexed by tag | Tag values < 128 for all operator tokens |
+| `POSTFIX_BITSET` | `postfix.rs` | Two-u64 bitset for postfix token membership | Stable tag values so bitset indices don't change |
+| `parse_primary()` fast path | `primary.rs` | Direct tag match before `one_of!` macro | `TAG_*` constants or equivalent discriminant values |
+| `match_unary_op()` | `operators.rs` | Tag-based unary operator detection | Consistent tag values for `-`, `!`, `~` |
+| `match_function_exp_kind()` | `operators.rs` | Tag-based keyword detection for patterns | Consistent tag values for `recurse`, `parallel`, etc. |
+| Branchless `advance()` | `cursor.rs` | No bounds check, relies on EOF sentinel | EOF token always present at end of storage |
+| `#[cold]` split `expect()` | `cursor.rs` | Error path isolated for LLVM inlining | Compatible error types |
+
+**Key constraint:** The `Cursor` reads the tag array as a `&[u8]` slice. The lexer V2's `TokenStorage.tags` must be layout-compatible — either `Vec<u8>` directly, or `Vec<TokenTag>` where `TokenTag` is `#[repr(u8)]` so it can be safely transmuted to `&[u8]` for the cursor.
+
 ---
 
 ## 08.1 Trivia Preservation

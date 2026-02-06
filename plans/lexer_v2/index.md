@@ -29,7 +29,7 @@ ori_lexer_core, ori_lexer
 ---
 
 ### Section 02: Compact Token Representation
-**File:** `section-02-tokens.md` | **Status:** Not Started
+**File:** `section-02-tokens.md` | **Status:** Not Started (partial SoA already exists — see notes)
 
 ```
 token, compact, 8-byte, memory, size
@@ -39,6 +39,8 @@ no end offset, lazy computation, derive end
 TokenFlags, bitfield, space before, newline before
 lazy line/column, LineIndex, binary search
 span, position, byte offset
+tags Vec<u8>, discriminant_index, TAG_* constants
+partial SoA, current_tag, check_tag
 ```
 
 ---
@@ -58,16 +60,17 @@ single pass, streaming, iterator
 ---
 
 ### Section 04: Keyword & Operator Handling
-**File:** `section-04-keywords.md` | **Status:** Not Started
+**File:** `section-04-keywords.md` | **Status:** Not Started (OPER_TABLE already in parser — see notes)
 
 ```
 keyword, perfect hash, O(1), lookup
 collision, compile-time, validation
 operator, precedence, associativity
-OPERATOR_INFO, table, metadata
+OPERATOR_INFO, OPER_TABLE, table, metadata
 context-sensitive, timeout, parallel, cache
 token gluing, breaking, compound operators
 >> shift right, >= greater equal, generics
+phase separation, parser owns precedence
 ```
 
 ---
@@ -102,21 +105,24 @@ error recovery, continue, resilient
 ---
 
 ### Section 07: Performance Optimizations
-**File:** `section-07-performance.md` | **Status:** Not Started
+**File:** `section-07-performance.md` | **Status:** Not Started (some parser-side optimizations already done)
 
 ```
 performance, optimization, SIMD, fast
 whitespace, skip, 8 bytes, chunk
 memchr, comment, delimiter, search
 branchless, character check, ASCII
-buffer, sentinel, bounds check
+buffer, sentinel, bounds check, EOF sentinel
 cache, memory, allocation
+#[cold] split, inline(never), error paths
+branchless advance, debug_assert bounds check
+static lookup table, bitset membership
 ```
 
 ---
 
 ### Section 08: Parser Integration
-**File:** `section-08-integration.md` | **Status:** Not Started
+**File:** `section-08-integration.md` | **Status:** Not Started (existing parser infrastructure documented)
 
 ```
 parser, integration, Parser V2, cursor
@@ -125,6 +131,9 @@ ModuleExtra, doc comment, classification
 incremental, relex, range, edit
 whitespace-sensitive, space before
 adjacent, compound, context
+current_tag, check_tag, POSTFIX_BITSET, OPER_TABLE
+direct dispatch, parse_primary fast path
+tag-based cursor, Vec<u8> tags
 ```
 
 ---
@@ -195,8 +204,31 @@ Use the `/benchmark` skill for quick validation:
 
 | Metric | Current | Target | Industry Reference |
 |--------|---------|--------|-------------------|
-| **Lexer throughput** | ~270 MiB/s | 400 MiB/s | Zig ~1000, Go ~300, Rust ~100 |
-| **Parser throughput** | ~120 MiB/s | 150 MiB/s | Go ~100-150, Rust ~50-100 |
+| **Lexer throughput** | ~232-292 MiB/s | 400 MiB/s | Zig ~1000, Go ~300, Rust ~100 |
+| **Parser throughput** | ~120-164 MiB/s | 200 MiB/s | Go ~100-150, Rust ~50-100 |
+
+#### Lexer Raw Throughput (2026-02-06)
+
+| Workload | Throughput | Input Size |
+|----------|-----------|------------|
+| 10 funcs | 234 MiB/s | ~295 B |
+| 50 funcs | 255 MiB/s | ~1.5 KB |
+| 100 funcs | 264 MiB/s | ~3 KB |
+| 500 funcs | 290 MiB/s | ~16 KB |
+| 1000 funcs | 286 MiB/s | ~33 KB |
+| 5000 funcs | 288 MiB/s | ~174 KB |
+
+**Realistic workloads:** small (~1KB) 259 MiB/s, medium (~10KB) 281 MiB/s, large (~50KB) 292 MiB/s.
+**Token throughput:** ~122 Mtokens/s (500 functions).
+
+**Benchmark command:** `cargo bench -p oric --bench lexer -- "lexer/raw" --noplot`
+
+> **Note (2026-02-06):** Parser throughput was boosted from ~109-144 MiB/s to ~120-164 MiB/s
+> via 7 hot path micro-optimizations (see `plans/parser_v2/section-01-data-oriented-ast.md` §01.7).
+> Key changes included adding a partial SoA layer (`tags: Vec<u8>`) to `TokenList`, a static
+> `OPER_TABLE[128]` for the Pratt parser, `POSTFIX_BITSET` for O(1) set membership, and direct
+> tag dispatch in `parse_primary()`. These existing parser-side optimizations inform lexer V2
+> design — see individual sections for "Already Done" notes.
 
 ### When to Benchmark
 

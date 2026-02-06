@@ -132,10 +132,23 @@ Seamless integration with Parser V2.
 
 ## Performance Targets
 
+### Current Measured Throughput (2026-02-06)
+
+| Workload | Lexer | Parser | Combined |
+|----------|-------|--------|----------|
+| Small (~1KB) | 259 MiB/s | 120 MiB/s | — |
+| Medium (~10KB) | 281 MiB/s | 143 MiB/s | — |
+| Large (~50KB) | 292 MiB/s | 164 MiB/s | — |
+
+Token throughput: ~122 Mtokens/s. Benchmark: `cargo bench -p oric --bench lexer -- "lexer/raw" --noplot`
+
+### Optimization Targets
+
 | Metric | Current (Logos) | Target | Improvement |
 |--------|-----------------|--------|-------------|
+| Lexer raw throughput | ~232-292 MiB/s | 400+ MiB/s | ~40-70% faster |
 | Token size | 24 bytes | 8 bytes | 67% reduction |
-| Token storage | Vec&lt;Token&gt; | SoA MultiArrayList | 2x cache hits |
+| Token storage | Vec&lt;Token&gt; + Vec&lt;u8&gt; tags | Full SoA MultiArrayList | Complete SoA (tags already split) |
 | Keyword lookup | O(1) DFA | O(1) hash | Equivalent |
 | Whitespace skip | Byte-by-byte | SIMD (8 bytes) | 3-5x faster |
 | Comment skip | Byte-by-byte | memchr | 5-10x faster |
@@ -269,15 +282,29 @@ This plan **extends** the Parser V2 plan (`plans/parser_v2/section-02-lexer.md`)
 | Parser V2 Section 02 | Lexer V2 Section | Relationship |
 |----------------------|------------------|--------------|
 | 02.1-02.2 Perfect hash | 4.1-4.2 | Superseded (more detail) |
-| 02.3 Precedence metadata | 4.3 | Superseded (more detail) |
+| 02.3 Precedence metadata | 4.3 | Parser owns via `OPER_TABLE` — lexer provides tags only |
 | 02.4 Adjacent tokens | 4.5 | Superseded (token gluing) |
+| 02.9 Token SoA tags | 2.3 | **Foundation** — existing `tags: Vec<u8>` evolves into full SoA |
 | N/A | 1.x Architecture | New |
-| N/A | 2.x Tokens | New |
+| N/A | 2.x Tokens | Builds on existing partial SoA |
 | N/A | 3.x State Machine | New |
 | N/A | 5.x Unicode | New |
 | N/A | 6.x Errors | New |
-| N/A | 7.x Performance | New |
-| N/A | 8.x Integration | Connects to Parser V2 |
+| N/A | 7.x Performance | Adopts proven parser patterns |
+| N/A | 8.x Integration | Must preserve existing parser contracts |
+
+### Parser-Side Infrastructure Already Built
+
+The parser hot path optimization work (2026-02-06) created a significant tag-based dispatch layer that the lexer V2 must integrate with. These components are already working and delivering +12-16% throughput:
+
+- **`tags: Vec<u8>`** in `TokenList` — the seed of full SoA
+- **`TAG_*` constants** (116 named `u8` values on `TokenKind`) — the naming convention for tag values
+- **`OPER_TABLE[128]`** — static Pratt parser lookup table indexed by tag
+- **`POSTFIX_BITSET`** — two-u64 bitset for O(1) postfix token membership
+- **Direct dispatch in `parse_primary()`** — tag match before `one_of!` macro
+- **Branchless `advance()`** — relies on EOF sentinel token
+
+The lexer V2's `TokenStorage` is the natural completion of this partial SoA: replace `Vec<Token>` (24 bytes/token AoS) with `Vec<u32>` starts + `Vec<TokenValue>` + `Vec<TokenFlags>`, keeping the existing `Vec<u8>` tags as-is.
 
 **Recommendation**: Once Lexer V2 is complete, mark Parser V2 Section 02 as "Superseded by Lexer V2".
 
@@ -295,6 +322,18 @@ This plan **extends** the Parser V2 plan (`plans/parser_v2/section-02-lexer.md`)
 | `TokenList` | `TokenStorage` | Structure-of-arrays |
 | `RawToken` (Logos) | `RawToken` (hand-written) | No external dependency |
 | Basic `Error` token | Rich `LexError` enum | Elm-quality messages |
+
+**Already partially done (2026-02-06 hot path work):**
+- `TokenList` already has a `tags: Vec<u8>` field — parallel discriminant tag array
+- `TokenKind::discriminant_index()` → `TAG_*` constants (116 named `u8` constants)
+- Parser's `Cursor` already has `current_tag() -> u8` and `check_tag()` methods
+- `OPER_TABLE[128]` static lookup table for Pratt parser binding powers
+- `POSTFIX_BITSET` (two `u64`s) for O(1) postfix token membership
+- Direct tag dispatch in `parse_primary()` before `one_of!` macro
+- Branchless `advance()` relying on EOF sentinel
+- `#[cold]` split on `expect()` error paths
+
+These parser-side changes mean `TokenStorage` design should build on the existing `tags: Vec<u8>` infrastructure rather than starting from scratch. The `TAG_*` constant naming convention is established and should be preserved in the new `TokenTag`/`RawTag` design.
 
 **Preserved and enhanced:**
 - String interning (sharded interner)

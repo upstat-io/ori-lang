@@ -116,7 +116,7 @@ impl<T> ParseOutcome<T> {
     }
 
     /// Create a hard error (consumed input before failing).
-    #[inline]
+    #[cold]
     pub fn consumed_err(error: ParseError, consumed_span: Span) -> Self {
         Self::ConsumedErr {
             error,
@@ -131,7 +131,7 @@ impl<T> ParseOutcome<T> {
     }
 
     /// Create a soft error expecting a single token kind.
-    #[inline]
+    #[cold]
     pub fn empty_err_expected(kind: &ori_ir::TokenKind, position: usize) -> Self {
         Self::EmptyErr {
             expected: TokenSet::single(kind.clone()),

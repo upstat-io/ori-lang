@@ -274,6 +274,148 @@ impl Parser<'_> {
         self.expect(&TokenKind::Gt)?;
         Ok(items)
     }
+
+    // --- Direct Push Series ---
+    //
+    // These variants eliminate the intermediate Vec by having the closure push
+    // directly into the arena. Same separator/terminator/trailing logic as
+    // `series()`, but the closure returns `Ok(true)` for "item pushed" or
+    // `Ok(false)` for "no item" instead of `Ok(Some(T))`/`Ok(None)`.
+
+    /// Parse a series where the closure pushes items directly (no Vec).
+    ///
+    /// The closure should:
+    /// - Parse an item and push it to the arena, then return `Ok(true)`
+    /// - Return `Ok(false)` when no item is present (break)
+    /// - Return `Err(e)` on parse failure
+    ///
+    /// Returns the number of items parsed (for count validation).
+    pub fn series_direct<F>(
+        &mut self,
+        config: &SeriesConfig,
+        mut parse_and_push: F,
+    ) -> Result<usize, ParseError>
+    where
+        F: FnMut(&mut Self) -> Result<bool, ParseError>,
+    {
+        let mut count = 0;
+
+        loop {
+            if config.skip_newlines {
+                self.skip_newlines();
+            }
+
+            if self.check(&config.terminator) || self.is_at_end() {
+                break;
+            }
+
+            if parse_and_push(self)? {
+                count += 1;
+            } else {
+                if count > 0 && config.trailing == TrailingSeparator::Forbidden {
+                    return Err(ParseError::expected_item(
+                        self.current_span(),
+                        &config.terminator,
+                    ));
+                }
+                break;
+            }
+
+            if config.skip_newlines {
+                self.skip_newlines();
+            }
+
+            if self.check(&config.separator) {
+                self.advance();
+
+                if config.skip_newlines {
+                    self.skip_newlines();
+                }
+
+                if self.check(&config.terminator) {
+                    if config.trailing == TrailingSeparator::Forbidden {
+                        return Err(ParseError::unexpected_trailing_separator(
+                            self.previous_span(),
+                            &config.separator,
+                        ));
+                    }
+                    break;
+                }
+            } else if !self.check(&config.terminator) && !self.is_at_end() {
+                return Err(ParseError::expected_separator_or_terminator(
+                    self.current_span(),
+                    &config.separator,
+                    &config.terminator,
+                ));
+            } else {
+                break;
+            }
+        }
+
+        if count < config.min_count {
+            return Err(ParseError::too_few_items(
+                self.current_span(),
+                config.min_count,
+                count,
+            ));
+        }
+        if let Some(max) = config.max_count {
+            if count > max {
+                return Err(ParseError::too_many_items(self.current_span(), max, count));
+            }
+        }
+
+        Ok(count)
+    }
+
+    /// Direct-push series in parentheses: `(item, item, ...)`
+    ///
+    /// Expects `(` to already be consumed. Consumes the closing `)`.
+    pub fn paren_series_direct<F>(&mut self, parse_and_push: F) -> Result<usize, ParseError>
+    where
+        F: FnMut(&mut Self) -> Result<bool, ParseError>,
+    {
+        let count = self.series_direct(&SeriesConfig::comma(TokenKind::RParen), parse_and_push)?;
+        self.expect(&TokenKind::RParen)?;
+        Ok(count)
+    }
+
+    /// Direct-push series in brackets: `[item, item, ...]`
+    ///
+    /// Expects `[` to already be consumed. Consumes the closing `]`.
+    pub fn bracket_series_direct<F>(&mut self, parse_and_push: F) -> Result<usize, ParseError>
+    where
+        F: FnMut(&mut Self) -> Result<bool, ParseError>,
+    {
+        let count =
+            self.series_direct(&SeriesConfig::comma(TokenKind::RBracket), parse_and_push)?;
+        self.expect(&TokenKind::RBracket)?;
+        Ok(count)
+    }
+
+    /// Direct-push series in braces: `{item, item, ...}`
+    ///
+    /// Expects `{` to already be consumed. Consumes the closing `}`.
+    pub fn brace_series_direct<F>(&mut self, parse_and_push: F) -> Result<usize, ParseError>
+    where
+        F: FnMut(&mut Self) -> Result<bool, ParseError>,
+    {
+        let count = self.series_direct(&SeriesConfig::comma(TokenKind::RBrace), parse_and_push)?;
+        self.expect(&TokenKind::RBrace)?;
+        Ok(count)
+    }
+
+    /// Direct-push series in angle brackets: `<item, item, ...>`
+    ///
+    /// Expects `<` to already be consumed. Consumes the closing `>`.
+    pub fn angle_series_direct<F>(&mut self, parse_and_push: F) -> Result<usize, ParseError>
+    where
+        F: FnMut(&mut Self) -> Result<bool, ParseError>,
+    {
+        let count = self.series_direct(&SeriesConfig::comma(TokenKind::Gt), parse_and_push)?;
+        self.expect(&TokenKind::Gt)?;
+        Ok(count)
+    }
 }
 
 #[cfg(test)]
