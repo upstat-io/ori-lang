@@ -123,8 +123,8 @@ Convert all grammar functions from `Result<T, ParseError>` to native `ParseOutco
 | Token capture | Copy tokens | Index-based | O(1) lookup | ✅ Complete (TokenCapture) |
 | AST traversal | Random access | Sequential (SoA) | 2-3x cache hits | ✅ Complete (SoA split) |
 | Error message quality | Good | Elm-tier | Qualitative | ✅ Complete |
-| ParseOutcome adoption | 4/57 functions (7%) | 57/57 (100%) | Structural backtracking | Not started |
-| Backtracking macro usage | 0 grammar uses | All dispatch sites | Eliminates wrappers | Not started |
+| ParseOutcome adoption | 57/57 functions (100%) | 57/57 (100%) | Structural backtracking | ✅ Complete (2026-02-06) |
+| Backtracking macro usage | 181 grammar uses | All dispatch sites | Eliminates wrappers | ✅ Complete (2026-02-06) |
 
 **Note:** SoA migration completed 2026-02-05. `Expr` reduced from 88 to 32 bytes (64%). Storage split into parallel `Vec<ExprKind>` + `Vec<Span>`. `ExprKind` shrunk from 80 to 24 bytes via arena-allocation of large embedded types. `ExprList` eliminated in favor of `ExprRange`.
 
@@ -237,20 +237,20 @@ Section 3 (Progress) ──────────┼─► Section 4 (Errors)
 - **6.3 SpaceBefore/SpaceAfter:** Deferred - requires significant AST changes for marginal benefit. Current `ModuleExtra` suffices for formatters.
 
 ### Phase 6: Full ParseOutcome Migration (Medium-risk, High-impact)
-**Target: After Phase 5** | **Status: Not started**
+**Target: After Phase 5** | **Status: ✅ Complete (2026-02-06)**
 
 | Task | Section | Risk | Impact | Status |
 |------|---------|------|--------|--------|
-| Primary expression conversion | 7.1 | Medium | High | Not started |
-| Expression core (Pratt loop) | 7.2 | High | High | Not started |
-| Pattern & control flow | 7.3 | Medium | High | Not started |
-| Postfix & operator conversion | 7.4 | Medium | Medium | Not started |
-| Item declaration conversion | 7.5 | Medium | High | Not started |
-| Type & generics conversion | 7.6 | Low | Medium | Not started |
-| Wrapper layer removal | 7.7 | Low | High | Not started |
+| Primary expression conversion | 7.1 | Medium | High | ✅ Complete |
+| Expression core (Pratt loop) | 7.2 | High | High | ✅ Complete |
+| Pattern & control flow | 7.3 | Medium | High | ✅ Complete |
+| Postfix & operator conversion | 7.4 | Medium | Medium | ✅ Complete |
+| Item declaration conversion | 7.5 | Medium | High | ✅ Complete |
+| Type & generics conversion | 7.6 | Low | Medium | ✅ Complete |
+| Wrapper layer removal | 7.7 | Low | High | ✅ Complete |
 
-**Phase 6 Context:**
-Section 3 defined `ParseOutcome<T>` and the backtracking macros (`one_of!`, `try_outcome!`, `require!`, `chain!`), but adoption stopped at the wrapper level — `with_outcome()` shims convert `Result` → `ParseOutcome` after the fact using position comparison, losing the structural soft/hard error distinction. Phase 6 converts all 53+ grammar functions to natively return `ParseOutcome<T>`, enables actual macro usage (currently 0 uses in grammar code), collapses the `_inner` indirection pattern, and removes the wrapper layer entirely.
+**Phase 6 Summary (2026-02-06):**
+All 53 `Result`-returning grammar functions converted to native `ParseOutcome<T>`. The 4 backtracking macros are now used extensively across all grammar code: `one_of!` (2 dispatch sites — `parse_primary()` with 13 alternatives, `parse_match_pattern_base()` with 7 alternatives), `require!` (41 uses across 8 files), `committed!` (132 uses across 12 files), `chain!` (6 uses across 3 files) — **181 total macro uses**. All 8 `_with_outcome` wrapper functions deleted, `with_outcome()` helper deleted, `in_error_context_result()` deleted. `_inner` pattern collapsed in 10+ functions. 8,317 tests pass, clippy clean.
 
 See `section-07-parseoutcome-migration.md` for the full function inventory, migration phases, and exit criteria.
 
@@ -334,12 +334,13 @@ This plan builds on these strengths rather than replacing them.
 
 **Key Finding (2026-02-04):** Many "planned" features were already implemented in Ori. The parser architecture is more mature than initially assessed.
 
-**Wrapper Migration Complete (2026-02-05):** `ParseOutcome<T>` is the operational return type for module-level dispatch via `with_outcome()` shims:
-- `parse_module()` and `parse_module_incremental()` use `handle_outcome()` + `with_outcome()`
-- 9 `_with_progress` wrappers migrated to `_with_outcome` returning `ParseOutcome<T>`
-- `parse_primary()` natively returns `ParseOutcome<ExprId>`
-- 12 key grammar functions wrapped with `in_error_context_result()` for "while parsing" context
-- Dead code removed: `with_progress`, `handle_parse_result`, `progress_since`, `try_parse!`, `try_result!`
-- All 8490 tests pass (unit + spec + LLVM + WASM)
+**Full Migration Complete (2026-02-06):** `ParseOutcome<T>` is the native return type for all grammar functions:
+- All 53 `Result`-returning functions converted to native `ParseOutcome<T>`
+- `one_of!` drives dispatch in `parse_primary()` (13 alternatives) and `parse_match_pattern_base()` (7 alternatives)
+- 181 backtracking macro uses: `one_of!` ×2, `require!` ×41, `committed!` ×132, `chain!` ×6
+- 8 `_with_outcome` wrappers deleted, `with_outcome()` helper deleted, `in_error_context_result()` deleted
+- 10+ `_inner` pairs collapsed into single functions
+- `parse_module()` calls grammar functions directly via `handle_outcome()`
+- All 8,317 tests pass (unit + spec + LLVM + WASM), clippy clean
 
-**Remaining (Section 7):** 53 grammar functions still return `Result<T, ParseError>`. The 4 backtracking macros (`one_of!`, `try_outcome!`, `require!`, `chain!`) have 0 uses in grammar code. The `with_outcome()` wrapper infers progress via position comparison rather than structural `ConsumedOk`/`EmptyErr` distinction. Section 7 completes the migration by converting all grammar functions to native `ParseOutcome<T>` and removing the wrapper layer.
+**Section 7 Complete (2026-02-06):** All 53 grammar functions converted to native `ParseOutcome<T>`. Backtracking macros fully adopted: 181 total uses (`one_of!` ×2, `require!` ×41, `committed!` ×132, `chain!` ×6). `with_outcome()` wrapper layer eliminated. 8 wrapper functions deleted. 10+ `_inner` pairs collapsed. `one_of!` drives dispatch in `parse_primary()` (13 alternatives) and `parse_match_pattern_base()` (7 alternatives). All 8,317 tests pass, clippy clean.

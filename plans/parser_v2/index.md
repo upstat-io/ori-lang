@@ -116,7 +116,7 @@ formatter support, IDE metadata
 ---
 
 ### Section 07: Full ParseOutcome Migration
-**File:** `section-07-parseoutcome-migration.md` | **Status:** In Progress (07.6 complete, 07.4 partial)
+**File:** `section-07-parseoutcome-migration.md` | **Status:** ✅ Complete (2026-02-06)
 
 ```
 ParseOutcome migration, native adoption
@@ -130,6 +130,9 @@ primary expressions, Pratt loop, postfix
 item declarations, type parsing, generics
 in_error_context_result removal
 parse_X_inner collapse, _with_outcome removal
+one_of! dispatch, parse_primary, parse_match_pattern_base
+TokenSet guards, EmptyErr guards, snapshot/restore
+181 macro uses, 13 alternatives, 7 alternatives
 ```
 
 ---
@@ -144,7 +147,7 @@ parse_X_inner collapse, _with_outcome removal
 | 04 | Structured Errors | `section-04-errors.md` | P1 | ✅ Complete |
 | 05 | Incremental Parsing | `section-05-incremental.md` | P2 | ✅ Complete |
 | 06 | Formatting Metadata | `section-06-metadata.md` | P3 | ✅ Complete |
-| 07 | Full ParseOutcome Migration | `section-07-parseoutcome-migration.md` | P1 | In Progress (07.6 ✅, 07.4 partial) |
+| 07 | Full ParseOutcome Migration | `section-07-parseoutcome-migration.md` | P1 | ✅ Complete (2026-02-06) |
 
 ---
 

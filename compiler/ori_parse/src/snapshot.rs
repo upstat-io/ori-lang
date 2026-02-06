@@ -125,7 +125,6 @@ pub struct ParserSnapshot {
 impl ParserSnapshot {
     /// Create a new snapshot with the given state.
     #[inline]
-    #[allow(dead_code)] // Used by Parser::snapshot()
     pub(crate) fn new(cursor_pos: usize, context: ParseContext) -> Self {
         Self {
             cursor_pos,

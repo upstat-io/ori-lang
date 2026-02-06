@@ -1,8 +1,12 @@
 //! Pattern Parsing (`function_seq` and `function_exp`)
 //!
 //! Parses run, try, match, for patterns, and `function_exp` constructs.
+//!
+//! Match pattern parsing uses `one_of!` for automatic backtracking across
+//! pattern alternatives (wildcard, literal, ident, struct, list, variant, tuple).
 
-use crate::{committed, require, ParseError, ParseOutcome, Parser};
+use crate::recovery::TokenSet;
+use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern,
     MatchPatternId, MatchPatternRange, Name, NamedExpr, ParsedTypeId, SeqBinding, TokenKind,
@@ -14,6 +18,23 @@ enum FunctionSeqKind {
     Run,
     Try,
 }
+
+// === Token sets for match pattern EmptyErr reporting ===
+
+/// Tokens that start a literal pattern (including negative via `-`).
+const PATTERN_LITERAL_TOKENS: TokenSet = TokenSet::new()
+    .with(TokenKind::Minus)
+    .with(TokenKind::Int(0))
+    .with(TokenKind::True)
+    .with(TokenKind::False)
+    .with(TokenKind::String(Name::EMPTY));
+
+/// Tokens that start a builtin variant pattern.
+const PATTERN_VARIANT_TOKENS: TokenSet = TokenSet::new()
+    .with(TokenKind::Some)
+    .with(TokenKind::None)
+    .with(TokenKind::Ok)
+    .with(TokenKind::Err);
 
 impl Parser<'_> {
     /// Parse `run(...)` expression.
@@ -367,15 +388,15 @@ impl Parser<'_> {
     /// Supports: wildcard, literals (including negative), bindings, variants,
     /// tuples, structs, lists, ranges, or-patterns, at-patterns, and guards.
     pub(crate) fn parse_match_pattern(&mut self) -> Result<MatchPattern, ParseError> {
-        // Parse the base pattern first
-        let base = self.parse_match_pattern_base()?;
+        // Parse the base pattern first (via ParseOutcome, bridged to Result)
+        let base = self.parse_match_pattern_base().into_result()?;
 
         // Check for or-pattern continuation: pattern | pattern | ...
         if self.check(&TokenKind::Pipe) {
             let mut alt_ids = vec![self.arena.alloc_match_pattern(base)];
             while self.check(&TokenKind::Pipe) {
                 self.advance();
-                let alt = self.parse_match_pattern_base()?;
+                let alt = self.parse_match_pattern_base().into_result()?;
                 alt_ids.push(self.arena.alloc_match_pattern(alt));
             }
             let range = self.arena.alloc_match_pattern_list(alt_ids);
@@ -386,51 +407,83 @@ impl Parser<'_> {
     }
 
     /// Parse a base match pattern (without or-pattern handling).
-    fn parse_match_pattern_base(&mut self) -> Result<MatchPattern, ParseError> {
-        match *self.current_kind() {
-            TokenKind::Underscore => {
-                self.advance();
-                Ok(MatchPattern::Wildcard)
-            }
+    ///
+    /// Uses `one_of!` for automatic backtracking across pattern alternatives.
+    fn parse_match_pattern_base(&mut self) -> ParseOutcome<MatchPattern> {
+        one_of!(
+            self,
+            self.parse_pattern_wildcard(),
+            self.parse_pattern_literal(),
+            self.parse_pattern_ident(),
+            self.parse_pattern_struct(),
+            self.parse_pattern_list(),
+            self.parse_pattern_builtin_variant(),
+            self.parse_pattern_tuple(),
+        )
+    }
 
+    // === Extracted pattern sub-parsers ===
+
+    /// Parse wildcard pattern: `_`
+    fn parse_pattern_wildcard(&mut self) -> ParseOutcome<MatchPattern> {
+        if !self.check(&TokenKind::Underscore) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Underscore, self.position());
+        }
+        self.advance();
+        ParseOutcome::consumed_ok(MatchPattern::Wildcard)
+    }
+
+    /// Parse literal patterns: integers (possibly negative), booleans, strings.
+    /// Also handles range patterns: `1..10`, `1..=10`.
+    fn parse_pattern_literal(&mut self) -> ParseOutcome<MatchPattern> {
+        match *self.current_kind() {
             // Negative integer literal: -42
             TokenKind::Minus => {
                 let start_span = self.current_span();
                 self.advance();
                 if let TokenKind::Int(n) = *self.current_kind() {
                     self.advance();
-                    let value = i64::try_from(n).map_err(|_| {
-                        ParseError::new(
-                            ori_diagnostic::ErrorCode::E1002,
-                            "integer literal too large".to_string(),
+                    let Ok(value) = i64::try_from(n) else {
+                        return ParseOutcome::consumed_err(
+                            ParseError::new(
+                                ori_diagnostic::ErrorCode::E1002,
+                                "integer literal too large".to_string(),
+                                start_span,
+                            ),
                             start_span,
-                        )
-                    })?;
+                        );
+                    };
                     let span = start_span.merge(self.previous_span());
-                    Ok(MatchPattern::Literal(
+                    ParseOutcome::consumed_ok(MatchPattern::Literal(
                         self.arena
                             .alloc_expr(Expr::new(ExprKind::Int(-value), span)),
                     ))
                 } else {
-                    Err(ParseError::new(
-                        ori_diagnostic::ErrorCode::E1002,
-                        "expected integer after `-` in pattern".to_string(),
-                        self.current_span(),
-                    ))
+                    ParseOutcome::consumed_err(
+                        ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            "expected integer after `-` in pattern".to_string(),
+                            self.current_span(),
+                        ),
+                        start_span,
+                    )
                 }
             }
 
-            // Positive integer literal: 42
+            // Positive integer literal: 42 (with possible range)
             TokenKind::Int(n) => {
                 let pat_span = self.current_span();
                 self.advance();
-                let value = i64::try_from(n).map_err(|_| {
-                    ParseError::new(
-                        ori_diagnostic::ErrorCode::E1002,
-                        "integer literal too large".to_string(),
+                let Ok(value) = i64::try_from(n) else {
+                    return ParseOutcome::consumed_err(
+                        ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            "integer literal too large".to_string(),
+                            pat_span,
+                        ),
                         pat_span,
-                    )
-                })?;
+                    );
+                };
 
                 // Check for range pattern: 1..10 or 1..=10
                 if self.check(&TokenKind::DotDot) || self.check(&TokenKind::DotDotEq) {
@@ -440,140 +493,221 @@ impl Parser<'_> {
                         .arena
                         .alloc_expr(Expr::new(ExprKind::Int(value), pat_span));
 
-                    // Parse end of range (optional for open-ended ranges, but typically present)
+                    // Parse end of range (optional for open-ended ranges)
                     let end = if self.is_range_bound_start() {
-                        Some(self.parse_range_bound()?)
+                        match self.parse_range_bound() {
+                            Ok(e) => Some(e),
+                            Err(err) => {
+                                return ParseOutcome::consumed_err(err, pat_span);
+                            }
+                        }
                     } else {
                         None
                     };
 
-                    return Ok(MatchPattern::Range {
+                    return ParseOutcome::consumed_ok(MatchPattern::Range {
                         start: Some(start_expr),
                         end,
                         inclusive,
                     });
                 }
 
-                Ok(MatchPattern::Literal(self.arena.alloc_expr(Expr::new(
-                    ExprKind::Int(value),
-                    self.previous_span(),
-                ))))
+                ParseOutcome::consumed_ok(MatchPattern::Literal(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Int(value), self.previous_span())),
+                ))
             }
             TokenKind::True => {
                 self.advance();
-                Ok(MatchPattern::Literal(self.arena.alloc_expr(Expr::new(
-                    ExprKind::Bool(true),
-                    self.previous_span(),
-                ))))
+                ParseOutcome::consumed_ok(MatchPattern::Literal(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Bool(true), self.previous_span())),
+                ))
             }
             TokenKind::False => {
                 self.advance();
-                Ok(MatchPattern::Literal(self.arena.alloc_expr(Expr::new(
-                    ExprKind::Bool(false),
-                    self.previous_span(),
-                ))))
+                ParseOutcome::consumed_ok(MatchPattern::Literal(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Bool(false), self.previous_span())),
+                ))
             }
             TokenKind::String(name) => {
                 self.advance();
-                Ok(MatchPattern::Literal(self.arena.alloc_expr(Expr::new(
-                    ExprKind::String(name),
-                    self.previous_span(),
-                ))))
+                ParseOutcome::consumed_ok(MatchPattern::Literal(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::String(name), self.previous_span())),
+                ))
             }
-            TokenKind::Ident(name) => {
-                self.advance();
-
-                // Check for at-pattern: x @ pattern
-                if self.check(&TokenKind::At) {
-                    self.advance();
-                    let pattern = self.parse_match_pattern_base()?;
-                    let pattern_id = self.arena.alloc_match_pattern(pattern);
-                    return Ok(MatchPattern::At {
-                        name,
-                        pattern: pattern_id,
-                    });
-                }
-
-                // Check for variant pattern: Some(x) or struct literal: Point { x, y }
-                if self.check(&TokenKind::LParen) {
-                    self.advance();
-                    let inner = self.parse_variant_inner_patterns()?;
-                    self.expect(&TokenKind::RParen)?;
-                    Ok(MatchPattern::Variant { name, inner })
-                } else if self.check(&TokenKind::LBrace) {
-                    // Named struct pattern: Point { x, y }
-                    self.parse_struct_pattern_fields()
-                } else {
-                    Ok(MatchPattern::Binding(name))
-                }
-            }
-
-            // Anonymous struct pattern: { x, y }
-            TokenKind::LBrace => self.parse_struct_pattern_fields(),
-
-            // List pattern: [a, b, ..rest]
-            TokenKind::LBracket => {
-                self.advance();
-                let mut element_ids = Vec::new();
-                let mut rest = None;
-
-                while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
-                    // Check for rest pattern: ..rest or ..
-                    if self.check(&TokenKind::DotDot) {
-                        self.advance();
-                        // Optional name after .. (Name::EMPTY for anonymous rest)
-                        if let TokenKind::Ident(name) = *self.current_kind() {
-                            rest = Some(name);
-                            self.advance();
-                        } else {
-                            // Anonymous rest pattern: use empty name as sentinel
-                            rest = Some(Name::EMPTY);
-                        }
-                        // Rest must be last
-                        break;
-                    }
-
-                    let elem = self.parse_match_pattern()?;
-                    element_ids.push(self.arena.alloc_match_pattern(elem));
-
-                    if !self.check(&TokenKind::RBracket) && !self.check(&TokenKind::DotDot) {
-                        self.expect(&TokenKind::Comma)?;
-                    }
-                }
-
-                self.expect(&TokenKind::RBracket)?;
-                let elements = self.arena.alloc_match_pattern_list(element_ids);
-                Ok(MatchPattern::List { elements, rest })
-            }
-            TokenKind::Some => self.parse_builtin_variant_pattern("Some", true),
-            TokenKind::None => self.parse_builtin_variant_pattern("None", false),
-            TokenKind::Ok => self.parse_builtin_variant_pattern("Ok", true),
-            TokenKind::Err => self.parse_builtin_variant_pattern("Err", true),
-            TokenKind::LParen => {
-                use crate::series::SeriesConfig;
-
-                self.advance();
-                let pattern_ids: Vec<MatchPatternId> =
-                    self.series(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
-                        if p.check(&TokenKind::RParen) {
-                            return Ok(None);
-                        }
-                        let pat = p.parse_match_pattern()?;
-                        Ok(Some(p.arena.alloc_match_pattern(pat)))
-                    })?;
-                self.expect(&TokenKind::RParen)?;
-                let range = self.arena.alloc_match_pattern_list(pattern_ids);
-                Ok(MatchPattern::Tuple(range))
-            }
-            _ => Err(ParseError::new(
-                ori_diagnostic::ErrorCode::E1002,
-                format!(
-                    "expected match pattern, found {}",
-                    self.current_kind().display_name()
-                ),
-                self.current_span(),
-            )),
+            _ => ParseOutcome::empty_err(PATTERN_LITERAL_TOKENS, self.position()),
         }
+    }
+
+    /// Parse identifier pattern: binding, at-pattern, named variant, or named struct.
+    fn parse_pattern_ident(&mut self) -> ParseOutcome<MatchPattern> {
+        let TokenKind::Ident(name) = *self.current_kind() else {
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Ident(Name::EMPTY),
+                self.position(),
+            );
+        };
+
+        self.advance();
+
+        // Check for at-pattern: x @ pattern
+        if self.check(&TokenKind::At) {
+            self.advance();
+            let pattern = match self.parse_match_pattern_base().into_result() {
+                Ok(p) => p,
+                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            };
+            let pattern_id = self.arena.alloc_match_pattern(pattern);
+            return ParseOutcome::consumed_ok(MatchPattern::At {
+                name,
+                pattern: pattern_id,
+            });
+        }
+
+        // Check for variant pattern: Name(x) or struct literal: Point { x, y }
+        if self.check(&TokenKind::LParen) {
+            self.advance();
+            let inner = match self.parse_variant_inner_patterns() {
+                Ok(i) => i,
+                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            };
+            match self.expect(&TokenKind::RParen) {
+                Ok(_) => {}
+                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            }
+            return ParseOutcome::consumed_ok(MatchPattern::Variant { name, inner });
+        }
+
+        if self.check(&TokenKind::LBrace) {
+            // Named struct pattern: Point { x, y }
+            match self.parse_struct_pattern_fields() {
+                Ok(pat) => return ParseOutcome::consumed_ok(pat),
+                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            }
+        }
+
+        ParseOutcome::consumed_ok(MatchPattern::Binding(name))
+    }
+
+    /// Parse anonymous struct pattern: `{ x, y }`
+    fn parse_pattern_struct(&mut self) -> ParseOutcome<MatchPattern> {
+        if !self.check(&TokenKind::LBrace) {
+            return ParseOutcome::empty_err_expected(&TokenKind::LBrace, self.position());
+        }
+        match self.parse_struct_pattern_fields() {
+            Ok(pat) => ParseOutcome::consumed_ok(pat),
+            Err(err) => ParseOutcome::consumed_err(err, self.current_span()),
+        }
+    }
+
+    /// Parse list pattern: `[a, b, ..rest]`
+    fn parse_pattern_list(&mut self) -> ParseOutcome<MatchPattern> {
+        if !self.check(&TokenKind::LBracket) {
+            return ParseOutcome::empty_err_expected(&TokenKind::LBracket, self.position());
+        }
+        self.advance();
+        let mut element_ids = Vec::new();
+        let mut rest = None;
+
+        while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
+            // Check for rest pattern: ..rest or ..
+            if self.check(&TokenKind::DotDot) {
+                self.advance();
+                // Optional name after .. (Name::EMPTY for anonymous rest)
+                if let TokenKind::Ident(name) = *self.current_kind() {
+                    rest = Some(name);
+                    self.advance();
+                } else {
+                    // Anonymous rest pattern: use empty name as sentinel
+                    rest = Some(Name::EMPTY);
+                }
+                // Rest must be last
+                break;
+            }
+
+            let elem = match self.parse_match_pattern() {
+                Ok(e) => e,
+                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            };
+            element_ids.push(self.arena.alloc_match_pattern(elem));
+
+            if !self.check(&TokenKind::RBracket) && !self.check(&TokenKind::DotDot) {
+                match self.expect(&TokenKind::Comma) {
+                    Ok(_) => {}
+                    Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+                }
+            }
+        }
+
+        match self.expect(&TokenKind::RBracket) {
+            Ok(_) => {}
+            Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+        }
+        let elements = self.arena.alloc_match_pattern_list(element_ids);
+        ParseOutcome::consumed_ok(MatchPattern::List { elements, rest })
+    }
+
+    /// Parse builtin variant patterns: `Some(x)`, `None`, `Ok(x)`, `Err(x)`
+    fn parse_pattern_builtin_variant(&mut self) -> ParseOutcome<MatchPattern> {
+        let (name_str, has_inner) = match *self.current_kind() {
+            TokenKind::Some => ("Some", true),
+            TokenKind::None => ("None", false),
+            TokenKind::Ok => ("Ok", true),
+            TokenKind::Err => ("Err", true),
+            _ => return ParseOutcome::empty_err(PATTERN_VARIANT_TOKENS, self.position()),
+        };
+
+        let name = self.interner().intern(name_str);
+        self.advance();
+        let inner = if has_inner {
+            match self.expect(&TokenKind::LParen) {
+                Ok(_) => {}
+                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            }
+            let patterns = match self.parse_variant_inner_patterns() {
+                Ok(p) => p,
+                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            };
+            match self.expect(&TokenKind::RParen) {
+                Ok(_) => {}
+                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            }
+            patterns
+        } else {
+            MatchPatternRange::EMPTY
+        };
+        ParseOutcome::consumed_ok(MatchPattern::Variant { name, inner })
+    }
+
+    /// Parse tuple pattern: `(a, b, c)`
+    fn parse_pattern_tuple(&mut self) -> ParseOutcome<MatchPattern> {
+        use crate::series::SeriesConfig;
+
+        if !self.check(&TokenKind::LParen) {
+            return ParseOutcome::empty_err_expected(&TokenKind::LParen, self.position());
+        }
+
+        self.advance();
+        let pattern_ids: Vec<MatchPatternId> =
+            match self.series(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
+                if p.check(&TokenKind::RParen) {
+                    return Ok(None);
+                }
+                let pat = p.parse_match_pattern()?;
+                Ok(Some(p.arena.alloc_match_pattern(pat)))
+            }) {
+                Ok(ids) => ids,
+                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            };
+        match self.expect(&TokenKind::RParen) {
+            Ok(_) => {}
+            Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+        }
+        let range = self.arena.alloc_match_pattern_list(pattern_ids);
+        ParseOutcome::consumed_ok(MatchPattern::Tuple(range))
     }
 
     /// Parse `function_exp`: map, filter, fold, etc. with named properties.
@@ -623,27 +757,6 @@ impl Parser<'_> {
             ExprKind::FunctionExp(func_exp_id),
             start_span.merge(end_span),
         )))
-    }
-
-    /// Parse a built-in variant pattern (Some, None, Ok, Err).
-    ///
-    /// This helper reduces duplication for the standard variant patterns.
-    fn parse_builtin_variant_pattern(
-        &mut self,
-        name_str: &str,
-        has_inner: bool,
-    ) -> Result<MatchPattern, ParseError> {
-        let name = self.interner().intern(name_str);
-        self.advance();
-        let inner = if has_inner {
-            self.expect(&TokenKind::LParen)?;
-            let patterns = self.parse_variant_inner_patterns()?;
-            self.expect(&TokenKind::RParen)?;
-            patterns
-        } else {
-            MatchPatternRange::EMPTY
-        };
-        Ok(MatchPattern::Variant { name, inner })
     }
 
     /// Parse comma-separated patterns inside a variant pattern.
@@ -703,7 +816,7 @@ impl Parser<'_> {
     /// Parse an optional pattern guard: `.match(condition)`
     ///
     /// Returns `Some(expr_id)` if a guard is present, `None` otherwise.
-    fn parse_pattern_guard(&mut self) -> Result<Option<ExprId>, ParseError> {
+    pub(crate) fn parse_pattern_guard(&mut self) -> Result<Option<ExprId>, ParseError> {
         // Check for .match(condition) syntax
         if !self.check(&TokenKind::Dot) {
             return Ok(None);

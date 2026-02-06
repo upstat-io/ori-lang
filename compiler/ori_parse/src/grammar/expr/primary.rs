@@ -2,23 +2,90 @@
 //!
 //! Parses literals, identifiers, variant constructors, parenthesized expressions,
 //! lists, if expressions, and let expressions.
+//!
+//! Uses `one_of!` macro for token-dispatched alternatives with automatic
+//! backtracking. Each sub-parser returns `EmptyErr` when its leading token
+//! doesn't match, enabling clean ordered alternation.
 
-use crate::{committed, require, ParseError, ParseOutcome, Parser};
+use crate::recovery::TokenSet;
+use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
-    BindingPattern, Expr, ExprId, ExprKind, ExprRange, Param, ParamRange, ParsedTypeId, TokenKind,
+    BindingPattern, DurationUnit, Expr, ExprId, ExprKind, ExprRange, Name, Param, ParamRange,
+    ParsedTypeId, SizeUnit, TokenKind,
 };
+
+// === Token sets for EmptyErr reporting ===
+//
+// These constants define which tokens each sub-parser expects. When a sub-parser
+// fails without consuming input, it returns EmptyErr with its token set. The
+// `one_of!` macro accumulates these sets across alternatives, producing error
+// messages like "expected integer, identifier, `(`, or `[`".
+
+/// Tokens that start a literal expression.
+const LITERAL_TOKENS: TokenSet = TokenSet::new()
+    .with(TokenKind::Int(0))
+    .with(TokenKind::Float(0))
+    .with(TokenKind::True)
+    .with(TokenKind::False)
+    .with(TokenKind::String(Name::EMPTY))
+    .with(TokenKind::Char('\0'))
+    .with(TokenKind::Duration(0, DurationUnit::Nanoseconds))
+    .with(TokenKind::Size(0, SizeUnit::Bytes));
+
+/// Tokens that start an identifier-like expression (idents + soft keywords).
+const IDENT_LIKE_TOKENS: TokenSet = TokenSet::new()
+    .with(TokenKind::Ident(Name::EMPTY))
+    .with(TokenKind::Print)
+    .with(TokenKind::Panic)
+    .with(TokenKind::Catch)
+    .with(TokenKind::SelfLower)
+    .with(TokenKind::IntType)
+    .with(TokenKind::FloatType)
+    .with(TokenKind::StrType)
+    .with(TokenKind::BoolType)
+    .with(TokenKind::CharType)
+    .with(TokenKind::ByteType)
+    .with(TokenKind::Timeout)
+    .with(TokenKind::Parallel)
+    .with(TokenKind::Cache)
+    .with(TokenKind::Spawn)
+    .with(TokenKind::Recurse);
+
+/// Tokens that start a variant constructor.
+const VARIANT_TOKENS: TokenSet = TokenSet::new()
+    .with(TokenKind::Some)
+    .with(TokenKind::None)
+    .with(TokenKind::Ok)
+    .with(TokenKind::Err);
+
+/// Tokens that start a control flow expression.
+const CONTROL_FLOW_TOKENS: TokenSet = TokenSet::new()
+    .with(TokenKind::Break)
+    .with(TokenKind::Continue)
+    .with(TokenKind::Return);
+
+/// Tokens that start an error literal (float duration/size).
+const ERROR_LITERAL_TOKENS: TokenSet = TokenSet::new()
+    .with(TokenKind::FloatDurationError)
+    .with(TokenKind::FloatSizeError);
+
+/// Tokens for miscellaneous single-token primaries.
+const MISC_PRIMARY_TOKENS: TokenSet = TokenSet::new()
+    .with(TokenKind::Dollar)
+    .with(TokenKind::Hash);
 
 impl Parser<'_> {
     /// Parse primary expressions with outcome tracking.
     ///
-    /// Returns `EmptyErr` if the current token is not a valid expression start
-    /// (no tokens consumed — enables backtracking in `one_of!` chains).
-    /// Returns `ConsumedOk` on successful parse, `ConsumedErr` on error after
-    /// consuming tokens.
+    /// Uses `one_of!` for token-dispatched alternatives with automatic backtracking.
+    /// Context-sensitive keywords that need multi-token lookahead remain as an if-chain
+    /// before the `one_of!` dispatch.
     pub(crate) fn parse_primary(&mut self) -> ParseOutcome<ExprId> {
-        let span = self.current_span();
-
-        // function_seq keywords (run, try)
+        // === Context-sensitive keywords requiring multi-token lookahead ===
+        //
+        // These stay as an if-chain because they need `next_is_lparen()`,
+        // `is_with_capability_syntax()`, or `match_function_exp_kind()` before
+        // deciding, and they advance before calling the sub-parser.
         if self.check(&TokenKind::Run) {
             self.advance();
             return self.parse_run();
@@ -27,37 +94,57 @@ impl Parser<'_> {
             self.advance();
             return self.parse_try();
         }
-
-        // match is also function_seq but parsed separately
         if self.check(&TokenKind::Match) {
             self.advance();
             return self.parse_match_expr();
         }
-
-        // for pattern: for(over: items, match: pattern -> expr, default: value)
         if self.check(&TokenKind::For) && self.next_is_lparen() {
             self.advance();
             return self.parse_for_pattern();
         }
-
-        // for loop: for x in items do body  OR  for x in items yield body
         if self.check(&TokenKind::For) {
             return self.parse_for_loop();
         }
-
-        // Capability provision: with Capability = Provider in body
         if self.check(&TokenKind::With) && self.is_with_capability_syntax() {
             return self.parse_with_capability();
         }
-
-        // function_exp keywords
         if let Some(kind) = self.match_function_exp_kind() {
             self.advance();
             return self.parse_function_exp(kind);
         }
 
+        // === Token-dispatched alternatives via one_of! ===
+        //
+        // Each sub-parser checks its leading token and returns EmptyErr if wrong.
+        // one_of! tries each in order, accumulating expected tokens on EmptyErr,
+        // and stops on the first ConsumedOk/EmptyOk/ConsumedErr.
+        one_of!(
+            self,
+            self.parse_literal_primary(),
+            self.parse_ident_primary(),
+            self.parse_variant_primary(),
+            self.parse_misc_primary(),
+            self.parse_parenthesized(),
+            self.parse_list_literal(),
+            self.parse_map_literal(),
+            self.parse_if_expr(),
+            self.parse_let_expr(),
+            self.parse_loop_expr(),
+            self.parse_for_loop(),
+            self.parse_control_flow_primary(),
+            self.parse_error_literal_primary(),
+        )
+    }
+
+    // === Extracted sub-parsers for one_of! dispatch ===
+
+    /// Parse literal tokens: `Int`, `Float`, `True`, `False`, `String`, `Char`,
+    /// `Duration`, `Size`.
+    ///
+    /// Returns `EmptyErr` if the current token is not a literal.
+    fn parse_literal_primary(&mut self) -> ParseOutcome<ExprId> {
+        let span = self.current_span();
         match *self.current_kind() {
-            // Literals
             TokenKind::Int(n) => {
                 self.advance();
                 let Ok(value) = i64::try_from(n) else {
@@ -119,169 +206,61 @@ impl Parser<'_> {
                         .alloc_expr(Expr::new(ExprKind::Size { value, unit }, span)),
                 )
             }
+            _ => ParseOutcome::empty_err(LITERAL_TOKENS, self.position()),
+        }
+    }
 
-            // Constant reference: $name
-            TokenKind::Dollar => {
-                self.advance();
-                let name = committed!(self.expect_ident());
-                let full_span = span.merge(self.previous_span());
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Const(name), full_span)),
-                )
-            }
+    /// Parse identifier-like tokens: `Ident`, soft keywords used as identifiers
+    /// (`Print`, `Panic`, `Catch`, `SelfLower`), type conversion keywords
+    /// (`IntType`, `FloatType`, etc.), and context-sensitive keywords when not
+    /// followed by `(` (`Timeout`, `Parallel`, `Cache`, `Spawn`, `Recurse`).
+    ///
+    /// Returns `EmptyErr` if the current token is not identifier-like.
+    fn parse_ident_primary(&mut self) -> ParseOutcome<ExprId> {
+        let span = self.current_span();
 
-            // Hash length symbol: # (only valid inside index brackets)
-            TokenKind::Hash => {
-                if self.context.in_index() {
-                    self.advance();
-                    ParseOutcome::consumed_ok(
-                        self.arena.alloc_expr(Expr::new(ExprKind::HashLength, span)),
-                    )
-                } else {
-                    // Don't advance — this isn't a valid expression start in this context.
-                    // Return EmptyErr so backtracking can try alternatives.
-                    ParseOutcome::empty_err_expected(&TokenKind::Hash, self.position())
-                }
-            }
-
-            // Identifier
+        // Map token to (intern_str, should_advance_first) — all follow the same pattern:
+        // intern the name, advance, return Ident expression.
+        let name = match *self.current_kind() {
             TokenKind::Ident(name) => {
                 self.advance();
-                ParseOutcome::consumed_ok(
+                return ParseOutcome::consumed_ok(
                     self.arena
                         .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
+                );
             }
+            TokenKind::Print => "print",
+            TokenKind::Panic => "panic",
+            TokenKind::Catch => "catch",
+            TokenKind::SelfLower => "self",
+            TokenKind::IntType => "int",
+            TokenKind::FloatType => "float",
+            TokenKind::StrType => "str",
+            TokenKind::BoolType => "bool",
+            TokenKind::CharType => "char",
+            TokenKind::ByteType => "byte",
+            TokenKind::Timeout => "timeout",
+            TokenKind::Parallel => "parallel",
+            TokenKind::Cache => "cache",
+            TokenKind::Spawn => "spawn",
+            TokenKind::Recurse => "recurse",
+            _ => return ParseOutcome::empty_err(IDENT_LIKE_TOKENS, self.position()),
+        };
 
-            // Built-in I/O primitives as soft keywords
-            TokenKind::Print => {
-                let name = self.interner().intern("print");
-                self.advance();
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::Panic => {
-                let name = self.interner().intern("panic");
-                self.advance();
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::Catch => {
-                let name = self.interner().intern("catch");
-                self.advance();
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
+        let interned = self.interner().intern(name);
+        self.advance();
+        ParseOutcome::consumed_ok(
+            self.arena
+                .alloc_expr(Expr::new(ExprKind::Ident(interned), span)),
+        )
+    }
 
-            // self - identifier for method receiver or recursive self-reference
-            TokenKind::SelfLower => {
-                self.advance();
-                let name = self.interner().intern("self");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-
-            // Type conversion functions
-            TokenKind::IntType => {
-                self.advance();
-                let name = self.interner().intern("int");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::FloatType => {
-                self.advance();
-                let name = self.interner().intern("float");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::StrType => {
-                self.advance();
-                let name = self.interner().intern("str");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::BoolType => {
-                self.advance();
-                let name = self.interner().intern("bool");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::CharType => {
-                self.advance();
-                let name = self.interner().intern("char");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::ByteType => {
-                self.advance();
-                let name = self.interner().intern("byte");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-
-            // Context-sensitive keywords usable as identifiers when not followed by (
-            TokenKind::Timeout => {
-                self.advance();
-                let name = self.interner().intern("timeout");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::Parallel => {
-                self.advance();
-                let name = self.interner().intern("parallel");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::Cache => {
-                self.advance();
-                let name = self.interner().intern("cache");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::Spawn => {
-                self.advance();
-                let name = self.interner().intern("spawn");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            TokenKind::Recurse => {
-                self.advance();
-                let name = self.interner().intern("recurse");
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                )
-            }
-            // Variant constructors
+    /// Parse variant constructors: `Some(expr)`, `None`, `Ok(expr)`, `Err(expr)`.
+    ///
+    /// Returns `EmptyErr` if the current token is not a variant keyword.
+    fn parse_variant_primary(&mut self) -> ParseOutcome<ExprId> {
+        let span = self.current_span();
+        match *self.current_kind() {
             TokenKind::Some => {
                 self.advance();
                 committed!(self.expect(&TokenKind::LParen));
@@ -329,23 +308,45 @@ impl Parser<'_> {
                         .alloc_expr(Expr::new(ExprKind::Err(inner), span.merge(end_span))),
                 )
             }
+            _ => ParseOutcome::empty_err(VARIANT_TOKENS, self.position()),
+        }
+    }
 
-            // Parenthesized expression, tuple, or lambda
-            TokenKind::LParen => self.parse_parenthesized(),
+    /// Parse miscellaneous single-token primaries: `$name` (const ref), `#` (hash length).
+    ///
+    /// Returns `EmptyErr` if the current token is not `$` or `#`.
+    fn parse_misc_primary(&mut self) -> ParseOutcome<ExprId> {
+        let span = self.current_span();
+        match *self.current_kind() {
+            TokenKind::Dollar => {
+                self.advance();
+                let name = committed!(self.expect_ident());
+                let full_span = span.merge(self.previous_span());
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Const(name), full_span)),
+                )
+            }
+            TokenKind::Hash => {
+                if self.context.in_index() {
+                    self.advance();
+                    ParseOutcome::consumed_ok(
+                        self.arena.alloc_expr(Expr::new(ExprKind::HashLength, span)),
+                    )
+                } else {
+                    ParseOutcome::empty_err(MISC_PRIMARY_TOKENS, self.position())
+                }
+            }
+            _ => ParseOutcome::empty_err(MISC_PRIMARY_TOKENS, self.position()),
+        }
+    }
 
-            // List literal
-            TokenKind::LBracket => self.parse_list_literal(),
-
-            // Map literal
-            TokenKind::LBrace => self.parse_map_literal(),
-
-            // If expression
-            TokenKind::If => self.parse_if_expr(),
-
-            // Let expression
-            TokenKind::Let => self.parse_let_expr(),
-
-            // Break expression (only valid inside loops)
+    /// Parse control flow primaries: `break`, `continue`, `return`.
+    ///
+    /// Returns `EmptyErr` if the current token is not a control flow keyword.
+    fn parse_control_flow_primary(&mut self) -> ParseOutcome<ExprId> {
+        let span = self.current_span();
+        match *self.current_kind() {
             TokenKind::Break => {
                 if !self.context.in_loop() {
                     return ParseOutcome::consumed_err(
@@ -359,9 +360,6 @@ impl Parser<'_> {
                     );
                 }
                 self.advance();
-                // Optional value: break or break value
-                // Value is present if there's an expression following
-                // Terminators: delimiters, control-flow keywords, newlines, EOF
                 let value = if !self.check(&TokenKind::Comma)
                     && !self.check(&TokenKind::RParen)
                     && !self.check(&TokenKind::RBrace)
@@ -387,8 +385,6 @@ impl Parser<'_> {
                         .alloc_expr(Expr::new(ExprKind::Break(value), span.merge(end_span))),
                 )
             }
-
-            // Continue expression (only valid inside loops)
             TokenKind::Continue => {
                 if !self.context.in_loop() {
                     return ParseOutcome::consumed_err(
@@ -402,8 +398,6 @@ impl Parser<'_> {
                     );
                 }
                 self.advance();
-                // Optional value: continue or continue value (valid in for...yield)
-                // Terminators: delimiters, control-flow keywords, newlines, EOF
                 let value = if !self.check(&TokenKind::Comma)
                     && !self.check(&TokenKind::RParen)
                     && !self.check(&TokenKind::RBrace)
@@ -429,8 +423,6 @@ impl Parser<'_> {
                         .alloc_expr(Expr::new(ExprKind::Continue(value), span.merge(end_span))),
                 )
             }
-
-            // Return is not valid in Ori - provide helpful error for users from other languages
             TokenKind::Return => {
                 self.advance();
                 ParseOutcome::consumed_err(
@@ -447,13 +439,17 @@ impl Parser<'_> {
                     span,
                 )
             }
+            _ => ParseOutcome::empty_err(CONTROL_FLOW_TOKENS, self.position()),
+        }
+    }
 
-            // Loop expression: loop(body)
-            TokenKind::Loop => self.parse_loop_expr(),
-
-            // Float with duration suffix is an error (e.g., 1.5s, 2.5ms)
-            // Spec: duration-size-types-proposal.md § Numeric Prefix
-            // "Floating-point prefixes are NOT supported"
+    /// Parse error literal tokens: `FloatDurationError`, `FloatSizeError`.
+    ///
+    /// These are lexer-detected errors for floating-point duration/size literals.
+    /// Returns `EmptyErr` if the current token is not an error literal.
+    fn parse_error_literal_primary(&mut self) -> ParseOutcome<ExprId> {
+        let span = self.current_span();
+        match *self.current_kind() {
             TokenKind::FloatDurationError => {
                 self.advance();
                 ParseOutcome::consumed_err(
@@ -468,8 +464,6 @@ impl Parser<'_> {
                     span,
                 )
             }
-
-            // Float with size suffix is an error (e.g., 1.5kb, 2.5mb)
             TokenKind::FloatSizeError => {
                 self.advance();
                 ParseOutcome::consumed_err(
@@ -484,16 +478,22 @@ impl Parser<'_> {
                     span,
                 )
             }
-
-            _ => ParseOutcome::empty_err_expected(
-                &TokenKind::Ident(ori_ir::Name::EMPTY),
-                self.position(),
-            ),
+            _ => ParseOutcome::empty_err(ERROR_LITERAL_TOKENS, self.position()),
         }
     }
 
+    // === Guarded existing sub-parsers ===
+    //
+    // These already exist but now have a guard that returns EmptyErr when the
+    // leading token doesn't match. This makes them safe for one_of! dispatch.
+
     /// Parse parenthesized expression, tuple, or lambda.
+    ///
+    /// Guard: returns `EmptyErr` if not at `(`.
     fn parse_parenthesized(&mut self) -> ParseOutcome<ExprId> {
+        if !self.check(&TokenKind::LParen) {
+            return ParseOutcome::empty_err_expected(&TokenKind::LParen, self.position());
+        }
         self.in_error_context(
             crate::ErrorContext::Expression,
             Self::parse_parenthesized_body,
@@ -624,7 +624,12 @@ impl Parser<'_> {
     }
 
     /// Parse list literal.
+    ///
+    /// Guard: returns `EmptyErr` if not at `[`.
     fn parse_list_literal(&mut self) -> ParseOutcome<ExprId> {
+        if !self.check(&TokenKind::LBracket) {
+            return ParseOutcome::empty_err_expected(&TokenKind::LBracket, self.position());
+        }
         self.in_error_context(
             crate::ErrorContext::ListLiteral,
             Self::parse_list_literal_body,
@@ -697,7 +702,12 @@ impl Parser<'_> {
     }
 
     /// Parse map literal: `{ key: value, ... }`, `{ ...base, key: value }`, or `{}`.
+    ///
+    /// Guard: returns `EmptyErr` if not at `{`.
     fn parse_map_literal(&mut self) -> ParseOutcome<ExprId> {
+        if !self.check(&TokenKind::LBrace) {
+            return ParseOutcome::empty_err_expected(&TokenKind::LBrace, self.position());
+        }
         self.in_error_context(
             crate::ErrorContext::MapLiteral,
             Self::parse_map_literal_body,
@@ -773,7 +783,12 @@ impl Parser<'_> {
     }
 
     /// Parse if expression.
+    ///
+    /// Guard: returns `EmptyErr` if not at `if`.
     fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
+        if !self.check(&TokenKind::If) {
+            return ParseOutcome::empty_err_expected(&TokenKind::If, self.position());
+        }
         self.in_error_context(crate::ErrorContext::IfExpression, Self::parse_if_expr_body)
     }
 
@@ -828,7 +843,12 @@ impl Parser<'_> {
     /// - `let x = ...` → mutable (default)
     /// - `let $x = ...` → immutable ($ prefix)
     /// - `let mut x = ...` → mutable (legacy, redundant)
+    ///
+    /// Guard: returns `EmptyErr` if not at `let`.
     fn parse_let_expr(&mut self) -> ParseOutcome<ExprId> {
+        if !self.check(&TokenKind::Let) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Let, self.position());
+        }
         self.in_error_context(crate::ErrorContext::LetPattern, Self::parse_let_expr_body)
     }
 
@@ -909,7 +929,6 @@ impl Parser<'_> {
             }
             TokenKind::LBrace => {
                 use crate::series::SeriesConfig;
-                use ori_ir::Name;
                 self.advance();
                 let fields: Vec<(Name, Option<BindingPattern>)> =
                     self.series(&SeriesConfig::comma(TokenKind::RBrace).no_newlines(), |p| {
@@ -1000,7 +1019,12 @@ impl Parser<'_> {
     /// Parse for loop: `for x in items do body` or `for x in items yield body`
     ///
     /// Also supports optional guard: `for x in items if condition do body`
+    ///
+    /// Guard: returns `EmptyErr` if not at `for`.
     fn parse_for_loop(&mut self) -> ParseOutcome<ExprId> {
+        if !self.check(&TokenKind::For) {
+            return ParseOutcome::empty_err_expected(&TokenKind::For, self.position());
+        }
         self.in_error_context(crate::ErrorContext::ForLoop, Self::parse_for_loop_body)
     }
 
@@ -1075,8 +1099,14 @@ impl Parser<'_> {
     /// Parse loop expression: `loop(body)`
     ///
     /// The body is evaluated repeatedly until a `break` is encountered.
+    ///
+    /// Guard: returns `EmptyErr` if not at `loop`.
     fn parse_loop_expr(&mut self) -> ParseOutcome<ExprId> {
         use crate::context::ParseContext;
+
+        if !self.check(&TokenKind::Loop) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Loop, self.position());
+        }
 
         let span = self.current_span();
         committed!(self.expect(&TokenKind::Loop));
