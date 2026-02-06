@@ -1,46 +1,43 @@
 //! Function and test definition parsing.
 
 use crate::context::ParseContext;
-use crate::{FunctionOrTest, ParseError, ParseOutcome, ParsedAttrs, Parser};
+use crate::{committed, require, FunctionOrTest, ParseError, ParseOutcome, ParsedAttrs, Parser};
 use ori_ir::{Function, GenericParamRange, Param, ParamRange, TestDef, TokenKind, Visibility};
 
 impl Parser<'_> {
-    /// Parse a function or test definition with outcome tracking.
-    pub(crate) fn parse_function_or_test_with_outcome(
-        &mut self,
-        attrs: ParsedAttrs,
-        visibility: Visibility,
-    ) -> ParseOutcome<FunctionOrTest> {
-        self.with_outcome(|p| p.parse_function_or_test_with_attrs(attrs, visibility))
-    }
-
-    /// Parse a function or test definition with attributes.
+    /// Parse a function or test definition.
     ///
     /// Function: @name (params) -> Type = body
     /// Targeted test: @name tests @target1 tests @target2 (params) -> Type = body
     /// Free-floating test: @`test_name` (params) -> void = body
-    pub(crate) fn parse_function_or_test_with_attrs(
+    ///
+    /// Returns `EmptyErr` if no `@` is present.
+    pub(crate) fn parse_function_or_test(
         &mut self,
         attrs: ParsedAttrs,
         visibility: Visibility,
-    ) -> Result<FunctionOrTest, ParseError> {
-        self.in_error_context_result(crate::ErrorContext::FunctionDef, |p| {
-            p.parse_function_or_test_with_attrs_inner(attrs, visibility)
+    ) -> ParseOutcome<FunctionOrTest> {
+        if !self.check(&TokenKind::At) {
+            return ParseOutcome::empty_err_expected(&TokenKind::At, self.position());
+        }
+
+        self.in_error_context(crate::ErrorContext::FunctionDef, |p| {
+            p.parse_function_or_test_body(attrs, visibility)
         })
     }
 
-    fn parse_function_or_test_with_attrs_inner(
+    fn parse_function_or_test_body(
         &mut self,
         attrs: ParsedAttrs,
         visibility: Visibility,
-    ) -> Result<FunctionOrTest, ParseError> {
+    ) -> ParseOutcome<FunctionOrTest> {
         let start_span = self.current_span();
 
         // @
-        self.expect(&TokenKind::At)?;
+        committed!(self.expect(&TokenKind::At));
 
         // name
-        let name = self.expect_ident()?;
+        let name = committed!(self.expect_ident());
         let name_str = self.interner().lookup(name);
         let is_test_named = name_str.starts_with("test_");
 
@@ -50,33 +47,33 @@ impl Parser<'_> {
             let mut targets = Vec::new();
             while self.check(&TokenKind::Tests) {
                 self.advance(); // consume `tests`
-                self.expect(&TokenKind::At)?;
-                let target = self.expect_ident()?;
+                committed!(self.expect(&TokenKind::At));
+                let target = committed!(self.expect_ident());
                 targets.push(target);
             }
 
             // (params)
-            self.expect(&TokenKind::LParen)?;
-            let params = self.parse_params()?;
-            self.expect(&TokenKind::RParen)?;
+            committed!(self.expect(&TokenKind::LParen));
+            let params = committed!(self.parse_params());
+            committed!(self.expect(&TokenKind::RParen));
 
-            // -> Type (optional)
-            let return_ty = if self.check(&TokenKind::Arrow) {
-                self.advance();
-                self.parse_type()
-            } else {
-                None
-            };
+            // -> Type (required)
+            committed!(self.expect(&TokenKind::Arrow));
+            let return_ty = Some(committed!(self.parse_type_required().into_result()));
 
             // = body
-            self.expect(&TokenKind::Eq)?;
+            committed!(self.expect(&TokenKind::Eq));
             self.skip_newlines();
-            let body = self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr)?;
+            let body = require!(
+                self,
+                self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr),
+                "function body"
+            );
 
             let end_span = self.arena.get_expr(body).span;
             let span = start_span.merge(end_span);
 
-            Ok(FunctionOrTest::Test(TestDef {
+            ParseOutcome::consumed_ok(FunctionOrTest::Test(TestDef {
                 name,
                 targets,
                 params,
@@ -90,27 +87,27 @@ impl Parser<'_> {
         } else if is_test_named {
             // Free-floating test (name starts with test_ but no targets)
             // (params)
-            self.expect(&TokenKind::LParen)?;
-            let params = self.parse_params()?;
-            self.expect(&TokenKind::RParen)?;
+            committed!(self.expect(&TokenKind::LParen));
+            let params = committed!(self.parse_params());
+            committed!(self.expect(&TokenKind::RParen));
 
-            // -> Type (optional)
-            let return_ty = if self.check(&TokenKind::Arrow) {
-                self.advance();
-                self.parse_type()
-            } else {
-                None
-            };
+            // -> Type (required)
+            committed!(self.expect(&TokenKind::Arrow));
+            let return_ty = Some(committed!(self.parse_type_required().into_result()));
 
             // = body
-            self.expect(&TokenKind::Eq)?;
+            committed!(self.expect(&TokenKind::Eq));
             self.skip_newlines();
-            let body = self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr)?;
+            let body = require!(
+                self,
+                self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr),
+                "function body"
+            );
 
             let end_span = self.arena.get_expr(body).span;
             let span = start_span.merge(end_span);
 
-            Ok(FunctionOrTest::Test(TestDef {
+            ParseOutcome::consumed_ok(FunctionOrTest::Test(TestDef {
                 name,
                 targets: Vec::new(), // No targets for free-floating tests
                 params,
@@ -125,34 +122,30 @@ impl Parser<'_> {
             // Regular function
             // Optional generic parameters: <T, U: Bound>
             let generics = if self.check(&TokenKind::Lt) {
-                self.parse_generics()?
+                committed!(self.parse_generics().into_result())
             } else {
                 GenericParamRange::EMPTY
             };
 
             // (params)
-            self.expect(&TokenKind::LParen)?;
-            let params = self.parse_params()?;
-            self.expect(&TokenKind::RParen)?;
+            committed!(self.expect(&TokenKind::LParen));
+            let params = committed!(self.parse_params());
+            committed!(self.expect(&TokenKind::RParen));
 
-            // -> Type (optional)
-            let return_ty = if self.check(&TokenKind::Arrow) {
-                self.advance();
-                self.parse_type()
-            } else {
-                None
-            };
+            // -> Type (required)
+            committed!(self.expect(&TokenKind::Arrow));
+            let return_ty = Some(committed!(self.parse_type_required().into_result()));
 
             // Optional uses clause: uses Http, FileSystem
             let capabilities = if self.check(&TokenKind::Uses) {
-                self.parse_uses_clause()?
+                committed!(self.parse_uses_clause().into_result())
             } else {
                 Vec::new()
             };
 
             // Optional where clauses: where T: Clone, U: Default
             let where_clauses = if self.check(&TokenKind::Where) {
-                self.parse_where_clauses()?
+                committed!(self.parse_where_clauses().into_result())
             } else {
                 Vec::new()
             };
@@ -162,20 +155,28 @@ impl Parser<'_> {
             // Use parse_non_assign_expr because `=` is the body delimiter, not assignment
             let guard = if self.check(&TokenKind::If) {
                 self.advance(); // consume `if`
-                Some(self.parse_non_assign_expr()?)
+                Some(require!(
+                    self,
+                    self.parse_non_assign_expr(),
+                    "guard expression after `if`"
+                ))
             } else {
                 None
             };
 
             // = body
-            self.expect(&TokenKind::Eq)?;
+            committed!(self.expect(&TokenKind::Eq));
             self.skip_newlines();
-            let body = self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr)?;
+            let body = require!(
+                self,
+                self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr),
+                "function body"
+            );
 
             let end_span = self.arena.get_expr(body).span;
             let span = start_span.merge(end_span);
 
-            Ok(FunctionOrTest::Function(Function {
+            ParseOutcome::consumed_ok(FunctionOrTest::Function(Function {
                 name,
                 generics,
                 params,
@@ -318,7 +319,7 @@ impl Parser<'_> {
                 // = default_value (optional)
                 let default = if p.check(&TokenKind::Eq) {
                     p.advance();
-                    Some(p.parse_expr()?)
+                    Some(p.parse_expr().into_result()?)
                 } else {
                     None
                 };

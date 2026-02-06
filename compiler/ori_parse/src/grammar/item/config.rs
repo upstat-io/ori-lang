@@ -1,38 +1,40 @@
 //! Constant parsing.
 
-use crate::{ParseError, ParseOutcome, Parser};
+use crate::{committed, ParseError, ParseOutcome, Parser};
 use ori_ir::{ConstDef, Expr, ExprKind, TokenKind, Visibility};
 
 impl Parser<'_> {
-    /// Parse a constant with outcome tracking.
-    pub(crate) fn parse_const_with_outcome(
-        &mut self,
-        visibility: Visibility,
-    ) -> ParseOutcome<ConstDef> {
-        self.with_outcome(|p| p.parse_const(visibility))
-    }
-
     /// Parse a constant declaration.
     ///
     /// Syntax: `[pub] let $name = literal`
-    pub(crate) fn parse_const(&mut self, visibility: Visibility) -> Result<ConstDef, ParseError> {
+    ///
+    /// Returns `EmptyErr` if no `$` is present.
+    pub(crate) fn parse_const(&mut self, visibility: Visibility) -> ParseOutcome<ConstDef> {
+        if !self.check(&TokenKind::Dollar) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Dollar, self.position());
+        }
+
+        self.parse_const_body(visibility)
+    }
+
+    fn parse_const_body(&mut self, visibility: Visibility) -> ParseOutcome<ConstDef> {
         let start_span = self.current_span();
 
         // $
-        self.expect(&TokenKind::Dollar)?;
+        committed!(self.expect(&TokenKind::Dollar));
 
         // name
-        let name = self.expect_ident()?;
+        let name = committed!(self.expect_ident());
 
         // =
-        self.expect(&TokenKind::Eq)?;
+        committed!(self.expect(&TokenKind::Eq));
 
         // literal value
-        let value = self.parse_literal_expr()?;
+        let value = committed!(self.parse_literal_expr());
 
         let span = start_span.merge(self.previous_span());
 
-        Ok(ConstDef {
+        ParseOutcome::consumed_ok(ConstDef {
             name,
             value,
             span,

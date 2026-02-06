@@ -688,6 +688,57 @@ macro_rules! chain {
     }};
 }
 
+/// Bridge a `Result<T, ParseError>` into a `ParseOutcome`-returning function after commitment.
+///
+/// Use inside functions returning `ParseOutcome<T>` when you've already committed
+/// to a parse path (consumed some tokens). All `Result::Err` values become
+/// `ConsumedErr` since backtracking is no longer possible.
+///
+/// This is the `ParseOutcome` equivalent of the `?` operator for `Result` calls
+/// in the committed (post-entry-check) section of a grammar function.
+///
+/// # Behavior
+///
+/// - `Ok(value)`: Extracts the value and continues
+/// - `Err(error)`: Returns `ConsumedErr` from the enclosing function
+///
+/// # Usage
+///
+/// ```ignore
+/// fn parse_generics(&mut self) -> ParseOutcome<GenericParamRange> {
+///     if !self.check(&TokenKind::Lt) {
+///         return ParseOutcome::empty_err_expected(&TokenKind::Lt, self.position());
+///     }
+///     // Committed: `<` confirmed present, all errors are hard errors
+///     committed!(self.expect(&TokenKind::Lt));
+///     let params = committed!(self.series(...));
+///     committed!(self.expect(&TokenKind::Gt));
+///     ParseOutcome::consumed_ok(self.arena.alloc_generic_params(params))
+/// }
+/// ```
+///
+/// # Note
+///
+/// Unlike `chain!` (which takes `ParseOutcome` input), this macro bridges
+/// `Result<T, ParseError>` input. Use `chain!` when calling functions that
+/// already return `ParseOutcome`, and `committed!` when calling functions
+/// that still return `Result` (like `expect()`, `series()`, `expect_ident()`).
+#[macro_export]
+macro_rules! committed {
+    ($expr:expr) => {
+        match $expr {
+            Ok(value) => value,
+            Err(error) => {
+                let span = error.span;
+                return $crate::ParseOutcome::ConsumedErr {
+                    error,
+                    consumed_span: span,
+                };
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
@@ -1054,6 +1105,35 @@ mod tests {
     fn test_chain_propagates_error() {
         let mut parser = MockParser::new();
         let result = parse_with_chain_fail(&mut parser);
+        assert!(result.failed_with_progress());
+    }
+
+    // === committed! macro tests ===
+
+    fn parse_with_committed_ok(_p: &mut MockParser) -> ParseOutcome<i32> {
+        let a: i32 = committed!(Ok::<i32, ParseError>(42));
+        let b: i32 = committed!(Ok::<i32, ParseError>(10));
+        ParseOutcome::consumed_ok(a + b)
+    }
+
+    fn parse_with_committed_err(_p: &mut MockParser) -> ParseOutcome<i32> {
+        let _a: i32 = committed!(Ok::<i32, ParseError>(42));
+        let _b: i32 = committed!(Err(make_error())); // Should return ConsumedErr
+        ParseOutcome::consumed_ok(0) // Never reached
+    }
+
+    #[test]
+    fn test_committed_ok() {
+        let mut parser = MockParser::new();
+        let result = parse_with_committed_ok(&mut parser);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 52);
+    }
+
+    #[test]
+    fn test_committed_err() {
+        let mut parser = MockParser::new();
+        let result = parse_with_committed_err(&mut parser);
         assert!(result.failed_with_progress());
     }
 }

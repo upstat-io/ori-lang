@@ -1,38 +1,37 @@
 //! Trait definition parsing.
 
-use crate::{ParseError, ParseOutcome, Parser};
+use crate::{committed, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     GenericParamRange, TokenKind, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
     TraitMethodSig, Visibility,
 };
 
 impl Parser<'_> {
-    /// Parse a trait definition with outcome tracking.
-    pub(crate) fn parse_trait_with_outcome(
-        &mut self,
-        visibility: Visibility,
-    ) -> ParseOutcome<TraitDef> {
-        self.with_outcome(|p| p.parse_trait(visibility))
-    }
-
     /// Parse a trait definition.
+    ///
     /// Syntax: [pub] trait Name [<T>] [: Super] { items }
-    pub(crate) fn parse_trait(&mut self, visibility: Visibility) -> Result<TraitDef, ParseError> {
-        self.in_error_context_result(crate::ErrorContext::TraitDef, |p| {
-            p.parse_trait_inner(visibility)
+    ///
+    /// Returns `EmptyErr` if no `trait` keyword is present.
+    pub(crate) fn parse_trait(&mut self, visibility: Visibility) -> ParseOutcome<TraitDef> {
+        if !self.check(&TokenKind::Trait) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Trait, self.position());
+        }
+
+        self.in_error_context(crate::ErrorContext::TraitDef, |p| {
+            p.parse_trait_body(visibility)
         })
     }
 
-    fn parse_trait_inner(&mut self, visibility: Visibility) -> Result<TraitDef, ParseError> {
+    fn parse_trait_body(&mut self, visibility: Visibility) -> ParseOutcome<TraitDef> {
         let start_span = self.current_span();
-        self.expect(&TokenKind::Trait)?;
+        committed!(self.expect(&TokenKind::Trait));
 
         // Trait name
-        let name = self.expect_ident()?;
+        let name = committed!(self.expect_ident());
 
         // Optional generics: <T, U: Bound>
         let generics = if self.check(&TokenKind::Lt) {
-            self.parse_generics()?
+            committed!(self.parse_generics().into_result())
         } else {
             GenericParamRange::EMPTY
         };
@@ -40,30 +39,26 @@ impl Parser<'_> {
         // Optional super-traits: : Parent + OtherTrait
         let super_traits = if self.check(&TokenKind::Colon) {
             self.advance();
-            self.parse_bounds()?
+            require!(self, self.parse_bounds(), "super-trait bounds after `:`")
         } else {
             Vec::new()
         };
 
         // Trait body: { items }
-        self.expect(&TokenKind::LBrace)?;
+        committed!(self.expect(&TokenKind::LBrace));
         self.skip_newlines();
 
         let mut items = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-            match self.parse_trait_item() {
-                Ok(item) => items.push(item),
-                Err(e) => {
-                    return Err(e);
-                }
-            }
+            let item = committed!(self.parse_trait_item());
+            items.push(item);
             self.skip_newlines();
         }
 
         let end_span = self.current_span();
-        self.expect(&TokenKind::RBrace)?;
+        committed!(self.expect(&TokenKind::RBrace));
 
-        Ok(TraitDef {
+        ParseOutcome::consumed_ok(TraitDef {
             name,
             generics,
             super_traits,
@@ -84,7 +79,7 @@ impl Parser<'_> {
             // Optional default type: = Type
             let default_type = if self.check(&TokenKind::Eq) {
                 self.advance();
-                Some(self.parse_type_required()?)
+                Some(self.parse_type_required().into_result()?)
             } else {
                 None
             };
@@ -107,13 +102,13 @@ impl Parser<'_> {
 
             // -> Type
             self.expect(&TokenKind::Arrow)?;
-            let return_ty = self.parse_type_required()?;
+            let return_ty = self.parse_type_required().into_result()?;
 
             // Check for default implementation: = body
             if self.check(&TokenKind::Eq) {
                 self.advance();
                 self.skip_newlines();
-                let body = self.parse_expr()?;
+                let body = self.parse_expr().into_result()?;
                 let end_span = self.arena.get_expr(body).span;
                 Ok(TraitItem::DefaultMethod(TraitDefaultMethod {
                     name,

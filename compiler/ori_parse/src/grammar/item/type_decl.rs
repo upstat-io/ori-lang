@@ -1,21 +1,12 @@
 //! Type declaration parsing (struct, enum, newtype).
 
-use crate::{ParseError, ParseOutcome, ParsedAttrs, Parser};
+use crate::{committed, ParseError, ParseOutcome, ParsedAttrs, Parser};
 use ori_ir::{
     GenericParamRange, Name, ParsedType, ParsedTypeId, ParsedTypeRange, Span, StructField,
     TokenKind, TypeDecl, TypeDeclKind, Variant, VariantField, Visibility,
 };
 
 impl Parser<'_> {
-    /// Parse a type declaration with outcome tracking.
-    pub(crate) fn parse_type_decl_with_outcome(
-        &mut self,
-        attrs: ParsedAttrs,
-        visibility: Visibility,
-    ) -> ParseOutcome<TypeDecl> {
-        self.with_outcome(|p| p.parse_type_decl(attrs, visibility))
-    }
-
     /// Parse a type declaration.
     ///
     /// Syntax:
@@ -24,58 +15,64 @@ impl Parser<'_> {
     /// - Newtype: `type Name = ExistingType`
     /// - Generic: `type Name<T> = ...`
     /// - With derives: `#[derive(Eq, Clone)] type Name = ...`
+    ///
+    /// Returns `EmptyErr` if no `type` keyword is present.
     pub(crate) fn parse_type_decl(
         &mut self,
         attrs: ParsedAttrs,
         visibility: Visibility,
-    ) -> Result<TypeDecl, ParseError> {
-        self.in_error_context_result(crate::ErrorContext::TypeDef, |p| {
-            p.parse_type_decl_inner(attrs, visibility)
+    ) -> ParseOutcome<TypeDecl> {
+        if !self.check(&TokenKind::Type) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Type, self.position());
+        }
+
+        self.in_error_context(crate::ErrorContext::TypeDef, |p| {
+            p.parse_type_decl_body(attrs, visibility)
         })
     }
 
-    fn parse_type_decl_inner(
+    fn parse_type_decl_body(
         &mut self,
         attrs: ParsedAttrs,
         visibility: Visibility,
-    ) -> Result<TypeDecl, ParseError> {
+    ) -> ParseOutcome<TypeDecl> {
         let start_span = self.current_span();
-        self.expect(&TokenKind::Type)?;
+        committed!(self.expect(&TokenKind::Type));
 
-        let name = self.expect_ident()?;
+        let name = committed!(self.expect_ident());
 
         // Optional generics: <T, U: Bound>
         let generics = if self.check(&TokenKind::Lt) {
-            self.parse_generics()?
+            committed!(self.parse_generics().into_result())
         } else {
             GenericParamRange::EMPTY
         };
 
-        self.expect(&TokenKind::Eq)?;
+        committed!(self.expect(&TokenKind::Eq));
 
         // Determine kind based on what follows
         let kind = if self.check(&TokenKind::LBrace) {
             // Struct: { field: Type, ... }
-            self.parse_struct_body()?
+            committed!(self.parse_struct_body())
         } else if self.check_ident() {
             // Could be a sum type (Variant | ...) or a newtype (ExistingType)
-            self.parse_sum_or_newtype()?
+            committed!(self.parse_sum_or_newtype())
         } else {
             // Try to parse as a newtype with a primitive type
-            let ty = self.parse_type_required()?;
+            let ty = committed!(self.parse_type_required().into_result());
             TypeDeclKind::Newtype(ty)
         };
 
         // Optional where clause (not common for type decls but supported)
         let where_clauses = if self.check(&TokenKind::Where) {
-            self.parse_where_clauses()?
+            committed!(self.parse_where_clauses().into_result())
         } else {
             Vec::new()
         };
 
         let end_span = self.previous_span();
 
-        Ok(TypeDecl {
+        ParseOutcome::consumed_ok(TypeDecl {
             name,
             generics,
             where_clauses,
@@ -107,7 +104,7 @@ impl Parser<'_> {
             let field_span = p.current_span();
             let field_name = p.expect_ident()?;
             p.expect(&TokenKind::Colon)?;
-            let field_ty = p.parse_type_required()?;
+            let field_ty = p.parse_type_required().into_result()?;
 
             Ok(Some(make_field(
                 field_name,
@@ -151,7 +148,7 @@ impl Parser<'_> {
                     if p.check(&TokenKind::Gt) {
                         return Ok(None);
                     }
-                    let ty = p.parse_type_required()?;
+                    let ty = p.parse_type_required().into_result()?;
                     let id = p.arena.alloc_parsed_type(ty);
                     Ok(Some(id))
                 })?;

@@ -2,17 +2,21 @@
 //!
 //! Parses call, method call, field access, index expressions, and struct literals.
 
-use crate::{ParseError, Parser};
+use crate::{chain, committed, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     CallArg, Expr, ExprId, ExprKind, FieldInit, Param, ParsedTypeId, StructLitField, TokenKind,
 };
 
 impl Parser<'_> {
     /// Parse function calls and field access.
+    ///
+    /// Returns `EmptyErr` if no primary expression is found (propagated from `parse_primary`).
+    /// Returns `ConsumedErr` if postfix parsing fails after consuming tokens.
     #[inline]
-    pub(crate) fn parse_call(&mut self) -> Result<ExprId, ParseError> {
-        let expr = self.parse_primary().into_result()?;
-        self.apply_postfix_ops(expr)
+    pub(crate) fn parse_call(&mut self) -> ParseOutcome<ExprId> {
+        let expr = chain!(self, self.parse_primary());
+        let result = committed!(self.apply_postfix_ops(expr));
+        ParseOutcome::consumed_ok(result)
     }
 
     /// Apply postfix operators to an expression.
@@ -146,7 +150,7 @@ impl Parser<'_> {
                         // Check for spread syntax: ...expr
                         if p.check(&TokenKind::DotDotDot) {
                             p.advance();
-                            let spread_expr = p.parse_expr()?;
+                            let spread_expr = p.parse_expr().into_result()?;
                             let end_span = p.arena.get_expr(spread_expr).span;
                             return Ok(Some(StructLitField::Spread {
                                 expr: spread_expr,
@@ -160,7 +164,7 @@ impl Parser<'_> {
                         // Check for shorthand { x } vs full { x: value }
                         let value = if p.check(&TokenKind::Colon) {
                             p.advance();
-                            Some(p.parse_expr()?)
+                            Some(p.parse_expr().into_result()?)
                         } else {
                             // Shorthand: { x } means { x: x }
                             None
@@ -261,7 +265,7 @@ impl Parser<'_> {
                     let param_span = expr_data.span;
                     let param_name = *name;
                     self.advance();
-                    let body = self.parse_expr()?;
+                    let body = self.parse_expr().into_result()?;
                     let end_span = self.arena.get_expr(body).span;
                     let params = self.arena.alloc_params(vec![Param {
                         name: param_name,
@@ -309,10 +313,10 @@ impl Parser<'_> {
             let (name, value) = if p.is_named_arg_start() {
                 let name = p.expect_ident_or_keyword()?;
                 p.expect(&TokenKind::Colon)?;
-                let value = p.parse_expr()?;
+                let value = p.parse_expr().into_result()?;
                 (Some(name), value)
             } else {
-                let value = p.parse_expr()?;
+                let value = p.parse_expr().into_result()?;
                 (None, value)
             };
 
@@ -339,5 +343,6 @@ impl Parser<'_> {
     fn parse_index_expr(&mut self) -> Result<ExprId, ParseError> {
         use crate::context::ParseContext;
         self.with_context(ParseContext::IN_INDEX, Self::parse_expr)
+            .into_result()
     }
 }

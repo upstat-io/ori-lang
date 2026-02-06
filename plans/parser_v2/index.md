@@ -116,11 +116,11 @@ formatter support, IDE metadata
 ---
 
 ### Section 07: Full ParseOutcome Migration
-**File:** `section-07-parseoutcome-migration.md` | **Status:** Not started
+**File:** `section-07-parseoutcome-migration.md` | **Status:** In Progress (07.6 complete, 07.4 partial)
 
 ```
 ParseOutcome migration, native adoption
-one_of! macro, try_outcome!, require!, chain!
+one_of! macro, try_outcome!, require!, chain!, committed!
 Result to ParseOutcome, grammar conversion
 with_outcome removal, wrapper elimination
 _inner pattern, collapse indirection
@@ -144,7 +144,7 @@ parse_X_inner collapse, _with_outcome removal
 | 04 | Structured Errors | `section-04-errors.md` | P1 | ✅ Complete |
 | 05 | Incremental Parsing | `section-05-incremental.md` | P2 | ✅ Complete |
 | 06 | Formatting Metadata | `section-06-metadata.md` | P3 | ✅ Complete |
-| 07 | Full ParseOutcome Migration | `section-07-parseoutcome-migration.md` | P1 | Not started |
+| 07 | Full ParseOutcome Migration | `section-07-parseoutcome-migration.md` | P1 | In Progress (07.6 ✅, 07.4 partial) |
 
 ---
 

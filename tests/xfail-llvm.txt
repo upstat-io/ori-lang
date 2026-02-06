@@ -73,8 +73,9 @@ test:test_expected_panic
 
 ## ── IR verification errors (file-level) ──────────────────────────
 
-# Compiler infrastructure
+# Compiler infrastructure (try pattern with Result return types)
 file:tests/compiler/typeck/control_flow.ori
+file:tests/compiler/typeck/let_bindings.ori
 
 # Formatter edge cases
 file:tests/fmt/edge-cases/real/concurrent.ori

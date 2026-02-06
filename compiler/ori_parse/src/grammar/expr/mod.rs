@@ -23,7 +23,7 @@ mod patterns;
 mod postfix;
 mod primary;
 
-use crate::{ParseError, ParseOutcome, Parser};
+use crate::{chain, committed, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{Expr, ExprId, ExprKind, TokenKind, UnaryOp};
 use ori_stack::ensure_sufficient_stack;
 
@@ -65,21 +65,12 @@ pub(super) mod bp {
 }
 
 impl Parser<'_> {
-    /// Parse an expression with outcome tracking.
-    ///
-    /// Returns `EmptyOk`/`EmptyErr` if no tokens were consumed.
-    /// Returns `ConsumedOk`/`ConsumedErr` if tokens were consumed.
-    #[allow(dead_code)] // Available for expression-level error recovery
-    pub(crate) fn parse_expr_with_outcome(&mut self) -> ParseOutcome<ExprId> {
-        self.with_outcome(Self::parse_expr)
-    }
-
     /// Parse an expression.
     /// Handles assignment at the top level: `identifier = expression`
     ///
     /// Uses `ensure_sufficient_stack` to prevent stack overflow
     /// on deeply nested expressions.
-    pub(crate) fn parse_expr(&mut self) -> Result<ExprId, ParseError> {
+    pub(crate) fn parse_expr(&mut self) -> ParseOutcome<ExprId> {
         ensure_sufficient_stack(|| self.parse_expr_inner())
     }
 
@@ -87,7 +78,7 @@ impl Parser<'_> {
     ///
     /// Use this for contexts where `=` is a delimiter rather than an operator,
     /// such as guard clauses (`if condition = body`).
-    pub(crate) fn parse_non_assign_expr(&mut self) -> Result<ExprId, ParseError> {
+    pub(crate) fn parse_non_assign_expr(&mut self) -> ParseOutcome<ExprId> {
         ensure_sufficient_stack(|| self.parse_binary_pratt(0))
     }
 
@@ -95,22 +86,22 @@ impl Parser<'_> {
     ///
     /// Use this in contexts where `<` and `>` are delimiters, not operators,
     /// such as const generic default values: `<$N: int = 10>`.
-    pub(crate) fn parse_non_comparison_expr(&mut self) -> Result<ExprId, ParseError> {
+    pub(crate) fn parse_non_comparison_expr(&mut self) -> ParseOutcome<ExprId> {
         ensure_sufficient_stack(|| self.parse_binary_pratt(bp::ABOVE_COMPARISON))
     }
 
     /// Inner expression parsing logic (wrapped by `parse_expr` for stack safety).
-    fn parse_expr_inner(&mut self) -> Result<ExprId, ParseError> {
-        let left = self.parse_binary_pratt(0)?;
+    fn parse_expr_inner(&mut self) -> ParseOutcome<ExprId> {
+        let left = chain!(self, self.parse_binary_pratt(0));
 
         // Check for assignment (= but not == or =>)
         if self.check(&TokenKind::Eq) {
             let left_span = self.arena.get_expr(left).span;
             self.advance();
-            let right = self.parse_expr()?;
+            let right = require!(self, self.parse_expr(), "expression after `=`");
             let right_span = self.arena.get_expr(right).span;
             let span = left_span.merge(right_span);
-            return Ok(self.arena.alloc_expr(Expr::new(
+            return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
                 ExprKind::Assign {
                     target: left,
                     value: right,
@@ -119,7 +110,7 @@ impl Parser<'_> {
             )));
         }
 
-        Ok(left)
+        ParseOutcome::consumed_ok(left)
     }
 
     /// Parse binary expressions using a Pratt parser.
@@ -133,8 +124,8 @@ impl Parser<'_> {
     /// - `0`: all binary operators (entry point for full expressions)
     /// - `bp::ABOVE_COMPARISON`: range + shift + arithmetic only
     #[inline]
-    fn parse_binary_pratt(&mut self, min_bp: u8) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_unary()?;
+    fn parse_binary_pratt(&mut self, min_bp: u8) -> ParseOutcome<ExprId> {
+        let mut left = chain!(self, self.parse_unary());
 
         // Track whether we've already parsed a range in this call.
         // Range operators don't chain: `1..10..20` is invalid.
@@ -150,7 +141,7 @@ impl Parser<'_> {
                 && min_bp <= bp::RANGE
                 && matches!(self.current_kind(), TokenKind::DotDot | TokenKind::DotDotEq)
             {
-                left = self.parse_range_continuation(left)?;
+                left = committed!(self.parse_range_continuation(left));
                 parsed_range = true;
                 // Continue to allow lower-precedence operators to wrap the range
                 // (e.g., `1..10 == other_range`).
@@ -165,7 +156,7 @@ impl Parser<'_> {
                 for _ in 0..token_count {
                     self.advance();
                 }
-                let right = self.parse_binary_pratt(r_bp)?;
+                let right = require!(self, self.parse_binary_pratt(r_bp), "right operand");
                 let span = self
                     .arena
                     .get_expr(left)
@@ -179,7 +170,7 @@ impl Parser<'_> {
             }
         }
 
-        Ok(left)
+        ParseOutcome::consumed_ok(left)
     }
 
     /// Parse the continuation of a range expression (after the left operand).
@@ -202,13 +193,13 @@ impl Parser<'_> {
         {
             ExprId::INVALID
         } else {
-            self.parse_binary_pratt(bp::SHIFT.0)?
+            self.parse_binary_pratt(bp::SHIFT.0).into_result()?
         };
 
         // Parse optional step: `by <expr>`
         let step = if matches!(self.current_kind(), TokenKind::By) {
             self.advance();
-            self.parse_binary_pratt(bp::SHIFT.0)?
+            self.parse_binary_pratt(bp::SHIFT.0).into_result()?
         } else {
             ExprId::INVALID
         };
@@ -245,7 +236,7 @@ impl Parser<'_> {
     /// folds them into a single `ExprKind::Int` node. This allows
     /// `-9223372036854775808` (`i64::MIN`) to be represented directly.
     #[inline]
-    fn parse_unary(&mut self) -> Result<ExprId, ParseError> {
+    fn parse_unary(&mut self) -> ParseOutcome<ExprId> {
         /// Absolute value of `i64::MIN` as `u64` (for negation folding).
         const I64_MIN_ABS: u64 = 9_223_372_036_854_775_808;
 
@@ -268,24 +259,29 @@ impl Parser<'_> {
                         self.arena
                             .alloc_expr(Expr::new(ExprKind::Int(i64::MIN), span))
                     } else {
-                        return Err(ParseError::new(
-                            ori_diagnostic::ErrorCode::E1002,
-                            "integer literal too large".to_string(),
+                        return ParseOutcome::consumed_err(
+                            ParseError::new(
+                                ori_diagnostic::ErrorCode::E1002,
+                                "integer literal too large".to_string(),
+                                span,
+                            ),
                             span,
-                        ));
+                        );
                     };
                     // Apply postfix operators (e.g., `as type`, `?`, method calls)
-                    return self.apply_postfix_ops(expr);
+                    let result = committed!(self.apply_postfix_ops(expr));
+                    return ParseOutcome::consumed_ok(result);
                 }
             }
 
             self.advance();
-            let operand = self.parse_unary()?;
+            let operand = require!(self, self.parse_unary(), "operand after unary operator");
 
             let span = start.merge(self.arena.get_expr(operand).span);
-            return Ok(self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::Unary { op, operand }, span)));
+            return ParseOutcome::consumed_ok(
+                self.arena
+                    .alloc_expr(Expr::new(ExprKind::Unary { op, operand }, span)),
+            );
         }
 
         self.parse_call()
