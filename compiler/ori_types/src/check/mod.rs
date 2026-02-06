@@ -47,11 +47,10 @@
 //!
 //! # Design Notes
 //!
-//! This replaces the `ori_typeck::TypeChecker`.
-//! Key differences:
-//! - Uses `Idx` instead of `TypeId` for type handles
-//! - Uses `Pool` instead of `TypeInterner` for storage
-//! - Uses `InferEngine` instead of `InferenceContext` for inference
+//! Key design decisions:
+//! - Uses `Idx` for type handles (compact u32 pool indices)
+//! - Uses `Pool` for interned type storage
+//! - Uses `InferEngine` for Hindley-Milner inference
 
 use ori_ir::{ExprArena, Name, Span, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};

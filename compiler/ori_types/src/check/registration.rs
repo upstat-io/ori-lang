@@ -5,7 +5,7 @@
 //!
 //! # Cross-Reference
 //!
-//! - Trait features in current `ori_typeck`: `plans/roadmap/section-03-traits.md`
+//! - Trait features: `plans/roadmap/section-03-traits.md`
 //! - Module checker design: `plans/types_v2/section-08b-module-checker.md`
 
 use ori_ir::{ExprKind, Module, Name, ParsedType, Span, TraitItem, Visibility as IrVisibility};
@@ -765,7 +765,7 @@ fn register_derived_impl(
     // Note: For derived traits, we create an empty methods map.
     // The actual method dispatch for derived traits is handled by the evaluator
     // which generates the method bodies at runtime based on the type structure.
-    // This is consistent with how ori_typeck handles derived traits.
+    // This is consistent with how derived traits are handled.
     let entry = ImplEntry {
         trait_idx: Some(trait_idx),
         self_type,

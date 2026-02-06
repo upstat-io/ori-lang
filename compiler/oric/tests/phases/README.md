@@ -7,7 +7,7 @@ Compiler tests organized by compilation phase.
 | Directory | Tests | Crates Tested |
 |-----------|-------|---------------|
 | `parse/` | Lexer and parser | `ori_lexer`, `ori_parse` |
-| `typeck/` | Type system | `ori_typeck`, `ori_types` |
+| `typeck/` | Type system | `ori_types` |
 | `eval/` | Interpreter | `ori_eval`, `ori_patterns` |
 | `codegen/` | LLVM backend | `ori_llvm`, `ori_rt` |
 | `common/` | Shared utilities | Multiple |

@@ -217,9 +217,9 @@ lookup_method(receiver_ty, method_name):
 
 - [x] Implement basic method lookup algorithm ✅
 - [x] Handle builtin → inherent → trait priority ✅
-- [ ] Handle auto-deref for Option/Result — deferred
-- [ ] Handle method ambiguity (multiple matches) — deferred
-- [ ] Add caching for frequently used lookups — deferred
+- [ ] Handle auto-deref for Option/Result — deferred per proposal (`optional-method-forwarding-proposal.md`)
+- [ ] Handle method ambiguity (multiple matches) — deferred until needed
+- [ ] Add caching for frequently used lookups — deferred until profiling shows need
 
 ---
 

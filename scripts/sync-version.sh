@@ -62,6 +62,31 @@ update_cargo_version() {
     fi
 }
 
+# Update softwareVersion in BaseLayout.astro
+update_astro_version() {
+    local file="$1"
+    local version="$2"
+
+    if [[ ! -f "$file" ]]; then
+        return
+    fi
+
+    local current
+    current=$(grep -oP "softwareVersion:\s*'\K[^']+" "$file" || true)
+
+    if [[ "$current" != "$version" ]]; then
+        if $CHECK_MODE; then
+            echo -e "${RED}MISMATCH${NC}: $file has softwareVersion '$current', expected '$version'"
+            return 1
+        else
+            sed -i "s/softwareVersion: '[^']*'/softwareVersion: '$version'/" "$file"
+            echo -e "${GREEN}UPDATED${NC}: $file -> $version"
+        fi
+    else
+        echo -e "${GREEN}OK${NC}: $file ($version)"
+    fi
+}
+
 # Update version in a package.json file
 update_npm_version() {
     local file="$1"
@@ -114,6 +139,12 @@ main() {
 
     # playground-wasm (standalone)
     update_cargo_version "$ROOT_DIR/website/playground-wasm/Cargo.toml" "$version" || failed=true
+
+    echo ""
+    echo "=== Astro layouts ==="
+
+    # BaseLayout.astro uses the full version in softwareVersion schema field
+    update_astro_version "$ROOT_DIR/website/src/layouts/BaseLayout.astro" "$version" || failed=true
 
     echo ""
     echo "=== package.json files ==="

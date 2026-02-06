@@ -52,7 +52,7 @@ use crate::{
 /// Expression ID type (mirrors `ori_ir::ExprId`).
 ///
 /// Using a simple usize to avoid dependency on `ori_ir` for the core types module.
-/// When integrating with `ori_typeck`, convert `ExprId` to/from this.
+/// Maps to `ori_ir::ExprId` when integrating with the module checker.
 pub type ExprIndex = usize;
 
 /// The type inference engine.

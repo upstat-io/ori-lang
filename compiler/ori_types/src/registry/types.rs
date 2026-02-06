@@ -3,7 +3,7 @@
 //! The `TypeRegistry` stores semantic information about type definitions,
 //! enabling efficient lookup by name or by pool index.
 //!
-//! # Design (from legacy `ori_typeck/registry`)
+//! # Design
 //!
 //! - Dual indexing: `BTreeMap` for sorted iteration, `FxHashMap` for O(1) lookup
 //! - Variant index: O(1) constructor lookup by name
