@@ -964,3 +964,356 @@ fn builtin_ordering_always_exported() {
         panic!("Ordering should be an enum");
     }
 }
+
+// ============================================================================
+// Invalid Return Type Annotations
+// ============================================================================
+
+#[test]
+fn bogus_return_type_is_rejected() {
+    // `-> garbage` is not a valid type — should produce a type error
+    let source = "\
+@sum (x: int, y: int) -> garbage = x + y
+
+@main () -> void = println(sum(1, 2).to_str())
+";
+    let result = check_source(source);
+    assert!(
+        result.has_errors(),
+        "Expected type error for undefined return type `garbage`, got none"
+    );
+}
+
+#[test]
+fn bogus_return_type_on_method_is_rejected() {
+    // Same bug but on a method with `self` — this is the user's exact repro
+    let source = "\
+type Point = { x: int, y: int }
+
+@sum (self: Point) -> garbage = self.x + self.y
+
+@main () -> void =
+  let p = Point { x: 3, y: 4 }
+  println(p.sum().to_str())
+";
+    let result = check_source(source);
+    assert!(
+        result.has_errors(),
+        "Expected type error for undefined return type `garbage` on method, got none"
+    );
+}
+
+#[test]
+fn bogus_return_type_in_impl_block_is_rejected() {
+    // BUG: impl block methods silently accept bogus return type annotations.
+    // `-> nt` is not a valid type but the type checker accepts it and the
+    // program runs, producing correct output with no errors.
+    let source = "\
+type Point = { x: int, y: int }
+
+impl Point {
+    @sum (self) -> nt = self.x + self.y
+
+    @scale (self, factor: int) -> Point = Point { x: self.x * factor, y: self.y * factor }
+}
+
+@main () -> void = run(
+    let p = Point { x: 3, y: 4 },
+    print(msg: str(p.sum())),
+)
+";
+    let result = check_source(source);
+    assert!(
+        result.has_errors(),
+        "Expected type error for undefined return type `nt` in impl block, got none"
+    );
+}
+
+#[test]
+fn bogus_param_type_is_rejected() {
+    // Also check parameter types — `garbage` as a param type should error
+    let source = "\
+@foo (x: garbage) -> int = 42
+
+@main () -> void = println(foo(1).to_str())
+";
+    let result = check_source(source);
+    assert!(
+        result.has_errors(),
+        "Expected type error for undefined param type `garbage`, got none"
+    );
+}
+
+#[test]
+fn bogus_return_type_via_imports_api() {
+    // Test the exact code path the WASM playground uses:
+    // check_module_with_imports with an empty register_fn
+    let source = "\
+type Point = { x: int, y: int }
+
+@sum (self: Point) -> garbage = self.x + self.y
+
+@main () -> void =
+  let p = Point { x: 3, y: 4 }
+  println(p.sum().to_str())
+";
+    let interner = StringInterner::new();
+    let tokens = ori_lexer::lex(source, &interner);
+    let parsed = ori_parse::parse(&tokens, &interner);
+    assert!(
+        parsed.errors.is_empty(),
+        "Parse errors: {:?}",
+        parsed.errors
+    );
+
+    let (type_result, _pool) =
+        crate::check_module_with_imports(&parsed.module, &parsed.arena, &interner, |_checker| {});
+
+    assert!(
+        type_result.has_errors(),
+        "check_module_with_imports should reject `-> garbage` but produced no errors"
+    );
+}
+
+#[test]
+fn valid_return_type_still_works() {
+    // Regression guard: valid type annotations must still work
+    let source = "\
+@sum (x: int, y: int) -> int = x + y
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "Valid return type `int` should not produce errors: {:?}",
+        result.error_kinds()
+    );
+}
+
+// ============================================================================
+// Impl Block `self` Parameter — Type Checking
+// ============================================================================
+
+#[test]
+fn impl_self_field_access_type_checks() {
+    // Regression guard: self in impl block resolves to the impl type,
+    // allowing field access and correct return type checking.
+    let source = "\
+type Point = { x: int, y: int }
+
+impl Point {
+    @sum (self) -> int = self.x + self.y
+}
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "Valid impl method with self field access should not error: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn impl_self_with_additional_params() {
+    // self and additional typed parameters should all resolve correctly
+    let source = "\
+type Counter = { value: int }
+
+impl Counter {
+    @add (self, amount: int) -> int = self.value + amount
+    @add_scaled (self, amount: int, scale: int) -> int = self.value + amount * scale
+}
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "Impl methods with self + additional params should not error: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn impl_self_return_type_mismatch_detected() {
+    // Body returns int (self.x + self.y), but declared return type is str.
+    // The type checker must catch this mismatch.
+    let source = "\
+type Point = { x: int, y: int }
+
+impl Point {
+    @sum (self) -> str = self.x + self.y
+}
+";
+    let result = check_source(source);
+    assert!(
+        result.has_errors(),
+        "Impl method returning int but declared -> str should error"
+    );
+}
+
+#[test]
+fn impl_self_returning_self_type() {
+    // Self as return type should resolve to the impl type
+    let source = "\
+type Vector = { x: int, y: int }
+
+impl Vector {
+    @negate (self) -> Self = Vector { x: 0 - self.x, y: 0 - self.y }
+}
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "Impl method returning Self should not error: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn impl_associated_function_no_self() {
+    // Associated functions (no self) should work without self-type issues
+    let source = "\
+type Point = { x: int, y: int }
+
+impl Point {
+    @origin () -> Self = Point { x: 0, y: 0 }
+}
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "Associated function without self should not error: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn impl_multiple_methods_all_use_self() {
+    // Multiple methods in the same impl block should each get self bound correctly
+    let source = "\
+type Rect = { w: int, h: int }
+
+impl Rect {
+    @area (self) -> int = self.w * self.h
+    @perimeter (self) -> int = 2 * (self.w + self.h)
+    @is_square (self) -> bool = self.w == self.h
+    @scale (self, factor: int) -> Self = Rect { w: self.w * factor, h: self.h * factor }
+}
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "Multiple impl methods using self should not error: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn impl_method_bogus_param_type_rejected() {
+    // A non-self parameter with a bogus type, when used in the body,
+    // should produce a type mismatch (garbage != int).
+    let source = "\
+type Point = { x: int, y: int }
+
+impl Point {
+    @scale (self, factor: garbage) -> int = self.x * factor
+}
+";
+    let result = check_source(source);
+    assert!(
+        result.has_errors(),
+        "Impl method using bogus param type `garbage` in arithmetic should error"
+    );
+}
+
+#[test]
+fn impl_method_wrong_body_type_with_self_and_params() {
+    // Body is int (self.value + amount), declared return is bool.
+    // With self correctly typed, the mismatch must be detected.
+    let source = "\
+type Counter = { value: int }
+
+impl Counter {
+    @add (self, amount: int) -> bool = self.value + amount
+}
+";
+    let result = check_source(source);
+    assert!(
+        result.has_errors(),
+        "Impl method body returning int but declared -> bool should error"
+    );
+}
+
+#[test]
+fn impl_self_method_on_enum() {
+    // self should also work correctly on enum types
+    let source = "\
+type Color = Red | Green | Blue
+
+impl Color {
+    @is_red (self) -> bool = match(self, Red -> true, _ -> false)
+}
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "Impl method with self on enum should not error: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn impl_self_method_on_single_field_struct() {
+    // self should work on single-field struct types
+    let source = "\
+type Wrapper = { value: int }
+
+impl Wrapper {
+    @doubled (self) -> int = self.value * 2
+}
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "Impl method with self on single-field struct should not error: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn impl_self_passed_to_function_expecting_type() {
+    // self should have the impl type, so passing it to a function that
+    // expects that type should work
+    let source = "\
+type Point = { x: int, y: int }
+
+@distance (p: Point) -> int = p.x * p.x + p.y * p.y
+
+impl Point {
+    @dist (self) -> int = distance(p: self)
+}
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "Passing self to function expecting impl type should not error: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn impl_self_passed_to_function_expecting_wrong_type() {
+    // self is Point, but passed where str is expected — should error
+    let source = "\
+type Point = { x: int, y: int }
+
+@consume (s: str) -> int = 0
+
+impl Point {
+    @bad (self) -> int = consume(s: self)
+}
+";
+    let result = check_source(source);
+    assert!(
+        result.has_errors(),
+        "Passing self (Point) where str expected should error"
+    );
+}

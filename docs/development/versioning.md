@@ -127,9 +127,15 @@ YYYY.MM.DD.N
 
 Example: `2026.02.05.3` = third build on February 5, 2026.
 
-### Storage
+### How It Works
 
-The build number lives in the `BUILD_NUMBER` file at the repo root. It is committed to git and read at compile time via `include_str!`.
+The build number is **derived from git history** — no persistent counter needed. The script `bump-build.sh` counts first-parent commits to master on the current UTC date:
+
+```bash
+git log --first-parent --oneline --since="<midnight-utc>" master | wc -l
+```
+
+The `BUILD_NUMBER` file at the repo root holds the result. It is read at compile time via `include_str!` and defaults to `0.0.0.0` in the repo (updated by CI before each build).
 
 ### Where It Appears
 
@@ -139,14 +145,12 @@ The build number lives in the `BUILD_NUMBER` file at the repo root. It is commit
 | `ori help` | `Ori Compiler 0.1.0-alpha.8 (build 2026.02.05.3)` |
 | Playground footer | `Ori build 2026.02.05.3` |
 
-### CI Workflow
+### CI Integration
 
-The `bump-build.yml` workflow runs on every push to master:
+The build number is derived at build time in CI workflows — no separate workflow or commit needed:
 
-1. Reads the current `BUILD_NUMBER` file
-2. If the date matches today (UTC), increments the counter
-3. If it's a new day, resets to `<today>.1`
-4. Commits the updated `BUILD_NUMBER` file with `[skip ci]` to avoid infinite loops
+- **`deploy-website.yml`**: Runs `bump-build.sh` before WASM build, so the playground shows the correct build number.
+- **`release.yml`**: Runs `bump-build.sh` before CLI binary builds, so release binaries show the correct build number.
 
 ### Commands
 

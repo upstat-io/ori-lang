@@ -78,6 +78,9 @@ jobs:
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
 
+      - name: Derive build number
+        run: ./scripts/bump-build.sh
+
       - name: Build WASM
         run: |
           cd website/playground-wasm

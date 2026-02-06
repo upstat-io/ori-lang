@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Bump the build number in the BUILD_NUMBER file.
+# Derive the build number from git history and write to BUILD_NUMBER.
 #
-# Format: YYYY.MM.DD.N (date in UTC + daily counter)
+# Format: YYYY.MM.DD.N (UTC date + daily merge count)
+#
+# The counter N is the number of commits merged to master on the current
+# UTC date (via --first-parent to count only merge/direct commits).
+# No persistent state needed — the git log IS the counter.
 #
 # Usage:
-#   ./scripts/bump-build.sh          # Bump and write
-#   ./scripts/bump-build.sh --check  # Dry-run: show current → next
+#   ./scripts/bump-build.sh          # Write BUILD_NUMBER
+#   ./scripts/bump-build.sh --check  # Dry-run: show what it would write
 
 set -euo pipefail
 
@@ -23,40 +27,37 @@ if [[ "${1:-}" == "--check" ]]; then
     CHECK_MODE=true
 fi
 
-# Read current build number
-current=$(tr -d '[:space:]' < "$BUILD_FILE")
-
-# Parse current value: YYYY.MM.DD.N
-IFS='.' read -r cur_year cur_month cur_day cur_counter <<< "$current"
-
 # Today's date in UTC
-today_year=$(date -u +%Y)
-today_month=$(date -u +%m)
-today_day=$(date -u +%d)
+TODAY=$(date -u +"%Y.%m.%d")
+MIDNIGHT=$(date -u +"%Y-%m-%dT00:00:00Z")
 
-# Strip leading zeros for comparison (bash arithmetic treats 08/09 as invalid octal)
-cur_month_n=$((10#${cur_month:-0}))
-cur_day_n=$((10#${cur_day:-0}))
-today_month_n=$((10#$today_month))
-today_day_n=$((10#$today_day))
-
-# Determine next build number
-if [[ "$cur_year" == "$today_year" ]] && \
-   [[ "$cur_month_n" == "$today_month_n" ]] && \
-   [[ "$cur_day_n" == "$today_day_n" ]]; then
-    # Same day: increment counter
-    next_counter=$(( ${cur_counter:-0} + 1 ))
-else
-    # New day: reset counter
-    next_counter=1
+# Count commits to master today (first-parent = merge commits + direct pushes only).
+# Use origin/master if available (CI), fall back to master (local).
+BRANCH="master"
+if git rev-parse --verify origin/master &>/dev/null; then
+    BRANCH="origin/master"
 fi
 
-next="${today_year}.${today_month}.${today_day}.${next_counter}"
+COUNT=$(git log --first-parent --oneline --since="$MIDNIGHT" "$BRANCH" 2>/dev/null | wc -l)
+COUNT=$(( COUNT )) # trim whitespace from wc -l on macOS
+
+# Build number: at least 1 (the current merge may not be in the log yet during CI)
+if [[ "$COUNT" -eq 0 ]]; then
+    COUNT=1
+fi
+
+NEXT="${TODAY}.${COUNT}"
+
+# Read current for display
+CURRENT="(none)"
+if [[ -f "$BUILD_FILE" ]]; then
+    CURRENT=$(tr -d '[:space:]' < "$BUILD_FILE")
+fi
 
 if $CHECK_MODE; then
-    echo -e "${YELLOW}Current${NC}: $current"
-    echo -e "${GREEN}Next${NC}:    $next"
+    echo -e "${YELLOW}Current${NC}: $CURRENT"
+    echo -e "${GREEN}Derived${NC}: $NEXT"
 else
-    echo "$next" > "$BUILD_FILE"
-    echo -e "${GREEN}Build number${NC}: $current → $next"
+    echo "$NEXT" > "$BUILD_FILE"
+    echo -e "${GREEN}Build number${NC}: $CURRENT -> $NEXT"
 fi
