@@ -1,15 +1,15 @@
 // Simple try pattern
 // Spec: 10-patterns.md § try
 
-@succeed (x: int) = Ok(x)
+@succeed (x: int) -> Result<int, str> = Ok(x)
 
-@process () = try(
+@process () -> Result<int, str> = try(
     let x = succeed(5),
     let y = succeed(10),
     Ok(x + y),
 )
 
-@chain (n: int) = try(
+@chain (n: int) -> Result<int, str> = try(
     let a = succeed(n),
     let b = succeed(a * 2),
     let c = succeed(b + 1),

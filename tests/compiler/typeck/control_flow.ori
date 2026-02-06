@@ -175,7 +175,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 // Helper that returns Result
-@succeed (x: int) = Ok(x)
+@succeed (x: int) -> Result<int, str> = Ok(x)
 
 // Valid: try returns Result with correct types
 @test_try_result_type () -> void = run(

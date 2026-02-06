@@ -3,7 +3,7 @@
 //! Parses literals, identifiers, variant constructors, parenthesized expressions,
 //! lists, if expressions, and let expressions.
 
-use crate::{ParseError, ParseOutcome, Parser};
+use crate::{committed, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     BindingPattern, Expr, ExprId, ExprKind, ExprRange, Param, ParamRange, ParsedTypeId, TokenKind,
 };
@@ -16,15 +16,6 @@ impl Parser<'_> {
     /// Returns `ConsumedOk` on successful parse, `ConsumedErr` on error after
     /// consuming tokens.
     pub(crate) fn parse_primary(&mut self) -> ParseOutcome<ExprId> {
-        self.with_outcome(Self::parse_primary_inner)
-    }
-
-    /// Inner implementation of primary expression parsing.
-    ///
-    /// Returns `Result` — wrapped by `parse_primary()` into `ParseOutcome`
-    /// using position-based progress detection.
-    #[inline]
-    fn parse_primary_inner(&mut self) -> Result<ExprId, ParseError> {
         let span = self.current_span();
 
         // function_seq keywords (run, try)
@@ -69,242 +60,274 @@ impl Parser<'_> {
             // Literals
             TokenKind::Int(n) => {
                 self.advance();
-                let value = i64::try_from(n).map_err(|_| {
-                    ParseError::new(
-                        ori_diagnostic::ErrorCode::E1002,
-                        "integer literal too large".to_string(),
+                let Ok(value) = i64::try_from(n) else {
+                    return ParseOutcome::consumed_err(
+                        ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            "integer literal too large".to_string(),
+                            span,
+                        ),
                         span,
-                    )
-                })?;
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Int(value), span)))
+                    );
+                };
+                ParseOutcome::consumed_ok(
+                    self.arena.alloc_expr(Expr::new(ExprKind::Int(value), span)),
+                )
             }
             TokenKind::Float(bits) => {
                 self.advance();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Float(bits), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Float(bits), span)),
+                )
             }
             TokenKind::True => {
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Bool(true), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena.alloc_expr(Expr::new(ExprKind::Bool(true), span)),
+                )
             }
             TokenKind::False => {
                 self.advance();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Bool(false), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Bool(false), span)),
+                )
             }
             TokenKind::String(name) => {
                 self.advance();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::String(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::String(name), span)),
+                )
             }
             TokenKind::Char(c) => {
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::Char(c), span)))
+                ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(ExprKind::Char(c), span)))
             }
             TokenKind::Duration(value, unit) => {
                 self.advance();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Duration { value, unit }, span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Duration { value, unit }, span)),
+                )
             }
             TokenKind::Size(value, unit) => {
                 self.advance();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Size { value, unit }, span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Size { value, unit }, span)),
+                )
             }
 
             // Constant reference: $name
             TokenKind::Dollar => {
                 self.advance();
-                let name = self.expect_ident()?;
+                let name = committed!(self.expect_ident());
                 let full_span = span.merge(self.previous_span());
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Const(name), full_span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Const(name), full_span)),
+                )
             }
 
             // Hash length symbol: # (only valid inside index brackets)
             TokenKind::Hash => {
                 if self.context.in_index() {
                     self.advance();
-                    Ok(self.arena.alloc_expr(Expr::new(ExprKind::HashLength, span)))
+                    ParseOutcome::consumed_ok(
+                        self.arena.alloc_expr(Expr::new(ExprKind::HashLength, span)),
+                    )
                 } else {
-                    Err(ParseError::new(
-                        ori_diagnostic::ErrorCode::E1002,
-                        "`#` length symbol is only valid inside index brackets".to_string(),
-                        span,
-                    ))
+                    // Don't advance — this isn't a valid expression start in this context.
+                    // Return EmptyErr so backtracking can try alternatives.
+                    ParseOutcome::empty_err_expected(&TokenKind::Hash, self.position())
                 }
             }
 
             // Identifier
             TokenKind::Ident(name) => {
                 self.advance();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
 
             // Built-in I/O primitives as soft keywords
             TokenKind::Print => {
                 let name = self.interner().intern("print");
                 self.advance();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::Panic => {
                 let name = self.interner().intern("panic");
                 self.advance();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::Catch => {
                 let name = self.interner().intern("catch");
                 self.advance();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
 
             // self - identifier for method receiver or recursive self-reference
             TokenKind::SelfLower => {
                 self.advance();
                 let name = self.interner().intern("self");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
 
             // Type conversion functions
             TokenKind::IntType => {
                 self.advance();
                 let name = self.interner().intern("int");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::FloatType => {
                 self.advance();
                 let name = self.interner().intern("float");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::StrType => {
                 self.advance();
                 let name = self.interner().intern("str");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::BoolType => {
                 self.advance();
                 let name = self.interner().intern("bool");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::CharType => {
                 self.advance();
                 let name = self.interner().intern("char");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::ByteType => {
                 self.advance();
                 let name = self.interner().intern("byte");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
 
             // Context-sensitive keywords usable as identifiers when not followed by (
             TokenKind::Timeout => {
                 self.advance();
                 let name = self.interner().intern("timeout");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::Parallel => {
                 self.advance();
                 let name = self.interner().intern("parallel");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::Cache => {
                 self.advance();
                 let name = self.interner().intern("cache");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::Spawn => {
                 self.advance();
                 let name = self.interner().intern("spawn");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             TokenKind::Recurse => {
                 self.advance();
                 let name = self.interner().intern("recurse");
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ident(name), span)))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
+                )
             }
             // Variant constructors
             TokenKind::Some => {
                 self.advance();
-                self.expect(&TokenKind::LParen)?;
-                let inner = self.parse_expr()?;
+                committed!(self.expect(&TokenKind::LParen));
+                let inner = require!(self, self.parse_expr(), "expression inside `Some(...)`");
                 let end_span = self.current_span();
-                self.expect(&TokenKind::RParen)?;
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Some(inner), span.merge(end_span))))
+                committed!(self.expect(&TokenKind::RParen));
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Some(inner), span.merge(end_span))),
+                )
             }
             TokenKind::None => {
                 self.advance();
-                Ok(self.arena.alloc_expr(Expr::new(ExprKind::None, span)))
+                ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(ExprKind::None, span)))
             }
             TokenKind::Ok => {
                 self.advance();
                 let inner = if self.check(&TokenKind::LParen) {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    self.expect(&TokenKind::RParen)?;
+                    let expr = require!(self, self.parse_expr(), "expression inside `Ok(...)`");
+                    committed!(self.expect(&TokenKind::RParen));
                     expr
                 } else {
                     ExprId::INVALID
                 };
                 let end_span = self.previous_span();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Ok(inner), span.merge(end_span))))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Ok(inner), span.merge(end_span))),
+                )
             }
             TokenKind::Err => {
                 self.advance();
                 let inner = if self.check(&TokenKind::LParen) {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    self.expect(&TokenKind::RParen)?;
+                    let expr = require!(self, self.parse_expr(), "expression inside `Err(...)`");
+                    committed!(self.expect(&TokenKind::RParen));
                     expr
                 } else {
                     ExprId::INVALID
                 };
                 let end_span = self.previous_span();
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Err(inner), span.merge(end_span))))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Err(inner), span.merge(end_span))),
+                )
             }
 
             // Parenthesized expression, tuple, or lambda
@@ -325,12 +348,15 @@ impl Parser<'_> {
             // Break expression (only valid inside loops)
             TokenKind::Break => {
                 if !self.context.in_loop() {
-                    return Err(ParseError::new(
-                        ori_diagnostic::ErrorCode::E1002,
-                        "`break` outside of loop",
+                    return ParseOutcome::consumed_err(
+                        ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            "`break` outside of loop",
+                            span,
+                        )
+                        .with_context("break can only be used inside a loop or for expression"),
                         span,
-                    )
-                    .with_context("break can only be used inside a loop or for expression"));
+                    );
                 }
                 self.advance();
                 // Optional value: break or break value
@@ -347,7 +373,7 @@ impl Parser<'_> {
                     && !self.check(&TokenKind::Yield)
                     && !self.is_at_end()
                 {
-                    self.parse_expr()?
+                    require!(self, self.parse_expr(), "expression after `break`")
                 } else {
                     ExprId::INVALID
                 };
@@ -356,20 +382,24 @@ impl Parser<'_> {
                 } else {
                     span
                 };
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Break(value), span.merge(end_span))))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Break(value), span.merge(end_span))),
+                )
             }
 
             // Continue expression (only valid inside loops)
             TokenKind::Continue => {
                 if !self.context.in_loop() {
-                    return Err(ParseError::new(
-                        ori_diagnostic::ErrorCode::E1002,
-                        "`continue` outside of loop",
+                    return ParseOutcome::consumed_err(
+                        ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            "`continue` outside of loop",
+                            span,
+                        )
+                        .with_context("continue can only be used inside a loop or for expression"),
                         span,
-                    )
-                    .with_context("continue can only be used inside a loop or for expression"));
+                    );
                 }
                 self.advance();
                 // Optional value: continue or continue value (valid in for...yield)
@@ -385,7 +415,7 @@ impl Parser<'_> {
                     && !self.check(&TokenKind::Yield)
                     && !self.is_at_end()
                 {
-                    self.parse_expr()?
+                    require!(self, self.parse_expr(), "expression after `continue`")
                 } else {
                     ExprId::INVALID
                 };
@@ -394,24 +424,28 @@ impl Parser<'_> {
                 } else {
                     span
                 };
-                Ok(self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Continue(value), span.merge(end_span))))
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Continue(value), span.merge(end_span))),
+                )
             }
 
             // Return is not valid in Ori - provide helpful error for users from other languages
             TokenKind::Return => {
                 self.advance();
-                Err(ParseError::new(
-                    ori_diagnostic::ErrorCode::E1015,
-                    "`return` is not valid in Ori",
+                ParseOutcome::consumed_err(
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1015,
+                        "`return` is not valid in Ori",
+                        span,
+                    )
+                    .with_context(
+                        "Ori is expression-based: the last expression in a block is its value",
+                    )
+                    .with_help("For early error exit, use the `?` operator: `let x = fallible()?`")
+                    .with_help("For loop exit with value, use `break value`"),
                     span,
                 )
-                .with_context(
-                    "Ori is expression-based: the last expression in a block is its value",
-                )
-                .with_help("For early error exit, use the `?` operator: `let x = fallible()?`")
-                .with_help("For loop exit with value, use `break value`"))
             }
 
             // Loop expression: loop(body)
@@ -422,45 +456,51 @@ impl Parser<'_> {
             // "Floating-point prefixes are NOT supported"
             TokenKind::FloatDurationError => {
                 self.advance();
-                Err(ParseError::new(
-                    ori_diagnostic::ErrorCode::E0911,
-                    "floating-point duration literal not supported",
+                ParseOutcome::consumed_err(
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E0911,
+                        "floating-point duration literal not supported",
+                        span,
+                    )
+                    .with_context(
+                        "use integer with smaller unit (e.g., `1500ms` instead of `1.5s`)",
+                    ),
                     span,
                 )
-                .with_context("use integer with smaller unit (e.g., `1500ms` instead of `1.5s`)"))
             }
 
             // Float with size suffix is an error (e.g., 1.5kb, 2.5mb)
             TokenKind::FloatSizeError => {
                 self.advance();
-                Err(ParseError::new(
-                    ori_diagnostic::ErrorCode::E0911,
-                    "floating-point size literal not supported",
+                ParseOutcome::consumed_err(
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E0911,
+                        "floating-point size literal not supported",
+                        span,
+                    )
+                    .with_context(
+                        "use integer with smaller unit (e.g., `1536kb` instead of `1.5mb`)",
+                    ),
                     span,
                 )
-                .with_context("use integer with smaller unit (e.g., `1536kb` instead of `1.5mb`)"))
             }
 
-            _ => Err(ParseError::new(
-                ori_diagnostic::ErrorCode::E1002,
-                format!(
-                    "expected expression, found {}",
-                    self.current_kind().display_name()
-                ),
-                span,
-            )),
+            _ => ParseOutcome::empty_err_expected(
+                &TokenKind::Ident(ori_ir::Name::EMPTY),
+                self.position(),
+            ),
         }
     }
 
     /// Parse parenthesized expression, tuple, or lambda.
-    fn parse_parenthesized(&mut self) -> Result<ExprId, ParseError> {
-        self.in_error_context_result(
+    fn parse_parenthesized(&mut self) -> ParseOutcome<ExprId> {
+        self.in_error_context(
             crate::ErrorContext::Expression,
-            Self::parse_parenthesized_inner,
+            Self::parse_parenthesized_body,
         )
     }
 
-    fn parse_parenthesized_inner(&mut self) -> Result<ExprId, ParseError> {
+    fn parse_parenthesized_body(&mut self) -> ParseOutcome<ExprId> {
         let span = self.current_span();
         self.advance(); // (
         self.skip_newlines();
@@ -473,14 +513,14 @@ impl Parser<'_> {
                 self.advance();
                 let ret_ty = if self.check_type_keyword() {
                     let ty = self.parse_type();
-                    self.expect(&TokenKind::Eq)?;
+                    committed!(self.expect(&TokenKind::Eq));
                     ty.map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
                 } else {
                     ParsedTypeId::INVALID
                 };
-                let body = self.parse_expr()?;
+                let body = require!(self, self.parse_expr(), "lambda body");
                 let end_span = self.arena.get_expr(body).span;
-                return Ok(self.arena.alloc_expr(Expr::new(
+                return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
                     ExprKind::Lambda {
                         params: ParamRange::EMPTY,
                         ret_ty,
@@ -491,7 +531,7 @@ impl Parser<'_> {
             }
 
             let end_span = self.previous_span();
-            return Ok(self.arena.alloc_expr(Expr::new(
+            return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
                 ExprKind::Tuple(ExprRange::EMPTY),
                 span.merge(end_span),
             )));
@@ -499,21 +539,21 @@ impl Parser<'_> {
 
         // Case 2: Typed lambda params
         if self.is_typed_lambda_params() {
-            let params = self.parse_params()?;
-            self.expect(&TokenKind::RParen)?;
-            self.expect(&TokenKind::Arrow)?;
+            let params = committed!(self.parse_params());
+            committed!(self.expect(&TokenKind::RParen));
+            committed!(self.expect(&TokenKind::Arrow));
 
             let ret_ty = if self.check_type_keyword() {
                 let ty = self.parse_type();
-                self.expect(&TokenKind::Eq)?;
+                committed!(self.expect(&TokenKind::Eq));
                 ty.map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
             } else {
                 ParsedTypeId::INVALID
             };
 
-            let body = self.parse_expr()?;
+            let body = require!(self, self.parse_expr(), "lambda body");
             let end_span = self.arena.get_expr(body).span;
-            return Ok(self.arena.alloc_expr(Expr::new(
+            return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
                 ExprKind::Lambda {
                     params,
                     ret_ty,
@@ -524,7 +564,7 @@ impl Parser<'_> {
         }
 
         // Case 3: Untyped - parse as expression(s)
-        let expr = self.parse_expr()?;
+        let expr = require!(self, self.parse_expr(), "expression");
 
         self.skip_newlines();
         if self.check(&TokenKind::Comma) {
@@ -535,17 +575,17 @@ impl Parser<'_> {
                 if self.check(&TokenKind::RParen) {
                     break;
                 }
-                exprs.push(self.parse_expr()?);
+                exprs.push(require!(self, self.parse_expr(), "expression in tuple"));
                 self.skip_newlines();
             }
-            self.expect(&TokenKind::RParen)?;
+            committed!(self.expect(&TokenKind::RParen));
 
             if self.check(&TokenKind::Arrow) {
                 self.advance();
-                let params = self.exprs_to_params(&exprs)?;
-                let body = self.parse_expr()?;
+                let params = committed!(self.exprs_to_params(&exprs));
+                let body = require!(self, self.parse_expr(), "lambda body");
                 let end_span = self.arena.get_expr(body).span;
-                return Ok(self.arena.alloc_expr(Expr::new(
+                return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
                     ExprKind::Lambda {
                         params,
                         ret_ty: ParsedTypeId::INVALID,
@@ -557,19 +597,20 @@ impl Parser<'_> {
 
             let end_span = self.previous_span();
             let list = self.arena.alloc_expr_list_inline(&exprs);
-            return Ok(self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::Tuple(list), span.merge(end_span))));
+            return ParseOutcome::consumed_ok(
+                self.arena
+                    .alloc_expr(Expr::new(ExprKind::Tuple(list), span.merge(end_span))),
+            );
         }
 
-        self.expect(&TokenKind::RParen)?;
+        committed!(self.expect(&TokenKind::RParen));
 
         if self.check(&TokenKind::Arrow) {
             self.advance();
-            let params = self.exprs_to_params(&[expr])?;
-            let body = self.parse_expr()?;
+            let params = committed!(self.exprs_to_params(&[expr]));
+            let body = require!(self, self.parse_expr(), "lambda body");
             let end_span = self.arena.get_expr(body).span;
-            return Ok(self.arena.alloc_expr(Expr::new(
+            return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
                 ExprKind::Lambda {
                     params,
                     ret_ty: ParsedTypeId::INVALID,
@@ -579,18 +620,18 @@ impl Parser<'_> {
             )));
         }
 
-        Ok(expr)
+        ParseOutcome::consumed_ok(expr)
     }
 
     /// Parse list literal.
-    fn parse_list_literal(&mut self) -> Result<ExprId, ParseError> {
-        self.in_error_context_result(
+    fn parse_list_literal(&mut self) -> ParseOutcome<ExprId> {
+        self.in_error_context(
             crate::ErrorContext::ListLiteral,
-            Self::parse_list_literal_inner,
+            Self::parse_list_literal_body,
         )
     }
 
-    fn parse_list_literal_inner(&mut self) -> Result<ExprId, ParseError> {
+    fn parse_list_literal_body(&mut self) -> ParseOutcome<ExprId> {
         use ori_ir::ListElement;
 
         let span = self.current_span();
@@ -600,7 +641,7 @@ impl Parser<'_> {
         let mut has_spread = false;
         let mut elements: Vec<ListElement> = Vec::new();
 
-        self.bracket_series(|p| {
+        committed!(self.bracket_series(|p| {
             if p.check(&TokenKind::RBracket) {
                 return Ok(None);
             }
@@ -610,7 +651,7 @@ impl Parser<'_> {
                 // Spread element: ...expr
                 p.advance(); // consume ...
                 has_spread = true;
-                let expr = p.parse_expr()?;
+                let expr = p.parse_expr().into_result()?;
                 let end_span = p.arena.get_expr(expr).span;
                 elements.push(ListElement::Spread {
                     expr,
@@ -618,7 +659,7 @@ impl Parser<'_> {
                 });
             } else {
                 // Regular expression element
-                let expr = p.parse_expr()?;
+                let expr = p.parse_expr().into_result()?;
                 let end_span = p.arena.get_expr(expr).span;
                 elements.push(ListElement::Expr {
                     expr,
@@ -626,7 +667,7 @@ impl Parser<'_> {
                 });
             }
             Ok(Some(()))
-        })?;
+        }));
 
         let end_span = self.previous_span();
         let full_span = span.merge(end_span);
@@ -634,9 +675,10 @@ impl Parser<'_> {
         if has_spread {
             // Use ListWithSpread for lists containing spread elements
             let range = self.arena.alloc_list_elements(elements);
-            Ok(self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::ListWithSpread(range), full_span)))
+            ParseOutcome::consumed_ok(
+                self.arena
+                    .alloc_expr(Expr::new(ExprKind::ListWithSpread(range), full_span)),
+            )
         } else {
             // Use optimized List for simple cases without spread
             let exprs: Vec<ExprId> = elements
@@ -647,21 +689,22 @@ impl Parser<'_> {
                 })
                 .collect();
             let list = self.arena.alloc_expr_list_inline(&exprs);
-            Ok(self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::List(list), full_span)))
+            ParseOutcome::consumed_ok(
+                self.arena
+                    .alloc_expr(Expr::new(ExprKind::List(list), full_span)),
+            )
         }
     }
 
     /// Parse map literal: `{ key: value, ... }`, `{ ...base, key: value }`, or `{}`.
-    fn parse_map_literal(&mut self) -> Result<ExprId, ParseError> {
-        self.in_error_context_result(
+    fn parse_map_literal(&mut self) -> ParseOutcome<ExprId> {
+        self.in_error_context(
             crate::ErrorContext::MapLiteral,
-            Self::parse_map_literal_inner,
+            Self::parse_map_literal_body,
         )
     }
 
-    fn parse_map_literal_inner(&mut self) -> Result<ExprId, ParseError> {
+    fn parse_map_literal_body(&mut self) -> ParseOutcome<ExprId> {
         use ori_ir::{MapElement, MapEntry};
 
         let span = self.current_span();
@@ -671,7 +714,7 @@ impl Parser<'_> {
         let mut has_spread = false;
         let mut elements: Vec<MapElement> = Vec::new();
 
-        self.brace_series(|p| {
+        committed!(self.brace_series(|p| {
             if p.check(&TokenKind::RBrace) {
                 return Ok(None);
             }
@@ -681,7 +724,7 @@ impl Parser<'_> {
                 // Spread element: ...expr
                 p.advance(); // consume ...
                 has_spread = true;
-                let expr = p.parse_expr()?;
+                let expr = p.parse_expr().into_result()?;
                 let end_span = p.arena.get_expr(expr).span;
                 elements.push(MapElement::Spread {
                     expr,
@@ -689,9 +732,9 @@ impl Parser<'_> {
                 });
             } else {
                 // Regular entry: key: value
-                let key = p.parse_expr()?;
+                let key = p.parse_expr().into_result()?;
                 p.expect(&TokenKind::Colon)?;
-                let value = p.parse_expr()?;
+                let value = p.parse_expr().into_result()?;
                 let end_span = p.arena.get_expr(value).span;
                 elements.push(MapElement::Entry(MapEntry {
                     key,
@@ -700,7 +743,7 @@ impl Parser<'_> {
                 }));
             }
             Ok(Some(()))
-        })?;
+        }));
 
         let end_span = self.previous_span();
         let full_span = span.merge(end_span);
@@ -708,9 +751,10 @@ impl Parser<'_> {
         if has_spread {
             // Use MapWithSpread for maps containing spread elements
             let range = self.arena.alloc_map_elements(elements);
-            Ok(self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::MapWithSpread(range), full_span)))
+            ParseOutcome::consumed_ok(
+                self.arena
+                    .alloc_expr(Expr::new(ExprKind::MapWithSpread(range), full_span)),
+            )
         } else {
             // Use optimized Map for simple cases without spread
             let entries: Vec<MapEntry> = elements
@@ -721,18 +765,19 @@ impl Parser<'_> {
                 })
                 .collect();
             let range = self.arena.alloc_map_entries(entries);
-            Ok(self
-                .arena
-                .alloc_expr(Expr::new(ExprKind::Map(range), full_span)))
+            ParseOutcome::consumed_ok(
+                self.arena
+                    .alloc_expr(Expr::new(ExprKind::Map(range), full_span)),
+            )
         }
     }
 
     /// Parse if expression.
-    fn parse_if_expr(&mut self) -> Result<ExprId, ParseError> {
-        self.in_error_context_result(crate::ErrorContext::IfExpression, Self::parse_if_expr_inner)
+    fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
+        self.in_error_context(crate::ErrorContext::IfExpression, Self::parse_if_expr_body)
     }
 
-    fn parse_if_expr_inner(&mut self) -> Result<ExprId, ParseError> {
+    fn parse_if_expr_body(&mut self) -> ParseOutcome<ExprId> {
         use crate::ParseContext;
 
         let span = self.current_span();
@@ -741,18 +786,22 @@ impl Parser<'_> {
         // Parse condition without struct literals (for consistency and future safety).
         // While Ori uses `then` instead of `{` after conditions, disallowing struct
         // literals in conditions is a common pattern that prevents potential ambiguities.
-        let cond = self.with_context(ParseContext::NO_STRUCT_LIT, Self::parse_expr)?;
+        let cond = require!(
+            self,
+            self.with_context(ParseContext::NO_STRUCT_LIT, Self::parse_expr),
+            "condition in if expression"
+        );
 
-        self.expect(&TokenKind::Then)?;
+        committed!(self.expect(&TokenKind::Then));
         self.skip_newlines();
-        let then_branch = self.parse_expr()?;
+        let then_branch = require!(self, self.parse_expr(), "then branch");
 
         self.skip_newlines();
 
         let else_branch = if self.check(&TokenKind::Else) {
             self.advance();
             self.skip_newlines();
-            self.parse_expr()?
+            require!(self, self.parse_expr(), "else branch")
         } else {
             ExprId::INVALID
         };
@@ -763,7 +812,7 @@ impl Parser<'_> {
             self.arena.get_expr(then_branch).span
         };
 
-        Ok(self.arena.alloc_expr(Expr::new(
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
             ExprKind::If {
                 cond,
                 then_branch,
@@ -779,11 +828,11 @@ impl Parser<'_> {
     /// - `let x = ...` → mutable (default)
     /// - `let $x = ...` → immutable ($ prefix)
     /// - `let mut x = ...` → mutable (legacy, redundant)
-    fn parse_let_expr(&mut self) -> Result<ExprId, ParseError> {
-        self.in_error_context_result(crate::ErrorContext::LetPattern, Self::parse_let_expr_inner)
+    fn parse_let_expr(&mut self) -> ParseOutcome<ExprId> {
+        self.in_error_context(crate::ErrorContext::LetPattern, Self::parse_let_expr_body)
     }
 
-    fn parse_let_expr_inner(&mut self) -> Result<ExprId, ParseError> {
+    fn parse_let_expr_body(&mut self) -> ParseOutcome<ExprId> {
         let span = self.current_span();
         self.advance();
 
@@ -801,7 +850,7 @@ impl Parser<'_> {
             true // default is mutable per spec
         };
 
-        let pattern = self.parse_binding_pattern()?;
+        let pattern = committed!(self.parse_binding_pattern());
         let pattern_id = self.arena.alloc_binding_pattern(pattern);
 
         let ty = if self.check(&TokenKind::Colon) {
@@ -812,11 +861,11 @@ impl Parser<'_> {
             ParsedTypeId::INVALID
         };
 
-        self.expect(&TokenKind::Eq)?;
-        let init = self.parse_expr()?;
+        committed!(self.expect(&TokenKind::Eq));
+        let init = require!(self, self.parse_expr(), "initializer expression");
 
         let end_span = self.arena.get_expr(init).span;
-        Ok(self.arena.alloc_expr(Expr::new(
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
             ExprKind::Let {
                 pattern: pattern_id,
                 ty,
@@ -918,27 +967,27 @@ impl Parser<'_> {
     }
 
     /// Parse capability provision: `with Capability = Provider in body`
-    fn parse_with_capability(&mut self) -> Result<ExprId, ParseError> {
+    fn parse_with_capability(&mut self) -> ParseOutcome<ExprId> {
         let span = self.current_span();
-        self.expect(&TokenKind::With)?;
+        committed!(self.expect(&TokenKind::With));
 
         // Parse capability name
-        let capability = self.expect_ident()?;
+        let capability = committed!(self.expect_ident());
 
-        self.expect(&TokenKind::Eq)?;
+        committed!(self.expect(&TokenKind::Eq));
 
         // Parse provider expression
-        let provider = self.parse_expr()?;
+        let provider = require!(self, self.parse_expr(), "capability provider expression");
 
         // Expect `in` keyword
-        self.expect(&TokenKind::In)?;
+        committed!(self.expect(&TokenKind::In));
         self.skip_newlines();
 
         // Parse body expression
-        let body = self.parse_expr()?;
+        let body = require!(self, self.parse_expr(), "body expression after `in`");
 
         let end_span = self.arena.get_expr(body).span;
-        Ok(self.arena.alloc_expr(Expr::new(
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
             ExprKind::WithCapability {
                 capability,
                 provider,
@@ -951,34 +1000,34 @@ impl Parser<'_> {
     /// Parse for loop: `for x in items do body` or `for x in items yield body`
     ///
     /// Also supports optional guard: `for x in items if condition do body`
-    fn parse_for_loop(&mut self) -> Result<ExprId, ParseError> {
-        self.in_error_context_result(crate::ErrorContext::ForLoop, Self::parse_for_loop_inner)
+    fn parse_for_loop(&mut self) -> ParseOutcome<ExprId> {
+        self.in_error_context(crate::ErrorContext::ForLoop, Self::parse_for_loop_body)
     }
 
-    fn parse_for_loop_inner(&mut self) -> Result<ExprId, ParseError> {
+    fn parse_for_loop_body(&mut self) -> ParseOutcome<ExprId> {
         use crate::context::ParseContext;
 
         let span = self.current_span();
-        self.expect(&TokenKind::For)?;
+        committed!(self.expect(&TokenKind::For));
 
         // Parse binding name or wildcard (_)
         let binding = if self.check(&TokenKind::Underscore) {
             self.advance();
             self.interner().intern("_")
         } else {
-            self.expect_ident()?
+            committed!(self.expect_ident())
         };
 
         // Expect `in` keyword
-        self.expect(&TokenKind::In)?;
+        committed!(self.expect(&TokenKind::In));
 
         // Parse iterator expression
-        let iter = self.parse_expr()?;
+        let iter = require!(self, self.parse_expr(), "iterator expression");
 
         // Check for optional guard: `if condition`
         let guard = if self.check(&TokenKind::If) {
             self.advance();
-            self.parse_expr()?
+            require!(self, self.parse_expr(), "guard condition")
         } else {
             ExprId::INVALID
         };
@@ -991,20 +1040,27 @@ impl Parser<'_> {
             self.advance();
             true
         } else {
-            return Err(ParseError::new(
-                ori_diagnostic::ErrorCode::E1002,
-                "expected `do` or `yield` after for loop iterator".to_string(),
-                self.current_span(),
-            ));
+            return ParseOutcome::consumed_err(
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "expected `do` or `yield` after for loop iterator".to_string(),
+                    self.current_span(),
+                ),
+                span,
+            );
         };
 
         self.skip_newlines();
 
         // Parse body expression with IN_LOOP context (enables break/continue)
-        let body = self.with_context(ParseContext::IN_LOOP, Self::parse_expr)?;
+        let body = require!(
+            self,
+            self.with_context(ParseContext::IN_LOOP, Self::parse_expr),
+            "loop body"
+        );
 
         let end_span = self.arena.get_expr(body).span;
-        Ok(self.arena.alloc_expr(Expr::new(
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
             ExprKind::For {
                 binding,
                 iter,
@@ -1019,24 +1075,29 @@ impl Parser<'_> {
     /// Parse loop expression: `loop(body)`
     ///
     /// The body is evaluated repeatedly until a `break` is encountered.
-    fn parse_loop_expr(&mut self) -> Result<ExprId, ParseError> {
+    fn parse_loop_expr(&mut self) -> ParseOutcome<ExprId> {
         use crate::context::ParseContext;
 
         let span = self.current_span();
-        self.expect(&TokenKind::Loop)?;
-        self.expect(&TokenKind::LParen)?;
+        committed!(self.expect(&TokenKind::Loop));
+        committed!(self.expect(&TokenKind::LParen));
         self.skip_newlines();
 
         // Parse body expression with IN_LOOP context (enables break/continue)
-        let body = self.with_context(ParseContext::IN_LOOP, Self::parse_expr)?;
+        let body = require!(
+            self,
+            self.with_context(ParseContext::IN_LOOP, Self::parse_expr),
+            "loop body"
+        );
 
         self.skip_newlines();
         let end_span = self.current_span();
-        self.expect(&TokenKind::RParen)?;
+        committed!(self.expect(&TokenKind::RParen));
 
-        Ok(self
-            .arena
-            .alloc_expr(Expr::new(ExprKind::Loop { body }, span.merge(end_span))))
+        ParseOutcome::consumed_ok(
+            self.arena
+                .alloc_expr(Expr::new(ExprKind::Loop { body }, span.merge(end_span))),
+        )
     }
 
     /// Check if typed lambda params.

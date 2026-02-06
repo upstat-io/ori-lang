@@ -93,9 +93,9 @@ use std.prelude { is_ok }
 // =============================================================================
 
 // Helper that returns Result
-@succeed (x: int) = Ok(x)
+@succeed (x: int) -> Result<int, str> = Ok(x)
 
-@fail_always () = Err("failed")
+@fail_always () -> Result<int, str> = Err("failed")
 
 // Valid: try with Result unwrapping and type annotation
 @test_try_result_annotation () -> void = run(

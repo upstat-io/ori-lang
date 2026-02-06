@@ -1,28 +1,34 @@
 //! Extend block parsing.
 
-use crate::{ParseError, ParseOutcome, Parser};
+use crate::{committed, ParseOutcome, Parser};
 use ori_ir::{ExtendDef, GenericParamRange, ParsedType, ParsedTypeRange, TokenKind, TypeId};
 
 impl Parser<'_> {
-    /// Parse an extend block with outcome tracking.
-    pub(crate) fn parse_extend_with_outcome(&mut self) -> ParseOutcome<ExtendDef> {
-        self.with_outcome(Self::parse_extend)
-    }
-
     /// Parse an extend block.
+    ///
     /// Syntax: extend [<T>] Type { methods }
+    ///
+    /// Returns `EmptyErr` if no `extend` keyword is present.
     ///
     /// Examples:
     ///   extend [T] { @map... }           - extends all lists
     ///   extend<T> Option<T> { @map... }  - extends Option
     ///   extend str { @reverse... }       - extends str
-    pub(crate) fn parse_extend(&mut self) -> Result<ExtendDef, ParseError> {
+    pub(crate) fn parse_extend(&mut self) -> ParseOutcome<ExtendDef> {
+        if !self.check(&TokenKind::Extend) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Extend, self.position());
+        }
+
+        self.parse_extend_body()
+    }
+
+    fn parse_extend_body(&mut self) -> ParseOutcome<ExtendDef> {
         let start_span = self.current_span();
-        self.expect(&TokenKind::Extend)?;
+        committed!(self.expect(&TokenKind::Extend));
 
         // Optional generics: <T, U: Bound>
         let generics = if self.check(&TokenKind::Lt) {
-            self.parse_generics()?
+            committed!(self.parse_generics().into_result())
         } else {
             GenericParamRange::EMPTY
         };
@@ -35,9 +41,9 @@ impl Parser<'_> {
             let elem_ty = if self.check(&TokenKind::RBracket) {
                 ParsedType::Infer
             } else {
-                self.parse_type_required()?
+                committed!(self.parse_type_required().into_result())
             };
-            self.expect(&TokenKind::RBracket)?;
+            committed!(self.expect(&TokenKind::RBracket));
             // List type - method dispatch uses "list"
             let elem_id = self.arena.alloc_parsed_type(elem_ty);
             (ParsedType::List(elem_id), self.interner().intern("list"))
@@ -56,13 +62,13 @@ impl Parser<'_> {
             (ty, self.interner().intern(type_name_str))
         } else {
             // Named type like Option<T>, MyType, etc.
-            let type_name = self.expect_ident()?;
+            let type_name = committed!(self.expect_ident());
             // Check for generic parameters like Option<T>
             let type_args = if self.check(&TokenKind::Lt) {
                 self.advance(); // <
                 let mut arg_ids = Vec::new();
                 while !self.check(&TokenKind::Gt) && !self.is_at_end() {
-                    let ty = self.parse_type_required()?;
+                    let ty = committed!(self.parse_type_required().into_result());
                     let id = self.arena.alloc_parsed_type(ty);
                     arg_ids.push(id);
                     if self.check(&TokenKind::Comma) {
@@ -89,30 +95,26 @@ impl Parser<'_> {
 
         // Optional where clause
         let where_clauses = if self.check(&TokenKind::Where) {
-            self.parse_where_clauses()?
+            committed!(self.parse_where_clauses().into_result())
         } else {
             Vec::new()
         };
 
         // Extend body: { methods }
-        self.expect(&TokenKind::LBrace)?;
+        committed!(self.expect(&TokenKind::LBrace));
         self.skip_newlines();
 
         let mut methods = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-            match self.parse_impl_method() {
-                Ok(method) => methods.push(method),
-                Err(e) => {
-                    return Err(e);
-                }
-            }
+            let method = committed!(self.parse_impl_method());
+            methods.push(method);
             self.skip_newlines();
         }
 
         let end_span = self.current_span();
-        self.expect(&TokenKind::RBrace)?;
+        committed!(self.expect(&TokenKind::RBrace));
 
-        Ok(ExtendDef {
+        ParseOutcome::consumed_ok(ExtendDef {
             generics,
             target_ty,
             target_type_name,

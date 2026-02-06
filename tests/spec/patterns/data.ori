@@ -151,7 +151,7 @@ use std.testing { assert, assert_eq, assert_ne }
     ),
 )
 
-@find_first_match () = None
+@find_first_match () -> Option<int> = None
 
 @test_find_no_match tests @find_no_match () -> void = run(
     let nums = [1, 2, 3],
@@ -161,7 +161,7 @@ use std.testing { assert, assert_eq, assert_ne }
     ),
 )
 
-@find_no_match () = None
+@find_no_match () -> Option<int> = None
 
 // =============================================================================
 // collect Method on Range
@@ -183,7 +183,7 @@ use std.testing { assert, assert_eq, assert_ne }
     ),
 )
 
-@collect_range () = []
+@collect_range () -> [int] = []
 
 @test_collect_inclusive tests @collect_inclusive () -> void = run(
     let result = (1..=3).collect(),
@@ -201,7 +201,7 @@ use std.testing { assert, assert_eq, assert_ne }
     ),
 )
 
-@collect_inclusive () = []
+@collect_inclusive () -> [int] = []
 
 // =============================================================================
 // Extended Collection Method Tests
@@ -299,7 +299,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert_eq(actual: value, expected: 20),
 )
 
-@find_first () = None
+@find_first () -> Option<int> = None
 
 // find in empty list
 @test_find_empty tests @find_empty () -> void = run(
@@ -308,7 +308,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: is_none(opt: found)),
 )
 
-@find_empty () = None
+@find_empty () -> Option<int> = None
 
 // collect empty range
 @test_collect_empty_range tests @collect_empty_range () -> void = run(
@@ -316,7 +316,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert_eq(actual: len(collection: result), expected: 0),
 )
 
-@collect_empty_range () = []
+@collect_empty_range () -> [int] = []
 
 // collect single element range
 @test_collect_single tests @collect_single () -> void = run(
@@ -325,7 +325,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert_eq(actual: result[0], expected: 42),
 )
 
-@collect_single () = []
+@collect_single () -> [int] = []
 
 // Method chaining: map then find
 @test_map_then_find tests @map_then_find () -> void = run(
@@ -336,7 +336,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert_eq(actual: value, expected: 6),
 )
 
-@map_then_find () = None
+@map_then_find () -> Option<int> = None
 
 // Method chaining: filter then fold
 @test_filter_then_fold tests @filter_then_fold () -> void = run(

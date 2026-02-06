@@ -186,7 +186,6 @@ impl<'a> Parser<'a> {
     /// Without context: "expected expression, found `}`"
     /// With context: "expected expression, found `}` (while parsing an if expression)"
     #[inline]
-    #[allow(dead_code)] // Used when grammar functions return ParseOutcome
     pub(crate) fn in_error_context<T, F>(
         &mut self,
         context: error::ErrorContext,
@@ -196,37 +195,6 @@ impl<'a> Parser<'a> {
         F: FnOnce(&mut Self) -> ParseOutcome<T>,
     {
         f(self).with_error_context(context)
-    }
-
-    /// Execute a parser returning `Result` and wrap any errors with context.
-    ///
-    /// Like `in_error_context` but for functions that return `Result<T, ParseError>`
-    /// instead of `ParseOutcome<T>`.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// fn parse_pattern(&mut self) -> Result<PatternId, ParseError> {
-    ///     self.in_error_context_result(ErrorContext::Pattern, |p| {
-    ///         // ... parsing that returns Result ...
-    ///     })
-    /// }
-    /// ```
-    #[inline]
-    pub(crate) fn in_error_context_result<T, F>(
-        &mut self,
-        context: error::ErrorContext,
-        f: F,
-    ) -> Result<T, ParseError>
-    where
-        F: FnOnce(&mut Self) -> Result<T, ParseError>,
-    {
-        f(self).map_err(|mut err| {
-            if err.context.is_none() {
-                err.context = Some(format!("while parsing {}", context.description()));
-            }
-            err
-        })
     }
 
     /// Cursor delegation methods - delegate to the underlying Cursor for token navigation.
@@ -479,38 +447,6 @@ impl<'a> Parser<'a> {
         self.cursor.position()
     }
 
-    /// Execute a parse function and return a `ParseOutcome`.
-    ///
-    /// Like `with_progress`, but returns the more expressive `ParseOutcome`
-    /// which encodes progress directly in its enum variants:
-    /// - `ConsumedOk` / `EmptyOk` for success
-    /// - `ConsumedErr` / `EmptyErr` for failure
-    ///
-    /// `EmptyErr` carries expected token information for better error messages
-    /// and automatic backtracking in `one_of!` chains.
-    #[inline]
-    pub(crate) fn with_outcome<T, F>(&mut self, f: F) -> ParseOutcome<T>
-    where
-        F: FnOnce(&mut Self) -> Result<T, ParseError>,
-    {
-        let start_pos = self.position();
-        match f(self) {
-            Ok(value) if self.position() > start_pos => ParseOutcome::ConsumedOk { value },
-            Ok(value) => ParseOutcome::EmptyOk { value },
-            Err(error) if self.position() > start_pos => {
-                let consumed_span = error.span;
-                ParseOutcome::ConsumedErr {
-                    error,
-                    consumed_span,
-                }
-            }
-            Err(_error) => ParseOutcome::EmptyErr {
-                expected: TokenSet::new(),
-                position: start_pos,
-            },
-        }
-    }
-
     // --- Speculative Parsing (Snapshots) ---
     //
     // These methods enable speculative parsing for disambiguation.
@@ -677,7 +613,7 @@ impl<'a> Parser<'a> {
                 } else {
                     Visibility::Private
                 };
-                let outcome = self.with_outcome(|p| p.parse_use_inner(visibility));
+                let outcome = self.parse_use(visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.imports,
@@ -710,7 +646,7 @@ impl<'a> Parser<'a> {
             };
 
             if self.check(&TokenKind::At) {
-                let outcome = self.parse_function_or_test_with_outcome(attrs, visibility);
+                let outcome = self.parse_function_or_test(attrs, visibility);
                 match outcome {
                     ParseOutcome::ConsumedOk { value } | ParseOutcome::EmptyOk { value } => {
                         match value {
@@ -727,7 +663,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             } else if self.check(&TokenKind::Trait) {
-                let outcome = self.parse_trait_with_outcome(visibility);
+                let outcome = self.parse_trait(visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.traits,
@@ -738,7 +674,7 @@ impl<'a> Parser<'a> {
                 && matches!(self.peek_next_kind(), TokenKind::Impl)
             {
                 // def impl TraitName { ... }
-                let outcome = self.parse_def_impl_with_outcome(visibility);
+                let outcome = self.parse_def_impl(visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.def_impls,
@@ -746,7 +682,7 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Impl) {
-                let outcome = self.parse_impl_with_outcome();
+                let outcome = self.parse_impl();
                 self.handle_outcome(
                     outcome,
                     &mut module.impls,
@@ -754,7 +690,7 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Extend) {
-                let outcome = self.parse_extend_with_outcome();
+                let outcome = self.parse_extend();
                 self.handle_outcome(
                     outcome,
                     &mut module.extends,
@@ -762,7 +698,7 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Type) {
-                let outcome = self.parse_type_decl_with_outcome(attrs, visibility);
+                let outcome = self.parse_type_decl(attrs, visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.types,
@@ -770,7 +706,7 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Dollar) {
-                let outcome = self.parse_const_with_outcome(visibility);
+                let outcome = self.parse_const(visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.consts,
@@ -865,7 +801,7 @@ impl<'a> Parser<'a> {
                 } else {
                     Visibility::Private
                 };
-                let outcome = self.with_outcome(|p| p.parse_use_inner(visibility));
+                let outcome = self.parse_use(visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.imports,
@@ -965,7 +901,7 @@ impl<'a> Parser<'a> {
             };
 
             if self.check(&TokenKind::At) {
-                let outcome = self.parse_function_or_test_with_outcome(attrs, visibility);
+                let outcome = self.parse_function_or_test(attrs, visibility);
                 match outcome {
                     ParseOutcome::ConsumedOk { value } | ParseOutcome::EmptyOk { value } => {
                         match value {
@@ -982,7 +918,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             } else if self.check(&TokenKind::Trait) {
-                let outcome = self.parse_trait_with_outcome(visibility);
+                let outcome = self.parse_trait(visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.traits,
@@ -992,7 +928,7 @@ impl<'a> Parser<'a> {
             } else if self.check(&TokenKind::Def)
                 && matches!(self.peek_next_kind(), TokenKind::Impl)
             {
-                let outcome = self.parse_def_impl_with_outcome(visibility);
+                let outcome = self.parse_def_impl(visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.def_impls,
@@ -1000,7 +936,7 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Impl) {
-                let outcome = self.parse_impl_with_outcome();
+                let outcome = self.parse_impl();
                 self.handle_outcome(
                     outcome,
                     &mut module.impls,
@@ -1008,7 +944,7 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Extend) {
-                let outcome = self.parse_extend_with_outcome();
+                let outcome = self.parse_extend();
                 self.handle_outcome(
                     outcome,
                     &mut module.extends,
@@ -1016,7 +952,7 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Type) {
-                let outcome = self.parse_type_decl_with_outcome(attrs, visibility);
+                let outcome = self.parse_type_decl(attrs, visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.types,
@@ -1024,7 +960,7 @@ impl<'a> Parser<'a> {
                     Self::recover_to_function,
                 );
             } else if self.check(&TokenKind::Dollar) {
-                let outcome = self.parse_const_with_outcome(visibility);
+                let outcome = self.parse_const(visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.consts,

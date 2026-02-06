@@ -116,7 +116,7 @@ fn test_parse_function_seq_run() {
 
 #[test]
 fn test_parse_let_expression() {
-    let result = parse_source("@test () = let x = 1");
+    let result = parse_source("@test () -> void = let x = 1");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -145,7 +145,7 @@ fn test_parse_let_expression() {
 
 #[test]
 fn test_parse_let_with_type() {
-    let result = parse_source("@test () = let x: int = 1");
+    let result = parse_source("@test () -> void = let x: int = 1");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -164,7 +164,7 @@ fn test_parse_let_with_type() {
 
 #[test]
 fn test_parse_run_with_let() {
-    let result = parse_source("@test () = run(let x = 1, x)");
+    let result = parse_source("@test () -> int = run(let x = 1, x)");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -190,7 +190,7 @@ fn test_parse_run_with_let() {
 #[test]
 fn test_parse_function_exp_print() {
     // Test parsing print function_exp (one of the remaining compiler patterns)
-    let result = parse_source("@test () = print(msg: \"hello\")");
+    let result = parse_source("@test () -> void = print(msg: \"hello\")");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -214,7 +214,7 @@ fn test_parse_function_exp_print() {
 fn test_parse_timeout_multiline() {
     // Test parsing timeout function_exp with multiline format
     let result = parse_source(
-        r#"@test () = timeout(
+        r#"@test () -> void = timeout(
         operation: print(msg: "hi"),
         after: 5s
     )"#,
@@ -261,7 +261,7 @@ fn test_parse_result_hash() {
 #[test]
 fn test_parse_timeout_pattern() {
     let result = parse_source(
-        r#"@main () = timeout(
+        r#"@main () -> void = timeout(
         operation: print(msg: "hello"),
         after: 5s
     )"#,
