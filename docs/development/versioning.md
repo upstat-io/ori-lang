@@ -22,8 +22,8 @@ These locations use `env!("CARGO_PKG_VERSION")` and are automatically correct:
 
 | Location | Mechanism |
 |----------|-----------|
-| `compiler/oric/src/main.rs` | `env!("CARGO_PKG_VERSION")` + `include_str!("../../../BUILD")` |
-| `website/playground-wasm/src/lib.rs` | `include_str!("../../../BUILD")` |
+| `compiler/oric/src/main.rs` | `env!("CARGO_PKG_VERSION")` + `include_str!("../../../BUILD_NUMBER")` |
+| `website/playground-wasm/src/lib.rs` | `include_str!("../../../BUILD_NUMBER")` |
 
 ### Manual Sync Required
 
@@ -129,7 +129,7 @@ Example: `2026.02.05.3` = third build on February 5, 2026.
 
 ### Storage
 
-The build number lives in the `BUILD` file at the repo root. It is committed to git and read at compile time via `include_str!`.
+The build number lives in the `BUILD_NUMBER` file at the repo root. It is committed to git and read at compile time via `include_str!`.
 
 ### Where It Appears
 
@@ -143,10 +143,10 @@ The build number lives in the `BUILD` file at the repo root. It is committed to 
 
 The `bump-build.yml` workflow runs on every push to master:
 
-1. Reads the current `BUILD` file
+1. Reads the current `BUILD_NUMBER` file
 2. If the date matches today (UTC), increments the counter
 3. If it's a new day, resets to `<today>.1`
-4. Commits the updated `BUILD` file with `[skip ci]` to avoid infinite loops
+4. Commits the updated `BUILD_NUMBER` file with `[skip ci]` to avoid infinite loops
 
 ### Commands
 
@@ -160,4 +160,4 @@ The `bump-build.yml` workflow runs on every push to master:
 
 ### Local Development
 
-The `BUILD` file may be stale on local clones. This is expected — the build number is an internal tracking number, not user-facing release information. Pull from master to get the latest value.
+The `BUILD_NUMBER` file may be stale on local clones. This is expected — the build number is an internal tracking number, not user-facing release information. Pull from master to get the latest value.

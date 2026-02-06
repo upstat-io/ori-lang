@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bump the build number in the BUILD file.
+# Bump the build number in the BUILD_NUMBER file.
 #
 # Format: YYYY.MM.DD.N (date in UTC + daily counter)
 #
@@ -11,7 +11,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-BUILD_FILE="$ROOT_DIR/BUILD"
+BUILD_FILE="$ROOT_DIR/BUILD_NUMBER"
 
 # Colors
 GREEN='\033[0;32m'

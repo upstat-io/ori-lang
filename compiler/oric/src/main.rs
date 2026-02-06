@@ -214,7 +214,7 @@ fn main() {
             println!(
                 "Ori Compiler {} (build {})",
                 env!("CARGO_PKG_VERSION"),
-                include_str!("../../../BUILD").trim(),
+                include_str!("../../../BUILD_NUMBER").trim(),
             );
         }
         "--explain" | "explain" => {
@@ -246,7 +246,7 @@ fn print_usage() {
     println!(
         "Ori Compiler {} (build {})",
         env!("CARGO_PKG_VERSION"),
-        include_str!("../../../BUILD").trim(),
+        include_str!("../../../BUILD_NUMBER").trim(),
     );
     println!();
     println!("Usage: ori <command> [options]");

@@ -336,6 +336,58 @@ fn unknown_identifier_in_body() {
 }
 
 #[test]
+fn unknown_identifier_suggests_similar_names() {
+    // "ad" is a typo for "add" — should suggest "add"
+    let source = "\
+@add (x: int, y: int) -> int = x + y
+
+@caller () -> int = ad(1, 2)
+";
+    let result = check_source(source);
+    assert!(result.has_errors());
+
+    let error_kinds = result.error_kinds();
+    let unknown = error_kinds
+        .iter()
+        .find(|k| matches!(k, TypeErrorKind::UnknownIdent { .. }));
+
+    assert!(unknown.is_some(), "Expected UnknownIdent error");
+
+    if let Some(TypeErrorKind::UnknownIdent { similar, .. }) = unknown {
+        assert!(
+            !similar.is_empty(),
+            "Expected similar name suggestions, got empty list"
+        );
+    }
+}
+
+#[test]
+fn unknown_identifier_no_suggestion_for_unrelated_names() {
+    // "xyz" is not similar to any name in scope
+    let source = "\
+@add (x: int, y: int) -> int = x + y
+
+@caller () -> int = xyz(1, 2)
+";
+    let result = check_source(source);
+    assert!(result.has_errors());
+
+    let error_kinds = result.error_kinds();
+    let unknown = error_kinds
+        .iter()
+        .find(|k| matches!(k, TypeErrorKind::UnknownIdent { .. }));
+
+    assert!(unknown.is_some(), "Expected UnknownIdent error");
+
+    if let Some(TypeErrorKind::UnknownIdent { similar, .. }) = unknown {
+        assert!(
+            similar.is_empty(),
+            "Expected no suggestions for 'xyz', got {similar:?}",
+        );
+    }
+}
+
+#[test]
 fn call_with_named_arg() {
     // Calling a function with named arguments
     let source = "\
