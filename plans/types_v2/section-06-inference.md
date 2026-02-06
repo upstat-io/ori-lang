@@ -241,7 +241,7 @@ impl<'a> InferEngine<'a> {
 ### Tasks
 
 - [x] Implement identifier lookup with scheme instantiation
-- [ ] Add similar name detection for typo suggestions
+- [x] Add similar name detection for typo suggestions ✅ (2026-02-05, Levenshtein distance in TypeEnv::find_similar)
 - [ ] Handle qualified identifiers (module.name)
 - [x] Add tests for identifier resolution ✅ (2026-02-04)
 
@@ -713,10 +713,9 @@ Implemented in `ori_types/src/infer/expr.rs`:
 **Section 06 Status:** In Progress (~95%)
 
 **Remaining for 100%:**
-1. Similar name detection for typo suggestions (06.3)
-2. Qualified identifier resolution (`module.name`) (06.3)
-3. Closure variable capture tracking (06.7)
-4. Scoped bindings for `recurse` pattern (06.8)
+1. Qualified identifier resolution (`module.name`) (06.3)
+2. Closure variable capture tracking (06.7)
+3. Scoped bindings for `recurse` pattern (06.8)
 
 ---
 

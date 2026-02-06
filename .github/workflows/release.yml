@@ -87,6 +87,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive build number
+        run: ./scripts/bump-build.sh
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -138,6 +143,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive build number
+        run: ./scripts/bump-build.sh
 
       - name: Install LLVM
         run: |
@@ -178,6 +188,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive build number
+        shell: bash
+        run: ./scripts/bump-build.sh
 
       - name: Download LLVM
         run: |

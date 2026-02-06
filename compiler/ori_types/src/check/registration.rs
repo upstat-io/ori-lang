@@ -604,9 +604,12 @@ fn build_impl_method(
     let param_types: Vec<Idx> = params
         .iter()
         .map(|p| {
-            p.ty.as_ref().map_or(Idx::ERROR, |ty| {
-                resolve_type_with_self(checker, ty, type_params, self_type)
-            })
+            let is_self = checker.interner().lookup(p.name) == "self";
+            match p.ty.as_ref() {
+                Some(ty) => resolve_type_with_self(checker, ty, type_params, self_type),
+                None if is_self => self_type,
+                None => Idx::ERROR,
+            }
         })
         .collect();
 
