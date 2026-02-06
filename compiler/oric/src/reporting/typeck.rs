@@ -62,7 +62,7 @@ impl<'a> TypeErrorRenderer<'a> {
 
     /// Format a type index into a human-readable string.
     fn format_type(&self, idx: Idx) -> String {
-        self.pool.format_type(idx)
+        self.pool.format_type_resolved(idx, self.interner)
     }
 
     /// Look up an interned Name.

@@ -420,7 +420,7 @@ impl TypeCheckError {
     /// }
     /// ```
     pub fn format_with(&self, pool: &crate::Pool, interner: &ori_ir::StringInterner) -> String {
-        self.format_message_rich(&|idx| pool.format_type(idx), &|name| {
+        self.format_message_rich(&|idx| pool.format_type_resolved(idx, interner), &|name| {
             interner.lookup(name).to_string()
         })
     }
