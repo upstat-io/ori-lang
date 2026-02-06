@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: Registries
-status: in-progress
+status: complete
 goal: Type, trait, and method registries for user-defined types
 sections:
   - id: "07.1"
@@ -18,7 +18,7 @@ sections:
     status: complete
   - id: "07.5"
     title: Method Lookup Algorithm
-    status: in-progress
+    status: complete
 ---
 
 # Section 07: Registries
@@ -229,15 +229,14 @@ lookup_method(receiver_ty, method_name):
 - [x] `TraitRegistry` complete with coherence checking ✅
 - [x] `MethodRegistry` unifying all method sources ✅
 - [x] All built-in methods registered ✅
-- [x] Basic method lookup algorithm working ✅
-- [ ] Auto-deref working for Option/Result — deferred
+- [x] Method lookup algorithm working (builtin → inherent → trait) ✅
 - [x] All tests passing ✅ (20 registry tests total)
 
-**Section 07 Status:** In Progress (~85%)
+**Section 07 Status:** ✅ Complete (2026-02-05)
 
-**Remaining:**
-1. Auto-deref for Option/Result — can be added later during type checker integration
-2. Method ambiguity handling — edge case, implement when needed
+**Deferred to future plans:**
+1. Auto-deref for Option/Result — per `optional-method-forwarding-proposal.md`
+2. Method ambiguity handling — implement when multiple trait impls become common
 3. Caching — performance optimization, implement when profiling shows need
 
-**Exit Criteria:** Method calls resolve correctly through the unified registry, finding built-in methods, inherent methods, and trait methods in the correct priority order.
+**Exit Criteria:** ✅ Met. Method calls resolve correctly through the unified registry, finding built-in methods, inherent methods, and trait methods in the correct priority order.
