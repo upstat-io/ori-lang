@@ -245,37 +245,37 @@ impl Parser<'_> {
                 || self.check(&TokenKind::By)
                 || self.is_at_end()
             {
-                None
+                ExprId::INVALID
             } else {
-                Some(self.parse_shift()?)
+                self.parse_shift()?
             };
 
             // Parse optional step: `by <expr>`
             let step = if self.check(&TokenKind::By) {
                 self.advance();
-                Some(self.parse_shift()?)
+                self.parse_shift()?
             } else {
-                None
+                ExprId::INVALID
             };
 
             // Compute span from start to end/step
-            let span = if let Some(step_expr) = step {
+            let span = if step.is_present() {
                 self.arena
                     .get_expr(left)
                     .span
-                    .merge(self.arena.get_expr(step_expr).span)
-            } else if let Some(end_expr) = end {
+                    .merge(self.arena.get_expr(step).span)
+            } else if end.is_present() {
                 self.arena
                     .get_expr(left)
                     .span
-                    .merge(self.arena.get_expr(end_expr).span)
+                    .merge(self.arena.get_expr(end).span)
             } else {
                 self.arena.get_expr(left).span.merge(self.previous_span())
             };
 
             left = self.arena.alloc_expr(Expr::new(
                 ExprKind::Range {
-                    start: Some(left),
+                    start: left,
                     end,
                     step,
                     inclusive,

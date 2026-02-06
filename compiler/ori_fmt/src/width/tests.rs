@@ -418,7 +418,7 @@ fn test_width_ok() {
     let interner = StringInterner::new();
 
     let value = make_expr(&mut arena, ExprKind::Int(1));
-    let ok = make_expr(&mut arena, ExprKind::Ok(Some(value)));
+    let ok = make_expr(&mut arena, ExprKind::Ok(value));
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(ok), 5); // "Ok(1)"
@@ -429,7 +429,7 @@ fn test_width_ok_empty() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
 
-    let ok = make_expr(&mut arena, ExprKind::Ok(None));
+    let ok = make_expr(&mut arena, ExprKind::Ok(ExprId::INVALID));
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(ok), 4); // "Ok()"
@@ -441,7 +441,7 @@ fn test_width_err() {
     let interner = StringInterner::new();
 
     let value = make_expr(&mut arena, ExprKind::Int(1));
-    let err = make_expr(&mut arena, ExprKind::Err(Some(value)));
+    let err = make_expr(&mut arena, ExprKind::Err(value));
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(err), 6); // "Err(1)"
@@ -452,7 +452,7 @@ fn test_width_err_empty() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
 
-    let err = make_expr(&mut arena, ExprKind::Err(None));
+    let err = make_expr(&mut arena, ExprKind::Err(ExprId::INVALID));
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(err), 5); // "Err()"
@@ -475,7 +475,7 @@ fn test_width_break() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
 
-    let brk = make_expr(&mut arena, ExprKind::Break(None));
+    let brk = make_expr(&mut arena, ExprKind::Break(ExprId::INVALID));
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(brk), 5); // "break"
@@ -487,7 +487,7 @@ fn test_width_break_value() {
     let interner = StringInterner::new();
 
     let value = make_expr(&mut arena, ExprKind::Int(42));
-    let brk = make_expr(&mut arena, ExprKind::Break(Some(value)));
+    let brk = make_expr(&mut arena, ExprKind::Break(value));
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(brk), 8); // "break 42"
@@ -498,7 +498,7 @@ fn test_width_continue() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
 
-    let cont = make_expr(&mut arena, ExprKind::Continue(None));
+    let cont = make_expr(&mut arena, ExprKind::Continue(ExprId::INVALID));
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(cont), 8); // "continue"
@@ -576,7 +576,7 @@ fn test_width_if_simple() {
         ExprKind::If {
             cond,
             then_branch,
-            else_branch: None,
+            else_branch: ExprId::INVALID,
         },
     );
     let mut calc = WidthCalculator::new(&arena, &interner);
@@ -598,7 +598,7 @@ fn test_width_if_else() {
         ExprKind::If {
             cond,
             then_branch,
-            else_branch: Some(else_branch),
+            else_branch,
         },
     );
     let mut calc = WidthCalculator::new(&arena, &interner);
@@ -629,7 +629,7 @@ fn test_width_block_empty() {
         &mut arena,
         ExprKind::Block {
             stmts: StmtRange::EMPTY,
-            result: None,
+            result: ExprId::INVALID,
         },
     );
     let mut calc = WidthCalculator::new(&arena, &interner);
@@ -647,7 +647,7 @@ fn test_width_block_with_result() {
         &mut arena,
         ExprKind::Block {
             stmts: StmtRange::EMPTY,
-            result: Some(result),
+            result,
         },
     );
     let mut calc = WidthCalculator::new(&arena, &interner);
@@ -681,9 +681,9 @@ fn test_width_range() {
     let range = make_expr(
         &mut arena,
         ExprKind::Range {
-            start: Some(start),
-            end: Some(end),
-            step: None,
+            start,
+            end,
+            step: ExprId::INVALID,
             inclusive: false,
         },
     );
@@ -703,9 +703,9 @@ fn test_width_range_inclusive() {
     let range = make_expr(
         &mut arena,
         ExprKind::Range {
-            start: Some(start),
-            end: Some(end),
-            step: None,
+            start,
+            end,
+            step: ExprId::INVALID,
             inclusive: true,
         },
     );
@@ -735,14 +735,12 @@ fn test_always_stacked_run() {
 
     let result = make_expr(&mut arena, ExprKind::Int(1));
     let bindings = arena.alloc_seq_bindings([]);
-    let run = make_expr(
-        &mut arena,
-        ExprKind::FunctionSeq(FunctionSeq::Run {
-            bindings,
-            result,
-            span: Span::new(0, 1),
-        }),
-    );
+    let seq_id = arena.alloc_function_seq(FunctionSeq::Run {
+        bindings,
+        result,
+        span: Span::new(0, 1),
+    });
+    let run = make_expr(&mut arena, ExprKind::FunctionSeq(seq_id));
 
     let mut calc = WidthCalculator::new(&arena, &interner);
     assert_eq!(calc.width(run), ALWAYS_STACKED);
@@ -755,14 +753,12 @@ fn test_always_stacked_try() {
 
     let result = make_expr(&mut arena, ExprKind::Int(1));
     let bindings = arena.alloc_seq_bindings([]);
-    let try_expr = make_expr(
-        &mut arena,
-        ExprKind::FunctionSeq(FunctionSeq::Try {
-            bindings,
-            result,
-            span: Span::new(0, 1),
-        }),
-    );
+    let seq_id = arena.alloc_function_seq(FunctionSeq::Try {
+        bindings,
+        result,
+        span: Span::new(0, 1),
+    });
+    let try_expr = make_expr(&mut arena, ExprKind::FunctionSeq(seq_id));
 
     let mut calc = WidthCalculator::new(&arena, &interner);
     assert_eq!(calc.width(try_expr), ALWAYS_STACKED);
@@ -798,7 +794,7 @@ fn test_always_stacked_block_with_stmts() {
         &mut arena,
         ExprKind::Block {
             stmts,
-            result: None,
+            result: ExprId::INVALID,
         },
     );
 

@@ -3,7 +3,7 @@
 use inkwell::context::Context;
 use ori_ir::ast::patterns::{BindingPattern, FunctionSeq, MatchArm, MatchPattern, SeqBinding};
 use ori_ir::ast::{Expr, ExprKind};
-use ori_ir::{ExprArena, SeqBindingRange, Span, StringInterner};
+use ori_ir::{ExprArena, ParsedTypeId, SeqBindingRange, Span, StringInterner};
 use ori_types::Idx;
 
 use super::helper::setup_builder_test;
@@ -63,9 +63,10 @@ fn test_function_seq_run_with_let_binding() {
     });
 
     let x_name = interner.intern("x");
+    let x_pattern = arena.alloc_binding_pattern(BindingPattern::Name(x_name));
     let binding = SeqBinding::Let {
-        pattern: BindingPattern::Name(x_name),
-        ty: None,
+        pattern: x_pattern,
+        ty: ParsedTypeId::INVALID,
         value: ten,
         mutable: false,
         span: Span::new(0, 1),
@@ -209,9 +210,10 @@ fn test_function_seq_try_with_let_binding() {
     });
 
     let x_name = interner.intern("x");
+    let x_pattern = arena.alloc_binding_pattern(BindingPattern::Name(x_name));
     let binding = SeqBinding::Let {
-        pattern: BindingPattern::Name(x_name),
-        ty: None,
+        pattern: x_pattern,
+        ty: ParsedTypeId::INVALID,
         value: ten,
         mutable: false,
         span: Span::new(0, 1),

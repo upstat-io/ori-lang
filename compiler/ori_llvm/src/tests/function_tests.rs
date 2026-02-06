@@ -42,7 +42,7 @@ fn make_if(arena: &mut ExprArena, cond: ExprId, then_br: ExprId, else_br: ExprId
         kind: ExprKind::If {
             cond,
             then_branch: then_br,
-            else_branch: Some(else_br),
+            else_branch: else_br,
         },
         span: ori_ir::Span::new(0, 1),
     })
@@ -459,7 +459,7 @@ fn test_lambda_simple() {
     let lambda_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Lambda {
             params,
-            ret_ty: None,
+            ret_ty: ori_ir::ParsedTypeId::INVALID,
             body,
         },
         span: ori_ir::Span::new(0, 1),

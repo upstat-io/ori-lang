@@ -127,14 +127,29 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
             ty,
             init,
             mutable,
-        } => infer_let(engine, arena, pattern, ty.as_ref(), *init, *mutable, span),
+        } => {
+            let pat = arena.get_binding_pattern(*pattern);
+            let ty_ref = if ty.is_valid() {
+                Some(arena.get_parsed_type(*ty))
+            } else {
+                None
+            };
+            infer_let(engine, arena, pat, ty_ref, *init, *mutable, span)
+        }
 
         // === Lambdas ===
         ExprKind::Lambda {
             params,
             ret_ty,
             body,
-        } => infer_lambda(engine, arena, *params, ret_ty.as_ref(), *body, span),
+        } => {
+            let ret_ty_ref = if ret_ty.is_valid() {
+                Some(arena.get_parsed_type(*ret_ty))
+            } else {
+                None
+            };
+            infer_lambda(engine, arena, *params, ret_ty_ref, *body, span)
+        }
 
         // === Collections ===
         ExprKind::List(elements) => infer_list(engine, arena, *elements, span),
@@ -168,9 +183,14 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         ExprKind::Await(inner) => infer_await(engine, arena, *inner, span),
 
         // === Casts and Assignment ===
-        ExprKind::Cast { expr, ty, fallible } => {
-            infer_cast(engine, arena, *expr, ty, *fallible, span)
-        }
+        ExprKind::Cast { expr, ty, fallible } => infer_cast(
+            engine,
+            arena,
+            *expr,
+            arena.get_parsed_type(*ty),
+            *fallible,
+            span,
+        ),
         ExprKind::Assign { target, value } => infer_assign(engine, arena, *target, *value, span),
 
         // === Capabilities ===
@@ -181,8 +201,14 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         } => infer_with_capability(engine, arena, *capability, *provider, *body, span),
 
         // === Pattern Expressions ===
-        ExprKind::FunctionSeq(func_seq) => infer_function_seq(engine, arena, func_seq, span),
-        ExprKind::FunctionExp(func_exp) => infer_function_exp(engine, arena, func_exp),
+        ExprKind::FunctionSeq(seq_id) => {
+            let func_seq = arena.get_function_seq(*seq_id);
+            infer_function_seq(engine, arena, func_seq, span)
+        }
+        ExprKind::FunctionExp(exp_id) => {
+            let func_exp = arena.get_function_exp(*exp_id);
+            infer_function_exp(engine, arena, func_exp)
+        }
 
         // === Error ===
         ExprKind::Error => Idx::ERROR,
@@ -842,7 +868,7 @@ fn infer_if(
     arena: &ExprArena,
     cond: ExprId,
     then_branch: ExprId,
-    else_branch: Option<ExprId>,
+    else_branch: ExprId,
     _span: Span,
 ) -> Idx {
     // Condition must be bool
@@ -860,7 +886,7 @@ fn infer_if(
     let then_ty = infer_expr(engine, arena, then_branch);
     engine.pop_context();
 
-    if let Some(else_id) = else_branch {
+    if else_branch.is_present() {
         // Else branch must match then branch
         engine.push_context(ContextKind::IfElseBranch { branch_index: 0 });
         let then_span = arena.get_expr(then_branch).span;
@@ -872,8 +898,8 @@ fn infer_if(
                 sequence_kind: SequenceKind::IfBranches,
             },
         };
-        let else_ty = infer_expr(engine, arena, else_id);
-        let _ = engine.check_type(else_ty, &expected, arena.get_expr(else_id).span);
+        let else_ty = infer_expr(engine, arena, else_branch);
+        let _ = engine.check_type(else_ty, &expected, arena.get_expr(else_branch).span);
         engine.pop_context();
 
         engine.resolve(then_ty)
@@ -1356,7 +1382,7 @@ fn infer_for(
     arena: &ExprArena,
     binding: Name,
     iter: ExprId,
-    guard: Option<ExprId>,
+    guard: ExprId,
     body: ExprId,
     is_yield: bool,
     _span: Span,
@@ -1399,16 +1425,16 @@ fn infer_for(
     engine.pop_context();
 
     // Check guard if present (must be bool)
-    if let Some(guard_id) = guard {
-        let guard_ty = infer_expr(engine, arena, guard_id);
+    if guard.is_present() {
+        let guard_ty = infer_expr(engine, arena, guard);
         let expected = Expected {
             ty: Idx::BOOL,
             origin: ExpectedOrigin::Context {
-                span: arena.get_expr(guard_id).span,
+                span: arena.get_expr(guard).span,
                 kind: ContextKind::LoopCondition,
             },
         };
-        let _ = engine.check_type(guard_ty, &expected, arena.get_expr(guard_id).span);
+        let _ = engine.check_type(guard_ty, &expected, arena.get_expr(guard).span);
     }
 
     // Infer body type
@@ -1470,7 +1496,7 @@ fn infer_block(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     stmts: ori_ir::StmtRange,
-    result: Option<ExprId>,
+    result: ExprId,
     _span: Span,
 ) -> Idx {
     // Enter binding scope for the block.
@@ -1489,18 +1515,21 @@ fn infer_block(
                 init,
                 mutable: _,
             } => {
+                let pat = arena.get_binding_pattern(*pattern);
+
                 // Enter rank scope for let-polymorphism (not binding scope).
                 // This allows type variables in the initializer to be generalized.
                 engine.enter_rank_scope();
 
                 // Check/infer the initializer type based on presence of annotation
-                let final_ty = if let Some(parsed_ty) = ty {
+                let final_ty = if ty.is_valid() {
                     // With type annotation: use bidirectional checking
+                    let parsed_ty = arena.get_parsed_type(*ty);
                     let expected_ty = resolve_parsed_type(engine, arena, parsed_ty);
                     let expected = Expected {
                         ty: expected_ty,
                         origin: ExpectedOrigin::Annotation {
-                            name: pattern_first_name(pattern).unwrap_or(Name::EMPTY),
+                            name: pattern_first_name(pat).unwrap_or(Name::EMPTY),
                             span: stmt.span,
                         },
                     };
@@ -1517,15 +1546,16 @@ fn infer_block(
 
                 // Bind pattern to the block's scope.
                 // The binding is visible to subsequent statements and the result.
-                bind_pattern(engine, arena, pattern, final_ty);
+                bind_pattern(engine, arena, pat, final_ty);
             }
         }
     }
 
     // Block type is the result expression type, or unit
-    let block_ty = match result {
-        Some(result_id) => infer_expr(engine, arena, result_id),
-        None => Idx::UNIT,
+    let block_ty = if result.is_present() {
+        infer_expr(engine, arena, result)
+    } else {
+        Idx::UNIT
     };
 
     // Exit block scope - bindings are no longer visible
@@ -1659,10 +1689,10 @@ fn infer_lambda(
 fn infer_list(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    elements: ori_ir::ExprList,
+    elements: ori_ir::ExprRange,
     _span: Span,
 ) -> Idx {
-    let elem_ids: Vec<_> = arena.iter_expr_list(elements).collect();
+    let elem_ids: Vec<_> = arena.get_expr_list(elements).to_vec();
 
     if elem_ids.is_empty() {
         return engine.infer_empty_list();
@@ -1764,10 +1794,10 @@ fn infer_list_spread(
 fn infer_tuple(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    elements: ori_ir::ExprList,
+    elements: ori_ir::ExprRange,
     _span: Span,
 ) -> Idx {
-    let elem_ids: Vec<_> = arena.iter_expr_list(elements).collect();
+    let elem_ids: Vec<_> = arena.get_expr_list(elements).to_vec();
     let elem_types: Vec<_> = elem_ids
         .iter()
         .map(|&id| infer_expr(engine, arena, id))
@@ -1866,32 +1896,32 @@ fn infer_map_spread(
 fn infer_range(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    start: Option<ExprId>,
-    end: Option<ExprId>,
-    step: Option<ExprId>,
+    start: ExprId,
+    end: ExprId,
+    step: ExprId,
     _inclusive: bool,
     _span: Span,
 ) -> Idx {
     // Determine element type from provided bounds
-    let elem_ty = if let Some(start_id) = start {
-        infer_expr(engine, arena, start_id)
-    } else if let Some(end_id) = end {
-        infer_expr(engine, arena, end_id)
+    let elem_ty = if start.is_present() {
+        infer_expr(engine, arena, start)
+    } else if end.is_present() {
+        infer_expr(engine, arena, end)
     } else {
         Idx::INT // Default to int for open ranges
     };
 
     // Unify all provided bounds
-    if let Some(start_id) = start {
-        let ty = infer_expr(engine, arena, start_id);
+    if start.is_present() {
+        let ty = infer_expr(engine, arena, start);
         let _ = engine.unify_types(ty, elem_ty);
     }
-    if let Some(end_id) = end {
-        let ty = infer_expr(engine, arena, end_id);
+    if end.is_present() {
+        let ty = infer_expr(engine, arena, end);
         let _ = engine.unify_types(ty, elem_ty);
     }
-    if let Some(step_id) = step {
-        let ty = infer_expr(engine, arena, step_id);
+    if step.is_present() {
+        let ty = infer_expr(engine, arena, step);
         let _ = engine.unify_types(ty, elem_ty);
     }
 
@@ -2397,29 +2427,21 @@ fn substitute_named_types(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>
 }
 
 // Option/Result constructors
-fn infer_ok(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    inner: Option<ExprId>,
-    _span: Span,
-) -> Idx {
-    let ok_ty = match inner {
-        Some(id) => infer_expr(engine, arena, id),
-        None => Idx::UNIT,
+fn infer_ok(engine: &mut InferEngine<'_>, arena: &ExprArena, inner: ExprId, _span: Span) -> Idx {
+    let ok_ty = if inner.is_present() {
+        infer_expr(engine, arena, inner)
+    } else {
+        Idx::UNIT
     };
     let err_ty = engine.fresh_var();
     engine.infer_result(ok_ty, err_ty)
 }
 
-fn infer_err(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    inner: Option<ExprId>,
-    _span: Span,
-) -> Idx {
-    let err_ty = match inner {
-        Some(id) => infer_expr(engine, arena, id),
-        None => Idx::UNIT,
+fn infer_err(engine: &mut InferEngine<'_>, arena: &ExprArena, inner: ExprId, _span: Span) -> Idx {
+    let err_ty = if inner.is_present() {
+        infer_expr(engine, arena, inner)
+    } else {
+        Idx::UNIT
     };
     let ok_ty = engine.fresh_var();
     engine.infer_result(ok_ty, err_ty)
@@ -2436,16 +2458,12 @@ fn infer_none(engine: &mut InferEngine<'_>) -> Idx {
 }
 
 // Control flow expression stubs
-fn infer_break(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    value: Option<ExprId>,
-    _span: Span,
-) -> Idx {
+fn infer_break(engine: &mut InferEngine<'_>, arena: &ExprArena, value: ExprId, _span: Span) -> Idx {
     // Infer the break value's type (unit if no value)
-    let value_ty = match value {
-        Some(expr_id) => infer_expr(engine, arena, expr_id),
-        None => Idx::UNIT,
+    let value_ty = if value.is_present() {
+        infer_expr(engine, arena, value)
+    } else {
+        Idx::UNIT
     };
 
     // Unify with the enclosing loop's break type variable
@@ -2460,7 +2478,7 @@ fn infer_break(
 fn infer_continue(
     _engine: &mut InferEngine<'_>,
     _arena: &ExprArena,
-    _value: Option<ExprId>,
+    _value: ExprId,
     _span: Span,
 ) -> Idx {
     Idx::NEVER
@@ -2573,7 +2591,7 @@ fn infer_call(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     func: ExprId,
-    args: ori_ir::ExprList,
+    args: ori_ir::ExprRange,
     span: Span,
 ) -> Idx {
     let func_ty = infer_expr(engine, arena, func);
@@ -2589,7 +2607,7 @@ fn infer_call(
     let params = engine.pool().function_params(resolved);
     let ret = engine.pool().function_return(resolved);
 
-    let arg_ids: Vec<_> = arena.iter_expr_list(args).collect();
+    let arg_ids: Vec<_> = arena.get_expr_list(args).to_vec();
 
     // Extract function name for signature lookup
     let func_name_id = match &arena.get_expr(func).kind {
@@ -3063,7 +3081,7 @@ fn infer_method_call(
     arena: &ExprArena,
     receiver: ExprId,
     method: Name,
-    args: ori_ir::ExprList,
+    args: ori_ir::ExprRange,
     span: Span,
 ) -> Idx {
     let receiver_ty = infer_expr(engine, arena, receiver);
@@ -3071,7 +3089,7 @@ fn infer_method_call(
 
     // Propagate errors silently, but still infer args
     if resolved == Idx::ERROR {
-        for arg_id in arena.iter_expr_list(args) {
+        for &arg_id in arena.get_expr_list(args) {
             infer_expr(engine, arena, arg_id);
         }
         return Idx::ERROR;
@@ -3087,7 +3105,7 @@ fn infer_method_call(
     // For unresolved type variables, infer args and return fresh var
     let tag = engine.pool().tag(resolved);
     if tag == Tag::Var {
-        for arg_id in arena.iter_expr_list(args) {
+        for &arg_id in arena.get_expr_list(args) {
             infer_expr(engine, arena, arg_id);
         }
         return engine.pool_mut().fresh_var();
@@ -3100,7 +3118,7 @@ fn infer_method_call(
     if let Some(ref name_str) = method_str {
         if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
             // Infer arguments (built-in methods don't have formal param types yet)
-            for arg_id in arena.iter_expr_list(args) {
+            for &arg_id in arena.get_expr_list(args) {
                 infer_expr(engine, arena, arg_id);
             }
             return ret;
@@ -3114,7 +3132,7 @@ fn infer_method_call(
 
     // 3. No method found — silently return ERROR to preserve backward compatibility.
     // Once impl method registration is complete, this should report an error instead.
-    for arg_id in arena.iter_expr_list(args) {
+    for &arg_id in arena.get_expr_list(args) {
         infer_expr(engine, arena, arg_id);
     }
     Idx::ERROR
@@ -3502,7 +3520,7 @@ fn resolve_impl_method(
     arena: &ExprArena,
     receiver_ty: Idx,
     method: Name,
-    args: ori_ir::ExprList,
+    args: ori_ir::ExprRange,
     span: Span,
 ) -> Option<Idx> {
     // Look up the method signature and self-ness from user-defined impls
@@ -3515,7 +3533,7 @@ fn resolve_impl_method(
     let resolved_sig = engine.resolve(sig_ty);
     if engine.pool().tag(resolved_sig) != Tag::Function {
         // Signature exists but isn't a proper function type
-        for arg_id in arena.iter_expr_list(args) {
+        for &arg_id in arena.get_expr_list(args) {
             infer_expr(engine, arena, arg_id);
         }
         return Some(Idx::ERROR);
@@ -3529,7 +3547,7 @@ fn resolve_impl_method(
     let skip = usize::from(has_self);
     let method_params: Vec<Idx> = params[skip..].to_vec();
 
-    let arg_ids: Vec<_> = arena.iter_expr_list(args).collect();
+    let arg_ids: Vec<_> = arena.get_expr_list(args).to_vec();
 
     // Check arity
     if arg_ids.len() != method_params.len() {
@@ -4070,16 +4088,19 @@ fn infer_seq_binding(
             span,
             ..
         } => {
+            let pat = arena.get_binding_pattern(*pattern);
+
             // Track error count for closure self-capture detection
-            let binding_name = pattern_first_name(pattern);
+            let binding_name = pattern_first_name(pat);
             let errors_before = engine.error_count();
 
             // Enter scope for let-polymorphism (allows generalization of lambdas)
             engine.enter_scope();
 
             // Handle type annotation if present, or generalize for let-polymorphism
-            let final_ty = if let Some(parsed_ty) = ty {
+            let final_ty = if ty.is_valid() {
                 // With type annotation
+                let parsed_ty = arena.get_parsed_type(*ty);
                 let expected_ty = resolve_parsed_type(engine, arena, parsed_ty);
 
                 if try_unwrap {
@@ -4091,7 +4112,7 @@ fn infer_seq_binding(
                     let expected = Expected {
                         ty: expected_ty,
                         origin: ExpectedOrigin::Annotation {
-                            name: pattern_first_name(pattern).unwrap_or(Name::EMPTY),
+                            name: pattern_first_name(pat).unwrap_or(Name::EMPTY),
                             span: *span,
                         },
                     };
@@ -4103,7 +4124,7 @@ fn infer_seq_binding(
                     let expected = Expected {
                         ty: expected_ty,
                         origin: ExpectedOrigin::Annotation {
-                            name: pattern_first_name(pattern).unwrap_or(Name::EMPTY),
+                            name: pattern_first_name(pat).unwrap_or(Name::EMPTY),
                             span: *span,
                         },
                     };
@@ -4139,7 +4160,7 @@ fn infer_seq_binding(
             engine.exit_scope();
 
             // Bind pattern to type
-            bind_pattern(engine, arena, pattern, final_ty);
+            bind_pattern(engine, arena, pat, final_ty);
         }
 
         SeqBinding::Stmt { expr, .. } => {
@@ -5380,7 +5401,7 @@ mod tests {
             ExprKind::If {
                 cond,
                 then_branch,
-                else_branch: Some(else_branch),
+                else_branch,
             },
         );
 
@@ -5404,7 +5425,7 @@ mod tests {
             ExprKind::If {
                 cond,
                 then_branch,
-                else_branch: None,
+                else_branch: ExprId::INVALID,
             },
         );
 
@@ -5429,7 +5450,7 @@ mod tests {
             ExprKind::If {
                 cond,
                 then_branch,
-                else_branch: Some(else_branch),
+                else_branch,
             },
         );
 
@@ -5455,7 +5476,7 @@ mod tests {
             ExprKind::If {
                 cond,
                 then_branch,
-                else_branch: None,
+                else_branch: ExprId::INVALID,
             },
         );
 
@@ -5600,7 +5621,7 @@ mod tests {
             ExprKind::For {
                 binding: name(2), // 'x'
                 iter,
-                guard: None,
+                guard: ExprId::INVALID,
                 body,
                 is_yield: false,
             },
@@ -5631,7 +5652,7 @@ mod tests {
             ExprKind::For {
                 binding: name(2), // 'x'
                 iter,
-                guard: None,
+                guard: ExprId::INVALID,
                 body: x_ref,
                 is_yield: true,
             },
@@ -5668,7 +5689,7 @@ mod tests {
             ExprKind::For {
                 binding: name(2),
                 iter,
-                guard: Some(guard),
+                guard,
                 body,
                 is_yield: false,
             },
@@ -5698,7 +5719,7 @@ mod tests {
             ExprKind::For {
                 binding: name(2),
                 iter,
-                guard: Some(guard),
+                guard,
                 body,
                 is_yield: false,
             },
@@ -5881,7 +5902,7 @@ mod tests {
             &mut arena,
             ExprKind::Lambda {
                 params,
-                ret_ty: None,
+                ret_ty: ori_ir::ParsedTypeId::INVALID,
                 body,
             },
         );
@@ -5917,7 +5938,7 @@ mod tests {
             &mut arena,
             ExprKind::Lambda {
                 params,
-                ret_ty: None,
+                ret_ty: ori_ir::ParsedTypeId::INVALID,
                 body,
             },
         );
@@ -5945,7 +5966,7 @@ mod tests {
             &mut arena,
             ExprKind::Block {
                 stmts,
-                result: None,
+                result: ExprId::INVALID,
             },
         );
 
@@ -5967,7 +5988,7 @@ mod tests {
             &mut arena,
             ExprKind::Block {
                 stmts,
-                result: Some(result_expr),
+                result: result_expr,
             },
         );
 
@@ -5985,10 +6006,11 @@ mod tests {
 
         // { let x = 42; x }
         let init = alloc(&mut arena, ExprKind::Int(42));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
         let _stmt = arena.alloc_stmt(Stmt {
             kind: StmtKind::Let {
-                pattern: BindingPattern::Name(name(1)),
-                ty: None,
+                pattern,
+                ty: ori_ir::ParsedTypeId::INVALID,
                 init,
                 mutable: false,
             },
@@ -6001,7 +6023,7 @@ mod tests {
             &mut arena,
             ExprKind::Block {
                 stmts,
-                result: Some(result_expr),
+                result: result_expr,
             },
         );
 
@@ -6019,10 +6041,12 @@ mod tests {
 
         // { let x: int = 42; x }
         let init = alloc(&mut arena, ExprKind::Int(42));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
+        let int_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
         let _stmt = arena.alloc_stmt(Stmt {
             kind: StmtKind::Let {
-                pattern: BindingPattern::Name(name(1)),
-                ty: Some(ParsedType::Primitive(ori_ir::TypeId::INT)),
+                pattern,
+                ty: int_ty,
                 init,
                 mutable: false,
             },
@@ -6035,7 +6059,7 @@ mod tests {
             &mut arena,
             ExprKind::Block {
                 stmts,
-                result: Some(result_expr),
+                result: result_expr,
             },
         );
 
@@ -6066,10 +6090,12 @@ mod tests {
         let int_type_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
         let list_annotation = ParsedType::List(int_type_id);
 
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
+        let list_ty = arena.alloc_parsed_type(list_annotation);
         let _stmt = arena.alloc_stmt(Stmt {
             kind: StmtKind::Let {
-                pattern: BindingPattern::Name(name(1)),
-                ty: Some(list_annotation),
+                pattern,
+                ty: list_ty,
                 init: list,
                 mutable: false,
             },
@@ -6082,7 +6108,7 @@ mod tests {
             &mut arena,
             ExprKind::Block {
                 stmts,
-                result: Some(result_expr),
+                result: result_expr,
             },
         );
 
@@ -6104,10 +6130,12 @@ mod tests {
         // { let x: str = 42; x }
         // Type mismatch: annotated str but init is int
         let init = alloc(&mut arena, ExprKind::Int(42));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
+        let str_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::STR));
         let _stmt = arena.alloc_stmt(Stmt {
             kind: StmtKind::Let {
-                pattern: BindingPattern::Name(name(1)),
-                ty: Some(ParsedType::Primitive(ori_ir::TypeId::STR)),
+                pattern,
+                ty: str_ty,
                 init,
                 mutable: false,
             },
@@ -6120,7 +6148,7 @@ mod tests {
             &mut arena,
             ExprKind::Block {
                 stmts,
-                result: Some(result_expr),
+                result: result_expr,
             },
         );
 
@@ -6180,7 +6208,7 @@ mod tests {
         let mut arena = ExprArena::new();
 
         let inner = alloc(&mut arena, ExprKind::String(name(1)));
-        let ok = alloc(&mut arena, ExprKind::Ok(Some(inner)));
+        let ok = alloc(&mut arena, ExprKind::Ok(inner));
 
         let ty = infer_expr(&mut engine, &arena, ok);
 
@@ -6197,7 +6225,7 @@ mod tests {
         let mut arena = ExprArena::new();
 
         let inner = alloc(&mut arena, ExprKind::String(name(1)));
-        let err = alloc(&mut arena, ExprKind::Err(Some(inner)));
+        let err = alloc(&mut arena, ExprKind::Err(inner));
 
         let ty = infer_expr(&mut engine, &arena, err);
 
@@ -6223,9 +6251,9 @@ mod tests {
         let range = alloc(
             &mut arena,
             ExprKind::Range {
-                start: Some(start),
-                end: Some(end),
-                step: None,
+                start,
+                end,
+                step: ExprId::INVALID,
                 inclusive: false,
             },
         );
@@ -6291,7 +6319,7 @@ mod tests {
         let mut engine = InferEngine::new(&mut pool);
         let mut arena = ExprArena::new();
 
-        let break_expr = alloc(&mut arena, ExprKind::Break(None));
+        let break_expr = alloc(&mut arena, ExprKind::Break(ExprId::INVALID));
         let ty = infer_expr(&mut engine, &arena, break_expr);
 
         assert_eq!(ty, Idx::NEVER, "Break returns never type");
@@ -6304,7 +6332,7 @@ mod tests {
         let mut engine = InferEngine::new(&mut pool);
         let mut arena = ExprArena::new();
 
-        let continue_expr = alloc(&mut arena, ExprKind::Continue(None));
+        let continue_expr = alloc(&mut arena, ExprKind::Continue(ExprId::INVALID));
         let ty = infer_expr(&mut engine, &arena, continue_expr);
 
         assert_eq!(ty, Idx::NEVER, "Continue returns never type");
@@ -6371,9 +6399,10 @@ mod tests {
 
         // run(let x = 42, x + 1)
         let init = alloc(&mut arena, ExprKind::Int(42));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
         let bindings = arena.alloc_seq_bindings([ori_ir::SeqBinding::Let {
-            pattern: BindingPattern::Name(name(1)),
-            ty: None,
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
             value: init,
             mutable: false,
             span: Span::DUMMY,
@@ -6396,7 +6425,8 @@ mod tests {
             result,
             span: Span::DUMMY,
         };
-        let expr_id = alloc(&mut arena, ExprKind::FunctionSeq(func_seq));
+        let seq_id = arena.alloc_function_seq(func_seq);
+        let expr_id = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
 
         let ty = infer_expr(&mut engine, &arena, expr_id);
 
@@ -6414,17 +6444,19 @@ mod tests {
         let x_init = alloc(&mut arena, ExprKind::Int(1));
         let y_init = alloc(&mut arena, ExprKind::String(ori_ir::Name::from_raw(100)));
 
+        let pattern1 = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
+        let pattern2 = arena.alloc_binding_pattern(BindingPattern::Name(name(2)));
         let bindings = arena.alloc_seq_bindings([
             ori_ir::SeqBinding::Let {
-                pattern: BindingPattern::Name(name(1)),
-                ty: None,
+                pattern: pattern1,
+                ty: ori_ir::ParsedTypeId::INVALID,
                 value: x_init,
                 mutable: false,
                 span: Span::DUMMY,
             },
             ori_ir::SeqBinding::Let {
-                pattern: BindingPattern::Name(name(2)),
-                ty: None,
+                pattern: pattern2,
+                ty: ori_ir::ParsedTypeId::INVALID,
                 value: y_init,
                 mutable: false,
                 span: Span::DUMMY,
@@ -6438,7 +6470,8 @@ mod tests {
             result: y_ref,
             span: Span::DUMMY,
         };
-        let expr_id = alloc(&mut arena, ExprKind::FunctionSeq(func_seq));
+        let seq_id = arena.alloc_function_seq(func_seq);
+        let expr_id = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
 
         let ty = infer_expr(&mut engine, &arena, expr_id);
 
@@ -6465,7 +6498,8 @@ mod tests {
             props,
             span: Span::DUMMY,
         };
-        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(func_exp));
+        let exp_id = arena.alloc_function_exp(func_exp);
+        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(exp_id));
 
         let ty = infer_expr(&mut engine, &arena, expr_id);
 
@@ -6492,7 +6526,8 @@ mod tests {
             props,
             span: Span::DUMMY,
         };
-        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(func_exp));
+        let exp_id = arena.alloc_function_exp(func_exp);
+        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(exp_id));
 
         let ty = infer_expr(&mut engine, &arena, expr_id);
 
@@ -6514,7 +6549,8 @@ mod tests {
             props,
             span: Span::DUMMY,
         };
-        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(func_exp));
+        let exp_id = arena.alloc_function_exp(func_exp);
+        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(exp_id));
 
         let ty = infer_expr(&mut engine, &arena, expr_id);
 
@@ -6536,7 +6572,8 @@ mod tests {
             props,
             span: Span::DUMMY,
         };
-        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(func_exp));
+        let exp_id = arena.alloc_function_exp(func_exp);
+        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(exp_id));
 
         let ty = infer_expr(&mut engine, &arena, expr_id);
 
@@ -6572,7 +6609,8 @@ mod tests {
             props,
             span: Span::DUMMY,
         };
-        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(func_exp));
+        let exp_id = arena.alloc_function_exp(func_exp);
+        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(exp_id));
 
         let ty = infer_expr(&mut engine, &arena, expr_id);
 
@@ -6608,7 +6646,8 @@ mod tests {
             props,
             span: Span::DUMMY,
         };
-        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(func_exp));
+        let exp_id = arena.alloc_function_exp(func_exp);
+        let expr_id = alloc(&mut arena, ExprKind::FunctionExp(exp_id));
 
         let ty = infer_expr(&mut engine, &arena, expr_id);
 

@@ -2,7 +2,7 @@
 
 use inkwell::context::Context;
 use ori_ir::ast::{Expr, ExprKind, FieldInit, MapEntry};
-use ori_ir::{ExprArena, StringInterner};
+use ori_ir::{ExprArena, ExprId, StringInterner};
 use ori_types::Idx;
 
 use super::helper::TestCodegen;
@@ -299,7 +299,7 @@ fn test_ok() {
 
     // Ok(100)
     let ok_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Ok(Some(inner)),
+        kind: ExprKind::Ok(inner),
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -345,7 +345,7 @@ fn test_err() {
 
     // Err(999)
     let err_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Err(Some(inner)),
+        kind: ExprKind::Err(inner),
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -394,9 +394,9 @@ fn test_range_literal() {
 
     let range_expr = arena.alloc_expr(Expr {
         kind: ExprKind::Range {
-            start: Some(start),
-            end: Some(end),
-            step: None,
+            start,
+            end,
+            step: ExprId::INVALID,
             inclusive: false,
         },
         span: ori_ir::Span::new(0, 1),

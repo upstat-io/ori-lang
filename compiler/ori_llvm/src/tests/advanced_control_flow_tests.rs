@@ -3,7 +3,7 @@
 use inkwell::context::Context;
 use ori_ir::ast::patterns::BindingPattern;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind, Stmt, StmtKind};
-use ori_ir::{ExprArena, Span, StmtRange, StringInterner};
+use ori_ir::{ExprArena, ExprId, Span, StmtRange, StringInterner};
 use ori_types::Idx;
 
 use super::helper::setup_builder_test;
@@ -37,7 +37,7 @@ fn test_if_no_else_void_result() {
     let result = builder.compile_if(
         cond,
         then_val,
-        None,
+        ExprId::INVALID,
         Idx::UNIT,
         &arena,
         &expr_types,
@@ -59,7 +59,7 @@ fn test_loop_terminates_without_body_terminator() {
 
     // loop { break }
     let break_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Break(None),
+        kind: ExprKind::Break(ExprId::INVALID),
         span: Span::new(0, 1),
     });
 
@@ -91,7 +91,7 @@ fn test_loop_with_non_void_result() {
 
     // loop { break } with int result type
     let break_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Break(None),
+        kind: ExprKind::Break(ExprId::INVALID),
         span: Span::new(0, 1),
     });
 
@@ -129,7 +129,7 @@ fn test_break_without_loop_context() {
 
     // Break without loop context should return None
     let result = builder.compile_break(
-        None,
+        ExprId::INVALID,
         &arena,
         &expr_types,
         &mut locals,
@@ -157,7 +157,14 @@ fn test_continue_without_loop_context() {
     let mut locals = Locals::new();
 
     // Continue without loop context should return None
-    let result = builder.compile_continue(None, &arena, &expr_types, &mut locals, function, None);
+    let result = builder.compile_continue(
+        ExprId::INVALID,
+        &arena,
+        &expr_types,
+        &mut locals,
+        function,
+        None,
+    );
 
     assert!(
         result.is_none(),
@@ -179,11 +186,12 @@ fn test_block_with_multiple_statements() {
         span: Span::new(0, 1),
     });
     let x_name = interner.intern("x");
+    let x_pattern = arena.alloc_binding_pattern(BindingPattern::Name(x_name));
 
     let first_stmt = arena.alloc_stmt(Stmt {
         kind: StmtKind::Let {
-            pattern: BindingPattern::Name(x_name),
-            ty: None,
+            pattern: x_pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
             init: ten,
             mutable: false,
         },
@@ -195,11 +203,12 @@ fn test_block_with_multiple_statements() {
         span: Span::new(0, 1),
     });
     let y_name = interner.intern("y");
+    let y_pattern = arena.alloc_binding_pattern(BindingPattern::Name(y_name));
 
     arena.alloc_stmt(Stmt {
         kind: StmtKind::Let {
-            pattern: BindingPattern::Name(y_name),
-            ty: None,
+            pattern: y_pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
             init: twenty,
             mutable: false,
         },
@@ -234,7 +243,7 @@ fn test_block_with_multiple_statements() {
 
     let result = builder.compile_block(
         stmt_range,
-        Some(add),
+        add,
         &arena,
         &expr_types,
         &mut locals,
@@ -269,7 +278,7 @@ fn test_block_with_empty_statements() {
 
     let result = builder.compile_block(
         empty_stmts,
-        Some(result_expr),
+        result_expr,
         &arena,
         &expr_types,
         &mut locals,
@@ -317,7 +326,7 @@ fn test_block_with_statement_expr() {
 
     let result = builder.compile_block(
         stmt_range,
-        Some(result_expr),
+        result_expr,
         &arena,
         &expr_types,
         &mut locals,
@@ -360,7 +369,7 @@ fn test_block_no_result() {
 
     let result = builder.compile_block(
         stmt_range,
-        None, // No result expression
+        ExprId::INVALID, // No result expression
         &arena,
         &expr_types,
         &mut locals,
@@ -491,7 +500,7 @@ fn test_nested_if_else() {
         kind: ExprKind::If {
             cond: inner_cond,
             then_branch: one,
-            else_branch: Some(two),
+            else_branch: two,
         },
         span: Span::new(0, 1),
     });
@@ -514,7 +523,7 @@ fn test_nested_if_else() {
     let result = builder.compile_if(
         outer_cond,
         inner_if,
-        Some(three),
+        three,
         Idx::INT,
         &arena,
         &expr_types,

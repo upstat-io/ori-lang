@@ -2,7 +2,7 @@
 
 use inkwell::types::BasicType;
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{ExprArena, ExprList};
+use ori_ir::{ExprArena, ExprRange};
 use ori_types::Idx;
 
 use crate::builder::{Builder, Locals};
@@ -13,14 +13,14 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Lists are represented as { i64 len, i64 cap, ptr data }.
     pub(crate) fn compile_list(
         &self,
-        list: ExprList,
+        list: ExprRange,
         arena: &ExprArena,
         expr_types: &[Idx],
         locals: &mut Locals<'ll>,
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
-        let elements: Vec<_> = arena.iter_expr_list(list).collect();
+        let elements: Vec<_> = arena.get_expr_list(list).to_vec();
 
         if elements.is_empty() {
             // Empty list - return struct with zeros

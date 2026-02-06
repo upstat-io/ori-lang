@@ -18,19 +18,21 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use super::operators::{BinaryOp, UnaryOp};
-use super::patterns::{BindingPattern, FunctionExp, FunctionSeq};
 use super::ranges::{
     ArmRange, CallArgRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange,
     StructLitFieldRange,
 };
 use crate::token::{DurationUnit, SizeUnit};
-use crate::{ExprId, ExprList, Name, ParsedType, Span, Spanned, StmtRange};
+use crate::{
+    BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, Name, ParsedTypeId, Span,
+    Spanned, StmtRange,
+};
 
 /// Expression node.
 ///
 /// # Salsa Compatibility
 /// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
@@ -68,7 +70,7 @@ impl Spanned for Expr {
 ///
 /// # Salsa Compatibility
 /// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum ExprKind {
     /// Integer literal: 42, `1_000`
     Int(i64),
@@ -121,23 +123,17 @@ pub enum ExprKind {
 
     /// Function call with positional args: func(arg)
     /// Only valid for single-param functions.
-    ///
-    /// # Two-Tier Storage
-    /// Uses `ExprList` for inline storage of 0-2 arguments (~77% of calls).
-    Call { func: ExprId, args: ExprList },
+    Call { func: ExprId, args: ExprRange },
 
     /// Function call with named args: func(a: 1, b: 2)
     /// Required for multi-param functions.
     CallNamed { func: ExprId, args: CallArgRange },
 
     /// Method call: receiver.method(args...)
-    ///
-    /// # Two-Tier Storage
-    /// Uses `ExprList` for inline storage of 0-2 arguments.
     MethodCall {
         receiver: ExprId,
         method: Name,
-        args: ExprList,
+        args: ExprRange,
     },
 
     /// Method call with named args: receiver.method(a: 1, b: 2)
@@ -157,7 +153,8 @@ pub enum ExprKind {
     If {
         cond: ExprId,
         then_branch: ExprId,
-        else_branch: Option<ExprId>,
+        /// `ExprId::INVALID` = no else branch.
+        else_branch: ExprId,
     },
 
     /// Match expression (statement form): match value { arms }
@@ -167,7 +164,8 @@ pub enum ExprKind {
     For {
         binding: Name,
         iter: ExprId,
-        guard: Option<ExprId>,
+        /// `ExprId::INVALID` = no guard.
+        guard: ExprId,
         body: ExprId,
         is_yield: bool,
     },
@@ -178,14 +176,17 @@ pub enum ExprKind {
     /// Block: { stmts; result }
     Block {
         stmts: StmtRange,
-        result: Option<ExprId>,
+        /// `ExprId::INVALID` = no result (unit block).
+        result: ExprId,
     },
 
     /// Let binding: let pattern = init
+    ///
+    /// Pattern is arena-allocated via `BindingPatternId`.
     Let {
-        pattern: BindingPattern,
-        /// Optional type annotation.
-        ty: Option<ParsedType>,
+        pattern: BindingPatternId,
+        /// Type annotation (`ParsedTypeId::INVALID` = no annotation).
+        ty: ParsedTypeId,
         init: ExprId,
         mutable: bool,
     },
@@ -193,16 +194,13 @@ pub enum ExprKind {
     /// Lambda: params -> body
     Lambda {
         params: super::ranges::ParamRange,
-        /// Optional return type annotation.
-        ret_ty: Option<ParsedType>,
+        /// Return type annotation (`ParsedTypeId::INVALID` = no annotation).
+        ret_ty: ParsedTypeId,
         body: ExprId,
     },
 
     /// List literal: [a, b, c]
-    ///
-    /// # Two-Tier Storage
-    /// Uses `ExprList` for inline storage of 0-2 elements (~62% of lists).
-    List(ExprList),
+    List(ExprRange),
 
     /// List literal with spread: [...a, x, ...b]
     ///
@@ -235,24 +233,24 @@ pub enum ExprKind {
     },
 
     /// Tuple: (a, b, c)
-    ///
-    /// # Two-Tier Storage
-    /// Uses `ExprList` for inline storage of 0-2 elements (~61% of tuples).
-    Tuple(ExprList),
+    Tuple(ExprRange),
 
     /// Range: start..end or start..=end or start..end by step
     Range {
-        start: Option<ExprId>,
-        end: Option<ExprId>,
-        step: Option<ExprId>,
+        /// `ExprId::INVALID` = unbounded start.
+        start: ExprId,
+        /// `ExprId::INVALID` = unbounded end.
+        end: ExprId,
+        /// `ExprId::INVALID` = no step.
+        step: ExprId,
         inclusive: bool,
     },
 
-    /// Ok(value)
-    Ok(Option<ExprId>),
+    /// Ok(value) — `ExprId::INVALID` = `Ok(())`.
+    Ok(ExprId),
 
-    /// Err(value)
-    Err(Option<ExprId>),
+    /// Err(value) — `ExprId::INVALID` = `Err(())`.
+    Err(ExprId),
 
     /// Some(value)
     Some(ExprId),
@@ -260,13 +258,13 @@ pub enum ExprKind {
     /// None
     None,
 
-    /// Break from loop
-    Break(Option<ExprId>),
+    /// Break from loop — `ExprId::INVALID` = no value.
+    Break(ExprId),
 
-    /// Continue loop
-    /// Optional value is only valid in `for...yield` context (substitutes the element)
-    /// Error E0861 if value provided in `loop()` context
-    Continue(Option<ExprId>),
+    /// Continue loop — `ExprId::INVALID` = no value.
+    /// Value is only valid in `for...yield` context (substitutes the element).
+    /// Error E0861 if value provided in `loop()` context.
+    Continue(ExprId),
 
     /// Await async operation
     Await(ExprId),
@@ -280,7 +278,8 @@ pub enum ExprKind {
     /// - `as?`: Fallible conversion returning `Option<T>` (e.g., `"42" as? int`)
     Cast {
         expr: ExprId,
-        ty: ParsedType,
+        /// Target type (arena-allocated).
+        ty: ParsedTypeId,
         /// True for `as?` (fallible), false for `as` (infallible)
         fallible: bool,
     },
@@ -302,13 +301,15 @@ pub enum ExprKind {
     ///
     /// Contains a sequence of expressions where order matters.
     /// Positional expressions allowed (it's a sequence, not parameters).
-    FunctionSeq(FunctionSeq),
+    /// Arena-allocated via `FunctionSeqId` for compact `ExprKind`.
+    FunctionSeq(FunctionSeqId),
 
     /// Named expression construct: map, filter, fold, etc.
     ///
     /// Contains named expressions (`name: value`).
     /// Requires named property syntax - positional not allowed.
-    FunctionExp(FunctionExp),
+    /// Arena-allocated via `FunctionExpId` for compact `ExprKind`.
+    FunctionExp(FunctionExpId),
 
     /// Parse error placeholder
     Error,
@@ -440,4 +441,14 @@ impl fmt::Debug for ExprKind {
             ExprKind::Error => write!(f, "Error"),
         }
     }
+}
+
+// Size assertions to prevent accidental regressions.
+// Phase 1 target: ExprKind ~24 bytes, Expr ~32 bytes.
+// These assertions will be tightened as each step lands.
+#[cfg(target_pointer_width = "64")]
+mod size_asserts {
+    use super::{Expr, ExprKind};
+    crate::static_assert_size!(ExprKind, 24);
+    crate::static_assert_size!(Expr, 32);
 }

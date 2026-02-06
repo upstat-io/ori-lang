@@ -17,11 +17,13 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.emit_match_construct(*scrutinee, *arms);
             }
 
-            ExprKind::FunctionSeq(seq) => {
+            ExprKind::FunctionSeq(seq_id) => {
+                let seq = self.arena.get_function_seq(*seq_id);
                 self.emit_function_seq(seq);
             }
 
-            ExprKind::FunctionExp(exp) => {
+            ExprKind::FunctionExp(exp_id) => {
+                let exp = self.arena.get_function_exp(*exp_id);
                 self.ctx.emit(exp.kind.name());
                 self.ctx.emit("(");
                 let props = self.arena.get_named_exprs(exp.props);
@@ -50,8 +52,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.emit_stmt(stmt);
                     self.ctx.emit_newline_indent();
                 }
-                if let Some(r) = result {
-                    self.format(*r);
+                if result.is_present() {
+                    self.format(*result);
                 }
             }
 
@@ -214,7 +216,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                 } else {
                     self.ctx.emit("let $");
                 }
-                self.emit_binding_pattern(pattern);
+                let pat = self.arena.get_binding_pattern(*pattern);
+                self.emit_binding_pattern(pat);
                 self.ctx.emit(" = ");
                 self.format(*value);
             }
@@ -240,7 +243,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                 } else {
                     self.ctx.emit("let $");
                 }
-                self.emit_binding_pattern(pattern);
+                let pat = self.arena.get_binding_pattern(*pattern);
+                self.emit_binding_pattern(pat);
                 self.ctx.emit(" = ");
                 self.format(*init);
             }

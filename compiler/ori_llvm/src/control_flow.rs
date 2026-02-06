@@ -288,7 +288,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         cond: ExprId,
         then_branch: ExprId,
-        else_branch: Option<ExprId>,
+        else_branch: ExprId,
         result_type: Idx,
         arena: &ExprArena,
         expr_types: &[Idx],
@@ -321,8 +321,8 @@ impl<'ll> Builder<'_, 'll, '_> {
 
         // Compile else branch
         self.position_at_end(else_bb);
-        let else_val = if let Some(else_id) = else_branch {
-            self.compile_expr(else_id, arena, expr_types, locals, function, loop_ctx)
+        let else_val = if else_branch.is_present() {
+            self.compile_expr(else_branch, arena, expr_types, locals, function, loop_ctx)
         } else {
             // No else branch - produce default value or unit
             if result_type == Idx::UNIT {
@@ -421,7 +421,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a break expression.
     pub(crate) fn compile_break(
         &self,
-        value: Option<ExprId>,
+        value: ExprId,
         arena: &ExprArena,
         expr_types: &[Idx],
         locals: &mut Locals<'ll>,
@@ -431,8 +431,8 @@ impl<'ll> Builder<'_, 'll, '_> {
         let ctx = loop_ctx?;
 
         // Compile break value if present
-        if let Some(val_id) = value {
-            let _val = self.compile_expr(val_id, arena, expr_types, locals, function, loop_ctx);
+        if value.is_present() {
+            let _val = self.compile_expr(value, arena, expr_types, locals, function, loop_ctx);
             // TODO: add value to phi node if loop returns values
         }
 
@@ -446,7 +446,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a continue expression.
     pub(crate) fn compile_continue(
         &self,
-        value: Option<ExprId>,
+        value: ExprId,
         arena: &ExprArena,
         expr_types: &[Idx],
         locals: &mut Locals<'ll>,
@@ -456,8 +456,8 @@ impl<'ll> Builder<'_, 'll, '_> {
         let ctx = loop_ctx?;
 
         // Compile continue value if present (for for...yield loops)
-        if let Some(val_id) = value {
-            let _val = self.compile_expr(val_id, arena, expr_types, locals, function, loop_ctx);
+        if value.is_present() {
+            let _val = self.compile_expr(value, arena, expr_types, locals, function, loop_ctx);
             // TODO: add value to yield accumulator for for...yield loops
         }
 
@@ -481,7 +481,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         binding: Name,
         iter: ExprId,
-        guard: Option<ExprId>,
+        guard: ExprId,
         body: ExprId,
         is_yield: bool,
         result_type: Idx,
@@ -579,9 +579,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         };
 
         // Handle guard if present
-        if let Some(guard_id) = guard {
+        if guard.is_present() {
             let guard_val = self.compile_expr(
-                guard_id,
+                guard,
                 arena,
                 expr_types,
                 locals,
@@ -711,7 +711,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_block(
         &self,
         stmts: StmtRange,
-        result: Option<ExprId>,
+        result: ExprId,
         arena: &ExprArena,
         expr_types: &[Idx],
         locals: &mut Locals<'ll>,
@@ -735,6 +735,7 @@ impl<'ll> Builder<'_, 'll, '_> {
                     mutable,
                 } => {
                     // Compile the let binding with mutability flag
+                    let pattern = arena.get_binding_pattern(*pattern);
                     self.compile_let(
                         pattern, *init, *mutable, arena, expr_types, locals, function, loop_ctx,
                     );
@@ -743,8 +744,8 @@ impl<'ll> Builder<'_, 'll, '_> {
         }
 
         // Compile the result expression if present
-        if let Some(result_expr) = result {
-            self.compile_expr(result_expr, arena, expr_types, locals, function, loop_ctx)
+        if result.is_present() {
+            self.compile_expr(result, arena, expr_types, locals, function, loop_ctx)
         } else {
             None
         }

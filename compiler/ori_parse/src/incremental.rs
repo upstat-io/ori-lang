@@ -396,7 +396,11 @@ impl<'old> AstCopier<'old> {
             } => ExprKind::If {
                 cond: self.copy_expr(*cond, new_arena),
                 then_branch: self.copy_expr(*then_branch, new_arena),
-                else_branch: else_branch.map(|e| self.copy_expr(e, new_arena)),
+                else_branch: if else_branch.is_present() {
+                    self.copy_expr(*else_branch, new_arena)
+                } else {
+                    ExprId::INVALID
+                },
             },
             ExprKind::Match { scrutinee, arms } => {
                 self.copy_match_kind(*scrutinee, *arms, new_arena)
@@ -410,7 +414,11 @@ impl<'old> AstCopier<'old> {
             } => ExprKind::For {
                 binding: *binding,
                 iter: self.copy_expr(*iter, new_arena),
-                guard: guard.map(|g| self.copy_expr(g, new_arena)),
+                guard: if guard.is_present() {
+                    self.copy_expr(*guard, new_arena)
+                } else {
+                    ExprId::INVALID
+                },
                 body: self.copy_expr(*body, new_arena),
                 is_yield: *is_yield,
             },
@@ -425,17 +433,22 @@ impl<'old> AstCopier<'old> {
                 ty,
                 init,
                 mutable,
-            } => ExprKind::Let {
-                pattern: self.copy_binding_pattern(pattern),
-                ty: ty.as_ref().map(|t| self.copy_parsed_type(t, new_arena)),
-                init: self.copy_expr(*init, new_arena),
-                mutable: *mutable,
-            },
+            } => {
+                let old_pattern = self.old_arena.get_binding_pattern(*pattern);
+                let copied_pattern = self.copy_binding_pattern(old_pattern);
+                let new_pattern_id = new_arena.alloc_binding_pattern(copied_pattern);
+                ExprKind::Let {
+                    pattern: new_pattern_id,
+                    ty: self.copy_optional_parsed_type_id(*ty, new_arena),
+                    init: self.copy_expr(*init, new_arena),
+                    mutable: *mutable,
+                }
+            }
             ExprKind::Lambda {
                 params,
                 ret_ty,
                 body,
-            } => self.copy_lambda_kind(*params, ret_ty.as_ref(), *body, new_arena),
+            } => self.copy_lambda_kind(*params, *ret_ty, *body, new_arena),
 
             // Collections
             ExprKind::List(exprs) => {
@@ -463,27 +476,53 @@ impl<'old> AstCopier<'old> {
                 step,
                 inclusive,
             } => ExprKind::Range {
-                start: start.map(|s| self.copy_expr(s, new_arena)),
-                end: end.map(|e| self.copy_expr(e, new_arena)),
-                step: step.map(|s| self.copy_expr(s, new_arena)),
+                start: if start.is_present() {
+                    self.copy_expr(*start, new_arena)
+                } else {
+                    ExprId::INVALID
+                },
+                end: if end.is_present() {
+                    self.copy_expr(*end, new_arena)
+                } else {
+                    ExprId::INVALID
+                },
+                step: if step.is_present() {
+                    self.copy_expr(*step, new_arena)
+                } else {
+                    ExprId::INVALID
+                },
                 inclusive: *inclusive,
             },
 
             // Result/Option constructors
-            ExprKind::Ok(inner) => ExprKind::Ok(inner.map(|i| self.copy_expr(i, new_arena))),
-            ExprKind::Err(inner) => ExprKind::Err(inner.map(|i| self.copy_expr(i, new_arena))),
+            ExprKind::Ok(inner) => ExprKind::Ok(if inner.is_present() {
+                self.copy_expr(*inner, new_arena)
+            } else {
+                ExprId::INVALID
+            }),
+            ExprKind::Err(inner) => ExprKind::Err(if inner.is_present() {
+                self.copy_expr(*inner, new_arena)
+            } else {
+                ExprId::INVALID
+            }),
             ExprKind::Some(inner) => ExprKind::Some(self.copy_expr(*inner, new_arena)),
 
             // Control
-            ExprKind::Break(val) => ExprKind::Break(val.map(|v| self.copy_expr(v, new_arena))),
-            ExprKind::Continue(val) => {
-                ExprKind::Continue(val.map(|v| self.copy_expr(v, new_arena)))
-            }
+            ExprKind::Break(val) => ExprKind::Break(if val.is_present() {
+                self.copy_expr(*val, new_arena)
+            } else {
+                ExprId::INVALID
+            }),
+            ExprKind::Continue(val) => ExprKind::Continue(if val.is_present() {
+                self.copy_expr(*val, new_arena)
+            } else {
+                ExprId::INVALID
+            }),
             ExprKind::Await(inner) => ExprKind::Await(self.copy_expr(*inner, new_arena)),
             ExprKind::Try(inner) => ExprKind::Try(self.copy_expr(*inner, new_arena)),
             ExprKind::Cast { expr, ty, fallible } => ExprKind::Cast {
                 expr: self.copy_expr(*expr, new_arena),
-                ty: ty.clone(),
+                ty: self.copy_parsed_type_id(*ty, new_arena),
                 fallible: *fallible,
             },
             ExprKind::Assign { target, value } => ExprKind::Assign {
@@ -503,11 +542,17 @@ impl<'old> AstCopier<'old> {
             },
 
             // Function constructs
-            ExprKind::FunctionSeq(seq) => {
-                ExprKind::FunctionSeq(self.copy_function_seq(seq, new_arena))
+            ExprKind::FunctionSeq(seq_id) => {
+                let seq = self.old_arena.get_function_seq(*seq_id);
+                let new_seq = self.copy_function_seq(seq, new_arena);
+                let new_id = new_arena.alloc_function_seq(new_seq);
+                ExprKind::FunctionSeq(new_id)
             }
-            ExprKind::FunctionExp(exp) => {
-                ExprKind::FunctionExp(self.copy_function_exp(exp, new_arena))
+            ExprKind::FunctionExp(exp_id) => {
+                let exp = self.old_arena.get_function_exp(*exp_id);
+                let new_exp = self.copy_function_exp(exp, new_arena);
+                let new_id = new_arena.alloc_function_exp(new_exp);
+                ExprKind::FunctionExp(new_id)
             }
         };
 
@@ -518,7 +563,7 @@ impl<'old> AstCopier<'old> {
     fn copy_block_kind(
         &self,
         stmts: ori_ir::StmtRange,
-        result: Option<ExprId>,
+        result: ExprId,
         new_arena: &mut ExprArena,
     ) -> ExprKind {
         let old_stmts = self.old_arena.get_stmt_range(stmts);
@@ -540,7 +585,11 @@ impl<'old> AstCopier<'old> {
         };
         ExprKind::Block {
             stmts: new_arena.alloc_stmt_range(start_id, new_stmts.len()),
-            result: result.map(|r| self.copy_expr(r, new_arena)),
+            result: if result.is_present() {
+                self.copy_expr(result, new_arena)
+            } else {
+                ExprId::INVALID
+            },
         }
     }
 
@@ -548,7 +597,7 @@ impl<'old> AstCopier<'old> {
     fn copy_lambda_kind(
         &self,
         params: ori_ir::ParamRange,
-        ret_ty: Option<&ParsedType>,
+        ret_ty: ParsedTypeId,
         body: ExprId,
         new_arena: &mut ExprArena,
     ) -> ExprKind {
@@ -559,7 +608,7 @@ impl<'old> AstCopier<'old> {
             .collect();
         ExprKind::Lambda {
             params: new_arena.alloc_params(new_params),
-            ret_ty: ret_ty.map(|t| self.copy_parsed_type(t, new_arena)),
+            ret_ty: self.copy_optional_parsed_type_id(ret_ty, new_arena),
             body: self.copy_expr(body, new_arena),
         }
     }
@@ -749,15 +798,17 @@ impl<'old> AstCopier<'old> {
         }
     }
 
-    /// Copy an `ExprList` (inline or overflow).
+    /// Copy an `ExprRange` (expression list stored in arena).
     fn copy_expr_list(
         &self,
-        list: ori_ir::ExprList,
+        range: ori_ir::ExprRange,
         new_arena: &mut ExprArena,
-    ) -> ori_ir::ExprList {
+    ) -> ori_ir::ExprRange {
         let items: Vec<ExprId> = self
             .old_arena
-            .iter_expr_list(list)
+            .get_expr_list(range)
+            .iter()
+            .copied()
             .map(|id| self.copy_expr(id, new_arena))
             .collect();
         new_arena.alloc_expr_list_inline(&items)
@@ -773,12 +824,17 @@ impl<'old> AstCopier<'old> {
                 ty,
                 init,
                 mutable,
-            } => StmtKind::Let {
-                pattern: self.copy_binding_pattern(pattern),
-                ty: ty.as_ref().map(|t| self.copy_parsed_type(t, new_arena)),
-                init: self.copy_expr(*init, new_arena),
-                mutable: *mutable,
-            },
+            } => {
+                let old_pattern = self.old_arena.get_binding_pattern(*pattern);
+                let copied_pattern = self.copy_binding_pattern(old_pattern);
+                let new_pattern_id = new_arena.alloc_binding_pattern(copied_pattern);
+                StmtKind::Let {
+                    pattern: new_pattern_id,
+                    ty: self.copy_optional_parsed_type_id(*ty, new_arena),
+                    init: self.copy_expr(*init, new_arena),
+                    mutable: *mutable,
+                }
+            }
         };
         Stmt::new(new_kind, new_span)
     }
@@ -1019,6 +1075,19 @@ impl<'old> AstCopier<'old> {
         new_arena.alloc_parsed_type(new_ty)
     }
 
+    /// Copy an optional parsed type ID (INVALID sentinel = no type annotation).
+    fn copy_optional_parsed_type_id(
+        &self,
+        id: ParsedTypeId,
+        new_arena: &mut ExprArena,
+    ) -> ParsedTypeId {
+        if id.is_valid() {
+            self.copy_parsed_type_id(id, new_arena)
+        } else {
+            ParsedTypeId::INVALID
+        }
+    }
+
     /// Copy a parsed type range, allocating in the new arena.
     fn copy_parsed_type_range(
         &self,
@@ -1115,13 +1184,18 @@ impl<'old> AstCopier<'old> {
                 value,
                 mutable,
                 span,
-            } => SeqBinding::Let {
-                pattern: self.copy_binding_pattern(pattern),
-                ty: ty.as_ref().map(|t| self.copy_parsed_type(t, new_arena)),
-                value: self.copy_expr(*value, new_arena),
-                mutable: *mutable,
-                span: self.adjust_span(*span),
-            },
+            } => {
+                let old_pattern = self.old_arena.get_binding_pattern(*pattern);
+                let copied_pattern = self.copy_binding_pattern(old_pattern);
+                let new_pattern_id = new_arena.alloc_binding_pattern(copied_pattern);
+                SeqBinding::Let {
+                    pattern: new_pattern_id,
+                    ty: self.copy_optional_parsed_type_id(*ty, new_arena),
+                    value: self.copy_expr(*value, new_arena),
+                    mutable: *mutable,
+                    span: self.adjust_span(*span),
+                }
+            }
             SeqBinding::Stmt { expr, span } => SeqBinding::Stmt {
                 expr: self.copy_expr(*expr, new_arena),
                 span: self.adjust_span(*span),

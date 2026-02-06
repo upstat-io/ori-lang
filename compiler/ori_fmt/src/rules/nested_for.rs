@@ -84,8 +84,8 @@ pub struct ForLevel {
     /// The iterator expression.
     pub iter: ExprId,
 
-    /// Optional guard condition.
-    pub guard: Option<ExprId>,
+    /// Guard condition (`ExprId::INVALID` if absent).
+    pub guard: ExprId,
 
     /// Whether this is a yield (vs do).
     pub is_yield: bool,

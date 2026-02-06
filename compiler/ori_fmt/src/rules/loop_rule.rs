@@ -46,10 +46,13 @@ impl LoopRule {
 
         match &body_expr.kind {
             // Function sequences are complex
-            ExprKind::FunctionSeq(seq) => matches!(
-                seq,
-                FunctionSeq::Run { .. } | FunctionSeq::Try { .. } | FunctionSeq::Match { .. }
-            ),
+            ExprKind::FunctionSeq(seq_id) => {
+                let seq = arena.get_function_seq(*seq_id);
+                matches!(
+                    seq,
+                    FunctionSeq::Run { .. } | FunctionSeq::Try { .. } | FunctionSeq::Match { .. }
+                )
+            }
 
             // For loops, nested loops, and match expressions are complex
             ExprKind::For { .. } | ExprKind::Loop { .. } | ExprKind::Match { .. } => true,
@@ -103,10 +106,12 @@ pub fn is_simple_conditional_body(arena: &ExprArena, body: ExprId) -> bool {
         let then_simple = matches!(then_expr.kind, ExprKind::Break(_) | ExprKind::Continue(_));
 
         // Check if else branch is break/continue (if present)
-        let else_simple = else_branch.is_none_or(|else_id| {
-            let else_expr = arena.get_expr(else_id);
+        let else_simple = if else_branch.is_present() {
+            let else_expr = arena.get_expr(*else_branch);
             matches!(else_expr.kind, ExprKind::Break(_) | ExprKind::Continue(_))
-        });
+        } else {
+            true
+        };
 
         return then_simple && else_simple;
     }

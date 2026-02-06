@@ -1,7 +1,7 @@
 use inkwell::context::Context;
 use ori_ir::ast::patterns::BindingPattern;
 use ori_ir::ast::{BinaryOp, Expr, ExprKind};
-use ori_ir::{ExprArena, StringInterner};
+use ori_ir::{ExprArena, ExprId, ParsedTypeId, StringInterner};
 use ori_types::Idx;
 
 use super::helper::TestCodegen;
@@ -21,10 +21,11 @@ fn test_let_binding() {
         span: ori_ir::Span::new(0, 1),
     });
     let x_name = interner.intern("x");
+    let x_pattern = arena.alloc_binding_pattern(BindingPattern::Name(x_name));
     let let_x = arena.alloc_expr(Expr {
         kind: ExprKind::Let {
-            pattern: BindingPattern::Name(x_name),
-            ty: None,
+            pattern: x_pattern,
+            ty: ParsedTypeId::INVALID,
             init: ten,
             mutable: false,
         },
@@ -37,10 +38,11 @@ fn test_let_binding() {
         span: ori_ir::Span::new(0, 1),
     });
     let y_name = interner.intern("y");
+    let y_pattern = arena.alloc_binding_pattern(BindingPattern::Name(y_name));
     let _let_y = arena.alloc_expr(Expr {
         kind: ExprKind::Let {
-            pattern: BindingPattern::Name(y_name),
-            ty: None,
+            pattern: y_pattern,
+            ty: ParsedTypeId::INVALID,
             init: twenty,
             mutable: false,
         },
@@ -72,10 +74,11 @@ fn test_let_binding() {
         span: ori_ir::Span::new(0, 1),
     });
     let x_name2 = interner.intern("x2");
+    let x2_pattern = arena.alloc_binding_pattern(BindingPattern::Name(x_name2));
     let _let_x2 = arena.alloc_expr(Expr {
         kind: ExprKind::Let {
-            pattern: BindingPattern::Name(x_name2),
-            ty: None,
+            pattern: x2_pattern,
+            ty: ParsedTypeId::INVALID,
             init: forty_two,
             mutable: false,
         },
@@ -143,7 +146,7 @@ fn test_if_else() {
         kind: ExprKind::If {
             cond,
             then_branch: then_val,
-            else_branch: Some(else_val),
+            else_branch: else_val,
         },
         span: ori_ir::Span::new(0, 1),
     });
@@ -187,7 +190,7 @@ fn test_if_else_false() {
         kind: ExprKind::If {
             cond,
             then_branch: then_val,
-            else_branch: Some(else_val),
+            else_branch: else_val,
         },
         span: ori_ir::Span::new(0, 1),
     });
@@ -214,7 +217,7 @@ fn test_loop_with_break() {
 
     // break expression
     let break_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Break(None),
+        kind: ExprKind::Break(ExprId::INVALID),
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -256,7 +259,7 @@ fn test_loop_ir_structure() {
 
     // break
     let break_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Break(None),
+        kind: ExprKind::Break(ExprId::INVALID),
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -271,7 +274,7 @@ fn test_loop_ir_structure() {
         kind: ExprKind::If {
             cond,
             then_branch: break_expr,
-            else_branch: Some(unit),
+            else_branch: unit,
         },
         span: ori_ir::Span::new(0, 1),
     });
@@ -314,10 +317,11 @@ fn test_assign() {
         kind: ExprKind::Int(10),
         span: ori_ir::Span::new(0, 1),
     });
+    let x_pattern = arena.alloc_binding_pattern(BindingPattern::Name(x_name));
     let let_x = arena.alloc_expr(Expr {
         kind: ExprKind::Let {
-            pattern: BindingPattern::Name(x_name),
-            ty: None,
+            pattern: x_pattern,
+            ty: ParsedTypeId::INVALID,
             init: ten,
             mutable: true,
         },
@@ -354,7 +358,7 @@ fn test_break_with_value() {
 
     // break 42
     let break_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Break(Some(break_val)),
+        kind: ExprKind::Break(break_val),
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -394,13 +398,13 @@ fn test_continue() {
 
     // continue
     let cont_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Continue(None),
+        kind: ExprKind::Continue(ExprId::INVALID),
         span: ori_ir::Span::new(0, 1),
     });
 
     // break
     let break_expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Break(None),
+        kind: ExprKind::Break(ExprId::INVALID),
         span: ori_ir::Span::new(0, 1),
     });
 
@@ -409,7 +413,7 @@ fn test_continue() {
         kind: ExprKind::If {
             cond,
             then_branch: break_expr,
-            else_branch: Some(cont_expr),
+            else_branch: cont_expr,
         },
         span: ori_ir::Span::new(0, 1),
     });

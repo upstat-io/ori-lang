@@ -45,8 +45,9 @@ where
                 mutable,
                 ..
             } => {
+                let pat = arena.get_binding_pattern(*pattern);
                 let val = eval_fn(*value)?;
-                bind_fn(pattern, val, *mutable, env)?;
+                bind_fn(pat, val, *mutable, env)?;
             }
             SeqBinding::Stmt { expr, .. } => {
                 // Evaluate for side effects (e.g., assignment)
@@ -99,7 +100,8 @@ where
                             }
                             other => other,
                         };
-                        bind_fn(pattern, unwrapped, *mutable, env)?;
+                        let pat = arena.get_binding_pattern(*pattern);
+                        bind_fn(pat, unwrapped, *mutable, env)?;
                     }
                     Err(e) => {
                         // If this is a propagated error, return the value

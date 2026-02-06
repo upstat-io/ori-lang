@@ -43,7 +43,6 @@ mod comment;
 mod derives;
 mod expr_id;
 pub mod incremental;
-mod inline_list;
 mod interner;
 mod metadata;
 mod name;
@@ -136,10 +135,9 @@ pub use builtin_type::BuiltinType;
 pub use comment::{Comment, CommentKind, CommentList};
 pub use derives::{DerivedMethodInfo, DerivedTrait};
 pub use expr_id::{
-    ExprId, ExprRange, MatchPatternId, MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId,
-    StmtRange,
+    BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, MatchPatternId,
+    MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId, StmtRange,
 };
-pub use inline_list::{ExprList, ExprListIter, INLINE_CAPACITY};
 pub use interner::{InternError, SharedInterner, StringInterner, StringLookup};
 pub use metadata::ModuleExtra;
 pub use name::Name;

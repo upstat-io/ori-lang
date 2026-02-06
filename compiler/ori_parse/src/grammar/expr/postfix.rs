@@ -3,7 +3,9 @@
 //! Parses call, method call, field access, index expressions, and struct literals.
 
 use crate::{ParseError, Parser};
-use ori_ir::{CallArg, Expr, ExprId, ExprKind, FieldInit, Param, StructLitField, TokenKind};
+use ori_ir::{
+    CallArg, Expr, ExprId, ExprKind, FieldInit, Param, ParsedTypeId, StructLitField, TokenKind,
+};
 
 impl Parser<'_> {
     /// Parse function calls and field access.
@@ -242,10 +244,16 @@ impl Parser<'_> {
                     )
                 })?;
 
+                let ty_id = self.arena.alloc_parsed_type(ty);
                 let span = self.arena.get_expr(expr).span.merge(self.previous_span());
-                expr = self
-                    .arena
-                    .alloc_expr(Expr::new(ExprKind::Cast { expr, ty, fallible }, span));
+                expr = self.arena.alloc_expr(Expr::new(
+                    ExprKind::Cast {
+                        expr,
+                        ty: ty_id,
+                        fallible,
+                    },
+                    span,
+                ));
             } else if self.check(&TokenKind::Arrow) {
                 // Single-param lambda without parens: x -> body
                 let expr_data = self.arena.get_expr(expr);
@@ -266,7 +274,7 @@ impl Parser<'_> {
                     expr = self.arena.alloc_expr(Expr::new(
                         ExprKind::Lambda {
                             params,
-                            ret_ty: None,
+                            ret_ty: ParsedTypeId::INVALID,
                             body,
                         },
                         param_span.merge(end_span),

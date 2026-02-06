@@ -76,7 +76,7 @@ impl std::ops::DerefMut for EnvScopeGuard<'_> {
 pub fn eval_if<F>(
     cond: ExprId,
     then_branch: ExprId,
-    else_branch: Option<ExprId>,
+    else_branch: ExprId,
     mut eval_fn: F,
 ) -> EvalResult
 where
@@ -85,8 +85,8 @@ where
     let cond_val = eval_fn(cond)?;
     if cond_val.is_truthy() {
         eval_fn(then_branch)
-    } else if let Some(else_expr) = else_branch {
-        eval_fn(else_expr)
+    } else if else_branch.is_present() {
+        eval_fn(else_branch)
     } else {
         Ok(Value::Void)
     }
@@ -568,7 +568,7 @@ pub fn eval_assign(
 /// Uses RAII scope guard to ensure scope is popped even on panic.
 pub fn eval_block<F, G>(
     stmts: StmtRange,
-    result: Option<ExprId>,
+    result: ExprId,
     arena: &ExprArena,
     env: &mut Environment,
     mut eval_fn: F,
@@ -594,14 +594,15 @@ where
                 mutable,
                 ..
             } => {
+                let pat = arena.get_binding_pattern(*pattern);
                 let value = eval_fn(*init)?;
-                bind_fn(pattern, value, *mutable)?;
+                bind_fn(pat, value, *mutable)?;
             }
         }
     }
 
-    if let Some(r) = result {
-        eval_fn(r)
+    if result.is_present() {
+        eval_fn(result)
     } else {
         Ok(Value::Void)
     }

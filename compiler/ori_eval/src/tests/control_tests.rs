@@ -161,7 +161,7 @@ mod eval_if_tests {
     fn true_condition_returns_then_branch() {
         let cond = ExprId::new(1);
         let then_branch = ExprId::new(2);
-        let else_branch = Some(ExprId::new(3));
+        let else_branch = ExprId::new(3);
 
         let mut call_count = 0;
         let result = eval_if(cond, then_branch, else_branch, |_id| {
@@ -181,7 +181,7 @@ mod eval_if_tests {
     fn false_condition_returns_else_branch() {
         let cond = ExprId::new(1);
         let then_branch = ExprId::new(2);
-        let else_branch = Some(ExprId::new(3));
+        let else_branch = ExprId::new(3);
 
         let mut call_count = 0;
         let result = eval_if(cond, then_branch, else_branch, |_id| {
@@ -202,7 +202,9 @@ mod eval_if_tests {
         let cond = ExprId::new(1);
         let then_branch = ExprId::new(2);
 
-        let result = eval_if(cond, then_branch, None, |_| Ok(Value::Bool(false)));
+        let result = eval_if(cond, then_branch, ExprId::INVALID, |_| {
+            Ok(Value::Bool(false))
+        });
         assert_eq!(result.unwrap(), Value::Void);
     }
 
@@ -211,7 +213,7 @@ mod eval_if_tests {
         let cond = ExprId::new(1);
         let then_branch = ExprId::new(2);
 
-        let result = eval_if(cond, then_branch, None, |_| {
+        let result = eval_if(cond, then_branch, ExprId::INVALID, |_| {
             Err(EvalError::new("test error"))
         });
         assert!(result.is_err());

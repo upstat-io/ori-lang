@@ -88,7 +88,7 @@ mod nested_for_tests {
             levels: vec![ForLevel {
                 binding: ori_ir::Name::EMPTY,
                 iter: ori_ir::ExprId::INVALID,
-                guard: None,
+                guard: ori_ir::ExprId::INVALID,
                 is_yield: true,
             }],
             body: ori_ir::ExprId::INVALID,
@@ -104,13 +104,13 @@ mod nested_for_tests {
                 ForLevel {
                     binding: ori_ir::Name::EMPTY,
                     iter: ori_ir::ExprId::INVALID,
-                    guard: None,
+                    guard: ori_ir::ExprId::INVALID,
                     is_yield: true,
                 },
                 ForLevel {
                     binding: ori_ir::Name::EMPTY,
                     iter: ori_ir::ExprId::INVALID,
-                    guard: None,
+                    guard: ori_ir::ExprId::INVALID,
                     is_yield: true,
                 },
             ],

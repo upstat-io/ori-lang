@@ -142,31 +142,31 @@ pub fn get_collection_length(value: &Value) -> Result<i64, EvalError> {
 
 /// Evaluate a range expression.
 pub fn eval_range<F>(
-    start: Option<ExprId>,
-    end: Option<ExprId>,
-    step: Option<ExprId>,
+    start: ExprId,
+    end: ExprId,
+    step: ExprId,
     inclusive: bool,
     mut eval_fn: F,
 ) -> EvalResult
 where
     F: FnMut(ExprId) -> EvalResult,
 {
-    let start_val = if let Some(s) = start {
-        eval_fn(s)?
+    let start_val = if start.is_present() {
+        eval_fn(start)?
             .as_int()
             .ok_or_else(|| range_bound_not_int("start"))?
     } else {
         0
     };
-    let end_val = if let Some(e) = end {
-        eval_fn(e)?
+    let end_val = if end.is_present() {
+        eval_fn(end)?
             .as_int()
             .ok_or_else(|| range_bound_not_int("end"))?
     } else {
         return Err(unbounded_range_end());
     };
-    let step_val = if let Some(s) = step {
-        eval_fn(s)?
+    let step_val = if step.is_present() {
+        eval_fn(step)?
             .as_int()
             .ok_or_else(|| range_bound_not_int("step"))?
     } else {

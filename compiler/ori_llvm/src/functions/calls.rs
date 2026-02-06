@@ -1,7 +1,7 @@
 //! Function call compilation.
 
 use inkwell::values::{BasicValueEnum, FunctionValue};
-use ori_ir::{CallArgRange, ExprArena, ExprId, ExprList, Name};
+use ori_ir::{CallArgRange, ExprArena, ExprId, ExprRange, Name};
 use ori_types::Idx;
 use tracing::instrument;
 
@@ -17,7 +17,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     pub(crate) fn compile_call(
         &self,
         func: ExprId,
-        args: ExprList,
+        args: ExprRange,
         arena: &ExprArena,
         expr_types: &[Idx],
         locals: &mut Locals<'ll>,
@@ -40,7 +40,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let fn_name = self.cx().interner.lookup(func_name);
 
         // Handle built-in type conversion functions
-        let arg_ids: Vec<_> = arena.iter_expr_list(args).collect();
+        let arg_ids: Vec<_> = arena.get_expr_list(args).to_vec();
         match fn_name {
             "str" => {
                 if arg_ids.len() == 1 {
@@ -345,7 +345,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         &self,
         receiver: ExprId,
         method: Name,
-        args: ExprList,
+        args: ExprRange,
         arena: &ExprArena,
         expr_types: &[Idx],
         locals: &mut Locals<'ll>,
@@ -362,7 +362,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx);
 
         // Get argument IDs
-        let arg_ids: Vec<_> = arena.iter_expr_list(args).collect();
+        let arg_ids: Vec<_> = arena.get_expr_list(args).to_vec();
 
         // Try built-in method first if we have a receiver value
         if let Some(recv) = recv_val {

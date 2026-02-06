@@ -66,7 +66,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 if items.is_empty() {
                     self.ctx.emit("[]");
                 } else {
-                    let items_vec: Vec<_> = self.arena.iter_expr_list(*items).collect();
+                    let items_vec: Vec<_> = self.arena.get_expr_list(*items).to_vec();
                     self.ctx.emit("[");
                     self.emit_broken_list(&items_vec);
                     self.ctx.emit("]");
@@ -156,7 +156,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 if items.is_empty() {
                     self.ctx.emit("()");
                 } else {
-                    let items_vec: Vec<_> = self.arena.iter_expr_list(*items).collect();
+                    let items_vec: Vec<_> = self.arena.get_expr_list(*items).to_vec();
                     self.ctx.emit("(");
                     self.ctx.emit_newline();
                     self.ctx.indent();
@@ -209,8 +209,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.dedent();
                 }
 
-                if let Some(else_id) = else_branch {
-                    self.emit_else_branch(*else_id);
+                if else_branch.is_present() {
+                    self.emit_else_branch(*else_branch);
                 }
             }
 
@@ -227,7 +227,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                 } else {
                     self.ctx.emit("let $");
                 }
-                self.emit_binding_pattern(pattern);
+                let pat = self.arena.get_binding_pattern(*pattern);
+                self.emit_binding_pattern(pat);
                 self.ctx.emit(" =");
                 self.ctx.emit_newline();
                 self.ctx.indent();
@@ -293,9 +294,9 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit(self.interner.lookup(*binding));
                 self.ctx.emit(" in ");
                 self.format_iter(*iter);
-                if let Some(guard_id) = guard {
+                if guard.is_present() {
                     self.ctx.emit(" if ");
-                    self.format(*guard_id);
+                    self.format(*guard);
                 }
                 if *is_yield {
                     self.ctx.emit(" yield");
@@ -362,8 +363,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.dedent();
             }
 
-            if let Some(next_else_id) = else_branch {
-                self.emit_else_branch(*next_else_id);
+            if else_branch.is_present() {
+                self.emit_else_branch(*else_branch);
             }
         } else {
             // Final else branch

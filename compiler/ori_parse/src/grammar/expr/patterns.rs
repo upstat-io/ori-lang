@@ -5,7 +5,7 @@
 use crate::{ParseError, Parser};
 use ori_ir::{
     Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern,
-    MatchPatternId, MatchPatternRange, Name, NamedExpr, SeqBinding, TokenKind,
+    MatchPatternId, MatchPatternRange, Name, NamedExpr, ParsedTypeId, SeqBinding, TokenKind,
 };
 
 /// Kind of `function_seq` expression.
@@ -58,12 +58,14 @@ impl Parser<'_> {
                 };
 
                 let pattern = self.parse_binding_pattern()?;
+                let pattern_id = self.arena.alloc_binding_pattern(pattern);
 
                 let ty = if self.check(&TokenKind::Colon) {
                     self.advance();
                     self.parse_type()
+                        .map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
                 } else {
-                    None
+                    ParsedTypeId::INVALID
                 };
 
                 self.expect(&TokenKind::Eq)?;
@@ -71,7 +73,7 @@ impl Parser<'_> {
                 let end_span = self.arena.get_expr(value).span;
 
                 bindings.push(SeqBinding::Let {
-                    pattern,
+                    pattern: pattern_id,
                     ty,
                     value,
                     mutable,
@@ -140,9 +142,10 @@ impl Parser<'_> {
             }
         };
 
+        let func_seq_id = self.arena.alloc_function_seq(func_seq);
         Ok(self
             .arena
-            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq), span)))
+            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq_id), span)))
     }
 
     /// Parse match as `function_seq`: match(scrutinee, Pattern -> expr, ...)
@@ -204,9 +207,10 @@ impl Parser<'_> {
             span,
         };
 
+        let func_seq_id = self.arena.alloc_function_seq(func_seq);
         Ok(self
             .arena
-            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq), span)))
+            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq_id), span)))
     }
 
     /// Parse for pattern: for(over: items, [map: transform,] match: Pattern -> expr, default: value)
@@ -310,9 +314,10 @@ impl Parser<'_> {
             span,
         };
 
+        let func_seq_id = self.arena.alloc_function_seq(func_seq);
         Ok(self
             .arena
-            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq), span)))
+            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq_id), span)))
     }
 
     /// Parse a match pattern (for match arms).
@@ -572,8 +577,9 @@ impl Parser<'_> {
             span: start_span.merge(end_span),
         };
 
+        let func_exp_id = self.arena.alloc_function_exp(func_exp);
         Ok(self.arena.alloc_expr(Expr::new(
-            ExprKind::FunctionExp(func_exp),
+            ExprKind::FunctionExp(func_exp_id),
             start_span.merge(end_span),
         )))
     }

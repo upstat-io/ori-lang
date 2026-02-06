@@ -18,10 +18,11 @@
 )]
 
 use super::{
-    ExprId, ExprRange, MatchPatternId, MatchPatternRange, ParsedType, ParsedTypeId,
-    ParsedTypeRange, StmtId, StmtRange,
+    BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, MatchPatternId,
+    MatchPatternRange, ParsedType, ParsedTypeId, ParsedTypeRange, StmtId, StmtRange,
 };
-use crate::ast::MatchPattern;
+use crate::ast::patterns::{FunctionExp, FunctionSeq};
+use crate::ast::{BindingPattern, MatchPattern};
 
 /// Panic helper for capacity overflow (cold path, never inlined).
 #[cold]
@@ -55,11 +56,12 @@ fn to_u16(value: usize, context: &str) -> u16 {
         .unwrap_or_else(|_| panic_range_exceeded(value, context, u64::from(u16::MAX)))
 }
 use super::ast::{
-    ArmRange, CallArg, CallArgRange, Expr, FieldInit, FieldInitRange, GenericParam,
+    ArmRange, CallArg, CallArgRange, Expr, ExprKind, FieldInit, FieldInitRange, GenericParam,
     GenericParamRange, ListElement, ListElementRange, MapElement, MapElementRange, MapEntry,
     MapEntryRange, MatchArm, NamedExpr, NamedExprRange, Param, ParamRange, SeqBinding,
     SeqBindingRange, Stmt, StructLitField, StructLitFieldRange,
 };
+use super::Span;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
@@ -67,16 +69,26 @@ use std::hash::{Hash, Hasher};
 ///
 /// # Design
 /// Per spec: "Contiguous arrays for cache locality"
-/// - All expressions stored in flat Vec
+/// - Struct-of-Arrays layout: kinds and spans in separate arrays
 /// - Child references use `ExprId` indices
 /// - Expression lists use `ExprRange` into `expr_lists`
+///
+/// # Struct-of-Arrays Layout
+/// Expressions are stored in parallel arrays (`expr_kinds` + `expr_spans`)
+/// rather than a single `Vec<Expr>`. This improves cache utilization since
+/// most operations only need the kind (24 bytes) and rarely touch the span
+/// (8 bytes) — keeping them separate means more kinds fit per cache line.
 ///
 /// # Salsa Compatibility
 /// Has Clone, Eq, Hash for use in query results.
 #[derive(Clone, Default)]
 pub struct ExprArena {
-    /// All expressions (indexed by `ExprId`).
-    exprs: Vec<Expr>,
+    /// Expression kinds (indexed by `ExprId`). Parallel array.
+    expr_kinds: Vec<ExprKind>,
+
+    /// Expression spans (indexed by `ExprId`). Parallel array.
+    /// Parallel to `expr_kinds` — same length, same indices.
+    expr_spans: Vec<Span>,
 
     /// Flattened expression lists (for Call args, List elements, etc.).
     expr_lists: Vec<ExprId>,
@@ -130,6 +142,15 @@ pub struct ExprArena {
 
     /// Flattened match pattern lists (for pattern collections).
     match_pattern_lists: Vec<MatchPatternId>,
+
+    /// All binding patterns (indexed by `BindingPatternId`).
+    binding_patterns: Vec<BindingPattern>,
+
+    /// All function sequences (indexed by `FunctionSeqId`).
+    function_seqs: Vec<FunctionSeq>,
+
+    /// All function expressions (indexed by `FunctionExpId`).
+    function_exps: Vec<FunctionExp>,
 }
 
 impl ExprArena {
@@ -143,7 +164,8 @@ impl ExprArena {
     pub fn with_capacity(source_len: usize) -> Self {
         let estimated_exprs = source_len / 20;
         ExprArena {
-            exprs: Vec::with_capacity(estimated_exprs),
+            expr_kinds: Vec::with_capacity(estimated_exprs),
+            expr_spans: Vec::with_capacity(estimated_exprs),
             expr_lists: Vec::with_capacity(estimated_exprs / 2),
             stmts: Vec::with_capacity(estimated_exprs / 4),
             params: Vec::with_capacity(estimated_exprs / 8),
@@ -161,41 +183,68 @@ impl ExprArena {
             parsed_type_lists: Vec::with_capacity(estimated_exprs / 16),
             match_patterns: Vec::with_capacity(estimated_exprs / 16),
             match_pattern_lists: Vec::with_capacity(estimated_exprs / 32),
+            binding_patterns: Vec::with_capacity(estimated_exprs / 8),
+            function_seqs: Vec::with_capacity(estimated_exprs / 32),
+            function_exps: Vec::with_capacity(estimated_exprs / 32),
         }
     }
 
     /// Allocate expression, return ID.
+    ///
+    /// Decomposes the `Expr` into kind and span for parallel-array storage.
     #[inline]
     pub fn alloc_expr(&mut self, expr: Expr) -> ExprId {
-        let id = ExprId::new(to_u32(self.exprs.len(), "expressions"));
-        self.exprs.push(expr);
+        let id = ExprId::new(to_u32(self.expr_kinds.len(), "expressions"));
+        self.expr_kinds.push(expr.kind);
+        self.expr_spans.push(expr.span);
         id
     }
 
-    /// Get expression by ID.
+    /// Get expression by ID (reconstructed from parallel arrays).
+    ///
+    /// Returns `Expr` by value since `Expr` is `Copy` (32 bytes).
+    /// For hot paths, prefer `expr_kind()` and `expr_span()` to avoid
+    /// touching the span array when only the kind is needed.
     ///
     /// # Panics
     /// Panics if `id` is out of bounds.
     #[inline]
     #[track_caller]
-    pub fn get_expr(&self, id: ExprId) -> &Expr {
-        &self.exprs[id.index()]
+    pub fn get_expr(&self, id: ExprId) -> Expr {
+        let i = id.index();
+        Expr {
+            kind: self.expr_kinds[i],
+            span: self.expr_spans[i],
+        }
     }
 
-    /// Get mutable expression by ID.
+    /// Get expression kind by ID (direct array access).
+    ///
+    /// Preferred over `get_expr()` when only the kind is needed,
+    /// since it avoids touching the span array (better cache behavior).
     ///
     /// # Panics
     /// Panics if `id` is out of bounds.
     #[inline]
     #[track_caller]
-    pub fn get_expr_mut(&mut self, id: ExprId) -> &mut Expr {
-        &mut self.exprs[id.index()]
+    pub fn expr_kind(&self, id: ExprId) -> &ExprKind {
+        &self.expr_kinds[id.index()]
+    }
+
+    /// Get expression span by ID (direct array access).
+    ///
+    /// # Panics
+    /// Panics if `id` is out of bounds.
+    #[inline]
+    #[track_caller]
+    pub fn expr_span(&self, id: ExprId) -> Span {
+        self.expr_spans[id.index()]
     }
 
     /// Get number of expressions.
     #[inline]
     pub fn expr_count(&self) -> usize {
-        self.exprs.len()
+        self.expr_kinds.len()
     }
 
     /// Allocate expression list, return range.
@@ -221,42 +270,15 @@ impl ExprArena {
         &self.expr_lists[start..end]
     }
 
-    // -- Two-Tier Storage (ExprList) --
-
-    /// Allocate expression list with two-tier storage.
+    /// Allocate expression list from a slice, always storing in `expr_lists`.
     ///
-    /// For 0-2 items, stores inline in the returned `ExprList`.
-    /// For 3+ items, allocates to `expr_lists` and returns an overflow reference.
-    ///
-    /// # Performance
-    ///
-    /// ~77% of function call arguments have 0-2 items and will use inline storage,
-    /// eliminating indirection and improving cache locality.
+    /// Returns an `ExprRange` pointing into the arena's `expr_lists` storage.
     #[inline]
-    pub fn alloc_expr_list_inline(&mut self, exprs: &[ExprId]) -> super::ExprList {
-        super::ExprList::from_items(exprs, |items| {
-            let start = to_u32(self.expr_lists.len(), "expression lists");
-            self.expr_lists.extend_from_slice(items);
-            let len = to_u16(items.len(), "expression list");
-            (start, len)
-        })
-    }
-
-    /// Iterate over items in an `ExprList`.
-    ///
-    /// Works transparently for both inline and overflow storage.
-    #[inline]
-    pub fn iter_expr_list(&self, list: super::ExprList) -> super::ExprListIter<'_> {
-        list.iter(&self.expr_lists)
-    }
-
-    /// Get raw `expr_lists` storage (for `ExprList` iteration).
-    ///
-    /// This is a low-level accessor for when you need direct access to the storage.
-    /// Prefer `iter_expr_list()` for most use cases.
-    #[inline]
-    pub fn expr_lists_storage(&self) -> &[ExprId] {
-        &self.expr_lists
+    pub fn alloc_expr_list_inline(&mut self, exprs: &[ExprId]) -> ExprRange {
+        let start = to_u32(self.expr_lists.len(), "expression lists");
+        self.expr_lists.extend_from_slice(exprs);
+        let len = to_u16(exprs.len(), "expression list");
+        ExprRange::new(start, len)
     }
 
     /// Allocate statement, return ID.
@@ -687,9 +709,70 @@ impl ExprArena {
         &self.match_pattern_lists[start..end]
     }
 
+    // -- Binding Pattern Storage --
+
+    /// Allocate a binding pattern, return ID.
+    #[inline]
+    pub fn alloc_binding_pattern(&mut self, pattern: BindingPattern) -> BindingPatternId {
+        let id = BindingPatternId::new(to_u32(self.binding_patterns.len(), "binding patterns"));
+        self.binding_patterns.push(pattern);
+        id
+    }
+
+    /// Get binding pattern by ID.
+    ///
+    /// # Panics
+    /// Panics if `id` is out of bounds or invalid.
+    #[inline]
+    #[track_caller]
+    pub fn get_binding_pattern(&self, id: BindingPatternId) -> &BindingPattern {
+        &self.binding_patterns[id.index()]
+    }
+
+    // -- Function Sequence Storage --
+
+    /// Allocate a function sequence, return ID.
+    #[inline]
+    pub fn alloc_function_seq(&mut self, seq: FunctionSeq) -> FunctionSeqId {
+        let id = FunctionSeqId::new(to_u32(self.function_seqs.len(), "function sequences"));
+        self.function_seqs.push(seq);
+        id
+    }
+
+    /// Get function sequence by ID.
+    ///
+    /// # Panics
+    /// Panics if `id` is out of bounds or invalid.
+    #[inline]
+    #[track_caller]
+    pub fn get_function_seq(&self, id: FunctionSeqId) -> &FunctionSeq {
+        &self.function_seqs[id.index()]
+    }
+
+    // -- Function Expression Storage --
+
+    /// Allocate a function expression, return ID.
+    #[inline]
+    pub fn alloc_function_exp(&mut self, exp: FunctionExp) -> FunctionExpId {
+        let id = FunctionExpId::new(to_u32(self.function_exps.len(), "function expressions"));
+        self.function_exps.push(exp);
+        id
+    }
+
+    /// Get function expression by ID.
+    ///
+    /// # Panics
+    /// Panics if `id` is out of bounds or invalid.
+    #[inline]
+    #[track_caller]
+    pub fn get_function_exp(&self, id: FunctionExpId) -> &FunctionExp {
+        &self.function_exps[id.index()]
+    }
+
     /// Reset arena for reuse (keeps capacity).
     pub fn reset(&mut self) {
-        self.exprs.clear();
+        self.expr_kinds.clear();
+        self.expr_spans.clear();
         self.expr_lists.clear();
         self.stmts.clear();
         self.params.clear();
@@ -704,17 +787,21 @@ impl ExprArena {
         self.parsed_type_lists.clear();
         self.match_patterns.clear();
         self.match_pattern_lists.clear();
+        self.binding_patterns.clear();
+        self.function_seqs.clear();
+        self.function_exps.clear();
     }
 
     /// Check if arena is empty.
     pub fn is_empty(&self) -> bool {
-        self.exprs.is_empty()
+        self.expr_kinds.is_empty()
     }
 }
 
 impl PartialEq for ExprArena {
     fn eq(&self, other: &Self) -> bool {
-        self.exprs == other.exprs
+        self.expr_kinds == other.expr_kinds
+            && self.expr_spans == other.expr_spans
             && self.expr_lists == other.expr_lists
             && self.stmts == other.stmts
             && self.params == other.params
@@ -729,6 +816,9 @@ impl PartialEq for ExprArena {
             && self.parsed_type_lists == other.parsed_type_lists
             && self.match_patterns == other.match_patterns
             && self.match_pattern_lists == other.match_pattern_lists
+            && self.binding_patterns == other.binding_patterns
+            && self.function_seqs == other.function_seqs
+            && self.function_exps == other.function_exps
     }
 }
 
@@ -736,7 +826,8 @@ impl Eq for ExprArena {}
 
 impl Hash for ExprArena {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.exprs.hash(state);
+        self.expr_kinds.hash(state);
+        self.expr_spans.hash(state);
         self.expr_lists.hash(state);
         self.stmts.hash(state);
         self.params.hash(state);
@@ -751,6 +842,9 @@ impl Hash for ExprArena {
         self.parsed_type_lists.hash(state);
         self.match_patterns.hash(state);
         self.match_pattern_lists.hash(state);
+        self.binding_patterns.hash(state);
+        self.function_seqs.hash(state);
+        self.function_exps.hash(state);
     }
 }
 
@@ -759,7 +853,7 @@ impl fmt::Debug for ExprArena {
         write!(
             f,
             "ExprArena {{ {} exprs, {} lists, {} stmts, {} params }}",
-            self.exprs.len(),
+            self.expr_kinds.len(),
             self.expr_lists.len(),
             self.stmts.len(),
             self.params.len()
@@ -881,18 +975,15 @@ mod tests {
         assert_eq!(arena.expr_count(), 0);
     }
 
-    // -- ExprList (Two-Tier Storage) Tests --
-
     #[test]
     fn test_alloc_expr_list_inline_empty() {
         let mut arena = ExprArena::new();
-        let list = arena.alloc_expr_list_inline(&[]);
+        let range = arena.alloc_expr_list_inline(&[]);
 
-        assert!(list.is_empty());
-        assert!(list.is_inline());
-        assert_eq!(list.len(), 0);
+        assert!(range.is_empty());
+        assert_eq!(range.len(), 0);
 
-        let items: Vec<_> = arena.iter_expr_list(list).collect();
+        let items = arena.get_expr_list(range);
         assert!(items.is_empty());
     }
 
@@ -901,14 +992,13 @@ mod tests {
         let mut arena = ExprArena::new();
         let id1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
 
-        let list = arena.alloc_expr_list_inline(&[id1]);
+        let range = arena.alloc_expr_list_inline(&[id1]);
 
-        assert!(!list.is_empty());
-        assert!(list.is_inline());
-        assert_eq!(list.len(), 1);
+        assert!(!range.is_empty());
+        assert_eq!(range.len(), 1);
 
-        let items: Vec<_> = arena.iter_expr_list(list).collect();
-        assert_eq!(items, vec![id1]);
+        let items = arena.get_expr_list(range);
+        assert_eq!(items, &[id1]);
     }
 
     #[test]
@@ -917,29 +1007,27 @@ mod tests {
         let id1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
         let id2 = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(2, 3)));
 
-        let list = arena.alloc_expr_list_inline(&[id1, id2]);
+        let range = arena.alloc_expr_list_inline(&[id1, id2]);
 
-        assert!(list.is_inline());
-        assert_eq!(list.len(), 2);
+        assert_eq!(range.len(), 2);
 
-        let items: Vec<_> = arena.iter_expr_list(list).collect();
-        assert_eq!(items, vec![id1, id2]);
+        let items = arena.get_expr_list(range);
+        assert_eq!(items, &[id1, id2]);
     }
 
     #[test]
-    fn test_alloc_expr_list_inline_overflow() {
+    fn test_alloc_expr_list_inline_three_items() {
         let mut arena = ExprArena::new();
         let id1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
         let id2 = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(2, 3)));
         let id3 = arena.alloc_expr(Expr::new(ExprKind::Int(3), Span::new(4, 5)));
 
-        let list = arena.alloc_expr_list_inline(&[id1, id2, id3]);
+        let range = arena.alloc_expr_list_inline(&[id1, id2, id3]);
 
-        assert!(!list.is_inline()); // Should overflow
-        assert_eq!(list.len(), 3);
+        assert_eq!(range.len(), 3);
 
-        let items: Vec<_> = arena.iter_expr_list(list).collect();
-        assert_eq!(items, vec![id1, id2, id3]);
+        let items = arena.get_expr_list(range);
+        assert_eq!(items, &[id1, id2, id3]);
     }
 
     #[test]
@@ -949,43 +1037,11 @@ mod tests {
             .map(|i| arena.alloc_expr(Expr::new(ExprKind::Int(i), Span::new(0, 1))))
             .collect();
 
-        let list = arena.alloc_expr_list_inline(&ids);
+        let range = arena.alloc_expr_list_inline(&ids);
 
-        assert!(!list.is_inline()); // Should overflow
-        assert_eq!(list.len(), 10);
+        assert_eq!(range.len(), 10);
 
-        let items: Vec<_> = arena.iter_expr_list(list).collect();
-        assert_eq!(items, ids);
-    }
-
-    #[test]
-    fn test_expr_lists_storage_access() {
-        let mut arena = ExprArena::new();
-        let id1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
-        let id2 = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(2, 3)));
-        let id3 = arena.alloc_expr(Expr::new(ExprKind::Int(3), Span::new(4, 5)));
-
-        // Allocate an overflow list
-        let _list = arena.alloc_expr_list_inline(&[id1, id2, id3]);
-
-        // Check that storage is accessible
-        let storage = arena.expr_lists_storage();
-        assert_eq!(storage.len(), 3);
-        assert_eq!(storage, &[id1, id2, id3]);
-    }
-
-    #[test]
-    fn test_inline_does_not_allocate_to_storage() {
-        let mut arena = ExprArena::new();
-        let id1 = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
-        let id2 = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(2, 3)));
-
-        // Inline storage should not touch expr_lists
-        let _list = arena.alloc_expr_list_inline(&[id1, id2]);
-
-        assert!(
-            arena.expr_lists_storage().is_empty(),
-            "inline list should not allocate to expr_lists"
-        );
+        let items = arena.get_expr_list(range);
+        assert_eq!(items, &ids[..]);
     }
 }

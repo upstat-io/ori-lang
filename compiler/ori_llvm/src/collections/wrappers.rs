@@ -90,7 +90,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     )]
     pub(crate) fn compile_ok(
         &self,
-        inner: Option<ExprId>,
+        inner: ExprId,
         _type_id: Idx,
         arena: &ExprArena,
         expr_types: &[Idx],
@@ -98,9 +98,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
-        // Get the inner value (or use unit if None)
-        let inner_val = if let Some(inner_id) = inner {
-            self.compile_expr(inner_id, arena, expr_types, locals, function, loop_ctx)?
+        // Get the inner value (or use unit if absent)
+        let inner_val = if inner.is_present() {
+            self.compile_expr(inner, arena, expr_types, locals, function, loop_ctx)?
         } else {
             // Ok() with no value - use a dummy i64
             self.cx().scx.type_i64().const_int(0, false).into()
@@ -129,7 +129,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     )]
     pub(crate) fn compile_err(
         &self,
-        inner: Option<ExprId>,
+        inner: ExprId,
         _type_id: Idx,
         arena: &ExprArena,
         expr_types: &[Idx],
@@ -137,9 +137,9 @@ impl<'ll> Builder<'_, 'll, '_> {
         function: FunctionValue<'ll>,
         loop_ctx: Option<&LoopContext<'ll>>,
     ) -> Option<BasicValueEnum<'ll>> {
-        // Get the inner value (or use unit if None)
-        let inner_val = if let Some(inner_id) = inner {
-            self.compile_expr(inner_id, arena, expr_types, locals, function, loop_ctx)?
+        // Get the inner value (or use unit if absent)
+        let inner_val = if inner.is_present() {
+            self.compile_expr(inner, arena, expr_types, locals, function, loop_ctx)?
         } else {
             // Err() with no value - use a dummy i64
             self.cx().scx.type_i64().const_int(0, false).into()

@@ -122,9 +122,9 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.emit_inline(*cond);
                 self.ctx.emit(" then ");
                 self.emit_inline(*then_branch);
-                if let Some(else_id) = else_branch {
+                if else_branch.is_present() {
                     self.ctx.emit(" else ");
-                    self.emit_inline(*else_id);
+                    self.emit_inline(*else_branch);
                 }
             }
 
@@ -141,7 +141,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                 } else {
                     self.ctx.emit("let $");
                 }
-                self.emit_binding_pattern(pattern);
+                let pat = self.arena.get_binding_pattern(*pattern);
+                self.emit_binding_pattern(pat);
                 self.ctx.emit(" = ");
                 self.emit_inline(*init);
             }
@@ -172,7 +173,7 @@ impl<I: StringLookup> Formatter<'_, I> {
             // Collections
             ExprKind::List(items) => {
                 self.ctx.emit("[");
-                for (i, item) in self.arena.iter_expr_list(*items).enumerate() {
+                for (i, item) in self.arena.get_expr_list(*items).iter().copied().enumerate() {
                     if i > 0 {
                         self.ctx.emit(", ");
                     }
@@ -280,7 +281,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 }
             }
             ExprKind::Tuple(items) => {
-                let items_vec: Vec<_> = self.arena.iter_expr_list(*items).collect();
+                let items_vec: Vec<_> = self.arena.get_expr_list(*items).to_vec();
                 self.ctx.emit("(");
                 for (i, item) in items_vec.iter().enumerate() {
                     if i > 0 {
@@ -300,20 +301,20 @@ impl<I: StringLookup> Formatter<'_, I> {
                 step,
                 inclusive,
             } => {
-                if let Some(s) = start {
-                    self.emit_inline(*s);
+                if start.is_present() {
+                    self.emit_inline(*start);
                 }
                 if *inclusive {
                     self.ctx.emit("..=");
                 } else {
                     self.ctx.emit("..");
                 }
-                if let Some(e) = end {
-                    self.emit_inline(*e);
+                if end.is_present() {
+                    self.emit_inline(*end);
                 }
-                if let Some(step_expr) = step {
+                if step.is_present() {
                     self.ctx.emit(" by ");
-                    self.emit_inline(*step_expr);
+                    self.emit_inline(*step);
                 }
             }
 
@@ -326,16 +327,16 @@ impl<I: StringLookup> Formatter<'_, I> {
             // Control flow jumps
             ExprKind::Break(val) => {
                 self.ctx.emit("break");
-                if let Some(val_id) = val {
+                if val.is_present() {
                     self.ctx.emit_space();
-                    self.emit_inline(*val_id);
+                    self.emit_inline(*val);
                 }
             }
             ExprKind::Continue(val) => {
                 self.ctx.emit("continue");
-                if let Some(val_id) = val {
+                if val.is_present() {
                     self.ctx.emit_space();
-                    self.emit_inline(*val_id);
+                    self.emit_inline(*val);
                 }
             }
 
@@ -355,7 +356,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 } else {
                     self.ctx.emit(" as ");
                 }
-                self.emit_type(ty);
+                self.emit_type(self.arena.get_parsed_type(*ty));
             }
 
             // Assignment
@@ -391,9 +392,9 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit(self.interner.lookup(*binding));
                 self.ctx.emit(" in ");
                 self.emit_iter_inline(*iter);
-                if let Some(guard_id) = guard {
+                if guard.is_present() {
                     self.ctx.emit(" if ");
-                    self.emit_inline(*guard_id);
+                    self.emit_inline(*guard);
                 }
                 if *is_yield {
                     self.ctx.emit(" yield ");
@@ -414,8 +415,8 @@ impl<I: StringLookup> Formatter<'_, I> {
             ExprKind::Block { stmts, result } => {
                 let stmts_list = self.arena.get_stmt_range(*stmts);
                 if stmts_list.is_empty() {
-                    if let Some(r) = result {
-                        self.emit_inline(*r);
+                    if result.is_present() {
+                        self.emit_inline(*result);
                     } else {
                         self.ctx.emit("()");
                     }
@@ -436,7 +437,8 @@ impl<I: StringLookup> Formatter<'_, I> {
             ExprKind::FunctionSeq(..) => self.emit_stacked(expr_id),
 
             // Named expression patterns
-            ExprKind::FunctionExp(exp) => {
+            ExprKind::FunctionExp(exp_id) => {
+                let exp = self.arena.get_function_exp(*exp_id);
                 self.ctx.emit(exp.kind.name());
                 self.ctx.emit("(");
                 let props = self.arena.get_named_exprs(exp.props);

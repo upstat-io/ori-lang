@@ -12,17 +12,19 @@
 use crate::packing;
 use crate::rules::ParenPosition;
 use crate::width::ALWAYS_STACKED;
-use ori_ir::{CallArgRange, ExprId, ExprList, StringLookup};
+use ori_ir::{CallArgRange, ExprId, ExprRange, StringLookup};
 
 use super::Formatter;
 
 impl<I: StringLookup> Formatter<'_, I> {
-    /// Emit a wrapper with an optional inner value (Ok, Err).
-    pub(super) fn emit_wrapper_inline(&mut self, name: &str, inner: Option<ExprId>) {
+    /// Emit a wrapper with an optionally-present inner value (Ok, Err).
+    ///
+    /// Uses `ExprId::INVALID` sentinel to represent absent values.
+    pub(super) fn emit_wrapper_inline(&mut self, name: &str, inner: ExprId) {
         self.ctx.emit(name);
         self.ctx.emit("(");
-        if let Some(val) = inner {
-            self.emit_inline(val);
+        if inner.is_present() {
+            self.emit_inline(inner);
         }
         self.ctx.emit(")");
     }
@@ -35,8 +37,8 @@ impl<I: StringLookup> Formatter<'_, I> {
         self.ctx.emit(")");
     }
 
-    pub(super) fn emit_inline_expr_list(&mut self, list: ExprList) {
-        for (i, item) in self.arena.iter_expr_list(list).enumerate() {
+    pub(super) fn emit_inline_expr_list(&mut self, list: ExprRange) {
+        for (i, item) in self.arena.get_expr_list(list).iter().copied().enumerate() {
             if i > 0 {
                 self.ctx.emit(", ");
             }
@@ -154,12 +156,12 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
     }
 
-    pub(super) fn emit_broken_expr_list(&mut self, list: ExprList) {
+    pub(super) fn emit_broken_expr_list(&mut self, list: ExprRange) {
         if list.is_empty() {
             return;
         }
 
-        let items: Vec<_> = self.arena.iter_expr_list(list).collect();
+        let items: Vec<_> = self.arena.get_expr_list(list).to_vec();
         self.ctx.emit_newline();
         self.ctx.indent();
         for (i, item) in items.iter().enumerate() {
