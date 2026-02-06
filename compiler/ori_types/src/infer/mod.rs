@@ -40,7 +40,7 @@ pub use env::TypeEnv;
 pub use expr::{check_expr, infer_expr, resolve_parsed_type};
 
 use ori_ir::{Name, StringInterner};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_diagnostic::Suggestion;
 
@@ -111,6 +111,12 @@ pub struct InferEngine<'pool> {
     /// Stack of expected break value types for nested loops.
     /// Each `loop()` pushes a fresh type variable; `break expr` unifies with it.
     loop_break_types: Vec<Idx>,
+
+    /// Capabilities declared by the current function (`uses` clause).
+    current_capabilities: FxHashSet<Name>,
+
+    /// Capabilities provided in scope (`with...in`).
+    provided_capabilities: FxHashSet<Name>,
 }
 
 impl<'pool> InferEngine<'pool> {
@@ -129,6 +135,8 @@ impl<'pool> InferEngine<'pool> {
             self_type: None,
             impl_self_type: None,
             loop_break_types: Vec::new(),
+            current_capabilities: FxHashSet::default(),
+            provided_capabilities: FxHashSet::default(),
         }
     }
 
@@ -149,6 +157,8 @@ impl<'pool> InferEngine<'pool> {
             self_type: None,
             impl_self_type: None,
             loop_break_types: Vec::new(),
+            current_capabilities: FxHashSet::default(),
+            provided_capabilities: FxHashSet::default(),
         }
     }
 
@@ -207,6 +217,58 @@ impl<'pool> InferEngine<'pool> {
     /// Get the current loop's break type variable (innermost loop).
     pub fn current_loop_break_type(&self) -> Option<Idx> {
         self.loop_break_types.last().copied()
+    }
+
+    // ========================================
+    // Capability Management
+    // ========================================
+
+    /// Set capabilities for the current function scope.
+    ///
+    /// `current` contains capabilities declared via `uses` on the function.
+    /// `provided` contains capabilities introduced via `with...in`.
+    pub fn set_capabilities(&mut self, current: FxHashSet<Name>, provided: FxHashSet<Name>) {
+        self.current_capabilities = current;
+        self.provided_capabilities = provided;
+    }
+
+    /// Check if a capability is available (declared or provided).
+    pub fn has_capability(&self, cap: Name) -> bool {
+        self.current_capabilities.contains(&cap) || self.provided_capabilities.contains(&cap)
+    }
+
+    /// Get all available capabilities (declared + provided).
+    pub fn available_capabilities(&self) -> Vec<Name> {
+        self.current_capabilities
+            .union(&self.provided_capabilities)
+            .copied()
+            .collect()
+    }
+
+    /// Add a provided capability (for `with...in` scoping).
+    pub fn add_provided_capability(&mut self, cap: Name) {
+        self.provided_capabilities.insert(cap);
+    }
+
+    /// Remove a provided capability.
+    pub fn remove_provided_capability(&mut self, cap: Name) {
+        self.provided_capabilities.remove(&cap);
+    }
+
+    /// Execute a closure with a temporarily provided capability.
+    ///
+    /// The capability is added before executing `f` and removed after.
+    /// This implements the scoped semantics of `with...in`.
+    pub fn with_provided_capability<T, F>(&mut self, cap: Name, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let was_present = self.provided_capabilities.insert(cap);
+        let result = f(self);
+        if !was_present {
+            self.provided_capabilities.remove(&cap);
+        }
+        result
     }
 
     /// Get the trait registry (if set).

@@ -67,6 +67,14 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         param_env.bind(*name, *ty);
     }
 
+    // Bind capability names as fresh type variables so the body can
+    // reference them (e.g., `@f () -> int uses Value = Value`).
+    // The concrete type is provided by the caller via `with...in`.
+    for &cap_name in &sig.capabilities {
+        let cap_ty = checker.pool_mut().fresh_var();
+        param_env.bind(cap_name, cap_ty);
+    }
+
     // Build function type for recursion support
     let fn_type = checker
         .pool_mut()
