@@ -17,8 +17,8 @@ sections:
     title: Pre-allocation Heuristics
     status: complete
   - id: "01.5"
-    title: Scratch Buffer Integration
-    status: deferred
+    title: Direct Arena Append
+    status: complete
 ---
 
 # Section 01: Data-Oriented AST
@@ -163,11 +163,20 @@ Ori already used `ExprId(u32)` indices. The SoA migration enhanced this with:
 
 ---
 
-## 01.5 Scratch Buffer Integration
+## 01.5 Direct Arena Append
 
-**Status:** 🔶 Deferred
+**Status:** ✅ Complete (2026-02-06)
 
-Infrastructure exists in `scratch.rs` but integration requires refactoring `series()` and all call sites. Marginal benefit given current allocation performance.
+Replaced the deferred scratch buffer approach with direct arena append: `start_*/push_*/finish_*` method triples eliminate intermediate Vec allocations for non-recursive list parsing. Added `series_direct()` combinator that uses `FnMut(&mut Self) -> Result<bool>` instead of collecting into Vec.
+
+- [x] `define_direct_append!` macro generates `start_*/push_*/finish_*` for 10 buffer types
+- [x] `series_direct()` combinator + `paren_/bracket_/brace_/angle_series_direct()` wrappers
+- [x] Direct push for `params` (function parameters) — safe, non-recursive
+- [x] Direct push for `generic_params` (generic declarations) — safe, non-recursive
+- [x] Vec-based `series_direct()` for recursive buffers (arms, named_exprs, parsed_type_lists, match_pattern_lists, list_elements, map_elements, struct_lit_fields) — avoids same-buffer nesting corruption
+- [x] Deleted `scratch.rs` (replaced by direct arena append approach)
+
+**Key finding:** Same-buffer nesting is a fundamental constraint — any buffer whose items contain expressions/types/patterns can recursively trigger pushes to the same buffer. Only "leaf" grammar constructs (params, generic_params) are safe for zero-copy direct push. Recursive constructs still benefit from `series_direct()` (avoids the series combinator's own Vec) while collecting items in a local Vec.
 
 ---
 
@@ -186,3 +195,34 @@ Infrastructure exists in `scratch.rs` but integration requires refactoring `seri
 - All `tests/spec/` files parse correctly
 - All 8474 tests pass (unit + spec + LLVM + WASM)
 - Clippy clean across all crates
+
+---
+
+## 01.7 Hot Path Optimizations (2026-02-06)
+
+Extension of the data-oriented philosophy to the parser's hot path. While not part of the original AST SoA plan, these optimizations apply the same Zig-inspired principles to token dispatch:
+
+### Tag-Based Token Dispatch
+
+Added parallel `Vec<u8>` of discriminant tags to `TokenList` (partial SoA — see Section 02.9). This enables O(1) tag checks throughout the parser:
+
+| Optimization | Technique | Impact |
+|-------------|-----------|--------|
+| `check()` via tags | 1-byte tag comparison instead of 16-byte enum discriminant | Foundation |
+| `OPER_TABLE[128]` | Static lookup table indexed by tag for Pratt parser | Replaces 20-arm match |
+| `POSTFIX_BITSET` | Two-u64 bitset for postfix token membership | O(1) set membership |
+| `parse_primary()` fast path | Direct tag dispatch before `one_of!` macro | Skips snapshot/restore for ~95% of cases |
+| `#[cold]` split expect() | Error path in `#[cold] #[inline(never)]` function | Better LLVM code layout |
+| Branchless `advance()` | Removed bounds check (EOF sentinel guarantees safety) | One fewer branch per token |
+
+### Results
+
+| Workload | Before | After | Improvement |
+|----------|--------|-------|-------------|
+| 10 funcs | 109 MiB/s | 120 MiB/s | +10% |
+| 50 funcs | 126 MiB/s | 143 MiB/s | +13% |
+| 100 funcs | 133 MiB/s | 154 MiB/s | +16% |
+| 500 funcs | 144 MiB/s | 163 MiB/s | +13% |
+| 1000 funcs | 144 MiB/s | 161 MiB/s | +12% |
+
+All 8311 tests pass, clippy clean.

@@ -1,5 +1,7 @@
 # Parser 2.0 Implementation Plan
 
+> **STATUS: ✅ CLOSED (2026-02-06)** — All architectural goals achieved. Remaining Section 02 items (02.5-02.8, 02.10) are language feature proposals tracked in the roadmap.
+>
 > **ROADMAP**: Enhances `plans/roadmap/section-00-parser.md`
 > **Best-of-Breed Parser Architecture** — Combining innovations from Rust, Go, Zig, TypeScript, Gleam, Elm, and Roc
 
@@ -34,7 +36,7 @@ Replace pointer-based AST with index-based, cache-friendly storage.
 | 1.2 | Index-based node references | Zig |
 | 1.3 | Extra data buffer | Zig |
 | 1.4 | Pre-allocation heuristics | Zig |
-| 1.5 | Scratch buffer integration | Ori (existing) |
+| 1.5 | Direct arena append | Ori |
 
 ### Section 2: Lexer Modernization
 
@@ -118,6 +120,7 @@ Convert all grammar functions from `Result<T, ParseError>` to native `ParseOutco
 | Metric | Current | Target | Improvement | Status |
 |--------|---------|--------|-------------|--------|
 | Memory per node | ~88 bytes (Expr) | ~32 bytes (SoA) | 64% reduction | ✅ Complete (2026-02-05) |
+| Parser throughput | ~109-144 MiB/s | ~160+ MiB/s | +12-16% | ✅ Complete (2026-02-06, hot path opts) |
 | Keyword lookup | O(1) logos DFA | O(1) hash | N/A | ✅ Already optimal |
 | Incremental reparse | Full reparse | 70-90% reuse | 5-10x faster | ✅ Infrastructure complete |
 | Token capture | Copy tokens | Index-based | O(1) lookup | ✅ Complete (TokenCapture) |
@@ -163,14 +166,14 @@ Section 3 (Progress) ──────────┼─► Section 4 (Errors)
 |------|---------|------|--------|--------|
 | Perfect hash keywords | 2.1-2.2 | Low | High | ✅ Satisfied by logos |
 | Expected token accumulation | 3.3 | Low | High | ✅ Complete |
-| Integrate scratch buffer | 1.5 | Low | Medium | 🔶 Deferred |
+| Direct arena append | 1.5 | Low | Medium | ✅ Complete |
 | Empathetic error templates | 4.2 | Low | High | ✅ Complete |
 
 **Phase 1 Summary:**
 - **2.1-2.2 Keywords:** Discovered logos lexer already provides O(1)-equivalent keyword recognition via DFA state machine. No changes needed.
 - **3.3 Expected Tokens:** Implemented `TokenSet` iterator, mutation methods, `format_expected()`, and `TokenKind::friendly_name_from_index()`.
 - **4.2 Error Templates:** Added `title()` and `empathetic_message()` methods to `ParseErrorKind` with Elm-style conversational phrasing.
-- **1.5 Scratch Buffer:** Deferred - infrastructure exists in `scratch.rs` but integration requires refactoring `series()` and all call sites.
+- **1.5 Direct Arena Append:** ✅ Complete (2026-02-06). `define_direct_append!` macro + `series_direct()` combinator. Direct push for params/generic_params. Vec-based for recursive buffers (arms, patterns, type args). `scratch.rs` deleted.
 
 ### Phase 2: Core Architecture (Medium-risk, High-impact)
 **Target: Weeks 5-10** | **Status: ✅ Complete (2026-02-04)**
@@ -319,6 +322,10 @@ The current Ori parser already has excellent foundations:
 |---------|---------|-------|
 | Progress tracking | Excellent | Like Roc/Elm |
 | Arena allocation | **Excellent** | ExprArena SoA: Vec<ExprKind> + Vec<Span>, 32 bytes/expr |
+| Tag-based dispatch | **Excellent** | Parallel `Vec<u8>` tags in TokenList, O(1) `current_tag()` checks |
+| Operator lookup | **Excellent** | Static `OPER_TABLE[128]` indexed by tag — one memory read per Pratt step |
+| Postfix fast-exit | **Excellent** | `POSTFIX_BITSET` (two u64) for O(1) token set membership |
+| Primary dispatch | **Excellent** | Direct tag-based dispatch before `one_of!` for ~95% of expressions |
 | Context flags | Good | Bitfield (u16) |
 | TokenSet recovery | **Excellent** | 128-bit bitset with O(1) membership |
 | Series combinator | Good | Like Gleam |

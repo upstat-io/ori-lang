@@ -30,7 +30,7 @@ sections:
     status: not-started
   - id: "02.9"
     title: TokenList SoA Migration
-    status: not-started
+    status: in-progress
   - id: "02.10"
     title: TokenKind Cleanup (GtEq/Shr Audit)
     status: not-started
@@ -95,7 +95,7 @@ The lexer must remain a **context-free, pure function**. Parser concerns (preced
 
 1. **Phase bleeding** — Precedence is a parser-level semantic concern. The lexer's job is to produce a flat, context-free token stream. Moving parser semantics into the lexer creates coupling between phases and violates `CLAUDE.md: "No phase bleeding: parser ≠ type-check, lexer ≠ parse"`.
 
-2. **Already solved** — The parser's Pratt parser (`ori_parse/src/grammar/expr/operators.rs`) has a `const` binding power table with 13 precedence levels. `parse_binary_pratt(min_bp)` looks up binding power via `infix_binding_power()` — a single match that compiles to a jump table. This is already optimal.
+2. **Already solved** — The parser's Pratt parser (`ori_parse/src/grammar/expr/operators.rs`) has a static `OPER_TABLE[128]` lookup table indexed by token discriminant tag. `infix_binding_power()` does one memory read to get binding power, operator variant, and token count — O(1) with no branching. Compound operators (`>=`, `>>`) are handled as special cases for `TAG_GT` only.
 
 3. **Token size bloat** — Token is 24 bytes (`static_assert_size!(Token, 24)` in `token.rs`). Adding `precedence: u8` + `associativity: Assoc` would push it to 32 bytes (33% increase). Every token in every file gets bigger, but only ~15% of tokens are operators.
 
@@ -305,47 +305,54 @@ This is the most complex lexer change. Consider:
 
 ## 02.9 TokenList SoA Migration
 
-**Status:** Not started
+**Status:** In Progress (tag array added; full kind/span split not started)
 **Goal:** Align TokenList with ExprArena (parser) and Pool (type system) SoA patterns
 
-### Current State
+### Current State (2026-02-06)
 
-The design doc (`03-lexer/index.md`) describes TokenList as SoA:
+**Partial SoA achieved via tag array.** The hot path optimization work added a parallel `Vec<u8>` of discriminant tags to `TokenList`, giving the parser O(1) tag-based dispatch without touching `TokenKind`:
+
 ```rust
-// Design doc says:
+// Current reality (post hot-path optimization):
 pub struct TokenList {
-    tokens: Vec<TokenKind>,
-    spans: Vec<Span>,
+    tokens: Vec<Token>,  // Token = { kind: TokenKind (16B), span: Span (8B) } = 24 bytes
+    tags: Vec<u8>,       // discriminant_index() per token — 1 byte each
 }
 ```
 
-But the actual implementation (`ori_ir/src/token.rs`) is AoS:
-```rust
-// Reality:
-pub struct TokenList {
-    tokens: Vec<Token>,  // Token = { kind: TokenKind, span: Span }
-}
-```
+This captures **80% of the SoA benefit** for the hot path because:
+- `check()` now compares 1-byte tags (not 16-byte TokenKind discriminants)
+- `check_ident()`, `check_type_keyword()`, `skip_newlines()`, `is_at_end()` all use tags
+- `infix_binding_power()` uses `OPER_TABLE[tag]` — one memory read
+- `is_postfix_tag()` uses `POSTFIX_BITSET[tag/64]` — one memory read
+- `parse_primary()` dispatches on tag before `one_of!` — skips snapshot/restore
+- `TAG_*` named constants on `TokenKind` for all 116 variants
 
-### Why SoA
+**The Cursor has a `tags: &[u8]` slice** alongside `tokens: &TokenList`, giving it direct access to the dense tag array without indirection.
 
-The parser's hot path scans token **kinds** far more often than spans:
-- `cursor.check()` — discriminant comparison on kind only
-- `cursor.check_ident()` — pattern match on kind only
-- `cursor.skip_newlines()` — kind comparison only
-- `cursor.is_at_end()` — kind comparison only
+### Remaining Work: Full Kind/Span Split
 
-SoA layout (`Vec<TokenKind>` + `Vec<Span>`) would improve cache locality for these operations because kinds are packed contiguously without span data interleaved.
+The full SoA migration (`Vec<TokenKind>` + `Vec<Span>`) would further improve cache locality for code that accesses `TokenKind` payloads (e.g., extracting `Int(n)` or `String(name)` values). However, this is **lower priority** now because:
 
-Both the parser's `ExprArena` and the type system's `Pool` use SoA for the same reason.
+1. The tag array already handles the hottest path (discriminant checks)
+2. Payload access (`current_kind()` → `&TokenKind`) is less frequent than tag checks
+3. The cost/benefit ratio is lower — Token is 24 bytes (not huge), and the full split requires updating every call site
 
 ### Changes
 
-- [ ] Split `TokenList` storage:
+- [x] Add parallel `tags: Vec<u8>` to `TokenList` (populated at lex time via `discriminant_index()`)
+- [x] Add `tag(index) -> u8` and `tags() -> &[u8]` accessors to `TokenList`
+- [x] Add `tags: &'a [u8]` to `Cursor` for direct tag access
+- [x] Add `current_tag() -> u8` and `check_tag(tag) -> bool` to `Cursor`
+- [x] Convert `check()` to use tag comparison: `self.current_tag() == kind.discriminant_index()`
+- [x] Add `TAG_*` named constants to `TokenKind` for all 116 variants
+- [x] Manual `PartialEq`/`Eq`/`Hash` impls for `TokenList` (only compare `tokens`, not derived `tags`)
+- [ ] Split `TokenList` storage into full SoA:
   ```rust
   pub struct TokenList {
       kinds: Vec<TokenKind>,   // 16 bytes each, contiguous
       spans: Vec<Span>,        // 8 bytes each, contiguous
+      tags: Vec<u8>,           // 1 byte each (already done)
   }
   ```
 - [ ] Update `TokenList` API:
@@ -417,7 +424,7 @@ The design docs state that `>=` and `>>` are **never lexed as single tokens** �
 - [ ] Decimal duration/size literals (02.6)
 - [ ] Simplified doc comments (02.7)
 - [ ] Template string interpolation (02.8)
-- [ ] TokenList SoA migration (02.9)
+- [~] TokenList SoA migration (02.9) — tag array done, full kind/span split remaining
 - [ ] GtEq/Shr audit (02.10)
 
 **Exit Criteria:**
