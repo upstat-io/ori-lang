@@ -211,8 +211,11 @@ fn main() {
             print_usage();
         }
         "version" | "--version" | "-v" => {
-            println!("Ori Compiler {}", env!("CARGO_PKG_VERSION"));
-            println!("Salsa-first incremental compilation");
+            println!(
+                "Ori Compiler {} (build {})",
+                env!("CARGO_PKG_VERSION"),
+                include_str!("../../../BUILD").trim(),
+            );
         }
         "--explain" | "explain" => {
             if args.len() < 3 {
@@ -240,7 +243,11 @@ fn main() {
 }
 
 fn print_usage() {
-    println!("Ori Compiler (Salsa-first incremental compilation)");
+    println!(
+        "Ori Compiler {} (build {})",
+        env!("CARGO_PKG_VERSION"),
+        include_str!("../../../BUILD").trim(),
+    );
     println!();
     println!("Usage: ori <command> [options]");
     println!();

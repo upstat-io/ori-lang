@@ -210,8 +210,8 @@ bitflags::bitflags! {
 ### Tasks
 
 - [x] Define capability flags ✅
-- [ ] Integrate with Ori's capability system — deferred to Section 06/07
-- [ ] Add `effects(&self) -> EffectFlags` helper — deferred to capability integration
+- [x] Integrate with Ori's capability system ✅ (2026-02-05, InferEngine capability tracking + propagation checking)
+- [ ] Add `effects(&self) -> EffectFlags` helper — deferred to full effect system
 
 ---
 
@@ -351,8 +351,8 @@ impl Pool {
 **Section 02 Status:** In Progress (~90%)
 
 **Remaining:**
-1. Capability system integration (`effects()` helper) — blocked on Section 06/07
-2. Salsa compatibility verification — needs unification engine
-3. Optimization gate tests — verified during Sections 03-06
+1. `effects()` helper — deferred to full effect system
+2. Salsa compatibility verification — verify hash stability
+3. Optimization gate tests — verify flags are checked to skip work
 
 **Exit Criteria:** Every type has pre-computed flags accessible via `pool.flags(idx)`. Flag checks are O(1) and enable optimization shortcuts throughout the type checker.

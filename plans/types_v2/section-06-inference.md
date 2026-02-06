@@ -22,6 +22,7 @@ sections:
   - id: "06.6"
     title: Control Flow
     status: complete
+    note: break value tracking implemented via loop_break_types
   - id: "06.7"
     title: Lambda Inference
     status: complete
@@ -322,8 +323,8 @@ impl<'a> InferEngine<'a> {
 
 - [x] Implement `infer_call()` with arity checking
 - [x] Add argument type checking with context
-- [ ] Handle method calls (receiver.method(args)) - needs Section 07 Registries
-- [ ] Handle generic function instantiation - needs Section 07 Registries
+- [x] Handle method calls (receiver.method(args)) ✅ (2026-02-05, implemented in infer/expr.rs:3016-3095)
+- [x] Handle generic function instantiation ✅ (2026-02-05, works via scheme instantiation)
 - [x] Add tests for various call scenarios ✅ (2026-02-04)
 
 ---
@@ -529,7 +530,7 @@ impl<'a> InferEngine<'a> {
 - [x] Implement `infer_if()` with branch unification
 - [x] Implement `infer_match()` with pattern checking ✅ (2026-02-04)
 - [x] Implement loop inference (for, while) ✅ (2026-02-04)
-- [ ] Handle never type propagation (break value tracking)
+- [x] Handle never type propagation (break value tracking) ✅ (2026-02-05, loop_break_types stack in InferEngine)
 - [x] Add tests for control flow ✅ (2026-02-04)
 
 ---
@@ -709,11 +710,13 @@ Implemented in `ori_types/src/infer/expr.rs`:
 
 **Exit Criteria:** The inference engine can type check all Ori expressions with correct HM inference, producing rich error messages when types don't match.
 
-**Section 06 Status:** ✅ Complete (~98%)
+**Section 06 Status:** In Progress (~95%)
 
-**Remaining blockers for 100%:**
-1. Method call and field access inference (needs Section 07 Registries)
-2. Scoped bindings for `recurse` pattern (needs Section 07)
+**Remaining for 100%:**
+1. Similar name detection for typo suggestions (06.3)
+2. Qualified identifier resolution (`module.name`) (06.3)
+3. Closure variable capture tracking (06.7)
+4. Scoped bindings for `recurse` pattern (06.8)
 
 ---
 

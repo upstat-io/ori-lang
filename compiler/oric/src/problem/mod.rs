@@ -107,7 +107,7 @@ pub(crate) use impl_has_span;
 /// Has Clone, Eq, `PartialEq`, Hash, Debug for use in query results.
 ///
 /// # Note on Type Errors
-/// Type checking errors use `TypeCheckError` from `ori_typeck` directly,
+/// Type checking errors use `TypeCheckError` from `ori_types` directly,
 /// rather than being wrapped in this enum. This allows the type checker
 /// to use structured error variants while other phases use this unified type.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]

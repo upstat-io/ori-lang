@@ -13,7 +13,7 @@ pre-commit:
     full-check:
       run: ./full-check.sh
     version-sync:
-      glob: "**/Cargo.toml|**/package.json"
+      glob: "**/Cargo.toml|**/package.json|**/BaseLayout.astro"
       run: ./scripts/sync-version.sh --check
 
 commit-msg:

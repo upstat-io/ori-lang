@@ -90,7 +90,7 @@ IntFloat, MissingField, FieldTypo
 ---
 
 ### Section 06: Type Inference Engine
-**File:** `section-06-inference.md` | **Status:** ✅ Complete (~98%)
+**File:** `section-06-inference.md` | **Status:** In Progress (~95%)
 
 ```
 InferEngine, infer, inference
@@ -171,7 +171,7 @@ error rendering, message, code, span
 | 03 | Unification Engine | `section-03-unification.md` | P0 | ✅ Complete |
 | 04 | Rank-Based Generalization | `section-04-ranks.md` | P1 | ✅ Complete |
 | 05 | Context-Aware Errors | `section-05-errors.md` | P1 | ✅ Complete |
-| 06 | Type Inference Engine | `section-06-inference.md` | P1 | ✅ Complete (~98%) |
+| 06 | Type Inference Engine | `section-06-inference.md` | P1 | In Progress (~95%) |
 | 07 | Registries | `section-07-registries.md` | P2 | In Progress (~85%) |
 | 08 | Salsa Integration | `section-08-salsa.md` | P2 | ✅ Complete |
 | 08b | Module-Level Type Checker | `section-08b-module-checker.md` | P1 | ✅ Complete ¹ |

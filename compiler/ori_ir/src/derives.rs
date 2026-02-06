@@ -2,7 +2,7 @@
 //!
 //! This module contains the `DerivedTrait` enum and `DerivedMethodInfo` struct
 //! that are used by both the type checker and the evaluator. By placing them
-//! in `ori_ir`, we avoid a circular dependency between `ori_typeck` and `ori_eval`.
+//! in `ori_ir`, we avoid a circular dependency between `ori_types` and `ori_eval`.
 
 use crate::Name;
 

@@ -1,7 +1,7 @@
 //! Built-in method compilation for LLVM backend.
 //!
 //! This module provides direct enum-based dispatch for built-in method calls,
-//! mirroring the architecture in `ori_typeck/src/infer/builtin_methods/` and
+//! mirroring the architecture in `ori_types/src/registry/methods.rs` and
 //! `ori_eval/src/methods.rs`.
 //!
 //! Uses static dispatch via enum matching (not trait objects) for:
