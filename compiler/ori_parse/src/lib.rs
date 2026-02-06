@@ -741,6 +741,7 @@ impl<'a> Parser<'a> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: ori_diagnostic::queue::DiagnosticSeverity::Hard,
                 });
                 self.advance();
             } else {
@@ -991,6 +992,7 @@ impl<'a> Parser<'a> {
                     span: self.current_span(),
                     context: None,
                     help: Vec::new(),
+                    severity: ori_diagnostic::queue::DiagnosticSeverity::Hard,
                 });
                 self.advance();
             } else {

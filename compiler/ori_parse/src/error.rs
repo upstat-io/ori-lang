@@ -6,6 +6,7 @@
 //! - Related location tracking for better diagnostics
 //! - `ErrorContext` for Elm-style "while parsing X" messages
 
+use ori_diagnostic::queue::DiagnosticSeverity;
 use ori_diagnostic::{Diagnostic, ErrorCode, Label};
 // Re-export SourceInfo from ori_diagnostic for use in cross-file error labels
 pub use ori_diagnostic::SourceInfo;
@@ -1811,10 +1812,17 @@ pub struct ParseError {
     pub context: Option<String>,
     /// Optional help messages.
     pub help: Vec<String>,
+    /// Severity level for diagnostic queue suppression.
+    ///
+    /// `Hard` errors are always reported; `Soft` errors (from `EmptyErr` — the parser
+    /// didn't consume any tokens) can be suppressed after a hard error to reduce noise.
+    pub severity: DiagnosticSeverity,
 }
 
 impl ParseError {
     /// Create a new parse error.
+    ///
+    /// Defaults to `Hard` severity (always reported).
     #[cold]
     pub fn new(code: ori_diagnostic::ErrorCode, message: impl Into<String>, span: Span) -> Self {
         ParseError {
@@ -1823,6 +1831,7 @@ impl ParseError {
             span,
             context: None,
             help: Vec::new(),
+            severity: DiagnosticSeverity::Hard,
         }
     }
 
@@ -1890,6 +1899,9 @@ impl ParseError {
     ///
     /// Used by `ParseOutcome::EmptyErr` when converting to `ParseError`.
     /// The position is converted to a zero-length span at that location.
+    ///
+    /// Returns a `Soft` error: the parser didn't consume any tokens, so this
+    /// is a speculative failure that can be suppressed after a hard error.
     #[cold]
     pub fn from_expected_tokens(expected: &crate::TokenSet, position: usize) -> Self {
         #[expect(
@@ -1898,7 +1910,7 @@ impl ParseError {
         )]
         let span = Span::new(position as u32, 0);
         let expected_str = expected.format_expected();
-        ParseError::new(ErrorCode::E1001, format!("expected {expected_str}"), span)
+        ParseError::new(ErrorCode::E1001, format!("expected {expected_str}"), span).as_soft()
     }
 
     /// Create a parse error from expected tokens with additional context.
@@ -1935,6 +1947,13 @@ impl ParseError {
         self
     }
 
+    /// Mark this error as soft (suppressible after a hard error).
+    #[must_use]
+    pub fn as_soft(mut self) -> Self {
+        self.severity = DiagnosticSeverity::Soft;
+        self
+    }
+
     /// Convert to a full Diagnostic for rich error reporting.
     pub fn to_diagnostic(&self) -> ori_diagnostic::Diagnostic {
         let mut diag = ori_diagnostic::Diagnostic::error(self.code)
@@ -1965,6 +1984,7 @@ impl ParseError {
             span,
             context: None,
             help: Vec::new(),
+            severity: DiagnosticSeverity::Hard,
         };
 
         // Add hint first (most actionable)
@@ -2003,6 +2023,7 @@ impl ParseError {
                 span,
                 context: None,
                 help: vec![help.to_string()],
+                severity: DiagnosticSeverity::Hard,
             }
         } else {
             ParseError {
@@ -2011,6 +2032,7 @@ impl ParseError {
                 span,
                 context: None,
                 help: Vec::new(),
+                severity: DiagnosticSeverity::Hard,
             }
         }
     }
@@ -2974,5 +2996,50 @@ mod tests {
         let suggestion = &diag.structured_suggestions[0];
         assert_eq!(suggestion.substitutions[0].snippet, "==");
         assert!(suggestion.applicability.is_machine_applicable());
+    }
+
+    // === Severity Tests ===
+
+    #[test]
+    fn test_new_produces_hard_severity() {
+        let error = ParseError::new(ErrorCode::E1001, "test error", Span::new(0, 1));
+        assert_eq!(error.severity, DiagnosticSeverity::Hard);
+    }
+
+    #[test]
+    fn test_from_expected_tokens_produces_soft_severity() {
+        let ts = crate::TokenSet::new().with(TokenKind::Ident(ori_ir::Name::EMPTY));
+        let error = ParseError::from_expected_tokens(&ts, 0);
+        assert_eq!(error.severity, DiagnosticSeverity::Soft);
+    }
+
+    #[test]
+    fn test_from_expected_tokens_with_context_produces_hard_severity() {
+        let ts = crate::TokenSet::new().with(TokenKind::Ident(ori_ir::Name::EMPTY));
+        let error = ParseError::from_expected_tokens_with_context(&ts, 0, "if expression");
+        assert_eq!(error.severity, DiagnosticSeverity::Hard);
+    }
+
+    #[test]
+    fn test_from_kind_produces_hard_severity() {
+        let kind = ParseErrorKind::UnexpectedToken {
+            found: TokenKind::Semicolon,
+            expected: "expression",
+            context: None,
+        };
+        let error = ParseError::from_kind(&kind, Span::new(0, 1));
+        assert_eq!(error.severity, DiagnosticSeverity::Hard);
+    }
+
+    #[test]
+    fn test_from_error_token_produces_hard_severity() {
+        let error = ParseError::from_error_token(Span::new(0, 3), "===");
+        assert_eq!(error.severity, DiagnosticSeverity::Hard);
+    }
+
+    #[test]
+    fn test_as_soft_changes_severity() {
+        let error = ParseError::new(ErrorCode::E1001, "test", Span::new(0, 1)).as_soft();
+        assert_eq!(error.severity, DiagnosticSeverity::Soft);
     }
 }

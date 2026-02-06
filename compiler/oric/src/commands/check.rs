@@ -1,6 +1,7 @@
 //! The `check` command: type-check an Ori source file and verify test coverage.
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
+use ori_diagnostic::queue::DiagnosticQueue;
 use oric::query::parsed;
 use oric::reporting::typeck::TypeErrorRenderer;
 use oric::typeck;
@@ -26,11 +27,21 @@ pub fn check_file(path: &str) {
         .with_source(file.text(&db).as_str())
         .with_file_path(path);
 
-    // Check for parse errors
+    // Check for parse errors — route through DiagnosticQueue for
+    // deduplication and soft-error suppression after hard errors
     let parse_result = parsed(&db, file);
     if parse_result.has_errors() {
+        let source = file.text(&db);
+        let mut queue = DiagnosticQueue::new();
         for error in &parse_result.errors {
-            emitter.emit(&error.to_diagnostic());
+            queue.add_with_source_and_severity(
+                error.to_diagnostic(),
+                source.as_str(),
+                error.severity,
+            );
+        }
+        for diag in queue.flush() {
+            emitter.emit(&diag);
         }
         has_errors = true;
     }

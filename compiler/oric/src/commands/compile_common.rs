@@ -14,6 +14,8 @@ use std::path::Path;
 #[cfg(feature = "llvm")]
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 #[cfg(feature = "llvm")]
+use ori_diagnostic::queue::DiagnosticQueue;
+#[cfg(feature = "llvm")]
 use ori_ir::ast::TypeDeclKind;
 #[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
@@ -61,11 +63,21 @@ pub fn check_source(
         .with_source(file.text(db).as_str())
         .with_file_path(path);
 
-    // Check for parse errors
+    // Check for parse errors — route through DiagnosticQueue for
+    // deduplication and soft-error suppression after hard errors
     let parse_result = parsed(db, file);
     if parse_result.has_errors() {
+        let source = file.text(db);
+        let mut queue = DiagnosticQueue::new();
         for error in &parse_result.errors {
-            emitter.emit(&error.to_diagnostic());
+            queue.add_with_source_and_severity(
+                error.to_diagnostic(),
+                source.as_str(),
+                error.severity,
+            );
+        }
+        for diag in queue.flush() {
+            emitter.emit(&diag);
         }
         has_errors = true;
     }
