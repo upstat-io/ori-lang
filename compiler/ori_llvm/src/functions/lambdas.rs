@@ -16,6 +16,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ast::ExprKind;
 use ori_ir::{ExprArena, ExprId, Name};
 use ori_types::Idx;
+use tracing::{debug, instrument};
 
 use crate::builder::{Builder, LocalStorage, Locals};
 
@@ -28,6 +29,10 @@ impl<'ll> Builder<'_, 'll, '_> {
     /// Lambdas are compiled as closures with captured variables passed as
     /// extra parameters. The closure struct contains the function pointer
     /// and the captured values.
+    #[instrument(
+        skip(self, params, body, arena, expr_types, locals, _parent_function),
+        level = "debug"
+    )]
     pub(crate) fn compile_lambda(
         &self,
         params: ori_ir::ast::ParamRange,
@@ -48,6 +53,12 @@ impl<'ll> Builder<'_, 'll, '_> {
         // Create a unique name for this lambda
         let lambda_id = LAMBDA_COUNTER.fetch_add(1, Ordering::SeqCst);
         let lambda_name = format!("__lambda_{lambda_id}");
+        debug!(
+            name = %lambda_name,
+            params = parameters.len(),
+            captures = captures.len(),
+            "compiling lambda"
+        );
 
         // Build parameter types: regular params + captured values (all as i64)
         let total_params = parameters.len() + captures.len();

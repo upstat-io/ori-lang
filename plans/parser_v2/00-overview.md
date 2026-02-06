@@ -36,16 +36,22 @@ Replace pointer-based AST with index-based, cache-friendly storage.
 | 1.4 | Pre-allocation heuristics | Zig |
 | 1.5 | Scratch buffer integration | Ori (existing) |
 
-### Section 2: Lexer Optimizations
+### Section 2: Lexer Modernization
 
-Optimize keyword recognition and operator handling.
+Align lexer with parser/type system architecture; implement approved proposals.
 
-| Subsection | Focus | Source |
-|------------|-------|--------|
-| 2.1 | Perfect hash keywords | Go |
-| 2.2 | Compile-time collision detection | Go |
-| 2.3 | Precedence metadata in tokens | Go, Rust |
-| 2.4 | Adjacent token optimization | Ori (existing) |
+| Subsection | Focus | Source | Status |
+|------------|-------|--------|--------|
+| 2.1 | Perfect hash keywords | Go | Satisfied by logos |
+| 2.2 | Compile-time collision detection | Go | Satisfied by logos |
+| 2.3 | Precedence metadata in tokens | Go, Rust | Satisfied by parser |
+| 2.4 | Adjacent token optimization | Ori (existing) | Satisfied by parser |
+| 2.5 | Simplified attributes (remove HashBracket) | Proposal | Not started |
+| 2.6 | Decimal duration/size literals | Proposal | Not started |
+| 2.7 | Simplified doc comments | Proposal | Not started |
+| 2.8 | Template string interpolation | Proposal | Not started |
+| 2.9 | TokenList SoA migration | System alignment | Not started |
+| 2.10 | TokenKind cleanup (GtEq/Shr audit) | System alignment | Not started |
 
 ### Section 3: Enhanced Progress System
 
@@ -91,6 +97,20 @@ Preserve non-semantic information for formatters.
 | 6.3 | SpaceBefore/SpaceAfter pattern | Roc |
 | 6.4 | Detached doc comment warnings | Gleam |
 
+### Section 7: Full ParseOutcome Migration
+
+Convert all grammar functions from `Result<T, ParseError>` to native `ParseOutcome<T>`, adopt backtracking macros, and remove the `with_outcome()` wrapper layer.
+
+| Subsection | Focus | Source |
+|------------|-------|--------|
+| 7.1 | Primary expression conversion | Elm, Roc |
+| 7.2 | Expression core conversion (Pratt loop) | Elm, Roc |
+| 7.3 | Pattern & control flow conversion | Elm, Roc |
+| 7.4 | Postfix & operator conversion | Elm, Roc |
+| 7.5 | Item declaration conversion | Elm, Roc |
+| 7.6 | Type & generics conversion | Elm, Roc |
+| 7.7 | Wrapper layer removal & cleanup | — |
+
 ---
 
 ## Performance Targets
@@ -103,6 +123,8 @@ Preserve non-semantic information for formatters.
 | Token capture | Copy tokens | Index-based | O(1) lookup | ✅ Complete (TokenCapture) |
 | AST traversal | Random access | Sequential (SoA) | 2-3x cache hits | ✅ Complete (SoA split) |
 | Error message quality | Good | Elm-tier | Qualitative | ✅ Complete |
+| ParseOutcome adoption | 4/57 functions (7%) | 57/57 (100%) | Structural backtracking | Not started |
+| Backtracking macro usage | 0 grammar uses | All dispatch sites | Eliminates wrappers | Not started |
 
 **Note:** SoA migration completed 2026-02-05. `Expr` reduced from 88 to 32 bytes (64%). Storage split into parallel `Vec<ExprKind>` + `Vec<Span>`. `ExprKind` shrunk from 80 to 24 bytes via arena-allocation of large embedded types. `ExprList` eliminated in favor of `ExprRange`.
 
@@ -117,13 +139,16 @@ Section 2 (Lexer) ─────────────┤
                                │
 Section 3 (Progress) ──────────┼─► Section 4 (Errors)
                                │
-                               └─► Section 6 (Metadata)
+                               ├─► Section 6 (Metadata)
+                               │
+                               └─► Section 7 (Full Migration)
 ```
 
 **Key Dependencies**:
 - Section 1 (AST) can proceed independently
 - Section 2 (Lexer) can proceed independently
 - Section 3 (Progress) enables Section 4 (Errors)
+- Section 3 (Progress) enables Section 7 (Full Migration) — Section 3 defined the `ParseOutcome` type and macros; Section 7 adopts them across all grammar functions
 - Section 5 (Incremental) builds on Section 1 (AST)
 - Section 6 (Metadata) can proceed after Section 1
 
@@ -211,6 +236,24 @@ Section 3 (Progress) ──────────┼─► Section 4 (Errors)
 - **6.4 Detached Warnings:** `ParseWarning::DetachedDocComment` with `DetachmentReason` enum. `ParseOutput::check_detached_doc_comments()` populates warnings.
 - **6.3 SpaceBefore/SpaceAfter:** Deferred - requires significant AST changes for marginal benefit. Current `ModuleExtra` suffices for formatters.
 
+### Phase 6: Full ParseOutcome Migration (Medium-risk, High-impact)
+**Target: After Phase 5** | **Status: Not started**
+
+| Task | Section | Risk | Impact | Status |
+|------|---------|------|--------|--------|
+| Primary expression conversion | 7.1 | Medium | High | Not started |
+| Expression core (Pratt loop) | 7.2 | High | High | Not started |
+| Pattern & control flow | 7.3 | Medium | High | Not started |
+| Postfix & operator conversion | 7.4 | Medium | Medium | Not started |
+| Item declaration conversion | 7.5 | Medium | High | Not started |
+| Type & generics conversion | 7.6 | Low | Medium | Not started |
+| Wrapper layer removal | 7.7 | Low | High | Not started |
+
+**Phase 6 Context:**
+Section 3 defined `ParseOutcome<T>` and the backtracking macros (`one_of!`, `try_outcome!`, `require!`, `chain!`), but adoption stopped at the wrapper level — `with_outcome()` shims convert `Result` → `ParseOutcome` after the fact using position comparison, losing the structural soft/hard error distinction. Phase 6 converts all 53+ grammar functions to natively return `ParseOutcome<T>`, enables actual macro usage (currently 0 uses in grammar code), collapses the `_inner` indirection pattern, and removes the wrapper layer entirely.
+
+See `section-07-parseoutcome-migration.md` for the full function inventory, migration phases, and exit criteria.
+
 ---
 
 ## Reference Implementations
@@ -234,8 +277,10 @@ Section 3 (Progress) ──────────┼─► Section 4 (Errors)
 | MultiArrayList (SoA) | Zig | 1.1 |
 | Index-based nodes | Zig | 1.2 |
 | Extra data buffer | Zig | 1.3 |
-| Perfect hash keywords | Go | 2.1 |
-| Precedence in scanner | Go, Rust | 2.3 |
+| Perfect hash keywords | Go | 2.1 (satisfied by logos) |
+| Precedence in scanner | Go, Rust | 2.3 (satisfied by parser) |
+| Compound operator synthesis | Ori | 2.4 (satisfied by parser) |
+| TokenList SoA | Zig | 2.9 |
 | Progress tracking | Roc, Elm | 3.1 |
 | Expected accumulation | Rust | 3.3 |
 | ParseErrorDetails | Gleam | 4.1 |
@@ -245,6 +290,8 @@ Section 3 (Progress) ──────────┼─► Section 4 (Errors)
 | Lazy token capture | Rust | 5.4 |
 | ModuleExtra | Gleam | 6.1 |
 | SpaceBefore/After | Roc | 6.3 |
+| Native ParseOutcome adoption | Elm, Roc | 7.1-7.6 |
+| Wrapper layer elimination | — | 7.7 |
 
 ---
 
@@ -255,11 +302,12 @@ Section 3 (Progress) ──────────┼─► Section 4 (Errors)
 | `00-overview.md` | This file - plan overview |
 | `index.md` | Keyword index for quick finding |
 | `section-01-data-oriented-ast.md` | Cache-friendly AST storage |
-| `section-02-lexer.md` | Keyword hashing, operator metadata |
-| `section-03-progress.md` | Enhanced progress and backtracking |
+| `section-02-lexer.md` | Lexer modernization, approved proposals, SoA migration |
+| `section-03-progress.md` | ParseOutcome type & macros (infrastructure) |
 | `section-04-errors.md` | Structured error messages |
 | `section-05-incremental.md` | IDE-friendly incremental parsing |
 | `section-06-metadata.md` | Formatting metadata preservation |
+| `section-07-parseoutcome-migration.md` | Full ParseOutcome adoption across all grammar functions |
 
 ---
 
@@ -286,10 +334,12 @@ This plan builds on these strengths rather than replacing them.
 
 **Key Finding (2026-02-04):** Many "planned" features were already implemented in Ori. The parser architecture is more mature than initially assessed.
 
-**Migration Complete (2026-02-05):** `ParseOutcome<T>` is now the operational return type for module-level dispatch:
+**Wrapper Migration Complete (2026-02-05):** `ParseOutcome<T>` is the operational return type for module-level dispatch via `with_outcome()` shims:
 - `parse_module()` and `parse_module_incremental()` use `handle_outcome()` + `with_outcome()`
 - 9 `_with_progress` wrappers migrated to `_with_outcome` returning `ParseOutcome<T>`
 - `parse_primary()` natively returns `ParseOutcome<ExprId>`
 - 12 key grammar functions wrapped with `in_error_context_result()` for "while parsing" context
 - Dead code removed: `with_progress`, `handle_parse_result`, `progress_since`, `try_parse!`, `try_result!`
 - All 8490 tests pass (unit + spec + LLVM + WASM)
+
+**Remaining (Section 7):** 53 grammar functions still return `Result<T, ParseError>`. The 4 backtracking macros (`one_of!`, `try_outcome!`, `require!`, `chain!`) have 0 uses in grammar code. The `with_outcome()` wrapper infers progress via position comparison rather than structural `ConsumedOk`/`EmptyErr` distinction. Section 7 completes the migration by converting all grammar functions to native `ParseOutcome<T>` and removing the wrapper layer.

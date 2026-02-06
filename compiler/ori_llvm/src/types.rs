@@ -3,6 +3,7 @@
 use inkwell::types::BasicMetadataTypeEnum;
 use inkwell::values::BasicValueEnum;
 use ori_types::Idx;
+use tracing::instrument;
 
 use crate::builder::Builder;
 use crate::context::CodegenCx;
@@ -19,6 +20,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     ///
     /// This is used for Option/Result payloads which use a standardized
     /// i64 payload slot for consistent ABI.
+    #[instrument(skip(self, val), level = "trace")]
     pub(crate) fn coerce_to_i64(
         &self,
         val: BasicValueEnum<'ll>,
@@ -74,6 +76,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     ///
     /// This is the inverse of `coerce_to_i64`, used when extracting
     /// Option/Result payloads.
+    #[instrument(skip(self, val), level = "trace")]
     pub(crate) fn coerce_from_i64(
         &self,
         val: inkwell::values::IntValue<'ll>,

@@ -13,6 +13,8 @@ pub enum TestOutcome {
     Failed(String),
     /// Test was skipped with a reason.
     Skipped(String),
+    /// Test failed as expected (XFAIL) — not counted as a real failure.
+    ExpectedFailure(String),
 }
 
 impl TestOutcome {
@@ -26,6 +28,10 @@ impl TestOutcome {
 
     pub fn is_skipped(&self) -> bool {
         matches!(self, TestOutcome::Skipped(_))
+    }
+
+    pub fn is_expected_failure(&self) -> bool {
+        matches!(self, TestOutcome::ExpectedFailure(_))
     }
 }
 
@@ -97,10 +103,14 @@ pub struct FileSummary {
     pub failed: usize,
     /// Number of tests that were skipped.
     pub skipped: usize,
+    /// Number of tests that failed as expected (XFAIL).
+    pub xfail: usize,
     /// Total time to run all tests in file.
     pub duration: Duration,
     /// Parse or type errors (not test failures).
     pub errors: Vec<String>,
+    /// Whether this file's errors are expected (XFAIL file-level error).
+    pub expected_file_error: bool,
 }
 
 impl FileSummary {
@@ -116,6 +126,7 @@ impl FileSummary {
             TestOutcome::Passed => self.passed += 1,
             TestOutcome::Failed(_) => self.failed += 1,
             TestOutcome::Skipped(_) => self.skipped += 1,
+            TestOutcome::ExpectedFailure(_) => self.xfail += 1,
         }
         self.duration += result.duration;
         self.results.push(result);
@@ -129,8 +140,9 @@ impl FileSummary {
         self.passed + self.failed + self.skipped
     }
 
+    /// Returns true if there are real failures (excludes expected failures/errors).
     pub fn has_failures(&self) -> bool {
-        self.failed > 0 || !self.errors.is_empty()
+        self.failed > 0 || (!self.errors.is_empty() && !self.expected_file_error)
     }
 }
 
@@ -145,8 +157,12 @@ pub struct TestSummary {
     pub failed: usize,
     /// Total tests skipped.
     pub skipped: usize,
-    /// Number of files with type/parse errors (these are failures).
+    /// Total tests that failed as expected (XFAIL).
+    pub xfail: usize,
+    /// Number of files with type/parse errors (real failures, not expected).
     pub error_files: usize,
+    /// Number of files with expected errors (XFAIL file-level).
+    pub xfail_files: usize,
     /// Total time for all tests.
     pub duration: Duration,
 }
@@ -160,8 +176,13 @@ impl TestSummary {
         self.passed += summary.passed;
         self.failed += summary.failed;
         self.skipped += summary.skipped;
+        self.xfail += summary.xfail;
         if !summary.errors.is_empty() {
-            self.error_files += 1;
+            if summary.expected_file_error {
+                self.xfail_files += 1;
+            } else {
+                self.error_files += 1;
+            }
         }
         self.duration += summary.duration;
         self.files.push(summary);
@@ -171,21 +192,21 @@ impl TestSummary {
         self.passed + self.failed + self.skipped
     }
 
-    /// Returns true if any test function failed or any file had type/parse errors.
+    /// Returns true if any real test failure or real file error occurred.
     ///
-    /// Files with type errors that aren't marked `#compile_fail` are failures.
+    /// Expected failures (XFAIL) do not count as failures.
     pub fn has_failures(&self) -> bool {
         self.failed > 0 || self.error_files > 0
     }
 
-    /// Returns true if any file had errors (type check, parse, etc.).
+    /// Returns true if any file had real (non-expected) errors.
     pub fn has_file_errors(&self) -> bool {
         self.error_files > 0
     }
 
     /// Get exit code: 0 = all pass, 1 = failures (tests or type errors), 2 = no tests found.
     pub fn exit_code(&self) -> i32 {
-        if self.total() == 0 && self.error_files == 0 {
+        if self.total() == 0 && self.error_files == 0 && self.xfail == 0 && self.xfail_files == 0 {
             2
         } else {
             i32::from(self.has_failures())
@@ -293,6 +314,8 @@ mod tests {
         assert!(!TestOutcome::Passed.is_failed());
         assert!(TestOutcome::Failed("error".into()).is_failed());
         assert!(TestOutcome::Skipped("reason".into()).is_skipped());
+        assert!(TestOutcome::ExpectedFailure("xfail".into()).is_expected_failure());
+        assert!(!TestOutcome::ExpectedFailure("xfail".into()).is_failed());
     }
 
     #[test]
@@ -335,6 +358,59 @@ mod tests {
         summary2.passed = 5;
         summary2.error_files = 1;
         assert_eq!(summary2.exit_code(), 1); // File errors = failure
+    }
+
+    #[test]
+    fn test_xfail_not_counted_as_failure() {
+        let interner = test_interner();
+        let test1 = interner.intern("test1");
+
+        let mut file = FileSummary::new(PathBuf::from("test.ori"));
+        file.add_result(TestResult {
+            name: test1,
+            targets: vec![],
+            outcome: TestOutcome::ExpectedFailure("xfail reason".into()),
+            duration: Duration::from_millis(5),
+        });
+
+        assert_eq!(file.xfail, 1);
+        assert_eq!(file.failed, 0);
+        assert!(!file.has_failures());
+    }
+
+    #[test]
+    fn test_expected_file_error_not_counted_as_failure() {
+        let mut file = FileSummary::new(PathBuf::from("error.ori"));
+        file.add_error("type error".into());
+        file.expected_file_error = true;
+
+        assert!(!file.has_failures());
+
+        let mut summary = TestSummary::new();
+        summary.add_file(file);
+        assert_eq!(summary.xfail_files, 1);
+        assert_eq!(summary.error_files, 0);
+        assert!(!summary.has_failures());
+    }
+
+    #[test]
+    fn test_summary_xfail_only_is_not_failure() {
+        let mut summary = TestSummary::new();
+        summary.xfail = 10;
+        summary.xfail_files = 5;
+        // No real tests passed, but xfail counts mean tests exist
+        assert!(!summary.has_failures());
+        assert_eq!(summary.exit_code(), 0);
+    }
+
+    #[test]
+    fn test_summary_xfail_with_real_failures() {
+        let mut summary = TestSummary::new();
+        summary.passed = 100;
+        summary.xfail = 10;
+        summary.failed = 1; // One real failure
+        assert!(summary.has_failures());
+        assert_eq!(summary.exit_code(), 1);
     }
 
     #[test]

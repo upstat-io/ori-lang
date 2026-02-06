@@ -58,6 +58,14 @@ sections:
 ~/projects/reference_repos/lang_repos/rust/compiler/rustc_middle/src/ty/    # Type representation
 ```
 
+### Swift
+
+```
+# Swift has `any Protocol` (existential) and `some Protocol` (opaque return)
+~/projects/reference_repos/lang_repos/swift/lib/Sema/CSSimplify.cpp         # Existential type solving
+~/projects/reference_repos/lang_repos/swift/lib/AST/Type.cpp                # ExistentialType representation
+```
+
 ---
 
 ## 19.1 Return Position impl Trait

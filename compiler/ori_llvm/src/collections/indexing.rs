@@ -3,12 +3,17 @@
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprId};
 use ori_types::Idx;
+use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile an index expression: receiver[index]
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "trace"
+    )]
     pub(crate) fn compile_index(
         &self,
         receiver: ExprId,
@@ -29,17 +34,12 @@ impl<'ll> Builder<'_, 'll, '_> {
                 // Could be a tuple - use index as field number
                 // Only works with integer indices
                 let BasicValueEnum::IntValue(idx) = idx_val else {
-                    // Non-integer index (e.g., string key for map) - not yet supported
-                    return None;
+                    return self.emit_not_implemented("non-integer indexing (maps)");
                 };
                 idx.get_zero_extended_constant()
                     .and_then(|const_idx| self.extract_value(struct_val, const_idx as u32, "index"))
             }
-            _ => {
-                // For lists/arrays, would need GEP or runtime call
-                // Return None for now
-                None
-            }
+            _ => self.emit_not_implemented("dynamic list indexing"),
         }
     }
 }

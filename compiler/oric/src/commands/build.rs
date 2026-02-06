@@ -424,7 +424,7 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     let file = SourceFile::new(&db, PathBuf::from(path), content.to_string());
 
     // Check for parse and type errors
-    let Some((parse_result, type_result)) = check_source(&db, file, path) else {
+    let Some((parse_result, type_result, pool)) = check_source(&db, file, path) else {
         std::process::exit(1)
     };
 
@@ -444,7 +444,7 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
 
     // Step 3: Generate LLVM IR
     let context = Context::create();
-    let llvm_module = compile_to_llvm(&context, &db, &parse_result, &type_result, path);
+    let llvm_module = compile_to_llvm(&context, &db, &parse_result, &type_result, &pool, path);
 
     // Configure module for target
     let emitter = match ObjectEmitter::new(&target) {
@@ -662,7 +662,7 @@ struct CompiledModuleInfo {
     /// Public function signatures (`mangled_name`, `param_types`, `return_type`).
     /// These are the actual types from type checking, not defaults.
     /// The mangled name is pre-computed to avoid needing the interner later.
-    public_functions: Vec<(String, Vec<ori_ir::TypeId>, ori_ir::TypeId)>,
+    public_functions: Vec<(String, Vec<ori_types::Idx>, ori_types::Idx)>,
 }
 
 /// Compile a single module to an object file.
@@ -700,7 +700,7 @@ fn compile_single_module(
 
     // Load and check the source
     let file = SourceFile::new(ctx.db, source_path.to_path_buf(), content);
-    let (parse_result, type_result) = check_source(ctx.db, file, &source_path_str)?;
+    let (parse_result, type_result, pool) = check_source(ctx.db, file, &source_path_str)?;
 
     // Extract public function signatures with actual types from type checking
     let public_functions = extract_public_function_types(
@@ -727,6 +727,7 @@ fn compile_single_module(
         ctx.db,
         &parse_result,
         &type_result,
+        &pool,
         &source_path_str,
         &module_name,
         &imported_functions,
@@ -787,32 +788,36 @@ fn extract_public_function_types(
     module_name: &str,
     mangler: &ori_llvm::aot::Mangler,
     db: &oric::CompilerDb,
-) -> Vec<(String, Vec<ori_ir::TypeId>, ori_ir::TypeId)> {
+) -> Vec<(String, Vec<ori_types::Idx>, ori_types::Idx)> {
     use oric::Db; // For interner() method
 
     let interner = db.interner();
     let mut public_functions = Vec::new();
 
-    // Match parsed functions with their type-checked signatures
-    for (idx, func) in parse_result.module.functions.iter().enumerate() {
+    // Build a name-based lookup map because typed.functions is sorted by name
+    // (for Salsa determinism) while module.functions is in source order.
+    let sig_map: std::collections::HashMap<ori_ir::Name, &ori_types::FunctionSig> = type_result
+        .typed
+        .functions
+        .iter()
+        .map(|ft| (ft.name, ft))
+        .collect();
+
+    // Match parsed functions with their type-checked signatures by name
+    for func in &parse_result.module.functions {
         if !func.visibility.is_public() {
             continue;
         }
 
-        // Get the corresponding FunctionSig from type checking
-        if let Some(func_sig) = type_result.typed.functions.get(idx) {
+        if let Some(func_sig) = sig_map.get(&func.name) {
             let func_name_str = interner.lookup(func.name);
             let mangled_name = mangler.mangle_function(module_name, func_name_str);
 
-            // Convert Idx to TypeId at the LLVM boundary (both are u32 newtypes)
-            let param_types: Vec<ori_ir::TypeId> = func_sig
-                .param_types
-                .iter()
-                .map(|idx| ori_ir::TypeId::from_raw(idx.raw()))
-                .collect();
-            let return_type = ori_ir::TypeId::from_raw(func_sig.return_type.raw());
-
-            public_functions.push((mangled_name, param_types, return_type));
+            public_functions.push((
+                mangled_name,
+                func_sig.param_types.clone(),
+                func_sig.return_type,
+            ));
         }
     }
 

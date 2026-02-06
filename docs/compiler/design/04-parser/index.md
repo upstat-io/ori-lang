@@ -7,132 +7,93 @@ section: "Parser"
 
 # Parser Overview
 
-The Ori parser transforms a token stream into an AST. It uses recursive descent parsing with operator precedence handling.
+The Ori parser transforms a token stream into a flat, arena-allocated AST. It uses recursive descent with a Pratt parser for binary operator precedence and Elm-style four-way progress tracking for automatic backtracking.
 
 ## Location
 
 ```
 compiler/ori_parse/src/
-├── lib.rs                  # Parser struct and public API
+├── lib.rs                  # Parser struct, public API, parse_module()
 ├── cursor.rs               # Token cursor abstraction
-├── context.rs              # ParseContext for context-sensitive parsing
-├── progress.rs             # Progress tracking (inspired by Roc)
-├── recovery.rs             # RecoverySet and synchronization
+├── context.rs              # ParseContext bitfield for context-sensitive parsing
+├── outcome.rs              # ParseOutcome (4-way result) + backtracking macros
+├── progress.rs             # Progress (2-way result, legacy — migrating to ParseOutcome)
+├── recovery.rs             # TokenSet bitset and synchronization
 ├── series.rs               # Series combinator for comma-separated lists
 ├── snapshot.rs             # Parser snapshots for speculative parsing
-├── error.rs                # Parse error types
+├── scratch.rs              # Reusable scratch buffer (infrastructure, not yet integrated)
+├── error.rs                # ParseError, ErrorContext, ParseWarning
+├── incremental.rs          # Incremental parsing for IDE reuse
 └── grammar/
     ├── mod.rs              # Grammar module organization
     ├── expr/               # Expression parsing
-    │   ├── mod.rs              # Entry point, parse_binary_level! macro
-    │   ├── operators.rs        # Operator matching helpers
+    │   ├── mod.rs              # Entry point, Pratt parser for binary operators
+    │   ├── operators.rs        # Binding power table, operator matching
     │   ├── patterns.rs         # function_seq/function_exp parsing
-    │   ├── postfix.rs          # Call, method call, field, index
-    │   └── primary.rs          # Primary expressions, literals
-    ├── item/               # Item parsing
+    │   ├── postfix.rs          # Call, method call, field, index, await, try
+    │   └── primary.rs          # Literals, identifiers, lambdas, let bindings
+    ├── item/               # Top-level declarations
     │   ├── mod.rs              # Re-exports
     │   ├── function.rs         # Function/test parsing
-    │   ├── type_decl.rs        # Type declarations
+    │   ├── type_decl.rs        # Struct, sum, newtype declarations
     │   ├── trait_def.rs        # Trait definitions
-    │   ├── impl_def.rs         # Impl blocks
+    │   ├── impl_def.rs         # Impl blocks and def impl
     │   ├── use_def.rs          # Import statements
-    │   ├── extend.rs           # Extension definitions
-    │   ├── generics.rs         # Generic parameter parsing
-    │   └── config.rs           # Config variable parsing
+    │   ├── extend.rs           # Extension blocks
+    │   ├── generics.rs         # Generic parameters, bounds, where clauses
+    │   └── config.rs           # Config variable ($NAME = value)
     ├── ty.rs               # Type annotation parsing
-    └── attr.rs             # Attribute parsing
+    └── attr.rs             # Attribute parsing (#derive, #test, #skip)
 ```
 
-The parser is a separate crate with dependencies:
-- `ori_ir` - for `Token`, `TokenKind`, `Span`, `ExprArena`, etc.
-- `ori_diagnostic` - for `Diagnostic`, `ErrorCode`
-- `stacker` - for stack overflow protection on deeply nested expressions
+Dependencies:
+
+- `ori_ir` — `Token`, `TokenKind`, `Span`, `ExprArena`, `ExprId`, `Module`
+- `ori_diagnostic` — `Diagnostic`, `ErrorCode`
+- `ori_stack` — Stack overflow protection for deeply nested expressions
 
 ## Design Goals
 
-1. **Clear grammar structure** - One file per grammar category
-2. **Error recovery** - Parse as much as possible despite errors
-3. **Arena allocation** - Build flat AST in ExprArena
-4. **Comprehensive spans** - Track source locations for diagnostics
+1. **Pratt-based operator parsing** — Single-loop binding power table replaces 12-level recursive descent chain
+2. **Elm-style progress tracking** — Four-way `ParseOutcome` enables automatic backtracking without explicit lookahead
+3. **Arena allocation** — Flat AST in `ExprArena` with `ExprId` handles (4 bytes each)
+4. **Incremental reuse** — Reuse unchanged declarations from previous parses for IDE responsiveness
+5. **Comprehensive error recovery** — Bitset-based `TokenSet` for O(1) synchronization point detection
 
 ## Parser Structure
-
-The parser uses a layered architecture:
 
 ```rust
 pub struct Parser<'a> {
     /// Token navigation via Cursor abstraction
     cursor: Cursor<'a>,
-    /// Flat AST storage
+    /// Flat AST storage (Struct-of-Arrays layout)
     arena: ExprArena,
     /// Context flags for context-sensitive parsing
     context: ParseContext,
 }
 
-/// Token cursor for navigating the token stream
 pub struct Cursor<'a> {
     tokens: &'a TokenList,
     interner: &'a StringInterner,
     pos: usize,
 }
 
-/// Context flags for context-sensitive parsing (u16 for expansion room)
+/// Context flags as a u16 bitfield (room for 16 flags).
 pub struct ParseContext(u16);
 
 impl ParseContext {
-    const IN_PATTERN: Self = Self(0b0000_0001);    // Inside pattern context
-    const IN_TYPE: Self = Self(0b0000_0010);       // Inside type annotation
-    const NO_STRUCT_LIT: Self = Self(0b0000_0100); // Disallow struct literals
-    const CONST_EXPR: Self = Self(0b0000_1000);    // Constant expression context
-    const IN_LOOP: Self = Self(0b0001_0000);       // Inside loop body
-    const ALLOW_YIELD: Self = Self(0b0010_0000);   // Yield allowed
-    const IN_FUNCTION: Self = Self(0b0100_0000);   // Inside function body
-    const IN_INDEX: Self = Self(0b1000_0000);      // Inside index brackets
+    const IN_PATTERN: Self = Self(0b0000_0001);
+    const IN_TYPE: Self = Self(0b0000_0010);
+    const NO_STRUCT_LIT: Self = Self(0b0000_0100);
+    const CONST_EXPR: Self = Self(0b0000_1000);
+    const IN_LOOP: Self = Self(0b0001_0000);
+    const ALLOW_YIELD: Self = Self(0b0010_0000);
+    const IN_FUNCTION: Self = Self(0b0100_0000);
+    const IN_INDEX: Self = Self(0b1000_0000);
 }
 ```
 
-## Progress-Aware Parsing
-
-Inspired by the Roc compiler, the parser tracks whether tokens were consumed:
-
-```rust
-pub enum Progress {
-    Made,  // Parser consumed tokens
-    None,  // No tokens consumed
-}
-
-pub struct ParseResult<T> {
-    pub progress: Progress,
-    pub result: Result<T, ParseError>,
-}
-```
-
-This enables better error recovery:
-- `Progress::None` + error → can try alternative productions
-- `Progress::Made` + error → commit to this path and report error
-
-### Progress Tracking Implementation
-
-```rust
-impl Parser<'_> {
-    /// Parse with progress tracking.
-    fn parse_with_progress<T>(
-        &mut self,
-        f: impl FnOnce(&mut Self) -> Result<T, ParseError>,
-    ) -> ParseResult<T> {
-        let start_pos = self.cursor.position();
-        let result = f(self);
-        let progress = if self.cursor.position() > start_pos {
-            Progress::Made
-        } else {
-            Progress::None
-        };
-        ParseResult { progress, result }
-    }
-}
-```
-
-This pattern is used throughout the parser to determine whether to commit to a parse path or try alternatives
+Context flags affect how tokens are interpreted. For example, `NO_STRUCT_LIT` prevents struct literal syntax inside `if` conditions to avoid `if Point { x: 0, ... }` ambiguity. `IN_TYPE` changes how `>` is parsed (closes a generic parameter list rather than comparison).
 
 ## Parsing Flow
 
@@ -141,151 +102,84 @@ TokenList
     │
     │ parse_module()
     ▼
-Module { functions, types, tests, imports }
+Module { functions, types, tests, imports, traits, impls, extends, consts }
     │
-    │ Each item calls:
-    │   - parse_function()
-    │   - parse_type_def()
-    │   - parse_test()
-    │   - parse_import()
+    │ Each declaration calls:
+    │   parse_function() / parse_test()     → Function / TestDef
+    │   parse_type_decl()                   → TypeDecl
+    │   parse_trait()                       → TraitDef
+    │   parse_impl()                        → ImplDef
+    │   parse_extend()                      → ExtendDef
+    │   parse_use_inner()                   → Import
+    │   parse_const()                       → ConstDef
     ▼
-ExprArena (populated during parsing)
+ExprArena (populated during parsing via alloc_expr)
 ```
 
-## Core Methods
+## Public API
 
-### Token Access (via Cursor)
-
-Token navigation is delegated to the `Cursor` type:
+Three entry points cover different use cases:
 
 ```rust
-impl Cursor<'_> {
-    fn current(&self) -> &Token { ... }
-    fn current_kind(&self) -> &TokenKind { &self.current().kind }
-    fn current_span(&self) -> Span { self.current().span }
-    fn peek_next_kind(&self) -> &TokenKind { ... }  // Lookahead
+/// Basic parsing — no metadata preservation.
+pub fn parse(tokens: &TokenList, interner: &StringInterner) -> ParseOutput;
 
-    fn check(&self, kind: &TokenKind) -> bool {
-        std::mem::discriminant(self.current_kind()) == std::mem::discriminant(kind)
-    }
+/// Parse with metadata for formatters and IDEs.
+/// Preserves comments, blank lines, and trivia for lossless roundtrip.
+pub fn parse_with_metadata(
+    tokens: &TokenList,
+    metadata: ModuleExtra,
+    interner: &StringInterner,
+) -> ParseOutput;
 
-    fn advance(&mut self) -> &Token { ... }
-    fn consume(&mut self, kind: &TokenKind) -> bool { ... }
-
-    fn position(&self) -> usize { self.pos }  // For progress tracking
-}
+/// Incremental parsing — reuse unchanged declarations from old AST.
+/// Only re-parses declarations that overlap with the text change.
+pub fn parse_incremental(
+    tokens: &TokenList,
+    interner: &StringInterner,
+    old_result: &ParseOutput,
+    change: TextChange,
+) -> ParseOutput;
 ```
 
-### Context Management
+All return `ParseOutput`:
 
 ```rust
-impl Parser<'_> {
-    fn with_context<T>(&mut self, add: ParseContext, f: impl FnOnce(&mut Self) -> T) -> T {
-        let old = self.context;
-        self.context = self.context.with(add);
-        let result = f(self);
-        self.context = old;
-        result
-    }
-
-    fn allows_struct_lit(&self) -> bool {
-        self.context.allows_struct_lit()
-    }
-}
-```
-
-### Expression Parsing
-
-Binary operator precedence levels are generated via the `parse_binary_level!` macro, which creates a precedence chain of parsing functions. Each level calls the next-higher precedence as its "next" parser:
-
-```rust
-/// Generate a binary operator parsing function.
-/// Two forms:
-///   parse_binary_level! { fn_name, next_fn, matcher_fn }     — for multi-op levels
-///   parse_binary_level! { fn_name, next_fn, token: T, op: O } — for single-token levels
-macro_rules! parse_binary_level { ... }
-
-// 10 precedence levels generated:
-parse_binary_level! { parse_logical_or, parse_logical_and, match_logical_or_op }
-parse_binary_level! { parse_logical_and, parse_bitwise_or, match_logical_and_op }
-// ... through to:
-parse_binary_level! { parse_multiply, parse_coalesce, match_multiplicative_op }
-```
-
-This replaces 10 hand-written functions that differed only in which operator they matched and which "next" function they called.
-
-### Arena Allocation
-
-```rust
-impl Parser<'_> {
-    fn alloc(&mut self, kind: ExprKind) -> ExprId {
-        self.arena.alloc(Expr {
-            kind,
-            span: self.current_span(),
-        })
-    }
+pub struct ParseOutput {
+    pub module: Module,
+    pub arena: ExprArena,
+    pub errors: Vec<ParseError>,
+    pub warnings: Vec<ParseWarning>,
+    pub metadata: ModuleExtra,
 }
 ```
 
 ## Expression Precedence
 
-| Prec | Operators | Associativity |
-|------|-----------|---------------|
-| 1 | `\|\|` | Left |
-| 2 | `&&` | Left |
-| 3 | `\|` | Left |
-| 4 | `^` | Left |
-| 5 | `&` | Left |
-| 6 | `==` `!=` | Left |
-| 7 | `<` `>` `<=` `>=` | Left |
-| 8 | `..` `..=` | Left |
-| 9 | `<<` `>>` | Left |
-| 10 | `+` `-` | Left |
-| 11 | `*` `/` `%` | Left |
-| 12 | Unary `-` `!` `~` | Right |
-| 13 | `.` `[]` `()` `?` | Left |
+Binary operator precedence uses a Pratt binding power table. Higher values bind tighter. See [Pratt Parser](pratt-parser.md) for details.
+
+| Prec | Operators | Associativity | Binding Power |
+|------|-----------|---------------|---------------|
+| 1 | `??` | Right | (2, 1) |
+| 2 | `\|\|` | Left | (3, 4) |
+| 3 | `&&` | Left | (5, 6) |
+| 4 | `\|` | Left | (7, 8) |
+| 5 | `^` | Left | (9, 10) |
+| 6 | `&` | Left | (11, 12) |
+| 7 | `==` `!=` | Left | (13, 14) |
+| 8 | `<` `>` `<=` `>=` | Left | (15, 16) |
+| 9 | `..` `..=` | Non-assoc | 17 |
+| 10 | `<<` `>>` | Left | (19, 20) |
+| 11 | `+` `-` | Left | (21, 22) |
+| 12 | `*` `/` `%` `div` | Left | (23, 24) |
+| 13 | Unary `-` `!` `~` | Right | — |
+| 14 | `.` `[]` `()` `?` `.await` `as` | Left | — |
 
 **Note:** `>>` and `>=` are synthesized from adjacent `>` tokens. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary).
 
-## Error Recovery
-
-Error recovery uses the `TokenSet` type (bitset-based, O(1) membership):
-
-```rust
-/// Bitset for efficient token membership testing.
-/// Uses u128 to support up to 128 token kinds with O(1) lookup.
-pub struct TokenSet(u128);
-
-impl TokenSet {
-    /// Create a set containing a single token kind.
-    pub const fn single(kind: TokenKind) -> Self {
-        Self(1u128 << kind.discriminant_index())
-    }
-
-    /// Add a token kind to the set.
-    pub const fn with(self, kind: TokenKind) -> Self {
-        Self(self.0 | (1u128 << kind.discriminant_index()))
-    }
-
-    /// Check if a token kind is in the set (O(1) via bitwise AND).
-    pub const fn contains(&self, kind: &TokenKind) -> bool {
-        (self.0 & (1u128 << kind.discriminant_index())) != 0
-    }
-
-    /// Union of two token sets.
-    pub const fn union(self, other: Self) -> Self {
-        Self(self.0 | other.0)
-    }
-}
-```
-
-The progress tracking enables smarter recovery decisions:
-- If no tokens consumed, try alternative parsing strategies
-- If tokens consumed, report error and synchronize
-
 ## Salsa Integration
 
-Parsing is a Salsa query:
+Parsing is a Salsa query with automatic caching:
 
 ```rust
 #[salsa::tracked]
@@ -297,89 +191,16 @@ pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseResult {
 
 ## Grammar
 
-The authoritative grammar is defined in EBNF notation. Each production maps to parsing functions in `compiler/ori_parse/src/grammar/`.
+The authoritative grammar is defined in EBNF. Each production maps to parsing functions in `compiler/ori_parse/src/grammar/`.
 
 ```ebnf
 {{#include ../../../ori_lang/0.1-alpha/spec/grammar.ebnf}}
 ```
 
-## Series Combinator
-
-The parser uses a reusable series combinator (inspired by Gleam's `series_of()`) for parsing delimiter-separated lists. This unifies the common pattern found throughout the parser:
-
-```rust
-/// Configuration for parsing a series of items.
-pub struct SeriesConfig {
-    pub separator: TokenKind,      // Usually Comma
-    pub terminator: TokenKind,     // e.g., RParen, RBracket
-    pub trailing: TrailingSeparator,
-    pub skip_newlines: bool,
-    pub min_count: usize,
-    pub max_count: Option<usize>,
-}
-
-/// Policy for trailing separators.
-pub enum TrailingSeparator {
-    Allowed,   // Trailing separator accepted but not required
-    Forbidden, // Error if separator appears before terminator
-    Required,  // Separator required between items, not after last
-}
-```
-
-**Convenience methods** handle the most common patterns:
-
-| Method | Delimiters | Usage |
-|--------|------------|-------|
-| `paren_series()` | `(` `)` | Function arguments, tuples |
-| `bracket_series()` | `[` `]` | List literals, indexing |
-| `brace_series()` | `{` `}` | Struct literals, blocks |
-| `angle_series()` | `<` `>` | Generic parameters |
-
-**Example usage:**
-
-```rust
-// Parse function arguments: (arg1, arg2, ...)
-let args = self.paren_series(|p| {
-    if p.check(&TokenKind::RParen) {
-        Ok(None)  // No more items
-    } else {
-        Ok(Some(p.parse_expr()?))
-    }
-})?;
-```
-
-## Speculative Parsing
-
-The parser includes infrastructure for speculative parsing via snapshots. Snapshots are lightweight (~10 bytes) and capture only cursor position and context flags—arena state is not captured.
-
-**Use the right tool for the job:**
-
-| Approach | When to Use |
-|----------|-------------|
-| Direct lookahead | 1-2 token peek, token kind decisions |
-| `look_ahead(predicate)` | Multi-token patterns, complex predicates |
-| `try_parse(parser_fn)` | Full parse attempt with automatic restore |
-| `snapshot()`/`restore()` | Manual control, examine result before deciding |
-
-```rust
-// Simple lookahead
-fn is_typed_lambda_params(&self) -> bool {
-    self.check_ident() && self.next_is_colon()
-}
-
-// Full speculative parse
-if let Some(ty) = self.try_parse(|p| p.parse_type()) {
-    // Type parsed successfully
-} else {
-    // Fall back to expression parsing
-}
-```
-
-**Current usage:** The Ori parser primarily uses simple lookahead predicates for disambiguation, as they're sufficient and efficient. The snapshot infrastructure is available for IDE tooling, language extensions, and better error messages.
-
 ## Related Documents
 
-- [Recursive Descent](recursive-descent.md) - Parsing approach
-- [Error Recovery](error-recovery.md) - Handling syntax errors
-- [Grammar Modules](grammar-modules.md) - Module organization
-- [Formal EBNF Grammar](#grammar) - Complete grammar definition
+- [Pratt Parser](pratt-parser.md) — Binding power table and operator precedence
+- [Error Recovery](error-recovery.md) — ParseOutcome, TokenSet, synchronization
+- [Grammar Modules](grammar-modules.md) — Module organization and naming
+- [Incremental Parsing](incremental-parsing.md) — IDE reuse of unchanged declarations
+- [Formal EBNF Grammar](#grammar) — Complete grammar definition

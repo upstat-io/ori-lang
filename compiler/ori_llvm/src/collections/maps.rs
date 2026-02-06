@@ -3,12 +3,17 @@
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::ExprArena;
 use ori_types::Idx;
+use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
 
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a map literal.
+    #[instrument(
+        skip(self, entries, arena, expr_types, locals, function, loop_ctx),
+        level = "trace"
+    )]
     pub(crate) fn compile_map(
         &self,
         entries: ori_ir::ast::MapEntryRange,

@@ -280,7 +280,7 @@ fn test_function_exp_default_fallback_int() {
 
     let arena = ExprArena::new();
 
-    // Use Spawn which falls through to default case
+    // Use Spawn which is unimplemented — emits runtime trap + unreachable
     let func_exp = FunctionExp {
         kind: FunctionExpKind::Spawn,
         props: NamedExprRange::EMPTY,
@@ -293,7 +293,8 @@ fn test_function_exp_default_fallback_int() {
     let expr_types = vec![];
     let mut locals = Locals::new();
 
-    // For int return type, should return a default value
+    // Unimplemented patterns terminate the block (panic + unreachable),
+    // returning None — same semantics as `todo` or `panic`
     let result = builder.compile_function_exp(
         &func_exp,
         Idx::INT,
@@ -305,8 +306,8 @@ fn test_function_exp_default_fallback_int() {
     );
 
     assert!(
-        result.is_some(),
-        "Int result type should return Some(default)"
+        result.is_none(),
+        "Unimplemented pattern should return None (block terminated)"
     );
 }
 
@@ -330,7 +331,8 @@ fn test_function_exp_timeout() {
     let expr_types = vec![];
     let mut locals = Locals::new();
 
-    // Timeout falls through to default
+    // Unimplemented patterns terminate the block (panic + unreachable),
+    // returning None — same semantics as `todo` or `panic`
     let result = builder.compile_function_exp(
         &func_exp,
         Idx::BOOL,
@@ -342,7 +344,7 @@ fn test_function_exp_timeout() {
     );
 
     assert!(
-        result.is_some(),
-        "Bool result type should return Some(default)"
+        result.is_none(),
+        "Unimplemented pattern should return None (block terminated)"
     );
 }

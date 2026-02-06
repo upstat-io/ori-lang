@@ -244,6 +244,11 @@ pub struct Interpreter<'a> {
     /// type information to determine correct behavior (e.g., chaining vs unwrapping).
     /// Optional because some evaluator uses don't require type info.
     pub(crate) expr_types: Option<&'a [Idx]>,
+    /// Resolved pattern disambiguations from the type checker.
+    ///
+    /// Used by `try_match` to distinguish `Binding("Pending")` (unit variant)
+    /// from `Binding("x")` (variable). Sorted by `PatternKey` for binary search.
+    pub(crate) pattern_resolutions: &'a [(ori_types::PatternKey, ori_types::PatternResolution)],
 }
 
 /// RAII Drop implementation for panic-safe scope cleanup.
@@ -1120,11 +1125,26 @@ impl<'a> Interpreter<'a> {
     pub(super) fn eval_match(&mut self, value: &Value, arms: ArmRange) -> EvalResult {
         use crate::exec::control::try_match;
 
+        let arm_range_start = arms.start;
         let arm_list = self.arena.get_arms(arms);
 
-        for arm in arm_list {
+        for (i, arm) in arm_list.iter().enumerate() {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::arithmetic_side_effects,
+                reason = "arm count bounded by AST size, cannot overflow u32"
+            )]
+            let arm_key = ori_types::PatternKey::Arm(arm_range_start + i as u32);
+
             // Try to match the pattern using the exec module
-            if let Some(bindings) = try_match(&arm.pattern, value, self.arena, self.interner)? {
+            if let Some(bindings) = try_match(
+                &arm.pattern,
+                value,
+                self.arena,
+                self.interner,
+                Some(arm_key),
+                self.pattern_resolutions,
+            )? {
                 // Use RAII guard for scope safety - scope is popped even on panic
                 // Returns Option<EvalResult>: None = guard failed, Some = result
                 let result: Option<EvalResult> = self.with_match_bindings(bindings, |eval| {
@@ -1423,6 +1443,7 @@ impl<'a> Interpreter<'a> {
             .print_handler(self.print_handler.clone())
             .call_depth(self.call_depth.saturating_add(1))
             .max_call_depth(self.max_call_depth)
+            .pattern_resolutions(self.pattern_resolutions)
             .with_scoped_env_ownership() // RAII: scope will be popped when interpreter drops
             .build()
     }
@@ -1443,6 +1464,7 @@ impl<'a> Interpreter<'a> {
             .user_method_registry(self.user_method_registry.clone())
             .print_handler(self.print_handler.clone())
             .call_depth(self.call_depth.saturating_add(1))
+            .pattern_resolutions(self.pattern_resolutions)
             .with_scoped_env_ownership() // RAII: scope will be popped when interpreter drops
             .build()
     }

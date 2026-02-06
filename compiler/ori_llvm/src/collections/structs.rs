@@ -4,6 +4,7 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprId, Name};
 use ori_types::Idx;
+use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
@@ -13,9 +14,11 @@ impl<'ll> Builder<'_, 'll, '_> {
     ///
     /// For now, structs are represented as LLVM struct types with fields
     /// in declaration order. We need type information to know field order.
+    #[instrument(skip(self, fields, arena, expr_types, locals, function, loop_ctx), level = "debug",
+        fields(name = %self.cx().interner.lookup(struct_name)))]
     pub(crate) fn compile_struct(
         &self,
-        _name: Name,
+        struct_name: Name,
         fields: ori_ir::ast::FieldInitRange,
         arena: &ExprArena,
         expr_types: &[Idx],
@@ -62,6 +65,10 @@ impl<'ll> Builder<'_, 'll, '_> {
     ///
     /// For now, we need to know the field index from the type system.
     /// This is a simplified version that assumes field order matches init order.
+    #[instrument(
+        skip(self, arena, expr_types, locals, function, loop_ctx),
+        level = "trace"
+    )]
     pub(crate) fn compile_field_access(
         &self,
         receiver: ExprId,

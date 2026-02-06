@@ -6,10 +6,11 @@
 use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;
 use rustc_hash::FxHashMap;
+use tracing::{debug, instrument, trace};
 
 use ori_ir::ast::{Module, TestDef, TypeDeclKind, Visibility};
 use ori_ir::{ExprArena, ExprId, Name, StringInterner};
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, PatternKey, PatternResolution, Pool};
 
 use crate::module::ModuleCompiler;
 use crate::runtime;
@@ -138,10 +139,16 @@ impl<'ctx> LLVMEvaluator<'ctx> {
         let compiler = ModuleCompiler::new(self.context, self.interner, "test_module");
         compiler.declare_runtime();
 
-        // Register user-defined struct types with actual field types
+        // Register user-defined types
         for type_decl in &module.types {
-            if let TypeDeclKind::Struct(fields) = &type_decl.kind {
-                compiler.register_struct_with_types(type_decl.name, fields, arena);
+            match &type_decl.kind {
+                TypeDeclKind::Struct(fields) => {
+                    compiler.register_struct_with_types(type_decl.name, fields, arena);
+                }
+                TypeDeclKind::Sum(variants) => {
+                    compiler.register_sum_type_from_decl(type_decl.name, variants);
+                }
+                TypeDeclKind::Newtype(_) => {}
             }
         }
 
@@ -262,6 +269,10 @@ pub struct CompiledTestModule<'ll> {
 impl CompiledTestModule<'_> {
     /// Run a single test from this compiled module.
     ///
+    /// Uses `setjmp`/`longjmp` to recover from panics in JIT-compiled code.
+    /// When JIT code calls `ori_panic` or `ori_panic_cstr`, it `longjmp`s back
+    /// here instead of calling `exit(1)`, preserving the test runner process.
+    ///
     /// # Safety
     ///
     /// The test function must exist in the compiled module and have signature `() -> void`.
@@ -275,18 +286,37 @@ impl CompiledTestModule<'_> {
             LLVMEvalError::new(format!("Test wrapper not found for test: {test_name:?}"))
         })?;
 
-        // Get function pointer and execute
+        // Get function pointer
         // SAFETY: We compiled this test wrapper with signature () -> void
-        unsafe {
-            let test_fn = self
-                .engine
+        let test_fn = unsafe {
+            self.engine
                 .get_function::<unsafe extern "C" fn()>(wrapper_name)
-                .map_err(|e| LLVMEvalError::new(format!("Test function not found: {e}")))?;
+                .map_err(|e| LLVMEvalError::new(format!("Test function not found: {e}")))?
+        };
 
-            test_fn.call();
+        // Set up setjmp/longjmp recovery for JIT panics
+        let mut jmp_buf = runtime::JmpBuf::new();
+        let buf_ptr: *mut runtime::JmpBuf = &raw mut jmp_buf;
+        runtime::enter_jit_mode(buf_ptr);
+
+        // SAFETY: jmp_buf is stack-allocated and valid for the duration of this call.
+        // setjmp returns 0 on direct call, non-zero when longjmp fires.
+        let longjmp_fired = unsafe { runtime::jit_setjmp(buf_ptr) } != 0;
+
+        if longjmp_fired {
+            // longjmp returned us here — JIT code hit a panic
+            runtime::leave_jit_mode();
+            let msg = runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+            return Err(LLVMEvalError::new(msg));
         }
 
-        // Check if panic occurred
+        // Normal path: execute the test
+        // SAFETY: test_fn has signature () -> void, compiled by us
+        unsafe { test_fn.call() };
+
+        runtime::leave_jit_mode();
+
+        // Check if panic occurred via assertions (ori_assert sets state without longjmp)
         if runtime::did_panic() {
             let msg = runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
             Err(LLVMEvalError::new(msg))
@@ -388,10 +418,16 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         };
         compiler.declare_runtime();
 
-        // Register user-defined struct types with actual field types
+        // Register user-defined types
         for type_decl in &module.types {
-            if let TypeDeclKind::Struct(fields) = &type_decl.kind {
-                compiler.register_struct_with_types(type_decl.name, fields, arena);
+            match &type_decl.kind {
+                TypeDeclKind::Struct(fields) => {
+                    compiler.register_struct_with_types(type_decl.name, fields, arena);
+                }
+                TypeDeclKind::Sum(variants) => {
+                    compiler.register_sum_type_from_decl(type_decl.name, variants);
+                }
+                TypeDeclKind::Newtype(_) => {}
             }
         }
 
@@ -483,6 +519,12 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
     /// - `interner`: String interner for name resolution
     /// - `expr_types`: Type of each expression (indexed by `ExprId`)
     /// - `function_sigs`: Signature of each function (indexed same as module.functions)
+    /// - `pattern_resolutions`: Resolved pattern disambiguations from the type checker
+    #[instrument(skip_all, level = "debug", fields(
+        functions = module.functions.len(),
+        tests = tests.len(),
+        types = module.types.len(),
+    ))]
     pub fn compile_module_with_tests<'a>(
         &'a self,
         module: &Module,
@@ -491,24 +533,40 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         interner: &StringInterner,
         expr_types: &[Idx],
         function_sigs: &[FunctionSig],
+        pattern_resolutions: &[(PatternKey, PatternResolution)],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         use inkwell::OptimizationLevel;
 
         // Create a single module compiler for all functions and tests
-        let compiler = if let Some(pool) = self.pool {
+        let mut compiler = if let Some(pool) = self.pool {
             ModuleCompiler::with_pool(&self.context, interner, pool, "test_module")
         } else {
             ModuleCompiler::new(&self.context, interner, "test_module")
         };
         compiler.declare_runtime();
 
-        // Register user-defined struct types with actual field types
+        // Store pattern resolutions for pattern matching compilation
+        compiler.set_pattern_resolutions(pattern_resolutions);
+
+        // Register user-defined types (structs and sum types)
         for type_decl in &module.types {
-            if let TypeDeclKind::Struct(fields) = &type_decl.kind {
-                compiler.register_struct_with_types(type_decl.name, fields, arena);
+            let type_name = interner.lookup(type_decl.name);
+            match &type_decl.kind {
+                TypeDeclKind::Struct(fields) => {
+                    debug!(type_name, fields = fields.len(), "registering struct type");
+                    compiler.register_struct_with_types(type_decl.name, fields, arena);
+                }
+                TypeDeclKind::Sum(variants) => {
+                    debug!(type_name, variants = variants.len(), "registering sum type");
+                    compiler.register_sum_type_from_decl(type_decl.name, variants);
+                }
+                TypeDeclKind::Newtype(_) => {
+                    trace!(type_name, "skipping newtype decl");
+                }
             }
         }
 
+        debug!("compiling functions");
         // Compile ALL functions once
         for (i, func) in module.functions.iter().enumerate() {
             let sig = function_sigs.get(i);
@@ -538,6 +596,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             }
         }
 
+        debug!("compiling test wrappers");
         // Compile ALL test wrappers upfront
         let mut test_wrappers = FxHashMap::default();
         let void_sig = FunctionSig {
@@ -575,6 +634,16 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             eprintln!("=== END IR ===");
         }
 
+        // Verify IR before JIT compilation to catch invalid IR that would
+        // cause LLVM to segfault during machine code generation.
+        if let Err(msg) = compiler.module().verify() {
+            return Err(LLVMEvalError::new(format!(
+                "LLVM IR verification failed: {}",
+                msg.to_string()
+            )));
+        }
+
+        debug!("creating JIT execution engine");
         // Create JIT execution engine ONCE for all tests
         let engine = compiler
             .module()

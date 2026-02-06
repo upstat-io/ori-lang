@@ -74,6 +74,14 @@ sections:
 ~/projects/reference_repos/lang_repos/rust/library/core/src/any.rs
 ```
 
+### Swift
+
+```
+# Swift has Mirror type for structural reflection
+~/projects/reference_repos/lang_repos/swift/stdlib/public/core/Mirror.swift          # Mirror API
+~/projects/reference_repos/lang_repos/swift/stdlib/public/core/ReflectionMirror.swift # Reflection implementation
+```
+
 ---
 
 ## 20.1 Reflect Trait

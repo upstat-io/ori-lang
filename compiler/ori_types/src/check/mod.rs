@@ -56,8 +56,8 @@ use ori_ir::{ExprArena, Name, Span, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    FunctionSig, Idx, InferEngine, MethodRegistry, Pool, TraitRegistry, TypeCheckError,
-    TypeCheckResult, TypeEnv, TypeRegistry, TypedModule,
+    FunctionSig, Idx, InferEngine, MethodRegistry, PatternKey, PatternResolution, Pool,
+    TraitRegistry, TypeCheckError, TypeCheckResult, TypeEnv, TypeRegistry, TypedModule,
 };
 
 // Re-export main API
@@ -164,6 +164,10 @@ pub struct ModuleChecker<'a> {
     // === Diagnostics ===
     /// Accumulated type check errors.
     errors: Vec<TypeCheckError>,
+
+    // === Pattern Resolutions ===
+    /// Accumulated pattern resolutions from all checked bodies.
+    pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
 }
 
 impl<'a> ModuleChecker<'a> {
@@ -187,6 +191,7 @@ impl<'a> ModuleChecker<'a> {
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
             errors: Vec::new(),
+            pattern_resolutions: Vec::new(),
         }
     }
 
@@ -218,6 +223,7 @@ impl<'a> ModuleChecker<'a> {
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
             errors: Vec::new(),
+            pattern_resolutions: Vec::new(),
         }
     }
 
@@ -639,11 +645,17 @@ impl<'a> ModuleChecker<'a> {
         // Extract type definitions (already sorted by name via BTreeMap).
         let types = self.types.into_entries();
 
+        // Sort and dedup pattern resolutions for O(log n) binary search.
+        let mut pattern_resolutions = self.pattern_resolutions;
+        pattern_resolutions.sort_by_key(|(k, _)| *k);
+        pattern_resolutions.dedup_by_key(|(k, _)| *k);
+
         let typed = TypedModule {
             expr_types: self.expr_types,
             functions,
             types,
             errors: self.errors,
+            pattern_resolutions,
         };
 
         TypeCheckResult::from_typed(typed)
@@ -663,11 +675,17 @@ impl<'a> ModuleChecker<'a> {
         // Extract type definitions (already sorted by name via BTreeMap).
         let types = self.types.into_entries();
 
+        // Sort and dedup pattern resolutions for O(log n) binary search.
+        let mut pattern_resolutions = self.pattern_resolutions;
+        pattern_resolutions.sort_by_key(|(k, _)| *k);
+        pattern_resolutions.dedup_by_key(|(k, _)| *k);
+
         let typed = TypedModule {
             expr_types: self.expr_types,
             functions,
             types,
             errors: self.errors,
+            pattern_resolutions,
         };
 
         (TypeCheckResult::from_typed(typed), pool)

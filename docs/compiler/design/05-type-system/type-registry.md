@@ -7,315 +7,163 @@ section: "Type System"
 
 # Type Registry
 
-The TypeRegistry stores user-defined types (structs, enums, newtypes). It enables looking up type definitions by name or `TypeId`.
+The type registry system stores user-defined types (structs, enums, newtypes), trait definitions and implementations, and built-in method declarations. Three registries work together: `TypeRegistry`, `TraitRegistry`, and `MethodRegistry`.
 
 ## Location
 
 ```
-compiler/ori_typeck/src/registry/
-├── mod.rs                    # TypeRegistry struct, TypeKind, TypeEntry, re-exports
-├── trait_registry.rs         # TraitRegistry core (method_cache)
-├── trait_types.rs            # TraitMethodDef, TraitAssocTypeDef, TraitEntry
-├── impl_types.rs             # ImplMethodDef, ImplAssocTypeDef, ImplEntry, CoherenceError
-├── method_lookup.rs          # MethodLookup result type
-└── tests/                    # Test modules
-    ├── mod.rs
-    ├── trait_registry_tests.rs
-    └── type_registry_tests.rs
+compiler/ori_types/src/registry/
+├── mod.rs       # Re-exports
+├── types.rs     # TypeRegistry — struct/enum/newtype storage
+├── traits.rs    # TraitRegistry — trait definitions and implementations
+└── methods.rs   # MethodRegistry — built-in method resolution
 ```
 
-## Structure
+## TypeRegistry
+
+The `TypeRegistry` stores user-defined type definitions and provides lookup by name, by `Idx`, and by variant name.
 
 ```rust
-/// Registry for user-defined types.
 pub struct TypeRegistry {
-    /// Types indexed by name.
-    types_by_name: FxHashMap<Name, TypeEntry>,
-    /// Types indexed by TypeId.
-    types_by_id: FxHashMap<TypeId, TypeEntry>,
-    /// Variant name -> (enum TypeId, variant index) for O(1) constructor lookup.
-    variants_by_name: FxHashMap<Name, (TypeId, usize)>,
-    /// Next available TypeId for compound types.
-    next_type_id: u32,
-    /// Type interner for Type↔TypeId conversions.
-    interner: SharedTypeInterner,
+    types_by_name: BTreeMap<Name, TypeEntry>,     // Deterministic iteration order
+    types_by_idx: FxHashMap<Idx, TypeEntry>,       // Fast lookup by type Idx
+    variants_by_name: FxHashMap<Name, (Idx, usize)>,  // Variant → (enum Idx, variant index)
+    next_internal_id: u32,
 }
+```
 
-/// Entry for a user-defined type.
+`BTreeMap` is used for `types_by_name` to ensure deterministic iteration order, which matters for error messages and test stability.
+
+### TypeEntry
+
+```rust
 pub struct TypeEntry {
     pub name: Name,
-    pub type_id: TypeId,
+    pub idx: Idx,
     pub kind: TypeKind,
     pub span: Span,
     pub type_params: Vec<Name>,
+    pub visibility: Visibility,
 }
+```
 
-/// Kind of user-defined type.
+### TypeKind
+
+```rust
 pub enum TypeKind {
-    /// Struct type with named fields.
-    Struct { fields: Vec<(Name, TypeId)> },
-    /// Sum type (enum) with variants.
+    Struct(StructDef),
     Enum { variants: Vec<VariantDef> },
-    /// Newtype: nominally distinct wrapper around an existing type.
-    Newtype { underlying: TypeId },
-}
-
-/// Variant definition for enum types.
-pub struct VariantDef {
-    pub name: Name,
-    /// Variant fields (empty for unit variants, multiple for multi-field variants).
-    pub fields: Vec<(Name, TypeId)>,
+    Newtype { underlying: Idx },
+    Alias { target: Idx },
 }
 ```
 
-## Registration
+**`StructDef`** contains `Vec<FieldDef>` where each field has a name, type `Idx`, span, and visibility.
 
-Types are registered via specific methods that generate unique `TypeId`s:
+**`VariantDef`** has a name and `VariantFields`:
+
+```rust
+pub enum VariantFields {
+    Unit,                         // Variant with no data
+    Tuple(Vec<Idx>),              // Variant(int, str)
+    Record(Vec<FieldDef>),        // Variant(x: int, y: str)
+}
+```
+
+### Registration
+
+Types are registered during Pass 0 of module checking. Each registration generates a unique `Idx` in the pool:
 
 ```rust
 impl TypeRegistry {
-    /// Register a struct type.
-    pub fn register_struct(
-        &mut self,
-        name: Name,
-        fields: Vec<(Name, Type)>,
-        span: Span,
-        type_params: Vec<Name>,
-    ) -> TypeId {
-        let field_ids = fields.into_iter()
-            .map(|(name, ty)| (name, ty.to_type_id(&self.interner)))
-            .collect();
-        self.register_entry(name, TypeKind::Struct { fields: field_ids }, span, type_params)
-    }
-
-    /// Register an enum type.
-    pub fn register_enum(
-        &mut self,
-        name: Name,
-        variants: Vec<(Name, Vec<(Name, Type)>)>,
-        span: Span,
-        type_params: Vec<Name>,
-    ) -> TypeId {
-        let variant_defs = variants.into_iter()
-            .map(|(vname, vfields)| {
-                let field_ids = vfields.into_iter()
-                    .map(|(fname, ty)| (fname, ty.to_type_id(&self.interner)))
-                    .collect();
-                VariantDef { name: vname, fields: field_ids }
-            })
-            .collect();
-        self.register_entry(name, TypeKind::Enum { variants: variant_defs }, span, type_params)
-    }
-
-    /// Register a newtype (nominally distinct type wrapper).
-    pub fn register_newtype(
-        &mut self,
-        name: Name,
-        underlying: &Type,
-        span: Span,
-        type_params: Vec<Name>,
-    ) -> TypeId {
-        let underlying_id = underlying.to_type_id(&self.interner);
-        self.register_entry(name, TypeKind::Newtype { underlying: underlying_id }, span, type_params)
-    }
+    pub fn register_struct(&mut self, name: Name, fields: Vec<FieldDef>,
+                           span: Span, type_params: Vec<Name>) -> Idx;
+    pub fn register_enum(&mut self, name: Name, variants: Vec<VariantDef>,
+                         span: Span, type_params: Vec<Name>) -> Idx;
+    pub fn register_newtype(&mut self, name: Name, underlying: Idx,
+                            span: Span, type_params: Vec<Name>) -> Idx;
 }
 ```
 
-## Lookup
-
-### Type Definition
+### Lookup
 
 ```rust
 impl TypeRegistry {
-    /// Look up a type entry by name.
-    pub fn get_by_name(&self, name: Name) -> Option<&TypeEntry> {
-        self.types_by_name.get(&name)
-    }
-
-    /// Look up a type entry by TypeId.
-    pub fn get_by_id(&self, type_id: TypeId) -> Option<&TypeEntry> {
-        self.types_by_id.get(&type_id)
-    }
-
-    /// Check if a type name is already registered.
-    pub fn contains(&self, name: Name) -> bool {
-        self.types_by_name.contains_key(&name)
-    }
+    pub fn get_by_name(&self, name: Name) -> Option<&TypeEntry>;
+    pub fn get_by_idx(&self, idx: Idx) -> Option<&TypeEntry>;
+    pub fn contains(&self, name: Name) -> bool;
 }
 ```
 
-### Field Lookup
+#### Variant Lookup
+
+Variants are indexed by name for O(1) constructor resolution:
 
 ```rust
 impl TypeRegistry {
-    /// Get field types for a struct type.
-    /// Returns the fields as (Name, Type) pairs by converting from TypeId.
-    pub fn get_struct_fields(&self, type_id: TypeId) -> Option<Vec<(Name, Type)>> {
-        self.get_by_id(type_id).and_then(|entry| match &entry.kind {
-            TypeKind::Struct { fields } => Some(
-                fields.iter()
-                    .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
-                    .collect(),
-            ),
-            _ => None,
-        })
-    }
-
-    /// Get field types for an enum variant.
-    pub fn get_variant_fields(
-        &self,
-        type_id: TypeId,
-        variant_name: Name,
-    ) -> Option<Vec<(Name, Type)>> {
-        self.get_by_id(type_id).and_then(|entry| match &entry.kind {
-            TypeKind::Enum { variants } => {
-                variants.iter().find(|v| v.name == variant_name).map(|v| {
-                    v.fields.iter()
-                        .map(|(name, ty_id)| (*name, self.interner.to_type(*ty_id)))
-                        .collect()
-                })
-            }
-            _ => None,
-        })
+    /// Look up which enum a variant belongs to.
+    /// Returns (enum Idx, variant index within the enum).
+    pub fn lookup_variant(&self, variant_name: Name) -> Option<(Idx, usize)> {
+        self.variants_by_name.get(&variant_name).copied()
     }
 }
 ```
 
-### Variant Constructor Lookup
+### Nominal Typing
+
+All user-defined types have **nominal identity** — they are distinct from their underlying representation:
+
+```ori
+type UserId = str    // newtype: UserId ≠ str
+type Point = { x: int, y: int }  // struct: Point ≠ (int, int)
+```
+
+`UserId` and `str` are different types in the type system. To access the inner value, use `.unwrap()`.
+
+## TraitRegistry
+
+The `TraitRegistry` stores trait definitions and their implementations.
 
 ```rust
-/// Information about a variant constructor.
-pub struct VariantConstructorInfo {
-    pub enum_name: Name,
-    pub variant_name: Name,
-    pub field_types: Vec<Type>,
-    pub type_params: Vec<Name>,
-}
-
-impl TypeRegistry {
-    /// Look up a variant constructor by name.
-    /// Searches all registered enum types for a variant with the given name.
-    pub fn lookup_variant_constructor(&self, variant_name: Name) -> Option<VariantConstructorInfo> {
-        for entry in self.types_by_name.values() {
-            if let TypeKind::Enum { variants } = &entry.kind {
-                for variant in variants {
-                    if variant.name == variant_name {
-                        let field_types = variant.fields.iter()
-                            .map(|(_, ty_id)| self.interner.to_type(*ty_id))
-                            .collect();
-                        return Some(VariantConstructorInfo {
-                            enum_name: entry.name,
-                            variant_name,
-                            field_types,
-                            type_params: entry.type_params.clone(),
-                        });
-                    }
-                }
-            }
-        }
-        None
-    }
+pub struct TraitRegistry {
+    traits_by_name: BTreeMap<Name, TraitEntry>,
+    traits_by_idx: FxHashMap<Idx, TraitEntry>,
+    impls: Vec<ImplEntry>,
+    impls_by_type: FxHashMap<Idx, Vec<usize>>,    // type → impl indices
+    impls_by_trait: FxHashMap<Idx, Vec<usize>>,   // trait → impl indices
 }
 ```
 
-### Newtype Lookup
-
-```rust
-/// Information about a newtype constructor.
-pub struct NewtypeConstructorInfo {
-    pub newtype_name: Name,
-    pub underlying_type: Type,
-    pub type_params: Vec<Name>,
-}
-
-impl TypeRegistry {
-    /// Look up a newtype constructor by name.
-    pub fn lookup_newtype_constructor(&self, name: Name) -> Option<NewtypeConstructorInfo> {
-        self.types_by_name.get(&name).and_then(|entry| {
-            if let TypeKind::Newtype { underlying } = &entry.kind {
-                Some(NewtypeConstructorInfo {
-                    newtype_name: entry.name,
-                    underlying_type: self.interner.to_type(*underlying),
-                    type_params: entry.type_params.clone(),
-                })
-            } else {
-                None
-            }
-        })
-    }
-
-    /// Get the underlying type for a newtype.
-    pub fn get_newtype_underlying(&self, type_id: TypeId) -> Option<Type> {
-        self.get_by_id(type_id).and_then(|entry| match &entry.kind {
-            TypeKind::Newtype { underlying } => Some(self.interner.to_type(*underlying)),
-            _ => None,
-        })
-    }
-}
-```
-
-## Type Identity
-
-### Nominal vs Structural Types
-
-Newtypes have **nominal identity** — they are distinct from their underlying type even if the representation is identical:
-
-```rust
-impl TypeRegistry {
-    /// Convert a registered type to the type checker's Type representation.
-    /// For all user-defined types (struct, enum, newtype), returns Type::Named(name).
-    /// Newtypes are nominally distinct from their underlying type.
-    pub fn to_type(&self, type_id: TypeId) -> Option<Type> {
-        self.get_by_id(type_id).map(|entry| match &entry.kind {
-            TypeKind::Struct { .. } | TypeKind::Enum { .. } | TypeKind::Newtype { .. } => {
-                Type::Named(entry.name)
-            }
-        })
-    }
-}
-```
-
-This means:
-- `type UserId = str` creates a distinct type `UserId`
-- `UserId` is NOT equal to `str` in the type system
-- To access the inner value, use `.unwrap()` method
-
-## Trait Registry
-
-### Trait Definition
+### TraitEntry
 
 ```rust
 pub struct TraitEntry {
     pub name: Name,
-    pub span: Span,
+    pub idx: Idx,
     pub type_params: Vec<Name>,
-    /// Default types for type parameters (parallel to type_params).
-    /// Stored as ParsedType to preserve Self references for impl-time resolution.
-    pub default_types: Vec<Option<ParsedType>>,
-    pub super_traits: Vec<Name>,
-    pub methods: Vec<TraitMethodDef>,
-    pub assoc_types: Vec<TraitAssocTypeDef>,
-    pub visibility: Visibility,
+    pub methods: FxHashMap<Name, TraitMethodDef>,
+    pub assoc_types: FxHashMap<Name, TraitAssocTypeDef>,
+    pub span: Span,
 }
+```
 
-pub struct TraitMethodDef {
-    pub name: Name,
-    pub params: Vec<TypeId>,
-    pub return_ty: TypeId,
-    pub has_default: bool,
-}
+### ImplEntry
 
-pub struct TraitAssocTypeDef {
-    pub name: Name,
-    /// Default type for this associated type (e.g., `Self` in `type Output = Self`).
-    /// Stored as ParsedType to preserve Self references for impl-time resolution.
-    pub default_type: Option<ParsedType>,
+```rust
+pub struct ImplEntry {
+    pub trait_idx: Option<Idx>,  // None for inherent impls
+    pub self_type: Idx,
+    pub type_params: Vec<Name>,
+    pub methods: FxHashMap<Name, ImplMethodDef>,
+    pub assoc_types: FxHashMap<Name, Idx>,
+    pub where_clause: Vec<WhereConstraint>,
+    pub span: Span,
 }
 ```
 
 ### Default Type Parameters
 
-Traits may have type parameters with default values:
+Traits may have type parameters with defaults:
 
 ```ori
 trait Add<Rhs = Self> {
@@ -323,56 +171,9 @@ trait Add<Rhs = Self> {
 }
 ```
 
-Default types are stored as `ParsedType` rather than `TypeId` because `Self` must be resolved at impl registration time, not trait definition time. When an impl omits type arguments, the defaults are substituted with proper `Self` resolution:
-
-```rust
-/// Resolve trait type arguments, filling in defaults for missing args.
-fn resolve_trait_type_args(
-    &mut self,
-    trait_entry: &TraitEntry,
-    explicit_args: ParsedTypeRange,
-    self_type: &Type,
-) -> Vec<TypeId> {
-    let explicit = self.arena.get_parsed_types(explicit_args);
-    let mut resolved = Vec::new();
-
-    for (i, param_name) in trait_entry.type_params.iter().enumerate() {
-        if i < explicit.len() {
-            // Explicit argument provided
-            resolved.push(self.parsed_type_to_type(&explicit[i]));
-        } else if let Some(Some(default)) = trait_entry.default_types.get(i) {
-            // Use default, substituting Self with implementing type
-            let substituted = self.resolve_parsed_type_with_self_substitution(default, self_type);
-            resolved.push(substituted);
-        } else {
-            // Missing required argument - error E2016
-        }
-    }
-    resolved
-}
-```
-
-### Ordering Constraint
-
-Parameters with defaults must appear after all parameters without defaults. This is validated at trait registration (error E2015):
-
-```rust
-fn validate_default_type_param_ordering(generics: &[GenericParam]) -> Result<(), Span> {
-    let mut seen_default = false;
-    for param in generics {
-        if param.default_type.is_some() {
-            seen_default = true;
-        } else if seen_default {
-            return Err(param.span);  // Non-default after default
-        }
-    }
-    Ok(())
-}
-```
+Default types are stored as `ParsedType` rather than `Idx` because `Self` must be resolved at impl registration time, not at trait definition time.
 
 ### Default Associated Types
-
-Traits may have associated types with default values:
 
 ```ori
 trait Add<Rhs = Self> {
@@ -381,162 +182,108 @@ trait Add<Rhs = Self> {
 }
 ```
 
-Default associated types are stored as `ParsedType` in `TraitAssocTypeDef.default_type` because `Self` must be resolved at impl site, not trait definition time.
+When an impl omits an associated type that has a default, the default is used with `Self` resolved to the implementing type.
 
-When validating an impl, missing associated types are checked against trait defaults:
+### Impl Lookup
 
 ```rust
-fn validate_associated_types(
-    &mut self,
-    trait_entry: &TraitEntry,
-    impl_assoc_types: &[ImplAssocTypeDef],
-    self_ty: &Type,
-    span: Span,
-) {
-    let provided: FxHashSet<Name> = impl_assoc_types.iter().map(|at| at.name).collect();
+impl TraitRegistry {
+    /// Find all impls for a given type.
+    pub fn impls_for_type(&self, idx: Idx) -> &[usize];
 
-    for required_at in &trait_entry.assoc_types {
-        if !provided.contains(&required_at.name) {
-            if required_at.default_type.is_some() {
-                // Default will be applied - no error
-                continue;
-            }
-            // Missing required associated type - error E2018
-        }
-    }
+    /// Find all impls of a given trait.
+    pub fn impls_of_trait(&self, idx: Idx) -> &[usize];
+
+    /// Look up a specific trait impl for a type.
+    pub fn get_trait_impl(&self, trait_name: Name, self_type: Idx) -> Option<&ImplEntry>;
 }
 ```
 
-When looking up an associated type, `lookup_assoc_type` falls back to the trait default if the impl does not explicitly define it:
+## MethodRegistry
+
+The `MethodRegistry` stores compiler-defined methods for built-in types (str, list, map, etc.) and provides unified method lookup.
 
 ```rust
-pub fn lookup_assoc_type(
-    &self,
-    self_ty: &Type,
-    trait_name: Name,
-    assoc_name: Name,
-) -> Option<Type> {
-    let impl_entry = self.get_trait_impl(trait_name, self_ty)?;
-
-    // First check explicit impl definition
-    if let Some(at) = impl_entry.assoc_types.iter().find(|at| at.name == assoc_name) {
-        return Some(self.interner.to_type(at.ty));
-    }
-
-    // Fall back to trait default
-    let trait_entry = self.traits.get(&trait_name)?;
-    let trait_assoc = trait_entry.assoc_types.iter().find(|at| at.name == assoc_name)?;
-
-    if let Some(ref default_parsed_type) = trait_assoc.default_type {
-        Some(self.resolve_parsed_type_with_self_substitution(default_parsed_type, self_ty))
-    } else {
-        None
-    }
+pub struct MethodRegistry {
+    builtin: FxHashMap<(Tag, Name), BuiltinMethod>,
+    builtin_by_tag: FxHashMap<Tag, Vec<Name>>,
 }
 ```
 
-### Trait Implementation
+Methods are keyed by `(Tag, Name)` — the receiver's type tag and the method name — for O(1) lookup.
+
+### BuiltinMethod
 
 ```rust
-pub struct ImplDef {
-    pub trait_name: Name,
-    pub for_type: Type,
-    pub methods: HashMap<Name, ExprId>,
-    pub associated_types: HashMap<Name, Type>,
+pub struct BuiltinMethod {
+    pub name: Name,
+    pub receiver_tag: Tag,
+    pub doc: &'static str,
+    pub kind: BuiltinMethodKind,
+}
+
+pub enum BuiltinMethodKind {
+    Fixed(Idx),                      // Fixed return type (e.g., len() → int)
+    Element,                         // Returns element type (e.g., first() → T?)
+    Transform(MethodTransform),      // Transforms receiver type
 }
 ```
 
-### Checking Trait Bounds
+`MethodTransform` covers patterns like:
+- `Identity` — Returns the same type as receiver
+- `WrapOption` — Wraps element in option (e.g., `get()` → `T?`)
+- `MapKey` / `MapValue` — Extracts key or value type from maps
+
+### Method Resolution
+
+The unified resolution chain tries methods in priority order:
 
 ```rust
-impl TypeRegistry {
-    pub fn implements(&self, ty: &Type, trait_name: Name) -> bool {
-        // Check for explicit impl
-        if let Some(impls) = self.impls.get(ty) {
-            if impls.iter().any(|i| i.trait_name == trait_name) {
-                return true;
-            }
-        }
-
-        // Check built-in implementations
-        match trait_name.as_str() {
-            "Eq" => self.is_eq(ty),
-            "Clone" => self.is_clone(ty),
-            "Default" => self.is_default(ty),
-            _ => false,
-        }
-    }
-
-    fn is_eq(&self, ty: &Type) -> bool {
-        match ty {
-            // Primitives are Eq
-            Type::Int | Type::Float | Type::Bool | Type::Str => true,
-
-            // Compound types are Eq if elements are Eq
-            Type::List(elem) => self.is_eq(elem),
-            Type::Option(inner) => self.is_eq(inner),
-            Type::Tuple(elems) => elems.iter().all(|e| self.is_eq(e)),
-
-            // Check for derived Eq
-            Type::Named(name) => {
-                self.has_derived(*name, "Eq")
-            }
-
-            _ => false,
-        }
-    }
+pub enum MethodResolution<'a> {
+    Builtin(&'a BuiltinMethod),
+    Impl(MethodLookup<'a>),
 }
 ```
+
+Resolution order:
+1. **Built-in methods** — Checked first via `MethodRegistry` (O(1) lookup by tag + name)
+2. **Inherent methods** — `impl Type { ... }` blocks via `TraitRegistry`
+3. **Trait methods** — `impl Trait for Type { ... }` blocks via `TraitRegistry`
+
+### Built-in Method Coverage
+
+| Receiver | Example Methods |
+|----------|----------------|
+| `str` | `len`, `split`, `trim`, `contains`, `starts_with`, `to_upper`, ... |
+| `[T]` | `len`, `push`, `pop`, `get`, `map`, `filter`, `fold`, `sort`, ... |
+| `{K: V}` | `len`, `get`, `insert`, `remove`, `keys`, `values`, `contains_key`, ... |
+| `T?` | `map`, `unwrap_or`, `ok_or`, `and_then`, `is_some`, `is_none`, ... |
+| `result<T,E>` | `map`, `map_err`, `unwrap_or`, `ok`, `err`, `is_ok`, ... |
+| `int`, `float` | `abs`, `min`, `max`, `clamp`, numeric methods |
 
 ## Error Suggestions
+
+The registries support "did you mean?" suggestions via Levenshtein distance:
 
 ```rust
 impl TypeRegistry {
     pub fn suggest_similar(&self, name: Name) -> Vec<Name> {
-        let name_str = self.interner.resolve(name);
-
-        self.types
-            .keys()
-            .filter(|&n| {
-                let s = self.interner.resolve(*n);
-                levenshtein_distance(name_str, s) <= 2
-            })
-            .copied()
-            .collect()
+        // Search types_by_name for names within edit distance 2
     }
 }
 ```
 
-## Built-in Types
+This provides helpful error messages when users misspell type or variant names.
 
-Some types are built-in but still registered:
+## Registration During Pass 0
 
-```rust
-impl TypeRegistry {
-    pub fn with_builtins() -> Self {
-        let mut registry = Self::new();
+The registration order during Pass 0 ensures dependencies are resolved correctly:
 
-        // Option<T>
-        registry.types.insert(option_name, TypeDef::Enum(EnumDef {
-            name: option_name,
-            generics: vec![t_name],
-            variants: vec![
-                Variant::Tuple(some_name, vec![Type::Generic(t_name)]),
-                Variant::Unit(none_name),
-            ],
-        }));
+1. **Built-in types** (Ordering, etc.) — Always available
+2. **User-defined types** — Struct/enum/newtype definitions
+3. **Traits** — Trait definitions with methods and associated types
+4. **Implementations** — `impl` blocks linking types to traits
+5. **Derived implementations** — Auto-generated from `#derive` attributes
+6. **Config variables** — `let $VAR` constant bindings
 
-        // Result<T, E>
-        registry.types.insert(result_name, TypeDef::Enum(EnumDef {
-            name: result_name,
-            generics: vec![t_name, e_name],
-            variants: vec![
-                Variant::Tuple(ok_name, vec![Type::Generic(t_name)]),
-                Variant::Tuple(err_name, vec![Type::Generic(e_name)]),
-            ],
-        }));
-
-        registry
-    }
-}
-```
+This ordering ensures that trait implementations can reference user-defined types, and derived implementations can reference trait definitions.

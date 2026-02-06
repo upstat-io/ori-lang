@@ -12,9 +12,11 @@
 //!
 //! This separation allows forward references (A calls B before B is defined).
 
+use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::module::Linkage;
-use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum};
+use inkwell::types::{AnyType, BasicMetadataTypeEnum, BasicTypeEnum};
 use inkwell::values::FunctionValue;
+use tracing::{debug, trace};
 
 use ori_ir::Name;
 use ori_types::Idx;
@@ -27,6 +29,11 @@ impl<'ll> CodegenCx<'ll, '_> {
     /// This creates a function declaration (no body) that can be called
     /// or defined later. If a function with this name already exists,
     /// returns the existing declaration.
+    ///
+    /// For functions returning large structs (>16 bytes on x86-64), this
+    /// automatically applies the sret convention: the struct return becomes
+    /// a hidden first parameter (`ptr sret(T) noalias`) and the function
+    /// returns void.
     pub fn declare_fn(
         &self,
         name: Name,
@@ -37,17 +44,34 @@ impl<'ll> CodegenCx<'ll, '_> {
 
         // Check if already declared
         if let Some(func) = self.scx.llmod.get_function(fn_name) {
+            trace!(fn_name, "function already declared, reusing");
             return func;
         }
 
-        // Build parameter types
-        let param_llvm_types: Vec<BasicMetadataTypeEnum<'ll>> = param_types
-            .iter()
-            .map(|&t| self.llvm_type(t).into())
-            .collect();
+        let uses_sret = self.needs_sret(return_type);
+        debug!(
+            fn_name,
+            param_count = param_types.len(),
+            ?return_type,
+            uses_sret,
+            "declaring function"
+        );
 
-        // Build function type
-        let fn_type = if return_type == Idx::UNIT {
+        // Build parameter types
+        let mut param_llvm_types: Vec<BasicMetadataTypeEnum<'ll>> = if uses_sret {
+            // Prepend opaque pointer for the sret slot
+            vec![self.scx.type_ptr().into()]
+        } else {
+            Vec::new()
+        };
+        param_llvm_types.extend(
+            param_types
+                .iter()
+                .map(|&t| -> BasicMetadataTypeEnum<'ll> { self.llvm_type(t).into() }),
+        );
+
+        // Build function type — sret functions return void
+        let fn_type = if uses_sret || return_type == Idx::UNIT {
             self.scx.type_void_func(&param_llvm_types)
         } else {
             self.scx
@@ -56,6 +80,26 @@ impl<'ll> CodegenCx<'ll, '_> {
 
         // Add function to module
         let func = self.scx.llmod.add_function(fn_name, fn_type, None);
+
+        // Apply sret attributes to the hidden first parameter
+        if uses_sret {
+            let ret_struct_ty = self.llvm_type(return_type).into_struct_type();
+
+            // sret(T) type attribute on param 0
+            let sret_kind = Attribute::get_named_enum_kind_id("sret");
+            let sret_attr = self
+                .scx
+                .llcx
+                .create_type_attribute(sret_kind, ret_struct_ty.as_any_type_enum());
+            func.add_attribute(AttributeLoc::Param(0), sret_attr);
+
+            // noalias attribute on param 0
+            let noalias_kind = Attribute::get_named_enum_kind_id("noalias");
+            let noalias_attr = self.scx.llcx.create_enum_attribute(noalias_kind, 0);
+            func.add_attribute(AttributeLoc::Param(0), noalias_attr);
+
+            self.mark_sret(name, ret_struct_ty);
+        }
 
         // Cache the function
         self.register_function(name, func);

@@ -95,17 +95,32 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
 
         // Print file errors (parse/type errors) and blocked tests
         if !file.errors.is_empty() {
-            println!("\n{}", file.path.display());
-            // Show which tests were blocked
-            for result in &file.results {
-                if result.outcome.is_failed() {
-                    let name = result.name_str(interner);
-                    println!("  FAIL: {name} - blocked by type errors");
-                }
+            // Skip expected file errors in non-verbose mode
+            if file.expected_file_error && !verbose {
+                continue;
             }
-            // Then show the actual errors
-            for error in &file.errors {
-                println!("    ERROR: {error}");
+
+            println!("\n{}", file.path.display());
+            if file.expected_file_error {
+                // Show as expected errors in verbose mode
+                for result in &file.results {
+                    if result.outcome.is_expected_failure() {
+                        let name = result.name_str(interner);
+                        println!("  XFAIL: {name} - blocked by type errors (expected)");
+                    }
+                }
+            } else {
+                // Show which tests were blocked (real failures)
+                for result in &file.results {
+                    if result.outcome.is_failed() {
+                        let name = result.name_str(interner);
+                        println!("  FAIL: {name} - blocked by type errors");
+                    }
+                }
+                // Then show the actual errors
+                for error in &file.errors {
+                    println!("    ERROR: {error}");
+                }
             }
             continue;
         }
@@ -134,6 +149,13 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
                         continue;
                     }
                 }
+                TestOutcome::ExpectedFailure(reason) => {
+                    if verbose {
+                        format!("  XFAIL: {name} - {reason}")
+                    } else {
+                        continue;
+                    }
+                }
             };
             println!("{status}");
         }
@@ -142,26 +164,39 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
     // Print summary
     println!();
     println!("Test Summary:");
+
+    // Build summary line with optional xfail info
+    let mut parts = vec![
+        format!("{} passed", summary.passed),
+        format!("{} failed", summary.failed),
+        format!("{} skipped", summary.skipped),
+    ];
+    if summary.xfail > 0 {
+        parts.push(format!("{} expected failures", summary.xfail));
+    }
     if summary.error_files > 0 {
+        parts.push(format!("{} files with errors", summary.error_files));
+    }
+    println!("  {}", parts.join(", "));
+
+    if summary.xfail_files > 0 {
         println!(
-            "  {} passed, {} failed, {} skipped, {} files with errors",
-            summary.passed, summary.failed, summary.skipped, summary.error_files
-        );
-    } else {
-        println!(
-            "  {} passed, {} failed, {} skipped ({} total)",
-            summary.passed,
-            summary.failed,
-            summary.skipped,
-            summary.total()
+            "  ({} {} with expected errors)",
+            summary.xfail_files,
+            if summary.xfail_files == 1 {
+                "file"
+            } else {
+                "files"
+            }
         );
     }
+
     println!("  Completed in {:.2?}", summary.duration);
 
     if summary.has_failures() {
         println!();
         println!("FAILED");
-    } else if summary.total() == 0 {
+    } else if summary.total() == 0 && summary.xfail == 0 && summary.xfail_files == 0 {
         println!();
         println!("NO TESTS FOUND");
     } else {

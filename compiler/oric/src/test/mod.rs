@@ -10,6 +10,7 @@ mod discovery;
 mod error_matching;
 mod result;
 mod runner;
+mod xfail;
 
 pub use discovery::{discover_tests, TestFile};
 pub use error_matching::{
@@ -17,3 +18,4 @@ pub use error_matching::{
 };
 pub use result::{CoverageReport, FunctionCoverage, TestOutcome, TestResult, TestSummary};
 pub use runner::{run_test_file, run_tests, Backend, TestRunner, TestRunnerConfig};
+pub use xfail::XFailSet;

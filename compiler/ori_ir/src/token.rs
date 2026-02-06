@@ -898,6 +898,14 @@ impl TokenList {
         TokenList { tokens: Vec::new() }
     }
 
+    /// Create a new token list with pre-allocated capacity.
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Self {
+        TokenList {
+            tokens: Vec::with_capacity(capacity),
+        }
+    }
+
     /// Create from a Vec of tokens.
     #[inline]
     pub fn from_vec(tokens: Vec<Token>) -> Self {

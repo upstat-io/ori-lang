@@ -37,6 +37,18 @@ use ori_ir::{
     ArmRange, BindingPattern, ExprArena, ExprId, ExprKind, MatchPattern, Name, StmtKind, StmtRange,
     StringInterner,
 };
+use ori_types::{PatternKey, PatternResolution};
+
+/// Look up a pattern resolution by key using binary search.
+fn lookup_resolution(
+    resolutions: &[(PatternKey, PatternResolution)],
+    key: PatternKey,
+) -> Option<PatternResolution> {
+    resolutions
+        .binary_search_by_key(&key, |(k, _)| *k)
+        .ok()
+        .map(|idx| resolutions[idx].1)
+}
 
 /// RAII guard for environment scope management.
 ///
@@ -158,52 +170,62 @@ pub fn bind_pattern(
 }
 
 /// Try to match a pattern against a value, returning bindings if successful.
+///
+/// `arm_key` identifies this pattern for looking up type-checker resolutions.
+/// `pattern_resolutions` contains the resolved disambiguation data from the type checker.
 pub fn try_match(
     pattern: &MatchPattern,
     value: &Value,
     arena: &ExprArena,
     interner: &StringInterner,
+    arm_key: Option<PatternKey>,
+    pattern_resolutions: &[(PatternKey, PatternResolution)],
 ) -> Result<Option<Vec<(Name, Value)>>, EvalError> {
     match pattern {
         MatchPattern::Wildcard => Ok(Some(vec![])),
 
         MatchPattern::Binding(name) => {
-            // Check if this might be a unit variant pattern.
-            // The parser can't distinguish `Pending` (variant) from `x` (binding)
-            // without type context, so we check at match time.
+            // Type-checker resolution is the primary authority for Binding disambiguation.
+            // If resolved as UnitVariant: compare against scrutinee's variant name.
+            if let Some(key) = arm_key {
+                if let Some(PatternResolution::UnitVariant { .. }) =
+                    lookup_resolution(pattern_resolutions, key)
+                {
+                    // This Binding was resolved as a unit variant constructor
+                    if let Value::Variant {
+                        variant_name: val_variant,
+                        fields,
+                        ..
+                    } = value
+                    {
+                        if *name == *val_variant && fields.is_empty() {
+                            return Ok(Some(vec![])); // Match, no bindings
+                        }
+                    }
+                    return Ok(None); // Not this variant
+                }
+            }
+
+            // Fallback: value-based variant disambiguation for cases where the type
+            // checker lacks resolution (e.g., lambda parameters in higher-order methods
+            // where the element type isn't propagated into the closure).
             if let Value::Variant {
                 variant_name: val_variant,
                 fields,
                 ..
             } = value
             {
+                if *name == *val_variant && fields.is_empty() {
+                    return Ok(Some(vec![])); // Unit variant match
+                }
+                // Uppercase name that doesn't match → likely a different variant
                 let pattern_name = interner.lookup(*name);
-                let value_variant_name = interner.lookup(*val_variant);
-
-                // Check if the pattern name is a known variant name by seeing if
-                // it matches the type's variants. If the pattern name matches any
-                // variant name of this type, treat it as a variant pattern.
-                if pattern_name == value_variant_name {
-                    // Pattern name matches variant name - treat as variant pattern
-                    if fields.is_empty() {
-                        // Unit variant match
-                        return Ok(Some(vec![]));
-                    }
-                    // Variant has fields but pattern doesn't - no match
+                if pattern_name.starts_with(char::is_uppercase) {
                     return Ok(None);
                 }
-
-                // Pattern name doesn't match this variant - check if it looks
-                // like a variant name (starts with uppercase). If so, it's a
-                // non-matching variant pattern.
-                let first_char = pattern_name.chars().next().unwrap_or('a');
-                if first_char.is_uppercase() {
-                    // Likely a variant pattern that doesn't match - no match
-                    return Ok(None);
-                }
-                // Lowercase name - treat as a regular binding
             }
-            // Regular binding pattern
+
+            // Normal binding — unconditionally binds the scrutinee value
             Ok(Some(vec![(*name, value.clone())]))
         }
 
@@ -238,6 +260,8 @@ pub fn try_match(
                             v.as_ref(),
                             arena,
                             interner,
+                            None,
+                            pattern_resolutions,
                         ),
                         _ => Ok(None), // These variants have only one field
                     };
@@ -273,13 +297,21 @@ pub fn try_match(
                         &fields[0],
                         arena,
                         interner,
+                        None,
+                        pattern_resolutions,
                     ),
                     // Multiple patterns for multi-field variant
                     (n, m) if n == m => {
                         let mut all_bindings = Vec::with_capacity(inner_patterns.len());
                         for (pat_id, val) in inner_patterns.iter().zip(fields.iter()) {
-                            match try_match(arena.get_match_pattern(*pat_id), val, arena, interner)?
-                            {
+                            match try_match(
+                                arena.get_match_pattern(*pat_id),
+                                val,
+                                arena,
+                                interner,
+                                None,
+                                pattern_resolutions,
+                            )? {
                                 Some(bindings) => all_bindings.extend(bindings),
                                 None => return Ok(None),
                             }
@@ -302,7 +334,14 @@ pub fn try_match(
                 }
                 let mut all_bindings = Vec::with_capacity(pattern_ids.len());
                 for (pat_id, val) in pattern_ids.iter().zip(values.iter()) {
-                    match try_match(arena.get_match_pattern(*pat_id), val, arena, interner)? {
+                    match try_match(
+                        arena.get_match_pattern(*pat_id),
+                        val,
+                        arena,
+                        interner,
+                        None,
+                        pattern_resolutions,
+                    )? {
                         Some(bindings) => all_bindings.extend(bindings),
                         None => return Ok(None),
                     }
@@ -330,7 +369,14 @@ pub fn try_match(
                     .saturating_add(usize::from(rest.is_some()));
                 let mut all_bindings = Vec::with_capacity(capacity);
                 for (pat_id, val) in element_ids.iter().zip(values.iter()) {
-                    match try_match(arena.get_match_pattern(*pat_id), val, arena, interner)? {
+                    match try_match(
+                        arena.get_match_pattern(*pat_id),
+                        val,
+                        arena,
+                        interner,
+                        None,
+                        pattern_resolutions,
+                    )? {
                         Some(bindings) => all_bindings.extend(bindings),
                         None => return Ok(None),
                     }
@@ -347,9 +393,14 @@ pub fn try_match(
 
         MatchPattern::Or(patterns) => {
             for pat_id in arena.get_match_pattern_list(*patterns) {
-                if let Some(bindings) =
-                    try_match(arena.get_match_pattern(*pat_id), value, arena, interner)?
-                {
+                if let Some(bindings) = try_match(
+                    arena.get_match_pattern(*pat_id),
+                    value,
+                    arena,
+                    interner,
+                    None,
+                    pattern_resolutions,
+                )? {
                     return Ok(Some(bindings));
                 }
             }
@@ -357,9 +408,14 @@ pub fn try_match(
         }
 
         MatchPattern::At { name, pattern } => {
-            if let Some(mut bindings) =
-                try_match(arena.get_match_pattern(*pattern), value, arena, interner)?
-            {
+            if let Some(mut bindings) = try_match(
+                arena.get_match_pattern(*pattern),
+                value,
+                arena,
+                interner,
+                None,
+                pattern_resolutions,
+            )? {
                 bindings.push((*name, value.clone()));
                 Ok(Some(bindings))
             } else {
@@ -378,6 +434,8 @@ pub fn try_match(
                                 field_val,
                                 arena,
                                 interner,
+                                None,
+                                pattern_resolutions,
                             )? {
                                 Some(bindings) => all_bindings.extend(bindings),
                                 None => return Ok(None),
@@ -445,12 +503,17 @@ pub fn try_match(
 /// Evaluate a match expression.
 ///
 /// Uses RAII scope guard to ensure scope is popped even on panic.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "closure params (eval_fn, guard_fn) resist bundling into a struct"
+)]
 pub fn eval_match<EvalFn, GuardFn>(
     value: &Value,
     arms: ArmRange,
     arena: &ExprArena,
     interner: &StringInterner,
     env: &mut Environment,
+    pattern_resolutions: &[(PatternKey, PatternResolution)],
     mut eval_fn: EvalFn,
     guard_fn: GuardFn,
 ) -> EvalResult
@@ -458,11 +521,26 @@ where
     EvalFn: FnMut(ExprId) -> EvalResult,
     GuardFn: Fn(ExprId, &mut Environment) -> EvalResult,
 {
+    let arm_range_start = arms.start;
     let arm_list = arena.get_arms(arms);
 
-    for arm in arm_list {
+    for (i, arm) in arm_list.iter().enumerate() {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::arithmetic_side_effects,
+            reason = "arm count bounded by AST size, cannot overflow u32"
+        )]
+        let arm_key = PatternKey::Arm(arm_range_start + i as u32);
+
         // Try to match the pattern first
-        if let Some(bindings) = try_match(&arm.pattern, value, arena, interner)? {
+        if let Some(bindings) = try_match(
+            &arm.pattern,
+            value,
+            arena,
+            interner,
+            Some(arm_key),
+            pattern_resolutions,
+        )? {
             // Use RAII guard for scope safety - scope is popped when guard drops
             let mut guard = EnvScopeGuard::new(env);
             for (name, val) in bindings {

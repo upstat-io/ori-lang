@@ -4,6 +4,7 @@ use inkwell::types::BasicType;
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprRange};
 use ori_types::Idx;
+use tracing::instrument;
 
 use crate::builder::{Builder, Locals};
 use crate::LoopContext;
@@ -11,6 +12,10 @@ use crate::LoopContext;
 impl<'ll> Builder<'_, 'll, '_> {
     /// Compile a list literal.
     /// Lists are represented as { i64 len, i64 cap, ptr data }.
+    #[instrument(
+        skip(self, list, arena, expr_types, locals, function, loop_ctx),
+        level = "trace"
+    )]
     pub(crate) fn compile_list(
         &self,
         list: ExprRange,

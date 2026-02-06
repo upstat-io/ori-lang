@@ -3,7 +3,7 @@
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use ori_ir::{ExprArena, ExprId, Name};
 use ori_types::Idx;
-use tracing::instrument;
+use tracing::{instrument, trace, warn};
 
 use crate::builder::{Builder, Locals};
 
@@ -24,6 +24,12 @@ pub struct FunctionBodyConfig<'a, 'll> {
     pub expr_types: &'a [Idx],
     /// The LLVM function value to compile into.
     pub function: FunctionValue<'ll>,
+    /// Whether this function uses the sret calling convention.
+    ///
+    /// When true, the original struct return is passed via a hidden first
+    /// parameter (param 0). User-visible parameters start at param 1, and
+    /// the function returns void after storing the result through the sret pointer.
+    pub uses_sret: bool,
 }
 
 impl<'ll> Builder<'_, 'll, '_> {
@@ -40,25 +46,34 @@ impl<'ll> Builder<'_, 'll, '_> {
             arena,
             expr_types,
             function,
+            uses_sret,
         } = *config;
+
+        // When sret is active, param 0 is the hidden sret pointer — user
+        // parameters start at index 1.
+        let param_offset: u32 = u32::from(uses_sret);
+
         // Build parameter map (function parameters are immutable)
         let mut locals = Locals::new();
 
-        // Verify parameter count matches (debug assertion for internal consistency)
+        // Verify parameter count matches (debug assertion for internal consistency).
+        // LLVM param count includes the hidden sret pointer when active.
         debug_assert_eq!(
             function.count_params() as usize,
-            param_names.len(),
-            "Function parameter count mismatch: LLVM function has {} params, expected {}",
+            param_names.len() + param_offset as usize,
+            "Function parameter count mismatch: LLVM function has {} params, expected {} (sret={})",
             function.count_params(),
-            param_names.len()
+            param_names.len() + param_offset as usize,
+            uses_sret
         );
 
         for (i, &param_name) in param_names.iter().enumerate() {
-            // SAFETY: We verified param count above; this should not fail
             let param_value = function
-                .get_nth_param(i as u32)
+                .get_nth_param(i as u32 + param_offset)
                 .expect("internal error: parameter count verified but get_nth_param failed");
-            param_value.set_name(self.cx().interner.lookup(param_name));
+            let name_str = self.cx().interner.lookup(param_name);
+            param_value.set_name(name_str);
+            trace!(param = name_str, idx = i, param_type = ?param_value.get_type(), "binding parameter");
             locals.bind_immutable(param_name, param_value);
         }
 
@@ -73,6 +88,19 @@ impl<'ll> Builder<'_, 'll, '_> {
             }
         }
 
+        // sret return path: store result through the hidden sret pointer, then ret void
+        if uses_sret {
+            if let Some(val) = result {
+                let sret_ptr = function
+                    .get_nth_param(0)
+                    .expect("sret function must have param 0")
+                    .into_pointer_value();
+                self.store(val, sret_ptr);
+            }
+            self.ret_void();
+            return;
+        }
+
         // Get the function's declared return type from LLVM
         let fn_ret_type = function.get_type().get_return_type();
 
@@ -85,9 +113,15 @@ impl<'ll> Builder<'_, 'll, '_> {
 
             if actual_type == expected_type {
                 // Types match, return directly
+                trace!(ret_type = ?actual_type, "returning value (types match)");
                 self.ret(val);
             } else {
                 // Type mismatch - coerce the value to match the declared return type
+                warn!(
+                    actual = ?actual_type,
+                    expected = ?expected_type,
+                    "return value type mismatch, coercing"
+                );
                 let coerced = self.coerce_return_value(val, expected_type);
                 self.ret(coerced);
             }

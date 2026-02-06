@@ -153,6 +153,14 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         self.llbuilder.get_insert_block()
     }
 
+    /// Get the function that contains the current insertion point.
+    pub fn get_current_function(&self) -> FunctionValue<'ll> {
+        self.current_block()
+            .expect("builder has insertion point")
+            .get_parent()
+            .expect("block has parent function")
+    }
+
     /// Position at the end of a basic block.
     pub fn position_at_end(&self, bb: BasicBlock<'ll>) {
         self.llbuilder.position_at_end(bb);
@@ -785,6 +793,27 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
         }
     }
 
+    // -- Not Implemented Trap --
+
+    /// Emit a runtime trap for an unimplemented LLVM backend feature.
+    ///
+    /// Generates a call to `ori_panic_cstr` with a descriptive message,
+    /// followed by an `unreachable` terminator. Returns `None` because
+    /// the block is now terminated (same semantics as `panic`/`todo`).
+    ///
+    /// This replaces silent `None` returns that previously caused SIGSEGV
+    /// when callers tried to use the missing value in phi nodes or returns.
+    pub fn emit_not_implemented(&self, feature: &str) -> Option<BasicValueEnum<'ll>> {
+        warn!(feature, "LLVM backend: not yet implemented");
+        if let Some(panic_fn) = self.cx().llmod().get_function("ori_panic_cstr") {
+            let msg = format!("LLVM backend: '{feature}' not yet implemented");
+            let msg_ptr = self.build_global_string_ptr(&msg, "not_impl_msg");
+            self.call(panic_fn, &[msg_ptr.into()], "not_impl_panic");
+        }
+        self.unreachable();
+        None
+    }
+
     // -- Expression Compilation --
 
     /// Compile an expression, dispatching to the appropriate helper method.
@@ -856,8 +885,16 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             // String literal
             ExprKind::String(name) => self.compile_string(*name),
 
-            // Variables - load from SSA or stack depending on storage type
-            ExprKind::Ident(name) => self.load_variable(*name, locals),
+            // Variables or unit variant constructors
+            ExprKind::Ident(name) => {
+                // Check if this identifier is a unit variant constructor
+                if let Some((type_name, variant)) = self.cx().lookup_variant_constructor(*name) {
+                    if variant.field_types.is_empty() {
+                        return self.compile_unit_variant(type_name, &variant, function);
+                    }
+                }
+                self.load_variable(*name, locals)
+            }
 
             // Binary operations
             ExprKind::Binary { op, left, right } => {
@@ -954,16 +991,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             ),
 
             // Struct literal with spread (not yet implemented in LLVM backend)
-            ExprKind::StructWithSpread { .. } => {
-                // TODO: Implement spread syntax in LLVM backend
-                // For now, emit a warning and return None to indicate compilation failure
-                warn!(
-                    expr_id = ?id,
-                    "StructWithSpread not yet supported in LLVM backend; \
-                     compilation will fail gracefully"
-                );
-                None
-            }
+            ExprKind::StructWithSpread { .. } => self.emit_not_implemented("struct spread syntax"),
 
             // Field access
             ExprKind::Field { receiver, field } => self.compile_field_access(
@@ -991,13 +1019,39 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                 *scrutinee, *arms, type_id, arena, expr_types, locals, function, loop_ctx,
             ),
 
-            // Function call (positional args)
+            // Function call (positional args) or data variant constructor
             ExprKind::Call { func, args } => {
+                // Check if the callee is a data variant constructor
+                if let ExprKind::Ident(func_name) = &arena.get_expr(*func).kind {
+                    if let Some((type_name, variant)) =
+                        self.cx().lookup_variant_constructor(*func_name)
+                    {
+                        if !variant.field_types.is_empty() {
+                            return self.compile_data_variant_positional(
+                                type_name, &variant, *args, arena, expr_types, locals, function,
+                                loop_ctx,
+                            );
+                        }
+                    }
+                }
                 self.compile_call(*func, *args, arena, expr_types, locals, function, loop_ctx)
             }
 
-            // Function call (named args)
+            // Function call (named args) or data variant constructor
             ExprKind::CallNamed { func, args } => {
+                // Check if the callee is a data variant constructor
+                if let ExprKind::Ident(func_name) = &arena.get_expr(*func).kind {
+                    if let Some((type_name, variant)) =
+                        self.cx().lookup_variant_constructor(*func_name)
+                    {
+                        if !variant.field_types.is_empty() {
+                            return self.compile_data_variant(
+                                type_name, &variant, *args, arena, expr_types, locals, function,
+                                loop_ctx,
+                            );
+                        }
+                    }
+                }
                 self.compile_call_named(*func, *args, arena, expr_types, locals, function, loop_ctx)
             }
 
@@ -1017,11 +1071,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             ExprKind::FunctionRef(name) => self.compile_function_ref(*name),
 
             // Hash length: # (refers to length in index context)
-            ExprKind::HashLength => {
-                // This should be resolved during evaluation to the actual length
-                // For now, return 0 as placeholder (context-dependent)
-                Some(self.cx().scx.type_i64().const_int(0, false).into())
-            }
+            ExprKind::HashLength => self.emit_not_implemented("hash length (#)"),
 
             // Duration literal: 100ms, 5s
             ExprKind::Duration { value, unit } => self.compile_duration(*value, *unit),
@@ -1165,29 +1215,189 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             }
 
             // List with spread: [...a, b, ...c]
-            ExprKind::ListWithSpread(_elements) => {
-                // TODO: Implement spread syntax for lists
-                // Emit warning so developers can trace why compilation failed
-                warn!(
-                    expr_id = ?id,
-                    "ListWithSpread not yet supported in LLVM backend; \
-                     compilation will fail gracefully"
-                );
-                None
-            }
+            ExprKind::ListWithSpread(_elements) => self.emit_not_implemented("list spread syntax"),
 
             // Map with spread: {...a, k: v, ...b}
-            ExprKind::MapWithSpread(_elements) => {
-                // TODO: Implement spread syntax for maps
-                // Emit warning so developers can trace why compilation failed
-                warn!(
-                    expr_id = ?id,
-                    "MapWithSpread not yet supported in LLVM backend; \
-                     compilation will fail gracefully"
+            ExprKind::MapWithSpread(_elements) => self.emit_not_implemented("map spread syntax"),
+        }
+    }
+
+    // -- Sum Type Variant Construction --
+
+    /// Compile a unit variant constructor (e.g., `Pending`).
+    ///
+    /// Produces `{ i8 tag, [M x i64] zeroed_payload }` for the sum type.
+    fn compile_unit_variant(
+        &self,
+        type_name: Name,
+        variant: &crate::context::SumVariantLayout,
+        function: FunctionValue<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        let layout = self.cx().get_sum_type_layout(type_name)?;
+
+        // Get the LLVM struct type for this sum type
+        let struct_ty = self.cx().get_struct_type(type_name)?;
+
+        // Alloca-based construction: alloca the struct, set tag, zero payload
+        let alloca = self.create_entry_alloca(function, "variant", struct_ty.into());
+
+        // Store tag (field 0)
+        let tag_ptr = self.struct_gep(struct_ty, alloca, 0, "tag_ptr");
+        let tag_val = self
+            .cx()
+            .scx
+            .type_i8()
+            .const_int(u64::from(variant.tag), false);
+        self.store(tag_val.into(), tag_ptr);
+
+        // Zero the payload (field 1) if it exists
+        if layout.payload_i64_count > 0 {
+            let payload_ptr = self.struct_gep(struct_ty, alloca, 1, "payload_ptr");
+            let payload_ty = self
+                .cx()
+                .scx
+                .type_i64()
+                .array_type(layout.payload_i64_count);
+            let zero = payload_ty.const_zero();
+            self.store(zero.into(), payload_ptr);
+        }
+
+        // Load the complete struct
+        let result = self.load(struct_ty.into(), alloca, "variant_val");
+        Some(result)
+    }
+
+    /// Compile a data variant constructor (e.g., `Failed(reason: "oops")`).
+    ///
+    /// Produces `{ i8 tag, [M x i64] payload }` where payload fields are stored
+    /// at byte offsets via GEP through the payload array pointer.
+    fn compile_data_variant(
+        &self,
+        type_name: Name,
+        variant: &crate::context::SumVariantLayout,
+        args: ori_ir::ast::CallArgRange,
+        arena: &ExprArena,
+        expr_types: &[Idx],
+        locals: &mut Locals<'ll>,
+        function: FunctionValue<'ll>,
+        loop_ctx: Option<&LoopContext<'ll>>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        let layout = self.cx().get_sum_type_layout(type_name)?;
+        let struct_ty = self.cx().get_struct_type(type_name)?;
+
+        // Compile argument values (named args: use value order)
+        let call_args = arena.get_call_args(args);
+        let mut arg_values = Vec::with_capacity(call_args.len());
+        for arg in call_args {
+            let val =
+                self.compile_expr(arg.value, arena, expr_types, locals, function, loop_ctx)?;
+            arg_values.push(val);
+        }
+
+        self.build_data_variant_from_values(
+            type_name,
+            variant,
+            &layout,
+            struct_ty,
+            &arg_values,
+            function,
+        )
+    }
+
+    /// Compile a data variant constructor with positional args.
+    ///
+    /// Same as `compile_data_variant` but takes `ExprRange` (positional) instead
+    /// of `CallArgRange` (named).
+    fn compile_data_variant_positional(
+        &self,
+        type_name: Name,
+        variant: &crate::context::SumVariantLayout,
+        args: ori_ir::ExprRange,
+        arena: &ExprArena,
+        expr_types: &[Idx],
+        locals: &mut Locals<'ll>,
+        function: FunctionValue<'ll>,
+        loop_ctx: Option<&LoopContext<'ll>>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        let layout = self.cx().get_sum_type_layout(type_name)?;
+        let struct_ty = self.cx().get_struct_type(type_name)?;
+
+        // Compile positional argument values
+        let arg_exprs = arena.get_expr_list(args);
+        let mut arg_values = Vec::with_capacity(arg_exprs.len());
+        for &expr_id in arg_exprs {
+            let val = self.compile_expr(expr_id, arena, expr_types, locals, function, loop_ctx)?;
+            arg_values.push(val);
+        }
+
+        // Reuse the same alloca-based construction logic
+        self.build_data_variant_from_values(
+            type_name,
+            variant,
+            &layout,
+            struct_ty,
+            &arg_values,
+            function,
+        )
+    }
+
+    /// Shared implementation for data variant construction from compiled values.
+    fn build_data_variant_from_values(
+        &self,
+        _type_name: Name,
+        variant: &crate::context::SumVariantLayout,
+        layout: &crate::context::SumTypeLayout,
+        struct_ty: inkwell::types::StructType<'ll>,
+        arg_values: &[BasicValueEnum<'ll>],
+        function: FunctionValue<'ll>,
+    ) -> Option<BasicValueEnum<'ll>> {
+        let alloca = self.create_entry_alloca(function, "variant", struct_ty.into());
+
+        // Store tag (field 0)
+        let tag_ptr = self.struct_gep(struct_ty, alloca, 0, "tag_ptr");
+        let tag_val = self
+            .cx()
+            .scx
+            .type_i8()
+            .const_int(u64::from(variant.tag), false);
+        self.store(tag_val.into(), tag_ptr);
+
+        // Store payload fields at byte offsets
+        if layout.payload_i64_count > 0 {
+            let payload_ptr = self.struct_gep(struct_ty, alloca, 1, "payload_ptr");
+
+            // Zero the payload first
+            let payload_ty = self
+                .cx()
+                .scx
+                .type_i64()
+                .array_type(layout.payload_i64_count);
+            let zero = payload_ty.const_zero();
+            self.store(zero.into(), payload_ptr);
+
+            // Store each field value through byte-addressed GEP
+            let mut byte_offset: u32 = 0;
+            for (i, val) in arg_values.iter().enumerate() {
+                let field_ty = variant.field_types.get(i).copied().unwrap_or(Idx::INT);
+                let field_size = crate::module::field_byte_size(field_ty);
+
+                let i8_ty = self.cx().scx.type_i8();
+                let offset = i8_ty.const_int(u64::from(byte_offset), false);
+                let field_ptr = self.gep(
+                    i8_ty.into(),
+                    payload_ptr,
+                    &[offset],
+                    &format!("field_{i}_ptr"),
                 );
-                None
+
+                self.store(*val, field_ptr);
+
+                byte_offset += field_size;
             }
         }
+
+        let result = self.load(struct_ty.into(), alloca, "variant_val");
+        Some(result)
     }
 
     /// Compile a let binding.

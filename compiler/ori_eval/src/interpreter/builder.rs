@@ -13,7 +13,7 @@ use crate::{
 };
 use ori_ir::{ExprArena, SharedArena, StringInterner};
 use ori_patterns::PatternRegistry;
-use ori_types::Idx;
+use ori_types::{Idx, PatternKey, PatternResolution};
 
 /// Builder for creating Interpreter instances with various configurations.
 pub struct InterpreterBuilder<'a> {
@@ -30,6 +30,8 @@ pub struct InterpreterBuilder<'a> {
     max_call_depth: usize,
     /// Expression type table from type checking.
     expr_types: Option<&'a [Idx]>,
+    /// Pattern resolutions from type checking.
+    pattern_resolutions: &'a [(PatternKey, PatternResolution)],
 }
 
 impl<'a> InterpreterBuilder<'a> {
@@ -48,6 +50,7 @@ impl<'a> InterpreterBuilder<'a> {
             call_depth: 0,
             max_call_depth: DEFAULT_MAX_CALL_DEPTH,
             expr_types: None,
+            pattern_resolutions: &[],
         }
     }
 
@@ -65,6 +68,7 @@ impl<'a> InterpreterBuilder<'a> {
             owns_scoped_env: false,
             call_depth: 0,
             expr_types: None,
+            pattern_resolutions: &[],
         }
     }
 
@@ -149,6 +153,19 @@ impl<'a> InterpreterBuilder<'a> {
         self
     }
 
+    /// Set the pattern resolutions from type checking.
+    ///
+    /// Enables correct disambiguation of `Binding("Pending")` (unit variant)
+    /// vs `Binding("x")` (variable) in match patterns.
+    #[must_use]
+    pub fn pattern_resolutions(
+        mut self,
+        resolutions: &'a [(PatternKey, PatternResolution)],
+    ) -> Self {
+        self.pattern_resolutions = resolutions;
+        self
+    }
+
     /// Build the interpreter (WASM version with max_call_depth).
     #[cfg(target_arch = "wasm32")]
     pub fn build(self) -> Interpreter<'a> {
@@ -190,6 +207,7 @@ impl<'a> InterpreterBuilder<'a> {
             print_handler: self.print_handler.unwrap_or_else(stdout_handler),
             owns_scoped_env: self.owns_scoped_env,
             expr_types: self.expr_types,
+            pattern_resolutions: self.pattern_resolutions,
         }
     }
 
@@ -233,6 +251,7 @@ impl<'a> InterpreterBuilder<'a> {
             print_handler: self.print_handler.unwrap_or_else(stdout_handler),
             owns_scoped_env: self.owns_scoped_env,
             expr_types: self.expr_types,
+            pattern_resolutions: self.pattern_resolutions,
         }
     }
 }

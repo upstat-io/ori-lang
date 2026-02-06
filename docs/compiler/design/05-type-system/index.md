@@ -7,545 +7,224 @@ section: "Type System"
 
 # Type System Overview
 
-The Ori type system provides strict static typing with Hindley-Milner type inference. The type checker validates programs and infers types for expressions.
+The Ori type system provides strict static typing with Hindley-Milner type inference, extended with rank-based let-polymorphism, capability tracking, and user-defined types. The entire type system lives in a single crate, `ori_types`, built around a unified pool architecture.
 
 ## Location
 
-Type definitions are split across two crates:
-
 ```
 compiler/ori_types/src/
-├── lib.rs                    # Module exports, size assertions, tests
-├── core.rs                   # Type enum, TypeScheme (external API)
-├── data.rs                   # TypeData enum, TypeVar (internal representation)
-├── type_interner.rs          # TypeInterner, SharedTypeInterner (O(1) equality)
-├── env.rs                    # TypeEnv for name resolution/scoping
-├── traverse.rs               # TypeFolder, TypeVisitor, TypeIdFolder, TypeIdVisitor
-├── context.rs                # InferenceContext, TypeContext
-└── error.rs                  # TypeError enum with diagnostic conversion
-
-compiler/ori_typeck/src/
-├── lib.rs                    # Module exports
-├── checker/                  # Main type checker
-│   ├── mod.rs                    # TypeChecker struct, constructors
-│   ├── api.rs                    # Public API: type_check, type_check_with_source, type_check_with_config
-│   ├── orchestration.rs          # check_module 4-pass logic
-│   ├── utilities.rs              # validate_capabilities, resolve_through_aliases, report_type_error
-│   ├── builder.rs                # TypeCheckerBuilder pattern
-│   ├── components.rs             # CheckContext, InferenceState, Registries, DiagnosticState, ScopeContext
-│   ├── scope_guards.rs           # RAII scope guards (private fields, pub(super) access)
-│   ├── function_checking.rs      # check_callable, check_function, check_test, check_impl_methods
-│   ├── type_resolution.rs        # type_id_to_type, parsed_type_to_type, resolve_well_known_generic
-│   ├── signatures.rs             # infer_function_signature
-│   ├── pattern_binding.rs        # bind_pattern logic
-│   ├── cycle_detection.rs        # collect_free_vars, closure self-capture
-│   ├── trait_registration.rs     # register_traits, register_impls
-│   ├── bound_checking.rs         # type_satisfies_bound
-│   ├── type_registration.rs      # register_type_declarations
-│   ├── imports.rs                # ImportedFunction, ImportedModuleAlias, register_module_alias
-│   ├── types.rs                  # Helper types (FunctionType, TypeCheckError)
-│   └── tests/                    # Test modules
-│       └── mod.rs                    # TypeChecker unit tests
-├── operators.rs              # Operator type rules
-├── derives/                  # Derive macro support
-│   └── mod.rs                    # Derive registration and checking
-├── registry/                 # User-defined types
-│   ├── mod.rs                    # TypeRegistry struct, re-exports
-│   ├── trait_registry.rs         # TraitRegistry core (method_cache)
-│   ├── trait_types.rs            # TraitMethodDef, TraitAssocTypeDef, TraitEntry
-│   ├── impl_types.rs             # ImplMethodDef, ImplAssocTypeDef, ImplEntry, CoherenceError
-│   ├── method_lookup.rs          # MethodLookup result type
-│   └── tests/                    # Test modules
-│       ├── mod.rs                    # Test module declarations
-│       ├── trait_registry_tests.rs   # TraitRegistry tests
-│       └── type_registry_tests.rs    # TypeRegistry tests
-└── infer/
-    ├── mod.rs                # Inference dispatcher, re-exports
-    ├── free_vars.rs          # collect_free_vars_inner, add_pattern_bindings
-    ├── type_annotations.rs   # infer_let_init, check_type_annotation
-    ├── call.rs               # Call type checking
-    ├── control.rs            # Control flow inference
-    ├── match_binding.rs      # extract_match_pattern_bindings, collect_match_pattern_names
-    ├── pattern_types.rs      # get_variant_field_types (Vec<Type>), get_struct_field_types
-    ├── pattern_unification.rs # unify_pattern_with_scrutinee
-    ├── pattern.rs            # Pattern type checking
-    ├── expressions/          # Expression type inference (split from expr.rs)
-    │   ├── mod.rs                # Re-exports, substitute_type_params
-    │   ├── identifiers.rs        # infer_ident, infer_function_ref, builtin_function_type
-    │   ├── operators.rs          # infer_binary, infer_unary, check_binary_op, check_unary_op
-    │   ├── lambdas.rs            # infer_lambda
-    │   ├── collections.rs        # infer_list, infer_tuple, infer_map, infer_range
-    │   ├── structs.rs            # infer_struct, FieldLookupResult, field lookup helpers
-    │   ├── access.rs             # infer_field, infer_index
-    │   └── variants.rs           # infer_ok, infer_err, infer_some, infer_none
-    └── builtin_methods/      # Built-in type method handlers
-        ├── mod.rs                # BuiltinMethodRegistry, BuiltinMethodHandler trait
-        ├── string.rs             # StringMethodHandler
-        ├── list.rs               # ListMethodHandler
-        ├── map.rs                # MapMethodHandler
-        ├── option.rs             # OptionMethodHandler
-        ├── result.rs             # ResultMethodHandler
-        └── numeric.rs            # NumericMethodHandler (int, float, bool)
+├── lib.rs                    # Module exports, Salsa compatibility assertions
+├── idx.rs                    # Idx — 32-bit type handle (the canonical type reference)
+├── tag.rs                    # Tag — 1-byte type kind discriminant
+├── item.rs                   # Item — compact (Tag, u32) pair stored in pool
+├── flags.rs                  # TypeFlags — pre-computed bitflags for O(1) queries
+├── pool/                     # Unified type storage (SoA layout)
+│   ├── mod.rs                    # Pool struct, queries, variable state management
+│   ├── construct.rs              # Type construction methods (interning + dedup)
+│   └── format.rs                 # Human-readable type formatting for diagnostics
+├── unify/                    # Unification engine
+│   ├── mod.rs                    # UnifyEngine — link-based union-find
+│   ├── rank.rs                   # Rank system for let-polymorphism
+│   └── error.rs                  # UnifyError, UnifyContext
+├── infer/                    # Inference engine
+│   ├── mod.rs                    # InferEngine — orchestrates inference
+│   ├── expr.rs                   # infer_expr() — per-expression inference dispatch
+│   └── env.rs                    # TypeEnv — Rc-based scope chain
+├── check/                    # Module-level type checker
+│   ├── mod.rs                    # ModuleChecker — multi-pass orchestration
+│   ├── signatures.rs             # Pass 1: function signature collection
+│   ├── bodies.rs                 # Pass 2-4: function/test/impl body checking
+│   └── registration.rs          # Pass 0: type/trait/impl registration
+├── registry/                 # Type, trait, and method registries
+│   ├── mod.rs                    # Re-exports
+│   ├── types.rs                  # TypeRegistry — struct/enum/newtype storage
+│   ├── traits.rs                 # TraitRegistry — trait definitions and impls
+│   └── methods.rs                # MethodRegistry — built-in method resolution
+├── output/                   # Type checker output
+│   └── mod.rs                    # TypedModule, FunctionSig, PatternResolution
+└── type_error/               # Error infrastructure
+    └── mod.rs                    # TypeCheckError, TypeErrorKind, ErrorContext
 ```
-
-The `ori_types` crate contains:
-- `core.rs`: The external `Type` enum and `TypeScheme` definitions
-- `data.rs`: The internal `TypeData` enum and `TypeVar` for the interner
-- `type_interner.rs`: `TypeInterner` and `SharedTypeInterner` for O(1) type equality
-- `env.rs`: `TypeEnv` for variable-to-type bindings with scope support
-- `traverse.rs`: Traversal traits for both representations:
-  - `TypeFolder`/`TypeVisitor`: Work with boxed `Type` (external API)
-  - `TypeIdFolder`/`TypeIdVisitor`: Work with interned `TypeId` (internal, preferred)
-- `context.rs`: `InferenceContext` (TypeId-based unification) and `TypeContext` (deduplication)
-- `error.rs`: `TypeError` enum with diagnostic conversion
-
-The type checker lives in the `ori_typeck` crate, with orchestration in `oric` via Salsa queries.
-
-Note: `oric/src/types.rs` re-exports from `ori_types` (DRY consolidation).
 
 ## Design Goals
 
-1. **Sound type system** - No runtime type errors
-2. **Full inference** - Minimal type annotations required
-3. **Good error messages** - Clear, actionable diagnostics
-4. **Capability tracking** - Track side effects in types
+1. **Sound type system** — No runtime type errors for well-typed programs
+2. **Full inference** — Minimal type annotations required (function signatures only)
+3. **Good error messages** — Rich context with origin tracking and suggestions
+4. **Capability tracking** — Side effects tracked in function types
+5. **Efficient representation** — Arena-allocated, interned, cache-friendly
+
+## Architecture
+
+The type system is organized into four layers:
+
+```
+┌─────────────────────────────────────────────────────┐
+│ Pool (Unified Type Storage)                         │
+│ ├─ items: Vec<Item>        (tag + data per type)    │
+│ ├─ flags: Vec<TypeFlags>   (pre-computed metadata)  │
+│ ├─ hashes: Vec<u64>        (for deduplication)      │
+│ ├─ extra: Vec<u32>         (variable-length data)   │
+│ ├─ intern_map: FxHashMap   (hash → Idx dedup)       │
+│ └─ var_states: Vec<VarState> (type variable state)  │
+├─────────────────────────────────────────────────────┤
+│ Registries (Semantic Information)                    │
+│ ├─ TypeRegistry  (structs, enums, aliases)          │
+│ ├─ TraitRegistry (traits, implementations)          │
+│ └─ MethodRegistry (unified method lookup)           │
+├─────────────────────────────────────────────────────┤
+│ InferEngine (Hindley-Milner Inference)              │
+│ ├─ UnifyEngine   (union-find with path compression) │
+│ ├─ TypeEnv       (name → scheme bindings)           │
+│ └─ Error accumulation (comprehensive diagnostics)   │
+├─────────────────────────────────────────────────────┤
+│ ModuleChecker (Multi-Pass Type Checking)            │
+│ ├─ Pass 0: Registration (types, traits, impls)      │
+│ ├─ Pass 1: Function signatures                      │
+│ ├─ Pass 2: Function bodies                          │
+│ ├─ Pass 3: Test bodies                              │
+│ └─ Pass 4: Impl method bodies                       │
+└─────────────────────────────────────────────────────┘
+```
 
 ## Type Checking Flow
 
 ```
 ParseResult { Module, ExprArena }
     │
-    │ create TypeChecker
+    │ create ModuleChecker
     ▼
-TypeChecker {
-    inference: InferenceState,   // ctx, env, expr_types
-    registries: Registries,      // pattern, types, traits
-    diagnostics: DiagnosticState,
+ModuleChecker {
+    pool: Pool,                  // Type storage
+    types: TypeRegistry,         // User-defined types
+    traits: TraitRegistry,       // Traits & implementations
+    methods: MethodRegistry,     // Built-in methods
 }
     │
-    │ infer types for all expressions (immediate unification)
+    │ multi-pass type checking
     ▼
 TypedModule {
-    expr_types: Vec<TypeId>,  // Type per ExprId
-    errors: Vec<TypeError>,
+    expr_types: Vec<Idx>,        // Type per expression
+    functions: Vec<FunctionSig>, // Checked signatures
+    types: Vec<TypeEntry>,       // Registered types
+    errors: Vec<TypeCheckError>, // Accumulated errors
+    pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
 }
 ```
 
-## Core Components
+## Core Type Handle: Idx
 
-### Type Enum
+Every type is represented as a 4-byte `Idx` — a transparent wrapper around `u32`. This is the canonical type reference used throughout the compiler.
 
 ```rust
-pub enum Type {
-    // Primitives
-    Int, Float, Bool, Str, Char, Byte, Unit, Never,
-    Duration, Size, Ordering,
+#[repr(transparent)]
+pub struct Idx(u32);  // Copy, Clone, Eq, PartialEq, Hash
+```
 
-    // Compound
-    List(Box<Type>),
-    Map { key: Box<Type>, value: Box<Type> },
-    Set(Box<Type>),
-    Option(Box<Type>),
-    Result { ok: Box<Type>, err: Box<Type> },
-    Range(Box<Type>),
-    Channel(Box<Type>),
-    Tuple(Vec<Type>),
-    Function { params: Vec<Type>, ret: Box<Type> },
+Primitive types occupy fixed indices 0–11:
 
-    // Module namespace (for module alias imports)
-    ModuleNamespace { items: Vec<(Name, Type)> },
+| Index | Type | Index | Type |
+|-------|------|-------|------|
+| 0 | `int` | 6 | `()` (unit) |
+| 1 | `float` | 7 | `Never` |
+| 2 | `bool` | 8 | `Error` |
+| 3 | `str` | 9 | `Duration` |
+| 4 | `char` | 10 | `Size` |
+| 5 | `byte` | 11 | `Ordering` |
 
-    // Inference
-    Var(TypeVar),
+Indices 12–63 are reserved for future primitives. Dynamic types (functions, lists, user-defined) start at index 64.
 
-    // User-defined
-    Named(Name),
-    Applied { name: Name, args: Vec<Type> },
-    Projection { base: Box<Type>, trait_name: Name, assoc_name: Name },
+## Type Kind: Tag
 
-    // Error recovery
-    Error,
+Each type has a 1-byte `Tag` discriminant organized by semantic range:
+
+| Range | Category | Example Tags |
+|-------|----------|-------------|
+| 0–15 | Primitives | `Int`, `Float`, `Bool`, `Str`, `Unit`, `Never` |
+| 16–31 | Simple containers | `List`, `Option`, `Set`, `Channel`, `Range` |
+| 32–47 | Two-child containers | `Map`, `Result` |
+| 48–79 | Complex types | `Function`, `Tuple`, `Struct`, `Enum` |
+| 80–95 | Named types | `Named`, `Applied`, `Alias` |
+| 96–111 | Type variables | `Var`, `BoundVar`, `RigidVar` |
+| 112–127 | Type schemes | `Scheme` |
+| 240–255 | Special | `Projection`, `ModuleNs`, `Infer`, `SelfType` |
+
+## Pre-computed Metadata: TypeFlags
+
+Every type carries a `TypeFlags` bitfield (u32) computed at construction time. This enables O(1) queries without traversal:
+
+**Presence flags:** `HAS_VAR`, `HAS_ERROR`, `HAS_INFER`, `HAS_SELF`, `HAS_PROJECTION`
+**Category flags:** `IS_PRIMITIVE`, `IS_CONTAINER`, `IS_FUNCTION`, `IS_COMPOSITE`
+**Optimization flags:** `NEEDS_SUBST`, `IS_RESOLVED`, `IS_MONO`, `IS_COPYABLE`
+**Capability flags:** `HAS_CAPABILITY`, `IS_PURE`, `HAS_IO`, `HAS_ASYNC`
+
+Flags propagate from children to parents during construction via `PROPAGATE_MASK`, so checking whether a complex type contains any variables is O(1).
+
+## ModuleChecker
+
+The `ModuleChecker` orchestrates multi-pass type checking for a module:
+
+```rust
+pub struct ModuleChecker<'a> {
+    arena: &'a ExprArena,
+    interner: &'a StringInterner,
+
+    pool: Pool,                             // Type storage
+    types: TypeRegistry,                    // User-defined types
+    traits: TraitRegistry,                  // Traits & impls
+    methods: MethodRegistry,                // Method resolution
+
+    import_env: TypeEnv,                    // Imported functions
+    signatures: FxHashMap<Name, FunctionSig>,
+    base_env: Option<TypeEnv>,              // Frozen after Pass 1
+
+    expr_types: Vec<Idx>,                   // Output: type per expression
+    errors: Vec<TypeCheckError>,            // Accumulated errors
+    pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
 }
 ```
 
-### ModuleNamespace Type
+### Multi-Pass Architecture
 
-The `ModuleNamespace` variant represents module aliases created by `use std.http as http` imports. It stores a mapping of exported item names to their types, enabling qualified access type checking:
+**Pass 0 — Registration:**
+- 0a: Register built-in types (Ordering, etc.)
+- 0b: Register user-defined types (structs, enums, newtypes)
+- 0c: Register traits and implementations
+- 0d: Register derived implementations
+- 0e: Register config variables
 
-```rust
-// Ori source
-use std.http as http
-http.get(url: "/api")  // Qualified access
+**Pass 1 — Function Signatures:**
+Collect all function signatures before checking bodies. This enables mutual recursion and forward references. The base environment is frozen after this pass.
 
-// Type representation
-Type::ModuleNamespace {
-    items: vec![  // Sorted by Name (invariant for O(log n) lookup)
-        (intern("get"), Type::Function { params: vec![Type::String], ret: ... }),
-        (intern("post"), Type::Function { params: vec![Type::String, ...], ret: ... }),
-        // ... other exports
-    ]
-}
-```
+**Pass 2 — Function Bodies:**
+Type check each function body against its declared signature using `InferEngine`.
 
-When field access occurs on a `ModuleNamespace` type, the type checker uses binary search to look up the field name:
+**Pass 3 — Test Bodies:**
+Type check test function bodies (implicit `void` return type).
 
-```rust
-pub fn get_namespace_item(&self, name: Name) -> Option<&Type> {
-    match self {
-        Type::ModuleNamespace { items } => items
-            .binary_search_by_key(&name, |(n, _)| *n)
-            .ok()
-            .map(|idx| &items[idx].1),
-    }
-}
-```
-
-The items vector is maintained in sorted order (invariant enforced during construction) for O(log n) lookup performance.
-
-### TypeChecker
-
-The TypeChecker is organized into logical components for better testability and maintainability:
-
-```rust
-pub struct TypeChecker<'a> {
-    /// External references (arena, interner)
-    context: CheckContext<'a>,
-
-    /// Inference state (ctx, env, base_env, expr_types)
-    inference: InferenceState,
-
-    /// Registries (pattern, type_op, types, traits)
-    registries: Registries,
-
-    /// Diagnostic collection (errors, queue, source)
-    diagnostics: DiagnosticState,
-
-    /// Function/scope context (function_sigs, current_impl_self, config_types, capabilities)
-    scope: ScopeContext,
-}
-```
-
-#### Component Structs
-
-| Component | Purpose | Fields |
-|-----------|---------|--------|
-| `CheckContext<'a>` | Immutable external references | `arena`, `interner` |
-| `InferenceState` | Mutable inference context | `ctx`, `env`, `base_env`, `expr_types` |
-| `Registries` | Pattern, type, and trait registries | `pattern`, `type_op`, `types`, `traits` |
-| `DiagnosticState` | Error collection and limiting | `errors`, `queue`, `source` |
-| `ScopeContext` | Current scope state | `function_sigs`, `current_impl_self`, `config_types`, `current_function_caps`, `provided_caps` |
-
-#### TypeCheckerBuilder
-
-Use the builder pattern for flexible construction:
-
-```rust
-let checker = TypeCheckerBuilder::new(&arena, &interner)
-    .with_source(source_code)           // Enable diagnostic queue features
-    .with_context(&compiler_context)    // Use custom registries
-    .with_diagnostic_config(config)     // Custom error limits
-    .build();
-```
-
-#### RAII Scope Guards
-
-The type checker uses RAII-style scope guards for safe context management:
-
-```rust
-// Capability scope (for function checking)
-checker.with_capability_scope(new_caps, |c| {
-    // Capabilities are active here
-    // Automatically restored on return (even early returns)
-});
-
-// Impl scope (for impl block checking)
-checker.with_impl_scope(self_type, |c| {
-    // Self type is available here
-    // Automatically restored on return
-});
-```
-
-This prevents bugs from forgotten context restores and ensures cleanup on early returns.
-
-The scope guard structs (`SavedCapabilityContext`, `SavedImplContext`) use private fields with `pub(super)` access, ensuring they can only be constructed through the guard methods.
-
-#### Extracted Checker Modules
-
-The type checker's `check_function` and `check_test` methods share ~95% of their logic. The shared `check_callable()` method in `function_checking.rs` eliminates this duplication:
-
-```rust
-// function_checking.rs
-fn check_callable(&mut self, params: &[Param], param_types: &[Type],
-                   return_type: &Type, body: ExprId, capabilities: HashSet<Name>)
-```
-
-Both `check_function()` and `check_test()` prepare their specific params/capabilities then delegate to `check_callable()`.
-
-Type resolution logic (`type_id_to_type`, `parsed_type_to_type`, `resolve_well_known_generic`, `make_projection_type`) is extracted to `type_resolution.rs`.
-
-#### TraitRegistry Method Cache
-
-The `TraitRegistry` uses a `RefCell<HashMap<(Type, Name), Option<MethodLookup>>>` cache for method lookups, converting the `lookup_method()` scan from O(n) to O(1) for repeated lookups:
-
-```rust
-pub fn lookup_method(&self, self_ty: &Type, method_name: Name) -> Option<MethodLookup> {
-    // Check cache first
-    if let Some(cached) = self.method_cache.borrow().get(&cache_key) {
-        return cached.clone();
-    }
-    // Uncached path: scan all impls, then cache result
-    let result = self.lookup_method_uncached(self_ty, method_name);
-    self.method_cache.borrow_mut().insert(cache_key, result.clone());
-    result
-}
-```
-
-The cache is cleared whenever `register_trait()` or `register_impl()` is called.
-
-### TypeEnv
-
-The type environment uses `Rc`-based parent chain for efficient scoping:
-
-```rust
-/// Internal storage wrapped in Rc for O(1) child creation.
-struct TypeEnvInner {
-    bindings: FxHashMap<Name, TypeSchemeId>,
-    parent: Option<TypeEnv>,
-    interner: SharedTypeInterner,
-}
-
-pub struct TypeEnv(Rc<TypeEnvInner>);
-```
-
-See [Type Environment](type-environment.md) for details on the parent chain design.
-
-### TypeContext
-
-TypeContext provides deduplication for generic type instantiations within a single type-checking pass:
-
-```rust
-pub struct TypeContext {
-    /// hash(origin + targs) -> [(origin, targs, instance)]
-    type_map: HashMap<u64, Vec<TypeContextEntry>>,
-    /// Origin type -> stable ID for hashing
-    origin_ids: HashMap<TypeScheme, u32>,
-    next_origin_id: u32,
-}
-```
-
-This ensures identical generic instantiations (e.g., `Option<int>`) share the same `Type` instance, reducing allocations and enabling fast equality checks.
-
-**Convenience methods** (built on shared `deduplicate_type()` helper):
-
-All convenience methods delegate to `deduplicate_type(origin_id, targs, make_type)`, which handles the hash lookup, deduplication check, and caching. Named origin constants (`LIST_ORIGIN`, `OPTION_ORIGIN`, etc.) replace magic numbers:
-
-```rust
-impl TypeContext {
-    // Shared deduplication helper
-    fn deduplicate_type(&mut self, origin_id: u32, targs: Vec<Type>,
-                        make_type: impl FnOnce() -> Type) -> Type;
-
-    // Each method is a thin wrapper around deduplicate_type()
-    pub fn list_type(&mut self, elem: Type) -> Type;
-    pub fn option_type(&mut self, inner: Type) -> Type;
-    pub fn result_type(&mut self, ok: Type, err: Type) -> Type;
-    pub fn map_type(&mut self, key: Type, value: Type) -> Type;
-    pub fn set_type(&mut self, elem: Type) -> Type;
-    pub fn range_type(&mut self, elem: Type) -> Type;
-    pub fn channel_type(&mut self, elem: Type) -> Type;
-    pub fn tuple_type(&mut self, types: Vec<Type>) -> Type;
-    pub fn function_type(&mut self, params: Vec<Type>, ret: Type) -> Type;
-}
-```
-
-### InferenceContext
-
-InferenceContext uses TypeId internally for O(1) equality, with Type conversion at API boundaries:
-
-```rust
-pub struct InferenceContext {
-    next_var: u32,
-    substitutions: HashMap<TypeVar, TypeId>,  // Internal: TypeId-based
-    type_context: TypeContext,
-    interner: SharedTypeInterner,             // Shared type interner
-}
-
-impl InferenceContext {
-    // Construction
-    pub fn new() -> Self;                                    // New interner
-    pub fn with_interner(interner: SharedTypeInterner) -> Self;  // Shared
-
-    // Type variable management
-    pub fn fresh_var(&mut self) -> Type;         // External API
-    pub fn fresh_var_id(&mut self) -> TypeId;    // Internal API
-
-    // Unification (external API accepts Type)
-    pub fn unify(&mut self, t1: &Type, t2: &Type) -> Result<(), TypeError>;
-
-    // Unification (internal API uses TypeId for O(1) fast-path)
-    pub fn unify_ids(&mut self, id1: TypeId, id2: TypeId) -> Result<(), TypeError>;
-
-    // Resolution
-    pub fn resolve(&self, ty: &Type) -> Type;      // External
-    pub fn resolve_id(&self, id: TypeId) -> TypeId;  // Internal
-
-    // Type construction (uses TypeContext for deduplication)
-    pub fn make_list(&mut self, elem: Type) -> Type;
-    pub fn make_option(&mut self, inner: Type) -> Type;
-    pub fn make_result(&mut self, ok: Type, err: Type) -> Type;
-    // ... other make_* methods
-}
-```
-
-**TypeId-based unification provides O(1) fast-path:**
-
-```rust
-pub fn unify_ids(&mut self, id1: TypeId, id2: TypeId) -> Result<(), TypeError> {
-    // O(1) fast path: identical TypeIds always unify
-    if id1 == id2 {
-        return Ok(());
-    }
-    // ... full structural unification if needed
-}
-```
-
-Usage in type inference:
-
-```rust
-// Instead of:
-Type::List(Box::new(elem_type))
-
-// Use:
-checker.ctx.make_list(elem_type)
-```
-
-### TypeIdFolder and TypeIdVisitor
-
-The `TypeIdFolder` and `TypeIdVisitor` traits provide traversal for interned types:
-
-```rust
-/// Transform interned types via structural recursion.
-pub trait TypeIdFolder {
-    fn interner(&self) -> &TypeInterner;
-    fn fold(&mut self, id: TypeId) -> TypeId;
-    fn fold_var(&mut self, var: TypeVar) -> TypeId;
-    fn fold_function(&mut self, params: &[TypeId], ret: TypeId) -> TypeId;
-    // ... other fold_* methods
-}
-
-/// Visit interned types without modification.
-pub trait TypeIdVisitor {
-    fn interner(&self) -> &TypeInterner;
-    fn visit(&mut self, id: TypeId);
-    fn visit_var(&mut self, var: TypeVar);
-    // ... other visit_* methods
-}
-```
-
-Example: Resolving type variables with TypeIdFolder:
-
-```rust
-struct TypeIdResolver<'a> {
-    interner: &'a TypeInterner,
-    substitutions: &'a HashMap<TypeVar, TypeId>,
-}
-
-impl TypeIdFolder for TypeIdResolver<'_> {
-    fn interner(&self) -> &TypeInterner { self.interner }
-
-    fn fold_var(&mut self, var: TypeVar) -> TypeId {
-        if let Some(&resolved) = self.substitutions.get(&var) {
-            self.fold(resolved)  // Recursively resolve
-        } else {
-            self.interner.intern(TypeData::Var(var))
-        }
-    }
-}
-```
-
-These traits should be preferred over `TypeFolder`/`TypeVisitor` for new code as they enable O(1) equality comparisons and better cache locality.
-
-## Inference Algorithm
-
-1. **Constraint Generation**
-   - Walk AST, generate type constraints
-   - Fresh type variables for unknowns
-
-2. **Unification**
-   - Solve constraints by unifying types
-   - Build substitution map
-
-3. **Substitution**
-   - Apply substitution to resolve type variables
-
-```rust
-// Example: let x = 42
-// 1. x has fresh type T0
-// 2. 42 has type Int
-// 3. Constraint: T0 = Int
-// 4. Unify: substitution[T0] = Int
-// 5. Result: x has type Int
-```
+**Pass 4 — Impl Method Bodies:**
+Type check implementation method bodies with `Self` type bound.
 
 ## Type Rules
 
 ### Literals
 
 ```
-42      : int
-3.14    : float
-"hello" : str
-true    : bool
-'a'     : char
-0xFF    : byte (when used with byte context)
-[]      : [T]  (fresh T)
-()      : ()   (unit)
+42      : int       3.14    : float
+"hello" : str       true    : bool
+'a'     : char      ()      : ()
+[]      : [T]       5s      : Duration
 ```
 
 ### Binary Operations
 
-Arithmetic and bitwise operators are type-checked through operator traits. The type checker first attempts primitive operation checking, then falls back to trait-based dispatch for user-defined types.
-
 ```
-int + int       -> int       (primitive fast path)
-float + float   -> float     (primitive fast path)
-str + str       -> str       (primitive fast path)
-int < int       -> bool      (comparison via Comparable)
-T == T          -> bool      (where T: Eq)
-T + U           -> T::Output (where T: Add<U>)
-```
-
-**Operator Trait Dispatch** (in `infer/expressions/operators.rs`):
-
-1. Try primitive operation checking via `check_binary_operation()`
-2. If the left operand is a primitive type and the check fails, report error
-3. For user-defined types, look up the trait method (e.g., `Add.add`)
-4. Unify the right operand with the method's `rhs` parameter type
-5. Return the method's return type (typically an associated `Output` type)
-
-```rust
-fn check_binary_op(checker, op, left, right, span) -> Type {
-    // Try primitive fast path
-    match check_binary_operation(op, left, right) {
-        TypeOpResult::Ok(ty) => return ty,
-        TypeOpResult::Err(e) if is_primitive_type(left) => {
-            checker.push_error(e);
-            return Type::Error;
-        }
-        _ => {} // Continue to trait lookup
-    }
-
-    // Trait-based dispatch for user-defined types
-    if let Some((trait_name, method_name)) = binary_op_to_trait(op) {
-        if let Some(result_ty) = check_operator_trait(checker, left, right, trait_name, method_name, span) {
-            return result_ty;
-        }
-    }
-
-    // No trait impl found
-    checker.push_error("type does not implement the required operator trait");
-    Type::Error
-}
+int + int       → int       (primitive fast path)
+float + float   → float     (primitive fast path)
+str + str       → str       (concatenation)
+int < int       → bool      (comparison)
+T == T          → bool      (where T: Eq)
+T + U           → T::Output (where T: Add<U>)
 ```
 
 ### Conditionals
@@ -553,152 +232,41 @@ fn check_binary_op(checker, op, left, right, span) -> Type {
 ```
 if cond then t else e
   cond : bool
-  t : T
-  e : T
+  t, e : T (branches unified)
   result : T
 ```
 
-### Functions
+## Method Resolution
 
-```
-@add (a: int, b: int) -> int
-  a, b : int
-  body : int
-  function : (int, int) -> int
-```
+Method calls resolve through a three-level dispatch:
 
-## Built-in Method Type Checking
+1. **Built-in methods** — Compiler-defined methods on primitive/container types (via `MethodRegistry`)
+2. **Inherent methods** — `impl Type { ... }` blocks
+3. **Trait methods** — `impl Trait for Type { ... }` blocks
 
-The type checker uses a registry-based pattern for type checking method calls on built-in types. This follows the Open/Closed Principle—new type handlers can be added without modifying existing code.
-
-### BuiltinMethodHandler Trait
-
-Each built-in type has a dedicated handler implementing the `BuiltinMethodHandler` trait:
+The `MethodRegistry` stores built-in methods keyed by `(Tag, Name)` for O(1) lookup. Each built-in method declares its return type relationship to the receiver:
 
 ```rust
-pub trait BuiltinMethodHandler: Send + Sync {
-    /// Check if this handler handles the given receiver type.
-    fn handles(&self, receiver_ty: &Type) -> bool;
-
-    /// Type check the method call.
-    fn check(
-        &self,
-        ctx: &mut InferenceContext,
-        interner: &StringInterner,
-        receiver_ty: &Type,
-        method: &str,
-        args: &[Type],
-        span: Span,
-    ) -> MethodTypeResult;
+pub enum BuiltinMethodKind {
+    Fixed(Idx),           // Fixed return type (e.g., len() → int)
+    Element,              // Returns element type (e.g., list.first() → T?)
+    Transform(MethodTransform),  // Transforms receiver type
 }
 ```
 
-### BuiltinMethodRegistry
+## Salsa Compatibility
 
-The registry iterates through handlers to find one that handles the receiver type:
-
-```rust
-pub struct BuiltinMethodRegistry {
-    handlers: Vec<Box<dyn BuiltinMethodHandler>>,
-}
-
-impl BuiltinMethodRegistry {
-    pub fn new() -> Self {
-        BuiltinMethodRegistry {
-            handlers: vec![
-                Box::new(StringMethodHandler),
-                Box::new(ListMethodHandler),
-                Box::new(MapMethodHandler),
-                Box::new(OptionMethodHandler),
-                Box::new(ResultMethodHandler),
-                Box::new(NumericMethodHandler),
-            ],
-        }
-    }
-
-    pub fn check(&self, ...) -> Option<MethodTypeResult> {
-        for handler in &self.handlers {
-            if handler.handles(receiver_ty) {
-                return Some(handler.check(...));
-            }
-        }
-        None
-    }
-}
-```
-
-### Handler Organization
-
-| Handler | Types | Methods |
-|---------|-------|---------|
-| `StringMethodHandler` | `str` | `len`, `split`, `trim`, `contains`, etc. |
-| `ListMethodHandler` | `[T]` | `len`, `push`, `pop`, `get`, `map`, `filter`, etc. |
-| `MapMethodHandler` | `{K: V}` | `len`, `get`, `insert`, `remove`, `keys`, etc. |
-| `OptionMethodHandler` | `Option<T>` | `map`, `unwrap_or`, `ok_or`, `and_then`, etc. |
-| `ResultMethodHandler` | `Result<T, E>` | `map`, `map_err`, `unwrap_or`, `ok`, `err`, etc. |
-| `NumericMethodHandler` | `int`, `float`, `bool` | `abs`, `to_string`, numeric methods |
-
-This design replaces nested match statements with focused, single-responsibility handlers.
-
-A `TYPECK_BUILTIN_METHODS` constant in `builtin_methods/mod.rs` exports a sorted list of all `(type_name, method_name)` pairs. A cross-crate consistency test in `oric` verifies that the evaluator's `EVAL_BUILTIN_METHODS` is a subset of this list, catching drift between the two crates.
-
-## Method Resolution Chain
-
-Method resolution uses a three-level dispatch pattern:
-
-1. **User-Defined Methods** - Inherent impls first, then trait impls
-2. **Built-in Methods** - Type-specific handlers via ZST pattern
-3. **Default Methods** - From trait definitions
-
-### Method Cache
-
-The `TraitRegistry` caches method lookups for O(1) repeated access:
+All exported types derive `Clone, Eq, PartialEq, Hash, Debug` for seamless integration with Salsa's memoization. Compile-time assertions verify compatibility:
 
 ```rust
-method_cache: RefCell<FxHashMap<(TypeId, Name), Option<Arc<MethodLookup>>>>
+assert_salsa_compatible!(Idx, Tag, TypeFlags, Rank);
+assert_salsa_compatible!(TypedModule, FunctionSig, TypeCheckError);
 ```
-
-The cache key uses `TypeId` (not `Type`) to avoid cloning, and results are wrapped in `Arc<MethodLookup>` to avoid cloning on cache hit. The cache is cleared when `register_trait()` or `register_impl()` is called.
-
-## Hindley-Milner Inference
-
-The type system uses immediate unification rather than constraint collection:
-
-1. **Constraint generation and unification happen together** - No separate phases
-2. **Substitutions available immediately** - Subsequent inference sees resolved types
-3. **Error at point of occurrence** - Easier to debug than deferred errors
-
-### Generalization
-
-```rust
-pub fn generalize(&self, ty: &Type, env_free_vars: &[TypeVar]) -> TypeScheme {
-    // Gen(Γ, τ) = ∀(FV(τ) - FV(Γ)). τ
-    let free = self.free_vars(ty);
-    let quantified = free.iter()
-        .filter(|v| !env_free_vars.contains(v))
-        .cloned()
-        .collect();
-    TypeScheme { quantified, ty: ty.clone() }
-}
-```
-
-### Generic Type Handling
-
-For each generic parameter, the type checker creates fresh type variables:
-
-```rust
-let mut generic_type_vars: FxHashMap<Name, Type> = FxHashMap::default();
-for gp in generic_params {
-    let type_var = self.inference.ctx.fresh_var();
-    generic_type_vars.insert(gp.name, type_var);
-}
-```
-
-Generic bounds are tracked separately for constraint checking at call sites.
 
 ## Related Documents
 
-- [Type Inference](type-inference.md) - Hindley-Milner inference
-- [Unification](unification.md) - Constraint solving
-- [Type Environment](type-environment.md) - Scope tracking
-- [Type Registry](type-registry.md) - User-defined types
+- [Pool Architecture](pool-architecture.md) — SoA storage, interning, type construction
+- [Type Inference](type-inference.md) — InferEngine, expression inference
+- [Unification](unification.md) — Union-find, rank system, occurs check
+- [Type Environment](type-environment.md) — Scope chain, name resolution
+- [Type Registry](type-registry.md) — User-defined types, traits, methods

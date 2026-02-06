@@ -1,0 +1,152 @@
+# LLVM Backend Expected Failures
+# Remove entries as features are implemented.
+# Blank lines and lines starting with # are ignored.
+#
+# Format:
+#   test:test_name         — individual test expected to fail
+#   file:path/to/file.ori  — file expected to error during LLVM compilation
+
+## ── Unimplemented methods ────────────────────────────────────────
+
+# clone method
+test:test_derive_clone
+test:test_multi_attr
+test:test_multiple_derives
+test:test_single_field_derive
+
+# to_str method (Duration)
+test:test_duration_to_str_basic
+test:test_duration_to_str_hours
+test:test_duration_to_str_microseconds
+test:test_duration_to_str_milliseconds
+test:test_duration_to_str_minutes
+test:test_duration_to_str_nanoseconds
+test:test_duration_to_str_negative
+test:test_duration_to_str_seconds
+test:test_duration_to_str_zero
+
+# to_str method (Size)
+test:test_size_to_str_basic
+test:test_size_to_str_bytes
+test:test_size_to_str_gigabytes
+test:test_size_to_str_kilobytes
+test:test_size_to_str_megabytes
+test:test_size_to_str_terabytes
+test:test_size_to_str_zero
+
+# eq method (named args)
+test:test_eq_different_values
+test:test_eq_same_values
+
+# unwrap / unwrap_or methods
+test:test_int_newtype_unwrap
+test:test_newtype_unwrap
+test:test_infer_option_unwrap_or
+
+# map / filter / fold methods (named args)
+test:test_list_map_type
+test:test_list_filter_type
+test:test_list_fold_type
+test:test_inferred_chain
+
+# len method
+test:test_fixed_as_dynamic
+test:test_indices
+test:test_reverse_indices
+
+# make_adder method (named args)
+test:test_qualified_make_adder
+
+## ── Unimplemented features ───────────────────────────────────────
+
+# dynamic list indexing
+test:test_unify_nested_list
+
+# non-integer indexing (maps)
+test:test_unify_map_lookup
+
+## ── Panic behavior differences ───────────────────────────────────
+
+# Panics not triggered in LLVM backend
+test:test_division_panic
+test:test_expected_panic
+
+## ── IR verification errors (file-level) ──────────────────────────
+
+# Compiler infrastructure
+file:tests/compiler/typeck/control_flow.ori
+
+# Formatter edge cases
+file:tests/fmt/edge-cases/real/concurrent.ori
+file:tests/fmt/edge-cases/real/http_client.ori
+file:tests/fmt/edge-cases/real/pipeline.ori
+
+# Capabilities
+file:tests/spec/capabilities/declaration.ori
+file:tests/spec/capabilities/propagation.ori
+file:tests/spec/capabilities/providing.ori
+
+# Declarations
+file:tests/spec/declarations/struct_types.ori
+file:tests/spec/declarations/sum_types.ori
+file:tests/spec/declarations/traits.ori
+
+# Expressions
+file:tests/spec/expressions/coalesce.ori
+file:tests/spec/expressions/field_access.ori
+file:tests/spec/expressions/index_access.ori
+file:tests/spec/expressions/lambdas.ori
+file:tests/spec/expressions/with_expr.ori
+
+# Extensions
+file:tests/spec/extensions/list_methods.ori
+
+# Inference
+file:tests/spec/inference/polymorphism.ori
+
+# Lexical
+file:tests/spec/lexical/delimiters.ori
+file:tests/spec/lexical/keywords.ori
+file:tests/spec/lexical/operators.ori
+
+# Modules
+file:tests/spec/modules/_test/use_aliases.test.ori
+file:tests/spec/modules/math_lib.ori
+file:tests/spec/modules/use_imports.ori
+
+# Patterns
+file:tests/spec/patterns/binding_patterns.ori
+file:tests/spec/patterns/data.ori
+file:tests/spec/patterns/match.ori
+file:tests/spec/patterns/match_patterns.ori
+
+# Misc
+file:tests/spec/test_coalesce_copy.ori
+
+# Traits
+file:tests/spec/traits/associated_types.ori
+file:tests/spec/traits/associated_types_verify.ori
+file:tests/spec/traits/core/option.ori
+file:tests/spec/traits/core/result.ori
+file:tests/spec/traits/declaration.ori
+file:tests/spec/traits/default_assoc_types.ori
+file:tests/spec/traits/default_type_params.ori
+file:tests/spec/traits/derive/all_derives.ori
+file:tests/spec/traits/generic_impl.ori
+file:tests/spec/traits/method_call_test.ori
+file:tests/spec/traits/self_type.ori
+
+# Types
+file:tests/spec/types/associated_functions.ori
+file:tests/spec/types/duration_size_default.ori
+file:tests/spec/types/existential.ori
+file:tests/spec/types/generic.ori
+file:tests/spec/types/list_types.ori
+file:tests/spec/types/ordering/methods.ori
+file:tests/spec/types/primitives.ori
+file:tests/spec/types/sum/test_recursive.ori
+file:tests/spec/types/sum_types.ori
+file:tests/spec/types/trait_objects.ori
+file:tests/spec/types/tuple_types.ori
+file:tests/spec/types/type_args.ori
+file:tests/spec/types/type_paths.ori

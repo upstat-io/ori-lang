@@ -88,51 +88,56 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
     let body_span = checker.arena().get_expr(func.body).span;
 
     // Check body with function scope context
-    let (expr_types, errors) = checker.with_function_scope(fn_type, capabilities, |c| {
-        // Get arena reference (lifetime 'a, not tied to c borrow)
-        let arena = c.arena();
+    let (expr_types, errors, pat_resolutions) =
+        checker.with_function_scope(fn_type, capabilities, |c| {
+            // Get arena reference (lifetime 'a, not tied to c borrow)
+            let arena = c.arena();
 
-        // Create inference engine with prepared environment
-        let mut engine = c.create_engine_with_env(param_env);
+            // Create inference engine with prepared environment
+            let mut engine = c.create_engine_with_env(param_env);
 
-        // Set self type for recursive calls (self() in patterns like recurse)
-        engine.set_self_type(fn_type);
+            // Set self type for recursive calls (self() in patterns like recurse)
+            engine.set_self_type(fn_type);
 
-        // Push context for better error messages
-        engine.push_context(ContextKind::FunctionReturn {
-            func_name: Some(func.name),
-        });
+            // Push context for better error messages
+            engine.push_context(ContextKind::FunctionReturn {
+                func_name: Some(func.name),
+            });
 
-        // Check guard expression if present
-        if let (Some(guard_id), Some(span)) = (func.guard, guard_span) {
-            let guard_ty = infer_expr(&mut engine, arena, guard_id);
-            let expected_bool = Expected {
-                ty: Idx::BOOL,
+            // Check guard expression if present
+            if let (Some(guard_id), Some(span)) = (func.guard, guard_span) {
+                let guard_ty = infer_expr(&mut engine, arena, guard_id);
+                let expected_bool = Expected {
+                    ty: Idx::BOOL,
+                    origin: ExpectedOrigin::Context {
+                        span,
+                        kind: ContextKind::MatchArmGuard { arm_index: 0 }, // Reuse guard context
+                    },
+                };
+                let _ = engine.check_type(guard_ty, &expected_bool, span);
+            }
+
+            // Check body against declared return type (bidirectional)
+            let expected = Expected {
+                ty: sig.return_type,
                 origin: ExpectedOrigin::Context {
-                    span,
-                    kind: ContextKind::MatchArmGuard { arm_index: 0 }, // Reuse guard context
+                    span: body_span,
+                    kind: ContextKind::FunctionReturn {
+                        func_name: Some(func.name),
+                    },
                 },
             };
-            let _ = engine.check_type(guard_ty, &expected_bool, span);
-        }
+            let _body_ty = check_expr(&mut engine, arena, func.body, &expected, body_span);
 
-        // Check body against declared return type (bidirectional)
-        let expected = Expected {
-            ty: sig.return_type,
-            origin: ExpectedOrigin::Context {
-                span: body_span,
-                kind: ContextKind::FunctionReturn {
-                    func_name: Some(func.name),
-                },
-            },
-        };
-        let _body_ty = check_expr(&mut engine, arena, func.body, &expected, body_span);
+            engine.pop_context();
 
-        engine.pop_context();
-
-        // Return expression types and errors to be processed outside this scope
-        (engine.take_expr_types(), engine.take_errors())
-    });
+            // Return expression types, errors, and pattern resolutions
+            (
+                engine.take_expr_types(),
+                engine.take_errors(),
+                engine.take_pattern_resolutions(),
+            )
+        });
 
     // Store expression types
     for (expr_index, ty) in expr_types {
@@ -143,6 +148,9 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
     for error in errors {
         checker.push_error(error);
     }
+
+    // Accumulate pattern resolutions
+    checker.pattern_resolutions.extend(pat_resolutions);
 }
 
 // ============================================================================
@@ -211,6 +219,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     // Extract results
     let expr_types = engine.take_expr_types();
     let errors = engine.take_errors();
+    let pat_resolutions = engine.take_pattern_resolutions();
 
     // Store expression types
     for (expr_index, ty) in expr_types {
@@ -221,6 +230,9 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     for error in errors {
         checker.push_error(error);
     }
+
+    // Accumulate pattern resolutions
+    checker.pattern_resolutions.extend(pat_resolutions);
 }
 
 // ============================================================================
@@ -291,7 +303,7 @@ fn check_impl_method(
     let body_span = checker.arena().get_expr(method.body).span;
 
     // Check body within impl scope + function scope
-    let (expr_types, errors) = checker.with_impl_scope(self_type, |c| {
+    let (expr_types, errors, pat_resolutions) = checker.with_impl_scope(self_type, |c| {
         c.with_function_scope(fn_type, FxHashSet::default(), |c| {
             let arena = c.arena();
             let mut engine = c.create_engine_with_env(param_env);
@@ -314,7 +326,11 @@ fn check_impl_method(
 
             engine.pop_context();
 
-            (engine.take_expr_types(), engine.take_errors())
+            (
+                engine.take_expr_types(),
+                engine.take_errors(),
+                engine.take_pattern_resolutions(),
+            )
         })
     });
 
@@ -325,6 +341,7 @@ fn check_impl_method(
     for error in errors {
         checker.push_error(error);
     }
+    checker.pattern_resolutions.extend(pat_resolutions);
 }
 
 // ============================================================================
@@ -380,30 +397,35 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     let body_span = checker.arena().get_expr(method.body).span;
 
     // Check body with function scope only (no impl scope for def impl)
-    let (expr_types, errors) = checker.with_function_scope(fn_type, FxHashSet::default(), |c| {
-        let arena = c.arena();
-        let mut engine = c.create_engine_with_env(param_env);
+    let (expr_types, errors, pat_resolutions) =
+        checker.with_function_scope(fn_type, FxHashSet::default(), |c| {
+            let arena = c.arena();
+            let mut engine = c.create_engine_with_env(param_env);
 
-        engine.push_context(ContextKind::FunctionReturn {
-            func_name: Some(method.name),
-        });
+            engine.push_context(ContextKind::FunctionReturn {
+                func_name: Some(method.name),
+            });
 
-        // Check body against declared return type (bidirectional)
-        let expected = Expected {
-            ty: return_type,
-            origin: ExpectedOrigin::Context {
-                span: body_span,
-                kind: ContextKind::FunctionReturn {
-                    func_name: Some(method.name),
+            // Check body against declared return type (bidirectional)
+            let expected = Expected {
+                ty: return_type,
+                origin: ExpectedOrigin::Context {
+                    span: body_span,
+                    kind: ContextKind::FunctionReturn {
+                        func_name: Some(method.name),
+                    },
                 },
-            },
-        };
-        let _body_ty = check_expr(&mut engine, arena, method.body, &expected, body_span);
+            };
+            let _body_ty = check_expr(&mut engine, arena, method.body, &expected, body_span);
 
-        engine.pop_context();
+            engine.pop_context();
 
-        (engine.take_expr_types(), engine.take_errors())
-    });
+            (
+                engine.take_expr_types(),
+                engine.take_errors(),
+                engine.take_pattern_resolutions(),
+            )
+        });
 
     // Store results
     for (expr_index, ty) in expr_types {
@@ -412,6 +434,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     for error in errors {
         checker.push_error(error);
     }
+    checker.pattern_resolutions.extend(pat_resolutions);
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 use inkwell::values::BasicValueEnum;
 use ori_ir::ast::{BinaryOp, UnaryOp};
 use ori_types::Idx;
+use tracing::instrument;
 
 use crate::builder::Builder;
 
@@ -17,6 +18,7 @@ impl<'ll> Builder<'_, 'll, '_> {
         clippy::too_many_lines,
         reason = "large match on BinaryOp - splitting would obscure the operation dispatch"
     )]
+    #[instrument(skip(self, lhs, rhs), level = "trace")]
     pub(crate) fn compile_binary_op(
         &self,
         op: BinaryOp,
@@ -338,6 +340,7 @@ impl<'ll> Builder<'_, 'll, '_> {
     }
 
     /// Compile a unary operation.
+    #[instrument(skip(self, val, _result_type), level = "trace")]
     pub(crate) fn compile_unary_op(
         &self,
         op: UnaryOp,
@@ -361,11 +364,7 @@ impl<'ll> Builder<'_, 'll, '_> {
                 Some(self.not(i, "bitnot").into())
             }
 
-            UnaryOp::Try => {
-                // Try operator needs special handling (error propagation)
-                // For now, just return the value
-                Some(val)
-            }
+            UnaryOp::Try => self.emit_not_implemented("try operator (?) via unary dispatch"),
         }
     }
 }

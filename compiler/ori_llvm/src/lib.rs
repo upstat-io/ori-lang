@@ -137,6 +137,43 @@ use inkwell::values::PhiValue;
 use std::sync::Once;
 
 static TRACING_INIT: Once = Once::new();
+static FATAL_HANDLER_INIT: Once = Once::new();
+
+/// Install a custom LLVM fatal error handler that logs instead of aborting.
+///
+/// By default, LLVM calls `abort()` on fatal errors (e.g., "unable to allocate
+/// function return"), which kills the entire process. This replaces that handler
+/// with one that logs the error. Note: the handler cannot prevent abort since
+/// panicking across `extern "C"` boundaries is not allowed.
+///
+/// Safe to call multiple times — only the first call takes effect.
+pub fn install_fatal_error_handler() {
+    FATAL_HANDLER_INIT.call_once(|| {
+        // SAFETY: `LLVMInstallFatalErrorHandler` is called once during
+        // initialization with a valid function pointer.
+        unsafe {
+            llvm_sys::error_handling::LLVMInstallFatalErrorHandler(Some(llvm_fatal_error_handler));
+        }
+    });
+}
+
+/// LLVM fatal error callback that logs the error.
+///
+/// Cannot unwind (extern "C"), so we log and let LLVM abort.
+/// Large struct returns (>16 bytes) are handled via the sret calling
+/// convention in `declare_fn`, so this handler should no longer trigger
+/// for return type issues.
+extern "C" fn llvm_fatal_error_handler(reason: *const std::os::raw::c_char) {
+    let msg = if reason.is_null() {
+        "unknown LLVM fatal error".to_string()
+    } else {
+        // SAFETY: LLVM guarantees a valid C string pointer in the callback.
+        unsafe { std::ffi::CStr::from_ptr(reason) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    eprintln!("LLVM fatal error (aborting): {msg}");
+}
 
 /// Initialize tracing for debug output.
 ///

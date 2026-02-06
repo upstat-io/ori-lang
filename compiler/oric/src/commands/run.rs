@@ -156,7 +156,7 @@ pub fn run_file_compiled(path: &str) {
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content.clone());
 
-    let Some((parse_result, type_result)) = check_source(&db, file, path) else {
+    let Some((parse_result, type_result, pool)) = check_source(&db, file, path) else {
         std::process::exit(1)
     };
 
@@ -171,7 +171,7 @@ pub fn run_file_compiled(path: &str) {
 
     // Generate LLVM IR (shared with build_file)
     let context = Context::create();
-    let llvm_module = compile_to_llvm(&context, &db, &parse_result, &type_result, path);
+    let llvm_module = compile_to_llvm(&context, &db, &parse_result, &type_result, &pool, path);
 
     // Configure module for target
     let emitter = match ObjectEmitter::new(&target) {

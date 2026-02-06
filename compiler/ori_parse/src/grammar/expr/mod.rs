@@ -12,8 +12,8 @@
 //!
 //! # Module Structure
 //!
-//! - `mod.rs`: Entry point (`parse_expr`) and binary operator precedence chain
-//! - `operators.rs`: Operator matching helpers
+//! - `mod.rs`: Entry point (`parse_expr`) and Pratt parser for binary operators
+//! - `operators.rs`: Operator matching helpers and binding power table
 //! - `primary.rs`: Literals, identifiers, variant constructors
 //! - `postfix.rs`: Call, method call, field, index
 //! - `patterns.rs`: run, try, match, for, `function_exp`
@@ -24,67 +24,44 @@ mod postfix;
 mod primary;
 
 use crate::{ParseError, ParseOutcome, Parser};
-use ori_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind, UnaryOp};
+use ori_ir::{Expr, ExprId, ExprKind, TokenKind, UnaryOp};
 use ori_stack::ensure_sufficient_stack;
 
-/// Generate a binary operator precedence level parsing function.
+/// Binding power constants for the Pratt parser.
 ///
-/// Two forms:
-/// - `(fn_name, next, token: tok, op: op)` — single-token operator levels
-/// - `(fn_name, next, matcher)` — multi-token levels using a matcher method
-///
-/// All generated functions are `#[inline]` to allow the compiler to optimize
-/// the entire precedence chain together.
-macro_rules! parse_binary_level {
-    // Single-token operator level: check for one specific token, use fixed op
-    ($(#[doc = $doc:literal])* $fn_name:ident, $next:ident, token: $tok:expr, op: $op:expr) => {
-        $(#[doc = $doc])*
-        #[inline]
-        fn $fn_name(&mut self) -> Result<ExprId, ParseError> {
-            let mut left = self.$next()?;
-            // Skip newlines to allow binary operators at line start
-            // (supports formatted code like: "a"\n<= "b")
-            self.skip_newlines();
-            while self.check(&$tok) {
-                self.advance();
-                let right = self.$next()?;
-                let span = self.arena.get_expr(left).span
-                    .merge(self.arena.get_expr(right).span);
-                left = self.arena.alloc_expr(Expr::new(
-                    ExprKind::Binary { op: $op, left, right },
-                    span,
-                ));
-                self.skip_newlines();
-            }
-            Ok(left)
-        }
-    };
-    // Multi-token operator level: use a matcher method that returns Option<(BinaryOp, usize)>
-    // where the usize is the number of tokens to consume (1 for single-token ops, 2 for compound ops like >> or >=)
-    ($(#[doc = $doc:literal])* $fn_name:ident, $next:ident, $matcher:ident) => {
-        $(#[doc = $doc])*
-        #[inline]
-        fn $fn_name(&mut self) -> Result<ExprId, ParseError> {
-            let mut left = self.$next()?;
-            // Skip newlines to allow binary operators at line start
-            // (supports formatted code like: "a"\n<= "b")
-            self.skip_newlines();
-            while let Some((op, token_count)) = self.$matcher() {
-                for _ in 0..token_count {
-                    self.advance();
-                }
-                let right = self.$next()?;
-                let span = self.arena.get_expr(left).span
-                    .merge(self.arena.get_expr(right).span);
-                left = self.arena.alloc_expr(Expr::new(
-                    ExprKind::Binary { op, left, right },
-                    span,
-                ));
-                self.skip_newlines();
-            }
-            Ok(left)
-        }
-    };
+/// Left-associative operators use (even, odd) pairs: `(N, N+1)`.
+/// Right-associative operators use (odd, even) pairs: `(N+1, N)`.
+/// Higher values bind tighter.
+pub(super) mod bp {
+    /// Coalesce `??` (right-associative)
+    pub const COALESCE: (u8, u8) = (2, 1);
+    /// Logical or `||`
+    pub const OR: (u8, u8) = (3, 4);
+    /// Logical and `&&`
+    pub const AND: (u8, u8) = (5, 6);
+    /// Bitwise or `|`
+    pub const BIT_OR: (u8, u8) = (7, 8);
+    /// Bitwise xor `^`
+    pub const BIT_XOR: (u8, u8) = (9, 10);
+    /// Bitwise and `&`
+    pub const BIT_AND: (u8, u8) = (11, 12);
+    /// Equality `==` `!=`
+    pub const EQUALITY: (u8, u8) = (13, 14);
+    /// Comparison `<` `>` `<=` `>=`
+    pub const COMPARISON: (u8, u8) = (15, 16);
+    /// Range `..` `..=` (non-associative, special handling)
+    pub const RANGE: u8 = 17;
+    /// Shift `<<` `>>`
+    pub const SHIFT: (u8, u8) = (19, 20);
+    /// Additive `+` `-`
+    pub const ADDITIVE: (u8, u8) = (21, 22);
+    /// Multiplicative `*` `/` `%` `div`
+    pub const MULTIPLICATIVE: (u8, u8) = (23, 24);
+
+    /// Minimum binding power for parsing without comparison operators.
+    /// Used by `parse_non_comparison_expr` for contexts where `<`/`>`
+    /// are delimiters (e.g., const generic defaults `<$N: int = 10>`).
+    pub const ABOVE_COMPARISON: u8 = RANGE;
 }
 
 impl Parser<'_> {
@@ -111,7 +88,7 @@ impl Parser<'_> {
     /// Use this for contexts where `=` is a delimiter rather than an operator,
     /// such as guard clauses (`if condition = body`).
     pub(crate) fn parse_non_assign_expr(&mut self) -> Result<ExprId, ParseError> {
-        ensure_sufficient_stack(|| self.parse_coalesce())
+        ensure_sufficient_stack(|| self.parse_binary_pratt(0))
     }
 
     /// Parse an expression without comparison operators (`<`, `>`, `<=`, `>=`).
@@ -119,12 +96,12 @@ impl Parser<'_> {
     /// Use this in contexts where `<` and `>` are delimiters, not operators,
     /// such as const generic default values: `<$N: int = 10>`.
     pub(crate) fn parse_non_comparison_expr(&mut self) -> Result<ExprId, ParseError> {
-        ensure_sufficient_stack(|| self.parse_range())
+        ensure_sufficient_stack(|| self.parse_binary_pratt(bp::ABOVE_COMPARISON))
     }
 
     /// Inner expression parsing logic (wrapped by `parse_expr` for stack safety).
     fn parse_expr_inner(&mut self) -> Result<ExprId, ParseError> {
-        let left = self.parse_coalesce()?;
+        let left = self.parse_binary_pratt(0)?;
 
         // Check for assignment (= but not == or =>)
         if self.check(&TokenKind::Eq) {
@@ -145,161 +122,121 @@ impl Parser<'_> {
         Ok(left)
     }
 
-    /// Parse ?? (null coalesce - lowest precedence binary operator).
+    /// Parse binary expressions using a Pratt parser.
     ///
-    /// **Right-associative**: `a ?? b ?? c` parses as `a ?? (b ?? c)`.
+    /// Replaces the recursive descent precedence chain (12 levels of function
+    /// calls per primary expression) with a single loop that uses a binding
+    /// power table. This reduces function call overhead from ~30 calls per
+    /// simple expression to ~4.
     ///
-    /// This is the industry standard for null coalescing (C#, JavaScript, Swift)
-    /// and enables natural type inference when `Never` appears in the chain:
-    /// - `opt ?? panic() ?? 99` → `opt ?? (panic() ?? 99)`
-    /// - Inner: `Never ?? int` → `int` (Never coerces to Option<int>)
-    /// - Outer: `Option<int> ?? int` → `int`
+    /// `min_bp` controls which operators are parsed at this level:
+    /// - `0`: all binary operators (entry point for full expressions)
+    /// - `bp::ABOVE_COMPARISON`: range + shift + arithmetic only
     #[inline]
-    fn parse_coalesce(&mut self) -> Result<ExprId, ParseError> {
-        let left = self.parse_binary_or()?;
+    fn parse_binary_pratt(&mut self, min_bp: u8) -> Result<ExprId, ParseError> {
+        let mut left = self.parse_unary()?;
 
-        // Skip newlines to allow ?? at line start
-        self.skip_newlines();
+        // Track whether we've already parsed a range in this call.
+        // Range operators don't chain: `1..10..20` is invalid.
+        let mut parsed_range = false;
 
-        if self.check(&TokenKind::DoubleQuestion) {
+        loop {
+            self.skip_newlines();
+
+            // Range operators (non-standard binary with optional end/step).
+            // Checked before standard operators because `..`/`..=` are not in
+            // the infix binding power table (they need special parsing).
+            if !parsed_range
+                && min_bp <= bp::RANGE
+                && matches!(self.current_kind(), TokenKind::DotDot | TokenKind::DotDotEq)
+            {
+                left = self.parse_range_continuation(left)?;
+                parsed_range = true;
+                // Continue to allow lower-precedence operators to wrap the range
+                // (e.g., `1..10 == other_range`).
+                continue;
+            }
+
+            // Standard binary operators via Pratt binding power.
+            if let Some((l_bp, r_bp, op, token_count)) = self.infix_binding_power() {
+                if l_bp < min_bp {
+                    break;
+                }
+                for _ in 0..token_count {
+                    self.advance();
+                }
+                let right = self.parse_binary_pratt(r_bp)?;
+                let span = self
+                    .arena
+                    .get_expr(left)
+                    .span
+                    .merge(self.arena.get_expr(right).span);
+                left = self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Binary { op, left, right }, span));
+            } else {
+                break;
+            }
+        }
+
+        Ok(left)
+    }
+
+    /// Parse the continuation of a range expression (after the left operand).
+    ///
+    /// Grammar: `left ( ".." | "..=" ) [ end ] [ "by" step ]`
+    ///
+    /// End and step expressions are parsed at shift precedence level,
+    /// matching the original recursive descent behavior where `parse_range`
+    /// called `parse_shift` for both operands.
+    #[inline]
+    fn parse_range_continuation(&mut self, left: ExprId) -> Result<ExprId, ParseError> {
+        let inclusive = matches!(self.current_kind(), TokenKind::DotDotEq);
+        self.advance();
+
+        // Parse end expression (optional for open-ended ranges like 0..)
+        let end = if matches!(
+            self.current_kind(),
+            TokenKind::Comma | TokenKind::RParen | TokenKind::RBracket | TokenKind::By
+        ) || self.is_at_end()
+        {
+            ExprId::INVALID
+        } else {
+            self.parse_binary_pratt(bp::SHIFT.0)?
+        };
+
+        // Parse optional step: `by <expr>`
+        let step = if matches!(self.current_kind(), TokenKind::By) {
             self.advance();
-            // Recursive call for right-associativity
-            let right = self.parse_coalesce()?;
-            let span = self
-                .arena
+            self.parse_binary_pratt(bp::SHIFT.0)?
+        } else {
+            ExprId::INVALID
+        };
+
+        // Compute span from start to end/step
+        let span = if step.is_present() {
+            self.arena
                 .get_expr(left)
                 .span
-                .merge(self.arena.get_expr(right).span);
-            return Ok(self.arena.alloc_expr(Expr::new(
-                ExprKind::Binary {
-                    op: BinaryOp::Coalesce,
-                    left,
-                    right,
-                },
-                span,
-            )));
-        }
+                .merge(self.arena.get_expr(step).span)
+        } else if end.is_present() {
+            self.arena
+                .get_expr(left)
+                .span
+                .merge(self.arena.get_expr(end).span)
+        } else {
+            self.arena.get_expr(left).span.merge(self.previous_span())
+        };
 
-        Ok(left)
-    }
-
-    parse_binary_level! {
-        /// Parse || (logical or).
-        parse_binary_or, parse_binary_and,
-        token: TokenKind::PipePipe, op: BinaryOp::Or
-    }
-
-    parse_binary_level! {
-        /// Parse && (logical and).
-        parse_binary_and, parse_bitwise_or,
-        token: TokenKind::AmpAmp, op: BinaryOp::And
-    }
-
-    parse_binary_level! {
-        /// Parse | (bitwise or).
-        parse_bitwise_or, parse_bitwise_xor,
-        token: TokenKind::Pipe, op: BinaryOp::BitOr
-    }
-
-    parse_binary_level! {
-        /// Parse ^ (bitwise xor).
-        parse_bitwise_xor, parse_bitwise_and,
-        token: TokenKind::Caret, op: BinaryOp::BitXor
-    }
-
-    parse_binary_level! {
-        /// Parse & (bitwise and).
-        parse_bitwise_and, parse_equality,
-        token: TokenKind::Amp, op: BinaryOp::BitAnd
-    }
-
-    parse_binary_level! {
-        /// Parse == and != (equality).
-        parse_equality, parse_comparison, match_equality_op
-    }
-
-    parse_binary_level! {
-        /// Parse comparison operators (<, >, <=, >=).
-        parse_comparison, parse_range, match_comparison_op
-    }
-
-    // parse_range stays hand-written (unique range + step logic)
-
-    /// Parse range operators (.. and ..=) with optional step (by).
-    ///
-    /// Grammar: `range_expr = shift_expr [ ( ".." | "..=" ) [ shift_expr ] [ "by" shift_expr ] ]`
-    #[inline]
-    fn parse_range(&mut self) -> Result<ExprId, ParseError> {
-        let mut left = self.parse_shift()?;
-
-        // Skip newlines to allow range operators at line start
-        self.skip_newlines();
-        if self.check(&TokenKind::DotDot) || self.check(&TokenKind::DotDotEq) {
-            let inclusive = self.check(&TokenKind::DotDotEq);
-            self.advance();
-
-            // Parse end expression (optional for open-ended ranges like 0..)
-            let end = if self.check(&TokenKind::Comma)
-                || self.check(&TokenKind::RParen)
-                || self.check(&TokenKind::RBracket)
-                || self.check(&TokenKind::By)
-                || self.is_at_end()
-            {
-                ExprId::INVALID
-            } else {
-                self.parse_shift()?
-            };
-
-            // Parse optional step: `by <expr>`
-            let step = if self.check(&TokenKind::By) {
-                self.advance();
-                self.parse_shift()?
-            } else {
-                ExprId::INVALID
-            };
-
-            // Compute span from start to end/step
-            let span = if step.is_present() {
-                self.arena
-                    .get_expr(left)
-                    .span
-                    .merge(self.arena.get_expr(step).span)
-            } else if end.is_present() {
-                self.arena
-                    .get_expr(left)
-                    .span
-                    .merge(self.arena.get_expr(end).span)
-            } else {
-                self.arena.get_expr(left).span.merge(self.previous_span())
-            };
-
-            left = self.arena.alloc_expr(Expr::new(
-                ExprKind::Range {
-                    start: left,
-                    end,
-                    step,
-                    inclusive,
-                },
-                span,
-            ));
-        }
-
-        Ok(left)
-    }
-
-    parse_binary_level! {
-        /// Parse << and >> (shift operators).
-        parse_shift, parse_additive, match_shift_op
-    }
-
-    parse_binary_level! {
-        /// Parse + and -.
-        parse_additive, parse_multiplicative, match_additive_op
-    }
-
-    parse_binary_level! {
-        /// Parse *, /, %.
-        parse_multiplicative, parse_unary, match_multiplicative_op
+        Ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::Range {
+                start: left,
+                end,
+                step,
+                inclusive,
+            },
+            span,
+        )))
     }
 
     /// Parse unary operators.

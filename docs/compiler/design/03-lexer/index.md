@@ -225,20 +225,17 @@ Both `unescape_string()` and `unescape_char()` delegate to this function, avoidi
 
 ## TokenList Structure
 
+Currently Array-of-Structs (AoS). Migration to SoA planned (see `plans/parser_v2/section-02-lexer.md` § 02.9).
+
 ```rust
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TokenList {
-    tokens: Vec<TokenKind>,
-    spans: Vec<Span>,
+    tokens: Vec<Token>,  // Token = { kind: TokenKind, span: Span }
 }
 
 impl TokenList {
-    pub fn get(&self, index: usize) -> Option<&TokenKind> {
+    pub fn get(&self, index: usize) -> Option<&Token> {
         self.tokens.get(index)
-    }
-
-    pub fn span(&self, index: usize) -> Span {
-        self.spans[index]
     }
 
     pub fn len(&self) -> usize {

@@ -8,7 +8,7 @@ use ori_eval::{
     Environment, InterpreterBuilder, PatternRegistry, SharedMutableRegistry, SharedRegistry,
     UserMethodRegistry,
 };
-use ori_types::Idx;
+use ori_types::{Idx, PatternKey, PatternResolution};
 
 /// Builder for creating Evaluator instances with various configurations.
 ///
@@ -24,6 +24,8 @@ pub struct EvaluatorBuilder<'a> {
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
     /// Expression type table from type checking, indexed by `ExprId`.
     expr_types: Option<&'a [Idx]>,
+    /// Pattern resolutions from type checking for Binding/UnitVariant disambiguation.
+    pattern_resolutions: &'a [(PatternKey, PatternResolution)],
 }
 
 impl<'a> EvaluatorBuilder<'a> {
@@ -39,6 +41,7 @@ impl<'a> EvaluatorBuilder<'a> {
             imported_arena: None,
             user_method_registry: None,
             expr_types: None,
+            pattern_resolutions: &[],
         }
     }
 
@@ -88,6 +91,19 @@ impl<'a> EvaluatorBuilder<'a> {
         self
     }
 
+    /// Set the pattern resolutions from type checking.
+    ///
+    /// Enables correct disambiguation of `Binding("Pending")` (unit variant)
+    /// vs `Binding("x")` (variable) in match patterns.
+    #[must_use]
+    pub fn pattern_resolutions(
+        mut self,
+        resolutions: &'a [(PatternKey, PatternResolution)],
+    ) -> Self {
+        self.pattern_resolutions = resolutions;
+        self
+    }
+
     /// Build the evaluator.
     pub fn build(self) -> Evaluator<'a> {
         // Build the underlying interpreter
@@ -115,6 +131,11 @@ impl<'a> EvaluatorBuilder<'a> {
         // Pass type information for type-aware evaluation (e.g., ?? operator)
         if let Some(types) = self.expr_types {
             interpreter_builder = interpreter_builder.expr_types(types);
+        }
+
+        // Pass pattern resolutions for Binding/UnitVariant disambiguation in match
+        if !self.pattern_resolutions.is_empty() {
+            interpreter_builder = interpreter_builder.pattern_resolutions(self.pattern_resolutions);
         }
 
         Evaluator {

@@ -1,8 +1,8 @@
 ---
 section: "02"
-title: Lexer Optimizations
-status: complete
-goal: Achieve O(1) keyword lookup and pre-computed operator metadata
+title: Lexer Modernization
+status: in-progress
+goal: Align lexer with parser/type system architecture; implement approved proposals
 sections:
   - id: "02.1"
     title: Perfect Hash Keywords
@@ -12,17 +12,53 @@ sections:
     status: satisfied-by-logos
   - id: "02.3"
     title: Precedence Metadata in Tokens
-    status: not-started
+    status: satisfied-by-parser
   - id: "02.4"
     title: Adjacent Token Optimization
+    status: satisfied-by-parser
+  - id: "02.5"
+    title: Simplified Attributes (Remove HashBracket)
+    status: not-started
+  - id: "02.6"
+    title: Decimal Duration and Size Literals
+    status: not-started
+  - id: "02.7"
+    title: Simplified Doc Comments
+    status: not-started
+  - id: "02.8"
+    title: Template String Interpolation
+    status: not-started
+  - id: "02.9"
+    title: TokenList SoA Migration
+    status: not-started
+  - id: "02.10"
+    title: TokenKind Cleanup (GtEq/Shr Audit)
     status: not-started
 ---
 
-# Section 02: Lexer Optimizations
+# Section 02: Lexer Modernization
 
-**Status:** ✅ Complete (02.1-02.2 satisfied by existing implementation)
-**Goal:** O(1) keyword recognition and pre-computed operator metadata
-**Source:** Go compiler (`src/cmd/compile/internal/syntax/scanner.go`)
+**Status:** In Progress
+**Goal:** Align lexer architecture with parser (SoA ExprArena, ParseOutcome) and type system (Pool SoA), implement approved proposals
+**Source:** Go compiler (02.1-02.2), parser architecture review (02.3-02.4), approved proposals (02.5-02.8), system alignment (02.9-02.10)
+
+---
+
+## Design Principle: Phase Separation
+
+The Ori compiler enforces strict phase boundaries (CLAUDE.md: "No phase bleeding: parser ≠ type-check, lexer ≠ parse"):
+
+```
+Lexer (context-free)     Parser (context-sensitive)       Type Checker (semantic)
+─────────────────────    ───────────────────────────      ──────────────────────
+Pure function over        Pure function over tokens        Pure function over AST
+source text               (ParseOutcome, ExprArena SoA)   (Pool SoA, Idx)
+                   │                               │
+                   │   TokenList (flat, no context) │   Module + ExprArena
+                   └───────────────────────────────┘
+```
+
+The lexer must remain a **context-free, pure function**. Parser concerns (precedence, generic disambiguation) belong in the parser. This enables Salsa caching and incremental recomputation.
 
 ---
 
@@ -51,260 +87,342 @@ sections:
 
 ---
 
-## Remaining Tasks (Optional)
+### 02.3: Satisfied by Parser (Pratt Binding Power Table)
+
+**Discovery (2026-02-06):** Cross-system review determined that embedding precedence/associativity in tokens would violate phase separation and conflict with the parser's existing Pratt parser design.
+
+**Why this belongs in the parser, not the lexer:**
+
+1. **Phase bleeding** — Precedence is a parser-level semantic concern. The lexer's job is to produce a flat, context-free token stream. Moving parser semantics into the lexer creates coupling between phases and violates `CLAUDE.md: "No phase bleeding: parser ≠ type-check, lexer ≠ parse"`.
+
+2. **Already solved** — The parser's Pratt parser (`ori_parse/src/grammar/expr/operators.rs`) has a `const` binding power table with 13 precedence levels. `parse_binary_pratt(min_bp)` looks up binding power via `infix_binding_power()` — a single match that compiles to a jump table. This is already optimal.
+
+3. **Token size bloat** — Token is 24 bytes (`static_assert_size!(Token, 24)` in `token.rs`). Adding `precedence: u8` + `associativity: Assoc` would push it to 32 bytes (33% increase). Every token in every file gets bigger, but only ~15% of tokens are operators.
+
+4. **Salsa incompatibility** — Token derives `Clone, Eq, PartialEq, Hash` for Salsa caching. Adding dead fields (`precedence: 0` for non-operators) that participate in hashing wastes cycles and changes hash landscapes for no benefit.
+
+5. **Two sources of truth** — The parser would have both its binding power table AND the token's embedded precedence. When precedence changes, both must be updated — a maintenance hazard.
+
+**Conclusion:** No changes needed. The Pratt parser's binding power table is the correct, single-responsibility solution. It's `const`, inlined, and already as fast as a direct field read.
 
 ---
 
-## Background
+### 02.4: Satisfied by Parser (Cursor Compound Synthesis)
 
-Go's parser achieves exceptional speed partly through **perfect hash keyword lookup**:
+**Discovery (2026-02-06):** Cross-system review confirmed that the parser's existing compound operator synthesis is the correct and battle-tested approach. Adding `LexContext` to the lexer would break context-free purity.
 
-```go
-// Go: O(1) keyword lookup with zero collisions
-func hash(s []byte) uint {
-    return (uint(s[0])<<4 ^ uint(s[1]) + uint(len(s))) & 63
+**Why this belongs in the parser, not the lexer:**
+
+1. **Context-free lexing enables Salsa** — `fn lex(source, interner) -> TokenList` is a pure function. Introducing `LexContext::in_generic_params` makes the lexer stateful, breaking Salsa's deterministic caching or requiring context threading.
+
+2. **Already implemented** — `cursor.rs` provides:
+   - `is_shift_right()` — checks `Gt` + adjacent `Gt` (line 175)
+   - `is_greater_equal()` — checks `Gt` + adjacent `Eq` (line 183)
+   - `consume_compound()` — consumes two adjacent tokens, returns merged span (line 192)
+   - `spans_adjacent()` — O(1) adjacency check via span comparison (line 164)
+
+3. **Industry consensus** — Rust, Go, TypeScript, and C++ all handle `>>` disambiguation at the parser level, not the lexer. The lexer emits individual `>` tokens; the parser synthesizes compounds when appropriate.
+
+4. **Compound operators already handled** — The following are already lexed correctly:
+   - `->`, `=>`, `..`, `..=`, `::` — lexed as single tokens by logos
+   - `>>`, `>=` — synthesized by parser from adjacent `>` tokens
+   - `<<`, `<=` — lexed as single tokens (no ambiguity with generics)
+
+**Conclusion:** No changes needed. The parser's `Cursor` compound synthesis is the canonical solution. Document this pattern in design docs.
+
+---
+
+## New Tasks: Approved Proposals
+
+The following approved proposals require lexer changes. These are ordered by implementation dependency.
+
+---
+
+## 02.5 Simplified Attributes (Remove HashBracket)
+
+**Proposal:** `docs/ori_lang/proposals/approved/simplified-attributes-proposal.md`
+**Status:** Not started
+
+Simplify attribute syntax from `#[name(...)]` to `#name(...)`.
+
+### Changes
+
+- [ ] Remove `HashBracket` token variant from `TokenKind`
+- [ ] Remove `HashBracket` from `RawToken` in `raw_token.rs`
+- [ ] Update `discriminant_index()` mapping (renumber or leave gap)
+- [ ] Update `friendly_name_from_index()` mapping
+- [ ] Update `TOKEN_KIND_COUNT` (116 → 115)
+- [ ] Update `TokenSet` bitset if indices shift
+- [ ] Update parser attribute parsing to expect `Hash` + `Ident` instead of `HashBracket`
+- [ ] Update all tests referencing `HashBracket`
+
+### Compatibility Notes
+
+- **Parser**: `ori_parse/src/grammar/item/attr.rs` parses attributes — must update to new syntax
+- **TokenSet**: If discriminant indices shift, all predefined `TokenSet` constants need updating
+- **Incremental**: `TokenCapture` ranges remain valid (token indices, not kinds)
+
+---
+
+## 02.6 Decimal Duration and Size Literals
+
+**Proposal:** `docs/ori_lang/proposals/approved/decimal-duration-size-literals-proposal.md`
+**Status:** Not started
+
+Allow decimal syntax as compile-time sugar: `1.5s` → 1,500,000,000 nanoseconds.
+
+### Changes
+
+- [ ] Remove `FloatDurationError` token variant from `TokenKind`
+- [ ] Remove `FloatSizeError` token variant from `TokenKind`
+- [ ] Update `TOKEN_KIND_COUNT` (accounting for removed variants)
+- [ ] Update `discriminant_index()` and `friendly_name_from_index()`
+- [ ] Add decimal duration regex patterns to `raw_token.rs`
+  ```rust
+  // Match patterns like 1.5s, 0.5ms, 2.0h
+  #[regex(r"[0-9]+\.[0-9]+ns", priority = 3)]
+  DecimalDurationNs,
+  // ... for each unit
+  ```
+- [ ] Add decimal size regex patterns to `raw_token.rs`
+- [ ] Implement compile-time conversion in `convert.rs`
+  - Multiply to base units (nanoseconds for duration, bytes for size)
+  - Validate result is whole number (error if not)
+- [ ] Update `DurationUnit::to_nanos()` — currently takes `u64`, may need to handle the computed value
+- [ ] Update `SizeUnit::to_bytes()` — SI units (1000, not 1024) already correct
+- [ ] Add validation error for non-whole results (e.g., `1.5ns` → error)
+
+### Compatibility Notes
+
+- **Token size**: No change — `Duration(u64, DurationUnit)` stores the computed base-unit value
+- **Type system**: No change — type checker sees `Duration` token with integer value as before
+- **Salsa**: Token Hash/Eq unchanged — same `Duration(u64, DurationUnit)` representation
+- **Parser**: No change — parser handles `Duration`/`Size` tokens identically
+
+---
+
+## 02.7 Simplified Doc Comments
+
+**Proposal:** `docs/ori_lang/proposals/approved/simplified-doc-comments-proposal.md`
+**Status:** Not started
+
+Simplify doc comment markers: remove `#` for descriptions, replace `@param`/`@field` with `* name:`.
+
+### Changes
+
+- [ ] Update `CommentKind` enum in `ori_ir`:
+  - Remove `DocParam` and `DocField` (if separate)
+  - Add `DocMember` (unified for params and fields)
+  - Keep `DocDescription` (now: unmarked comments before declarations)
+- [ ] Update `classify_and_normalize_comment()` in `comments.rs`:
+  - `// text` → `DocDescription` (was: `Regular` unless `#`-prefixed)
+  - `// * name: desc` → `DocMember` (was: `// @param name` → `DocParam`)
+  - `// ! text` → `DocWarning` (unchanged)
+  - `// > text` → `DocExample` (unchanged)
+- [ ] Update `ModuleExtra::doc_comments_for()` to use new classification
+- [ ] Update tests in `comments.rs` and `lib.rs`
+
+### Compatibility Notes
+
+- **Parser**: Uses `CommentKind` for doc attachment — field name changes only
+- **Formatter**: Uses `CommentKind` for output — must update classification logic
+- **Type system**: Does not use comments — no impact
+
+---
+
+## 02.8 Template String Interpolation
+
+**Proposal:** `docs/ori_lang/proposals/approved/string-interpolation-proposal.md`
+**Status:** Not started
+**Complexity:** High — requires sub-lexer state machine
+
+Add backtick-delimited template strings with `{expr}` interpolation.
+
+### Architecture
+
+Template strings require a **nested lexer** or state machine because `{expr}` segments contain arbitrary Ori expressions that must be lexed recursively:
+
+```ori
+`Hello, {user.name}! You have {count + 1} messages.`
+```
+
+The lexer must produce a sequence of tokens that the parser can reconstruct:
+
+```
+TemplateLiteralStart    // `Hello,
+TemplateExprStart       // {
+Ident(user)             // user
+Dot                     // .
+Ident(name)             // name
+TemplateExprEnd         // }
+TemplateLiteralMiddle   // ! You have
+TemplateExprStart       // {
+Ident(count)            // count
+Plus                    // +
+Int(1)                  // 1
+TemplateExprEnd         // }
+TemplateLiteralEnd      // messages.`
+```
+
+### New Token Variants
+
+- [ ] Add `TemplateLiteralStart(Name)` — opening backtick + text before first `{`
+- [ ] Add `TemplateLiteralMiddle(Name)` — text between `}` and next `{`
+- [ ] Add `TemplateLiteralEnd(Name)` — text after last `}` + closing backtick
+- [ ] Add `TemplateLiteralFull(Name)` — backtick string with no interpolation
+- [ ] Add `TemplateExprStart` — `{` inside template
+- [ ] Add `TemplateExprEnd` — `}` inside template
+- [ ] Update `TOKEN_KIND_COUNT` and `discriminant_index()`
+
+### Lexer Changes
+
+- [ ] Add template string state to logos or implement as post-processing
+- [ ] Handle nested braces: `{map[key]}` — must track brace depth
+- [ ] Handle escape sequences: `` \` `` for literal backtick, `{{`/`}}` for literal braces
+- [ ] Handle multi-line template strings
+- [ ] Handle format specifiers: `{value:.2}`, `{name:<10}`
+
+### Compatibility Notes
+
+- **Token size**: `TemplateLiteralStart(Name)` fits in 16-byte `TokenKind` (Name is u32)
+- **TokenSet**: Must accommodate 6 new token variants — current 128-bit bitset has room (116 + 6 = 122 < 128)
+- **Parser**: Needs new grammar rules for template expressions — significant parser work
+- **Type system**: Template expressions must type-check each `{expr}` segment — needs `Printable` trait resolution
+- **Salsa**: New tokens derive same traits — no issue
+
+### Implementation Strategy
+
+This is the most complex lexer change. Consider:
+1. **Logos limitation**: Logos is a DFA-based lexer — it cannot handle recursive/nested structures natively. Template strings may require a **two-pass** approach: logos tokenizes the template as a raw string, then a post-processing pass splits it into segments.
+2. **Brace depth tracking**: Need a counter to handle `{map[{key}]}` — logos cannot do this.
+3. **Reference**: See Rust's `rustc_lexer` for how they handle raw strings, and TypeScript's template literal lexing.
+
+---
+
+## New Tasks: System Alignment
+
+---
+
+## 02.9 TokenList SoA Migration
+
+**Status:** Not started
+**Goal:** Align TokenList with ExprArena (parser) and Pool (type system) SoA patterns
+
+### Current State
+
+The design doc (`03-lexer/index.md`) describes TokenList as SoA:
+```rust
+// Design doc says:
+pub struct TokenList {
+    tokens: Vec<TokenKind>,
+    spans: Vec<Span>,
 }
 ```
 
-Current Ori likely uses:
-- Match expression or hash map for keywords
-- Runtime computation of operator precedence
-
-This section optimizes both.
-
----
-
-## 02.1 Perfect Hash Keywords
-
-**Goal:** Single-instruction keyword recognition
-
-### Tasks
-
-- [ ] Analyze Ori's keyword set
-  - [ ] List all keywords: `fn`, `let`, `if`, `match`, `type`, `trait`, etc.
-  - [ ] Count total keywords (expected: 25-35)
-  - [ ] Determine minimum table size (power of 2, typically 64)
-
-- [ ] Design perfect hash function
-  ```rust
-  const fn keyword_hash(s: &[u8]) -> usize {
-      if s.len() < 2 { return 63; }  // Invalid slot
-      ((s[0] as usize) << 4 ^ (s[1] as usize) + s.len()) & 63
-  }
-  ```
-
-- [ ] Generate keyword table at compile time
-  ```rust
-  const KEYWORD_TABLE: [Option<TokenKind>; 64] = {
-      let mut table = [None; 64];
-      table[keyword_hash(b"fn")] = Some(TokenKind::Fn);
-      table[keyword_hash(b"let")] = Some(TokenKind::Let);
-      table[keyword_hash(b"if")] = Some(TokenKind::If);
-      // ... all keywords
-      table
-  };
-
-  // Verification strings for collision detection
-  const KEYWORD_STRINGS: [&str; 64] = { /* parallel array */ };
-  ```
-
-- [ ] Implement lookup function
-  ```rust
-  #[inline]
-  pub fn lookup_keyword(ident: &str) -> Option<TokenKind> {
-      if ident.len() < 2 { return None; }
-      let idx = keyword_hash(ident.as_bytes());
-      KEYWORD_TABLE.get(idx)
-          .copied()
-          .flatten()
-          .filter(|_| KEYWORD_STRINGS[idx] == ident)
-  }
-  ```
-
-- [ ] Benchmark: Compare with current implementation
-
-### Validation
-
-The hash function must produce zero collisions. Add a compile-time check:
-
+But the actual implementation (`ori_ir/src/token.rs`) is AoS:
 ```rust
-const _: () = {
-    // Collision detection at compile time
-    let mut seen = [false; 64];
-    let keywords = [("fn", 2), ("let", 3), ("if", 2), /* ... */];
-
-    let mut i = 0;
-    while i < keywords.len() {
-        let (kw, len) = keywords[i];
-        let hash = keyword_hash(kw.as_bytes());
-        if seen[hash] {
-            panic!("Perfect hash collision detected!");
-        }
-        seen[hash] = true;
-        i += 1;
-    }
-};
+// Reality:
+pub struct TokenList {
+    tokens: Vec<Token>,  // Token = { kind: TokenKind, span: Span }
+}
 ```
 
+### Why SoA
+
+The parser's hot path scans token **kinds** far more often than spans:
+- `cursor.check()` — discriminant comparison on kind only
+- `cursor.check_ident()` — pattern match on kind only
+- `cursor.skip_newlines()` — kind comparison only
+- `cursor.is_at_end()` — kind comparison only
+
+SoA layout (`Vec<TokenKind>` + `Vec<Span>`) would improve cache locality for these operations because kinds are packed contiguously without span data interleaved.
+
+Both the parser's `ExprArena` and the type system's `Pool` use SoA for the same reason.
+
+### Changes
+
+- [ ] Split `TokenList` storage:
+  ```rust
+  pub struct TokenList {
+      kinds: Vec<TokenKind>,   // 16 bytes each, contiguous
+      spans: Vec<Span>,        // 8 bytes each, contiguous
+  }
+  ```
+- [ ] Update `TokenList` API:
+  - `get(index)` → returns `TokenRef { kind: &TokenKind, span: Span }` or separate accessors
+  - `get_kind(index)` → `&TokenKind` (hot path)
+  - `get_span(index)` → `Span` (cold path during error reporting)
+  - `push(kind, span)` instead of `push(Token)`
+- [ ] Update `Cursor` to use split accessors:
+  - `current_kind()` → `&self.tokens.kinds[self.pos]` (direct, no struct indirection)
+  - `current_span()` → `self.tokens.spans[self.pos]`
+- [ ] Update `TokenCapture::span()` to use `spans` array directly
+- [ ] Update `TokenList::get_range()` — may need to return a view type instead of `&[Token]`
+- [ ] Update `static_assert_size!` — remove Token size assert, add TokenKind and Span asserts
+- [ ] Update Salsa Hash/Eq impls for new layout
+- [ ] Update all call sites across crates
+
+### Compatibility Notes
+
+- **Cursor**: Main consumer — needs `current_kind()` and `current_span()` to use separate arrays
+- **TokenCapture**: `get_range()` currently returns `&[Token]` — must change to an iterator or view
+- **Incremental parsing**: `SyntaxCursor` and `AstCopier` use `TokenList` — update span access
+- **Formatter**: Uses `TokenList` for position info — update to use `get_span()`
+- **Salsa**: `TokenList` derives `Clone, Eq, PartialEq, Hash` — SoA layout hashes the same content
+
+### Risk
+
+**Medium** — This changes a widely-used type but the API surface is small. All access goes through `Cursor` or `TokenList` methods, so the change is contained.
+
 ---
 
-## 02.2 Compile-time Collision Detection
+## 02.10 TokenKind Cleanup (GtEq/Shr Audit)
 
-**Goal:** Guarantee hash function correctness at compile time
+**Status:** Not started
+**Goal:** Clarify whether `GtEq` and `Shr` token variants are used or dead
+
+### Context
+
+The design docs state that `>=` and `>>` are **never lexed as single tokens** — the lexer emits individual `>` tokens, and the parser synthesizes compound operators from adjacent tokens. However, `TokenKind::GtEq` (index 97) and `TokenKind::Shr` (index 98) exist as variants.
 
 ### Tasks
 
-- [ ] Create `build.rs` or const fn validation
-  - [ ] Enumerate all keywords
-  - [ ] Compute hashes
-  - [ ] Assert no collisions
+- [ ] Audit: Does the lexer (`raw_token.rs`) ever produce `GtEq` or `Shr`?
+- [ ] Audit: Does the parser ever construct or match on `GtEq` or `Shr`?
+- [ ] Audit: Does the evaluator, type checker, or codegen use `GtEq` or `Shr`?
+- [ ] Decision: If unused, remove variants and update:
+  - `discriminant_index()` — renumber or leave gaps
+  - `friendly_name_from_index()` — update mapping
+  - `TOKEN_KIND_COUNT` — decrement
+  - `display_name()` — remove arms
+  - Binding power table — ensure `is_shift_right()` path is the only `>>` path
+- [ ] Decision: If used (e.g., by evaluator after parser synthesis), document this as intentional
 
-- [ ] Handle hash function adjustments
-  - [ ] If collision found, adjust multiplier/shift
-  - [ ] Document the chosen parameters
+### Compatibility Notes
 
-- [ ] Add test for exhaustive keyword coverage
-  ```rust
-  #[test]
-  fn all_keywords_recognized() {
-      let keywords = ["fn", "let", "if", "else", "match", /* ... */];
-      for kw in keywords {
-          assert!(
-              lookup_keyword(kw).is_some(),
-              "Keyword not recognized: {}", kw
-          );
-      }
-  }
-  ```
-
-- [ ] Add test for non-keyword rejection
-  ```rust
-  #[test]
-  fn non_keywords_rejected() {
-      let non_keywords = ["foo", "bar", "Function", "IF", "iff"];
-      for nk in non_keywords {
-          assert!(
-              lookup_keyword(nk).is_none(),
-              "False positive: {}", nk
-          );
-      }
-  }
-  ```
+- **TokenSet**: Removing variants frees bits in the 128-bit bitset
+- **Parser**: Uses `is_shift_right()` / `is_greater_equal()` for synthesis — may internally create these tokens
+- **Evaluator/Codegen**: May match on `GtEq`/`Shr` after parser creates them
 
 ---
 
-## 02.3 Precedence Metadata in Tokens
+## 02.11 Completion Checklist
 
-**Goal:** Pre-compute operator precedence during lexing
-
-### Tasks
-
-- [ ] Extend token representation with precedence
-  ```rust
-  pub struct OperatorToken {
-      pub kind: TokenKind,
-      pub span: Span,
-      pub precedence: u8,       // Pre-computed
-      pub associativity: Assoc, // Left, Right, None
-  }
-  ```
-
-- [ ] Create precedence lookup table
-  ```rust
-  const OPERATOR_INFO: [OperatorInfo; 64] = {
-      let mut table = [OperatorInfo::NONE; 64];
-      table[TokenKind::Plus as usize] = OperatorInfo { prec: 60, assoc: Assoc::Left };
-      table[TokenKind::Star as usize] = OperatorInfo { prec: 70, assoc: Assoc::Left };
-      table[TokenKind::EqEq as usize] = OperatorInfo { prec: 30, assoc: Assoc::None };
-      // ... all operators
-      table
-  };
-  ```
-
-- [ ] Update lexer to set precedence
-  ```rust
-  fn scan_operator(&mut self) -> Token {
-      let kind = self.scan_operator_kind();
-      let info = OPERATOR_INFO[kind as usize];
-      Token {
-          kind,
-          span: self.current_span(),
-          precedence: info.prec,
-          associativity: info.assoc,
-      }
-  }
-  ```
-
-- [ ] Update parser to use pre-computed precedence
-  ```rust
-  // Before: lookup in parser
-  let prec = get_precedence(self.current_token().kind);
-
-  // After: read from token
-  let prec = self.current_token().precedence;
-  ```
-
-### Benefits
-
-| Operation | Before | After |
-|-----------|--------|-------|
-| Precedence lookup | Hash/match | Direct field read |
-| Binary expression loop | Multiple lookups | Zero lookups |
-| Total for 1000 operators | ~1000 lookups | ~1000 reads |
-
----
-
-## 02.4 Adjacent Token Optimization
-
-**Goal:** Maintain and enhance existing adjacent token handling for compound operators
-
-### Tasks
-
-- [ ] Review existing `is_shift_right()` and `is_greater_equal()` patterns
-  - [ ] Location: `compiler/ori_parse/src/cursor.rs`
-  - [ ] Document current implementation
-
-- [ ] Ensure consistent handling of:
-  - [ ] `>>` (shift right vs nested generics close)
-  - [ ] `>=` (greater-equal vs generic close + assign)
-  - [ ] `->` (arrow)
-  - [ ] `=>` (fat arrow)
-  - [ ] `..` (range)
-  - [ ] `::` (path separator)
-
-- [ ] Add context-aware disambiguation
-  ```rust
-  fn scan_greater(&mut self, context: LexContext) -> Token {
-      if self.peek() == '>' {
-          if context.in_generic_params {
-              // Split: return single '>'
-              Token::new(TokenKind::Greater, ...)
-          } else {
-              // Consume both: return '>>'
-              self.advance();
-              Token::new(TokenKind::ShiftRight, ...)
-          }
-      } else if self.peek() == '=' {
-          // ...
-      }
-  }
-  ```
-
-- [ ] Document all compound operator handling in one place
-
----
-
-## 02.5 Completion Checklist
-
-- [ ] Perfect hash function with zero collisions
-- [ ] Compile-time collision detection
-- [ ] All keywords recognized correctly
-- [ ] Precedence computed during lexing
-- [ ] No performance regression
-- [ ] Adjacent token handling documented
+- [x] Perfect hash function → satisfied by logos DFA
+- [x] Compile-time collision detection → satisfied by logos
+- [x] All keywords recognized correctly → verified by logos
+- [x] Precedence handling → satisfied by parser's Pratt binding power table
+- [x] Adjacent token handling → satisfied by parser's Cursor compound synthesis
+- [ ] `HashBracket` removed (02.5)
+- [ ] Decimal duration/size literals (02.6)
+- [ ] Simplified doc comments (02.7)
+- [ ] Template string interpolation (02.8)
+- [ ] TokenList SoA migration (02.9)
+- [ ] GtEq/Shr audit (02.10)
 
 **Exit Criteria:**
-- Keyword lookup benchmarks show improvement
-- All lexer tests pass
-- Parser tests pass (precedence integration)
-- No hash collisions (verified at compile time)
+- All approved proposals implemented in lexer
+- TokenList aligned with parser/type system SoA patterns
+- No dead token variants
+- All lexer, parser, type checker, and spec tests pass
+- `./test-all.sh` passes
