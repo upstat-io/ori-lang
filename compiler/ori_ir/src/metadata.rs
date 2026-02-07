@@ -338,9 +338,9 @@ mod tests {
             CommentKind::DocDescription,
         ));
         extra.comments.push(Comment::new(
-            interner.intern("@param x"),
+            interner.intern(" * x: The value"),
             Span::new(46, 60),
-            CommentKind::DocParam,
+            CommentKind::DocMember,
         ));
 
         // Declaration starts at position 65

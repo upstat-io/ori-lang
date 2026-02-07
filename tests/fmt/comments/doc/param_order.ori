@@ -1,4 +1,4 @@
 // #Adds two numbers.
-// @param b The second operand.
-// @param a The first operand.
+// * b: The second operand.
+// * a: The first operand.
 @add (a: int, b: int) -> int = a + b
