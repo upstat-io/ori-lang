@@ -996,3 +996,116 @@ fn test_typed_result_coalesce() {
     );
     assert_eq!(result.typed.functions[0].return_type, Idx::INT);
 }
+
+// ========================================================================
+// tokens_with_metadata() Tests
+// ========================================================================
+
+#[test]
+fn test_tokens_with_metadata_returns_comments() {
+    use ori_ir::CommentKind;
+
+    let db = CompilerDb::new();
+
+    let source = "// a regular comment\n@main () -> int = 42";
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
+
+    let output = tokens_with_metadata(&db, file);
+
+    // Should capture the comment
+    assert_eq!(output.comments.len(), 1, "should capture 1 comment");
+    assert_eq!(output.comments[0].kind, CommentKind::Regular);
+
+    // Tokens should also be present and valid
+    assert!(
+        output.tokens.len() >= 5,
+        "should have tokens for the function"
+    );
+    assert!(!output.has_errors(), "should have no lex errors");
+}
+
+#[test]
+fn test_tokens_with_metadata_comment_only_edit() {
+    use ori_ir::CommentKind;
+
+    let mut db = CompilerDb::new();
+
+    // Version 1: regular comment
+    let file = SourceFile::new(
+        &db,
+        PathBuf::from("/test.ori"),
+        "// old comment\n@main () -> int = 42".to_string(),
+    );
+
+    let output1 = tokens_with_metadata(&db, file);
+    assert_eq!(output1.comments.len(), 1);
+    assert_eq!(output1.comments[0].kind, CommentKind::Regular);
+
+    // Version 2: doc comment (different comment kind, same code tokens)
+    file.set_text(&mut db)
+        .to("// * x: param doc\n@main () -> int = 42".to_string());
+
+    let output2 = tokens_with_metadata(&db, file);
+    assert_eq!(output2.comments.len(), 1);
+    assert_eq!(
+        output2.comments[0].kind,
+        CommentKind::DocMember,
+        "comment kind should update after edit"
+    );
+
+    // The code tokens are identical in both versions
+    assert_eq!(
+        output1.tokens, output2.tokens,
+        "code tokens should be position-independently equal"
+    );
+
+    // But the full LexOutput differs (different comment content/kind)
+    assert_ne!(
+        output1, output2,
+        "full LexOutput should differ due to comment change"
+    );
+}
+
+#[test]
+fn test_tokens_early_cutoff_on_whitespace_edit() {
+    let mut db = CompilerDb::new();
+    db.enable_logging();
+
+    // Start with single spaces between tokens
+    let file = SourceFile::new(
+        &db,
+        PathBuf::from("/test.ori"),
+        "@main () -> int = 42".to_string(),
+    );
+
+    // First call — executes both tokens and parsed queries
+    let _ = parsed(&db, file);
+    let initial_logs = db.take_logs();
+    assert!(
+        initial_logs.len() >= 2,
+        "initial call should execute tokens + parsed, got {} logs",
+        initial_logs.len()
+    );
+
+    // Add extra spaces between tokens that already have SPACE_BEFORE.
+    // This changes Span positions but NOT TokenKind or TokenFlags, so
+    // position-independent equality holds and parsed() is not re-executed.
+    file.set_text(&mut db)
+        .to("@main  ()  ->  int  =  42".to_string());
+
+    // Call parsed again — tokens query re-executes (text changed),
+    // but position-independent Hash/Eq means tokens are "equal",
+    // so parsed should NOT re-execute (early cutoff).
+    let _ = parsed(&db, file);
+    let logs = db.take_logs();
+
+    // With early cutoff: only tokens re-executes (1 WillExecute event).
+    // Without early cutoff: both tokens + parsed re-execute (2+ events).
+    assert_eq!(
+        logs.len(),
+        1,
+        "only tokens should re-execute (early cutoff for parsed); got {} logs: {:#?}",
+        logs.len(),
+        logs
+    );
+}
