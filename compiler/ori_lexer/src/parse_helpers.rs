@@ -27,15 +27,6 @@ pub(crate) fn parse_float_skip_underscores(s: &str) -> Option<f64> {
     }
 }
 
-/// Parse numeric value with suffix, returning (value, unit).
-#[inline]
-pub(crate) fn parse_with_suffix<T: Copy>(s: &str, suffix_len: usize, unit: T) -> Option<(u64, T)> {
-    s[..s.len() - suffix_len]
-        .parse::<u64>()
-        .ok()
-        .map(|v| (v, unit))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

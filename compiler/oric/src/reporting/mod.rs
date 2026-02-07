@@ -20,6 +20,7 @@
 //! Each problem type has its own rendering logic, allowing customized
 //! error messages for different situations.
 
+mod lex;
 mod parse;
 mod semantic;
 pub mod typeck;
@@ -40,6 +41,7 @@ pub trait Render {
 impl Render for Problem {
     fn render(&self, interner: &StringInterner) -> Diagnostic {
         match self {
+            Problem::Lex(p) => p.render(interner),
             Problem::Parse(p) => p.render(interner),
             Problem::Semantic(p) => p.render(interner),
         }

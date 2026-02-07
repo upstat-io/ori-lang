@@ -454,7 +454,8 @@ impl<'a> Interpreter<'a> {
             | ExprKind::Char(_)
             | ExprKind::Unit
             | ExprKind::Duration { .. }
-            | ExprKind::Size { .. } => unreachable!("handled by eval_literal"),
+            | ExprKind::Size { .. }
+            | ExprKind::TemplateFull(_) => unreachable!("handled by eval_literal"),
 
             // Identifiers
             ExprKind::Ident(name) => crate::exec::expr::eval_ident(
@@ -784,6 +785,15 @@ impl<'a> Interpreter<'a> {
                 self.with_binding(*capability, provider_val, Mutability::Immutable, |e| {
                     e.eval(*body)
                 })
+            }
+            ExprKind::TemplateLiteral { head, parts } => {
+                let mut result = String::from(self.interner.lookup(*head));
+                for part in self.arena.get_template_parts(*parts) {
+                    let value = self.eval(part.expr)?;
+                    result.push_str(&value.display_value());
+                    result.push_str(self.interner.lookup(part.text_after));
+                }
+                Ok(Value::string(result))
             }
             ExprKind::Error => Err(parse_error()),
             ExprKind::HashLength => Err(hash_outside_index()),

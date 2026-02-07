@@ -114,6 +114,7 @@ impl StringInterner {
     ///
     /// This is the fallible version of `intern()`. Use this when you need to
     /// handle the overflow case gracefully instead of panicking.
+    #[inline]
     pub fn try_intern(&self, s: &str) -> Result<Name, InternError> {
         let shard_idx = Self::shard_for(s);
         // shard_idx is always < NUM_SHARDS (16) due to modulo, guaranteed to fit in u32
@@ -162,6 +163,7 @@ impl StringInterner {
     /// # Panics
     /// Panics if the interner exceeds capacity (over 4 billion strings per shard).
     /// Use `try_intern` for fallible interning.
+    #[inline]
     pub fn intern(&self, s: &str) -> Name {
         self.try_intern(s).unwrap_or_else(|e| panic!("{}", e))
     }

@@ -1,38 +1,38 @@
 ---
 section: "07"
 title: Diagnostics & Error Recovery
-status: not-started
+status: complete
 goal: "Context-aware, actionable error messages with WHERE+WHAT+WHY+HOW shape, cross-language habit detection, and graceful recovery"
 sections:
   - id: "07.1"
     title: LexError Structure
-    status: not-started
+    status: complete
   - id: "07.2"
     title: LexErrorKind Variants
-    status: not-started
+    status: complete
   - id: "07.3"
     title: whatIsNext Context Inspection
-    status: not-started
+    status: complete
   - id: "07.4"
     title: Cross-Language Habit Detection
-    status: not-started
+    status: complete
   - id: "07.5"
     title: Unicode Confusable Recovery
-    status: not-started
+    status: complete
   - id: "07.6"
     title: Detached Doc Comment Warnings
-    status: not-started
+    status: complete
   - id: "07.7"
     title: Recovery Strategies
-    status: not-started
+    status: complete
   - id: "07.8"
     title: Tests
-    status: not-started
+    status: complete
 ---
 
 # Section 07: Diagnostics & Error Recovery
 
-**Status:** :clipboard: Planned
+**Status:** :white_check_mark: Complete
 **Goal:** Generate context-aware, actionable error messages for all lexer error classes following the WHERE+WHAT+WHY+HOW error shape. Detect common mistakes from developers coming from other languages. Recover gracefully from errors to enable continued parsing.
 
 > **REFERENCE**: Elm's `whatIsNext` pattern (inspect the stuck character to tailor error messages); Gleam's proactive detection of JavaScript/C habits (`===`, `;`, `'`); Rust's Unicode confusable table (200+ character substitutions); Go's curly quote detection.
@@ -65,7 +65,7 @@ Error diagnostics are generated in the cooking layer (Section 03), not the raw s
 
 The `LexError` type follows the cross-system error shape from `v2-conventions.md` section 5: WHERE (span) + WHAT (kind) + WHY (context) + HOW (suggestions).
 
-- [ ] Define `LexError`:
+- [x] Define `LexError`:
   ```rust
   /// Lexical error -- follows the cross-system error shape
   /// (plans/v2-conventions.md §5: WHERE + WHAT + WHY + HOW).
@@ -81,7 +81,7 @@ The `LexError` type follows the cross-system error shape from `v2-conventions.md
   }
   ```
 
-- [ ] Define `LexErrorContext` (WHY we were checking when the error occurred):
+- [x] Define `LexErrorContext` (WHY we were checking when the error occurred):
   ```rust
   /// Lexing context at the point of error -- the WHY (v2-conventions §5).
   /// Matches the `ErrorContext` pattern from types V2's `TypeCheckError`.
@@ -99,7 +99,7 @@ The `LexError` type follows the cross-system error shape from `v2-conventions.md
   }
   ```
 
-- [ ] Define `LexSuggestion` and `LexReplacement` (HOW to fix):
+- [x] Define `LexSuggestion` and `LexReplacement` (HOW to fix):
   ```rust
   /// Suggestion for fixing a lexical error -- the HOW (v2-conventions §5).
   /// Internal type; final rendering in `oric` maps to
@@ -120,7 +120,7 @@ The `LexError` type follows the cross-system error shape from `v2-conventions.md
   }
   ```
 
-- [ ] Add `#[cold]` factory methods and `#[must_use]` fluent builders (v2-conventions section 5):
+- [x] Add `#[cold]` factory methods and `#[must_use]` fluent builders (v2-conventions section 5):
   ```rust
   impl LexError {
       /// Create an unterminated string error.
@@ -194,7 +194,7 @@ The `LexError` type follows the cross-system error shape from `v2-conventions.md
 
 ## 07.2 LexErrorKind Variants
 
-- [ ] Define `LexErrorKind` enum with specific variants for each error class:
+- [x] Define `LexErrorKind` enum with specific variants for each error class:
 
   **String/char errors:**
   - `UnterminatedString` -- string literal reaches newline or EOF without closing `"`
@@ -271,14 +271,15 @@ The `LexError` type follows the cross-system error shape from `v2-conventions.md
 
   **Deliberately excluded:**
   - ~~`FloatDuration` / `FloatSize`~~ -- the spec allows decimal durations and sizes
-  - ~~`MissingDigitsAfterRadix`~~ for binary/octal -- not in spec (only hex `0x` prefix exists)
+  - `MissingDigitsAfterRadix` for hex (`0x`) and binary (`0b`) -- needed when prefix present but no digits follow
+  - ~~`MissingDigitsAfterRadix` for octal~~ -- `0o` not in spec
   - ~~`InvalidHexEscape` / `InvalidUnicodeEscape`~~ -- `\xHH` and `\u{XXXX}` escapes are not in spec
 
 ---
 
 ## 07.3 whatIsNext Context Inspection
 
-- [ ] Implement a `what_is_next(source: &[u8], pos: u32) -> NextContext` function (inspired by Elm):
+- [x] Implement a `what_is_next(source: &[u8], pos: u32) -> NextContext` function (inspired by Elm):
   ```rust
   /// Inspects the character at the given position and classifies it
   /// for use in error message generation. This is the Elm "whatIsNext"
@@ -297,7 +298,7 @@ The `LexError` type follows the cross-system error shape from `v2-conventions.md
   }
   ```
 
-- [ ] Use `NextContext` to generate tailored error messages:
+- [x] Use `NextContext` to generate tailored error messages:
   ```rust
   match what_is_next(source, error_pos) {
       NextContext::Punctuation(';') => {
@@ -331,7 +332,7 @@ The `LexError` type follows the cross-system error shape from `v2-conventions.md
 
 ## 07.4 Cross-Language Habit Detection
 
-- [ ] Detect and provide helpful messages for common patterns from other languages:
+- [x] Detect and provide helpful messages for common patterns from other languages:
 
   | Pattern | Source Language | Ori Message |
   |---------|---------------|-------------|
@@ -346,9 +347,9 @@ The `LexError` type follows the cross-system error shape from `v2-conventions.md
   | `null` | C, JS, Java | "Ori uses `void` for the absence of a value." |
   | `class` | JS, Python, Java | "Use `type` for type definitions in Ori." |
 
-- [ ] Implement detection in the cooking layer when `RawTag::InvalidByte` or `RawTag::Ident` produces an unexpected sequence
+- [x] Implement detection in the cooking layer when `RawTag::InvalidByte` or `RawTag::Ident` produces an unexpected sequence
 
-- [ ] Cross-language keyword detection:
+- [x] Cross-language keyword detection:
   ```rust
   /// Known keywords from other languages that are not Ori keywords.
   /// When encountered as identifiers, the cooker can produce a helpful
@@ -378,7 +379,7 @@ The `LexError` type follows the cross-system error shape from `v2-conventions.md
 
 Unicode confusable detection provides error messages about visually similar Unicode characters found in source code. This is for error recovery -- Ori source is ASCII-only per spec, so any non-ASCII byte is an error. The confusable table lets us produce helpful messages instead of generic "unexpected byte" errors.
 
-- [ ] Build a lookup table of visually confusable Unicode characters (inspired by Rust's `unicode_chars.rs`):
+- [x] Build a lookup table of visually confusable Unicode characters (inspired by Rust's `unicode_chars.rs`):
   ```rust
   /// Maps Unicode characters that are visually similar to ASCII to their
   /// ASCII equivalents. When a confusable is detected, the lexer emits
@@ -433,13 +434,13 @@ Unicode confusable detection provides error messages about visually similar Unic
   ];
   ```
 
-- [ ] When the raw scanner produces `InvalidByte` for a non-ASCII byte:
+- [x] When the raw scanner produces `InvalidByte` for a non-ASCII byte:
   1. Decode the UTF-8 character at the error position
   2. Look up in the confusable table
   3. If found: emit a `UnicodeConfusable` error with the substitution suggestion and continue scanning
   4. If not found: emit a generic "unexpected character" error with the Unicode name if available
 
-- [ ] Special case: "smart quotes" (curly quotes from word processors) -- these are by far the most common confusable in practice. Produce an especially clear message:
+- [x] Special case: "smart quotes" (curly quotes from word processors) -- these are by far the most common confusable in practice. Produce an especially clear message:
   ```
   Found left double quotation mark ("\u{201C}"). Use a straight double
   quote (") instead. This often happens when copying code from a word
@@ -452,7 +453,7 @@ Unicode confusable detection provides error messages about visually similar Unic
 
 The spec defines doc comment markers (`grammar.ebnf` lines 43-47): `*` (member), `!` (warning), `>` (example). A doc comment that is not followed by a declaration is "detached" and likely a mistake.
 
-- [ ] Detect detached doc comments:
+- [x] Detect detached doc comments:
   ```rust
   /// A doc comment (`/// ...`) that is not immediately followed by a
   /// declaration (`@name`, `type`, `trait`, `let`, etc.) is detached.
@@ -482,14 +483,14 @@ The spec defines doc comment markers (`grammar.ebnf` lines 43-47): `*` (member),
   }
   ```
 
-- [ ] Warning message:
+- [x] Warning message:
   ```
   This doc comment is not attached to any declaration. Doc comments
   should appear immediately before a function (`@name`), `type`, `trait`,
   or other declaration.
   ```
 
-- [ ] Detached doc warnings are accumulated alongside `LexError`s but are separate -- they are warnings, not errors, and do not prevent compilation.
+- [x] Detached doc warnings are accumulated alongside `LexError`s but are separate -- they are warnings, not errors, and do not prevent compilation.
 
 ---
 
@@ -497,14 +498,14 @@ The spec defines doc comment markers (`grammar.ebnf` lines 43-47): `*` (member),
 
 All recovery strategies must ensure forward progress (never re-scan the same byte). Error tokens carry their span so the parser can report accurate positions.
 
-- [ ] **After unterminated string**: Resume scanning at the next newline (the string was likely meant to be single-line)
-- [ ] **After unterminated template**: Resume scanning at the next unmatched backtick or EOF
-- [ ] **After invalid byte**: Skip the byte and continue scanning
-- [ ] **After invalid escape in string**: Include the literal `\X` in the string content and continue
-- [ ] **After numeric overflow**: Produce a placeholder integer token and continue
-- [ ] **After unterminated char**: Resume at next `'` or newline
+- [x] **After unterminated string**: Resume scanning at the next newline (the string was likely meant to be single-line)
+- [x] **After unterminated template**: Resume scanning at the next unmatched backtick or EOF
+- [x] **After invalid byte**: Skip the byte and continue scanning
+- [x] **After invalid escape in string**: Include the literal `\X` in the string content and continue
+- [x] **After numeric overflow**: Produce a placeholder integer token and continue
+- [x] **After unterminated char**: Resume at next `'` or newline
 
-- [ ] Implement error accumulation during tokenization:
+- [x] Implement error accumulation during tokenization:
   ```rust
   /// Errors are accumulated, not fatal -- the lexer continues past errors
   /// for IDE support (v2-conventions §6). Error vectors start empty
@@ -527,74 +528,74 @@ All recovery strategies must ensure forward progress (never re-scan the same byt
   }
   ```
 
-- [ ] All recovery strategies ensure the lexer resumes at a well-defined position and produces a valid (if erroneous) token stream. The parser receives error tokens and can provide its own recovery on top.
+- [x] All recovery strategies ensure the lexer resumes at a well-defined position and produces a valid (if erroneous) token stream. The parser receives error tokens and can provide its own recovery on top.
 
 ---
 
 ## 07.8 Tests
 
-- [ ] **Error message tests**: Each error class produces a specific, non-generic message
+- [x] **Error message tests**: Each error class produces a specific, non-generic message
   - `UnterminatedString` includes the position of the opening quote
   - `InvalidEscape` includes the unrecognized escape character
   - `UnicodeConfusable` includes the character name and ASCII replacement
   - `IntegerOverflow` identifies the literal that overflowed
 
-- [ ] **Error structure tests** (v2-conventions section 5 compliance):
+- [x] **Error structure tests** (v2-conventions section 5 compliance):
   - Every `LexError` has a non-empty span (WHERE)
   - Every `LexError` has a specific `LexErrorKind` (WHAT), not a generic catch-all
   - Context-dependent errors have the correct `LexErrorContext` (WHY)
   - Fixable errors have at least one `LexSuggestion` (HOW)
 
-- [ ] **Cross-language detection tests**:
+- [x] **Cross-language detection tests**:
   - Source containing `;` after expressions -> `Semicolon` error with removal suggestion
   - Source containing `===` -> `TripleEqual` error with `==` replacement
   - Source containing `'hello'` -> `SingleQuoteString` error with double-quote replacement
   - Source containing `++x` -> `IncrementDecrement` error
   - Source containing `#include` -> helpful note about `use`
 
-- [ ] **Unicode confusable tests**:
+- [x] **Unicode confusable tests**:
   - Smart quotes (`\u{201C}`, `\u{201D}`) -> straight double quote suggestion
   - En dash (`\u{2013}`) -> hyphen-minus suggestion
   - Fullwidth characters -> ASCII equivalents
   - Zero-width spaces -> detected and reported
   - Multiple confusables in one file -> all reported
 
-- [ ] **Template literal error tests**:
+- [x] **Template literal error tests**:
   - `` `hello {name `` (unterminated) -> `UnterminatedTemplate` with opening position
   - `` `hello \q world` `` -> `InvalidTemplateEscape` for `\q`
 
-- [ ] **Detached doc comment tests**:
+- [x] **Detached doc comment tests**:
   - `/// doc\n@foo () -> void = ...` -> no warning (correctly attached)
   - `/// doc\n\n@foo () -> void = ...` -> warning (blank line gap)
   - `/// doc\nlet x = 5` -> no warning (attached to let)
   - `/// doc\nx + y` -> warning (not a declaration)
 
-- [ ] **Recovery tests**:
+- [x] **Recovery tests**:
   - Unterminated string followed by valid code -> subsequent tokens are correct
   - Unterminated template followed by valid code -> subsequent tokens are correct
   - Invalid byte followed by valid code -> subsequent tokens are correct
   - Multiple errors in one file -> all are reported
 
-- [ ] **Error accumulation tests**: Verify that multiple lexer errors are collected and reported together, not just the first one
+- [x] **Error accumulation tests**: Verify that multiple lexer errors are collected and reported together, not just the first one
 
 ---
 
 ## 07.9 Completion Checklist
 
-- [ ] `LexError` with WHERE+WHAT+WHY+HOW shape (v2-conventions section 5)
-- [ ] `LexErrorKind` enum with specific variants for all error classes
-- [ ] `LexErrorContext` enum covering all lexing states
-- [ ] `LexSuggestion` + `LexReplacement` for auto-fix support
-- [ ] `#[cold]` factory methods, `#[must_use]` fluent builders
-- [ ] All types derive `Clone, Eq, PartialEq, Hash, Debug` (v2-conventions section 8)
-- [ ] `what_is_next` context inspection function
-- [ ] Cross-language habit detection for top 10 patterns
-- [ ] Unicode confusable table with >= 30 entries
-- [ ] Detached doc comment warning detection
-- [ ] Recovery strategies for all error classes
-- [ ] Every error class has a tailored, non-generic message
-- [ ] Template literal errors (`UnterminatedTemplate`, `InvalidTemplateEscape`)
-- [ ] Tests for all error classes and recovery paths
-- [ ] `cargo t -p ori_lexer` passes
+- [x] `LexError` with WHERE+WHAT+WHY+HOW shape (v2-conventions section 5)
+- [x] `LexErrorKind` enum with specific variants for all error classes
+- [x] `LexErrorContext` enum covering all lexing states
+- [x] `LexSuggestion` + `LexReplacement` for auto-fix support
+- [x] `#[cold]` factory methods, `#[must_use]` fluent builders
+- [x] All types derive `Clone, Eq, PartialEq, Hash, Debug` (v2-conventions section 8)
+- [x] `what_is_next` context inspection function
+- [x] Cross-language habit detection for top 10 patterns
+- [x] Unicode confusable table with >= 30 entries
+- [x] Detached doc comment warning detection
+- [x] Recovery strategies for all error classes
+- [x] Every error class has a tailored, non-generic message
+- [x] Template literal errors (`UnterminatedTemplate`, `InvalidTemplateEscape`)
+- [x] Tests for all error classes and recovery paths
+- [x] `cargo t -p ori_lexer` passes
 
 **Exit Criteria:** Every lexer error follows the WHERE+WHAT+WHY+HOW shape and produces a context-aware, actionable diagnostic message. Cross-language habits and Unicode confusables are detected. Template literal errors are handled. Detached doc comments produce warnings. Recovery after errors allows continued parsing. No generic "unexpected character" messages for common cases.

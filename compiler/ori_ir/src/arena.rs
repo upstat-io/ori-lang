@@ -22,6 +22,7 @@ use super::{
     MatchPatternRange, ParsedType, ParsedTypeId, ParsedTypeRange, StmtId, StmtRange,
 };
 use crate::ast::patterns::{FunctionExp, FunctionSeq};
+use crate::ast::TemplatePart;
 use crate::ast::{BindingPattern, MatchPattern};
 
 /// Panic helper for capacity overflow (cold path, never inlined).
@@ -59,7 +60,7 @@ use super::ast::{
     ArmRange, CallArg, CallArgRange, Expr, ExprKind, FieldInit, FieldInitRange, GenericParam,
     GenericParamRange, ListElement, ListElementRange, MapElement, MapElementRange, MapEntry,
     MapEntryRange, MatchArm, NamedExpr, NamedExprRange, Param, ParamRange, SeqBinding,
-    SeqBindingRange, Stmt, StructLitField, StructLitFieldRange,
+    SeqBindingRange, Stmt, StructLitField, StructLitFieldRange, TemplatePartRange,
 };
 use super::Span;
 use std::fmt;
@@ -151,6 +152,9 @@ pub struct ExprArena {
 
     /// All function expressions (indexed by `FunctionExpId`).
     function_exps: Vec<FunctionExp>,
+
+    /// Template interpolation parts for template literals.
+    template_parts: Vec<TemplatePart>,
 }
 
 /// Generate `start_*/push_*/finish_*` method triples for direct arena append.
@@ -217,6 +221,7 @@ impl ExprArena {
             binding_patterns: Vec::with_capacity(estimated_exprs / 8),
             function_seqs: Vec::with_capacity(estimated_exprs / 32),
             function_exps: Vec::with_capacity(estimated_exprs / 32),
+            template_parts: Vec::with_capacity(estimated_exprs / 32),
         }
     }
 
@@ -800,6 +805,30 @@ impl ExprArena {
         &self.function_exps[id.index()]
     }
 
+    // -- Template Part Storage --
+
+    /// Allocate template parts from an iterator.
+    pub fn alloc_template_parts(
+        &mut self,
+        parts: impl IntoIterator<Item = TemplatePart>,
+    ) -> TemplatePartRange {
+        let start = to_u32(self.template_parts.len(), "template parts");
+        self.template_parts.extend(parts);
+        let len = to_u16(
+            self.template_parts.len() - start as usize,
+            "template part list",
+        );
+        TemplatePartRange::new(start, len)
+    }
+
+    /// Get template parts by range.
+    #[inline]
+    pub fn get_template_parts(&self, range: TemplatePartRange) -> &[TemplatePart] {
+        let start = range.start as usize;
+        let end = start + range.len as usize;
+        &self.template_parts[start..end]
+    }
+
     /// Reset arena for reuse (keeps capacity).
     pub fn reset(&mut self) {
         self.expr_kinds.clear();
@@ -821,6 +850,7 @@ impl ExprArena {
         self.binding_patterns.clear();
         self.function_seqs.clear();
         self.function_exps.clear();
+        self.template_parts.clear();
     }
 
     /// Check if arena is empty.
@@ -935,6 +965,16 @@ impl ExprArena {
         finish_match_pattern_list,
         "match pattern list"
     );
+
+    define_direct_append!(
+        template_parts,
+        TemplatePart,
+        TemplatePartRange,
+        start_template_parts,
+        push_template_part,
+        finish_template_parts,
+        "template part list"
+    );
 }
 
 impl PartialEq for ExprArena {
@@ -958,6 +998,7 @@ impl PartialEq for ExprArena {
             && self.binding_patterns == other.binding_patterns
             && self.function_seqs == other.function_seqs
             && self.function_exps == other.function_exps
+            && self.template_parts == other.template_parts
     }
 }
 
@@ -984,6 +1025,7 @@ impl Hash for ExprArena {
         self.binding_patterns.hash(state);
         self.function_seqs.hash(state);
         self.function_exps.hash(state);
+        self.template_parts.hash(state);
     }
 }
 

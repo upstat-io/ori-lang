@@ -13,13 +13,13 @@ use ori_ir::{
 const POSTFIX_BITSET: [u64; 2] = {
     let mut bits = [0u64; 2];
     let tags: [u8; 7] = [
-        TokenKind::TAG_LPAREN,   // 70
-        TokenKind::TAG_DOT,      // 79
-        TokenKind::TAG_LBRACKET, // 74
-        TokenKind::TAG_LBRACE,   // 72
-        TokenKind::TAG_QUESTION, // 86
-        TokenKind::TAG_AS,       // 37
-        TokenKind::TAG_ARROW,    // 83
+        TokenKind::TAG_LPAREN,   // 80
+        TokenKind::TAG_DOT,      // 89
+        TokenKind::TAG_LBRACKET, // 84
+        TokenKind::TAG_LBRACE,   // 82
+        TokenKind::TAG_QUESTION, // 96
+        TokenKind::TAG_AS,       // 43
+        TokenKind::TAG_ARROW,    // 93
     ];
     let mut i = 0;
     while i < tags.len() {

@@ -1,0 +1,228 @@
+# LLVM V2: Best-of-Breed Codegen Architecture
+
+> **Description**: Replace the current monolithic `ori_llvm` codegen with a layered, modular architecture synthesized from patterns across Rust, Zig, Roc, Swift, Koka, Lean 4, Go, Gleam, and TypeScript compilers. The result is a highly extensible, ARC-aware codegen pipeline where adding new LLVM features is straightforward, each module has a single responsibility, and ARC optimization happens at the right abstraction level.
+>
+> **Primary Goal**: Make LLVM extension *easy*. Every new Ori language feature should map to a focused codegen module with clear inputs, outputs, and testing patterns. No more struggling with LLVM.
+
+## Reference Compiler Analysis
+
+Patterns were analyzed from nine production compilers and synthesized into a novel design:
+
+| Compiler | Key Insight Adopted |
+|----------|-------------------|
+| **Rust** (`rustc_codegen_ssa` + `rustc_codegen_llvm`) | Two-context system (SimpleCx/FullCx); CGU partitioning; RAII builder lifetime management (trait-based backend abstraction studied but not adopted — YAGNI with single backend) |
+| **Zig** (`src/codegen/llvm.zig` + `lib/std/zig/llvm/Builder.zig`) | Pure-Zig IR before LLVM; ID-based references everywhere (not pointers); bitcode serialization; deferred LLVM involvement |
+| **Roc** (`crates/compiler/gen_llvm/`) | Inkwell wrapper patterns (BuilderExt); refcount-at-offset-minus-1 layout; Zig bitcode for RC runtime; Scope struct with persistent maps; monomorphized IR before codegen |
+| **Swift** (`lib/SILOptimizer/ARC/` + `lib/IRGen/`) | SIL-level ARC optimization (not in codegen!); TypeInfo hierarchy for type-driven codegen; ownership lattice (None/Owned/Guaranteed/Unowned); two-pass dataflow (top-down + bottom-up); Explosion for multi-register values |
+| **Koka** (`src/Backend/C/Parc.hs`) | Perceus precise RC; FBIP (Functional But In-Place) reuse analysis; borrow parameter inference; shape-based alias tracking from pattern matching |
+| **Lean 4** (`src/Lean/Compiler/IR/`) | Borrow inference via iterative refinement; explicit `reset`/`reuse` operations; `isPossibleRef`/`isDefiniteRef` type classification; LCNF pipeline structure |
+| **Go** (`cmd/compile/internal/ssa/`) | Dense ID allocation for values/blocks; ordered pass pipeline with logging hooks; deterministic iteration |
+| **Gleam** (`compiler-core/src/codegen.rs`) | Lightweight struct-per-backend (no trait objects); multi-target codegen via separate generator structs; immutable environment with scope tracking |
+| **TypeScript** (`src/compiler/transformer.ts`) | Transform pipeline factory pattern; layered transforms before emission; visitor-based tree rewriting |
+
+## Design Philosophy
+
+### 1. Two-Crate Architecture (Inspired by Swift + Rust)
+
+The current `ori_llvm` mixes ARC concerns, type lowering, expression compilation, and LLVM emission in one giant `Builder`. The V2 design separates these into two crates with clear module boundaries:
+
+```
+Crate: ori_llvm (LLVM codegen — excluded from default workspace, requires LLVM)
+  Module: ir_builder     — Safe, ID-based inkwell wrapper
+  Module: codegen        — ARC IR → LLVM IR emission
+    - TypeInfo enum         — LLVM type representation, layout, ABI
+    - ExprLowerer           — Trivial ARC IR instruction emission
+    - AbiComputer           — Calling conventions
+  Module: emit           — Module/function lifecycle, debug info, optimization passes
+
+Crate: ori_arc (ARC analysis — normal workspace member, NO LLVM dependency)
+  - ARC IR lowering (typed AST → basic-block IR with explicit control flow)
+  - Pattern compilation (decision trees compiled during AST → ARC IR lowering)
+  - ArcClassification trait (Scalar/PossibleRef/DefiniteRef)
+  - Borrow inference (like Lean 4)
+  - RC insertion (like Koka Perceus)
+  - RC elimination (like Swift ARC optimizer)
+  - Reuse analysis (like Koka FBIP / Lean 4 reset-reuse)
+  - Operates on ARC IR, BEFORE codegen
+```
+
+`ori_arc` is a separate crate because ARC analysis is reusable without LLVM — it can serve future backends (WASM, interpreter optimizations) and is testable independently. Codegen stays consolidated in `ori_llvm` since there is only one backend (LLVM) — no need for a separate `ori_codegen` crate (YAGNI).
+
+**Key insight from Swift**: ARC optimization happens where you have full ownership information (`ori_arc`), NOT during LLVM IR emission (`ori_llvm`). Codegen is a "dumb emitter."
+
+### 2. TypeInfo-Driven Code Generation (from Swift)
+
+Two complementary abstractions split across crates:
+
+**`ArcClassification` trait (in `ori_arc`)** — No LLVM dependency:
+- Scalar / PossibleRef / DefiniteRef classification
+- Used by ARC analysis to skip trivial types
+- Operates on Pool/Idx, no LLVM types involved
+
+**`TypeInfo` enum (in `ori_llvm`)** — LLVM-specific:
+- LLVM type representation, size, alignment
+- How to copy, destroy, retain, release
+- Calling convention (by-value vs by-reference)
+- Debug info generation
+- Enum with variants per type category (static dispatch, no `dyn Trait`)
+
+This centralizes all type-specific codegen in one place. Adding a new type means adding an enum variant, not modifying 20 match arms across 10 files.
+
+### 3. ID-Based Everything (from Zig + existing Ori patterns)
+
+Following Ori's existing `ExprId`/`Idx` patterns and Zig's approach:
+- `LLVMValueId(u32)` instead of `&'ll Value`
+- `LLVMTypeId(u32)` instead of `&'ll Type`
+- `BlockId(u32)` instead of `BasicBlock<'ll>`
+
+This eliminates lifetime pain, enables serialization/caching, and makes the codegen context `Send + Sync` for parallel compilation.
+
+### 4. Modular Expression Lowering (from existing Ori + Gleam)
+
+Each expression category gets its own focused module in `ori_llvm`:
+- `lower_arithmetic.rs` -- Binary/unary ops
+- `lower_control_flow.rs` -- If/match/loop/for
+- `lower_functions.rs` -- Calls, lambdas, closures
+- `lower_collections.rs` -- Lists, maps, tuples, structs
+
+Pattern match compilation (decision trees) lives in `ori_arc` as part of AST-to-ARC-IR lowering. The `ori_llvm` codegen layer just emits `Switch` terminators as LLVM `switch` instructions -- no pattern logic in codegen.
+
+Each module is independently testable with clear inputs (ARC IR instructions) and outputs (LLVM IR).
+
+### 5. ARC as a Separate Analysis Pass (from Swift + Koka + Lean 4)
+
+The current codegen has no ARC optimization. The V2 design introduces a pre-codegen ARC analysis pipeline operating on a dedicated **ARC IR**:
+
+1. **Lower to ARC IR**: Convert typed AST to basic-block IR with explicit control flow (branches, joins, terminators). This is the intermediate representation that all ARC algorithms operate on — not the expression tree. The ARC IR makes control flow explicit, which is required for correct liveness analysis across branches, loops, and early exits.
+2. **Classify types**: Scalar (no RC) vs PossibleRef vs DefiniteRef (from Lean 4)
+3. **Infer borrows**: Parameters that don't escape can be borrowed (from Lean 4)
+4. **Insert RC ops**: Precise inc/dec placement via liveness analysis on ARC IR basic blocks (from Koka Perceus)
+5. **Eliminate redundant RC**: Paired retain/release elimination via dataflow (from Swift)
+6. **Reuse analysis**: Dropped constructors reused for new allocations (from Koka FBIP)
+
+This happens on the ARC IR, not on LLVM IR or the expression tree. The ARC IR design follows proven patterns from Lean 4 (LCNF) and Koka, where algorithms are known correct on basic-block form. The codegen layer just emits the pre-computed RC operations.
+
+### 6. Builder That Wraps, Not Implements (from Roc)
+
+Roc's `BuilderExt` pattern: wrap inkwell methods to unwrap Results and add assertions. The V2 `IrBuilder` does the same but also:
+- Tracks the current function context
+- Manages block creation/positioning
+- Handles phi node construction
+- Provides scoped alloca management
+
+### 7. Extensibility Through Composition (from Gleam)
+
+Adding a new language feature (e.g., capability effects, async/await) means:
+1. Add a `lower_*.rs` module with the lowering logic
+2. Add a `TypeInfo` variant for any new types
+3. Add ARC IR lowering and `ArcClassification` if the feature introduces reference-counted values
+4. Write tests using the codegen test harness
+
+No existing module needs modification. No giant match arms to extend.
+
+## Current Pain Points Addressed
+
+| Pain Point | Root Cause | V2 Solution |
+|-----------|-----------|-------------|
+| Builder.rs is 2000+ lines | Expression codegen + type mapping + LLVM emission all in one struct | Split into TypeInfo enum + ExprLowerer + IrBuilder |
+| Adding new types requires changes everywhere | No centralized type-to-LLVM mapping | TypeInfo enum: one variant per type category |
+| No ARC optimization | RC ops emitted directly during codegen | Separate ARC analysis pass before codegen |
+| LLVM lifetime complexity | `'ll` lifetime threads through everything | ID-based value/type references |
+| Difficult to test codegen | Tests require full compilation pipeline | Modular lowering functions testable in isolation |
+| Match compilation is fragile | Sequential if-else chains | Decision tree compilation in `ori_arc` (Maranget algorithm, from Roc/Elm) |
+| No incremental codegen | Full module recompilation | CGU-like partitioning (from Rust) + content hashing |
+| sret threshold is ad-hoc | No systematic ABI handling | TypeInfo-driven calling convention computation |
+
+## Architecture Overview
+
+```
+                    ┌─────────────────────────────┐
+                    │      ori_arc                 │  Crate 1: ARC Analysis
+                    │  (separate crate, no LLVM)   │  (normal workspace member)
+                    │                              │
+                    │  ArcIrLowering               │  Typed AST → ARC IR (basic blocks)
+                    │  PatternCompiler             │  Decision tree → ARC IR blocks
+                    │  ArcClassification trait      │  Scalar / PossibleRef / DefiniteRef
+                    │  BorrowInference              │  Parameter ownership inference
+                    │  RcInserter                   │  Precise inc/dec placement
+                    │  RcEliminator                 │  Paired retain/release removal
+                    │  ReuseAnalyzer                │  Constructor memory reuse
+                    └──────────────┬───────────────┘
+                                   │ ArcAnnotatedIR
+                    ┌──────────────▼───────────────┐
+                    │      ori_llvm                 │  Crate 2: LLVM Codegen
+                    │  (excluded from workspace,    │  (requires LLVM)
+                    │   requires LLVM feature)      │
+                    │                               │
+                    │  mod codegen:                  │
+                    │    TypeInfo enum + dispatch    │  Type-driven codegen
+                    │    ExprLowerer                │  ARC IR → LLVM IR emission
+                    │    AbiComputer                │  Calling conventions
+                    │    LayoutEngine               │  Type size/alignment
+                    │                               │
+                    │  mod ir_builder:               │
+                    │    IrBuilder                  │  inkwell wrapper + safety
+                    │    ValueId / BlockId / etc.   │  ID-based references
+                    │                               │
+                    │  mod emit:                     │
+                    │    ModuleEmitter              │  Module/function lifecycle
+                    │    DebugInfoEmitter           │  DWARF generation
+                    │    OptPipeline                │  LLVM pass configuration
+                    │    ObjectEmitter              │  .o / .bc / .ll emission
+                    └───────────────────────────────┘
+```
+
+## Implementation Tiers
+
+### Tier 1: Foundation (Must Have)
+- Section 01: TypeInfo enum and core type implementations (in `ori_llvm::codegen`)
+- Section 02: IrBuilder (inkwell wrapper with ID-based references, in `ori_llvm::ir_builder`)
+- Section 03: Expression lowering modules (split from current Builder, in `ori_llvm::codegen`)
+- Section 04: Function declaration and calling conventions
+
+### Tier 2: ARC (Critical for Correctness) — all in `ori_arc`
+- Section 05: Type classification and ArcClassification trait (Scalar/Ref)
+- Section 06: ARC IR lowering + borrow inference
+- Section 07: RC insertion via liveness analysis on ARC IR
+- Section 08: RC elimination via dataflow on ARC IR
+
+### Tier 3: Optimization (Performance)
+- Section 09: Constructor reuse analysis (FBIP)
+- Section 10: Pattern match decision trees
+- Section 11: LLVM optimization pass configuration
+- Section 12: Incremental/parallel codegen
+
+### Tier 4: Polish (Quality of Life)
+- Section 13: Debug info generation
+- Section 14: Codegen test harness
+- Section 15: Diagnostics and error reporting
+
+## Dependencies
+
+```
+ori_arc depends on:  ori_ir (ExprArena, ExprKind), ori_types (Pool, Idx)
+ori_llvm depends on: ori_arc, ori_ir, ori_types, ori_rt (RC runtime: ori_rc_inc, ori_rc_dec, ori_alloc, ori_free)
+
+Tier 1 (ori_llvm foundation) depends on: ori_ir, ori_types
+Tier 2 (ori_arc)             depends on: ori_ir, ori_types
+Tier 3 (optimization)        depends on: Tier 1 + Tier 2
+Tier 4 (polish)              depends on: Tier 1
+```
+
+**Note:** `ori_rt` provides the ARC runtime functions (`ori_rc_inc`, `ori_rc_dec`, `ori_rc_is_unique`, `ori_alloc`, `ori_free`) that `ori_llvm` emits calls to. The codegen layer references these as external symbols; the runtime library is linked at the final binary stage.
+
+## Migration Strategy
+
+The V2 architecture can be built incrementally alongside the existing `ori_llvm`:
+
+1. **Phase 1**: Build `TypeInfo` enum + `LayoutEngine` as new modules inside `ori_llvm` alongside existing code
+2. **Phase 2**: Build `ori_arc` crate with ARC IR, classification, and analysis passes (testable independently, no LLVM dependency)
+3. **Phase 3**: Build new `IrBuilder` and expression lowering modules inside `ori_llvm`
+4. **Phase 4**: Introduce a `codegen_v2` feature flag (compile-time switch). Run test suite against BOTH old and new pipelines in CI. Progressively migrate expression kinds to the new pipeline. Only deprecate the old `Builder` once full test parity is verified across all expression kinds and optimizations.
+5. **Phase 5**: Remove old `Builder` code, the `codegen_v2` feature flag, and the existing backend trait abstraction (`BackendTypes`, `TypeMethods`, `BuilderMethods`, `CodegenMethods`) — these are replaced by direct LLVM implementation without the indirection layer (YAGNI — only one backend).
+
+Each phase is independently testable and doesn't break existing functionality.
+
+### Backend Trait Removal (Phase 5)
+
+The existing `ori_llvm` has a trait-based backend abstraction (`BackendTypes`, `TypeMethods`, `BuilderMethods`, `CodegenMethods`) designed for hypothetical multiple backends. Since Ori only targets LLVM for the foreseeable future, V2 removes this indirection entirely. The `ori_llvm` codegen calls inkwell directly through the `IrBuilder` wrapper. If a second backend is ever needed, the abstraction can be reintroduced at that point with actual requirements to guide its design.

@@ -4,7 +4,8 @@
 
 use super::ParseError;
 use ori_diagnostic::ErrorCode;
-use ori_ir::{Name, Span, StringInterner, Token, TokenCapture, TokenKind, TokenList};
+use ori_ir::{Name, Span, StringInterner, Token, TokenCapture, TokenFlags, TokenKind, TokenList};
+use tracing::trace;
 
 /// Cursor for navigating tokens.
 ///
@@ -17,6 +18,8 @@ pub struct Cursor<'a> {
     tokens: &'a TokenList,
     /// Dense array of discriminant tags, parallel to `tokens`.
     tags: &'a [u8],
+    /// Dense array of per-token metadata flags, parallel to `tokens`.
+    flags: &'a [TokenFlags],
     interner: &'a StringInterner,
     pos: usize,
 }
@@ -27,6 +30,7 @@ impl<'a> Cursor<'a> {
         Cursor {
             tokens,
             tags: tokens.tags(),
+            flags: tokens.flags(),
             interner,
             pos: 0,
         }
@@ -184,6 +188,62 @@ impl<'a> Cursor<'a> {
         self.spans_adjacent(self.current_span(), self.peek_next_span())
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // TokenFlags Access
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Get the flags for the current token.
+    #[inline]
+    pub fn current_flags(&self) -> TokenFlags {
+        self.flags[self.pos]
+    }
+
+    /// True if the current token was preceded by a newline.
+    ///
+    /// Used for implicit line continuation detection and
+    /// newline-significant grammar rules.
+    #[inline]
+    pub fn has_newline_before(&self) -> bool {
+        self.flags[self.pos].has_newline_before()
+    }
+
+    /// True if the current token is the first non-trivia token on its line.
+    ///
+    /// Used for layout-sensitive constructs where indentation matters.
+    #[inline]
+    pub fn at_line_start(&self) -> bool {
+        self.flags[self.pos].is_line_start()
+    }
+
+    /// True if a doc comment preceded the current token (`IS_DOC` flag).
+    ///
+    /// Doc comments use markers `#` (description), `*` (member), `!` (warning),
+    /// `>` (example). This flag is set on the first non-trivia token after
+    /// the doc comment, typically a declaration keyword like `def` or `type`.
+    ///
+    /// Only available when tokens are produced by [`lex_with_comments()`] —
+    /// the fast [`lex()`] path does not classify comments.
+    #[inline]
+    pub fn has_doc_before(&self) -> bool {
+        self.flags[self.pos].is_doc()
+    }
+
+    /// True if the current token is adjacent to the previous token
+    /// (no whitespace, newline, or trivia between them).
+    ///
+    /// Useful for distinguishing `foo(` (call) from `foo (` (grouping).
+    #[inline]
+    pub fn is_adjacent(&self) -> bool {
+        self.flags[self.pos].is_adjacent()
+    }
+
+    /// True if the current token was resolved as a context-sensitive keyword
+    /// (soft keyword with `(` lookahead).
+    #[inline]
+    pub fn is_contextual_kw(&self) -> bool {
+        self.flags[self.pos].is_contextual_kw()
+    }
+
     /// Check if looking at `>` followed immediately by `>` (no whitespace).
     /// Used for detecting `>>` shift operator in expression context.
     pub fn is_shift_right(&self) -> bool {
@@ -259,8 +319,6 @@ impl<'a> Cursor<'a> {
                 | TokenKind::In
                 | TokenKind::If
                 | TokenKind::Type
-                | TokenKind::Parallel
-                | TokenKind::Timeout
         )
     }
 
@@ -268,20 +326,18 @@ impl<'a> Cursor<'a> {
     /// These are only treated as keywords in specific contexts (e.g., when followed by `(`).
     /// Per spec, context-sensitive keywords: by cache catch for max parallel recurse run spawn timeout try with without
     /// Returns the interned name if it's a soft keyword, None otherwise.
+    ///
+    /// Note: `cache`, `catch`, `parallel`, `recurse`, `spawn`, `timeout` are handled
+    /// at the lexer level via `(` lookahead — they appear as `Ident` tokens when not
+    /// in keyword position, so they don't need conversion here.
     pub fn soft_keyword_to_name(&self) -> Option<&'static str> {
         match self.current_kind() {
             // I/O primitives
             TokenKind::Print => Some("print"),
             TokenKind::Panic => Some("panic"),
-            // Context-sensitive pattern keywords
+            // Context-sensitive pattern keywords (still always-resolved)
             TokenKind::By => Some("by"),
-            TokenKind::Cache => Some("cache"),
-            TokenKind::Catch => Some("catch"),
-            TokenKind::Parallel => Some("parallel"),
-            TokenKind::Recurse => Some("recurse"),
             TokenKind::Run => Some("run"),
-            TokenKind::Spawn => Some("spawn"),
-            TokenKind::Timeout => Some("timeout"),
             TokenKind::Try => Some("try"),
             TokenKind::With => Some("with"),
             _ => None,
@@ -303,8 +359,16 @@ impl<'a> Cursor<'a> {
             self.pos < self.tokens.len(),
             "advance past end of token stream"
         );
+        let token = &self.tokens[current];
+        trace!(
+            pos = current,
+            kind = %token.kind.display_name(),
+            span_start = token.span.start,
+            span_end = token.span.end,
+            "advance"
+        );
         self.pos += 1;
-        &self.tokens[current]
+        token
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -457,15 +521,6 @@ impl<'a> Cursor<'a> {
                 self.advance();
                 Ok(self.interner.intern("type"))
             }
-            // Compiler-supported pattern keywords that can be used as named argument names
-            TokenKind::Parallel => {
-                self.advance();
-                Ok(self.interner.intern("parallel"))
-            }
-            TokenKind::Timeout => {
-                self.advance();
-                Ok(self.interner.intern("timeout"))
-            }
             _ => Err(ParseError::new(
                 ErrorCode::E1004,
                 format!(
@@ -611,5 +666,129 @@ mod tests {
 
         assert!(capture.is_empty());
         assert_eq!(capture.len(), 0);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TokenFlags tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_newline_before_flag() {
+        let interner = StringInterner::new();
+        // "let\nx" -> tokens: [let, \n, x, EOF]
+        let tokens = ori_lexer::lex("let\nx", &interner);
+        let tokens = Box::leak(Box::new(tokens));
+        let interner = Box::leak(Box::new(interner));
+        let mut cursor = Cursor::new(tokens, interner);
+
+        // `let` is the first token — no newline before it
+        assert!(!cursor.has_newline_before());
+        cursor.advance(); // skip `let`
+        cursor.skip_newlines();
+
+        // `x` follows a newline — NEWLINE_BEFORE should be set
+        assert!(cursor.check_ident());
+        assert!(cursor.has_newline_before());
+    }
+
+    #[test]
+    fn test_no_newline_on_same_line() {
+        let interner = StringInterner::new();
+        // "let x" -> tokens: [let, x, EOF]
+        let tokens = ori_lexer::lex("let x", &interner);
+        let tokens = Box::leak(Box::new(tokens));
+        let interner = Box::leak(Box::new(interner));
+        let mut cursor = Cursor::new(tokens, interner);
+
+        // `let` — no newline before
+        assert!(!cursor.has_newline_before());
+        cursor.advance();
+
+        // `x` — still no newline, just a space
+        assert!(!cursor.has_newline_before());
+    }
+
+    #[test]
+    fn test_line_start_flag() {
+        let interner = StringInterner::new();
+        // "let\nx" -> tokens: [let, \n, x, EOF]
+        let tokens = ori_lexer::lex("let\nx", &interner);
+        let tokens = Box::leak(Box::new(tokens));
+        let interner = Box::leak(Box::new(interner));
+        let mut cursor = Cursor::new(tokens, interner);
+
+        cursor.advance(); // skip `let`
+        cursor.skip_newlines();
+
+        // `x` is the first non-trivia token on its line — LINE_START set
+        assert!(cursor.check_ident());
+        assert!(cursor.at_line_start());
+    }
+
+    #[test]
+    fn test_no_line_start_mid_line() {
+        let interner = StringInterner::new();
+        // "let x = 42" -> all on same line
+        let tokens = ori_lexer::lex("let x = 42", &interner);
+        let tokens = Box::leak(Box::new(tokens));
+        let interner = Box::leak(Box::new(interner));
+        let mut cursor = Cursor::new(tokens, interner);
+
+        cursor.advance(); // skip `let`
+
+        // `x` is NOT at line start — it's mid-line
+        assert!(!cursor.at_line_start());
+    }
+
+    #[test]
+    fn test_current_flags_returns_correct_value() {
+        let interner = StringInterner::new();
+        // "let   x" -> tokens: [let, x, EOF]
+        let tokens = ori_lexer::lex("let   x", &interner);
+        let tokens = Box::leak(Box::new(tokens));
+        let interner = Box::leak(Box::new(interner));
+        let mut cursor = Cursor::new(tokens, interner);
+
+        cursor.advance(); // skip `let`
+
+        // `x` is preceded by spaces — SPACE_BEFORE should be set
+        let flags = cursor.current_flags();
+        assert!(flags.has_space_before());
+        assert!(!flags.has_newline_before());
+    }
+
+    #[test]
+    fn test_multiple_newlines_flag() {
+        let interner = StringInterner::new();
+        // "a\n\n\nb" -> tokens: [a, \n, \n, \n, b, EOF]
+        let tokens = ori_lexer::lex("a\n\n\nb", &interner);
+        let tokens = Box::leak(Box::new(tokens));
+        let interner = Box::leak(Box::new(interner));
+        let mut cursor = Cursor::new(tokens, interner);
+
+        cursor.advance(); // skip `a`
+        cursor.skip_newlines();
+
+        // `b` follows multiple newlines
+        assert!(cursor.check_ident());
+        assert!(cursor.has_newline_before());
+        assert!(cursor.at_line_start());
+    }
+
+    #[test]
+    fn test_eof_flags() {
+        let interner = StringInterner::new();
+        // "let\n" -> tokens: [let, \n, EOF]
+        let tokens = ori_lexer::lex("let\n", &interner);
+        let tokens = Box::leak(Box::new(tokens));
+        let interner = Box::leak(Box::new(interner));
+        let mut cursor = Cursor::new(tokens, interner);
+
+        cursor.advance(); // skip `let`
+        cursor.skip_newlines();
+
+        // EOF follows a newline
+        assert!(cursor.is_at_end());
+        assert!(cursor.has_newline_before());
     }
 }

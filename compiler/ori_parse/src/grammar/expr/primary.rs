@@ -11,8 +11,9 @@ use crate::recovery::TokenSet;
 use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     BindingPattern, DurationUnit, Expr, ExprId, ExprKind, ExprRange, Name, Param, ParamRange,
-    ParsedTypeId, SizeUnit, TokenKind,
+    ParsedTypeId, SizeUnit, TemplatePart, TokenKind,
 };
+use tracing::{debug, trace};
 
 // === Token sets for EmptyErr reporting ===
 //
@@ -33,11 +34,14 @@ const LITERAL_TOKENS: TokenSet = TokenSet::new()
     .with(TokenKind::Size(0, SizeUnit::Bytes));
 
 /// Tokens that start an identifier-like expression (idents + soft keywords).
+///
+/// Note: `Cache`, `Catch`, `Parallel`, `Spawn`, `Recurse`, `Timeout` are NOT
+/// listed here — the lexer only produces these tokens when followed by `(`,
+/// so they never appear in identifier position.
 const IDENT_LIKE_TOKENS: TokenSet = TokenSet::new()
     .with(TokenKind::Ident(Name::EMPTY))
     .with(TokenKind::Print)
     .with(TokenKind::Panic)
-    .with(TokenKind::Catch)
     .with(TokenKind::SelfLower)
     .with(TokenKind::IntType)
     .with(TokenKind::FloatType)
@@ -45,11 +49,9 @@ const IDENT_LIKE_TOKENS: TokenSet = TokenSet::new()
     .with(TokenKind::BoolType)
     .with(TokenKind::CharType)
     .with(TokenKind::ByteType)
-    .with(TokenKind::Timeout)
-    .with(TokenKind::Parallel)
-    .with(TokenKind::Cache)
-    .with(TokenKind::Spawn)
-    .with(TokenKind::Recurse);
+    .with(TokenKind::Unsafe)
+    .with(TokenKind::Suspend)
+    .with(TokenKind::Extern);
 
 /// Tokens that start a variant constructor.
 const VARIANT_TOKENS: TokenSet = TokenSet::new()
@@ -64,10 +66,10 @@ const CONTROL_FLOW_TOKENS: TokenSet = TokenSet::new()
     .with(TokenKind::Continue)
     .with(TokenKind::Return);
 
-/// Tokens that start an error literal (float duration/size).
-const ERROR_LITERAL_TOKENS: TokenSet = TokenSet::new()
-    .with(TokenKind::FloatDurationError)
-    .with(TokenKind::FloatSizeError);
+/// Tokens that start a template literal expression.
+const TEMPLATE_TOKENS: TokenSet = TokenSet::new()
+    .with(TokenKind::TemplateFull(Name::EMPTY))
+    .with(TokenKind::TemplateHead(Name::EMPTY));
 
 /// Tokens for miscellaneous single-token primaries.
 const MISC_PRIMARY_TOKENS: TokenSet = TokenSet::new()
@@ -81,20 +83,32 @@ impl Parser<'_> {
     /// Context-sensitive keywords that need multi-token lookahead remain as an if-chain
     /// before the `one_of!` dispatch.
     pub(crate) fn parse_primary(&mut self) -> ParseOutcome<ExprId> {
+        debug!(
+            pos = self.position(),
+            tag = self.current_tag(),
+            kind = self.current_kind().display_name(),
+            span_start = self.current_span().start,
+            span_end = self.current_span().end,
+            "parse_primary"
+        );
+
         // === Context-sensitive keywords requiring multi-token lookahead ===
         //
         // These stay as an if-chain because they need `next_is_lparen()`,
         // `is_with_capability_syntax()`, or `match_function_exp_kind()` before
         // deciding, and they advance before calling the sub-parser.
         if self.check(&TokenKind::Run) {
+            trace!("parse_primary -> Run");
             self.advance();
             return self.parse_run();
         }
         if self.check(&TokenKind::Try) {
+            trace!("parse_primary -> Try");
             self.advance();
             return self.parse_try();
         }
         if self.check(&TokenKind::Match) {
+            trace!("parse_primary -> Match");
             self.advance();
             return self.parse_match_expr();
         }
@@ -121,6 +135,7 @@ impl Parser<'_> {
         // if the token doesn't match, so correctness is preserved — but we
         // know these tags map 1:1 to a specific sub-parser, so the guard
         // always succeeds and we skip the overhead of probing alternatives.
+        trace!(tag = self.current_tag(), "parse_primary fast-path dispatch");
         match self.current_tag() {
             TokenKind::TAG_INT
             | TokenKind::TAG_FLOAT
@@ -132,7 +147,10 @@ impl Parser<'_> {
             | TokenKind::TAG_SIZE => {
                 return self.parse_literal_primary();
             }
-            TokenKind::TAG_IDENT => return self.parse_ident_primary(),
+            TokenKind::TAG_IDENT
+            | TokenKind::TAG_UNSAFE
+            | TokenKind::TAG_SUSPEND
+            | TokenKind::TAG_EXTERN => return self.parse_ident_primary(),
             TokenKind::TAG_LPAREN => return self.parse_parenthesized(),
             TokenKind::TAG_LBRACKET => return self.parse_list_literal(),
             TokenKind::TAG_LBRACE => return self.parse_map_literal(),
@@ -148,10 +166,16 @@ impl Parser<'_> {
             TokenKind::TAG_BREAK | TokenKind::TAG_CONTINUE | TokenKind::TAG_RETURN => {
                 return self.parse_control_flow_primary();
             }
-            TokenKind::TAG_FLOAT_DURATION_ERROR | TokenKind::TAG_FLOAT_SIZE_ERROR => {
-                return self.parse_error_literal_primary();
+            TokenKind::TAG_TEMPLATE_FULL | TokenKind::TAG_TEMPLATE_HEAD => {
+                return self.parse_template_literal();
             }
-            _ => {}
+            _ => {
+                trace!(
+                    tag = self.current_tag(),
+                    kind = self.current_kind().display_name(),
+                    "parse_primary fast-path: no match, falling through to one_of!"
+                );
+            }
         }
 
         // === Fallback: full one_of! dispatch ===
@@ -173,7 +197,7 @@ impl Parser<'_> {
             self.parse_loop_expr(),
             self.parse_for_loop(),
             self.parse_control_flow_primary(),
-            self.parse_error_literal_primary(),
+            self.parse_template_literal(),
         )
     }
 
@@ -252,13 +276,22 @@ impl Parser<'_> {
     }
 
     /// Parse identifier-like tokens: `Ident`, soft keywords used as identifiers
-    /// (`Print`, `Panic`, `Catch`, `SelfLower`), type conversion keywords
-    /// (`IntType`, `FloatType`, etc.), and context-sensitive keywords when not
-    /// followed by `(` (`Timeout`, `Parallel`, `Cache`, `Spawn`, `Recurse`).
+    /// (`Print`, `Panic`, `SelfLower`, `Unsafe`, `Suspend`, `Extern`),
+    /// and type conversion keywords (`IntType`, `FloatType`, etc.).
+    ///
+    /// Note: `Cache`, `Catch`, `Parallel`, `Spawn`, `Recurse`, `Timeout` are
+    /// handled by the lexer's `(` lookahead — they appear as `Ident` tokens
+    /// when not in keyword position, so no conversion is needed here.
     ///
     /// Returns `EmptyErr` if the current token is not identifier-like.
     fn parse_ident_primary(&mut self) -> ParseOutcome<ExprId> {
         let span = self.current_span();
+
+        trace!(
+            kind = self.current_kind().display_name(),
+            span_start = span.start,
+            "parse_ident_primary"
+        );
 
         // Map token to (intern_str, should_advance_first) — all follow the same pattern:
         // intern the name, advance, return Ident expression.
@@ -272,7 +305,6 @@ impl Parser<'_> {
             }
             TokenKind::Print => "print",
             TokenKind::Panic => "panic",
-            TokenKind::Catch => "catch",
             TokenKind::SelfLower => "self",
             TokenKind::IntType => "int",
             TokenKind::FloatType => "float",
@@ -280,12 +312,19 @@ impl Parser<'_> {
             TokenKind::BoolType => "bool",
             TokenKind::CharType => "char",
             TokenKind::ByteType => "byte",
-            TokenKind::Timeout => "timeout",
-            TokenKind::Parallel => "parallel",
-            TokenKind::Cache => "cache",
-            TokenKind::Spawn => "spawn",
-            TokenKind::Recurse => "recurse",
-            _ => return ParseOutcome::empty_err(IDENT_LIKE_TOKENS, self.position()),
+            TokenKind::Unsafe => "unsafe",
+            TokenKind::Suspend => "suspend",
+            TokenKind::Extern => "extern",
+            _ => {
+                debug!(
+                    kind = self.current_kind().display_name(),
+                    tag = self.current_tag(),
+                    pos = self.position(),
+                    span_start = self.current_span().start,
+                    "parse_ident_primary: unhandled token kind"
+                );
+                return ParseOutcome::empty_err(IDENT_LIKE_TOKENS, self.position());
+            }
         };
 
         let interned = self.interner().intern(name);
@@ -481,45 +520,6 @@ impl Parser<'_> {
                 )
             }
             _ => ParseOutcome::empty_err(CONTROL_FLOW_TOKENS, self.position()),
-        }
-    }
-
-    /// Parse error literal tokens: `FloatDurationError`, `FloatSizeError`.
-    ///
-    /// These are lexer-detected errors for floating-point duration/size literals.
-    /// Returns `EmptyErr` if the current token is not an error literal.
-    fn parse_error_literal_primary(&mut self) -> ParseOutcome<ExprId> {
-        let span = self.current_span();
-        match *self.current_kind() {
-            TokenKind::FloatDurationError => {
-                self.advance();
-                ParseOutcome::consumed_err(
-                    ParseError::new(
-                        ori_diagnostic::ErrorCode::E0911,
-                        "floating-point duration literal not supported",
-                        span,
-                    )
-                    .with_context(
-                        "use integer with smaller unit (e.g., `1500ms` instead of `1.5s`)",
-                    ),
-                    span,
-                )
-            }
-            TokenKind::FloatSizeError => {
-                self.advance();
-                ParseOutcome::consumed_err(
-                    ParseError::new(
-                        ori_diagnostic::ErrorCode::E0911,
-                        "floating-point size literal not supported",
-                        span,
-                    )
-                    .with_context(
-                        "use integer with smaller unit (e.g., `1536kb` instead of `1.5mb`)",
-                    ),
-                    span,
-                )
-            }
-            _ => ParseOutcome::empty_err(ERROR_LITERAL_TOKENS, self.position()),
         }
     }
 
@@ -1028,6 +1028,94 @@ impl Parser<'_> {
                 ),
                 self.current_span(),
             )),
+        }
+    }
+
+    /// Parse template literal: `` `text` `` or `` `text{expr}more{expr:fmt}end` ``
+    ///
+    /// Template literals use backticks and support interpolation with `{expr}`.
+    /// An optional format spec can follow the expression: `{expr:format_spec}`.
+    ///
+    /// Returns `EmptyErr` if the current token is not `TemplateFull` or `TemplateHead`.
+    fn parse_template_literal(&mut self) -> ParseOutcome<ExprId> {
+        let span = self.current_span();
+        match *self.current_kind() {
+            // No interpolation: `text`
+            TokenKind::TemplateFull(name) => {
+                self.advance();
+                ParseOutcome::consumed_ok(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::TemplateFull(name), span)),
+                )
+            }
+            // Interpolation: `head{expr}middle{expr}tail`
+            TokenKind::TemplateHead(head) => {
+                self.advance();
+
+                // Template parts use a Vec because nested templates share the
+                // same `template_parts` buffer, causing same-buffer nesting
+                // conflicts with direct arena push.
+                let mut parts = Vec::new();
+
+                loop {
+                    // Parse interpolated expression
+                    let expr = require!(
+                        self,
+                        self.parse_expr(),
+                        "expression in template interpolation"
+                    );
+
+                    // Check for optional format spec
+                    let format_spec = if let TokenKind::FormatSpec(n) = *self.current_kind() {
+                        self.advance();
+                        n
+                    } else {
+                        Name::EMPTY
+                    };
+
+                    // Expect TemplateMiddle or TemplateTail
+                    match *self.current_kind() {
+                        TokenKind::TemplateMiddle(text) => {
+                            parts.push(TemplatePart {
+                                expr,
+                                format_spec,
+                                text_after: text,
+                            });
+                            self.advance();
+                            // Continue loop for next interpolation
+                        }
+                        TokenKind::TemplateTail(text) => {
+                            parts.push(TemplatePart {
+                                expr,
+                                format_spec,
+                                text_after: text,
+                            });
+                            let end_span = self.current_span();
+                            self.advance();
+                            let parts_range = self.arena.alloc_template_parts(parts);
+                            return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
+                                ExprKind::TemplateLiteral {
+                                    head,
+                                    parts: parts_range,
+                                },
+                                span.merge(end_span),
+                            )));
+                        }
+                        _ => {
+                            // Error: expected template continuation
+                            return ParseOutcome::consumed_err(
+                                ParseError::new(
+                                    ori_diagnostic::ErrorCode::E1002,
+                                    "expected `}` to close template interpolation",
+                                    self.current_span(),
+                                ),
+                                span,
+                            );
+                        }
+                    }
+                }
+            }
+            _ => ParseOutcome::empty_err(TEMPLATE_TOKENS, self.position()),
         }
     }
 

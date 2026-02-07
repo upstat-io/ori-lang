@@ -21,6 +21,26 @@ pub enum ErrorCode {
     E0004,
     /// Invalid escape sequence
     E0005,
+    /// Unterminated template literal
+    E0006,
+    /// Semicolon (cross-language habit)
+    E0007,
+    /// Triple-equals (cross-language habit)
+    E0008,
+    /// Single-quote string (cross-language habit)
+    E0009,
+    /// Increment/decrement operator (cross-language habit)
+    E0010,
+    /// Unicode confusable character
+    E0011,
+    /// Detached doc comment (warning)
+    E0012,
+    /// Standalone backslash
+    E0013,
+    /// Decimal not representable as whole base units
+    E0014,
+    /// Reserved-future keyword used as identifier
+    E0015,
     /// Floating-point duration/size literal not supported
     E0911,
 
@@ -128,6 +148,16 @@ impl ErrorCode {
             ErrorCode::E0003 => "E0003",
             ErrorCode::E0004 => "E0004",
             ErrorCode::E0005 => "E0005",
+            ErrorCode::E0006 => "E0006",
+            ErrorCode::E0007 => "E0007",
+            ErrorCode::E0008 => "E0008",
+            ErrorCode::E0009 => "E0009",
+            ErrorCode::E0010 => "E0010",
+            ErrorCode::E0011 => "E0011",
+            ErrorCode::E0012 => "E0012",
+            ErrorCode::E0013 => "E0013",
+            ErrorCode::E0014 => "E0014",
+            ErrorCode::E0015 => "E0015",
             ErrorCode::E0911 => "E0911",
             // Parser
             ErrorCode::E1001 => "E1001",

@@ -1041,28 +1041,48 @@ fn test_tokens_with_metadata_comment_only_edit() {
     assert_eq!(output1.comments.len(), 1);
     assert_eq!(output1.comments[0].kind, CommentKind::Regular);
 
-    // Version 2: doc comment (different comment kind, same code tokens)
+    // Version 2: different regular comment text (same comment kind)
     file.set_text(&mut db)
-        .to("// * x: param doc\n@main () -> int = 42".to_string());
+        .to("// new comment\n@main () -> int = 42".to_string());
 
     let output2 = tokens_with_metadata(&db, file);
     assert_eq!(output2.comments.len(), 1);
+    assert_eq!(output2.comments[0].kind, CommentKind::Regular);
+
+    // Code tokens are identical (same kind, same flags — no IS_DOC in either)
     assert_eq!(
-        output2.comments[0].kind,
+        output1.tokens, output2.tokens,
+        "regular→regular comment text edit should not change code tokens"
+    );
+
+    // But the full LexOutput differs (different comment content)
+    assert_ne!(
+        output1, output2,
+        "full LexOutput should differ due to comment text change"
+    );
+
+    // Version 3: doc comment (comment kind changes → IS_DOC flag changes on @main)
+    file.set_text(&mut db)
+        .to("// * x: param doc\n@main () -> int = 42".to_string());
+
+    let output3 = tokens_with_metadata(&db, file);
+    assert_eq!(output3.comments.len(), 1);
+    assert_eq!(
+        output3.comments[0].kind,
         CommentKind::DocMember,
         "comment kind should update after edit"
     );
 
-    // The code tokens are identical in both versions
-    assert_eq!(
-        output1.tokens, output2.tokens,
-        "code tokens should be position-independently equal"
+    // Token flags differ: @main now has IS_DOC set
+    assert_ne!(
+        output2.tokens, output3.tokens,
+        "regular→doc comment change should change code tokens (IS_DOC flag)"
     );
 
-    // But the full LexOutput differs (different comment content/kind)
+    // Full output also differs
     assert_ne!(
-        output1, output2,
-        "full LexOutput should differ due to comment change"
+        output2, output3,
+        "full LexOutput should differ due to comment kind change"
     );
 }
 

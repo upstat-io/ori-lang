@@ -325,6 +325,66 @@ use std.testing { assert, assert_eq }
 )
 
 // =============================================================================
+// Decimal Size Literals (compile-time sugar, SI units)
+// =============================================================================
+
+// 1.5kb = 1,500 bytes (SI: 1kb = 1000b)
+@decimal_size_1_5kb () -> int = 1.5kb.bytes()
+
+@test_decimal_size_1_5kb tests @decimal_size_1_5kb () -> void = run(
+    assert_eq(actual: decimal_size_1_5kb(), expected: 1500),
+)
+
+// 0.5mb = 500,000 bytes
+@decimal_size_half_mb () -> int = 0.5mb.bytes()
+
+@test_decimal_size_half_mb tests @decimal_size_half_mb () -> void = run(
+    assert_eq(actual: decimal_size_half_mb(), expected: 500000),
+)
+
+// 0.25mb = 250,000 bytes
+@decimal_size_quarter_mb () -> int = 0.25mb.bytes()
+
+@test_decimal_size_quarter_mb tests @decimal_size_quarter_mb () -> void = run(
+    assert_eq(actual: decimal_size_quarter_mb(), expected: 250000),
+)
+
+// 2.5gb = 2,500,000,000 bytes
+@decimal_size_2_5gb () -> int = 2.5gb.bytes()
+
+@test_decimal_size_2_5gb tests @decimal_size_2_5gb () -> void = run(
+    assert_eq(actual: decimal_size_2_5gb(), expected: 2500000000),
+)
+
+// 0.5tb = 500,000,000,000 bytes
+@decimal_size_half_tb () -> int = 0.5tb.bytes()
+
+@test_decimal_size_half_tb tests @decimal_size_half_tb () -> void = run(
+    assert_eq(actual: decimal_size_half_tb(), expected: 500000000000),
+)
+
+// Decimal size equivalence: 1.5kb == 1500b
+@decimal_size_equiv () -> bool = 1.5kb == 1500b
+
+@test_decimal_size_equiv tests @decimal_size_equiv () -> void = run(
+    assert(cond: decimal_size_equiv()),
+)
+
+// Decimal + integer arithmetic: 1.5kb + 500b = 2kb
+@decimal_size_arith () -> int = (1.5kb + 500b).kilobytes()
+
+@test_decimal_size_arith tests @decimal_size_arith () -> void = run(
+    assert_eq(actual: decimal_size_arith(), expected: 2),
+)
+
+// 1.5kb converted to kilobytes (integer division: 1500 / 1000 = 1)
+@decimal_size_1_5kb_to_kb () -> int = 1.5kb.kilobytes()
+
+@test_decimal_size_1_5kb_to_kb tests @decimal_size_1_5kb_to_kb () -> void = run(
+    assert_eq(actual: decimal_size_1_5kb_to_kb(), expected: 1), // 1500b / 1000 = 1 (truncated)
+)
+
+// =============================================================================
 // Size Binding and Shadowing
 // =============================================================================
 

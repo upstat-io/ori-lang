@@ -66,7 +66,7 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         ExprKind::Int(_) | ExprKind::HashLength => Idx::INT,
         ExprKind::Float(_) => Idx::FLOAT,
         ExprKind::Bool(_) => Idx::BOOL,
-        ExprKind::String(_) => Idx::STR,
+        ExprKind::String(_) | ExprKind::TemplateFull(_) => Idx::STR,
         ExprKind::Char(_) => Idx::CHAR,
         ExprKind::Duration { .. } => Idx::DURATION,
         ExprKind::Size { .. } => Idx::SIZE,
@@ -208,6 +208,15 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         ExprKind::FunctionExp(exp_id) => {
             let func_exp = arena.get_function_exp(*exp_id);
             infer_function_exp(engine, arena, func_exp)
+        }
+
+        // === Template Literals ===
+        ExprKind::TemplateLiteral { parts, .. } => {
+            // Infer each interpolated expression (for error reporting), result is always str
+            for part in arena.get_template_parts(*parts) {
+                infer_expr(engine, arena, part.expr);
+            }
+            Idx::STR
         }
 
         // === Error ===

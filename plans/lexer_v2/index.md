@@ -1,5 +1,7 @@
 # Lexer V2 Index
 
+> **Plan Status: COMPLETE** (February 2026) — All 10 sections done. V2 is the default and only lexer.
+
 > **Maintenance Notice:** Update this index when adding/modifying sections.
 >
 > **Conventions:** Cross-references to `plans/v2-conventions.md` are noted as (§*N*) throughout.
@@ -84,7 +86,7 @@ existing SoA, parallel tag array, unchanged structure
 ```
 
 ### Section 05: SWAR & Fast Paths
-**File:** `section-05-swar-fast-paths.md` | **Status:** Not Started
+**File:** `section-05-swar-fast-paths.md` | **Status:** Done (SWAR + memchr implemented; profiling showed byte loop faster than SWAR for typical whitespace; memchr used for strings/comments)
 
 ```
 SWAR, SIMD within a register, bit manipulation
@@ -136,7 +138,7 @@ v2-conventions §5 (Error Shape)
 ```
 
 ### Section 08: Parser Integration & Migration
-**File:** `section-08-parser-integration.md` | **Status:** In Progress (migration complete; template literals done; cursor flags done; performance tests remain)
+**File:** `section-08-parser-integration.md` | **Status:** Done (migration complete; template literals done; cursor flags + IS_DOC done; V2 is default lexer; 8,779 tests pass)
 
 ```
 parser integration, cursor, parser cursor
@@ -166,16 +168,15 @@ v2-conventions §6 (Phase Output), §8 (Salsa Compatibility)
 ```
 
 ### Section 10: Benchmarking & Performance Validation
-**File:** `section-10-benchmarking.md` | **Status:** In Progress (V1 baseline + V2 initial + post-optimization measurements recorded; callgrind profiling done; quick-wins delivered ~30-50% improvement)
+**File:** `section-10-benchmarking.md` | **Status:** Done (V2 final: ~238-242 MiB/s; ~0.83x V1; 65% improvement from initial; 3 callgrind campaigns; 8,779 tests pass)
 
 ```
 benchmark, performance, throughput, regression
 bytes per second, tokens per second, latency
-259-292 MiB/s baseline, 400+ MiB/s target
-V2 current: ~198-219 MiB/s (post quick-wins)
+259-292 MiB/s baseline, V2 final ~238-242 MiB/s
 lexer benchmark, scaling, file size
-profiling, flame graph, cache miss, instruction count
-callgrind, from_utf8, soft_keyword_lookup, pre-filter
+profiling, callgrind, instruction count, cross-crate inline
+SWAR counterproductive, byte loop whitespace, eat_whitespace
 baseline, comparison, before/after
 test-all, clippy-all, conformance
 ```
@@ -190,12 +191,12 @@ test-all, clippy-all, conformance
 | 02 | Raw Scanner | `section-02-raw-scanner.md` | 0 |
 | 03 | Token Cooking & Interning | `section-03-token-cooking.md` | 0 |
 | 04 | TokenList Compatibility & Tag Alignment | `section-04-soa-storage.md` | 1 |
-| 05 | SWAR & Fast Paths | `section-05-swar-fast-paths.md` | 1 |
+| 05 | SWAR & Fast Paths | `section-05-swar-fast-paths.md` | 1 (done) |
 | 06 | Keyword Recognition | `section-06-keyword-recognition.md` | 1 |
 | 07 | Diagnostics & Error Recovery | `section-07-diagnostics.md` | 2 |
-| 08 | Parser Integration & Migration | `section-08-parser-integration.md` | 3 |
+| 08 | Parser Integration & Migration | `section-08-parser-integration.md` | 3 (done) |
 | 09 | Salsa & IDE Integration | `section-09-salsa-ide.md` | 3 (complete) |
-| 10 | Benchmarking & Performance Validation | `section-10-benchmarking.md` | 4 (in progress) |
+| 10 | Benchmarking & Performance Validation | `section-10-benchmarking.md` | 4 (done) |
 
 ---
 

@@ -1442,7 +1442,7 @@ impl TokenFlags {
     pub const LINE_START: u8 = 1 << 3;
     /// Cooking detected an error in this token.
     pub const HAS_ERROR: u8 = 1 << 4;
-    /// This is a doc comment token.
+    /// A doc comment preceded this token (markers: `#`, `*`, `!`, `>`).
     pub const IS_DOC: u8 = 1 << 5;
     /// No whitespace, newline, or trivia preceded this token (adjacent to previous).
     pub const ADJACENT: u8 = 1 << 6;
@@ -1506,7 +1506,7 @@ impl TokenFlags {
         self.contains(Self::HAS_ERROR)
     }
 
-    /// Check if this is a doc comment.
+    /// Check if a doc comment preceded this token.
     #[inline]
     pub const fn is_doc(self) -> bool {
         self.contains(Self::IS_DOC)

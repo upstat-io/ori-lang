@@ -20,7 +20,7 @@ use std::hash::{Hash, Hasher};
 use super::operators::{BinaryOp, UnaryOp};
 use super::ranges::{
     ArmRange, CallArgRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange,
-    StructLitFieldRange,
+    StructLitFieldRange, TemplatePartRange,
 };
 use crate::token::{DurationUnit, SizeUnit};
 use crate::{
@@ -61,6 +61,24 @@ impl Spanned for Expr {
     fn span(&self) -> Span {
         self.span
     }
+}
+
+/// A single interpolation segment in a template literal.
+///
+/// Each part represents: `{expr:format_spec}text_after`
+/// The `text_after` is the text between this interpolation's `}` and the
+/// next `{` (or closing backtick).
+///
+/// # Salsa Compatibility
+/// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub struct TemplatePart {
+    /// The interpolated expression.
+    pub expr: ExprId,
+    /// Raw format spec text (interned). `Name::EMPTY` if no format spec.
+    pub format_spec: Name,
+    /// Text segment after this interpolation (from `TemplateMiddle`/`TemplateTail`).
+    pub text_after: Name,
 }
 
 /// Expression variants.
@@ -311,6 +329,17 @@ pub enum ExprKind {
     /// Arena-allocated via `FunctionExpId` for compact `ExprKind`.
     FunctionExp(FunctionExpId),
 
+    /// Template literal without interpolation: `` `hello world` ``
+    TemplateFull(Name),
+
+    /// Template literal with interpolation: `` `hello {name}!` ``
+    TemplateLiteral {
+        /// Text from the `TemplateHead` token (before first interpolation).
+        head: Name,
+        /// Interpolation parts (expression + optional format spec + text after).
+        parts: TemplatePartRange,
+    },
+
     /// Parse error placeholder
     Error,
 }
@@ -438,6 +467,10 @@ impl fmt::Debug for ExprKind {
             }
             ExprKind::FunctionSeq(seq) => write!(f, "FunctionSeq({seq:?})"),
             ExprKind::FunctionExp(exp) => write!(f, "FunctionExp({exp:?})"),
+            ExprKind::TemplateFull(name) => write!(f, "TemplateFull({name:?})"),
+            ExprKind::TemplateLiteral { head, parts } => {
+                write!(f, "TemplateLiteral({head:?}, {parts:?})")
+            }
             ExprKind::Error => write!(f, "Error"),
         }
     }

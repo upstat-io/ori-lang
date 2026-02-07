@@ -332,6 +332,10 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 }
             }
 
+            // Template literals
+            ExprKind::TemplateFull(name) => self.interner.lookup(*name).len() + 2, // backticks
+            ExprKind::TemplateLiteral { .. } => ALWAYS_STACKED, // conservative: contains expressions
+
             // Parse error - always stack
             ExprKind::Error => ALWAYS_STACKED,
         }

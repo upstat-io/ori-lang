@@ -26,6 +26,7 @@ mod primary;
 use crate::{chain, committed, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{Expr, ExprId, ExprKind, TokenKind, UnaryOp};
 use ori_stack::ensure_sufficient_stack;
+use tracing::trace;
 
 /// Binding power constants for the Pratt parser.
 ///
@@ -71,6 +72,11 @@ impl Parser<'_> {
     /// Uses `ensure_sufficient_stack` to prevent stack overflow
     /// on deeply nested expressions.
     pub(crate) fn parse_expr(&mut self) -> ParseOutcome<ExprId> {
+        trace!(
+            pos = self.position(),
+            kind = self.current_kind().display_name(),
+            "parse_expr"
+        );
         ensure_sufficient_stack(|| self.parse_expr_inner())
     }
 
