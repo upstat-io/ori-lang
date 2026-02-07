@@ -53,6 +53,25 @@ pub fn tokens(db: &dyn Db, file: SourceFile) -> TokenList {
     ori_lexer::lex(text, db.interner())
 }
 
+/// Tokenize a source file with full metadata (comments, blank lines, errors).
+///
+/// Unlike `tokens()` which returns only the `TokenList` for parsing,
+/// this query preserves the complete `LexOutput` including comments,
+/// blank line positions, and lex errors. This is used by the formatter
+/// and IDE features that need comment information.
+///
+/// # Caching Behavior
+///
+/// Uses position-independent `TokenList` hashing so whitespace-only edits
+/// that shift token positions (but don't change token kinds) still enable
+/// early cutoff for downstream queries that depend only on `tokens()`.
+#[salsa::tracked]
+pub fn tokens_with_metadata(db: &dyn Db, file: SourceFile) -> ori_lexer::LexOutput {
+    tracing::debug!(path = %file.path(db).display(), "lexing with metadata");
+    let text = file.text(db);
+    ori_lexer::lex_with_comments(text, db.interner())
+}
+
 /// Parse a source file into a module.
 ///
 /// This query demonstrates incremental parsing with early cutoff:
