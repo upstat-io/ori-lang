@@ -9,7 +9,7 @@ section: "Verification"
 
 Capabilities are traits representing effects or suspension.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (uses_clause), EXPRESSIONS (with_expr)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § DECLARATIONS (uses_clause), EXPRESSIONS (with_expr)
 
 ## Declaration
 

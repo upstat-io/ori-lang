@@ -103,6 +103,8 @@ impl FunctionCompiler<'_, '_> {
 
 V2 enhances `FunctionSig` with `ParamPassing`, `ReturnPassing`, and `CallConv`:
 
+> **Note on `is_generic`:** V1's `FunctionSig` included `is_generic: bool`. V2 intentionally drops this field from the signature. Generic functions are not lowered directly — they are monomorphized first, producing concrete `FunctionSig` instances for each instantiation. The `FunctionCompiler::declare_all()` phase skips uninstantiated generic functions (they have no concrete types to lower). Generic filtering thus moves from the signature to the declaration phase.
+
 ```rust
 pub struct FunctionSig {
     params: Vec<ParamSig>,
@@ -133,6 +135,9 @@ pub enum ParamPassing {
     /// Unit/never types -- no value passed.
     Void,
     /// ARC'd types passed by reference (if applicable from borrow inference).
+    /// NOTE: Added by Section 06 (borrow inference); not produced in Tier 1.
+    /// compute_param_passing() never returns this variant — it is only set
+    /// by the borrow inference pass when a parameter is proven to be borrowed.
     Reference,
 }
 
@@ -173,10 +178,12 @@ V2 replaces this with TypeInfo-driven thresholds:
 ```rust
 fn compute_param_passing(ty: Idx, type_info: &TypeInfoStore) -> ParamPassing {
     let info = type_info.get(ty);
+    // size() returns Option<u64>: None for dynamically-sized types,
+    // Some(0) for unit/never. Both map to Void.
     match info.size() {
-        0 => ParamPassing::Void,                     // unit, never
-        1..=16 => ParamPassing::Direct,              // fits in <=2 registers
-        _ => ParamPassing::Indirect {                 // >16 bytes, use byval
+        Some(0) | None => ParamPassing::Void,        // unit, never, or unsized
+        Some(1..=16) => ParamPassing::Direct,        // fits in <=2 registers
+        Some(_) => ParamPassing::Indirect {           // >16 bytes, use byval
             alignment: info.alignment(),
         },
     }
@@ -184,17 +191,19 @@ fn compute_param_passing(ty: Idx, type_info: &TypeInfoStore) -> ParamPassing {
 
 fn compute_return_passing(ty: Idx, type_info: &TypeInfoStore) -> ReturnPassing {
     let info = type_info.get(ty);
+    // size() returns Option<u64>: None for dynamically-sized types,
+    // Some(0) for unit/never. Both map to Void.
     match info.size() {
-        0 => ReturnPassing::Void,
-        1..=16 => ReturnPassing::Direct,
-        _ => ReturnPassing::Sret {
+        Some(0) | None => ReturnPassing::Void,
+        Some(1..=16) => ReturnPassing::Direct,
+        Some(_) => ReturnPassing::Sret {
             alignment: info.alignment(),
         },
     }
 }
 ```
 
-The threshold (16 bytes = 2 registers on x86-64 SysV ABI) is the same as the current ad-hoc check but is now driven by `TypeInfo::abi_size()` rather than counting LLVM struct fields.
+The threshold (16 bytes = 2 registers on x86-64 SysV ABI) is the same as the current ad-hoc check but is now driven by `TypeInfo::size()` rather than counting LLVM struct fields. `TypeInfo::size()` returns the ABI size (the size used for allocation and parameter passing).
 
 **Coordinated sret pattern (current, preserved in V2):**
 1. **Declare:** Add `sret(T)` + `noalias` attributes on param 0; function returns void
@@ -229,7 +238,7 @@ V2 assigns calling conventions based on function role:
 | `@panic` | `ccc` | Called from C runtime |
 | FFI / `extern` functions | `ccc` | Must match C ABI |
 | Runtime functions (`ori_*`) | `ccc` | Implemented in Rust with `#[no_mangle]`, linked as C |
-| Test wrappers (`__test_*`) | `fastcc` | Internal, called only from JIT |
+| Test wrappers (`_ori_test_*`) | `fastcc` | Internal, called from JIT and AOT test runners |
 
 **Reference:** Roc uses the same pattern -- `FAST_CALL_CONV` for all internal Roc functions, C convention only at FFI boundaries. See `crates/compiler/gen_llvm/src/llvm/build.rs`.
 
@@ -241,6 +250,9 @@ V2 assigns calling conventions based on function role:
 ```rust
 fn select_calling_convention(func: &Function, interner: &StringInterner) -> CallConv {
     let name = interner.lookup(func.name);
+    // Note: The `@` prefix in `@main` and `@panic` is source syntax only.
+    // The interned function name does NOT include `@` — it stores "main"
+    // and "panic" respectively. The parser strips the prefix during interning.
     if name == "main" || name == "panic" {
         CallConv::C
     } else if func.is_extern() {
@@ -284,40 +296,40 @@ Limitations:
 
 **No-capture optimization:** When a closure has no captures, `env_ptr` is `null`. Call sites can check for null and call `fn_ptr` directly (no environment dereference).
 
-**Environment struct:** Captures are stored in a heap-allocated, ARC-managed struct using the Roc-style ptr-8 layout (consistent with all other RC'd types in Ori):
+**Environment struct:** Captures are stored in a heap-allocated, ARC-managed struct using the 16-byte header layout (consistent with all other RC'd types in Ori):
 
 ```llvm
 ; Environment for a closure capturing x: int and name: str
 ; Allocated via ori_rc_alloc(sizeof(%env_lambda_3), align)
-; which returns a data pointer; refcount lives at ptr-8.
+; which returns a data pointer; header (strong_count + weak_count) lives at ptr-16.
 %env_lambda_3 = type {
     i64,          ; capture 'x' (int, stored at native type)
     { ptr, i64 }  ; capture 'name' (str, stored at native type)
 }
 
-; Heap layout (Roc-style, see Section 01.6):
-;   ┌──────────────┬───────────────────────┐
-;   │ refcount: i64│ env_lambda_3 data ... │
-;   └──────────────┴───────────────────────┘
-;   ^              ^
-;   ptr - 8        ptr (env_ptr stored in closure fat pointer)
+; Heap layout (see Section 01.6, Section 07.3):
+;   ┌──────────────────┬──────────────────┬───────────────────────┐
+;   │ strong_count: i64│ weak_count: i64  │ env_lambda_3 data ... │
+;   └──────────────────┴──────────────────┴───────────────────────┘
+;   ^                  ^                  ^
+;   ptr - 16           ptr - 8            ptr (env_ptr stored in closure fat pointer)
 ```
 
 - No i64 coercion -- captures stored at their native types
 - No capture limit -- environment struct grows as needed
-- No refcount inside the struct -- refcount lives at ptr-8 (Roc-style), consistent with all other RC'd types (str, list, map, set, channel)
-- Allocation: `ori_rc_alloc(sizeof(env), align)` returns data pointer; refcount at ptr-8
-- ARC-managed via the same refcount-at-negative-offset layout used by all Ori heap objects (Section 01.6, Section 07)
+- No refcount inside the struct -- 16-byte header (strong_count + weak_count) lives at negative offset, consistent with all other RC'd types (str, list, map, set, channel)
+- Allocation: `ori_rc_alloc(sizeof(env), align)` returns data pointer; header at ptr-16
+- ARC-managed via the same header-at-negative-offset layout used by all Ori heap objects (Section 01.6, Section 07)
 
 **Function signature:** All closures receive `env_ptr` as a hidden first parameter:
 
 ```llvm
-; Lambda (x: int) -> int that captures 'offset: int' and 'name: str'
-define fastcc i64 @__lambda_3(ptr %env, i64 %x) {
-    ; Load captures from environment
-    %offset_ptr = getelementptr %env_lambda_3, ptr %env, i32 0, i32 1
-    %offset = load i64, ptr %offset_ptr
-    ; ... use offset and x ...
+; Lambda (x: int) -> int that captures 'x: int' (field 0) and 'name: str' (field 1)
+define fastcc i64 @__lambda_3(ptr %env, i64 %arg_x) {
+    ; Load captures from environment (no refcount field — header is at ptr-16)
+    %x_ptr = getelementptr %env_lambda_3, ptr %env, i32 0, i32 0
+    %x = load i64, ptr %x_ptr
+    ; ... use %x and %arg_x ...
 }
 ```
 
@@ -337,7 +349,7 @@ fn call_closure(closure: ClosureValue, args: &[Value]) -> Value {
 }
 ```
 
-**Calling convention:** Internal closures use `fastcc`, matching other internal Ori functions.
+**Calling convention:** All Ori closures use `fastcc`, matching other internal Ori functions. Indirect closure calls (through a function pointer extracted from a fat-pointer closure) always use `fastcc`. FFI function pointers are NOT closures — they use `ccc` and require thunk wrappers to bridge between `ccc` (FFI side) and `fastcc` (Ori side) when passed as closures to Ori code.
 
 - [ ] Implement fat-pointer closure representation `{ ptr, ptr }`
 - [ ] Implement environment struct generation per lambda
@@ -357,6 +369,7 @@ fn call_closure(closure: ClosureValue, args: &[Value]) -> Value {
 - Extension method: `_ori_<type>$$ext$<method>`
 - Generic instantiation: `_ori_<module>$<function>$G<type_args>`
 - `$` as module separator, `$$` for trait implementations, `$A$` for associated functions
+- Type names in mangled symbols are encoded via `encode_identifier` to produce valid LLVM symbol characters (e.g., `[int]` becomes `list_int_`, `result<str, Error>` becomes `result_str_Error_`)
 
 V2: All paths (AOT and JIT) use mangled names for consistency and to support same-name functions in different modules.
 
@@ -431,21 +444,21 @@ The runtime checks this global before using the default panic handler.
 
 ### Test wrappers
 
-Test functions are compiled as `__test_<name>` with void signature:
+Test functions are compiled as `_ori_test_<name>` with void signature:
 
 ```rust
-let wrapper_name = format!("__test_{test_name_str}");
+let wrapper_name = format!("_ori_test_{test_name_str}");
 let void_sig = FunctionSig {
     params: vec![],
-    return_type: Idx::UNIT,
-    is_generic: false,
+    return_sig: ReturnSig { ty: Idx::UNIT, passing: ReturnPassing::Void },
+    calling_convention: CallConv::Fast,
 };
 compiler.compile_function_with_sig(&test_func, arena, expr_types, Some(&void_sig));
 ```
 
-This pattern is already implemented in the evaluator (`evaluator.rs` lines 468-490) and works correctly. V2 preserves it but uses `fastcc` for test wrappers since they are internal.
+This pattern is already implemented in the evaluator (`evaluator.rs` lines 468-490) using the `__test_` prefix. V2 migrates both JIT and AOT paths to the unified `_ori_test_` prefix for consistency with the `_ori_` mangling convention used by all other Ori symbols. The JIT path must be updated to use `_ori_test_` as well (migration from `__test_` to `_ori_test_`). V2 uses `fastcc` for test wrappers since they are internal.
 
-- [ ] Preserve `__test_<name>` wrapper pattern
+- [ ] Migrate `__test_<name>` to `_ori_test_<name>` in both JIT and AOT paths
 - [ ] Use `fastcc` for test wrappers
 
 ---

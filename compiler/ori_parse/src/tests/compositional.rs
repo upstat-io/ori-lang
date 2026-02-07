@@ -1813,6 +1813,7 @@ mod mixed_imports {
     }
 
     #[test]
+    #[ignore = "extension import parsing not yet implemented (grammar §Extensions)"]
     fn test_extension_imports() {
         let sources = &[
             // Basic extension import

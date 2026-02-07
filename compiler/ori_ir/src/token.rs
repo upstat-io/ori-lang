@@ -1046,7 +1046,7 @@ impl TokenKind {
             11 => Some("async"),
             12 => Some("break"),
             13 => Some("continue"),
-            14 => Some("return"),
+            // 14 was "return" — removed (not a spec keyword)
             15 => Some("def"),
             16 => Some("do"),
             17 => Some("else"),

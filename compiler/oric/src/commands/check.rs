@@ -2,7 +2,8 @@
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 use ori_diagnostic::queue::DiagnosticQueue;
-use oric::query::parsed;
+use oric::problem::LexProblem;
+use oric::query::{lex_errors, parsed};
 use oric::reporting::typeck::TypeErrorRenderer;
 use oric::typeck;
 use oric::{CompilerDb, Db, SourceFile};
@@ -26,6 +27,16 @@ pub fn check_file(path: &str) {
     let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty)
         .with_source(file.text(&db).as_str())
         .with_file_path(path);
+
+    // Report lexer errors first (unterminated strings, semicolons, confusables, etc.)
+    let lex_errs = lex_errors(&db, file);
+    if !lex_errs.is_empty() {
+        for err in &lex_errs {
+            let diag = LexProblem::Error(err.clone()).into_diagnostic(db.interner());
+            emitter.emit(&diag);
+        }
+        has_errors = true;
+    }
 
     // Check for parse errors — route through DiagnosticQueue for
     // deduplication and soft-error suppression after hard errors

@@ -35,6 +35,8 @@ sections:
 
 ## 06.0 ARC IR Definition
 
+**Error handling:** ARC pipeline passes report errors via `Vec<ArcProblem>` accumulation (Section 15). Each pass function accepts `&mut Vec<ArcProblem>`. Non-fatal errors are accumulated and lowering continues with best-effort output. This allows the pipeline to produce partial results and report multiple diagnostics rather than aborting on the first error.
+
 **Problem:** The typed AST (expression tree) has implicit control flow — `if`/`match`/`loop`/`for` are nested expressions, not basic blocks with explicit branches. Liveness analysis, borrow inference, and RC insertion all require reasoning about control flow paths. Doing this directly on the expression tree is fragile and error-prone (every algorithm must reinvent control flow traversal).
 
 **Solution:** Lower the typed AST to an intermediate **ARC IR** with basic blocks and explicit control flow BEFORE running any ARC analysis. This follows the proven approach from:
@@ -72,6 +74,11 @@ pub enum ArcValue {
     PrimOp { op: PrimOp, args: Vec<ArcVarId> },
 }
 
+/// **Note:** `PrimOp` and `LitValue` (used in `ArcValue`) are defined during implementation.
+/// `PrimOp` mirrors `BinaryOp`/`UnaryOp` from `ori_ir` — primitive operations that don't
+/// involve allocation or ownership transfer. `LitValue` mirrors literal `ExprKind` variants
+/// (Int, Float, Bool, Char, etc.) — compile-time constant values.
+
 /// What kind of constructor is being applied.
 pub enum CtorKind {
     Struct(Name),
@@ -90,6 +97,24 @@ pub struct ArcFunction {
     pub return_type: Idx,
     pub blocks: Vec<ArcBlock>,
     pub entry: ArcBlockId,
+    /// Variable type information for ARC analysis.
+    /// Indexed by ArcVarId.0 — dense Vec is faster than HashMap for
+    /// sequential IDs. All ArcVarIds within a function are assigned
+    /// contiguously starting from 0.
+    pub var_types: Vec<Idx>,
+    /// Source span information for debug info preservation (Section 13).
+    /// Indexed by (block_id, instruction_index). Stored as a Vec of
+    /// per-block span Vecs, indexed by ArcBlockId.0 then instruction index.
+    /// Kept as a side table rather than a field on ArcInstr to keep
+    /// the instruction enum small and cache-friendly.
+    pub spans: Vec<Vec<Option<Span>>>,
+}
+
+impl ArcFunction {
+    /// Look up the type of a variable.
+    pub fn var_type(&self, var: ArcVarId) -> Idx {
+        self.var_types[var.0 as usize]
+    }
 }
 
 /// A basic block with a sequence of instructions and a terminator.
@@ -126,6 +151,10 @@ pub enum ArcInstr {
     /// In-place field mutation on a uniquely-owned constructor.
     /// Inserted by Section 09 during reset/reuse expansion (fast path).
     Set { base: ArcVarId, field: u32, value: ArcVarId },
+    /// Update the tag/discriminant on a uniquely-owned enum value.
+    /// Inserted by Section 09 during reset/reuse expansion (fast path)
+    /// when the new constructor is a different variant of the same enum type.
+    SetTag { base: ArcVarId, tag: u64 },
     /// Intermediate: prepare a value for potential reuse.
     /// Inserted by Section 07 when `dec x` + `Construct same_type` is detected.
     /// Expanded by Section 09 into IsShared + Branch (fast/slow paths).
@@ -169,12 +198,21 @@ pub enum ArcTerminator {
 
 **Block parameters** serve as join semantics (like phi nodes). When two branches merge, the target block declares parameters that receive values from each predecessor. This avoids mutable variables in the IR and makes dataflow explicit.
 
+**AST-to-ARC-IR lowering complexity note:** The general AST-to-ARC-IR lowering algorithm is the most complex piece of this section and will be specified in detail during implementation. This section defines the target IR (ArcFunction, ArcBlock, ArcInstr, ArcTerminator), the lowering rules for each expression kind (below), and the `ArcIrBuilder` API (see below). Section 10 provides the pattern matching lowering specifically. The full lowering algorithm must handle: expression flattening into SSA-style `Let` bindings, control flow desugaring (if/match/loop/for into basic blocks), scope management, closure capture analysis, and break/continue target resolution.
+
+**Pure SSA form (Lean 4 LCNF style):** The ARC IR is in pure SSA form with block parameters. There are NO mutable variables in the ARC IR. All values are bound exactly once via `Let` instructions or block parameters. Mutable variables from the AST (`let mut x = a; x = b; use(x)`) are lowered into SSA form: each assignment creates a new binding, and control flow merges use block parameters (phi-like). This follows Lean 4's LCNF representation where every variable is immutable and join points use block parameters.
+
 **Lowering from AST to ARC IR:**
 - `if cond then a else b` → branch to then_block/else_block, both jump to merge_block with result as block parameter
 - `match` → switch on tag, each arm is a block, all jump to merge_block
 - `loop`/`for` → loop header block with back-edge from loop body
 - `let x = expr; rest` → `Let` instruction followed by rest
+- `let mut x = a; x = b; use(x)` → SSA: `Let { dst: x_0, value: a }; Let { dst: x_1, value: b }; use(x_1)`. Each assignment creates a new ArcVarId. When control flow merges, block parameters join the different versions.
+- `expr?` (try/propagate) → desugared to match before ARC IR lowering: `match expr { Ok(v) -> v, Err(e) -> { cleanup; return Err(e) } }`. The cleanup in the Err branch is handled by normal RC insertion (Section 07) — all live RC'd variables at the return point get Dec'd.
 - Nested expressions are flattened into sequences of `Let` bindings
+- **Unsupported expression kinds** (`Await`, `WithCapability`, `FunctionSeq`, `FunctionExp`): These produce a diagnostic error during ARC IR lowering in 0.1-alpha. They are not supported in the initial implementation and will be addressed in future versions.
+
+**`ArcIrBuilder` API:** `ArcIrBuilder` is the builder API for constructing ARC IR during AST lowering. It provides methods for: `new_block()`, `emit_project()`, `emit_switch()`, `emit_branch()`, `emit_jump()`, `bind_variable()`, `compile_expr()`, `emit_unreachable()`, `emit_project_tag()`, `emit_project_named()`, `emit_list_index()`, and `position_at()`. Full API defined during implementation. Used by Section 10 (decision tree emission) and the general AST-to-ARC-IR lowering pass.
 
 - [ ] Define `ArcVarId`, `ArcBlockId` newtypes
 - [ ] Define `ArcParam`, `ArcValue`, `CtorKind` types
@@ -187,7 +225,18 @@ pub enum ArcTerminator {
 - [ ] Implement AST → ARC IR lowering for all expression kinds
 - [ ] Handle loops (loop header block, back-edge, break as jump to exit block)
 - [ ] Handle closures (captured variables become explicit parameters)
+- [ ] Define `ArcIrBuilder` with block creation, instruction emission, and variable binding methods
+- [ ] Populate `var_types` during AST-to-ARC-IR lowering
+- [ ] Populate `spans` side table during lowering for debug info preservation
+- [ ] Define `PrimOp` enum mirroring BinaryOp/UnaryOp from ori_ir
+- [ ] Define `LitValue` enum mirroring literal ExprKind variants
+- [ ] Implement `SetTag` instruction for enum variant tag updates during reuse
+- [ ] Add `#[cfg_attr(feature = "cache", derive(Serialize, Deserialize))]` to all ARC IR types for incremental compilation cache (Section 12.3)
+- [ ] Implement Assign lowering into pure SSA form (new binding per assignment, block parameters at merges)
+- [ ] Implement Try/? desugaring to match (Ok/Err) before ARC IR lowering
+- [ ] Emit diagnostic error for unsupported expression kinds (Await, WithCapability, FunctionSeq, FunctionExp)
 - [ ] Test: round-trip simple programs through ARC IR and verify structure
+- [ ] Test: mutable variable assignment correctly lowers to SSA with block parameters
 
 ---
 
@@ -219,10 +268,15 @@ pub struct AnnotatedParam {
 }
 
 /// Function signature with ownership annotations.
+///
+/// Return values are always Owned (callee transfers ownership to caller).
+/// This follows the Lean 4 and Koka convention. No analysis is needed for
+/// return ownership — it is a fixed invariant of the calling convention.
 pub struct AnnotatedSig {
     pub params: Vec<AnnotatedParam>,
     pub return_type: Idx,
-    pub return_ownership: Ownership,  // Does the function return an owned value?
+    // return_ownership is not a field: return values are always Owned by convention.
+    // The callee produces a value with refcount 1 and the caller takes ownership.
 }
 ```
 
@@ -241,7 +295,9 @@ pub struct AnnotatedSig {
 **Algorithm (from Lean 4):**
 
 ```
-1. Initialize: All non-scalar parameters start as Borrowed
+1. Initialize: All parameters with ArcClass != Scalar start as Borrowed.
+   Scalar parameters (ArcClass::Scalar) are never tracked for ownership — they
+   have no reference count and never need RC operations.
 2. For each ARC function's blocks:
    a. Scan all instructions for parameter uses
    b. If a parameter is:
@@ -310,6 +366,9 @@ fn update_ownership(
     sigs: &mut FxHashMap<Name, AnnotatedSig>,
 ) -> bool {
     let mut changed = false;
+    // Note: pseudocode. Actual implementation must clone sig or use index-based
+    // access to avoid simultaneous &/&mut borrow of sigs (the `mark_owned` calls
+    // below take &mut sigs while sig is an & into sigs).
     let sig = &sigs[&func.name];
 
     // Walk all blocks and instructions, check each parameter use
@@ -318,65 +377,99 @@ fn update_ownership(
             match instr {
                 ArcInstr::Apply { args, func: callee, .. } => {
                     for (i, &arg) in args.iter().enumerate() {
-                        if is_param(arg, func) && sig.param(arg).ownership == Ownership::Borrowed {
-                            if sigs[callee].params[i].ownership == Ownership::Owned {
-                                mark_owned(sigs, &func.name, arg);
-                                changed = true;
+                        // Map ArcVarId to parameter index: find arg's position
+                        // in func.params (ArcVarId is NOT the same as param index).
+                        let param_idx = func.params.iter()
+                            .position(|p| p.var == arg);
+                        if let Some(pidx) = param_idx {
+                            if sig.params[pidx].ownership == Ownership::Borrowed {
+                                if sigs[callee].params[i].ownership == Ownership::Owned {
+                                    mark_owned(sigs, &func.name, arg);
+                                    changed = true;
+                                }
                             }
                         }
                     }
                 }
                 ArcInstr::ApplyIndirect { closure, args, .. } => {
                     // Unknown callee — all arguments and closure must be Owned
-                    if is_param(*closure, func) && sig.param(*closure).ownership == Ownership::Borrowed {
-                        mark_owned(sigs, &func.name, *closure);
-                        changed = true;
+                    if is_param(*closure, func) {
+                        let pidx = func.params.iter().position(|p| p.var == *closure).unwrap();
+                        if sig.params[pidx].ownership == Ownership::Borrowed {
+                            mark_owned(sigs, &func.name, *closure);
+                            changed = true;
+                        }
                     }
                     for &arg in args {
-                        if is_param(arg, func) && sig.param(arg).ownership == Ownership::Borrowed {
-                            mark_owned(sigs, &func.name, arg);
-                            changed = true;
+                        if is_param(arg, func) {
+                            let pidx = func.params.iter().position(|p| p.var == arg).unwrap();
+                            if sig.params[pidx].ownership == Ownership::Borrowed {
+                                mark_owned(sigs, &func.name, arg);
+                                changed = true;
+                            }
                         }
                     }
                 }
                 ArcInstr::PartialApply { args, .. } => {
                     // All captured args stored in closure env — must be Owned
                     for &arg in args {
-                        if is_param(arg, func) && sig.param(arg).ownership == Ownership::Borrowed {
-                            mark_owned(sigs, &func.name, arg);
-                            changed = true;
+                        if is_param(arg, func) {
+                            let pidx = func.params.iter().position(|p| p.var == arg).unwrap();
+                            if sig.params[pidx].ownership == Ownership::Borrowed {
+                                mark_owned(sigs, &func.name, arg);
+                                changed = true;
+                            }
                         }
                     }
                 }
                 ArcInstr::Construct { args, .. } => {
                     for &arg in args {
-                        if is_param(arg, func) && sig.param(arg).ownership == Ownership::Borrowed {
-                            mark_owned(sigs, &func.name, arg);
-                            changed = true;
+                        if is_param(arg, func) {
+                            let pidx = func.params.iter().position(|p| p.var == arg).unwrap();
+                            if sig.params[pidx].ownership == Ownership::Borrowed {
+                                mark_owned(sigs, &func.name, arg);
+                                changed = true;
+                            }
                         }
                     }
                 }
                 ArcInstr::Project { dst, value, .. } => {
                     // Bidirectional propagation: if dst becomes Owned,
                     // source must also be Owned (see projection ownership rule)
+                    //
+                    // is_owned_var(v): Returns true if the variable is
+                    // (a) a function parameter with Ownership::Owned, or
+                    // (b) any non-parameter variable (all local variables
+                    //     are implicitly Owned — they hold ownership of
+                    //     their values from the point of definition).
                     if is_owned_var(*dst, func, sigs) {
-                        if is_param(*value, func) && sig.param(*value).ownership == Ownership::Borrowed {
-                            mark_owned(sigs, &func.name, *value);
-                            changed = true;
+                        if is_param(*value, func) {
+                            let pidx = func.params.iter().position(|p| p.var == *value).unwrap();
+                            if sig.params[pidx].ownership == Ownership::Borrowed {
+                                mark_owned(sigs, &func.name, *value);
+                                changed = true;
+                            }
                         }
                     }
                 }
                 ArcInstr::Let { .. } => {
-                    // Read-only binding — Borrowed is fine
+                    // A Let binding is a read-only alias. In particular,
+                    // Let { dst: y, value: Var(x) } is a semantic alias —
+                    // no RC operation is implied by the Let itself. RC
+                    // insertion (Section 07) determines inc/dec based on
+                    // liveness of y and x independently.
                 }
                 _ => {}
             }
         }
         // Check terminator for Return uses
         if let ArcTerminator::Return { value } = &block.terminator {
-            if is_param(*value, func) && sig.param(*value).ownership == Ownership::Borrowed {
-                mark_owned(sigs, &func.name, *value);
-                changed = true;
+            if is_param(*value, func) {
+                let pidx = func.params.iter().position(|p| p.var == *value).unwrap();
+                if sig.params[pidx].ownership == Ownership::Borrowed {
+                    mark_owned(sigs, &func.name, *value);
+                    changed = true;
+                }
             }
         }
     }

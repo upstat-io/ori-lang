@@ -35,7 +35,7 @@ sections:
 
 **Relationship to other sections:**
 - **Section 06** defines `ArcInstr::Reset` and `ArcInstr::Reuse` in the ARC IR enum.
-- **Section 07** inserts `Reset`/`Reuse` pairs during RC insertion when it detects `dec x` followed by `Construct` of the same type.
+- **Section 07.6** (a post-pass after RC insertion) identifies Reset/Reuse candidates by scanning for `RcDec` followed by `Construct` of the same type, and replaces those pairs with `Reset`/`Reuse` intermediate instructions.
 - **Section 09** (this section) expands `Reset`/`Reuse` into `isShared` + fast/slow conditional paths. After expansion, no `Reset` or `Reuse` instructions remain in the ARC IR. They are intermediate representations that exist only between Section 07 and Section 09.
 
 **Example:**
@@ -71,6 +71,8 @@ match list {
 ```
 
 **Uniqueness test convention:** We use `isShared(x)` which returns `true` when the refcount is greater than 1 (the value is shared, NOT unique). The `then` branch is the **slow path** (shared, must allocate fresh). The `else` branch is the **fast path** (unique, can reuse in-place). This means the fast/common case (unique values) is the fall-through branch, which is better for branch prediction.
+
+**IsShared is inlined, not a runtime call.** `IsShared` compiles to: load strong_count from ptr-8 (0.1-alpha 8-byte header), `icmp sgt 1`. This is emitted as inline LLVM IR instructions, not a runtime function call. There is no `ori_rc_is_unique` runtime function.
 
 ---
 
@@ -142,6 +144,13 @@ Even though `option[int]` and `option[str]` may have the same layout, we do NOT 
 - [ ] Handle spread-struct patterns as reuse candidates
 - [ ] Handle recursive data structure patterns (list map, tree map)
 
+### Future work
+
+Additional reuse-eligible patterns to investigate in future versions:
+
+- **For-yield (list comprehension):** `for x in list yield transform(x)` creates a new list of the same type and length as the input. When the input list is uniquely owned, the output list could reuse the input's backing buffer in-place, element by element. This requires element-level reuse within the iterator loop rather than constructor-level reuse.
+- **Or-patterns in match arms:** When multiple patterns in a match arm destructure the same type and all produce the same-type result, the reuse token from any matched pattern can be used. This requires the pattern compiler (Section 10) to propagate reuse tokens through or-pattern alternatives.
+
 ## 09.2 Reset/Reuse IR Operations
 
 `Reset` and `Reuse` are **intermediate ARC IR operations** inserted by Section 07 and expanded away by Section 09. They do NOT exist alongside `RcInc`/`RcDec` in the final IR -- they are transient instructions that get replaced with concrete `isShared` + branch + field-mutation sequences during the expansion pass.
@@ -182,7 +191,7 @@ ArcInstr::Reuse {
 }
 ```
 
-**Detection rule (Section 07):** During RC insertion, when the pass encounters a `RcDec { var: x }` followed (possibly with intervening non-aliasing instructions) by `Construct { dst: y, ty, ctor, args }` where `ty` matches the type of `x`, replace the pair with:
+**Detection rule (Section 07.6):** In the post-pass after RC insertion, when the scanner encounters a `RcDec { var: x }` followed (possibly with intervening non-aliasing instructions) by `Construct { dst: y, ty, ctor, args }` where `ty` matches the type of `x`, replace the pair with:
 
 ```
 Reset { var: x, token: t }
@@ -222,17 +231,22 @@ Output:
 Input (fast path):
     Reuse { token: t, dst: z, ty, ctor, args: [w0, w1, ...] }
 
-Output (fast path — in-place mutation):
-    set y[0] = w0    // Overwrite field 0 of the original object y
-    set y[1] = w1    // Overwrite field 1
+Output (fast path — in-place mutation, using ArcInstr variants):
+    // For each field i being replaced (not self-set, not claimed by projection erasure):
+    //   If old field value is RC'd: Dec the old value before overwriting
+    RcDec { var: old_field_0 }               // Dec old field 0 if RC'd and being replaced
+    Set { base: y, field: 0, value: w0 }     // Overwrite field 0 of the original object y
+    RcDec { var: old_field_1 }               // Dec old field 1 if RC'd and being replaced
+    Set { base: y, field: 1, value: w1 }     // Overwrite field 1
     ...
-    set_tag y tag    // Update tag if constructor variant differs
-    z := y           // z IS y — same memory, no allocation
+    SetTag { base: y, tag: tag }             // Update tag if constructor variant differs
+                                             // (uses ArcInstr::SetTag from Section 06.0)
+    z := y                                   // z IS y — same memory, no allocation
 ```
 
 The fast path performs in-place field mutation on the original object `y`. No allocation occurs. If the constructor variant is the same as the original, no tag update is needed. If it differs (e.g., one enum variant reusing another's memory), the tag field is overwritten.
 
-**Additionally**, the fast path must release fields that are no longer referenced. Any field of `y` that is being replaced (not retained) must be decremented. See Section 09.4 for how projection-increment erasure optimizes this.
+**Additionally**, the fast path must release fields that are no longer referenced. Any field of `y` that is being replaced (not retained) and whose old value is RC'd must be decremented before the overwrite. The `RcDec` for each replaced field uses the value obtained via `Project` before the Reset. Fields that are self-set (Section 09.5) or claimed by projection-increment erasure (Section 09.4) do NOT need a Dec on the fast path. See Section 09.4 for the full claimed/unclaimed field analysis.
 
 ### Expansion of `Reuse` in slow path (shared)
 
@@ -289,9 +303,9 @@ slow_5:
 - [ ] Split each `Reset` into `IsShared` + `Branch` (then=slow, else=fast)
 - [ ] Expand fast-path `Reuse` into `Set` instructions (in-place field mutation)
 - [ ] Expand slow-path `Reuse` into `RcDec` + `Construct` (fresh allocation)
-- [ ] Handle tag updates for different enum variants
+- [ ] Handle tag updates for different enum variants via `ArcInstr::SetTag { base, tag }` (defined in Section 06.0)
 - [ ] Verify no `Reset` or `Reuse` instructions remain after expansion
-- [ ] Add `ArcInstr::IsShared` and `ArcInstr::Set` variants for the expanded operations
+- [ ] Add `ArcInstr::IsShared`, `ArcInstr::Set`, and `ArcInstr::SetTag` variants for the expanded operations (defined in Section 06.0)
 
 ## 09.4 Projection-Increment Erasure
 

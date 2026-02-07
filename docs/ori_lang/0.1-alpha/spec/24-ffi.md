@@ -9,7 +9,7 @@ section: "FFI"
 
 The foreign function interface (FFI) enables Ori programs to call functions implemented in other languages.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (extern_block)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § DECLARATIONS (extern_block)
 
 ## Overview
 

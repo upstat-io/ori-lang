@@ -29,7 +29,7 @@ sections:
 - **LLVM** `llvm/test/` -- canonical FileCheck usage patterns, `lit` test runner
 - **Roc** `crates/compiler/test_mono/` -- ARC IR tests, `crates/compiler/gen_llvm/` -- execution tests
 
-**Current state:** Extensive execution tests exist in `ori_llvm/src/tests/` (17 files, 6,836 lines) and `oric/tests/phases/codegen/` (18 files, 5,451 lines). V2 adds IR verification with FileCheck and ARC-specific testing.
+**Current state:** Extensive execution tests exist in `ori_llvm/src/tests/` (17 files, 6,836 lines) and `oric/tests/phases/codegen/` (17 files, 5,451 lines). V2 adds IR verification with FileCheck and ARC-specific testing.
 
 ---
 
@@ -61,7 +61,7 @@ JIT-based execution tests using the `TestCodegen` helper struct:
 
 **`TestCodegen` pattern:** Creates a `CodegenCx`, declares runtime functions, compiles a function from parsed AST, and JIT-executes it. Methods: `compile_function()`, `jit_execute_i64()`, `jit_execute_bool()`, `print_to_string()`. Runtime mappings added via `add_runtime_mappings()` for print, panic, assert, list, string operations.
 
-### oric/tests/phases/codegen/ (18 files, 5,451 lines)
+### oric/tests/phases/codegen/ (17 files, 5,451 lines)
 
 Phase-level tests for the AOT pipeline:
 
@@ -99,7 +99,7 @@ Test harness utilities:
 | Capability | Status | Notes |
 |-----------|--------|-------|
 | JIT execution tests | Done | 17 files, extensive coverage |
-| AOT pipeline tests | Done | 18 files, debug/linker/opt/emit |
+| AOT pipeline tests | Done | 17 files, debug/linker/opt/emit |
 | IR verification (FileCheck) | **Missing** | Cannot assert specific IR patterns |
 | ARC IR tests | **Missing** | No tests for borrow inference, RC insertion, etc. |
 | AOT execution tests | **Partial** | WASM tests exist; native AOT test runner incomplete |
@@ -171,11 +171,15 @@ fn filecheck_test(ori_source: &str, check_patterns: &str) {
 }
 ```
 
+**Note:** FileCheck tests require the `FileCheck` binary from an LLVM installation. Gate these tests behind a `#[cfg(feature = "filecheck")]` feature flag. When FileCheck is unavailable, tests should be `#[ignore]` with a skip message explaining the dependency. Add `filecheck` as an optional feature in the test crate's `Cargo.toml`.
+
 **Example FileCheck patterns for common codegen outputs:**
 
+Note: The calling convention (`fastcc`, `ccc`, etc.) depends on the ABI decision in Section 04. Use flexible patterns like `define {{.*}} i64` rather than hardcoding `define fastcc i64` so tests remain valid regardless of calling convention.
+
 ```llvm
-; Function declaration
-; CHECK: define fastcc i64 @_ori_main$add(i64 %0, i64 %1) {
+; Function declaration (flexible calling convention)
+; CHECK: define {{.*}} i64 @_ori_main$add(i64 %0, i64 %1) {
 ; CHECK-NEXT: entry:
 ; CHECK-NEXT:   %2 = add i64 %0, %1
 ; CHECK-NEXT:   ret i64 %2
@@ -214,7 +218,7 @@ fn test_add_function_ir() {
     filecheck_test(
         r#"add (a: int, b: int) -> int = a + b"#,
         r#"
-; CHECK: define fastcc i64 @{{.*}}add(i64 %0, i64 %1)
+; CHECK: define {{.*}} i64 @{{.*}}add(i64 %0, i64 %1)
 ; CHECK:   %{{.*}} = add i64 %0, %1
 ; CHECK:   ret i64
         "#,
@@ -416,7 +420,7 @@ Ori's `@test` annotation declares test functions that are compiled and run as pa
 
 ### Test Function Compilation
 
-`@test` functions compile to regular LLVM functions with the `__test_` name prefix (Section 04). Their signatures are `void -> void` (test functions cannot return values). The AOT compiler collects all test functions during compilation and generates a test runner binary.
+`@test` functions compile to regular LLVM functions with the `_ori_test_` name prefix (Section 04). Their signatures are `() -> void` (test functions take no parameters and cannot return values). The `_ori_test_` prefix follows the same `_ori_` mangling convention used for all Ori symbols (e.g., `_ori_test_math$test_add`), keeping the namespace consistent. The AOT compiler collects all test functions during compilation and generates a test runner binary.
 
 ### Test Runner Binary Generation
 
@@ -424,13 +428,14 @@ When `ori test` is invoked:
 
 1. **Discovery:** The compiler scans all modules for `@test`-annotated functions
 2. **Filtering:** `--only-attached` filters to tests that target a specific function
-3. **Runner generation:** A synthetic `main()` is generated that calls each test function in sequence:
+3. **Object file compilation:** Test wrapper functions (`_ori_test_*`) are compiled as individual per-function `.o` files. The synthetic `main()` is an additional per-function `.o`. All are merged via `ld -r` into the test module's `.o` before final linking. Cross-reference Section 12.2 for per-function `.o` compilation and partial linking.
+4. **Runner generation:** A synthetic `main()` is generated that calls each test function in sequence:
 
 ```rust
 // Pseudocode: generated test runner main
 fn generate_test_runner(test_fns: &[TestFunction]) -> LLVMModule {
     // For each test function, emit:
-    //   call void @__test_<module>$<name>()
+    //   call void @_ori_test_<module>$<name>()
     //   // If it panics, the @panic handler reports failure
     //
     // After all tests:
@@ -446,6 +451,8 @@ fn generate_test_runner(test_fns: &[TestFunction]) -> LLVMModule {
 | JIT | `ori test` (development) | Compile to IR, JIT-execute each test. Faster iteration. |
 | AOT | `ori test --aot` or CI | Compile to binary, execute. Enables ASAN/Valgrind. |
 
+Both JIT and AOT modes use the unified `_ori_test_` prefix for test function names. The current JIT path uses the legacy `__test_` prefix and must be migrated to `_ori_test_` as part of V2 (see Section 04.7).
+
 JIT mode is the default for development because it avoids the link step. AOT mode is used in CI for memory safety verification and to catch codegen bugs that only manifest in the AOT pipeline (e.g., incorrect ABI, missing runtime symbols).
 
 ### Test Discovery at Compile Time
@@ -459,7 +466,7 @@ struct TestDescriptor {
     module: ModulePath,
     target: Option<FunctionRef>,  // For @test tests @target
     span: Span,
-    mangled_name: String,         // __test_<module>$<name>
+    mangled_name: String,         // _ori_test_<module>$<name>
 }
 ```
 
@@ -475,7 +482,7 @@ ori test --only-attached src/math.ori  # Only tests targeting functions in math.
 
 In AOT mode, filtering happens at the runner generation step -- non-matching tests are simply not included in the generated `main()`.
 
-- [ ] Implement `__test_` prefix for @test functions in codegen
+- [ ] Implement `_ori_test_` prefix for @test functions in codegen
 - [ ] Implement test runner binary generation
 - [ ] Add JIT test execution mode (default for `ori test`)
 - [ ] Add AOT test execution mode (`ori test --aot`)

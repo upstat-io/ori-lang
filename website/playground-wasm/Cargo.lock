@@ -159,6 +159,7 @@ version = "0.1.0-alpha.8"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
+ "ori_lexer",
  "ori_stack",
  "tracing",
 ]

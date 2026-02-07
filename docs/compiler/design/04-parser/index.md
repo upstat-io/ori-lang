@@ -191,11 +191,7 @@ pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseResult {
 
 ## Grammar
 
-The authoritative grammar is defined in EBNF. Each production maps to parsing functions in `compiler/ori_parse/src/grammar/`.
-
-```ebnf
-{{#include ../../../ori_lang/0.1-alpha/spec/grammar.ebnf}}
-```
+The authoritative grammar is defined in EBNF at [`grammar.ebnf`](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf). Each production maps to parsing functions in `compiler/ori_parse/src/grammar/`.
 
 ## Related Documents
 
@@ -203,4 +199,4 @@ The authoritative grammar is defined in EBNF. Each production maps to parsing fu
 - [Error Recovery](error-recovery.md) — ParseOutcome, TokenSet, synchronization
 - [Grammar Modules](grammar-modules.md) — Module organization and naming
 - [Incremental Parsing](incremental-parsing.md) — IDE reuse of unchanged declarations
-- [Formal EBNF Grammar](#grammar) — Complete grammar definition
+- [Grammar Spec](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) — Complete EBNF grammar definition

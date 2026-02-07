@@ -122,11 +122,15 @@ impl TypeInfo {
     /// The LLVM type used to represent values of this type in memory.
     pub fn storage_type(&self, cx: &CodegenCx) -> BasicTypeEnum { ... }
 
-    /// Size in bytes. None for dynamically-sized types.
+    /// Size in bytes (ABI size — used for allocation and parameter passing).
+    /// None for dynamically-sized types.
+    /// This is the method used by Section 04's `compute_param_passing()`
+    /// and `compute_return_passing()` to determine calling conventions.
     pub fn size(&self, cx: &CodegenCx) -> Option<u64> { ... }
 
-    /// Alignment in bytes.
-    pub fn alignment(&self, cx: &CodegenCx) -> u64 { ... }
+    /// Alignment in bytes. Returns u32 — LLVM alignment values always fit in u32,
+    /// and this matches the u32 alignment fields in ParamPassing/ReturnPassing (Section 04.2).
+    pub fn alignment(&self, cx: &CodegenCx) -> u32 { ... }
 
     // === Classification ===
 
@@ -164,31 +168,14 @@ impl TypeInfo {
     pub fn debug_type(&self, cx: &CodegenCx) -> DebugTypeId { ... }
 }
 
-/// How a parameter is passed.
-pub enum ParamPassing {
-    /// Pass directly by value (fits in registers).
-    Direct,
-    /// Pass by reference (sret-like, caller allocates).
-    Indirect { alignment: u64 },
-}
-
-/// How a return value is passed.
-pub enum ReturnPassing {
-    /// Return directly (fits in return registers).
-    Direct,
-    /// Return via sret pointer (first hidden parameter).
-    Sret { alignment: u64 },
-    /// No return value (LLVM void — only for functions that truly return nothing
-    /// at the LLVM level, e.g., @main wrappers). Note: unit and never use i64 Direct,
-    /// not Void, because they must be usable as expression values.
-    Void,
-}
+// ParamPassing and ReturnPassing enums: see Section 04.2 for canonical definitions.
+// TypeInfo::param_passing() and return_passing() return those types.
 ```
 
 **Note:** `ArcClass` is defined in `ori_arc` (Section 05), not here. The `TypeInfo` enum does not contain ARC classification — it queries `ArcClassification` when needed for emit_retain/emit_release decisions.
 
 - [ ] Define `TypeInfo` enum in `ori_llvm/src/codegen/type_info.rs`
-- [ ] Define `ParamPassing`, `ReturnPassing` enums
+- [ ] Import `ParamPassing`, `ReturnPassing` enums from Section 04.2 (canonical definitions)
 - [ ] Implement all methods on `TypeInfo` via `match self { ... }`
 - [ ] Define `TypeInfoStore` to look up TypeInfo by `Idx` (see 01.5)
 - [ ] Implement `TypeInfo::Error` variant for unknown/error types and unreachable tags
@@ -301,14 +288,32 @@ pub struct EnumVariantInfo {
 
 **Design decision:** No `Arc<dyn TypeInfo>`, no `RwLock<FxHashMap>`. Per Ori coding guidelines: "Enum for fixed sets (exhaustiveness, static dispatch)" and "arena + ID, not `Box<Expr>`". The `TypeInfoStore` uses indexed storage (arena-style) with `TypeInfo` enum values.
 
-**Pool-only design (no TypeRegistry):** TypeInfoStore holds only a `&Pool` reference, NOT a `TypeRegistry`. All type information needed for codegen — including struct field data and enum variant data — must be pre-flattened into the Pool's extra array during type checking. This is a prerequisite refactor: during type registration, struct field types and enum variant payloads are written into Pool extra arrays so that codegen can query them via Pool accessors alone.
+**Pool-only design (HARD prerequisite — no TypeRegistry bridge):** TypeInfoStore holds only a `&Pool` reference, NOT a `TypeRegistry`. There is NO TypeRegistry bridge — this is a firm architectural constraint, not a preference. All type information needed for codegen — including struct field data and enum variant data — must be pre-flattened into the Pool's extra array during type checking. TypeInfoStore depends on Pool only.
 
-**Idx density:** Primitive types occupy indices 0-11. Indices 12-63 are reserved. Dynamic types start at `Idx::FIRST_DYNAMIC` (64). The `entries` Vec will have 64 wasted initial slots — this is acceptable given the simplicity of O(1) indexed lookup.
+**HARD BLOCKING PREREQUISITE — Pool Flattening Refactor:**
+
+This is a **hard prerequisite refactor** that must be completed before TypeInfoStore can work. There is no alternative path (no TypeRegistry bridge, no lazy loading from TypeRegistry). Currently, struct field data and enum variant data live in `TypeRegistry`, not in `Pool`. The Pool has no `struct_fields()`, `enum_variants()`, or `resolve()` methods — those are `TypeRegistry` methods. The code examples in this section call these methods on Pool, but they do not exist yet.
+
+The Pool flattening refactor must:
+
+1. **Add Pool constructors** for struct and enum types that store field/variant data in Pool's extra array (similar to how `Function` and `Tuple` already use extra arrays with length prefixes). Estimated: ~200-300 lines in `pool/construct.rs`.
+2. **Define extra-array layouts** for struct fields (field count, then pairs of Name + Idx) and enum variants (variant count, then per-variant: name + field count + field Idx list). Estimated: ~100-150 lines of layout logic.
+3. **Add Pool accessor methods**: `struct_fields(idx) -> Vec<(Name, Idx)>`, `enum_variants(idx) -> Vec<EnumVariantInfo>`, and `resolve(idx) -> Idx` (follows Named/Applied/Alias indirections). Estimated: ~150-200 lines in `pool/mod.rs`.
+4. **Migrate TypeRegistry callers** to write struct/enum data into Pool during type registration, so that by codegen time all data is accessible via Pool alone. Estimated: ~200-300 lines of changes across `registry/types.rs` and `check/`.
+5. **Add Pool interning constructors and accessors for `Tag::Struct` and `Tag::Enum`** — the `Tag::Struct` and `Tag::Enum` variants already exist in `tag.rs`; what's missing are Pool methods to intern struct/enum types (storing field/variant data in the extra array) and accessor methods to read them back. Ensure deduplication works correctly for structural types. Estimated: ~100-150 lines.
+
+**Total estimated scope: ~750-1100 lines of changes across 4-6 files.** This is a substantial refactor that touches the Pool internals, the type registration pipeline, and the TypeRegistry. It should be tracked as a separate work item and completed before any TypeInfoStore implementation begins.
+
+Until this refactor is complete, the `struct_fields()`, `enum_variants()`, and `resolve()` calls in the code below are **aspirational API** — they show the intended interface but will not compile against the current Pool.
+
+**Idx density:** Primitive types occupy indices 0-11. Indices 12-63 are reserved (padded with `Tag::Error` entries in the Pool — they map to `TypeInfo::Error`). Dynamic types start at `Idx::FIRST_DYNAMIC` (64). Note: `Idx::is_primitive()` returns `true` for ALL indices 0-63 (not just 0-11), so it should not be used to distinguish "real" primitives from reserved slots. The `entries` Vec will have 64 initial slots (12 real primitives + 52 Error padding) — this is acceptable given the simplicity of O(1) indexed lookup.
 
 ```rust
 /// Maps Idx → TypeInfo for all types encountered during codegen.
 ///
-/// Populated lazily: TypeInfo computed on first access and stored.
+/// Indices 0-63 are pre-populated at construction (12 real primitives +
+/// 52 Error padding), matching Pool's layout. Dynamic types (index >= 64)
+/// are populated lazily on first access.
 /// Uses indexed storage (Vec) for O(1) lookup — Idx values are dense.
 /// No Arc, no dyn, no RwLock — single-threaded per codegen context.
 /// For parallel codegen (Section 12), each thread has its own store.
@@ -317,6 +322,7 @@ pub struct EnumVariantInfo {
 /// into Pool's extra array during type checking (prerequisite refactor).
 pub struct TypeInfoStore<'tcx> {
     /// Idx → TypeInfo mapping. Dense indexed storage.
+    /// Indices 0-63 are pre-populated at construction.
     /// None = not yet computed. Some = cached.
     entries: Vec<Option<TypeInfo>>,
 
@@ -326,22 +332,48 @@ pub struct TypeInfoStore<'tcx> {
     pool: &'tcx Pool,
 }
 
+/// Static sentinel returned for Idx::NONE lookups.
+/// Avoids indexing into `entries` for a sentinel that maps to u32::MAX.
+static NONE_TYPE_INFO: TypeInfo = TypeInfo::Error;
+
 impl<'tcx> TypeInfoStore<'tcx> {
+    pub fn new(pool: &'tcx Pool) -> Self {
+        // Pre-populate entries 0-63 to match Pool's primitive region.
+        // Indices 0-11 are real primitives; 12-63 are reserved (Error padding).
+        let mut entries = Vec::with_capacity(64);
+        for i in 0..64u32 {
+            let idx = Idx::from_raw(i);
+            let info = match pool.tag(idx) {
+                Tag::Int => TypeInfo::Int,
+                Tag::Float => TypeInfo::Float,
+                Tag::Bool => TypeInfo::Bool,
+                Tag::Str => TypeInfo::Str,
+                Tag::Char => TypeInfo::Char,
+                Tag::Byte => TypeInfo::Byte,
+                Tag::Unit => TypeInfo::Unit,
+                Tag::Never => TypeInfo::Never,
+                Tag::Duration => TypeInfo::Duration,
+                Tag::Size => TypeInfo::Size,
+                Tag::Ordering => TypeInfo::Ordering,
+                _ => TypeInfo::Error, // Reserved slots 12-63
+            };
+            entries.push(Some(info));
+        }
+        Self { entries, pool }
+    }
+
     /// Get or compute TypeInfo for a type.
     ///
-    /// Returns `TypeInfo::Error` for `Idx::NONE` (sentinel value).
+    /// Returns `&TypeInfo::Error` for `Idx::NONE` (sentinel value, u32::MAX).
+    /// Indices 0-63 are pre-populated and never require lazy computation.
     pub fn get(&mut self, idx: Idx) -> &TypeInfo {
         // Guard: Idx::NONE is a sentinel (u32::MAX), not a valid type.
+        // Return a static Error — do NOT index into entries.
         if idx == Idx::NONE {
-            // Lazily ensure we have an Error entry at index 0 for this case.
-            // (We return a static Error rather than indexing into the Vec.)
-            if self.entries.is_empty() {
-                self.entries.push(Some(TypeInfo::Error));
-            }
-            return self.entries[0].as_ref().unwrap();
+            return &NONE_TYPE_INFO;
         }
 
-        let index = idx.as_usize();
+        let index = idx.raw() as usize;
         if index >= self.entries.len() {
             self.entries.resize_with(index + 1, || None);
         }
@@ -350,6 +382,15 @@ impl<'tcx> TypeInfoStore<'tcx> {
             self.entries[index] = Some(info);
         }
         self.entries[index].as_ref().unwrap()
+    }
+
+    /// Convenience method: get the LLVM type ID for a type's storage representation.
+    /// Calls storage_type() on the TypeInfo, then registers the result with the
+    /// IrBuilder to obtain an LLVMTypeId. This bridges the TypeInfo world (which
+    /// returns BasicTypeEnum) with the ID-based builder world (which uses LLVMTypeId).
+    pub fn storage_type_id(&mut self, idx: Idx, builder: &mut IrBuilder) -> LLVMTypeId {
+        let ty = self.get(idx).storage_type(builder.cx());
+        builder.register_type(ty)
     }
 
     fn compute_type_info(&self, idx: Idx) -> TypeInfo {
@@ -372,9 +413,22 @@ impl<'tcx> TypeInfoStore<'tcx> {
             Tag::List => TypeInfo::List { element: self.pool.list_elem(idx) },
             Tag::Option => TypeInfo::Option { inner: self.pool.option_inner(idx) },
             Tag::Set => TypeInfo::Set { element: self.pool.set_elem(idx) },
-            Tag::Range => TypeInfo::Range,
+            Tag::Range => {
+                // Currently range is always range<int> with fixed {i64, i64, i1} layout.
+                // When range becomes generic over T, this arm will need to read the
+                // element type from Pool and pass it to the TypeInfo::Range variant.
+                // Uses pool.range_elem() — same accessor pattern as list_elem(),
+                // option_inner(), set_elem(), etc.
+                let elem = self.pool.range_elem(idx);
+                debug_assert!(
+                    self.pool.tag(elem) == Tag::Int
+                        || elem == Idx::NONE, // NONE for unparameterized range
+                    "Range element type is not Int — generic range support not yet implemented"
+                );
+                TypeInfo::Range
+            }
             Tag::Channel => TypeInfo::Channel {
-                element: Idx::from_raw(self.pool.data(idx)),
+                element: self.pool.channel_elem(idx),
             },
 
             // Two-child containers (data = index into extra[])
@@ -440,10 +494,14 @@ impl<'tcx> TypeInfoStore<'tcx> {
 }
 ```
 
+- [ ] **BLOCKING PREREQUISITE**: Pool flattening refactor (~750-1100 lines, see description above):
+  - [ ] Add Pool constructors for Struct/Enum types with extra-array storage
+  - [ ] Define extra-array layouts for struct fields and enum variants
+  - [ ] Add Pool accessors: `struct_fields()`, `enum_variants()`, `resolve()`
+  - [ ] Migrate TypeRegistry callers to write struct/enum data into Pool
+  - [ ] Add Pool interning constructors and accessors for Tag::Struct and Tag::Enum (variants already exist in tag.rs)
 - [ ] Implement `TypeInfoStore` with dense indexed storage (`&'tcx Pool` only)
 - [ ] Wire up Pool queries for type properties (tag, children, fields)
-- [ ] Prerequisite: flatten struct field data into Pool's extra array during type checking
-- [ ] Prerequisite: flatten enum variant data into Pool's extra array during type checking
 - [ ] Guard against `Idx::NONE` — return `TypeInfo::Error`
 - [ ] Handle type variables (unresolved → `TypeInfo::Error` with diagnostic)
 - [ ] Handle generic instantiation (List[int] vs List[str] get different entries)
@@ -453,35 +511,36 @@ impl<'tcx> TypeInfoStore<'tcx> {
 
 ## 01.6 Heap Layout for Reference-Counted Types
 
-Reference-counted types use a **Roc-style layout** where the refcount lives at a negative offset from the data pointer:
+Reference-counted types use a **Roc-style layout** where the refcount header lives at a negative offset from the data pointer:
 
 ```
 Heap allocation:
-  ┌──────────────┬───────────────────────┐
-  │ refcount: i64│ data bytes ...        │
-  └──────────────┴───────────────────────┘
-  ^              ^
-  ptr - 8        ptr (data pointer, stored on stack)
+  ┌───────────────────┬──────────────────┬───────────────────────┐
+  │ strong_count: i64 │ weak_count: i64  │ data bytes ...        │
+  └───────────────────┴──────────────────┴───────────────────────┘
+  ^                   ^                  ^
+  ptr - 16            ptr - 8            ptr (data pointer, stored on stack)
 ```
 
 **Key properties:**
 - The data pointer (`ptr`) points directly to the user data, NOT to the refcount header
-- Refcount is at offset `-sizeof(usize)` (i.e., `ptr - 8` on 64-bit)
+- The header is 16 bytes: `{ strong_count: i64, weak_count: i64 }`
+- `strong_count` is at `ptr - 16`, `weak_count` is at `ptr - 8`
 - This enables direct C FFI pass-through: the data pointer can be handed to C functions without adjustment
-- Allocation: `ori_alloc(size)` allocates `size + 8` bytes, returns `base + 8`
-- `emit_retain`: loads refcount from `ptr - 8`, increments, stores back
-- `emit_release`: loads refcount from `ptr - 8`, decrements, if zero then free from `ptr - 8`
+- Allocation: `ori_rc_alloc(size, align)` allocates `size + 16` bytes, returns `base + 16`
+- `emit_retain`: loads strong_count from `ptr - 16`, increments, stores back
+- `emit_release`: loads strong_count from `ptr - 16`, decrements, if zero then free from `ptr - 16`
 
 **Stack representations with heap data:**
 
 | Type | Stack Layout | Heap Data |
 |------|-------------|-----------|
-| `str` | `{i64, ptr}` (len, data_ptr) | `[rc \| utf8_bytes...]` |
-| `[T]` | `{i64, i64, ptr}` (len, cap, data_ptr) | `[rc \| elements...]` |
-| `{K: V}` | `{i64, i64, ptr, ptr}` (len, cap, keys_ptr, vals_ptr) | `[rc \| keys...]`, `[rc \| vals...]` |
-| `set[T]` | `{i64, i64, ptr}` (len, cap, data_ptr) | `[rc \| elements...]` |
-| `chan<T>` | `ptr` (opaque channel_ptr) | `[rc \| channel_state...]` |
-| `(P) -> R` | `ptr` (closure_ptr) | `[rc \| fn_ptr, captures...]` |
+| `str` | `{i64, ptr}` (len, data_ptr) | `[strong_count \| weak_count \| utf8_bytes...]` |
+| `[T]` | `{i64, i64, ptr}` (len, cap, data_ptr) | `[strong_count \| weak_count \| elements...]` |
+| `{K: V}` | `{i64, i64, ptr, ptr}` (len, cap, keys_ptr, vals_ptr) | `[strong_count \| weak_count \| keys...]`, `[strong_count \| weak_count \| vals...]` |
+| `set[T]` | `{i64, i64, ptr}` (len, cap, data_ptr) | `[strong_count \| weak_count \| elements...]` |
+| `chan<T>` | `ptr` (opaque channel_ptr) | `[strong_count \| weak_count \| channel_state...]` |
+| `(P) -> R` | `ptr` (closure_ptr) | `[strong_count \| weak_count \| fn_ptr, captures...]` |
 
 This layout is important context for RC insertion (Section 07) and RC elimination (Section 08).
 
@@ -494,8 +553,8 @@ This layout is important context for RC insertion (Section 07) and RC eliminatio
 - [ ] All collection type variants implemented (with corrected layouts)
 - [ ] Channel and Function variants implemented
 - [ ] User-defined type support (struct, enum — newtypes/aliases resolved before codegen)
+- [ ] **BLOCKING PREREQUISITE**: Pool flattening refactor complete (~750-1100 lines across pool/, registry/, check/)
 - [ ] `TypeInfoStore` with indexed storage (`&'tcx Pool` only, no TypeRegistry)
-- [ ] Prerequisite: pre-flatten struct/enum data into Pool during type checking
 - [ ] `Idx::NONE` guard returns `TypeInfo::Error`
 - [ ] Unreachable tags (Var, BoundVar, etc.) emit `TypeInfo::Error` with diagnostic
 - [ ] Calling convention computation correct for all types

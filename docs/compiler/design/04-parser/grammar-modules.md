@@ -7,7 +7,7 @@ section: "Parser"
 
 # Grammar Modules
 
-The Ori parser organizes grammar rules into separate modules for maintainability. The authoritative grammar is in [Parser Overview — Formal Grammar](index.md#grammar). Each production maps to parsing functions in the modules below.
+The Ori parser organizes grammar rules into separate modules for maintainability. The authoritative grammar is in [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf). Each production maps to parsing functions in the modules below.
 
 ## Module Structure
 

@@ -22,6 +22,9 @@ sections:
   - id: "03.6"
     title: Error Handling Lowering
     status: not-started
+  - id: "03.7"
+    title: Completion Checklist
+    status: not-started
 ---
 
 # Section 03: Expression Lowering Modules
@@ -34,7 +37,7 @@ sections:
 - **Go** -- SSA pass pipeline with ordered, composable transformations
 - **Roc** -- `build_exp_stmt()` dispatches to specialized functions per IR construct
 
-**Current state:** `ori_llvm/src/` contains `builder.rs` (~2000 lines, expression compilation + type mapping + locals + phi logic), plus related code spread across:
+**Current state:** `ori_llvm/src/` contains `builder.rs` (~1500 lines, expression compilation + type mapping + locals + phi logic), plus related code spread across:
 - `builtin_methods/` (numeric, ordering, units)
 - `collections/` (indexing, lists, maps, ranges, strings, structs, tuples, wrappers)
 - `control_flow.rs`
@@ -47,6 +50,11 @@ sections:
 ---
 
 ## 03.1 Lowering Architecture
+
+**Tier 1 / Tier 2 dispatch evolution:**
+- In **Tier 1**, `ExprLowerer` dispatches on `ExprKind` (typed AST) directly. The lowering modules translate expression nodes straight to LLVM IR without an intermediate ARC representation.
+- In **Tier 2** (after `ori_arc` is implemented), the same module structure adapts to dispatch on `ArcInstr` from the ARC IR. The LLVM emission logic -- literal construction, operator codegen, control flow branching -- remains the same; only the input representation changes from expression tree nodes to ARC IR instructions.
+- The ARC IR is provided by Section 06 (`ori_arc`). Cross-reference Section 06.0 for the `ArcInstr` enum and the AST-to-ARC-IR lowering that produces the input for Tier 2 dispatch.
 
 ### Conventions
 
@@ -81,7 +89,15 @@ impl<'a, 'ctx> ExprLowerer<'a, 'ctx> {
     /// Every ExprKind variant is listed explicitly — no catch-all `_ =>`.
     /// Adding a new variant produces a compiler error here, forcing an
     /// explicit lowering decision.
+    ///
+    /// PRECONDITION: `expr_id` must be valid (not `ExprId::INVALID`).
+    /// Callers must check `expr_id != ExprId::INVALID` before calling
+    /// this method. Passing INVALID would index past the arena bounds
+    /// and panic. Optional sub-expressions (e.g., else branches, guards)
+    /// are checked at their call sites — see the ExprId::INVALID sentinel
+    /// pattern in Section 03.1 conventions.
     pub fn lower(&mut self, expr_id: ExprId) -> Option<ValueId> {
+        debug_assert!(expr_id != ExprId::INVALID, "lower() called with INVALID ExprId");
         let expr = self.arena.get(expr_id);
         let result_type = self.expr_types[expr_id.index()];
 
@@ -217,7 +233,9 @@ impl ExprLowerer<'_, '_> {
             ExprKind::Float(bits) => Some(self.builder.const_f64(f64::from_bits(*bits))),
             ExprKind::Bool(b) => Some(self.builder.const_bool(*b)),
             ExprKind::Char(c) => Some(self.builder.const_i32(*c as u32)),
-            ExprKind::Unit => None,  // void
+            // Unit uses i64(0) — matches TypeInfo's i64 representation for unit.
+            // LLVM void cannot be stored/passed/phi'd, so unit must be a real value.
+            ExprKind::Unit => Some(self.builder.const_i64(0)),
             ExprKind::String(name) => self.lower_string_literal(*name),
             ExprKind::Ident(name) => self.lower_identifier(*name),
             ExprKind::Const(name) => self.lower_constant(*name),
@@ -238,8 +256,10 @@ impl ExprLowerer<'_, '_> {
         match binding {
             ScopeBinding::Immutable(val) => Some(val),
             ScopeBinding::Mutable { ptr, ty } => {
-                let llvm_ty = self.type_info.get(ty).storage_type(self.builder.cx());
-                Some(self.builder.load(llvm_ty, ptr, &name.as_str()))
+                // `ty` is already an LLVMTypeId (stored in ScopeBinding::Mutable),
+                // so we resolve it directly through the builder — NOT through
+                // type_info.get() which expects an Idx.
+                Some(self.builder.load(ty, ptr, &name.as_str()))
             }
         }
     }
@@ -386,10 +406,10 @@ impl ExprLowerer<'_, '_> {
         self.builder.position_at_end(merge_bb);
         let false_val = self.builder.const_bool(false);
         let bool_ty = self.builder.bool_type();
-        self.builder.phi(bool_ty, &[
+        Some(self.builder.phi(bool_ty, &[
             (false_val, lhs_exit),
             (rhs, rhs_exit),
-        ], "and.result")
+        ], "and.result"))
     }
 
     /// Lower `a || b` with short-circuit evaluation.
@@ -417,10 +437,10 @@ impl ExprLowerer<'_, '_> {
         self.builder.position_at_end(merge_bb);
         let true_val = self.builder.const_bool(true);
         let bool_ty = self.builder.bool_type();
-        self.builder.phi(bool_ty, &[
+        Some(self.builder.phi(bool_ty, &[
             (true_val, lhs_exit),
             (rhs, rhs_exit),
-        ], "or.result")
+        ], "or.result"))
     }
 
     /// Lower `a ?? b` (coalesce) with short-circuit evaluation.
@@ -450,7 +470,8 @@ impl ExprLowerer<'_, '_> {
         // Branch based on whether LHS has a value.
         // Option: has_value = tag != 0 (Some)
         // Result: has_value = tag == 0 (Ok)
-        let zero = self.builder.const_i64(0);
+        // Tag is i8 (see Section 01 TypeInfo — tag fields are 1 byte)
+        let zero = self.builder.const_i8(0);
         let has_value = if type_info.is_option() {
             self.builder.icmp_ne(tag, zero, "has_value")
         } else {
@@ -471,15 +492,19 @@ impl ExprLowerer<'_, '_> {
         let no_value_exit = self.builder.current_block();
         self.builder.br(merge_bb);
 
-        // Merge
+        // Merge — result type is the unwrapped inner type, which equals
+        // the RHS type (both sides of ?? produce the same unwrapped type).
+        // Use storage_type_id() to bridge TypeInfo's BasicTypeEnum to the
+        // ID-based LLVMTypeId that phi() expects.
         self.builder.position_at_end(merge_bb);
-        let result_ty = self.type_info.get(
-            self.expr_types[expr_id.index()]
-        ).storage_type(self.builder.cx());
-        self.builder.phi(result_ty, &[
+        let result_ty = self.type_info.storage_type_id(
+            self.expr_types[right.index()],
+            self.builder,
+        );
+        Some(self.builder.phi(result_ty, &[
             (unwrapped, has_value_exit),
             (rhs, no_value_exit),
-        ], "coalesce.result")
+        ], "coalesce.result"))
     }
 }
 ```
@@ -507,7 +532,7 @@ Float arithmetic uses `fadd`, `fsub`, `fmul`, `fdiv` instructions.
 - [ ] Implement bitwise operators (BitAnd, BitOr, BitXor, Shl, Shr)
 - [ ] Implement string concatenation (via runtime call)
 - [ ] Implement string comparison (via runtime call)
-- [ ] Implement unary operators (Neg, Not, BitNot, Try)
+- [ ] Implement unary operators (Neg, Not, BitNot) — note: `Try` (`?`) is handled in Section 03.6 as `ExprKind::Try`, not as a unary op. In `lower_unary_op`, `UnaryOp::Try` should be `unreachable!("parser emits ExprKind::Try, not Unary { op: Try }")` since the parser always produces `ExprKind::Try` for the `?` operator, never `ExprKind::Unary { op: UnaryOp::Try, .. }`.
 - [ ] Implement `Cast` lowering (infallible `as` and fallible `as?`)
 - [ ] Handle `Range`/`RangeInclusive` binary ops (delegate to range construction)
 
@@ -520,6 +545,8 @@ Float arithmetic uses `fadd`, `fsub`, `fmul`, `fdiv` instructions.
 ### LoopContext
 
 `ExprLowerer` carries an `Option<LoopContext>` field. When entering a loop (`Loop` or `For`), a `LoopContext` is created and stored. When exiting, it is restored to the previous value. `Break` jumps to `exit_block`, `Continue` jumps to `continue_block`.
+
+> **Migration note:** V1 uses a pre-created phi pattern (`PhiValue` created before the loop body, with incoming values added during lowering). V2 changes to a deferred-phi pattern: break values are collected as `Vec<(ValueId, BlockId)>` during lowering, and the phi node is created after the loop body is fully lowered. Both patterns are valid LLVM IR construction strategies. The deferred-phi approach is simpler — no need to manage partially-constructed phi nodes — and matches how if/else phi merges work in this plan. Implementors should not carry over V1's `PhiValue` infrastructure.
 
 ```rust
 /// Tracks the current loop's control flow targets for break/continue.
@@ -567,7 +594,9 @@ impl ExprLowerer<'_, '_> {
 }
 ```
 
-Let statements create scope bindings — mutable bindings get an alloca (stored as `ScopeBinding::Mutable`), immutable bindings store the SSA value directly (stored as `ScopeBinding::Immutable`). See Section 02.3 for the `Scope` design.
+Let statements create scope bindings — mutable bindings get an alloca (stored as `ScopeBinding::Mutable`), immutable bindings store the SSA value directly (stored as `ScopeBinding::Immutable`). See Section 02.3 for the `Scope` design (including `child()` scoping, binding shadowing, and variable name resolution).
+
+> **Note:** The `pattern` field in `StmtKind::Let` is a `BindingPatternId`, not a `Name`. The `bind_pattern` method must handle all pattern forms (simple name binding, tuple destructuring, struct destructuring, etc.), not just simple identifiers. Pattern matching infrastructure from Section 10 may be leveraged for complex destructuring patterns.
 
 ### If/Else
 
@@ -705,7 +734,7 @@ Each collection type uses its TypeInfo for layout:
 - [ ] Implement tuple lowering (build LLVM struct from elements)
 - [ ] Implement struct literal lowering (resolve fields, build LLVM struct)
 - [ ] Implement struct-with-spread lowering (copy base, override fields)
-- [ ] Implement range lowering (build {start, end, step, inclusive} struct)
+- [ ] Implement range lowering (build `{start, end, step, inclusive}` struct — **V2 change:** layout changes from V1's `{start, end, inclusive}` to `{start, end, step, inclusive}` to match the AST's `Range { start, end, step, inclusive }` fields. The `step` field defaults to 1 when not specified in source.)
 - [ ] Implement field access lowering (`struct_gep` + load)
 - [ ] Implement indexing lowering (bounds check + element access)
 

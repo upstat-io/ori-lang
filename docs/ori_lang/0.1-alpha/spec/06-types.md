@@ -9,7 +9,7 @@ section: "Types & Values"
 
 Every value has a type determined at compile time.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § TYPES
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § TYPES
 
 ## Primitive Types
 
@@ -667,7 +667,7 @@ let p2 = p.clone()  // OK: CloneableProducer implements Clone
 
 ## User-Defined Types
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (type_def)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § DECLARATIONS (type_def)
 
 ### Struct
 
@@ -1428,7 +1428,7 @@ let (p, c) = channel<Handle>(buffer: 10)  // error: Handle is not Sendable
 
 An _existential type_ written `impl Trait` represents an opaque type that satisfies the specified trait bounds. The concrete type is known to the compiler internally but hidden from callers.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § TYPES (impl_trait_type)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § TYPES (impl_trait_type)
 
 ### Syntax
 

@@ -177,15 +177,13 @@ impl<'a> Cursor<'a> {
         self.peek_next_token().span
     }
 
-    /// Check if two spans are adjacent (no whitespace between them).
-    /// Returns true if span1.end == span2.start.
-    pub fn spans_adjacent(&self, span1: Span, span2: Span) -> bool {
-        span1.end == span2.start
-    }
-
-    /// Check if current token and next token are adjacent (no whitespace).
-    pub fn current_and_next_adjacent(&self) -> bool {
-        self.spans_adjacent(self.current_span(), self.peek_next_span())
+    /// Check if the next token is adjacent to the current one (no whitespace).
+    ///
+    /// Uses the pre-computed `TokenFlags::ADJACENT` flag from the lexer,
+    /// which is more efficient than comparing span endpoints.
+    #[inline]
+    pub fn next_is_adjacent(&self) -> bool {
+        self.pos + 1 < self.flags.len() && self.flags[self.pos + 1].is_adjacent()
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -250,7 +248,7 @@ impl<'a> Cursor<'a> {
         self.current_tag() == TokenKind::TAG_GT
             && self.pos + 1 < self.tags.len()
             && self.tags[self.pos + 1] == TokenKind::TAG_GT
-            && self.current_and_next_adjacent()
+            && self.next_is_adjacent()
     }
 
     /// Check if looking at `>` followed immediately by `=` (no whitespace).
@@ -259,7 +257,7 @@ impl<'a> Cursor<'a> {
         self.current_tag() == TokenKind::TAG_GT
             && self.pos + 1 < self.tags.len()
             && self.tags[self.pos + 1] == TokenKind::TAG_EQ
-            && self.current_and_next_adjacent()
+            && self.next_is_adjacent()
     }
 
     /// Consume two adjacent tokens as a compound operator.

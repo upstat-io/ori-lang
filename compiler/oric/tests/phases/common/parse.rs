@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn test_parse_ok_succeeds() {
-        let output = parse_ok("let x = 42");
+        let output = parse_ok("let $x = 42");
         assert!(!output.has_errors());
     }
 

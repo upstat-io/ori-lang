@@ -9,7 +9,7 @@ section: "Concurrency"
 
 Task-based concurrency with cooperative scheduling and explicit suspension points.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § PATTERNS (parallel, spawn, nursery)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § PATTERNS (parallel, spawn, nursery)
 
 ## Tasks
 

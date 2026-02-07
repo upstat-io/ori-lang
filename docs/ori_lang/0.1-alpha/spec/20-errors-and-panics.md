@@ -9,7 +9,7 @@ section: "Execution"
 
 Ori distinguishes between recoverable errors and unrecoverable panics.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § PATTERNS (catch_expr)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § PATTERNS (catch_expr)
 
 ## Recoverable Errors
 

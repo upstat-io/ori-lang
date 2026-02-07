@@ -23,9 +23,9 @@ sections:
 **Crate:** `ori_arc` (no LLVM dependency). This is the `ArcClassification` trait referenced in Section 01. It operates purely on `Pool`/`Idx` — no LLVM types involved. The `TypeInfo` enum in `ori_llvm` (Section 01) queries this classification when deciding whether to emit retain/release calls.
 
 **Reference compilers:**
-- **Lean 4** `src/Lean/Compiler/IR.lean` -- `isScalar`, `isPossibleRef`, `isDefiniteRef` on IRType
+- **Lean 4** `src/Lean/Compiler/IR/Basic.lean` -- `isScalar`, `isPossibleRef`, `isDefiniteRef` on IRType
 - **Koka** `src/Backend/C/Parc.hs` -- `ValueRepr` with scan fields count
-- **Swift** `include/swift/SIL/SILValue.h` -- OwnershipKind lattice (None/Owned/Guaranteed/Unowned)
+- **Swift** `include/swift/SIL/SILValue.h` -- OwnershipKind five-value lattice (Any/Unowned/Owned/Guaranteed/None)
 
 **Key design principle — Monomorphized classification (from Lean 4):**
 Classification runs on **concrete types after type parameter substitution**. Generic types like `option[T]` are never classified directly — only their concrete instantiations are classified. This means:
@@ -34,6 +34,8 @@ Classification runs on **concrete types after type parameter substitution**. Gen
 - `option[T]` where `T` is an unresolved type variable is **PossibleRef** (conservative)
 
 This is strictly more precise than classifying `option[T]` as a fixed category. The `PossibleRef` class is only used when a type variable remains unresolved — which should only happen in generic function bodies before monomorphization.
+
+**Monomorphization happens BEFORE ARC IR lowering.** The ARC pipeline receives only concrete, monomorphized functions — all type parameters have been substituted with concrete types. This means `PossibleRef` should never be encountered during ARC analysis. It is kept as a debug safety net: add `debug_assert!(class != ArcClass::PossibleRef)` at ARC IR lowering entry points. If `PossibleRef` is encountered after monomorphization, this indicates a compiler bug (a type variable leaked through monomorphization).
 
 **Pool accessibility:** `ori_arc` depends on `ori_types` (which exports `Pool` publicly), so all Pool inherent methods are accessible from `ori_arc`. This is the expected dependency path.
 
@@ -47,7 +49,8 @@ This is strictly more precise than classifying `option[T]` as a fixed category. 
 /// Determines whether values of this type need reference counting.
 /// This classification is the foundation for all ARC optimization.
 ///
-/// From Lean 4's three-way classification.
+/// Inspired by Lean 4's three-way classification methods
+/// (`isScalar`, `isPossibleRef`, `isDefiniteRef` on `IRType`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArcClass {
     /// No reference counting needed. The value is purely stack/register.
@@ -72,14 +75,15 @@ pub enum ArcClass {
 /// | Type | ArcClass | Reason |
 /// |------|----------|--------|
 /// | int, float, bool, char, byte | Scalar | Pure value types |
-/// | unit, never | Scalar | Zero-size types |
+/// | unit | Scalar | Zero-size type (single value) |
+/// | never | Scalar | Uninhabited — no values exist at runtime, code unreachable |
 /// | duration, size, ordering | Scalar | Wrapped integers |
 /// | str | DefiniteRef | Heap-allocated string data |
 /// | [T] | DefiniteRef | Heap-allocated array |
 /// | {K: V} | DefiniteRef | Heap-allocated hash table |
 /// | set[T] | DefiniteRef | Heap-allocated set |
 /// | chan<T> | DefiniteRef | Heap-allocated channel |
-/// | (P) -> R | DefiniteRef | Heap-allocated closure |
+/// | (P) -> R | DefiniteRef | Heap-allocated closure (see note below) |
 /// | option[int] | Scalar | All fields scalar (tag + int) |
 /// | option[str] | DefiniteRef | Contains DefiniteRef field |
 /// | result[int, int] | Scalar | All fields scalar |
@@ -90,11 +94,23 @@ pub enum ArcClass {
 /// | struct { any ref field } | DefiniteRef | Contains ref field |
 /// | enum { all scalar variants } | Scalar | All variant payloads scalar |
 /// | enum { any ref variant } | DefiniteRef | Contains ref variant |
+/// | error | Scalar | Should not reach codegen (type-checker error) |
+/// | range[T] (T: Scalar) | Scalar | All fields scalar (start, end, step) |
+/// | range[T] (T: DefiniteRef) | DefiniteRef | Contains DefiniteRef field |
 /// | T (type variable) | PossibleRef | Unresolved — conservative |
 ///
 /// Note: Generic types (option[T], result[T, E], etc.) are NEVER classified
 /// directly. Only concrete instantiations after monomorphization are classified.
 /// The PossibleRef class exists solely for unresolved type variables.
+///
+/// **Closure type classification trade-off:** No-capture closures technically
+/// need no RC (their env_ptr is null, no heap allocation). However, the closure
+/// *type* `(P) -> R` does not encode whether captures exist — that is a property
+/// of the specific closure *value*, not the type. Since classification operates
+/// on types (not values), all closure types are conservatively classified as
+/// DefiniteRef. A future optimization could use a separate "known-no-capture"
+/// fast path at the value level, but the type-level classification remains
+/// DefiniteRef for soundness.
 ```
 
 - [ ] Define `ArcClass` enum
@@ -153,6 +169,16 @@ Key insight from monomorphization:
 - [ ] Verify monomorphization: after type substitution, no PossibleRef in concrete code
 
 ## 05.3 Pool Integration
+
+**Pool flattening prerequisite:** The `ArcClassification` trait implementation requires the same Pool flattening prerequisite as Section 01.5. Specifically, Pool must expose `struct_fields()` and `enum_variants()` accessor methods for transitive classification of user-defined types. Without these methods, `arc_class()` cannot inspect struct field types or enum variant payloads to determine whether a compound type is Scalar or DefiniteRef. Cross-reference Section 01.5 for the full Pool flattening refactor description (~750-1100 lines).
+
+**Pool extra array layout for compound types:** The Pool stores compound type information in a flattened extra array. `classify_compound` iterates over field type indices stored in this array. The concrete layouts are:
+
+- **Struct extra layout:** `[field_count: u32, field_type_idx_0: u32, field_type_idx_1: u32, ...]` — `struct_fields(idx)` returns a slice of `field_count` type indices starting after the count.
+- **Enum extra layout:** `[variant_count: u32, variant_0_field_count: u32, variant_0_field_0_idx: u32, ..., variant_1_field_count: u32, variant_1_field_0_idx: u32, ...]` — `enum_variants(idx)` iterates variant-by-variant, reading each variant's field count followed by that many field type indices.
+- **Tuple extra layout:** `[element_count: u32, element_type_idx_0: u32, element_type_idx_1: u32, ...]` — same structure as struct fields.
+
+These layouts allow `classify_compound` to iterate over all contained type indices without allocating. The `u32` indices refer to other entries in the Pool, enabling recursive classification via `classify(field_idx, pool)`.
 
 ```rust
 /// Extension trait on Pool for ARC classification.

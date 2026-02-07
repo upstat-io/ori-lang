@@ -91,14 +91,22 @@ The `--release` flag maps to the Release profile (O2). Users can override with `
 /// Pipeline: verify_module → run_optimization_passes → emit
 /// Verification is unconditional — catching invalid IR early prevents
 /// LLVM segfaults during optimization or object emission.
+///
+/// Note: `ModuleEmitError` is `ori_llvm`'s crate-local error type for the
+/// verify→optimize→emit pipeline. At the `oric` crate boundary, these errors
+/// are converted to `LlvmProblem` variants for the diagnostic pipeline
+/// (see Section 15). The mapping is:
+///   ModuleEmitError::VerificationFailed → LlvmProblem::ModuleVerificationFailed (E5001)
+///   OptimizationError::*               → LlvmProblem::PassPipelineError (E5002)
+///   EmitError::*                       → LlvmProblem::ObjectEmissionFailed (E5003)
 pub fn optimize_module(
     module: &Module<'_>,
     target_machine: &TargetMachine,
     config: &OptimizationConfig,
-) -> Result<(), CodegenError> {
+) -> Result<(), ModuleEmitError> {
     // Step 1: Verify module (unconditional)
     if let Err(msg) = module.verify() {
-        return Err(CodegenError::VerificationFailed {
+        return Err(ModuleEmitError::VerificationFailed {
             message: msg.to_string(),
         });
     }
@@ -128,11 +136,13 @@ pub fn optimize_module(
 
 ### RC Runtime Function Attributes
 
+**Dependency note:** The `ori_rc_*` functions do not yet exist. They will be created as part of the ARC pipeline (Sections 05-09). The attribute declarations shown here should be applied when these functions are first declared during ARC codegen implementation, not as a retrofit to existing code. This section depends on Sections 05-09 being implemented first.
+
 These attributes are set during function declaration (in `declare_runtime_functions` or its V2 equivalent), not during the optimization pass pipeline. The pass pipeline operates on the whole module after declarations are complete.
 
 ```rust
 // ori_rc_inc(ptr): Increment reference count.
-// NOT readonly/readnone — modifies the refcount word at ptr-8.
+// NOT readonly/readnone — modifies the refcount word at ptr-16.
 // argmemonly — only touches memory reachable from the argument pointer.
 // nounwind — RC operations never throw.
 fn declare_ori_rc_inc(cx: &CodegenCx) {
@@ -187,9 +197,15 @@ fn declare_ori_rc_free(cx: &CodegenCx) {
 | Attribute | Applied To | Why |
 |-----------|-----------|-----|
 | `nounwind` | All RC functions | Enables LLVM to optimize exception handling paths around RC calls. Drop functions are `nounwind` because panic during drop = abort. |
-| `memory(argmem: readwrite)` | `ori_rc_inc`, `ori_rc_dec` | Prevents LICM from moving RC ops past unrelated memory operations. The function only reads/writes memory reachable from its pointer arguments (the refcount at `ptr-8`). |
+| `memory(argmem: readwrite)` | `ori_rc_inc`, `ori_rc_dec` | Prevents LICM from moving RC ops past unrelated memory operations. The function only reads/writes memory reachable from its pointer arguments (strong_count at `ptr-16`, weak_count at `ptr-8`). See implementation note below. |
 | NOT `readonly`/`readnone` | `ori_rc_inc`, `ori_rc_dec` | Prevents DSE from eliminating RC stores. These functions modify the refcount word. |
 | `noalias` (return) | `ori_rc_alloc` | Enables alias analysis. A fresh allocation does not alias any existing pointer. |
+
+**Implementation note — `memory(argmem: readwrite)` attribute:** The `memory` attribute was introduced in LLVM 16 (replacing `argmemonly`). Ori targets LLVM 18+. Options for creating this attribute via inkwell:
+1. **String attribute API** (preferred): `context.create_string_attribute("memory", "argmem: readwrite")` — simplest, works if inkwell exposes `LLVMCreateStringAttribute`.
+2. **Raw llvm-sys**: Call `LLVMCreateMemoryEffectsAttribute` directly via `llvm_sys::core` for precise control over the memory effects encoding.
+3. **Legacy fallback**: The older `argmemonly` string attribute works on LLVM 16-17 but is deprecated. Since Ori targets LLVM 18+, prefer the `memory(...)` form.
+Verify the chosen approach emits correct IR by checking `--emit=llvm-ir` output for `memory(argmem: readwrite)` on RC function declarations.
 
 ### Specialized Drop Functions
 
@@ -312,13 +328,16 @@ compile_to_llvm → verify_module → optimize → emit_object
 /// Pipeline: lower → verify → optimize → emit
 /// Each step is a method on ModuleEmitter. The caller does not need to
 /// invoke optimization separately.
+///
+/// Error type: `ModuleEmitError` is ori_llvm's crate-local error type.
+/// At the oric boundary, these are converted to `LlvmProblem` for diagnostics.
 impl<'ll> ModuleEmitter<'ll> {
     /// Run the full pipeline: lower → verify → optimize → emit.
     pub fn emit(
         &self,
         config: &OptimizationConfig,
         output: &EmitOutput,
-    ) -> Result<(), CodegenError> {
+    ) -> Result<(), ModuleEmitError> {
         // 1. Lower Ori IR to LLVM IR (already done by this point)
         // 2. Verify module (unconditional)
         self.verify()?;

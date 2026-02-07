@@ -9,7 +9,7 @@ section: "Foundations"
 
 Source code is Unicode text encoded in UTF-8.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § LEXICAL GRAMMAR, SOURCE STRUCTURE
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § LEXICAL GRAMMAR, SOURCE STRUCTURE
 
 ## Characters
 

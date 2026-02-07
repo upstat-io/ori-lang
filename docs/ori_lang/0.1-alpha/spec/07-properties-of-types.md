@@ -9,7 +9,7 @@ section: "Types & Values"
 
 Type identity, assignability, and constraints.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (generics, where_clause)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § DECLARATIONS (generics, where_clause)
 
 ## Type Identity
 

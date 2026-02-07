@@ -992,9 +992,10 @@ type Point = { x: int, y: int }
 
 @sum (self: Point) -> garbage = self.x + self.y
 
-@main () -> void =
-  let p = Point { x: 3, y: 4 }
-  println(p.sum().to_str())
+@main () -> void = run(
+  let p = Point { x: 3, y: 4 },
+  println(p.sum().to_str()),
+)
 ";
     let result = check_source(source);
     assert!(
@@ -1053,9 +1054,10 @@ type Point = { x: int, y: int }
 
 @sum (self: Point) -> garbage = self.x + self.y
 
-@main () -> void =
-  let p = Point { x: 3, y: 4 }
-  println(p.sum().to_str())
+@main () -> void = run(
+  let p = Point { x: 3, y: 4 },
+  println(p.sum().to_str()),
+)
 ";
     let interner = StringInterner::new();
     let tokens = ori_lexer::lex(source, &interner);

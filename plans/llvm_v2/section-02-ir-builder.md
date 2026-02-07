@@ -16,6 +16,9 @@ sections:
   - id: "02.4"
     title: Block & Control Flow Management
     status: not-started
+  - id: "02.5"
+    title: Completion Checklist
+    status: not-started
 ---
 
 # Section 02: IrBuilder & ID-Based Value System
@@ -28,7 +31,7 @@ sections:
 - **Zig** `lib/std/zig/llvm/Builder.zig` -- Pure Zig IR with ID-based references, deferred LLVM involvement
 - **Roc** `crates/compiler/gen_llvm/src/llvm/build.rs` -- `BuilderExt` trait wrapping inkwell to unwrap Results
 
-**Current state:** `ori_llvm/src/builder.rs` is ~2000 lines. It wraps inkwell's Builder but also contains expression compilation, type mapping, local variable management, and phi node logic all in one struct. The `'ll` lifetime threads through everything.
+**Current state:** `ori_llvm/src/builder.rs` is ~1500 lines. It wraps inkwell's Builder but also contains expression compilation, type mapping, local variable management, and phi node logic all in one struct. The `'ll` lifetime threads through everything.
 
 ---
 
@@ -110,6 +113,13 @@ The central builder that wraps inkwell's `Builder` with safety and ergonomics:
 /// LLVM lifetime is contained within this struct; callers never see 'ctx.
 ///
 /// Design from Rust's GenericBuilder + Roc's BuilderExt.
+/// **Design note:** The existing `Builder` holds `&'a CodegenCx`, which bundles
+/// context, module, and type caches into one struct. IrBuilder takes the same
+/// approach: it holds a `&'ctx CodegenCx` (or equivalent) rather than individual
+/// component references. This keeps the API surface clean and matches the existing
+/// pattern. The individual fields shown below are the logical components that
+/// CodegenCx provides; during implementation, they will likely be accessed through
+/// a single `&'ctx CodegenCx` reference.
 pub struct IrBuilder<'ctx> {
     /// The underlying inkwell builder.
     builder: Builder<'ctx>,
@@ -132,6 +142,8 @@ pub struct IrBuilder<'ctx> {
 
 impl<'ctx> IrBuilder<'ctx> {
     // === Constants ===
+    pub fn const_i8(&mut self, val: i8) -> ValueId;
+    pub fn const_i32(&mut self, val: i32) -> ValueId;
     pub fn const_i64(&mut self, val: i64) -> ValueId;
     pub fn const_f64(&mut self, val: f64) -> ValueId;
     pub fn const_bool(&mut self, val: bool) -> ValueId;
@@ -149,7 +161,9 @@ impl<'ctx> IrBuilder<'ctx> {
     pub fn store(&mut self, val: ValueId, ptr: ValueId);
     pub fn gep(&mut self, ty: LLVMTypeId, ptr: ValueId, indices: &[ValueId], name: &str) -> ValueId;
     /// Struct field access by index (typed GEP into struct).
-    pub fn struct_gep(&mut self, ptr: ValueId, index: u32) -> ValueId;
+    /// `ty` is the struct type being pointed to — required by LLVM's opaque
+    /// pointer semantics (GEP needs the pointee type to compute field offsets).
+    pub fn struct_gep(&mut self, ty: LLVMTypeId, ptr: ValueId, index: u32) -> ValueId;
 
     // === Signed Arithmetic ===
     pub fn add(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
@@ -157,6 +171,7 @@ impl<'ctx> IrBuilder<'ctx> {
     pub fn mul(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
     pub fn sdiv(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
     pub fn srem(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
+    pub fn neg(&mut self, val: ValueId, name: &str) -> ValueId;
 
     // === Unsigned Arithmetic ===
     pub fn udiv(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
@@ -168,7 +183,16 @@ impl<'ctx> IrBuilder<'ctx> {
     pub fn fsub(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
     pub fn fmul(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
     pub fn fdiv(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
+    pub fn frem(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
     pub fn fneg(&mut self, val: ValueId, name: &str) -> ValueId;
+
+    // === Bitwise Operations ===
+    pub fn and(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
+    pub fn or(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
+    pub fn xor(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
+    pub fn not(&mut self, val: ValueId, name: &str) -> ValueId;
+    pub fn shl(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
+    pub fn ashr(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
 
     // === Comparisons ===
     pub fn icmp_eq(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId;
@@ -210,6 +234,14 @@ impl<'ctx> IrBuilder<'ctx> {
     pub fn call(&mut self, func: FunctionId, args: &[ValueId], name: &str) -> ValueId;
     pub fn call_indirect(&mut self, fn_ty: LLVMTypeId, ptr: ValueId, args: &[ValueId], name: &str) -> ValueId;
 
+    // === Type Registration ===
+
+    /// Register an inkwell type and return an opaque ID.
+    /// Used to bridge TypeInfo (which returns BasicTypeEnum) with the
+    /// ID-based builder. TypeInfoStore::storage_type_id() calls this
+    /// internally — most callers should use that convenience method instead.
+    pub fn register_type(&mut self, ty: BasicTypeEnum<'ctx>) -> LLVMTypeId;
+
     // === Phi Nodes ===
     pub fn phi(&mut self, ty: LLVMTypeId, incoming: &[(ValueId, BlockId)], name: &str) -> ValueId;
 
@@ -226,9 +258,10 @@ impl<'ctx> IrBuilder<'ctx> {
 - [ ] Implement `IrBuilder` struct with `ValueArena`
 - [ ] Implement all constant creation methods (including `build_global_string_ptr`)
 - [ ] Implement all memory operation methods (including `create_entry_alloca`, `struct_gep`)
-- [ ] Implement all signed arithmetic methods
+- [ ] Implement all signed arithmetic methods (including `neg`)
 - [ ] Implement all unsigned arithmetic methods (`udiv`, `urem`, `lshr`)
-- [ ] Implement all float arithmetic methods (including `fneg`)
+- [ ] Implement all float arithmetic methods (including `fneg`, `frem`)
+- [ ] Implement all bitwise operation methods (`and`, `or`, `xor`, `not`, `shl`, `ashr`)
 - [ ] Implement all comparison methods
 - [ ] Implement all conversion methods (including `uitofp`, `fptoui`, `ptr_to_int`, `int_to_ptr`)
 - [ ] Implement `select` (conditional move)
@@ -245,6 +278,8 @@ impl<'ctx> IrBuilder<'ctx> {
 
 **Dependency:** Requires the `im` crate (persistent/immutable data structures) for efficient scope nesting. Add `im = "15"` to `ori_llvm/Cargo.toml`.
 
+**Migration note:** The existing codebase has `Locals` (struct with `FxHashMap<Name, LocalStorage>`) and `LocalStorage` enum (`Immutable(BasicValueEnum)` / `Mutable { ptr, ty }`) in `builder.rs`. The V2 `Scope` and `ScopeBinding` replace these with two key improvements: (1) `im::HashMap` enables O(1) scope cloning via structural sharing (vs. O(n) `FxHashMap::clone()` for each nested scope), and (2) ID-based values (`ValueId` / `LLVMTypeId`) instead of lifetime-bearing inkwell types. The naming change from `Locals`/`LocalStorage` to `Scope`/`ScopeBinding` reflects the broader responsibility (scoped binding management, not just local variable storage).
+
 ```rust
 /// Binding kinds: immutable (SSA value) vs mutable (alloca + load/store).
 #[derive(Clone, Copy)]
@@ -255,7 +290,12 @@ pub enum ScopeBinding {
 
     /// Mutable binding — the value is a pointer to an alloca.
     /// Load to read, store to write. Used for `let mut x = ...`.
-    Mutable { ptr: ValueId, ty: Idx },
+    /// `ty` is the LLVM type of the pointed-to value, needed for typed loads
+    /// (LLVM opaque pointers require the pointee type at load/store sites).
+    /// We store LLVMTypeId rather than Idx because loads are LLVM operations
+    /// that need the LLVM type directly — storing Idx would require a
+    /// TypeInfoStore lookup on every load, adding unnecessary indirection.
+    Mutable { ptr: ValueId, ty: LLVMTypeId },
 }
 
 /// Tracks local variable bindings for the current function.
@@ -282,8 +322,8 @@ impl Scope {
         self.bindings.insert(name, ScopeBinding::Immutable(val));
     }
 
-    /// Bind a mutable variable (alloca pointer + type).
-    pub fn bind_mutable(&mut self, name: Name, ptr: ValueId, ty: Idx) {
+    /// Bind a mutable variable (alloca pointer + LLVM pointee type).
+    pub fn bind_mutable(&mut self, name: Name, ptr: ValueId, ty: LLVMTypeId) {
         self.bindings.insert(name, ScopeBinding::Mutable { ptr, ty });
     }
 
@@ -358,7 +398,7 @@ impl<'ctx> IrBuilder<'ctx> {
 
 ## 02.5 Completion Checklist
 
-- [ ] `IrBuilder` with all instruction emission methods (including unsigned ops, float negation, casts, select, position guard)
+- [ ] `IrBuilder` with all instruction emission methods (including unsigned ops, float negation/remainder, bitwise ops, integer negation, casts, select, position guard)
 - [ ] ID-based value system (ValueId, LLVMTypeId, BlockId, FunctionId)
 - [ ] `Scope` with persistent map (`im::HashMap`) and `ScopeBinding` enum (Immutable/Mutable)
 - [ ] Block and control flow management
@@ -367,4 +407,4 @@ impl<'ctx> IrBuilder<'ctx> {
 - [ ] `debug_assert!` type checking on arithmetic/comparison ops
 - [ ] Tests for each instruction category
 
-**Exit Criteria:** The IrBuilder can emit all LLVM IR that the current Builder can, without exposing inkwell lifetimes to calling code.
+**Exit Criteria:** The IrBuilder can emit all LLVM IR that the current Builder can — including bitwise operations (`and`, `or`, `xor`, `not`, `shl`, `ashr`), integer negation (`neg`), and float remainder (`frem`) — without exposing inkwell lifetimes to calling code.
