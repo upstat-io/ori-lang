@@ -65,7 +65,7 @@ sections:
 /// added, forcing an explicit lowering decision.
 pub struct ExprLowerer<'a, 'ctx> {
     builder: &'a mut IrBuilder<'ctx>,
-    type_info: &'a TypeInfoRegistry,
+    type_info: &'a TypeInfoStore,
     scope: &'a mut Scope,
     arena: &'a ExprArena,
     expr_types: &'a [Idx],

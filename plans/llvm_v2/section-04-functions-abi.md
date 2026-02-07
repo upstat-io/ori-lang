@@ -53,7 +53,7 @@ V2 explicitly changes to batch mode: declare ALL user functions first, then defi
 ```rust
 pub struct FunctionCompiler<'a, 'ctx> {
     builder: &'a mut IrBuilder<'ctx>,
-    type_info: &'a TypeInfoRegistry,
+    type_info: &'a TypeInfoStore,
     functions: FxHashMap<Name, FunctionId>,  // Declared functions
 }
 
@@ -173,7 +173,7 @@ V2 replaces this with TypeInfo-driven thresholds:
 ```rust
 fn compute_param_passing(ty: Idx, type_info: &TypeInfoStore) -> ParamPassing {
     let info = type_info.get(ty);
-    match info.abi_size() {
+    match info.size() {
         0 => ParamPassing::Void,                     // unit, never
         1..=16 => ParamPassing::Direct,              // fits in <=2 registers
         _ => ParamPassing::Indirect {                 // >16 bytes, use byval
@@ -184,7 +184,7 @@ fn compute_param_passing(ty: Idx, type_info: &TypeInfoStore) -> ParamPassing {
 
 fn compute_return_passing(ty: Idx, type_info: &TypeInfoStore) -> ReturnPassing {
     let info = type_info.get(ty);
-    match info.abi_size() {
+    match info.size() {
         0 => ReturnPassing::Void,
         1..=16 => ReturnPassing::Direct,
         _ => ReturnPassing::Sret {
@@ -284,20 +284,30 @@ Limitations:
 
 **No-capture optimization:** When a closure has no captures, `env_ptr` is `null`. Call sites can check for null and call `fn_ptr` directly (no environment dereference).
 
-**Environment struct:** Captures are stored in a heap-allocated, ARC-managed struct:
+**Environment struct:** Captures are stored in a heap-allocated, ARC-managed struct using the Roc-style ptr-8 layout (consistent with all other RC'd types in Ori):
 
 ```llvm
 ; Environment for a closure capturing x: int and name: str
+; Allocated via ori_rc_alloc(sizeof(%env_lambda_3), align)
+; which returns a data pointer; refcount lives at ptr-8.
 %env_lambda_3 = type {
-    i64,          ; refcount (ARC header)
     i64,          ; capture 'x' (int, stored at native type)
     { ptr, i64 }  ; capture 'name' (str, stored at native type)
 }
+
+; Heap layout (Roc-style, see Section 01.6):
+;   ┌──────────────┬───────────────────────┐
+;   │ refcount: i64│ env_lambda_3 data ... │
+;   └──────────────┴───────────────────────┘
+;   ^              ^
+;   ptr - 8        ptr (env_ptr stored in closure fat pointer)
 ```
 
 - No i64 coercion -- captures stored at their native types
 - No capture limit -- environment struct grows as needed
-- ARC-managed via the same refcount header used by all Ori heap objects (Section 07)
+- No refcount inside the struct -- refcount lives at ptr-8 (Roc-style), consistent with all other RC'd types (str, list, map, set, channel)
+- Allocation: `ori_rc_alloc(sizeof(env), align)` returns data pointer; refcount at ptr-8
+- ARC-managed via the same refcount-at-negative-offset layout used by all Ori heap objects (Section 01.6, Section 07)
 
 **Function signature:** All closures receive `env_ptr` as a hidden first parameter:
 
