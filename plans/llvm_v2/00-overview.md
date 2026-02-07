@@ -155,10 +155,9 @@ No existing module needs modification. No giant match arms to extend.
                     │   requires LLVM feature)      │
                     │                               │
                     │  mod codegen:                  │
-                    │    TypeInfo enum + dispatch    │  Type-driven codegen
+                    │    TypeInfo enum + dispatch    │  Type-driven codegen (incl. size/alignment)
                     │    ExprLowerer                │  ARC IR → LLVM IR emission
                     │    AbiComputer                │  Calling conventions
-                    │    LayoutEngine               │  Type size/alignment
                     │                               │
                     │  mod ir_builder:               │
                     │    IrBuilder                  │  inkwell wrapper + safety
@@ -172,6 +171,8 @@ No existing module needs modification. No giant match arms to extend.
                     └───────────────────────────────┘
 ```
 
+**Coordinator hierarchy:** `ModuleEmitter` orchestrates per-module compilation (verify, optimize, emit). `FunctionCompiler` manages per-function compilation (declare, define). `ExprLowerer` handles per-expression lowering within a function body. `IrBuilder` provides the low-level LLVM instruction API.
+
 ## Implementation Tiers
 
 ### Tier 1: Foundation (Must Have)
@@ -184,10 +185,12 @@ No existing module needs modification. No giant match arms to extend.
 - Section 05: Type classification and ArcClassification trait (Scalar/Ref)
 - Section 06: ARC IR lowering + borrow inference
 - Section 07: RC insertion via liveness analysis on ARC IR
+- Section 09: Constructor reuse expansion (expands Reset/Reuse into IsShared + fast/slow paths)
 - Section 08: RC elimination via dataflow on ARC IR
 
+**ARC pipeline execution order:** 05 → 06 → 07 → 09 → 08. Section numbers indicate topic grouping, not execution order. Section 09 runs before 08 following Lean 4's pipeline design: RC insertion (07) produces Reset/Reuse intermediate operations, constructor reuse expansion (09) expands those into concrete IsShared + Branch + RcInc/RcDec instructions, and then RC elimination (08) runs over the complete set of RcInc/RcDec instructions from both passes.
+
 ### Tier 3: Optimization (Performance)
-- Section 09: Constructor reuse analysis (FBIP)
 - Section 10: Pattern match decision trees
 - Section 11: LLVM optimization pass configuration
 - Section 12: Incremental/parallel codegen
@@ -201,7 +204,7 @@ No existing module needs modification. No giant match arms to extend.
 
 ```
 ori_arc depends on:  ori_ir (ExprArena, ExprKind), ori_types (Pool, Idx)
-ori_llvm depends on: ori_arc, ori_ir, ori_types, ori_rt (RC runtime: ori_rc_inc, ori_rc_dec, ori_alloc, ori_free)
+ori_llvm depends on: ori_arc, ori_ir, ori_types, ori_rt (RC runtime: ori_rc_inc, ori_rc_dec, ori_rc_alloc, ori_rc_free)
 
 Tier 1 (ori_llvm foundation) depends on: ori_ir, ori_types
 Tier 2 (ori_arc)             depends on: ori_ir, ori_types
@@ -209,13 +212,13 @@ Tier 3 (optimization)        depends on: Tier 1 + Tier 2
 Tier 4 (polish)              depends on: Tier 1
 ```
 
-**Note:** `ori_rt` provides the ARC runtime functions (`ori_rc_inc`, `ori_rc_dec`, `ori_rc_is_unique`, `ori_alloc`, `ori_free`) that `ori_llvm` emits calls to. The codegen layer references these as external symbols; the runtime library is linked at the final binary stage.
+**Note:** `ori_rt` provides the ARC runtime functions (`ori_rc_inc`, `ori_rc_dec`, `ori_rc_alloc`, `ori_rc_free`) that `ori_llvm` emits calls to. The codegen layer references these as external symbols; the runtime library is linked at the final binary stage. The `IsShared` check (refcount > 1) is emitted inline as a load + compare sequence, not as a runtime function call.
 
 ## Migration Strategy
 
 The V2 architecture can be built incrementally alongside the existing `ori_llvm`:
 
-1. **Phase 1**: Build `TypeInfo` enum + `LayoutEngine` as new modules inside `ori_llvm` alongside existing code
+1. **Phase 1**: Build `TypeInfo` enum (including size/alignment methods) as a new module inside `ori_llvm` alongside existing code
 2. **Phase 2**: Build `ori_arc` crate with ARC IR, classification, and analysis passes (testable independently, no LLVM dependency)
 3. **Phase 3**: Build new `IrBuilder` and expression lowering modules inside `ori_llvm`
 4. **Phase 4**: Introduce a `codegen_v2` feature flag (compile-time switch). Run test suite against BOTH old and new pipelines in CI. Progressively migrate expression kinds to the new pipeline. Only deprecate the old `Builder` once full test parity is verified across all expression kinds and optimizations.
