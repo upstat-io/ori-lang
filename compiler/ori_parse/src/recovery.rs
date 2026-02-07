@@ -9,7 +9,7 @@ use ori_ir::TokenKind;
 /// A set of token kinds using bitset representation for O(1) membership testing.
 ///
 /// Each bit in the u128 corresponds to a `TokenKind` discriminant index.
-/// With 115 token kinds, we need u128 (128 bits) to cover all variants.
+/// With 116 token kinds, we need u128 (128 bits) to cover all variants.
 ///
 /// # Performance
 /// - Membership testing: O(1) via bitwise AND
