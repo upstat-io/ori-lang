@@ -50,40 +50,26 @@ Identifiers are case-sensitive. Must not start with digit or be a reserved keywo
 
 ## Keywords
 
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § Keywords for the complete keyword listing.
+
 ### Reserved
 
-```
-break    continue  def      do       else     extern
-false    for       if       impl     in       let
-loop     match     pub      self     Self     suspend
-then     trait     true     type     unsafe   use
-uses     void      where    with     yield
-```
+Reserved keywords must not be used as identifiers. See grammar for complete list (34 keywords).
 
 ### Reserved (Future)
 
-Reserved for future low-level features. Currently rejected with an informative error:
-
-```
-asm      inline   static   union    view
-```
+Reserved for future low-level features. Currently rejected with an informative error. See grammar for complete list (5 keywords).
 
 ### Context-Sensitive
 
-Keywords only in pattern expressions:
-
-```
-cache    collect  filter    find     fold
-map      parallel recurse   retry    run
-timeout  try      validate
-```
+Context-sensitive keywords are recognized as keywords only in specific syntactic positions. Outside those positions, they are valid identifiers. Categories include pattern expressions, pattern named arguments, imports, type names, and other specific positions. See grammar for complete listing and position rules.
 
 ### Built-in Names
 
 Reserved in call position (`name(`), usable as variables otherwise:
 
 ```
-int      float    str       byte     len
+int      float    str       byte     bool     len
 is_empty is_some  is_none   is_ok    is_err
 assert   assert_eq assert_ne compare  min
 max      print    panic

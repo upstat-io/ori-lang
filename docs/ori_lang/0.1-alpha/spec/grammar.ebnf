@@ -52,16 +52,19 @@ example_doc  = "//" " " ">" " " { unicode_char - newline } .
 identifier = ( letter | "_" ) { letter | digit | "_" } .
 
 // --- Keywords ---
-// See: 03-lexical-elements.md § Keywords
-// Reserved: break, continue, def, do, else, extern, false, for, if, impl, in, let,
-//           loop, match, pub, self, Self, suspend, then, trait, true, type, unsafe, use,
-//           uses, void, where, with, yield
-// Reserved (future): asm, inline, static, union, view (reserved for future low-level features)
-// Context-sensitive (patterns): cache, catch, collect, filter, find, fold, for, map,
-//           match, nursery, parallel, recurse, retry, run, spawn, timeout, try, validate, with
-// Context-sensitive (imports): without (only in import items, before "def")
-// Context-sensitive (other): by (only after range expressions), max (fixed-capacity lists)
-// Context-sensitive (type conversion, call position): int, float, str, byte
+// See: 03-lexical-elements.md § Keywords (for category semantics)
+//
+// Reserved (34): as, break, continue, def, div, do, else, extend, extension, extern,
+//           false, for, if, impl, in, let, loop, match, pub, self, Self, suspend,
+//           tests, then, trait, true, type, unsafe, use, uses, void, where, with, yield
+// Reserved (future, 5): asm, inline, static, union, view
+// Context-sensitive (patterns, 16): cache, catch, collect, filter, find, fold, map,
+//           nursery, parallel, recurse, retry, run, spawn, timeout, try, validate
+// Context-sensitive (pattern args, 7): body, default, expr, on_error, over, pre_check, post_check
+// Context-sensitive (imports, 2): from (extern blocks), without (import items, before "def")
+// Context-sensitive (other, 3): args (@main params), by (after range), max (fixed-capacity lists)
+// Context-sensitive (type names, 5): bool, byte, float, int, str
+// Built-in constructors (4): channel, channel_all, channel_in, channel_out
 
 // --- Operators ---
 // See: 03-lexical-elements.md § Operators
