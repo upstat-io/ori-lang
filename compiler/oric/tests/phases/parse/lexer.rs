@@ -445,7 +445,7 @@ fn test_lex_with_comments_doc_param() {
     let output = lex_with_comments("// @param x The value", &interner);
 
     assert_eq!(output.comments.len(), 1);
-    assert_eq!(output.comments[0].kind, CommentKind::DocParam);
+    assert_eq!(output.comments[0].kind, CommentKind::DocMember);
     assert_eq!(
         interner.lookup(output.comments[0].content),
         " @param x The value"
@@ -458,7 +458,7 @@ fn test_lex_with_comments_doc_field() {
     let output = lex_with_comments("// @field x The x coordinate", &interner);
 
     assert_eq!(output.comments.len(), 1);
-    assert_eq!(output.comments[0].kind, CommentKind::DocField);
+    assert_eq!(output.comments[0].kind, CommentKind::DocMember);
     assert_eq!(
         interner.lookup(output.comments[0].content),
         " @field x The x coordinate"
