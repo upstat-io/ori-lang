@@ -1,4 +1,4 @@
-//! Lexer for Ori using logos with string interning.
+//! Lexer for Ori with string interning.
 //!
 //! Produces `TokenList` for Salsa queries.
 //!
@@ -10,6 +10,8 @@
 //! # Lexing
 //!
 //! The main entry point is [`lex()`], which converts source code into a [`TokenList`].
+//! Uses the hand-written `RawScanner` from `ori_lexer_core` with a `TokenCooker`
+//! that resolves keywords, parses literals, and processes escape sequences.
 //!
 //! # Token Types
 //!
@@ -17,11 +19,6 @@
 //! - **Keywords**: reserved words (`if`, `else`, `let`, etc.), type names, pattern keywords
 //! - **Symbols**: operators, delimiters, punctuation
 //! - **Identifiers**: user-defined names (interned for efficient comparison)
-//!
-//! # Escape Sequences
-//!
-//! String and char literals support: `\n`, `\r`, `\t`, `\\`, `\"`, `\'`, `\0`
-//! Invalid escapes are preserved literally (e.g., `\q` becomes `\q`).
 //!
 //! # Error Handling
 //!
@@ -34,103 +31,46 @@
 //!
 //! # Modules
 //!
-//! - [`raw_token`]: Logos-derived tokenizer definition
-//! - [`convert`]: Token conversion with string interning
-//! - [`escape`]: Escape sequence processing for strings and chars
 //! - [`comments`]: Comment classification and normalization
 //! - [`parse_helpers`]: Numeric literal parsing utilities
+//! - [`cooker`]: Token cooking layer
+//! - [`keywords`]: Keyword resolution
+//! - [`cook_escape`]: Spec-strict escape processing
+//! - [`token_flags`]: Per-token whitespace metadata (re-exported from `ori_ir`)
+//! - [`lex_error`]: Lexer error types
 
 mod comments;
-mod convert;
-mod escape;
+mod cook_escape;
+mod cooker;
+pub mod foreign_keywords;
+mod keywords;
+pub mod lex_error;
 mod parse_helpers;
-mod raw_token;
+pub mod token_flags;
+pub mod unicode_confusables;
+mod what_is_next;
+
+// Re-export core types from the standalone tokenizer crate.
+pub use ori_lexer_core::{
+    Cursor, EncodingIssue, EncodingIssueKind, RawTag, RawToken, SourceBuffer,
+};
 
 use comments::classify_and_normalize_comment;
-use convert::convert_token;
-use logos::Logos;
+use cooker::TokenCooker;
+use lex_error::{DetachedDocWarning, LexError};
 use ori_ir::{
-    Comment, CommentList, ModuleExtra, Span, StringInterner, Token, TokenKind, TokenList,
+    Comment, CommentKind, CommentList, ModuleExtra, Span, StringInterner, Token, TokenFlags,
+    TokenKind, TokenList,
 };
-use raw_token::RawToken;
-
-/// Lex source code into a [`TokenList`].
-///
-/// This is the core lexing function used by the `tokens` query.
-///
-/// # Token Types Produced
-///
-/// - **Literals**: `Int`, `Float`, `String`, `Char`, `Duration`, `Size`
-/// - **Keywords**: `If`, `Else`, `Let`, `For`, etc. (see [`TokenKind`])
-/// - **Identifiers**: User-defined names (interned via `interner`)
-/// - **Symbols**: Operators, delimiters, punctuation
-/// - **Trivia**: `Newline` tokens (comments and line continuations are skipped)
-/// - **Special**: `Eof` at end, `Error` for invalid tokens
-///
-/// # String/Char Escape Handling
-///
-/// String and char literals support escape sequences: `\n`, `\r`, `\t`, `\\`, `\"`, `\'`, `\0`.
-/// Invalid escape sequences are preserved literally (e.g., `\q` becomes `\q`).
-///
-/// # Error Tokens
-///
-/// Invalid input produces `TokenKind::Error` tokens. The lexer continues past errors,
-/// allowing partial parsing of malformed source code.
-///
-/// # File Size Limits
-///
-/// Source files larger than `u32::MAX` bytes (~4GB) will produce an error token.
-/// Positions are stored as `u32` to keep tokens compact (24 bytes each).
-pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
-    // Pre-allocate based on ~4 bytes per token heuristic (avoids Vec reallocation)
-    let mut result = TokenList::with_capacity(source.len() / 4 + 1);
-    let mut logos = RawToken::lexer(source);
-
-    while let Some(token_result) = logos.next() {
-        // Use try_from_range with saturated fallback to avoid panic on huge files
-        let span = Span::try_from_range(logos.span()).unwrap_or_else(|_| {
-            // File exceeds u32::MAX - use saturated position
-            Span::new(u32::MAX.saturating_sub(1), u32::MAX)
-        });
-        let slice = logos.slice();
-
-        match token_result {
-            Ok(raw) => {
-                // Skip trivia (comments, newlines, continuations)
-                match raw {
-                    RawToken::LineComment | RawToken::LineContinuation => {}
-                    RawToken::Newline => {
-                        result.push(Token::new(TokenKind::Newline, span));
-                    }
-                    _ => {
-                        let kind = convert_token(raw, slice, interner);
-                        result.push(Token::new(kind, span));
-                    }
-                }
-            }
-            Err(()) => {
-                result.push(Token::new(TokenKind::Error, span));
-            }
-        }
-    }
-
-    // Add EOF token
-    // If source exceeds u32::MAX bytes, emit error token and use max position
-    let eof_pos = u32::try_from(source.len()).unwrap_or_else(|_| {
-        // File too large - emit error token at end
-        let error_span = Span::new(u32::MAX - 1, u32::MAX);
-        result.push(Token::new(TokenKind::Error, error_span));
-        u32::MAX
-    });
-    let eof_span = Span::point(eof_pos);
-    result.push(Token::new(TokenKind::Eof, eof_span));
-
-    result
-}
+use ori_lexer_core::RawScanner;
 
 /// Output from lexing with comment capture and metadata.
 ///
-/// Contains both the token stream (for parsing) and formatting metadata.
+/// Contains both the token stream (for parsing) and formatting metadata,
+/// plus accumulated lexer errors and warnings.
+///
+/// # Salsa Compatibility
+/// Has all required traits: `Clone`, `Eq`, `PartialEq`, `Hash`, `Debug`, `Default`
 #[derive(Clone, Default)]
 pub struct LexOutput {
     /// The token stream for parsing.
@@ -141,6 +81,47 @@ pub struct LexOutput {
     pub blank_lines: Vec<u32>,
     /// Byte positions of all newlines.
     pub newlines: Vec<u32>,
+    /// Accumulated lexer errors.
+    pub errors: Vec<LexError>,
+    /// Accumulated warnings (e.g., detached doc comments).
+    pub warnings: Vec<DetachedDocWarning>,
+}
+
+impl PartialEq for LexOutput {
+    fn eq(&self, other: &Self) -> bool {
+        self.tokens == other.tokens
+            && self.comments == other.comments
+            && self.blank_lines == other.blank_lines
+            && self.newlines == other.newlines
+            && self.errors == other.errors
+            && self.warnings == other.warnings
+    }
+}
+
+impl Eq for LexOutput {}
+
+impl std::hash::Hash for LexOutput {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.tokens.hash(state);
+        self.comments.hash(state);
+        self.blank_lines.hash(state);
+        self.newlines.hash(state);
+        self.errors.hash(state);
+        self.warnings.hash(state);
+    }
+}
+
+impl std::fmt::Debug for LexOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LexOutput")
+            .field("tokens", &self.tokens.len())
+            .field("comments", &self.comments.len())
+            .field("blank_lines", &self.blank_lines.len())
+            .field("newlines", &self.newlines.len())
+            .field("errors", &self.errors.len())
+            .field("warnings", &self.warnings.len())
+            .finish()
+    }
 }
 
 impl LexOutput {
@@ -151,6 +132,8 @@ impl LexOutput {
             comments: CommentList::new(),
             blank_lines: Vec::new(),
             newlines: Vec::new(),
+            errors: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -161,7 +144,19 @@ impl LexOutput {
             comments: CommentList::new(),
             blank_lines: Vec::with_capacity(source_len / 400),
             newlines: Vec::with_capacity(source_len / 40),
+            errors: Vec::new(),
+            warnings: Vec::new(),
         }
+    }
+
+    /// Check if any lexer errors were accumulated.
+    pub fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+
+    /// Get the accumulated lexer errors.
+    pub fn errors(&self) -> &[LexError] {
+        &self.errors
     }
 
     /// Convert the lexer output into a `ModuleExtra` for the parser.
@@ -197,6 +192,79 @@ impl LexOutput {
     }
 }
 
+/// Lex source code into a [`TokenList`].
+///
+/// Uses the hand-written `RawScanner` + `TokenCooker` pipeline.
+/// Produces literals, keywords, identifiers, symbols, trivia (`Newline`),
+/// and `Eof`/`Error` tokens. Each token carries [`TokenFlags`] metadata.
+pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
+    let buf = SourceBuffer::new(source);
+    let mut scanner = RawScanner::new(buf.cursor());
+    let mut cooker = TokenCooker::new(buf.as_bytes(), interner);
+    let mut result = TokenList::with_capacity(source.len() / 4 + 1);
+    let mut offset: u32 = 0;
+
+    // Trivia tracking for TokenFlags
+    let mut pending_flags = TokenFlags::EMPTY;
+
+    loop {
+        let raw = scanner.next_token();
+
+        if raw.tag == RawTag::Eof {
+            break;
+        }
+
+        match raw.tag {
+            // Accumulate trivia flags for the next significant token
+            RawTag::Whitespace => {
+                pending_flags.set(TokenFlags::SPACE_BEFORE);
+            }
+            RawTag::LineComment => {
+                pending_flags.set(TokenFlags::TRIVIA_BEFORE);
+            }
+
+            // Emit newline tokens (significant for parser)
+            RawTag::Newline => {
+                let token_span = make_span(offset, raw.len);
+                let flags = finalize_flags(pending_flags);
+                result.push_with_flags(Token::new(TokenKind::Newline, token_span), flags);
+                // After a newline, the next token is at line start
+                pending_flags =
+                    TokenFlags::from_bits(TokenFlags::NEWLINE_BEFORE | TokenFlags::LINE_START);
+            }
+
+            // Cook everything else
+            _ => {
+                let token_span = make_span(offset, raw.len);
+                let kind = cooker.cook(raw.tag, offset, raw.len);
+                let mut flags = finalize_flags(pending_flags);
+                if cooker.last_cook_had_error() {
+                    flags.set(TokenFlags::HAS_ERROR);
+                }
+                if cooker.last_cook_was_contextual_kw() {
+                    flags.set(TokenFlags::CONTEXTUAL_KW);
+                }
+                result.push_with_flags(Token::new(kind, token_span), flags);
+                pending_flags = TokenFlags::EMPTY;
+            }
+        }
+
+        offset += raw.len;
+    }
+
+    // Add EOF token
+    let eof_pos = u32::try_from(source.len()).unwrap_or_else(|_| {
+        let error_span = Span::new(u32::MAX - 1, u32::MAX);
+        result.push(Token::new(TokenKind::Error, error_span));
+        u32::MAX
+    });
+    let eof_span = Span::point(eof_pos);
+    let eof_flags = finalize_flags(pending_flags);
+    result.push_with_flags(Token::new(TokenKind::Eof, eof_span), eof_flags);
+
+    result
+}
+
 /// Lex source code into tokens, comments, and formatting metadata.
 ///
 /// This is the metadata-preserving lexer entry point used by the formatter and IDE.
@@ -205,88 +273,129 @@ impl LexOutput {
 /// - Blank lines (for formatting preservation)
 /// - Newlines (for line counting)
 ///
-/// # Comment Classification
-///
-/// Comments are classified by their content:
-/// - `// #...` → `DocDescription`
-/// - `// @param ...` → `DocParam`
-/// - `// @field ...` → `DocField`
-/// - `// !...` → `DocWarning`
-/// - `// >...` → `DocExample`
-/// - `// ...` (anything else) → `Regular`
-///
-/// # Blank Line Detection
-///
-/// A blank line is detected when two newlines occur with only whitespace
-/// or comments between them. The position of the second newline is recorded.
-///
-/// # Example
-///
-/// ```
-/// use ori_lexer::lex_with_comments;
-/// use ori_ir::StringInterner;
-///
-/// let interner = StringInterner::new();
-/// let output = lex_with_comments("// comment\nlet x = 42", &interner);
-/// assert_eq!(output.comments.len(), 1);
-/// assert_eq!(output.tokens.len(), 6); // newline, let, x, =, 42, EOF
-/// assert_eq!(output.newlines.len(), 1);
-/// ```
+/// Each token carries [`TokenFlags`] metadata capturing whitespace/trivia context.
 pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
+    let buf = SourceBuffer::new(source);
+    let mut scanner = RawScanner::new(buf.cursor());
+    let mut cooker = TokenCooker::new(buf.as_bytes(), interner);
     let mut output = LexOutput::with_capacity(source.len());
-    let mut logos = RawToken::lexer(source);
-
-    // Track the previous token kind to detect blank lines
-    // A blank line occurs when we see Newline -> (Comment|Whitespace)* -> Newline
+    let mut offset: u32 = 0;
     let mut last_significant_was_newline = false;
 
-    while let Some(token_result) = logos.next() {
-        // Use try_from_range with saturated fallback to avoid panic on huge files
-        let span = Span::try_from_range(logos.span()).unwrap_or_else(|_| {
-            // File exceeds u32::MAX - use saturated position
-            Span::new(u32::MAX.saturating_sub(1), u32::MAX)
-        });
-        let slice = logos.slice();
+    // Trivia tracking for TokenFlags
+    let mut pending_flags = TokenFlags::EMPTY;
 
-        if let Ok(raw) = token_result {
-            match raw {
-                RawToken::LineComment => {
-                    // Capture comment - strip the leading "//"
-                    let content_str = if slice.len() > 2 { &slice[2..] } else { "" };
-                    let (kind, normalized) = classify_and_normalize_comment(content_str);
-                    let content = interner.intern(&normalized);
-                    output.comments.push(Comment::new(content, span, kind));
-                    // Comments ARE content on a line, so reset blank line detection
-                    // A line with "// comment" is NOT a blank line
-                    last_significant_was_newline = false;
-                }
-                RawToken::LineContinuation => {
-                    // Line continuation doesn't affect blank line detection
-                }
-                RawToken::Newline => {
-                    // Record newline position
-                    output.newlines.push(span.start);
+    // Detached doc comment tracking: pending doc comment waiting for a declaration
+    let mut pending_doc: Option<(Span, lex_error::DocMarker)> = None;
+    let mut had_blank_line_since_doc = false;
 
-                    // Check for blank line: newline followed by newline
-                    if last_significant_was_newline {
-                        // This is a blank line - record the position of this (second) newline
-                        output.blank_lines.push(span.start);
-                    }
+    loop {
+        let raw = scanner.next_token();
 
-                    output.tokens.push(Token::new(TokenKind::Newline, span));
-                    last_significant_was_newline = true;
-                }
-                _ => {
-                    // Any non-trivia token resets blank line detection
-                    last_significant_was_newline = false;
-                    let kind = convert_token(raw, slice, interner);
-                    output.tokens.push(Token::new(kind, span));
-                }
-            }
-        } else {
-            last_significant_was_newline = false;
-            output.tokens.push(Token::new(TokenKind::Error, span));
+        if raw.tag == RawTag::Eof {
+            break;
         }
+
+        let token_span = make_span(offset, raw.len);
+
+        match raw.tag {
+            // Accumulate trivia flags for the next significant token
+            RawTag::Whitespace => {
+                pending_flags.set(TokenFlags::SPACE_BEFORE);
+            }
+
+            // Comments: capture + classify, also accumulate trivia flag
+            RawTag::LineComment => {
+                let slice = &source[offset as usize..(offset + raw.len) as usize];
+                let content_str = if slice.len() > 2 { &slice[2..] } else { "" };
+                let (kind, normalized) = classify_and_normalize_comment(content_str);
+                let content = interner.intern(&normalized);
+                output
+                    .comments
+                    .push(Comment::new(content, token_span, kind));
+
+                // Track doc comments for detached detection
+                if kind.is_doc() {
+                    let marker = doc_comment_marker(kind);
+                    if pending_doc.is_some() && had_blank_line_since_doc {
+                        // Previous doc comment had a blank line gap — emit warning
+                        if let Some((doc_span, doc_marker)) = pending_doc.take() {
+                            output.warnings.push(DetachedDocWarning {
+                                span: doc_span,
+                                marker: doc_marker,
+                            });
+                        }
+                    }
+                    pending_doc = Some((token_span, marker));
+                    had_blank_line_since_doc = false;
+                }
+
+                pending_flags.set(TokenFlags::TRIVIA_BEFORE);
+                last_significant_was_newline = false;
+            }
+
+            // Newlines: emit + track
+            RawTag::Newline => {
+                output.newlines.push(token_span.start);
+
+                if last_significant_was_newline {
+                    output.blank_lines.push(token_span.start);
+                    // A blank line after a doc comment means it may be detached
+                    if pending_doc.is_some() {
+                        had_blank_line_since_doc = true;
+                    }
+                }
+
+                let flags = finalize_flags(pending_flags);
+                output
+                    .tokens
+                    .push_with_flags(Token::new(TokenKind::Newline, token_span), flags);
+                // After a newline, the next token is at line start
+                pending_flags =
+                    TokenFlags::from_bits(TokenFlags::NEWLINE_BEFORE | TokenFlags::LINE_START);
+                last_significant_was_newline = true;
+            }
+
+            // Cook everything else
+            _ => {
+                last_significant_was_newline = false;
+                let kind = cooker.cook(raw.tag, offset, raw.len);
+
+                // Check for detached doc comments: if pending doc exists and
+                // the next non-trivia token is NOT a declaration keyword, warn.
+                if let Some((doc_span, doc_marker)) = pending_doc.take() {
+                    if had_blank_line_since_doc || !is_declaration_start(&kind) {
+                        output.warnings.push(DetachedDocWarning {
+                            span: doc_span,
+                            marker: doc_marker,
+                        });
+                    }
+                    // else: correctly attached, no warning
+                }
+
+                let mut flags = finalize_flags(pending_flags);
+                if cooker.last_cook_had_error() {
+                    flags.set(TokenFlags::HAS_ERROR);
+                }
+                if cooker.last_cook_was_contextual_kw() {
+                    flags.set(TokenFlags::CONTEXTUAL_KW);
+                }
+                output
+                    .tokens
+                    .push_with_flags(Token::new(kind, token_span), flags);
+                pending_flags = TokenFlags::EMPTY;
+            }
+        }
+
+        offset += raw.len;
+    }
+
+    // If a doc comment is still pending at EOF, it's detached
+    if let Some((doc_span, doc_marker)) = pending_doc {
+        output.warnings.push(DetachedDocWarning {
+            span: doc_span,
+            marker: doc_marker,
+        });
     }
 
     // Add EOF token
@@ -296,12 +405,65 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
         u32::MAX
     });
     let eof_span = Span::point(eof_pos);
-    output.tokens.push(Token::new(TokenKind::Eof, eof_span));
+    let eof_flags = finalize_flags(pending_flags);
+    output
+        .tokens
+        .push_with_flags(Token::new(TokenKind::Eof, eof_span), eof_flags);
+
+    // Wire accumulated cooker errors into the output
+    output.errors = cooker.into_errors();
 
     output
 }
 
+/// Create a span from offset and byte length.
+#[inline]
+fn make_span(offset: u32, len: u32) -> Span {
+    Span::new(offset, offset + len)
+}
+
+/// Finalize pending flags for a token about to be pushed.
+///
+/// Sets `ADJACENT` when no whitespace, newline, or trivia preceded the token.
+#[inline]
+fn finalize_flags(mut flags: TokenFlags) -> TokenFlags {
+    if !flags.contains(TokenFlags::SPACE_BEFORE)
+        && !flags.contains(TokenFlags::NEWLINE_BEFORE)
+        && !flags.contains(TokenFlags::TRIVIA_BEFORE)
+    {
+        flags.set(TokenFlags::ADJACENT);
+    }
+    flags
+}
+
+/// Map a `CommentKind` to a `DocMarker` for detached doc warning tracking.
+fn doc_comment_marker(kind: CommentKind) -> lex_error::DocMarker {
+    match kind {
+        CommentKind::DocDescription => lex_error::DocMarker::Description,
+        CommentKind::DocParam | CommentKind::DocField => lex_error::DocMarker::Param,
+        CommentKind::DocWarning => lex_error::DocMarker::Warning,
+        CommentKind::DocExample => lex_error::DocMarker::Example,
+        CommentKind::Regular => lex_error::DocMarker::Plain,
+    }
+}
+
+/// Check if a `TokenKind` represents the start of a declaration
+/// (i.e., a valid target for a doc comment).
+fn is_declaration_start(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::At        // @name function declaration
+        | TokenKind::Type    // type definition
+        | TokenKind::Trait   // trait definition
+        | TokenKind::Let     // let binding
+        | TokenKind::Pub     // pub modifier
+        | TokenKind::Impl    // impl block
+        | TokenKind::Use // use import
+    )
+}
+
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
 
@@ -560,5 +722,336 @@ let x = 1";
         assert_eq!(metadata.line_number(0), 1);
         // Position 7 (after first newline + "line2") is line 2
         assert_eq!(metadata.line_number(7), 2);
+    }
+
+    // === V2 Entry Point Tests ===
+
+    #[test]
+    fn test_lex_basic() {
+        let interner = StringInterner::new();
+        let tokens = lex("let x = 42", &interner);
+        // let, x, =, 42, EOF
+        assert_eq!(tokens.len(), 5);
+        assert_eq!(tokens[0].kind, TokenKind::Let);
+        assert!(matches!(tokens[1].kind, TokenKind::Ident(_)));
+        assert_eq!(tokens[2].kind, TokenKind::Eq);
+        assert_eq!(tokens[3].kind, TokenKind::Int(42));
+        assert_eq!(tokens[4].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_empty() {
+        let interner = StringInterner::new();
+        let tokens = lex("", &interner);
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_newlines() {
+        let interner = StringInterner::new();
+        let tokens = lex("a\nb", &interner);
+        // a, newline, b, EOF
+        assert_eq!(tokens.len(), 4);
+        assert!(matches!(tokens[0].kind, TokenKind::Ident(_)));
+        assert_eq!(tokens[1].kind, TokenKind::Newline);
+        assert!(matches!(tokens[2].kind, TokenKind::Ident(_)));
+        assert_eq!(tokens[3].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_with_comments() {
+        let interner = StringInterner::new();
+        // Comments should be skipped in lex (same as lex)
+        let tokens = lex("// comment\nlet x = 1", &interner);
+        // newline, let, x, =, 1, EOF
+        assert_eq!(tokens.len(), 6);
+        assert_eq!(tokens[0].kind, TokenKind::Newline);
+        assert_eq!(tokens[1].kind, TokenKind::Let);
+    }
+
+    #[test]
+    fn test_lex_with_comments_basic() {
+        let interner = StringInterner::new();
+        let output = lex_with_comments("// hello\nlet x = 1", &interner);
+        assert_eq!(output.comments.len(), 1);
+        assert_eq!(output.newlines.len(), 1);
+        // newline, let, x, =, 1, EOF
+        assert_eq!(output.tokens.len(), 6);
+    }
+
+    #[test]
+    fn test_lex_with_comments_blank_lines() {
+        let interner = StringInterner::new();
+        let output = lex_with_comments("a\n\nb", &interner);
+        assert_eq!(output.blank_lines.len(), 1);
+        assert_eq!(output.blank_lines[0], 2);
+    }
+
+    // === Span coverage property ===
+
+    #[test]
+    fn spans_cover_source() {
+        let interner = StringInterner::new();
+        let source = "let x = 42 + 3\n// comment\nfoo()";
+        let tokens = lex(source, &interner);
+
+        // Every non-EOF token should have start < end
+        for token in tokens.iter() {
+            if token.kind != TokenKind::Eof {
+                assert!(
+                    token.span.start < token.span.end,
+                    "zero-width token: {token:?}"
+                );
+            }
+        }
+
+        // EOF span should point to end of source
+        let eof = &tokens[tokens.len() - 1];
+        assert_eq!(eof.kind, TokenKind::Eof);
+        assert_eq!(eof.span.start, source.len() as u32);
+    }
+
+    // === ADJACENT flag tests ===
+
+    #[test]
+    fn adjacent_flag_on_first_token() {
+        // First token in file has no preceding trivia → ADJACENT
+        let interner = StringInterner::new();
+        let tokens = lex("let", &interner);
+        let flags = tokens.flags();
+        assert!(flags[0].is_adjacent(), "first token should be ADJACENT");
+    }
+
+    #[test]
+    fn adjacent_flag_with_space() {
+        // "a b" — second token has SPACE_BEFORE, NOT ADJACENT
+        let interner = StringInterner::new();
+        let tokens = lex("a b", &interner);
+        let flags = tokens.flags();
+        assert!(flags[0].is_adjacent(), "'a' is first token → ADJACENT");
+        assert!(
+            !flags[1].is_adjacent(),
+            "'b' has space before → not ADJACENT"
+        );
+        assert!(flags[1].has_space_before());
+    }
+
+    #[test]
+    fn adjacent_flag_no_space() {
+        // "a+b" — all three tokens adjacent
+        let interner = StringInterner::new();
+        let tokens = lex("a+b", &interner);
+        let flags = tokens.flags();
+        assert!(flags[0].is_adjacent(), "'a' is first → ADJACENT");
+        assert!(flags[1].is_adjacent(), "'+' no space → ADJACENT");
+        assert!(flags[2].is_adjacent(), "'b' no space → ADJACENT");
+    }
+
+    #[test]
+    fn adjacent_flag_after_newline() {
+        // "a\nb" — 'b' has NEWLINE_BEFORE, not ADJACENT
+        let interner = StringInterner::new();
+        let tokens = lex("a\nb", &interner);
+        let flags = tokens.flags();
+        // tokens: a, newline, b, EOF
+        assert!(flags[0].is_adjacent());
+        // newline token itself has no preceding trivia (follows 'a' directly)
+        // 'b' has NEWLINE_BEFORE | LINE_START, not ADJACENT
+        assert!(!flags[2].is_adjacent());
+        assert!(flags[2].has_newline_before());
+    }
+
+    #[test]
+    fn adjacent_flag_after_comment() {
+        // "a// comment\nb" — 'b' has TRIVIA_BEFORE + NEWLINE_BEFORE
+        let interner = StringInterner::new();
+        let tokens = lex("a// comment\nb", &interner);
+        let flags = tokens.flags();
+        assert!(flags[0].is_adjacent());
+        // tokens: a (0), newline (1), b (2), EOF (3)
+        // 'b' at index 2 has NEWLINE_BEFORE from the newline, not ADJACENT
+        assert!(!flags[2].is_adjacent());
+    }
+
+    #[test]
+    fn adjacent_mutual_exclusion_with_space() {
+        // ADJACENT and SPACE_BEFORE should be mutually exclusive
+        let interner = StringInterner::new();
+        let tokens = lex("a b", &interner);
+        let flags = tokens.flags();
+        // 'a' — adjacent, no space
+        assert!(flags[0].is_adjacent());
+        assert!(!flags[0].has_space_before());
+        // 'b' — space, not adjacent
+        assert!(!flags[1].is_adjacent());
+        assert!(flags[1].has_space_before());
+    }
+
+    // === HAS_ERROR flag tests ===
+
+    #[test]
+    fn has_error_on_invalid_byte() {
+        let interner = StringInterner::new();
+        let tokens = lex("\x01", &interner);
+        let flags = tokens.flags();
+        assert!(flags[0].has_error(), "invalid byte should have HAS_ERROR");
+    }
+
+    #[test]
+    fn has_error_on_integer_overflow() {
+        let interner = StringInterner::new();
+        let tokens = lex("99999999999999999999999", &interner);
+        let flags = tokens.flags();
+        assert!(flags[0].has_error(), "overflow int should have HAS_ERROR");
+    }
+
+    #[test]
+    fn no_error_on_valid_token() {
+        let interner = StringInterner::new();
+        let tokens = lex("let x = 42", &interner);
+        let flags = tokens.flags();
+        for (i, f) in flags.iter().enumerate() {
+            assert!(!f.has_error(), "token {i} should not have HAS_ERROR");
+        }
+    }
+
+    #[test]
+    fn has_error_on_semicolon() {
+        let interner = StringInterner::new();
+        let tokens = lex(";", &interner);
+        let flags = tokens.flags();
+        assert!(flags[0].has_error(), "semicolon should have HAS_ERROR");
+    }
+
+    // === CONTEXTUAL_KW flag tests ===
+
+    #[test]
+    fn contextual_kw_on_soft_keyword_with_paren() {
+        // "cache (x)" — 'cache' is a soft keyword with ( → CONTEXTUAL_KW
+        let interner = StringInterner::new();
+        let tokens = lex("cache (x)", &interner);
+        let flags = tokens.flags();
+        assert_eq!(tokens[0].kind, TokenKind::Cache);
+        assert!(
+            flags[0].is_contextual_kw(),
+            "cache followed by ( should have CONTEXTUAL_KW"
+        );
+    }
+
+    #[test]
+    fn no_contextual_kw_on_reserved_keyword() {
+        // "if (x)" — 'if' is a reserved keyword, NOT contextual
+        let interner = StringInterner::new();
+        let tokens = lex("if (x)", &interner);
+        let flags = tokens.flags();
+        assert_eq!(tokens[0].kind, TokenKind::If);
+        assert!(
+            !flags[0].is_contextual_kw(),
+            "reserved keyword should not have CONTEXTUAL_KW"
+        );
+    }
+
+    #[test]
+    fn no_contextual_kw_on_identifier() {
+        // "cache = 42" — 'cache' without ( is an identifier, no flag
+        let interner = StringInterner::new();
+        let tokens = lex("cache = 42", &interner);
+        let flags = tokens.flags();
+        assert!(matches!(tokens[0].kind, TokenKind::Ident(_)));
+        assert!(
+            !flags[0].is_contextual_kw(),
+            "identifier should not have CONTEXTUAL_KW"
+        );
+    }
+
+    #[test]
+    fn contextual_kw_on_all_soft_keywords() {
+        let interner = StringInterner::new();
+        for kw in &["cache", "catch", "parallel", "spawn", "recurse", "timeout"] {
+            let source = format!("{kw}(x)");
+            let tokens = lex(&source, &interner);
+            let flags = tokens.flags();
+            assert!(
+                flags[0].is_contextual_kw(),
+                "{kw}(x) should have CONTEXTUAL_KW"
+            );
+        }
+    }
+
+    // === Reserved-future keyword tests ===
+
+    #[test]
+    fn reserved_future_keyword_produces_error() {
+        let interner = StringInterner::new();
+        let output = lex_with_comments("let static = 1", &interner);
+        assert!(
+            output.has_errors(),
+            "reserved-future keyword should produce error"
+        );
+        // 'static' is token index 1 (no whitespace tokens — they become flags)
+        assert!(matches!(output.tokens[1].kind, TokenKind::Ident(_)));
+        // HAS_ERROR should be set on the 'static' token
+        assert!(output.tokens.flags()[1].has_error());
+    }
+
+    #[test]
+    fn all_reserved_future_keywords_produce_errors() {
+        let interner = StringInterner::new();
+        for kw in &["asm", "inline", "static", "union", "view"] {
+            let output = lex_with_comments(kw, &interner);
+            assert!(
+                output.has_errors(),
+                "`{kw}` should produce a reserved-future keyword error"
+            );
+            assert!(
+                matches!(output.tokens[0].kind, TokenKind::Ident(_)),
+                "`{kw}` should still lex as identifier"
+            );
+        }
+    }
+
+    // === LexOutput Salsa Trait Tests ===
+
+    #[test]
+    fn lex_output_equality() {
+        let interner = StringInterner::new();
+        let a = lex_with_comments("let x = 42", &interner);
+        let b = lex_with_comments("let x = 42", &interner);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn lex_output_inequality() {
+        let interner = StringInterner::new();
+        let a = lex_with_comments("let x = 42", &interner);
+        let b = lex_with_comments("let y = 42", &interner);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn lex_output_hashset_insertion() {
+        use std::collections::HashSet;
+        let interner = StringInterner::new();
+
+        let a = lex_with_comments("let x = 1", &interner);
+        let b = lex_with_comments("let x = 1", &interner);
+        let c = lex_with_comments("let y = 2", &interner);
+
+        let mut set = HashSet::new();
+        set.insert(a);
+        set.insert(b); // duplicate
+        set.insert(c);
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn lex_output_debug_format() {
+        let interner = StringInterner::new();
+        let output = lex_with_comments("// comment\nlet x = 42", &interner);
+        let debug = format!("{output:?}");
+        assert!(debug.contains("LexOutput"));
+        assert!(debug.contains("tokens"));
+        assert!(debug.contains("comments"));
     }
 }
