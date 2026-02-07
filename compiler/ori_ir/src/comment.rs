@@ -51,8 +51,9 @@ impl fmt::Debug for Comment {
 ///
 /// Doc comments have special markers that affect formatting order:
 /// - `#` Description (must come first)
-/// - `@param` Parameter documentation
-/// - `@field` Field documentation
+/// - `* name:` Member (parameter/field) documentation (new unified format)
+/// - `@param` Parameter documentation (legacy)
+/// - `@field` Field documentation (legacy)
 /// - `!` Warning/panic documentation
 /// - `>` Example code
 ///
@@ -63,10 +64,15 @@ pub enum CommentKind {
     Regular,
     /// Description doc comment: `// #Description text`
     DocDescription,
-    /// Parameter doc comment: `// @param name description`
+    /// Parameter doc comment: `// @param name description` (legacy)
     DocParam,
-    /// Field doc comment: `// @field name description`
+    /// Field doc comment: `// @field name description` (legacy)
     DocField,
+    /// Member doc comment: `// * name: description` (unified format)
+    ///
+    /// Replaces both `DocParam` and `DocField` with a single format
+    /// that works for both function parameters and struct fields.
+    DocMember,
     /// Warning/panic doc comment: `// !Warning text`
     DocWarning,
     /// Example doc comment: `// >example() -> result`
@@ -77,13 +83,13 @@ impl CommentKind {
     /// Get the sort order for doc comment kinds.
     /// Lower numbers should appear first.
     ///
-    /// Order: Description(0) -> Param/Field(1) -> Warning(2) -> Example(3)
+    /// Order: Description(0) -> Param/Field/Member(1) -> Warning(2) -> Example(3)
     /// Regular comments have order 100 to sort after doc comments.
     #[inline]
     pub fn sort_order(self) -> u8 {
         match self {
             CommentKind::DocDescription => 0,
-            CommentKind::DocParam | CommentKind::DocField => 1,
+            CommentKind::DocParam | CommentKind::DocField | CommentKind::DocMember => 1,
             CommentKind::DocWarning => 2,
             CommentKind::DocExample => 3,
             CommentKind::Regular => 100,
@@ -261,8 +267,30 @@ mod tests {
         assert!(CommentKind::DocDescription.is_doc());
         assert!(CommentKind::DocParam.is_doc());
         assert!(CommentKind::DocField.is_doc());
+        assert!(CommentKind::DocMember.is_doc());
         assert!(CommentKind::DocWarning.is_doc());
         assert!(CommentKind::DocExample.is_doc());
+    }
+
+    #[test]
+    fn test_doc_member_sort_order() {
+        // DocMember has the same sort order as DocParam/DocField
+        assert_eq!(
+            CommentKind::DocMember.sort_order(),
+            CommentKind::DocParam.sort_order()
+        );
+        assert_eq!(
+            CommentKind::DocMember.sort_order(),
+            CommentKind::DocField.sort_order()
+        );
+        // And it's between Description and Warning
+        assert!(CommentKind::DocDescription.sort_order() < CommentKind::DocMember.sort_order());
+        assert!(CommentKind::DocMember.sort_order() < CommentKind::DocWarning.sort_order());
+    }
+
+    #[test]
+    fn test_doc_member_is_doc() {
+        assert!(CommentKind::DocMember.is_doc());
     }
 
     #[test]
