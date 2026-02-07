@@ -14,7 +14,30 @@ pub(crate) fn classify_and_normalize_comment(content: &str) -> (CommentKind, Str
     // Trim leading whitespace to check for markers
     let trimmed = content.trim_start();
 
-    // Check for doc comment markers
+    // Check for doc comment markers (new `*` format first, then legacy)
+
+    // Member (unified): `// * name: description` -> ` * name: description`
+    // Must have `* ` followed by an identifier and `:` to distinguish from
+    // regular comments that happen to start with `*` (e.g., bullet lists).
+    if let Some(rest) = trimmed.strip_prefix('*') {
+        if let Some(after_star) = rest.strip_prefix(' ') {
+            // Check for "name:" pattern
+            if let Some(colon_pos) = after_star.find(':') {
+                let name_part = after_star[..colon_pos].trim();
+                if !name_part.is_empty()
+                    && name_part.chars().all(|c| c.is_alphanumeric() || c == '_')
+                {
+                    // Valid `* name: description` pattern
+                    let desc = after_star[colon_pos + 1..].trim_start();
+                    if desc.is_empty() {
+                        return (CommentKind::DocMember, format!(" * {name_part}:"));
+                    }
+                    return (CommentKind::DocMember, format!(" * {name_part}: {desc}"));
+                }
+            }
+        }
+    }
+
     if let Some(rest) = trimmed.strip_prefix('#') {
         // Description: `// #Text` -> ` #Text`
         let text = rest.trim_start();
@@ -120,6 +143,49 @@ mod tests {
     }
 
     #[test]
+    fn test_classify_doc_member() {
+        let (kind, content) = classify_and_normalize_comment(" * x: The value");
+        assert_eq!(kind, CommentKind::DocMember);
+        assert_eq!(content, " * x: The value");
+    }
+
+    #[test]
+    fn test_classify_doc_member_no_description() {
+        let (kind, content) = classify_and_normalize_comment(" * name:");
+        assert_eq!(kind, CommentKind::DocMember);
+        assert_eq!(content, " * name:");
+    }
+
+    #[test]
+    fn test_classify_doc_member_underscore_name() {
+        let (kind, content) = classify_and_normalize_comment(" * my_param: A value");
+        assert_eq!(kind, CommentKind::DocMember);
+        assert_eq!(content, " * my_param: A value");
+    }
+
+    #[test]
+    fn test_classify_star_without_colon_is_regular() {
+        // `* text` without a colon is a regular comment (bullet list)
+        let (kind, _) = classify_and_normalize_comment(" * just a bullet");
+        assert_eq!(kind, CommentKind::Regular);
+    }
+
+    #[test]
+    fn test_classify_star_with_spaces_in_name_is_regular() {
+        // `* two words: desc` is regular because "two words" has a space
+        let (kind, _) = classify_and_normalize_comment(" * two words: desc");
+        assert_eq!(kind, CommentKind::Regular);
+    }
+
+    #[test]
+    fn test_classify_doc_member_extra_spaces() {
+        // Extra leading spaces should still work
+        let (kind, content) = classify_and_normalize_comment("  * x: value");
+        assert_eq!(kind, CommentKind::DocMember);
+        assert_eq!(content, " * x: value");
+    }
+
+    #[test]
     fn test_classify_empty_comment() {
         let (kind, content) = classify_and_normalize_comment("");
         assert_eq!(kind, CommentKind::Regular);
@@ -131,5 +197,19 @@ mod tests {
         let (kind, content) = classify_and_normalize_comment("no space");
         assert_eq!(kind, CommentKind::Regular);
         assert_eq!(content, " no space");
+    }
+
+    #[test]
+    fn test_legacy_param_still_works() {
+        let (kind, content) = classify_and_normalize_comment(" @param x The value");
+        assert_eq!(kind, CommentKind::DocParam);
+        assert_eq!(content, " @param x The value");
+    }
+
+    #[test]
+    fn test_legacy_field_still_works() {
+        let (kind, content) = classify_and_normalize_comment(" @field y The coord");
+        assert_eq!(kind, CommentKind::DocField);
+        assert_eq!(content, " @field y The coord");
     }
 }
