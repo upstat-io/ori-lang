@@ -144,24 +144,21 @@ impl CommentIndex {
                 }
                 self.consumed[comment_ref.index] = true;
 
-                if matches!(
-                    comment_ref.kind,
-                    CommentKind::DocParam | CommentKind::DocMember
-                ) {
+                if comment_ref.kind == CommentKind::DocMember {
                     param_indices.push(comment_ref.index);
                 } else {
                     other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
                 }
             }
 
-            // Reorder param comments by function signature order
+            // Reorder member comments by function signature order
             let reordered_params =
                 reorder_param_comments(&param_indices, comments, param_names, interner);
 
-            // Merge: collect by sort order, insert params at their position (sort_order=1)
+            // Merge: collect by sort order, insert members at their position (sort_order=1)
             let mut all_by_order: Vec<(u8, usize)> = other_indices;
             for idx in reordered_params {
-                all_by_order.push((1, idx)); // DocParam has sort_order 1
+                all_by_order.push((1, idx)); // DocMember has sort_order 1
             }
             all_by_order.sort_by_key(|(order, _)| *order);
 
@@ -203,24 +200,21 @@ impl CommentIndex {
                 }
                 self.consumed[comment_ref.index] = true;
 
-                if matches!(
-                    comment_ref.kind,
-                    CommentKind::DocField | CommentKind::DocMember
-                ) {
+                if comment_ref.kind == CommentKind::DocMember {
                     field_indices.push(comment_ref.index);
                 } else {
                     other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
                 }
             }
 
-            // Reorder field comments by struct field order
+            // Reorder member comments by struct field order
             let reordered_fields =
                 reorder_field_comments(&field_indices, comments, field_names, interner);
 
-            // Merge: collect by sort order, insert fields at their position (sort_order=1)
+            // Merge: collect by sort order, insert members at their position (sort_order=1)
             let mut all_by_order: Vec<(u8, usize)> = other_indices;
             for idx in reordered_fields {
-                all_by_order.push((1, idx)); // DocField has sort_order 1
+                all_by_order.push((1, idx)); // DocMember has sort_order 1
             }
             all_by_order.sort_by_key(|(order, _)| *order);
 
@@ -258,115 +252,79 @@ pub fn format_comment<I: StringLookup>(comment: &Comment, interner: &I) -> Strin
     format!("//{content}")
 }
 
-/// Reorder `@param` doc comments to match function parameter order.
+/// Reorder member doc comments to match function parameter order.
 ///
-/// Takes a list of param comment indices and the parameter names in order.
+/// Takes a list of member comment indices and the parameter names in order.
 /// Returns the indices reordered to match the parameter order.
+/// Handles both `* name:` and legacy `@param name` content formats.
 pub fn reorder_param_comments<I: StringLookup>(
     param_indices: &[usize],
     comments: &CommentList,
     param_names: &[&str],
     interner: &I,
 ) -> Vec<usize> {
-    if param_indices.is_empty() || param_names.is_empty() {
-        return param_indices.to_vec();
-    }
-
-    // Build HashMap for O(1) lookup instead of O(n) linear scan per comment
-    let name_to_order: HashMap<&str, usize> = param_names
-        .iter()
-        .enumerate()
-        .map(|(i, &name)| (name, i))
-        .collect();
-
-    // Extract param name from each @param or * name: comment
-    let mut param_to_index: Vec<(Option<usize>, usize)> = param_indices
-        .iter()
-        .map(|&idx| {
-            let content = interner.lookup(comments[idx].content);
-            let param_name = match comments[idx].kind {
-                CommentKind::DocMember => extract_member_name(content),
-                _ => extract_param_name(content),
-            };
-            let order = name_to_order.get(param_name).copied();
-            (order, idx)
-        })
-        .collect();
-
-    // Sort by parameter order (None = unknown params go at end)
-    param_to_index.sort_by_key(|(order, _)| order.unwrap_or(usize::MAX));
-
-    param_to_index.into_iter().map(|(_, idx)| idx).collect()
+    reorder_member_comments(param_indices, comments, param_names, interner)
 }
 
-/// Reorder `@field` doc comments to match struct field order.
+/// Reorder member doc comments to match struct field order.
+///
+/// Handles both `* name:` and legacy `@field name` content formats.
 pub fn reorder_field_comments<I: StringLookup>(
     field_indices: &[usize],
     comments: &CommentList,
     field_names: &[&str],
     interner: &I,
 ) -> Vec<usize> {
-    if field_indices.is_empty() || field_names.is_empty() {
-        return field_indices.to_vec();
+    reorder_member_comments(field_indices, comments, field_names, interner)
+}
+
+/// Reorder member doc comments to match a given name order.
+///
+/// Extracts the name from each comment using `extract_member_name_any`,
+/// which handles `* name:`, `@param name`, and `@field name` formats.
+fn reorder_member_comments<I: StringLookup>(
+    indices: &[usize],
+    comments: &CommentList,
+    names: &[&str],
+    interner: &I,
+) -> Vec<usize> {
+    if indices.is_empty() || names.is_empty() {
+        return indices.to_vec();
     }
 
     // Build HashMap for O(1) lookup instead of O(n) linear scan per comment
-    let name_to_order: HashMap<&str, usize> = field_names
+    let name_to_order: HashMap<&str, usize> = names
         .iter()
         .enumerate()
         .map(|(i, &name)| (name, i))
         .collect();
 
-    let mut field_to_index: Vec<(Option<usize>, usize)> = field_indices
+    let mut ordered: Vec<(Option<usize>, usize)> = indices
         .iter()
         .map(|&idx| {
             let content = interner.lookup(comments[idx].content);
-            let field_name = match comments[idx].kind {
-                CommentKind::DocMember => extract_member_name(content),
-                _ => extract_field_name(content),
-            };
-            let order = name_to_order.get(field_name).copied();
+            let name = extract_member_name_any(content);
+            let order = name_to_order.get(name).copied();
             (order, idx)
         })
         .collect();
 
-    field_to_index.sort_by_key(|(order, _)| order.unwrap_or(usize::MAX));
+    // Sort by name order (None = unknown names go at end)
+    ordered.sort_by_key(|(order, _)| order.unwrap_or(usize::MAX));
 
-    field_to_index.into_iter().map(|(_, idx)| idx).collect()
+    ordered.into_iter().map(|(_, idx)| idx).collect()
 }
 
-/// Extract the parameter name from a @param comment content.
+/// Extract the member name from any doc member comment format.
 ///
-/// Input: " @param name description"
-/// Output: "name"
-fn extract_param_name(content: &str) -> &str {
+/// Handles:
+/// - `* name: description` (new format)
+/// - `@param name description` (legacy)
+/// - `@field name description` (legacy)
+fn extract_member_name_any(content: &str) -> &str {
     let trimmed = content.trim_start();
-    if let Some(rest) = trimmed.strip_prefix("@param") {
-        let rest = rest.trim_start();
-        // Take until whitespace
-        rest.split_whitespace().next().unwrap_or("")
-    } else {
-        ""
-    }
-}
 
-/// Extract the field name from a @field comment content.
-fn extract_field_name(content: &str) -> &str {
-    let trimmed = content.trim_start();
-    if let Some(rest) = trimmed.strip_prefix("@field") {
-        let rest = rest.trim_start();
-        rest.split_whitespace().next().unwrap_or("")
-    } else {
-        ""
-    }
-}
-
-/// Extract the member name from a `* name:` doc comment content.
-///
-/// Input: " * name: description"
-/// Output: "name"
-fn extract_member_name(content: &str) -> &str {
-    let trimmed = content.trim_start();
+    // Try `* name:` format first
     if let Some(rest) = trimmed.strip_prefix('*') {
         let rest = rest.trim_start();
         if let Some(colon_pos) = rest.find(':') {
@@ -376,6 +334,19 @@ fn extract_member_name(content: &str) -> &str {
             }
         }
     }
+
+    // Try `@param name` format
+    if let Some(rest) = trimmed.strip_prefix("@param") {
+        let rest = rest.trim_start();
+        return rest.split_whitespace().next().unwrap_or("");
+    }
+
+    // Try `@field name` format
+    if let Some(rest) = trimmed.strip_prefix("@field") {
+        let rest = rest.trim_start();
+        return rest.split_whitespace().next().unwrap_or("");
+    }
+
     ""
 }
 
@@ -438,18 +409,31 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_param_name() {
-        assert_eq!(extract_param_name(" @param x The value"), "x");
-        assert_eq!(extract_param_name(" @param foo description"), "foo");
-        assert_eq!(extract_param_name(" @param "), "");
-        assert_eq!(extract_param_name("not a param"), "");
+    fn test_extract_member_name_any_star_format() {
+        assert_eq!(extract_member_name_any(" * x: The value"), "x");
+        assert_eq!(extract_member_name_any(" * my_param: A value"), "my_param");
+        assert_eq!(extract_member_name_any(" * name:"), "name");
+        assert_eq!(extract_member_name_any("* x: val"), "x");
+        assert_eq!(extract_member_name_any(" * :"), ""); // empty name
     }
 
     #[test]
-    fn test_extract_field_name() {
-        assert_eq!(extract_field_name(" @field x The coordinate"), "x");
-        assert_eq!(extract_field_name(" @field name description"), "name");
-        assert_eq!(extract_field_name(" @field "), "");
+    fn test_extract_member_name_any_legacy_param() {
+        assert_eq!(extract_member_name_any(" @param x The value"), "x");
+        assert_eq!(extract_member_name_any(" @param foo description"), "foo");
+        assert_eq!(extract_member_name_any(" @param "), "");
+    }
+
+    #[test]
+    fn test_extract_member_name_any_legacy_field() {
+        assert_eq!(extract_member_name_any(" @field x The coordinate"), "x");
+        assert_eq!(extract_member_name_any(" @field name description"), "name");
+        assert_eq!(extract_member_name_any(" @field "), "");
+    }
+
+    #[test]
+    fn test_extract_member_name_any_unknown() {
+        assert_eq!(extract_member_name_any("not a member"), "");
     }
 
     #[test]
@@ -543,18 +527,18 @@ mod tests {
     }
 
     #[test]
-    fn test_reorder_param_comments() {
+    fn test_reorder_param_comments_legacy() {
         let interner = test_interner();
         let comments = CommentList::from_vec(vec![
             Comment::new(
                 interner.intern(" @param b Second"),
                 Span::new(0, 20),
-                CommentKind::DocParam,
+                CommentKind::DocMember,
             ),
             Comment::new(
                 interner.intern(" @param a First"),
                 Span::new(21, 40),
-                CommentKind::DocParam,
+                CommentKind::DocMember,
             ),
         ]);
 
@@ -578,9 +562,9 @@ mod tests {
                 CommentKind::DocDescription,
             ),
             Comment::new(
-                interner.intern(" @param x"),
+                interner.intern(" * x: A param"),
                 Span::new(26, 35),
-                CommentKind::DocParam,
+                CommentKind::DocMember,
             ),
             Comment::regular(interner.intern(" another regular"), Span::new(36, 55)),
         ]);
@@ -593,16 +577,6 @@ mod tests {
         assert_eq!(groups[0], vec![0]);
         assert_eq!(groups[1], vec![1, 2]);
         assert_eq!(groups[2], vec![3]);
-    }
-
-    #[test]
-    fn test_extract_member_name() {
-        assert_eq!(extract_member_name(" * x: The value"), "x");
-        assert_eq!(extract_member_name(" * my_param: A value"), "my_param");
-        assert_eq!(extract_member_name(" * name:"), "name");
-        assert_eq!(extract_member_name("* x: val"), "x");
-        assert_eq!(extract_member_name("not a member"), "");
-        assert_eq!(extract_member_name(" * :"), ""); // empty name
     }
 
     #[test]

@@ -167,9 +167,7 @@ pub struct DetachedDocWarning {
 pub enum DocMarker {
     /// `#` description marker.
     Description,
-    /// `@param` / `@field` marker (legacy).
-    Param,
-    /// `* name:` member marker (unified format).
+    /// `* name:` member marker (also used for legacy `@param`/`@field`).
     Member,
     /// `!` warning marker.
     Warning,

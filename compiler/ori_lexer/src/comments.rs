@@ -45,24 +45,25 @@ pub(crate) fn classify_and_normalize_comment(content: &str) -> (CommentKind, Str
     }
 
     if let Some(rest) = trimmed.strip_prefix("@param") {
-        // Parameter: `// @param name desc` -> ` @param name desc`
-        // Keep the space or lack thereof after @param
+        // Legacy parameter: `// @param name desc` -> ` @param name desc`
+        // Classified as DocMember for unified handling.
         let text = if rest.starts_with(char::is_whitespace) {
             rest.trim_start()
         } else {
             rest
         };
-        return (CommentKind::DocParam, format!(" @param {text}"));
+        return (CommentKind::DocMember, format!(" @param {text}"));
     }
 
     if let Some(rest) = trimmed.strip_prefix("@field") {
-        // Field: `// @field name desc` -> ` @field name desc`
+        // Legacy field: `// @field name desc` -> ` @field name desc`
+        // Classified as DocMember for unified handling.
         let text = if rest.starts_with(char::is_whitespace) {
             rest.trim_start()
         } else {
             rest
         };
-        return (CommentKind::DocField, format!(" @field {text}"));
+        return (CommentKind::DocMember, format!(" @field {text}"));
     }
 
     if let Some(rest) = trimmed.strip_prefix('!') {
@@ -114,16 +115,16 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_doc_param() {
+    fn test_classify_legacy_param_as_member() {
         let (kind, content) = classify_and_normalize_comment(" @param x value");
-        assert_eq!(kind, CommentKind::DocParam);
+        assert_eq!(kind, CommentKind::DocMember);
         assert_eq!(content, " @param x value");
     }
 
     #[test]
-    fn test_classify_doc_field() {
+    fn test_classify_legacy_field_as_member() {
         let (kind, content) = classify_and_normalize_comment(" @field x coord");
-        assert_eq!(kind, CommentKind::DocField);
+        assert_eq!(kind, CommentKind::DocMember);
         assert_eq!(content, " @field x coord");
     }
 
@@ -200,16 +201,16 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_param_still_works() {
+    fn test_legacy_param_emits_doc_member() {
         let (kind, content) = classify_and_normalize_comment(" @param x The value");
-        assert_eq!(kind, CommentKind::DocParam);
+        assert_eq!(kind, CommentKind::DocMember);
         assert_eq!(content, " @param x The value");
     }
 
     #[test]
-    fn test_legacy_field_still_works() {
+    fn test_legacy_field_emits_doc_member() {
         let (kind, content) = classify_and_normalize_comment(" @field y The coord");
-        assert_eq!(kind, CommentKind::DocField);
+        assert_eq!(kind, CommentKind::DocMember);
         assert_eq!(content, " @field y The coord");
     }
 }
