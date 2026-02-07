@@ -1829,13 +1829,14 @@ fn test_doc_comment() {
 
 #[test]
 fn test_param_comment() {
-    let source = "// @param x The input value\n@f (x: int) -> int = x";
+    let source = "// * x: The input value\n@f (x: int) -> int = x";
     test_idempotence(source).expect("param comment should be idempotent");
 }
 
 #[test]
 fn test_multiple_comments() {
-    let source = "// #Description\n// @param x Input\n// @param y Another input\n@f (x: int, y: int) -> int = x + y";
+    let source =
+        "// #Description\n// * x: Input\n// * y: Another input\n@f (x: int, y: int) -> int = x + y";
     test_idempotence(source).expect("multiple comments should be idempotent");
 }
 
