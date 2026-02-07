@@ -9,7 +9,7 @@ section: "Verification"
 
 Ori enforces mandatory verification: every function must have at least one test. Tests are first-class constructs bound to their targets via the `tests` keyword. The compiler executes affected tests automatically during compilation.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (test, attribute)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § DECLARATIONS (test, attribute)
 >
 > **Implementation Model:** See [Test Execution Model Proposal](../../../proposals/approved/test-execution-model-proposal.md) for data structures, algorithms, and cache formats.
 
@@ -17,7 +17,7 @@ Ori enforces mandatory verification: every function must have at least one test.
 
 A _test_ is a function that verifies the behavior of one or more target functions. All tests must use the `tests` keyword.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (test)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § DECLARATIONS (test)
 
 ### Attached Tests
 

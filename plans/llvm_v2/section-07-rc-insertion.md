@@ -172,6 +172,8 @@ pub struct BlockLiveness {
 
 The key advantage of operating on ARC IR: branching, loops, and early exits are just edges between blocks. The standard dataflow algorithm handles all of these uniformly. No special cases for `if`/`match`/`loop`/`break`.
 
+> **Import note:** The `pool.needs_rc()` calls above require `use ori_arc::ArcClassification;` to be in scope. The `needs_rc()` method is defined on the `ArcClassification` trait (Section 05.3), which is implemented for `Pool` in the `ori_arc` crate. Without this import, the method is not available on `Pool`.
+
 **Key details:**
 - **Gen/kill computation** uses forward instruction order to correctly identify upward-exposed uses (variables used before being defined within the block). A naive approach that computes `used` and `defined` independently gives wrong results when a variable is both defined and used in the same block — the order matters.
 - **Block parameters are definitions** at block entry. They must be included in the `kill` set and removed from `live_in`. When computing `live_out` from a successor's `live_in`, block parameters in the successor are replaced with the corresponding jump arguments from the predecessor's terminator.
@@ -241,6 +243,14 @@ pub fn insert_rc_ops(
             // 3. At each variable use: check if variable is still live after this use.
             //    If live after -> emit Inc before this use (dup).
             //    Push Inc LAST (it will appear BEFORE instruction post-reverse).
+            //
+            //    Correctness for duplicate uses: if a variable appears N times in
+            //    used_vars() (e.g., `Apply { args: [x, x] }`), the first iteration
+            //    finds x in `live` (used later), emits Inc, and x stays in live.
+            //    The second iteration also finds x in `live`, emits another Inc.
+            //    This correctly produces N-1 extra Inc's for N uses of the same
+            //    variable in a single instruction (the last use consumes ownership,
+            //    each additional use needs its own Inc).
             for &used in instr.used_vars() {
                 if pool.needs_rc(func.var_type(used)) {
                     if live.contains(&used) {
@@ -279,6 +289,13 @@ pub struct LiveVars {
 
 When a `Project` instruction extracts a field from a variable that is a Borrowed parameter (or itself derived from one), the result is added to `borrows` instead of the normal `live` set. This avoids unnecessary RC operations for common struct field access patterns like `point.x + point.y`.
 
+**Ownership transition for borrowed values:** When a value in the `borrows` set is used in an Owned position (e.g., passed to a function parameter that expects Owned, stored into a Construct, or returned), it must be:
+1. Removed from the `borrows` set
+2. Added to the `live` set (it now has its own ownership)
+3. Inc'd (the parent still needs its copy; the owned position needs an independent reference)
+
+This ensures that values derived from borrowed parameters correctly transition to independent ownership when needed.
+
 - [ ] Implement RC insertion on ARC IR blocks using liveness results
 - [ ] Implement correct backward push order: Dec, instruction, Inc (reversed to Inc, instruction, Dec)
 - [ ] Handle Borrowed parameters (skip entirely per borrow_info)
@@ -296,21 +313,25 @@ When a `Project` instruction extracts a field from a variable that is a Borrowed
 >
 > | | Current `ori_rt` | V2 Required |
 > |---|---|---|
-> | Header | 16 bytes: `{ refcount: i64, size: usize }` | 8 bytes: `refcount: i64` only |
-> | Pointer | Points to `RcHeader` | Points to **data** (`ptr - 8` = refcount) |
+> | Header | 16 bytes: `{ refcount: i64, size: usize }` | 8 bytes: `{ strong_count: i64 }` (0.1-alpha) |
+> | Pointer | Points to `RcHeader` | Points to **data** (`ptr - 8` = strong_count) |
 > | Size tracking | In header at runtime | Compile-time via `TypeInfo` (no runtime size field) |
 > | Alloc API | `ori_rc_alloc(size) -> *header` | `ori_rc_alloc(size, align) -> *data` |
 > | Inc API | `ori_rc_inc(*header)` | `ori_rc_inc(*data)` |
 > | Dec API | `ori_rc_dec(*header)` | `ori_rc_dec(*data, drop_fn)` |
 > | Free API | (implicit in dec) | `ori_rc_free(*data, size, align)` |
 >
-> **This redesign must be completed before V2 codegen can emit RC operations.** The new API surface:
-> - `ori_rc_alloc(size: usize, align: usize) -> *mut u8` — allocates `size + 8` bytes with `align` alignment, sets refcount to 1, returns pointer to data (at `base + 8`)
-> - `ori_rc_inc(data_ptr: *mut u8)` — increments refcount at `data_ptr - 8`
-> - `ori_rc_dec(data_ptr: *mut u8, drop_fn: fn(*mut u8))` — decrements refcount at `data_ptr - 8`; if zero, calls `drop_fn(data_ptr)` then frees
+> **BLOCKING: This redesign must complete before any V2 RC codegen is possible.** All existing `ori_rc_*` call sites in `ori_llvm` must be updated to the new API. There is no incremental migration path — the old and new layouts are incompatible.
+>
+> **OriStr note:** The current `OriStr` has no RC header. All existing string creation paths (`ori_str_concat`, `ori_str_from_int`, etc.) must be rewritten to use `ori_rc_alloc` and the 8-byte header layout (strong_count at `ptr - 8`, data pointer points to string bytes).
+>
+> The new API surface (0.1-alpha, 8-byte header):
+> - `ori_rc_alloc(size: usize, align: usize) -> *mut u8` — allocates `size + 8` bytes with `align` alignment, sets strong_count to 1, returns pointer to data (at `base + 8`)
+> - `ori_rc_inc(data_ptr: *mut u8)` — increments strong_count at `data_ptr - 8`
+> - `ori_rc_dec(data_ptr: *mut u8, drop_fn: fn(*mut u8))` — decrements strong_count at `data_ptr - 8`; if zero, calls `drop_fn(data_ptr)`, then frees
 > - `ori_rc_free(data_ptr: *mut u8, size: usize, align: usize)` — unconditional deallocation from `data_ptr - 8` with total size `size + 8`
 >
-> Size is tracked at compile-time via `TypeInfo` (Section 01). Each type knows its own size and alignment, so the runtime never needs to store or retrieve size from the heap. The `drop_fn` parameter to `ori_rc_dec` is a pointer to the type's specialized drop function (Section 07.4).
+> Size is tracked at compile-time via `TypeInfo` (Section 01). Each type knows its own size and alignment, so the runtime never needs to store or retrieve size from the heap. The 8-byte header stores only strong_count — no size field, no weak_count (deferred to post-0.1-alpha). The `drop_fn` parameter to `ori_rc_dec` is a pointer to the type's specialized drop function (Section 07.4).
 
 RC operations map to `ori_rt` functions:
 
@@ -320,22 +341,22 @@ Dec(var)  -> call ori_rc_dec(data_ptr, drop_fn_for_type)
 Free(var) -> call ori_rc_free(data_ptr, size, align)   // unconditional deallocation
 ```
 
-**Roc-style RC heap layout** (see Section 01.6 for full documentation):
+**RC heap layout with 8-byte header (0.1-alpha)** (see Section 01.6 for full documentation):
 
 ```
 Heap allocation:
-  +──────────────+───────────────────────+
-  | refcount: i64| data bytes ...        |
-  +──────────────+───────────────────────+
-  ^              ^
-  ptr - 8        ptr (data pointer, stored on stack)
+  +──────────────────+───────────────────────+
+  | strong_count: i64| data bytes ...        |
+  +──────────────────+───────────────────────+
+  ^                  ^
+  ptr - 8            ptr (data pointer, stored on stack)
 ```
 
-- Data pointer (`ptr`) points directly to user data, NOT to the refcount header
-- Refcount is at offset `-sizeof(usize)` (i.e., `ptr - 8` on 64-bit)
+- Data pointer (`ptr`) points directly to user data, NOT to the header
+- Strong refcount is at `ptr - 8`
 - Advantage: data pointer can be passed directly to C FFI without adjustment
-- `emit_retain`: loads refcount from `ptr - 8`, increments, stores back
-- `emit_release`: loads refcount from `ptr - 8`, decrements, if zero then call specialized drop function, then free from `ptr - 8`
+- `emit_retain`: loads strong_count from `ptr - 8`, increments, stores back
+- `emit_release`: loads strong_count from `ptr - 8`, decrements; if zero, call specialized drop function, then free from `ptr - 8`
 - Allocation: `ori_rc_alloc(size, align)` allocates `size + 8` bytes, returns `base + 8`
 
 **Stack representations for reference-counted types:**
@@ -350,9 +371,39 @@ Heap allocation:
 - [ ] **Prerequisite:** Redesign `ori_rt` to Roc-style layout before V2 codegen
 - [ ] Implement new `ori_rt` API: `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free`
 - [ ] Implement RC op emission in codegen (IrBuilder emits calls to ori_rt)
-- [ ] Emit correct pointer arithmetic: refcount at `ptr - 8`, not at `ptr`
+- [ ] Emit correct pointer arithmetic: strong_count at `ptr - 8`, data at `ptr`
 - [ ] Pass specialized drop function pointer to `ori_rc_dec`
-- [ ] Handle cycle detection (future: weak references or cycle collector)
+
+### Weak References for Cycle Safety
+
+> **Deferred to post-0.1-alpha.** 0.1-alpha uses an **8-byte header** with `strong_count` only. Weak references, `weak_count`, and deferred deallocation are future work. Ori's "no shared mutable refs" design pillar makes reference cycles unlikely, but if cycles become possible in future versions, a cycle detector or weak reference system will be added.
+
+**0.1-alpha heap layout (8-byte header):**
+
+```
+Heap allocation:
+  +──────────────────+───────────────────────+
+  | strong_count: i64| data bytes ...        |
+  +──────────────────+───────────────────────+
+  ^                  ^
+  ptr - 8            ptr (data pointer, stored on stack)
+```
+
+- `strong_count` at `ptr - 8`: tracks strong references (normal ownership)
+- Data pointer (`ptr`) points directly to user data
+- Total header size: 8 bytes (1 x i64)
+- Allocation: `ori_rc_alloc(size, align)` allocates `size + 8` bytes, returns `base + 8`
+- `emit_retain`: loads strong_count from `ptr - 8`, increments, stores back
+- `emit_release`: loads strong_count from `ptr - 8`, decrements; if zero, calls drop function, then frees from `ptr - 8`
+- Free: deallocate from `ptr - 8` with total size `size + 8`
+
+**0.1-alpha Runtime API:**
+- `ori_rc_alloc(size: usize, align: usize) -> *mut u8` — allocates `size + 8` bytes, sets strong_count to 1, returns `base + 8`
+- `ori_rc_inc(data_ptr: *mut u8)` — increments strong_count at `data_ptr - 8`
+- `ori_rc_dec(data_ptr: *mut u8, drop_fn: fn(*mut u8))` — decrements strong_count at `data_ptr - 8`; if zero, calls `drop_fn(data_ptr)`, then frees
+- `ori_rc_free(data_ptr: *mut u8, size: usize, align: usize)` — unconditional deallocation from `data_ptr - 8` with total size `size + 8`
+
+**Future work (post-0.1-alpha):** The full weak reference system would extend the header to 16 bytes (`strong_count` + `weak_count`), add `ori_rc_weak_inc`, `ori_rc_weak_dec`, `ori_rc_weak_lock` APIs, and implement deferred deallocation (tombstoning when strong_count reaches zero but weak_count > 0).
 
 ## 07.4 Specialized Drop Functions
 
@@ -432,6 +483,8 @@ This is handled naturally by the RC insertion pass (Section 07.2): the terminato
 
 ### Panic Cleanup (Full Cleanup Blocks)
 
+> **0.1-alpha scope**: Use `Call` everywhere (no `Invoke`/landingpad). Memory leaks on panic are accepted as a known limitation. Full panic cleanup via invoke + cleanup blocks is future work. The design below describes the target architecture for post-0.1-alpha.
+
 Every potentially-panicking call must ensure all live RC'd variables are decremented if a panic occurs. This uses the `Invoke` terminator (Section 06.0) with cleanup blocks.
 
 **Mechanism:**
@@ -484,6 +537,8 @@ cleanup_3:  // cleanup block — Dec all live RC vars
 
 ## 07.6 Reset/Reuse Detection
 
+> **0.1-alpha scope**: Only intra-block Reset/Reuse detection is implemented. Cross-block detection (requiring dominator trees and all-paths verification) is future work.
+
 After RC operations are inserted, scan for patterns where a `RcDec` on a variable is followed by a `Construct` of the **same type**. This pattern indicates an opportunity for constructor reuse (FBIP). Replace the `RcDec`/`Construct` pair with `Reset`/`Reuse` intermediate instructions (defined in Section 06.0 as `ArcInstr::Reset` and `ArcInstr::Reuse`).
 
 **Detection rule:**
@@ -508,6 +563,17 @@ The `RcDec` is removed because the `Reset` subsumes it: on the slow path (expand
 - Same-type only (Lean 4 constructor-identity rule, not Koka's size-based matching)
 - The variable `x` must not be used between the `RcDec` and the `Construct` (no aliasing)
 - The `Construct` must be the next allocation of the same type (no intervening allocations of that type)
+
+**Detection scope -- intra-block and cross-block:**
+
+The initial implementation uses **intra-block** detection: the `RcDec` and `Construct` must be in the same basic block. This is simpler and covers the most common cases (match arms that destructure and reconstruct within a single block).
+
+The design supports **cross-block** detection via dominance analysis for future optimization:
+- If a `RcDec { var: x }` in block A **dominates** a `Construct { ty: T }` in block B (where `typeof(x) == T`), and the variable `x` is not used on any path from A to B, the pair is a reuse candidate.
+- Cross-block detection requires: (1) computing a dominator tree over the ARC IR CFG, (2) verifying the no-alias constraint holds on ALL paths from the Dec to the Construct (not just one path), and (3) ensuring no intervening same-type allocations on any path.
+- The all-paths verification is critical: unlike intra-block where there is exactly one execution path between the two instructions, cross-block reuse must ensure that every control flow path from the Dec to the Construct satisfies the constraints. This can be checked by verifying that the Dec dominates the Construct and no path from Dec to Construct contains a use of `x` or another same-type allocation.
+
+Cross-block detection is not required for the initial implementation but the ARC IR structure (basic blocks with explicit CFG) makes it straightforward to add.
 
 **Section 09** expands `Reset`/`Reuse` pairs into `isShared` + fast/slow conditional paths. After Section 09, no `Reset` or `Reuse` instructions remain in the ARC IR.
 

@@ -169,6 +169,15 @@ impl Parser<'_> {
             TokenKind::TAG_TEMPLATE_FULL | TokenKind::TAG_TEMPLATE_HEAD => {
                 return self.parse_template_literal();
             }
+            // Error tokens from the lexer — silently consume and produce Error expr.
+            // The real diagnostic was already emitted by the lex error pipeline.
+            TokenKind::TAG_ERROR => {
+                let span = self.current_span();
+                self.advance();
+                return ParseOutcome::consumed_ok(
+                    self.arena.alloc_expr(Expr::new(ExprKind::Error, span)),
+                );
+            }
             _ => {
                 trace!(
                     tag = self.current_tag(),

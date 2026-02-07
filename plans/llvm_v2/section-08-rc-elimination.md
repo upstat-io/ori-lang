@@ -20,13 +20,15 @@ sections:
 **Status:** Not Started
 **Goal:** After RC insertion (Section 07), optimize away redundant retain/release pairs. A retain immediately followed by a release on the same value can be eliminated. This pass reduces ARC overhead significantly.
 
+**Pipeline position:** This pass runs AFTER constructor reuse expansion (Section 09). Input is ARC IR with RcInc/RcDec from both RC insertion (07) and reuse expansion (09). Execution order: 07 (RC insertion) → 09 (reuse expansion) → 08 (this pass). Section numbers indicate topic grouping, not execution order.
+
 **Reference compilers:**
 - **Swift** `lib/SILOptimizer/ARC/` -- 21 files implementing bidirectional dataflow with lattice states, ARCMatchingSet for pair elimination
 - **Lean 4** implied by borrow analysis results -- unnecessary ops never inserted
 
 **Key insight from Swift:** This optimization happens at the *ARC-annotated IR* level (between Section 07 and codegen), where we have full ownership semantics. NOT at the LLVM IR level where ownership information is lost.
 
-**Heap layout context:** RC operations target the Roc-style refcount-at-negative-offset layout (see Section 01.6). The refcount is at `ptr - 8` from the data pointer. Elimination of paired inc/dec operations saves not just the refcount arithmetic but also the pointer adjustment and memory access.
+**Heap layout context:** RC operations target the Roc-style refcount-at-negative-offset layout (see Section 01.6). The header is 16 bytes: `{ strong_count: i64, weak_count: i64 }`. The strong_count is at `ptr - 16` from the data pointer. Elimination of paired inc/dec operations saves not just the refcount arithmetic but also the pointer adjustment and memory access.
 
 ---
 
@@ -134,9 +136,11 @@ struct EliminationCandidate {
 }
 ```
 
+**V1 implementation is intra-block only.** The bottom-up and top-down passes scan within individual basic blocks. Cross-block elimination following Swift's `GlobalARCSequenceDataflow` approach (which propagates RC state across block boundaries using a global dataflow framework) is future work. The intra-block analysis is sufficient to eliminate the most common redundant pairs (e.g., `inc x; use x; dec x` within a single block).
+
 **Conservative at loop boundaries** (from Swift):
 - At loop entry/exit, reset state to `None` (conservative)
-- Loop-specific analysis can be added later (Section 09 territory)
+- Loop-specific analysis can be added later (future work)
 
 - [ ] Implement `bottom_up_pass` scanning backward
 - [ ] Implement `top_down_pass` scanning forward

@@ -31,6 +31,28 @@ pub fn parsed_path(db: &dyn Db, path: &Path) -> Option<ParseOutput> {
     }
 }
 
+/// Lex a source file into tokens and errors.
+///
+/// This is the foundational lexing query. Both [`tokens()`] and [`lex_errors()`]
+/// derive from this result, ensuring the lexer runs at most once per file version.
+///
+/// # Caching Behavior
+///
+/// - First call: executes the lexer, caches result
+/// - Subsequent calls (same input): returns cached `LexResult`
+/// - After `file.set_text()`: re-lexes on next call
+///
+/// # Early Cutoff
+///
+/// Even if the source text changes, if the resulting `LexResult` is
+/// identical (same hash), downstream queries won't recompute.
+#[salsa::tracked]
+pub fn lex_result(db: &dyn Db, file: SourceFile) -> ori_lexer::LexResult {
+    tracing::debug!(path = %file.path(db).display(), "lexing");
+    let text = file.text(db);
+    ori_lexer::lex_full(text, db.interner())
+}
+
 /// Tokenize a source file.
 ///
 /// This is the first real compilation query. It converts source text
@@ -38,19 +60,23 @@ pub fn parsed_path(db: &dyn Db, path: &Path) -> Option<ParseOutput> {
 ///
 /// # Caching Behavior
 ///
-/// - First call: executes the lexer, caches result
-/// - Subsequent calls (same input): returns cached `TokenList`
-/// - After `file.set_text()`: re-lexes on next call
-///
-/// # Early Cutoff
-///
-/// Even if the source text changes, if the resulting tokens are
-/// identical (same hash), downstream queries won't recompute.
+/// Derives from [`lex_result()`] — the lexer only runs once per file version.
+/// If the tokens are unchanged (same hash), downstream queries won't recompute.
 #[salsa::tracked]
 pub fn tokens(db: &dyn Db, file: SourceFile) -> TokenList {
-    tracing::debug!(path = %file.path(db).display(), "lexing");
-    let text = file.text(db);
-    ori_lexer::lex(text, db.interner())
+    lex_result(db, file).tokens
+}
+
+/// Get lexer errors for a source file.
+///
+/// Returns the accumulated errors from lexing (unterminated strings, semicolons,
+/// `===`, unicode confusables, etc.). These are surfaced in `check` and `run`
+/// commands before parse errors.
+///
+/// Derives from [`lex_result()`] — the lexer only runs once per file version.
+#[salsa::tracked]
+pub fn lex_errors(db: &dyn Db, file: SourceFile) -> Vec<ori_lexer::lex_error::LexError> {
+    lex_result(db, file).errors
 }
 
 /// Tokenize a source file with full metadata (comments, blank lines, errors).

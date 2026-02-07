@@ -9,7 +9,7 @@ section: "Expressions"
 
 A _constant expression_ is an expression that can be fully evaluated at compile time.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § CONSTANT EXPRESSIONS, DECLARATIONS (const_function)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § CONSTANT EXPRESSIONS, DECLARATIONS (const_function)
 
 ## Constant Contexts
 

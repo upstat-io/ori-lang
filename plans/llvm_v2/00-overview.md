@@ -124,7 +124,7 @@ No existing module needs modification. No giant match arms to extend.
 
 | Pain Point | Root Cause | V2 Solution |
 |-----------|-----------|-------------|
-| Builder.rs is 2000+ lines | Expression codegen + type mapping + LLVM emission all in one struct | Split into TypeInfo enum + ExprLowerer + IrBuilder |
+| Builder.rs is ~1500 lines (and growing) | Expression codegen + type mapping + LLVM emission all in one struct | Split into TypeInfo enum + ExprLowerer + IrBuilder |
 | Adding new types requires changes everywhere | No centralized type-to-LLVM mapping | TypeInfo enum: one variant per type category |
 | No ARC optimization | RC ops emitted directly during codegen | Separate ARC analysis pass before codegen |
 | LLVM lifetime complexity | `'ll` lifetime threads through everything | ID-based value/type references |

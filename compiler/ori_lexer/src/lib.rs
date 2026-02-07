@@ -197,12 +197,27 @@ impl LexOutput {
     }
 }
 
-/// Lex source code into a [`TokenList`].
+/// Result of lexing: tokens plus accumulated errors.
+///
+/// This is the primary output for the parsing pipeline, carrying both the
+/// token stream and any lexer errors (unterminated strings, `===`, `;`, etc.).
+///
+/// # Salsa Compatibility
+/// Has all required traits: `Clone`, `Eq`, `PartialEq`, `Hash`, `Debug`
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct LexResult {
+    /// The token stream for parsing.
+    pub tokens: TokenList,
+    /// Accumulated lexer errors.
+    pub errors: Vec<LexError>,
+}
+
+/// Lex source code into tokens and accumulated errors.
 ///
 /// Uses the hand-written `RawScanner` + `TokenCooker` pipeline.
-/// Produces literals, keywords, identifiers, symbols, trivia (`Newline`),
-/// and `Eof`/`Error` tokens. Each token carries [`TokenFlags`] metadata.
-pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
+/// Unlike [`lex()`] which discards errors, this returns them alongside
+/// the token stream so they can be surfaced through the Salsa query system.
+pub fn lex_full(source: &str, interner: &StringInterner) -> LexResult {
     let buf = SourceBuffer::new(source);
     let mut scanner = RawScanner::new(buf.cursor());
     let mut cooker = TokenCooker::new(buf.as_bytes(), interner);
@@ -267,7 +282,24 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
     let eof_flags = finalize_flags(pending_flags);
     result.push_with_flags(Token::new(TokenKind::Eof, eof_span), eof_flags);
 
-    result
+    let errors = cooker.into_errors();
+
+    LexResult {
+        tokens: result,
+        errors,
+    }
+}
+
+/// Lex source code into a [`TokenList`].
+///
+/// Uses the hand-written `RawScanner` + `TokenCooker` pipeline.
+/// Produces literals, keywords, identifiers, symbols, trivia (`Newline`),
+/// and `Eof`/`Error` tokens. Each token carries [`TokenFlags`] metadata.
+///
+/// This is the fast path that discards errors. For the full pipeline
+/// (tokens + errors), use [`lex_full()`].
+pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
+    lex_full(source, interner).tokens
 }
 
 /// Lex source code into tokens, comments, and formatting metadata.

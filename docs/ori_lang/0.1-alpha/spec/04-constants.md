@@ -9,7 +9,7 @@ section: "Types & Values"
 
 Constants are immutable bindings declared with the `$` prefix.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS (constant_decl), CONSTANT EXPRESSIONS
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § DECLARATIONS (constant_decl), CONSTANT EXPRESSIONS
 
 ## Immutable Bindings
 

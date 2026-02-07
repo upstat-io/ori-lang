@@ -25,7 +25,7 @@ type store, TypeInfoStore, indexed storage, no dyn Trait, Pool only
 ArcClassification, ori_arc, no LLVM dependency
 Channel, Function, function pointer, closure pointer
 unit i64, never i64, void not BasicTypeEnum
-Roc-style RC, refcount at ptr minus 8, heap layout, C FFI
+Roc-style RC, 16-byte header, strong_count at ptr minus 16, weak_count at ptr minus 8, heap layout, C FFI
 Idx::NONE guard, unreachable tags, Var, BoundVar, Scheme, Infer
 newtype transparent, alias resolved, no Newtype variant, no Alias variant
 Pool flattening, struct field data, enum variant data, prerequisite refactor
@@ -102,7 +102,7 @@ declare_runtime_functions, runtime pre-declaration, ori_* functions
 ParamPassing, Direct, Indirect, Void, Reference
 ReturnPassing, Sret, alignment, TypeInfo-driven threshold
 needs_sret, >2 fields, >16 bytes, x86-64 SysV ABI
-compute_param_passing, compute_return_passing, abi_size
+compute_param_passing, compute_return_passing, TypeInfo::size()
 CallConv, Fast, C, fastcc, ccc
 fastcc internal functions, ccc for @main @panic FFI runtime
 tail call optimization, TCO, musttail
@@ -111,7 +111,8 @@ Rust FnAbi, ArgAbi, PassMode, Direct, Indirect, Pair
 Swift NativeConventionSchema, Explosion
 closure, lambda, fat pointer, env_ptr, fn_ptr
 tagged i64, coerce_to_i64, bit 0 tag, ori_closure_box, LAMBDA_COUNTER
-capture by value, environment struct, ARC-managed captures
+capture by value, environment struct, ARC-managed captures, ptr-16 closure env
+TypeInfoStore, no TypeInfoRegistry
 no-capture optimization, null env_ptr, direct call
 __lambda_N, max 8 captures, capture count, boxed closure
 hidden first parameter, env_ptr as hidden param
@@ -124,7 +125,7 @@ method name collision, mangled method names, _ori_<module>$<type>$<method>
 entry point, @main, @panic, C main wrapper, ori_args_from_argv
 @main () -> void, @main () -> int, @main (args: [str]) -> void
 @panic handler registration, ori_user_panic_handler
-test wrapper, __test_ prefix, void signature
+test wrapper, _ori_test_ prefix, void signature
 ```
 
 ### Section 05: Type Classification for ARC
@@ -171,6 +172,9 @@ Koka Borrowed, ParamInfo, borrowedExtend, Core IR
 Swift OwnershipKind, Guaranteed, Unowned, SIL
 function signature annotation, borrow bit
 no RC for borrowed parameters, eliminate inc/dec
+ArcIrBuilder, builder API, AST-to-ARC-IR lowering
+var_types, var_type(), spans side table, Span preservation
+PrimOp, LitValue, TBD during implementation
 ```
 
 ### Section 07: RC Insertion via Liveness
@@ -190,7 +194,7 @@ derived value, borrows set, projection borrow optimization
 specialized drop functions, compile-time drop, per-type drop
 drop_MyStruct, drop_List_Str, _ori_drop$ naming
 closure env drop, Dec each capture, env struct RC
-ori_rt redesign, 16-byte to 8-byte header, ptr-8 layout
+ori_rt redesign, 16-byte header, ptr-16 strong_count, ptr-8 weak_count
 ori_rc_alloc, ori_rc_inc, ori_rc_dec, ori_rc_free, drop_fn
 early exit cleanup, Dec live vars, break continue return
 panic cleanup, full cleanup blocks, Invoke terminator
@@ -219,6 +223,7 @@ RC identity, same ArcVarId, alias tracking
 loop handling, conservative at boundaries
 dead RC operations, redundant retain/release
 EliminationCandidate, InstrPos, remove_instr
+pipeline order: runs AFTER Section 09, input from both 07 and 09
 ```
 
 ### Section 09: Constructor Reuse (FBIP)
@@ -239,9 +244,11 @@ reuse-eligible patterns, match arm reconstruct, spread struct
 recursive data transformation, list map, tree map
 ArcInstr::Reset, ArcInstr::Reuse, intermediate IR operations
 ArcInstr::IsShared, ArcInstr::Set, expanded operations
+IsShared inline, load ptr-16, icmp sgt 1, not a runtime call
 Lean 4 ExpandResetReuse, reset/reuse expansion algorithm
 Koka ParcReuse, genAllocAt, genReuseAddress, size-based pool (not adopted)
 Roc HelperOp Reset, ResetRef, Reuse
+pipeline order: runs BEFORE Section 08, after Section 07
 ```
 
 ### Section 10: Pattern Match Decision Trees
@@ -396,13 +403,13 @@ RC insertion tests, RcInc placement, RcDec placement, liveness
 RC elimination tests, paired retain/release removal
 constructor reuse tests, Reset, Reuse, eligible patterns
 decision tree tests, Switch structure, pattern compilation
-@test annotation, test function compilation, __test_ prefix
+@test annotation, test function compilation, _ori_test_ prefix
 test runner binary, test discovery, TestDescriptor
 JIT vs AOT test execution, ori test, ori test --aot
 --only-attached filtering, attached tests, target function
 test runner generation, synthetic main, ori_test_summary
 existing: ori_llvm/src/tests/ 17 files 6836 lines
-existing: oric/tests/phases/codegen/ 18 files 5451 lines
+existing: oric/tests/phases/codegen/ 17 files 5451 lines
 existing: oric/src/testing/ harness.rs mocks.rs
 Rust rustc_codegen_llvm tests, FileCheck IR tests
 Zig test/behavior, test/compile_errors
@@ -459,8 +466,8 @@ Gleam compiler-core error, structured error types
 | 05 | Type Classification for ARC | `section-05-type-classification.md` | 2 |
 | 06 | ARC IR & Borrow Inference | `section-06-borrow-inference.md` | 2 |
 | 07 | RC Insertion via Liveness | `section-07-rc-insertion.md` | 2 |
+| 09 | Constructor Reuse (FBIP) | `section-09-constructor-reuse.md` | 2 |
 | 08 | RC Elimination via Dataflow | `section-08-rc-elimination.md` | 2 |
-| 09 | Constructor Reuse (FBIP) | `section-09-constructor-reuse.md` | 3 |
 | 10 | Pattern Match Decision Trees | `section-10-decision-trees.md` | 3 |
 | 11 | LLVM Optimization Passes | `section-11-llvm-passes.md` | 3 |
 | 12 | Incremental & Parallel Codegen | `section-12-incremental-parallel.md` | 3 |

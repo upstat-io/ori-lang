@@ -179,7 +179,8 @@ fn emit_dbg_declare(
     let di_var = di.inner.create_auto_variable(
         scope, var_name, di.file(), line, var_type, false, DIFlags::ZERO, 0,
     );
-    di.inner.insert_declare_at_end(alloca, di_var, None, /* location */ ..., block);
+    let debug_loc = context.create_debug_location(line, column, scope, None);
+    di.inner.insert_declare_at_end(alloca, Some(di_var), None, debug_loc, block);
 }
 ```
 
@@ -202,7 +203,11 @@ fn emit_dbg_value(
     let di_var = di.inner.create_auto_variable(
         scope, var_name, di.file(), line, var_type, false, DIFlags::ZERO, 0,
     );
-    di.inner.insert_dbg_value_before(value, di_var, None, /* location */ ..., instr);
+    let debug_loc = context.create_debug_location(line, column, scope, None);
+    // `instr` is the next InstructionValue after the value definition, or the
+    // block terminator if the value is defined last. Unlike insert_declare_at_end,
+    // the var_info parameter here is NOT Optional — pass di_var directly.
+    di.inner.insert_dbg_value_before(value, di_var, None, debug_loc, instr);
 }
 ```
 
@@ -252,7 +257,7 @@ When ARC IR (Section 06) introduces synthetic variables (e.g., temporary RC incr
 
 ### Reference-Counted Heap Objects
 
-ARC-managed heap objects (Section 07) have the layout `{refcount: i64, data: T}` where the pointer points to `data` and the refcount lives at `ptr - 8`. For the alpha release, debug info represents the **raw layout**:
+ARC-managed heap objects (Section 07) have a 16-byte header `{ strong_count: i64, weak_count: i64 }` where the pointer points to `data` and the header lives at `ptr - 16`. For the alpha release, debug info represents the **raw layout**:
 
 ```rust
 // Pseudocode: debug type for an RC-managed heap object
@@ -264,20 +269,21 @@ fn create_rc_heap_type<'ctx>(
 ) -> DICompositeType<'ctx> {
     let int_ty = di.int_type().unwrap().as_type();
     let fields = [
-        FieldInfo { name: "refcount", ty: int_ty, size_bits: 64, offset_bits: 0, line: 0 },
-        FieldInfo { name: "data", ty: inner_type, size_bits: inner_size_bits, offset_bits: 64, line: 0 },
+        FieldInfo { name: "strong_count", ty: int_ty, size_bits: 64, offset_bits: 0, line: 0 },
+        FieldInfo { name: "weak_count", ty: int_ty, size_bits: 64, offset_bits: 64, line: 0 },
+        FieldInfo { name: "data", ty: inner_type, size_bits: inner_size_bits, offset_bits: 128, line: 0 },
     ];
     di.create_struct_type(
         &format!("RC<{inner_name}>"),
         0,
-        64 + inner_size_bits,
+        128 + inner_size_bits,
         64,
         &fields,
     )
 }
 ```
 
-This means in lldb, users will see `RC<MyStruct>.refcount` and `RC<MyStruct>.data.field_name`. This is raw but accurate. User-friendly LLDB formatters (type summaries and synthetic children that hide the refcount and show `data` fields directly) are a future enhancement tracked separately.
+This means in lldb, users will see `RC<MyStruct>.strong_count`, `RC<MyStruct>.weak_count`, and `RC<MyStruct>.data.field_name`. This is raw but accurate. User-friendly LLDB formatters (type summaries and synthetic children that hide the header and show `data` fields directly) are a future enhancement tracked separately.
 
 ### Source Location Preservation Through ARC IR Lowering
 
@@ -318,6 +324,7 @@ When creating a `CodegenCx` (or `ModuleEmitter`), create the `DebugContext` from
 
 ```rust
 // In CodegenCx::new() or ModuleEmitter::new()
+// Note: source_path is &Path (not &str). Use Path::new() if converting from a string.
 let debug_context = DebugContext::new(
     &module, context, debug_config, source_path, source_text,
 );

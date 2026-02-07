@@ -9,7 +9,7 @@ section: "Declarations"
 
 Functions, types, traits, and implementations.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § DECLARATIONS
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § DECLARATIONS
 
 ## Functions
 
@@ -586,7 +586,7 @@ extension "b" { Iterator.sum }  // ERROR: conflicting extension imports
 
 Attributes modify declarations with metadata or directives.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § ATTRIBUTES
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § ATTRIBUTES
 
 ### Syntax
 

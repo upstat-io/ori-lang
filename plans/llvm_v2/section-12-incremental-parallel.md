@@ -114,6 +114,8 @@ impl FunctionContentHash {
 
 **AST hashing strategy:** Hash the function's AST nodes, stripping span information so that whitespace-only changes (which shift spans but don't change semantics) produce the same hash. This is computed from the typed AST after type inference, ensuring that inferred types are part of the hash input via the signature.
 
+**Target independence:** `FunctionContentHash` is intentionally target-independent. It operates on the typed AST, which has no target-specific information. Target and optimization level disambiguation happens at the `ObjectCacheKey` level (Section 12.3, Layer 2), which combines the ARC IR hash with the optimization config hash (including target triple, opt level, and LTO mode). This means the same `FunctionContentHash` can produce Layer 1 (ARC IR) cache hits across different targets, while Layer 2 (object code) correctly invalidates when the target changes.
+
 ### Function Dependency Tracking
 
 Function-level dependencies are more granular than file-level imports. When function A calls function B:
@@ -183,7 +185,7 @@ impl FunctionDependencyGraph {
 
 ### Per-Function Compilation
 
-Each function is compiled to its own LLVM module (one function per module). This enables maximum parallelism and fine-grained caching. Functions that don't need recompilation produce no LLVM work at all.
+Each function is compiled to its own LLVM module (one function per module). This enables maximum parallelism and fine-grained caching. Functions that don't need recompilation produce no LLVM work at all. Per-function `.o` files are merged per Ori module via `ld -r` (partial/relocatable linking) before the final link step.
 
 ```
 Source file
@@ -196,14 +198,48 @@ For each function in the module:
     │   ├── Hit: load cached ARC IR
     │   └── Miss: run ARC analysis (borrow inference, RC insertion, elimination)
     ├── Check object code cache (Section 12.3, Layer 2)
-    │   ├── Hit: reuse cached .o file
-    │   └── Miss: create LLVM module, lower ARC IR, emit .o
+    │   ├── Hit: reuse cached artifact (.o or .bc depending on LTO mode)
+    │   └── Miss: create LLVM module, lower ARC IR →
+    │       ├── LTO off: optimize → emit .o (native object)
+    │       └── LTO on:  pre-link optimize → emit .bc (bitcode)
     └── Store results in cache
     ↓
-Link all .o files (updated + cached)
-    ↓
-Executable
+LTO off:
+    Per-module partial link: ld -r per-function .o files → module.o
+    Final link: all module.o files → executable
+LTO on:
+    Skip ld -r (bitcode cannot be partially linked)
+    Merge per-function .bc files → whole-program .bc
+    Run LTO pipeline (Section 11.5) → emit final .o
+    Final link: .o → executable
 ```
+
+### Partial Linking With `ld -r`
+
+Per-function compilation produces many small `.o` files (one per function). Passing hundreds of `.o` files directly to the final linker adds overhead: more file I/O, larger command lines, and slower symbol resolution. V2 addresses this with `ld -r` (relocatable linking) as a mandatory intermediate step:
+
+```
+Per Ori module:
+    func_a.o + func_b.o + func_c.o  →  ld -r -o module.o
+
+Final link:
+    core.o + utils.o + lib.o + main.o  →  ld -o executable
+```
+
+**`ld -r` semantics:** Produces a relocatable object file that combines multiple `.o` inputs. All symbols and relocations are preserved (no final resolution). The output is a valid `.o` file that can be fed to the final linker. This is a standard feature supported by all system linkers (GNU ld, lld, mold, macOS ld64).
+
+**Benefits:**
+- Reduces final link input from N functions to M modules (typically 10-100x reduction)
+- Per-module `.o` files are cacheable at the module level (invalidated when any constituent function changes)
+- Simplifies cross-module symbol resolution (fewer files for the linker to process)
+- Debug builds benefit most since link time often dominates
+
+**Implementation:** Invoke `ld -r` via `std::process::Command` after all per-function `.o` files for a module are ready. The `ld -r` step runs per module, so multiple modules can be partially linked in parallel. Use the system linker (detected via `cc` crate or `ORIFLAGS_LD` env var, defaulting to `cc -r`).
+
+**Platform and edge-case notes:**
+- **Single-function modules:** When a module produces only one `.o` file, skip `ld -r` entirely and use that `.o` directly as the module object. The partial link step adds no value for a single file.
+- **Windows/MSVC:** MSVC's `link.exe` does not support `ld -r` (relocatable linking). On Windows/MSVC targets, skip the `ld -r` step and pass per-function `.o` files directly to the final link step. This increases the number of inputs to the final linker but avoids a missing-tool failure.
+- **`ld -r` failure:** If the `ld -r` invocation fails (non-zero exit code, missing tool), map the error to **E5006** (`LinkerFailed`) with the full command and stderr in the diagnostic.
 
 ### Fallback to File-Level
 
@@ -260,22 +296,37 @@ pub struct CachedArcIr {
 
 **Serialization format:** Binary via bincode for speed. ARC IR types (`ArcFunction`, `ArcBlock`, `ArcInstr`, `ArcTerminator`, `ArcVarId`, `ArcBlockId`, `ArcParam`, `ArcValue`) need `Serialize` and `Deserialize` derives added (Section 06 types). JSON is too slow for incremental builds; bincode adds negligible overhead.
 
+**Feature gate:** Serde derives on ARC IR types should be behind a `cache` feature flag in `ori_arc` (e.g., `#[cfg_attr(feature = "cache", derive(Serialize, Deserialize))]`). This avoids pulling serde into builds that don't use the incremental cache (e.g., JIT evaluation, single-file compilation). The `cache` feature is enabled by default in the AOT pipeline (`oric`) but not in `ori_eval`.
+
 ### Layer 2: Object Code Cache
 
 Compiled object code per function. If the ARC IR hash is unchanged AND the optimization config hash is unchanged, LLVM compilation is skipped entirely and the cached `.o` file is reused.
 
 ```rust
-/// Cache key for compiled object code.
+/// The kind of artifact stored in the Layer 2 cache.
+/// LTO builds produce bitcode (.bc); non-LTO builds produce native objects (.o).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArtifactKind {
+    /// Native object code (.o). Produced when LTO is off.
+    NativeObject,
+    /// LLVM bitcode (.bc). Produced when LTO is on (thin or full).
+    Bitcode,
+}
+
+/// Cache key for compiled object code (or bitcode for LTO).
 ///
 /// Combines the ARC IR hash with the optimization configuration so that
 /// switching between debug and release invalidates object caches but not
-/// ARC IR caches.
+/// ARC IR caches. The artifact kind distinguishes .o from .bc so that
+/// toggling LTO correctly invalidates the cache.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ObjectCacheKey {
     /// Hash of the ARC IR (output of Layer 1).
     arc_ir_hash: ContentHash,
     /// Hash of optimization config (level, LTO mode, target triple).
     opt_config_hash: ContentHash,
+    /// Whether this artifact is native object code or bitcode.
+    artifact_kind: ArtifactKind,
     /// Combined key for file naming.
     combined: ContentHash,
 }
@@ -320,7 +371,7 @@ build/
     └── meta/                      # Metadata (existing)
 ```
 
-- [ ] Add `Serialize`/`Deserialize` derives to ARC IR types in `ori_arc`
+- [ ] Add `Serialize`/`Deserialize` derives to ARC IR types in `ori_arc` (behind `cache` feature flag)
 - [ ] Implement `ArcIrCacheKey` and `CachedArcIr` with bincode serialization
 - [ ] Implement `ObjectCacheKey` combining ARC IR hash + optimization config
 - [ ] Implement function-level cache directory structure within existing `ArtifactCache`
@@ -350,9 +401,9 @@ Making codegen a Salsa query would require serializing LLVM IR to a Salsa-compat
 The existing Salsa query graph handles the front-end:
 
 ```
-SourceFile (input, #[salsa::input])
-    ↓ file.text(db)
-tokens(db, file)         — #[salsa::tracked], early cutoff on token equality
+SourceFile (#[salsa::input] — user-set input, NOT a tracked query)
+    ↓ file.text(db) — source text is a field on the input, no cutoff here
+tokens(db, file)         — #[salsa::tracked], FIRST real cutoff point (token equality)
     ↓
 parsed(db, file)         — #[salsa::tracked], early cutoff on AST equality
     ↓
@@ -424,6 +475,12 @@ The current code has two parallel execution paths with different behavior:
 /// Worker threads pull from a shared ready queue. When a function completes,
 /// its dependents may become ready and are added to the queue. This ensures
 /// correct ordering while maximizing parallelism.
+///
+/// **Error handling:** When a compilation fails, the failed item is recorded and
+/// all transitive dependents are marked as blocked-by-failure (they will never
+/// become ready). This prevents deadlocks where threads wait forever for items
+/// that can never complete. After all threads join, blocked-by-failure items are
+/// reported as skipped.
 pub fn execute_parallel<F>(
     plan: CompilationPlan,
     jobs: usize,
@@ -438,12 +495,18 @@ where
     let shared = Arc::new(SharedPlanState {
         plan: Mutex::new(plan),
         condvar: Condvar::new(),
+        // Track failed items and their transitively blocked dependents
+        failed: Mutex::new(Vec::new()),
+        blocked_by_failure: Mutex::new(FxHashSet::default()),
     });
+
+    // Wrap compile_fn in Arc for sharing across threads (thread::spawn requires 'static)
+    let compile_fn = Arc::new(compile_fn);
 
     // Spawn worker threads
     let handles: Vec<_> = (0..jobs).map(|_| {
         let shared = Arc::clone(&shared);
-        let compile_fn = &compile_fn; // borrow, not move
+        let compile_fn = Arc::clone(&compile_fn);
         thread::spawn(move || {
             loop {
                 // Wait for a ready item or completion
@@ -456,7 +519,7 @@ where
                         if plan.is_complete() {
                             return; // All done
                         }
-                        // Wait for notification that a dependency completed
+                        // Wait for notification that a dependency completed or failed
                         plan = shared.condvar.wait(plan).unwrap();
                     }
                 };
@@ -464,11 +527,24 @@ where
                 // Compile outside the lock
                 let result = compile_fn(&item);
 
-                // Report completion and wake other threads
+                // Report completion/failure and wake other threads
                 let mut plan = shared.plan.lock().unwrap();
                 match result {
                     Ok(_) => plan.complete(&item.path),
-                    Err(_) => { /* don't mark complete — dependents can't proceed */ }
+                    Err(e) => {
+                        // Record the failure
+                        shared.failed.lock().unwrap().push(e);
+                        // Mark this item as failed — resolve it in the plan so
+                        // is_complete() can account for it
+                        plan.mark_failed(&item.path);
+                        // Transitively mark all dependents as blocked-by-failure
+                        let blocked = plan.transitive_dependents(&item.path);
+                        let mut blocked_set = shared.blocked_by_failure.lock().unwrap();
+                        for dep in &blocked {
+                            plan.mark_failed(dep);
+                        }
+                        blocked_set.extend(blocked);
+                    }
                 }
                 shared.condvar.notify_all();
             }
@@ -480,8 +556,70 @@ where
         handle.join().unwrap();
     }
 
-    // Extract results
-    // ...
+    // Report skipped items (blocked by upstream failures)
+    let blocked = shared.blocked_by_failure.lock().unwrap();
+    if !blocked.is_empty() {
+        tracing::warn!(
+            "{} items skipped due to upstream compilation failures: {:?}",
+            blocked.len(),
+            blocked,
+        );
+    }
+
+    // Extract results and errors
+    let errors = Arc::try_unwrap(shared)
+        .expect("all threads joined")
+        .failed
+        .into_inner()
+        .unwrap();
+    if errors.is_empty() {
+        Ok(CompilationStats { /* ... */ })
+    } else {
+        Err(errors)
+    }
+}
+```
+
+**`CompilationPlan` error tracking additions:**
+
+The `CompilationPlan` struct needs these additions for error handling:
+
+```rust
+impl CompilationPlan {
+    /// Mark an item as failed. It is treated as resolved for scheduling
+    /// purposes (so is_complete() can terminate), but its dependents
+    /// will never become ready.
+    pub fn mark_failed(&mut self, path: &Path) {
+        self.failed_items.insert(path.to_path_buf());
+        // Treat as resolved so is_complete() counts it
+        self.completed.insert(path.to_path_buf());
+        // Do NOT call complete() — dependents must not become ready
+    }
+
+    /// Return all transitive dependents of the given item.
+    pub fn transitive_dependents(&self, path: &Path) -> Vec<PathBuf> {
+        let mut result = Vec::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(path.to_path_buf());
+        while let Some(item) = queue.pop_front() {
+            if let Some(deps) = self.reverse_deps.get(&item) {
+                for dep in deps {
+                    if result.iter().all(|r| r != dep) {
+                        result.push(dep.clone());
+                        queue.push_back(dep.clone());
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    /// Check if the plan is complete. A plan is complete when all items
+    /// are either completed successfully, failed, or blocked-by-failure.
+    pub fn is_complete(&self) -> bool {
+        self.completed.len() + self.failed_items.len() >= self.total_items
+            || (self.ready_queue.is_empty() && self.in_progress.is_empty())
+    }
 }
 ```
 
@@ -522,22 +660,26 @@ Level 2: Function parallelism (new FunctionDependencyGraph)
         4. Compile uncached functions in parallel (one LLVM module per function)
         5. Collect .o files (cached + freshly compiled)
 
-Level 3: Link
-    All per-function .o files → linker → executable
+Level 3: Partial link (ld -r)
+    Per module: ld -r per-function .o files → module.o
+    (Multiple modules can be partially linked in parallel)
+
+Level 4: Final link
+    All module.o files → linker → executable
 ```
 
 **Module ordering constraint:** A module's type information must be available before its dependents can type-check. This is inherent to the Salsa query graph (imports are resolved during `typed()`). Function-level parallelism operates WITHIN a module, not across modules that have dependency relationships.
 
 **Cross-module function references** are resolved at link time via mangled names (Section 04.5). Each per-function `.o` file declares (but does not define) external functions it calls. The linker resolves these symbols from the `.o` files of other modules.
 
-### Incremental Linking
+### Linking Strategy
 
 For debug builds where link time dominates:
-- **Object file replacement:** Updated per-function `.o` files replace their predecessors. The linker re-links only the changed objects. This is the simplest incremental linking strategy and sufficient for initial V2.
-- **Future: `ld -r` partial linking:** Combine groups of related functions into pre-linked relocatable objects. Reduces the number of objects the final link must process.
+- **`ld -r` partial linking per module:** Per-function `.o` files within each Ori module are merged via `ld -r` into a single relocatable `module.o`. The final link receives one `.o` per module, not one per function. When any function in a module changes, its per-function `.o` is recompiled and the module's `ld -r` step re-runs (but other modules' partial links are cached). See Section 12.2 for the `ld -r` pipeline details.
+- **Updated per-function `.o` files** replace their predecessors in the cache before the `ld -r` merge step.
 
-For release builds:
-- Full link with LTO (Section 11.5) runs on every build. LTO inherently requires whole-program analysis, so incremental linking does not apply.
+For release builds with LTO:
+- The per-function pipeline emits `.bc` (bitcode) instead of `.o` (native object). The `ld -r` step is skipped entirely — bitcode files cannot be partially linked. Instead, per-function `.bc` files are merged into a whole-program bitcode module, and the LTO pipeline (Section 11.5) runs on the merged module to produce a single `.o` file for the final link. LTO inherently requires whole-program analysis, so incremental linking does not apply at the object level. However, Layer 1 (ARC IR) and Layer 2 (bitcode) caches still apply: unchanged functions reuse cached `.bc` files, avoiding LLVM emission entirely.
 
 ### Integration With Existing Pipeline
 
@@ -578,11 +720,14 @@ fn compile_module_functions(
 }
 ```
 
-- [ ] Implement two-level scheduling (module ordering + function parallelism)
+- [ ] Implement multi-level scheduling (module ordering + function parallelism + ld -r + final link)
 - [ ] Replace `compile_module_to_object` with `compile_module_functions`
+- [ ] Implement `ld -r` partial linking step per Ori module (merge per-function .o → module.o)
+- [ ] Detect system linker for `ld -r` (via `cc` crate or `ORIFLAGS_LD` env var)
 - [ ] Ensure cross-module symbol resolution via mangled names works with per-function .o files
 - [ ] Test: multi-module program with per-function incremental compilation
 - [ ] Test: changing one function in a dependency does not recompile dependent modules (unless signature changed)
+- [ ] Test: `ld -r` output is a valid relocatable object accepted by the final linker
 
 ---
 
@@ -597,7 +742,8 @@ fn compile_module_functions(
 - [ ] `execute_parallel` replaces `compile_parallel` with dependency-respecting multi-threaded execution
 - [ ] `std::thread` used throughout (no rayon)
 - [ ] One LLVM Context per thread, no cross-context ValueId sharing
-- [ ] Two-level scheduling: module topological order + function-level parallelism
+- [ ] Multi-level scheduling: module topological order + function parallelism + ld -r + final link
+- [ ] `ld -r` partial linking merges per-function .o into per-module .o before final link
 - [ ] Cross-module references resolved at link time via mangled names
 - [ ] Fallback to file-level for module-level initialization and dependency cycles
 - [ ] All existing incremental infrastructure preserved and functional

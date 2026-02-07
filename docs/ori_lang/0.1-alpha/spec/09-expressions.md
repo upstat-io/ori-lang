@@ -9,7 +9,7 @@ section: "Expressions"
 
 Expressions compute values.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § EXPRESSIONS
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § EXPRESSIONS
 
 ## Postfix Expressions
 
@@ -580,7 +580,7 @@ let { $x, y } = point  // x immutable, y mutable
 
 ## Conditional
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § if_expr
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § if_expr
 
 ```ori
 if x > 0 then "positive" else "non-positive"
@@ -658,7 +658,7 @@ The parser disables struct literal parsing in the condition context. Parenthesiz
 
 ## For Expression
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § For Expression
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § For Expression
 
 ### For-Do
 
@@ -718,7 +718,7 @@ See [Control Flow § Labeled Loops](19-control-flow.md#labeled-loops) for label 
 
 ## Loop Expression
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § loop_expr
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § loop_expr
 
 The `loop(...)` expression repeatedly evaluates its body until a `break` is encountered.
 
@@ -854,7 +854,7 @@ Elements evaluate left-to-right:
 
 ## Spread Operator
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § EXPRESSIONS (list_element, map_element, struct_element)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § EXPRESSIONS (list_element, map_element, struct_element)
 
 The spread operator `...` expands collections and structs in literal contexts.
 

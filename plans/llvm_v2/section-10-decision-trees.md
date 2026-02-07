@@ -26,7 +26,7 @@ sections:
 **Crate:** `ori_arc` (no LLVM dependency). The decision tree algorithm is part of the AST-to-ARC-IR lowering pass (Section 06.0). The `ori_llvm` crate does NOT contain pattern compilation logic -- it just emits `Switch` terminators as LLVM `switch` instructions and `Branch` terminators as LLVM `br` instructions.
 
 **Reference compilers:**
-- **Roc** `crates/compiler/mono/src/ir/decision_tree.rs` -- `DecisionTree` enum with `Decision`/`Leaf`/`Chain` variants. Maranget-style algorithm.
+- **Roc** `crates/compiler/mono/src/ir/decision_tree.rs` -- `DecisionTree` enum with `Match`/`Decision` variants for the tree, `Decider` enum with `Leaf`/`Chain`/`Guarded`/`FanOut` variants for the execution plan. Maranget-style algorithm.
 - **Elm** `compiler/src/Nitpick/PatternMatches.hs` -- Classic Maranget implementation for exhaustiveness and decision trees
 - **Swift** -- Pattern compilation to SIL `switch_enum` instruction
 - **Maranget (2008)** "Compiling Pattern Matching to Good Decision Trees" -- The foundational algorithm that Roc and Elm implement
@@ -48,7 +48,7 @@ pub enum DecisionTree {
     /// Test a scrutinee, branch based on the result.
     Switch {
         /// How to reach the value being tested (path from root scrutinee).
-        path: Vec<PathInstruction>,
+        path: ScrutineePath,
         /// The kind of test being performed.
         test_kind: TestKind,
         /// Branches: each edge maps a test value to a subtree.
@@ -89,7 +89,15 @@ When testing nested patterns, the scrutinee for inner tests is derived by projec
 ///   - Root scrutinee: the list value
 ///   - Path to `x`: [TagPayload(0), TupleIndex(0)]
 ///     (get Cons payload at field 0, then get first element of Pair)
-pub type ScrutineePath = Vec<PathInstruction>;
+///
+/// **Implementation note:** ScrutineePath is cloned frequently during matrix
+/// specialization (once per edge per recursion level). For typical patterns
+/// (depth <= 4), use `SmallVec<[PathInstruction; 4]>` to avoid heap allocation
+/// on clones. Deeply nested patterns (depth > 4) spill to the heap, which is
+/// acceptable since such patterns are rare. This optimization matters because
+/// the Maranget algorithm's time complexity is proportional to the number of
+/// path clones.
+pub type ScrutineePath = SmallVec<[PathInstruction; 4]>;
 
 /// One step in a scrutinee path.
 pub enum PathInstruction {
@@ -159,6 +167,8 @@ pub enum TestValue {
     ListLen { len: u32, is_exact: bool },
 }
 ```
+
+**Forward-looking variants:** `IntRange` and `FloatEq` in `TestKind`/`TestValue` are forward-looking and may not be in the 0.1-alpha spec. The data structures should support them from the start (to avoid breaking changes later), but the initial implementation can omit their handling — the construction algorithm simply won't produce these variants until the language adds range patterns and float matching.
 
 **Tag type derivation:** The tag discriminant type is NOT hardcoded to `i8`. During ARC IR emission, the tag type is derived from `TypeInfo` for the enum being matched. Small enums (up to 256 variants) use `i8`, larger enums use `i16` or `i32`. The LLVM `switch` instruction's case values must match the tag type. This is determined at emission time from the `TypeInfo` of the scrutinee, not baked into the decision tree.
 

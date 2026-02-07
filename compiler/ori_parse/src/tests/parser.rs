@@ -1062,3 +1062,216 @@ mod metadata_tests {
         assert!(diagnostic.code.is_warning());
     }
 }
+
+// =============================================================================
+// Module-Level Declaration Dispatch
+// =============================================================================
+// Tests that dispatch_declaration() correctly handles ALL token kinds at the
+// module top level. Previously, unrecognized tokens were silently eaten by
+// a catch-all `self.advance()`, causing `return 42`, `break`, bare integers,
+// and other invalid top-level code to pass `ori check` as OK.
+
+/// All valid declaration forms must parse without errors.
+#[test]
+fn test_valid_declarations_at_module_level() {
+    let valid_sources = &[
+        // Functions
+        "@add (a: int, b: int) -> int = a + b",
+        "@main () -> void = print(msg: \"hello\")",
+        // Types
+        "type Point = { x: int, y: int }",
+        "type Color = Red | Green | Blue",
+        // Traits
+        "trait Printable {\n    @to_str (self) -> str\n}",
+        // Impl blocks
+        "type Foo = { x: int }\nimpl Foo {\n    @get_x (self) -> int = self.x\n}",
+        // Constants
+        "let $x = 42",
+        "let $name = \"hello\"",
+        // Constants without `let` (backwards compat)
+        "$y = 100",
+        // Imports
+        "use std.math { sqrt }",
+        // Extend blocks
+        "type Bar = { v: int }\nextend Bar {\n    @val (self) -> int = self.v\n}",
+        // Visibility modifiers
+        "pub @add (a: int, b: int) -> int = a + b",
+        "pub type Color = Red | Green | Blue",
+        "pub let $x = 42",
+        // Multiple declarations
+        "type A = { x: int }\ntype B = { y: str }",
+        "@foo () -> int = 1\n@bar () -> int = 2",
+        // Empty file
+        "",
+        // Only whitespace/newlines
+        "\n\n\n",
+    ];
+
+    for source in valid_sources {
+        let result = parse_source(source);
+        assert!(
+            !result.has_errors(),
+            "Expected no errors for valid source:\n  {source}\nErrors: {:?}",
+            result.errors
+        );
+    }
+}
+
+/// Invalid tokens at module top level must produce errors, not pass silently.
+#[test]
+fn test_invalid_tokens_at_module_level_produce_errors() {
+    let invalid_sources = &[
+        // Expression keywords — not valid at top level
+        "break",
+        "continue",
+        "if true = 1",
+        "for x in [1, 2, 3] = x",
+        "match 1 { 1 => 2 }",
+        "loop = 1",
+        // Bare literals
+        "42",
+        "\"hello\"",
+        "true",
+        "3.14",
+        // Bare identifiers
+        "hello",
+        "x",
+        "foo_bar",
+        // Operators
+        "+",
+        "=",
+        "==",
+        // Punctuation that doesn't start a declaration
+        "(",
+        ")",
+        "{",
+        "}",
+        "[",
+        "]",
+    ];
+
+    for source in invalid_sources {
+        let result = parse_source(source);
+        assert!(
+            result.has_errors(),
+            "Expected errors for invalid top-level source:\n  {source}\nGot no errors"
+        );
+    }
+}
+
+/// `return` at module level must produce a specific `UnsupportedKeyword` error.
+#[test]
+fn test_return_at_module_level_produces_specific_error() {
+    let result = parse_source("return 42");
+    assert!(result.has_errors());
+    let err = &result.errors[0];
+    assert_eq!(err.code, ori_diagnostic::ErrorCode::E1015);
+    assert!(
+        err.message.contains("return"),
+        "Error message should mention `return`: {}",
+        err.message
+    );
+}
+
+/// `return` inside a function body also produces a specific error (via `parse_control_flow_primary`).
+#[test]
+fn test_return_in_function_body_produces_error() {
+    let result = parse_source("@foo () -> int = return 42");
+    assert!(result.has_errors());
+    let return_err = result
+        .errors
+        .iter()
+        .find(|e| e.code == ori_diagnostic::ErrorCode::E1015);
+    assert!(
+        return_err.is_some(),
+        "Expected E1015 for `return` in function body, errors: {:?}",
+        result.errors
+    );
+}
+
+/// `let x = 42` (without `$`) at module level produces a specific error about immutability.
+#[test]
+fn test_mutable_let_at_module_level_rejected() {
+    let result = parse_source("let x = 42");
+    assert!(result.has_errors());
+    let err = &result.errors[0];
+    assert!(
+        err.message.contains("immutable"),
+        "Error should mention immutability: {}",
+        err.message
+    );
+}
+
+/// `let $x = 42` at module level parses as a constant.
+#[test]
+fn test_const_let_at_module_level_accepted() {
+    let result = parse_source("let $timeout = 30");
+    assert!(!result.has_errors());
+    assert_eq!(result.module.consts.len(), 1);
+}
+
+/// `pub let $x = 42` at module level parses as a public constant.
+#[test]
+fn test_pub_const_let_at_module_level_accepted() {
+    let result = parse_source("pub let $api_base = \"https://example.com\"");
+    assert!(!result.has_errors());
+    assert_eq!(result.module.consts.len(), 1);
+}
+
+/// Foreign keywords from other languages produce suggestions at module level.
+#[test]
+fn test_foreign_keywords_at_module_level() {
+    let foreign_keywords = &["fn", "func", "function", "class", "struct", "interface"];
+
+    for kw in foreign_keywords {
+        let result = parse_source(kw);
+        assert!(
+            result.has_errors(),
+            "Expected error for foreign keyword `{kw}` at module level"
+        );
+        // Foreign keywords should have help text
+        let err = &result.errors[0];
+        assert!(
+            !err.help.is_empty(),
+            "Foreign keyword `{kw}` should have help suggestion, got: {err:?}",
+        );
+    }
+}
+
+/// Multiple invalid tokens in a row each produce their own error.
+#[test]
+fn test_multiple_invalid_tokens_each_produce_error() {
+    let result = parse_source("42\ntrue\n\"hello\"");
+    assert!(result.has_errors());
+    assert!(
+        result.errors.len() >= 3,
+        "Expected at least 3 errors for 3 invalid tokens, got {}: {:?}",
+        result.errors.len(),
+        result.errors
+    );
+}
+
+/// Valid declarations mixed with invalid tokens: valid parts still parse.
+#[test]
+fn test_mixed_valid_and_invalid_at_module_level() {
+    let result = parse_source("@foo () -> int = 42\n42\n@bar () -> int = 1");
+    assert!(result.has_errors());
+    // The valid functions should still be parsed
+    assert_eq!(
+        result.module.functions.len(),
+        2,
+        "Both valid functions should parse despite intervening invalid token"
+    );
+}
+
+/// Semicolons at top level produce errors (not silently eaten).
+#[test]
+fn test_semicolons_at_module_level_produce_errors() {
+    // Semicolons are TokenKind::Semicolon (not Error), so they hit the catch-all.
+    // The lex error pipeline also reports them, but the parser should reject too.
+    let result = parse_source("@foo () -> int = 42;");
+    assert!(
+        result.has_errors(),
+        "Semicolons at module level should produce errors"
+    );
+}

@@ -9,7 +9,7 @@ section: "Types & Values"
 
 Variables are storage locations identified by name.
 
-> **Grammar:** See [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar) § EXPRESSIONS (let_expr, assignment, binding_pattern)
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § EXPRESSIONS (let_expr, assignment, binding_pattern)
 
 ## Bindings
 

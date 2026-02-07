@@ -9,7 +9,7 @@ section: "Foundations"
 
 The syntax is specified using Extended Backus-Naur Form (EBNF).
 
-> **Grammar:** The complete formal grammar is in [grammar.ebnf](https://ori-lang.com/docs/compiler-design/04-parser#grammar).
+> **Grammar:** The complete formal grammar is in [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf).
 
 ## Productions
 

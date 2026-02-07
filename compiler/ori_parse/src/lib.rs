@@ -733,7 +733,34 @@ impl<'a> Parser<'a> {
                 errors,
                 Self::recover_to_function,
             );
+        } else if self.check(&TokenKind::Let) {
+            // `let $name = value` — constant declaration (spec §04-constants)
+            self.advance(); // consume `let`
+            if self.check(&TokenKind::Dollar) {
+                let outcome = self.parse_const(visibility);
+                self.handle_outcome(
+                    outcome,
+                    &mut module.consts,
+                    errors,
+                    Self::recover_to_function,
+                );
+            } else {
+                // `let name` without `$` — module-level bindings must be immutable
+                errors.push(
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1002,
+                        "module-level bindings must be immutable".to_string(),
+                        self.current_span(),
+                    )
+                    .with_help(
+                        "Use `let $name = value` with the `$` prefix for module-level constants"
+                            .to_string(),
+                    ),
+                );
+                self.recover_to_function();
+            }
         } else if self.check(&TokenKind::Dollar) {
+            // Also accept `$name = value` without `let` for backwards compatibility
             let outcome = self.parse_const(visibility);
             self.handle_outcome(
                 outcome,
@@ -759,6 +786,56 @@ impl<'a> Parser<'a> {
             {
                 self.advance();
             }
+        } else if self.current_tag() == TokenKind::TAG_ERROR {
+            // Error tokens from the lexer — skip without emitting a parse error.
+            // The real diagnostic was already emitted by the lex error pipeline.
+            self.advance();
+        } else if self.check(&TokenKind::Return) {
+            // `return` is reserved so users get a targeted error, not "unexpected identifier"
+            let kind = error::ParseErrorKind::UnsupportedKeyword {
+                keyword: TokenKind::Return,
+                reason: "Ori is expression-based: the last expression in a block is its value",
+            };
+            errors.push(ParseError::from_kind(&kind, self.current_span()));
+            self.advance();
+        } else if self.current_tag() == TokenKind::TAG_IDENT {
+            // Check for foreign keywords from other languages at declaration position.
+            // e.g., `fn main()` → "use `@name (params) -> type = body` in Ori"
+            if let TokenKind::Ident(name) = *self.current_kind() {
+                let ident_str = self.interner().lookup(name);
+                if let Some(suggestion) =
+                    ori_lexer::foreign_keywords::lookup_foreign_keyword(ident_str)
+                {
+                    errors.push(
+                        ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            format!("`{ident_str}` is not an Ori keyword"),
+                            self.current_span(),
+                        )
+                        .with_help(String::from(suggestion)),
+                    );
+                    self.advance();
+                    return;
+                }
+            }
+            // Not a foreign keyword — emit error for unexpected identifier
+            if attrs.is_empty() {
+                let kind = error::ParseErrorKind::ExpectedDeclaration {
+                    found: self.current_kind().clone(),
+                };
+                errors.push(ParseError::from_kind(&kind, self.current_span()));
+            } else {
+                errors.push(ParseError {
+                    code: ori_diagnostic::ErrorCode::E1006,
+                    message: "attributes must be followed by a function or test definition"
+                        .to_string(),
+                    span: self.current_span(),
+                    context: None,
+                    help: Vec::new(),
+                    severity: ori_diagnostic::queue::DiagnosticSeverity::Hard,
+                });
+            }
+            self.advance();
         } else if !attrs.is_empty() {
             // Attributes without a following function/test
             errors.push(ParseError {
@@ -771,7 +848,11 @@ impl<'a> Parser<'a> {
             });
             self.advance();
         } else {
-            // Skip unknown token
+            // Unknown token at module level — not a valid declaration start
+            let kind = error::ParseErrorKind::ExpectedDeclaration {
+                found: self.current_kind().clone(),
+            };
+            errors.push(ParseError::from_kind(&kind, self.current_span()));
             self.advance();
         }
     }
