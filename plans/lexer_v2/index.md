@@ -14,7 +14,7 @@
 ## Keyword Clusters by Section
 
 ### Section 01: Architecture & Source Buffer
-**File:** `section-01-architecture.md` | **Status:** Not Started
+**File:** `section-01-architecture.md` | **Status:** Done
 
 ```
 two-layer, architecture, crate, separation, rustc_lexer
@@ -31,7 +31,7 @@ v2-conventions §1 (TokenIdx), §2 (RawTag/TokenTag), §10 (two-layer)
 ```
 
 ### Section 02: Raw Scanner
-**File:** `section-02-raw-scanner.md` | **Status:** Not Started
+**File:** `section-02-raw-scanner.md` | **Status:** Done
 
 ```
 raw scanner, tokenizer, state machine, DFA
@@ -51,7 +51,7 @@ v2-conventions §2 (Tag enums), §10 (two-layer pattern)
 ```
 
 ### Section 03: Token Cooking & Interning
-**File:** `section-03-token-cooking.md` | **Status:** Not Started
+**File:** `section-03-token-cooking.md` | **Status:** Done (all cooking operations complete; IS_DOC deferred to Section 09 by design; 20 context-sensitive keyword integration tests)
 
 ```
 token cooking, token conversion, raw to rich
@@ -71,7 +71,7 @@ v2-conventions §5 (LexError), §6 (LexOutput), §7 (shared types)
 ```
 
 ### Section 04: TokenList Compatibility & Tag Alignment
-**File:** `section-04-soa-storage.md` | **Status:** Not Started
+**File:** `section-04-soa-storage.md` | **Status:** Done
 
 ```
 TokenList, tag alignment, discriminant, compatibility
@@ -97,7 +97,7 @@ Roc fast_eat_whitespace, Rust memchr, Go sentinel
 ```
 
 ### Section 06: Keyword Recognition
-**File:** `section-06-keyword-recognition.md` | **Status:** Not Started
+**File:** `section-06-keyword-recognition.md` | **Status:** Done (6 pattern keywords context-sensitive via `(` lookahead)
 
 ```
 keyword, reserved word, keyword lookup, keyword hash
@@ -119,7 +119,7 @@ Go perfect hash, Zig StaticStringMap, TypeScript textToKeyword
 ```
 
 ### Section 07: Diagnostics & Error Recovery
-**File:** `section-07-diagnostics.md` | **Status:** Not Started
+**File:** `section-07-diagnostics.md` | **Status:** Done (WHERE+WHAT+WHY+HOW error shape; Unicode confusables; cross-language habit detection; detached doc warnings; oric diagnostic pipeline integration)
 
 ```
 error handling, diagnostics, error recovery
@@ -136,7 +136,7 @@ v2-conventions §5 (Error Shape)
 ```
 
 ### Section 08: Parser Integration & Migration
-**File:** `section-08-parser-integration.md` | **Status:** Not Started
+**File:** `section-08-parser-integration.md` | **Status:** In Progress (migration complete; template literals done; cursor flags done; performance tests remain)
 
 ```
 parser integration, cursor, parser cursor
@@ -146,11 +146,14 @@ skip_newlines, synchronize, recovery set
 TokenSet, discriminant_index, bitset
 greater-than splitting, shift synthesis
 re-scanning, context-sensitive, rescan
+template literal, template interpolation, format spec
+TemplateFull, TemplateLiteral, TemplatePart, FormatSpec
+parse_template_literal, backtick, string interpolation
 TypeScript reScanGreaterToken, speculation
 ```
 
 ### Section 09: Salsa & IDE Integration
-**File:** `section-09-salsa-ide.md` | **Status:** Not Started
+**File:** `section-09-salsa-ide.md` | **Status:** Complete (position-independent Hash/Eq, LexOutput Salsa traits, DocMember replaces DocParam/DocField, tokens_with_metadata() query, early cutoff verified)
 
 ```
 Salsa, incremental compilation, query, caching
@@ -163,14 +166,16 @@ v2-conventions §6 (Phase Output), §8 (Salsa Compatibility)
 ```
 
 ### Section 10: Benchmarking & Performance Validation
-**File:** `section-10-benchmarking.md` | **Status:** Not Started
+**File:** `section-10-benchmarking.md` | **Status:** In Progress (V1 baseline + V2 initial + post-optimization measurements recorded; callgrind profiling done; quick-wins delivered ~30-50% improvement)
 
 ```
 benchmark, performance, throughput, regression
 bytes per second, tokens per second, latency
 259-292 MiB/s baseline, 400+ MiB/s target
+V2 current: ~198-219 MiB/s (post quick-wins)
 lexer benchmark, scaling, file size
 profiling, flame graph, cache miss, instruction count
+callgrind, from_utf8, soft_keyword_lookup, pre-filter
 baseline, comparison, before/after
 test-all, clippy-all, conformance
 ```
@@ -189,8 +194,8 @@ test-all, clippy-all, conformance
 | 06 | Keyword Recognition | `section-06-keyword-recognition.md` | 1 |
 | 07 | Diagnostics & Error Recovery | `section-07-diagnostics.md` | 2 |
 | 08 | Parser Integration & Migration | `section-08-parser-integration.md` | 3 |
-| 09 | Salsa & IDE Integration | `section-09-salsa-ide.md` | 3 |
-| 10 | Benchmarking & Performance Validation | `section-10-benchmarking.md` | 4 |
+| 09 | Salsa & IDE Integration | `section-09-salsa-ide.md` | 3 (complete) |
+| 10 | Benchmarking & Performance Validation | `section-10-benchmarking.md` | 4 (in progress) |
 
 ---
 
