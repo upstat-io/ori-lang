@@ -24,7 +24,7 @@ mod ranges;
 mod stmt;
 
 // Re-export core expression types
-pub use expr::{Expr, ExprKind};
+pub use expr::{Expr, ExprKind, TemplatePart};
 pub use operators::{BinaryOp, UnaryOp};
 pub use stmt::{Stmt, StmtKind};
 
@@ -32,6 +32,7 @@ pub use stmt::{Stmt, StmtKind};
 pub use ranges::{
     ArmRange, CallArgRange, FieldInitRange, GenericParamRange, ListElementRange, MapElementRange,
     MapEntryRange, NamedExprRange, ParamRange, SeqBindingRange, StructLitFieldRange,
+    TemplatePartRange,
 };
 
 // Re-export collection types

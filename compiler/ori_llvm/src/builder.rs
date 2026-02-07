@@ -883,7 +883,7 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
             ),
 
             // String literal
-            ExprKind::String(name) => self.compile_string(*name),
+            ExprKind::String(name) | ExprKind::TemplateFull(name) => self.compile_string(*name),
 
             // Variables or unit variant constructors
             ExprKind::Ident(name) => {
@@ -1053,6 +1053,15 @@ impl<'a, 'll, 'tcx> Builder<'a, 'll, 'tcx> {
                     }
                 }
                 self.compile_call_named(*func, *args, arena, expr_types, locals, function, loop_ctx)
+            }
+
+            // Template literal with interpolation (requires runtime string concatenation)
+            ExprKind::TemplateLiteral { .. } => {
+                tracing::warn!(
+                    feature = "template literal interpolation",
+                    "LLVM backend: not yet implemented"
+                );
+                None
             }
 
             // Unit produces no value; Error is a placeholder that shouldn't be reached

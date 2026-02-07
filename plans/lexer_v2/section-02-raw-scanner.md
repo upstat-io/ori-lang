@@ -1,44 +1,44 @@
 ---
 section: "02"
 title: Raw Scanner
-status: not-started
+status: complete
 goal: "Hand-written state-machine scanner replacing logos, producing (RawTag, length) pairs with zero allocation"
 sections:
   - id: "02.1"
     title: RawTag Enum
-    status: not-started
+    status: complete
   - id: "02.2"
     title: Scanner State Machine
-    status: not-started
+    status: complete
   - id: "02.3"
     title: Operator & Punctuation Scanning
-    status: not-started
+    status: complete
   - id: "02.4"
     title: Identifier Scanning
-    status: not-started
+    status: complete
   - id: "02.5"
     title: String & Char Literal Scanning
-    status: not-started
+    status: complete
   - id: "02.6"
     title: Template Literal Scanning
-    status: not-started
+    status: complete
   - id: "02.7"
     title: Numeric Literal Scanning
-    status: not-started
+    status: complete
   - id: "02.8"
     title: Comment & Whitespace Scanning
-    status: not-started
+    status: complete
   - id: "02.9"
     title: Newline Handling
-    status: not-started
+    status: complete
   - id: "02.10"
     title: Tests & Verification
-    status: not-started
+    status: complete
 ---
 
 # Section 02: Raw Scanner
 
-**Status:** :clipboard: Planned
+**Status:** :white_check_mark: Complete
 **Goal:** Replace the logos-generated DFA with a hand-written state-machine scanner that produces `(RawTag, length)` pairs with zero heap allocation. The scanner operates on the sentinel-terminated `Cursor` from Section 01 and lives in `ori_lexer_core` (zero `ori_*` dependencies).
 
 > **REFERENCE**: Rust's `rustc_lexer` (pure scanner producing `(kind, len)` with zero deps); Zig's labeled-switch state machine (compiled to computed goto); Go's `source.nextch()` + scanner dispatch; TypeScript's template literal four-token strategy.
@@ -102,15 +102,16 @@ pub struct RawToken {
 
 `RawTag` is defined in `ori_lexer_core` with `#[repr(u8)]` and semantic ranges with gaps for future variants (v2-conventions SS2). It has no `ori_*` dependencies. The integration layer (`ori_lexer`) maps `RawTag` -> `ori_ir::TokenTag` at the crate boundary (v2-conventions SS10).
 
-- [ ] Define `RawTag` as a `#[non_exhaustive] #[repr(u8)]` enum with semantic ranges:
+- [x] Define `RawTag` as a `#[non_exhaustive] #[repr(u8)]` enum with semantic ranges:
   ```rust
   /// Raw token kind -- lightweight, standalone (no ori_* dependencies).
   /// Mapped to `ori_ir::TokenTag` in the integration layer (`ori_lexer`).
   /// See plans/v2-conventions.md §2 (Tag Enums), §10 (Two-Layer Pattern).
   ///
   /// NOTE on intentional removals from current RawToken:
-  ///  - `BinInt` removed: grammar.ebnf lines 91-93 specifies `int_literal = decimal_lit | hex_lit` only.
-  ///    Binary integer literals (`0b...`) are not part of the Ori spec.
+  ///  - `BinInt` retained: grammar.ebnf specifies `int_literal = decimal_lit | hex_lit | bin_lit`.
+  ///    Binary integer literals (`0b...`) are valid. `0b` alone is size literal (0 bytes),
+  ///    disambiguated from `0b1` (binary integer) via peek-ahead.
   ///  - `LineContinuation` removed: backslash line continuation (`\<newline>`) is not
   ///    in the spec. The parser handles implicit continuation across newlines when
   ///    the preceding token is an operator or delimiter.
@@ -219,17 +220,17 @@ pub struct RawToken {
       Eof = 255,
   }
   ```
-- [ ] Ensure `RawTag` fits in a single byte (`u8`) -- must have <= 256 variants
-- [ ] Implement `RawTag::name(&self) -> &'static str` for display/debugging (v2-conventions SS2)
-- [ ] Implement `RawTag::lexeme(&self) -> Option<&'static str>` for fixed-length tokens
-- [ ] Add `#[cold]` attribute hint for error variant construction paths
-- [ ] Size assertion: `const _: () = assert!(size_of::<RawTag>() == 1);`
+- [x] Ensure `RawTag` fits in a single byte (`u8`) -- must have <= 256 variants
+- [x] Implement `RawTag::name(&self) -> &'static str` for display/debugging (v2-conventions SS2)
+- [x] Implement `RawTag::lexeme(&self) -> Option<&'static str>` for fixed-length tokens
+- [x] Add `#[cold]` attribute hint for error variant construction paths
+- [x] Size assertion: `const _: () = assert!(size_of::<RawTag>() == 1);`
 
 ---
 
 ## 02.2 Scanner State Machine
 
-- [ ] Implement the main dispatch in `RawScanner::next()`:
+- [x] Implement the main dispatch in `RawScanner::next()`:
   ```rust
   pub fn next(&mut self) -> RawToken {
       let start = self.cursor.pos();
@@ -270,9 +271,9 @@ pub struct RawToken {
       }
   }
   ```
-- [ ] Each arm calls a focused method that advances the cursor and returns `RawToken { tag, len }`
-- [ ] The sentinel byte (0x00) naturally dispatches to `self.eof()`
-- [ ] Verify the dispatch covers all 256 byte values exhaustively (use a `const` assertion or test)
+- [x] Each arm calls a focused method that advances the cursor and returns `RawToken { tag, len }`
+- [x] The sentinel byte (0x00) naturally dispatches to `self.eof()`
+- [x] Verify the dispatch covers all 256 byte values exhaustively (use a `const` assertion or test)
 
 **Note on Unicode identifiers:** Grammar.ebnf line 29 defines `letter = 'A' … 'Z' | 'a' … 'z'` only (ASCII letters). Grammar.ebnf line 52 defines `identifier = ( letter | "_" ) { letter | digit | "_" }`. Bytes 128-255 (non-ASCII) are invalid identifier starts and produce `InvalidByte`. There is no XID/Unicode identifier support.
 
@@ -294,7 +295,7 @@ NOTE: The grammar does NOT specify compound assignment operators (`+=`, `-=`, `*
 
 NOTE: The grammar does NOT specify a pipe-right operator (`|>`). The `|` is used only as bitwise OR (grammar.ebnf line 75) and pattern alternation (grammar.ebnf line 525).
 
-- [ ] Implement compound operator recognition with direct lookahead:
+- [x] Implement compound operator recognition with direct lookahead:
   - `+` -> `Plus` (no compound assignment in Ori)
   - `-` -> check `->` -> `Minus`, `Arrow`
   - `*` -> `Star` (no compound assignment in Ori)
@@ -309,10 +310,10 @@ NOTE: The grammar does NOT specify a pipe-right operator (`|>`). The `|` is used
   - `?` -> check `??` -> `Question`, `QuestionQuestion`
   - `/` -> check `//` (comment) -> `Slash` or dispatch to `line_comment()`
   - `#` -> check `#[`, `#!` -> `Hash`, `HashBracket`, `HashBang`
-- [ ] Each compound check uses `cursor.peek()` (single-byte lookahead into sentinel-safe buffer)
-- [ ] Delimiter tokens (`(`, `)`, `[`, `]`) are single-byte, single-dispatch
-- [ ] `{` and `}` have special handling for template literal nesting (02.6)
-- [ ] `$` produces `Dollar` -- used as delimiter in const generics and binding patterns
+- [x] Each compound check uses `cursor.peek()` (single-byte lookahead into sentinel-safe buffer)
+- [x] Delimiter tokens (`(`, `)`, `[`, `]`) are single-byte, single-dispatch
+- [x] `{` and `}` have special handling for template literal nesting (02.6)
+- [x] `$` produces `Dollar` -- used as delimiter in const generics and binding patterns
 
 **Note on `div`:** The `div` keyword operator (grammar.ebnf line 72) is scanned as `RawTag::Ident` (it is alphabetic). The cooking layer in `ori_lexer` resolves it to the appropriate keyword tag. The raw scanner does not distinguish `div` from any other identifier.
 
@@ -320,7 +321,7 @@ NOTE: The grammar does NOT specify a pipe-right operator (`|>`). The `|` is used
 
 ## 02.4 Identifier Scanning
 
-- [ ] Fast ASCII loop for the common case:
+- [x] Fast ASCII loop for the common case:
   ```rust
   fn identifier(&mut self) -> RawToken {
       let start = self.cursor.pos();
@@ -337,14 +338,14 @@ NOTE: The grammar does NOT specify a pipe-right operator (`|>`). The `|` is used
       RawToken { tag: RawTag::Ident, len: self.cursor.pos() - start }
   }
   ```
-- [ ] The identifier is NOT resolved to a keyword here -- that happens in the cooking layer (Section 03) via perfect hash (Section 06)
-- [ ] No Unicode identifier support -- grammar.ebnf line 29 defines `letter = 'A' … 'Z' | 'a' … 'z'` only (ASCII letters). Non-ASCII bytes do not extend identifiers.
+- [x] The identifier is NOT resolved to a keyword here -- that happens in the cooking layer (Section 03) via perfect hash (Section 06)
+- [x] No Unicode identifier support -- grammar.ebnf line 29 defines `letter = 'A' … 'Z' | 'a' … 'z'` only (ASCII letters). Non-ASCII bytes do not extend identifiers.
 
 ---
 
 ## 02.5 String & Char Literal Scanning
 
-- [ ] String scanning (`"..."`) -- find boundaries only, defer escape validation:
+- [x] String scanning (`"..."`) -- find boundaries only, defer escape validation:
   ```rust
   fn string(&mut self) -> RawToken {
       let start = self.cursor.pos();
@@ -368,10 +369,10 @@ NOTE: The grammar does NOT specify a pipe-right operator (`|>`). The `|` is used
       }
   }
   ```
-- [ ] Note: The scanner does NOT validate escape sequences. It only skips `\X` pairs to avoid treating `\"` as a string terminator. The cooking layer (Section 03) validates that escapes are one of (grammar.ebnf line 102): `\"`, `\\`, `\n`, `\t`, `\r`, `\0`. No hex escapes (`\xHH`), no Unicode escapes (`\u{XXXX}`) -- these are not in the spec.
-- [ ] Character literal scanning (`'X'`) -- similar boundary-finding approach. Spec escapes for char (grammar.ebnf line 127): `\'`, `\\`, `\n`, `\t`, `\r`, `\0`.
-- [ ] Use `memchr` for fast scanning to `"` or `\` (Section 05 will optimize this)
-- [ ] Regular `"..."` strings do NOT support interpolation. Only backtick-delimited template literals support `{expr}` interpolation.
+- [x] Note: The scanner does NOT validate escape sequences. It only skips `\X` pairs to avoid treating `\"` as a string terminator. The cooking layer (Section 03) validates that escapes are one of (grammar.ebnf line 102): `\"`, `\\`, `\n`, `\t`, `\r`, `\0`. No hex escapes (`\xHH`), no Unicode escapes (`\u{XXXX}`) -- these are not in the spec.
+- [x] Character literal scanning (`'X'`) -- similar boundary-finding approach. Spec escapes for char (grammar.ebnf line 127): `\'`, `\\`, `\n`, `\t`, `\r`, `\0`.
+- [x] Use `memchr` for fast scanning to `"` or `\` (Section 05 will optimize this)
+- [x] Regular `"..."` strings do NOT support interpolation. Only backtick-delimited template literals support `{expr}` interpolation.
 
 ---
 
@@ -402,7 +403,7 @@ Template interpolations can contain arbitrary expressions, including blocks with
 
 ### Tasks
 
-- [ ] Implement `template_literal()` -- entered when scanner sees opening `` ` ``:
+- [x] Implement `template_literal()` -- entered when scanner sees opening `` ` ``:
   ```rust
   fn template_literal(&mut self, start: u32) -> RawToken {
       self.cursor.advance(); // consume opening '`'
@@ -459,7 +460,7 @@ Template interpolations can contain arbitrary expressions, including blocks with
   }
   ```
 
-- [ ] Implement `template_middle_or_tail()` -- entered when `}` closes an interpolation (brace depth 0):
+- [x] Implement `template_middle_or_tail()` -- entered when `}` closes an interpolation (brace depth 0):
   ```rust
   fn template_middle_or_tail(&mut self, start: u32) -> RawToken {
       self.cursor.advance(); // consume closing '}'
@@ -512,7 +513,7 @@ Template interpolations can contain arbitrary expressions, including blocks with
   }
   ```
 
-- [ ] Handle `{` and `}` in the main scanner with template awareness:
+- [x] Handle `{` and `}` in the main scanner with template awareness:
   ```rust
   fn left_brace(&mut self, start: u32) -> RawToken {
       self.cursor.advance();
@@ -537,7 +538,7 @@ Template interpolations can contain arbitrary expressions, including blocks with
   }
   ```
 
-- [ ] Implement `in_template_interpolation()`:
+- [x] Implement `in_template_interpolation()`:
   ```rust
   fn in_template_interpolation(&self) -> bool {
       !self.template_depth.is_empty()
@@ -562,7 +563,7 @@ Template literals support these escapes (grammar.ebnf line 107, validated in coo
 
 ## 02.7 Numeric Literal Scanning
 
-- [ ] Greedy consumption of numeric characters (Zig pattern -- defer validation):
+- [x] Greedy consumption of numeric characters (Zig pattern -- defer validation):
   ```rust
   fn number(&mut self) -> RawToken {
       let start = self.cursor.pos();
@@ -600,13 +601,13 @@ Template literals support these escapes (grammar.ebnf line 107, validated in coo
       self.check_suffix(start)
   }
   ```
-- [ ] **Only decimal and hex** -- grammar.ebnf lines 91-93 specifies `int_literal = decimal_lit | hex_lit`. No binary (`0b`) or octal (`0o`) literals.
-- [ ] Duration suffixes (grammar.ebnf line 137): `ns`, `us`, `ms`, `s`, `m`, `h` -- consumed greedily
-- [ ] Size suffixes (grammar.ebnf line 144): `b`, `kb`, `mb`, `gb`, `tb` -- consumed greedily
-- [ ] Decimal duration/size (grammar.ebnf lines 136, 143): `0.5s`, `1.5kb` ARE valid. The grammar explicitly defines `decimal_duration = decimal_lit "." decimal_lit` and `decimal_size = decimal_lit "." decimal_lit`. These produce `Duration` or `Size` tags; the cooking layer converts them to integer nanoseconds/bytes via compile-time arithmetic (spec: "compile-time sugar computed via integer arithmetic").
-- [ ] Implement `check_suffix()` helper that checks for duration/size suffix after both integer and float tokens. Returns `Int`, `Float`, `Duration`, or `Size` depending on whether a suffix is present and what type of number preceded it.
-- [ ] Actual numeric value parsing (converting string to `u64`/`f64`) happens in the cooking layer
-- [ ] Underscores in numbers: consumed as part of the token; validated in cooking layer
+- [x] **Decimal, hex, and binary** -- grammar.ebnf specifies `int_literal = decimal_lit | hex_lit | bin_lit`. No octal (`0o`) literals. Binary `0b` disambiguated from size literal (0 bytes) via peek-ahead.
+- [x] Duration suffixes (grammar.ebnf line 137): `ns`, `us`, `ms`, `s`, `m`, `h` -- consumed greedily
+- [x] Size suffixes (grammar.ebnf line 144): `b`, `kb`, `mb`, `gb`, `tb` -- consumed greedily
+- [x] Decimal duration/size (grammar.ebnf lines 136, 143): `0.5s`, `1.5kb` ARE valid. The grammar explicitly defines `decimal_duration = decimal_lit "." decimal_lit` and `decimal_size = decimal_lit "." decimal_lit`. These produce `Duration` or `Size` tags; the cooking layer converts them to integer nanoseconds/bytes via compile-time arithmetic (spec: "compile-time sugar computed via integer arithmetic").
+- [x] Implement `check_suffix()` helper that checks for duration/size suffix after both integer and float tokens. Returns `Int`, `Float`, `Duration`, or `Size` depending on whether a suffix is present and what type of number preceded it.
+- [x] Actual numeric value parsing (converting string to `u64`/`f64`) happens in the cooking layer
+- [x] Underscores in numbers: consumed as part of the token; validated in cooking layer
 
 ---
 
@@ -617,7 +618,7 @@ Grammar.ebnf line 33: `whitespace = ' ' | '\t' | '\r' | newline .`
 
 NOTE: The Ori grammar does NOT support block comments (`/* */`). Only line comments (`//`) are specified.
 
-- [ ] Line comments (`//`):
+- [x] Line comments (`//`):
   ```rust
   fn line_comment(&mut self) -> RawToken {
       let start = self.cursor.pos();
@@ -627,7 +628,7 @@ NOTE: The Ori grammar does NOT support block comments (`/* */`). Only line comme
       RawToken { tag: RawTag::LineComment, len: self.cursor.pos() - start }
   }
   ```
-- [ ] Whitespace (horizontal only: space, tab, carriage return):
+- [x] Whitespace (horizontal only: space, tab, carriage return):
   ```rust
   fn whitespace(&mut self) -> RawToken {
       let start = self.cursor.pos();
@@ -635,7 +636,7 @@ NOTE: The Ori grammar does NOT support block comments (`/* */`). Only line comme
       RawToken { tag: RawTag::Whitespace, len: self.cursor.pos() - start }
   }
   ```
-- [ ] Whitespace tokens are produced (not skipped) so the cooking layer can decide what to do with them:
+- [x] Whitespace tokens are produced (not skipped) so the cooking layer can decide what to do with them:
   - In `lex()` mode: whitespace is consumed/skipped, `TokenFlags` computed
   - In `lex_with_comments()` mode: whitespace is consumed but newline positions are tracked
 
@@ -650,9 +651,9 @@ Grammar.ebnf line 33: `whitespace = ' ' | '\t' | '\r' | newline` (CR is horizont
 
 NOTE: `\r\n` (CRLF) should be handled as: `\r` (whitespace) followed by `\n` (newline). The grammar does not define CRLF as a single newline unit. However, for practical compatibility with Windows files, the scanner MAY normalize `\r\n` to a single `Newline` token.
 
-- [ ] `\n` produces `RawTag::Newline`
-- [ ] `\r\n` SHOULD be normalized to a single newline for Windows compatibility (consume `\r` then `\n` as one `Newline` token), even though the grammar technically treats `\r` as horizontal whitespace
-- [ ] No backslash line continuation -- the spec uses implicit operator/delimiter context continuation. Line continuation is a parser concern, not a lexer concern:
+- [x] `\n` produces `RawTag::Newline`
+- [x] `\r\n` SHOULD be normalized to a single newline for Windows compatibility (consume `\r` then `\n` as one `Newline` token), even though the grammar technically treats `\r` as horizontal whitespace
+- [x] No backslash line continuation -- the spec uses implicit operator/delimiter context continuation. Line continuation is a parser concern, not a lexer concern:
   - The parser checks if the preceding token is an operator or delimiter to determine whether to continue across a newline
   - The lexer simply emits `RawTag::Newline` for every newline
   - This avoids needing the lexer to understand expression context
@@ -661,10 +662,10 @@ NOTE: `\r\n` (CRLF) should be handled as: `\r` (whitespace) followed by `\n` (ne
 
 ## 02.10 Tests & Verification
 
-- [ ] **Equivalence tests**: For every file in `tests/spec/`, verify that the raw scanner produces the same token sequence (mapped through tags) as the current logos-based lexer
-- [ ] **Byte coverage**: Test that all 256 byte values at position 0 produce a valid `RawToken` (no panics)
-- [ ] **Fuzz testing** (if available): Random byte sequences produce valid `RawToken` streams ending in `Eof`
-- [ ] **Template literal tests**:
+- [x] **Equivalence tests**: For every file in `tests/spec/`, verify that the raw scanner produces the same token sequence (mapped through tags) as the current logos-based lexer
+- [x] **Byte coverage**: Test that all 256 byte values at position 0 produce a valid `RawToken` (no panics)
+- [x] **Fuzz testing** (if available): Random byte sequences produce valid `RawToken` streams ending in `Eof`
+- [x] **Template literal tests**:
   - Empty template: `` ` ` `` -> `TemplateComplete`
   - No interpolation: `` `hello` `` -> `TemplateComplete`
   - Single interpolation: `` `{x}` `` -> `TemplateHead`, `Ident`, `TemplateTail`
@@ -675,7 +676,7 @@ NOTE: `\r\n` (CRLF) should be handled as: `\r` (whitespace) followed by `\n` (ne
   - Escaped backtick: `` `hello \` world` `` -> `TemplateComplete`
   - Unterminated template: `` `hello `` -> `UnterminatedTemplate`
   - Multiline template: backtick strings spanning lines
-- [ ] **Operator tests** (verify against grammar.ebnf lines 72-77):
+- [x] **Operator tests** (verify against grammar.ebnf lines 72-77):
   - `??` -> `QuestionQuestion` (grammar.ebnf line 77)
   - `...` -> `DotDotDot` (grammar.ebnf line 184 for C-style variadic, line 259 for variadic params, line 371 for spread args)
   - `$` -> `Dollar` (grammar.ebnf line 82; used in const generics and binding patterns)
@@ -689,7 +690,7 @@ NOTE: `\r\n` (CRLF) should be handled as: `\r` (whitespace) followed by `\n` (ne
   - `_` -> `Underscore` (grammar.ebnf uses underscore in identifiers, patterns, etc.)
   - No `+=`, `-=`, `*=`, `/=` (compound assignment not in grammar)
   - No `|>` (pipe-right not in grammar)
-- [ ] **Edge cases**:
+- [x] **Edge cases**:
   - Empty source -> single `Eof` token
   - Source containing only whitespace/newlines
   - Unterminated string at EOF
@@ -700,7 +701,7 @@ NOTE: `\r\n` (CRLF) should be handled as: `\r` (whitespace) followed by `\n` (ne
   - Adjacent tokens with no whitespace (`a+b`, `1+2`, `"x""y"`)
   - Non-ASCII bytes (128-255) produce `InvalidByte` (grammar.ebnf line 29: `letter = 'A' … 'Z' | 'a' … 'z'` — ASCII only)
   - Decimal duration/size: `0.5s`, `1.5kb` are VALID tokens (grammar.ebnf lines 136, 143)
-- [ ] **Property tests**:
+- [x] **Property tests**:
   - Total bytes consumed by all tokens equals source length (no gaps, no overlaps)
   - Every token has `len > 0` (except `Eof` which has `len == 0`)
   - `Eof` is always the last token
@@ -711,18 +712,18 @@ NOTE: `\r\n` (CRLF) should be handled as: `\r` (whitespace) followed by `\n` (ne
 
 ## 02.11 Completion Checklist
 
-- [ ] `raw_scanner.rs` module added to `ori_lexer_core`
-- [ ] `RawTag` enum defined with `#[repr(u8)]`, `#[non_exhaustive]`, <= 256 variants
-- [ ] `RawTag::name()` and `RawTag::lexeme()` implemented (v2-conventions SS2)
-- [ ] `RawScanner` produces correct tokens for all existing test files
-- [ ] Template literal scanning works with stack-based nesting
-- [ ] `??`, `...`, `$`, `#[`, `#!` operators/delimiters handled
-- [ ] No `0b`/`0o` numeric prefixes (only decimal + hex per grammar)
-- [ ] No backslash line continuation (parser handles continuation)
-- [ ] Zero heap allocation verified (no `String`, `Vec`, `Box` in scanner code except `template_depth` stack)
-- [ ] All 256 byte values handled without panic
-- [ ] Equivalence with logos output verified for full test suite
-- [ ] `cargo t -p ori_lexer_core` passes
+- [x] `raw_scanner.rs` module added to `ori_lexer_core`
+- [x] `RawTag` enum defined with `#[repr(u8)]`, `#[non_exhaustive]`, <= 256 variants
+- [x] `RawTag::name()` and `RawTag::lexeme()` implemented (v2-conventions SS2)
+- [x] `RawScanner` produces correct tokens for all existing test files
+- [x] Template literal scanning works with stack-based nesting
+- [x] `??`, `...`, `$`, `#[`, `#!` operators/delimiters handled
+- [x] `0b` binary prefix supported (disambiguated from 0-bytes size literal via peek); no `0o` octal prefix
+- [x] No backslash line continuation (parser handles continuation)
+- [x] Zero heap allocation verified (no `String`, `Vec`, `Box` in scanner code except `template_depth` stack)
+- [x] All 256 byte values handled without panic
+- [x] Equivalence with logos output verified for full test suite
+- [x] `cargo t -p ori_lexer_core` passes
 
 **Exit Criteria:** The raw scanner produces identical token boundaries to the current logos-based scanner for all test files (minus template literals, which are new; and decimal duration/size literals, which are currently incorrectly treated as errors). It allocates zero bytes on the heap in the non-template path. The `template_depth` stack is the only heap allocation and only active during template literal scanning. All byte values are handled gracefully. Non-ASCII bytes produce `InvalidByte`.
 

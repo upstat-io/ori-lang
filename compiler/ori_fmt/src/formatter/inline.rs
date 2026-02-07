@@ -453,6 +453,28 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit(")");
             }
 
+            // Template literals
+            ExprKind::TemplateFull(name) => {
+                self.ctx.emit("`");
+                self.ctx.emit(self.interner.lookup(*name));
+                self.ctx.emit("`");
+            }
+            ExprKind::TemplateLiteral { head, parts } => {
+                self.ctx.emit("`");
+                self.ctx.emit(self.interner.lookup(*head));
+                for part in self.arena.get_template_parts(*parts) {
+                    self.ctx.emit("{");
+                    self.emit_inline(part.expr);
+                    if part.format_spec != ori_ir::Name::EMPTY {
+                        self.ctx.emit(":");
+                        self.ctx.emit(self.interner.lookup(part.format_spec));
+                    }
+                    self.ctx.emit("}");
+                    self.ctx.emit(self.interner.lookup(part.text_after));
+                }
+                self.ctx.emit("`");
+            }
+
             // Error node (preserve as-is, shouldn't format)
             ExprKind::Error => self.ctx.emit("/* error */"),
         }

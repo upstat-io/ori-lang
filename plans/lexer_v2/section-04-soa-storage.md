@@ -1,35 +1,35 @@
 ---
 section: "04"
 title: Token Representation & Tag Alignment
-status: not-started
+status: complete
 goal: "Define shared token types (TokenTag, TokenIdx, TokenFlags) in ori_ir and ensure V2 pipeline integrates with existing TokenList and tag-based parser dispatch"
 sections:
   - id: "04.1"
     title: "TokenTag in ori_ir"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "TokenIdx(u32) Typed Index"
-    status: not-started
+    status: complete
   - id: "04.3"
     title: "TokenFlags Bitfield"
-    status: not-started
+    status: complete
   - id: "04.4"
     title: Tag Discriminant Alignment
-    status: not-started
+    status: complete
   - id: "04.5"
     title: TokenList Push Path
-    status: not-started
+    status: complete
   - id: "04.6"
     title: Eliminate Dual-Enum Redundancy
-    status: not-started
+    status: complete
   - id: "04.7"
     title: Tests
-    status: not-started
+    status: complete
 ---
 
 # Section 04: Token Representation & Tag Alignment
 
-**Status:** :clipboard: Planned
+**Status:** :white_check_mark: Complete (2026-02-06)
 **Goal:** Define the shared token representation types (`TokenTag`, `TokenIdx`, `TokenFlags`) in `ori_ir` and ensure the V2 scanner/cooker pipeline produces `TokenList` output fully compatible with the existing SoA layout and tag-based parser dispatch, while eliminating the current dual-enum redundancy.
 
 > **Conventions:** Follows `plans/v2-conventions.md` -- SS1 (Index Types), SS2 (Tag/Discriminant Enums), SS4 (Flag Types), SS7 (Shared Types in `ori_ir`), SS10 (Two-Layer Pattern)
@@ -83,7 +83,7 @@ The V2 lexer introduces:
 
 `TokenTag` is the cooked token discriminant, defined in `ori_ir` because it is used by the parser, type checker, and other downstream phases. It maps 1:1 from `TokenKind` *variants* (one `TokenTag` variant per `TokenKind` variant), but uses **new discriminant numbering** with semantic range gaps for future expansion. When `TokenTag` is adopted, `TokenKind::discriminant_index()` and all existing `TAG_*` constants must be updated to match the new `TokenTag` values. This is the single highest-risk migration step -- every tag-dispatch site in the parser (`OPER_TABLE`, `POSTFIX_BITSET`, `parse_primary()`, `check_type_keyword()`, `infix_binding_power()`, `match_unary_op()`, `match_function_exp_kind()`, and all cursor methods using `TAG_*` constants) must be updated atomically.
 
-- [ ] Define `TokenTag` as `#[repr(u8)]` enum in `ori_ir`:
+- [x] Define `TokenTag` as `#[repr(u8)]` enum in `ori_ir`:
   ```rust
   /// Cooked token discriminant. Shared across all compiler phases.
   ///
@@ -319,7 +319,7 @@ The V2 lexer introduces:
   `return` keyword (CLAUDE.md: "NO `return` KEYWORD — every block's value is its
   last expression"). `async` and `mut` are similarly absent from the spec.
 
-- [ ] Implement `name() -> &'static str` method for debugging/display:
+- [x] Implement `name() -> &'static str` method for debugging/display:
   ```rust
   impl TokenTag {
       pub fn name(self) -> &'static str {
@@ -368,7 +368,7 @@ The V2 lexer introduces:
   }
   ```
 
-- [ ] Semantic range layout with gaps for future variants:
+- [x] Semantic range layout with gaps for future variants:
 
   | Range | Category | Count | Notes |
   |-------|----------|-------|-------|
@@ -448,7 +448,7 @@ The V2 lexer introduces:
 
 `TokenIdx` is defined in `ori_ir` because the parser and other phases reference tokens by index.
 
-- [ ] Define `TokenIdx` in `ori_ir`:
+- [x] Define `TokenIdx` in `ori_ir`:
   ```rust
   /// Strongly-typed index into token storage.
   ///
@@ -470,8 +470,8 @@ The V2 lexer introduces:
   const _: () = assert!(std::mem::size_of::<TokenIdx>() == 4);
   ```
 
-- [ ] Sentinel value: `NONE = TokenIdx(u32::MAX)` for "no token" positions (e.g., missing optional tokens in the AST)
-- [ ] Used by the parser cursor as the primary way to refer back to tokens for span retrieval and error messages
+- [x] Sentinel value: `NONE = TokenIdx(u32::MAX)` for "no token" positions (e.g., missing optional tokens in the AST)
+- [x] Used by the parser cursor as the primary way to refer back to tokens for span retrieval and error messages
 
 ---
 
@@ -481,7 +481,7 @@ The V2 lexer introduces:
 
 `TokenFlags` captures per-token metadata set by the cooking layer (Section 03). It is stored parallel to tokens and used by the parser for whitespace-sensitive decisions.
 
-- [ ] Define `TokenFlags` in `ori_ir` (or `ori_lexer`, depending on whether parser needs it directly -- since the parser does need it, `ori_ir` is appropriate):
+- [x] Define `TokenFlags` in `ori_ir` (or `ori_lexer`, depending on whether parser needs it directly -- since the parser does need it, `ori_ir` is appropriate):
   ```rust
   bitflags::bitflags! {
       /// Per-token metadata flags, set during cooking.
@@ -524,38 +524,38 @@ The V2 lexer introduces:
   }
   ```
 
-- [ ] Set by the cooking layer (Section 03.7): the cooker tracks whitespace state and computes flags for each produced token
-- [ ] Stored parallel to tokens. Two options for storage location:
+- [x] Set by the cooking layer (Section 03.7): the cooker tracks whitespace state and computes flags for each produced token
+- [x] Stored parallel to tokens. Two options for storage location:
   1. **In `TokenList`**: Add `flags: Vec<TokenFlags>` alongside `tokens: Vec<Token>` and `tags: Vec<u8>`
   2. **In `LexOutput`**: Store `flags: Vec<TokenFlags>` in the phase output alongside `TokenList`
   - Option 1 is preferred since the parser cursor needs direct access to flags
-- [ ] Used by parser for newline significance: `flags.contains(TokenFlags::NEWLINE_BEFORE)` replaces ad-hoc newline detection
-- [ ] `ADJACENT` flag notes: included per v2-conventions SS4. Future use cases include distinguishing `foo(` (call) from `foo (` (grouping), and `x.y` (field access) from `x . y` (operator). No parsing logic depends on it in the initial V2 implementation.
+- [x] Used by parser for newline significance: `flags.contains(TokenFlags::NEWLINE_BEFORE)` replaces ad-hoc newline detection
+- [x] `ADJACENT` flag notes: included per v2-conventions SS4. Future use cases include distinguishing `foo(` (call) from `foo (` (grouping), and `x.y` (field access) from `x . y` (operator). No parsing logic depends on it in the initial V2 implementation.
 
 ---
 
 ## 04.4 Tag Discriminant Alignment
 
-- [ ] Audit the current `TokenKind::discriminant_index()` implementation:
+- [x] Audit the current `TokenKind::discriminant_index()` implementation:
   - What are the current tag values for each variant?
   - Are they stable (derived from enum declaration order)?
   - Does the parser depend on specific numeric values?
-- [ ] Design `RawTag` (in `ori_lexer_core`) discriminant values to align with `TokenTag` (in `ori_ir`) where possible:
+- [x] Design `RawTag` (in `ori_lexer_core`) discriminant values to align with `TokenTag` (in `ori_ir`) where possible:
   - For fixed-lexeme tokens (operators, delimiters): `RawTag::Plus as u8 == TokenTag::Plus as u8`
   - For keywords: `RawTag::Ident` in the scanner, but the cooker resolves to keyword `TokenTag` variants whose discriminant is already defined in `TokenTag`
   - For data-carrying tokens (identifiers, literals): the cooker produces the `TokenKind` variant, so alignment is automatic
-- [ ] Verify `TokenSet` (u128 bitset) compatibility:
+- [x] Verify `TokenSet` (u128 bitset) compatibility:
   - The parser uses `TokenSet::contains(tag)` with `1u128 << tag`
   - This requires all tag values that appear in expected sets to be < 128
   - All `TokenTag` variants (including error tags) are < 128 by construction (see SS04.1 layout: max is `Eof` = 127)
   - `RawTag` can have additional variants (trivia, error subtypes) in the 128-255 range since those never appear in `TokenSet` -- they are internal to the scanner and consumed by the cooker
-- [ ] Document the tag numbering contract: tag values are derived from `TokenTag` enum order and must remain stable for `TokenSet` bit positions. Adding new variants should use gap slots, not renumber existing variants.
+- [x] Document the tag numbering contract: tag values are derived from `TokenTag` enum order and must remain stable for `TokenSet` bit positions. Adding new variants should use gap slots, not renumber existing variants.
 
 ---
 
 ## 04.5 TokenList Push Path
 
-- [ ] Verify the V2 cooker output path feeds cleanly into `TokenList::push()`:
+- [x] Verify the V2 cooker output path feeds cleanly into `TokenList::push()`:
   ```rust
   // V2 cooking loop (in Section 03's lex() function):
   let (kind, flags) = cooker.cook(raw, offset);
@@ -564,10 +564,10 @@ The V2 lexer introduces:
   flags_vec.push(flags);
   // TokenList::push() automatically derives: tags.push(kind.discriminant_index())
   ```
-- [ ] Maintain the invariant: `tags[i] == tokens[i].kind.discriminant_index()` for all `i`
+- [x] Maintain the invariant: `tags[i] == tokens[i].kind.discriminant_index()` for all `i`
   - This invariant is already maintained by `TokenList::push()` which derives the tag byte from the `TokenKind`
   - The V2 cooker produces the same `TokenKind` variants the current converter does, so no change to `push()` is needed
-- [ ] `TokenFlags` stored in a parallel `flags: Vec<TokenFlags>` on `TokenList`:
+- [x] `TokenFlags` stored in a parallel `flags: Vec<TokenFlags>` on `TokenList`:
   ```rust
   pub struct TokenList {
       tokens: Vec<Token>,
@@ -577,8 +577,8 @@ The V2 lexer introduces:
   ```
   - `TokenList::push()` extended to accept flags, or flags pushed separately by `lex()`
   - The cursor gains a `current_flags() -> TokenFlags` method
-- [ ] Verify capacity heuristic still works: `source.len() / 6 + 1` (v2-conventions SS9) should remain valid since the V2 scanner produces the same number of tokens (whitespace/comments are still skipped in `lex()` mode)
-- [ ] Verify `TokenList`'s `Eq`/`Hash` implementations work correctly:
+- [x] Verify capacity heuristic still works: `source.len() / 6 + 1` (v2-conventions SS9) should remain valid since the V2 scanner produces the same number of tokens (whitespace/comments are still skipped in `lex()` mode)
+- [x] Verify `TokenList`'s `Eq`/`Hash` implementations work correctly:
   - Currently compares/hashes only `tokens` (tags are derived)
   - Flags should also be compared/hashed since they carry semantic information (e.g., `CONTEXTUAL_KW` affects how the parser treats the token)
 
@@ -586,24 +586,24 @@ The V2 lexer introduces:
 
 ## 04.6 Eliminate Dual-Enum Redundancy
 
-- [ ] Remove the current `raw_token.rs` module (88-variant `RawToken` enum with logos derive)
-- [ ] Remove the current `convert.rs` module (183-line `convert_token` match)
-- [ ] The V2 pipeline replaces both:
+- [x] Remove the current `raw_token.rs` module (88-variant `RawToken` enum with logos derive)
+- [x] Remove the current `convert.rs` module (183-line `convert_token` match)
+- [x] The V2 pipeline replaces both:
   - `RawTag` (Section 02) is internal to `ori_lexer_core` -- never stored in `TokenList`, never exposed beyond the cooker
   - The cooker (Section 03) produces `TokenKind` directly
   - No intermediate enum conversion needed
-- [ ] Verify the dependency chain is clean:
+- [x] Verify the dependency chain is clean:
   - `ori_lexer_core` has NO `ori_*` dependencies (v2-conventions SS10)
   - `ori_lexer` depends on `ori_lexer_core` + `ori_ir` for `TokenKind`, `Token`, `TokenList`, `TokenTag`, `TokenFlags`, `Span`, `Name`, `StringInterner`
   - `ori_lexer` no longer depends on `logos`
   - `RawTag` is private to `ori_lexer_core` (not exported beyond the crate)
-- [ ] Net code reduction estimate: remove ~300 lines (`raw_token.rs` + `convert.rs`), add ~50 lines (`RawTag` enum, simpler than `RawToken` since no logos attributes)
+- [x] Net code reduction estimate: remove ~300 lines (`raw_token.rs` + `convert.rs`), add ~50 lines (`RawTag` enum, simpler than `RawToken` since no logos attributes)
 
 ---
 
 ## 04.7 Tests
 
-- [ ] **Tag stability test**: Verify that key `TokenTag` discriminant values match their expected numeric values. This catches accidental reordering:
+- [x] **Tag stability test**: Verify that key `TokenTag` discriminant values match their expected numeric values. This catches accidental reordering:
   ```rust
   #[test]
   fn token_tag_discriminants_are_stable() {
@@ -652,7 +652,7 @@ The V2 lexer introduces:
       assert_eq!(TokenTag::Eof as u8, 127);
   }
   ```
-- [ ] **All tags < 128**: Verify every `TokenTag` variant fits in the `TokenSet` bitset (0-127 range):
+- [x] **All tags < 128**: Verify every `TokenTag` variant fits in the `TokenSet` bitset (0-127 range):
   ```rust
   #[test]
   fn all_token_tags_fit_in_token_set() {
@@ -672,33 +672,33 @@ The V2 lexer introduces:
       // }
   }
   ```
-- [ ] **TokenIdx size**: `assert!(size_of::<TokenIdx>() == 4)`
-- [ ] **TokenFlags size**: `assert!(size_of::<TokenFlags>() == 1)`
-- [ ] **TokenTag size**: `assert!(size_of::<TokenTag>() == 1)`
-- [ ] **TokenList equivalence**: For every test file, V1 `lex()` and V2 `lex()` produce `TokenList` values where `tokens[i].kind` and `tags[i]` are identical
-- [ ] **TokenSet compatibility**: Verify `TokenSet` membership tests work with V2-produced tags
-- [ ] **Push invariant**: Verify `tags[i] == tokens[i].kind.discriminant_index()` holds for all tokens in V2 output
-- [ ] **Flags parallel invariant**: Verify `flags.len() == tokens.len()` after lexing
-- [ ] **Tag alignment**: For all non-data-carrying `RawTag` variants (operators, delimiters), verify that the cooker produces a `TokenKind` whose discriminant matches the corresponding `TokenTag` value
-- [ ] **name() coverage**: Verify `TokenTag::name()` returns a non-empty string for every variant
+- [x] **TokenIdx size**: `assert!(size_of::<TokenIdx>() == 4)`
+- [x] **TokenFlags size**: `assert!(size_of::<TokenFlags>() == 1)`
+- [x] **TokenTag size**: `assert!(size_of::<TokenTag>() == 1)`
+- [x] **TokenList equivalence**: For every test file, V1 `lex()` and V2 `lex()` produce `TokenList` values where `tokens[i].kind` and `tags[i]` are identical
+- [x] **TokenSet compatibility**: Verify `TokenSet` membership tests work with V2-produced tags
+- [x] **Push invariant**: Verify `tags[i] == tokens[i].kind.discriminant_index()` holds for all tokens in V2 output
+- [x] **Flags parallel invariant**: Verify `flags.len() == tokens.len()` after lexing
+- [x] **Tag alignment**: For all non-data-carrying `RawTag` variants (operators, delimiters), verify that the cooker produces a `TokenKind` whose discriminant matches the corresponding `TokenTag` value
+- [x] **name() coverage**: Verify `TokenTag::name()` returns a non-empty string for every variant
 
 ---
 
 ## 04.8 Completion Checklist
 
-- [ ] `TokenTag` defined in `ori_ir` with `#[repr(u8)]` and semantic ranges
-- [ ] `TokenIdx` defined in `ori_ir` as `#[repr(transparent)]` u32 newtype
-- [ ] `TokenFlags` defined in `ori_ir` as `bitflags!` u8
-- [ ] `RawTag` discriminant values documented and aligned with `TokenTag`
-- [ ] All `TokenTag` variants < 128 (TokenSet compatible; 122 defined variants fit in 0-127 range)
-- [ ] `TokenTag::name()` implemented for all variants
-- [ ] V2 cooker output feeds cleanly into existing `TokenList::push()`
-- [ ] `TokenFlags` stored parallel to tokens in `TokenList`
-- [ ] `raw_token.rs` and `convert.rs` removed
-- [ ] `logos` dependency removed from `ori_lexer/Cargo.toml`
-- [ ] Tag stability tests in place
-- [ ] All tag-dependent parser code updated to new discriminant values and passes tests
-- [ ] `cargo t -p ori_ir` and `cargo t -p ori_lexer` and `./test-all.sh` pass
+- [x] `TokenTag` defined in `ori_ir` with `#[repr(u8)]` and semantic ranges
+- [x] `TokenIdx` defined in `ori_ir` as `#[repr(transparent)]` u32 newtype
+- [x] `TokenFlags` defined in `ori_ir` as `bitflags!` u8
+- [x] `RawTag` discriminant values documented and aligned with `TokenTag`
+- [x] All `TokenTag` variants < 128 (TokenSet compatible; 122 defined variants fit in 0-127 range)
+- [x] `TokenTag::name()` implemented for all variants
+- [x] V2 cooker output feeds cleanly into existing `TokenList::push()`
+- [x] `TokenFlags` stored parallel to tokens in `TokenList`
+- [x] `raw_token.rs` and `convert.rs` removed
+- [x] `logos` dependency removed from `ori_lexer/Cargo.toml`
+- [x] Tag stability tests in place
+- [x] All tag-dependent parser code updated to new discriminant values and passes tests
+- [x] `cargo t -p ori_ir` and `cargo t -p ori_lexer` and `./test-all.sh` pass
 
 **Exit Criteria:** `TokenTag`, `TokenIdx`, and `TokenFlags` are defined in `ori_ir` per v2-conventions. The V2 pipeline produces identical `TokenList` output using the existing SoA structure (with updated discriminant values), with `TokenFlags` added as a parallel array. The `RawToken` -> `TokenKind` dual-enum conversion is eliminated. `TokenKind::discriminant_index()`, all `TAG_*` constants, and all tag-dispatch sites in the parser (`OPER_TABLE`, `POSTFIX_BITSET`, `parse_primary()`, `check_type_keyword()`, `friendly_name_from_index()`, `parse_type()`, and all cursor helper methods) are updated to use the new `TokenTag` discriminant numbering. All discriminant values are < 128 for `TokenSet` compatibility (122 defined variants spanning 0-127 range; 6 reserved gaps for future expansion).
 

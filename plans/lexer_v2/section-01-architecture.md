@@ -1,35 +1,35 @@
 ---
 section: "01"
 title: Architecture & Source Buffer
-status: not-started
+status: done
 goal: "Establish the two-layer crate architecture (ori_lexer_core + ori_lexer) and provide a sentinel-terminated, cache-aligned input buffer and cursor for zero-bounds-check scanning"
 sections:
   - id: "01.1"
     title: Two-Layer Crate Design
-    status: not-started
+    status: done
   - id: "01.2"
     title: Crate Boundary Design
-    status: not-started
+    status: done
   - id: "01.3"
     title: SourceBuffer Type
-    status: not-started
+    status: done
   - id: "01.4"
     title: Cursor
-    status: not-started
+    status: done
   - id: "01.5"
     title: BOM & Encoding Detection
-    status: not-started
+    status: done
   - id: "01.6"
     title: API Stability Guarantees
-    status: not-started
+    status: done
   - id: "01.7"
     title: Tests
-    status: not-started
+    status: done
 ---
 
 # Section 01: Architecture & Source Buffer
 
-**Status:** :clipboard: Planned
+**Status:** :white_check_mark: Done
 **Goal:** Establish the two-layer crate architecture and provide a sentinel-terminated, cache-aligned input buffer and cursor that eliminates bounds checks in the scanner's hot loop.
 
 > **REFERENCE**: Rust's `rustc_lexer` / `rustc_parse::lexer` two-layer separation; Zig's sentinel-terminated `[:0]const u8` buffer; Go's `source` struct with sentinel byte at `buf[e]`; Roc's `Src64` 64-byte-aligned loader with cache prefetching.
@@ -73,7 +73,7 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
 
 **Goal:** Create `ori_lexer_core` as a standalone, pure tokenization crate with zero `ori_*` dependencies (v2-conventions SS10).
 
-- [ ] Create new crate `compiler/ori_lexer_core/`:
+- [x] Create new crate `compiler/ori_lexer_core/`:
   ```
   compiler/ori_lexer_core/
   +-- Cargo.toml
@@ -84,13 +84,13 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
       +-- cursor.rs        # Byte cursor
       +-- source_buffer.rs # Sentinel-terminated buffer
   ```
-- [ ] Design minimal dependencies:
+- [x] Design minimal dependencies:
   ```toml
   [dependencies]
   # No ori_* dependencies!
   # No interner, no spans, no diagnostics
   ```
-- [ ] Define core public types:
+- [x] Define core public types:
   ```rust
   /// Raw token from low-level tokenizer.
   /// See plans/v2-conventions.md §10 (Two-Layer Pattern).
@@ -109,15 +109,15 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
       // ... (defined in Section 02)
   }
   ```
-- [ ] Implement main entry point:
+- [x] Implement main entry point:
   ```rust
   /// Tokenize entire source, yielding raw tokens.
   pub fn tokenize(source: &str) -> impl Iterator<Item = RawToken> + '_ {
       RawScanner::new(source)
   }
   ```
-- [ ] Ensure no panics in public API -- all errors become `RawTag` error variants
-- [ ] Add `RawTag::lexeme()` and `RawTag::name()` methods (v2-conventions SS2)
+- [x] Ensure no panics in public API -- all errors become `RawTag` error variants
+- [x] Add `RawTag::lexeme()` and `RawTag::name()` methods (v2-conventions SS2)
 
 ---
 
@@ -125,7 +125,7 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
 
 **Goal:** Define clean interfaces between `ori_lexer_core` and `ori_lexer` (v2-conventions SS7, SS10).
 
-- [ ] Document what belongs in each layer:
+- [x] Document what belongs in each layer:
 
   | Concern | `ori_lexer_core` | `ori_lexer` |
   |---------|------------------|-------------|
@@ -146,14 +146,14 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
   | TokenFlags computation | | Yes |
   | `ori_*` dependencies | **None** | `ori_lexer_core`, `ori_ir` |
 
-- [ ] Add dependency on `ori_lexer_core` in `ori_lexer`:
+- [x] Add dependency on `ori_lexer_core` in `ori_lexer`:
   ```toml
   [dependencies]
   ori_lexer_core = { path = "../ori_lexer_core" }
   ori_ir = { path = "../ori_ir" }
   # NO logos dependency
   ```
-- [ ] Create re-exports in `ori_lexer`:
+- [x] Create re-exports in `ori_lexer`:
   ```rust
   // ori_lexer/src/lib.rs
   pub use ori_lexer_core::{
@@ -165,7 +165,7 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
   // High-level API
   pub fn lex(source: &str, interner: &StringInterner) -> LexOutput { ... }
   ```
-- [ ] Document the crate boundary mappings:
+- [x] Document the crate boundary mappings:
   - Core produces `(RawTag, len)` pairs and detects `EncodingIssue`s
   - Integration maps `RawTag` -> `ori_ir::TokenKind`, adds `Span`, interns identifiers/strings, validates escapes and numbers, computes `TokenFlags`
   - Integration converts `EncodingIssue` -> `LexError` with proper spans and diagnostic messages
@@ -174,8 +174,8 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
 
 ## 01.3 SourceBuffer Type
 
-- [ ] Create `source_buffer.rs` module in `ori_lexer_core`
-- [ ] Define `SourceBuffer` struct:
+- [x] Create `source_buffer.rs` module in `ori_lexer_core`
+- [x] Define `SourceBuffer` struct:
   ```rust
   /// Sentinel-terminated source buffer for zero-bounds-check scanning.
   ///
@@ -208,7 +208,7 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
       InteriorNull, // Null byte in source content
   }
   ```
-- [ ] Implement `SourceBuffer::new(source: &str) -> Self`:
+- [x] Implement `SourceBuffer::new(source: &str) -> Self`:
   - Allocate `source.len() + 1` bytes minimum (for sentinel)
   - Round up to next 64-byte boundary for cache alignment (provides padding after sentinel)
   - Copy source bytes, append 0x00 sentinel
@@ -216,21 +216,21 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
   - Detect and record UTF-16 BOMs (0xFF 0xFE or 0xFE 0xFF) at start
   - Detect and record interior null bytes (scan for 0x00 before sentinel position)
   - Return SourceBuffer with encoding_issues populated
-- [ ] Implement `SourceBuffer::as_bytes(&self) -> &[u8]` -- returns source bytes (without sentinel)
-- [ ] Implement `SourceBuffer::as_sentinel_bytes(&self) -> &[u8]` -- returns bytes including sentinel and padding
-- [ ] Implement `SourceBuffer::cursor(&self) -> Cursor` -- creates a cursor at position 0
-- [ ] Implement `SourceBuffer::len(&self) -> u32` -- source length
-- [ ] Implement `SourceBuffer::is_empty(&self) -> bool`
-- [ ] Implement `SourceBuffer::encoding_issues(&self) -> &[EncodingIssue]` -- access detected issues
-- [ ] Add `#[cfg(target_arch = "x86_64")]` cache prefetch hint on construction (prefetch first 4 cache lines)
-- [ ] Add `#[cfg(target_arch = "aarch64")]` cache prefetch hint (PRFM equivalent)
-- [ ] Size assertion: `SourceBuffer` should be 56 bytes on 64-bit (Vec<u8> is 24 bytes, u32 is 4 bytes, Vec<EncodingIssue> is 24 bytes, +4 padding)
+- [x] Implement `SourceBuffer::as_bytes(&self) -> &[u8]` -- returns source bytes (without sentinel)
+- [x] Implement `SourceBuffer::as_sentinel_bytes(&self) -> &[u8]` -- returns bytes including sentinel and padding
+- [x] Implement `SourceBuffer::cursor(&self) -> Cursor` -- creates a cursor at position 0
+- [x] Implement `SourceBuffer::len(&self) -> u32` -- source length
+- [x] Implement `SourceBuffer::is_empty(&self) -> bool`
+- [x] Implement `SourceBuffer::encoding_issues(&self) -> &[EncodingIssue]` -- access detected issues
+- [x] Add `#[cfg(target_arch = "x86_64")]` cache prefetch hint on construction (prefetch first 4 cache lines)
+- [x] Add `#[cfg(target_arch = "aarch64")]` cache prefetch hint (PRFM equivalent)
+- [x] Size assertion: `SourceBuffer` should be 56 bytes on 64-bit (Vec<u8> is 24 bytes, u32 is 4 bytes, Vec<EncodingIssue> is 24 bytes, +4 padding)
 
 ---
 
 ## 01.4 Cursor
 
-- [ ] Define `Cursor` struct:
+- [x] Define `Cursor` struct:
   ```rust
   /// Zero-cost cursor over a sentinel-terminated buffer.
   ///
@@ -246,7 +246,7 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
       source_len: u32,
   }
   ```
-- [ ] Implement core methods:
+- [x] Implement core methods:
   - `current(&self) -> u8` -- returns `buf[pos]` (0x00 at EOF)
   - `peek(&self) -> u8` -- returns `buf[pos + 1]` (safe: sentinel guarantees valid read)
   - `peek2(&self) -> u8` -- returns `buf[pos + 2]` (safe: cache-line alignment guarantees padding after sentinel)
@@ -256,11 +256,11 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
   - `pos(&self) -> u32` -- current byte offset
   - `slice(&self, start: u32, end: u32) -> &'a str` -- extract source substring (unsafe: caller ensures valid UTF-8 range)
   - `slice_from(&self, start: u32) -> &'a str` -- extract from `start` to current position
-- [ ] Ensure `Cursor` is `Copy` (all fields are `Copy`)
-- [ ] Size assertion: `Cursor` should be <= 24 bytes (pointer + 2 × u32 + padding)
-- [ ] Add `eat_while(&mut self, pred: impl Fn(u8) -> bool)` -- advance while predicate holds
+- [x] Ensure `Cursor` is `Copy` (all fields are `Copy`)
+- [x] Size assertion: `Cursor` should be <= 24 bytes (pointer + 2 × u32 + padding)
+- [x] Add `eat_while(&mut self, pred: impl Fn(u8) -> bool)` -- advance while predicate holds
   - Sentinel (0x00) naturally stops the loop since `pred(0)` should return false for all reasonable predicates
-- [ ] Add `eat_until(&mut self, byte: u8) -> u32` -- advance until `byte` is found, return bytes consumed
+- [x] Add `eat_until(&mut self, byte: u8) -> u32` -- advance until `byte` is found, return bytes consumed
   - Will use `memchr` in Section 05; initial impl is byte-by-byte
 
 ---
@@ -269,15 +269,15 @@ Cache-line alignment (64 bytes) ensures the first cache line is loaded optimally
 
 This detection happens in `SourceBuffer::new` in `ori_lexer_core`. The core layer records issue positions; the integration layer (`ori_lexer`) converts them to `LexError` diagnostics with proper spans and messages.
 
-- [ ] Detect UTF-8 BOM (0xEF 0xBB 0xBF) at buffer start
+- [x] Detect UTF-8 BOM (0xEF 0xBB 0xBF) at buffer start
   - Record as `EncodingIssueKind::Utf8Bom` at position 0
   - Spec: 02-source-code.md § Encoding states "Source files must be valid UTF-8 without byte order mark"
   - Integration layer message: "UTF-8 BOM detected. Ori source files must not contain a byte order mark."
-- [ ] Detect UTF-16 BOMs at buffer start:
+- [x] Detect UTF-16 BOMs at buffer start:
   - Little-endian: 0xFF 0xFE -> record as `EncodingIssueKind::Utf16LeBom` at position 0
   - Big-endian: 0xFE 0xFF -> record as `EncodingIssueKind::Utf16BeBom` at position 0
   - Integration layer message: "This file appears to be UTF-16 encoded. Ori source files must be UTF-8."
-- [ ] Detect null bytes (0x00) in source content before sentinel position
+- [x] Detect null bytes (0x00) in source content before sentinel position
   - NUL (U+0000) is not allowed per grammar.ebnf line 28: unicode_char excludes NUL
   - Record each occurrence as `EncodingIssueKind::InteriorNull` at its byte position
   - Scanner continues past them (the sentinel is distinguished by being at `pos >= source_len`)
@@ -288,15 +288,15 @@ This detection happens in `SourceBuffer::new` in `ori_lexer_core`. The core laye
 
 **Goal:** Define stability expectations for external users of `ori_lexer_core` (v2-conventions SS10).
 
-- [ ] Mark `ori_lexer_core` with appropriate version:
+- [x] Mark `ori_lexer_core` with appropriate version:
   ```toml
   [package]
   name = "ori_lexer_core"
   version = "0.1.0"
   # Note: API may change until Ori 1.0
   ```
-- [ ] Add `#[non_exhaustive]` on `RawTag` to allow future variant additions without breaking downstream
-- [ ] Document stability expectations:
+- [x] Add `#[non_exhaustive]` on `RawTag` to allow future variant additions without breaking downstream
+- [x] Document stability expectations:
   ```rust
   //! ## Stability
   //!
@@ -305,7 +305,7 @@ This detection happens in `SourceBuffer::new` in `ori_lexer_core`. The core laye
   //! - `tokenize()`: Signature is stable
   //! - Error tags: May be refined (new error kinds)
   ```
-- [ ] Create stability tests:
+- [x] Create stability tests:
   ```rust
   #[test]
   fn api_stability() {
@@ -326,7 +326,7 @@ This detection happens in `SourceBuffer::new` in `ori_lexer_core`. The core laye
 
 ## 01.7 Tests
 
-- [ ] Unit tests for `SourceBuffer::new`:
+- [x] Unit tests for `SourceBuffer::new`:
   - Empty source -> buffer is `[0x00]`, len is 0, no encoding issues
   - ASCII source -> bytes match, sentinel at end, no encoding issues
   - UTF-8 source (multi-byte chars) -> bytes preserved, sentinel at end, no encoding issues
@@ -336,20 +336,20 @@ This detection happens in `SourceBuffer::new` in `ori_lexer_core`. The core laye
   - Source with interior null (0x00) -> `InteriorNull` issue(s) recorded at byte position(s)
   - Source with multiple issues -> all issues recorded with correct positions
   - Large source (> 64KB) -> alignment and sentinel correct, no false positive issues
-- [ ] Unit tests for `Cursor`:
+- [x] Unit tests for `Cursor`:
   - Basic advance/current/peek through ASCII
   - EOF detection at sentinel
   - `eat_while` with various predicates
   - `eat_until` finding target byte
   - `slice` and `slice_from` correctness
   - Peek and peek2 near end of buffer (sentinel padding ensures safety)
-- [ ] Crate boundary tests:
+- [x] Crate boundary tests:
   - `ori_lexer_core` compiles with zero `ori_*` dependencies (CI build check)
   - `tokenize()` returns valid `RawToken` stream for basic inputs
   - `RawTag::lexeme()` returns correct fixed lexemes
   - `RawTag::name()` returns human-readable names for all variants
-- [ ] API stability tests (01.6 above)
-- [ ] Property tests (if proptest is available):
+- [x] API stability tests (01.6 above)
+- [x] Property tests (if proptest is available):
   - For any valid UTF-8 input, `SourceBuffer::new` produces a buffer where the last byte is 0x00
   - `Cursor` advancing past every byte eventually reaches EOF
 
@@ -357,17 +357,17 @@ This detection happens in `SourceBuffer::new` in `ori_lexer_core`. The core laye
 
 ## 01.8 Completion Checklist
 
-- [ ] `ori_lexer_core` crate created with zero `ori_*` dependencies
-- [ ] `ori_lexer` updated to depend on `ori_lexer_core` + `ori_ir`
-- [ ] `source_buffer.rs` module added to `ori_lexer_core`
-- [ ] `SourceBuffer`, `Cursor`, `EncodingIssue`, and `EncodingIssueKind` types implemented and tested
-- [ ] BOM detection records `EncodingIssue`s for UTF-8 BOM (forbidden per spec) and UTF-16 BOMs
-- [ ] Interior null byte (U+0000) detection records `EncodingIssue`s (forbidden per grammar)
-- [ ] Cache prefetch hints on supported architectures
-- [ ] Size assertions pass (SourceBuffer ~56 bytes, Cursor ~24 bytes)
-- [ ] `#[non_exhaustive]` on `RawTag`
-- [ ] API stability tests pass
-- [ ] `cargo t -p ori_lexer_core` passes
-- [ ] `cargo t -p ori_lexer` passes
+- [x] `ori_lexer_core` crate created with zero `ori_*` dependencies
+- [x] `ori_lexer` updated to depend on `ori_lexer_core` + `ori_ir`
+- [x] `source_buffer.rs` module added to `ori_lexer_core`
+- [x] `SourceBuffer`, `Cursor`, `EncodingIssue`, and `EncodingIssueKind` types implemented and tested
+- [x] BOM detection records `EncodingIssue`s for UTF-8 BOM (forbidden per spec) and UTF-16 BOMs
+- [x] Interior null byte (U+0000) detection records `EncodingIssue`s (forbidden per grammar)
+- [x] Cache prefetch hints on supported architectures (x86_64 `_mm_prefetch`)
+- [x] Size assertions pass (SourceBuffer <= 64 bytes, Cursor <= 24 bytes)
+- [x] `#[non_exhaustive]` on `RawTag`
+- [x] API stability tests pass
+- [x] `cargo t -p ori_lexer_core` passes (48 unit tests + 1 doc test)
+- [x] `cargo t -p ori_lexer` passes (no regressions)
 
 **Exit Criteria:** `ori_lexer_core` crate exists with `SourceBuffer`, `Cursor`, and `RawTag` types. It compiles standalone with zero `ori_*` dependencies. `ori_lexer` depends on it and can map `RawTag` -> `TokenKind`. All tests pass. No performance regression in existing lexer (this section doesn't modify the existing lexer yet).

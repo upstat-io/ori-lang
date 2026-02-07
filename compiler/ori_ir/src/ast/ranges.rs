@@ -61,6 +61,7 @@ define_range!(
     NamedExprRange,
     CallArgRange,
     ListElementRange,
+    TemplatePartRange,
 );
 
 #[cfg(test)]

@@ -40,7 +40,9 @@ pub fn eval_literal(kind: &ExprKind, interner: &StringInterner) -> Option<EvalRe
         ExprKind::Int(n) => Some(Ok(Value::int(*n))),
         ExprKind::Float(bits) => Some(Ok(Value::Float(f64::from_bits(*bits)))),
         ExprKind::Bool(b) => Some(Ok(Value::Bool(*b))),
-        ExprKind::String(s) => Some(Ok(Value::string_static(interner.lookup_static(*s)))),
+        ExprKind::String(s) | ExprKind::TemplateFull(s) => {
+            Some(Ok(Value::string_static(interner.lookup_static(*s))))
+        }
         ExprKind::Char(c) => Some(Ok(Value::Char(*c))),
         ExprKind::Unit => Some(Ok(Value::Void)),
         ExprKind::Duration { value, unit } => Some(Ok(Value::Duration(unit.to_nanos(*value)))),

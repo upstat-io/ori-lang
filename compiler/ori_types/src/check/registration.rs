@@ -810,7 +810,7 @@ fn infer_const_type(checker: &mut ModuleChecker<'_>, value_id: ori_ir::ExprId) -
         ExprKind::Int(_) => Idx::INT,
         ExprKind::Float(_) => Idx::FLOAT,
         ExprKind::Bool(_) => Idx::BOOL,
-        ExprKind::String(_) => Idx::STR,
+        ExprKind::String(_) | ExprKind::TemplateFull(_) => Idx::STR,
         ExprKind::Char(_) => Idx::CHAR,
         ExprKind::Duration { .. } => Idx::DURATION,
         ExprKind::Size { .. } => Idx::SIZE,

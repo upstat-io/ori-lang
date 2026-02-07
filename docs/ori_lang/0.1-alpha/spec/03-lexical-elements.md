@@ -119,6 +119,7 @@ The `$` sigil marks a binding as immutable. It appears at definition, import, an
 42
 1_000_000
 0xFF
+0b1010
 ```
 
 ### Float

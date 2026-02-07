@@ -31,9 +31,11 @@
 //! });
 //! ```
 
+pub mod lex;
 pub mod parse;
 pub mod semantic;
 
+pub use lex::LexProblem;
 pub use parse::ParseProblem;
 pub use semantic::SemanticProblem;
 
@@ -112,6 +114,9 @@ pub(crate) use impl_has_span;
 /// to use structured error variants while other phases use this unified type.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Problem {
+    /// Lex-time problems (tokenization errors, confusables, cross-language habits).
+    Lex(LexProblem),
+
     /// Parse-time problems (syntax errors).
     Parse(ParseProblem),
 
@@ -123,6 +128,7 @@ impl Problem {
     /// Get the primary span of this problem.
     pub fn span(&self) -> Span {
         match self {
+            Problem::Lex(p) => p.span(),
             Problem::Parse(p) => p.span(),
             Problem::Semantic(p) => p.span(),
         }
@@ -133,6 +139,7 @@ impl Problem {
     /// The interner is required to look up interned `Name` values.
     pub fn into_diagnostic(&self, interner: &StringInterner) -> crate::diagnostic::Diagnostic {
         match self {
+            Problem::Lex(p) => p.into_diagnostic(interner),
             Problem::Parse(p) => p.into_diagnostic(interner),
             Problem::Semantic(p) => p.into_diagnostic(interner),
         }
@@ -141,11 +148,13 @@ impl Problem {
 
 // Generate type predicates using macro
 impl_problem_predicates!(Problem {
+    Lex => is_lex,
     Parse => is_parse,
     Semantic => is_semantic,
 });
 
 // Generate From implementations using macro
+impl_from_problem!(LexProblem => Problem::Lex);
 impl_from_problem!(ParseProblem => Problem::Parse);
 impl_from_problem!(SemanticProblem => Problem::Semantic);
 

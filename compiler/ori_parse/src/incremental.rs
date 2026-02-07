@@ -24,8 +24,8 @@ use ori_ir::{
     CallArg, ConstDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef, FieldInit,
     Function, GenericParam, ImplAssocType, ImplDef, ImplMethod, MapEntry, MatchPatternId,
     MatchPatternRange, Module, Name, NamedExpr, Param, ParsedType, ParsedTypeId, ParsedTypeRange,
-    Span, Stmt, StmtKind, TestDef, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
-    TraitMethodSig, TypeDecl, UseDef, WhereClause,
+    Span, Stmt, StmtKind, TemplatePart, TemplatePartRange, TestDef, TraitAssocType, TraitDef,
+    TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl, UseDef, WhereClause,
 };
 
 /// Kind of top-level declaration.
@@ -334,6 +334,7 @@ impl<'old> AstCopier<'old> {
             ExprKind::FunctionRef(name) => ExprKind::FunctionRef(*name),
             ExprKind::HashLength => ExprKind::HashLength,
             ExprKind::None => ExprKind::None,
+            ExprKind::TemplateFull(name) => ExprKind::TemplateFull(*name),
             ExprKind::Error => ExprKind::Error,
 
             // Binary and unary operations
@@ -469,6 +470,9 @@ impl<'old> AstCopier<'old> {
             ExprKind::Tuple(exprs) => {
                 let new_exprs = self.copy_expr_list(*exprs, new_arena);
                 ExprKind::Tuple(new_exprs)
+            }
+            ExprKind::TemplateLiteral { head, parts } => {
+                self.copy_template_literal_kind(*head, *parts, new_arena)
             }
             ExprKind::Range {
                 start,
@@ -629,6 +633,28 @@ impl<'old> AstCopier<'old> {
         ExprKind::Match {
             scrutinee: new_scrutinee,
             arms: new_arena.alloc_arms(new_arms),
+        }
+    }
+
+    /// Copy a `TemplateLiteral` expression's parts.
+    fn copy_template_literal_kind(
+        &self,
+        head: Name,
+        parts: TemplatePartRange,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let old_parts = self.old_arena.get_template_parts(parts);
+        let new_parts: Vec<_> = old_parts
+            .iter()
+            .map(|p| TemplatePart {
+                expr: self.copy_expr(p.expr, new_arena),
+                format_spec: p.format_spec,
+                text_after: p.text_after,
+            })
+            .collect();
+        ExprKind::TemplateLiteral {
+            head,
+            parts: new_arena.alloc_template_parts(new_parts),
         }
     }
 

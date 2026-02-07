@@ -368,6 +368,80 @@ use std.testing { assert, assert_eq }
 )
 
 // =============================================================================
+// Decimal Duration Literals (compile-time sugar)
+// =============================================================================
+
+// 0.5s = 500,000,000 nanoseconds
+@decimal_dur_half_s () -> int = 0.5s.nanoseconds()
+
+@test_decimal_dur_half_s tests @decimal_dur_half_s () -> void = run(
+    assert_eq(actual: decimal_dur_half_s(), expected: 500000000),
+)
+
+// 1.5s = 1,500,000,000 nanoseconds = 1500 milliseconds
+@decimal_dur_1_5s () -> int = 1.5s.milliseconds()
+
+@test_decimal_dur_1_5s tests @decimal_dur_1_5s () -> void = run(
+    assert_eq(actual: decimal_dur_1_5s(), expected: 1500),
+)
+
+// 0.5ms = 500,000 nanoseconds = 500 microseconds
+@decimal_dur_half_ms () -> int = 0.5ms.microseconds()
+
+@test_decimal_dur_half_ms tests @decimal_dur_half_ms () -> void = run(
+    assert_eq(actual: decimal_dur_half_ms(), expected: 500),
+)
+
+// 2.25h = 2h 15m = 8,100,000,000,000 nanoseconds
+@decimal_dur_2_25h () -> int = 2.25h.minutes()
+
+@test_decimal_dur_2_25h tests @decimal_dur_2_25h () -> void = run(
+    assert_eq(actual: decimal_dur_2_25h(), expected: 135), // 2.25h = 135m
+)
+
+// 1.5m = 1m 30s = 90,000,000,000 nanoseconds
+@decimal_dur_1_5m () -> int = 1.5m.seconds()
+
+@test_decimal_dur_1_5m tests @decimal_dur_1_5m () -> void = run(
+    assert_eq(actual: decimal_dur_1_5m(), expected: 90), // 1.5m = 90s
+)
+
+// 0.001s = 1,000,000 nanoseconds = 1ms
+@decimal_dur_0_001s () -> int = 0.001s.milliseconds()
+
+@test_decimal_dur_0_001s tests @decimal_dur_0_001s () -> void = run(
+    assert_eq(actual: decimal_dur_0_001s(), expected: 1),
+)
+
+// 0.5us = 500 nanoseconds
+@decimal_dur_half_us () -> int = 0.5us.nanoseconds()
+
+@test_decimal_dur_half_us tests @decimal_dur_half_us () -> void = run(
+    assert_eq(actual: decimal_dur_half_us(), expected: 500),
+)
+
+// Decimal duration equivalence: 1.5s == 1500ms
+@decimal_dur_equiv () -> bool = 1.5s == 1500ms
+
+@test_decimal_dur_equiv tests @decimal_dur_equiv () -> void = run(
+    assert(cond: decimal_dur_equiv()),
+)
+
+// Decimal + integer arithmetic: 1.5s + 500ms = 2s
+@decimal_dur_arith () -> int = (1.5s + 500ms).seconds()
+
+@test_decimal_dur_arith tests @decimal_dur_arith () -> void = run(
+    assert_eq(actual: decimal_dur_arith(), expected: 2),
+)
+
+// Many decimal places: 1.123456789s = 1,123,456,789ns
+@decimal_dur_many_digits () -> int = 1.123456789s.nanoseconds()
+
+@test_decimal_dur_many_digits tests @decimal_dur_many_digits () -> void = run(
+    assert_eq(actual: decimal_dur_many_digits(), expected: 1123456789),
+)
+
+// =============================================================================
 // Duration Binding and Shadowing
 // =============================================================================
 

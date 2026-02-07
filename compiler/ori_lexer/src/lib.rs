@@ -138,9 +138,14 @@ impl LexOutput {
     }
 
     /// Create with pre-allocated capacity based on source length.
+    ///
+    /// Ori's dense syntax (short keywords, single-char operators, `@` prefixes)
+    /// produces roughly 1 token per 2-3 bytes of source. Using `source_len / 2`
+    /// slightly over-allocates but eliminates Vec reallocations, which callgrind
+    /// showed as 5.7% of total lexer instructions.
     pub fn with_capacity(source_len: usize) -> Self {
         LexOutput {
-            tokens: TokenList::with_capacity(source_len / 4 + 1),
+            tokens: TokenList::with_capacity(source_len / 2 + 1),
             comments: CommentList::new(),
             blank_lines: Vec::with_capacity(source_len / 400),
             newlines: Vec::with_capacity(source_len / 40),
@@ -201,7 +206,7 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
     let buf = SourceBuffer::new(source);
     let mut scanner = RawScanner::new(buf.cursor());
     let mut cooker = TokenCooker::new(buf.as_bytes(), interner);
-    let mut result = TokenList::with_capacity(source.len() / 4 + 1);
+    let mut result = TokenList::with_capacity(source.len() / 2 + 1);
     let mut offset: u32 = 0;
 
     // Trivia tracking for TokenFlags
@@ -289,6 +294,9 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
     let mut pending_doc: Option<(Span, lex_error::DocMarker)> = None;
     let mut had_blank_line_since_doc = false;
 
+    // IS_DOC flag: set on the next cooked token after a doc comment
+    let mut pending_is_doc = false;
+
     loop {
         let raw = scanner.next_token();
 
@@ -314,7 +322,7 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
                     .comments
                     .push(Comment::new(content, token_span, kind));
 
-                // Track doc comments for detached detection
+                // Track doc comments for detached detection + IS_DOC flag
                 if kind.is_doc() {
                     let marker = doc_comment_marker(kind);
                     if pending_doc.is_some() && had_blank_line_since_doc {
@@ -328,6 +336,7 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
                     }
                     pending_doc = Some((token_span, marker));
                     had_blank_line_since_doc = false;
+                    pending_is_doc = true;
                 }
 
                 pending_flags.set(TokenFlags::TRIVIA_BEFORE);
@@ -379,6 +388,10 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
                 }
                 if cooker.last_cook_was_contextual_kw() {
                     flags.set(TokenFlags::CONTEXTUAL_KW);
+                }
+                if pending_is_doc {
+                    flags.set(TokenFlags::IS_DOC);
+                    pending_is_doc = false;
                 }
                 output
                     .tokens
@@ -1009,6 +1022,135 @@ let x = 1";
                 "`{kw}` should still lex as identifier"
             );
         }
+    }
+
+    // === IS_DOC flag tests ===
+
+    #[test]
+    fn is_doc_on_token_after_description() {
+        // "// #Desc\ndef" — 'def' should have IS_DOC
+        let interner = StringInterner::new();
+        let output = lex_with_comments("// #Description\ndef", &interner);
+        let flags = output.tokens.flags();
+        // tokens: newline, def, EOF
+        assert_eq!(output.tokens[1].kind, TokenKind::Def);
+        assert!(
+            flags[1].is_doc(),
+            "'def' after doc description should have IS_DOC"
+        );
+    }
+
+    #[test]
+    fn is_doc_on_token_after_member() {
+        // "// * x: val\ndef" — 'def' should have IS_DOC
+        let interner = StringInterner::new();
+        let output = lex_with_comments("// * x: value\ndef", &interner);
+        let flags = output.tokens.flags();
+        assert_eq!(output.tokens[1].kind, TokenKind::Def);
+        assert!(
+            flags[1].is_doc(),
+            "'def' after doc member should have IS_DOC"
+        );
+    }
+
+    #[test]
+    fn is_doc_on_token_after_warning() {
+        let interner = StringInterner::new();
+        let output = lex_with_comments("// !Panics\ndef", &interner);
+        let flags = output.tokens.flags();
+        assert_eq!(output.tokens[1].kind, TokenKind::Def);
+        assert!(
+            flags[1].is_doc(),
+            "'def' after doc warning should have IS_DOC"
+        );
+    }
+
+    #[test]
+    fn is_doc_on_token_after_example() {
+        let interner = StringInterner::new();
+        let output = lex_with_comments("// >foo()\ndef", &interner);
+        let flags = output.tokens.flags();
+        assert_eq!(output.tokens[1].kind, TokenKind::Def);
+        assert!(
+            flags[1].is_doc(),
+            "'def' after doc example should have IS_DOC"
+        );
+    }
+
+    #[test]
+    fn no_is_doc_after_regular_comment() {
+        // "// regular\ndef" — 'def' should NOT have IS_DOC
+        let interner = StringInterner::new();
+        let output = lex_with_comments("// regular comment\ndef", &interner);
+        let flags = output.tokens.flags();
+        assert_eq!(output.tokens[1].kind, TokenKind::Def);
+        assert!(
+            !flags[1].is_doc(),
+            "'def' after regular comment should not have IS_DOC"
+        );
+    }
+
+    #[test]
+    fn is_doc_with_multiple_doc_comments() {
+        // Multiple doc comments before a declaration
+        let interner = StringInterner::new();
+        let output = lex_with_comments("// #Description\n// * x: value\ndef", &interner);
+        let flags = output.tokens.flags();
+        // tokens: newline, newline, def, EOF
+        assert_eq!(output.tokens[2].kind, TokenKind::Def);
+        assert!(
+            flags[2].is_doc(),
+            "'def' after multiple doc comments should have IS_DOC"
+        );
+    }
+
+    #[test]
+    fn no_is_doc_on_newline_token() {
+        // IS_DOC should not be set on the newline between doc comment and def
+        let interner = StringInterner::new();
+        let output = lex_with_comments("// #Description\ndef", &interner);
+        let flags = output.tokens.flags();
+        // tokens: newline(0), def(1), EOF(2)
+        assert_eq!(output.tokens[0].kind, TokenKind::Newline);
+        assert!(!flags[0].is_doc(), "newline should not have IS_DOC");
+    }
+
+    #[test]
+    fn is_doc_on_non_declaration_token() {
+        // IS_DOC is positional — set even before non-declaration tokens
+        let interner = StringInterner::new();
+        let output = lex_with_comments("// #Description\nlet", &interner);
+        let flags = output.tokens.flags();
+        assert_eq!(output.tokens[1].kind, TokenKind::Let);
+        assert!(
+            flags[1].is_doc(),
+            "'let' after doc comment should have IS_DOC"
+        );
+    }
+
+    #[test]
+    fn no_is_doc_without_comment() {
+        // No comments at all — no IS_DOC
+        let interner = StringInterner::new();
+        let output = lex_with_comments("def foo", &interner);
+        let flags = output.tokens.flags();
+        assert!(
+            !flags[0].is_doc(),
+            "'def' without preceding doc should not have IS_DOC"
+        );
+    }
+
+    #[test]
+    fn is_doc_not_set_in_simple_lex() {
+        // The fast lex() path does not classify comments — IS_DOC never set
+        let interner = StringInterner::new();
+        let tokens = lex("// #Description\ndef", &interner);
+        let flags = tokens.flags();
+        // tokens: newline, def, EOF
+        assert!(
+            !flags[1].is_doc(),
+            "lex() should not set IS_DOC (no comment classification)"
+        );
     }
 
     // === LexOutput Salsa Trait Tests ===

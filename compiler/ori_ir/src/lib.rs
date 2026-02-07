@@ -110,6 +110,8 @@ pub use ast::{
     StructField,
     StructLitField,
     StructLitFieldRange,
+    TemplatePart,
+    TemplatePartRange,
     TestDef,
     TraitAssocType,
     TraitBound,
@@ -143,6 +145,9 @@ pub use metadata::ModuleExtra;
 pub use name::Name;
 pub use parsed_type::ParsedType;
 pub use span::{Span, SpanError};
-pub use token::{DurationUnit, SizeUnit, Token, TokenCapture, TokenKind, TokenList};
+pub use token::{
+    DurationUnit, SizeUnit, Token, TokenCapture, TokenFlags, TokenIdx, TokenKind, TokenList,
+    TokenTag,
+};
 pub use traits::{Named, Spanned, Typed};
 pub use type_id::TypeId;

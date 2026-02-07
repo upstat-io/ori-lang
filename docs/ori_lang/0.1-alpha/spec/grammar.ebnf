@@ -29,6 +29,7 @@ unicode_char  = /* any Unicode code point except NUL (U+0000) */ .
 letter        = 'A' … 'Z' | 'a' … 'z' .
 digit         = '0' … '9' .
 hex_digit     = digit | 'A' … 'F' | 'a' … 'f' .
+bin_digit     = '0' | '1' .
 newline       = /* U+000A */ .
 whitespace    = ' ' | '\t' | '\r' | newline .
 
@@ -88,9 +89,10 @@ literal = int_literal | float_literal | string_literal | template_literal | char
         | bool_literal | duration_literal | size_literal .
 
 // Integer literals
-int_literal = decimal_lit | hex_lit .
+int_literal = decimal_lit | hex_lit | bin_lit .
 decimal_lit = digit { digit | "_" } .
 hex_lit     = "0x" hex_digit { hex_digit | "_" } .
+bin_lit     = "0b" bin_digit { bin_digit | "_" } .
 
 // Float literals
 float_literal = decimal_lit "." decimal_lit [ exponent ] .

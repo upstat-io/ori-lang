@@ -364,7 +364,12 @@ impl From<&TokenKind> for TokenCategory {
         match kind {
             TokenKind::Int(_) => TokenCategory::Int,
             TokenKind::Float(_) => TokenCategory::Float,
-            TokenKind::String(_) => TokenCategory::String,
+            TokenKind::String(_)
+            | TokenKind::TemplateHead(_)
+            | TokenKind::TemplateMiddle(_)
+            | TokenKind::TemplateTail(_)
+            | TokenKind::TemplateFull(_)
+            | TokenKind::FormatSpec(_) => TokenCategory::String,
             TokenKind::Char(_) => TokenCategory::Char,
             TokenKind::Duration(_, _) => TokenCategory::Duration,
             TokenKind::Size(_, _) => TokenCategory::Size,
@@ -373,7 +378,10 @@ impl From<&TokenKind> for TokenCategory {
             | TokenKind::Async
             | TokenKind::Mut
             | TokenKind::Dyn
-            | TokenKind::Skip => TokenCategory::Ident,
+            | TokenKind::Skip
+            | TokenKind::Suspend
+            | TokenKind::Unsafe
+            | TokenKind::Extern => TokenCategory::Ident,
             TokenKind::Break => TokenCategory::Break,
             TokenKind::Continue => TokenCategory::Continue,
             TokenKind::Def => TokenCategory::Def,
@@ -476,10 +484,7 @@ impl From<&TokenKind> for TokenCategory {
             TokenKind::Newline => TokenCategory::Newline,
             TokenKind::Eof => TokenCategory::Eof,
             // Return is recognized but invalid - treat as error for spacing
-            TokenKind::Return
-            | TokenKind::Error
-            | TokenKind::FloatDurationError
-            | TokenKind::FloatSizeError => TokenCategory::Error,
+            TokenKind::Return | TokenKind::Error => TokenCategory::Error,
         }
     }
 }

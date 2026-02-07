@@ -256,6 +256,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         | ExprKind::FunctionRef(_)
         | ExprKind::HashLength
         | ExprKind::None
+        | ExprKind::TemplateFull(_)
         | ExprKind::Error => {}
 
         // Single child
@@ -438,6 +439,13 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         ExprKind::FunctionExp(id) => {
             let exp = arena.get_function_exp(*id);
             visitor.visit_function_exp(exp, arena);
+        }
+
+        // Template literals with interpolation
+        ExprKind::TemplateLiteral { parts, .. } => {
+            for part in arena.get_template_parts(*parts) {
+                visitor.visit_expr_id(part.expr, arena);
+            }
         }
     }
 }

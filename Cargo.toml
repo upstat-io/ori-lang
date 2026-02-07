@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "compiler/ori_ir",
     "compiler/ori_diagnostic",
+    "compiler/ori_lexer_core",
     "compiler/ori_lexer",
     "compiler/ori_types",
     "compiler/ori_parse",
@@ -50,6 +51,7 @@ tracing-tree = "0.4"
 # Internal crates (workspace members only; excluded crates use path deps directly)
 ori_ir = { path = "compiler/ori_ir" }
 ori_diagnostic = { path = "compiler/ori_diagnostic" }
+ori_lexer_core = { path = "compiler/ori_lexer_core" }
 ori_lexer = { path = "compiler/ori_lexer" }
 ori_types = { path = "compiler/ori_types" }
 ori_parse = { path = "compiler/ori_parse" }

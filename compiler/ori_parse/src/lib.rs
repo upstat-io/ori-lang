@@ -33,6 +33,7 @@ use ori_ir::{
     ExprArena, Function, Module, ModuleExtra, Name, Span, StringInterner, TestDef, Token,
     TokenKind, TokenList, Visibility,
 };
+use tracing::debug;
 
 /// Result of parsing a definition starting with @.
 /// Can be either a function or a test.
@@ -594,53 +595,23 @@ impl<'a> Parser<'a> {
     /// - If parsing fails without progress (no tokens consumed), we skip unknown tokens
     /// - If parsing fails with progress (tokens consumed), we synchronize to a recovery point
     pub fn parse_module(mut self) -> ParseOutput {
+        debug!(
+            token_count = self.cursor.token_count(),
+            "parse_module start"
+        );
         let mut module = Module::with_capacity_hint(self.estimated_source_len());
         let mut errors = Vec::new();
 
-        // Parse imports first (must appear at beginning per spec)
-        // Includes both regular imports and public re-exports
+        self.parse_imports(&mut module.imports, &mut errors);
+
+        // Parse declarations (functions, tests, traits, impls, types, etc.)
         while !self.is_at_end() {
             self.skip_newlines();
             if self.is_at_end() {
                 break;
             }
 
-            // Check for pub use (re-export)
-            let is_pub_use =
-                self.check(&TokenKind::Pub) && matches!(self.peek_next_kind(), TokenKind::Use);
-
-            if self.check(&TokenKind::Use) || is_pub_use {
-                let visibility = if is_pub_use {
-                    self.advance(); // consume 'pub'
-                    Visibility::Public
-                } else {
-                    Visibility::Private
-                };
-                let outcome = self.parse_use(visibility);
-                self.handle_outcome(
-                    outcome,
-                    &mut module.imports,
-                    &mut errors,
-                    Self::recover_to_next_statement,
-                );
-            } else {
-                // No more imports
-                break;
-            }
-        }
-
-        // Parse functions and tests
-        while !self.is_at_end() {
-            self.skip_newlines();
-
-            if self.is_at_end() {
-                break;
-            }
-
-            // Parse attributes before function/test definitions
             let attrs = self.parse_attributes(&mut errors);
-
-            // Check for pub modifier
             let visibility = if self.check(&TokenKind::Pub) {
                 self.advance();
                 Visibility::Public
@@ -648,109 +619,7 @@ impl<'a> Parser<'a> {
                 Visibility::Private
             };
 
-            if self.check(&TokenKind::At) {
-                let outcome = self.parse_function_or_test(attrs, visibility);
-                match outcome {
-                    ParseOutcome::ConsumedOk { value } | ParseOutcome::EmptyOk { value } => {
-                        match value {
-                            FunctionOrTest::Function(func) => module.functions.push(func),
-                            FunctionOrTest::Test(test) => module.tests.push(test),
-                        }
-                    }
-                    ParseOutcome::ConsumedErr { error, .. } => {
-                        self.recover_to_function();
-                        errors.push(error);
-                    }
-                    ParseOutcome::EmptyErr { expected, position } => {
-                        errors.push(ParseError::from_expected_tokens(&expected, position));
-                    }
-                }
-            } else if self.check(&TokenKind::Trait) {
-                let outcome = self.parse_trait(visibility);
-                self.handle_outcome(
-                    outcome,
-                    &mut module.traits,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Def)
-                && matches!(self.peek_next_kind(), TokenKind::Impl)
-            {
-                // def impl TraitName { ... }
-                let outcome = self.parse_def_impl(visibility);
-                self.handle_outcome(
-                    outcome,
-                    &mut module.def_impls,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Impl) {
-                let outcome = self.parse_impl();
-                self.handle_outcome(
-                    outcome,
-                    &mut module.impls,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Extend) {
-                let outcome = self.parse_extend();
-                self.handle_outcome(
-                    outcome,
-                    &mut module.extends,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Type) {
-                let outcome = self.parse_type_decl(attrs, visibility);
-                self.handle_outcome(
-                    outcome,
-                    &mut module.types,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Dollar) {
-                let outcome = self.parse_const(visibility);
-                self.handle_outcome(
-                    outcome,
-                    &mut module.consts,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Use) {
-                // Import after declarations - error
-                errors.push(ParseError::new(
-                    ori_diagnostic::ErrorCode::E1002,
-                    "import statements must appear at the beginning of the file".to_string(),
-                    self.current_span(),
-                ));
-                // Skip the entire use statement to avoid infinite loop
-                // (recover_to_next_statement would stop at this same Use token)
-                self.advance(); // skip 'use'
-                while !self.is_at_end()
-                    && !self.check(&TokenKind::At)
-                    && !self.check(&TokenKind::Trait)
-                    && !self.check(&TokenKind::Impl)
-                    && !self.check(&TokenKind::Type)
-                    && !self.check(&TokenKind::Use)
-                {
-                    self.advance();
-                }
-            } else if !attrs.is_empty() {
-                // Attributes without a following function/test
-                errors.push(ParseError {
-                    code: ori_diagnostic::ErrorCode::E1006,
-                    message: "attributes must be followed by a function or test definition"
-                        .to_string(),
-                    span: self.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: ori_diagnostic::queue::DiagnosticSeverity::Hard,
-                });
-                self.advance();
-            } else {
-                // Skip unknown token
-                self.advance();
-            }
+            self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
         }
 
         ParseOutput {
@@ -761,6 +630,149 @@ impl<'a> Parser<'a> {
             // Note: For metadata support, use parse_with_metadata() which
             // overwrites this with lexer-captured metadata
             metadata: ModuleExtra::new(),
+        }
+    }
+
+    /// Parse the import block at the top of a module.
+    ///
+    /// Imports must appear at the beginning of the file per spec.
+    /// Parses both `use ...` and `pub use ...` (re-export) statements.
+    fn parse_imports(&mut self, imports: &mut Vec<ori_ir::UseDef>, errors: &mut Vec<ParseError>) {
+        while !self.is_at_end() {
+            self.skip_newlines();
+            if self.is_at_end() {
+                break;
+            }
+
+            let is_pub_use =
+                self.check(&TokenKind::Pub) && matches!(self.peek_next_kind(), TokenKind::Use);
+
+            if self.check(&TokenKind::Use) || is_pub_use {
+                let visibility = if is_pub_use {
+                    self.advance();
+                    Visibility::Public
+                } else {
+                    Visibility::Private
+                };
+                let outcome = self.parse_use(visibility);
+                self.handle_outcome(outcome, imports, errors, Self::recover_to_next_statement);
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Dispatch a single top-level declaration.
+    ///
+    /// Handles all declaration kinds: functions, tests, traits, impls,
+    /// extends, type declarations, constants, and error cases (misplaced
+    /// imports, orphaned attributes, unknown tokens).
+    ///
+    /// Returns `true` if a token was consumed (used by the caller to
+    /// detect infinite loops).
+    fn dispatch_declaration(
+        &mut self,
+        attrs: ParsedAttrs,
+        visibility: Visibility,
+        module: &mut Module,
+        errors: &mut Vec<ParseError>,
+    ) {
+        if self.check(&TokenKind::At) {
+            let outcome = self.parse_function_or_test(attrs, visibility);
+            match outcome {
+                ParseOutcome::ConsumedOk { value } | ParseOutcome::EmptyOk { value } => match value
+                {
+                    FunctionOrTest::Function(func) => module.functions.push(func),
+                    FunctionOrTest::Test(test) => module.tests.push(test),
+                },
+                ParseOutcome::ConsumedErr { error, .. } => {
+                    self.recover_to_function();
+                    errors.push(error);
+                }
+                ParseOutcome::EmptyErr { expected, position } => {
+                    errors.push(ParseError::from_expected_tokens(&expected, position));
+                }
+            }
+        } else if self.check(&TokenKind::Trait) {
+            let outcome = self.parse_trait(visibility);
+            self.handle_outcome(
+                outcome,
+                &mut module.traits,
+                errors,
+                Self::recover_to_function,
+            );
+        } else if self.check(&TokenKind::Def) && matches!(self.peek_next_kind(), TokenKind::Impl) {
+            let outcome = self.parse_def_impl(visibility);
+            self.handle_outcome(
+                outcome,
+                &mut module.def_impls,
+                errors,
+                Self::recover_to_function,
+            );
+        } else if self.check(&TokenKind::Impl) {
+            let outcome = self.parse_impl();
+            self.handle_outcome(
+                outcome,
+                &mut module.impls,
+                errors,
+                Self::recover_to_function,
+            );
+        } else if self.check(&TokenKind::Extend) {
+            let outcome = self.parse_extend();
+            self.handle_outcome(
+                outcome,
+                &mut module.extends,
+                errors,
+                Self::recover_to_function,
+            );
+        } else if self.check(&TokenKind::Type) {
+            let outcome = self.parse_type_decl(attrs, visibility);
+            self.handle_outcome(
+                outcome,
+                &mut module.types,
+                errors,
+                Self::recover_to_function,
+            );
+        } else if self.check(&TokenKind::Dollar) {
+            let outcome = self.parse_const(visibility);
+            self.handle_outcome(
+                outcome,
+                &mut module.consts,
+                errors,
+                Self::recover_to_function,
+            );
+        } else if self.check(&TokenKind::Use) {
+            // Import after declarations - error
+            errors.push(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "import statements must appear at the beginning of the file".to_string(),
+                self.current_span(),
+            ));
+            // Skip the entire use statement to avoid infinite loop
+            self.advance();
+            while !self.is_at_end()
+                && !self.check(&TokenKind::At)
+                && !self.check(&TokenKind::Trait)
+                && !self.check(&TokenKind::Impl)
+                && !self.check(&TokenKind::Type)
+                && !self.check(&TokenKind::Use)
+            {
+                self.advance();
+            }
+        } else if !attrs.is_empty() {
+            // Attributes without a following function/test
+            errors.push(ParseError {
+                code: ori_diagnostic::ErrorCode::E1006,
+                message: "attributes must be followed by a function or test definition".to_string(),
+                span: self.current_span(),
+                context: None,
+                help: Vec::new(),
+                severity: ori_diagnostic::queue::DiagnosticSeverity::Hard,
+            });
+            self.advance();
+        } else {
+            // Skip unknown token
+            self.advance();
         }
     }
 
@@ -787,40 +799,12 @@ impl<'a> Parser<'a> {
         let mut module = Module::with_capacity_hint(self.estimated_source_len());
         let mut errors = Vec::new();
 
-        // Parse imports first - imports always get re-parsed since they affect resolution
-        // TODO: In the future, could optimize import reuse too
-        while !self.is_at_end() {
-            self.skip_newlines();
-            if self.is_at_end() {
-                break;
-            }
-
-            let is_pub_use =
-                self.check(&TokenKind::Pub) && matches!(self.peek_next_kind(), TokenKind::Use);
-
-            if self.check(&TokenKind::Use) || is_pub_use {
-                let visibility = if is_pub_use {
-                    self.advance();
-                    Visibility::Public
-                } else {
-                    Visibility::Private
-                };
-                let outcome = self.parse_use(visibility);
-                self.handle_outcome(
-                    outcome,
-                    &mut module.imports,
-                    &mut errors,
-                    Self::recover_to_next_statement,
-                );
-            } else {
-                break;
-            }
-        }
+        // Imports always get re-parsed since they affect resolution
+        self.parse_imports(&mut module.imports, &mut errors);
 
         // Parse remaining declarations with potential reuse
         while !self.is_at_end() {
             self.skip_newlines();
-
             if self.is_at_end() {
                 break;
             }
@@ -831,10 +815,8 @@ impl<'a> Parser<'a> {
             if let Some(decl_ref) = state.cursor.find_at(pos) {
                 // Check if this declaration is outside the change region
                 if !state.cursor.marker().intersects(decl_ref.span) {
-                    // Create a copier for adjusting spans
                     let copier = AstCopier::new(old_arena, state.cursor.marker().clone());
 
-                    // Copy the declaration with adjusted spans
                     match decl_ref.kind {
                         DeclKind::Function => {
                             let old_func = &state.cursor.module().functions[decl_ref.index];
@@ -877,14 +859,11 @@ impl<'a> Parser<'a> {
                             module.consts.push(new_const);
                         }
                         DeclKind::Import => {
-                            // Imports already handled above
                             unreachable!("imports should not appear in declaration list");
                         }
                     }
 
                     state.stats.reused_count += 1;
-
-                    // Skip tokens until we're past this declaration
                     self.skip_to_span_end(decl_ref.span);
                     continue;
                 }
@@ -893,10 +872,7 @@ impl<'a> Parser<'a> {
             // Cannot reuse: parse fresh
             state.stats.reparsed_count += 1;
 
-            // Parse attributes
             let attrs = self.parse_attributes(&mut errors);
-
-            // Check for pub modifier
             let visibility = if self.check(&TokenKind::Pub) {
                 self.advance();
                 Visibility::Public
@@ -904,103 +880,7 @@ impl<'a> Parser<'a> {
                 Visibility::Private
             };
 
-            if self.check(&TokenKind::At) {
-                let outcome = self.parse_function_or_test(attrs, visibility);
-                match outcome {
-                    ParseOutcome::ConsumedOk { value } | ParseOutcome::EmptyOk { value } => {
-                        match value {
-                            FunctionOrTest::Function(func) => module.functions.push(func),
-                            FunctionOrTest::Test(test) => module.tests.push(test),
-                        }
-                    }
-                    ParseOutcome::ConsumedErr { error, .. } => {
-                        self.recover_to_function();
-                        errors.push(error);
-                    }
-                    ParseOutcome::EmptyErr { expected, position } => {
-                        errors.push(ParseError::from_expected_tokens(&expected, position));
-                    }
-                }
-            } else if self.check(&TokenKind::Trait) {
-                let outcome = self.parse_trait(visibility);
-                self.handle_outcome(
-                    outcome,
-                    &mut module.traits,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Def)
-                && matches!(self.peek_next_kind(), TokenKind::Impl)
-            {
-                let outcome = self.parse_def_impl(visibility);
-                self.handle_outcome(
-                    outcome,
-                    &mut module.def_impls,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Impl) {
-                let outcome = self.parse_impl();
-                self.handle_outcome(
-                    outcome,
-                    &mut module.impls,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Extend) {
-                let outcome = self.parse_extend();
-                self.handle_outcome(
-                    outcome,
-                    &mut module.extends,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Type) {
-                let outcome = self.parse_type_decl(attrs, visibility);
-                self.handle_outcome(
-                    outcome,
-                    &mut module.types,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Dollar) {
-                let outcome = self.parse_const(visibility);
-                self.handle_outcome(
-                    outcome,
-                    &mut module.consts,
-                    &mut errors,
-                    Self::recover_to_function,
-                );
-            } else if self.check(&TokenKind::Use) {
-                errors.push(ParseError::new(
-                    ori_diagnostic::ErrorCode::E1002,
-                    "import statements must appear at the beginning of the file".to_string(),
-                    self.current_span(),
-                ));
-                self.advance();
-                while !self.is_at_end()
-                    && !self.check(&TokenKind::At)
-                    && !self.check(&TokenKind::Trait)
-                    && !self.check(&TokenKind::Impl)
-                    && !self.check(&TokenKind::Type)
-                    && !self.check(&TokenKind::Use)
-                {
-                    self.advance();
-                }
-            } else if !attrs.is_empty() {
-                errors.push(ParseError {
-                    code: ori_diagnostic::ErrorCode::E1006,
-                    message: "attributes must be followed by a function or test definition"
-                        .to_string(),
-                    span: self.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: ori_diagnostic::queue::DiagnosticSeverity::Hard,
-                });
-                self.advance();
-            } else {
-                self.advance();
-            }
+            self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
         }
 
         ParseOutput {
