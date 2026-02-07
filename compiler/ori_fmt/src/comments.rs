@@ -11,10 +11,11 @@
 //!
 //! Doc comments are reordered to match the canonical order:
 //! 1. `// #Description` - Description (may span multiple lines)
-//! 2. `// @param` - Parameter docs (in signature order)
-//! 3. `// @field` - Field docs (in struct order)
-//! 4. `// !Warning` - Warnings and panics
-//! 5. `// >example` - Examples
+//! 2. `// * name: desc` - Member docs (params/fields, in signature/struct order)
+//! 3. `// !Warning` - Warnings and panics
+//! 4. `// >example` - Examples
+//!
+//! Legacy `@param`/`@field` markers are also supported at the same sort order.
 //!
 //! Regular comments (`//`) are not reordered.
 
@@ -143,7 +144,10 @@ impl CommentIndex {
                 }
                 self.consumed[comment_ref.index] = true;
 
-                if comment_ref.kind == CommentKind::DocParam {
+                if matches!(
+                    comment_ref.kind,
+                    CommentKind::DocParam | CommentKind::DocMember
+                ) {
                     param_indices.push(comment_ref.index);
                 } else {
                     other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
@@ -199,7 +203,10 @@ impl CommentIndex {
                 }
                 self.consumed[comment_ref.index] = true;
 
-                if comment_ref.kind == CommentKind::DocField {
+                if matches!(
+                    comment_ref.kind,
+                    CommentKind::DocField | CommentKind::DocMember
+                ) {
                     field_indices.push(comment_ref.index);
                 } else {
                     other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
@@ -272,13 +279,15 @@ pub fn reorder_param_comments<I: StringLookup>(
         .map(|(i, &name)| (name, i))
         .collect();
 
-    // Extract param name from each @param comment
+    // Extract param name from each @param or * name: comment
     let mut param_to_index: Vec<(Option<usize>, usize)> = param_indices
         .iter()
         .map(|&idx| {
             let content = interner.lookup(comments[idx].content);
-            // Format: " @param name description"
-            let param_name = extract_param_name(content);
+            let param_name = match comments[idx].kind {
+                CommentKind::DocMember => extract_member_name(content),
+                _ => extract_param_name(content),
+            };
             let order = name_to_order.get(param_name).copied();
             (order, idx)
         })
@@ -312,7 +321,10 @@ pub fn reorder_field_comments<I: StringLookup>(
         .iter()
         .map(|&idx| {
             let content = interner.lookup(comments[idx].content);
-            let field_name = extract_field_name(content);
+            let field_name = match comments[idx].kind {
+                CommentKind::DocMember => extract_member_name(content),
+                _ => extract_field_name(content),
+            };
             let order = name_to_order.get(field_name).copied();
             (order, idx)
         })
@@ -347,6 +359,24 @@ fn extract_field_name(content: &str) -> &str {
     } else {
         ""
     }
+}
+
+/// Extract the member name from a `* name:` doc comment content.
+///
+/// Input: " * name: description"
+/// Output: "name"
+fn extract_member_name(content: &str) -> &str {
+    let trimmed = content.trim_start();
+    if let Some(rest) = trimmed.strip_prefix('*') {
+        let rest = rest.trim_start();
+        if let Some(colon_pos) = rest.find(':') {
+            let name = rest[..colon_pos].trim();
+            if !name.is_empty() {
+                return name;
+            }
+        }
+    }
+    ""
 }
 
 /// Group consecutive comments by their kind for reordering.
@@ -563,5 +593,65 @@ mod tests {
         assert_eq!(groups[0], vec![0]);
         assert_eq!(groups[1], vec![1, 2]);
         assert_eq!(groups[2], vec![3]);
+    }
+
+    #[test]
+    fn test_extract_member_name() {
+        assert_eq!(extract_member_name(" * x: The value"), "x");
+        assert_eq!(extract_member_name(" * my_param: A value"), "my_param");
+        assert_eq!(extract_member_name(" * name:"), "name");
+        assert_eq!(extract_member_name("* x: val"), "x");
+        assert_eq!(extract_member_name("not a member"), "");
+        assert_eq!(extract_member_name(" * :"), ""); // empty name
+    }
+
+    #[test]
+    fn test_reorder_member_param_comments() {
+        let interner = test_interner();
+        let comments = CommentList::from_vec(vec![
+            Comment::new(
+                interner.intern(" * b: Second"),
+                Span::new(0, 20),
+                CommentKind::DocMember,
+            ),
+            Comment::new(
+                interner.intern(" * a: First"),
+                Span::new(21, 40),
+                CommentKind::DocMember,
+            ),
+        ]);
+
+        let param_names = ["a", "b"];
+        let indices = vec![0, 1];
+
+        let reordered = reorder_param_comments(&indices, &comments, &param_names, &interner);
+
+        // Should be reordered to match param order: a (index 1) then b (index 0)
+        assert_eq!(reordered, vec![1, 0]);
+    }
+
+    #[test]
+    fn test_reorder_member_field_comments() {
+        let interner = test_interner();
+        let comments = CommentList::from_vec(vec![
+            Comment::new(
+                interner.intern(" * y: The Y"),
+                Span::new(0, 20),
+                CommentKind::DocMember,
+            ),
+            Comment::new(
+                interner.intern(" * x: The X"),
+                Span::new(21, 40),
+                CommentKind::DocMember,
+            ),
+        ]);
+
+        let field_names = ["x", "y"];
+        let indices = vec![0, 1];
+
+        let reordered = reorder_field_comments(&indices, &comments, &field_names, &interner);
+
+        // Should be reordered to match field order: x (index 1) then y (index 0)
+        assert_eq!(reordered, vec![1, 0]);
     }
 }
