@@ -441,6 +441,7 @@ fn doc_comment_marker(kind: CommentKind) -> lex_error::DocMarker {
     match kind {
         CommentKind::DocDescription => lex_error::DocMarker::Description,
         CommentKind::DocParam | CommentKind::DocField => lex_error::DocMarker::Param,
+        CommentKind::DocMember => lex_error::DocMarker::Member,
         CommentKind::DocWarning => lex_error::DocMarker::Warning,
         CommentKind::DocExample => lex_error::DocMarker::Example,
         CommentKind::Regular => lex_error::DocMarker::Plain,
