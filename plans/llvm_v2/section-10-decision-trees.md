@@ -1,26 +1,26 @@
 ---
 section: "10"
 title: Pattern Match Decision Trees
-status: not-started
+status: complete
 goal: Compile match expressions to efficient decision trees during AST-to-ARC-IR lowering, producing Switch terminators that map trivially to LLVM switch instructions
 sections:
   - id: "10.1"
     title: Decision Tree Data Structures
-    status: not-started
+    status: complete
   - id: "10.2"
     title: Decision Tree Construction Algorithm
-    status: not-started
+    status: complete
   - id: "10.3"
     title: Guard & Or-Pattern Handling
-    status: not-started
+    status: complete
   - id: "10.4"
     title: ARC IR Emission from Decision Trees
-    status: not-started
+    status: complete
 ---
 
 # Section 10: Pattern Match Decision Trees
 
-**Status:** Not Started
+**Status:** Complete (2 optimization items deferred)
 **Goal:** Compile match expressions to efficient decision trees that produce optimal branching. Decision tree compilation happens during **AST-to-ARC IR lowering** in `ori_arc` (per Q1 decision). The result is ARC IR basic blocks with `Switch` terminators. LLVM emission is trivial: a `Switch` terminator maps directly to an LLVM `switch` instruction.
 
 **Crate:** `ori_arc` (no LLVM dependency). The decision tree algorithm is part of the AST-to-ARC-IR lowering pass (Section 06.0). The `ori_llvm` crate does NOT contain pattern compilation logic -- it just emits `Switch` terminators as LLVM `switch` instructions and `Branch` terminators as LLVM `br` instructions.
@@ -178,11 +178,11 @@ pub enum TestValue {
 
 **Tag type derivation:** The tag discriminant type is NOT hardcoded to `i8`. During ARC IR emission, the tag type is derived from `TypeInfo` for the enum being matched. Small enums (up to 256 variants) use `i8`, larger enums use `i16` or `i32`. The LLVM `switch` instruction's case values must match the tag type. This is determined at emission time from the `TypeInfo` of the scrutinee, not baked into the decision tree.
 
-- [ ] Define `DecisionTree` enum with `Switch`, `Leaf`, `Guard`, `Fail` variants
-- [ ] Define `ScrutineePath` and `PathInstruction` for nested pattern access
-- [ ] Define `TestKind` enum (EnumTag, IntEq, StrEq, BoolEq, FloatEq, IntRange, ListLen)
-- [ ] Define `TestValue` enum with proper payloads (Tag has variant_index + variant_name)
-- [ ] Derive tag type from TypeInfo, not hardcoded i8
+- [x] Define `DecisionTree` enum with `Switch`, `Leaf`, `Guard`, `Fail` variants
+- [x] Define `ScrutineePath` and `PathInstruction` for nested pattern access
+- [x] Define `TestKind` enum (EnumTag, IntEq, StrEq, BoolEq, FloatEq, IntRange, ListLen)
+- [x] Define `TestValue` enum with proper payloads (Tag has variant_index + variant_name)
+- [x] Derive tag type from TypeInfo, not hardcoded i8
 
 ## 10.2 Decision Tree Construction Algorithm
 
@@ -301,16 +301,16 @@ fn default_matrix(matrix, col, paths) -> DefaultMatrix:
     // Remove the corresponding path from `paths`.
 ```
 
-- [ ] Implement `compile()` recursive algorithm
-- [ ] Implement `pick_column()` heuristic (most distinct constructors)
-- [ ] Implement `specialize_matrix()` for constructor decomposition
-- [ ] Implement `default_matrix()` for wildcard/catch-all rows
-- [ ] Implement `extract_bindings()` to collect variable bindings from patterns
-- [ ] Implement `collect_test_values()` to gather distinct constructors at a column
-- [ ] Handle nested patterns via path extension during specialization
-- [ ] Handle literal patterns (int, string, bool, float) alongside constructor patterns
-- [ ] Handle range patterns as `IntRange` test values
-- [ ] Handle list patterns with length checks + element extraction
+- [x] Implement `compile()` recursive algorithm
+- [x] Implement `pick_column()` heuristic (most distinct constructors)
+- [x] Implement `specialize_matrix()` for constructor decomposition
+- [x] Implement `default_matrix()` for wildcard/catch-all rows
+- [x] Implement `extract_bindings()` to collect variable bindings from patterns
+- [x] Implement `collect_test_values()` to gather distinct constructors at a column
+- [x] Handle nested patterns via path extension during specialization
+- [x] Handle literal patterns (int, string, bool, float) alongside constructor patterns
+- [x] Handle range patterns as `IntRange` test values
+- [x] Handle list patterns with length checks + element extraction
 - [ ] Optimize: merge identical subtrees (DAG instead of tree)
 
 ## 10.3 Guard & Or-Pattern Handling
@@ -369,11 +369,11 @@ At ARC IR emission time, leaves with the same `arm_index` share a single body bl
 
 **Variable binding constraint:** All alternatives in an or-pattern must bind the same set of variables with the same types. This is checked by `ori_types` before codegen.
 
-- [ ] Implement guard-aware compilation: `on_fail` chain includes all compatible arms
-- [ ] Implement or-pattern expansion: shared leaf label for `A | B -> body`
-- [ ] Emit shared body block for or-pattern arms (jump from each alternative)
-- [ ] Test: guards with overlapping patterns fall through correctly
-- [ ] Test: or-patterns bind variables from different constructor shapes
+- [x] Implement guard-aware compilation: `on_fail` chain includes all compatible arms
+- [x] Implement or-pattern expansion: shared leaf label for `A | B -> body`
+- [x] Emit shared body block for or-pattern arms (jump from each alternative)
+- [x] Test: guards with overlapping patterns fall through correctly
+- [x] Test: or-patterns bind variables from different constructor shapes
 
 ## 10.4 ARC IR Emission from Decision Trees
 
@@ -561,13 +561,13 @@ ArcTerminator::Unreachable
 
 No pattern-matching logic exists in `ori_llvm`. It is a mechanical translation of ARC IR terminators to LLVM instructions.
 
-- [ ] Implement `emit_decision_tree()` in ARC IR lowering
-- [ ] Implement `resolve_path()` for nested scrutinee navigation
-- [ ] Implement payload extraction via `Project` instructions after tag tests
-- [ ] Implement shared body blocks for or-patterns (same arm_index, one body)
-- [ ] Emit tag type from TypeInfo (not hardcoded i8)
-- [ ] Map `Fail` nodes to `Unreachable` terminators
-- [ ] Verify trivial LLVM emission: Switch -> LLVM switch, Branch -> LLVM br
+- [x] Implement `emit_decision_tree()` in ARC IR lowering
+- [x] Implement `resolve_path()` for nested scrutinee navigation
+- [x] Implement payload extraction via `Project` instructions after tag tests
+- [x] Implement shared body blocks for or-patterns (same arm_index, one body)
+- [x] Emit tag type from TypeInfo (not hardcoded i8)
+- [x] Map `Fail` nodes to `Unreachable` terminators
+- [x] Verify trivial LLVM emission: Switch -> LLVM switch, Branch -> LLVM br
 - [ ] Benchmark: compare against current sequential approach
 
 ---
