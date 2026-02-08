@@ -28,7 +28,7 @@ sections:
 
 **Key insight from Swift:** This optimization happens at the *ARC-annotated IR* level (between Section 07 and codegen), where we have full ownership semantics. NOT at the LLVM IR level where ownership information is lost.
 
-**Heap layout context:** RC operations target the Roc-style refcount-at-negative-offset layout (see Section 01.6). The header is 16 bytes: `{ strong_count: i64, weak_count: i64 }`. The strong_count is at `ptr - 16` from the data pointer. Elimination of paired inc/dec operations saves not just the refcount arithmetic but also the pointer adjustment and memory access.
+**Heap layout context:** RC operations target the Roc-style refcount-at-negative-offset layout (see Section 01.6). The header is 8 bytes: `{ strong_count: i64 }`. The strong_count is at `ptr - 8` from the data pointer. Elimination of paired inc/dec operations saves not just the refcount arithmetic but also the pointer adjustment and memory access.
 
 ---
 

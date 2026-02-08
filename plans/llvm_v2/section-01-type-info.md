@@ -298,7 +298,7 @@ The Pool flattening refactor must:
 
 1. **Add Pool constructors** for struct and enum types that store field/variant data in Pool's extra array (similar to how `Function` and `Tuple` already use extra arrays with length prefixes). Estimated: ~200-300 lines in `pool/construct.rs`.
 2. **Define extra-array layouts** for struct fields (field count, then pairs of Name + Idx) and enum variants (variant count, then per-variant: name + field count + field Idx list). Estimated: ~100-150 lines of layout logic.
-3. **Add Pool accessor methods**: `struct_fields(idx) -> Vec<(Name, Idx)>`, `enum_variants(idx) -> Vec<EnumVariantInfo>`, and `resolve(idx) -> Idx` (follows Named/Applied/Alias indirections). Estimated: ~150-200 lines in `pool/mod.rs`.
+3. **Add Pool accessor methods**: `struct_fields(idx) -> Vec<(Name, Idx)>`, `enum_variants(idx) -> Vec<EnumVariantInfo>`, `resolve(idx) -> Idx` (follows Named/Applied/Alias indirections), and `channel_elem(idx) -> Idx` (returns the element type for a `Tag::Channel` entry). Estimated: ~150-200 lines in `pool/mod.rs`.
 4. **Migrate TypeRegistry callers** to write struct/enum data into Pool during type registration, so that by codegen time all data is accessible via Pool alone. Estimated: ~200-300 lines of changes across `registry/types.rs` and `check/`.
 5. **Add Pool interning constructors and accessors for `Tag::Struct` and `Tag::Enum`** — the `Tag::Struct` and `Tag::Enum` variants already exist in `tag.rs`; what's missing are Pool methods to intern struct/enum types (storing field/variant data in the extra array) and accessor methods to read them back. Ensure deduplication works correctly for structural types. Estimated: ~100-150 lines.
 
@@ -318,13 +318,19 @@ Until this refactor is complete, the `struct_fields()`, `enum_variants()`, and `
 /// No Arc, no dyn, no RwLock — single-threaded per codegen context.
 /// For parallel codegen (Section 12), each thread has its own store.
 ///
+/// Uses interior mutability (RefCell) to allow shared access. Matches
+/// the existing RefCell<TypeCache> pattern in CodegenCx. This lets
+/// ExprLowerer hold `&TypeInfoStore` (shared ref) while still supporting
+/// lazy population of entries on first access.
+///
 /// Only depends on Pool — struct/enum field data must be pre-flattened
 /// into Pool's extra array during type checking (prerequisite refactor).
 pub struct TypeInfoStore<'tcx> {
     /// Idx → TypeInfo mapping. Dense indexed storage.
     /// Indices 0-63 are pre-populated at construction.
     /// None = not yet computed. Some = cached.
-    entries: Vec<Option<TypeInfo>>,
+    /// Uses RefCell for interior mutability — get() takes &self.
+    entries: RefCell<Vec<Option<TypeInfo>>>,
 
     /// Pool reference for type property queries.
     /// All type data (including struct fields, enum variants) is accessible
@@ -359,14 +365,15 @@ impl<'tcx> TypeInfoStore<'tcx> {
             };
             entries.push(Some(info));
         }
-        Self { entries, pool }
+        Self { entries: RefCell::new(entries), pool }
     }
 
     /// Get or compute TypeInfo for a type.
     ///
     /// Returns `&TypeInfo::Error` for `Idx::NONE` (sentinel value, u32::MAX).
     /// Indices 0-63 are pre-populated and never require lazy computation.
-    pub fn get(&mut self, idx: Idx) -> &TypeInfo {
+    /// Takes `&self` (not `&mut self`) thanks to interior mutability (RefCell).
+    pub fn get(&self, idx: Idx) -> &TypeInfo {
         // Guard: Idx::NONE is a sentinel (u32::MAX), not a valid type.
         // Return a static Error — do NOT index into entries.
         if idx == Idx::NONE {
@@ -374,21 +381,28 @@ impl<'tcx> TypeInfoStore<'tcx> {
         }
 
         let index = idx.raw() as usize;
-        if index >= self.entries.len() {
-            self.entries.resize_with(index + 1, || None);
+        let mut entries = self.entries.borrow_mut();
+        if index >= entries.len() {
+            entries.resize_with(index + 1, || None);
         }
-        if self.entries[index].is_none() {
+        if entries[index].is_none() {
             let info = self.compute_type_info(idx);
-            self.entries[index] = Some(info);
+            entries[index] = Some(info);
         }
-        self.entries[index].as_ref().unwrap()
+        // SAFETY: We just ensured entries[index] is Some. The returned
+        // reference is valid for the lifetime of the TypeInfoStore because
+        // entries are never removed or moved — only appended.
+        // In practice, this will use Ref::map or an unsafe pointer cast
+        // to return a reference with the correct lifetime.
+        entries[index].as_ref().unwrap()
     }
 
     /// Convenience method: get the LLVM type ID for a type's storage representation.
     /// Calls storage_type() on the TypeInfo, then registers the result with the
     /// IrBuilder to obtain an LLVMTypeId. This bridges the TypeInfo world (which
     /// returns BasicTypeEnum) with the ID-based builder world (which uses LLVMTypeId).
-    pub fn storage_type_id(&mut self, idx: Idx, builder: &mut IrBuilder) -> LLVMTypeId {
+    /// Takes `&self` (not `&mut self`) thanks to interior mutability (RefCell).
+    pub fn storage_type_id(&self, idx: Idx, builder: &mut IrBuilder) -> LLVMTypeId {
         let ty = self.get(idx).storage_type(builder.cx());
         builder.register_type(ty)
     }
@@ -515,32 +529,34 @@ Reference-counted types use a **Roc-style layout** where the refcount header liv
 
 ```
 Heap allocation:
-  ┌───────────────────┬──────────────────┬───────────────────────┐
-  │ strong_count: i64 │ weak_count: i64  │ data bytes ...        │
-  └───────────────────┴──────────────────┴───────────────────────┘
-  ^                   ^                  ^
-  ptr - 16            ptr - 8            ptr (data pointer, stored on stack)
+  ┌───────────────────┬───────────────────────┐
+  │ strong_count: i64 │ data bytes ...        │
+  └───────────────────┴───────────────────────┘
+  ^                   ^
+  ptr - 8             ptr (data pointer, stored on stack)
 ```
+
+> **0.1-alpha** uses an 8-byte header with `strong_count` only. Weak references (adding `weak_count` for a 16-byte header) are deferred to a future version (see Section 07.3).
 
 **Key properties:**
 - The data pointer (`ptr`) points directly to the user data, NOT to the refcount header
-- The header is 16 bytes: `{ strong_count: i64, weak_count: i64 }`
-- `strong_count` is at `ptr - 16`, `weak_count` is at `ptr - 8`
+- The header is 8 bytes: `{ strong_count: i64 }`
+- `strong_count` is at `ptr - 8`
 - This enables direct C FFI pass-through: the data pointer can be handed to C functions without adjustment
-- Allocation: `ori_rc_alloc(size, align)` allocates `size + 16` bytes, returns `base + 16`
-- `emit_retain`: loads strong_count from `ptr - 16`, increments, stores back
-- `emit_release`: loads strong_count from `ptr - 16`, decrements, if zero then free from `ptr - 16`
+- Allocation: `ori_rc_alloc(size, align)` allocates `size + 8` bytes, returns `base + 8`
+- `emit_retain`: loads strong_count from `ptr - 8`, increments, stores back
+- `emit_release`: loads strong_count from `ptr - 8`, decrements, if zero then free from `ptr - 8`
 
 **Stack representations with heap data:**
 
 | Type | Stack Layout | Heap Data |
 |------|-------------|-----------|
-| `str` | `{i64, ptr}` (len, data_ptr) | `[strong_count \| weak_count \| utf8_bytes...]` |
-| `[T]` | `{i64, i64, ptr}` (len, cap, data_ptr) | `[strong_count \| weak_count \| elements...]` |
-| `{K: V}` | `{i64, i64, ptr, ptr}` (len, cap, keys_ptr, vals_ptr) | `[strong_count \| weak_count \| keys...]`, `[strong_count \| weak_count \| vals...]` |
-| `set[T]` | `{i64, i64, ptr}` (len, cap, data_ptr) | `[strong_count \| weak_count \| elements...]` |
-| `chan<T>` | `ptr` (opaque channel_ptr) | `[strong_count \| weak_count \| channel_state...]` |
-| `(P) -> R` | `ptr` (closure_ptr) | `[strong_count \| weak_count \| fn_ptr, captures...]` |
+| `str` | `{i64, ptr}` (len, data_ptr) | `[strong_count \| utf8_bytes...]` |
+| `[T]` | `{i64, i64, ptr}` (len, cap, data_ptr) | `[strong_count \| elements...]` |
+| `{K: V}` | `{i64, i64, ptr, ptr}` (len, cap, keys_ptr, vals_ptr) | `[strong_count \| keys...]`, `[strong_count \| vals...]` |
+| `set[T]` | `{i64, i64, ptr}` (len, cap, data_ptr) | `[strong_count \| elements...]` |
+| `chan<T>` | `ptr` (opaque channel_ptr) | `[strong_count \| channel_state...]` |
+| `(P) -> R` | `ptr` (closure_ptr) | `[strong_count \| fn_ptr, captures...]` |
 
 This layout is important context for RC insertion (Section 07) and RC elimination (Section 08).
 

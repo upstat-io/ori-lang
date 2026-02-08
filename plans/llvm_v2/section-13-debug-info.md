@@ -129,16 +129,26 @@ impl TypeInfo {
     pub fn debug_type<'ctx>(
         &self,
         di: &DebugInfoBuilder<'ctx>,
+        pool: &Pool,        // Needed to look up type names for Struct/Enum
+        idx: Idx,           // The Pool index for this type (for name lookup)
     ) -> Result<DIType<'ctx>, DebugInfoError> {
         match self {
             TypeInfo::Int => di.int_type().map(|t| t.as_type()),
             TypeInfo::Float => di.float_type().map(|t| t.as_type()),
             TypeInfo::Bool => di.bool_type().map(|t| t.as_type()),
             TypeInfo::Str => di.string_type().map(|t| t.as_type()),
-            TypeInfo::Struct { name, fields, .. } => { /* create_struct_type */ }
-            TypeInfo::Enum { name, variants, .. } => { /* create_enum_type */ }
+            TypeInfo::Struct { fields } => {
+                // Type name obtained from Pool (not TypeInfo — TypeInfo omits names)
+                let name = pool.type_name(idx);
+                /* di.create_struct_type(&name, ..., fields) */
+            }
+            TypeInfo::Enum { variants } => {
+                // Type name obtained from Pool (not TypeInfo — TypeInfo omits names)
+                let name = pool.type_name(idx);
+                /* di.create_enum_type(&name, ..., variants) */
+            }
             TypeInfo::List { element, .. } => { /* di.list_type(element.debug_type(di)?) */ }
-            TypeInfo::Option { payload, .. } => { /* di.option_type(...) */ }
+            TypeInfo::Option { inner, .. } => { /* di.option_type(inner.debug_type(di)?) */ }
             TypeInfo::Result { ok, err, .. } => { /* di.result_type(...) */ }
             TypeInfo::Function { .. } => { /* fat pointer {fn_ptr, env_ptr} */ }
             TypeInfo::Channel { .. } => { /* pointer to runtime channel */ }
@@ -257,7 +267,9 @@ When ARC IR (Section 06) introduces synthetic variables (e.g., temporary RC incr
 
 ### Reference-Counted Heap Objects
 
-ARC-managed heap objects (Section 07) have a 16-byte header `{ strong_count: i64, weak_count: i64 }` where the pointer points to `data` and the header lives at `ptr - 16`. For the alpha release, debug info represents the **raw layout**:
+ARC-managed heap objects (Section 07) have an 8-byte header `{ strong_count: i64 }` where the pointer points to `data` and the header lives at `ptr - 8`. For the alpha release, debug info represents the **raw layout**:
+
+> **0.1-alpha:** 8-byte header (strong_count only). When weak references are added, the header expands to 16 bytes and the data offset changes to 128 bits.
 
 ```rust
 // Pseudocode: debug type for an RC-managed heap object
@@ -270,20 +282,19 @@ fn create_rc_heap_type<'ctx>(
     let int_ty = di.int_type().unwrap().as_type();
     let fields = [
         FieldInfo { name: "strong_count", ty: int_ty, size_bits: 64, offset_bits: 0, line: 0 },
-        FieldInfo { name: "weak_count", ty: int_ty, size_bits: 64, offset_bits: 64, line: 0 },
-        FieldInfo { name: "data", ty: inner_type, size_bits: inner_size_bits, offset_bits: 128, line: 0 },
+        FieldInfo { name: "data", ty: inner_type, size_bits: inner_size_bits, offset_bits: 64, line: 0 },
     ];
     di.create_struct_type(
         &format!("RC<{inner_name}>"),
         0,
-        128 + inner_size_bits,
+        64 + inner_size_bits,
         64,
         &fields,
     )
 }
 ```
 
-This means in lldb, users will see `RC<MyStruct>.strong_count`, `RC<MyStruct>.weak_count`, and `RC<MyStruct>.data.field_name`. This is raw but accurate. User-friendly LLDB formatters (type summaries and synthetic children that hide the header and show `data` fields directly) are a future enhancement tracked separately.
+This means in lldb, users will see `RC<MyStruct>.strong_count` and `RC<MyStruct>.data.field_name`. This is raw but accurate. User-friendly LLDB formatters (type summaries and synthetic children that hide the header and show `data` fields directly) are a future enhancement tracked separately.
 
 ### Source Location Preservation Through ARC IR Lowering
 
@@ -316,7 +327,7 @@ The existing code uses `DWARFSourceLanguage::C` as a stand-in. This is acceptabl
 
 ## 13.5 Pipeline Wiring (Fix the Existing Gap)
 
-The critical gap: `DebugInfoBuilder` and `DebugContext` exist and are well-implemented, but they are **not used** by the current codegen pipeline (`builder.rs`, `context.rs`, `module.rs`). V2 must wire debug info into four points.
+The critical gap: `DebugInfoBuilder` and `DebugContext` exist and are well-implemented, but they are **not used** by the current codegen pipeline (`builder.rs`, `context.rs`, `module.rs`). V2 must wire debug info into five points.
 
 ### Point 1: Module Setup
 

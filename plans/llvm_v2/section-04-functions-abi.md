@@ -178,12 +178,18 @@ V2 replaces this with TypeInfo-driven thresholds:
 ```rust
 fn compute_param_passing(ty: Idx, type_info: &TypeInfoStore) -> ParamPassing {
     let info = type_info.get(ty);
-    // size() returns Option<u64>: None for dynamically-sized types,
-    // Some(0) for unit/never. Both map to Void.
+    // size() returns Option<u64>:
+    //   Some(0) for unit/never → Void (no value passed)
+    //   None for dynamically-sized → Indirect (size unknown at compile time)
+    //   Some(1..=16) → Direct (fits in <=2 registers)
+    //   Some(>16) → Indirect (too large for registers, use byval)
     match info.size() {
-        Some(0) | None => ParamPassing::Void,        // unit, never, or unsized
-        Some(1..=16) => ParamPassing::Direct,        // fits in <=2 registers
-        Some(_) => ParamPassing::Indirect {           // >16 bytes, use byval
+        Some(0) => ParamPassing::Void,                // unit, never
+        None => ParamPassing::Indirect {              // dynamically-sized
+            alignment: info.alignment(),
+        },
+        Some(1..=16) => ParamPassing::Direct,         // fits in <=2 registers
+        Some(_) => ParamPassing::Indirect {            // >16 bytes, use byval
             alignment: info.alignment(),
         },
     }
@@ -191,10 +197,16 @@ fn compute_param_passing(ty: Idx, type_info: &TypeInfoStore) -> ParamPassing {
 
 fn compute_return_passing(ty: Idx, type_info: &TypeInfoStore) -> ReturnPassing {
     let info = type_info.get(ty);
-    // size() returns Option<u64>: None for dynamically-sized types,
-    // Some(0) for unit/never. Both map to Void.
+    // size() returns Option<u64>:
+    //   Some(0) for unit/never → Void (function returns void)
+    //   None for dynamically-sized → Sret (size unknown, use hidden pointer)
+    //   Some(1..=16) → Direct (fits in registers)
+    //   Some(>16) → Sret (too large for registers, caller provides pointer)
     match info.size() {
-        Some(0) | None => ReturnPassing::Void,
+        Some(0) => ReturnPassing::Void,               // unit, never
+        None => ReturnPassing::Sret {                 // dynamically-sized
+            alignment: info.alignment(),
+        },
         Some(1..=16) => ReturnPassing::Direct,
         Some(_) => ReturnPassing::Sret {
             alignment: info.alignment(),
@@ -203,7 +215,7 @@ fn compute_return_passing(ty: Idx, type_info: &TypeInfoStore) -> ReturnPassing {
 }
 ```
 
-The threshold (16 bytes = 2 registers on x86-64 SysV ABI) is the same as the current ad-hoc check but is now driven by `TypeInfo::size()` rather than counting LLVM struct fields. `TypeInfo::size()` returns the ABI size (the size used for allocation and parameter passing).
+The threshold (16 bytes = 2 registers on x86-64 SysV ABI) is the same as the current ad-hoc check but is now driven by `TypeInfo::size()` rather than counting LLVM struct fields. `TypeInfo::size()` returns the ABI size (the size used for allocation and parameter passing). Note: `size()` returns `Option<u64>` — `Some(0)` means zero-sized (unit/never, mapped to Void), while `None` means dynamically-sized (mapped to Indirect/Sret, not Void).
 
 **Coordinated sret pattern (current, preserved in V2):**
 1. **Declare:** Add `sret(T)` + `noalias` attributes on param 0; function returns void
@@ -296,29 +308,29 @@ Limitations:
 
 **No-capture optimization:** When a closure has no captures, `env_ptr` is `null`. Call sites can check for null and call `fn_ptr` directly (no environment dereference).
 
-**Environment struct:** Captures are stored in a heap-allocated, ARC-managed struct using the 16-byte header layout (consistent with all other RC'd types in Ori):
+**Environment struct:** Captures are stored in a heap-allocated, ARC-managed struct using the 8-byte header layout (consistent with all other RC'd types in Ori):
 
 ```llvm
 ; Environment for a closure capturing x: int and name: str
 ; Allocated via ori_rc_alloc(sizeof(%env_lambda_3), align)
-; which returns a data pointer; header (strong_count + weak_count) lives at ptr-16.
+; which returns a data pointer; header (strong_count) lives at ptr-8.
 %env_lambda_3 = type {
     i64,          ; capture 'x' (int, stored at native type)
     { ptr, i64 }  ; capture 'name' (str, stored at native type)
 }
 
 ; Heap layout (see Section 01.6, Section 07.3):
-;   ┌──────────────────┬──────────────────┬───────────────────────┐
-;   │ strong_count: i64│ weak_count: i64  │ env_lambda_3 data ... │
-;   └──────────────────┴──────────────────┴───────────────────────┘
-;   ^                  ^                  ^
-;   ptr - 16           ptr - 8            ptr (env_ptr stored in closure fat pointer)
+;   ┌──────────────────┬───────────────────────┐
+;   │ strong_count: i64│ env_lambda_3 data ... │
+;   └──────────────────┴───────────────────────┘
+;   ^                  ^
+;   ptr - 8            ptr (env_ptr stored in closure fat pointer)
 ```
 
 - No i64 coercion -- captures stored at their native types
 - No capture limit -- environment struct grows as needed
-- No refcount inside the struct -- 16-byte header (strong_count + weak_count) lives at negative offset, consistent with all other RC'd types (str, list, map, set, channel)
-- Allocation: `ori_rc_alloc(sizeof(env), align)` returns data pointer; header at ptr-16
+- No refcount inside the struct -- 8-byte header (strong_count only) lives at negative offset, consistent with all other RC'd types (str, list, map, set, channel)
+- Allocation: `ori_rc_alloc(sizeof(env), align)` returns data pointer; header at ptr-8
 - ARC-managed via the same header-at-negative-offset layout used by all Ori heap objects (Section 01.6, Section 07)
 
 **Function signature:** All closures receive `env_ptr` as a hidden first parameter:
@@ -326,7 +338,7 @@ Limitations:
 ```llvm
 ; Lambda (x: int) -> int that captures 'x: int' (field 0) and 'name: str' (field 1)
 define fastcc i64 @__lambda_3(ptr %env, i64 %arg_x) {
-    ; Load captures from environment (no refcount field — header is at ptr-16)
+    ; Load captures from environment (no refcount field — header is at ptr-8)
     %x_ptr = getelementptr %env_lambda_3, ptr %env, i32 0, i32 0
     %x = load i64, ptr %x_ptr
     ; ... use %x and %arg_x ...

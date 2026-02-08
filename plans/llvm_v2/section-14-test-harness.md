@@ -428,7 +428,7 @@ When `ori test` is invoked:
 
 1. **Discovery:** The compiler scans all modules for `@test`-annotated functions
 2. **Filtering:** `--only-attached` filters to tests that target a specific function
-3. **Object file compilation:** Test wrapper functions (`_ori_test_*`) are compiled as individual per-function `.o` files. The synthetic `main()` is an additional per-function `.o`. All are merged via `ld -r` into the test module's `.o` before final linking. Cross-reference Section 12.2 for per-function `.o` compilation and partial linking.
+3. **Object file compilation:** Test wrapper functions (`_ori_test_*`) and the synthetic `main()` are compiled into the module's LLVM module alongside the functions they test. In 0.1-alpha, compilation uses per-module LLVM modules (not per-function `.o` files — see Section 12.2). Each module produces a single `.o` that includes both the tested functions and their test wrappers.
 4. **Runner generation:** A synthetic `main()` is generated that calls each test function in sequence:
 
 ```rust

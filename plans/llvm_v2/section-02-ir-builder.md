@@ -242,6 +242,21 @@ impl<'ctx> IrBuilder<'ctx> {
     /// internally — most callers should use that convenience method instead.
     pub fn register_type(&mut self, ty: BasicTypeEnum<'ctx>) -> LLVMTypeId;
 
+    // === Primitive Type Convenience Methods ===
+    //
+    // Convenience methods for common primitive types. Each creates/registers
+    // the corresponding LLVM type and returns an LLVMTypeId. Frequently used
+    // in expression lowering to avoid routing every primitive through
+    // TypeInfoStore (e.g., for phi node types in short-circuit operators,
+    // loop break values, and if/else merge points).
+
+    pub fn bool_type(&mut self) -> LLVMTypeId;   // i1
+    pub fn i32_type(&mut self) -> LLVMTypeId;     // i32
+    pub fn i64_type(&mut self) -> LLVMTypeId;     // i64
+    pub fn f64_type(&mut self) -> LLVMTypeId;     // f64
+    pub fn unit_type(&mut self) -> LLVMTypeId;    // i64 (unit representation)
+    pub fn ptr_type(&mut self) -> LLVMTypeId;     // ptr (opaque pointer)
+
     // === Phi Nodes ===
     pub fn phi(&mut self, ty: LLVMTypeId, incoming: &[(ValueId, BlockId)], name: &str) -> ValueId;
 
@@ -269,6 +284,8 @@ impl<'ctx> IrBuilder<'ctx> {
 - [ ] Implement aggregate and call methods
 - [ ] Implement phi node construction
 - [ ] Implement `save_position()` / `BuilderPositionGuard` RAII pattern
+- [ ] Implement `current_block()` public accessor (unwraps Option with expect)
+- [ ] Implement primitive type convenience methods (`bool_type()`, `i32_type()`, `i64_type()`, `f64_type()`, `unit_type()`, `ptr_type()`)
 - [ ] Add `#[inline]` on hot-path methods
 - [ ] Add `debug_assert!` type checking on all arithmetic/comparison ops
 
@@ -360,6 +377,16 @@ impl<'ctx> IrBuilder<'ctx> {
         let bb = self.arena.get_block(block);
         self.builder.position_at_end(bb);
         self.current_block = Some(block);
+    }
+
+    /// Return the current insertion block.
+    ///
+    /// Panics if no block has been set (i.e., before `position_at_end` is called).
+    /// Used by expression lowering to record the "exit block" for phi nodes
+    /// (e.g., capturing which block a branch came from for short-circuit operators,
+    /// if/else merge, loop break values).
+    pub fn current_block(&self) -> BlockId {
+        self.current_block.expect("no current block set")
     }
 
     /// Check if the current block has a terminator.

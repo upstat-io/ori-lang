@@ -27,7 +27,9 @@ sections:
 # Section 12: Incremental & Parallel Codegen
 
 **Status:** Not Started
-**Goal:** Don't recompile the world when one function changes. Compile independent codegen units in parallel. Function-level granularity with two-layer caching (ARC IR + object code), hybrid Salsa/ArtifactCache invalidation, and dependency-respecting multi-threaded execution.
+**Goal:** Don't recompile the world when one function changes. Compile independent codegen units in parallel. Per-module LLVM modules with Layer 1 ARC IR caching, hybrid Salsa/ArtifactCache invalidation, and dependency-respecting multi-threaded execution.
+
+**0.1-alpha scope**: Per-module LLVM modules with Layer 1 ARC IR caching. Layer 2 per-function object caching (requiring `ld -r` merging) is deferred to a future version due to platform complexity (Windows/MSVC compatibility) and limited incremental benefit over Layer 1. The Layer 2 design documentation is retained below for reference but is marked as future work.
 
 **Reference compilers:**
 - **Zig** `src/codegen/llvm.zig` -- `updateFunc` for per-function incremental updates; nav_map for function-to-object mapping. Zig compiles each function independently and patches object files in place. Ori's initial approach compiles each function to its own small object file rather than in-place patching.
@@ -77,7 +79,10 @@ pub struct FunctionContentHash {
     /// Hash of the function body AST (span-stripped).
     body_hash: ContentHash,
     /// Hash of the function's type signature (params + return type).
-    signature_hash: ContentHash,
+    /// `pub(crate)` because `FunctionDependencyGraph::functions_to_recompile()`
+    /// compares signature hashes across old and new versions to detect
+    /// signature-only changes (which trigger caller recompilation).
+    pub(crate) signature_hash: ContentHash,
     /// Hash of the type signatures of all called functions.
     callees_hash: ContentHash,
     /// Hash of all referenced globals' types.
@@ -183,7 +188,9 @@ impl FunctionDependencyGraph {
 }
 ```
 
-### Per-Function Compilation
+### Per-Function Compilation *(Deferred — post-0.1-alpha)*
+
+> **Deferred to future work.** For 0.1-alpha, compilation uses per-module LLVM modules (one module per Ori source file). The per-function LLVM module approach described below is retained for future reference.
 
 Each function is compiled to its own LLVM module (one function per module). This enables maximum parallelism and fine-grained caching. Functions that don't need recompilation produce no LLVM work at all. Per-function `.o` files are merged per Ori module via `ld -r` (partial/relocatable linking) before the final link step.
 
@@ -214,7 +221,9 @@ LTO on:
     Final link: .o → executable
 ```
 
-### Partial Linking With `ld -r`
+### Partial Linking With `ld -r` *(Deferred — post-0.1-alpha)*
+
+> **Deferred to future work.** `ld -r` is only needed for per-function object compilation (Layer 2). Not required for the 0.1-alpha per-module approach.
 
 Per-function compilation produces many small `.o` files (one per function). Passing hundreds of `.o` files directly to the final linker adds overhead: more file I/O, larger command lines, and slower symbol resolution. V2 addresses this with `ld -r` (relocatable linking) as a mandatory intermediate step:
 
@@ -254,7 +263,7 @@ The existing file-level infrastructure (DependencyGraph, `files_to_recompile()`)
 
 - [ ] Implement `FunctionContentHash` with AST-body + signature + callees + globals hashing
 - [ ] Implement `FunctionDependencyGraph` with signature-aware invalidation
-- [ ] Implement per-function LLVM module creation (one function per module)
+- [ ] Implement per-function LLVM module creation (one function per module) *(deferred — post-0.1-alpha)*
 - [ ] Wire up fallback to file-level for module-level initialization and dependency cycles
 - [ ] Test: changing function body without signature change does NOT recompile callers
 - [ ] Test: changing function signature DOES recompile all callers
@@ -298,7 +307,9 @@ pub struct CachedArcIr {
 
 **Feature gate:** Serde derives on ARC IR types should be behind a `cache` feature flag in `ori_arc` (e.g., `#[cfg_attr(feature = "cache", derive(Serialize, Deserialize))]`). This avoids pulling serde into builds that don't use the incremental cache (e.g., JIT evaluation, single-file compilation). The `cache` feature is enabled by default in the AOT pipeline (`oric`) but not in `ori_eval`.
 
-### Layer 2: Object Code Cache
+### Layer 2: Object Code Cache *(Deferred — post-0.1-alpha)*
+
+> **Deferred to future work.** Per-function object caching requires `ld -r` partial linking, which has platform limitations (Windows/MSVC does not support relocatable linking) and adds complexity with limited incremental benefit over Layer 1 ARC IR caching. The design is retained here for future reference.
 
 Compiled object code per function. If the ARC IR hash is unchanged AND the optimization config hash is unchanged, LLVM compilation is skipped entirely and the cached `.o` file is reused.
 
@@ -402,7 +413,9 @@ The existing Salsa query graph handles the front-end:
 
 ```
 SourceFile (#[salsa::input] — user-set input, NOT a tracked query)
-    ↓ file.text(db) — source text is a field on the input, no cutoff here
+    ↓ file.text(db) — input-level equality check (Salsa skips invalidation if value unchanged)
+lex_result(db, file)     — #[salsa::tracked], lexes source into raw token stream
+    ↓
 tokens(db, file)         — #[salsa::tracked], FIRST real cutoff point (token equality)
     ↓
 parsed(db, file)         — #[salsa::tracked], early cutoff on AST equality
@@ -414,7 +427,7 @@ typed(db, file)          — #[salsa::tracked], early cutoff on type result equa
 ARC analysis → LLVM emission → object file (managed by ArtifactCache)
 ```
 
-**Salsa's early cutoff** is the key mechanism. When `file.set_text()` is called with new source:
+**Salsa's early cutoff** is the key mechanism. When the source text is updated (via `file.set_text(&mut db).to(new_source)`):
 1. `tokens()` re-lexes. If tokens are identical (e.g., whitespace-only change), parsing is skipped entirely.
 2. `parsed()` re-parses. If the AST is identical, type checking is skipped.
 3. `typed()` re-checks. If the `TypeCheckResult` is identical (same types, same function signatures), codegen is skipped.
@@ -532,6 +545,9 @@ where
                 match result {
                     Ok(_) => plan.complete(&item.path),
                     Err(e) => {
+                        // Lock ordering invariant: plan -> failed -> blocked_by_failure.
+                        // Never acquire in different order.
+
                         // Record the failure
                         shared.failed.lock().unwrap().push(e);
                         // Mark this item as failed — resolve it in the plan so
@@ -556,7 +572,10 @@ where
         handle.join().unwrap();
     }
 
-    // Report skipped items (blocked by upstream failures)
+    // Report skipped items (blocked by upstream failures).
+    // Safety: all worker threads have joined, so no concurrent access to
+    // blocked_by_failure. The lock is only needed because Mutex<T> is the
+    // shared-state wrapper; contention is impossible at this point.
     let blocked = shared.blocked_by_failure.lock().unwrap();
     if !blocked.is_empty() {
         tracing::warn!(
@@ -582,43 +601,65 @@ where
 
 **`CompilationPlan` error tracking additions:**
 
-The `CompilationPlan` struct needs these additions for error handling:
+The `CompilationPlan` struct needs a `failed_items: HashSet<usize>` field added alongside the existing `completed: HashSet<PathBuf>`. Failed items are tracked by index (not path) and are NOT inserted into `completed` to avoid double-counting:
 
 ```rust
 impl CompilationPlan {
-    /// Mark an item as failed. It is treated as resolved for scheduling
-    /// purposes (so is_complete() can terminate), but its dependents
-    /// will never become ready.
+    /// Mark an item as failed. Removes it from pending so is_complete()
+    /// can terminate, but does NOT insert into completed — failed items
+    /// are tracked separately to avoid double-counting.
     pub fn mark_failed(&mut self, path: &Path) {
-        self.failed_items.insert(path.to_path_buf());
-        // Treat as resolved so is_complete() counts it
-        self.completed.insert(path.to_path_buf());
-        // Do NOT call complete() — dependents must not become ready
+        // Find the index for this path
+        if let Some(idx) = self.items.iter().position(|item| item.path == *path) {
+            self.failed_items.insert(idx);
+            self.pending.remove(&idx);
+            self.ready.retain(|&i| i != idx);
+            // Do NOT insert into completed — failed ≠ completed
+            // Do NOT call complete() — dependents must not become ready
+        }
     }
 
     /// Return all transitive dependents of the given item.
+    ///
+    /// Works with usize indices internally (matching the `dependents` field
+    /// type: `FxHashMap<PathBuf, Vec<usize>>`), converting to PathBuf only
+    /// at the return boundary via `self.items[idx].path`.
     pub fn transitive_dependents(&self, path: &Path) -> Vec<PathBuf> {
-        let mut result = Vec::new();
+        let mut visited = HashSet::new();
         let mut queue = VecDeque::new();
-        queue.push_back(path.to_path_buf());
-        while let Some(item) = queue.pop_front() {
-            if let Some(deps) = self.reverse_deps.get(&item) {
-                for dep in deps {
-                    if result.iter().all(|r| r != dep) {
-                        result.push(dep.clone());
-                        queue.push_back(dep.clone());
+
+        // Seed: get the direct dependents of the given path (as indices)
+        if let Some(direct) = self.dependents.get(path) {
+            for &idx in direct {
+                if visited.insert(idx) {
+                    queue.push_back(idx);
+                }
+            }
+        }
+
+        // BFS over indices
+        while let Some(idx) = queue.pop_front() {
+            let dep_path = &self.items[idx].path;
+            if let Some(next_deps) = self.dependents.get(dep_path) {
+                for &next_idx in next_deps {
+                    if visited.insert(next_idx) {
+                        queue.push_back(next_idx);
                     }
                 }
             }
         }
-        result
+
+        // Convert indices to PathBuf at the return boundary
+        visited.into_iter().map(|idx| self.items[idx].path.clone()).collect()
     }
 
-    /// Check if the plan is complete. A plan is complete when all items
-    /// are either completed successfully, failed, or blocked-by-failure.
+    /// Check if the plan is complete. A plan is complete when there are
+    /// no items left to schedule (ready queue empty) and no items waiting
+    /// for dependencies (pending set empty). This works because mark_failed
+    /// removes items from pending, and blocked dependents are also removed
+    /// via mark_failed cascading.
     pub fn is_complete(&self) -> bool {
-        self.completed.len() + self.failed_items.len() >= self.total_items
-            || (self.ready_queue.is_empty() && self.in_progress.is_empty())
+        self.ready.is_empty() && self.pending.is_empty()
     }
 }
 ```
@@ -685,6 +726,8 @@ For release builds with LTO:
 
 The existing `build_dependency_graph()` → topological sort → compile → link pipeline in `multi_file.rs` remains the outer shell. V2 replaces the per-module `compile_module_to_object()` step with a per-function compilation loop that checks caches and compiles only what's needed.
 
+> **Note:** The per-function granularity shown here is post-0.1-alpha. For 0.1-alpha, use per-module LLVM modules with Layer 1 ARC IR caching.
+
 ```rust
 /// V2 per-module compilation: function-level granularity.
 ///
@@ -736,14 +779,14 @@ fn compile_module_functions(
 - [ ] Function-level content hashing implemented (body + signature + callees + globals)
 - [ ] Function-level dependency graph with signature-aware invalidation
 - [ ] ARC IR cache (Layer 1): serialize/deserialize ARC IR per function via bincode
-- [ ] Object code cache (Layer 2): per-function .o files keyed by ARC IR hash + opt config
+- [ ] Object code cache (Layer 2): per-function .o files keyed by ARC IR hash + opt config *(deferred — post-0.1-alpha)*
 - [ ] Salsa hybrid integration: front-end queries with early cutoff, ArtifactCache for back-end
 - [ ] Codegen is NOT a Salsa query (documented with rationale)
 - [ ] `execute_parallel` replaces `compile_parallel` with dependency-respecting multi-threaded execution
 - [ ] `std::thread` used throughout (no rayon)
 - [ ] One LLVM Context per thread, no cross-context ValueId sharing
-- [ ] Multi-level scheduling: module topological order + function parallelism + ld -r + final link
-- [ ] `ld -r` partial linking merges per-function .o into per-module .o before final link
+- [ ] Multi-level scheduling: module topological order + function parallelism + ld -r + final link *(deferred — post-0.1-alpha; 0.1-alpha uses per-module granularity)*
+- [ ] `ld -r` partial linking merges per-function .o into per-module .o before final link *(deferred — post-0.1-alpha)*
 - [ ] Cross-module references resolved at link time via mangled names
 - [ ] Fallback to file-level for module-level initialization and dependency cycles
 - [ ] All existing incremental infrastructure preserved and functional
