@@ -1,15 +1,15 @@
 ---
 section: "06"
 title: ARC IR & Borrow Inference
-status: not-started
+status: in-progress
 goal: Lower typed AST to an intermediate ARC IR with explicit control flow, then infer which function parameters can be borrowed (no RC needed) vs owned (RC needed)
 sections:
   - id: "06.0"
     title: ARC IR Definition
-    status: not-started
+    status: in-progress
   - id: "06.1"
     title: Ownership Model
-    status: not-started
+    status: partial
   - id: "06.2"
     title: Iterative Borrow Inference Algorithm
     status: not-started
@@ -20,7 +20,7 @@ sections:
 
 # Section 06: ARC IR & Borrow Inference
 
-**Status:** Not Started
+**Status:** In Progress — 06.0 AST→ARC IR lowering complete (all expression kinds, control flow, patterns, closures). 06.2 borrow inference not started.
 **Goal:** Lower typed AST to an intermediate ARC IR with basic blocks and explicit control flow, then infer which function parameters are "borrowed" (the caller retains ownership, callee doesn't need to inc/dec) vs "owned" (ownership transfers to callee). Borrowed parameters eliminate entire classes of RC operations.
 
 **Crate:** `ori_arc` (no LLVM dependency).
@@ -218,29 +218,29 @@ pub enum ArcTerminator {
 
 **`ArcIrBuilder` API:** `ArcIrBuilder` is the builder API for constructing ARC IR during AST lowering. It provides methods for: `new_block()`, `emit_project()`, `emit_switch()`, `emit_branch()`, `emit_jump()`, `bind_variable()`, `compile_expr()`, `emit_unreachable()`, `emit_project_tag()`, `emit_project_named()`, `emit_list_index()`, and `position_at()`. Full API defined during implementation. Used by Section 10 (decision tree emission) and the general AST-to-ARC-IR lowering pass.
 
-- [ ] Define `ArcVarId`, `ArcBlockId` newtypes
-- [ ] Define `ArcParam`, `ArcValue`, `CtorKind` types
-- [ ] Define `ArcFunction`, `ArcBlock`, `ArcInstr`, `ArcTerminator` types
-- [ ] Define `Reset`/`Reuse` intermediate variants on `ArcInstr` (expanded by Section 09)
-- [ ] Define `IsShared`/`Set` variants on `ArcInstr` (produced by Section 09 expansion)
-- [ ] Implement `ApplyIndirect` for indirect calls through closures
-- [ ] Implement `PartialApply` for partial application / closure creation
-- [ ] Implement `Invoke` terminator for potentially-panicking calls (Section 07.5) *(post-0.1-alpha)*
-- [ ] Implement AST → ARC IR lowering for all expression kinds
-- [ ] Handle loops (loop header block, back-edge, break as jump to exit block)
-- [ ] Handle closures (captured variables become explicit parameters)
-- [ ] Define `ArcIrBuilder` with block creation, instruction emission, and variable binding methods
-- [ ] Populate `var_types` during AST-to-ARC-IR lowering
-- [ ] Populate `spans` side table during lowering for debug info preservation
-- [ ] Define `PrimOp` enum mirroring BinaryOp/UnaryOp from ori_ir
-- [ ] Define `LitValue` enum mirroring literal ExprKind variants
-- [ ] Implement `SetTag` instruction for enum variant tag updates during reuse
+- [x] Define `ArcVarId`, `ArcBlockId` newtypes
+- [x] Define `ArcParam`, `ArcValue`, `CtorKind` types
+- [x] Define `ArcFunction`, `ArcBlock`, `ArcInstr`, `ArcTerminator` types
+- [x] Define `Reset`/`Reuse` intermediate variants on `ArcInstr` (expanded by Section 09)
+- [x] Define `IsShared`/`Set` variants on `ArcInstr` (produced by Section 09 expansion)
+- [x] Implement `ApplyIndirect` for indirect calls through closures
+- [x] Implement `PartialApply` for partial application / closure creation
+- [x] Implement `Invoke` terminator for potentially-panicking calls (Section 07.5) *(post-0.1-alpha)*
+- [x] Implement AST → ARC IR lowering for all expression kinds
+- [x] Handle loops (loop header block, back-edge, break as jump to exit block)
+- [x] Handle closures (captured variables become explicit parameters)
+- [x] Define `ArcIrBuilder` with block creation, instruction emission, and variable binding methods
+- [x] Populate `var_types` during AST-to-ARC-IR lowering
+- [x] Populate `spans` side table during lowering for debug info preservation
+- [x] Define `PrimOp` enum mirroring BinaryOp/UnaryOp from ori_ir
+- [x] Define `LitValue` enum mirroring literal ExprKind variants
+- [x] Implement `SetTag` instruction for enum variant tag updates during reuse
 - [ ] Add `#[cfg_attr(feature = "cache", derive(Serialize, Deserialize))]` to all ARC IR types for incremental compilation cache (Section 12.3)
-- [ ] Implement Assign lowering into pure SSA form (new binding per assignment, block parameters at merges)
-- [ ] Implement Try/? desugaring to match (Ok/Err) before ARC IR lowering
-- [ ] Emit diagnostic error for unsupported expression kinds (Await, WithCapability, FunctionSeq, FunctionExp)
-- [ ] Test: round-trip simple programs through ARC IR and verify structure
-- [ ] Test: mutable variable assignment correctly lowers to SSA with block parameters
+- [x] Implement Assign lowering into pure SSA form (new binding per assignment, block parameters at merges)
+- [x] Implement Try/? desugaring to match (Ok/Err) before ARC IR lowering
+- [x] Emit diagnostic error for unsupported expression kinds (Await, WithCapability, FunctionSeq, FunctionExp)
+- [x] Test: round-trip simple programs through ARC IR and verify structure
+- [x] Test: mutable variable assignment correctly lowers to SSA with block parameters
 
 ---
 
@@ -288,8 +288,8 @@ pub struct AnnotatedSig {
 - A parameter is borrowed if it is only *read* (not stored, not returned, not passed to an owning position).
 - A parameter is owned if it is consumed: stored into a data structure, returned, or passed to another function in an owning position.
 
-- [ ] Define `Ownership` enum
-- [ ] Define `AnnotatedParam` and `AnnotatedSig`
+- [x] Define `Ownership` enum
+- [x] Define `AnnotatedParam` and `AnnotatedSig`
 - [ ] Integrate with ArcClass: Scalar parameters always effectively "borrowed" (no RC)
 
 ## 06.2 Iterative Borrow Inference Algorithm
