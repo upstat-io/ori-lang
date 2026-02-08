@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: Function Declaration & Calling Conventions
-status: in-progress
+status: done
 goal: Systematic ABI handling using TypeInfo-driven calling conventions, replacing ad-hoc sret threshold
 sections:
   - id: "04.1"
@@ -24,12 +24,12 @@ sections:
     status: done
   - id: "04.7"
     title: Entry Points & Test Wrappers
-    status: in-progress
+    status: done
 ---
 
 # Section 04: Function Declaration & Calling Conventions
 
-**Status:** In Progress (04.1–04.6 done, 04.7 partial — entry point wrappers done, args/panic deferred)
+**Status:** Done (04.1–04.7 complete)
 **Goal:** TypeInfo-driven function signature lowering where the calling convention is computed from type properties, not ad-hoc checks. Batch declare-then-define compilation. Fat-pointer closures replacing tagged i64 model. `fastcc` for internal functions.
 
 **Reference compilers:**
@@ -363,12 +363,12 @@ fn call_closure(closure: ClosureValue, args: &[Value]) -> Value {
 
 **Calling convention:** All Ori closures use `fastcc`, matching other internal Ori functions. Indirect closure calls (through a function pointer extracted from a fat-pointer closure) always use `fastcc`. FFI function pointers are NOT closures — they use `ccc` and require thunk wrappers to bridge between `ccc` (FFI side) and `fastcc` (Ori side) when passed as closures to Ori code.
 
-- [ ] Implement fat-pointer closure representation `{ ptr, ptr }`
-- [ ] Implement environment struct generation per lambda
-- [ ] Wire captures to native types (no i64 coercion)
-- [ ] Implement no-capture optimization (null env_ptr, direct call)
-- [ ] ARC integration for environment structs (Section 07)
-- [ ] Remove `LAMBDA_COUNTER`, `ori_closure_box`, tag-bit scheme
+- [x] Implement fat-pointer closure representation `{ ptr, ptr }` ✅ (2026-02-08)
+- [x] Implement environment struct generation per lambda ✅ (2026-02-08)
+- [x] Wire captures to native types (no i64 coercion) ✅ (2026-02-08)
+- [x] Implement no-capture optimization (null env_ptr, direct call) ✅ (2026-02-08)
+- [x] ARC integration for environment structs ✅ (2026-02-08, `ori_rc_new`+`ori_rc_data` allocation; inc/dec insertion by Section 07)
+- [x] Remove `LAMBDA_COUNTER`, `ori_closure_box`, tag-bit scheme ✅ (2026-02-08, `ori_closure_box` removed from runtime + codegen)
 
 ## 04.5 Name Mangling & Symbol Resolution
 
@@ -452,9 +452,9 @@ Registered as a global function pointer that the runtime calls on panic:
 ```
 The runtime checks this global before using the default panic handler.
 
-- [x] Generate C `main()` wrapper for `@main` (void and int return signatures)
-- [ ] Implement `ori_args_from_argv` runtime helper (deferred — `@main(args)` variant)
-- [ ] Generate `@panic` handler registration (deferred — needs runtime support)
+- [x] Generate C `main()` wrapper for `@main` (void and int return signatures) ✅ (2026-02-08)
+- [x] Implement `ori_args_from_argv` runtime helper ✅ (2026-02-08, skips argv[0] per spec, returns `OriList` of `OriStr`)
+- [x] Generate `@panic` handler registration ✅ (2026-02-08, LLVM trampoline bridges C values → PanicInfo struct → user `@panic`; re-entrancy guard; location/stack_trace populated when Section 13 debug info arrives)
 
 ### Test wrappers
 

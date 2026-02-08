@@ -70,8 +70,35 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_str_from_bool", &[bool_ty], Some(str_ty));
     builder.declare_extern_function("ori_str_from_float", &[f64_ty], Some(str_ty));
 
-    // -- Closure boxing --
-    builder.declare_extern_function("ori_closure_box", &[i64_ty], Some(ptr_ty));
+    // -- Reference counting --
+    // ori_rc_new(size: usize) -> *mut RcHeader
+    builder.declare_extern_function("ori_rc_new", &[i64_ty], Some(ptr_ty));
+    // ori_rc_data(header: *mut RcHeader) -> *mut u8
+    builder.declare_extern_function("ori_rc_data", &[ptr_ty], Some(ptr_ty));
+    // ori_rc_inc(header: *mut RcHeader)
+    builder.declare_extern_function("ori_rc_inc", &[ptr_ty], void);
+    // ori_rc_dec(header: *mut RcHeader)
+    builder.declare_extern_function("ori_rc_dec", &[ptr_ty], void);
+
+    // -- Args conversion --
+    // ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriList { i64, i64, ptr }
+    let list_ty = builder.register_type(
+        builder
+            .scx()
+            .type_struct(
+                &[
+                    builder.scx().type_i64().into(),
+                    builder.scx().type_i64().into(),
+                    builder.scx().type_ptr().into(),
+                ],
+                false,
+            )
+            .into(),
+    );
+    builder.declare_extern_function("ori_args_from_argv", &[i32_ty, ptr_ty], Some(list_ty));
+
+    // -- Panic handler registration --
+    builder.declare_extern_function("ori_register_panic_handler", &[ptr_ty], void);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +143,12 @@ mod tests {
             "ori_str_from_int",
             "ori_str_from_bool",
             "ori_str_from_float",
-            "ori_closure_box",
+            "ori_rc_new",
+            "ori_rc_data",
+            "ori_rc_inc",
+            "ori_rc_dec",
+            "ori_args_from_argv",
+            "ori_register_panic_handler",
         ];
 
         for name in &expected {

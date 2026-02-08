@@ -232,6 +232,14 @@ pub fn compile_to_llvm<'ctx>(
         );
 
         // 6. Generate C main() entry point wrapper for @main (AOT only)
+        // Also detect @panic handler for registration in main()
+        let panic_name = parse_result
+            .module
+            .functions
+            .iter()
+            .find(|f| interner.lookup(f.name) == "panic")
+            .map(|f| f.name);
+
         for (func, sig) in parse_result
             .module
             .functions
@@ -239,7 +247,7 @@ pub fn compile_to_llvm<'ctx>(
             .zip(function_sigs.iter())
         {
             if sig.is_main {
-                fc.generate_main_wrapper(func.name, sig);
+                fc.generate_main_wrapper(func.name, sig, panic_name);
                 break;
             }
         }
@@ -361,6 +369,14 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         );
 
         // 7. Generate C main() entry point wrapper for @main (AOT only)
+        // Also detect @panic handler for registration in main()
+        let panic_name = parse_result
+            .module
+            .functions
+            .iter()
+            .find(|f| interner.lookup(f.name) == "panic")
+            .map(|f| f.name);
+
         for (func, sig) in parse_result
             .module
             .functions
@@ -368,7 +384,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             .zip(function_sigs.iter())
         {
             if sig.is_main {
-                fc.generate_main_wrapper(func.name, sig);
+                fc.generate_main_wrapper(func.name, sig, panic_name);
                 break;
             }
         }

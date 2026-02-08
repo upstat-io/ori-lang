@@ -19,10 +19,11 @@
 )]
 
 use ori_rt::{
-    did_panic, get_panic_message, ori_alloc, ori_assert_eq_int, ori_closure_box, ori_compare_int,
-    ori_free, ori_list_free, ori_list_len, ori_list_new, ori_max_int, ori_min_int, ori_print_int,
-    ori_rc_count, ori_rc_data, ori_rc_dec, ori_rc_inc, ori_rc_new, ori_realloc, ori_str_concat,
-    ori_str_eq, ori_str_ne, reset_panic_state, set_panic_state_for_test, OriStr,
+    did_panic, get_panic_message, ori_alloc, ori_args_from_argv, ori_assert_eq_int,
+    ori_compare_int, ori_free, ori_list_free, ori_list_len, ori_list_new, ori_max_int, ori_min_int,
+    ori_print_int, ori_rc_count, ori_rc_data, ori_rc_dec, ori_rc_inc, ori_rc_new, ori_realloc,
+    ori_register_panic_handler, ori_str_concat, ori_str_eq, ori_str_ne, reset_panic_state,
+    set_panic_state_for_test, OriStr,
 };
 
 #[test]
@@ -210,10 +211,25 @@ fn test_ori_list_null_safety() {
 }
 
 #[test]
-fn test_ori_closure_box() {
-    let ptr = ori_closure_box(64);
-    assert!(!ptr.is_null());
-    ori_free(ptr, 64, 8);
+fn test_closure_env_via_rc() {
+    // Closure environments are now RC-managed via ori_rc_new + ori_rc_data
+    let header = ori_rc_new(64);
+    assert!(!header.is_null());
+    let data = ori_rc_data(header);
+    assert!(!data.is_null());
+    assert_eq!(ori_rc_count(header), 1);
+    ori_rc_dec(header); // frees
+}
+
+#[test]
+fn test_ori_args_empty() {
+    let list = ori_args_from_argv(0, std::ptr::null());
+    assert_eq!(list.len, 0);
+}
+
+#[test]
+fn test_ori_register_panic_handler_null_safe() {
+    ori_register_panic_handler(std::ptr::null());
 }
 
 #[test]

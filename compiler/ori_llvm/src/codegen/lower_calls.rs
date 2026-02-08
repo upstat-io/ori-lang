@@ -1352,29 +1352,36 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         let env_struct_ty = self.builder.scx().type_struct(&capture_llvm_types, false);
         let env_struct_ty_id = self.builder.register_type(env_struct_ty.into());
 
-        // Compute environment size (conservative: 8 bytes per capture minimum)
-        let env_size: usize = captures.len() * 8;
-        let size_val = self.builder.const_i64(env_size as i64);
+        // Compute environment size using LLVM's target-aware size_of
+        let size_val = self
+            .builder
+            .intern_value(env_struct_ty.size_of().unwrap().into());
 
-        // Allocate via ori_closure_box (heap allocation)
+        // Allocate via ori_rc_new (RC-tracked heap allocation)
         let i64_ty = self.builder.i64_type();
         let ptr_ty = self.builder.ptr_type();
-        let box_func = self
+        let rc_new_func = self
             .builder
-            .get_or_declare_function("ori_closure_box", &[i64_ty], ptr_ty);
-        let heap_ptr = self.builder.call(box_func, &[size_val], "env.ptr")?;
+            .get_or_declare_function("ori_rc_new", &[i64_ty], ptr_ty);
+        let rc_header = self.builder.call(rc_new_func, &[size_val], "env.rc")?;
+
+        // Get data pointer past the RcHeader
+        let rc_data_func = self
+            .builder
+            .get_or_declare_function("ori_rc_data", &[ptr_ty], ptr_ty);
+        let data_ptr = self.builder.call(rc_data_func, &[rc_header], "env.data")?;
 
         // Store each capture into the environment struct
         for (i, (_, val, _)) in captures.iter().enumerate() {
             let field_ptr = self.builder.struct_gep(
                 env_struct_ty_id,
-                heap_ptr,
+                data_ptr,
                 i as u32,
                 &format!("env.field.{i}"),
             );
             self.builder.store(*val, field_ptr);
         }
 
-        Some(heap_ptr)
+        Some(data_ptr)
     }
 }
