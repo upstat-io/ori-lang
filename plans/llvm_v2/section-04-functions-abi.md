@@ -277,7 +277,7 @@ fn select_calling_convention(func: &Function, interner: &StringInterner) -> Call
 
 - [x] Set `fastcc` on internal Ori function declarations ✅ (2026-02-08, `abi.rs::select_call_conv`)
 - [x] Keep `ccc` for `@main`, `@panic`, FFI, and runtime functions ✅ (2026-02-08)
-- [ ] Verify tail call optimization works with `fastcc` + `musttail`
+- [x] Verify tail call optimization works with `fastcc` + `tail call` ✅ (2026-02-08, `ir_builder.rs::call_tail`, `lower_constructs.rs::lower_exp_recurse`)
 
 ## 04.4 Closure & Lambda Compilation
 

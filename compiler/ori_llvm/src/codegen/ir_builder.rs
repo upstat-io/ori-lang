@@ -23,7 +23,7 @@
 //! | Conversions | `bitcast`, `trunc`, `sext`, `zext`, `si_to_fp`, ... |
 //! | Control flow | `br`, `cond_br`, `switch`, `select`, `ret`, `ret_void`, `unreachable` |
 //! | Aggregates | `extract_value`, `insert_value`, `build_struct` |
-//! | Calls | `call`, `call_indirect` |
+//! | Calls | `call`, `call_tail`, `call_indirect` |
 //! | Phi nodes | `phi`, `phi_from_incoming` |
 //! | Types | `register_type`, `bool_type`, `i8_type`, `i32_type`, ... |
 //! | Blocks | `append_block`, `position_at_end`, `current_block`, ... |
@@ -1071,6 +1071,35 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             .builder
             .build_call(func, &arg_vals, name)
             .expect("call");
+        call_val
+            .try_as_basic_value()
+            .basic()
+            .map(|v| self.arena.push_value(v))
+    }
+
+    /// Build a direct function call marked as a tail call.
+    ///
+    /// Sets the `tail` attribute on the call instruction, which tells LLVM
+    /// that this call is in tail position. Combined with `fastcc`, LLVM will
+    /// perform tail call optimization (reusing the caller's stack frame).
+    ///
+    /// Returns `None` for void-returning functions.
+    pub fn call_tail(
+        &mut self,
+        callee: FunctionId,
+        args: &[ValueId],
+        name: &str,
+    ) -> Option<ValueId> {
+        let func = self.arena.get_function(callee);
+        let arg_vals: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = args
+            .iter()
+            .map(|&id| self.arena.get_value(id).into())
+            .collect();
+        let call_val = self
+            .builder
+            .build_call(func, &arg_vals, name)
+            .expect("call_tail");
+        call_val.set_tail_call(true);
         call_val
             .try_as_basic_value()
             .basic()
@@ -2166,6 +2195,67 @@ mod tests {
         let f2 = irb.declare_extern_function("ori_print", &[ptr_ty], None);
 
         assert_eq!(irb.get_function_value(f1), irb.get_function_value(f2));
+        drop(irb);
+    }
+
+    // -- Tail calls --
+
+    #[test]
+    fn call_tail_marks_instruction() {
+        let ctx = Context::create();
+        let scx = test_scx(&ctx);
+        let mut irb = IrBuilder::new(&scx);
+
+        let i64_ty = irb.i64_type();
+
+        // Declare a fastcc function that calls itself
+        let func = irb.declare_function("recursive_fn", &[i64_ty], i64_ty);
+        irb.set_fastcc(func);
+        let entry = irb.append_block(func, "entry");
+        irb.set_current_function(func);
+        irb.position_at_end(entry);
+
+        // Build a tail call to itself
+        let arg = irb.const_i64(1);
+        let result = irb.call_tail(func, &[arg], "recurse");
+        assert!(result.is_some());
+
+        irb.ret(result.unwrap());
+
+        // Verify the IR contains "tail call"
+        let ir = scx.llmod.print_to_string().to_string();
+        assert!(
+            ir.contains("tail call"),
+            "Expected 'tail call' in IR, got:\n{ir}"
+        );
+        drop(irb);
+    }
+
+    #[test]
+    fn call_without_tail_has_no_tail_attribute() {
+        let ctx = Context::create();
+        let scx = test_scx(&ctx);
+        let mut irb = IrBuilder::new(&scx);
+
+        let i64_ty = irb.i64_type();
+        let func = irb.declare_function("normal_fn", &[i64_ty], i64_ty);
+        let entry = irb.append_block(func, "entry");
+        irb.set_current_function(func);
+        irb.position_at_end(entry);
+
+        // Build a regular (non-tail) call
+        let arg = irb.const_i64(1);
+        let result = irb.call(func, &[arg], "normal");
+        assert!(result.is_some());
+
+        irb.ret(result.unwrap());
+
+        // Verify the IR does NOT contain "tail call"
+        let ir = scx.llmod.print_to_string().to_string();
+        assert!(
+            !ir.contains("tail call"),
+            "Expected no 'tail call' in IR, got:\n{ir}"
+        );
         drop(irb);
     }
 
