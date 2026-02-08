@@ -11,6 +11,7 @@ repository = "https://github.com/upstat-io/ori-lang"
 
 [dependencies]
 # Ori crates (relative paths since excluded from workspace)
+ori_arc = { path = "../ori_arc" }
 ori_ir = { path = "../ori_ir" }
 ori_rt = { path = "../ori_rt" }
 ori_types = { path = "../ori_types" }

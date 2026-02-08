@@ -4,9 +4,9 @@
 
 ## Motivation
 
-The current Ori evaluator (`ori_eval`) is a functional tree-walking interpreter (~15K lines) with Arc-enforced values, chain-of-responsibility method dispatch, and Salsa integration. While it works, it has several architectural limitations that will compound as the language grows:
+The current Ori evaluator (`ori_eval`) is a functional tree-walking interpreter (~12K lines) with Arc-enforced values, chain-of-responsibility method dispatch, and Salsa integration. While it works, it has several architectural limitations that will compound as the language grows:
 
-1. **Monolithic value type** — `Value` enum with 30 variants, all heap types wrapped in `Arc`
+1. **Monolithic value type** — `Value` enum with 30 variants; heap-allocated variants wrapped in `Arc<T>` via `Heap<T>`
 2. **Error-based control flow** — `break`/`continue` propagated as `EvalError` variants
 3. **No constant folding** — All expressions evaluated at runtime, even compile-time-known ones
 4. **No pattern compilation** — Match arms tested sequentially, not compiled to decision trees
@@ -201,26 +201,27 @@ Reference counting and observability.
 ## Dependency Graph
 
 ```
-Section 1 (Values) ──→ Section 2 (Machine) ──→ Section 3 (Environment)
-    ↓                      ↓                        ↓
-    │                      │          ┌──────────────┼──────────────┐
-    │                      │          ↓              ↓              ↓
-    │                      │   Section 4 (Patterns) Section 5 (Control Flow) Section 6 (Methods)
-    │                      │          │              │
-    │                      │          │              ↓
-    │                      │          │   Section 7 (Const Eval)
-    │                      │          │              │
-    │                      │          ↓              ↓
-    │                      └────→ Section 8 (Eval IR) ←── Section 4, 5, 7
-    │                                    │
-    │                          ┌─────────┼─────────┐
-    │                          ↓                   ↓
-    │                   Section 9 (RC)      Section 10 (Diagnostics)
-    │                          ↑
-    └──────────────────────────┘
+Phase 0 (ori_value extraction) ──→ Section 1 (Values) ──→ Section 2 (Machine) ──→ Section 3 (Environment)
+                                       ↓                      ↓                        ↓
+                                       │                      │          ┌──────────────┼──────────────┐
+                                       │                      │          ↓              ↓              ↓
+                                       │                      │   Section 4 (Patterns) Section 5 (Control Flow) Section 6 (Methods)
+                                       │                      │          │              │
+                                       │                      │          │              ↓
+                                       │                      │          │   Section 7 (Const Eval)
+                                       │                      │          │              │
+                                       │                      │          ↓              ↓
+                                       │                      └────→ Section 8 (Eval IR) ←── Section 4, 5, 7
+                                       │                                    │
+                                       │                          ┌─────────┼─────────┐
+                                       │                          ↓                   ↓
+                                       │                   Section 9 (RC)      Section 10 (Diagnostics)
+                                       │                          ↑
+                                       └──────────────────────────┘
 ```
 
 **Edges:**
+- Phase 0 → 1 (ori_value crate extraction is prerequisite for Value System V2)
 - 1 → 2 → 3 (foundation chain)
 - 3 → 4, 3 → 5, 3 → 6 (tier 1 depends on environment)
 - 5 → 7 (const eval uses control flow types)
@@ -231,7 +232,7 @@ Section 1 (Values) ──→ Section 2 (Machine) ──→ Section 3 (Environmen
 - 1 → 9 (RC needs ValuePool/ValueId for interned value classification)
 - 5 → 8 (EvalFlow/FlowOrError used by interpreter on EvalIR)
 
-**Critical Path**: 1 → 2 → 3 → 5 → 7 → 8 (must be sequential)
+**Critical Path**: Phase 0 → 1 → 2 → 3 → 5 → 7 → 8 (must be sequential)
 **Parallelizable**: 4 and 6 can proceed independently after 3; 9 and 10 after 8
 
 ---

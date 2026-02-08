@@ -19,6 +19,7 @@
 //! - Swift `lib/IRGen/GenCall.cpp`
 //! - Zig `src/codegen/llvm.zig` (calling convention selection)
 
+use ori_arc::{AnnotatedSig, ArcClass, ArcClassification, ArcClassifier, Ownership};
 use ori_ir::Name;
 use ori_types::{FunctionSig, Idx};
 use rustc_hash::FxHashSet;
@@ -36,6 +37,11 @@ pub enum ParamPassing {
     Direct,
     /// Passed by pointer (large structs >16 bytes). Callee reads from pointer.
     Indirect { alignment: u32 },
+    /// Borrowed parameter — callee receives a pointer to the caller's value.
+    /// No RC operations at the call site. The callee must not store or return
+    /// the value. Produced when borrow inference determines `Ownership::Borrowed`
+    /// and the type is non-Scalar (needs RC).
+    Reference,
     /// Parameter has void/unit type — not physically passed.
     Void,
 }
@@ -241,6 +247,85 @@ pub fn compute_function_abi(sig: &FunctionSig, store: &TypeInfoStore<'_>) -> Fun
         sig.is_main,
         false, // Extern detection happens at caller level
     );
+
+    FunctionAbi {
+        params,
+        return_abi,
+        call_conv,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ARC borrow-aware ABI computation
+// ---------------------------------------------------------------------------
+
+/// Compute parameter passing with ownership annotation from borrow inference.
+///
+/// When a parameter is `Borrowed` AND non-Scalar, it becomes `Reference`
+/// (pointer, no RC). Otherwise, falls through to size-based logic
+/// (`Direct`/`Indirect`).
+pub fn compute_param_passing_with_ownership(
+    ty: Idx,
+    store: &TypeInfoStore<'_>,
+    ownership: Ownership,
+    arc_class: ArcClass,
+) -> ParamPassing {
+    if ty == Idx::UNIT || ty == Idx::NEVER {
+        return ParamPassing::Void;
+    }
+    // Borrowed non-scalar → pass by reference, no RC
+    if ownership == Ownership::Borrowed && arc_class != ArcClass::Scalar {
+        return ParamPassing::Reference;
+    }
+    // Owned or scalar → existing size-based logic
+    compute_param_passing(ty, store)
+}
+
+/// Compute the complete physical ABI for a function with borrow annotations.
+///
+/// When `annotated_sig` is provided (from borrow inference), parameters
+/// annotated as `Borrowed` with non-Scalar types are passed by `Reference`
+/// (pointer, no RC at call site). All other parameters use the standard
+/// size-based passing mode.
+///
+/// When `annotated_sig` is `None`, falls through to `compute_function_abi()`.
+pub fn compute_function_abi_with_ownership(
+    sig: &FunctionSig,
+    store: &TypeInfoStore<'_>,
+    annotated_sig: Option<&AnnotatedSig>,
+    classifier: &ArcClassifier<'_>,
+) -> FunctionAbi {
+    let Some(annotated_sig) = annotated_sig else {
+        return compute_function_abi(sig, store);
+    };
+
+    let params: Vec<ParamAbi> = sig
+        .param_names
+        .iter()
+        .zip(sig.param_types.iter())
+        .enumerate()
+        .map(|(i, (&name, &ty))| {
+            let (ownership, arc_class) = if i < annotated_sig.params.len() {
+                (annotated_sig.params[i].ownership, classifier.arc_class(ty))
+            } else {
+                // No annotation → default to owned (standard passing)
+                (Ownership::Owned, ArcClass::Scalar)
+            };
+
+            ParamAbi {
+                name,
+                ty,
+                passing: compute_param_passing_with_ownership(ty, store, ownership, arc_class),
+            }
+        })
+        .collect();
+
+    let return_abi = ReturnAbi {
+        ty: sig.return_type,
+        passing: compute_return_passing(sig.return_type, store),
+    };
+
+    let call_conv = select_call_conv("", sig.is_main, false);
 
     FunctionAbi {
         params,
@@ -537,5 +622,214 @@ mod tests {
 
         let abi = compute_function_abi(&sig, &store);
         assert_eq!(abi.call_conv, CallConv::C);
+    }
+
+    // -- Borrow-aware param passing tests --
+
+    #[test]
+    fn borrowed_definiteref_becomes_reference() {
+        let (_pool, store) = test_store();
+        // str is DefiniteRef (heap-allocated), Borrowed → Reference
+        assert_eq!(
+            compute_param_passing_with_ownership(
+                Idx::STR,
+                &store,
+                Ownership::Borrowed,
+                ArcClass::DefiniteRef,
+            ),
+            ParamPassing::Reference
+        );
+    }
+
+    #[test]
+    fn borrowed_possibleref_becomes_reference() {
+        let (_pool, store) = test_store();
+        // PossibleRef + Borrowed → Reference (conservative: might need RC)
+        assert_eq!(
+            compute_param_passing_with_ownership(
+                Idx::STR,
+                &store,
+                Ownership::Borrowed,
+                ArcClass::PossibleRef,
+            ),
+            ParamPassing::Reference
+        );
+    }
+
+    #[test]
+    fn borrowed_scalar_stays_direct() {
+        let (_pool, store) = test_store();
+        // int is Scalar — Borrowed doesn't change passing (no RC regardless)
+        assert_eq!(
+            compute_param_passing_with_ownership(
+                Idx::INT,
+                &store,
+                Ownership::Borrowed,
+                ArcClass::Scalar,
+            ),
+            ParamPassing::Direct
+        );
+    }
+
+    #[test]
+    fn owned_definiteref_uses_size_based() {
+        let (_pool, store) = test_store();
+        // str (16 bytes, ≤ threshold) + Owned → Direct (size-based)
+        assert_eq!(
+            compute_param_passing_with_ownership(
+                Idx::STR,
+                &store,
+                Ownership::Owned,
+                ArcClass::DefiniteRef,
+            ),
+            ParamPassing::Direct
+        );
+    }
+
+    #[test]
+    fn owned_scalar_stays_direct() {
+        let (_pool, store) = test_store();
+        assert_eq!(
+            compute_param_passing_with_ownership(
+                Idx::INT,
+                &store,
+                Ownership::Owned,
+                ArcClass::Scalar,
+            ),
+            ParamPassing::Direct
+        );
+    }
+
+    #[test]
+    fn unit_always_void_regardless_of_ownership() {
+        let (_pool, store) = test_store();
+        assert_eq!(
+            compute_param_passing_with_ownership(
+                Idx::UNIT,
+                &store,
+                Ownership::Borrowed,
+                ArcClass::Scalar,
+            ),
+            ParamPassing::Void
+        );
+        assert_eq!(
+            compute_param_passing_with_ownership(
+                Idx::NEVER,
+                &store,
+                Ownership::Owned,
+                ArcClass::Scalar,
+            ),
+            ParamPassing::Void
+        );
+    }
+
+    #[test]
+    fn owned_large_type_stays_indirect() {
+        let mut pool = Pool::new();
+        let list_int = pool.list(Idx::INT);
+        let store = TypeInfoStore::new(&pool);
+        // [int] (24 bytes, > threshold) + Owned → Indirect
+        assert_eq!(
+            compute_param_passing_with_ownership(
+                list_int,
+                &store,
+                Ownership::Owned,
+                ArcClass::DefiniteRef,
+            ),
+            ParamPassing::Indirect { alignment: 8 }
+        );
+    }
+
+    #[test]
+    fn borrowed_large_type_becomes_reference() {
+        let mut pool = Pool::new();
+        let list_int = pool.list(Idx::INT);
+        let store = TypeInfoStore::new(&pool);
+        // [int] + Borrowed + DefiniteRef → Reference (not Indirect)
+        assert_eq!(
+            compute_param_passing_with_ownership(
+                list_int,
+                &store,
+                Ownership::Borrowed,
+                ArcClass::DefiniteRef,
+            ),
+            ParamPassing::Reference
+        );
+    }
+
+    // -- compute_function_abi_with_ownership e2e --
+
+    #[test]
+    fn abi_with_ownership_uses_reference_for_borrowed_params() {
+        let pool = Pool::new();
+        let store = TypeInfoStore::new(&pool);
+        let classifier = ArcClassifier::new(&pool);
+
+        let sig = FunctionSig {
+            name: Name::from_raw(1),
+            type_params: vec![],
+            param_names: vec![Name::from_raw(2), Name::from_raw(3)],
+            param_types: vec![Idx::STR, Idx::INT],
+            return_type: Idx::INT,
+            capabilities: vec![],
+            is_public: false,
+            is_test: false,
+            is_main: false,
+            type_param_bounds: vec![],
+            where_clauses: vec![],
+            generic_param_mapping: vec![],
+            required_params: 2,
+        };
+
+        let annotated = AnnotatedSig {
+            params: vec![
+                ori_arc::AnnotatedParam {
+                    name: Name::from_raw(2),
+                    ty: Idx::STR,
+                    ownership: Ownership::Borrowed,
+                },
+                ori_arc::AnnotatedParam {
+                    name: Name::from_raw(3),
+                    ty: Idx::INT,
+                    ownership: Ownership::Owned,
+                },
+            ],
+            return_type: Idx::INT,
+        };
+
+        let abi = compute_function_abi_with_ownership(&sig, &store, Some(&annotated), &classifier);
+
+        // str param is Borrowed + DefiniteRef → Reference
+        assert_eq!(abi.params[0].passing, ParamPassing::Reference);
+        // int param is Owned + Scalar → Direct
+        assert_eq!(abi.params[1].passing, ParamPassing::Direct);
+        assert_eq!(abi.return_abi.passing, ReturnPassing::Direct);
+    }
+
+    #[test]
+    fn abi_with_ownership_none_falls_through() {
+        let pool = Pool::new();
+        let store = TypeInfoStore::new(&pool);
+        let classifier = ArcClassifier::new(&pool);
+
+        let sig = FunctionSig {
+            name: Name::from_raw(1),
+            type_params: vec![],
+            param_names: vec![Name::from_raw(2)],
+            param_types: vec![Idx::STR],
+            return_type: Idx::STR,
+            capabilities: vec![],
+            is_public: false,
+            is_test: false,
+            is_main: false,
+            type_param_bounds: vec![],
+            where_clauses: vec![],
+            generic_param_mapping: vec![],
+            required_params: 1,
+        };
+
+        // No borrow info → falls through to standard compute_function_abi
+        let abi = compute_function_abi_with_ownership(&sig, &store, None, &classifier);
+        assert_eq!(abi.params[0].passing, ParamPassing::Direct);
     }
 }

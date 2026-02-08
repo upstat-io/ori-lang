@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: ARC IR & Borrow Inference
-status: in-progress
+status: complete
 goal: Lower typed AST to an intermediate ARC IR with explicit control flow, then infer which function parameters can be borrowed (no RC needed) vs owned (RC needed)
 sections:
   - id: "06.0"
@@ -15,12 +15,12 @@ sections:
     status: complete
   - id: "06.3"
     title: Integration with Function Signatures
-    status: in-progress
+    status: complete
 ---
 
 # Section 06: ARC IR & Borrow Inference
 
-**Status:** In Progress — 06.0 AST→ARC IR lowering complete. 06.1 ownership model complete. 06.2 borrow inference complete (fixed-point algorithm with projection propagation, tail call preservation, 14 tests). 06.3 partially complete (apply_borrows done, LLVM integration remaining).
+**Status:** Complete — 06.0 AST→ARC IR lowering complete. 06.1 ownership model complete. 06.2 borrow inference complete (fixed-point algorithm with projection propagation, tail call preservation, 14 tests). 06.3 complete: `ParamPassing::Reference` variant, borrow-aware ABI bridge (`compute_function_abi_with_ownership`), `Reference` handling in function declarations/bindings/call sites, ARC pipeline wired into `compile_to_llvm`.
 **Goal:** Lower typed AST to an intermediate ARC IR with basic blocks and explicit control flow, then infer which function parameters are "borrowed" (the caller retains ownership, callee doesn't need to inc/dec) vs "owned" (ownership transfers to callee). Borrowed parameters eliminate entire classes of RC operations.
 
 **Crate:** `ori_arc` (no LLVM dependency).
@@ -541,9 +541,9 @@ Borrow inference produces `Ownership::Borrowed` / `Ownership::Owned` annotations
 The mapping is applied in `ori_llvm` when building LLVM function signatures. Section 04's `compute_param_passing()` takes the `Ownership` annotation (from borrow inference) and the `ArcClass` (from Section 05) as inputs. When `Ownership::Borrowed` and `ArcClass != Scalar`, it produces `ParamPassing::Reference` — the parameter is passed as a pointer, and the caller retains ownership (no inc before call, no dec after call). This is the mechanism by which borrow inference eliminates RC operations at call sites.
 
 - [x] Implement module annotation with borrow results (`apply_borrows()`)
-- [ ] Wire borrow info into FunctionSig (Section 04)
-- [ ] Implement `compute_param_passing()` bridge: Ownership::Borrowed + non-Scalar → ParamPassing::Reference
-- [ ] Ensure borrow info persists through codegen pipeline
+- [x] Wire borrow info into FunctionSig (Section 04)
+- [x] Implement `compute_param_passing()` bridge: Ownership::Borrowed + non-Scalar → ParamPassing::Reference
+- [x] Ensure borrow info persists through codegen pipeline
 
 ---
 

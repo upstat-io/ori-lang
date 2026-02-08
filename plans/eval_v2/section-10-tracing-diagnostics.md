@@ -20,7 +20,7 @@ sections:
 
 # Section 10: Tracing & Diagnostics V2
 
-**Status:** 📋 Planned
+**Status:** Planned
 **Goal:** Enhance evaluation error reporting with call stack backtraces, structured error types, and integrated tracing — making runtime errors as informative as compile-time errors.
 
 ---
@@ -56,11 +56,15 @@ pub struct EvalBacktrace {
 pub struct BacktraceFrame {
     /// Function name (or interned "<anonymous>" for lambdas)
     pub function_name: Name,
-    /// Source file path (interned)
+    /// Source file path (interned).
+    /// **Note**: Populated by the Salsa integration layer in `oric`, not by `ori_eval`
+    /// directly. For pure `ori_eval` usage (e.g., embedded interpreter), this is `None`.
     pub file: Option<Name>,
     /// Source span of the call site
     pub span: Option<Span>,
-    /// Line number (for display)
+    /// Line number (for display).
+    /// **Note**: Like `file`, populated by the `oric` Salsa integration layer.
+    /// For pure `ori_eval` usage, this is `None`.
     pub line: Option<u32>,
 }
 
@@ -75,6 +79,17 @@ impl EvalBacktrace {
             })
             .collect();
         EvalBacktrace { frames }
+    }
+
+    /// Enrich frames with file and line information.
+    /// Called by the Salsa integration layer in `oric` after capture,
+    /// since `ori_eval` does not have access to file/source-map information.
+    pub fn enrich(&mut self, resolver: impl Fn(Option<Span>) -> (Option<Name>, Option<u32>)) {
+        for frame in &mut self.frames {
+            let (file, line) = resolver(frame.span);
+            frame.file = file;
+            frame.line = line;
+        }
     }
 
     /// Display the backtrace. Requires an interner to resolve Name -> &str.
@@ -97,6 +112,13 @@ impl EvalBacktrace {
 /// Call stack tracking during evaluation.
 /// Each child interpreter receives a clone of the parent's call stack frames,
 /// then pushes its own frame. No shared mutable state — thread-safe by design.
+///
+/// **Performance note**: The clone-per-child approach has O(N) cost per function
+/// call (where N is the current call depth), giving O(N²) total cost for a chain
+/// of N calls. At practical recursion depths (200-1000), each `CallFrame` is ~24
+/// bytes, so the clone cost is negligible (~24 KiB for 1000 frames). If profiling
+/// shows this matters for deeply recursive programs, optimize to a persistent
+/// linked list or lazy snapshot. Acceptable for now.
 pub struct CallStack {
     frames: Vec<CallFrame>,
     /// Max depth limit. On native builds, this is usize::MAX (stacker handles growth).
@@ -180,6 +202,12 @@ pub struct EvalError {
 /// `String` enables direct `Display` implementation, JSON serialization, and simple test
 /// assertions without interner dependency. Self-contained error values simplify threading
 /// errors across evaluation boundaries.
+///
+/// **Completeness note**: This enum shows the representative categories. During the
+/// phased migration of all ~40 factory methods in `ori_patterns/src/errors.rs`,
+/// additional variants will be discovered and added (e.g., format/template errors,
+/// iterator errors, conversion errors). The categories below cover the major
+/// groupings; expect 15-20 more variants during migration.
 #[derive(Clone, Debug)]
 pub enum EvalErrorKind {
     // === Arithmetic ===
@@ -197,9 +225,20 @@ pub enum EvalErrorKind {
     UndefinedMethod { method: String, type_name: String, suggestions: Vec<String> },
     IndexOutOfBounds { index: i64, length: usize },
 
+    // === Binding Mutation ===
+    ImmutableBinding { name: String },
+
     // === Pattern Matching ===
     NonExhaustiveMatch { scrutinee_type: String },
     IrrefutablePatternFailed,
+
+    // === Control Flow ===
+    /// Uncaught break/continue/propagate that escaped its enclosing construct (Section 05)
+    UncaughtControlFlow { action: String },
+
+    // === Iteration ===
+    /// Value does not implement iteration (Section 05)
+    NotIterable { type_name: String },
 
     // === Function Calls ===
     ArityMismatch { expected: usize, got: usize, func_name: String },
@@ -223,6 +262,18 @@ pub enum EvalErrorKind {
     // No separate ConstEvalErrorKind enum exists.
     ConstEvalBudgetExceeded,
     ConstEvalSideEffect { capability: String },
+
+    // === Collection Methods ===
+    CollectionMethodError { method: String, message: String },
+
+    // === Pattern Binding ===
+    PatternBindingError { message: String },
+
+    // === Not Implemented ===
+    NotImplemented { feature: String, suggestion: String },
+
+    // === Invalid Context ===
+    InvalidContext { construct: String, context: String },
 
     // === Internal ===
     Internal { message: String },
@@ -256,6 +307,11 @@ impl EvalError {
 
     pub fn with_note(mut self, message: impl Into<String>, span: Option<Span>) -> Self {
         self.notes.push(EvalNote { message: message.into(), span });
+        self
+    }
+
+    pub fn with_kind(mut self, kind: EvalErrorKind) -> Self {
+        self.kind = kind;
         self
     }
 
@@ -294,20 +350,24 @@ impl EvalError {
   - [ ] **Phase 4**: Remaining categories — assertion, capability, const eval, internal
   - [ ] During transition, `EvalError.message` is derivable from `EvalErrorKind` via `Display` impl
   - [ ] Keep existing factory function signatures as public API; change internals to construct `EvalError { kind: EvalErrorKind::... }`
-  - [ ] **Note**: Additional error kinds will be added during migration to cover all 60+ existing error factories in `ori_patterns/src/errors.rs`
+  - [ ] **Note**: Additional error kinds will be added during migration to cover all ~40 existing error factories in `ori_patterns/src/errors.rs`
   - [ ] Attach spans wherever available
   - [ ] Attach backtraces for runtime errors
 - [ ] Implement `impl From<EvalError> for Diagnostic` conversion
   - [ ] `EvalError` and `Diagnostic` remain separate types
+  - [ ] **Crate location**: `impl From<EvalError> for Diagnostic` lives in `oric` (the CLI crate), which depends on both `ori_patterns` (for `EvalError`) and `ori_diagnostic` (for `Diagnostic`). It cannot live in either of those crates due to the orphan rule.
   - [ ] Conversion maps `EvalErrorKind` to diagnostic severity, message, and related info
   - [ ] Enables unified output: evaluator produces `EvalError`, CLI converts to `Diagnostic` for display
   - [ ] Map each `EvalErrorKind` to an `ErrorCode` in the **E4xxx** range (E3xxx is already allocated for pattern errors in `ori_diagnostic`):
     - **E4000–E4099**: Arithmetic errors (`DivisionByZero`, `IntegerOverflow`, `NegativeShift`)
-    - **E4100–E4199**: Type and access errors (`TypeMismatch`, `InvalidCast`, `UndefinedVariable`, `UndefinedField`, `UndefinedMethod`, `IndexOutOfBounds`)
-    - **E4200–E4299**: Control flow errors (`NonExhaustiveMatch`, `IrrefutablePatternFailed`, `ArityMismatch`, `StackOverflow`, `NotCallable`)
+    - **E4100–E4199**: Type, access, and binding errors (`TypeMismatch`, `InvalidCast`, `UndefinedVariable`, `UndefinedField`, `UndefinedMethod`, `IndexOutOfBounds`, `ImmutableBinding`)
+    - **E4200–E4299**: Control flow and iteration errors (`NonExhaustiveMatch`, `IrrefutablePatternFailed`, `ArityMismatch`, `StackOverflow`, `NotCallable`, `UncaughtControlFlow`, `NotIterable`)
     - **E4300–E4399**: Assertion, test, and panic errors (`AssertionFailed`, `TestFailed`, `PanicCalled`, `TodoReached`, `UnreachableReached`)
     - **E4400–E4499**: Capability errors (`MissingCapability`)
     - **E4500–E4599**: Const eval errors (`ConstEvalBudgetExceeded`, `ConstEvalSideEffect`)
+    - **E4600–E4699**: Collection method errors (`CollectionMethodError`)
+    - **E4700–E4799**: Pattern binding errors (`PatternBindingError`)
+    - **E4800–E4899**: Context and implementation errors (`NotImplemented`, `InvalidContext`)
     - **E4900–E4999**: Internal and custom errors (`Internal`, `Custom`)
   - [ ] Define `ErrorCode` variants for each E4xxx code
 - [ ] Remove ControlFlow and propagated_value from EvalError
@@ -328,11 +388,13 @@ use tracing::{debug, trace, instrument, span, Level};
 // After Section 02 (EvalMode), the `#[instrument]` annotations stay on `Interpreter`
 // (which holds `EvalMode` as a field). There is no separate `EvalMachine` type —
 // `EvalMode` parameterizes the `Interpreter` via enum dispatch (Section 02).
-// The `eval(ir_id, ir_arena)` signature reflects the post-Section 08 interface (EvalIR-based).
+// The `eval(ir_id)` signature reflects the post-Section 08 interface (EvalIR-based).
+// Section 08 is authoritative: ir_arena is a field on Interpreter (`self.ir_arena`),
+// not a parameter. See Section 08.4 for the canonical eval() signature.
 impl<'a> Interpreter<'a> {
-    #[instrument(level = "trace", skip(self, ir_arena), fields(node_kind))]
-    pub fn eval(&mut self, ir_id: EvalIrId, ir_arena: &EvalIrArena) -> EvalResult {
-        let node = ir_arena.get(ir_id);
+    #[instrument(level = "trace", skip(self), fields(node_kind))]
+    pub fn eval(&mut self, ir_id: EvalIrId) -> EvalResult {
+        let node = self.ir_arena.get(ir_id);
         tracing::Span::current().record("node_kind", format!("{:?}", node.kind_name()));
         // Dispatch to node-specific evaluation
         match node {
@@ -390,9 +452,17 @@ pub struct EvalCounters {
     pub heap_allocations: u64,
     pub cache_hits: u64,
     pub cache_misses: u64,
-    /// Number of expressions folded to constants during IR lowering (Section 07)
+    /// Number of expressions folded to constants during IR lowering (Section 07).
+    /// **Note**: This is a compile-time metric, tracked during the lowering pass
+    /// (Section 08.2), not during evaluation. It is included here so `--profile`
+    /// can report the full picture (how many nodes were folded vs. evaluated).
+    /// Incremented by the EvalIR lowerer, not by the interpreter.
     pub const_folded_nodes: u64,
-    /// Number of EvalIR nodes evaluated at runtime
+    /// Number of EvalIR nodes dispatched at runtime.
+    /// This equals `expressions_evaluated` in the post-Section-08 world (one
+    /// `eval()` dispatch per EvalIR node). Retained as a separate counter for
+    /// clarity during the transition period when the interpreter may still
+    /// evaluate some expressions via the old AST path.
     pub ir_nodes_evaluated: u64,
 }
 
@@ -430,7 +500,7 @@ impl EvalCounters {
   - [ ] Counter increment methods are no-ops when `counters` is `None`
   - [ ] No generic parameter needed — runtime check via `Option`
   - [ ] **Transitional guidance**: Before Section 02 (`ModeState`) is implemented, use `Option<EvalCounters>` as a field directly on `Interpreter`. Migrate to `ModeState.counters` when Section 02 lands.
-  - [ ] **Increment locations**: `expressions_evaluated` in `eval()`, `function_calls` in `eval_call()`, `method_calls` in `eval_method_call()`, `pattern_matches` in `eval_match()`, `scope_pushes` in `push_scope()`, `heap_allocations` in `Value` heap-allocating factories (e.g., `Value::list()`, `Value::str()`). Tracks allocations for heap-allocated values (see Section 09 for the `needs_rc()` classification).
+  - [ ] **Increment locations**: `expressions_evaluated` in `eval()`, `function_calls` in `eval_call()`, `method_calls` in `eval_method_call()`, `pattern_matches` in `eval_match()`, `scope_pushes` in `push_scope()`, `heap_allocations` at call sites in `ori_eval` where heap-allocating `Value` factories are called (e.g., `Value::list()`, `Value::str()`, `Value::map()`). **Crate boundary**: `Value` factories live in `ori_patterns` and cannot directly access `EvalCounters` in `ori_eval`. The counter increment must happen at the call site, not in the factory method. See Section 09.4 for details.
 - [ ] Add `--profile` flag to `ori` CLI
   - [ ] Sets `ModeState.counters = Some(EvalCounters::default())` (or `Interpreter.counters` during transition)
   - [ ] Propagation path: CLI parses `--profile` → sets field on `EvalConfig`/`InterpreterBuilder` → `Interpreter` receives `Some(EvalCounters::default())`
@@ -441,10 +511,10 @@ impl EvalCounters {
 ## 10.5 Completion Checklist
 
 - [ ] `EvalBacktrace` captures call stack at error sites (uses `Name` for interned strings)
-- [ ] `CallStack` replaces `call_depth` counter (snapshot approach: child clones parent frames, no shared mutable state)
-- [ ] `EvalErrorKind` with typed error categories (phased migration of 60+ factories)
+- [ ] `CallStack` replaces `call_depth` counter (snapshot approach: child clones parent frames, no shared mutable state; O(N²) clone cost acceptable for practical depths)
+- [ ] `EvalErrorKind` with typed error categories (phased migration of ~40 factories)
 - [ ] `EvalNote` for additional error context
-- [ ] `impl From<EvalError> for Diagnostic` conversion (separate types, unified output)
+- [ ] `impl From<EvalError> for Diagnostic` conversion (in `oric` crate; separate types, unified output)
 - [ ] All error creation sites use typed constructors (phased: arithmetic, access, control flow, remaining)
 - [ ] ControlFlow/propagated_value removed from EvalError
 - [ ] Tracing `#[instrument]` on all major entry points

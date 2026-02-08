@@ -255,8 +255,16 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
 
             // 6. Two-pass function compilation
             debug!("declaring functions (phase 1)");
-            let mut fc =
-                FunctionCompiler::new(&mut builder, &store, &resolver, interner, self.pool, "");
+            let mut fc = FunctionCompiler::new(
+                &mut builder,
+                &store,
+                &resolver,
+                interner,
+                self.pool,
+                "",
+                None,
+                None,
+            );
             fc.declare_all(&module.functions, function_sigs);
 
             // 7. Compile impl methods (declare + define)
@@ -398,10 +406,10 @@ fn add_runtime_mappings_to_engine(
             "ori_str_from_float",
             runtime::ori_str_from_float as *const () as usize,
         ),
-        ("ori_rc_new", runtime::ori_rc_new as *const () as usize),
-        ("ori_rc_data", runtime::ori_rc_data as *const () as usize),
+        ("ori_rc_alloc", runtime::ori_rc_alloc as *const () as usize),
         ("ori_rc_inc", runtime::ori_rc_inc as *const () as usize),
         ("ori_rc_dec", runtime::ori_rc_dec as *const () as usize),
+        ("ori_rc_free", runtime::ori_rc_free as *const () as usize),
         (
             "ori_args_from_argv",
             runtime::ori_args_from_argv as *const () as usize,

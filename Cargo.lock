@@ -646,6 +646,7 @@ dependencies = [
  "im",
  "inkwell",
  "llvm-sys",
+ "ori_arc",
  "ori_ir",
  "ori_rt",
  "ori_types",
@@ -718,11 +719,13 @@ name = "oric"
 version = "0.1.0-alpha.8"
 dependencies = [
  "criterion",
+ "ori_arc",
  "ori_diagnostic",
  "ori_eval",
  "ori_fmt",
  "ori_ir",
  "ori_lexer",
+ "ori_lexer_core",
  "ori_llvm",
  "ori_parse",
  "ori_patterns",

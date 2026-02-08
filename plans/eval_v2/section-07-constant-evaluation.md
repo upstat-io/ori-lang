@@ -20,9 +20,10 @@ sections:
 
 # Section 07: Constant Evaluation
 
-**Status:** 📋 Planned
+**Status:** Planned
 **Goal:** Evaluate compile-time-known expressions during type checking or IR lowering, enabling constant folding, dead branch elimination, and memoization of pure function calls.
-**Dependencies:** Section 02 (Machine Abstraction — EvalMode::ConstEval), Section 01 (Value System — ValuePool for interning folded constants), Section 08 (Canonical EvalIR — constant folding integrated into lowering pass)
+**Dependencies:** Section 02 (Machine Abstraction — EvalMode::ConstEval), Section 01 (Value System — ValuePool for interning folded constants)
+**Used by:** Section 08 (Canonical EvalIR — constant folding integrated into lowering pass)
 
 ---
 
@@ -62,12 +63,13 @@ pub enum Constness {
 ```
 
 **Classification rules**:
-- **Literals**: Always `Const` (Int, Float, Bool, String, Char, None, Unit)
+- **Literals**: Always `Const` (Int, Float, Bool, String, Char, None, Unit, Duration, Size)
 - **Binary/Unary operators on Const operands**: `Const` (e.g., `1 + 2`, `!true`)
 - **Let bindings where init is Const**: Binding is `Const`
 - **If/match where condition and all branches are Const**: `Const`
 - **Function calls where function is pure and all args are Const**: `Const` (with memoization)
-- **List/tuple/map literals where all elements are Const**: `Const`
+- **Algebraic constructors (Ok, Err, Some) where inner is Const**: `Const`
+- **Tuple/List/Map literals where all elements are Const**: `Const`
 - **Variable references**: Constness of the binding
 - **Capability access**: `Effectful` (always)
 - **Print, panic, break, continue**: `Effectful`
@@ -81,7 +83,20 @@ pub fn classify_constness(
     match arena.expr_kind(expr) {
         ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Bool(_) |
         ExprKind::String(_) | ExprKind::Char(_) | ExprKind::None |
-        ExprKind::Unit => Constness::Const,
+        ExprKind::Unit | ExprKind::Duration { .. } |
+        ExprKind::Size { .. } => Constness::Const,
+
+        ExprKind::Tuple(range) | ExprKind::List(range) => {
+            arena.get_expr_list(*range).iter()
+                .map(|e| classify_constness(*e, arena, bindings))
+                .fold(Constness::Const, Constness::merge)
+        }
+
+        ExprKind::Map(range) => {
+            arena.get_expr_list(*range).iter()
+                .map(|e| classify_constness(*e, arena, bindings))
+                .fold(Constness::Const, Constness::merge)
+        }
 
         ExprKind::Binary { left, right, .. } => {
             let l = classify_constness(left, arena, bindings);
@@ -93,9 +108,13 @@ pub fn classify_constness(
             bindings.get(&name).copied().unwrap_or(Constness::Unknown)
         }
 
+        ExprKind::Ok(inner) | ExprKind::Err(inner) | ExprKind::Some(inner) => {
+            classify_constness(*inner, arena, bindings)
+        }
+
         ExprKind::Call { func, args } => {
             // If function is known-pure and all args are const, result is const
-            let func_constness = classify_constness(func, arena, bindings);
+            let func_constness = classify_constness(*func, arena, bindings);
             let args_constness = arena.get_expr_list(*args).iter()
                 .map(|a| classify_constness(*a, arena, bindings))
                 .fold(Constness::Const, Constness::merge);
@@ -111,7 +130,8 @@ impl Constness {
         match (self, other) {
             (Constness::Const, Constness::Const) => Constness::Const,
             (Constness::Effectful, _) | (_, Constness::Effectful) => Constness::Effectful,
-            _ => Constness::Pure, // Conservative: at least one non-const
+            (Constness::Unknown, _) | (_, Constness::Unknown) => Constness::Unknown,
+            _ => Constness::Pure, // Both are Pure or (Const, Pure)
         }
     }
 }
@@ -119,8 +139,10 @@ impl Constness {
 
 - [ ] Define `Constness` enum
 - [ ] Implement `classify_constness()` for all expression kinds
-  - [ ] Literals → Const
+  - [ ] Literals → Const (Int, Float, Bool, String, Char, None, Unit, Duration, Size)
   - [ ] Operators on Const → Const
+  - [ ] Algebraic constructors (Ok, Err, Some) → constness of inner expression
+  - [ ] Compound literals (Tuple, List, Map) → Const when all elements are Const
   - [ ] Variables → look up in binding map
   - [ ] Function calls → merge func + args constness
   - [ ] Capability access → Effectful
@@ -140,6 +162,14 @@ pub struct ConstEvaluator<'a> {
     /// (mode is set at construction time, not via generic parameter).
     /// Budget is accessed via interpreter.mode if needed — no redundant field.
     interpreter: Interpreter<'a>,
+    /// Constness classification for known bindings.
+    ///
+    /// Populated from:
+    /// - `const` declarations (always `Constness::Const`)
+    /// - Let bindings whose init expression was successfully const-evaluated
+    /// - Function parameters (always `Constness::Pure` — runtime values, no effects)
+    /// - Prelude/global bindings (classified based on purity analysis)
+    bindings: FxHashMap<Name, Constness>,
 }
 
 impl<'a> ConstEvaluator<'a> {
@@ -150,7 +180,7 @@ impl<'a> ConstEvaluator<'a> {
     /// `pool` is passed as a parameter rather than stored in ConstEvaluator
     /// to avoid aliasing conflicts when the Lowerer also holds `&mut ValuePool`.
     pub fn try_eval(&mut self, expr: ExprId, pool: &mut ValuePool) -> Option<Value> {
-        let constness = classify_constness(expr, self.interpreter.arena, &self.bindings());
+        let constness = classify_constness(expr, self.interpreter.arena, &self.bindings);
         if constness != Constness::Const {
             return None;
         }
@@ -203,7 +233,8 @@ impl ConstEvalError {
 ```
 
 - [ ] Implement `ConstEvaluator` using `EvalMode::ConstEval` interpreter
-  - [ ] Single field: `interpreter: Interpreter<'a>` (budget accessed via `interpreter.mode`)
+  - [ ] Fields: `interpreter: Interpreter<'a>`, `bindings: FxHashMap<Name, Constness>`
+  - [ ] Populate `bindings` from const declarations, let bindings, function params, and globals
   - [ ] `try_eval(expr, &mut ValuePool) -> Option<Value>` — optimistic compile-time eval
   - [ ] `eval_const(expr, &mut ValuePool) -> Result<Value, ConstEvalError>` — mandatory const eval
   - [ ] `&mut ValuePool` passed as parameter (not stored) to avoid aliasing with Lowerer
@@ -295,33 +326,47 @@ fn lower_if(&mut self, cond: ExprId, then_br: ExprId, else_br: ExprId) -> EvalIr
 
 ## 07.4 Memoized Pure Functions
 
+**Prerequisite**: Extend `Value::equals` to cover `Map`, `Struct`, and `Range` comparisons (currently return `false` via catch-all). MemoCache uses `Value::equals` for argument comparison, so compound values must be handled correctly for cache lookups to work with functions that take Map/Struct/Range arguments.
+
+- [ ] Extend `Value::equals` to handle `Map`, `Struct`, `Range` (prerequisite for MemoCache)
+
 Cache results of pure function calls with constant arguments (inspired by Zig's memoized calls):
 
 ```rust
 pub struct MemoCache {
-    /// (function_id, args_hash) → cached result
-    entries: FxHashMap<(u64, u64), MemoEntry>,
+    /// (function body ExprId, args) → cached result.
+    ///
+    /// Uses `ExprId` (function body ID) instead of raw `u64` for type safety.
+    /// Stores the actual `Vec<Value>` args alongside the key to avoid hash
+    /// collision issues — two calls with different args that happen to hash
+    /// the same are correctly distinguished.
+    entries: FxHashMap<ExprId, Vec<MemoEntry>>,
 }
 
 struct MemoEntry {
+    args: Vec<Value>,
     result: Value,
     call_count: u32,  // How many times this was looked up
 }
 
 impl MemoCache {
-    pub fn lookup(&mut self, func_id: u64, args: &[Value]) -> Option<&Value> {
-        let args_hash = hash_values(args);
-        if let Some(entry) = self.entries.get_mut(&(func_id, args_hash)) {
-            entry.call_count += 1;
-            Some(&entry.result)
-        } else {
-            None
+    pub fn lookup(&mut self, func_id: ExprId, args: &[Value]) -> Option<&Value> {
+        if let Some(entries) = self.entries.get_mut(&func_id) {
+            for entry in entries.iter_mut() {
+                if entry.args.len() == args.len()
+                    && entry.args.iter().zip(args).all(|(a, b)| a.equals(b))
+                {
+                    entry.call_count += 1;
+                    return Some(&entry.result);
+                }
+            }
         }
+        None
     }
 
-    pub fn insert(&mut self, func_id: u64, args: &[Value], result: Value) {
-        let args_hash = hash_values(args);
-        self.entries.insert((func_id, args_hash), MemoEntry {
+    pub fn insert(&mut self, func_id: ExprId, args: &[Value], result: Value) {
+        self.entries.entry(func_id).or_default().push(MemoEntry {
+            args: args.to_vec(),
             result,
             call_count: 0,
         });
@@ -340,16 +385,17 @@ impl MemoCache {
 - Function accesses mutable state
 - Arguments contain heap values that might mutate (conservative)
 
-- [ ] Implement `MemoCache` with (func_id, args_hash) keying
-  - [ ] `lookup(func_id, args) -> Option<&Value>` — check cache
-  - [ ] `insert(func_id, args, result)` — store result
+- [ ] Implement `MemoCache` with `ExprId` (function body ID) keying
+  - [ ] Key: `ExprId` for the function body; entries store full `Vec<Value>` args for collision-safe lookup
+  - [ ] `lookup(func_id: ExprId, args) -> Option<&Value>` — check cache
+  - [ ] `insert(func_id: ExprId, args, result)` — store result
   - [ ] `clear()` — invalidate all entries
 - [ ] Integrate with `EvalMode::ConstEval` (Section 02)
   - [ ] Before evaluating a const function call, check memo cache
   - [ ] After successful evaluation, store in memo cache
-- [ ] Implement `hash_values(args) -> u64` for argument hashing
-  - [ ] Must be deterministic (no Arc pointer hashing)
-  - [ ] Content-based hash for compound values
+- [ ] Implement `Value::equals`-based argument comparison for cache lookup
+  - [ ] Must be deterministic (no Arc pointer comparison)
+  - [ ] Content-based equality for compound values (already provided by `Value::equals`)
 - [ ] Track cache hit/miss statistics
 
 ---

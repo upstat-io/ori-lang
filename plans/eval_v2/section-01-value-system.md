@@ -20,7 +20,7 @@ sections:
 
 # Section 01: Value System V2
 
-**Status:** 📋 Planned
+**Status:** Planned
 **Goal:** Redesign the `Value` type with interned constants, immediate optimization, and efficient heap management — inspired by Zig's InternPool, Rust's Immediate/Scalar, and Go's representation promotion.
 
 **Crate Location:** The `Value` enum currently lives in `ori_patterns` (not `ori_eval`). It moves to a new `ori_value` crate so that the evaluator, codegen, and pattern system can all use it directly without circular dependencies. `ori_types` remains focused on type checking and does NOT contain Value. `ValuePool` and eval-specific value logic remain in `ori_eval`. Constant values in EvalIR use `Value` directly (via `EvalIR::Const(Value)`) — there is no separate `ConstValue` type.
@@ -121,13 +121,13 @@ pub enum Value {
     None,
     Duration(i64),      // Nanoseconds
     Size(u64),          // Bytes
-    Ordering(Ordering),
+    Ordering(OrderingValue),  // Already uses OrderingValue in V1 (avoids std::cmp::Ordering name collision)
 
     // === Tier 2: Interned (pool reference, Copy-able) ===
     Interned(ValueId),  // Reference to ValuePool — for constants, shared values
 
     // === Tier 3: Heap (Arc-wrapped, Clone-able) ===
-    Str(Heap<CompactStr>),   // CompactStr instead of Cow<str> for better ergonomics
+    Str(Heap<Cow<'static, str>>),  // Current type; evaluate CompactStr as future optimization
     List(Heap<Vec<Value>>),
     Map(Heap<BTreeMap<String, Value>>),
     Tuple(Heap<Vec<Value>>),
@@ -156,7 +156,8 @@ pub enum Value {
 - **KEEP `ScalarInt`** — `#[repr(transparent)]` around `i64` costs zero bytes at runtime but provides compile-time safety: unchecked arithmetic (raw `+`, `-`, `*`, `/` on the inner `i64`) becomes a compile error. All arithmetic must go through `ScalarInt::checked_add`, `checked_mul`, etc., which return `EvalError::IntegerOverflow` on overflow. This is a net positive over using bare `i64` where nothing prevents accidental unchecked operations.
 - Add `Interned(ValueId)` variant for pool-backed constants
 - Narrow `VariantConstructor.field_count` from `usize` to `u16` — reduces Value enum size; 65,535 fields per variant is more than sufficient. **Factory methods must use `u16::try_from(count).expect("variant field count exceeds u16::MAX")` for checked conversion** at construction time to catch overflows early rather than silently truncating.
-- Consider `CompactStr` over `Cow<'static, str>` (better API, same performance)
+- **Caller audit required**: All callers of `variant_constructor()` and any code constructing `VariantConstructor` must be audited for the `usize` -> `u16` type narrowing. Search for `field_count` usage, `VariantConstructor` construction, and any code that passes field counts as `usize` to ensure no silent truncation occurs.
+- Keep `Cow<'static, str>` (current type); evaluate `CompactStr` as a future optimization after profiling
 - Future: if `Value` exceeds 2 words (128 bits), consider pointer-tagging or NaN-boxing
 
 - [ ] Audit current `Value` variants for size optimization
@@ -186,7 +187,7 @@ impl Value {
         if s.len() <= 64 {  // Short strings worth interning
             Value::Interned(pool.intern_str(&s))
         } else {
-            Value::Str(Heap::new(CompactStr::from(s)))
+            Value::Str(Heap::new(Cow::Owned(s)))
         }
     }
 
@@ -266,5 +267,7 @@ Before any Value changes, decompose the `ori_patterns` crate which currently hol
 - [ ] All existing tests pass (updated to use pool-aware API)
 - [ ] `size_of::<Value>()` documented and within target
 - [ ] Performance benchmarked — no regressions
+
+**Migration note:** `EvalResult` becomes generic `EvalResult<T = Value>` per Section 05's changes (i.e., `pub type EvalResult<T = Value> = Result<T, EvalError>`). This allows `EvalResult<()>` for void-returning operations while keeping `EvalResult` (without explicit type parameter) as shorthand for `Result<Value, EvalError>`. Value system changes should use the generic form where appropriate.
 
 **Exit Criteria:** Value system fully uses interned constants alongside heap values. All code uses pool-aware factory methods; non-pool methods are deleted.

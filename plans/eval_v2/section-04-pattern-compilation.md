@@ -20,7 +20,7 @@ sections:
 
 # Section 04: Pattern Compilation
 
-**Status:** 📋 Planned
+**Status:** Planned
 **Goal:** Compile match expressions to decision trees for O(depth) dispatch instead of O(arms) sequential testing — inspired by Gleam and Elm's pattern compilation.
 **Dependencies:** Section 03 (Environment — `with_match_bindings` already exists in `ori_eval/src/interpreter/scope_guard.rs` as `Interpreter::with_match_bindings`; this section uses it as-is. No new Section 03 functionality is required.), Section 08 (Canonical EvalIR — decision trees stored in EvalIR, bodies become EvalIrId post-migration. See transitional approach below for independent development.)
 
@@ -373,7 +373,7 @@ impl<'a> Interpreter<'a> {
 
 ## 04.4 Exhaustiveness Integration
 
-Connect the pattern compiler to exhaustiveness checking (currently in roadmap Section 9):
+Connect the pattern compiler to exhaustiveness checking (currently in roadmap Section 9 — i.e., the *roadmap* Section 9 for exhaustiveness checking, NOT eval_v2 Section 09 which covers Reference Counting):
 
 ```rust
 /// Check exhaustiveness and compile patterns in one pass.

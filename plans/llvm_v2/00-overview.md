@@ -175,30 +175,47 @@ No existing module needs modification. No giant match arms to extend.
 
 ## Implementation Tiers
 
-### Tier 1: Foundation (Must Have)
-- Section 01: TypeInfo enum and core type implementations (in `ori_llvm::codegen`)
-- Section 02: IrBuilder (inkwell wrapper with ID-based references, in `ori_llvm::ir_builder`)
-- Section 03: Expression lowering modules (split from current Builder, in `ori_llvm::codegen`)
-- Section 04: Function declaration and calling conventions
+### Tier 1: Foundation (Must Have) -- Complete
+- Section 01: TypeInfo enum and core type implementations (in `ori_llvm::codegen`) -- **Complete**
+- Section 02: IrBuilder (inkwell wrapper with ID-based references, in `ori_llvm::ir_builder`) -- **Complete**
+- Section 03: Expression lowering modules (split from current Builder, in `ori_llvm::codegen`) -- **Complete**
+- Section 04: Function declaration and calling conventions -- **Complete**
 
-### Tier 2: ARC (Critical for Correctness) — all in `ori_arc`
-- Section 05: Type classification and ArcClassification trait (Scalar/Ref)
-- Section 06: ARC IR lowering + borrow inference
-- Section 07: RC insertion via liveness analysis on ARC IR
-- Section 09: Constructor reuse expansion (expands Reset/Reuse into IsShared + fast/slow paths)
-- Section 08: RC elimination via dataflow on ARC IR
+### Tier 2: ARC (Critical for Correctness) — all in `ori_arc` -- Complete
+- Section 05: Type classification and ArcClassification trait (Scalar/Ref) -- **Complete**
+- Section 06: ARC IR lowering + borrow inference -- **Complete** (06.0-06.3 all complete, including LLVM wiring)
+- Section 07: RC insertion via liveness analysis on ARC IR -- **Complete** (07.1-07.6)
+- Section 09: Constructor reuse expansion (expands Reset/Reuse into IsShared + fast/slow paths) -- **Complete** (09.1-09.5)
+- Section 08: RC elimination via dataflow on ARC IR -- **Complete** (08.1-08.3)
 
 **ARC pipeline execution order:** 05 → 06 → 07 → 09 → 08. Section numbers indicate topic grouping, not execution order. Section 09 runs before 08 following Lean 4's pipeline design: RC insertion (07) produces Reset/Reuse intermediate operations, constructor reuse expansion (09) expands those into concrete IsShared + Branch + RcInc/RcDec instructions, and then RC elimination (08) runs over the complete set of RcInc/RcDec instructions from both passes.
 
-### Tier 3: Optimization (Performance)
+### Tier 3: Optimization (Performance) -- Not Started
 - Section 10: Pattern match decision trees
 - Section 11: LLVM optimization pass configuration
 - Section 12: Incremental/parallel codegen
 
-### Tier 4: Polish (Quality of Life)
+### Tier 4: Polish (Quality of Life) -- Not Started
 - Section 13: Debug info generation
 - Section 14: Codegen test harness
 - Section 15: Diagnostics and error reporting
+
+## Implementation Progress
+
+> Last updated: 2026-02-08. ori_arc crate: 279 tests passing. Full test suite: 8,288 passed, 0 failed.
+
+| Section | Status | Implementation |
+|---------|--------|----------------|
+| 01 | Complete | `ori_llvm` TypeInfo enum |
+| 02 | Complete | `ori_llvm` IrBuilder |
+| 03 | Complete | `ori_llvm` expression lowering modules |
+| 04 | Complete | `ori_llvm` function declarations, ABI, mangling |
+| 05 | Complete | `ori_arc/src/classify.rs` — ArcClassifier with caching and cycle detection |
+| 06 | Complete | `ori_arc/src/lower/` (06.0), `ori_arc/src/borrow.rs` (06.2), `ori_llvm/src/codegen/abi.rs` + `compile_common.rs` (06.3 — `ParamPassing::Reference`, borrow-aware ABI, pipeline wiring) |
+| 07 | Complete | `ori_arc/src/liveness.rs` (07.1), `ori_arc/src/rc_insert.rs` (07.2 + 07.5), `ori_rt` V2 API (07.3), `ori_arc/src/drop.rs` (07.4), `ori_arc/src/reset_reuse.rs` (07.6) |
+| 08 | Complete | `ori_arc/src/rc_elim.rs` — bidirectional intra-block dataflow, cascading elimination, 27 tests |
+| 09 | Complete | `ori_arc/src/expand_reuse.rs` — two-path expansion, projection-increment erasure, self-set elimination |
+| 10-15 | Not Started | |
 
 ## Dependencies
 

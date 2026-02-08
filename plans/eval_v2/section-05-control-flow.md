@@ -23,21 +23,21 @@ sections:
 
 # Section 05: Structured Control Flow
 
-**Status:** 📋 Planned
+**Status:** Planned
 **Goal:** Replace error-based `break`/`continue` signaling with structured control flow using a `ControlAction` enum and Roc-inspired join points — making control flow explicit and composable.
 
 ---
 
-## Phase 0: Prerequisite — Labeled Break/Continue AST Extension
+## Phase 0: Labeled Break/Continue AST Extension
 
-**Blocking prerequisite** for Sections 05.1 and 05.3. Currently `ExprKind::Break(ExprId)` and `ExprKind::Continue(ExprId)` carry no label. Labeled break/continue requires cross-crate changes:
+**Prerequisite** for label support in Sections 05.1 and 05.3. Currently `ExprKind::Break(ExprId)` and `ExprKind::Continue(ExprId)` carry no label. Labeled break/continue is fully specified in the grammar (`grammar.ebnf`: `label = ":" identifier`, `break_expr = "break" [ label ] [ expression ]`, `continue_expr = "continue" [ label ] [ expression ]`) and in `spec/19-control-flow.md` (full labeled loop semantics). Implementation requires cross-crate changes:
 
 1. **`ori_ir`**: Extend `ExprKind::Break(ExprId)` to `ExprKind::Break(ExprId, Option<Name>)` and `ExprKind::Continue(ExprId)` to `ExprKind::Continue(ExprId, Option<Name>)`. **Size impact**: The current `ExprKind` has a 24-byte size assertion — adding `Option<Name>` (4 bytes for interned `Name`) may push some variants over. Audit with `std::mem::size_of::<ExprKind>()` and adjust the assertion if needed.
-2. **`ori_parse`**: Parse labeled syntax (`break:label value`, `continue:label`). Extend the break/continue parsing paths to recognize the `:label` suffix.
+2. **`ori_parse`**: Parse labeled syntax (`break:label value`, `continue:label`). Extend the break/continue parsing paths to recognize the `:label` suffix. Grammar already specifies `for_expr = "for" [ label ] ...` and `loop_expr = "loop" [ label ] ...`.
 3. **`ori_types`**: Update type checking for Break/Continue to thread through the optional label. Validate that labels reference enclosing loops.
 4. **`ori_eval`**: Consume the label in `ControlAction::Break`/`Continue` (covered in 05.1/05.3 below).
 
-This prerequisite must be completed before implementing `ControlAction` with label support.
+This phase should be completed before implementing `ControlAction` with label support, but is not a blocking prerequisite — unlabeled control flow (Sections 05.1, 05.3, 05.4) can proceed independently.
 
 ---
 
@@ -268,15 +268,26 @@ impl<'a> Interpreter<'a> {
         let mut for_iter = self.value_to_for_iterator(&iter_value)?;
         let mut results = if is_yield { Some(Vec::new()) } else { None };
 
-        // Private helper for loop body evaluation control flow.
+        // Private helper enum for loop body evaluation control flow.
+        // This enum is the CLOSURE return type — the closure returns
+        // `Result<LoopAction, EvalError>` (i.e., EvalResult<LoopAction>).
+        // The `?` on `scoped.eval(guard)` converts EvalError into
+        // the closure's Err variant automatically. The `eval_flow(body)`
+        // call is manually matched to convert FlowOrError into LoopAction.
+        // This matches the current codebase's IterResult pattern.
+        //
         // enum LoopAction { Continue, Break(Value) }
+        // Closure return type: EvalResult<LoopAction>
 
         while let Some(item) = for_iter.next() {
-            self.with_binding(binding, item, Mutability::Immutable, |scoped| {
-                // Check guard (uses ExprId convention — guard.is_present()
-                // returns false for absent guards, matching current codebase)
+            self.with_binding(binding, item, Mutability::Immutable, |scoped| -> EvalResult<LoopAction> {
+                // Check guard — uses eval() not eval_flow() because guards are
+                // value-producing expressions (true/false), not flow-producing.
+                // Only the loop body needs eval_flow() to handle break/continue.
+                // (Uses ExprId convention — guard.is_present() returns false for
+                // absent guards, matching current codebase)
                 if guard.is_present() {
-                    let guard_val = scoped.eval_flow(guard)?;
+                    let guard_val = scoped.eval(guard)?;
                     if !guard_val.is_truthy() {
                         return Ok(LoopAction::Continue);
                     }
@@ -302,7 +313,9 @@ impl<'a> Interpreter<'a> {
                         }
                         Ok(LoopAction::Continue)
                     }
-                    // Propagate and Error pass through to function boundary
+                    // Propagate and Error pass through to function boundary.
+                    // into_eval_error() converts FlowOrError → EvalError,
+                    // which matches the closure's EvalResult<LoopAction> return type.
                     Err(e) => Err(e.into_eval_error()),
                 }
             })?;
@@ -320,7 +333,7 @@ impl<'a> Interpreter<'a> {
   - [ ] Wraps `eval_inner` but catches ControlAction instead of EvalError control variants
   - [ ] Public `eval()` converts any uncaught ControlAction to EvalError
 - [ ] Rewrite `eval_loop()` to use `ControlAction::Break`/`Continue`
-  - [ ] No more `to_loop_action()` helper converting EvalError
+  - [ ] No more `to_loop_action()` / `LoopAction` enum converting EvalError
   - [ ] Direct pattern matching on FlowOrError
 - [ ] Rewrite `eval_for()` to use `ControlAction`
   - [ ] Same pattern — match on FlowOrError
@@ -337,10 +350,15 @@ impl<'a> Interpreter<'a> {
   - [ ] `continue:label` dispatches Continue with `Some(label_name)`
   - [ ] Loop handlers compare labels: if label is `Some(name)` and doesn't match the current loop's label, re-propagate the Break/Continue to the enclosing loop
   - [ ] Unlabeled break/continue (`None` label) always targets the innermost loop
-- [ ] Remove `ControlFlow` from `EvalError`
-  - [ ] `EvalError::control_flow` field → removed
-  - [ ] `EvalError::break_with()` → removed
-  - [ ] `EvalError::continue_with()` → removed
+- [ ] Remove `ControlFlow` from `EvalError` and related helpers
+  - [ ] `ControlFlow` enum (in `ori_patterns/src/errors.rs`) → removed entirely (replaced by `ControlAction`)
+  - [ ] `EvalError::control_flow: Option<ControlFlow>` field → removed
+  - [ ] `EvalError::break_with(value)` → removed
+  - [ ] `EvalError::continue_with(value)` → removed
+  - [ ] `EvalError::continue_signal()` → removed
+  - [ ] `EvalError::is_control_flow()` → removed
+  - [ ] `LoopAction` enum (in `exec/control.rs`) → removed (loop control now handled by `ControlAction` pattern matching on `FlowOrError`)
+  - [ ] `to_loop_action(error: EvalError) -> LoopAction` (in `exec/control.rs`) → removed (callers use `FlowOrError` pattern matching directly)
 
 ---
 
@@ -425,32 +443,64 @@ Handle the three early-termination constructs. Currently, `panic`/`todo`/`unreac
 - Add backtrace capture at the point of panic
 - Keep the existing `FunctionExpKind` dispatch path — do NOT create a separate `PanicKind` enum for the interpreter. (Note: Section 08 introduces `PanicKind` as part of the EvalIR lowered representation, which is distinct from the interpreter dispatch path.)
 
+**Integration approach:** The existing `eval_function_exp` dispatches `FunctionExpKind::Panic` (and Todo/Unreachable) through `PatternDefinition::evaluate()`, where `PanicPattern::evaluate()` calls `ctx.eval_prop("msg", exec)?` to evaluate the message argument via the pattern executor. This dispatch path is preserved. The enhancement wraps the `pattern.evaluate(&ctx, self)` call site to add structured error kinds and backtrace *after* the pattern returns its error:
+
 ```rust
 impl<'a> Interpreter<'a> {
-    /// Enhanced panic handling within the existing FunctionExpKind dispatch.
-    /// Called from the existing eval_function_exp match arm for Panic/Todo/Unreachable.
+    /// Enhanced wrapper around pattern.evaluate() for panic/todo/unreachable.
+    /// Called from the existing eval_function_exp dispatch path.
     ///
-    /// Note: `message` uses ExprId here (pre-Section 08). After Section 08
-    /// migration, this will change to EvalIrId when evaluation moves to the
-    /// EvalIR path.
-    fn eval_panic_kind(&mut self, message: ExprId, kind: &FunctionExpKind) -> EvalFlow {
-        let msg_value = self.eval(message)?;
-        let msg_str = msg_value.display_string();
-        let backtrace = self.capture_backtrace();
-        match kind {
-            FunctionExpKind::Panic => Err(FlowOrError::Error(
-                EvalError::panic_called(msg_str).with_backtrace(backtrace)
-            )),
-            FunctionExpKind::Todo => Err(FlowOrError::Error(
-                EvalError::todo(msg_str).with_backtrace(backtrace)
-            )),
-            FunctionExpKind::Unreachable => Err(FlowOrError::Error(
-                EvalError::unreachable(msg_str).with_backtrace(backtrace)
-            )),
-            _ => unreachable!("eval_panic_kind called with non-panic FunctionExpKind"),
+    /// The pattern evaluation itself is unchanged:
+    ///   PanicPattern::evaluate() calls ctx.eval_prop("msg", exec)? → Err(EvalError)
+    ///
+    /// This wrapper enriches the returned EvalError with:
+    /// 1. A structured error kind (PanicCalled/TodoReached/UnreachableReached)
+    /// 2. A backtrace captured at the point of panic
+    ///
+    /// Note: In the current codebase, PanicPattern.evaluate() returns
+    /// Err(EvalError::new(format!("panic: {}", msg.display_value()))).
+    /// This wrapper intercepts that error and re-wraps it with richer metadata.
+    fn eval_panic_with_backtrace(
+        &mut self,
+        pattern: &dyn PatternDefinition,
+        ctx: &EvalContext,
+        kind: &FunctionExpKind,
+    ) -> EvalResult {
+        // Delegate to existing PatternDefinition dispatch.
+        // PanicPattern/TodoPattern/UnreachablePattern each call
+        // ctx.eval_prop("msg", exec) internally — we don't bypass that.
+        let result = pattern.evaluate(ctx, self);
+
+        // The pattern always returns Err for panic/todo/unreachable.
+        // Enrich the error with structured kind and backtrace.
+        match result {
+            Err(eval_error) => {
+                let backtrace = self.capture_backtrace();
+                let enriched = match kind {
+                    FunctionExpKind::Panic => {
+                        eval_error.with_kind(EvalErrorKind::PanicCalled)
+                    }
+                    FunctionExpKind::Todo => {
+                        eval_error.with_kind(EvalErrorKind::TodoReached)
+                    }
+                    FunctionExpKind::Unreachable => {
+                        eval_error.with_kind(EvalErrorKind::UnreachableReached)
+                    }
+                    _ => eval_error,
+                };
+                Err(enriched.with_backtrace(backtrace))
+            }
+            // Should never happen for panic/todo/unreachable, but pass through
+            Ok(val) => Ok(val),
         }
     }
 }
+
+// In eval_function_exp, the dispatch arm changes from:
+//   FunctionExpKind::Panic => pattern.evaluate(&ctx, self),
+// to:
+//   FunctionExpKind::Panic | FunctionExpKind::Todo | FunctionExpKind::Unreachable =>
+//       self.eval_panic_with_backtrace(pattern, &ctx, kind),
 ```
 
 - [ ] Add `PanicCalled`, `TodoReached`, `UnreachableReached` to `EvalErrorKind` (Section 10)
@@ -463,7 +513,7 @@ impl<'a> Interpreter<'a> {
   - [ ] `EvalError::with_backtrace(self, backtrace: EvalBacktrace) -> EvalError` — attach backtrace to error
   - [ ] `Interpreter::capture_backtrace(&self) -> EvalBacktrace` — capture current call stack
   - [ ] Backtrace infrastructure depends on Section 10 (Tracing & Diagnostics). Implement basic versions here; full backtrace formatting in Section 10.
-- [ ] Integrate `eval_panic_kind` into existing `eval_function_exp` dispatch for `FunctionExpKind::Panic/Todo/Unreachable`
+- [ ] Integrate `eval_panic_with_backtrace` wrapper into existing `eval_function_exp` dispatch for `FunctionExpKind::Panic/Todo/Unreachable` (wraps `pattern.evaluate()`, does not bypass `PatternDefinition` dispatch)
 - [ ] `@panic` handler integration: if user defines `@panic(info)`, call it before aborting
 - [ ] All three produce `EvalError` (not `ControlAction`) — they are errors, not flow
 
@@ -480,8 +530,11 @@ impl<'a> Interpreter<'a> {
 - [ ] Postfix `?` operator rewritten (uses Propagate action)
 - [ ] `try(...)` function_seq pattern preserved separately
 - [ ] Panic/todo/unreachable handled as errors with backtraces
-- [ ] `ControlFlow` removed from `EvalError`
-- [ ] `propagated_value` removed from `EvalError`
+- [ ] `ControlFlow` enum removed from `ori_patterns` (replaced by `ControlAction`)
+- [ ] `ControlFlow`-related methods removed from `EvalError` (`control_flow` field, `break_with`, `continue_with`, `continue_signal`, `is_control_flow`)
+- [ ] `LoopAction` enum and `to_loop_action()` removed from `exec/control.rs`
+- [ ] `propagated_value` field removed from `EvalError` (replaced by `ControlAction::Propagate`)
+- [ ] `propagate()` method removed from `EvalError` (replaced by `ControlAction::Propagate`)
 - [ ] `JoinPoint` types defined for future EvalIR integration
 - [ ] All loop/match/try tests pass unchanged
 

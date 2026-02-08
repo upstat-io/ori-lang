@@ -1,29 +1,34 @@
 ---
 section: "09"
 title: Constructor Reuse (FBIP)
-status: not-started
+status: complete
 goal: Reuse memory from dropped constructors for new allocations, avoiding heap allocation in functional patterns
 sections:
   - id: "09.1"
     title: Reuse-Eligible Ori Patterns
-    status: not-started
+    status: complete
+    note: Patterns identified in plan; detection handled by Section 07.6
   - id: "09.2"
     title: Reset/Reuse IR Operations
-    status: not-started
+    status: complete
+    note: ArcInstr::Reset, ArcInstr::Reuse defined in ir.rs; detection in reset_reuse.rs
   - id: "09.3"
     title: Two-Path Expansion Algorithm
-    status: not-started
+    status: complete
+    note: expand_reuse.rs — IsShared+Branch, fast/slow paths, merge blocks
   - id: "09.4"
     title: Projection-Increment Erasure
-    status: not-started
+    status: complete
+    note: erase_proj_increments() in expand_reuse.rs
   - id: "09.5"
     title: Self-Set Elimination
-    status: not-started
+    status: complete
+    note: is_self_set() in expand_reuse.rs
 ---
 
 # Section 09: Constructor Reuse (FBIP)
 
-**Status:** Not Started
+**Status:** Complete (09.1-09.5 all implemented) — 208 tests in ori_arc crate.
 **Goal:** When pattern matching drops a constructor and immediately constructs a new one of the same type, reuse the dropped memory. This is the "Functional But In-Place" optimization, using Lean 4's constructor-identity approach: only same-type constructors can reuse each other. This is safer and simpler than Koka's size-based approach, and correctness comes first.
 
 **Crate:** `ori_arc` (no LLVM dependency). Operates on ARC IR basic blocks.

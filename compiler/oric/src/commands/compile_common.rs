@@ -16,6 +16,8 @@ use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 #[cfg(feature = "llvm")]
 use ori_diagnostic::queue::DiagnosticQueue;
 #[cfg(feature = "llvm")]
+use ori_ir::StringInterner;
+#[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
 #[cfg(feature = "llvm")]
 use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult};
@@ -25,6 +27,8 @@ use oric::parser::ParseOutput;
 use oric::query::parsed;
 #[cfg(feature = "llvm")]
 use oric::{typeck, CompilerDb, Db, SourceFile};
+#[cfg(feature = "llvm")]
+use rustc_hash::FxHashMap;
 
 /// Information about an imported function for codegen.
 #[cfg(feature = "llvm")]
@@ -150,6 +154,67 @@ fn build_function_sigs(
         .collect()
 }
 
+/// Run ARC borrow inference on all non-generic module functions.
+///
+/// Lowers each function to ARC IR, runs the iterative borrow inference
+/// algorithm, and returns a map from function `Name` → `AnnotatedSig`
+/// with `Ownership::Borrowed`/`Owned` annotations per parameter.
+///
+/// Generic functions are skipped (they require monomorphization first).
+/// Functions that fail ARC IR lowering are skipped with a diagnostic.
+#[cfg(feature = "llvm")]
+fn run_borrow_inference(
+    parse_result: &ParseOutput,
+    function_sigs: &[FunctionSig],
+    expr_types: &[Idx],
+    interner: &StringInterner,
+    pool: &Pool,
+) -> FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig> {
+    let classifier = ori_arc::ArcClassifier::new(pool);
+    let mut arc_functions = Vec::new();
+    let mut arc_problems = Vec::new();
+
+    for (func, sig) in parse_result
+        .module
+        .functions
+        .iter()
+        .zip(function_sigs.iter())
+    {
+        // Skip generic functions — they need monomorphization first
+        if sig.is_generic() {
+            continue;
+        }
+
+        let params: Vec<(ori_ir::Name, Idx)> = sig
+            .param_names
+            .iter()
+            .zip(sig.param_types.iter())
+            .map(|(&n, &t)| (n, t))
+            .collect();
+
+        let (arc_fn, lambdas) = ori_arc::lower_function(
+            func.name,
+            &params,
+            sig.return_type,
+            func.body,
+            &parse_result.arena,
+            expr_types,
+            interner,
+            pool,
+            &mut arc_problems,
+        );
+        arc_functions.push(arc_fn);
+        arc_functions.extend(lambdas);
+    }
+
+    // Log any ARC lowering issues (non-fatal)
+    for problem in &arc_problems {
+        tracing::debug!(?problem, "ARC IR lowering issue");
+    }
+
+    ori_arc::infer_borrows(&arc_functions, &classifier)
+}
+
 /// Compile source to LLVM IR using the V2 codegen pipeline.
 ///
 /// Takes checked parse and type results and generates LLVM IR via:
@@ -208,12 +273,31 @@ pub fn compile_to_llvm<'ctx>(
         // 2. Register user-defined types
         type_registration::register_user_types(&resolver, &type_result.typed.types);
 
-        // 3. Two-pass function compilation
+        // 3. Run ARC borrow inference pipeline
         let function_sigs = build_function_sigs(parse_result, type_result);
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, interner, pool, "");
+        let classifier = ori_arc::ArcClassifier::new(pool);
+        let annotated_sigs = run_borrow_inference(
+            parse_result,
+            &function_sigs,
+            &type_result.typed.expr_types,
+            interner,
+            pool,
+        );
+
+        // 4. Two-pass function compilation with borrow annotations
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            interner,
+            pool,
+            "",
+            Some(&annotated_sigs),
+            Some(&classifier),
+        );
         fc.declare_all(&parse_result.module.functions, &function_sigs);
 
-        // 4. Compile impl methods
+        // 5. Compile impl methods
         if !parse_result.module.impls.is_empty() {
             fc.compile_impls(
                 &parse_result.module.impls,
@@ -223,7 +307,7 @@ pub fn compile_to_llvm<'ctx>(
             );
         }
 
-        // 5. Define all function bodies
+        // 6. Define all function bodies
         fc.define_all(
             &parse_result.module.functions,
             &function_sigs,
@@ -231,7 +315,7 @@ pub fn compile_to_llvm<'ctx>(
             &type_result.typed.expr_types,
         );
 
-        // 6. Generate C main() entry point wrapper for @main (AOT only)
+        // 7. Generate C main() entry point wrapper for @main (AOT only)
         // Also detect @panic handler for registration in main()
         let panic_name = parse_result
             .module
@@ -341,16 +425,34 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             })
             .collect();
 
-        // 4. Two-pass function compilation
+        // 4. Run ARC borrow inference pipeline
         let function_sigs = build_function_sigs(parse_result, type_result);
-        let mut fc =
-            FunctionCompiler::new(&mut builder, &store, &resolver, interner, pool, module_name);
+        let classifier = ori_arc::ArcClassifier::new(pool);
+        let annotated_sigs = run_borrow_inference(
+            parse_result,
+            &function_sigs,
+            &type_result.typed.expr_types,
+            interner,
+            pool,
+        );
+
+        // 5. Two-pass function compilation with borrow annotations
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            interner,
+            pool,
+            module_name,
+            Some(&annotated_sigs),
+            Some(&classifier),
+        );
 
         // Declare imports first so they're visible to function bodies
         fc.declare_imports(&import_sigs);
         fc.declare_all(&parse_result.module.functions, &function_sigs);
 
-        // 5. Compile impl methods
+        // 6. Compile impl methods
         if !parse_result.module.impls.is_empty() {
             fc.compile_impls(
                 &parse_result.module.impls,
@@ -360,7 +462,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             );
         }
 
-        // 6. Define all function bodies
+        // 7. Define all function bodies
         fc.define_all(
             &parse_result.module.functions,
             &function_sigs,
@@ -368,7 +470,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             &type_result.typed.expr_types,
         );
 
-        // 7. Generate C main() entry point wrapper for @main (AOT only)
+        // 8. Generate C main() entry point wrapper for @main (AOT only)
         // Also detect @panic handler for registration in main()
         let panic_name = parse_result
             .module

@@ -20,7 +20,7 @@ sections:
 
 # Section 08: Canonical Eval IR
 
-**Status:** 📋 Planned
+**Status:** Planned
 **Goal:** Introduce a canonical evaluation IR between the parse AST (`ExprArena`) and the interpreter, enabling optimization passes (constant folding, dead code elimination, pattern compilation) and providing a cleaner substrate for evaluation.
 
 ---
@@ -220,11 +220,6 @@ pub enum EvalIrNode {
     /// Extra layout: [count, arg0, arg1, ...]
     Jump { target: JoinPointId, extra: u32 },
 
-    // === RC Annotations (from Section 09, added by RC pass) ===
-    /// Reference counting operation. See Section 09 for RcOp variants
-    /// (Inc, Dec, Free, Reset, Reuse).
-    Rc(RcOp),
-
     // === Error Recovery ===
     Invalid { span: Span },
 }
@@ -243,7 +238,12 @@ pub enum ExpPatternKind {
     Print, Catch,
 }
 
-/// Panic/early-termination kinds
+/// Panic/early-termination kinds.
+/// Cross-reference: Section 05.5 defines the interpreter-level panic/todo/unreachable
+/// handling (via `FunctionExpKind` dispatch). During EvalIR lowering, these are lowered
+/// to `EvalIrNode::Panic { kind: PanicKind::* }` nodes. At evaluation time, the
+/// interpreter converts them to `EvalError` with the appropriate `EvalErrorKind`
+/// variant (`PanicCalled`, `TodoReached`, `UnreachableReached` — see Section 10.2).
 pub enum PanicKind { Panic, Todo, Unreachable }
 ```
 
@@ -321,10 +321,9 @@ impl EvalIrArena {
 - **SoA with extra array**: Follows Pool pattern — parallel arrays for nodes/spans, single `extra: Vec<u32>` for all variable-length data with tag-driven layout (see `ori_types::Pool` for prior art)
 - **Const nodes**: Pre-evaluated constant values (from Section 07)
 - **PoolRef nodes**: References to interned values (depends on Section 01: ValuePool/ValueId)
-- **Var with depth_hint**: Scope depth hints for fast variable lookup
+- **Var with depth_hint**: Scope depth hints for fast variable lookup. The Lowerer maintains a `current_depth: u16` counter, incremented when entering Block/Lambda/Function scopes and decremented on exit. `depth_hint = Some(current_depth)` for locally-bound variables, `None` for globals/unresolved.
 - **Match with DecisionTree**: Compiled patterns (from Section 04)
 - **Loop with join points**: Structured control flow (from Section 05)
-- **RC annotations**: Rc(RcOp) markers (from Section 09)
 - **Spans as parallel array**: `spans: Vec<Span>` indexed by `EvalIrId`, with `span_of()` accessor
 - **No type annotations** — except `Cast`, which stores `target_type: Idx` inline (required for runtime cast semantics). All other type information lives in the side table.
 - **Desugared**: Spread, named args, `$const`, `@func` resolved during lowering (Pipeline is already desugared at parse time — no `Pipeline` ExprKind exists)
@@ -343,11 +342,16 @@ impl EvalIrArena {
 | `SelfRef` | `Var { name: self_name, .. }` |
 | `HashLength` | `MethodCall { method: "len", .. }` or `Const(Int)` if known |
 | `Field { field }` (numeric) | `TupleAccess { index }` — lowerer checks `interner.lookup(field).parse::<usize>()`: numeric → `TupleAccess`, named → `FieldAccess` |
-| `FieldInit { name, value: None }` (shorthand) | Field with value `Var { name, depth_hint }` — shorthand `Point { x }` desugared to `Point { x: x }` |
 | `Unit` | `Const(Value::Void)` |
 | `Duration/Size` | `Const(Value::Duration/Size)` |
 | `TemplateFull(s)` | `Const(Value::Str(s))` |
 | `Call` (where callee is VariantConstructor) | `Construct (type_name, variant, fields)` |
+| `Call` (where callee is NewtypeConstructor) | `Construct (type_name, type_name, fields)` — newtypes are single-field constructions |
+| Value::MemoizedFunction (from env) | `Const(Value)` — pre-built at module init, stored as constant |
+| Value::MultiClauseFunction (from env) | `Const(Value)` — registered during module init, stored as constant |
+| Value::TypeRef (from env) | `Const(Value)` — type references are statically known |
+| Value::ModuleNamespace (from env) | `Const(Value)` — resolved at module load time |
+| Value::FunctionVal (from env) | `Const(Value)` — prelude type conversion functions (int, str, float, byte) |
 
 - [ ] Define `EvalIrNode` enum in `ori_eval::ir` module (NOT a separate crate)
   - [ ] All variants listed above — variable-length data uses `extra: u32` index, not inline SmallVec/Vec
@@ -397,12 +401,23 @@ pub struct Lowerer<'a> {
     /// Note: TypeCheckResult wraps TypedModule with ErrorGuaranteed; the lowerer
     /// accesses the inner TypedModule via `type_result.typed`.
     type_result: &'a TypeCheckResult,
+    /// Mapping from parser-level ParsedTypeId to type checker Idx.
+    /// Populated from type checker results during lowering construction.
+    /// Used by Cast node lowering to resolve the target type.
+    parsed_type_to_idx: FxHashMap<ParsedTypeId, Idx>,
     pattern_compiler: PatternCompiler<'a>,
     /// ConstEvaluator does NOT hold `&mut ValuePool` — pool is passed as a
     /// parameter to its methods (try_eval, eval_const) to avoid Rust aliasing
     /// violations since Lowerer also holds `&mut ValuePool`.
     const_evaluator: ConstEvaluator<'a>,
+    /// Note: The `pool` field is gated on Section 01 (Value System) completion.
+    /// Initial implementation produces `Const(Value)` nodes directly without
+    /// interning into ValuePool. Once Section 01 lands, folded constants are
+    /// interned via `pool.intern(value)` and referenced as `PoolRef(ValueId)`.
     pool: &'a mut ValuePool,
+    /// Current scope depth for Var depth_hint. Incremented on Block/Lambda/Function
+    /// scope entry, decremented on exit.
+    current_depth: u16,
 }
 
 impl<'a> Lowerer<'a> {
@@ -450,15 +465,9 @@ impl<'a> Lowerer<'a> {
         let span = self.arena.expr_span(expr_id);
 
         // Try constant evaluation first.
-        // Disjoint field borrows — Rust allows splitting &mut self into
-        // &mut self.field_a + &mut self.field_b, but `self.const_evaluator.try_eval(expr_id, self.pool)`
-        // borrows both through `self` simultaneously, which the borrow checker rejects.
-        // We extract the result from the split-borrow block, then use ir_arena outside it.
-        let const_result = {
-            let const_eval = &mut self.const_evaluator;
-            let pool = &mut self.pool;
-            const_eval.try_eval(expr_id, pool)
-        };
+        // Split self into distinct field borrows via destructuring
+        let Lowerer { const_evaluator, pool, .. } = self;
+        let const_result = const_evaluator.try_eval(expr_id, pool);
         if let Some(value) = const_result {
             return self.ir_arena.alloc(EvalIrNode::Const(value), span);
         }
@@ -513,12 +522,13 @@ impl<'a> Lowerer<'a> {
   - [ ] **Duration/Size**: → `Const(Value::Duration/Size)`
   - [ ] **Template literals**: `TemplateFull` → `Const(Str)`; `TemplateLiteral` → `TemplateLiteral` node with parts in extra array (3 u32s per part: expr, fmt_spec, text_after)
   - [ ] **Variables**: `Ident` → `Var`; `Const($name)` → `Var`; `FunctionRef(@name)` → `Global`; `SelfRef` → `Var`; `HashLength` → resolved
-  - [ ] **Operators**: `Binary` → `BinaryOp`; `Unary` → `UnaryOp`; `Cast` → `Cast` (Cast type resolution: `ExprKind::Cast.ty` is a `ParsedTypeId`, resolved to `Idx` using type checker's `expr_types` or `resolve_type_id()` bridge during lowering)
+  - [ ] **Operators**: `Binary` → `BinaryOp`; `Unary` → `UnaryOp`; `Cast` → `Cast` (Cast type resolution: `ExprKind::Cast.ty` is a `ParsedTypeId`; the lowering context maintains a `parsed_type_to_idx: FxHashMap<ParsedTypeId, Idx>` populated from the type checker's resolution results. During lowering, `parsed_type_to_idx[cast.ty]` resolves to the `Idx` stored in the EvalIR `Cast` node. For primitive casts like `as int`, the mapping is direct via `TypeId::to_idx()`.)
   - [ ] **Calls**: `Call` → `Call`; `CallNamed` → `Call` (reorder args using FunctionSig); `MethodCall` → `MethodCall`; `MethodCallNamed` → `MethodCall` (reorder)
   - [ ] **Access**: `Field` → `FieldAccess` (named) or `TupleAccess` (numeric, via `interner.lookup(field).parse::<usize>()`); `Index` → `IndexAccess`
   - [ ] **Control flow**: `If` → `If`; `Match` → `Match` (compile patterns); `Loop` → `Loop`; `For` → `For`
   - [ ] **Collections**: `List` → `List`; `ListWithSpread` → desugar to concat; `Tuple` → `Tuple`; `Map` → `Map`; `MapWithSpread` → desugar to merge; `Range` → `Range`
   - [ ] **Structs**: `Struct` → `Struct`; `StructWithSpread` → desugar to field overlay
+    - Note: `FieldInit { name, value: None }` (shorthand like `Point { x }`) is an implementation detail of Struct lowering — it desugars to a field with value `Var { name, depth_hint }` (i.e., `Point { x: x }`)
   - [ ] **Algebraic**: `Some`/`None`/`Ok`/`Err` → corresponding node; `Call` to variant constructor → `Construct`
   - [ ] **Bindings**: `Let` → `Let` (with destructuring lowered to match); `Block` → `Block` (children via extra array); `Lambda` → `Lambda` (params + captures via extra array); `Assign` → `Assign`
   - [ ] **Error handling**: `Try` → `Try`
@@ -554,9 +564,6 @@ pub fn optimize(ir: &mut EvalIrArena, pool: &mut ValuePool) {
 
     // Pass 2: Common subexpression elimination (future)
     // cse::eliminate(ir);
-
-    // Pass 3: Reference counting insertion (Section 09)
-    // rc::insert(ir);
 }
 ```
 
@@ -577,7 +584,7 @@ pub fn eliminate(ir: &mut EvalIrArena) {
 - [ ] Implement common subexpression elimination (future, optional)
   - [ ] Hash-based detection of identical subtrees
   - [ ] Replace duplicates with references to first occurrence
-- [ ] Pipeline post-lowering passes in order: DCE → (CSE) → (RC insert) (constant folding is in the lowerer)
+- [ ] Pipeline post-lowering passes in order: DCE → (CSE) (constant folding is in the lowerer)
 - [ ] Each pass is independently toggleable (for debugging)
 
 ---
@@ -588,61 +595,67 @@ The EvalIR is the **sole evaluation path** — all evaluation goes through lower
 
 ```rust
 impl<'a> Interpreter<'a> {
-    /// Evaluate from EvalIR (the only evaluation path)
-    pub fn eval(&mut self, ir_id: EvalIrId, ir_arena: &EvalIrArena) -> EvalResult {
-        let node = ir_arena.get(ir_id);
+    /// The interpreter stores the EvalIR arena as a field, replacing the former
+    /// `arena: &'a ExprArena` field. After lowering, the interpreter operates
+    /// exclusively on EvalIR — it no longer references ExprArena directly.
+    // Field: ir_arena: &'a EvalIrArena (replaces arena: &'a ExprArena)
+
+    /// Evaluate from EvalIR (the only evaluation path).
+    /// The ir_arena is accessed via `self.ir_arena` — no parameter needed.
+    pub fn eval(&mut self, ir_id: EvalIrId) -> EvalResult {
+        let node = self.ir_arena.get(ir_id);
         match node {
             EvalIrNode::Const(value) => Ok(value.clone()),
             EvalIrNode::PoolRef(id) => Ok(self.pool.get(*id).to_value()),
             EvalIrNode::BinaryOp { left, op, right } => {
-                let l = self.eval(*left, ir_arena)?;
-                let r = self.eval(*right, ir_arena)?;
+                let l = self.eval(*left)?;
+                let r = self.eval(*right)?;
                 eval_binary_op(&l, *op, &r)
             }
             EvalIrNode::Match { scrutinee, tree } => {
-                let val = self.eval(*scrutinee, ir_arena)?;
-                let tree = ir_arena.get_decision_tree(*tree);
+                let val = self.eval(*scrutinee)?;
+                let tree = self.ir_arena.get_decision_tree(*tree);
                 self.eval_decision_tree(&val, tree)
             }
 
             // === Accessor-based evaluation for variable-length nodes ===
 
             EvalIrNode::Block { extra } => {
-                let children = ir_arena.get_children(*extra);
+                let children = self.ir_arena.get_children(*extra);
                 let mut result = Value::Void;
                 for &child_raw in children {
-                    result = self.eval(EvalIrId(child_raw), ir_arena)?;
+                    result = self.eval(EvalIrId(child_raw))?;
                 }
                 Ok(result)
             }
 
             EvalIrNode::Call { func, extra } => {
-                let callee = self.eval(*func, ir_arena)?;
-                let children = ir_arena.get_children(*extra);
+                let callee = self.eval(*func)?;
+                let children = self.ir_arena.get_children(*extra);
                 let mut args = Vec::with_capacity(children.len());
                 for &arg_raw in children {
-                    args.push(self.eval(EvalIrId(arg_raw), ir_arena)?);
+                    args.push(self.eval(EvalIrId(arg_raw))?);
                 }
                 self.call_function(callee, args)
             }
 
             EvalIrNode::Struct { name, extra } => {
-                let count = ir_arena.field_count(*extra);
+                let count = self.ir_arena.field_count(*extra);
                 let mut fields = Vec::with_capacity(count);
                 for i in 0..count {
-                    let fname = ir_arena.field_name(*extra, i);
-                    let fval = self.eval(ir_arena.field_value(*extra, i), ir_arena)?;
+                    let fname = self.ir_arena.field_name(*extra, i);
+                    let fval = self.eval(self.ir_arena.field_value(*extra, i))?;
                     fields.push((fname, fval));
                 }
                 Ok(Value::Struct(*name, fields))
             }
 
             EvalIrNode::Map { extra } => {
-                let count = ir_arena.map_entry_count(*extra);
+                let count = self.ir_arena.map_entry_count(*extra);
                 let mut entries = Vec::with_capacity(count);
                 for i in 0..count {
-                    let key = self.eval(ir_arena.map_entry_key(*extra, i), ir_arena)?;
-                    let val = self.eval(ir_arena.map_entry_value(*extra, i), ir_arena)?;
+                    let key = self.eval(self.ir_arena.map_entry_key(*extra, i))?;
+                    let val = self.eval(self.ir_arena.map_entry_value(*extra, i))?;
                     entries.push((key, val));
                 }
                 Ok(Value::Map(entries))
@@ -656,14 +669,18 @@ impl<'a> Interpreter<'a> {
 ```
 
 **Transition strategy**:
-1. **Step 1**: Build lowerer and `eval()` on EvalIR in parallel with existing code. Validate with comparison tests.
-2. **Step 2**: Switch all call sites to the EvalIR path. Run full test suite.
-3. **Step 3**: Delete `eval_inner()`, `eval_expr()`, and all ExprArena-direct evaluation code from the interpreter.
+
+The existing `eval_inner()` evaluator is kept working throughout development of all sections. The explicit goal of this plan is the **COMPLETE REPLACEMENT and REMOVAL** of `eval_inner()` by the end of the plan. There is no "dual path" long-term — EvalIR is the sole evaluation substrate.
+
+1. **Step 1**: Build lowerer and `eval()` on EvalIR as a parallel shadow evaluator alongside `eval_inner()`. Validate with comparison tests that run both paths and assert identical results.
+2. **Step 2**: Once all tests pass on the EvalIR path, switch all call sites to the EvalIR path. Run full test suite.
+3. **Step 3**: Delete `eval_inner()`, `eval_expr()`, and all ExprArena-direct evaluation code from the interpreter. Remove all comparison testing harness.
 
 - [ ] Create `ori_eval::ir` module with EvalIR types
   - [ ] Lives inside `ori_eval` crate (not a separate crate)
   - [ ] Module: `ori_eval::ir` (types), `ori_eval::ir::lower` (lowering pass)
-- [ ] Implement `eval()` in Interpreter operating on EvalIR
+- [ ] Implement `eval(&mut self, ir_id: EvalIrId) -> EvalResult` in Interpreter operating on EvalIR
+  - [ ] Store `ir_arena: &'a EvalIrArena` as field on Interpreter (replaces `arena: &'a ExprArena`)
   - [ ] Match on all EvalIrNode variants
   - [ ] Reuse evaluation logic (operators, method calls) from existing code during build-out
 - [ ] Temporary comparison testing during development
@@ -672,6 +689,8 @@ impl<'a> Interpreter<'a> {
 - [ ] Delete ExprArena direct evaluation
   - [ ] Remove `eval_inner()` and all `ExprKind` dispatch from interpreter
   - [ ] Interpreter no longer depends on `ExprArena` for evaluation (only lowerer does)
+- [ ] Migrate `PatternExecutor` trait to use `EvalIrId` directly
+  - [ ] Once EvalIR is the sole evaluation path, update `PatternExecutor::eval(&mut self, expr_id: ExprId)` to `eval(&mut self, ir_id: EvalIrId)`. Since the Interpreter now stores `ir_arena` as a field, this is a clean ID-type change only — no new parameter needed. `PatternExecutor` is `pub(crate)` within `ori_eval`.
 
 ---
 

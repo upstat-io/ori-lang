@@ -34,13 +34,22 @@
 
 pub mod borrow;
 mod classify;
+pub mod drop;
+pub mod expand_reuse;
 pub mod ir;
 pub mod liveness;
 pub mod lower;
 pub mod ownership;
+pub mod rc_elim;
+pub mod rc_insert;
+pub mod reset_reuse;
 
 pub use borrow::{apply_borrows, infer_borrows};
 pub use classify::ArcClassifier;
+pub use drop::{
+    collect_drop_infos, compute_closure_env_drop, compute_drop_info, DropInfo, DropKind,
+};
+pub use expand_reuse::expand_reset_reuse;
 pub use ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
     CtorKind, LitValue, PrimOp,
@@ -49,6 +58,9 @@ pub use liveness::{compute_liveness, BlockLiveness, LiveSet};
 pub use lower::{lower_function, ArcProblem};
 use ori_types::Idx;
 pub use ownership::{AnnotatedParam, AnnotatedSig, Ownership};
+pub use rc_elim::eliminate_rc_ops;
+pub use rc_insert::insert_rc_ops;
+pub use reset_reuse::detect_reset_reuse;
 
 /// ARC classification for a type.
 ///
