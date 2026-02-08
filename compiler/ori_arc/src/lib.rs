@@ -1,32 +1,50 @@
 //! ARC analysis for the Ori compiler.
 //!
-//! This crate provides type classification for Automatic Reference Counting.
-//! Every type is classified as [`ArcClass::Scalar`] (no RC needed),
-//! [`ArcClass::DefiniteRef`] (always needs RC), or [`ArcClass::PossibleRef`]
-//! (conservative fallback for unresolved type variables).
+//! This crate provides:
+//!
+//! - **Type classification** ([`ArcClass`]) — every type is classified as
+//!   [`Scalar`](ArcClass::Scalar) (no RC needed),
+//!   [`DefiniteRef`](ArcClass::DefiniteRef) (always needs RC), or
+//!   [`PossibleRef`](ArcClass::PossibleRef) (conservative fallback).
+//!
+//! - **ARC IR** ([`ArcFunction`], [`ArcBlock`], [`ArcInstr`], [`ArcTerminator`]) —
+//!   a basic-block intermediate representation that all ARC analysis passes
+//!   (borrow inference, RC insertion, RC elimination, constructor reuse)
+//!   operate on.
+//!
+//! - **Ownership annotations** ([`Ownership`], [`AnnotatedParam`], [`AnnotatedSig`]) —
+//!   borrow inference output that drives RC insertion decisions.
 //!
 //! # Design
 //!
 //! Inspired by Lean 4's three-way classification (`isScalar`/`isPossibleRef`/
-//! `isDefiniteRef` on `IRType`). Classification is **monomorphized** — it
-//! operates on concrete types after type parameter substitution. This means:
+//! `isDefiniteRef` on `IRType`) and LCNF basic-block IR. Classification is
+//! **monomorphized** — it operates on concrete types after type parameter
+//! substitution. This means:
 //!
 //! - `option[int]` → **Scalar** (tag + int, no heap pointer)
 //! - `option[str]` → **`DefiniteRef`** (contains heap-allocated string)
 //! - `option[T]` where `T` is unresolved → **`PossibleRef`** (conservative)
 //!
-//! All downstream ARC passes (borrow inference, RC insertion, RC elimination,
-//! constructor reuse) depend on this classification to skip work on scalars.
-//!
 //! # Crate Dependencies
 //!
 //! `ori_arc` depends on `ori_types` (for `Pool`/`Idx`/`Tag`) and `ori_ir`
-//! (for `Name`). No LLVM dependency — ARC analysis is backend-independent.
+//! (for `Name`, `BinaryOp`, `UnaryOp`, etc.). No LLVM dependency — ARC
+//! analysis is backend-independent.
 
 mod classify;
+pub mod ir;
+pub mod lower;
+pub mod ownership;
 
 pub use classify::ArcClassifier;
+pub use ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
+    CtorKind, LitValue, PrimOp,
+};
+pub use lower::{lower_function, ArcProblem};
 use ori_types::Idx;
+pub use ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 
 /// ARC classification for a type.
 ///
