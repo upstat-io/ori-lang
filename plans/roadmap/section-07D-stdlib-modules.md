@@ -1260,8 +1260,8 @@ Move Duration and Size from compiler built-ins to pure Ori library types using o
 
 ### 7D.10.1 Prerequisites
 
-- [x] Operator traits (Section 3.21) — `Add`, `Sub`, `Mul`, `Div`, `Neg`, `Rem`
-- [x] Associated functions (Section 3.x) — `Type.method()` syntax
+- [ ] Operator traits (Section 3.21) — `Add`, `Sub`, `Mul`, `Div`, `Neg`, `Rem`
+- [ ] Associated functions (Section 3.x) — `Type.method()` syntax
 
 ### 7D.10.2 Literal Suffix Desugaring
 
@@ -1331,7 +1331,7 @@ Move Duration and Size from compiler built-ins to pure Ori library types using o
 
 ## 7D.11 Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[x]`
+- [ ] All items above have all checkboxes marked `[ ]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage, tests against spec/design
 - [ ] Run full test suite: `./test-all.sh`

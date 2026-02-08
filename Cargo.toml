@@ -11,6 +11,7 @@ members = [
     "compiler/ori_eval",
     "compiler/ori_fmt",
     "compiler/ori_macros",
+    "compiler/ori_arc",
     "compiler/ori_stack",
     "compiler/oric",
 ]
@@ -59,6 +60,7 @@ ori_patterns = { path = "compiler/ori_patterns" }
 ori_eval = { path = "compiler/ori_eval" }
 ori_fmt = { path = "compiler/ori_fmt" }
 ori_macros = { path = "compiler/ori_macros" }
+ori_arc = { path = "compiler/ori_arc" }
 ori_stack = { path = "compiler/ori_stack" }
 
 # Workspace-wide lint configuration

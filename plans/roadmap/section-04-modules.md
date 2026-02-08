@@ -1,7 +1,7 @@
 ---
 section: 4
 title: Module System
-status: in-progress
+status: not-started
 tier: 1
 goal: Multi-file compilation
 spec:
@@ -9,22 +9,22 @@ spec:
 sections:
   - id: "4.1"
     title: Module Definition
-    status: complete
+    status: not-started
   - id: "4.2"
     title: Import Parsing
-    status: complete
+    status: not-started
   - id: "4.3"
     title: Visibility
-    status: complete
+    status: not-started
   - id: "4.4"
     title: Module Resolution
-    status: in-progress
+    status: not-started
   - id: "4.5"
     title: Test Modules
-    status: complete
+    status: not-started
   - id: "4.6"
     title: Prelude
-    status: complete
+    status: not-started
   - id: "4.7"
     title: Import Graph Tooling
     status: not-started
@@ -33,10 +33,10 @@ sections:
     status: not-started
   - id: "4.9"
     title: Remaining Work (Pre-existing)
-    status: in-progress
+    status: not-started
   - id: "4.10"
     title: Section Completion Checklist
-    status: complete
+    status: not-started
   - id: "4.11"
     title: Module-Level Constants
     status: not-started
@@ -60,17 +60,17 @@ sections:
 
 ## 4.1 Module Definition
 
-- [x] **Implement**: Module structure — spec/12-modules.md § Module Structure
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — module loading tests
-  - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori`
+- [ ] **Implement**: Module structure — spec/12-modules.md § Module Structure
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — module loading tests
+  - [ ] **Ori Tests**: `tests/spec/modules/use_imports.ori`
 
-- [x] **Implement**: Module corresponds to file — spec/12-modules.md § Module Structure
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — file mapping tests
-  - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori`
+- [ ] **Implement**: Module corresponds to file — spec/12-modules.md § Module Structure
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — file mapping tests
+  - [ ] **Ori Tests**: `tests/spec/modules/use_imports.ori`
 
-- [x] **Implement**: Module name from file path — spec/12-modules.md § Module Structure
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — path resolution tests
-  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
+- [ ] **Implement**: Module name from file path — spec/12-modules.md § Module Structure
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — path resolution tests
+  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
 
 ---
 
@@ -78,89 +78,89 @@ sections:
 
 **Relative imports:**
 
-- [x] **Implement**: `use './path' { item1, item2 }` — spec/12-modules.md § Relative Imports
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — relative path parsing
-  - [x] **Ori Tests**: `tests/spec/modules/_test/use_imports.test.ori`
+- [ ] **Implement**: `use './path' { item1, item2 }` — spec/12-modules.md § Relative Imports
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — relative path parsing
+  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_imports.test.ori`
 
-- [x] **Implement**: Parent `use '../utils' { helper }` — spec/12-modules.md § Relative Imports
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — parent path resolution
-  - [x] **Ori Tests**: `tests/spec/modules/_test/use_imports.test.ori`
+- [ ] **Implement**: Parent `use '../utils' { helper }` — spec/12-modules.md § Relative Imports
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — parent path resolution
+  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_imports.test.ori`
 
-- [x] **Implement**: Subdirectory `use './http/client' { get }` — spec/12-modules.md § Relative Imports
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — subdirectory path resolution
-  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
+- [ ] **Implement**: Subdirectory `use './http/client' { get }` — spec/12-modules.md § Relative Imports
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — subdirectory path resolution
+  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
 
 **Module imports:**
 
-- [x] **Implement**: `use std.module { item }` — spec/12-modules.md § Module Imports
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — stdlib path resolution
-  - [x] **Ori Tests**: All test files use `use std.testing { assert_eq }`
+- [ ] **Implement**: `use std.module { item }` — spec/12-modules.md § Module Imports
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — stdlib path resolution
+  - [ ] **Ori Tests**: All test files use `use std.testing { assert_eq }`
 
-- [x] **Implement**: Nested `use std.net.http { get }` — spec/12-modules.md § Module Imports
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — nested module resolution
-  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
+- [ ] **Implement**: Nested `use std.net.http { get }` — spec/12-modules.md § Module Imports
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — nested module resolution
+  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
 
 **Private imports:**
 
-- [x] **Implement**: `use './path' { ::private_item }` — spec/12-modules.md § Private Imports
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — private import handling
-  - [x] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori`
+- [ ] **Implement**: `use './path' { ::private_item }` — spec/12-modules.md § Private Imports
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — private import handling
+  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori`
 
-- [x] **Implement**: `::` prefix — spec/12-modules.md § Private Imports
-  - [x] **Rust Tests**: `ori_parse/src/grammar/` — `::` prefix parsing
-  - [x] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori`
+- [ ] **Implement**: `::` prefix — spec/12-modules.md § Private Imports
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — `::` prefix parsing
+  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori`
 
 **Aliases:**
 
-- [x] **Implement**: `use './math' { add as plus }` — spec/12-modules.md § Aliases
-  - [x] **Rust Tests**: `ori_parse/src/grammar/` — alias parsing
-  - [x] **Ori Tests**: `tests/spec/modules/_test/use_aliases.test.ori`
+- [ ] **Implement**: `use './math' { add as plus }` — spec/12-modules.md § Aliases
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — alias parsing
+  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_aliases.test.ori`
 
-- [x] **Implement**: Module alias `use std.net.http as http` — spec/12-modules.md § Aliases
-  - [x] **Rust Tests**: `ori_parse/src/grammar/` — module alias parsing
-  - [x] **Ori Tests**: `tests/spec/modules/_test/module_alias.test.ori`
+- [ ] **Implement**: Module alias `use std.net.http as http` — spec/12-modules.md § Aliases
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — module alias parsing
+  - [ ] **Ori Tests**: `tests/spec/modules/_test/module_alias.test.ori`
   - Note: Parsing and runtime complete; qualified access needs type checker support
 
 ---
 
 ## 4.3 Visibility
 
-- [x] **Implement**: `pub` on functions — spec/12-modules.md § Visibility
-  - [x] **Rust Tests**: `ori_parse/src/grammar/` — `pub` keyword parsing
-  - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori`
+- [ ] **Implement**: `pub` on functions — spec/12-modules.md § Visibility
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — `pub` keyword parsing
+  - [ ] **Ori Tests**: `tests/spec/modules/use_imports.ori`
 
-- [x] **Implement**: `pub` on types — spec/12-modules.md § Visibility
-  - [x] **Rust Tests**: `ori_parse/src/grammar/` — type visibility parsing
-  - [x] **Ori Tests**: `library/std/prelude.ori` — `pub type Option`, `pub type Result`
+- [ ] **Implement**: `pub` on types — spec/12-modules.md § Visibility
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — type visibility parsing
+  - [ ] **Ori Tests**: `library/std/prelude.ori` — `pub type Option`, `pub type Result`
 
-- [x] **Implement**: `pub` on config variables — spec/12-modules.md § Visibility
-  - [x] **Rust Tests**: `ori_parse/src/grammar/` — config visibility parsing
-  - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori`
+- [ ] **Implement**: `pub` on config variables — spec/12-modules.md § Visibility
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — config visibility parsing
+  - [ ] **Ori Tests**: `tests/spec/modules/use_imports.ori`
 
-- [x] **Implement**: Re-exports `pub use` — spec/12-modules.md § Re-exports
-  - [x] **Rust Tests**: `ori_parse/src/grammar/` — re-export parsing
-  - [x] **Ori Tests**: `tests/spec/modules/reexporter.ori`
+- [ ] **Implement**: Re-exports `pub use` — spec/12-modules.md § Re-exports
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — re-export parsing
+  - [ ] **Ori Tests**: `tests/spec/modules/reexporter.ori`
   - Note: Parsing complete; full re-export resolution pending
 
-- [x] **Implement**: Private by default — spec/12-modules.md § Visibility
-  - [x] **Rust Tests**: `oric/src/eval/module/` — visibility enforcement
-  - [x] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori`
+- [ ] **Implement**: Private by default — spec/12-modules.md § Visibility
+  - [ ] **Rust Tests**: `oric/src/eval/module/` — visibility enforcement
+  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori`
 
 ---
 
 ## 4.4 Module Resolution
 
-- [x] **Implement**: File path resolution — spec/12-modules.md § Module Resolution
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — path resolution tests
-  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
+- [ ] **Implement**: File path resolution — spec/12-modules.md § Module Resolution
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — path resolution tests
+  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
 
-- [x] **Implement**: Module dependency graph — spec/12-modules.md § Dependency Graph
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — `LoadingContext` tests
-  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
+- [ ] **Implement**: Module dependency graph — spec/12-modules.md § Dependency Graph
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — `LoadingContext` tests
+  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
 
-- [x] **Implement**: Cycle detection — spec/12-modules.md § Cycle Detection, proposals/approved/no-circular-imports-proposal.md
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — `test_loading_context_cycle_*`
-  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
+- [ ] **Implement**: Cycle detection — spec/12-modules.md § Cycle Detection, proposals/approved/no-circular-imports-proposal.md
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — `test_loading_context_cycle_*`
+  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
 
 - [ ] **Implement**: Enhanced cycle error messages — proposals/approved/no-circular-imports-proposal.md § Error Message
   - [ ] Show full cycle path in error (a.ori -> b.ori -> a.ori)
@@ -174,12 +174,12 @@ sections:
   - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — multi-cycle detection tests
   - [ ] **Ori Tests**: `tests/spec/modules/multiple_cycles.ori`
 
-- [x] **Implement**: Name resolution — spec/12-modules.md § Name Resolution
-  - [x] **Rust Tests**: `oric/src/eval/module/` — name resolution tests
-  - [x] **Ori Tests**: All import tests verify name resolution
+- [ ] **Implement**: Name resolution — spec/12-modules.md § Name Resolution
+  - [ ] **Rust Tests**: `oric/src/eval/module/` — name resolution tests
+  - [ ] **Ori Tests**: All import tests verify name resolution
 
-- [x] **Implement**: Qualified access — spec/12-modules.md § Qualified Access
-  - [x] **Rust Tests**: `oric/src/eval/` — qualified access evaluation
+- [ ] **Implement**: Qualified access — spec/12-modules.md § Qualified Access
+  - [ ] **Rust Tests**: `oric/src/eval/` — qualified access evaluation
   - [ ] **Ori Tests**: `tests/spec/modules/qualified.ori`
   - Note: Runtime evaluation complete; type checker needs ModuleNamespace support
 
@@ -187,41 +187,41 @@ sections:
 
 ## 4.5 Test Modules
 
-- [x] **Implement**: `_test/` convention — spec/12-modules.md § Test Modules
-  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — test module detection
-  - [x] **Ori Tests**: `tests/spec/modules/_test/test_module_access.test.ori`
+- [ ] **Implement**: `_test/` convention — spec/12-modules.md § Test Modules
+  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — test module detection
+  - [ ] **Ori Tests**: `tests/spec/modules/_test/test_module_access.test.ori`
 
-- [x] **Implement**: Test files access private items — spec/12-modules.md § Test Modules
-  - [x] **Rust Tests**: `oric/src/eval/module/` — private access rules
-  - [x] **Ori Tests**: `tests/spec/modules/_test/test_module_access.test.ori`
+- [ ] **Implement**: Test files access private items — spec/12-modules.md § Test Modules
+  - [ ] **Rust Tests**: `oric/src/eval/module/` — private access rules
+  - [ ] **Ori Tests**: `tests/spec/modules/_test/test_module_access.test.ori`
 
 ---
 
 ## 4.6 Prelude
 
-- [x] **Implement**: Types: `Option`, `Result`, `Error`, `Ordering` — spec/12-modules.md § Prelude
-  - [x] **Rust Tests**: `oric/src/eval/` — built-in type tests
-  - [x] **Ori Tests**: Option/Result used throughout `tests/spec/`
+- [ ] **Implement**: Types: `Option`, `Result`, `Error`, `Ordering` — spec/12-modules.md § Prelude
+  - [ ] **Rust Tests**: `oric/src/eval/` — built-in type tests
+  - [ ] **Ori Tests**: Option/Result used throughout `tests/spec/`
 
-- [x] **Implement**: Built-in functions: `print`, `panic`, `int`, `float`, `str`, `byte` — spec/12-modules.md § Prelude
-  - [x] **Rust Tests**: `oric/src/eval/evaluator/` — `register_prelude()` tests
-  - [x] **Ori Tests**: Built-ins used throughout test suite
+- [ ] **Implement**: Built-in functions: `print`, `panic`, `int`, `float`, `str`, `byte` — spec/12-modules.md § Prelude
+  - [ ] **Rust Tests**: `oric/src/eval/evaluator/` — `register_prelude()` tests
+  - [ ] **Ori Tests**: Built-ins used throughout test suite
 
-- [x] **Implement**: Built-in methods: `.len()`, `.is_empty()`, `.is_some()`, etc. — Lean Core
-  - [x] **Rust Tests**: `ori_eval/src/methods.rs` — method dispatch tests
-  - [x] **Ori Tests**: `tests/spec/traits/core/` — method tests
+- [ ] **Implement**: Built-in methods: `.len()`, `.is_empty()`, `.is_some()`, etc. — Lean Core
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — method dispatch tests
+  - [ ] **Ori Tests**: `tests/spec/traits/core/` — method tests
 
-- [x] **Implement**: Auto-import prelude from `library/std/prelude.ori` — spec/12-modules.md § Prelude
-  - [x] `Evaluator::load_prelude()` auto-loads prelude before any module
-  - [x] All public functions from prelude available without import
-  - [x] **Rust Tests**: `oric/src/eval/evaluator/` — prelude loading tests
-  - [x] **Ori Tests**: `test_autoload.ori` verifies assert_eq, is_some work without import
+- [ ] **Implement**: Auto-import prelude from `library/std/prelude.ori` — spec/12-modules.md § Prelude
+  - [ ] `Evaluator::load_prelude()` auto-loads prelude before any module
+  - [ ] All public functions from prelude available without import
+  - [ ] **Rust Tests**: `oric/src/eval/evaluator/` — prelude loading tests
+  - [ ] **Ori Tests**: `test_autoload.ori` verifies assert_eq, is_some work without import
 
-- [x] **Implement**: Prelude functions auto-available
-  - [x] `assert`, `assert_eq`, `assert_ne`, `assert_some`, `assert_none`, `assert_ok`, `assert_err`
-  - [x] `is_some`, `is_none`, `is_ok`, `is_err`
-  - [x] `len`, `is_empty`
-  - [x] `compare`, `min`, `max`
+- [ ] **Implement**: Prelude functions auto-available
+  - [ ] `assert`, `assert_eq`, `assert_ne`, `assert_some`, `assert_none`, `assert_ok`, `assert_err`
+  - [ ] `is_some`, `is_none`, `is_ok`, `is_err`
+  - [ ] `len`, `is_empty`
+  - [ ] `compare`, `min`, `max`
   - Note: Trait definitions in prelude (Eq, Comparable, etc.) parse but need Section 3 for full integration
 
 ---
@@ -324,15 +324,15 @@ pub let $VERSION = "1.0.0"
 
 ### Parser
 
-- [x] **Implement**: Parse `let $NAME = value` — `constant_decl` production
-  - [x] **Rust Tests**: `ori_parse/src/grammar/` — constant parsing
-  - [x] **Ori Tests**: `tests/spec/declarations/constants.ori`
+- [ ] **Implement**: Parse `let $NAME = value` — `constant_decl` production
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — constant parsing
+  - [ ] **Ori Tests**: `tests/spec/declarations/constants.ori`
 
-- [x] **Implement**: Parse typed constants `let $NAME: Type = value`
-  - [x] **Rust Tests**: `ori_parse/src/grammar/` — typed constant parsing
+- [ ] **Implement**: Parse typed constants `let $NAME: Type = value`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — typed constant parsing
 
-- [x] **Implement**: Parse public constants `pub let $NAME = value`
-  - [x] **Rust Tests**: `ori_parse/src/grammar/` — visibility parsing
+- [ ] **Implement**: Parse public constants `pub let $NAME = value`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — visibility parsing
 
 ### Evaluator
 
@@ -479,20 +479,20 @@ Extension methods add methods to existing types without modifying their definiti
 
 ## 4.10 Section Completion Checklist
 
-- [x] Core module imports working (relative, module, private, aliases)
-- [x] Visibility system working (`pub`, private by default, `::`)
-- [x] Module resolution working (path resolution, stdlib lookup)
-- [x] Cycle detection working
-- [x] Test module private access working
-- [x] Built-in prelude types and functions working
-- [x] Auto-load stdlib prelude
-- [x] `Self` type parsing in traits
-- [x] Trait/impl parsing at module level
-- [x] Module alias syntax (`use std.net.http as http`) — parsing/runtime complete
-- [x] Re-exports (`pub use`) — parsing complete
-- [x] Qualified access (`module.function()`) — runtime complete, type checker pending
+- [ ] Core module imports working (relative, module, private, aliases)
+- [ ] Visibility system working (`pub`, private by default, `::`)
+- [ ] Module resolution working (path resolution, stdlib lookup)
+- [ ] Cycle detection working
+- [ ] Test module private access working
+- [ ] Built-in prelude types and functions working
+- [ ] Auto-load stdlib prelude
+- [ ] `Self` type parsing in traits
+- [ ] Trait/impl parsing at module level
+- [ ] Module alias syntax (`use std.net.http as http`) — parsing/runtime complete
+- [ ] Re-exports (`pub use`) — parsing complete
+- [ ] Qualified access (`module.function()`) — runtime complete, type checker pending
 - [ ] Type definitions parsing (see Section 5)
-- [x] Run full test suite: `./test-all.sh`
+- [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: Multi-file projects compile (core support complete)
 **Status**: Section 4 parsing and runtime complete. Type checker support for module namespaces pending.

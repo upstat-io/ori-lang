@@ -1,7 +1,7 @@
 ---
 section: 10
 title: Control Flow
-status: in-progress
+status: not-started
 tier: 3
 goal: Complete control flow constructs
 spec:
@@ -33,7 +33,7 @@ sections:
     status: not-started
   - id: "10.8"
     title: Index Expressions
-    status: complete
+    status: not-started
   - id: "10.9"
     title: Section Completion Checklist
     status: not-started
@@ -521,11 +521,11 @@ sections:
 
 ## 10.8 Index Expressions — 🟡 Interpreter Complete
 
-- [x] **Implement**: `#` length symbol in index brackets (`list[# - 1]`) — spec/09-expressions.md § Index Access
-  - [x] **Parser**: Parse `#` as `ExprKind::HashLength` inside `[...]` — `ori_parse/src/grammar/expr/postfix.rs`
-  - [x] **Type Checker**: Resolve `HashLength` to receiver's length type (`int`) — `ori_typeck/src/infer/mod.rs`
-  - [x] **Evaluator**: Evaluate `HashLength` as `len(receiver)` in index context — `ori_eval/src/interpreter/mod.rs`
-  - [x] **Ori Tests**: `tests/spec/types/collections.ori` — `test_list_index_last`
+- [ ] **Implement**: `#` length symbol in index brackets (`list[# - 1]`) — spec/09-expressions.md § Index Access
+  - [ ] **Parser**: Parse `#` as `ExprKind::HashLength` inside `[...]` — `ori_parse/src/grammar/expr/postfix.rs`
+  - [ ] **Type Checker**: Resolve `HashLength` to receiver's length type (`int`) — `ori_typeck/src/infer/mod.rs`
+  - [ ] **Evaluator**: Evaluate `HashLength` as `len(receiver)` in index context — `ori_eval/src/interpreter/mod.rs`
+  - [ ] **Ori Tests**: `tests/spec/types/collections.ori` — `test_list_index_last`
   - [ ] **LLVM Support**: LLVM codegen for hash length in index (placeholder exists, needs real impl)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — hash length codegen
 
@@ -540,7 +540,7 @@ sections:
 
 ## 10.9 Section Completion Checklist
 
-- [ ] All items above have all three checkboxes marked `[x]`
+- [ ] All items above have all three checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/09-expressions.md`, `spec/19-control-flow.md` reflect implementation
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] 80+% test coverage

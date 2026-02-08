@@ -324,7 +324,7 @@ Defer to future consideration. Current section focuses on function parameters on
 
 ## Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[x]`
+- [ ] All items above have all checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/08-declarations.md` variadic section complete
 - [ ] CLAUDE.md updated with variadic syntax
 - [ ] Homogeneous variadics work

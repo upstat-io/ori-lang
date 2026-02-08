@@ -272,7 +272,7 @@ Pattern matrix decomposition algorithm (Maranget's algorithm) for exhaustiveness
 
 ## 9.5 Section Completion Checklist
 
-- [ ] All items above have all three checkboxes marked `[x]`
+- [ ] All items above have all three checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/10-patterns.md` reflects implementation
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] 80+% test coverage

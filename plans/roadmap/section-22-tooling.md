@@ -1,13 +1,13 @@
 ---
 section: 22
 title: Tooling
-status: in-progress
+status: not-started
 tier: 8
 goal: Developer experience
 sections:
   - id: "22.1"
     title: Formatter
-    status: complete
+    status: not-started
   - id: "22.2"
     title: LSP Server
     status: not-started
@@ -19,7 +19,7 @@ sections:
     status: not-started
   - id: "22.5"
     title: Test Runner
-    status: complete
+    status: not-started
   - id: "22.6"
     title: Causality Tracking
     status: not-started
@@ -28,7 +28,7 @@ sections:
     status: not-started
   - id: "22.8"
     title: WASM Playground
-    status: in-progress
+    status: not-started
   - id: "22.9"
     title: Grammar Synchronization Verification
     status: not-started
@@ -61,53 +61,53 @@ sections:
 
 ### Core Implementation (Complete)
 
-- [x] **Implement**: Width calculation engine — `ori_fmt/src/width/`
-  - [x] **Rust Tests**: `ori_fmt/src/width/tests.rs` — 962 tests passing
+- [ ] **Implement**: Width calculation engine — `ori_fmt/src/width/`
+  - [ ] **Rust Tests**: `ori_fmt/src/width/tests.rs` — 962 tests passing
 
-- [x] **Implement**: Two-pass rendering engine — `ori_fmt/src/formatter/`
-  - [x] Width-based breaking (100 char limit)
-  - [x] Always-stacked constructs (run, try, match, parallel, etc.)
-  - [x] Independent breaking for nested constructs
+- [ ] **Implement**: Two-pass rendering engine — `ori_fmt/src/formatter/`
+  - [ ] Width-based breaking (100 char limit)
+  - [ ] Always-stacked constructs (run, try, match, parallel, etc.)
+  - [ ] Independent breaking for nested constructs
 
-- [x] **Implement**: Declaration formatting — `ori_fmt/src/declarations.rs`
-  - [x] Functions, types, traits, impls, tests, imports, configs
+- [ ] **Implement**: Declaration formatting — `ori_fmt/src/declarations.rs`
+  - [ ] Functions, types, traits, impls, tests, imports, configs
 
-- [x] **Implement**: Expression formatting — `ori_fmt/src/formatter/`
-  - [x] Calls, chains, conditionals, lambdas, binary ops, bindings
+- [ ] **Implement**: Expression formatting — `ori_fmt/src/formatter/`
+  - [ ] Calls, chains, conditionals, lambdas, binary ops, bindings
 
-- [x] **Implement**: Pattern formatting
-  - [x] run, try, match, for patterns
+- [ ] **Implement**: Pattern formatting
+  - [ ] run, try, match, for patterns
 
-- [x] **Implement**: Collection formatting
-  - [x] Lists, maps, tuples, structs, ranges
+- [ ] **Implement**: Collection formatting
+  - [ ] Lists, maps, tuples, structs, ranges
 
-- [x] **Implement**: Comment preservation — `ori_fmt/src/comments.rs`
-  - [x] Doc comment reordering (Description → Param/Field → Warning → Example)
-  - [x] @param/@field order matching declaration order
+- [ ] **Implement**: Comment preservation — `ori_fmt/src/comments.rs`
+  - [ ] Doc comment reordering (Description → Param/Field → Warning → Example)
+  - [ ] @param/@field order matching declaration order
 
 ### CLI Integration (Complete)
 
-- [x] **Implement**: `ori fmt <file>` — format single file
-- [x] **Implement**: `ori fmt <directory>` — format all .ori files recursively
-- [x] **Implement**: `ori fmt .` — format current directory (default)
-- [x] **Implement**: `ori fmt --check` — check mode (exit 1 if unformatted)
-- [x] **Implement**: `ori fmt --diff` — show diff instead of modifying
-- [x] **Implement**: `ori fmt --stdin` — read from stdin, write to stdout
-- [x] **Implement**: `.orifmtignore` file support with glob patterns
-- [x] **Implement**: `ori fmt --no-ignore` — format everything
-- [x] **Implement**: Error messages with source snippets and suggestions
+- [ ] **Implement**: `ori fmt <file>` — format single file
+- [ ] **Implement**: `ori fmt <directory>` — format all .ori files recursively
+- [ ] **Implement**: `ori fmt .` — format current directory (default)
+- [ ] **Implement**: `ori fmt --check` — check mode (exit 1 if unformatted)
+- [ ] **Implement**: `ori fmt --diff` — show diff instead of modifying
+- [ ] **Implement**: `ori fmt --stdin` — read from stdin, write to stdout
+- [ ] **Implement**: `.orifmtignore` file support with glob patterns
+- [ ] **Implement**: `ori fmt --no-ignore` — format everything
+- [ ] **Implement**: Error messages with source snippets and suggestions
 
 ### Performance (Complete)
 
-- [x] **Implement**: Incremental formatting — `ori_fmt/src/incremental.rs`
-  - [x] 13 integration tests, ~30% speedup for large files
-- [x] **Implement**: Parallel file processing via rayon (2.4x speedup)
-- [x] **Implement**: Memory-efficient large file handling (10k lines in 2.75ms)
+- [ ] **Implement**: Incremental formatting — `ori_fmt/src/incremental.rs`
+  - [ ] 13 integration tests, ~30% speedup for large files
+- [ ] **Implement**: Parallel file processing via rayon (2.4x speedup)
+- [ ] **Implement**: Memory-efficient large file handling (10k lines in 2.75ms)
 
 ### Testing (Complete)
 
-- [x] **Rust Tests**: 440 total (215 unit, 35 golden, 5 idempotence, 171 property, 13 incremental, 1 doc)
-- [x] **Golden Tests**: `tests/fmt/` — declarations, expressions, patterns, collections, comments, edge-cases
+- [ ] **Rust Tests**: 440 total (215 unit, 35 golden, 5 idempotence, 171 property, 13 incremental, 1 doc)
+- [ ] **Golden Tests**: `tests/fmt/` — declarations, expressions, patterns, collections, comments, edge-cases
 
 ---
 
@@ -126,7 +126,7 @@ sections:
   - [ ] Expand range to nearest complete construct
 - [ ] **Implement**: Register format-on-save capability
 - [ ] **Document**: Editor integration (VS Code, Neovim, Helix, etc.)
-  - [x] Documented in `docs/tooling/formatter/integration.md` (for CLI workaround)
+  - [ ] Documented in `docs/tooling/formatter/integration.md` (for CLI workaround)
 
 ### Core LSP Features
 
@@ -191,45 +191,45 @@ sections:
 > are in Section 14 and are not yet implemented. The test runner runs tests; the framework enforces
 > testing requirements and manages test dependencies.
 
-- [x] **Implement**: `ori test` command — run all tests — design/11-testing/index.md
-  - [x] **Rust Tests**: `oric/src/cli/test.rs` — test command
-  - [x] **Ori Tests**: `tests/spec/tooling/test_runner.ori`
+- [ ] **Implement**: `ori test` command — run all tests — design/11-testing/index.md
+  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — test command
+  - [ ] **Ori Tests**: `tests/spec/tooling/test_runner.ori`
 
-- [x] **Implement**: `ori test file.test.ori` — run specific test file
-  - [x] **Rust Tests**: `oric/src/cli/test.rs` — file filtering
-  - [x] **Ori Tests**: `tests/spec/tooling/test_runner.ori`
+- [ ] **Implement**: `ori test file.test.ori` — run specific test file
+  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — file filtering
+  - [ ] **Ori Tests**: `tests/spec/tooling/test_runner.ori`
 
-- [x] **Implement**: `ori test path/` — run all tests in directory
-  - [x] **Rust Tests**: `oric/src/cli/test.rs` — directory scanning
-  - [x] **Ori Tests**: `tests/spec/tooling/test_runner.ori`
+- [ ] **Implement**: `ori test path/` — run all tests in directory
+  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — directory scanning
+  - [ ] **Ori Tests**: `tests/spec/tooling/test_runner.ori`
 
-- [x] **Implement**: `ori check file.ori` — check test coverage without running — spec/13-testing.md § Coverage Enforcement
-  - [x] **Rust Tests**: `oric/src/cli/check.rs` — coverage check
-  - [x] **Ori Tests**: `tests/spec/tooling/test_check.ori`
+- [ ] **Implement**: `ori check file.ori` — check test coverage without running — spec/13-testing.md § Coverage Enforcement
+  - [ ] **Rust Tests**: `oric/src/cli/check.rs` — coverage check
+  - [ ] **Ori Tests**: `tests/spec/tooling/test_check.ori`
 
-- [x] **Implement**: Parallel test execution — spec/13-testing.md § Test Isolation
-  - [x] **Rust Tests**: `oric/src/cli/test.rs` — parallel execution
-  - [x] **Ori Tests**: `tests/spec/tooling/test_parallel.ori`
+- [ ] **Implement**: Parallel test execution — spec/13-testing.md § Test Isolation
+  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — parallel execution
+  - [ ] **Ori Tests**: `tests/spec/tooling/test_parallel.ori`
 
-- [x] **Implement**: Test filtering by name pattern (e.g., `ori test --filter "auth"`)
-  - [x] **Rust Tests**: `oric/src/cli/test.rs` — name filtering
-  - [x] **Ori Tests**: `tests/spec/tooling/test_filter.ori`
+- [ ] **Implement**: Test filtering by name pattern (e.g., `ori test --filter "auth"`)
+  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — name filtering
+  - [ ] **Ori Tests**: `tests/spec/tooling/test_filter.ori`
 
-- [x] **Implement**: Test output formatting (pass/fail/skip counts, timing)
-  - [x] **Rust Tests**: `oric/src/cli/test.rs` — output formatting
-  - [x] **Ori Tests**: `tests/spec/tooling/test_output.ori`
+- [ ] **Implement**: Test output formatting (pass/fail/skip counts, timing)
+  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — output formatting
+  - [ ] **Ori Tests**: `tests/spec/tooling/test_output.ori`
 
-- [x] **Implement**: Verbose mode for detailed output (`--verbose`)
-  - [x] **Rust Tests**: `oric/src/cli/test.rs` — verbose mode
-  - [x] **Ori Tests**: `tests/spec/tooling/test_output.ori`
+- [ ] **Implement**: Verbose mode for detailed output (`--verbose`)
+  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — verbose mode
+  - [ ] **Ori Tests**: `tests/spec/tooling/test_output.ori`
 
-- [x] **Implement**: Coverage report generation
-  - [x] **Rust Tests**: `oric/src/cli/test.rs` — coverage report
-  - [x] **Ori Tests**: `tests/spec/tooling/test_coverage.ori`
+- [ ] **Implement**: Coverage report generation
+  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — coverage report
+  - [ ] **Ori Tests**: `tests/spec/tooling/test_coverage.ori`
 
-- [x] **Implement**: Exit codes (0 = all pass, 1 = failures, 2 = no tests found)
-  - [x] **Rust Tests**: `oric/src/cli/test.rs` — exit codes
-  - [x] **Ori Tests**: `tests/spec/tooling/test_exit.ori`
+- [ ] **Implement**: Exit codes (0 = all pass, 1 = failures, 2 = no tests found)
+  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — exit codes
+  - [ ] **Ori Tests**: `tests/spec/tooling/test_exit.ori`
 
 ---
 
@@ -418,12 +418,12 @@ Machine-readable diagnostics with actionable fix suggestions. Enables AI agents 
 
 ### Core Implementation (Complete)
 
-- [x] **Implement**: WASM crate with `run_ori()`, `format_ori()`, `version()` exports
-- [x] **Implement**: Monaco editor integration with Ori syntax highlighting (Monarch grammar)
-- [x] **Implement**: URL-based code sharing (base64 fragment)
-- [x] **Implement**: Full-screen playground page (`/playground`)
-- [x] **Implement**: Embedded playground on landing page
-- [x] **Implement**: Basic examples (5): Hello World, Fibonacci, Factorial, List Operations, Structs
+- [ ] **Implement**: WASM crate with `run_ori()`, `format_ori()`, `version()` exports
+- [ ] **Implement**: Monaco editor integration with Ori syntax highlighting (Monarch grammar)
+- [ ] **Implement**: URL-based code sharing (base64 fragment)
+- [ ] **Implement**: Full-screen playground page (`/playground`)
+- [ ] **Implement**: Embedded playground on landing page
+- [ ] **Implement**: Basic examples (5): Hello World, Fibonacci, Factorial, List Operations, Structs
 
 ### Pending Work
 
@@ -498,7 +498,7 @@ Package management for Ori projects with registry support.
 
 ## 22.10 Section Completion Checklist
 
-- [ ] All items above have all three checkboxes marked `[x]`
+- [ ] All items above have all three checkboxes marked `[ ]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage
 - [ ] Benchmarks

@@ -1,23 +1,23 @@
 ---
 section: "05"
 title: Type Classification for ARC
-status: not-started
+status: complete
 goal: Classify every type as Scalar/PossibleRef/DefiniteRef so ARC analysis can skip trivial types entirely
 sections:
   - id: "05.1"
     title: ArcClass Enum & Type Rules
-    status: not-started
+    status: complete
   - id: "05.2"
     title: Transitive Classification
-    status: not-started
+    status: complete
   - id: "05.3"
     title: Pool Integration
-    status: not-started
+    status: complete
 ---
 
 # Section 05: Type Classification for ARC
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Before any ARC analysis runs, classify every type so we know which ones need reference counting and which can be skipped entirely. This eliminates unnecessary RC operations on scalars -- a huge performance win.
 
 **Crate:** `ori_arc` (no LLVM dependency). This is the `ArcClassification` trait referenced in Section 01. It operates purely on `Pool`/`Idx` — no LLVM types involved. The `TypeInfo` enum in `ori_llvm` (Section 01) queries this classification when deciding whether to emit retain/release calls.
@@ -113,10 +113,10 @@ pub enum ArcClass {
 /// DefiniteRef for soundness.
 ```
 
-- [ ] Define `ArcClass` enum
-- [ ] Implement classification for all primitive types
-- [ ] Implement classification for collection types
-- [ ] Implement classification for type variables (conservative: PossibleRef)
+- [x] Define `ArcClass` enum
+- [x] Implement classification for all primitive types
+- [x] Implement classification for collection types
+- [x] Implement classification for type variables (conservative: PossibleRef)
 
 ## 05.2 Transitive Classification
 
@@ -162,11 +162,11 @@ Key insight from monomorphization:
 - `(int, float, bool)` — all Scalar, so the tuple is **Scalar**
 - `(int, [str])` — `[str]` is DefiniteRef, so the tuple is **DefiniteRef**
 
-- [ ] Implement transitive classification for tuples
-- [ ] Implement transitive classification for structs
-- [ ] Implement transitive classification for enums (union of variant classifications)
-- [ ] Handle recursive types (memoize during traversal)
-- [ ] Verify monomorphization: after type substitution, no PossibleRef in concrete code
+- [x] Implement transitive classification for tuples
+- [x] Implement transitive classification for structs
+- [x] Implement transitive classification for enums (union of variant classifications)
+- [x] Handle recursive types (memoize during traversal)
+- [x] Verify monomorphization: after type substitution, no PossibleRef in concrete code
 
 ## 05.3 Pool Integration
 
@@ -193,8 +193,8 @@ pub trait ArcClassification {
 }
 ```
 
-- [ ] Implement `ArcClassification` for Pool (in `ori_arc`)
-- [ ] Cache classification results (compute once per Idx)
+- [x] Implement `ArcClassification` for Pool (in `ori_arc`)
+- [x] Cache classification results (compute once per Idx)
 - [ ] `ori_llvm::TypeInfo` queries `ArcClassification` via Pool — no duplication of classification logic
 
 ---

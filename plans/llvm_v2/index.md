@@ -129,7 +129,7 @@ test wrapper, _ori_test_ prefix, void signature
 ```
 
 ### Section 05: Type Classification for ARC
-**File:** `section-05-type-classification.md` | **Status:** Not Started
+**File:** `section-05-type-classification.md` | **Status:** Complete
 
 ```
 type classification, scalar, reference, ARC, RC

@@ -351,7 +351,7 @@ error: `impl Trait` is only allowed in return position
 
 ## Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[x]`
+- [ ] All items above have all checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/06-types.md` existential types section
 - [ ] CLAUDE.md updated with impl Trait syntax
 - [ ] Return position `impl Trait` works

@@ -621,7 +621,7 @@ impl FixedSize for [int, max 5] {
 
 ## Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[x]`
+- [ ] All items above have all checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/06-types.md` and `spec/07-properties-of-types.md` const generics sections
 - [ ] CLAUDE.md updated with const generic syntax
 - [ ] `[T, max N]` fixed-capacity lists work

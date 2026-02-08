@@ -1,7 +1,7 @@
 ---
 section: 8
 title: Pattern Evaluation
-status: in-progress
+status: not-started
 tier: 3
 goal: All patterns evaluate correctly
 spec:
@@ -9,40 +9,40 @@ spec:
 sections:
   - id: "8.1"
     title: run (Sequential Execution)
-    status: complete
+    status: not-started
   - id: "8.2"
     title: try (Error Propagation)
-    status: complete
+    status: not-started
   - id: "8.3"
     title: recurse (Recursive Functions)
-    status: in-progress
+    status: not-started
   - id: "8.4"
     title: parallel (All-Settled Concurrent Execution)
-    status: complete
+    status: not-started
   - id: "8.5"
     title: spawn (Fire and Forget)
-    status: complete
+    status: not-started
   - id: "8.6"
     title: timeout (Time-Bounded)
-    status: complete
+    status: not-started
   - id: "8.7"
     title: cache (Memoization with TTL)
-    status: in-progress
+    status: not-started
   - id: "8.8"
     title: with (Resource Management)
-    status: in-progress
+    status: not-started
   - id: "8.9"
     title: for (Iteration with Early Exit)
-    status: complete
+    status: not-started
   - id: "8.10"
     title: Data Transformation — MOVED TO STDLIB
-    status: complete
+    status: not-started
   - id: "8.11"
     title: Resilience Patterns — MOVED TO STDLIB
-    status: complete
+    status: not-started
   - id: "8.12"
     title: Section Completion Checklist
-    status: complete
+    status: not-started
 ---
 
 # Section 8: Pattern Evaluation
@@ -77,26 +77,26 @@ The spec formalizes two distinct pattern categories:
 
 > **Future Enhancement**: Approved proposal `proposals/approved/checks-proposal.md` adds `.pre_check:` and `.post_check:` properties to `run`. See Section 15.5.
 
-- [x] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/10-patterns.md § run
-  - [x] **Rust Tests**: `oric/src/patterns/run.rs` — run pattern execution tests
-  - [x] **Ori Tests**: `tests/spec/patterns/run.ori` — 7 tests pass
+- [ ] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/10-patterns.md § run
+  - [ ] **Rust Tests**: `oric/src/patterns/run.rs` — run pattern execution tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/run.ori` — 7 tests pass
 
-- [x] **Implement**: Binding `let [ "mut" ] identifier [ ":" type ] "=" expression` — spec/10-patterns.md § run
-- [x] **Implement**: Evaluate each binding in order — spec/10-patterns.md § run
-- [x] **Implement**: Each binding introduces variable into scope — spec/10-patterns.md § run
-- [x] **Implement**: Final expression is the result — spec/10-patterns.md § run
+- [ ] **Implement**: Binding `let [ "mut" ] identifier [ ":" type ] "=" expression` — spec/10-patterns.md § run
+- [ ] **Implement**: Evaluate each binding in order — spec/10-patterns.md § run
+- [ ] **Implement**: Each binding introduces variable into scope — spec/10-patterns.md § run
+- [ ] **Implement**: Final expression is the result — spec/10-patterns.md § run
 
 ---
 
 ## 8.2 try (Error Propagation)
 
-- [x] **Implement**: Grammar `try_expr = "try" "(" { binding "," } expression ")"` — spec/10-patterns.md § try
-  - [x] **Rust Tests**: `oric/src/patterns/try.rs` — try pattern execution tests
-  - [x] **Ori Tests**: `tests/spec/patterns/try.ori` — 5 tests pass
+- [ ] **Implement**: Grammar `try_expr = "try" "(" { binding "," } expression ")"` — spec/10-patterns.md § try
+  - [ ] **Rust Tests**: `oric/src/patterns/try.rs` — try pattern execution tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/try.ori` — 5 tests pass
 
-- [x] **Implement**: Binding with `Result<T, E>` gives variable type `T` — spec/10-patterns.md § try
-- [x] **Implement**: If `Err(e)`, return immediately — spec/10-patterns.md § try
-- [x] **Implement**: Final expression is result — spec/10-patterns.md § try
+- [ ] **Implement**: Binding with `Result<T, E>` gives variable type `T` — spec/10-patterns.md § try
+- [ ] **Implement**: If `Err(e)`, return immediately — spec/10-patterns.md § try
+- [ ] **Implement**: Final expression is result — spec/10-patterns.md § try
 
 ---
 
@@ -106,18 +106,18 @@ The spec formalizes two distinct pattern categories:
 
 ### Basic Implementation (complete)
 
-- [x] **Implement**: `.condition:` property type `bool` — spec/10-patterns.md § recurse
-  - [x] **Rust Tests**: `oric/src/patterns/recurse.rs` — recurse pattern execution tests
-  - [x] **Ori Tests**: `tests/spec/patterns/recurse.ori` — 5 tests pass
+- [ ] **Implement**: `.condition:` property type `bool` — spec/10-patterns.md § recurse
+  - [ ] **Rust Tests**: `oric/src/patterns/recurse.rs` — recurse pattern execution tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/recurse.ori` — 5 tests pass
 
-- [x] **Implement**: `.base:` property type `T` — spec/10-patterns.md § recurse
-- [x] **Implement**: `.step:` property uses `self()` — spec/10-patterns.md § recurse
-- [x] **Implement**: Optional `.memo:` default false — spec/10-patterns.md § recurse
-- [x] **Implement**: Optional `.parallel:` threshold — spec/10-patterns.md § recurse (stub: executes sequentially)
-- [x] **Implement**: When `.condition` true, return `.base` — spec/10-patterns.md § recurse
-- [x] **Implement**: Otherwise evaluate `.step` — spec/10-patterns.md § recurse
-- [x] **Implement**: `self(...)` refers to recursive function — spec/10-patterns.md § recurse
-- [x] **Implement**: Memoization caches during top-level call — spec/10-patterns.md § recurse
+- [ ] **Implement**: `.base:` property type `T` — spec/10-patterns.md § recurse
+- [ ] **Implement**: `.step:` property uses `self()` — spec/10-patterns.md § recurse
+- [ ] **Implement**: Optional `.memo:` default false — spec/10-patterns.md § recurse
+- [ ] **Implement**: Optional `.parallel:` threshold — spec/10-patterns.md § recurse (stub: executes sequentially)
+- [ ] **Implement**: When `.condition` true, return `.base` — spec/10-patterns.md § recurse
+- [ ] **Implement**: Otherwise evaluate `.step` — spec/10-patterns.md § recurse
+- [ ] **Implement**: `self(...)` refers to recursive function — spec/10-patterns.md § recurse
+- [ ] **Implement**: Memoization caches during top-level call — spec/10-patterns.md § recurse
 
 ### Self Scoping (from approved proposal)
 
@@ -214,14 +214,14 @@ The spec formalizes two distinct pattern categories:
 > All tasks run to completion. Errors captured as Err values in result list.
 > Pattern itself never fails.
 
-- [x] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § parallel
-  - [x] **Rust Tests**: `oric/src/patterns/parallel.rs` — parallel pattern execution tests
-  - [x] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 6 tests pass
+- [ ] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § parallel
+  - [ ] **Rust Tests**: `oric/src/patterns/parallel.rs` — parallel pattern execution tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 6 tests pass
 
-- [x] **Implement**: Returns `[Result<T, E>]` — spec/10-patterns.md § parallel
-- [x] **Implement**: Optional `.timeout:` (per-task) — spec/10-patterns.md § parallel
-- [x] **Implement**: Optional `.max_concurrent:` — spec/10-patterns.md § parallel
-- [x] **Implement**: Stub — Execute sequentially, wrap each result in Ok/Err
+- [ ] **Implement**: Returns `[Result<T, E>]` — spec/10-patterns.md § parallel
+- [ ] **Implement**: Optional `.timeout:` (per-task) — spec/10-patterns.md § parallel
+- [ ] **Implement**: Optional `.max_concurrent:` — spec/10-patterns.md § parallel
+- [ ] **Implement**: Stub — Execute sequentially, wrap each result in Ok/Err
 
 ---
 
@@ -229,12 +229,12 @@ The spec formalizes two distinct pattern categories:
 
 > **NEW**: spawn executes tasks without waiting. Returns void immediately. Errors discarded.
 
-- [x] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § spawn
-  - [x] **Rust Tests**: `oric/src/patterns/spawn.rs` — spawn pattern execution tests
-  - [x] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 3 tests pass
+- [ ] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § spawn
+  - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — spawn pattern execution tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 3 tests pass
 
-- [x] **Implement**: Returns `void` — spec/10-patterns.md § spawn
-- [x] **Implement**: Optional `.max_concurrent:` — spec/10-patterns.md § spawn
+- [ ] **Implement**: Returns `void` — spec/10-patterns.md § spawn
+- [ ] **Implement**: Optional `.max_concurrent:` — spec/10-patterns.md § spawn
 
 ---
 
@@ -242,13 +242,13 @@ The spec formalizes two distinct pattern categories:
 
 > **NOTE**: Stub implementation - timeout not enforced in interpreter, always returns Ok(result).
 
-- [x] **Implement**: `.operation:` property — spec/10-patterns.md § timeout
-  - [x] **Rust Tests**: `oric/src/patterns/timeout.rs` — timeout pattern execution tests
-  - [x] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 4 tests pass
+- [ ] **Implement**: `.operation:` property — spec/10-patterns.md § timeout
+  - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — timeout pattern execution tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 4 tests pass
 
-- [x] **Implement**: `.after:` property — spec/10-patterns.md § timeout
-- [x] **Implement**: Return `Result<T, TimeoutError>` — spec/10-patterns.md § timeout
-- [x] **Implement**: Stub — Execute `.operation`, wrap in `Ok()`
+- [ ] **Implement**: `.after:` property — spec/10-patterns.md § timeout
+- [ ] **Implement**: Return `Result<T, TimeoutError>` — spec/10-patterns.md § timeout
+- [ ] **Implement**: Stub — Execute `.operation`, wrap in `Ok()`
 
 ---
 
@@ -260,12 +260,12 @@ The spec formalizes two distinct pattern categories:
 
 ### Basic Semantics (complete)
 
-- [x] **Implement**: `.key:` property — spec/10-patterns.md § cache
-  - [x] **Rust Tests**: `oric/src/patterns/cache.rs` — cache pattern execution tests
-  - [x] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 2 tests pass
+- [ ] **Implement**: `.key:` property — spec/10-patterns.md § cache
+  - [ ] **Rust Tests**: `oric/src/patterns/cache.rs` — cache pattern execution tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 2 tests pass
 
-- [x] **Implement**: `.op:` property — spec/10-patterns.md § cache
-- [x] **Implement**: Stub — Execute `.op` without caching
+- [ ] **Implement**: `.op:` property — spec/10-patterns.md § cache
+- [ ] **Implement**: Stub — Execute `.op` without caching
 
 ### Key Requirements (from approved proposal)
 
@@ -349,14 +349,14 @@ The spec formalizes two distinct pattern categories:
 
 ### Basic Implementation (complete)
 
-- [x] **Implement**: Parse `with` pattern in parser
-  - [x] **Rust Tests**: `oric/src/patterns/with.rs` — with pattern execution tests
-  - [x] **Ori Tests**: `tests/spec/patterns/with.ori` — 4 tests pass
+- [ ] **Implement**: Parse `with` pattern in parser
+  - [ ] **Rust Tests**: `oric/src/patterns/with.rs` — with pattern execution tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/with.ori` — 4 tests pass
 
-- [x] **Implement**: `.acquire:` property — spec/10-patterns.md § with
-- [x] **Implement**: `.action:` property (spec uses `.use:`) — spec/10-patterns.md § with
-- [x] **Implement**: `.release:` property — spec/10-patterns.md § with
-- [x] **Implement**: Acquire resource, call `.action`, always call `.release` even on error
+- [ ] **Implement**: `.acquire:` property — spec/10-patterns.md § with
+- [ ] **Implement**: `.action:` property (spec uses `.use:`) — spec/10-patterns.md § with
+- [ ] **Implement**: `.release:` property — spec/10-patterns.md § with
+- [ ] **Implement**: Acquire resource, call `.action`, always call `.release` even on error
 
 ### Release Guarantee (from approved proposal)
 
@@ -398,14 +398,14 @@ The spec formalizes two distinct pattern categories:
 > **NOTE**: This is the `for(over:, match:, default:)` **pattern** with named arguments.
 > The `for x in items do/yield expr` **expression** syntax is a separate construct in Section 10 (Control Flow).
 
-- [x] **Implement**: `.over:` property — spec/10-patterns.md § for
-  - [x] **Rust Tests**: `oric/src/patterns/for.rs` — for pattern execution tests
-  - [x] **Ori Tests**: `tests/spec/patterns/for.ori` — 8 tests pass
+- [ ] **Implement**: `.over:` property — spec/10-patterns.md § for
+  - [ ] **Rust Tests**: `oric/src/patterns/for.rs` — for pattern execution tests
+  - [ ] **Ori Tests**: `tests/spec/patterns/for.ori` — 8 tests pass
 
-- [x] **Implement**: Optional `.map:` property — spec/10-patterns.md § for
-- [x] **Implement**: `.match:` property — spec/10-patterns.md § for
-- [x] **Implement**: `.default:` property — spec/10-patterns.md § for
-- [x] **Implement**: Return first match or `.default` — spec/10-patterns.md § for
+- [ ] **Implement**: Optional `.map:` property — spec/10-patterns.md § for
+- [ ] **Implement**: `.match:` property — spec/10-patterns.md § for
+- [ ] **Implement**: `.default:` property — spec/10-patterns.md § for
+- [ ] **Implement**: Return first match or `.default` — spec/10-patterns.md § for
 
 ---
 
@@ -437,9 +437,9 @@ The spec formalizes two distinct pattern categories:
 
 ## 8.12 Section Completion Checklist
 
-- [x] All compiler patterns implemented
-- [x] Data transformation patterns moved to stdlib
-- [x] Resilience patterns moved to stdlib
-- [x] Run full test suite: `./test-all.sh`
+- [ ] All compiler patterns implemented
+- [ ] Data transformation patterns moved to stdlib
+- [ ] Resilience patterns moved to stdlib
+- [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: All compiler patterns evaluate correctly

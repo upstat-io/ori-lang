@@ -1,0 +1,19 @@
+[package]
+name = "ori_arc"
+description = "ARC analysis for the Ori compiler (type classification, borrow inference, RC insertion)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ori_ir.workspace = true
+ori_types.workspace = true
+rustc-hash.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

@@ -130,7 +130,7 @@ Implements error trace preservation across task boundaries in async code.
 
 ## 16.5 Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[x]`
+- [ ] All items above have all checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/14-capabilities.md` async section, `spec/10-patterns.md` concurrency patterns
 - [ ] CLAUDE.md updated with async/concurrency syntax
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

@@ -57,7 +57,7 @@ print(msg: "Hello")  // named required everywhere
 
 #### Parser (dot removal done, enforcement needed)
 
-- [x] **Done**: Parser accepts `IDENTIFIER ':'` instead of `'.' IDENTIFIER ':'`
+- [ ] **Done**: Parser accepts `IDENTIFIER ':'` instead of `'.' IDENTIFIER ':'`
   - Basic syntax change already implemented
 
 - [ ] **Implement**: Enforce named arguments for built-in functions
@@ -467,7 +467,7 @@ error[E2011]: named arguments required for direct function calls
 
 ## 15B.5 Section Completion Checklist
 
-- [ ] All implementation items have checkboxes marked `[x]`
+- [ ] All implementation items have checkboxes marked `[ ]`
 - [ ] All spec docs updated
 - [ ] CLAUDE.md updated with syntax changes
 - [ ] Migration tools working

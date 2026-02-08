@@ -283,7 +283,7 @@ Formalizes `repeat`, `compile_error`, `PanicInfo`, and clarifies `??` operator s
 
 **Spec**: `spec/20-errors-and-panics.md` § PanicInfo Type (updated with full structure)
 
-- [x] **Spec**: PanicInfo type definition — `{ message, location, stack_trace, thread_id }` DONE
+- [ ] **Spec**: PanicInfo type definition — `{ message, location, stack_trace, thread_id }` DONE
 
 - [ ] **Implement**: `PanicInfo` struct type — `{ message: str, location: TraceEntry, stack_trace: [TraceEntry], thread_id: Option<int> }`
   - [ ] **Rust Tests**: `oric/src/typeck/types.rs` — PanicInfo type tests
@@ -393,7 +393,7 @@ Adds `drop_early` function for explicit early resource release.
 
 ## 7A.8 Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[x]`
+- [ ] All items above have all checkboxes marked `[ ]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage, tests against spec/design
 - [ ] Run full test suite: `./test-all.sh`
