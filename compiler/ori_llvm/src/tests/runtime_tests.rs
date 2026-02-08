@@ -238,22 +238,13 @@ fn test_ori_str_concat_empty() {
 
 #[test]
 #[allow(unsafe_code)]
-fn test_closure_env_via_rc_new() {
-    // Closures now allocate environments via ori_rc_new + ori_rc_data
-    let header = runtime::ori_rc_new(24); // env with 3 × i64 captures
-    assert!(!header.is_null());
-
-    let data = runtime::ori_rc_data(header);
+fn test_rc_alloc_and_data_pointer() {
+    // V2: ori_rc_alloc returns data pointer directly (no separate ori_rc_data)
+    let data = runtime::ori_rc_alloc(24, 8); // env with 3 × i64 captures
     assert!(!data.is_null());
 
-    // Data pointer should be past the 16-byte RcHeader
-    assert_eq!(
-        data as usize - header as usize,
-        std::mem::size_of::<runtime::RcHeader>()
-    );
-
-    // Refcount should be 1
-    assert_eq!(runtime::ori_rc_count(header), 1);
+    // Refcount at data_ptr - 8 should be 1
+    assert_eq!(runtime::ori_rc_count(data), 1);
 
     // Write captures and read back
     unsafe {
@@ -265,8 +256,57 @@ fn test_closure_env_via_rc_new() {
         assert_eq!(std::ptr::read_unaligned(data.add(16).cast::<i64>()), 333);
     }
 
-    // Decrement → refcount reaches 0 → frees
-    runtime::ori_rc_dec(header);
+    // Decrement → refcount reaches 0 → calls drop_fn
+    // Use a trivial drop function that calls ori_rc_free
+    extern "C" fn drop_env_24(data_ptr: *mut u8) {
+        runtime::ori_rc_free(data_ptr, 24, 8);
+    }
+    runtime::ori_rc_dec(data, Some(drop_env_24));
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn test_rc_inc_dec_lifecycle() {
+    let data = runtime::ori_rc_alloc(8, 8);
+    assert!(!data.is_null());
+    assert_eq!(runtime::ori_rc_count(data), 1);
+
+    // Increment twice
+    runtime::ori_rc_inc(data);
+    assert_eq!(runtime::ori_rc_count(data), 2);
+    runtime::ori_rc_inc(data);
+    assert_eq!(runtime::ori_rc_count(data), 3);
+
+    // Decrement — not freed yet (refcount > 0)
+    extern "C" fn drop_8(data_ptr: *mut u8) {
+        runtime::ori_rc_free(data_ptr, 8, 8);
+    }
+    runtime::ori_rc_dec(data, Some(drop_8));
+    assert_eq!(runtime::ori_rc_count(data), 2);
+    runtime::ori_rc_dec(data, Some(drop_8));
+    assert_eq!(runtime::ori_rc_count(data), 1);
+
+    // Final dec → refcount 0 → freed via drop_fn
+    runtime::ori_rc_dec(data, Some(drop_8));
+    // data is now freed — do not access
+}
+
+#[test]
+fn test_rc_header_is_8_bytes() {
+    // V2: strong_count is a single i64 (8 bytes), not 16-byte RcHeader
+    let data = runtime::ori_rc_alloc(16, 8);
+    assert!(!data.is_null());
+
+    // The strong_count is at data - 8. Verify the offset:
+    // base = data - 8, data = base + 8
+    let base = unsafe { data.sub(8) };
+    let rc_from_base = unsafe { *(base.cast::<i64>()) };
+    assert_eq!(rc_from_base, 1, "strong_count at data_ptr - 8 should be 1");
+
+    extern "C" fn drop_16(data_ptr: *mut u8) {
+        runtime::ori_rc_free(data_ptr, 16, 8);
+    }
+    runtime::ori_rc_dec(data, Some(drop_16));
 }
 
 #[test]

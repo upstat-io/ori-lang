@@ -1,32 +1,38 @@
 ---
 section: "07"
 title: RC Insertion via Liveness Analysis
-status: not-started
+status: complete
 goal: Precisely insert inc/dec operations into ARC IR based on variable liveness so every heap value is freed exactly when its last use ends
 sections:
   - id: "07.1"
     title: Liveness Analysis on ARC IR
-    status: not-started
+    status: complete
+    note: liveness.rs — backward dataflow, gen/kill, postorder traversal
   - id: "07.2"
     title: RC Operation Insertion
-    status: not-started
+    status: complete
+    note: rc_insert.rs — Perceus algorithm, backward pass, borrowed-derived tracking
   - id: "07.3"
     title: Runtime Integration
-    status: not-started
+    status: complete
+    note: ori_rt redesigned — 8-byte header, ori_rc_alloc/inc/dec/free implemented
   - id: "07.4"
     title: Specialized Drop Functions
-    status: not-started
+    status: complete
+    note: drop.rs — DropKind/DropInfo descriptors, per-type drop analysis, 38 tests
   - id: "07.5"
     title: Early Exit & Panic Cleanup
-    status: not-started
+    status: complete
+    note: rc_insert.rs — edge cleanup pass, predecessor computation, trampoline blocks for edge splitting, 6 tests
   - id: "07.6"
     title: Reset/Reuse Detection
-    status: not-started
+    status: complete
+    note: reset_reuse.rs — intra-block RcDec+Construct→Reset/Reuse replacement
 ---
 
 # Section 07: RC Insertion via Liveness Analysis
 
-**Status:** Not Started
+**Status:** Complete — 07.1 liveness analysis complete. 07.2 RC insertion complete. 07.3 runtime integration complete (ori_rt redesigned with 8-byte header, V2 API). 07.4 specialized drop descriptors complete (DropKind/DropInfo, 38 tests). 07.5 early exit/edge cleanup complete (edge gap Decs, predecessor computation, trampoline blocks for edge splitting). 07.6 Reset/Reuse detection complete.
 **Goal:** After borrow inference (Section 06), insert precise reference counting operations into the **ARC IR** (Section 06.0). Every non-scalar, non-borrowed value gets `inc` at duplication and `dec` at last use. This is the "Perceus" approach from Koka.
 
 **Crate:** `ori_arc` (no LLVM dependency). Operates on ARC IR basic blocks.
@@ -466,13 +472,17 @@ fn _ori_drop$__lambda_3_env(data_ptr: *mut u8) {
 }
 ```
 
-- [ ] Implement drop function generation per type kind (struct, enum, list, map, set, closure, str)
-- [ ] Generate loop-based drop for variable-length types (list, map, set)
-- [ ] Generate switch-based drop for enum types (per-variant field cleanup)
-- [ ] Generate closure env drop functions (Dec each captured variable)
-- [ ] Register drop function pointers with `ori_rc_dec` calls
-- [ ] Handle nested RC types (drop function for `[str]` Decs each str element)
-- [ ] Test: verify drop functions correctly free all children
+- [x] Implement drop descriptor generation per type kind (struct, enum, list, map, set, closure, str) — `drop.rs`
+- [x] Compute `DropKind::Collection` for variable-length types (list, set) with RC elements
+- [x] Compute `DropKind::Map` for map types (dec_keys/dec_values flags)
+- [x] Compute `DropKind::Enum` for enum types (per-variant field cleanup, including option/result)
+- [x] Compute `DropKind::ClosureEnv` for closure environments (Dec each captured variable)
+- [x] Handle nested RC types (recursive drop via field_type references in descriptors)
+- [x] Handle named type resolution (Named/Alias indirection)
+- [x] Batch collection via `collect_drop_infos()` (scans RcDec instructions, deduplicates)
+- [x] Test: 38 tests covering all type kinds, edge cases, collection, and batch API
+- [ ] LLVM codegen: generate actual drop functions from DropInfo descriptors (in ori_llvm)
+- [ ] LLVM codegen: register drop function pointers with `ori_rc_dec` calls (in ori_llvm)
 
 ## 07.5 Early Exit & Panic Cleanup
 
@@ -480,15 +490,24 @@ fn _ori_drop$__lambda_3_env(data_ptr: *mut u8) {
 
 ### Early Exit (break/continue/return)
 
-At each early-exit terminator, insert Dec for all live variables that are **not** being returned or passed as jump arguments. The liveness analysis (Section 07.1) provides the live set at each program point. At an early exit:
+The per-block backward RC insertion pass (07.2) handles **intra-block** cleanup (dead definitions, unused params). But **cross-block edge gaps** require a separate pass:
 
-```
-For each var in live_at_exit:
-    if var is NOT the return value AND var is NOT a jump argument:
-        emit RcDec { var }
-```
+When a predecessor P branches to successors B1 and B2, `live_out[P]` is the **union** of what all successors need. Variables in `live_out[P]` that are NOT in `live_in[B]` for a specific successor B are "stranded" on that edge — they're alive when entering B but B doesn't use them. These need `RcDec` at B's entry.
 
-This is handled naturally by the RC insertion pass (Section 07.2): the terminator's used_vars are the variables being passed out (return value or jump args), and any remaining live variables are dead after the terminator and get Dec'd.
+**Algorithm (`insert_edge_cleanup`):**
+1. Compute predecessors for each block (deduplicated, from successor edges)
+2. For each block B, compute per-predecessor gap: `gap(P→B) = live_out[P] - live_in[B]` (filtered for RC-trackable, non-borrowed vars)
+3. **Single-predecessor B**: insert Dec at B's start
+4. **Multi-predecessor B, all gaps identical**: insert Dec at B's start
+5. **Multi-predecessor B, gaps differ**: edge split — create trampoline blocks with Dec + Jump
+
+Trampoline blocks contain only `RcDec` instructions and a `Jump` to the original target. The predecessor's terminator is redirected to the trampoline.
+
+**Borrowed var filtering:** Gap computation excludes borrowed params and globally-tracked borrow-derived vars (computed across all blocks) to prevent double-free on never-Inc'd values.
+
+References:
+- Lean 4: `addDecForDeadParams` in `src/Lean/Compiler/IR/RC.lean`
+- Appel: "Modern Compiler Implementation" §10.2 (live range splitting)
 
 ### Panic Cleanup (Full Cleanup Blocks)
 
@@ -536,8 +555,10 @@ cleanup_3:  // cleanup block — Dec all live RC vars
 > **Implementation note:** Panic cleanup is the most complex part of the RC system. Consider implementing it as a later phase — start with Apply everywhere (leak on panic), then add Invoke + cleanup blocks as a refinement pass. The correctness of non-panicking paths does not depend on cleanup blocks.
 
 **0.1-alpha:**
-- [ ] Implement early exit cleanup: Dec all live vars at break/continue/return terminators
-- [ ] Test: verify early exit cleanup for basic control flow (break, continue)
+- [x] Implement edge cleanup pass (`insert_edge_cleanup` in `rc_insert.rs`)
+- [x] Compute predecessors, per-edge gaps, trampoline block creation
+- [x] Filter borrowed params and globally-derived borrow vars from gaps
+- [x] Test: early exit (branch with unused var), break from loop, switch asymmetric, multiple stranded vars, multi-pred same gap, symmetric no-cleanup
 
 **Post-0.1-alpha:**
 - [ ] Identify potentially-panicking calls (conservative: all user function calls)

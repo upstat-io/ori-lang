@@ -23,7 +23,7 @@ sections:
 
 # Section 02: Machine Abstraction
 
-**Status:** 📋 Planned
+**Status:** Planned
 **Goal:** Parameterize the eval core via an `EvalMode` enum so the same interpreter logic serves `ori run`, `ori check`, and `ori test` with distinct policies — using enum dispatch (not generics) for Salsa compatibility and to avoid circular dependencies.
 
 **Why enum dispatch instead of a trait:** Salsa queries require all types to derive `Clone, Eq, PartialEq, Hash, Debug`. Generic `Interpreter<M: EvalMode>` would require `M` to satisfy these bounds, and associated types (`M::Extra`) would leak into Salsa query signatures. Additionally, trait methods referencing `Value` and `EvalError` would create circular dependencies if `EvalMode` were defined outside `ori_eval`. An enum keeps everything in one crate, is trivially Salsa-compatible, and match dispatch has negligible overhead for the small number of variants.
@@ -72,18 +72,28 @@ pub enum EvalMode {
 /// Per-mode mutable state, stored alongside EvalMode in the interpreter.
 ///
 /// NOTE: Print handling is intentionally NOT part of ModeState or EvalMode.
-/// The existing `SharedPrintHandler` (enum dispatch, Arc-wrapped) already provides
-/// a working, thread-safe print abstraction that supports print/println/capture/clear
-/// across all modes. EvalMode controls evaluation *policy* (I/O permissions, budgets,
-/// test collection); print *routing* is orthogonal and handled by SharedPrintHandler.
+/// The existing `PrintHandlerImpl` enum (with Arc wrapping, i.e. `SharedPrintHandler =
+/// Arc<PrintHandlerImpl>`) already provides a working, thread-safe print abstraction
+/// that supports print/println/capture/clear across all modes. EvalMode controls
+/// evaluation *policy* (I/O permissions, budgets, test collection); print *routing*
+/// is orthogonal and handled by PrintHandlerImpl via SharedPrintHandler.
 pub struct ModeState {
-    /// Test results (used by TestRun)
+    /// Test results (used by TestRun).
+    /// Uses `ori_eval::test_result::TestResult` (which has fields: name, targets,
+    /// outcome: TestOutcome, duration). These types are moved from `oric::test::result`
+    /// to `ori_eval::test_result` because ModeState lives in ori_eval and cannot depend
+    /// on oric. TestResult/TestOutcome only depend on Name (from ori_ir) and Duration
+    /// (std), so they have no oric-specific dependencies and move cleanly.
     pub test_results: Option<Vec<TestResult>>,
     /// Const-eval call counter (used by ConstEval)
     pub call_count: usize,
     /// Memo cache for const-eval (used by ConstEval).
-    /// References Section 07's `MemoCache` struct (keyed by `(func_id, args_hash)`).
+    /// References Section 07's `MemoCache` struct (keyed by `ExprId` with `Vec<Value>`
+    /// comparison via `Value::equals` — see Section 07.4 for details).
     pub memo_cache: Option<MemoCache>,
+    /// Optional performance counters (Section 10.4). `None` in production,
+    /// `Some(EvalCounters::default())` when `--profile` is active.
+    pub counters: Option<EvalCounters>,
 }
 
 impl EvalMode {
@@ -99,6 +109,12 @@ impl EvalMode {
         matches!(self, EvalMode::Interpret)
     }
 
+    /// Whether this mode allows capability-gated operations.
+    /// TestRun returns true because tests mock capabilities via `with Capability = Mock in`,
+    /// so capabilities must be "allowed" for the mocking mechanism to work.
+    /// ConstEval rejects all capabilities because compile-time evaluation must be pure.
+    /// Future: this should check per-capability restrictions (e.g., TestRun could restrict
+    /// certain capabilities that aren't mockable).
     pub fn allows_capability(&self, _cap: Name) -> bool {
         !matches!(self, EvalMode::ConstEval { .. })
     }
@@ -129,17 +145,17 @@ impl EvalMode {
     // See Section 10.1 for CallStack::new(mode) constructor.
 
     // NOTE: handle_print is NOT on EvalMode. Print routing is handled by the existing
-    // SharedPrintHandler (Arc<SharedPrintHandler>) which is stored on the Interpreter,
-    // not on ModeState. SharedPrintHandler currently has two variants:
+    // SharedPrintHandler (type alias for Arc<PrintHandlerImpl>) which is stored on the
+    // Interpreter, not on ModeState. PrintHandlerImpl is the enum with variants:
     //   - Stdout (default for Interpret mode)
     //   - Buffer (for TestRun — captures output, supports clear)
-    // V2 adds two new variants:
+    // V2 adds two new variants to PrintHandlerImpl:
     //   - Silent (for ConstEval — discards output)
     //   - Custom (for WASM/embedded targets)
     //
     // This keeps print routing orthogonal to evaluation policy. The interpreter selects
-    // the appropriate SharedPrintHandler variant at construction time based on EvalMode,
-    // but the two concerns remain separate.
+    // the appropriate PrintHandlerImpl variant at construction time based on EvalMode,
+    // wraps it in Arc (= SharedPrintHandler), but the two concerns remain separate.
 
     pub fn before_call(&self, _func: Name, state: &mut ModeState) -> EvalResult<()> {
         match self {
@@ -172,8 +188,8 @@ impl EvalMode {
   - [ ] Test results for TestRun
   - [ ] Call counter + memo cache for ConstEval
   - [ ] `ModeState::new(mode: &EvalMode)` factory initializes relevant fields
-  - [ ] Print handling is NOT in ModeState — use existing `SharedPrintHandler` (Arc-wrapped enum dispatch)
-- [ ] Add `mode: EvalMode`, `mode_state: ModeState`, and `print_handler: Arc<SharedPrintHandler>` fields to `Interpreter`
+  - [ ] Print handling is NOT in ModeState — use existing `SharedPrintHandler` (`= Arc<PrintHandlerImpl>`, where `PrintHandlerImpl` is the enum with Stdout/Buffer/Silent/Custom variants)
+- [ ] Add `mode: EvalMode`, `mode_state: ModeState`, and `print_handler: SharedPrintHandler` fields to `Interpreter`
   - [ ] Thread `mode` through eval_inner, eval_call, etc.
   - [ ] `print_handler` selected based on EvalMode at construction (Stdout for Interpret, Buffer for TestRun, Silent for ConstEval)
   - [ ] No generic parameter — concrete type throughout
@@ -195,7 +211,7 @@ let mode = EvalMode::Interpret;
 // - allows_entry_point: true
 // - allows_capability: true (all non-ConstEval modes allow capabilities)
 // - collects_tests: false
-// - print routing: SharedPrintHandler::Stdout (or Custom for WASM)
+// - print routing: PrintHandlerImpl::Stdout (or Custom for WASM)
 // - max_recursion_depth: None (platform stack) or 200 (WASM)
 ```
 
@@ -222,7 +238,7 @@ let mode = EvalMode::ConstEval { budget: 1000 };
 // - allows_capability: always false (no capabilities in const-eval)
 // - collects_tests: false
 // - eager_const_eval: true
-// - print routing: SharedPrintHandler::Silent (discards output)
+// - print routing: PrintHandlerImpl::Silent (discards output)
 // - before_call: increments call_count, errors if > budget
 // - max_recursion_depth: Some(64)
 ```
@@ -256,7 +272,7 @@ let mode = EvalMode::TestRun { only_attached: false };
 // - allows_entry_point: false
 // - allows_capability: true (all non-ConstEval modes allow capabilities)
 // - collects_tests: true
-// - print routing: SharedPrintHandler::Buffer (captures output, supports clear)
+// - print routing: PrintHandlerImpl::Buffer (captures output, supports clear)
 // - max_recursion_depth: Some(500)
 ```
 
@@ -264,26 +280,19 @@ Test failure handling is done via a separate method on `ModeState`:
 
 ```rust
 impl ModeState {
-    pub fn record_test_failure(
+    pub fn record_test_result(
         &mut self,
-        test_name: &str,
-        error: &EvalError,
-        print_handler: &SharedPrintHandler,
+        result: TestResult,  // Uses ori_eval::test_result::TestResult
     ) {
         if let Some(results) = &mut self.test_results {
-            results.push(TestResult::Failure(TestFailure {
-                name: test_name.to_string(),
-                error: error.clone(),
-                // Captured output retrieved from SharedPrintHandler (not ModeState)
-                output: print_handler.drain_buffer().unwrap_or_default(),
-            }));
+            results.push(result);
         }
     }
 }
 ```
 
 - [ ] Verify `EvalMode::TestRun` match arms cover all methods
-  - [ ] Print output captured via `SharedPrintHandler::Buffer` (not ModeState)
+  - [ ] Print output captured via `PrintHandlerImpl::Buffer` (not ModeState)
   - [ ] Test failure collection via ModeState (receives captured output from SharedPrintHandler)
   - [ ] Attached vs floating test filtering (from `only_attached` field)
   - [ ] `allows_io` returns false (tests must not perform real I/O side effects)
@@ -340,9 +349,9 @@ pub fn tested(db: &dyn Db, file: SourceFile) -> TestResults {
 - [ ] `ModeState` struct defined for per-mode mutable state
 - [ ] All policy methods implemented via match dispatch on `EvalMode`
 - [ ] `EvalMode` derives `Clone, Debug, PartialEq, Eq, Hash` (Salsa-compatible)
-- [ ] `Interpreter` stores `mode: EvalMode`, `mode_state: ModeState`, and `print_handler: Arc<SharedPrintHandler>` (no generic parameter)
+- [ ] `Interpreter` stores `mode: EvalMode`, `mode_state: ModeState`, and `print_handler: SharedPrintHandler` (no generic parameter)
 - [ ] Salsa queries updated to pass appropriate `EvalMode` variant
 - [ ] All existing tests pass (updated to specify `EvalMode::Interpret` explicitly)
 - [ ] No mode-unaware `Interpreter` usage remains in codebase
 
-**Exit Criteria:** The evaluator requires an explicit `EvalMode` enum value at every construction site. I/O, testing, and const-eval policies are controlled via match dispatch on the mode enum. Print routing uses existing `SharedPrintHandler` (separate from EvalMode). No trait bounds, no generic parameters, full Salsa compatibility.
+**Exit Criteria:** The evaluator requires an explicit `EvalMode` enum value at every construction site. I/O, testing, and const-eval policies are controlled via match dispatch on the mode enum. Print routing uses existing `SharedPrintHandler` (`= Arc<PrintHandlerImpl>`) — separate from EvalMode. No trait bounds, no generic parameters, full Salsa compatibility.

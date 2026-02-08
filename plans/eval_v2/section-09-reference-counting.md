@@ -2,37 +2,36 @@
 section: "09"
 title: Reference Counting Integration
 status: not-started
-goal: Design and implement reference counting insertion for the EvalIR, preparing for AOT compilation
+goal: Define the interpreter's RC strategy and the bridge to ori_arc's ARC IR for LLVM codegen
 sections:
   - id: "09.1"
-    title: RC Model Design
+    title: Architecture Overview
     status: not-started
   - id: "09.2"
-    title: Borrow Analysis
+    title: Interpreter RC Strategy
     status: not-started
   - id: "09.3"
-    title: RC Insertion Pass
+    title: "EvalIR → ARC IR Bridge"
     status: deferred
     note: "Deferred pending LLVM backend validation"
   - id: "09.4"
-    title: Reuse Analysis
-    status: deferred
-    note: "Deferred pending LLVM backend validation"
+    title: Runtime RC Instrumentation
+    status: not-started
 ---
 
 # Section 09: Reference Counting Integration
 
-**Status:** 📋 Planned
-**Goal:** Design a reference counting model for the EvalIR that prepares for AOT compilation via LLVM, inspired by Roc's Perceus and Swift's ARC.
-**Dependencies:** Section 08 (Canonical EvalIR — provides EvalIrNode, EvalIrId, EvalIrArena used by borrow analysis and RC insertion), Section 01 (ValuePool — provides ValueId for interned values)
+**Status:** Planned
+**Goal:** Define how the interpreter handles reference counting (simple, via Rust's `Arc`), how the LLVM backend leverages `ori_arc` for explicit Perceus-style RC, and the bridge between the two paths.
+**Dependencies:** Section 08 (Canonical EvalIR), `ori_arc` crate (existing — provides ARC IR, borrow inference, liveness analysis, RC insertion, reset/reuse detection)
 
 ---
 
 ## Prior Art Analysis
 
 ### Roc: Perceus-Style Reference Counting
-Roc implements the **Perceus** algorithm (Microsoft Research, 2021) which inserts `Inc`/`Dec`/`Free` operations into the mono IR. Key innovations:
-- **Reuse analysis**: When deconstructing a value and constructing a new one of the same size, the memory can be reused (`Reset`/`ResetRef`)
+Roc implements the **Perceus** algorithm (Microsoft Research, 2021) which inserts `Inc`/`Dec` operations into the mono IR. Key innovations:
+- **Reuse analysis**: When deconstructing a value and constructing a new one of the same size, the memory can be reused (`Reset`/`Reuse`)
 - **Borrow analysis**: Determines which operations need to increment vs. can borrow
 - **Drop specialization**: Custom destructors that skip recursion for non-reference-counted fields
 
@@ -42,359 +41,276 @@ Swift inserts `retain`/`release` calls during SIL (Swift Intermediate Language) 
 - **Guaranteed ownership**: Parameters can be `@guaranteed` (borrowed, no RC needed)
 - **Owned vs. borrowed parameter conventions**: Callee decides whether to consume or borrow
 
-### Koka: FBIP (Functional But In Place)
-Koka's compiler analyzes when functional updates can be done in-place by checking if the value's reference count is 1. The `CheckFBIP.hs` pass verifies this property.
-
 ### Lean 4: RC with Reset/Reuse
 Lean's IR has explicit `RC.inc`, `RC.dec`, `reset`, and `reuse` instructions. The `ExpandResetReuse.lean` pass converts high-level reuse annotations into concrete memory operations.
 
+### Koka: FBIP (Functional But In Place)
+Koka's compiler analyzes when functional updates can be done in-place by checking if the value's reference count is 1. The `CheckFBIP.hs` pass verifies this property.
+
 ---
 
-## 09.1 RC Model Design
+## Existing Infrastructure: `ori_arc`
 
-Define the reference counting operations for EvalIR:
+The `compiler/ori_arc/` crate already provides complete, tested implementations of the Perceus-style ARC analysis pipeline operating on a basic-block IR. Section 09 does **not** propose building these from scratch. Instead, it defines how the interpreter and LLVM codegen each handle RC, and how they connect.
+
+### What `ori_arc` provides
+
+| Module | Public API | Purpose |
+|--------|-----------|---------|
+| `ori_arc::ir` | `ArcFunction`, `ArcBlock`, `ArcInstr`, `ArcTerminator`, `ArcVarId`, `ArcBlockId` | Basic-block IR for ARC analysis |
+| `ori_arc::classify` | `ArcClassifier`, `ArcClassification` trait, `ArcClass` enum | Type classification: `Scalar` / `DefiniteRef` / `PossibleRef` |
+| `ori_arc::ownership` | `Ownership` (`Owned` / `Borrowed`), `AnnotatedParam`, `AnnotatedSig` | Ownership annotations for parameters |
+| `ori_arc::borrow` | `infer_borrows()`, `apply_borrows()` | Iterative fixed-point borrow inference (Lean 4 style) |
+| `ori_arc::liveness` | `compute_liveness()`, `BlockLiveness`, `LiveSet` | Backward dataflow liveness analysis |
+| `ori_arc::rc_insert` | `insert_rc_ops()` | Perceus RC insertion: `RcInc`/`RcDec` based on liveness |
+| `ori_arc::reset_reuse` | `detect_reset_reuse()` | Reset/Reuse optimization: reuse memory of deconstructed values |
+| `ori_arc::expand_reuse` | `expand_reset_reuse()` | Expand `Reset`/`Reuse` intermediates into `IsShared` + conditional fast/slow paths |
+| `ori_arc::drop` | `compute_drop_info()`, `compute_closure_env_drop()`, `collect_drop_infos()`, `DropInfo`, `DropKind` | Drop descriptor generation for recursive field release |
+| `ori_arc::lower` | `lower_function()`, `ArcIrBuilder`, `ArcLowerer`, `ArcScope`, `ArcProblem` | AST → ARC IR lowering (builder follows LLVM `IRBuilder` pattern) |
+
+### What `ori_arc` does NOT provide (gaps for Section 09)
+
+- **Interpreter RC strategy**: The interpreter uses Rust's `Arc` for implicit RC — no explicit `RcInc`/`RcDec`. Section 09.2 defines this.
+- **EvalIR → ARC IR bridge**: The lowering path from tree-structured EvalIR (Section 08) to basic-block ARC IR is not yet defined. `ori_arc::lower` currently lowers from the typed AST (`ExprArena`/`ExprId`), not from EvalIR. Section 09.3 defines this bridge.
+- **Runtime RC instrumentation**: Debug-mode leak detection, `EvalCounters.heap_allocations` tracking. Section 09.4 defines this.
+
+---
+
+## 09.1 Architecture Overview
+
+Two compilation paths handle reference counting differently:
+
+```
+ExprArena (typed AST)
+    │
+    ├──→ EvalIR (Section 08) ──→ Tree-walking interpreter
+    │         │                   (implicit RC via Rust Arc)
+    │         │
+    │         └──→ [future: EvalIR → ARC IR bridge (09.3)]
+    │
+    └──→ ARC IR (ori_arc::lower) ──→ ori_arc pipeline ──→ LLVM codegen
+              │                       (explicit RC: RcInc/RcDec)
+              ├── infer_borrows()
+              ├── compute_liveness()
+              ├── insert_rc_ops()
+              ├── detect_reset_reuse()
+              └── expand_reset_reuse()
+```
+
+**Interpreter path (EvalIR)**: Uses Rust's `Arc<T>` for heap-allocated values (`Heap<T>` wrapper). `Arc::clone()` is the increment, `Arc::drop()` is the decrement. No explicit RC operations needed — the Rust runtime handles it. This is simple, correct, and sufficient for the interpreter.
+
+**LLVM codegen path (ARC IR)**: Uses `ori_arc`'s complete Perceus pipeline. The AST is lowered to basic-block ARC IR via `ori_arc::lower::lower_function()`. Then:
+1. `ori_arc::borrow::infer_borrows()` — determines which parameters can be borrowed
+2. `ori_arc::liveness::compute_liveness()` — backward dataflow liveness analysis
+3. `ori_arc::rc_insert::insert_rc_ops()` — inserts `ArcInstr::RcInc`/`ArcInstr::RcDec`
+4. `ori_arc::reset_reuse::detect_reset_reuse()` — replaces `RcDec`+`Construct` with `Reset`+`Reuse`
+5. `ori_arc::expand_reuse::expand_reset_reuse()` — expands `Reset`/`Reuse` intermediates into `IsShared` + conditional fast/slow paths
+
+**Key design decision**: EvalIR is optimized for tree-walking interpretation. ARC IR is optimized for LLVM codegen with explicit RC. These are **separate IRs** with a lowering step between them. Borrow analysis, liveness analysis, and RC insertion operate on ARC IR's basic blocks — they do NOT operate on EvalIR's tree structure.
+
+### Type classification: compile-time vs runtime
+
+`ori_arc` provides compile-time type classification via `ArcClassifier::needs_rc(Idx)`, which operates on type pool indices. The interpreter uses a simpler runtime check: only `Heap<T>`-wrapped `Value` variants need RC. These are complementary:
+
+- **Compile-time** (`ori_arc::classify`): `ArcClassifier::needs_rc(idx: Idx) -> bool` — classifies types by pool index. Used by ARC IR passes to decide where to insert RC operations. Three-way: `Scalar` (no RC), `DefiniteRef` (always RC), `PossibleRef` (conservative, pre-mono).
+- **Runtime** (interpreter): A value needs RC if it is wrapped in `Heap<T>` (i.e., backed by `Arc<T>`). Simple pattern match on `Value` variant. This is not a new implementation task — it's how the interpreter already works.
+
+### Ownership model
+
+`ori_arc::ownership::Ownership` has two variants:
+- `Owned` — callee may retain; caller must `RcInc` before passing
+- `Borrowed` — callee will not retain; no `RcInc` needed
+
+There is no `Stack` variant. Scalar values (int, float, bool, etc.) are filtered out by `ArcClassifier::needs_rc()` — they are simply skipped by all RC passes. The classification step (`Scalar` / `DefiniteRef` / `PossibleRef`) replaces the need for a separate `Stack` ownership category.
+
+- [ ] Document the two-path architecture (interpreter + LLVM)
+- [ ] Document `ori_arc`'s existing pipeline and where it fits
+- [ ] Clarify that borrow/liveness/RC analysis operates on ARC IR basic blocks, not EvalIR trees
+
+---
+
+## 09.2 Interpreter RC Strategy
+
+The tree-walking interpreter handles reference counting **implicitly** through Rust's `Arc<T>`. This is deliberately simpler than `ori_arc`'s Perceus approach because the interpreter does not need the performance optimizations that explicit RC provides.
+
+### How it works
 
 ```rust
-/// Reference counting operations inserted into EvalIR.
-pub enum RcOp {
-    /// Increment reference count (value will be shared)
-    Inc {
-        value: EvalIrId,
-        /// Number of additional references (usually 1)
-        count: u32,
-    },
+// Values that need RC are wrapped in Heap<T> (which wraps Arc<T>):
+pub struct Heap<T>(Arc<T>);
 
-    /// Decrement reference count (may trigger deallocation)
-    Dec {
-        value: EvalIrId,
-        /// Whether to recursively decrement children
-        recursive: bool,
-    },
+// Arc::clone() is the increment (implicit)
+let shared = value.clone(); // Arc refcount: 1 → 2
 
-    /// Free memory unconditionally (refcount known to be 0)
-    Free {
-        value: EvalIrId,
-    },
+// Arc::drop() is the decrement (implicit)
+drop(shared); // Arc refcount: 2 → 1
 
-    /// Reset: prepare memory for reuse (decrement children but keep allocation)
-    Reset {
-        value: EvalIrId,
-        /// Opaque token identifying the reuse opportunity
-        reuse_token: ReuseToken,
-    },
+// When refcount reaches 0, Arc::drop() deallocates (implicit)
+```
 
-    /// Reuse: construct a new value in previously reset memory
-    Reuse {
-        token: ReuseToken,
-        new_value: EvalIrId,
-    },
-}
+### Which values use implicit RC
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub struct ReuseToken(u32);
+- **Need RC (Heap\<T\> wrappers)**: `Str`, `List`, `Map`, `Tuple`, `Some`, `Ok`, `Err` (Value::Err(Heap\<Value\>)), `Variant`, `MultiClauseFunction`, `Newtype`, `ModuleNamespace` — single top-level `Heap<T>` wrapping `Arc<T>`. RC operates on the outer `Arc`: one clone/drop per value.
+- **Need RC (direct Arc internals)**: `Struct` (`StructValue`), `Function` (`FunctionValue`), `MemoizedFunction` (`MemoizedFunctionValue`) — inline in the `Value` enum but contain `Arc` fields internally.
+- **Don't need RC**: `Int`, `Float`, `Bool`, `Char`, `Byte`, `Void`, `None`, `Duration`, `Size`, `Ordering`, `VariantConstructor`, `NewtypeConstructor`, `FunctionVal`, `TypeRef`, `Range`, `Error` — inline/stack values.
+- **Special**: `Interned(ValueId)` — pool-managed, no individual RC.
+  - **Depends on Section 01**: ValuePool/ValueId do not exist yet.
 
-/// Classification of a value's ownership at a point in the IR.
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub enum Ownership {
-    /// We own this value — responsible for Dec when done
-    Owned,
-    /// We borrowed this value — no RC responsibility
-    Borrowed,
-    /// Value is on the stack (inline, no heap allocation) — no RC needed
-    Stack,
+### Borrowing rules for the interpreter
+
+The interpreter does not need explicit borrow analysis. Rust's ownership system handles it:
+- Variable lookup → `Arc::clone()` (cheap: atomic increment)
+- Function argument → move or clone (Rust decides)
+- Return value → move (Rust decides)
+- Field access → clone the field (or borrow via reference if temporary)
+- Pattern binding → clone extracted value
+
+### Why the interpreter doesn't need `ori_arc`
+
+The interpreter's tree-walking evaluation naturally scopes values — when a `let` binding goes out of scope (Rust function returns), `Arc::drop()` fires automatically. There's no need for:
+- Borrow inference: Rust's borrow checker handles it
+- Liveness analysis: Rust's drop semantics handle it
+- Reset/Reuse: The interpreter allocates via Rust's allocator; the overhead of reuse analysis outweighs the benefit
+
+The LLVM backend needs all of these because it generates machine code that must manage memory explicitly.
+
+- [ ] Document implicit RC via `Arc`/`Heap<T>`
+- [ ] Document which `Value` variants need RC
+- [ ] Document why borrow inference is unnecessary for the interpreter
+- [ ] Verify `Heap<T>` wrapper usage matches current `Value` enum
+
+---
+
+## 09.3 EvalIR → ARC IR Bridge — **Deferred: pending LLVM backend validation**
+
+> **Note**: This subsection defines the design for the lowering bridge but implementation is deferred until the LLVM backend (roadmap Section 21) can validate the approach. The bridge is needed when we want to apply `ori_arc`'s optimizations to code that has been through the EvalIR pipeline (e.g., after constant folding from Section 07).
+
+Currently, `ori_arc::lower::lower_function()` lowers directly from the typed AST (`ExprArena`/`ExprId`). A future bridge would allow lowering from EvalIR to ARC IR, enabling the LLVM backend to benefit from EvalIR's constant folding and other optimizations before entering the ARC analysis pipeline.
+
+### Bridge design (sketch)
+
+```rust
+/// Lower an EvalIR function to ARC IR for LLVM codegen.
+///
+/// This is the bridge between the interpreter's tree-structured IR
+/// and ori_arc's basic-block IR. The output can be fed into
+/// ori_arc::borrow::infer_borrows() and the rest of the pipeline.
+pub fn lower_eval_ir_to_arc_ir(
+    ir: &EvalIrArena,
+    root: EvalIrId,
+    pool: &Pool,
+    interner: &StringInterner,
+) -> ArcFunction {
+    // Walk the EvalIR tree and produce ArcFunction with basic blocks.
+    // Control flow (if/match/loop/for) becomes Branch/Switch/Jump terminators.
+    // Let bindings become ArcInstr::Let.
+    // Function calls become ArcInstr::Apply.
+    // Collections become ArcInstr::Construct.
+    todo!()
 }
 ```
 
-**Which values need RC?**
+### Key transformations
 
-`needs_rc()` returns `true` for both subcategories below, but the RC insertion strategy differs:
+| EvalIR (tree) | ARC IR (basic blocks) |
+|---|---|
+| `EvalIrNode::If { cond, then, else_ }` | `ArcTerminator::Branch` + 3 blocks |
+| `EvalIrNode::Match { arms }` | `ArcTerminator::Switch` + N+1 blocks |
+| `EvalIrNode::Loop { body }` | Back edge: `ArcTerminator::Jump` to header block |
+| `EvalIrNode::For { binding, iter, body }` | Desugared to loop with iterator |
+| `EvalIrNode::Block { stmts }` | Sequential instructions in a single block |
+| `EvalIrNode::Call { func, args }` | `ArcInstr::Apply` |
+| `EvalIrNode::Const(value)` | `ArcInstr::Let { value: ArcValue::Literal(..) }` |
 
-- **Need RC (Heap\<T\> wrappers)**: `Str`, `List`, `Map`, `Tuple`, `Some`, `Ok`, `Err` (Value::Err(Heap\<Value\>), the Result error variant), `Variant`, `MultiClauseFunction`, `Newtype`, `ModuleNamespace` — single top-level `Heap<T>` wrapping `Arc<T>`. RC operates on the outer `Arc`: one `Inc`/`Dec` per value.
-- **Need RC (direct Arc internals)**: `Struct` (`StructValue`), `Function` (`FunctionValue`), `MemoizedFunction` (`MemoizedFunctionValue`) — these are inline in the `Value` enum but contain `Arc` fields internally. RC targets the inner `Arc` references, not a top-level wrapper. The LLVM backend must emit `Inc`/`Dec` for each `Arc` field individually. Per-type breakdown:
-    - **Struct** (`StructValue`): `fields: Arc<Vec<Value>>` + `layout: Arc<StructLayout>` (2 Arcs)
-    - **Function** (`FunctionValue`): `captures: Arc<FxHashMap<Name, Value>>` + `arena: SharedArena(Arc<ExprArena>)` (2 Arcs)
-    - **MemoizedFunction** (`MemoizedFunctionValue`): all of Function's Arcs plus `cache: Arc<RwLock<...>>` + `insertion_order: Arc<RwLock<...>>` (4 Arcs total). **Caveat:** `cache` and `insertion_order` use `Arc<RwLock<...>>` for interior mutability. The LLVM AOT path may not support memoized functions, or may use thread-local caches without `RwLock`.
-- **Don't need RC**: `Int`, `Float`, `Bool`, `Char`, `Byte`, `Void`, `None`, `Duration`, `Size`, `Ordering`, `VariantConstructor`, `NewtypeConstructor`, `FunctionVal`, `TypeRef`, `Range` (inline/stack values)
-- **Don't need RC (with caveat)**: `Error(String)` (Value::Error, the error recovery sentinel — distinct from Value::Err) — contains heap-allocated `String` but is excluded from RC because error values propagate up and are consumed immediately. The LLVM backend handles cleanup via scope-based deallocation, not reference counting.
-- **Special**: `Interned(ValueId)` — pool-managed, no individual RC
-  - **Depends on Section 01**: ValuePool/ValueId do not exist yet; this category applies after Section 01 implementation
+### After lowering
 
-- [ ] Define `RcOp` enum
-  - [ ] `Inc`, `Dec`, `Free`, `Reset`, `Reuse`
-- [ ] Define `Ownership` enum
-  - [ ] `Owned`, `Borrowed`, `Stack`
-- [ ] Define `ReuseToken` for tracking reuse opportunities
-- [ ] Add `EvalIrNode::Rc(RcOp)` variant to EvalIR
-  - [ ] RC operations are explicit nodes in the IR
-  - [ ] Inserted by the RC pass (not by lowering)
-- [ ] Define `needs_rc(value: &Value) -> bool`
-  - [ ] Returns true for heap-allocated values
-  - [ ] Returns false for inline/stack values
+Once we have an `ArcFunction`, the full `ori_arc` pipeline applies:
+1. `infer_borrows(&[func], &classifier)` → `AnnotatedSig`
+2. `apply_borrows(&mut [func], &sigs)`
+3. `compute_liveness(&func, &classifier)` → `BlockLiveness`
+4. `insert_rc_ops(&mut func, &classifier, &liveness)`
+5. `detect_reset_reuse(&mut func, &classifier)`
+6. `expand_reset_reuse(&mut func, &classifier)` — expands Reset/Reuse into IsShared + conditional fast/slow paths
+
+No custom RC analysis needed — `ori_arc` handles everything.
+
+- [ ] Define `lower_eval_ir_to_arc_ir()` function signature
+- [ ] Map each EvalIR node kind to ARC IR instructions/terminators
+- [ ] Handle scope nesting → block parameter passing
+- [ ] Test: round-trip EvalIR → ARC IR → verify RC balance
+- [ ] **Cross-reference**: `ori_arc::lower::lower_function()` for the existing AST → ARC IR lowering as reference implementation
 
 ---
 
-## 09.2 Borrow Analysis
+## 09.4 Runtime RC Instrumentation
 
-Determine which operations need to increment refcount vs. can borrow:
+Add optional runtime tracking for RC activity in the interpreter, for debugging and profiling.
+
+### Heap allocation tracking
+
+The `EvalCounters.heap_allocations` counter (Section 10.4) tracks how many heap-allocating values are created. This counter is incremented at **call sites in `ori_eval`** where heap-allocating `Value` factory methods are called (e.g., `Value::list()`, `Value::str()`, `Value::map()`), not in the factory methods themselves.
+
+**Crate boundary note**: `Value` factories live in `ori_value` (after Phase 0 extraction from `ori_patterns` — see Section 01.4). `EvalCounters` lives in `ori_eval` (via `ModeState` from Section 02). The factories cannot directly increment the counter because they have no access to `EvalCounters`. Instead, the increment happens at the call site in `ori_eval`:
 
 ```rust
-/// Analyze a function body to determine ownership of each value reference.
-pub fn analyze_ownership(
-    ir: &EvalIrArena,
-    root: EvalIrId,
-) -> OwnershipMap {
-    let mut map = OwnershipMap::new();
-    let mut analyzer = OwnershipAnalyzer::new(ir);
-    analyzer.analyze(root, &mut map);
-    map
+// In ori_eval interpreter:
+let result = Value::list(elements);
+if let Some(counters) = &mut self.counters {
+    counters.heap_allocations += 1;
+}
+```
+
+### Debug-mode leak detection
+
+In debug builds, optionally track live `Heap<T>` allocations to detect leaks:
+
+```rust
+/// Debug-mode allocation tracker.
+/// Only active when `cfg(debug_assertions)` and explicitly enabled.
+#[cfg(debug_assertions)]
+pub struct LeakDetector {
+    /// Number of Heap<T> allocations still alive.
+    live_count: std::sync::atomic::AtomicUsize,
 }
 
-pub struct OwnershipMap {
-    /// For each EvalIrId, the ownership of its result
-    entries: FxHashMap<EvalIrId, Ownership>,
-}
+#[cfg(debug_assertions)]
+impl LeakDetector {
+    pub fn on_alloc(&self) {
+        self.live_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
 
-struct OwnershipAnalyzer<'a> {
-    ir: &'a EvalIrArena,
-    /// Last use of each variable (for determining when to Dec)
-    last_use: FxHashMap<Name, EvalIrId>,
-}
+    pub fn on_dealloc(&self) {
+        self.live_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
 
-impl<'a> OwnershipAnalyzer<'a> {
-    fn analyze(&mut self, id: EvalIrId, map: &mut OwnershipMap) {
-        let node = self.ir.get(id);
-        match node {
-            EvalIrNode::Var { name, .. } => {
-                // Variable reference: borrowed (we don't consume the binding)
-                map.set(id, Ownership::Borrowed);
-                self.last_use.insert(*name, id);
-            }
-
-            EvalIrNode::Call { func, extra } => {
-                // Function call: arguments are owned (passed by value).
-                // Args stored in extra array: [count, arg0, arg1, ...]
-                let children = self.ir.get_children(*extra);
-                for &arg_raw in children {
-                    let arg = EvalIrId(arg_raw);
-                    self.analyze(arg, map);
-                    // Arguments to calls need Inc (unless last use)
-                    map.set(arg, Ownership::Owned);
-                }
-                self.analyze(*func, map);
-            }
-
-            EvalIrNode::Let { name, init, .. } => {
-                self.analyze(*init, map);
-                // Init value is owned by the binding
-                map.set(*init, Ownership::Owned);
-            }
-
-            EvalIrNode::Block { extra } => {
-                // Block children stored in extra array: [count, id0, id1, ...]
-                let children = self.ir.get_children(*extra);
-                for &stmt_raw in children {
-                    self.analyze(EvalIrId(stmt_raw), map);
-                }
-            }
-
-            EvalIrNode::Struct { name: _, extra } => {
-                // Struct fields stored in extra array: [count, fname0, fval0, ...]
-                let count = self.ir.field_count(*extra);
-                for i in 0..count {
-                    let fval = self.ir.field_value(*extra, i);
-                    self.analyze(fval, map);
-                    map.set(fval, Ownership::Owned);
-                }
-            }
-
-            EvalIrNode::Const(_) => {
-                map.set(id, Ownership::Stack);
-            }
-
-            EvalIrNode::PoolRef(_) => {
-                // Pool-managed value — no individual RC responsibility
-                map.set(id, Ownership::Borrowed);
-            }
-
-            // ... other nodes — see ownership classification table below
-            _ => {}
-        }
+    /// Check for leaks. Call at end of evaluation.
+    pub fn check(&self) -> Result<(), usize> {
+        let live = self.live_count.load(std::sync::atomic::Ordering::Relaxed);
+        if live == 0 { Ok(()) } else { Err(live) }
     }
 }
 ```
 
-**Ownership classification summary** — default ownership for each `EvalIrNode` variant's operands and result:
+**Note**: Leak detection is a debug aid, not a production feature. The `Arc` runtime guarantees that memory is freed when refcount reaches zero. Leaks indicate reference cycles or values that escape their expected scope — both are bugs worth detecting early.
 
-| EvalIrNode Variant | Operand Ownership | Result Ownership |
-|---|---|---|
-| `Const` / `PoolRef` | (none) | Stack / Borrowed |
-| `Var` | (none) | Borrowed |
-| `Global` | (none) | Borrowed |
-| `Call` / `MethodCall` | args: **Owned** (consumed by callee) | Owned (caller receives) |
-| `Let` | init: **Owned** (binding takes ownership) | Stack (void) |
-| `Assign` | value: **Owned** | Stack (void) |
-| `BinaryOp` / `UnaryOp` / `Cast` | operands: **Borrowed** (read-only) | Owned (new value produced) |
-| `List` / `Tuple` / `Map` / `Struct` / `Construct` | elements/fields: **Owned** (moved into collection) | Owned |
-| `Some` / `Ok` / `Err` | inner: **Owned** | Owned |
-| `If` / `Match` / `Block` | branches/body: **inherit** (result ownership follows branch) | inherit |
-| `Loop` / `For` | body: **inherit** | inherit |
-| `Lambda` | (captures cloned at creation) | Owned |
-| `FieldAccess` / `IndexAccess` / `TupleAccess` | receiver: **Borrowed** | Borrowed |
-| `Try` | inner: **Borrowed** (unwrap or propagate) | Owned (unwrapped) |
-| `WithCapability` | body: **inherit** | inherit |
-| `Break` / `Continue` | value: **Owned** (moved to loop exit) | N/A (control flow) |
-| `Panic` | message: **Borrowed** | N/A (terminates) |
-| `Join` / `Jump` | args: **Owned** | inherit |
-| `Rc` | (RC operation metadata) | Stack |
-| `Invalid` | (none) | N/A (error) |
-
-**Borrowing rules for the interpreter**:
-- Variable lookup → Borrowed (clone the Arc, not the value)
-- Function argument → Owned (caller provides, callee consumes)
-- Return value → Owned (callee provides, caller receives)
-- Field access → Borrowed (reference into parent)
-- Pattern binding → Owned (extracted value)
-
-**Note**: For the tree-walking interpreter, RC is implicit (Arc handles it). This analysis is primarily for the **LLVM codegen path** (roadmap Section 21) where explicit RC is needed. We design it now so the EvalIR can serve both paths.
-
-- [ ] Implement `OwnershipAnalyzer`
-  - [ ] Track last-use of each variable
-  - [ ] Classify each node's ownership
-  - [ ] Handle control flow (loops, branches) conservatively
-  - [ ] **Dependency note**: The `EvalIrNode::PoolRef` case is conditional on Section 01's ValuePool implementation. If ValuePool is deferred, omit the PoolRef arm from the analyzer.
-- [ ] Define borrowing rules for each EvalIR node kind
-  - [ ] Document which arguments are borrowed vs. owned
-  - [ ] Document which results are owned vs. borrowed
-- [ ] **Cross-reference**: `get_children()`, `field_count()`, `field_value()` used in the analyzer are `EvalIrArena` accessor methods to be defined as part of Section 08 implementation.
-- [ ] Output `OwnershipMap` for use by RC insertion pass
-
----
-
-## Relationship to Heap\<T\>
-
-The current interpreter and the future LLVM codegen path handle reference counting differently. Both systems coexist:
-
-- **Interpreter path**: Continues using `Heap<T>` (which wraps `Arc<T>`) for implicit reference counting. `Arc::clone()` is the increment, and `Arc::drop()` is the decrement. No explicit `RcOp` nodes are needed — the interpreter ignores them.
-- **LLVM codegen path**: Uses explicit `RcOp` nodes (`Inc`, `Dec`, `Free`, `Reset`, `Reuse`) inserted into the EvalIR. The LLVM backend translates these to actual reference count manipulation instructions. This path does **not** use `Arc`.
-- **`needs_rc()` mapping**: The `needs_rc(value)` function answers the question "is this a `Heap<T>` variant?" — i.e., would the interpreter wrap this in an `Arc`? If yes, the LLVM path needs explicit RC operations for it.
-- **Design principle**: The EvalIR is the shared representation. RC annotations in the IR are metadata that the interpreter skips and the LLVM backend consumes.
-- **Cross-reference**: See Section 10 for `EvalCounters.heap_allocations` which tracks allocations for values where `needs_rc()` returns true.
-
----
-
-## 09.3 RC Insertion Pass — **Deferred: pending LLVM backend validation**
-
-> **Note**: This subsection defines the design for RC insertion but implementation is deferred until the LLVM backend (roadmap Section 21) can validate the approach. The types and model from 09.1-09.2 should be implemented first.
-
-Insert `Inc`/`Dec`/`Free` operations into the EvalIR:
-
-```rust
-pub fn insert_rc(ir: &mut EvalIrArena, ownership: &OwnershipMap) {
-    // For each owned value that's used multiple times: insert Inc before secondary uses
-    // For each owned value at its last use: no Dec needed (consumed)
-    // For each owned value that goes out of scope: insert Dec
-
-    let mut inserter = RcInserter::new(ir, ownership);
-    inserter.process();
-}
-
-struct RcInserter<'a> {
-    ir: &'a mut EvalIrArena,
-    ownership: &'a OwnershipMap,
-    /// Values that need Dec when the current scope ends
-    pending_decs: Vec<EvalIrId>,
-}
-```
-
-**Insertion rules**:
-1. When a value is **shared** (used more than once), insert `Inc` before the second use
-2. When a value goes **out of scope** (let binding scope ends), insert `Dec`
-3. When a function **returns**, the return value is not Dec'd (ownership transferred to caller)
-4. When a match arm **extracts** fields, the parent value may need `Dec` (if not reused)
-
-- [ ] Implement `RcInserter` pass
-  - [ ] Insert `Inc` before secondary uses of shared values
-  - [ ] Insert `Dec` at scope exits
-  - [ ] Handle loops (Dec at continue, Dec at break)
-  - [ ] Handle try operator (Dec on propagation path)
-- [ ] Optimize: elide `Inc`/`Dec` for stack values
-  - [ ] `needs_rc()` check before inserting any RC op
-- [ ] Optimize: cancel `Inc` immediately followed by `Dec`
-  - [ ] Identify patterns where a value is shared then immediately dropped
-- [ ] Test: verify RC operations are correctly balanced
-  - [ ] Every `Inc` has a corresponding `Dec` or `Free`
-  - [ ] No double-free (no two `Dec`s for the same use)
-
----
-
-## 09.4 Reuse Analysis — **Deferred: pending LLVM backend validation**
-
-> **Note**: This subsection defines the design for reuse analysis but implementation is deferred until the LLVM backend (roadmap Section 21) can validate the approach. The types and model from 09.1-09.2 should be implemented first.
-
-Identify opportunities for memory reuse (Perceus pattern):
-
-```rust
-/// Find reuse opportunities: where a deconstructed value's memory
-/// can be reused for a new construction of the same size.
-pub fn analyze_reuse(ir: &EvalIrArena) -> Vec<ReuseOpportunity> {
-    let mut opportunities = Vec::new();
-
-    // Pattern: match value { Variant(fields) => NewVariant(new_fields) }
-    // If the deconstructed value's refcount is 1 AND the new variant's allocation
-    // size is compatible with (does not exceed) the old allocation, the memory can
-    // be reused via Reset(value) then Reuse(token, NewVariant(new_fields))
-
-    // Walk the IR looking for match → construct patterns
-    // ...
-
-    opportunities
-}
-
-pub struct ReuseOpportunity {
-    /// The value being deconstructed
-    pub source: EvalIrId,
-    /// The value being constructed (that could reuse source's memory)
-    pub target: EvalIrId,
-    /// Whether the layouts are compatible
-    pub compatible: bool,
-}
-```
-
-**When reuse is possible**:
-- A match arm destructures a variant and constructs a new variant of the same enum type
-- The destructured value's refcount is exactly 1 (sole owner)
-- The new variant's allocation size is compatible with the old allocation (new does not exceed old)
-
-**Representation note**: The reuse compatibility check is backend-agnostic at the EvalIR level. Specific layout depends on the backend:
-- **Interpreter**: `Heap<Vec<Value>>` — reuse is about Vec capacity (new field count does not exceed old allocation capacity)
-- **LLVM**: Fixed-size tagged union — reuse is about byte-level size compatibility
-- **EvalIR `Reset`/`Reuse` operations are backend-agnostic**: They express the *intent* to reuse; the backend determines whether the sizes are actually compatible at lowering time.
-
-**Note**: Reuse analysis is primarily for AOT compilation. For the interpreter, Arc handles memory automatically. This pass is designed now to ensure the EvalIR can express reuse for the LLVM backend.
-
-- [ ] Implement reuse opportunity detection
-  - [ ] Identify match → construct patterns
-  - [ ] Check allocation size compatibility (backend-agnostic: new allocation does not exceed old)
-  - [ ] Track source refcount (must be sole owner)
-- [ ] Insert `Reset`/`Reuse` operations when opportunities found
-- [ ] Document when reuse is NOT safe
-  - [ ] Source captured by a closure
-  - [ ] Source shared with another thread
-  - [ ] Source has finalizer/destructor with side effects
+- [ ] Define `EvalCounters.heap_allocations` increment strategy (at call sites in `ori_eval`)
+- [ ] Implement debug-mode `LeakDetector` (opt-in, `cfg(debug_assertions)`)
+- [ ] Test: verify `heap_allocations` count matches expected for simple programs
+- [ ] Test: verify `LeakDetector` reports zero leaks for well-behaved programs
 
 ---
 
 ## 09.5 Completion Checklist
 
-- [ ] `RcOp` enum defined (Inc, Dec, Free, Reset, Reuse)
-- [ ] `Ownership` classification (Owned, Borrowed, Stack)
-- [ ] Ownership analysis pass produces `OwnershipMap`
-- ~~RC insertion pass adds Inc/Dec/Free to EvalIR~~ (deferred: pending LLVM backend)
-- ~~Inc/Dec cancelation optimization~~ (deferred: pending LLVM backend)
-- ~~Stack value RC elision~~ (deferred: pending LLVM backend)
-- ~~Reuse analysis identifies opportunities~~ (deferred: pending LLVM backend)
-- [ ] RC operations are balanced (verified by test — deferred with insertion pass)
-- [ ] Interpreter ignores RC operations (Arc handles it)
-- [ ] LLVM backend can consume RC operations (future)
+- [ ] Architecture documented: interpreter (implicit `Arc` RC) vs LLVM (`ori_arc` pipeline)
+- [ ] `ori_arc` existing infrastructure acknowledged and referenced (not duplicated)
+- [ ] Interpreter RC strategy documented (Rust `Arc`/`Heap<T>`)
+- [ ] Type classification distinguished: compile-time (`ArcClassifier::needs_rc(Idx)`) vs runtime (`Heap<T>` variant check)
+- [ ] Ownership model uses `ori_arc::ownership::Ownership` (2 variants: `Owned`, `Borrowed` — no `Stack`)
+- [ ] EvalIR → ARC IR bridge — deferred: pending LLVM backend
+- [ ] `EvalCounters.heap_allocations` tracked at `ori_eval` call sites (not in `Value` factories)
+- [ ] Debug-mode leak detection via `LeakDetector`
+- [ ] Interpreter ignores ARC IR RC operations (doesn't use them)
+- [ ] LLVM backend uses `ori_arc` pipeline (existing infrastructure: borrow inference, liveness, RC insertion, reset/reuse detection, expand reset/reuse, drop descriptors)
 
-**Exit Criteria:** The EvalIR can express reference counting operations for AOT compilation, with ownership analysis and reuse optimization. The interpreter path ignores these annotations.
+**Exit Criteria:** The interpreter's implicit RC strategy is documented and instrumented. The architecture cleanly separates interpreter (implicit RC) from LLVM codegen (explicit RC via `ori_arc`). No analysis code is duplicated from `ori_arc`.

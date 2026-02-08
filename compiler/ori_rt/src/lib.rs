@@ -11,7 +11,7 @@
 //! # Function Categories
 //!
 //! - **Memory**: `ori_alloc`, `ori_free`, `ori_realloc`
-//! - **Reference Counting**: `ori_rc_new`, `ori_rc_inc`, `ori_rc_dec`
+//! - **Reference Counting**: `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free`
 //! - **Strings**: `ori_str_concat`, `ori_str_eq`, etc.
 //! - **Collections**: `ori_list_new`, `ori_list_free`, etc.
 //! - **I/O**: `ori_print`, `ori_print_int`, etc.
@@ -87,22 +87,28 @@ pub struct OriResult<T> {
     pub value: T,
 }
 
-/// Reference-counted object header.
-///
-/// Layout in memory:
-/// ```text
-/// +------------+--------+------+
-/// | refcount   | size   | data |
-/// | (i64)      | (i64)  | ...  |
-/// +------------+--------+------+
-/// ```
-#[repr(C)]
-pub struct RcHeader {
-    /// Current reference count. When this reaches 0, the object is freed.
-    pub refcount: i64,
-    /// Size of the data following the header (for deallocation).
-    pub size: i64,
-}
+// ── Reference Counting (V2: 8-byte header, data-pointer style) ───────────
+//
+// Heap layout for RC'd objects:
+//
+//   +──────────────────+───────────────────────────────+
+//   | strong_count: i64 | data bytes ...               |
+//   +──────────────────+───────────────────────────────+
+//   ^                   ^
+//   base (ptr - 8)      data_ptr (returned by ori_rc_alloc)
+//
+// The data pointer points directly to user data, NOT to the header.
+// strong_count lives at `data_ptr - 8`.
+//
+// Advantages:
+// - Data pointer can be passed to C FFI without adjustment
+// - Single pointer on stack (no separate header pointer)
+// - 8 bytes smaller than old 16-byte RcHeader (no size field)
+// - Size tracked at compile time via TypeInfo, not at runtime
+//
+// When refcount reaches zero, a type-specialized drop function handles:
+// 1. Decrementing reference counts of RC'd child fields
+// 2. Calling ori_rc_free(data_ptr, size, align) to release memory
 
 // ── setjmp/longjmp JIT recovery ──────────────────────────────────────────
 
@@ -295,99 +301,116 @@ pub extern "C" fn ori_realloc(
     unsafe { std::alloc::realloc(ptr, old_layout, new_size) }
 }
 
-/// Create a new reference-counted object.
+/// Allocate a new reference-counted object.
 ///
-/// Allocates memory for the header + data, initializes refcount to 1.
-/// Returns a pointer to the `RcHeader`, or null on failure.
+/// Allocates `size + 8` bytes with the given alignment, initializes
+/// `strong_count` to 1, and returns a pointer to the data area.
+///
+/// Layout: `[strong_count: i64 | data bytes ...]`
+///          ^                    ^
+///          base (ptr - 8)       returned data_ptr
+///
+/// Returns null on allocation failure.
 #[no_mangle]
-pub extern "C" fn ori_rc_new(size: usize) -> *mut RcHeader {
-    let header_size = std::mem::size_of::<RcHeader>();
-    let total_size = header_size + size;
-    let align = std::mem::align_of::<RcHeader>().max(8);
+pub extern "C" fn ori_rc_alloc(size: usize, align: usize) -> *mut u8 {
+    let align = align.max(8); // Minimum 8-byte alignment for strong_count
+    let total_size = size + 8;
 
-    let ptr = ori_alloc(total_size, align);
-    if ptr.is_null() {
+    let base = ori_alloc(total_size, align);
+    if base.is_null() {
         return std::ptr::null_mut();
     }
 
-    // SAFETY: ptr is valid and properly aligned for RcHeader
-    let header = ptr.cast::<RcHeader>();
+    // Initialize strong_count to 1
+    // SAFETY: base is valid and 8-byte aligned
     unsafe {
-        (*header).refcount = 1;
-        (*header).size = size as i64;
+        base.cast::<i64>().write(1);
     }
 
-    header
+    // Return data pointer (8 bytes past the strong_count)
+    // SAFETY: base is valid for total_size bytes, so base + 8 is valid
+    unsafe { base.add(8) }
 }
 
-/// Increment the reference count.
+/// Increment the reference count of an RC'd object.
 ///
-/// # Safety
-/// `ptr` must be a valid pointer returned by `ori_rc_new`.
+/// `data_ptr` points to the data area. `strong_count` is at `data_ptr - 8`.
 #[no_mangle]
-pub extern "C" fn ori_rc_inc(ptr: *mut RcHeader) {
-    if ptr.is_null() {
+pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
+    if data_ptr.is_null() {
         return;
     }
 
-    // SAFETY: Caller guarantees ptr is valid
+    // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
     unsafe {
-        (*ptr).refcount += 1;
+        let rc_ptr = data_ptr.sub(8).cast::<i64>();
+        *rc_ptr += 1;
     }
 }
 
-/// Decrement the reference count. Frees the object if count reaches 0.
+/// Decrement the reference count. If it reaches zero, call the drop function.
 ///
-/// # Safety
-/// `ptr` must be a valid pointer returned by `ori_rc_new`.
+/// `data_ptr` points to the data area. `strong_count` is at `data_ptr - 8`.
+///
+/// `drop_fn` is a type-specialized function generated at compile time that:
+/// 1. Decrements reference counts of any RC'd child fields
+/// 2. Calls `ori_rc_free(data_ptr, size, align)` to release the memory
+///
+/// If `drop_fn` is null, the memory is leaked when refcount reaches zero.
+/// This should not happen in well-formed programs — every RC type must have
+/// a drop function.
 #[no_mangle]
-pub extern "C" fn ori_rc_dec(ptr: *mut RcHeader) {
-    if ptr.is_null() {
+pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*mut u8)>) {
+    if data_ptr.is_null() {
         return;
     }
 
-    // SAFETY: Caller guarantees ptr is valid
-    let should_free = unsafe {
-        (*ptr).refcount -= 1;
-        (*ptr).refcount <= 0
+    // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
+    let should_drop = unsafe {
+        let rc_ptr = data_ptr.sub(8).cast::<i64>();
+        *rc_ptr -= 1;
+        *rc_ptr <= 0
     };
 
-    if should_free {
-        let header_size = std::mem::size_of::<RcHeader>();
-        let data_size = unsafe { (*ptr).size as usize };
-        let total_size = header_size + data_size;
-        let align = std::mem::align_of::<RcHeader>().max(8);
-
-        ori_free(ptr.cast(), total_size, align);
+    if should_drop {
+        if let Some(f) = drop_fn {
+            f(data_ptr);
+        }
     }
 }
 
-/// Get the current reference count.
+/// Free a reference-counted allocation unconditionally.
 ///
-/// # Safety
-/// `ptr` must be a valid pointer returned by `ori_rc_new`.
+/// Deallocates from `data_ptr - 8` with total size `size + 8`.
+/// Typically called as the last step of a type-specialized drop function.
+///
+/// `size` and `align` are the data size and alignment (same values passed
+/// to `ori_rc_alloc`). The 8-byte header is accounted for internally.
 #[no_mangle]
-pub extern "C" fn ori_rc_count(ptr: *const RcHeader) -> i64 {
-    if ptr.is_null() {
+pub extern "C" fn ori_rc_free(data_ptr: *mut u8, size: usize, align: usize) {
+    if data_ptr.is_null() {
+        return;
+    }
+
+    // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is the base
+    let base = unsafe { data_ptr.sub(8) };
+    let total_size = size + 8;
+    let align = align.max(8);
+
+    ori_free(base, total_size, align);
+}
+
+/// Get the current reference count (for testing and debugging).
+///
+/// `data_ptr` points to the data area. `strong_count` is at `data_ptr - 8`.
+#[no_mangle]
+pub extern "C" fn ori_rc_count(data_ptr: *const u8) -> i64 {
+    if data_ptr.is_null() {
         return 0;
     }
 
-    // SAFETY: Caller guarantees ptr is valid
-    unsafe { (*ptr).refcount }
-}
-
-/// Get a pointer to the data following the header.
-///
-/// # Safety
-/// `ptr` must be a valid pointer returned by `ori_rc_new`.
-#[no_mangle]
-pub extern "C" fn ori_rc_data(ptr: *mut RcHeader) -> *mut u8 {
-    if ptr.is_null() {
-        return std::ptr::null_mut();
-    }
-
-    // SAFETY: Data immediately follows the header
-    unsafe { ptr.add(1).cast() }
+    // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
+    unsafe { *data_ptr.sub(8).cast::<i64>() }
 }
 
 /// Print a string to stdout.

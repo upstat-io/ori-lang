@@ -20,7 +20,7 @@ sections:
 
 # Section 03: Environment V2
 
-**Status:** 📋 Planned
+**Status:** Planned
 **Goal:** Redesign the environment/scope system for optional thread-safety, cleaner RAII guards, and efficient closure capture — while maintaining the current API contract.
 
 ---
@@ -54,8 +54,19 @@ Evolve the current `Environment` into a cleaner `ScopeStack` that preserves the 
 ```rust
 /// Evaluation environment: a stack of lexical scopes.
 /// Each scope uses FxHashMap for O(1) lookup (preserving current performance).
+/// The global scope is Arc-shared across all ScopeStacks for O(1) function call setup.
 pub struct ScopeStack {
-    /// Stack of scopes, each with its own hash map.
+    /// Arc-shared global scope — immutable after initialization (set during
+    /// `register_prelude()` and module registration). Shared across all ScopeStacks
+    /// created for function calls, avoiding O(n) cloning of global bindings.
+    globals: Arc<FxHashMap<Name, Binding>>,
+    /// Mutable global scope used during two-phase initialization.
+    /// `define_global()` inserts into this map; `freeze_globals()` converts it
+    /// to the shared `Arc` (populating `globals`) and sets this to `None`.
+    /// After freezing, all global access goes through the immutable `globals` Arc.
+    globals_builder: Option<FxHashMap<Name, Binding>>,
+    /// Stack of local scopes, each with its own hash map.
+    /// Function body scopes are pushed on top; popped on return.
     scopes: Vec<Scope>,
 }
 
@@ -77,7 +88,7 @@ impl ScopeStack {
     }
 
     pub fn pop_scope(&mut self) {
-        self.scopes.pop().expect("scope underflow");
+        self.scopes.pop().expect("scope underflow — local scope stack is empty");
     }
 
     pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
@@ -86,17 +97,18 @@ impl ScopeStack {
     }
 
     pub fn lookup(&self, name: Name) -> Option<&Value> {
-        // Search from innermost scope outward — O(1) per scope via hash lookup
+        // Search local scopes first (innermost outward) — O(1) per scope via hash lookup
         for scope in self.scopes.iter().rev() {
             if let Some(binding) = scope.bindings.get(&name) {
                 return Some(&binding.value);
             }
         }
-        None
+        // Fall back to Arc-shared global scope
+        self.globals.get(&name).map(|b| &b.value)
     }
 
     pub fn update(&mut self, name: Name, new_value: Value) -> Result<(), EvalError> {
-        // Find binding in nearest scope and check mutability
+        // Find binding in nearest local scope and check mutability
         for scope in self.scopes.iter_mut().rev() {
             if let Some(binding) = scope.bindings.get_mut(&name) {
                 if binding.mutability == Mutability::Immutable {
@@ -105,6 +117,10 @@ impl ScopeStack {
                 binding.value = new_value;
                 return Ok(());
             }
+        }
+        // Globals are immutable — if found in globals, return immutable error
+        if self.globals.contains_key(&name) {
+            return Err(EvalError::immutable_binding(name));
         }
         Err(EvalError::undefined_variable(name))
     }
@@ -120,17 +136,64 @@ impl ScopeStack {
 
 **Improvement over current**: Remove `Rc<RefCell>` wrapping — the interpreter owns the `ScopeStack` by value, so interior mutability is unnecessary. Use `&mut ScopeStack` for mutations, `&ScopeStack` for lookups.
 
-**Global scope for function calls**: The first entry in the `scopes` Vec (index 0) is the global scope. When entering a function call, the interpreter creates a new ScopeStack by cloning the global scope (index 0) into the new stack's base. Globals are effectively immutable after initialization (set during `register_prelude()` and module registration), so cloning is semantically equivalent to sharing by reference and avoids `Rc`/`Arc` complexity in the `ScopeStack` design. Local scopes are pushed on top for the function body and popped on return. If mutable globals are needed in the future, a targeted `Arc<RwLock<Scope>>` can be added for just the global scope slot without changing the rest of the `ScopeStack` design.
+**Global scope for function calls**: The global scope is stored as `Arc<FxHashMap<Name, Binding>>`, shared across all ScopeStacks. When entering a function call, the interpreter creates a new ScopeStack with the same `Arc` reference to the global scope -- O(1) setup cost (just an Arc clone / refcount bump), no copying of global bindings.
+
+**Two-phase initialization**: Since `register_prelude()` mutates globals AFTER initial construction, globals use a two-phase initialization pattern:
+1. **Build phase**: During interpreter startup, globals are collected into a plain `FxHashMap<Name, Binding>` (mutable, no Arc). `register_prelude()` and module registration insert bindings into this mutable map.
+2. **Freeze phase**: After all initialization is complete, call `freeze_globals()` which wraps the map in `Arc::new(globals_map)`, producing an immutable `Arc<FxHashMap<Name, Binding>>`.
+3. **Share phase**: The frozen `Arc` is `Arc::clone()`'d into each function call's ScopeStack. No further mutation is possible.
+
+```rust
+impl ScopeStack {
+    /// Create a ScopeStack with a mutable global scope for initialization.
+    pub fn new() -> Self {
+        ScopeStack {
+            globals: Arc::new(FxHashMap::default()),
+            globals_builder: Some(FxHashMap::default()),
+            scopes: Vec::new(),
+        }
+    }
+
+    /// Insert a global binding during initialization (before freeze).
+    /// Panics if called after freeze_globals().
+    pub fn define_global(&mut self, name: Name, value: Value) {
+        self.globals_builder.as_mut()
+            .expect("define_global called after freeze_globals()")
+            .insert(name, Binding { value, mutability: Mutability::Immutable });
+    }
+
+    /// Freeze the global scope — no further global mutations allowed.
+    /// Must be called after register_prelude() and module registration.
+    pub fn freeze_globals(&mut self) {
+        let builder = self.globals_builder.take()
+            .expect("freeze_globals called twice");
+        self.globals = Arc::new(builder);
+    }
+
+    /// Get a shared reference to the frozen globals for function call ScopeStacks.
+    pub fn shared_globals(&self) -> &Arc<FxHashMap<Name, Binding>> {
+        debug_assert!(self.globals_builder.is_none(), "globals not yet frozen");
+        &self.globals
+    }
+}
+```
+
+Local scopes are pushed on top for the function body and popped on return. If mutable globals are needed in the future, `Arc<RwLock<FxHashMap<Name, Binding>>>` can replace the `Arc<FxHashMap>` for just the global scope slot without changing the rest of the `ScopeStack` design.
 
 - [ ] Implement `ScopeStack` with FxHashMap-per-scope
   - [ ] `push_scope()`, `pop_scope()` — scope management
   - [ ] `define(name, value, mutability)` — add binding to current scope
   - [ ] `lookup(name) -> Option<&Value>` — O(1)-per-scope hash lookup
   - [ ] `update(name, value) -> Result<(), EvalError>` — mutate binding with mutability check
-  - [ ] `define_global(name, value)` — insert into root scope (index 0)
+  - [ ] `define_global(name, value)` — insert into global scope (only during initialization, before Arc is shared)
+  - [ ] `for_function_call(globals: &Arc<FxHashMap<Name, Binding>>) -> ScopeStack` — O(1) construction with shared globals
 - [ ] Remove `Rc<RefCell>` wrapping
   - [ ] Interpreter owns `ScopeStack` by value
   - [ ] `&mut self` for define/update/push/pop, `&self` for lookup
+- [ ] Update all `lookup()` callers to handle `Option<&Value>` instead of `Option<Value>`
+  - [ ] Add `.cloned()` where ownership of the `Value` is needed (e.g., returning from eval, storing in closures)
+  - [ ] Keep `&Value` where only a reference is needed (e.g., comparison, pattern matching guards)
+  - [ ] This is a mechanical but widespread change affecting: function calls, closures, method dispatch, pattern matching, let bindings, and variable expressions
 - [ ] Benchmark against current Environment
   - [ ] Variable lookup latency (should be comparable — same hash-based approach)
   - [ ] Scope push/pop cost (should improve — no Rc allocation)
@@ -241,11 +304,11 @@ fn eval_let(&mut self, ...) -> EvalResult<Value> {
 - `ScopedInterpreter` holds `&mut Interpreter` and delegates via `Deref`/`DerefMut`, so you can call any interpreter method through the guard. The scope is automatically popped on drop.
 - This pattern is already proven in the current codebase (`ScopedInterpreter` in `ori_eval`).
 
-**Panic-safety motivation**: The current `Environment.with_scope()`, `with_binding()`, and `with_match_bindings()` methods are NOT panic-safe. If the closure passed to these methods panics, the scope is never popped, leaving the environment in a corrupted state with stale bindings. The V2 design eliminates these **unsafe Environment-level closure methods** in favor of `ScopedInterpreter` RAII guards, which guarantee scope cleanup via `Drop` even when unwinding through a panic.
+**Panic-safety status**: The Interpreter-level wrappers (`with_match_bindings`, `with_binding`, `with_env_scope` on `ScopedInterpreter` / `Interpreter`) are ALREADY panic-safe -- they use `ScopedInterpreter` RAII guards internally, which guarantee scope cleanup via `Drop` even when unwinding through a panic. Only the **Environment-level** closure methods (`Environment::with_scope`, `Environment::with_binding`, `Environment::with_match_bindings`) are NOT panic-safe -- if the closure panics, the scope is never popped, leaving the environment corrupted.
 
-**Note:** The Interpreter already provides panic-safe equivalents via `ScopedInterpreter` (`scope_guard.rs`). The V2 migration removes the **unsafe Environment-level** closure methods (`with_scope`, `with_binding`, `with_match_bindings`), since only the interpreter-level RAII versions (`ScopedInterpreter`) should be used. The **safe `ScopedInterpreter` convenience wrappers** (e.g., `with_match_bindings`, `with_binding` on `ScopedInterpreter`) are **preserved** -- these create an RAII guard internally and ARE panic-safe. The distinction is:
-- **(a) Eliminated**: `Environment`-level closure methods (`Environment::with_scope`, etc.) -- not panic-safe, operate on raw scope stack.
-- **(b) Preserved**: `ScopedInterpreter` convenience wrappers (`ScopedInterpreter::with_match_bindings`, etc.) -- panic-safe, create RAII guard internally, used by `eval_decision_tree()` (Section 04.3) and `eval_for()` (Section 05.3).
+The V2 design eliminates the **unsafe Environment-level closure methods** and keeps all scope management through `ScopedInterpreter` RAII guards. The distinction is:
+- **(a) Eliminated**: `Environment`-level closure methods (from `environment.rs`): `Environment::with_scope`, `Environment::with_binding`, `Environment::with_match_bindings` -- not panic-safe, operate on raw scope stack.
+- **(b) Already safe / Preserved**: `Interpreter`-level convenience wrappers (from `scope_guard.rs`): `Interpreter::with_env_scope`, `Interpreter::with_binding`, `Interpreter::with_match_bindings` -- panic-safe, create RAII guard internally, used by `eval_decision_tree()` (Section 04.3) and `eval_for()` (Section 05.3).
 
 - [ ] Evolve current `ScopedInterpreter` for V2
   - [ ] Hold `&mut Interpreter` with `Deref`/`DerefMut` delegation
@@ -260,7 +323,7 @@ fn eval_let(&mut self, ...) -> EvalResult<Value> {
   - [ ] `eval_call` (function body scope)
   - [ ] `eval_match` (arm body scope)
   - [ ] `eval_for` (iteration body scope)
-  - [ ] `eval_with_capability` (capability scope)
+  - [ ] Verify `WithCapability` handler already uses `with_binding` (RAII-safe) — confirm, no conversion needed
 - [ ] Remove `owns_scoped_env` flag from Interpreter (no longer needed)
   - [ ] `ScopedInterpreter` makes this flag unnecessary
   - [ ] **Requires redesigning `create_function_interpreter()` scope management.** Currently `owns_scoped_env` controls whether the interpreter cleans up its scope on drop, which `create_function_interpreter()` relies on. Two options:
@@ -323,9 +386,16 @@ impl CapturedEnv {
 - [ ] Update `FunctionValue` to use `CapturedEnv`
   - [ ] Replace `captures: Arc<FxHashMap<Name, Value>>` with `CapturedEnv`
   - [ ] Ensure closure creation captures only free variables (behavioral change from current capture-all)
-- [ ] Integrate with type checker's or parser's free variable analysis
-  - [ ] Free variable analysis is required for selective capture — not optional
-  - [ ] Determine whether free var set comes from type checker or a dedicated pass
+- [ ] **BLOCKING PREREQUISITE**: Implement free variable analysis BEFORE Section 03.4
+  - [ ] Free variable analysis is REQUIRED for selective capture — capture-all is NOT an acceptable fallback
+  - [ ] Implementation options (in priority order):
+    1. Dedicated pass after parsing (operates on ExprArena, computes free vars per function/closure)
+    2. Integrated into the type checker (computes free vars during type inference)
+    3. Part of EvalIR lowering (Section 08, but would delay Section 03.4)
+  - [ ] Output: `FxHashMap<ExprId, Vec<Name>>` mapping each closure/function ExprId to its free variables
+  - [ ] Must handle: nested closures, shadowing, module-level bindings (excluded from captures)
+  - [ ] This analysis must be completed and available before `CapturedEnv::capture()` can be called
+  - [ ] **Section 03.4 is blocked until this prerequisite is delivered**
 
 ---
 
@@ -334,11 +404,11 @@ impl CapturedEnv {
 - [ ] `ScopeStack` implemented with FxHashMap-per-scope (preserving current O(1) lookup)
 - [ ] `Rc<RefCell>` wrapping removed — interpreter owns `ScopeStack` by value
 - [ ] `ScopedInterpreter` RAII guards evolved from existing pattern (hold `&mut Interpreter`, Deref/DerefMut delegation)
-- [ ] `CapturedEnv` with `Arc<SmallVec>` evolves from existing `Arc<FxHashMap<Name, Value>>` — O(1) clone preserved
+- [ ] `CapturedEnv` with `Arc<CapturedEnvInner>` wrapping `SmallVec` evolves from existing `Arc<FxHashMap<Name, Value>>` — O(1) clone preserved
 - [ ] All manual `push_scope()`/`pop_scope()` pairs eliminated
 - [ ] `owns_scoped_env` flag removed from Interpreter
 - [ ] Thread-safety strategy documented (defer actual implementation)
 - [ ] All existing tests pass unchanged
 - [ ] Benchmarked against current Environment — no regression (hash-based approach ensures this)
 
-**Exit Criteria:** Environment system uses hash-based scope lookup with `ScopedInterpreter<'guard, 'interp>` RAII guards (panic-safe, replacing closure-based `with_scope`/`with_binding`/`with_match_bindings`). Closure captures use `Arc<SmallVec>` with selective free-variable capture (O(1) clone preserved). Shared global scope pattern documented. Design documents a clear path to thread-safety.
+**Exit Criteria:** Environment system uses hash-based scope lookup with `ScopedInterpreter<'guard, 'interp>` RAII guards (panic-safe, replacing closure-based `with_scope`/`with_binding`/`with_match_bindings`). Global scope is Arc-shared (`Arc<FxHashMap<Name, Binding>>`) across all ScopeStacks for O(1) function call setup. Closure captures use `Arc<CapturedEnvInner>` wrapping `SmallVec` with selective free-variable capture (O(1) clone preserved); free variable analysis is a completed prerequisite. Design documents a clear path to thread-safety.

@@ -2,7 +2,7 @@
 //!
 //! These tests verify the C-ABI functions used by AOT-compiled Ori programs:
 //! - Memory allocation (`alloc`, `free`, `realloc`)
-//! - Reference counting (`rc_new`, `rc_inc`, `rc_dec`)
+//! - Reference counting (`rc_alloc`, `rc_inc`, `rc_dec`, `rc_free`)
 //! - String operations (`concat`, `eq`, `from_int`, etc.)
 //! - List operations (`new`, `free`, `len`)
 //! - Panic/assertion handling
@@ -21,7 +21,7 @@
 use ori_rt::{
     did_panic, get_panic_message, ori_alloc, ori_args_from_argv, ori_assert_eq_int,
     ori_compare_int, ori_free, ori_list_free, ori_list_len, ori_list_new, ori_max_int, ori_min_int,
-    ori_print_int, ori_rc_count, ori_rc_data, ori_rc_dec, ori_rc_inc, ori_rc_new, ori_realloc,
+    ori_print_int, ori_rc_alloc, ori_rc_count, ori_rc_dec, ori_rc_free, ori_rc_inc, ori_realloc,
     ori_register_panic_handler, ori_str_concat, ori_str_eq, ori_str_ne, reset_panic_state,
     set_panic_state_for_test, OriStr,
 };
@@ -80,42 +80,50 @@ fn test_ori_realloc_to_zero() {
 }
 
 #[test]
-fn test_rc_new_inc_dec() {
-    let rc = ori_rc_new(64);
-    assert!(!rc.is_null());
-    assert_eq!(ori_rc_count(rc), 1);
+fn test_rc_alloc_inc_dec() {
+    // V2: ori_rc_alloc returns data pointer directly (8-byte header at ptr-8)
+    extern "C" fn drop_64(data_ptr: *mut u8) {
+        ori_rc_free(data_ptr, 64, 8);
+    }
 
-    ori_rc_inc(rc);
-    assert_eq!(ori_rc_count(rc), 2);
+    let data = ori_rc_alloc(64, 8);
+    assert!(!data.is_null());
+    assert_eq!(ori_rc_count(data), 1);
 
-    ori_rc_dec(rc);
-    assert_eq!(ori_rc_count(rc), 1);
+    ori_rc_inc(data);
+    assert_eq!(ori_rc_count(data), 2);
+
+    ori_rc_dec(data, Some(drop_64));
+    assert_eq!(ori_rc_count(data), 1);
 
     // Final dec frees it - don't access after
-    ori_rc_dec(rc);
+    ori_rc_dec(data, Some(drop_64));
 }
 
 #[test]
-fn test_rc_data() {
-    let rc = ori_rc_new(64);
-    let data = ori_rc_data(rc);
+fn test_rc_data_write_read() {
+    extern "C" fn drop_64(data_ptr: *mut u8) {
+        ori_rc_free(data_ptr, 64, 8);
+    }
+
+    let data = ori_rc_alloc(64, 8);
     assert!(!data.is_null());
 
-    // Write to data
+    // Write directly to data pointer (no separate ori_rc_data call in V2)
     unsafe {
         std::ptr::write(data, 123u8);
         assert_eq!(std::ptr::read(data), 123u8);
     }
 
-    ori_rc_dec(rc);
+    ori_rc_dec(data, Some(drop_64));
 }
 
 #[test]
 fn test_rc_null_safety() {
     ori_rc_inc(std::ptr::null_mut());
-    ori_rc_dec(std::ptr::null_mut());
+    ori_rc_dec(std::ptr::null_mut(), None);
     assert_eq!(ori_rc_count(std::ptr::null()), 0);
-    assert!(ori_rc_data(std::ptr::null_mut()).is_null());
+    ori_rc_free(std::ptr::null_mut(), 0, 8); // Should not crash
 }
 
 #[test]
@@ -212,13 +220,15 @@ fn test_ori_list_null_safety() {
 
 #[test]
 fn test_closure_env_via_rc() {
-    // Closure environments are now RC-managed via ori_rc_new + ori_rc_data
-    let header = ori_rc_new(64);
-    assert!(!header.is_null());
-    let data = ori_rc_data(header);
+    extern "C" fn drop_64(data_ptr: *mut u8) {
+        ori_rc_free(data_ptr, 64, 8);
+    }
+
+    // V2: ori_rc_alloc returns data pointer directly
+    let data = ori_rc_alloc(64, 8);
     assert!(!data.is_null());
-    assert_eq!(ori_rc_count(header), 1);
-    ori_rc_dec(header); // frees
+    assert_eq!(ori_rc_count(data), 1);
+    ori_rc_dec(data, Some(drop_64)); // frees
 }
 
 #[test]

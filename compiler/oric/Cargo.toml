@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-llvm = ["dep:ori_llvm"]  # Requires LLVM installed - build in container only
+llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM installed - build in container only
 
 [dependencies]
 # Incremental compilation - THE FOUNDATION
@@ -38,6 +38,10 @@ ori_fmt.workspace = true
 # Path dependency since ori_llvm is excluded from workspace
 ori_llvm = { path = "../ori_llvm", optional = true }
 
+# Optional ARC analysis (required for LLVM codegen borrow inference)
+# Path dependency since ori_arc is a workspace member but only needed for LLVM
+ori_arc = { path = "../ori_arc", optional = true }
+
 # Concurrency and hashing
 parking_lot.workspace = true
 rustc-hash.workspace = true
@@ -56,6 +60,7 @@ pretty_assertions = "1.4"
 criterion = { version = "0.8", features = ["html_reports"] }
 tempfile = "3.10"
 ori_rt = { path = "../ori_rt" }
+ori_lexer_core.workspace = true
 
 [[bench]]
 name = "type_check"
@@ -71,6 +76,10 @@ harness = false
 
 [[bench]]
 name = "formatter"
+harness = false
+
+[[bench]]
+name = "lexer_core"
 harness = false
 
 [[bench]]

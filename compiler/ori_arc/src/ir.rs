@@ -341,6 +341,52 @@ impl ArcInstr {
             }
         }
     }
+
+    /// Replace all occurrences of `old` with `new` in read positions.
+    ///
+    /// Defined variables (`dst`) are NOT substituted — only used variables.
+    /// Used by constructor reuse expansion (Section 09) to substitute
+    /// `reuse_dst → reset_var` on the fast path.
+    pub fn substitute_var(&mut self, old: ArcVarId, new: ArcVarId) {
+        fn sub(v: &mut ArcVarId, old: ArcVarId, new: ArcVarId) {
+            if *v == old {
+                *v = new;
+            }
+        }
+        fn sub_args(args: &mut [ArcVarId], old: ArcVarId, new: ArcVarId) {
+            for a in args {
+                sub(a, old, new);
+            }
+        }
+        match self {
+            ArcInstr::Let { value, .. } => match value {
+                ArcValue::Var(v) => sub(v, old, new),
+                ArcValue::Literal(_) => {}
+                ArcValue::PrimOp { args, .. } => sub_args(args, old, new),
+            },
+            ArcInstr::Apply { args, .. }
+            | ArcInstr::PartialApply { args, .. }
+            | ArcInstr::Construct { args, .. } => sub_args(args, old, new),
+            ArcInstr::ApplyIndirect { closure, args, .. } => {
+                sub(closure, old, new);
+                sub_args(args, old, new);
+            }
+            ArcInstr::Project { value, .. } => sub(value, old, new),
+            ArcInstr::RcInc { var, .. }
+            | ArcInstr::RcDec { var }
+            | ArcInstr::IsShared { var, .. }
+            | ArcInstr::Reset { var, .. } => sub(var, old, new),
+            ArcInstr::Set { base, value, .. } => {
+                sub(base, old, new);
+                sub(value, old, new);
+            }
+            ArcInstr::SetTag { base, .. } => sub(base, old, new),
+            ArcInstr::Reuse { token, args, .. } => {
+                sub(token, old, new);
+                sub_args(args, old, new);
+            }
+        }
+    }
 }
 
 // ── Terminators ─────────────────────────────────────────────────────
@@ -411,6 +457,30 @@ impl ArcTerminator {
             ArcTerminator::Resume | ArcTerminator::Unreachable => vec![],
         }
     }
+
+    /// Replace all occurrences of `old` with `new` in variable positions.
+    ///
+    /// Used by constructor reuse expansion (Section 09) to substitute
+    /// `reuse_dst → reset_var` on the fast path, where the result IS
+    /// the original object.
+    pub fn substitute_var(&mut self, old: ArcVarId, new: ArcVarId) {
+        fn sub(v: &mut ArcVarId, old: ArcVarId, new: ArcVarId) {
+            if *v == old {
+                *v = new;
+            }
+        }
+        match self {
+            ArcTerminator::Return { value } => sub(value, old, new),
+            ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
+                for a in args {
+                    sub(a, old, new);
+                }
+            }
+            ArcTerminator::Branch { cond, .. } => sub(cond, old, new),
+            ArcTerminator::Switch { scrutinee, .. } => sub(scrutinee, old, new),
+            ArcTerminator::Resume | ArcTerminator::Unreachable => {}
+        }
+    }
 }
 
 // ── Blocks ──────────────────────────────────────────────────────────
@@ -473,6 +543,56 @@ impl ArcFunction {
             self.var_types.len(),
         );
         self.var_types[var.index()]
+    }
+
+    /// Allocate a fresh variable with the given type.
+    ///
+    /// Returns a new [`ArcVarId`] that does not collide with any existing
+    /// variable in this function. The variable's type is recorded in
+    /// [`var_types`](Self::var_types).
+    ///
+    /// Used by ARC passes that introduce synthetic variables (e.g., the
+    /// `IsShared` result in constructor reuse expansion, reuse tokens in
+    /// reset/reuse detection).
+    pub fn fresh_var(&mut self, ty: Idx) -> ArcVarId {
+        let id = u32::try_from(self.var_types.len())
+            .unwrap_or_else(|_| panic!("variable count exceeds u32::MAX"));
+        self.var_types.push(ty);
+        ArcVarId::new(id)
+    }
+
+    /// Append a new basic block to this function.
+    ///
+    /// The block's `id` must equal the next sequential block index
+    /// (`self.blocks.len()`). Span entries are initialized to `None` for
+    /// each instruction in the block body.
+    ///
+    /// # Panics
+    ///
+    /// Debug-panics if `block.id` does not match the expected index.
+    pub fn push_block(&mut self, block: ArcBlock) {
+        let expected = ArcBlockId::new(
+            u32::try_from(self.blocks.len())
+                .unwrap_or_else(|_| panic!("block count exceeds u32::MAX")),
+        );
+        debug_assert_eq!(
+            block.id,
+            expected,
+            "block ID {} does not match expected index {}",
+            block.id.raw(),
+            expected.raw(),
+        );
+        self.spans.push(vec![None; block.body.len()]);
+        self.blocks.push(block);
+    }
+
+    /// Return the [`ArcBlockId`] that the next [`push_block`](Self::push_block)
+    /// call will use.
+    pub fn next_block_id(&self) -> ArcBlockId {
+        ArcBlockId::new(
+            u32::try_from(self.blocks.len())
+                .unwrap_or_else(|_| panic!("block count exceeds u32::MAX")),
+        )
     }
 }
 
@@ -1287,5 +1407,76 @@ mod tests {
     #[test]
     fn terminator_used_vars_unreachable() {
         assert!(ArcTerminator::Unreachable.used_vars().is_empty());
+    }
+
+    // ── ArcFunction helpers ────────────────────────────────────────
+
+    #[test]
+    fn fresh_var_sequential_ids() {
+        let mut func = ArcFunction {
+            name: Name::from_raw(1),
+            params: vec![ArcParam {
+                var: ArcVarId::new(0),
+                ty: Idx::INT,
+                ownership: Ownership::Owned,
+            }],
+            return_type: Idx::INT,
+            blocks: vec![ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(0),
+                },
+            }],
+            entry: ArcBlockId::new(0),
+            var_types: vec![Idx::INT],
+            spans: vec![vec![]],
+        };
+
+        let v1 = func.fresh_var(Idx::STR);
+        assert_eq!(v1, ArcVarId::new(1));
+        assert_eq!(func.var_type(v1), Idx::STR);
+
+        let v2 = func.fresh_var(Idx::BOOL);
+        assert_eq!(v2, ArcVarId::new(2));
+        assert_eq!(func.var_type(v2), Idx::BOOL);
+        assert_eq!(func.var_types.len(), 3);
+    }
+
+    #[test]
+    fn next_block_id_and_push() {
+        let mut func = ArcFunction {
+            name: Name::from_raw(1),
+            params: vec![],
+            return_type: Idx::UNIT,
+            blocks: vec![ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            }],
+            entry: ArcBlockId::new(0),
+            var_types: vec![],
+            spans: vec![vec![]],
+        };
+
+        assert_eq!(func.next_block_id(), ArcBlockId::new(1));
+
+        func.push_block(ArcBlock {
+            id: ArcBlockId::new(1),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: ArcVarId::new(0),
+                ty: Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            }],
+            terminator: ArcTerminator::Unreachable,
+        });
+
+        assert_eq!(func.blocks.len(), 2);
+        assert_eq!(func.spans.len(), 2);
+        assert_eq!(func.spans[1].len(), 1); // one instr → one span slot
+        assert_eq!(func.next_block_id(), ArcBlockId::new(2));
     }
 }

@@ -15,6 +15,7 @@
 
 use std::cell::Cell;
 
+use ori_arc::{AnnotatedSig, ArcClassifier};
 use ori_ir::{ExprArena, ExprId, Function, Name, StringInterner, TestDef};
 use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -22,7 +23,10 @@ use tracing::{debug, trace, warn};
 
 use crate::aot::mangle::Mangler;
 
-use super::abi::{compute_function_abi, CallConv, FunctionAbi, ParamPassing, ReturnPassing};
+use super::abi::{
+    compute_function_abi, compute_function_abi_with_ownership, CallConv, FunctionAbi, ParamPassing,
+    ReturnPassing,
+};
 use super::expr_lowerer::ExprLowerer;
 use super::ir_builder::IrBuilder;
 use super::scope::Scope;
@@ -63,6 +67,13 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     type_idx_to_name: FxHashMap<Idx, Name>,
     /// Module-wide lambda counter for unique lambda function names.
     lambda_counter: Cell<u32>,
+    /// Borrow inference results: function `Name` → annotated signature.
+    /// When present, `Ownership::Borrowed` + non-Scalar parameters use
+    /// `ParamPassing::Reference` (pointer, no RC at call site).
+    annotated_sigs: Option<&'a FxHashMap<Name, AnnotatedSig>>,
+    /// Type classifier for ARC analysis (scalar vs ref classification).
+    /// Required when `annotated_sigs` is present.
+    arc_classifier: Option<&'a ArcClassifier<'tcx>>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -71,6 +82,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// `module_path` determines name mangling: `""` for the root module,
     /// `"math"` or `"data/utils"` for nested modules. All LLVM symbols
     /// are mangled (e.g., `add` → `_ori_add`, `math.add` → `_ori_math$add`).
+    ///
+    /// `annotated_sigs` and `arc_classifier` enable borrow-aware ABI:
+    /// when present, `Borrowed` + non-Scalar parameters use `Reference`
+    /// passing (pointer, no RC at call site). Pass `None` for both to
+    /// use standard size-based passing.
     pub fn new(
         builder: &'a mut IrBuilder<'scx, 'ctx>,
         type_info: &'a TypeInfoStore<'tcx>,
@@ -78,6 +94,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         interner: &'a StringInterner,
         pool: &'tcx Pool,
         module_path: &'a str,
+        annotated_sigs: Option<&'a FxHashMap<Name, AnnotatedSig>>,
+        arc_classifier: Option<&'a ArcClassifier<'tcx>>,
     ) -> Self {
         Self {
             builder,
@@ -91,6 +109,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             method_functions: FxHashMap::default(),
             type_idx_to_name: FxHashMap::default(),
             lambda_counter: Cell::new(0),
+            annotated_sigs,
+            arc_classifier,
         }
     }
 
@@ -133,7 +153,15 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// `declare_impl_method` (impl block methods with type-qualified names).
     fn declare_function_with_symbol(&mut self, name: Name, symbol: &str, sig: &FunctionSig) {
         let name_str = self.interner.lookup(name);
-        let abi = compute_function_abi(sig, self.type_info);
+
+        // Use borrow-aware ABI when annotations are available
+        let abi = match (self.annotated_sigs, self.arc_classifier) {
+            (Some(sigs), Some(classifier)) => {
+                let annotated = sigs.get(&name);
+                compute_function_abi_with_ownership(sig, self.type_info, annotated, classifier)
+            }
+            _ => compute_function_abi(sig, self.type_info),
+        };
 
         debug!(
             name = name_str,
@@ -163,8 +191,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     let ty = self.type_resolver.resolve(param.ty);
                     llvm_param_types.push(self.builder.register_type(ty));
                 }
-                ParamPassing::Indirect { .. } => {
-                    // Passed as pointer
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    // Passed as pointer (Indirect: large struct, Reference: borrowed)
                     llvm_param_types.push(self.builder.ptr_type());
                 }
                 ParamPassing::Void => {
@@ -308,6 +336,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Bind function parameters to a `Scope`, accounting for sret offset.
+    ///
+    /// `Reference` parameters are received as pointers and loaded on entry,
+    /// so downstream `ExprLowerer` code sees a value (not a pointer). This
+    /// is correct because borrowed values are alive for the function's
+    /// entire duration — the caller retains ownership.
     fn bind_parameters(&mut self, func_id: FunctionId, abi: &FunctionAbi) -> Scope {
         let mut scope = Scope::new();
         let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
@@ -322,6 +355,19 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     self.builder.set_value_name(param_val, name_str);
 
                     scope.bind_immutable(param.name, param_val);
+                    llvm_param_idx += 1;
+                }
+                ParamPassing::Reference => {
+                    // Borrowed parameter: received as pointer, load the value
+                    let param_ptr = self.builder.get_param(func_id, llvm_param_idx);
+                    let name_str = self.interner.lookup(param.name);
+                    self.builder
+                        .set_value_name(param_ptr, &format!("{name_str}.ref"));
+
+                    let param_ty = self.type_resolver.resolve(param.ty);
+                    let param_ty_id = self.builder.register_type(param_ty);
+                    let loaded = self.builder.load(param_ty_id, param_ptr, name_str);
+                    scope.bind_immutable(param.name, loaded);
                     llvm_param_idx += 1;
                 }
                 ParamPassing::Void => {
@@ -867,7 +913,16 @@ mod tests {
             false,
         );
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            &interner,
+            &pool,
+            "",
+            None,
+            None,
+        );
         fc.declare_function(func_name, &sig);
 
         let (_func_id, abi) = fc.get_function(func_name).unwrap();
@@ -892,7 +947,16 @@ mod tests {
         let func_name = interner.intern("do_thing");
         let sig = make_sig(func_name, vec![], vec![], Idx::UNIT, false);
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            &interner,
+            &pool,
+            "",
+            None,
+            None,
+        );
         fc.declare_function(func_name, &sig);
 
         let (_, abi) = fc.get_function(func_name).unwrap();
@@ -913,7 +977,16 @@ mod tests {
         let func_name = interner.intern("get_list");
         let sig = make_sig(func_name, vec![], vec![], list_int, false);
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            &interner,
+            &pool,
+            "",
+            None,
+            None,
+        );
         fc.declare_function(func_name, &sig);
 
         let (_, abi) = fc.get_function(func_name).unwrap();
@@ -943,7 +1016,16 @@ mod tests {
         let func_name = interner.intern("main");
         let sig = make_sig(func_name, vec![], vec![], Idx::UNIT, true);
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            &interner,
+            &pool,
+            "",
+            None,
+            None,
+        );
         fc.declare_function(func_name, &sig);
 
         let (_, abi) = fc.get_function(func_name).unwrap();
@@ -991,7 +1073,16 @@ mod tests {
             visibility: ori_ir::Visibility::Private,
         };
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            &interner,
+            &pool,
+            "",
+            None,
+            None,
+        );
         fc.declare_all(&[func], &[sig]);
 
         assert!(fc.get_function(func_name).is_none());
@@ -1035,7 +1126,16 @@ mod tests {
             false,
         );
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            &interner,
+            &pool,
+            "",
+            None,
+            None,
+        );
         fc.declare_function(add_name, &sig_add);
         fc.declare_function(sub_name, &sig_sub);
 
@@ -1133,7 +1233,16 @@ mod tests {
         let arena = ori_ir::ExprArena::new();
         let expr_types: Vec<Idx> = vec![];
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            &interner,
+            &pool,
+            "",
+            None,
+            None,
+        );
 
         // Compile Point impl first, then Line impl
         // Note: compile_impls processes all impls; same method name → last one
@@ -1213,8 +1322,16 @@ mod tests {
         let sig = make_sig(func_name, vec![a_name], vec![Idx::INT], Idx::INT, false);
 
         // Use "math" as module path
-        let mut fc =
-            FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "math");
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            &interner,
+            &pool,
+            "math",
+            None,
+            None,
+        );
         fc.declare_function(func_name, &sig);
 
         // Must drop borrowers before accessing scx directly

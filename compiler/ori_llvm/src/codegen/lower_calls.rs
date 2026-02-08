@@ -8,7 +8,7 @@ use ori_types::Idx;
 
 use crate::aot::mangle::Mangler;
 
-use super::abi::ReturnPassing;
+use super::abi::{ParamPassing, ReturnPassing};
 use super::expr_lowerer::ExprLowerer;
 use super::scope::ScopeBinding;
 use super::type_info::TypeInfo;
@@ -115,7 +115,12 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         self.builder.call(func_id, &arg_vals, "call")
     }
 
-    /// Lower a call to a function with known ABI (sret-aware).
+    /// Lower a call to a function with known ABI (sret + borrow-aware).
+    ///
+    /// Handles three parameter passing modes:
+    /// - `Direct`: pass value as-is
+    /// - `Indirect`: pass value as-is (already a pointer from caller)
+    /// - `Reference`: create stack alloca, store value, pass pointer (no RC)
     ///
     /// Uses `call_with_sret` for functions that return large types via
     /// hidden pointer parameter, and regular `call` for direct returns.
@@ -126,10 +131,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         args: ExprRange,
     ) -> Option<ValueId> {
         let arg_ids = self.arena.get_expr_list(args);
-        let mut arg_vals = Vec::with_capacity(arg_ids.len());
+        let mut raw_arg_vals = Vec::with_capacity(arg_ids.len());
         for &arg_id in arg_ids {
-            arg_vals.push(self.lower(arg_id)?);
+            raw_arg_vals.push(self.lower(arg_id)?);
         }
+
+        // Build final argument list, respecting passing modes
+        let arg_vals = self.apply_param_passing(&raw_arg_vals, &abi.params);
 
         match &abi.return_abi.passing {
             ReturnPassing::Sret { .. } => {
@@ -295,7 +303,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         self.builder.call(func_id, &arg_vals, "call_named")
     }
 
-    /// Lower a named-argument call with known ABI (sret-aware).
+    /// Lower a named-argument call with known ABI (sret + borrow-aware).
     fn lower_abi_call_named(
         &mut self,
         func_id: FunctionId,
@@ -303,10 +311,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         args: CallArgRange,
     ) -> Option<ValueId> {
         let call_args = self.arena.get_call_args(args);
-        let mut arg_vals = Vec::with_capacity(call_args.len());
+        let mut raw_arg_vals = Vec::with_capacity(call_args.len());
         for arg in call_args {
-            arg_vals.push(self.lower(arg.value)?);
+            raw_arg_vals.push(self.lower(arg.value)?);
         }
+
+        // Build final argument list, respecting passing modes
+        let arg_vals = self.apply_param_passing(&raw_arg_vals, &abi.params);
 
         match &abi.return_abi.passing {
             ReturnPassing::Sret { .. } => {
@@ -509,7 +520,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // Method call emission helpers
     // -----------------------------------------------------------------------
 
-    /// Emit a method call with positional args, handling sret returns.
+    /// Emit a method call with positional args, handling sret + borrow passing.
     ///
     /// Used by both type-qualified and bare-name method dispatch to avoid
     /// duplicating the receiver-prepend + sret logic.
@@ -522,11 +533,14 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         name: &str,
     ) -> Option<ValueId> {
         let arg_ids = self.arena.get_expr_list(args);
-        let mut all_args = Vec::with_capacity(arg_ids.len() + 1);
-        all_args.push(recv_val);
+        let mut raw_args = Vec::with_capacity(arg_ids.len() + 1);
+        raw_args.push(recv_val);
         for &arg_id in arg_ids {
-            all_args.push(self.lower(arg_id)?);
+            raw_args.push(self.lower(arg_id)?);
         }
+
+        // Apply param passing modes (Reference → alloca + store + pass ptr)
+        let all_args = self.apply_param_passing(&raw_args, &abi.params);
 
         match &abi.return_abi.passing {
             ReturnPassing::Sret { .. } => {
@@ -540,7 +554,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Emit a method call with named args, handling sret returns.
+    /// Emit a method call with named args, handling sret + borrow passing.
     fn emit_method_call_named(
         &mut self,
         func_id: FunctionId,
@@ -550,11 +564,14 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         name: &str,
     ) -> Option<ValueId> {
         let call_args = self.arena.get_call_args(args);
-        let mut all_args = Vec::with_capacity(call_args.len() + 1);
-        all_args.push(recv_val);
+        let mut raw_args = Vec::with_capacity(call_args.len() + 1);
+        raw_args.push(recv_val);
         for arg in call_args {
-            all_args.push(self.lower(arg.value)?);
+            raw_args.push(self.lower(arg.value)?);
         }
+
+        // Apply param passing modes (Reference → alloca + store + pass ptr)
+        let all_args = self.apply_param_passing(&raw_args, &abi.params);
 
         match &abi.return_abi.passing {
             ReturnPassing::Sret { .. } => {
@@ -566,6 +583,67 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 self.builder.call(func_id, &all_args, name)
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Parameter passing mode application
+    // -----------------------------------------------------------------------
+
+    /// Apply parameter passing modes to argument values.
+    ///
+    /// For `Reference` parameters: creates a stack alloca in the *caller*'s
+    /// entry block, stores the value, and returns the pointer. The callee
+    /// receives a borrowed pointer with no RC operations.
+    ///
+    /// For `Direct`/`Indirect`: passes through as-is.
+    /// For `Void`: skips the parameter.
+    ///
+    /// This centralizes the Reference-at-call-site logic used by
+    /// `lower_abi_call`, `lower_abi_call_named`, and method call emission.
+    fn apply_param_passing(
+        &mut self,
+        raw_args: &[ValueId],
+        param_abis: &[super::abi::ParamAbi],
+    ) -> Vec<ValueId> {
+        let caller_func = self.current_function;
+        let mut result = Vec::with_capacity(raw_args.len());
+        let mut arg_idx = 0;
+
+        for param_abi in param_abis {
+            if arg_idx >= raw_args.len() {
+                break;
+            }
+
+            match &param_abi.passing {
+                ParamPassing::Reference => {
+                    // Borrowed: create alloca in caller's entry, store value, pass pointer
+                    let param_ty = self.type_resolver.resolve(param_abi.ty);
+                    let param_ty_id = self.builder.register_type(param_ty);
+                    let alloca =
+                        self.builder
+                            .create_entry_alloca(caller_func, "ref_arg", param_ty_id);
+                    self.builder.store(raw_args[arg_idx], alloca);
+                    result.push(alloca);
+                    arg_idx += 1;
+                }
+                ParamPassing::Direct | ParamPassing::Indirect { .. } => {
+                    result.push(raw_args[arg_idx]);
+                    arg_idx += 1;
+                }
+                ParamPassing::Void => {
+                    // Void params are not physically passed — skip
+                }
+            }
+        }
+
+        // If there are more args than ABI params (shouldn't happen in
+        // well-typed code), pass remaining args directly
+        while arg_idx < raw_args.len() {
+            result.push(raw_args[arg_idx]);
+            arg_idx += 1;
+        }
+
+        result
     }
 
     // -----------------------------------------------------------------------
@@ -1357,19 +1435,21 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             .builder
             .intern_value(env_struct_ty.size_of().unwrap().into());
 
-        // Allocate via ori_rc_new (RC-tracked heap allocation)
+        // Allocate via ori_rc_alloc (V2: data-pointer style, 8-byte header)
         let i64_ty = self.builder.i64_type();
         let ptr_ty = self.builder.ptr_type();
-        let rc_new_func = self
+        // All closure env structs have 8-byte alignment (fields are i64 or ptr).
+        // ori_rc_alloc enforces min 8-byte alignment internally as well.
+        let align_val = self
             .builder
-            .get_or_declare_function("ori_rc_new", &[i64_ty], ptr_ty);
-        let rc_header = self.builder.call(rc_new_func, &[size_val], "env.rc")?;
-
-        // Get data pointer past the RcHeader
-        let rc_data_func = self
+            .intern_value(self.builder.scx().type_i64().const_int(8, false).into());
+        let rc_alloc_func =
+            self.builder
+                .get_or_declare_function("ori_rc_alloc", &[i64_ty, i64_ty], ptr_ty);
+        // ori_rc_alloc returns data_ptr directly (no separate ori_rc_data call)
+        let data_ptr = self
             .builder
-            .get_or_declare_function("ori_rc_data", &[ptr_ty], ptr_ty);
-        let data_ptr = self.builder.call(rc_data_func, &[rc_header], "env.data")?;
+            .call(rc_alloc_func, &[size_val, align_val], "env.data")?;
 
         // Store each capture into the environment struct
         for (i, (_, val, _)) in captures.iter().enumerate() {

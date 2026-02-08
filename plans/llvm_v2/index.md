@@ -89,7 +89,7 @@ Gleam struct-per-backend, Go pass pipeline
 ```
 
 ### Section 04: Function Declaration & Calling Conventions
-**File:** `section-04-functions-abi.md` | **Status:** In Progress (04.1–04.3 done, legacy code deleted)
+**File:** `section-04-functions-abi.md` | **Status:** Complete (04.1–04.7 done)
 
 ```
 function declaration, function definition, FunctionSig, ParamSig, ReturnSig
@@ -148,7 +148,7 @@ Pool integration, Idx properties, type queries, ori_arc depends on ori_types
 ```
 
 ### Section 06: ARC IR & Borrow Inference
-**File:** `section-06-borrow-inference.md` | **Status:** In Progress (06.0-06.2 complete, 06.3 LLVM integration remaining)
+**File:** `section-06-borrow-inference.md` | **Status:** Complete (06.0-06.3 all complete, including LLVM wiring)
 
 ```
 ARC IR, basic blocks, explicit control flow, terminators
@@ -183,7 +183,7 @@ unknown callee, external function, conservative all args Owned
 ```
 
 ### Section 07: RC Insertion via Liveness
-**File:** `section-07-rc-insertion.md` | **Status:** Not Started
+**File:** `section-07-rc-insertion.md` | **Status:** Complete (07.1-07.6 all done)
 
 ```
 RC insertion, reference counting, inc, dec, drop
@@ -197,11 +197,17 @@ backward pass ordering, Dec instruction Inc, push then reverse
 Perceus, precise RC, last use detection
 derived value, borrows set, projection borrow optimization
 specialized drop functions, compile-time drop, per-type drop
+DropKind, DropInfo, drop descriptor, compute_drop_info, collect_drop_infos
+DropKind::Trivial, DropKind::Fields, DropKind::Enum, DropKind::Collection, DropKind::Map
 drop_MyStruct, drop_List_Str, _ori_drop$ naming
+DropKind::ClosureEnv, compute_closure_env_drop, capture types
 closure env drop, Dec each capture, env struct RC
 ori_rt redesign, 8-byte header, ptr-8 strong_count
 ori_rc_alloc, ori_rc_inc, ori_rc_dec, ori_rc_free, drop_fn
-early exit cleanup, Dec live vars, break continue return
+early exit cleanup, edge cleanup, edge gap, cross-block Dec
+insert_edge_cleanup, compute_predecessors, redirect_edges
+trampoline block, edge splitting, multi-predecessor gap
+stranded variable, live_out minus live_in, global borrows
 panic cleanup, full cleanup blocks, Invoke terminator
 invoke vs call, landing pad, __ori_personality, resume
 reset/reuse detection, dec+Construct pattern, constructor-identity
@@ -213,7 +219,7 @@ Roc ModifyRc, Inc, Dec, Free, per-layout refcount helpers
 ```
 
 ### Section 08: RC Elimination via Dataflow
-**File:** `section-08-rc-elimination.md` | **Status:** Not Started
+**File:** `section-08-rc-elimination.md` | **Status:** Complete (08.1–08.3 done)
 
 ```
 RC elimination, retain/release pairing, optimization
@@ -229,10 +235,13 @@ loop handling, conservative at boundaries
 dead RC operations, redundant retain/release
 EliminationCandidate, InstrPos, remove_instr
 pipeline order: runs AFTER Section 09, input from both 07 and 09
+eliminate_rc_ops, rc_elim.rs, bidirectional intra-block
+TopDownState, BottomUpState, EliminationCandidate
+cascading elimination, fixed-point iteration
 ```
 
 ### Section 09: Constructor Reuse (FBIP)
-**File:** `section-09-constructor-reuse.md` | **Status:** Not Started
+**File:** `section-09-constructor-reuse.md` | **Status:** Complete (09.1-09.5 all implemented in expand_reuse.rs)
 
 ```
 constructor reuse, FBIP, functional but in-place
@@ -467,12 +476,12 @@ Gleam compiler-core error, structured error types
 | 01 | TypeInfo Enum & Core Types | `section-01-type-info.md` | 1 |
 | 02 | IrBuilder & ID-Based Values | `section-02-ir-builder.md` | 1 |
 | 03 | Expression Lowering Modules | `section-03-expr-lowering.md` | 1 |
-| 04 | Function Declaration & ABI | `section-04-functions-abi.md` | 1 |
+| 04 | Function Declaration & ABI (Done) | `section-04-functions-abi.md` | 1 |
 | 05 | Type Classification for ARC | `section-05-type-classification.md` | 2 |
 | 06 | ARC IR & Borrow Inference | `section-06-borrow-inference.md` | 2 |
-| 07 | RC Insertion via Liveness | `section-07-rc-insertion.md` | 2 |
-| 09 | Constructor Reuse (FBIP) | `section-09-constructor-reuse.md` | 2 |
-| 08 | RC Elimination via Dataflow | `section-08-rc-elimination.md` | 2 |
+| 07 | RC Insertion via Liveness (Complete) | `section-07-rc-insertion.md` | 2 |
+| 09 | Constructor Reuse (FBIP) (Complete) | `section-09-constructor-reuse.md` | 2 |
+| 08 | RC Elimination via Dataflow (Complete) | `section-08-rc-elimination.md` | 2 |
 | 10 | Pattern Match Decision Trees | `section-10-decision-trees.md` | 3 |
 | 11 | LLVM Optimization Passes | `section-11-llvm-passes.md` | 3 |
 | 12 | Incremental & Parallel Codegen | `section-12-incremental-parallel.md` | 3 |
