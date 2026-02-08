@@ -34,6 +34,7 @@
 
 pub mod borrow;
 mod classify;
+pub mod decision_tree;
 pub mod drop;
 pub mod expand_reuse;
 pub mod ir;
@@ -46,6 +47,10 @@ pub mod reset_reuse;
 
 pub use borrow::{apply_borrows, infer_borrows};
 pub use classify::ArcClassifier;
+pub use decision_tree::{
+    DecisionTree, FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestKind,
+    TestValue,
+};
 pub use drop::{
     collect_drop_infos, compute_closure_env_drop, compute_drop_info, DropInfo, DropKind,
 };

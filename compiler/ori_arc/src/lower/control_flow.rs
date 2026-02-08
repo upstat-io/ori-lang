@@ -443,10 +443,14 @@ impl ArcLowerer<'_> {
 
     // ── Match ──────────────────────────────────────────────────
 
-    /// Lower `Match { scrutinee, arms }` — sequential if-else chain.
+    /// Lower `Match { scrutinee, arms }` via Maranget decision trees.
     ///
-    /// Section 10 upgrades this to decision trees. For now, each arm is
-    /// tested in order using `compile_pattern_test`.
+    /// Pipeline: flatten patterns → build matrix → compile tree → emit IR.
+    ///
+    /// 1. Each arm's `MatchPattern` is flattened to a `FlatPattern`.
+    /// 2. The flat patterns form a `PatternMatrix` (one row per arm).
+    /// 3. `compile::compile` produces a `DecisionTree`.
+    /// 4. `emit::emit_tree` walks the tree and emits `Switch`/`Branch` terminators.
     pub(crate) fn lower_match(
         &mut self,
         scrutinee: ExprId,
@@ -465,56 +469,56 @@ impl ArcLowerer<'_> {
         let merge_block = self.builder.new_block();
         let result_param = self.builder.add_block_param(merge_block, ty);
 
-        for (i, arm) in arm_slice.iter().enumerate() {
-            let is_last = i == arm_slice.len() - 1;
+        // Step 1 & 2: Flatten patterns and build the pattern matrix.
+        let matrix = self.build_pattern_matrix(&arm_slice, scrut_ty);
 
-            let is_wildcard = matches!(
-                arm.pattern,
-                ori_ir::MatchPattern::Wildcard | ori_ir::MatchPattern::Binding(_)
-            );
+        // Step 3: Compile the matrix into a decision tree.
+        let tree = crate::decision_tree::compile::compile(matrix, vec![vec![]]);
 
-            if is_wildcard {
-                // Bind if it's a Binding pattern.
-                if let ori_ir::MatchPattern::Binding(name) = &arm.pattern {
-                    self.scope.bind(*name, scrut_var);
-                }
+        // Step 4: Emit ARC IR blocks from the decision tree.
+        let arm_bodies: Vec<ExprId> = arm_slice.iter().map(|a| a.body).collect();
 
-                let body_val = self.lower_expr(arm.body);
-                if !self.builder.is_terminated() {
-                    self.builder.terminate_jump(merge_block, vec![body_val]);
-                }
-                break;
-            }
+        let mut ctx = crate::decision_tree::emit::EmitContext {
+            root_scrutinee: scrut_var,
+            scrutinee_ty: scrut_ty,
+            merge_block,
+            arm_bodies,
+            span,
+        };
 
-            let next_block = if is_last {
-                // Last arm with no wildcard — unreachable after.
-                self.builder.new_block()
-            } else {
-                self.builder.new_block()
-            };
-
-            let test_result = self.compile_pattern_test(&arm.pattern, scrut_var, scrut_ty, span);
-
-            let arm_body_block = self.builder.new_block();
-            self.builder
-                .terminate_branch(test_result, arm_body_block, next_block);
-
-            self.builder.position_at(arm_body_block);
-            self.bind_match_pattern(&arm.pattern, scrut_var);
-            let body_val = self.lower_expr(arm.body);
-            if !self.builder.is_terminated() {
-                self.builder.terminate_jump(merge_block, vec![body_val]);
-            }
-
-            self.builder.position_at(next_block);
-            if is_last {
-                // Default unreachable.
-                self.builder.terminate_unreachable();
-            }
-        }
+        crate::decision_tree::emit::emit_tree(self, &tree, &mut ctx);
 
         self.builder.position_at(merge_block);
         result_param
+    }
+
+    /// Build a `PatternMatrix` from match arms.
+    ///
+    /// Each arm's `MatchPattern` is flattened into a `FlatPattern` using
+    /// type information from the pool. The result is a single-column
+    /// matrix (the root scrutinee column); the Maranget algorithm
+    /// expands columns as it specializes on constructors.
+    fn build_pattern_matrix(
+        &self,
+        arms: &[ori_ir::ast::patterns::MatchArm],
+        scrut_ty: Idx,
+    ) -> crate::decision_tree::PatternMatrix {
+        arms.iter()
+            .enumerate()
+            .map(|(i, arm)| {
+                let flat = crate::decision_tree::flatten::flatten_pattern(
+                    &arm.pattern,
+                    self.arena,
+                    scrut_ty,
+                    self.pool,
+                );
+                crate::decision_tree::PatternRow {
+                    patterns: vec![flat],
+                    arm_index: i,
+                    guard: arm.guard,
+                }
+            })
+            .collect()
     }
 }
 
