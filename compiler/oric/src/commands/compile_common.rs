@@ -16,13 +16,9 @@ use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 #[cfg(feature = "llvm")]
 use ori_diagnostic::queue::DiagnosticQueue;
 #[cfg(feature = "llvm")]
-use ori_ir::ast::TypeDeclKind;
-#[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
 #[cfg(feature = "llvm")]
-use ori_llvm::module::ModuleCompiler;
-#[cfg(feature = "llvm")]
-use ori_types::{Idx, Pool, TypeCheckResult};
+use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult};
 #[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
@@ -105,137 +101,253 @@ pub fn check_source(
     }
 }
 
-/// Compile source to LLVM IR.
+/// Build function signatures aligned with module.functions source order.
 ///
-/// Takes checked parse and type results and generates LLVM IR.
+/// `typed.functions` is sorted by name (for Salsa determinism), while
+/// `module.functions` is in source order. `FunctionCompiler::declare_all`
+/// zips them, so they must be aligned.
+#[cfg(feature = "llvm")]
+fn build_function_sigs(
+    parse_result: &ParseOutput,
+    type_result: &TypeCheckResult,
+) -> Vec<FunctionSig> {
+    let sig_map: std::collections::HashMap<ori_ir::Name, &FunctionSig> = type_result
+        .typed
+        .functions
+        .iter()
+        .map(|ft| (ft.name, ft))
+        .collect();
+
+    parse_result
+        .module
+        .functions
+        .iter()
+        .map(|func| {
+            sig_map
+                .get(&func.name)
+                .copied()
+                .cloned()
+                .unwrap_or_else(|| {
+                    // Fallback for functions without type info (shouldn't happen
+                    // after successful type checking, but be defensive).
+                    FunctionSig {
+                        name: func.name,
+                        type_params: vec![],
+                        param_names: vec![],
+                        param_types: vec![],
+                        return_type: Idx::UNIT,
+                        capabilities: vec![],
+                        is_public: false,
+                        is_test: false,
+                        is_main: false,
+                        type_param_bounds: vec![],
+                        where_clauses: vec![],
+                        generic_param_mapping: vec![],
+                        required_params: 0,
+                    }
+                })
+        })
+        .collect()
+}
+
+/// Compile source to LLVM IR using the V2 codegen pipeline.
+///
+/// Takes checked parse and type results and generates LLVM IR via:
+/// 1. `TypeInfoStore` + `TypeLayoutResolver` for LLVM type computation
+/// 2. `IrBuilder` for instruction emission
+/// 3. `FunctionCompiler` for two-pass declare-then-define compilation
+///
 /// The Pool is required for proper compound type resolution during codegen
 /// (e.g., determining which return types need the sret calling convention).
 #[cfg(feature = "llvm")]
+#[allow(unsafe_code)]
 pub fn compile_to_llvm<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
-    pool: &Pool,
+    pool: &'ctx Pool,
     source_path: &str,
 ) -> ori_llvm::inkwell::module::Module<'ctx> {
-    // Use the interner from the database - Names in the AST reference this interner
+    use ori_llvm::codegen::function_compiler::FunctionCompiler;
+    use ori_llvm::codegen::ir_builder::IrBuilder;
+    use ori_llvm::codegen::runtime_decl;
+    use ori_llvm::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
+    use ori_llvm::codegen::type_registration;
+    use ori_llvm::SimpleCx;
+
+    use std::mem::ManuallyDrop;
+
     let interner = db.interner();
     let module_name = Path::new(source_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("module");
 
-    let compiler = ModuleCompiler::with_pool(context, interner, pool, module_name);
-    compiler.declare_runtime();
+    // We use ManuallyDrop + raw-pointer reborrow to work around a borrow
+    // checker limitation: FunctionCompiler's lifetime parameters tie the
+    // compilation block's borrow of `scx` to the return lifetime, preventing
+    // us from consuming `scx` afterward. The raw-pointer roundtrip creates
+    // a detached reference whose borrow doesn't leak out of the block.
+    // This is sound because `scx` lives for the entire function and the
+    // compilation block's borrows genuinely end at the block boundary.
+    let scx = ManuallyDrop::new(SimpleCx::new(context, module_name));
 
-    // Register user-defined types
-    let module = &parse_result.module;
-    let arena = &parse_result.arena;
-    for type_decl in &module.types {
-        match &type_decl.kind {
-            TypeDeclKind::Struct(fields) => {
-                compiler.register_struct_with_types(type_decl.name, fields, arena);
-            }
-            TypeDeclKind::Sum(variants) => {
-                compiler.register_sum_type_from_decl(type_decl.name, variants);
-            }
-            TypeDeclKind::Newtype(_) => {}
+    // V2 pipeline
+    {
+        // SAFETY: Detached reference to scx — see comment above.
+        let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
+
+        let store = TypeInfoStore::new(pool);
+        let resolver = TypeLayoutResolver::new(&store, scx_ref);
+        let mut builder = IrBuilder::new(scx_ref);
+
+        // 1. Declare runtime functions
+        runtime_decl::declare_runtime(&mut builder);
+
+        // 2. Register user-defined types
+        type_registration::register_user_types(&resolver, &type_result.typed.types);
+
+        // 3. Two-pass function compilation
+        let function_sigs = build_function_sigs(parse_result, type_result);
+        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, interner, pool);
+        fc.declare_all(&parse_result.module.functions, &function_sigs);
+
+        // 4. Compile impl methods
+        if !parse_result.module.impls.is_empty() {
+            fc.compile_impls(
+                &parse_result.module.impls,
+                &type_result.typed.impl_sigs,
+                &parse_result.arena,
+                &type_result.typed.expr_types,
+            );
         }
+
+        // 5. Define all function bodies
+        fc.define_all(
+            &parse_result.module.functions,
+            &function_sigs,
+            &parse_result.arena,
+            &type_result.typed.expr_types,
+        );
     }
 
-    // Compile all functions — expr_types are already Idx, no bridge needed
-    let expr_types = &type_result.typed.expr_types;
-    for func in &module.functions {
-        compiler.compile_function(func, arena, expr_types);
+    // Debug IR output
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        eprintln!("=== LLVM IR for {module_name} ===");
+        eprintln!("{}", scx.llmod.print_to_string().to_string());
+        eprintln!("=== END IR ===");
     }
 
-    compiler.module().clone()
+    // SAFETY: ManuallyDrop is used only to suppress the borrow checker.
+    // The compilation block's borrows have ended; we extract the module
+    // by reading the field (Module implements Clone via LLVMCloneModule).
+    // We can't call into_inner() because SimpleCx has other fields that
+    // would be moved while the ManuallyDrop still exists, so we clone
+    // the module instead.
+    scx.llmod.clone()
 }
 
 /// Compile source to LLVM IR with explicit module name and import declarations.
 ///
-/// This is used for multi-file compilation where:
+/// Uses the V2 codegen pipeline. This is used for multi-file compilation where:
 /// - The module name is explicitly provided for proper symbol mangling
 /// - Imported functions are declared as external symbols
 ///
 /// The Pool is required for proper compound type resolution during codegen.
-///
-/// # Arguments
-///
-/// * `context` - The LLVM context
-/// * `db` - The compiler database
-/// * `parse_result` - Parsed AST
-/// * `type_result` - Type checking results
-/// * `pool` - Type pool for resolving compound types
-/// * `source_path` - Path to the source file
-/// * `module_name` - Explicit module name for symbol mangling
-/// * `imported_functions` - Functions imported from other modules (declared as external)
 #[cfg(feature = "llvm")]
+#[allow(unsafe_code, clippy::too_many_arguments)]
 pub fn compile_to_llvm_with_imports<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
-    pool: &Pool,
+    pool: &'ctx Pool,
     source_path: &str,
     module_name: &str,
     imported_functions: &[ImportedFunctionInfo],
 ) -> ori_llvm::inkwell::module::Module<'ctx> {
-    use ori_llvm::inkwell::types::BasicMetadataTypeEnum;
+    use ori_llvm::codegen::function_compiler::FunctionCompiler;
+    use ori_llvm::codegen::ir_builder::IrBuilder;
+    use ori_llvm::codegen::runtime_decl;
+    use ori_llvm::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
+    use ori_llvm::codegen::type_registration;
+    use ori_llvm::SimpleCx;
 
-    // Use the interner from the database
+    use std::mem::ManuallyDrop;
+
     let interner = db.interner();
 
-    let compiler = ModuleCompiler::with_pool(context, interner, pool, module_name);
-    compiler.declare_runtime();
+    // ManuallyDrop + raw-pointer reborrow — see compile_to_llvm for rationale.
+    let scx = ManuallyDrop::new(SimpleCx::new(context, module_name));
 
-    let cx = compiler.cx();
+    // V2 pipeline
+    {
+        // SAFETY: Detached reference to scx — see compile_to_llvm comment.
+        let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
 
-    // Declare imported functions as external symbols
-    for import_info in imported_functions {
-        // Convert Idx to LLVM types
-        let param_llvm_types: Vec<BasicMetadataTypeEnum<'ctx>> = import_info
-            .param_types
+        let store = TypeInfoStore::new(pool);
+        let resolver = TypeLayoutResolver::new(&store, scx_ref);
+        let mut builder = IrBuilder::new(scx_ref);
+
+        // 1. Declare runtime functions
+        runtime_decl::declare_runtime(&mut builder);
+
+        // 2. Register user-defined types
+        type_registration::register_user_types(&resolver, &type_result.typed.types);
+
+        // 3. Declare imported functions as external symbols
+        let import_sigs: Vec<(ori_ir::Name, FunctionSig)> = imported_functions
             .iter()
-            .map(|&t| cx.llvm_type(t).into())
+            .map(|info| {
+                let name = interner.intern(&info.mangled_name);
+                let sig = FunctionSig {
+                    name,
+                    type_params: vec![],
+                    param_names: vec![],
+                    param_types: info.param_types.clone(),
+                    return_type: info.return_type,
+                    capabilities: vec![],
+                    is_public: false,
+                    is_test: false,
+                    is_main: false,
+                    type_param_bounds: vec![],
+                    where_clauses: vec![],
+                    generic_param_mapping: vec![],
+                    required_params: info.param_types.len(),
+                };
+                (name, sig)
+            })
             .collect();
 
-        let return_llvm_type = if import_info.return_type == Idx::UNIT {
-            None
-        } else {
-            Some(cx.llvm_type(import_info.return_type))
-        };
+        // 4. Two-pass function compilation
+        let function_sigs = build_function_sigs(parse_result, type_result);
+        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, interner, pool);
 
-        cx.declare_external_fn_mangled(
-            &import_info.mangled_name,
-            &param_llvm_types,
-            return_llvm_type,
+        // Declare imports first so they're visible to function bodies
+        fc.declare_imports(&import_sigs);
+        fc.declare_all(&parse_result.module.functions, &function_sigs);
+
+        // 5. Compile impl methods
+        if !parse_result.module.impls.is_empty() {
+            fc.compile_impls(
+                &parse_result.module.impls,
+                &type_result.typed.impl_sigs,
+                &parse_result.arena,
+                &type_result.typed.expr_types,
+            );
+        }
+
+        // 6. Define all function bodies
+        fc.define_all(
+            &parse_result.module.functions,
+            &function_sigs,
+            &parse_result.arena,
+            &type_result.typed.expr_types,
         );
     }
 
-    // Register user-defined types
-    let module = &parse_result.module;
-    let arena = &parse_result.arena;
-    for type_decl in &module.types {
-        match &type_decl.kind {
-            TypeDeclKind::Struct(fields) => {
-                compiler.register_struct_with_types(type_decl.name, fields, arena);
-            }
-            TypeDeclKind::Sum(variants) => {
-                compiler.register_sum_type_from_decl(type_decl.name, variants);
-            }
-            TypeDeclKind::Newtype(_) => {}
-        }
-    }
-
-    // Compile all functions — expr_types are already Idx, no bridge needed
-    let expr_types = &type_result.typed.expr_types;
-    for func in &module.functions {
-        compiler.compile_function(func, arena, expr_types);
-    }
-
-    // Log the source path for debugging (avoids unused variable warning)
+    // Debug output
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         eprintln!(
             "Compiled module '{}' from '{}' with {} imported functions",
@@ -243,7 +355,8 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             source_path,
             imported_functions.len()
         );
+        eprintln!("{}", scx.llmod.print_to_string().to_string());
     }
 
-    compiler.module().clone()
+    scx.llmod.clone()
 }

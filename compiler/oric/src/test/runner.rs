@@ -262,8 +262,8 @@ impl TestRunner {
 
         // Type check with import resolution.
         // Pool is used by the LLVM backend for compound type resolution (sret convention).
-        // Prefixed with _ to suppress unused-variable warning when LLVM feature is disabled.
-        let (type_result, _pool) =
+        #[allow(unused_variables)]
+        let (type_result, pool) =
             typeck::type_check_with_imports_and_pool(&db, &parse_result, path);
 
         // Separate compile_fail tests from regular tests
@@ -398,7 +398,7 @@ impl TestRunner {
                     &mut summary,
                     &parse_result,
                     &type_result,
-                    &_pool,
+                    &pool,
                     &source,
                     interner,
                     config,
@@ -480,7 +480,6 @@ impl TestRunner {
         config: &TestRunnerConfig,
     ) {
         use ori_llvm::evaluator::OwnedLLVMEvaluator;
-        use ori_llvm::FunctionSig;
 
         // Separate compile_fail tests (don't need LLVM) from regular tests
         let (compile_fail_tests, regular_tests): (Vec<_>, Vec<_>) = parse_result
@@ -540,9 +539,10 @@ impl TestRunner {
         // (needed for sret convention on large struct returns like List, Map, etc.)
         let llvm_eval = OwnedLLVMEvaluator::with_pool(pool);
 
-        // Convert function signatures to LLVM format.
-        // Build a name-based lookup map because typed.functions is sorted by name
-        // (for Salsa determinism) while module.functions is in source order.
+        // Build function signatures aligned with module.functions order.
+        // typed.functions is sorted by name (Salsa determinism), but
+        // module.functions is in source order — FunctionCompiler::declare_all
+        // zips them, so they must be aligned.
         let sig_map: std::collections::HashMap<ori_ir::Name, &ori_types::FunctionSig> = type_result
             .typed
             .functions
@@ -550,23 +550,34 @@ impl TestRunner {
             .map(|ft| (ft.name, ft))
             .collect();
 
-        let function_sigs: Vec<FunctionSig> = parse_result
+        let function_sigs: Vec<ori_types::FunctionSig> = parse_result
             .module
             .functions
             .iter()
             .map(|func| {
-                sig_map.get(&func.name).map_or(
-                    FunctionSig {
-                        params: vec![],
-                        return_type: ori_types::Idx::UNIT,
-                        is_generic: false,
-                    },
-                    |ft| FunctionSig {
-                        params: ft.param_types.clone(),
-                        return_type: ft.return_type,
-                        is_generic: ft.is_generic(),
-                    },
-                )
+                sig_map
+                    .get(&func.name)
+                    .copied()
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        // Fallback for functions without type info (shouldn't happen
+                        // after successful type checking, but be defensive).
+                        ori_types::FunctionSig {
+                            name: func.name,
+                            type_params: vec![],
+                            param_names: vec![],
+                            param_types: vec![],
+                            return_type: ori_types::Idx::UNIT,
+                            capabilities: vec![],
+                            is_public: false,
+                            is_test: false,
+                            is_main: false,
+                            type_param_bounds: vec![],
+                            where_clauses: vec![],
+                            generic_param_mapping: vec![],
+                            required_params: 0,
+                        }
+                    })
             })
             .collect();
 
@@ -581,7 +592,8 @@ impl TestRunner {
                 interner,
                 &type_result.typed.expr_types,
                 &function_sigs,
-                &type_result.typed.pattern_resolutions,
+                &type_result.typed.types,
+                &type_result.typed.impl_sigs,
             )
         }));
 

@@ -47,6 +47,14 @@ pub struct Pool {
     /// Hash -> Idx mapping for deduplication.
     intern_map: FxHashMap<u64, Idx>,
 
+    // === Named Type Resolution ===
+    /// Maps Named/Applied Idx -> concrete Struct/Enum Idx.
+    ///
+    /// Populated during type registration to bridge the gap between
+    /// named type references (created by the parser) and their concrete
+    /// Pool definitions (Struct/Enum with full field data).
+    resolutions: FxHashMap<Idx, Idx>,
+
     // === Type Variables ===
     /// State for each type variable.
     var_states: Vec<VarState>,
@@ -97,6 +105,7 @@ impl Pool {
             hashes: Vec::with_capacity(256),
             extra: Vec::with_capacity(1024),
             intern_map: FxHashMap::default(),
+            resolutions: FxHashMap::default(),
             var_states: Vec::new(),
             next_var_id: 0,
         };
@@ -377,8 +386,38 @@ impl Pool {
                 flags
             }
 
-            // Struct and Enum: composite types
-            Tag::Struct | Tag::Enum => TypeFlags::IS_COMPOSITE,
+            // Struct: propagate from field types
+            Tag::Struct => {
+                // extra layout: [name_lo, name_hi, field_count, f0_name, f0_type, ...]
+                let field_count = extra[2] as usize;
+                let mut flags = TypeFlags::IS_COMPOSITE;
+
+                for i in 0..field_count {
+                    let field_type_idx = extra[3 + i * 2 + 1] as usize;
+                    flags |= TypeFlags::propagate_from(self.flags[field_type_idx]);
+                }
+
+                flags
+            }
+
+            // Enum: propagate from variant field types
+            Tag::Enum => {
+                // extra layout: [name_lo, name_hi, variant_count, v0_name, v0_fc, v0_f0, ..., v1_name, ...]
+                let variant_count = extra[2] as usize;
+                let mut flags = TypeFlags::IS_COMPOSITE;
+                let mut offset = 3;
+
+                for _ in 0..variant_count {
+                    let field_count = extra[offset + 1] as usize;
+                    for j in 0..field_count {
+                        let field_type_idx = extra[offset + 2 + j] as usize;
+                        flags |= TypeFlags::propagate_from(self.flags[field_type_idx]);
+                    }
+                    offset += 2 + field_count;
+                }
+
+                flags
+            }
 
             // Named types
             Tag::Named | Tag::Applied | Tag::Alias => TypeFlags::IS_NAMED,
@@ -567,6 +606,18 @@ impl Pool {
         Idx::from_raw(self.data(idx))
     }
 
+    /// Get channel element type.
+    ///
+    /// For `chan<T>`, returns `T`.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not a Channel type.
+    pub fn channel_elem(&self, idx: Idx) -> Idx {
+        debug_assert_eq!(self.tag(idx), Tag::Channel);
+        // Simple container: data field is the child index directly
+        Idx::from_raw(self.data(idx))
+    }
+
     /// Get scheme quantified variable IDs.
     ///
     /// # Panics
@@ -653,6 +704,191 @@ impl Pool {
         // but currently only uses the low 32 bits
         let name_lo = self.extra[extra_idx];
         ori_ir::Name::from_raw(name_lo)
+    }
+
+    // === Named Type Resolution ===
+
+    /// Register a resolution from a Named/Applied type to its concrete definition.
+    ///
+    /// After type registration creates a Pool Struct/Enum entry, this links the
+    /// Named Idx (from `pool.named(name)`) to the concrete Struct/Enum Idx so
+    /// codegen can resolve types without accessing `TypeRegistry`.
+    pub fn set_resolution(&mut self, named: Idx, concrete: Idx) {
+        self.resolutions.insert(named, concrete);
+    }
+
+    /// Resolve a Named/Applied type to its concrete Struct/Enum definition.
+    ///
+    /// Follows resolution chains (e.g., alias -> named -> struct) with a depth
+    /// limit of 16 to prevent infinite loops from cyclic references.
+    ///
+    /// Returns `None` if no resolution exists (e.g., generic type parameters
+    /// that are only resolved during monomorphization).
+    pub fn resolve(&self, idx: Idx) -> Option<Idx> {
+        const MAX_DEPTH: u32 = 16;
+
+        let mut current = idx;
+        for _ in 0..MAX_DEPTH {
+            match self.resolutions.get(&current) {
+                Some(&resolved) => {
+                    // If the resolved type points to itself, stop
+                    if resolved == current {
+                        return Some(resolved);
+                    }
+                    current = resolved;
+                }
+                None => {
+                    // Only return Some if we followed at least one resolution
+                    return if current == idx { None } else { Some(current) };
+                }
+            }
+        }
+
+        // Depth limit hit — return what we have so far
+        tracing::warn!(
+            idx = ?idx,
+            depth = MAX_DEPTH,
+            "Resolution chain depth limit reached"
+        );
+        Some(current)
+    }
+
+    // === Struct Accessors ===
+
+    /// Get the name of a struct type.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not a Struct type.
+    pub fn struct_name(&self, idx: Idx) -> ori_ir::Name {
+        debug_assert_eq!(self.tag(idx), Tag::Struct);
+        let extra_idx = self.data(idx) as usize;
+        let name_lo = self.extra[extra_idx];
+        ori_ir::Name::from_raw(name_lo)
+    }
+
+    /// Get the number of fields in a struct type.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not a Struct type.
+    pub fn struct_field_count(&self, idx: Idx) -> usize {
+        debug_assert_eq!(self.tag(idx), Tag::Struct);
+        let extra_idx = self.data(idx) as usize;
+        self.extra[extra_idx + 2] as usize
+    }
+
+    /// Get a single struct field by index.
+    ///
+    /// Returns `(field_name, field_type)`.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not a Struct type or `field_idx` is out of bounds.
+    pub fn struct_field(&self, idx: Idx, field_idx: usize) -> (ori_ir::Name, Idx) {
+        debug_assert_eq!(self.tag(idx), Tag::Struct);
+        let extra_idx = self.data(idx) as usize;
+        let count = self.extra[extra_idx + 2] as usize;
+        debug_assert!(field_idx < count);
+        // Fields start at offset 3, each field is 2 words: [name, type]
+        let field_offset = extra_idx + 3 + field_idx * 2;
+        let name = ori_ir::Name::from_raw(self.extra[field_offset]);
+        let ty = Idx::from_raw(self.extra[field_offset + 1]);
+        (name, ty)
+    }
+
+    /// Get all struct fields as a Vec of `(Name, Idx)` pairs.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not a Struct type.
+    pub fn struct_fields(&self, idx: Idx) -> Vec<(ori_ir::Name, Idx)> {
+        debug_assert_eq!(self.tag(idx), Tag::Struct);
+        let extra_idx = self.data(idx) as usize;
+        let count = self.extra[extra_idx + 2] as usize;
+
+        (0..count)
+            .map(|i| {
+                let field_offset = extra_idx + 3 + i * 2;
+                let name = ori_ir::Name::from_raw(self.extra[field_offset]);
+                let ty = Idx::from_raw(self.extra[field_offset + 1]);
+                (name, ty)
+            })
+            .collect()
+    }
+
+    // === Enum Accessors ===
+
+    /// Get the name of an enum type.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not an Enum type.
+    pub fn enum_name(&self, idx: Idx) -> ori_ir::Name {
+        debug_assert_eq!(self.tag(idx), Tag::Enum);
+        let extra_idx = self.data(idx) as usize;
+        let name_lo = self.extra[extra_idx];
+        ori_ir::Name::from_raw(name_lo)
+    }
+
+    /// Get the number of variants in an enum type.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not an Enum type.
+    pub fn enum_variant_count(&self, idx: Idx) -> usize {
+        debug_assert_eq!(self.tag(idx), Tag::Enum);
+        let extra_idx = self.data(idx) as usize;
+        self.extra[extra_idx + 2] as usize
+    }
+
+    /// Get a single enum variant by index.
+    ///
+    /// Returns `(variant_name, field_types)`.
+    ///
+    /// Walks the variable-length variant data (O(n) in variant index).
+    ///
+    /// # Panics
+    /// Panics if `idx` is not an Enum type or `variant_idx` is out of bounds.
+    pub fn enum_variant(&self, idx: Idx, variant_idx: usize) -> (ori_ir::Name, Vec<Idx>) {
+        debug_assert_eq!(self.tag(idx), Tag::Enum);
+        let extra_idx = self.data(idx) as usize;
+        let count = self.extra[extra_idx + 2] as usize;
+        debug_assert!(variant_idx < count);
+
+        // Walk through variants to find the requested one
+        let mut offset = extra_idx + 3;
+        for _ in 0..variant_idx {
+            let field_count = self.extra[offset + 1] as usize;
+            offset += 2 + field_count; // skip name + field_count + field types
+        }
+
+        let name = ori_ir::Name::from_raw(self.extra[offset]);
+        let field_count = self.extra[offset + 1] as usize;
+        let fields = (0..field_count)
+            .map(|i| Idx::from_raw(self.extra[offset + 2 + i]))
+            .collect();
+
+        (name, fields)
+    }
+
+    /// Get all enum variants as a Vec of `(Name, Vec<Idx>)` pairs.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not an Enum type.
+    pub fn enum_variants(&self, idx: Idx) -> Vec<(ori_ir::Name, Vec<Idx>)> {
+        debug_assert_eq!(self.tag(idx), Tag::Enum);
+        let extra_idx = self.data(idx) as usize;
+        let count = self.extra[extra_idx + 2] as usize;
+
+        let mut result = Vec::with_capacity(count);
+        let mut offset = extra_idx + 3;
+
+        for _ in 0..count {
+            let name = ori_ir::Name::from_raw(self.extra[offset]);
+            let field_count = self.extra[offset + 1] as usize;
+            let fields = (0..field_count)
+                .map(|i| Idx::from_raw(self.extra[offset + 2 + i]))
+                .collect();
+            result.push((name, fields));
+            offset += 2 + field_count;
+        }
+
+        result
     }
 }
 

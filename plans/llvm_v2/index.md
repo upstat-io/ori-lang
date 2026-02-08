@@ -12,7 +12,7 @@
 ## Keyword Clusters by Section
 
 ### Section 01: TypeInfo Enum & Core Type Implementations
-**File:** `section-01-type-info.md` | **Status:** Not Started
+**File:** `section-01-type-info.md` | **Status:** Complete
 
 ```
 TypeInfo, type lowering, LLVM type, type representation
@@ -35,7 +35,7 @@ Zig lowerType, TypeMap
 ```
 
 ### Section 02: IrBuilder & ID-Based Value System
-**File:** `section-02-ir-builder.md` | **Status:** Not Started
+**File:** `section-02-ir-builder.md` | **Status:** Complete
 
 ```
 IrBuilder, builder, instruction emission, inkwell wrapper
@@ -58,7 +58,7 @@ ScopeBinding, Immutable, Mutable, im crate, persistent HashMap
 ```
 
 ### Section 03: Expression Lowering Modules
-**File:** `section-03-expr-lowering.md` | **Status:** Not Started
+**File:** `section-03-expr-lowering.md` | **Status:** Complete
 
 ```
 expression lowering, compile_expr, ExprKind dispatch
@@ -89,7 +89,7 @@ Gleam struct-per-backend, Go pass pipeline
 ```
 
 ### Section 04: Function Declaration & Calling Conventions
-**File:** `section-04-functions-abi.md` | **Status:** Not Started
+**File:** `section-04-functions-abi.md` | **Status:** In Progress (04.1–04.3 done, legacy code deleted)
 
 ```
 function declaration, function definition, FunctionSig, ParamSig, ReturnSig

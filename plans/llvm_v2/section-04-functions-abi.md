@@ -1,18 +1,18 @@
 ---
 section: "04"
 title: Function Declaration & Calling Conventions
-status: not-started
+status: in-progress
 goal: Systematic ABI handling using TypeInfo-driven calling conventions, replacing ad-hoc sret threshold
 sections:
   - id: "04.1"
     title: Two-Pass Function Compilation
-    status: not-started
+    status: done
   - id: "04.2"
     title: TypeInfo-Driven Calling Conventions
-    status: not-started
+    status: done
   - id: "04.3"
     title: Calling Convention Selection
-    status: not-started
+    status: done
   - id: "04.4"
     title: Closure & Lambda Compilation
     status: not-started
@@ -29,7 +29,7 @@ sections:
 
 # Section 04: Function Declaration & Calling Conventions
 
-**Status:** Not Started
+**Status:** In Progress (04.1–04.3 done, legacy code deleted)
 **Goal:** TypeInfo-driven function signature lowering where the calling convention is computed from type properties, not ad-hoc checks. Batch declare-then-define compilation. Fat-pointer closures replacing tagged i64 model. `fastcc` for internal functions.
 
 **Reference compilers:**
@@ -84,10 +84,10 @@ impl FunctionCompiler<'_, '_> {
 }
 ```
 
-- [ ] Implement declare phase with signature computation
-- [ ] Implement define phase with body compilation
-- [ ] Handle recursive functions (already declared before definition)
-- [ ] Handle function-level attributes (inline, cold, etc.)
+- [x] Implement declare phase with signature computation ✅ (2026-02-08)
+- [x] Implement define phase with body compilation ✅ (2026-02-08)
+- [x] Handle recursive functions (already declared before definition) ✅ (2026-02-08)
+- [x] Handle function-level attributes (inline, cold, etc.) ✅ (2026-02-08)
 
 ## 04.2 TypeInfo-Driven Calling Conventions
 
@@ -231,11 +231,11 @@ For parameters exceeding 16 bytes (>2 fields for Ori structs):
 
 This matches the sret threshold for consistency: same 16-byte boundary for both parameters and returns.
 
-- [ ] Implement `compute_signature()` using TypeInfo
-- [ ] Implement parameter marshaling (direct vs indirect/byval)
-- [ ] Implement return value handling (direct vs sret)
+- [x] Implement `compute_signature()` using TypeInfo ✅ (2026-02-08, `abi.rs::compute_function_abi`)
+- [x] Implement parameter marshaling (direct vs indirect/byval) ✅ (2026-02-08, `abi.rs::compute_param_passing`)
+- [x] Implement return value handling (direct vs sret) ✅ (2026-02-08, `abi.rs::compute_return_passing`)
 - [ ] Handle variadic functions (future)
-- [ ] Handle method receivers (self parameter)
+- [x] Handle method receivers (self parameter) ✅ (2026-02-08, `function_compiler.rs::compile_impls`)
 
 ## 04.3 Calling Convention Selection
 
@@ -275,8 +275,8 @@ fn select_calling_convention(func: &Function, interner: &StringInterner) -> Call
 }
 ```
 
-- [ ] Set `fastcc` on internal Ori function declarations
-- [ ] Keep `ccc` for `@main`, `@panic`, FFI, and runtime functions
+- [x] Set `fastcc` on internal Ori function declarations ✅ (2026-02-08, `abi.rs::select_call_conv`)
+- [x] Keep `ccc` for `@main`, `@panic`, FFI, and runtime functions ✅ (2026-02-08)
 - [ ] Verify tail call optimization works with `fastcc` + `musttail`
 
 ## 04.4 Closure & Lambda Compilation

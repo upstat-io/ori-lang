@@ -108,6 +108,13 @@ pub struct TypedModule {
     /// Only patterns that were resolved are stored — unresolved bindings are
     /// normal variable bindings and have no entry.
     pub pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
+
+    /// Impl method signatures for codegen.
+    ///
+    /// Each entry maps a method name to its resolved `FunctionSig`. Codegen
+    /// needs these to compute ABI (calling convention, sret, parameter passing)
+    /// for impl methods, which are compiled separately from top-level functions.
+    pub impl_sigs: Vec<(Name, FunctionSig)>,
 }
 
 impl TypedModule {
@@ -124,6 +131,7 @@ impl TypedModule {
             types: Vec::new(),
             errors: Vec::new(),
             pattern_resolutions: Vec::new(),
+            impl_sigs: Vec::new(),
         }
     }
 

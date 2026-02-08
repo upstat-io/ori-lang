@@ -18,6 +18,9 @@ ori_types = { path = "../ori_types" }
 # Fast hash map for compiler internals
 rustc-hash = "2.1"
 
+# Persistent (immutable) data structures for O(1)-clone scope nesting
+im = "15"
+
 # Debug instrumentation
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

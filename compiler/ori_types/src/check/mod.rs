@@ -168,6 +168,14 @@ pub struct ModuleChecker<'a> {
     // === Pattern Resolutions ===
     /// Accumulated pattern resolutions from all checked bodies.
     pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
+
+    // === Impl Method Signatures ===
+    /// Accumulated impl method signatures for codegen.
+    ///
+    /// Built during `check_impl_bodies` — each `(Name, FunctionSig)` pair
+    /// maps an impl method name to its resolved signature. Codegen needs
+    /// these to compute ABI (calling convention, sret, parameter passing).
+    impl_sigs: Vec<(Name, FunctionSig)>,
 }
 
 impl<'a> ModuleChecker<'a> {
@@ -192,6 +200,7 @@ impl<'a> ModuleChecker<'a> {
             const_types: FxHashMap::default(),
             errors: Vec::new(),
             pattern_resolutions: Vec::new(),
+            impl_sigs: Vec::new(),
         }
     }
 
@@ -224,6 +233,7 @@ impl<'a> ModuleChecker<'a> {
             const_types: FxHashMap::default(),
             errors: Vec::new(),
             pattern_resolutions: Vec::new(),
+            impl_sigs: Vec::new(),
         }
     }
 
@@ -301,6 +311,11 @@ impl<'a> ModuleChecker<'a> {
     /// for later call resolution during body checking.
     pub fn register_signature(&mut self, sig: FunctionSig) {
         self.signatures.insert(sig.name, sig);
+    }
+
+    /// Store an impl method signature for codegen.
+    pub fn register_impl_sig(&mut self, name: Name, sig: FunctionSig) {
+        self.impl_sigs.push((name, sig));
     }
 
     /// Get all registered signatures.
@@ -656,6 +671,7 @@ impl<'a> ModuleChecker<'a> {
             types,
             errors: self.errors,
             pattern_resolutions,
+            impl_sigs: self.impl_sigs,
         };
 
         TypeCheckResult::from_typed(typed)
@@ -686,6 +702,7 @@ impl<'a> ModuleChecker<'a> {
             types,
             errors: self.errors,
             pattern_resolutions,
+            impl_sigs: self.impl_sigs,
         };
 
         (TypeCheckResult::from_typed(typed), pool)

@@ -29,7 +29,7 @@ use rustc_hash::FxHashSet;
 
 use super::registration::{resolve_parsed_type_simple, resolve_type_with_self};
 use super::ModuleChecker;
-use crate::{check_expr, infer_expr, ContextKind, Expected, ExpectedOrigin, Idx};
+use crate::{check_expr, infer_expr, ContextKind, Expected, ExpectedOrigin, FunctionSig, Idx};
 
 // ============================================================================
 // Pass 2: Function Body Checking
@@ -342,6 +342,26 @@ fn check_impl_method(
         checker.push_error(error);
     }
     checker.pattern_resolutions.extend(pat_resolutions);
+
+    // Export impl method signature for codegen.
+    // Codegen needs param_types, return_type, and type_params to compute ABI.
+    let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
+    let sig = FunctionSig {
+        name: method.name,
+        type_params: type_params.to_vec(),
+        param_names,
+        param_types,
+        return_type,
+        capabilities: vec![],
+        is_public: false,
+        is_test: false,
+        is_main: false,
+        type_param_bounds: vec![],
+        where_clauses: vec![],
+        generic_param_mapping: vec![],
+        required_params: params.len(),
+    };
+    checker.register_impl_sig(method.name, sig);
 }
 
 // ============================================================================
