@@ -35,7 +35,7 @@ pub use item::Item;
 pub use output::{
     FnWhereClause, FunctionSig, PatternKey, PatternResolution, TypeCheckResult, TypedModule,
 };
-pub use pool::{Pool, VarState, DEFAULT_RANK};
+pub use pool::{EnumVariant, Pool, VarState, DEFAULT_RANK};
 pub use registry::{
     // Method registry
     BuiltinMethod,

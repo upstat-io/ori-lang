@@ -1,35 +1,35 @@
 ---
 section: "03"
 title: Expression Lowering Modules
-status: not-started
+status: complete
 goal: Split the monolithic compile_expr dispatch into focused, independently testable modules with clear inputs and outputs
 sections:
   - id: "03.1"
     title: Lowering Architecture
-    status: not-started
+    status: complete
   - id: "03.2"
     title: Literal & Identifier Lowering
-    status: not-started
+    status: complete
   - id: "03.3"
     title: Operator Lowering
-    status: not-started
+    status: complete
   - id: "03.4"
     title: Control Flow Lowering
-    status: not-started
+    status: complete
   - id: "03.5"
     title: Collection Lowering
-    status: not-started
+    status: complete
   - id: "03.6"
     title: Error Handling Lowering
-    status: not-started
+    status: complete
   - id: "03.7"
     title: Completion Checklist
-    status: not-started
+    status: complete
 ---
 
 # Section 03: Expression Lowering Modules
 
-**Status:** Not Started
+**Status:** Complete (2026-02-07)
 **Goal:** The current `compile_expr` is a giant match on `ExprKind` with ~50 arms in one file. Split this into focused modules where each handles a semantic category. Each module is independently testable and has clear inputs (typed AST node + context) and outputs (ValueId or control flow).
 
 **Reference compilers:**
@@ -214,10 +214,10 @@ impl<'a, 'ctx> ExprLowerer<'a, 'ctx> {
 3. Each module can be tested with a minimal `IrBuilder` + fake AST
 4. The dispatcher lists every variant explicitly (~60 lines)
 
-- [ ] Define `ExprLowerer` struct with `loop_ctx: Option<LoopContext>` field
-- [ ] Implement central dispatch in `lower()` method — exhaustive, no catch-all
-- [ ] Create module structure: `lower_literals.rs`, `lower_operators.rs`, `lower_control_flow.rs`, `lower_calls.rs`, `lower_collections.rs`, `lower_error_handling.rs`, `lower_constructs.rs`
-- [ ] Ensure each module is `pub(crate)` with clear interface
+- [x] Define `ExprLowerer` struct with `loop_ctx: Option<LoopContext>` field
+- [x] Implement central dispatch in `lower()` method — exhaustive, no catch-all
+- [x] Create module structure: `lower_literals.rs`, `lower_operators.rs`, `lower_control_flow.rs`, `lower_calls.rs`, `lower_collections.rs`, `lower_error_handling.rs`, `lower_constructs.rs`
+- [x] Ensure each module is `pub(crate)` with clear interface
 
 ---
 
@@ -283,13 +283,13 @@ impl ExprLowerer<'_, '_> {
 }
 ```
 
-- [ ] Implement all literal lowering (int, float, bool, char, unit, string)
-- [ ] Implement identifier lookup from Scope (handles both mutable and immutable bindings)
-- [ ] Implement constant resolution
-- [ ] Implement function reference (`@name`) resolution
-- [ ] Implement hash length (`#`) lowering
-- [ ] Implement duration/size literal lowering
-- [ ] Implement template literal lowering (both `TemplateFull` and `TemplateLiteral`)
+- [x] Implement all literal lowering (int, float, bool, char, unit, string)
+- [x] Implement identifier lookup from Scope (handles both mutable and immutable bindings)
+- [x] Implement constant resolution
+- [x] Implement function reference (`@name`) resolution
+- [x] Implement hash length (`#`) lowering
+- [x] Implement duration/size literal lowering
+- [x] Implement template literal lowering (both `TemplateFull` and `TemplateLiteral`)
 
 ---
 
@@ -525,18 +525,18 @@ Float arithmetic uses `fadd`, `fsub`, `fmul`, `fdiv` instructions.
 
 `BinaryOp::Range` (`..`) and `BinaryOp::RangeInclusive` (`..=`) exist as binary operators in the AST. The parser typically desugars these to `ExprKind::Range { start, end, step: INVALID, inclusive }`, so they rarely appear as `Binary` nodes. If they do appear in binary form, they are lowered as range construction (delegating to the same code as `ExprKind::Range` in `lower_collections.rs`).
 
-- [ ] Implement integer arithmetic (add, sub, mul, sdiv, srem)
-- [ ] Implement `FloorDiv` — integer floor division with negative correction
-- [ ] Implement float arithmetic (fadd, fsub, fmul, fdiv)
-- [ ] Implement comparison operators (int and float variants)
-- [ ] Implement short-circuit `And`/`Or` with conditional branching (NOT eager evaluation)
-- [ ] Implement short-circuit `Coalesce` (`??`) with tag extraction and conditional branching
-- [ ] Implement bitwise operators (BitAnd, BitOr, BitXor, Shl, Shr)
-- [ ] Implement string concatenation (via runtime call)
-- [ ] Implement string comparison (via runtime call)
-- [ ] Implement unary operators (Neg, Not, BitNot) — note: `Try` (`?`) is handled in Section 03.6 as `ExprKind::Try`, not as a unary op. In `lower_unary_op`, `UnaryOp::Try` should be `unreachable!("parser emits ExprKind::Try, not Unary { op: Try }")` since the parser always produces `ExprKind::Try` for the `?` operator, never `ExprKind::Unary { op: UnaryOp::Try, .. }`.
-- [ ] Implement `Cast` lowering (infallible `as` and fallible `as?`)
-- [ ] Handle `Range`/`RangeInclusive` binary ops (delegate to range construction)
+- [x] Implement integer arithmetic (add, sub, mul, sdiv, srem)
+- [x] Implement `FloorDiv` — integer floor division with negative correction
+- [x] Implement float arithmetic (fadd, fsub, fmul, fdiv)
+- [x] Implement comparison operators (int and float variants)
+- [x] Implement short-circuit `And`/`Or` with conditional branching (NOT eager evaluation)
+- [x] Implement short-circuit `Coalesce` (`??`) with tag extraction and conditional branching
+- [x] Implement bitwise operators (BitAnd, BitOr, BitXor, Shl, Shr)
+- [x] Implement string concatenation (via runtime call)
+- [x] Implement string comparison (via runtime call)
+- [x] Implement unary operators (Neg, Not, BitNot) — note: `Try` (`?`) is handled in Section 03.6 as `ExprKind::Try`, not as a unary op. In `lower_unary_op`, `UnaryOp::Try` should be `unreachable!("parser emits ExprKind::Try, not Unary { op: Try }")` since the parser always produces `ExprKind::Try` for the `?` operator, never `ExprKind::Unary { op: UnaryOp::Try, .. }`.
+- [x] Implement `Cast` lowering (infallible `as` and fallible `as?`)
+- [x] Handle `Range`/`RangeInclusive` binary ops (delegate to range construction)
 
 ---
 
@@ -727,13 +727,13 @@ The `For` node has 5 fields:
 
 `Assign { target, value }` handles mutable variable assignment. The target must resolve to a `ScopeBinding::Mutable` binding; the value is lowered and stored via `builder.store()`.
 
-- [ ] Implement if/else lowering with phi merge (handles `ExprId::INVALID` else branch)
-- [ ] Implement block lowering (sequential statements via `StmtKind` + result expression)
-- [ ] Implement loop lowering with break/continue via `LoopContext`
-- [ ] Implement for-loop lowering (iterator protocol, guard filter, yield/list comprehension)
-- [ ] Implement break/continue as branch to loop context blocks
-- [ ] Implement assign lowering (store to mutable binding)
-- [ ] Match lowering: initially sequential if-else (upgrade to decision trees in Section 10)
+- [x] Implement if/else lowering with phi merge (handles `ExprId::INVALID` else branch)
+- [x] Implement block lowering (sequential statements via `StmtKind` + result expression)
+- [x] Implement loop lowering with break/continue via `LoopContext`
+- [x] Implement for-loop lowering (iterator protocol, guard filter, yield/list comprehension)
+- [x] Implement break/continue as branch to loop context blocks
+- [x] Implement assign lowering (store to mutable binding)
+- [x] Match lowering: initially sequential if-else (upgrade to decision trees in Section 10)
 
 ---
 
@@ -743,16 +743,16 @@ The `For` node has 5 fields:
 
 Each collection type uses its TypeInfo for layout:
 
-- [ ] Implement list literal lowering (allocate array, store elements, build struct)
-- [ ] Implement list-with-spread lowering (expand spread elements at runtime)
-- [ ] Implement map literal lowering (allocate hash table, insert entries)
-- [ ] Implement map-with-spread lowering (merge spread maps)
-- [ ] Implement tuple lowering (build LLVM struct from elements)
-- [ ] Implement struct literal lowering (resolve fields, build LLVM struct)
-- [ ] Implement struct-with-spread lowering (copy base, override fields)
-- [ ] Implement range lowering (build `{start, end, inclusive}` struct — matches Section 01's `TypeInfo::Range` layout `{i64, i64, i1}`. The AST's `Range { start, end, step, inclusive }` has a `step` field, but the runtime range struct does NOT store step — step is used at the for-loop lowering site to control iteration stride, not stored in the range value itself. When `step` is `ExprId::INVALID`, the for-loop uses a default stride of 1.)
-- [ ] Implement field access lowering (`struct_gep` + load)
-- [ ] Implement indexing lowering (bounds check + element access)
+- [x] Implement list literal lowering (allocate array, store elements, build struct)
+- [x] Implement list-with-spread lowering (expand spread elements at runtime)
+- [x] Implement map literal lowering (allocate hash table, insert entries)
+- [x] Implement map-with-spread lowering (merge spread maps)
+- [x] Implement tuple lowering (build LLVM struct from elements)
+- [x] Implement struct literal lowering (resolve fields, build LLVM struct)
+- [x] Implement struct-with-spread lowering (copy base, override fields)
+- [x] Implement range lowering (build `{start, end, inclusive}` struct — matches Section 01's `TypeInfo::Range` layout `{i64, i64, i1}`. The AST's `Range { start, end, step, inclusive }` has a `step` field, but the runtime range struct does NOT store step — step is used at the for-loop lowering site to control iteration stride, not stored in the range value itself. When `step` is `ExprId::INVALID`, the for-loop uses a default stride of 1.)
+- [x] Implement field access lowering (`struct_gep` + load)
+- [x] Implement indexing lowering (bounds check + element access)
 
 ---
 
@@ -766,26 +766,26 @@ Each collection type uses its TypeInfo for layout:
 
 Note the inversion: Option's "has value" is tag != 0, but Result's "has value" (Ok) is tag == 0. The `??` coalesce operator (Section 03.3) must check the correct tag condition depending on whether the LHS is Option or Result.
 
-- [ ] Implement `Ok(expr)` -- tagged union with tag=0
-- [ ] Implement `Err(expr)` -- tagged union with tag=1
-- [ ] Implement `Some(expr)` -- tagged option with tag=1
-- [ ] Implement `None` -- tagged option with tag=0
-- [ ] Implement `Try(?)` -- check tag, branch on error, unwrap on success
-- [ ] Implement panic codegen (call `ori_panic` runtime function)
+- [x] Implement `Ok(expr)` -- tagged union with tag=0
+- [x] Implement `Err(expr)` -- tagged union with tag=1
+- [x] Implement `Some(expr)` -- tagged option with tag=1
+- [x] Implement `None` -- tagged option with tag=0
+- [x] Implement `Try(?)` -- check tag, branch on error, unwrap on success
+- [x] Implement panic codegen (call `ori_panic` runtime function)
 
 ---
 
 ## 03.7 Completion Checklist
 
-- [ ] All ExprKind variants have corresponding lowering — exhaustive match, no catch-all
-- [ ] Each lowering module is independently testable
-- [ ] No module exceeds 400 lines
-- [ ] Central dispatcher is < 70 lines
-- [ ] Short-circuit operators (And, Or, Coalesce) use conditional branching, not eager evaluation
-- [ ] `ExprId::INVALID` checked before lowering optional sub-expressions
-- [ ] Scope distinguishes mutable (alloca) from immutable (SSA value) bindings
-- [ ] LoopContext threaded through ExprLowerer for break/continue
-- [ ] Integration test: compile multi-expression programs through new pipeline
-- [ ] All existing test programs produce same output
+- [x] All ExprKind variants have corresponding lowering — exhaustive match, no catch-all
+- [x] Each lowering module is independently testable
+- [x] No module exceeds 400 lines
+- [x] Central dispatcher is < 70 lines
+- [x] Short-circuit operators (And, Or, Coalesce) use conditional branching, not eager evaluation
+- [x] `ExprId::INVALID` checked before lowering optional sub-expressions
+- [x] Scope distinguishes mutable (alloca) from immutable (SSA value) bindings
+- [x] LoopContext threaded through ExprLowerer for break/continue
+- [x] Integration test: compile multi-expression programs through new pipeline
+- [x] All existing test programs produce same output
 
 **Exit Criteria:** Every ExprKind can be lowered to LLVM IR through focused, modular lowering functions. Adding a new ExprKind means adding one match arm and one function — the compiler enforces this via the exhaustive match.

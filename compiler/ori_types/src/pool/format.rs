@@ -201,8 +201,20 @@ impl Pool {
             }
 
             Tag::Alias => buf.push_str("<alias>"),
-            Tag::Struct => buf.push_str("<struct>"),
-            Tag::Enum => buf.push_str("<enum>"),
+            Tag::Struct => {
+                let extra_idx = self.data(idx) as usize;
+                let name_lo = self.extra[extra_idx];
+                let name_hi = self.extra[extra_idx + 1];
+                let name_bits = u64::from(name_lo) | (u64::from(name_hi) << 32);
+                buf.push_str(&format!("Struct#{name_bits}"));
+            }
+            Tag::Enum => {
+                let extra_idx = self.data(idx) as usize;
+                let name_lo = self.extra[extra_idx];
+                let name_hi = self.extra[extra_idx + 1];
+                let name_bits = u64::from(name_lo) | (u64::from(name_hi) << 32);
+                buf.push_str(&format!("Enum#{name_bits}"));
+            }
             Tag::Projection => buf.push_str("<projection>"),
             Tag::ModuleNs => buf.push_str("<module>"),
             Tag::Infer => buf.push_str("<infer>"),
@@ -291,6 +303,14 @@ impl Pool {
                 }
                 buf.push_str(". ");
                 self.format_type_into_resolved(body, interner, buf);
+            }
+            Tag::Struct => {
+                let name = self.struct_name(idx);
+                buf.push_str(interner.lookup(name));
+            }
+            Tag::Enum => {
+                let name = self.enum_name(idx);
+                buf.push_str(interner.lookup(name));
             }
             // Leaf types — no children to recurse into
             _ => self.format_type_into(idx, buf),

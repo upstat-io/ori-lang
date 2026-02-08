@@ -1,26 +1,9 @@
-//! Tests for `LLVMEvaluator` and `OwnedLLVMEvaluator`.
+//! Tests for `OwnedLLVMEvaluator` and evaluator types.
 
-use inkwell::context::Context;
-use ori_ir::ast::{Expr, ExprKind, Module, Visibility};
-use ori_ir::{ExprArena, Function, GenericParamRange, ParamRange, Span, StringInterner};
-use ori_types::Idx;
+use ori_ir::StringInterner;
+use ori_types::Pool;
 
-use crate::evaluator::{FunctionSig, LLVMEvalError, LLVMEvaluator, LLVMValue, OwnedLLVMEvaluator};
-
-/// Helper to create an empty Module for tests.
-fn empty_module() -> Module {
-    Module {
-        imports: vec![],
-        consts: vec![],
-        functions: vec![],
-        tests: vec![],
-        types: vec![],
-        traits: vec![],
-        impls: vec![],
-        extends: vec![],
-        def_impls: vec![],
-    }
-}
+use crate::evaluator::{LLVMEvalError, LLVMValue, OwnedLLVMEvaluator};
 
 #[test]
 fn test_llvm_value_debug() {
@@ -71,213 +54,37 @@ fn test_llvm_eval_error_from_string() {
 }
 
 #[test]
-fn test_llvm_evaluator_new() {
-    let context = Context::create();
-    let interner = StringInterner::new();
-    let evaluator = LLVMEvaluator::new(&context, &interner);
-
-    // Verify it was created (no panic)
+fn test_owned_llvm_evaluator_with_pool() {
+    let pool = Pool::new();
+    let evaluator = OwnedLLVMEvaluator::with_pool(&pool);
     drop(evaluator);
 }
 
 #[test]
-fn test_llvm_evaluator_register_prelude() {
-    let context = Context::create();
+fn test_compile_module_with_tests_empty() {
+    let pool = Pool::new();
+    let evaluator = OwnedLLVMEvaluator::with_pool(&pool);
     let interner = StringInterner::new();
-    let mut evaluator = LLVMEvaluator::new(&context, &interner);
 
-    // Should not panic
-    evaluator.register_prelude();
-}
-
-#[test]
-fn test_llvm_evaluator_load_module() {
-    let context = Context::create();
-    let interner = StringInterner::new();
-    let mut evaluator = LLVMEvaluator::new(&context, &interner);
-
-    let mut arena = ExprArena::new();
-
-    // Create a simple module with one function
-    let body = arena.alloc_expr(Expr {
-        kind: ExprKind::Int(42),
-        span: Span::new(0, 1),
-    });
-
-    let func_name = interner.intern("test_func");
-    let func = Function {
-        name: func_name,
-        generics: GenericParamRange::EMPTY,
-        params: ParamRange::EMPTY,
-        return_ty: None,
-        capabilities: vec![],
-        where_clauses: vec![],
-        guard: None,
-        body,
-        span: Span::new(0, 1),
-        visibility: Visibility::Private,
+    let module = ori_ir::ast::Module {
+        imports: vec![],
+        consts: vec![],
+        functions: vec![],
+        tests: vec![],
+        types: vec![],
+        traits: vec![],
+        impls: vec![],
+        extends: vec![],
+        def_impls: vec![],
     };
 
-    let mut module = empty_module();
-    module.functions.push(func);
+    let arena = ori_ir::ExprArena::new();
+    let result =
+        evaluator.compile_module_with_tests(&module, &[], &arena, &interner, &[], &[], &[], &[]);
 
-    let result = evaluator.load_module(&module, &arena);
-    assert!(result.is_ok(), "load_module should succeed");
-}
-
-#[test]
-fn test_llvm_evaluator_eval_simple() {
-    let context = Context::create();
-    let interner = StringInterner::new();
-    let evaluator = LLVMEvaluator::new(&context, &interner);
-
-    let mut arena = ExprArena::new();
-    let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Int(42),
-        span: Span::new(0, 1),
-    });
-
-    let result = evaluator.eval(expr, &arena);
-    assert!(result.is_ok(), "eval should succeed");
-    assert_eq!(result.unwrap(), LLVMValue::Void);
-}
-
-#[test]
-fn test_owned_llvm_evaluator_new() {
-    let evaluator = OwnedLLVMEvaluator::new();
-    drop(evaluator);
-}
-
-#[test]
-fn test_owned_llvm_evaluator_default() {
-    let evaluator = OwnedLLVMEvaluator::default();
-    drop(evaluator);
-}
-
-#[test]
-fn test_owned_llvm_evaluator_load_module() {
-    let mut evaluator = OwnedLLVMEvaluator::new();
-    let interner = StringInterner::new();
-
-    let mut arena = ExprArena::new();
-
-    let body = arena.alloc_expr(Expr {
-        kind: ExprKind::Int(42),
-        span: Span::new(0, 1),
-    });
-
-    let func_name = interner.intern("test_func");
-    let func = Function {
-        name: func_name,
-        generics: GenericParamRange::EMPTY,
-        params: ParamRange::EMPTY,
-        return_ty: None,
-        capabilities: vec![],
-        where_clauses: vec![],
-        guard: None,
-        body,
-        span: Span::new(0, 1),
-        visibility: Visibility::Private,
-    };
-
-    let mut module = empty_module();
-    module.functions.push(func);
-
-    let result = evaluator.load_module(&module, &arena);
-    assert!(result.is_ok(), "load_module should succeed");
-}
-
-#[test]
-fn test_owned_llvm_evaluator_eval_test() {
-    let evaluator = OwnedLLVMEvaluator::new();
-    let interner = StringInterner::new();
-
-    let mut arena = ExprArena::new();
-
-    // Create a test body: just return unit
-    let test_body = arena.alloc_expr(Expr {
-        kind: ExprKind::Unit,
-        span: Span::new(0, 1),
-    });
-
-    let test_name = interner.intern("my_test");
-
-    let module = empty_module();
-
-    let expr_types = vec![Idx::UNIT];
-    let function_sigs = vec![];
-
-    let result = evaluator.eval_test(
-        test_name,
-        test_body,
-        &arena,
-        &module,
-        &interner,
-        &expr_types,
-        &function_sigs,
-    );
-
-    assert!(result.is_ok(), "eval_test should succeed");
-    assert_eq!(result.unwrap(), LLVMValue::Void);
-}
-
-#[test]
-fn test_function_sig_debug() {
-    let sig = FunctionSig {
-        params: vec![Idx::INT, Idx::BOOL],
-        return_type: Idx::STR,
-        is_generic: false,
-    };
-
-    let debug_str = format!("{sig:?}");
-    assert!(debug_str.contains("params"), "Debug should show params");
     assert!(
-        debug_str.contains("return_type"),
-        "Debug should show return_type"
+        result.is_ok(),
+        "empty module should compile: {}",
+        result.err().map(|e| e.message).unwrap_or_default()
     );
-}
-
-#[test]
-fn test_function_sig_clone() {
-    let sig = FunctionSig {
-        params: vec![Idx::INT],
-        return_type: Idx::BOOL,
-        is_generic: false,
-    };
-
-    let cloned = sig.clone();
-    assert_eq!(sig.params.len(), cloned.params.len());
-    assert_eq!(sig.return_type, cloned.return_type);
-}
-
-#[test]
-fn test_llvm_evaluator_eval_bool() {
-    let context = Context::create();
-    let interner = StringInterner::new();
-    let evaluator = LLVMEvaluator::new(&context, &interner);
-
-    let mut arena = ExprArena::new();
-    let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Bool(true),
-        span: Span::new(0, 1),
-    });
-
-    let result = evaluator.eval(expr, &arena);
-    assert!(result.is_ok(), "eval bool should succeed");
-}
-
-#[test]
-fn test_llvm_evaluator_eval_float() {
-    let context = Context::create();
-    let interner = StringInterner::new();
-    let evaluator = LLVMEvaluator::new(&context, &interner);
-
-    let mut arena = ExprArena::new();
-    let expr = arena.alloc_expr(Expr {
-        kind: ExprKind::Float(3.5f64.to_bits()),
-        span: Span::new(0, 1),
-    });
-
-    let result = evaluator.eval(expr, &arena);
-    assert!(result.is_ok(), "eval float should succeed");
 }

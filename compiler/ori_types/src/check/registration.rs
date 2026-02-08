@@ -13,8 +13,8 @@ use rustc_hash::FxHashMap;
 
 use super::ModuleChecker;
 use crate::{
-    FieldDef, Idx, ImplEntry, ImplMethodDef, TraitAssocTypeDef, TraitEntry, TraitMethodDef,
-    TypeCheckError, VariantDef, VariantFields, Visibility, WhereConstraint,
+    EnumVariant, FieldDef, Idx, ImplEntry, ImplMethodDef, TraitAssocTypeDef, TraitEntry,
+    TraitMethodDef, TypeCheckError, VariantDef, VariantFields, Visibility, WhereConstraint,
 };
 
 // ============================================================================
@@ -54,6 +54,24 @@ pub fn register_builtin_types(checker: &mut ModuleChecker<'_>) {
             span: Span::DUMMY,
         },
     ];
+
+    // Create Pool enum entry for Ordering + set resolution
+    let pool_variants = vec![
+        EnumVariant {
+            name: less_name,
+            field_types: vec![],
+        },
+        EnumVariant {
+            name: equal_name,
+            field_types: vec![],
+        },
+        EnumVariant {
+            name: greater_name,
+            field_types: vec![],
+        },
+    ];
+    let enum_idx = checker.pool_mut().enum_type(ordering_name, &pool_variants);
+    checker.pool_mut().set_resolution(ordering_idx, enum_idx);
 
     checker.type_registry_mut().register_enum(
         ordering_name,
@@ -103,6 +121,13 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 })
                 .collect();
 
+            // Create Pool struct entry BEFORE moving field_defs to TypeRegistry.
+            // Extract (Name, Idx) pairs for the Pool's compact representation.
+            let pool_fields: Vec<(ori_ir::Name, Idx)> =
+                field_defs.iter().map(|f| (f.name, f.ty)).collect();
+            let struct_idx = checker.pool_mut().struct_type(decl.name, &pool_fields);
+            checker.pool_mut().set_resolution(idx, struct_idx);
+
             checker.type_registry_mut().register_struct(
                 decl.name,
                 idx,
@@ -143,6 +168,27 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                     }
                 })
                 .collect();
+
+            // Create Pool enum entry BEFORE moving variant_defs to TypeRegistry.
+            // Extract variant info for the Pool's compact representation.
+            let pool_variants: Vec<EnumVariant> = variant_defs
+                .iter()
+                .map(|v| {
+                    let field_types = match &v.fields {
+                        VariantFields::Unit => vec![],
+                        VariantFields::Tuple(types) => types.clone(),
+                        VariantFields::Record(field_defs) => {
+                            field_defs.iter().map(|f| f.ty).collect()
+                        }
+                    };
+                    EnumVariant {
+                        name: v.name,
+                        field_types,
+                    }
+                })
+                .collect();
+            let enum_idx = checker.pool_mut().enum_type(decl.name, &pool_variants);
+            checker.pool_mut().set_resolution(idx, enum_idx);
 
             checker.type_registry_mut().register_enum(
                 decl.name,

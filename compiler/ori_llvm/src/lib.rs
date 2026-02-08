@@ -1,7 +1,7 @@
 //! LLVM Backend for Ori
 //!
-//! This crate provides native code generation via LLVM, following patterns
-//! from Rust's `rustc_codegen_llvm`.
+//! This crate provides native code generation via LLVM, using the V2 codegen
+//! architecture: `TypeInfoStore` → `IrBuilder` → `FunctionCompiler` → `ExprLowerer`.
 //!
 //! # Debug Environment Variables
 //!
@@ -12,18 +12,14 @@
 //! - `RUST_LOG=ori_llvm=debug`: Enable debug-level tracing output.
 //!   Example: `RUST_LOG=ori_llvm=debug cargo test`
 //!
-//! - `RUST_LOG=ori_llvm=trace`: Enable trace-level tracing (very verbose).
-//!   Useful for following expression compilation step by step.
+//! # Key Types
 //!
-//! - `RUST_LOG=ori_llvm::functions=trace`: Trace only function compilation.
-//!
-//! # Clippy Configuration
-//!
-//! This crate intentionally allows certain clippy lints that are common in
-//! low-level codegen code:
-//! - Cast warnings: LLVM APIs use specific integer widths (u32 for indices, i64 for values)
-//! - Too many arguments: Codegen functions naturally thread through many context values
-//! - Missing panic docs: Internal panics are invariant violations, not API concerns
+//! - [`SimpleCx`](context::SimpleCx): Minimal LLVM context (module + types)
+//! - [`IrBuilder`](codegen::IrBuilder): ID-based LLVM instruction builder
+//! - [`FunctionCompiler`](codegen::function_compiler::FunctionCompiler): Two-pass compilation
+//! - [`ExprLowerer`](codegen::ExprLowerer): AST → LLVM IR lowering
+//! - [`TypeInfoStore`](codegen::TypeInfoStore): Type information cache
+//! - [`LLVMEvaluator`](evaluator::LLVMEvaluator): JIT evaluation
 
 // Crate-level lint configuration for codegen-specific patterns
 #![allow(
@@ -42,98 +38,27 @@
     // Compile functions return Option to propagate compilation failures
     clippy::unnecessary_wraps,
 )]
-//!
-//! # Architecture
-//!
-//! The crate is organized following Rust's two-tier codegen architecture:
-//!
-//! - **Context hierarchy** (`context.rs`): `SimpleCx` → `CodegenCx`
-//! - **Builder** (`builder.rs`): Instruction generation separated from context
-//! - **Traits** (`traits.rs`): Backend abstraction for future extensibility
-//! - **Declare** (`declare.rs`): Two-phase codegen (predefine/define)
-//!
-//! # Key Types
-//!
-//! - [`CodegenCx`](context::CodegenCx): Full codegen context with caches
-//! - [`Builder`](builder::Builder): LLVM instruction builder + expression compilation
-//! - [`ModuleCompiler`](module::ModuleCompiler): High-level module compilation
-//!
-//! # Debugging
-//!
-//! Enable tracing with environment variables:
-//! - `RUST_LOG=ori_llvm=debug` - Debug level tracing
-//! - `RUST_LOG=ori_llvm=trace` - Trace level (very verbose)
-//! - `RUST_LOG=ori_llvm::functions=trace` - Trace specific module
-//!
-//! # Example
-//!
-//! ```ignore
-//! use ori_llvm::{CodegenCx, Builder};
-//! use ori_ir::StringInterner;
-//! use ori_types::Idx;
-//! use inkwell::context::Context;
-//!
-//! let context = Context::create();
-//! let interner = StringInterner::new();
-//! let cx = CodegenCx::new(&context, &interner, "my_module");
-//!
-//! // Declare runtime functions
-//! cx.declare_runtime_functions();
-//!
-//! // Declare a function
-//! let name = interner.intern("my_func");
-//! let func = cx.declare_fn(name, &[Idx::INT], Idx::INT);
-//! let entry = cx.llcx().append_basic_block(func, "entry");
-//!
-//! // Build instructions and compile expressions
-//! let bx = Builder::build(&cx, entry);
-//! let result = bx.compile_expr(body, arena, expr_types, &mut locals, func, None);
-//! bx.ret(result.unwrap());
-//! ```
 
-// -- Public modules (new architecture) --
-pub mod builder;
-pub mod compile_ctx;
+// -- V2 codegen pipeline --
+pub mod codegen;
 pub mod context;
-pub mod declare;
-pub mod traits;
 
-// -- Existing public modules --
+// -- Evaluator (JIT) --
 pub mod evaluator;
-pub mod module;
+
+// -- Runtime bindings --
 pub mod runtime;
 
 // -- AOT compilation --
 pub mod aot;
 
-// Re-export key types from new architecture
-pub use builder::{Builder, LocalStorage, Locals};
-pub use compile_ctx::CompileCtx;
-pub use context::{CodegenCx, SimpleCx, TypeCache};
-pub use traits::{BackendTypes, BuilderMethods, CodegenMethods, TypeMethods};
-
-// Re-export from existing modules
-pub use evaluator::FunctionSig;
-
-// Re-export inkwell for downstream crates that need LLVM types
+// -- Re-exports --
+pub use context::SimpleCx;
 pub use inkwell;
-
-// -- Private codegen modules (expression compilation on Builder) --
-mod builtin_methods;
-mod collections;
-mod control_flow;
-pub mod functions;
-mod matching;
-mod operators;
-mod types;
-
-// Re-export FunctionBodyConfig from functions module
-pub use functions::body::FunctionBodyConfig;
 
 #[cfg(test)]
 mod tests;
 
-use inkwell::values::PhiValue;
 use std::sync::Once;
 
 static TRACING_INIT: Once = Once::new();
@@ -160,9 +85,6 @@ pub fn install_fatal_error_handler() {
 /// LLVM fatal error callback that logs the error.
 ///
 /// Cannot unwind (extern "C"), so we log and let LLVM abort.
-/// Large struct returns (>16 bytes) are handled via the sret calling
-/// convention in `declare_fn`, so this handler should no longer trigger
-/// for return type issues.
 extern "C" fn llvm_fatal_error_handler(reason: *const std::os::raw::c_char) {
     let msg = if reason.is_null() {
         "unknown LLVM fatal error".to_string()
@@ -192,15 +114,4 @@ pub fn init_tracing() {
                 .init();
         }
     });
-}
-
-/// Loop context for break/continue.
-#[derive(Clone)]
-pub struct LoopContext<'ctx> {
-    /// Block to jump to on continue.
-    pub header: inkwell::basic_block::BasicBlock<'ctx>,
-    /// Block to jump to on break.
-    pub exit: inkwell::basic_block::BasicBlock<'ctx>,
-    /// Phi node for break values (if any). TODO: use for break-with-value.
-    pub break_phi: Option<PhiValue<'ctx>>,
 }

@@ -2,17 +2,35 @@
 //!
 //! This provides a JIT-based evaluator that compiles Ori code to LLVM IR
 //! and executes it natively, as an alternative to the tree-walking interpreter.
+//!
+//! # V2 Architecture
+//!
+//! The evaluator uses the V2 codegen pipeline:
+//! 1. `TypeInfoStore` + `TypeLayoutResolver` for LLVM type computation
+//! 2. `IrBuilder` for ID-based instruction emission
+//! 3. `FunctionCompiler` for two-pass declare-then-define compilation
+//! 4. `ExprLowerer` for AST → LLVM IR lowering
+//!
+//! The legacy `ModuleCompiler` → `CodegenCx` → `Builder` path is still
+//! available via `LLVMEvaluator` for backward compatibility during migration.
+
+use std::mem::ManuallyDrop;
 
 use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;
 use rustc_hash::FxHashMap;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, instrument};
 
-use ori_ir::ast::{Module, TestDef, TypeDeclKind, Visibility};
-use ori_ir::{ExprArena, ExprId, Name, StringInterner};
-use ori_types::{Idx, PatternKey, PatternResolution, Pool};
+use ori_ir::ast::{Module, TestDef};
+use ori_ir::{ExprArena, Name, StringInterner};
+use ori_types::{FunctionSig, Idx, Pool, TypeEntry};
 
-use crate::module::ModuleCompiler;
+use crate::codegen::function_compiler::FunctionCompiler;
+use crate::codegen::ir_builder::IrBuilder;
+use crate::codegen::runtime_decl;
+use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
+use crate::codegen::type_registration;
+use crate::context::SimpleCx;
 use crate::runtime;
 
 /// Result type for LLVM evaluation.
@@ -53,200 +71,9 @@ impl std::fmt::Display for LLVMEvalError {
 
 impl std::error::Error for LLVMEvalError {}
 
-/// LLVM-based evaluator.
-///
-/// Compiles Ori code to LLVM IR and JIT executes it.
-pub struct LLVMEvaluator<'ctx> {
-    context: &'ctx Context,
-    interner: &'ctx StringInterner,
-    /// Compiled functions by name
-    functions: FxHashMap<Name, CompiledFunction>,
-    /// Type information for expressions
-    expr_types: Vec<Idx>,
-}
-
-/// A compiled function ready for execution.
-#[expect(
-    dead_code,
-    reason = "Fields will be used when direct function execution is implemented"
-)]
-struct CompiledFunction {
-    /// The expression body
-    body: ExprId,
-    /// Parameter names
-    params: Vec<Name>,
-}
-
-impl<'ctx> LLVMEvaluator<'ctx> {
-    /// Create a new LLVM evaluator.
-    pub fn new(context: &'ctx Context, interner: &'ctx StringInterner) -> Self {
-        LLVMEvaluator {
-            context,
-            interner,
-            functions: FxHashMap::default(),
-            expr_types: Vec::new(),
-        }
-    }
-
-    /// Register prelude functions.
-    ///
-    /// For LLVM, the prelude functions are provided by the runtime library
-    /// and are automatically linked when we JIT compile.
-    pub fn register_prelude(&mut self) {
-        // Prelude is handled by the runtime library
-    }
-
-    /// Load a module, preparing all functions for execution.
-    pub fn load_module(&mut self, module: &Module, arena: &ExprArena) -> Result<(), String> {
-        // Store function info for later compilation
-        for func in &module.functions {
-            let params: Vec<Name> = arena
-                .get_params(func.params)
-                .iter()
-                .map(|p| p.name)
-                .collect();
-
-            self.functions.insert(
-                func.name,
-                CompiledFunction {
-                    body: func.body,
-                    params,
-                },
-            );
-        }
-
-        // Initialize expr_types with a reasonable size
-        // In practice, this would come from type checking
-        self.expr_types = vec![Idx::INT; 1000];
-
-        Ok(())
-    }
-
-    /// Evaluate a test expression.
-    ///
-    /// This compiles the entire module to LLVM IR and JIT executes the test.
-    pub fn eval_test(
-        &self,
-        test_name: Name,
-        test_body: ExprId,
-        arena: &ExprArena,
-        module: &Module,
-    ) -> LLVMEvalResult {
-        // Reset panic state
-        runtime::reset_panic_state();
-
-        // Create a fresh module compiler for this test
-        let compiler = ModuleCompiler::new(self.context, self.interner, "test_module");
-        compiler.declare_runtime();
-
-        // Register user-defined types
-        for type_decl in &module.types {
-            match &type_decl.kind {
-                TypeDeclKind::Struct(fields) => {
-                    compiler.register_struct_with_types(type_decl.name, fields, arena);
-                }
-                TypeDeclKind::Sum(variants) => {
-                    compiler.register_sum_type_from_decl(type_decl.name, variants);
-                }
-                TypeDeclKind::Newtype(_) => {}
-            }
-        }
-
-        // Compile all functions the test might call
-        for func in &module.functions {
-            compiler.compile_function(func, arena, &self.expr_types);
-        }
-
-        // Compile impl block methods
-        for impl_def in &module.impls {
-            for method in &impl_def.methods {
-                // Convert ImplMethod to Function for compilation
-                let func = ori_ir::Function {
-                    name: method.name,
-                    generics: impl_def.generics,
-                    params: method.params,
-                    return_ty: None,
-                    capabilities: vec![],
-                    where_clauses: vec![],
-                    guard: None,
-                    body: method.body,
-                    span: method.span,
-                    visibility: Visibility::Private,
-                };
-                compiler.compile_function(&func, arena, &self.expr_types);
-            }
-        }
-
-        // Create a wrapper test function
-        let test_name_str = self.interner.lookup(test_name);
-        let wrapper_name = format!("__test_{test_name_str}");
-        let wrapper_name_interned = self.interner.intern(&wrapper_name);
-
-        // Compile the test as a void function
-        let test_func = ori_ir::Function {
-            name: wrapper_name_interned,
-            generics: ori_ir::GenericParamRange::EMPTY,
-            params: ori_ir::ParamRange::EMPTY,
-            return_ty: None,
-            capabilities: vec![],
-            where_clauses: vec![],
-            guard: None,
-            body: test_body,
-            span: ori_ir::Span::new(0, 0),
-            visibility: Visibility::Private,
-        };
-        compiler.compile_function(&test_func, arena, &self.expr_types);
-
-        // JIT compile and run
-        match compiler.run_test(&wrapper_name) {
-            Ok(()) => Ok(LLVMValue::Void),
-            Err(msg) => Err(LLVMEvalError::new(msg)),
-        }
-    }
-
-    /// Evaluate an expression directly.
-    ///
-    /// This is a simplified version that wraps the expression in a test function.
-    pub fn eval(&self, expr: ExprId, arena: &ExprArena) -> LLVMEvalResult {
-        runtime::reset_panic_state();
-
-        let compiler = ModuleCompiler::new(self.context, self.interner, "eval_module");
-        compiler.declare_runtime();
-
-        // Create a wrapper function for the expression
-        let wrapper_name = self.interner.intern("__eval_wrapper");
-        let wrapper_func = ori_ir::Function {
-            name: wrapper_name,
-            generics: ori_ir::GenericParamRange::EMPTY,
-            params: ori_ir::ParamRange::EMPTY,
-            return_ty: None,
-            capabilities: vec![],
-            where_clauses: vec![],
-            guard: None,
-            body: expr,
-            span: ori_ir::Span::new(0, 0),
-            visibility: Visibility::Private,
-        };
-        compiler.compile_function(&wrapper_func, arena, &self.expr_types);
-
-        match compiler.run_test("__eval_wrapper") {
-            Ok(()) => Ok(LLVMValue::Void),
-            Err(msg) => Err(LLVMEvalError::new(msg)),
-        }
-    }
-}
-
-/// Function type signature for LLVM compilation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FunctionSig {
-    /// Parameter types
-    pub params: Vec<Idx>,
-    /// Return type
-    pub return_type: Idx,
-    /// Whether this function is generic (has type parameters).
-    /// Generic functions cannot be directly compiled to LLVM without monomorphization.
-    pub is_generic: bool,
-}
+// ---------------------------------------------------------------------------
+// CompiledTestModule
+// ---------------------------------------------------------------------------
 
 /// A compiled module with JIT engine ready for test execution.
 ///
@@ -256,10 +83,13 @@ pub struct FunctionSig {
 ///
 /// # Lifetime
 ///
-/// The execution engine owns the compiled machine code and must outlive any
-/// function calls. The `'ll` lifetime ties to the LLVM context.
+/// The `'ll` lifetime ties to the LLVM `Context` (owned by `OwnedLLVMEvaluator`).
+/// The `ExecutionEngine` takes C-level ownership of the module via
+/// `LLVMCreateJITCompilerForModule`, so the Rust `Module` wrapper can be safely
+/// dropped after engine creation (it becomes a shell — see inkwell's
+/// `Module::owned_by_ee` field).
 pub struct CompiledTestModule<'ll> {
-    /// The JIT execution engine (owns the compiled code).
+    /// The JIT execution engine (owns the compiled machine code).
     engine: ExecutionEngine<'ll>,
     /// Test wrapper function names for lookup.
     /// Maps test `Name` to the wrapper function name string (e.g., `__test_my_test`).
@@ -326,177 +156,30 @@ impl CompiledTestModule<'_> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// OwnedLLVMEvaluator (V2 pipeline)
+// ---------------------------------------------------------------------------
+
 /// LLVM-based evaluator that owns its context.
 ///
-/// This is the recommended evaluator for use in applications that don't
-/// want to manage the LLVM context lifetime themselves.
+/// Uses the V2 codegen pipeline (`TypeInfoStore` → `IrBuilder` → `FunctionCompiler`).
 pub struct OwnedLLVMEvaluator<'tcx> {
     context: Context,
-    /// Compiled functions by name
-    functions: FxHashMap<Name, CompiledFunction>,
     /// Type pool for resolving compound types (List, Map, etc.)
-    pool: Option<&'tcx Pool>,
+    pool: &'tcx Pool,
 }
 
 impl<'tcx> OwnedLLVMEvaluator<'tcx> {
-    /// Create a new owned LLVM evaluator.
-    #[must_use]
-    pub fn new() -> Self {
-        OwnedLLVMEvaluator {
-            context: Context::create(),
-            functions: FxHashMap::default(),
-            pool: None,
-        }
-    }
-
     /// Create an evaluator with a type pool for compound type resolution.
-    ///
-    /// The type pool allows proper LLVM type generation for compound types
-    /// like List, Map, Tuple, etc., which require looking up `Idx` -> type info.
     #[must_use]
     pub fn with_pool(pool: &'tcx Pool) -> Self {
         OwnedLLVMEvaluator {
             context: Context::create(),
-            functions: FxHashMap::default(),
-            pool: Some(pool),
+            pool,
         }
     }
 
-    /// Load a module, preparing all functions for execution.
-    pub fn load_module(&mut self, module: &Module, arena: &ExprArena) -> Result<(), String> {
-        // Store function info for later compilation
-        for func in &module.functions {
-            let params: Vec<Name> = arena
-                .get_params(func.params)
-                .iter()
-                .map(|p| p.name)
-                .collect();
-
-            self.functions.insert(
-                func.name,
-                CompiledFunction {
-                    body: func.body,
-                    params,
-                },
-            );
-        }
-
-        Ok(())
-    }
-
-    /// Evaluate a test expression.
-    ///
-    /// This compiles the entire module to LLVM IR and JIT executes the test.
-    ///
-    /// # Arguments
-    /// - `test_name`: Name of the test
-    /// - `test_body`: Expression ID of the test body
-    /// - `arena`: Expression arena
-    /// - `module`: The module containing functions the test may call
-    /// - `interner`: String interner
-    /// - `expr_types`: Type of each expression (indexed by `ExprId`)
-    /// - `function_sigs`: Signature of each function (indexed same as module.functions)
-    pub fn eval_test(
-        &self,
-        test_name: Name,
-        test_body: ExprId,
-        arena: &ExprArena,
-        module: &Module,
-        interner: &StringInterner,
-        expr_types: &[Idx],
-        function_sigs: &[FunctionSig],
-    ) -> LLVMEvalResult {
-        // Reset panic state
-        runtime::reset_panic_state();
-
-        // Create a fresh module compiler for this test
-        // Use type pool if available for proper compound type handling
-        let compiler = if let Some(pool) = self.pool {
-            ModuleCompiler::with_pool(&self.context, interner, pool, "test_module")
-        } else {
-            ModuleCompiler::new(&self.context, interner, "test_module")
-        };
-        compiler.declare_runtime();
-
-        // Register user-defined types
-        for type_decl in &module.types {
-            match &type_decl.kind {
-                TypeDeclKind::Struct(fields) => {
-                    compiler.register_struct_with_types(type_decl.name, fields, arena);
-                }
-                TypeDeclKind::Sum(variants) => {
-                    compiler.register_sum_type_from_decl(type_decl.name, variants);
-                }
-                TypeDeclKind::Newtype(_) => {}
-            }
-        }
-
-        // Compile all functions the test might call
-        // Skip generic functions - they require monomorphization which isn't implemented yet
-        for (i, func) in module.functions.iter().enumerate() {
-            let sig = function_sigs.get(i);
-            // Skip generic functions - they have unresolved type variables
-            if sig.is_some_and(|s| s.is_generic) {
-                continue;
-            }
-            compiler.compile_function_with_sig(func, arena, expr_types, sig);
-        }
-
-        // Compile impl block methods
-        for impl_def in &module.impls {
-            for method in &impl_def.methods {
-                // Convert ImplMethod to Function for compilation
-                let func = ori_ir::Function {
-                    name: method.name,
-                    generics: impl_def.generics,
-                    params: method.params,
-                    return_ty: None, // Type info comes from expr_types
-                    capabilities: vec![],
-                    where_clauses: vec![],
-                    guard: None,
-                    body: method.body,
-                    span: method.span,
-                    visibility: Visibility::Private,
-                };
-                // Compile without signature - uses fallback INT types
-                // TODO: Get proper signatures for impl methods
-                compiler.compile_function(&func, arena, expr_types);
-            }
-        }
-
-        // Create a wrapper test function
-        let test_name_str = interner.lookup(test_name);
-        let wrapper_name = format!("__test_{test_name_str}");
-        let wrapper_name_interned = interner.intern(&wrapper_name);
-
-        // Compile the test as a void function
-        let test_func = ori_ir::Function {
-            name: wrapper_name_interned,
-            generics: ori_ir::GenericParamRange::EMPTY,
-            params: ori_ir::ParamRange::EMPTY,
-            return_ty: None,
-            capabilities: vec![],
-            where_clauses: vec![],
-            guard: None,
-            body: test_body,
-            span: ori_ir::Span::new(0, 0),
-            visibility: Visibility::Private,
-        };
-        let void_sig = FunctionSig {
-            params: vec![],
-            return_type: Idx::UNIT,
-            is_generic: false,
-        };
-        compiler.compile_function_with_sig(&test_func, arena, expr_types, Some(&void_sig));
-
-        // JIT compile and run
-        match compiler.run_test(&wrapper_name) {
-            Ok(()) => Ok(LLVMValue::Void),
-            Err(msg) => Err(LLVMEvalError::new(msg)),
-        }
-    }
-
-    /// Compile an entire module with all its tests.
+    /// Compile an entire module with all its tests using the V2 pipeline.
     ///
     /// This is the recommended way to run multiple tests from the same module.
     /// It compiles all functions and test wrappers ONCE, then returns a
@@ -508,9 +191,6 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
     /// - Old approach: O(M × N) function compilations (each test recompiles all)
     /// - This approach: O(N + M) function compilations (compile once, run many)
     ///
-    /// For files with many tests (like `benchmark_10k.ori`), this prevents LLVM
-    /// resource exhaustion from repeated compilations into the same context.
-    ///
     /// # Arguments
     ///
     /// - `module`: The parsed module containing functions and type declarations
@@ -518,12 +198,12 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
     /// - `arena`: Expression arena for looking up AST nodes
     /// - `interner`: String interner for name resolution
     /// - `expr_types`: Type of each expression (indexed by `ExprId`)
-    /// - `function_sigs`: Signature of each function (indexed same as module.functions)
-    /// - `pattern_resolutions`: Resolved pattern disambiguations from the type checker
+    /// - `function_sigs`: Function signatures from type checker (aligned with module.functions)
+    /// - `user_types`: User-defined type entries from type checker
+    /// - `impl_sigs`: Impl method signatures as (`Name`, `FunctionSig`) pairs
     #[instrument(skip_all, level = "debug", fields(
         functions = module.functions.len(),
         tests = tests.len(),
-        types = module.types.len(),
     ))]
     pub fn compile_module_with_tests<'a>(
         &'a self,
@@ -533,281 +213,204 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         interner: &StringInterner,
         expr_types: &[Idx],
         function_sigs: &[FunctionSig],
-        pattern_resolutions: &[(PatternKey, PatternResolution)],
+        user_types: &[TypeEntry],
+        impl_sigs: &[(Name, FunctionSig)],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         use inkwell::OptimizationLevel;
 
-        // Create a single module compiler for all functions and tests
-        let mut compiler = if let Some(pool) = self.pool {
-            ModuleCompiler::with_pool(&self.context, interner, pool, "test_module")
-        } else {
-            ModuleCompiler::new(&self.context, interner, "test_module")
-        };
-        compiler.declare_runtime();
+        // --- V2 pipeline ---
 
-        // Store pattern resolutions for pattern matching compilation
-        compiler.set_pattern_resolutions(pattern_resolutions);
+        // 1. Create LLVM module context.
+        //
+        // We use ManuallyDrop + raw-pointer reborrow to work around a borrow
+        // checker limitation: FunctionCompiler's lifetime parameters tie the
+        // compilation block's borrow of `scx` to the return lifetime, preventing
+        // us from creating the ExecutionEngine afterward. The raw-pointer
+        // roundtrip (`scx_ref`) creates a detached reference whose borrow
+        // doesn't leak out of the block. This is sound because:
+        //
+        // - `scx` lives for the entire function (ManuallyDrop suppresses drop)
+        // - The compilation block's borrows genuinely end at the block boundary
+        // - `create_jit_execution_engine` takes C-level ownership of the module
+        //   (the Rust `Module` becomes a shell — see inkwell's `owned_by_ee`)
+        //   and returns `ExecutionEngine<'ctx>` tied to the Context lifetime
+        let scx = ManuallyDrop::new(SimpleCx::new(&self.context, "test_module"));
 
-        // Register user-defined types (structs and sum types)
-        for type_decl in &module.types {
-            let type_name = interner.lookup(type_decl.name);
-            match &type_decl.kind {
-                TypeDeclKind::Struct(fields) => {
-                    debug!(type_name, fields = fields.len(), "registering struct type");
-                    compiler.register_struct_with_types(type_decl.name, fields, arena);
-                }
-                TypeDeclKind::Sum(variants) => {
-                    debug!(type_name, variants = variants.len(), "registering sum type");
-                    compiler.register_sum_type_from_decl(type_decl.name, variants);
-                }
-                TypeDeclKind::Newtype(_) => {
-                    trace!(type_name, "skipping newtype decl");
-                }
+        let (test_wrappers, codegen_errors) = {
+            // SAFETY: Detached reference to scx — see comment above.
+            let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
+
+            // 2. Type infrastructure
+            let store = TypeInfoStore::new(self.pool);
+            let resolver = TypeLayoutResolver::new(&store, scx_ref);
+
+            // 3. IR builder
+            let mut builder = IrBuilder::new(scx_ref);
+
+            // 4. Declare runtime functions
+            runtime_decl::declare_runtime(&mut builder);
+
+            // 5. Register user-defined types
+            type_registration::register_user_types(&resolver, user_types);
+
+            // 6. Two-pass function compilation
+            debug!("declaring functions (phase 1)");
+            let mut fc =
+                FunctionCompiler::new(&mut builder, &store, &resolver, interner, self.pool);
+            fc.declare_all(&module.functions, function_sigs);
+
+            // 7. Compile impl methods (declare + define)
+            if !module.impls.is_empty() {
+                debug!("compiling impl methods");
+                fc.compile_impls(&module.impls, impl_sigs, arena, expr_types);
             }
-        }
 
-        debug!("compiling functions");
-        // Compile ALL functions once
-        for (i, func) in module.functions.iter().enumerate() {
-            let sig = function_sigs.get(i);
-            // Skip generic functions - they require monomorphization
-            if sig.is_some_and(|s| s.is_generic) {
-                continue;
-            }
-            compiler.compile_function_with_sig(func, arena, expr_types, sig);
-        }
+            // 8. Define all function bodies (phase 2)
+            debug!("defining function bodies (phase 2)");
+            fc.define_all(&module.functions, function_sigs, arena, expr_types);
 
-        // Compile impl block methods
-        for impl_def in &module.impls {
-            for method in &impl_def.methods {
-                let func = ori_ir::Function {
-                    name: method.name,
-                    generics: impl_def.generics,
-                    params: method.params,
-                    return_ty: None,
-                    capabilities: vec![],
-                    where_clauses: vec![],
-                    guard: None,
-                    body: method.body,
-                    span: method.span,
-                    visibility: Visibility::Private,
-                };
-                compiler.compile_function(&func, arena, expr_types);
-            }
-        }
+            // 9. Compile test wrappers
+            debug!("compiling test wrappers");
+            let wrappers = fc.compile_tests(tests, arena, expr_types);
 
-        debug!("compiling test wrappers");
-        // Compile ALL test wrappers upfront
-        let mut test_wrappers = FxHashMap::default();
-        let void_sig = FunctionSig {
-            params: vec![],
-            return_type: Idx::UNIT,
-            is_generic: false,
+            // Drop fc to release &mut builder borrow
+            drop(fc);
+
+            let errors = builder.codegen_error_count();
+            (wrappers, errors)
+            // builder, resolver, store dropped here
         };
 
-        for test in tests {
-            let test_name_str = interner.lookup(test.name);
-            let wrapper_name = format!("__test_{test_name_str}");
-            let wrapper_name_interned = interner.intern(&wrapper_name);
-
-            let test_func = ori_ir::Function {
-                name: wrapper_name_interned,
-                generics: ori_ir::GenericParamRange::EMPTY,
-                params: ori_ir::ParamRange::EMPTY,
-                return_ty: None,
-                capabilities: vec![],
-                where_clauses: vec![],
-                guard: None,
-                body: test.body,
-                span: ori_ir::Span::new(0, 0),
-                visibility: Visibility::Private,
-            };
-            compiler.compile_function_with_sig(&test_func, arena, expr_types, Some(&void_sig));
-
-            test_wrappers.insert(test.name, wrapper_name);
+        // Bail out early if codegen produced type-mismatch errors.
+        // Feeding malformed IR to LLVM's verifier or JIT can cause
+        // heap corruption (SIGABRT) that kills the entire process.
+        if codegen_errors > 0 {
+            return Err(LLVMEvalError::new(format!(
+                "LLVM codegen had {codegen_errors} type-mismatch error(s) — skipping verification/JIT",
+            )));
         }
 
-        // Debug: print IR if requested
+        // 10. Debug: print IR if requested
         if std::env::var("ORI_DEBUG_LLVM").is_ok() {
             eprintln!("=== LLVM IR for compiled module ===");
-            eprintln!("{}", compiler.module().print_to_string().to_string());
+            eprintln!("{}", scx.llmod.print_to_string().to_string());
             eprintln!("=== END IR ===");
         }
 
-        // Verify IR before JIT compilation to catch invalid IR that would
-        // cause LLVM to segfault during machine code generation.
-        if let Err(msg) = compiler.module().verify() {
+        // 11. Verify IR
+        if let Err(msg) = scx.llmod.verify() {
             return Err(LLVMEvalError::new(format!(
                 "LLVM IR verification failed: {}",
                 msg.to_string()
             )));
         }
 
+        // 12. Create JIT execution engine
+        // SAFETY: Same detached-reference pattern as above — see step 1 comment.
         debug!("creating JIT execution engine");
-        // Create JIT execution engine ONCE for all tests
-        let engine = compiler
-            .module()
-            .create_jit_execution_engine(OptimizationLevel::None)
-            .map_err(|e| LLVMEvalError::new(e.to_string()))?;
-
-        // Add runtime function mappings
-        Self::add_runtime_mappings_to_engine(&engine, compiler.module())?;
+        let engine = unsafe {
+            let module = &*std::ptr::addr_of!(scx.llmod);
+            let eng = module
+                .create_jit_execution_engine(OptimizationLevel::None)
+                .map_err(|e| LLVMEvalError::new(e.to_string()))?;
+            add_runtime_mappings_to_engine(&eng, module)?;
+            eng
+        };
 
         Ok(CompiledTestModule {
             engine,
             test_wrappers,
         })
     }
+}
 
-    /// Add runtime function mappings to an execution engine.
-    fn add_runtime_mappings_to_engine(
-        engine: &ExecutionEngine<'_>,
-        module: &inkwell::module::Module<'_>,
-    ) -> Result<(), LLVMEvalError> {
-        let mappings: &[(&str, usize)] = &[
-            ("ori_print", runtime::ori_print as *const () as usize),
-            (
-                "ori_print_int",
-                runtime::ori_print_int as *const () as usize,
-            ),
-            (
-                "ori_print_float",
-                runtime::ori_print_float as *const () as usize,
-            ),
-            (
-                "ori_print_bool",
-                runtime::ori_print_bool as *const () as usize,
-            ),
-            ("ori_panic", runtime::ori_panic as *const () as usize),
-            (
-                "ori_panic_cstr",
-                runtime::ori_panic_cstr as *const () as usize,
-            ),
-            ("ori_assert", runtime::ori_assert as *const () as usize),
-            (
-                "ori_assert_eq_int",
-                runtime::ori_assert_eq_int as *const () as usize,
-            ),
-            (
-                "ori_assert_eq_bool",
-                runtime::ori_assert_eq_bool as *const () as usize,
-            ),
-            ("ori_list_new", runtime::ori_list_new as *const () as usize),
-            (
-                "ori_list_free",
-                runtime::ori_list_free as *const () as usize,
-            ),
-            ("ori_list_len", runtime::ori_list_len as *const () as usize),
-            (
-                "ori_compare_int",
-                runtime::ori_compare_int as *const () as usize,
-            ),
-            ("ori_min_int", runtime::ori_min_int as *const () as usize),
-            ("ori_max_int", runtime::ori_max_int as *const () as usize),
-            (
-                "ori_str_concat",
-                runtime::ori_str_concat as *const () as usize,
-            ),
-            ("ori_str_eq", runtime::ori_str_eq as *const () as usize),
-            ("ori_str_ne", runtime::ori_str_ne as *const () as usize),
-            (
-                "ori_assert_eq_str",
-                runtime::ori_assert_eq_str as *const () as usize,
-            ),
-            (
-                "ori_str_from_int",
-                runtime::ori_str_from_int as *const () as usize,
-            ),
-            (
-                "ori_str_from_bool",
-                runtime::ori_str_from_bool as *const () as usize,
-            ),
-            (
-                "ori_str_from_float",
-                runtime::ori_str_from_float as *const () as usize,
-            ),
-            (
-                "ori_closure_box",
-                runtime::ori_closure_box as *const () as usize,
-            ),
-        ];
+// ---------------------------------------------------------------------------
+// Runtime mappings
+// ---------------------------------------------------------------------------
 
-        for &(name, addr) in mappings {
-            let func = module.get_function(name).ok_or_else(|| {
-                LLVMEvalError::new(format!(
-                    "{name} not declared - call declare_runtime_functions() before compiling"
-                ))
-            })?;
+/// Add runtime function mappings to an execution engine.
+///
+/// Maps declared function names to actual Rust function addresses so the
+/// JIT engine can resolve calls to runtime functions.
+fn add_runtime_mappings_to_engine(
+    engine: &ExecutionEngine<'_>,
+    module: &inkwell::module::Module<'_>,
+) -> Result<(), LLVMEvalError> {
+    let mappings: &[(&str, usize)] = &[
+        ("ori_print", runtime::ori_print as *const () as usize),
+        (
+            "ori_print_int",
+            runtime::ori_print_int as *const () as usize,
+        ),
+        (
+            "ori_print_float",
+            runtime::ori_print_float as *const () as usize,
+        ),
+        (
+            "ori_print_bool",
+            runtime::ori_print_bool as *const () as usize,
+        ),
+        ("ori_panic", runtime::ori_panic as *const () as usize),
+        (
+            "ori_panic_cstr",
+            runtime::ori_panic_cstr as *const () as usize,
+        ),
+        ("ori_assert", runtime::ori_assert as *const () as usize),
+        (
+            "ori_assert_eq_int",
+            runtime::ori_assert_eq_int as *const () as usize,
+        ),
+        (
+            "ori_assert_eq_bool",
+            runtime::ori_assert_eq_bool as *const () as usize,
+        ),
+        ("ori_list_new", runtime::ori_list_new as *const () as usize),
+        (
+            "ori_list_free",
+            runtime::ori_list_free as *const () as usize,
+        ),
+        ("ori_list_len", runtime::ori_list_len as *const () as usize),
+        (
+            "ori_compare_int",
+            runtime::ori_compare_int as *const () as usize,
+        ),
+        ("ori_min_int", runtime::ori_min_int as *const () as usize),
+        ("ori_max_int", runtime::ori_max_int as *const () as usize),
+        (
+            "ori_str_concat",
+            runtime::ori_str_concat as *const () as usize,
+        ),
+        ("ori_str_eq", runtime::ori_str_eq as *const () as usize),
+        ("ori_str_ne", runtime::ori_str_ne as *const () as usize),
+        (
+            "ori_assert_eq_str",
+            runtime::ori_assert_eq_str as *const () as usize,
+        ),
+        (
+            "ori_str_from_int",
+            runtime::ori_str_from_int as *const () as usize,
+        ),
+        (
+            "ori_str_from_bool",
+            runtime::ori_str_from_bool as *const () as usize,
+        ),
+        (
+            "ori_str_from_float",
+            runtime::ori_str_from_float as *const () as usize,
+        ),
+        (
+            "ori_closure_box",
+            runtime::ori_closure_box as *const () as usize,
+        ),
+    ];
+
+    for &(name, addr) in mappings {
+        if let Some(func) = module.get_function(name) {
             engine.add_global_mapping(&func, addr);
         }
-
-        Ok(())
-    }
-}
-
-impl Default for OwnedLLVMEvaluator<'_> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ori_ir::ast::{BinaryOp, Expr, ExprKind};
-
-    #[test]
-    fn test_llvm_evaluator_simple() {
-        let context = Context::create();
-        let interner = StringInterner::new();
-        let evaluator = LLVMEvaluator::new(&context, &interner);
-
-        // Create a simple expression: 1 + 2
-        let mut arena = ExprArena::new();
-        let one = arena.alloc_expr(Expr {
-            kind: ExprKind::Int(1),
-            span: ori_ir::Span::new(0, 1),
-        });
-        let two = arena.alloc_expr(Expr {
-            kind: ExprKind::Int(2),
-            span: ori_ir::Span::new(0, 1),
-        });
-        let add = arena.alloc_expr(Expr {
-            kind: ExprKind::Binary {
-                op: BinaryOp::Add,
-                left: one,
-                right: two,
-            },
-            span: ori_ir::Span::new(0, 1),
-        });
-
-        // Evaluate - since we're returning void from the wrapper,
-        // we just check it doesn't panic
-        let result = evaluator.eval(add, &arena);
-        if let Err(e) = &result {
-            eprintln!("Error: {}", e.message);
-        }
-        assert!(result.is_ok(), "Expected Ok, got {result:?}");
+        // Silently skip functions not declared in this module — they may not
+        // be needed if no code calls them.
     }
 
-    #[test]
-    fn test_llvm_evaluator_with_assertion() {
-        let context = Context::create();
-        let interner = StringInterner::new();
-        let evaluator = LLVMEvaluator::new(&context, &interner);
-
-        // Create: assert(condition: true)
-        let mut arena = ExprArena::new();
-        let true_val = arena.alloc_expr(Expr {
-            kind: ExprKind::Bool(true),
-            span: ori_ir::Span::new(0, 1),
-        });
-
-        // For now just test that we can evaluate a bool
-        let result = evaluator.eval(true_val, &arena);
-        if let Err(e) = &result {
-            eprintln!("Error: {}", e.message);
-        }
-        assert!(result.is_ok(), "Expected Ok, got {result:?}");
-    }
+    Ok(())
 }

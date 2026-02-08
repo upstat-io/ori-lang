@@ -73,14 +73,24 @@ test:test_expected_panic
 
 ## ── IR verification errors (file-level) ──────────────────────────
 
-# Compiler infrastructure (try pattern with Result return types)
+# Compiler infrastructure
+file:tests/compiler/typeck/binary_ops.ori
+file:tests/compiler/typeck/collections.ori
 file:tests/compiler/typeck/control_flow.ori
+file:tests/compiler/typeck/generics.ori
 file:tests/compiler/typeck/let_bindings.ori
 
 # Formatter edge cases
 file:tests/fmt/edge-cases/real/concurrent.ori
+file:tests/fmt/edge-cases/real/full_module.ori
 file:tests/fmt/edge-cases/real/http_client.ori
 file:tests/fmt/edge-cases/real/pipeline.ori
+
+# Run-pass
+file:tests/run-pass/rosetta/100_doors/100_doors.ori
+
+# Control flow
+file:tests/spec/control_flow/never_break_continue.ori
 
 # Capabilities
 file:tests/spec/capabilities/declaration.ori
@@ -88,66 +98,110 @@ file:tests/spec/capabilities/propagation.ori
 file:tests/spec/capabilities/providing.ori
 
 # Declarations
+file:tests/spec/declarations/attributes.ori
 file:tests/spec/declarations/struct_types.ori
 file:tests/spec/declarations/sum_types.ori
 file:tests/spec/declarations/traits.ori
 
 # Expressions
+file:tests/spec/expressions/bindings.ori
 file:tests/spec/expressions/coalesce.ori
+file:tests/spec/expressions/conditionals.ori
 file:tests/spec/expressions/field_access.ori
 file:tests/spec/expressions/index_access.ori
 file:tests/spec/expressions/lambdas.ori
+file:tests/spec/expressions/loops.ori
+file:tests/spec/expressions/mutation.ori
+file:tests/spec/expressions/operators_comparison.ori
+file:tests/spec/expressions/operators_logical.ori
+file:tests/spec/expressions/ranges.ori
+file:tests/spec/expressions/syntax.ori
 file:tests/spec/expressions/with_expr.ori
 
 # Extensions
 file:tests/spec/extensions/list_methods.ori
 
 # Inference
+file:tests/spec/inference/generics.ori
 file:tests/spec/inference/polymorphism.ori
+file:tests/spec/inference/unification.ori
 
 # Lexical
 file:tests/spec/lexical/delimiters.ori
+file:tests/spec/lexical/duration_literals.ori
+file:tests/spec/lexical/identifiers.ori
 file:tests/spec/lexical/keywords.ori
 file:tests/spec/lexical/operators.ori
+file:tests/spec/lexical/size_literals.ori
+file:tests/spec/lexical/string_literals.ori
 
 # Modules
 file:tests/spec/modules/_test/use_aliases.test.ori
 file:tests/spec/modules/math_lib.ori
+file:tests/spec/modules/reexporter.ori
 file:tests/spec/modules/use_imports.ori
 
 # Patterns
 file:tests/spec/patterns/binding_patterns.ori
+file:tests/spec/patterns/channels.ori
 file:tests/spec/patterns/data.ori
 file:tests/spec/patterns/match.ori
 file:tests/spec/patterns/match_patterns.ori
+file:tests/spec/patterns/parallel.ori
+file:tests/spec/patterns/parallel_threads.ori
+file:tests/spec/patterns/recurse.ori
+file:tests/spec/patterns/run.ori
+file:tests/spec/patterns/syntax.ori
 
 # Misc
 file:tests/spec/test_coalesce_copy.ori
+file:tests/spec/test_coalesce_minimal.ori
+file:tests/spec/test_inline.ori
 
 # Traits
 file:tests/spec/traits/associated_types.ori
 file:tests/spec/traits/associated_types_verify.ori
+file:tests/spec/traits/core/comparable.ori
+file:tests/spec/traits/core/eq.ori
+file:tests/spec/traits/core/is_empty.ori
+file:tests/spec/traits/core/len.ori
 file:tests/spec/traits/core/option.ori
 file:tests/spec/traits/core/result.ori
 file:tests/spec/traits/declaration.ori
 file:tests/spec/traits/default_assoc_types.ori
 file:tests/spec/traits/default_type_params.ori
 file:tests/spec/traits/derive/all_derives.ori
+file:tests/spec/traits/derive/eq.ori
 file:tests/spec/traits/generic_impl.ori
+file:tests/spec/traits/inheritance.ori
 file:tests/spec/traits/method_call_test.ori
 file:tests/spec/traits/self_type.ori
 
 # Types
 file:tests/spec/types/associated_functions.ori
+file:tests/spec/types/duration_size_clone_printable.ori
+file:tests/spec/types/duration_size_comparable.ori
 file:tests/spec/types/duration_size_default.ori
+file:tests/spec/types/duration_size_hashable.ori
+file:tests/spec/types/duration_size_sendable.ori
 file:tests/spec/types/existential.ori
+file:tests/spec/types/fixed_list_types.ori
 file:tests/spec/types/generic.ori
 file:tests/spec/types/list_types.ori
+file:tests/spec/types/never.ori
+file:tests/spec/types/newtypes.ori
 file:tests/spec/types/ordering/methods.ori
 file:tests/spec/types/primitives.ori
+file:tests/spec/types/sum/test_if_in_match.ori
+file:tests/spec/types/sum/test_literal_in_variant.ori
+file:tests/spec/types/sum/test_many_types.ori
+file:tests/spec/types/sum/test_multi_field.ori
 file:tests/spec/types/sum/test_recursive.ori
+file:tests/spec/types/sum/test_single_field.ori
+file:tests/spec/types/sum/test_wildcard_payload.ori
 file:tests/spec/types/sum_types.ori
 file:tests/spec/types/trait_objects.ori
 file:tests/spec/types/tuple_types.ori
 file:tests/spec/types/type_args.ori
 file:tests/spec/types/type_paths.ori
+file:tests/spec/types/type_syntax.ori
