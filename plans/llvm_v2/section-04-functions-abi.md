@@ -15,21 +15,21 @@ sections:
     status: done
   - id: "04.4"
     title: Closure & Lambda Compilation
-    status: not-started
+    status: done
   - id: "04.5"
     title: Name Mangling & Symbol Resolution
-    status: not-started
+    status: done
   - id: "04.6"
     title: Method Dispatch
-    status: not-started
+    status: done
   - id: "04.7"
     title: Entry Points & Test Wrappers
-    status: not-started
+    status: in-progress
 ---
 
 # Section 04: Function Declaration & Calling Conventions
 
-**Status:** In Progress (04.1–04.3 done, legacy code deleted)
+**Status:** In Progress (04.1–04.6 done, 04.7 partial — entry point wrappers done, args/panic deferred)
 **Goal:** TypeInfo-driven function signature lowering where the calling convention is computed from type properties, not ad-hoc checks. Batch declare-then-define compilation. Fat-pointer closures replacing tagged i64 model. `fastcc` for internal functions.
 
 **Reference compilers:**
@@ -385,9 +385,10 @@ fn call_closure(closure: ClosureValue, args: &[Value]) -> Value {
 
 V2: All paths (AOT and JIT) use mangled names for consistency and to support same-name functions in different modules.
 
-- [ ] Wire existing Mangler into FunctionCompiler for both JIT and AOT paths
-- [ ] Handle overloaded functions (name + type signature)
-- [ ] Handle lambda/closure names (replace `__lambda_N` with mangled anonymous names)
+- [x] Wire existing Mangler into FunctionCompiler for both JIT and AOT paths ✅ (2026-02-08)
+- [x] Use type-qualified mangled names for impl methods (`_ori_<type>$<method>`) ✅ (2026-02-08)
+- [x] Handle lambda/closure names (mangled `_ori_<module>$__lambda_N`) ✅ (2026-02-08)
+- [x] Update lower_ident/lower_function_ref to resolve via functions map first ✅ (2026-02-08)
 
 ## 04.6 Method Dispatch
 
@@ -403,9 +404,10 @@ V2 uses mangled names for methods to allow same-name methods on different types:
 
 The method call compiler resolves the receiver type, constructs the mangled name, and looks up the function by mangled name.
 
-- [ ] Mangle method names using `_ori_<module>$<type>$<method>` format
-- [ ] Update method call compilation to use mangled lookup
-- [ ] Preserve built-in method fast path (no mangling for primitives)
+- [x] Mangle method names using `_ori_<module>$<type>$<method>` format (done in 04.5)
+- [x] Update method call compilation to use type-qualified `(type_name, method_name)` lookup
+- [x] Preserve built-in method fast path (no mangling for primitives)
+- [x] Fix `compile_impls` to use positional sig matching (was losing same-name method sigs)
 
 ## 04.7 Entry Points & Test Wrappers
 
@@ -450,9 +452,9 @@ Registered as a global function pointer that the runtime calls on panic:
 ```
 The runtime checks this global before using the default panic handler.
 
-- [ ] Generate C `main()` wrapper for `@main` (all 4 signatures)
-- [ ] Implement `ori_args_from_argv` runtime helper
-- [ ] Generate `@panic` handler registration
+- [x] Generate C `main()` wrapper for `@main` (void and int return signatures)
+- [ ] Implement `ori_args_from_argv` runtime helper (deferred — `@main(args)` variant)
+- [ ] Generate `@panic` handler registration (deferred — needs runtime support)
 
 ### Test wrappers
 
@@ -470,8 +472,8 @@ compiler.compile_function_with_sig(&test_func, arena, expr_types, Some(&void_sig
 
 This pattern is already implemented in the evaluator (`evaluator.rs` lines 468-490) using the `__test_` prefix. V2 migrates both JIT and AOT paths to the unified `_ori_test_` prefix for consistency with the `_ori_` mangling convention used by all other Ori symbols. The JIT path must be updated to use `_ori_test_` as well (migration from `__test_` to `_ori_test_`). V2 uses `fastcc` for test wrappers since they are internal.
 
-- [ ] Migrate `__test_<name>` to `_ori_test_<name>` in both JIT and AOT paths
-- [ ] Use `fastcc` for test wrappers
+- [x] Migrate `__test_<name>` to `_ori_test_<name>` (test wrappers now use mangler)
+- [x] Use `fastcc` for test wrappers (already in place)
 
 ---
 

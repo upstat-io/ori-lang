@@ -96,9 +96,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
 
     /// Lower `ExprKind::Ident(name)` — variable lookup.
     ///
-    /// Immutable bindings return the SSA value directly (no memory traffic).
-    /// Mutable bindings load from the alloca pointer.
-    pub(crate) fn lower_ident(&mut self, name: Name) -> Option<ValueId> {
+    /// Resolution order:
+    /// 1. Scope (local/immutable/mutable bindings)
+    /// 2. Declared functions map (V2 mangled names — user-defined functions)
+    /// 3. LLVM module lookup (runtime functions with unmangled `ori_*` names)
+    pub(crate) fn lower_ident(&mut self, name: Name, expr_id: ori_ir::ExprId) -> Option<ValueId> {
         match self.scope.lookup(name) {
             Some(ScopeBinding::Immutable(val)) => Some(val),
             Some(ScopeBinding::Mutable { ptr, ty }) => {
@@ -107,13 +109,32 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 Some(val)
             }
             None => {
-                // May be a function reference or unit variant — check LLVM module
+                // Check declared functions map first (V2 mangled names)
+                if let Some(&(func_id, _)) = self.functions.get(&name) {
+                    return self.wrap_function_as_value(func_id, expr_id);
+                }
+
+                // Fall back to LLVM module lookup (runtime functions, etc.)
                 let name_str = self.resolve_name(name).to_owned();
                 if let Some(func) = self.builder.scx().llmod.get_function(&name_str) {
                     let _func_id = self.builder.intern_function(func);
-                    // Return function pointer as a value
                     let ptr_val = func.as_global_value().as_pointer_value();
-                    Some(self.builder.intern_value(ptr_val.into()))
+                    let fn_ptr_id = self.builder.intern_value(ptr_val.into());
+
+                    // Check if this identifier has function type — if so, wrap
+                    // in a fat-pointer closure { fn_ptr, null_env }
+                    let ident_type = self.expr_type(expr_id);
+                    let type_info = self.type_info.get(ident_type);
+                    if matches!(type_info, super::type_info::TypeInfo::Function { .. }) {
+                        let null_env = self.builder.const_null_ptr();
+                        let closure_ty = self.builder.closure_type();
+                        let fat_ptr =
+                            self.builder
+                                .build_struct(closure_ty, &[fn_ptr_id, null_env], "fn_ref");
+                        Some(fat_ptr)
+                    } else {
+                        Some(fn_ptr_id)
+                    }
                 } else {
                     tracing::warn!(name = %name_str, "unresolved identifier in codegen");
                     None
@@ -122,22 +143,69 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         }
     }
 
+    /// Wrap a declared function as a value, applying fat-pointer closure
+    /// wrapping if the expression has function type.
+    fn wrap_function_as_value(
+        &mut self,
+        func_id: super::value_id::FunctionId,
+        expr_id: ori_ir::ExprId,
+    ) -> Option<ValueId> {
+        let fn_val = self.builder.get_function_value(func_id);
+        let ptr_val = fn_val.as_global_value().as_pointer_value();
+        let fn_ptr_id = self.builder.intern_value(ptr_val.into());
+
+        let ident_type = self.expr_type(expr_id);
+        let type_info = self.type_info.get(ident_type);
+        if matches!(type_info, super::type_info::TypeInfo::Function { .. }) {
+            let null_env = self.builder.const_null_ptr();
+            let closure_ty = self.builder.closure_type();
+            let fat_ptr = self
+                .builder
+                .build_struct(closure_ty, &[fn_ptr_id, null_env], "fn_ref");
+            Some(fat_ptr)
+        } else {
+            Some(fn_ptr_id)
+        }
+    }
+
     /// Lower `ExprKind::Const(name)` — compile-time constant reference.
     ///
     /// Constants are bound in the scope like immutable variables.
     /// Falls back to identifier lookup.
-    pub(crate) fn lower_const(&mut self, name: Name) -> Option<ValueId> {
-        self.lower_ident(name)
+    pub(crate) fn lower_const(&mut self, name: Name, expr_id: ori_ir::ExprId) -> Option<ValueId> {
+        self.lower_ident(name, expr_id)
     }
 
     /// Lower `ExprKind::FunctionRef(name)` — `@name` function reference.
     ///
-    /// Looks up the function in the LLVM module and returns its pointer.
+    /// Looks up the function in the declared functions map first (mangled names),
+    /// then falls back to LLVM module lookup for runtime functions.
+    /// Wraps the result in a fat-pointer closure `{ fn_ptr, null }`.
     pub(crate) fn lower_function_ref(&mut self, name: Name) -> Option<ValueId> {
+        // Check declared functions map first (V2 mangled names)
+        if let Some(&(func_id, _)) = self.functions.get(&name) {
+            let fn_val = self.builder.get_function_value(func_id);
+            let ptr_val = fn_val.as_global_value().as_pointer_value();
+            let fn_ptr_id = self.builder.intern_value(ptr_val.into());
+            let null_env = self.builder.const_null_ptr();
+            let closure_ty = self.builder.closure_type();
+            let fat_ptr = self
+                .builder
+                .build_struct(closure_ty, &[fn_ptr_id, null_env], "fn_ref");
+            return Some(fat_ptr);
+        }
+
+        // Fall back to LLVM module lookup (runtime functions)
         let name_str = self.resolve_name(name);
         if let Some(func) = self.builder.scx().llmod.get_function(name_str) {
             let ptr_val = func.as_global_value().as_pointer_value();
-            Some(self.builder.intern_value(ptr_val.into()))
+            let fn_ptr_id = self.builder.intern_value(ptr_val.into());
+            let null_env = self.builder.const_null_ptr();
+            let closure_ty = self.builder.closure_type();
+            let fat_ptr = self
+                .builder
+                .build_struct(closure_ty, &[fn_ptr_id, null_env], "fn_ref");
+            Some(fat_ptr)
         } else {
             tracing::warn!(name = name_str, "unresolved function reference");
             None

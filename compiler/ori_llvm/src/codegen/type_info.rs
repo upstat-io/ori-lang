@@ -193,8 +193,16 @@ impl TypeInfo {
                 scx.type_struct(&fields, false).into()
             }
 
-            // Handles (opaque pointers)
-            Self::Channel { .. } | Self::Function { .. } => scx.type_ptr().into(),
+            // Channel: opaque heap-allocated handle
+            Self::Channel { .. } => scx.type_ptr().into(),
+
+            // Function: fat-pointer closure { fn_ptr: ptr, env_ptr: ptr }
+            // All function-typed values use this two-pointer representation,
+            // even non-closures (which have env_ptr = null). This uniform
+            // representation avoids branching at call sites.
+            Self::Function { .. } => scx
+                .type_struct(&[scx.type_ptr().into(), scx.type_ptr().into()], false)
+                .into(),
 
             // User-defined types (placeholder — resolved via TypeInfoStore)
             Self::Struct { fields } => {
@@ -229,7 +237,6 @@ impl TypeInfo {
             | Self::Unit
             | Self::Never
             | Self::Channel { .. }
-            | Self::Function { .. }
             | Self::Error => Some(8),
 
             // 1-byte types
@@ -238,9 +245,13 @@ impl TypeInfo {
             // 4-byte types
             Self::Char => Some(4),
 
-            // Str: {i64, ptr} = 16 bytes
+            // 16-byte types:
+            // Function: fat-pointer closure { ptr, ptr }
+            // Str: {i64, ptr}
             // Option/Result: {i8, i64} — LLVM pads to 16 bytes
-            Self::Str | Self::Option { .. } | Self::Result { .. } => Some(16),
+            Self::Function { .. } | Self::Str | Self::Option { .. } | Self::Result { .. } => {
+                Some(16)
+            }
 
             // List/Set: {i64, i64, ptr} = 24 bytes
             // Range: {i64, i64, i1} — LLVM pads to 24 bytes (8+8+8 with alignment)
@@ -1075,7 +1086,7 @@ mod tests {
                 ret: Idx::UNIT
             }
             .size(),
-            Some(8)
+            Some(16)
         );
     }
 
@@ -1148,7 +1159,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_types_are_pointers() {
+    fn channel_type_is_pointer() {
         let ctx = Context::create();
         let scx = SimpleCx::new(&ctx, "test");
 
@@ -1157,14 +1168,33 @@ mod tests {
             TypeInfo::Channel { element: Idx::INT }.storage_type(&scx),
             ptr_ty
         );
-        assert_eq!(
-            TypeInfo::Function {
-                params: vec![],
-                ret: Idx::UNIT
+    }
+
+    #[test]
+    fn function_type_is_fat_pointer() {
+        let ctx = Context::create();
+        let scx = SimpleCx::new(&ctx, "test");
+
+        let func_ty = TypeInfo::Function {
+            params: vec![],
+            ret: Idx::UNIT,
+        }
+        .storage_type(&scx);
+        // Should be a struct { ptr, ptr }
+        match func_ty {
+            BasicTypeEnum::StructType(st) => {
+                assert_eq!(st.count_fields(), 2, "fat pointer should have 2 fields");
+                assert!(
+                    st.get_field_type_at_index(0).unwrap().is_pointer_type(),
+                    "first field should be ptr"
+                );
+                assert!(
+                    st.get_field_type_at_index(1).unwrap().is_pointer_type(),
+                    "second field should be ptr"
+                );
             }
-            .storage_type(&scx),
-            ptr_ty
-        );
+            other => panic!("Expected StructType for Function, got {other:?}"),
+        }
     }
 
     // -- TypeInfoStore tests --

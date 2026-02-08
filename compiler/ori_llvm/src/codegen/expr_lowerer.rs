@@ -18,6 +18,8 @@
 //!   └── lower_constructs.rs   — FunctionSeq, FunctionExp, SelfRef, Await, …
 //! ```
 
+use std::cell::Cell;
+
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, StringInterner};
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -87,8 +89,23 @@ pub struct ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
     /// Declared functions: `Name` → (`FunctionId`, ABI). Used by call lowering to
     /// determine sret vs direct return and calling convention.
     pub(crate) functions: &'a FxHashMap<Name, (FunctionId, FunctionAbi)>,
+    /// Type-qualified method map: `(type_name, method_name)` → (`FunctionId`, ABI).
+    ///
+    /// Enables same-name methods on different types (e.g., `Point.distance` vs
+    /// `Line.distance`). Checked before `functions` in method call dispatch.
+    pub(crate) method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
+    /// Maps receiver type `Idx` → type `Name` for method dispatch resolution.
+    pub(crate) type_idx_to_name: &'a FxHashMap<Idx, Name>,
     /// Active loop context for break/continue (None outside loops).
     pub(crate) loop_ctx: Option<LoopContext>,
+    /// Module-wide lambda counter for unique lambda function names.
+    ///
+    /// Shared via `&Cell<u32>` so that nested lambdas (which create new
+    /// `ExprLowerer` contexts internally) still get unique names. Owned
+    /// by `FunctionCompiler`, passed by reference here.
+    pub(crate) lambda_counter: &'a Cell<u32>,
+    /// Module path for name mangling (e.g., "", "math").
+    pub(crate) module_path: &'a str,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
@@ -105,6 +122,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
         pool: &'a Pool,
         current_function: FunctionId,
         functions: &'a FxHashMap<Name, (FunctionId, FunctionAbi)>,
+        method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
+        type_idx_to_name: &'a FxHashMap<Idx, Name>,
+        lambda_counter: &'a Cell<u32>,
+        module_path: &'a str,
     ) -> Self {
         Self {
             builder,
@@ -117,7 +138,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             pool,
             current_function,
             functions,
+            method_functions,
+            type_idx_to_name,
             loop_ctx: None,
+            lambda_counter,
+            module_path,
         }
     }
 
@@ -171,8 +196,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             ExprKind::Duration { value, unit } => Some(self.lower_duration(*value, *unit)),
             ExprKind::Size { value, unit } => Some(self.lower_size(*value, *unit)),
             ExprKind::Unit => Some(self.lower_unit()),
-            ExprKind::Ident(name) => self.lower_ident(*name),
-            ExprKind::Const(name) => self.lower_const(*name),
+            ExprKind::Ident(name) => self.lower_ident(*name, id),
+            ExprKind::Const(name) => self.lower_const(*name, id),
             ExprKind::FunctionRef(name) => self.lower_function_ref(*name),
             ExprKind::HashLength => self.lower_hash_length(),
             ExprKind::TemplateLiteral { head, parts } => self.lower_template_literal(*head, *parts),
@@ -255,7 +280,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
                 params,
                 ret_ty: _,
                 body,
-            } => self.lower_lambda(*params, *body),
+            } => self.lower_lambda(*params, *body, id),
 
             // --- Constructs (lower_constructs.rs) ---
             ExprKind::FunctionSeq(seq_id) => self.lower_function_seq(*seq_id, id),

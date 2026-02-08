@@ -1236,6 +1236,19 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         self.arena.push_type(self.scx.type_i64().into())
     }
 
+    /// Register and return the closure fat-pointer type `{ ptr, ptr }`.
+    ///
+    /// All function-typed values use this two-pointer representation:
+    /// field 0 = function pointer, field 1 = environment pointer (null if
+    /// no captures).
+    pub fn closure_type(&mut self) -> LLVMTypeId {
+        let struct_ty = self.scx.type_struct(
+            &[self.scx.type_ptr().into(), self.scx.type_ptr().into()],
+            false,
+        );
+        self.arena.push_type(struct_ty.into())
+    }
+
     // -----------------------------------------------------------------------
     // Block management
     // -----------------------------------------------------------------------
