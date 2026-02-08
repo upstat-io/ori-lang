@@ -6,21 +6,21 @@ goal: Lower typed AST to an intermediate ARC IR with explicit control flow, then
 sections:
   - id: "06.0"
     title: ARC IR Definition
-    status: in-progress
+    status: complete
   - id: "06.1"
     title: Ownership Model
-    status: partial
+    status: complete
   - id: "06.2"
     title: Iterative Borrow Inference Algorithm
-    status: not-started
+    status: complete
   - id: "06.3"
     title: Integration with Function Signatures
-    status: not-started
+    status: in-progress
 ---
 
 # Section 06: ARC IR & Borrow Inference
 
-**Status:** In Progress — 06.0 AST→ARC IR lowering complete (all expression kinds, control flow, patterns, closures). 06.2 borrow inference not started.
+**Status:** In Progress — 06.0 AST→ARC IR lowering complete. 06.1 ownership model complete. 06.2 borrow inference complete (fixed-point algorithm with projection propagation, tail call preservation, 14 tests). 06.3 partially complete (apply_borrows done, LLVM integration remaining).
 **Goal:** Lower typed AST to an intermediate ARC IR with basic blocks and explicit control flow, then infer which function parameters are "borrowed" (the caller retains ownership, callee doesn't need to inc/dec) vs "owned" (ownership transfers to callee). Borrowed parameters eliminate entire classes of RC operations.
 
 **Crate:** `ori_arc` (no LLVM dependency).
@@ -290,7 +290,7 @@ pub struct AnnotatedSig {
 
 - [x] Define `Ownership` enum
 - [x] Define `AnnotatedParam` and `AnnotatedSig`
-- [ ] Integrate with ArcClass: Scalar parameters always effectively "borrowed" (no RC)
+- [x] Integrate with ArcClass: Scalar parameters always effectively "borrowed" (no RC)
 
 ## 06.2 Iterative Borrow Inference Algorithm
 
@@ -482,17 +482,17 @@ fn update_ownership(
 }
 ```
 
-- [ ] Implement `initialize_all_borrowed()` -- skip Scalar parameters
-- [ ] Implement instruction scanning over ARC IR blocks
-- [ ] Implement `update_ownership()` with use-kind analysis
-- [ ] Implement bidirectional projection ownership propagation
-- [ ] Implement `ApplyIndirect`/`PartialApply` ownership rules (all args Owned)
-- [ ] Implement tail call preservation (promote Borrowed→Owned when needed for TCO)
-- [ ] Implement fixed-point iteration
-- [ ] Verify that fixed-point iteration correctly handles recursive and mutually recursive functions (monotonic Borrowed→Owned convergence)
-- [ ] Handle closures: captured variables are always Owned (stored in env struct)
-- [ ] Test: pure functions should have all parameters Borrowed
-- [ ] Test: projection ownership propagation (return field from param → param becomes Owned)
+- [x] Implement `initialize_all_borrowed()` -- skip Scalar parameters
+- [x] Implement instruction scanning over ARC IR blocks
+- [x] Implement `update_ownership()` with use-kind analysis
+- [x] Implement bidirectional projection ownership propagation
+- [x] Implement `ApplyIndirect`/`PartialApply` ownership rules (all args Owned)
+- [x] Implement tail call preservation (promote Borrowed→Owned when needed for TCO)
+- [x] Implement fixed-point iteration
+- [x] Verify that fixed-point iteration correctly handles recursive and mutually recursive functions (monotonic Borrowed→Owned convergence)
+- [x] Handle closures: captured variables are always Owned (stored in env struct)
+- [x] Test: pure functions should have all parameters Borrowed
+- [x] Test: projection ownership propagation (return field from param → param becomes Owned)
 
 **Closure capture RC strategy** (Lean 4 / Koka approach):
 
@@ -506,18 +506,25 @@ Closure environments are RC'd **as a unit**. When a closure captures variables `
 ## 06.3 Integration with Function Signatures
 
 ```rust
-/// After borrow inference, annotate function signatures for codegen.
+/// After borrow inference, write results back to ArcFunction parameters.
 ///
 /// Codegen uses these annotations to decide:
 /// - Whether to emit inc before a function call
 /// - Whether to emit dec after a function call
 /// - Whether the callee needs to dec its parameters
-pub fn annotate_module(
-    module: &Module,
-    borrow_info: &FxHashMap<Name, AnnotatedSig>,
-) -> AnnotatedModule {
-    // Attach ownership info to each function
-    // This flows into Section 07 (RC insertion)
+///
+/// Implemented as `apply_borrows()` in `ori_arc::borrow`.
+pub fn apply_borrows(
+    functions: &mut [ArcFunction],
+    sigs: &HashMap<Name, AnnotatedSig, S>,
+) {
+    for func in functions {
+        if let Some(sig) = sigs.get(&func.name) {
+            for (param, annotated) in func.params.iter_mut().zip(&sig.params) {
+                param.ownership = annotated.ownership;
+            }
+        }
+    }
 }
 ```
 
@@ -533,7 +540,7 @@ Borrow inference produces `Ownership::Borrowed` / `Ownership::Owned` annotations
 
 The mapping is applied in `ori_llvm` when building LLVM function signatures. Section 04's `compute_param_passing()` takes the `Ownership` annotation (from borrow inference) and the `ArcClass` (from Section 05) as inputs. When `Ownership::Borrowed` and `ArcClass != Scalar`, it produces `ParamPassing::Reference` — the parameter is passed as a pointer, and the caller retains ownership (no inc before call, no dec after call). This is the mechanism by which borrow inference eliminates RC operations at call sites.
 
-- [ ] Implement module annotation with borrow results
+- [x] Implement module annotation with borrow results (`apply_borrows()`)
 - [ ] Wire borrow info into FunctionSig (Section 04)
 - [ ] Implement `compute_param_passing()` bridge: Ownership::Borrowed + non-Scalar → ParamPassing::Reference
 - [ ] Ensure borrow info persists through codegen pipeline
@@ -541,3 +548,5 @@ The mapping is applied in `ori_llvm` when building LLVM function signatures. Sec
 ---
 
 **Exit Criteria:** Every function parameter has a correct Borrowed/Owned annotation. Pure read-only parameters are Borrowed. Parameters that escape are Owned.
+
+**ARC-side exit criteria met:** `infer_borrows()` and `apply_borrows()` produce correct annotations (14 tests). LLVM-side integration (06.3 remaining items) is deferred to Section 07 implementation, when RC operations are inserted and ownership annotations are consumed by the codegen pipeline.

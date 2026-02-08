@@ -264,6 +264,85 @@ pub enum ArcInstr {
     },
 }
 
+impl ArcInstr {
+    /// Returns the variable defined (written) by this instruction, if any.
+    ///
+    /// Value-producing instructions (`Let`, `Apply`, `ApplyIndirect`,
+    /// `PartialApply`, `Project`, `Construct`, `IsShared`, `Reuse`)
+    /// return `Some(dst)`. `Reset` returns `Some(token)` (the reuse token
+    /// it defines). Side-effect-only instructions (`RcInc`, `RcDec`,
+    /// `Set`, `SetTag`) return `None`.
+    ///
+    /// Used by liveness analysis (Section 07.1), RC insertion (07.2),
+    /// and RC elimination (08).
+    pub fn defined_var(&self) -> Option<ArcVarId> {
+        match self {
+            ArcInstr::Let { dst, .. }
+            | ArcInstr::Apply { dst, .. }
+            | ArcInstr::ApplyIndirect { dst, .. }
+            | ArcInstr::PartialApply { dst, .. }
+            | ArcInstr::Project { dst, .. }
+            | ArcInstr::Construct { dst, .. }
+            | ArcInstr::IsShared { dst, .. }
+            | ArcInstr::Reuse { dst, .. } => Some(*dst),
+
+            ArcInstr::Reset { token, .. } => Some(*token),
+
+            ArcInstr::RcInc { .. }
+            | ArcInstr::RcDec { .. }
+            | ArcInstr::Set { .. }
+            | ArcInstr::SetTag { .. } => None,
+        }
+    }
+
+    /// Returns all variables read (used) by this instruction.
+    ///
+    /// This collects every `ArcVarId` that appears in a "read" position —
+    /// function arguments, closure targets, projected sources, RC targets,
+    /// etc. The `dst` of value-producing instructions is NOT included
+    /// (it's a definition, not a use).
+    ///
+    /// Used by liveness analysis (Section 07.1) for computing gen sets.
+    pub fn used_vars(&self) -> Vec<ArcVarId> {
+        match self {
+            ArcInstr::Let { value, .. } => match value {
+                ArcValue::Var(v) => vec![*v],
+                ArcValue::Literal(_) => vec![],
+                ArcValue::PrimOp { args, .. } => args.clone(),
+            },
+
+            ArcInstr::Apply { args, .. }
+            | ArcInstr::PartialApply { args, .. }
+            | ArcInstr::Construct { args, .. } => args.clone(),
+
+            ArcInstr::ApplyIndirect { closure, args, .. } => {
+                let mut vars = Vec::with_capacity(1 + args.len());
+                vars.push(*closure);
+                vars.extend_from_slice(args);
+                vars
+            }
+
+            ArcInstr::Project { value, .. } => vec![*value],
+
+            ArcInstr::RcInc { var, .. }
+            | ArcInstr::RcDec { var }
+            | ArcInstr::IsShared { var, .. }
+            | ArcInstr::Reset { var, .. } => vec![*var],
+
+            ArcInstr::Set { base, value, .. } => vec![*base, *value],
+
+            ArcInstr::SetTag { base, .. } => vec![*base],
+
+            ArcInstr::Reuse { token, args, .. } => {
+                let mut vars = Vec::with_capacity(1 + args.len());
+                vars.push(*token);
+                vars.extend_from_slice(args);
+                vars
+            }
+        }
+    }
+}
+
 // ── Terminators ─────────────────────────────────────────────────────
 
 /// Block terminator — how control leaves a basic block.
@@ -311,6 +390,27 @@ pub enum ArcTerminator {
 
     /// Marks a block as unreachable (e.g., after exhaustive match).
     Unreachable,
+}
+
+impl ArcTerminator {
+    /// Returns all variables read (used) by this terminator.
+    ///
+    /// - `Return` uses the returned value.
+    /// - `Jump` uses its arguments (passed to the target block's params).
+    /// - `Branch` uses the condition variable.
+    /// - `Switch` uses the scrutinee.
+    /// - `Invoke` uses its arguments (the `dst` is a definition in the
+    ///   normal successor, not a use here).
+    /// - `Resume` / `Unreachable` use nothing.
+    pub fn used_vars(&self) -> Vec<ArcVarId> {
+        match self {
+            ArcTerminator::Return { value } => vec![*value],
+            ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => args.clone(),
+            ArcTerminator::Branch { cond, .. } => vec![*cond],
+            ArcTerminator::Switch { scrutinee, .. } => vec![*scrutinee],
+            ArcTerminator::Resume | ArcTerminator::Unreachable => vec![],
+        }
+    }
 }
 
 // ── Blocks ──────────────────────────────────────────────────────────
@@ -838,5 +938,354 @@ mod tests {
         assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
         assert_eq!(func.var_type(ArcVarId::new(1)), Idx::STR);
         assert_eq!(func.var_type(ArcVarId::new(2)), Idx::BOOL);
+    }
+
+    // ── ArcInstr::defined_var ──────────────────────────────────
+
+    #[test]
+    fn defined_var_let() {
+        let instr = ArcInstr::Let {
+            dst: ArcVarId::new(5),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(1)),
+        };
+        assert_eq!(instr.defined_var(), Some(ArcVarId::new(5)));
+    }
+
+    #[test]
+    fn defined_var_apply() {
+        let instr = ArcInstr::Apply {
+            dst: ArcVarId::new(3),
+            ty: Idx::STR,
+            func: Name::from_raw(10),
+            args: vec![ArcVarId::new(0)],
+        };
+        assert_eq!(instr.defined_var(), Some(ArcVarId::new(3)));
+    }
+
+    #[test]
+    fn defined_var_apply_indirect() {
+        let instr = ArcInstr::ApplyIndirect {
+            dst: ArcVarId::new(7),
+            ty: Idx::INT,
+            closure: ArcVarId::new(1),
+            args: vec![ArcVarId::new(2)],
+        };
+        assert_eq!(instr.defined_var(), Some(ArcVarId::new(7)));
+    }
+
+    #[test]
+    fn defined_var_project() {
+        let instr = ArcInstr::Project {
+            dst: ArcVarId::new(4),
+            ty: Idx::INT,
+            value: ArcVarId::new(0),
+            field: 0,
+        };
+        assert_eq!(instr.defined_var(), Some(ArcVarId::new(4)));
+    }
+
+    #[test]
+    fn defined_var_construct() {
+        let instr = ArcInstr::Construct {
+            dst: ArcVarId::new(2),
+            ty: Idx::UNIT,
+            ctor: CtorKind::Tuple,
+            args: vec![ArcVarId::new(0)],
+        };
+        assert_eq!(instr.defined_var(), Some(ArcVarId::new(2)));
+    }
+
+    #[test]
+    fn defined_var_is_shared() {
+        let instr = ArcInstr::IsShared {
+            dst: ArcVarId::new(9),
+            var: ArcVarId::new(1),
+        };
+        assert_eq!(instr.defined_var(), Some(ArcVarId::new(9)));
+    }
+
+    #[test]
+    fn defined_var_reset() {
+        let instr = ArcInstr::Reset {
+            var: ArcVarId::new(0),
+            token: ArcVarId::new(10),
+        };
+        assert_eq!(instr.defined_var(), Some(ArcVarId::new(10)));
+    }
+
+    #[test]
+    fn defined_var_reuse() {
+        let instr = ArcInstr::Reuse {
+            token: ArcVarId::new(10),
+            dst: ArcVarId::new(11),
+            ty: Idx::STR,
+            ctor: CtorKind::Tuple,
+            args: vec![ArcVarId::new(0)],
+        };
+        assert_eq!(instr.defined_var(), Some(ArcVarId::new(11)));
+    }
+
+    #[test]
+    fn defined_var_rc_inc_is_none() {
+        let instr = ArcInstr::RcInc {
+            var: ArcVarId::new(0),
+            count: 1,
+        };
+        assert_eq!(instr.defined_var(), None);
+    }
+
+    #[test]
+    fn defined_var_rc_dec_is_none() {
+        let instr = ArcInstr::RcDec {
+            var: ArcVarId::new(0),
+        };
+        assert_eq!(instr.defined_var(), None);
+    }
+
+    #[test]
+    fn defined_var_set_is_none() {
+        let instr = ArcInstr::Set {
+            base: ArcVarId::new(0),
+            field: 0,
+            value: ArcVarId::new(1),
+        };
+        assert_eq!(instr.defined_var(), None);
+    }
+
+    #[test]
+    fn defined_var_set_tag_is_none() {
+        let instr = ArcInstr::SetTag {
+            base: ArcVarId::new(0),
+            tag: 0,
+        };
+        assert_eq!(instr.defined_var(), None);
+    }
+
+    // ── ArcInstr::used_vars ────────────────────────────────────
+
+    #[test]
+    fn used_vars_let_var() {
+        let instr = ArcInstr::Let {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            value: ArcValue::Var(ArcVarId::new(0)),
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0)]);
+    }
+
+    #[test]
+    fn used_vars_let_literal() {
+        let instr = ArcInstr::Let {
+            dst: ArcVarId::new(0),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(42)),
+        };
+        assert!(instr.used_vars().is_empty());
+    }
+
+    #[test]
+    fn used_vars_let_primop() {
+        let instr = ArcInstr::Let {
+            dst: ArcVarId::new(2),
+            ty: Idx::INT,
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(BinaryOp::Add),
+                args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+            },
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
+    }
+
+    #[test]
+    fn used_vars_apply() {
+        let instr = ArcInstr::Apply {
+            dst: ArcVarId::new(3),
+            ty: Idx::INT,
+            func: Name::from_raw(10),
+            args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
+    }
+
+    #[test]
+    fn used_vars_apply_indirect() {
+        let instr = ArcInstr::ApplyIndirect {
+            dst: ArcVarId::new(5),
+            ty: Idx::INT,
+            closure: ArcVarId::new(3),
+            args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        };
+        assert_eq!(
+            instr.used_vars(),
+            vec![ArcVarId::new(3), ArcVarId::new(0), ArcVarId::new(1)]
+        );
+    }
+
+    #[test]
+    fn used_vars_construct() {
+        let instr = ArcInstr::Construct {
+            dst: ArcVarId::new(4),
+            ty: Idx::UNIT,
+            ctor: CtorKind::Tuple,
+            args: vec![ArcVarId::new(0), ArcVarId::new(1), ArcVarId::new(2)],
+        };
+        assert_eq!(
+            instr.used_vars(),
+            vec![ArcVarId::new(0), ArcVarId::new(1), ArcVarId::new(2)]
+        );
+    }
+
+    #[test]
+    fn used_vars_project() {
+        let instr = ArcInstr::Project {
+            dst: ArcVarId::new(2),
+            ty: Idx::INT,
+            value: ArcVarId::new(0),
+            field: 1,
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0)]);
+    }
+
+    #[test]
+    fn used_vars_rc_inc() {
+        let instr = ArcInstr::RcInc {
+            var: ArcVarId::new(3),
+            count: 2,
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(3)]);
+    }
+
+    #[test]
+    fn used_vars_rc_dec() {
+        let instr = ArcInstr::RcDec {
+            var: ArcVarId::new(7),
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(7)]);
+    }
+
+    #[test]
+    fn used_vars_set() {
+        let instr = ArcInstr::Set {
+            base: ArcVarId::new(0),
+            field: 1,
+            value: ArcVarId::new(2),
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(2)]);
+    }
+
+    #[test]
+    fn used_vars_set_tag() {
+        let instr = ArcInstr::SetTag {
+            base: ArcVarId::new(5),
+            tag: 3,
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(5)]);
+    }
+
+    #[test]
+    fn used_vars_reset() {
+        let instr = ArcInstr::Reset {
+            var: ArcVarId::new(0),
+            token: ArcVarId::new(10),
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0)]);
+    }
+
+    #[test]
+    fn used_vars_reuse() {
+        let instr = ArcInstr::Reuse {
+            token: ArcVarId::new(10),
+            dst: ArcVarId::new(11),
+            ty: Idx::STR,
+            ctor: CtorKind::Tuple,
+            args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        };
+        assert_eq!(
+            instr.used_vars(),
+            vec![ArcVarId::new(10), ArcVarId::new(0), ArcVarId::new(1)]
+        );
+    }
+
+    #[test]
+    fn used_vars_is_shared() {
+        let instr = ArcInstr::IsShared {
+            dst: ArcVarId::new(9),
+            var: ArcVarId::new(1),
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(1)]);
+    }
+
+    #[test]
+    fn used_vars_partial_apply() {
+        let instr = ArcInstr::PartialApply {
+            dst: ArcVarId::new(6),
+            ty: Idx::UNIT,
+            func: Name::from_raw(20),
+            args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        };
+        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
+    }
+
+    // ── ArcTerminator::used_vars ───────────────────────────────
+
+    #[test]
+    fn terminator_used_vars_return() {
+        let t = ArcTerminator::Return {
+            value: ArcVarId::new(5),
+        };
+        assert_eq!(t.used_vars(), vec![ArcVarId::new(5)]);
+    }
+
+    #[test]
+    fn terminator_used_vars_jump() {
+        let t = ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        };
+        assert_eq!(t.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
+    }
+
+    #[test]
+    fn terminator_used_vars_branch() {
+        let t = ArcTerminator::Branch {
+            cond: ArcVarId::new(3),
+            then_block: ArcBlockId::new(1),
+            else_block: ArcBlockId::new(2),
+        };
+        assert_eq!(t.used_vars(), vec![ArcVarId::new(3)]);
+    }
+
+    #[test]
+    fn terminator_used_vars_switch() {
+        let t = ArcTerminator::Switch {
+            scrutinee: ArcVarId::new(7),
+            cases: vec![(0, ArcBlockId::new(1)), (1, ArcBlockId::new(2))],
+            default: ArcBlockId::new(3),
+        };
+        assert_eq!(t.used_vars(), vec![ArcVarId::new(7)]);
+    }
+
+    #[test]
+    fn terminator_used_vars_invoke() {
+        let t = ArcTerminator::Invoke {
+            dst: ArcVarId::new(10),
+            ty: Idx::INT,
+            func: Name::from_raw(1),
+            args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        };
+        assert_eq!(t.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
+    }
+
+    #[test]
+    fn terminator_used_vars_resume() {
+        assert!(ArcTerminator::Resume.used_vars().is_empty());
+    }
+
+    #[test]
+    fn terminator_used_vars_unreachable() {
+        assert!(ArcTerminator::Unreachable.used_vars().is_empty());
     }
 }

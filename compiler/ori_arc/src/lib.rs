@@ -32,16 +32,20 @@
 //! (for `Name`, `BinaryOp`, `UnaryOp`, etc.). No LLVM dependency — ARC
 //! analysis is backend-independent.
 
+pub mod borrow;
 mod classify;
 pub mod ir;
+pub mod liveness;
 pub mod lower;
 pub mod ownership;
 
+pub use borrow::{apply_borrows, infer_borrows};
 pub use classify::ArcClassifier;
 pub use ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
     CtorKind, LitValue, PrimOp,
 };
+pub use liveness::{compute_liveness, BlockLiveness, LiveSet};
 pub use lower::{lower_function, ArcProblem};
 use ori_types::Idx;
 pub use ownership::{AnnotatedParam, AnnotatedSig, Ownership};
