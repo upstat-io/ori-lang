@@ -387,7 +387,7 @@ sections:
 
 ## 7C.8 Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[x]`
+- [ ] All items above have all checkboxes marked `[ ]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
 - [ ] 80+% test coverage, tests against spec/design
 - [ ] Run full test suite: `./test-all.sh`

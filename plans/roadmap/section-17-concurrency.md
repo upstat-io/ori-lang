@@ -435,7 +435,7 @@ Specifies cooperative cancellation model, checkpoints, error mode behaviors, and
 
 ### Implementation
 
-- [x] **Spec**: Cancellation semantics in `spec/23-concurrency-model.md` DONE
+- [ ] **Spec**: Cancellation semantics in `spec/23-concurrency-model.md` DONE
 
 - [ ] **Implement**: Cooperative cancellation model
   - [ ] **Rust Tests**: `oric/src/eval/cancellation.rs` — cooperative cancellation
@@ -567,7 +567,7 @@ Formalizes semantics for `timeout` and `spawn` patterns including cancellation b
 
 ## 17.9 Section Completion Checklist
 
-- [ ] All items in 17.1-17.8 have checkboxes marked `[x]`
+- [ ] All items in 17.1-17.8 have checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/06-types.md` — Sendable, Producer, Consumer, CloneableProducer, CloneableConsumer, CancellationError, CancellationReason
 - [ ] Spec updated: `spec/10-patterns.md` — nursery pattern, parallel execution guarantees
 - [ ] Spec updated: `spec/23-concurrency-model.md` — cancellation model

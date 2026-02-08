@@ -1,7 +1,7 @@
 ---
 section: 5
 title: Type Declarations
-status: in-progress
+status: not-started
 tier: 1
 goal: User-defined types
 spec:
@@ -11,16 +11,16 @@ spec:
 sections:
   - id: "5.1"
     title: Struct Types
-    status: complete
+    status: not-started
   - id: "5.2"
     title: Sum Types (Enums)
-    status: complete
+    status: not-started
   - id: "5.3"
     title: Newtypes
-    status: in-progress
+    status: not-started
   - id: "5.4"
     title: Generic Types
-    status: in-progress
+    status: not-started
   - id: "5.5"
     title: Compound Types
     status: not-started
@@ -53,74 +53,74 @@ sections:
 
 ## 5.1 Struct Types
 
-- [x] **Implement**: Parse `type Name = { field: Type, ... }` — spec/06-types.md § Struct Types, spec/08-declarations.md § Type Declarations
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_struct_type`
-  - [x] **Ori Tests**: N/A (parser tested via Rust unit tests)
+- [ ] **Implement**: Parse `type Name = { field: Type, ... }` — spec/06-types.md § Struct Types, spec/08-declarations.md § Type Declarations
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_struct_type`
+  - [ ] **Ori Tests**: N/A (parser tested via Rust unit tests)
 
-- [x] **Implement**: Register struct in type environment — spec/08-declarations.md § Type Declarations
-  - [x] **Rust Tests**: `oric/src/typeck/checker/type_registration.rs` — type registry tests
-  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
+- [ ] **Implement**: Register struct in type environment — spec/08-declarations.md § Type Declarations
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/type_registration.rs` — type registry tests
+  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
 
-- [x] **Implement**: Parse struct literals `Name { field: value }` — spec/06-types.md § Struct Types
-  - [x] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — struct literal parsing
-  - [x] **Ori Tests**: `tests/spec/traits/declaration.ori`
+- [ ] **Implement**: Parse struct literals `Name { field: value }` — spec/06-types.md § Struct Types
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — struct literal parsing
+  - [ ] **Ori Tests**: `tests/spec/traits/declaration.ori`
   - **Note**: Added 2024-01-25 — struct literal parsing was missing from postfix.rs
 
-- [x] **Implement**: Type check struct literals — spec/06-types.md § Struct Types
-  - [x] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — struct literal type checking
-  - [x] **Ori Tests**: `tests/spec/types/struct.ori`
+- [ ] **Implement**: Type check struct literals — spec/06-types.md § Struct Types
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — struct literal type checking
+  - [ ] **Ori Tests**: `tests/spec/types/struct.ori`
 
-- [x] **Implement**: Shorthand `Point { x, y }` — spec/06-types.md § Struct Types
-  - [x] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — shorthand parsing
-  - [x] **Ori Tests**: `tests/spec/types/struct.ori`
+- [ ] **Implement**: Shorthand `Point { x, y }` — spec/06-types.md § Struct Types
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — shorthand parsing
+  - [ ] **Ori Tests**: `tests/spec/types/struct.ori`
 
-- [x] **Implement**: Field access — spec/06-types.md § Struct Types
-  - [x] **Rust Tests**: `oric/src/typeck/infer/postfix.rs` — field access type inference
-  - [x] **Ori Tests**: `tests/spec/types/struct.ori`
+- [ ] **Implement**: Field access — spec/06-types.md § Struct Types
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/postfix.rs` — field access type inference
+  - [ ] **Ori Tests**: `tests/spec/types/struct.ori`
 
-- [x] **Implement**: Destructuring — spec/09-expressions.md § Destructuring
-  - [x] **Rust Tests**: Parser in `ori_parse/src/grammar/expr/primary.rs` — `parse_binding_pattern()`
-  - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — 8 new tests for struct/list/tuple destructuring
+- [ ] **Implement**: Destructuring — spec/09-expressions.md § Destructuring
+  - [ ] **Rust Tests**: Parser in `ori_parse/src/grammar/expr/primary.rs` — `parse_binding_pattern()`
+  - [ ] **Ori Tests**: `tests/spec/expressions/bindings.ori` — 8 new tests for struct/list/tuple destructuring
 
 ---
 
 ## 5.2 Sum Types (Enums) — COMPLETED 2026-01-28
 
-- [x] **Implement**: Parse `type Name = Variant1 | Variant2(Type)` — spec/06-types.md § Sum Types, spec/08-declarations.md § Type Declarations
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_sum_type`
-  - [x] **Ori Tests**: N/A (parser tested via Rust unit tests)
+- [ ] **Implement**: Parse `type Name = Variant1 | Variant2(Type)` — spec/06-types.md § Sum Types, spec/08-declarations.md § Type Declarations
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_sum_type`
+  - [ ] **Ori Tests**: N/A (parser tested via Rust unit tests)
 
-- [x] **Implement**: Unit variants — spec/06-types.md § Sum Types
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — included in `test_parse_sum_type`
-  - [x] **Ori Tests**: `tests/spec/types/sum_types.ori` — unit variant tests
+- [ ] **Implement**: Unit variants — spec/06-types.md § Sum Types
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — included in `test_parse_sum_type`
+  - [ ] **Ori Tests**: `tests/spec/types/sum_types.ori` — unit variant tests
 
-- [x] **Implement**: Single-field variants `Variant(Type)` — spec/06-types.md § Sum Types
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — single-field variant parsing
-  - [x] **Ori Tests**: `tests/spec/types/sum_types.ori` — single-field variant tests
-  - [x] **LLVM Support**: LLVM codegen for single-field variants
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — single-field variant codegen
+- [ ] **Implement**: Single-field variants `Variant(Type)` — spec/06-types.md § Sum Types
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — single-field variant parsing
+  - [ ] **Ori Tests**: `tests/spec/types/sum_types.ori` — single-field variant tests
+  - [ ] **LLVM Support**: LLVM codegen for single-field variants
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — single-field variant codegen
 
-- [x] **Implement**: Multi-field variants `Variant(x: Type, y: Type)` — spec/06-types.md § Sum Types
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — multi-field variant parsing
-  - [x] **Ori Tests**: `tests/spec/types/sum_types.ori` — multi-field variant tests (`Click(x, y)`)
-  - [x] **LLVM Support**: LLVM codegen for multi-field variants
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — multi-field variant codegen
+- [ ] **Implement**: Multi-field variants `Variant(x: Type, y: Type)` — spec/06-types.md § Sum Types
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — multi-field variant parsing
+  - [ ] **Ori Tests**: `tests/spec/types/sum_types.ori` — multi-field variant tests (`Click(x, y)`)
+  - [ ] **LLVM Support**: LLVM codegen for multi-field variants
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — multi-field variant codegen
 
-- [x] **Implement**: Struct variants — spec/06-types.md § Sum Types
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — struct variant parsing (named fields)
-  - [x] **Ori Tests**: N/A (parser tested via Rust unit tests)
+- [ ] **Implement**: Struct variants — spec/06-types.md § Sum Types
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — struct variant parsing (named fields)
+  - [ ] **Ori Tests**: N/A (parser tested via Rust unit tests)
 
-- [x] **Implement**: Variant constructors — spec/06-types.md § Sum Types
-  - [x] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — variant constructor type checking
-  - [x] **Ori Tests**: `tests/spec/types/sum_types.ori` — 11 tests for variant construction
-  - [x] **LLVM Support**: LLVM codegen for variant constructors
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — variant constructor codegen
+- [ ] **Implement**: Variant constructors — spec/06-types.md § Sum Types
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — variant constructor type checking
+  - [ ] **Ori Tests**: `tests/spec/types/sum_types.ori` — 11 tests for variant construction
+  - [ ] **LLVM Support**: LLVM codegen for variant constructors
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` — variant constructor codegen
 
-- [x] **Implement**: Pattern matching on variants — spec/10-patterns.md § Pattern Types
-  - [x] **Rust Tests**: `oric/src/typeck/infer/pattern.rs` — variant pattern matching
-  - [x] **Ori Tests**: `tests/spec/types/sum_types.ori` — variant pattern matching tests
-  - [x] **LLVM Support**: LLVM codegen for variant pattern matching
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — variant pattern codegen
+- [ ] **Implement**: Pattern matching on variants — spec/10-patterns.md § Pattern Types
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/pattern.rs` — variant pattern matching
+  - [ ] **Ori Tests**: `tests/spec/types/sum_types.ori` — variant pattern matching tests
+  - [ ] **LLVM Support**: LLVM codegen for variant pattern matching
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — variant pattern codegen
 
 ---
 
@@ -128,21 +128,21 @@ sections:
 
 **Proposal**: `proposals/approved/newtype-pattern-proposal.md`
 
-- [x] **Implement**: Parse `type Name = ExistingType` — spec/06-types.md § Newtypes, spec/08-declarations.md § Type Declarations
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_newtype`
-  - [x] **Ori Tests**: N/A (parser tested via Rust unit tests)
+- [ ] **Implement**: Parse `type Name = ExistingType` — spec/06-types.md § Newtypes, spec/08-declarations.md § Type Declarations
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_newtype`
+  - [ ] **Ori Tests**: N/A (parser tested via Rust unit tests)
 
-- [x] **Implement**: Distinct type identity (nominal) — spec/07-properties-of-types.md § Type Equivalence
-  - [x] **Rust Tests**: `ori_typeck/src/registry/tests/type_registry_tests.rs` — nominal type identity
-  - [x] **Ori Tests**: `tests/spec/types/newtypes.ori`
-  - [x] **LLVM Support**: Transparent at runtime (same as underlying type)
-  - [x] **Note**: `TypeKind::Newtype` returns `Type::Named(name)`, not the underlying type
+- [ ] **Implement**: Distinct type identity (nominal) — spec/07-properties-of-types.md § Type Equivalence
+  - [ ] **Rust Tests**: `ori_typeck/src/registry/tests/type_registry_tests.rs` — nominal type identity
+  - [ ] **Ori Tests**: `tests/spec/types/newtypes.ori`
+  - [ ] **LLVM Support**: Transparent at runtime (same as underlying type)
+  - [ ] **Note**: `TypeKind::Newtype` returns `Type::Named(name)`, not the underlying type
 
-- [x] **Implement**: Wrapping/unwrapping — spec/06-types.md § Newtypes
-  - [x] **Rust Tests**: `ori_eval/src/methods.rs` — newtype unwrap method
-  - [x] **Ori Tests**: `tests/spec/types/newtypes.ori` — 9 tests
-  - [x] **LLVM Support**: Transparent at runtime (newtype constructor just stores underlying value)
-  - [x] **Implementation**: `UserId(value)` wraps, `user_id.unwrap()` unwraps
+- [ ] **Implement**: Wrapping/unwrapping — spec/06-types.md § Newtypes
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — newtype unwrap method
+  - [ ] **Ori Tests**: `tests/spec/types/newtypes.ori` — 9 tests
+  - [ ] **LLVM Support**: Transparent at runtime (newtype constructor just stores underlying value)
+  - [ ] **Implementation**: `UserId(value)` wraps, `user_id.unwrap()` unwraps
 
 - [ ] **Implement**: Change `.unwrap()` to `.inner` accessor — spec/06-types.md § Newtypes
   - [ ] **Rust Tests**: Update `ori_eval/src/methods.rs` tests to use `.inner`
@@ -155,13 +155,13 @@ sections:
 
 ## 5.4 Generic Types
 
-- [x] **Implement**: Parse `type Name<T> = ...` — spec/06-types.md § Generic Types, spec/08-declarations.md § Generic Declarations
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_generic_type_with_bounds`
-  - [x] **Ori Tests**: N/A (parser tested via Rust unit tests)
+- [ ] **Implement**: Parse `type Name<T> = ...` — spec/06-types.md § Generic Types, spec/08-declarations.md § Generic Declarations
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_generic_type_with_bounds`
+  - [ ] **Ori Tests**: N/A (parser tested via Rust unit tests)
 
-- [x] **Implement**: Multiple parameters `<T, U>` — spec/08-declarations.md § Generic Declarations
-  - [x] **Rust Tests**: Covered by parser tests
-  - [x] **Ori Tests**: `tests/spec/types/generic.ori` — `test_pair_int_str`, `test_pair_str_bool`
+- [ ] **Implement**: Multiple parameters `<T, U>` — spec/08-declarations.md § Generic Declarations
+  - [ ] **Rust Tests**: Covered by parser tests
+  - [ ] **Ori Tests**: `tests/spec/types/generic.ori` — `test_pair_int_str`, `test_pair_str_bool`
 
 - [ ] **Implement**: Constrained `<T: Trait>` — spec/08-declarations.md § Generic Declarations
   - [ ] **Rust Tests**: `oric/src/typeck/checker/bound_checking.rs` — constrained generics
@@ -175,9 +175,9 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for multiple bounds
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/generic_tests.rs` — multiple bounds codegen
 
-- [x] **Implement**: Generic application / Instantiation — spec/06-types.md § Generic Types
-  - [x] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — `infer_struct` handles instantiation
-  - [x] **Ori Tests**: `tests/spec/types/generic.ori` — all 14 tests cover instantiation
+- [ ] **Implement**: Generic application / Instantiation — spec/06-types.md § Generic Types
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — `infer_struct` handles instantiation
+  - [ ] **Ori Tests**: `tests/spec/types/generic.ori` — all 14 tests cover instantiation
   - **Note**: Added `Type::Applied` variant to track instantiated generic types with type args.
     Struct literal inference creates fresh type vars for type params, substitutes in field types,
     and returns `Type::Applied { name, args }`. Field access on `Type::Applied` substitutes
@@ -398,7 +398,7 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 
 ## 5.10 Section Completion Checklist
 
-- [ ] All items above have all three checkboxes marked `[x]`
+- [ ] All items above have all three checkboxes marked `[ ]`
 - [ ] 80+% test coverage
 - [ ] Run full test suite: `./test-all.sh`
 

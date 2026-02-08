@@ -215,3 +215,11 @@ Milestones align with tiers for consistent tracking.
 | Proposals | `docs/ori_lang/proposals/` |
 | Compiler | `compiler/oric/` |
 | Tests | `tests/spec/` |
+
+---
+
+## Zero Reset Log
+
+| Date | Notes |
+|------|-------|
+| 2026-02-08 14:37 UTC | Full reset — re-verify all features after LLVM V2 codegen rewrite |

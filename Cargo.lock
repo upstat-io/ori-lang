@@ -566,6 +566,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
+name = "ori_arc"
+version = "0.1.0-alpha.8"
+dependencies = [
+ "ori_ir",
+ "ori_types",
+ "pretty_assertions",
+ "rustc-hash",
+ "tracing",
+]
+
+[[package]]
 name = "ori_diagnostic"
 version = "0.1.0-alpha.8"
 dependencies = [

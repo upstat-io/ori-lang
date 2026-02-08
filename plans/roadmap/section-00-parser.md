@@ -1,7 +1,7 @@
 ---
 section: 0
 title: Full Parser Support
-status: in-progress
+status: not-started
 tier: 0
 goal: Complete parser support for entire Ori spec grammar (parsing only, not evaluation)
 spec:
@@ -15,34 +15,34 @@ spec:
 sections:
   - id: "0.1"
     title: Lexical Grammar
-    status: complete
+    status: not-started
   - id: "0.2"
     title: Source Structure
-    status: complete
+    status: not-started
   - id: "0.3"
     title: Declarations
-    status: complete
+    status: not-started
   - id: "0.4"
     title: Types
-    status: complete
+    status: not-started
   - id: "0.4.5"
     title: Trait Objects
-    status: complete
+    status: not-started
   - id: "0.5"
     title: Expressions
-    status: complete
+    status: not-started
   - id: "0.6"
     title: Patterns
-    status: complete
+    status: not-started
   - id: "0.7"
     title: Constant Expressions
-    status: complete
+    status: not-started
   - id: "0.8"
     title: Section Completion Checklist
-    status: in-progress
+    status: not-started
   - id: "0.9"
     title: Parser Bugs (from Comprehensive Tests)
-    status: in-progress
+    status: not-started
 ---
 
 # Section 0: Full Parser Support
@@ -75,9 +75,9 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.1.1 Comments
 
-- [x] **Audit**: Line comments `// ...` — grammar.ebnf § comment
+- [ ] **Audit**: Line comments `// ...` — grammar.ebnf § comment
   - [ ] **Rust Tests**: `ori_lexer/src/` — comment tokenization
-  - [x] **Ori Tests**: `tests/spec/lexical/comments.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/comments.ori`
 
 - [ ] **Audit**: Doc comments with markers — grammar.ebnf § doc_comment
   - [ ] `// ` (description), `// *` (param), `// !` (warning), `// >` (example)
@@ -86,9 +86,9 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.1.2 Identifiers
 
-- [x] **Audit**: Standard identifiers `letter { letter | digit | "_" }` — grammar.ebnf § identifier
+- [ ] **Audit**: Standard identifiers `letter { letter | digit | "_" }` — grammar.ebnf § identifier
   - [ ] **Rust Tests**: `ori_lexer/src/` — identifier tokenization
-  - [x] **Ori Tests**: `tests/spec/lexical/identifiers.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/identifiers.ori`
 
 ### 0.1.3 Keywords
 
@@ -118,68 +118,68 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.1.4 Operators
 
-- [x] **Audit**: Arithmetic operators — grammar.ebnf § arith_op
-  - [x] `+`, `-`, `*`, `/`, `%`, `div` — **Fixed**: Added `div` to parser (was missing)
+- [ ] **Audit**: Arithmetic operators — grammar.ebnf § arith_op
+  - [ ] `+`, `-`, `*`, `/`, `%`, `div` — **Fixed**: Added `div` to parser (was missing)
   - [ ] **Rust Tests**: `ori_lexer/src/` — operator tokenization
-  - [x] **Ori Tests**: `tests/spec/lexical/operators.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/operators.ori`
 
-- [x] **Audit**: Comparison operators — grammar.ebnf § comp_op
-  - [x] `==`, `!=`, `<`, `>`, `<=`, `>=`
+- [ ] **Audit**: Comparison operators — grammar.ebnf § comp_op
+  - [ ] `==`, `!=`, `<`, `>`, `<=`, `>=`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/operators.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/operators.ori`
 
-- [x] **Audit**: Logic operators — grammar.ebnf § logic_op
-  - [x] `&&`, `||`, `!`
+- [ ] **Audit**: Logic operators — grammar.ebnf § logic_op
+  - [ ] `&&`, `||`, `!`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/operators.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/operators.ori`
 
-- [x] **Audit**: Bitwise operators — grammar.ebnf § bit_op
-  - [x] `&`, `|`, `^`, `~`, `<<`, `>>`
+- [ ] **Audit**: Bitwise operators — grammar.ebnf § bit_op
+  - [ ] `&`, `|`, `^`, `~`, `<<`, `>>`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/operators.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/operators.ori`
 
-- [x] **Audit**: Other operators — grammar.ebnf § other_op
-  - [x] `..`, `..=`, `??`, `?`, `->`, `=>` — Note: `??` parses but evaluator incomplete
+- [ ] **Audit**: Other operators — grammar.ebnf § other_op
+  - [ ] `..`, `..=`, `??`, `?`, `->`, `=>` — Note: `??` parses but evaluator incomplete
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/operators.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/operators.ori`
 
 ### 0.1.5 Delimiters
 
-- [x] **Audit**: All delimiters — grammar.ebnf § delimiter
-  - [x] `(`, `)`, `[`, `]`, `{`, `}`, `,`, `:`, `.`, `@`, `$`
+- [ ] **Audit**: All delimiters — grammar.ebnf § delimiter
+  - [ ] `(`, `)`, `[`, `]`, `{`, `}`, `,`, `:`, `.`, `@`, `$`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/delimiters.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/delimiters.ori`
 
 ### 0.1.6 Integer Literals
 
-- [x] **Audit**: Decimal integers — grammar.ebnf § decimal_lit
-  - [x] Basic: `42`, with underscores: `1_000_000`
+- [ ] **Audit**: Decimal integers — grammar.ebnf § decimal_lit
+  - [ ] Basic: `42`, with underscores: `1_000_000`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/int_literals.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/int_literals.ori`
 
-- [x] **Audit**: Hexadecimal integers — grammar.ebnf § hex_lit
-  - [x] Basic: `0xFF`, with underscores: `0x1A_2B_3C`
+- [ ] **Audit**: Hexadecimal integers — grammar.ebnf § hex_lit
+  - [ ] Basic: `0xFF`, with underscores: `0x1A_2B_3C`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/int_literals.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/int_literals.ori`
 
 ### 0.1.7 Float Literals
 
-- [x] **Audit**: Basic floats — grammar.ebnf § float_literal
-  - [x] Simple: `3.14`, with exponent: `2.5e-8`, `1.0E+10`
+- [ ] **Audit**: Basic floats — grammar.ebnf § float_literal
+  - [ ] Simple: `3.14`, with exponent: `2.5e-8`, `1.0E+10`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/float_literals.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/float_literals.ori`
 
 ### 0.1.8 String Literals
 
-- [x] **Audit**: Basic strings — grammar.ebnf § string_literal
-  - [x] Simple: `"hello"`, empty: `""`
+- [ ] **Audit**: Basic strings — grammar.ebnf § string_literal
+  - [ ] Simple: `"hello"`, empty: `""`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/string_literals.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/string_literals.ori`
 
-- [x] **Audit**: Escape sequences — grammar.ebnf § escape
-  - [x] `\\`, `\"`, `\n`, `\t`, `\r`, `\0`
+- [ ] **Audit**: Escape sequences — grammar.ebnf § escape
+  - [ ] `\\`, `\"`, `\n`, `\t`, `\r`, `\0`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/string_literals.ori` — escapes tested in same file
+  - [ ] **Ori Tests**: `tests/spec/lexical/string_literals.ori` — escapes tested in same file
 
 ### 0.1.9 Template Literals
 
@@ -204,33 +204,33 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.1.10 Character Literals
 
-- [x] **Audit**: Character literals — grammar.ebnf § char_literal
-  - [x] Simple: `'a'`, escapes: `'\n'`, `'\t'`, `'\''`, `'\\'`
+- [ ] **Audit**: Character literals — grammar.ebnf § char_literal
+  - [ ] Simple: `'a'`, escapes: `'\n'`, `'\t'`, `'\''`, `'\\'`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/char_literals.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/char_literals.ori`
 
 ### 0.1.11 Boolean Literals
 
-- [x] **Audit**: Boolean literals — grammar.ebnf § bool_literal
-  - [x] `true`, `false`
+- [ ] **Audit**: Boolean literals — grammar.ebnf § bool_literal
+  - [ ] `true`, `false`
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/bool_literals.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/bool_literals.ori`
 
 ### 0.1.12 Duration Literals
 
-- [x] **Audit**: Duration literals — grammar.ebnf § duration_literal
-  - [x] All units: `100ns`, `50us`, `10ms`, `5s`, `2m`, `1h`
+- [ ] **Audit**: Duration literals — grammar.ebnf § duration_literal
+  - [ ] All units: `100ns`, `50us`, `10ms`, `5s`, `2m`, `1h`
   - [ ] Decimal syntax: `0.5s`, `1.5m` (compile-time sugar) — not tested
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/duration_literals.ori`
+  - [ ] **Ori Tests**: `tests/spec/lexical/duration_literals.ori`
 
 ### 0.1.13 Size Literals
 
-- [x] **Audit**: Size literals — grammar.ebnf § size_literal
-  - [x] All units: `100b`, `10kb`, `5mb`, `1gb`, `500tb`
+- [ ] **Audit**: Size literals — grammar.ebnf § size_literal
+  - [ ] All units: `100b`, `10kb`, `5mb`, `1gb`, `500tb`
   - [ ] Decimal syntax: `1.5kb`, `2.5mb` (compile-time sugar) — not tested
   - [ ] **Rust Tests**: `ori_lexer/src/`
-  - [x] **Ori Tests**: `tests/spec/lexical/size_literals.ori` — Note: impl uses binary (1024) not SI (1000)
+  - [ ] **Ori Tests**: `tests/spec/lexical/size_literals.ori` — Note: impl uses binary (1024) not SI (1000)
 
 ---
 
@@ -1004,15 +1004,15 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 > **STATUS**: NEARLY COMPLETE — 1983 passing, 0 failing, 31 skipped
 
-- [x] All lexical grammar items audited and tested (0.1)
-- [x] All source structure items audited and tested (0.2)
-- [x] All declaration items audited and tested (0.3)
-- [x] All type items audited and tested (0.4)
-- [x] All expression items audited and tested (0.5)
-- [x] All pattern items audited and tested (0.6)
-- [x] All constant expression items audited and tested (0.7)
-- [x] Run `cargo t -p ori_parse` — all parser tests pass
-- [x] Run `cargo t -p ori_lexer` — all lexer tests pass
+- [ ] All lexical grammar items audited and tested (0.1)
+- [ ] All source structure items audited and tested (0.2)
+- [ ] All declaration items audited and tested (0.3)
+- [ ] All type items audited and tested (0.4)
+- [ ] All expression items audited and tested (0.5)
+- [ ] All pattern items audited and tested (0.6)
+- [ ] All constant expression items audited and tested (0.7)
+- [ ] Run `cargo t -p ori_parse` — all parser tests pass
+- [ ] Run `cargo t -p ori_lexer` — all lexer tests pass
 - [ ] Run `cargo st tests/` — 31 skipped tests remain (evaluator/type checker gaps, not parser issues)
 
 **Exit Criteria**: Every grammar production in `grammar.ebnf` has verified parser support with tests. Parser complete; skipped tests are evaluator/type checker issues tracked in Section 23.
@@ -1035,44 +1035,44 @@ These features fail at the parse phase — the parser does not recognize the syn
 
 > **Test Status Comments**: Each failing test file has a `STATUS: Lexer [OK], Parser [BROKEN]` comment documenting the specific issue.
 
-- [x] **Implement**: Guard clauses in function definitions
-  - [x] **Parser**: Handle `if condition` before `=` in function definitions
-  - [x] **Syntax**: `@f (n: int) -> int if n > 0 = n` — Now parses correctly
+- [ ] **Implement**: Guard clauses in function definitions
+  - [ ] **Parser**: Handle `if condition` before `=` in function definitions
+  - [ ] **Syntax**: `@f (n: int) -> int if n > 0 = n` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/clause_params.ori` — guard clause tests (evaluator support needed)
 
-- [x] **Implement**: List patterns in function parameters
-  - [x] **Parser**: Recognize `[` as start of pattern in parameter position
-  - [x] **Syntax**: `@len ([]: [T]) -> int = 0` — Now parses correctly
+- [ ] **Implement**: List patterns in function parameters
+  - [ ] **Parser**: Recognize `[` as start of pattern in parameter position
+  - [ ] **Syntax**: `@len ([]: [T]) -> int = 0` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/clause_params.ori` — type checker support needed
 
-- [x] **Implement**: Const generics
-  - [x] **Parser**: Handle `$` prefix in generic parameters
-  - [x] **Syntax**: `@f<$N: int>`, `@f<$N: int = 10>` — Now parses correctly
+- [ ] **Implement**: Const generics
+  - [ ] **Parser**: Handle `$` prefix in generic parameters
+  - [ ] **Syntax**: `@f<$N: int>`, `@f<$N: int = 10>` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/generics.ori` — type checker support needed
 
-- [x] **Implement**: Variadic parameters
-  - [x] **Parser**: Handle `...` prefix before parameter type
-  - [x] **Syntax**: `@sum (nums: ...int)` — Now parses correctly
+- [ ] **Implement**: Variadic parameters
+  - [ ] **Parser**: Handle `...` prefix before parameter type
+  - [ ] **Syntax**: `@sum (nums: ...int)` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/variadic_params.ori` — type checker support needed
 
-- [x] **Implement**: Spread in function calls
-  - [x] **Parser**: Handle `...` spread operator in call arguments
-  - [x] **Syntax**: `sum(...list)` — Now parses correctly
+- [ ] **Implement**: Spread in function calls
+  - [ ] **Parser**: Handle `...` spread operator in call arguments
+  - [ ] **Syntax**: `sum(...list)` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/expressions/function_calls.ori` — type checker support needed
 
-- [x] **Implement**: `#repr` attribute
-  - [x] **Parser**: Register `repr` as known attribute
-  - [x] **Syntax**: `#repr("c")` — Now parses correctly
+- [ ] **Implement**: `#repr` attribute
+  - [ ] **Parser**: Register `repr` as known attribute
+  - [ ] **Syntax**: `#repr("c")` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori` — semantic validation needed
 
-- [x] **Implement**: `#target` attribute
-  - [x] **Parser**: Register `target` as known attribute
-  - [x] **Syntax**: `#target(os: "linux")` — Now parses correctly
+- [ ] **Implement**: `#target` attribute
+  - [ ] **Parser**: Register `target` as known attribute
+  - [ ] **Syntax**: `#target(os: "linux")` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori` — semantic validation needed
 
-- [x] **Implement**: `#cfg` attribute
-  - [x] **Parser**: Register `cfg` as known attribute
-  - [x] **Syntax**: `#cfg(debug)` — Now parses correctly
+- [ ] **Implement**: `#cfg` attribute
+  - [ ] **Parser**: Register `cfg` as known attribute
+  - [ ] **Syntax**: `#cfg(debug)` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori` — semantic validation needed
 
 - [ ] **Implement**: Associated type constraints in where clauses
@@ -1080,14 +1080,14 @@ These features fail at the parse phase — the parser does not recognize the syn
   - [ ] **Syntax**: `where I.Item == int` — Parser expects `:`, finds `==`
   - [ ] **Ori Tests**: `tests/spec/declarations/where_clause.ori`
 
-- [x] **Implement**: `timeout` as identifier
-  - [x] **Parser**: Allow `timeout` in non-pattern contexts
-  - [x] **Syntax**: `let timeout = 5` — Now works (context-sensitive keyword)
-  - [x] **Ori Tests**: Verified working in local tests
+- [ ] **Implement**: `timeout` as identifier
+  - [ ] **Parser**: Allow `timeout` in non-pattern contexts
+  - [ ] **Syntax**: `let timeout = 5` — Now works (context-sensitive keyword)
+  - [ ] **Ori Tests**: Verified working in local tests
 
-- [x] **Implement**: Computed constants
-  - [x] **Parser**: Allow expressions in module-level constant definitions
-  - [x] **Syntax**: `let $X = 2 + 3` — Now parses correctly
+- [ ] **Implement**: Computed constants
+  - [ ] **Parser**: Allow expressions in module-level constant definitions
+  - [ ] **Syntax**: `let $X = 2 + 3` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/declarations/constants.ori` — evaluator support needed
 
 - [ ] **Implement**: Const functions
@@ -1097,46 +1097,46 @@ These features fail at the parse phase — the parser does not recognize the syn
 
 ### 0.9.2 Additional Parser Bugs (discovered during testing)
 
-- [x] **Implement**: Fixed-capacity list type syntax `[T, max N]`
-  - [x] **Parser**: Handle comma in type annotation for fixed-capacity lists
-  - [x] **Syntax**: `let buffer: [int, max 10] = []` — Now parses correctly
+- [ ] **Implement**: Fixed-capacity list type syntax `[T, max N]`
+  - [ ] **Parser**: Handle comma in type annotation for fixed-capacity lists
+  - [ ] **Syntax**: `let buffer: [int, max 10] = []` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/types/fixed_list_types.ori` — type checker support needed
 
-- [x] **Implement**: Wildcard pattern in for loops `for _ in range`
-  - [x] **Parser**: Accept `_` as binding pattern in for loops
-  - [x] **Syntax**: `for _ in 0..n do ...` — Now parses correctly
+- [ ] **Implement**: Wildcard pattern in for loops `for _ in range`
+  - [ ] **Parser**: Accept `_` as binding pattern in for loops
+  - [ ] **Syntax**: `for _ in 0..n do ...` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/patterns/for.ori`
 
-- [x] **Implement**: `as` and `as?` type conversion operators
-  - [x] **Parser**: Handle `as` and `as?` as postfix operators
-  - [x] **Syntax**: `42 as float`, `"42" as? int` — Now parses correctly
-  - [x] **Syntax**: Negative literals: `-100 as float` — Now parses correctly
+- [ ] **Implement**: `as` and `as?` type conversion operators
+  - [ ] **Parser**: Handle `as` and `as?` as postfix operators
+  - [ ] **Syntax**: `42 as float`, `"42" as? int` — Now parses correctly
+  - [ ] **Syntax**: Negative literals: `-100 as float` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/expressions/type_conversion.ori`
 
-- [x] **Implement**: Context-sensitive pattern keywords
-  - [x] **Parser**: Allow `timeout`, `parallel`, `cache`, `spawn`, `recurse` as identifiers
-  - [x] **Syntax**: `let timeout = 5`, `fn(timeout: int)` — Now parses correctly
-  - [x] **Rule**: Keywords only when followed by `(`, otherwise identifiers
+- [ ] **Implement**: Context-sensitive pattern keywords
+  - [ ] **Parser**: Allow `timeout`, `parallel`, `cache`, `spawn`, `recurse` as identifiers
+  - [ ] **Syntax**: `let timeout = 5`, `fn(timeout: int)` — Now parses correctly
+  - [ ] **Rule**: Keywords only when followed by `(`, otherwise identifiers
   - [ ] **Ori Tests**: Various tests using pattern keywords as variable names
 
-- [x] **Implement**: List spread syntax `[...a, x, ...b]`
-  - [x] **Parser**: Handle `...` spread in list literals
-  - [x] **Syntax**: `[...result, i]` — Now parses correctly
+- [ ] **Implement**: List spread syntax `[...a, x, ...b]`
+  - [ ] **Parser**: Handle `...` spread in list literals
+  - [ ] **Syntax**: `[...result, i]` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/types/list_types.ori` — evaluator support needed
 
-- [x] **Implement**: Map spread syntax `{...base, key: value}`
-  - [x] **Parser**: Handle `...` spread in map literals
-  - [x] **Syntax**: `{...base, "c": 3}` — Now parses correctly
+- [ ] **Implement**: Map spread syntax `{...base, key: value}`
+  - [ ] **Parser**: Handle `...` spread in map literals
+  - [ ] **Syntax**: `{...base, "c": 3}` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/types/map_types.ori` — evaluator support needed
 
-- [x] **Implement**: Tuple destructuring in for loops `for (k, v) in map`
-  - [x] **Parser**: Distinguish tuple pattern from for(...) pattern syntax
-  - [x] **Syntax**: `for (k, v) in m do ...` — Now parses correctly
+- [ ] **Implement**: Tuple destructuring in for loops `for (k, v) in map`
+  - [ ] **Parser**: Distinguish tuple pattern from for(...) pattern syntax
+  - [ ] **Syntax**: `for (k, v) in m do ...` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/types/map_types.ori` — evaluator support needed
 
-- [x] **Implement**: Multiple derives in single attribute `#derive(Eq, Clone, Debug)`
-  - [x] **Parser**: Handle comma-separated derives correctly
-  - [x] **Syntax**: `#derive(Eq, Clone, Debug)` — Now parses correctly
+- [ ] **Implement**: Multiple derives in single attribute `#derive(Eq, Clone, Debug)`
+  - [ ] **Parser**: Handle comma-separated derives correctly
+  - [ ] **Syntax**: `#derive(Eq, Clone, Debug)` — Now parses correctly
   - [ ] **Ori Tests**: `tests/spec/types/trait_objects.ori` — semantic support needed
 
 ---

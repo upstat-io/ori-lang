@@ -1,31 +1,31 @@
 ---
 section: "21A"
 title: LLVM Backend
-status: in-progress
+status: not-started
 tier: 8
 goal: JIT compilation and LLVM codegen for Ori language
 sections:
   - id: "21.1"
     title: LLVM Setup & Infrastructure
-    status: complete
+    status: not-started
   - id: "21.2"
     title: Type Lowering
-    status: in-progress
+    status: not-started
   - id: "21.3"
     title: Expression Codegen
-    status: in-progress
+    status: not-started
   - id: "21.4"
     title: Operator Trait Dispatch
-    status: in-progress
+    status: not-started
   - id: "21.5"
     title: Control Flow
-    status: in-progress
+    status: not-started
   - id: "21.6"
     title: Pattern Matching
-    status: in-progress
+    status: not-started
   - id: "21.7"
     title: Function Sequences & Expressions
-    status: in-progress
+    status: not-started
   - id: "21.8"
     title: Concurrency Patterns
     status: not-started
@@ -37,10 +37,10 @@ sections:
     status: not-started
   - id: "21.11"
     title: Lambda & Closure Support
-    status: in-progress
+    status: not-started
   - id: "21.12"
     title: Built-in Functions
-    status: in-progress
+    status: not-started
   - id: "21.13"
     title: FFI Support
     status: not-started
@@ -55,10 +55,10 @@ sections:
     status: not-started
   - id: "21.17"
     title: Runtime Support
-    status: in-progress
+    status: not-started
   - id: "21.18"
     title: Architecture (Reference)
-    status: complete
+    status: not-started
   - id: "21.19"
     title: Section Completion Checklist
     status: not-started
@@ -79,37 +79,37 @@ sections:
 
 ## 21.1 LLVM Setup & Infrastructure
 
-- [x] **Setup**: LLVM development environment
-  - [x] Docker container with LLVM 17 and development headers
-  - [x] Add `inkwell` crate to `compiler/ori_llvm/Cargo.toml`
-  - [x] Verify LLVM bindings compile and link correctly
-  - [x] Create `compiler/ori_llvm/src/` module structure
+- [ ] **Setup**: LLVM development environment
+  - [ ] Docker container with LLVM 17 and development headers
+  - [ ] Add `inkwell` crate to `compiler/ori_llvm/Cargo.toml`
+  - [ ] Verify LLVM bindings compile and link correctly
+  - [ ] Create `compiler/ori_llvm/src/` module structure
 
-- [x] **Implement**: LLVM context and module initialization
-  - [x] **Rust Tests**: `context.rs` — SimpleCx, CodegenCx, TypeCache
-  - [x] Create LLVM context, module, and builder abstractions
+- [ ] **Implement**: LLVM context and module initialization
+  - [ ] **Rust Tests**: `context.rs` — SimpleCx, CodegenCx, TypeCache
+  - [ ] Create LLVM context, module, and builder abstractions
 
-- [x] **Implement**: Basic target configuration
-  - [x] Support native target detection (JIT)
+- [ ] **Implement**: Basic target configuration
+  - [ ] Support native target detection (JIT)
   - [ ] Configure data layout and target features (AOT)
 
 ---
 
 ## 21.2 Type Lowering
 
-- [x] **Implement**: Primitive type mapping
-  - [x] **Rust Tests**: `types.rs`, `context.rs` — type mapping
-  - [x] Map Ori primitives (int → i64, float → f64, bool → i1, char → i32, byte → i8)
-  - [x] Map strings to `{ i64 len, ptr data }` struct
-  - [x] Handle function types
+- [ ] **Implement**: Primitive type mapping
+  - [ ] **Rust Tests**: `types.rs`, `context.rs` — type mapping
+  - [ ] Map Ori primitives (int → i64, float → f64, bool → i1, char → i32, byte → i8)
+  - [ ] Map strings to `{ i64 len, ptr data }` struct
+  - [ ] Handle function types
 
-- [x] **Implement**: Option/Result types
-  - [x] Map Option/Result to `{ i8 tag, i64 payload }` tagged unions
-  - [x] Tag values: None=0, Some=1; Err=0, Ok=1
+- [ ] **Implement**: Option/Result types
+  - [ ] Map Option/Result to `{ i8 tag, i64 payload }` tagged unions
+  - [ ] Tag values: None=0, Some=1; Err=0, Ok=1
   - [ ] Proper payload handling for non-primitive types
 
-- [x] **Implement**: Collection types
-  - [x] Map lists to `{ i64 len, i64 cap, ptr data }` struct
+- [ ] **Implement**: Collection types
+  - [ ] Map lists to `{ i64 len, i64 cap, ptr data }` struct
   - [ ] Map maps to appropriate hash table representation
   - [ ] Map sets to appropriate hash set representation
 
@@ -158,13 +158,13 @@ sections:
 
 ## 21.3 Expression Codegen
 
-- [x] **Implement**: Basic expressions
-  - [x] **Rust Tests**: `tests/arithmetic_tests.rs`, `tests/operator_tests.rs`
-  - [x] Literals (int, float, bool, string, char, byte)
-  - [x] Binary ops (add, sub, mul, div, mod, comparisons, logical)
-  - [x] Unary ops (neg, not)
-  - [x] Function calls and method dispatch
-  - [x] Field access and basic indexing
+- [ ] **Implement**: Basic expressions
+  - [ ] **Rust Tests**: `tests/arithmetic_tests.rs`, `tests/operator_tests.rs`
+  - [ ] Literals (int, float, bool, string, char, byte)
+  - [ ] Binary ops (add, sub, mul, div, mod, comparisons, logical)
+  - [ ] Unary ops (neg, not)
+  - [ ] Function calls and method dispatch
+  - [ ] Field access and basic indexing
 
 - [ ] **Implement**: Range expressions with step
   - [ ] `start..end by step` codegen
@@ -216,13 +216,13 @@ sections:
 
 ## 21.4 Operator Trait Dispatch
 
-- [x] **Implement**: User-defined impl blocks and associated functions
-  - [x] Register user-defined struct types with LLVM
-  - [x] Support user-defined `impl Type { ... }` blocks
-  - [x] Generate method dispatch for user-defined methods
-  - [x] Support associated functions (methods without `self` parameter)
-  - [x] Enable `Type.method()` syntax for user-defined types
-  - [x] **Tests**: `tests/spec/types/associated_functions.ori` (9 tests passing)
+- [ ] **Implement**: User-defined impl blocks and associated functions
+  - [ ] Register user-defined struct types with LLVM
+  - [ ] Support user-defined `impl Type { ... }` blocks
+  - [ ] Generate method dispatch for user-defined methods
+  - [ ] Support associated functions (methods without `self` parameter)
+  - [ ] Enable `Type.method()` syntax for user-defined types
+  - [ ] **Tests**: `tests/spec/types/associated_functions.ori` (9 tests passing)
 
 - [ ] **Implement**: User-defined operator dispatch
   - [ ] **Rust Tests**: `tests/operator_trait_tests.rs`
@@ -247,12 +247,12 @@ sections:
 
 ## 21.5 Control Flow
 
-- [x] **Implement**: Basic control flow
-  - [x] **Rust Tests**: `tests/control_flow_tests.rs`, `tests/advanced_control_flow_tests.rs`
-  - [x] Basic block creation and linking
-  - [x] Phi nodes for SSA form
-  - [x] Branch and conditional instructions
-  - [x] Basic break/continue in loops
+- [ ] **Implement**: Basic control flow
+  - [ ] **Rust Tests**: `tests/control_flow_tests.rs`, `tests/advanced_control_flow_tests.rs`
+  - [ ] Basic block creation and linking
+  - [ ] Phi nodes for SSA form
+  - [ ] Branch and conditional instructions
+  - [ ] Basic break/continue in loops
 
 - [ ] **Implement**: Labeled loops
   - [ ] `loop:name` syntax support
@@ -291,12 +291,12 @@ sections:
 
 ## 21.6 Pattern Matching
 
-- [x] **Implement**: Basic patterns
-  - [x] Literal patterns
-  - [x] Binding patterns
-  - [x] Wildcard patterns `_`
-  - [x] Basic struct destructuring
-  - [x] Basic tuple destructuring
+- [ ] **Implement**: Basic patterns
+  - [ ] Literal patterns
+  - [ ] Binding patterns
+  - [ ] Wildcard patterns `_`
+  - [ ] Basic struct destructuring
+  - [ ] Basic tuple destructuring
 
 - [ ] **Implement**: Advanced patterns
   - [ ] Range patterns: `1..10`, `'a'..'z'`
@@ -317,11 +317,11 @@ sections:
 
 ## 21.7 Function Sequences & Expressions
 
-- [x] **Implement**: Basic function codegen
-  - [x] **Rust Tests**: `tests/function_tests.rs`, `tests/function_call_tests.rs`
-  - [x] Function signatures and calling conventions
-  - [x] Local variables
-  - [x] Return statements
+- [ ] **Implement**: Basic function codegen
+  - [ ] **Rust Tests**: `tests/function_tests.rs`, `tests/function_call_tests.rs`
+  - [ ] Function signatures and calling conventions
+  - [ ] Local variables
+  - [ ] Return statements
 
 - [ ] **Implement**: Function sequences (`run`, `try`, `match`)
   - [ ] `run(let x = a, result)` sequential binding
@@ -534,10 +534,10 @@ sections:
 
 ## 21.11 Lambda & Closure Support
 
-- [x] **Implement**: Basic lambdas
-  - [x] Simple lambda syntax: `x -> x + 1`
-  - [x] Multi-param lambdas: `(a, b) -> a + b`
-  - [x] No-param lambdas: `() -> 42`
+- [ ] **Implement**: Basic lambdas
+  - [ ] Simple lambda syntax: `x -> x + 1`
+  - [ ] Multi-param lambdas: `(a, b) -> a + b`
+  - [ ] No-param lambdas: `() -> 42`
 
 - [ ] **Implement**: Advanced lambda features
   - [ ] Typed lambdas: `(x: int) -> int = x * 2`
@@ -555,10 +555,10 @@ sections:
 
 ## 21.12 Built-in Functions
 
-- [x] **Implement**: Basic built-ins
-  - [x] `print(msg:)`
-  - [x] `panic(msg:)` → `Never`
-  - [x] Basic assertions
+- [ ] **Implement**: Basic built-ins
+  - [ ] `print(msg:)`
+  - [ ] `panic(msg:)` → `Never`
+  - [ ] Basic assertions
 
 - [ ] **Implement**: Comparison built-ins
   - [ ] `compare(left:, right:)` → `Ordering`
@@ -688,10 +688,10 @@ sections:
   - [ ] Stack-allocated values: no refcount (moved or copied)
   - [ ] **Rust Tests**: `ori_llvm/src/arc/refcount_tests.rs`
 
-- [x] **Spec**: Drop trait in `spec/06-types.md` § Drop Trait DONE
-  - [x] Trait definition, execution timing, LIFO order
-  - [x] Constraints (no async, must return void, panic during unwind = abort)
-  - [x] drop_early built-in function
+- [ ] **Spec**: Drop trait in `spec/06-types.md` § Drop Trait DONE
+  - [ ] Trait definition, execution timing, LIFO order
+  - [ ] Constraints (no async, must return void, panic during unwind = abort)
+  - [ ] drop_early built-in function
 
 - [ ] **Implement**: Drop trait codegen
   - [ ] Detect types implementing `Drop` trait
@@ -753,15 +753,15 @@ sections:
 
 ## 21.17 Runtime Support
 
-- [x] **Implement**: Basic runtime functions
-  - [x] **Rust Tests**: `tests/runtime_tests.rs`
-  - [x] `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool`
-  - [x] `ori_panic`, `ori_panic_cstr`
-  - [x] `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str`
-  - [x] `ori_str_concat`, `ori_str_eq`, `ori_str_ne`
-  - [x] `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float`
-  - [x] `ori_list_new`, `ori_list_free`, `ori_list_len`
-  - [x] `ori_compare_int`, `ori_min_int`, `ori_max_int`
+- [ ] **Implement**: Basic runtime functions
+  - [ ] **Rust Tests**: `tests/runtime_tests.rs`
+  - [ ] `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool`
+  - [ ] `ori_panic`, `ori_panic_cstr`
+  - [ ] `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str`
+  - [ ] `ori_str_concat`, `ori_str_eq`, `ori_str_ne`
+  - [ ] `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float`
+  - [ ] `ori_list_new`, `ori_list_free`, `ori_list_len`
+  - [ ] `ori_compare_int`, `ori_min_int`, `ori_max_int`
 
 - [ ] **Implement**: Extended runtime
   - [ ] Map runtime functions
@@ -850,16 +850,16 @@ ori_llvm/src/
 ## 21.19 Section Completion Checklist
 
 **Infrastructure:**
-- [x] JIT compilation working
-- [x] All current Ori tests pass (1572/1572, 39 skipped)
-- [x] All Rust unit tests pass (206/206)
-- [x] Architecture follows Rust patterns
+- [ ] JIT compilation working
+- [ ] All current Ori tests pass (1572/1572, 39 skipped)
+- [ ] All Rust unit tests pass (206/206)
+- [ ] Architecture follows Rust patterns
 - [ ] AOT compilation (see Section 21B)
 
 **Type System:**
-- [x] Primitive types
-- [x] Option/Result (basic)
-- [x] Lists (basic)
+- [ ] Primitive types
+- [ ] Option/Result (basic)
+- [ ] Lists (basic)
 - [ ] Duration/Size types
 - [ ] Newtypes
 - [ ] Sum types (general)
@@ -869,8 +869,8 @@ ori_llvm/src/
 - [ ] Sets
 
 **Expressions:**
-- [x] Basic expressions
-- [x] Binary/unary operators (primitives)
+- [ ] Basic expressions
+- [ ] Binary/unary operators (primitives)
 - [ ] Range with step (`by`)
 - [ ] Spread operator (`...`)
 - [ ] Coalesce operator (`??`)
@@ -879,14 +879,14 @@ ori_llvm/src/
 - [ ] Complex assignments
 
 **Control Flow:**
-- [x] Basic if/else, loops
+- [ ] Basic if/else, loops
 - [ ] Labeled loops
 - [ ] Break with values
 - [ ] For-yield expressions
 - [ ] Try/catch patterns
 
 **Traits & Dispatch:**
-- [x] Associated functions
+- [ ] Associated functions
 - [ ] Operator trait dispatch
 - [ ] Iterator trait methods
 - [ ] Comparison trait methods

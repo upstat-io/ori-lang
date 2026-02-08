@@ -517,7 +517,7 @@ Test results are cached for incremental builds.
 
 ## 14.13 Section Completion Checklist
 
-- [ ] All items in 14.1-14.12 have all three checkboxes marked `[x]`
+- [ ] All items in 14.1-14.12 have all three checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/13-testing.md` reflects implementation
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

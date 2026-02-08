@@ -1,7 +1,7 @@
 ---
 section: 6
 title: Capabilities System
-status: in-progress
+status: not-started
 tier: 2
 goal: Effect tracking (moved earlier to unblock Section 8 cache and Section 11 FFI)
 spec:
@@ -9,34 +9,34 @@ spec:
 sections:
   - id: "6.1"
     title: Capability Declaration
-    status: complete
+    status: not-started
   - id: "6.2"
     title: Capability Traits
-    status: complete
+    status: not-started
   - id: "6.3"
     title: Suspend Capability
-    status: complete
+    status: not-started
   - id: "6.4"
     title: Providing Capabilities
-    status: complete
+    status: not-started
   - id: "6.5"
     title: Capability Propagation
-    status: complete
+    status: not-started
   - id: "6.6"
     title: Standard Capabilities
-    status: complete
+    status: not-started
   - id: "6.7"
     title: Testing with Capabilities
-    status: complete
+    status: not-started
   - id: "6.8"
     title: Capability Constraints
-    status: complete
+    status: not-started
   - id: "6.9"
     title: Unsafe Capability (FFI Prep)
-    status: in-progress
+    status: not-started
   - id: "6.10"
     title: Default Implementations (def impl)
-    status: in-progress
+    status: not-started
   - id: "6.11"
     title: Capability Composition
     status: not-started
@@ -48,7 +48,7 @@ sections:
     status: not-started
   - id: "6.15"
     title: Section Completion Checklist
-    status: in-progress
+    status: not-started
 ---
 
 # Section 6: Capabilities System
@@ -64,21 +64,21 @@ sections:
 
 ## 6.1 Capability Declaration
 
-- [x] **Implement**: `uses` clause — spec/14-capabilities.md § Capability Declaration, design/14-capabilities/02-uses-clause.md
-  - [x] **Rust Tests**: `ori_parse/src/lib.rs` — uses clause parsing (4 tests)
-  - [x] **Ori Tests**: `tests/spec/capabilities/declaration.ori` (3 tests)
+- [ ] **Implement**: `uses` clause — spec/14-capabilities.md § Capability Declaration, design/14-capabilities/02-uses-clause.md
+  - [ ] **Rust Tests**: `ori_parse/src/lib.rs` — uses clause parsing (4 tests)
+  - [ ] **Ori Tests**: `tests/spec/capabilities/declaration.ori` (3 tests)
 
-- [x] **Implement**: Multiple capabilities — spec/14-capabilities.md § Multiple Capabilities
-  - [x] **Rust Tests**: `ori_parse/src/lib.rs` — multiple capabilities parsing
-  - [x] **Ori Tests**: `tests/spec/capabilities/declaration.ori` — @save_and_log example
+- [ ] **Implement**: Multiple capabilities — spec/14-capabilities.md § Multiple Capabilities
+  - [ ] **Rust Tests**: `ori_parse/src/lib.rs` — multiple capabilities parsing
+  - [ ] **Ori Tests**: `tests/spec/capabilities/declaration.ori` — @save_and_log example
 
 ---
 
 ## 6.2 Capability Traits
 
-- [x] **Implement**: Capability traits — spec/14-capabilities.md § Capability Traits
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability trait validation
-  - [x] **Ori Tests**: `tests/spec/capabilities/traits.ori` — 5 tests for capability traits
+- [ ] **Implement**: Capability traits — spec/14-capabilities.md § Capability Traits
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability trait validation
+  - [ ] **Ori Tests**: `tests/spec/capabilities/traits.ori` — 5 tests for capability traits
 
 ---
 
@@ -86,21 +86,21 @@ sections:
 
 > **Note**: Renamed from `Async` to `Suspend` per `proposals/approved/rename-async-to-suspend-proposal.md`
 
-- [x] **Implement**: Explicit suspension declaration — spec/14-capabilities.md § Suspend Capability
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 4 tests (marker trait, signature storage, combined capabilities, sync function)
-  - [x] **Ori Tests**: `tests/spec/capabilities/suspend.ori` (5 tests)
+- [ ] **Implement**: Explicit suspension declaration — spec/14-capabilities.md § Suspend Capability
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 4 tests (marker trait, signature storage, combined capabilities, sync function)
+  - [ ] **Ori Tests**: `tests/spec/capabilities/suspend.ori` (5 tests)
 
-- [x] **Implement**: Sync vs suspending behavior — spec/14-capabilities.md § Suspend Capability
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_sync_function_no_suspend_capability`
-  - [x] **Ori Tests**: `tests/spec/capabilities/suspend.ori` — sync_fetch vs suspending_fetch examples
+- [ ] **Implement**: Sync vs suspending behavior — spec/14-capabilities.md § Suspend Capability
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_sync_function_no_suspend_capability`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/suspend.ori` — sync_fetch vs suspending_fetch examples
 
-- [x] **Implement**: No `async` type modifier — spec/14-capabilities.md § Suspend Capability
-  - [x] **Rust Tests**: `ori_parse/src/lib.rs::test_no_async_type_modifier`, `test_async_keyword_reserved`
-  - [x] **Ori Tests**: `tests/spec/capabilities/suspend.ori` — design notes document this
+- [ ] **Implement**: No `async` type modifier — spec/14-capabilities.md § Suspend Capability
+  - [ ] **Rust Tests**: `ori_parse/src/lib.rs::test_no_async_type_modifier`, `test_async_keyword_reserved`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/suspend.ori` — design notes document this
 
-- [x] **Implement**: No `await` expression — spec/14-capabilities.md § Suspend Capability
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_await_syntax_not_supported`
-  - [x] **Ori Tests**: `tests/spec/capabilities/suspend.ori` — design notes document this
+- [ ] **Implement**: No `await` expression — spec/14-capabilities.md § Suspend Capability
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_await_syntax_not_supported`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/suspend.ori` — design notes document this
 
 - [ ] **Implement**: Concurrency with `parallel` — spec/14-capabilities.md § Suspend Capability
   - [ ] **Deferred to Section 8**: `parallel` pattern evaluation
@@ -110,30 +110,30 @@ sections:
 
 ## 6.4 Providing Capabilities
 
-- [x] **Implement**: `with...in` expression — spec/14-capabilities.md § Providing Capabilities, design/14-capabilities/index.md
-  - [x] **Rust Tests**: `ori_parse/src/lib.rs` — with expression parsing (3 tests)
-  - [x] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — with expression evaluation
-  - [x] **Ori Tests**: `tests/spec/capabilities/providing.ori` (7 tests)
+- [ ] **Implement**: `with...in` expression — spec/14-capabilities.md § Providing Capabilities, design/14-capabilities/index.md
+  - [ ] **Rust Tests**: `ori_parse/src/lib.rs` — with expression parsing (3 tests)
+  - [ ] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — with expression evaluation
+  - [ ] **Ori Tests**: `tests/spec/capabilities/providing.ori` (7 tests)
 
-- [x] **Implement**: Scoping — spec/14-capabilities.md § Capability Scoping
-  - [x] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — capability scoping via push_scope/pop_scope
-  - [x] **Ori Tests**: `tests/spec/capabilities/providing.ori` — scoping and shadowing tests
+- [ ] **Implement**: Scoping — spec/14-capabilities.md § Capability Scoping
+  - [ ] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — capability scoping via push_scope/pop_scope
+  - [ ] **Ori Tests**: `tests/spec/capabilities/providing.ori` — scoping and shadowing tests
 
 ---
 
 ## 6.5 Capability Propagation
 
-- [x] **Implement**: Runtime capability propagation — capabilities flow through function calls
-  - [x] **Changes**: `FunctionValue` now stores capabilities, `eval_call` passes them to called functions
-  - [x] **Ori Tests**: `tests/spec/capabilities/traits.ori` — tests capability propagation
+- [ ] **Implement**: Runtime capability propagation — capabilities flow through function calls
+  - [ ] **Changes**: `FunctionValue` now stores capabilities, `eval_call` passes them to called functions
+  - [ ] **Ori Tests**: `tests/spec/capabilities/traits.ori` — tests capability propagation
 
-- [x] **Implement**: Static transitive requirements — spec/14-capabilities.md § Capability Propagation
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability propagation (E2014)
-  - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — 8 tests for propagation
+- [ ] **Implement**: Static transitive requirements — spec/14-capabilities.md § Capability Propagation
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability propagation (E2014)
+  - [ ] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — 8 tests for propagation
 
-- [x] **Implement**: Providing vs requiring — spec/14-capabilities.md § Capability Propagation
-  - [x] **Rust Tests**: `oric/src/typeck/infer/call.rs` — check_capability_propagation function
-  - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — tests with...in providing capabilities
+- [ ] **Implement**: Providing vs requiring — spec/14-capabilities.md § Capability Propagation
+  - [ ] **Rust Tests**: `oric/src/typeck/infer/call.rs` — check_capability_propagation function
+  - [ ] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — tests with...in providing capabilities
 
 ---
 
@@ -142,9 +142,9 @@ sections:
 > **STATUS**: Trait definitions complete in `library/std/prelude.ori`
 > Real implementations deferred to Section 7 (Stdlib).
 
-- [x] **Define**: Trait interfaces — spec/14-capabilities.md § Standard Capabilities
-  - [x] **Location**: `library/std/prelude.ori` — trait definitions
-  - [x] **Traits**: Http, FileSystem, Cache, Clock, Random, Logger, Env
+- [ ] **Define**: Trait interfaces — spec/14-capabilities.md § Standard Capabilities
+  - [ ] **Location**: `library/std/prelude.ori` — trait definitions
+  - [ ] **Traits**: Http, FileSystem, Cache, Clock, Random, Logger, Env
 
 - [ ] **Implement** (Section 7): Real capability implementations
   - [ ] `std.net.http` — Http capability impl
@@ -161,12 +161,12 @@ sections:
 
 > **STATUS**: Complete — mocking works via trait implementations, demonstrated in propagation.ori
 
-- [x] **Implement**: Mock implementations — spec/14-capabilities.md § Testing with Capabilities
-  - [x] **Rust Tests**: Type checking handles trait implementations for capability mocking
-  - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — MockHttp, MockLogger examples
+- [ ] **Implement**: Mock implementations — spec/14-capabilities.md § Testing with Capabilities
+  - [ ] **Rust Tests**: Type checking handles trait implementations for capability mocking
+  - [ ] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — MockHttp, MockLogger examples
 
-- [x] **Implement**: Test example — spec/14-capabilities.md § Testing with Capabilities
-  - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — shows test patterns with `with...in`
+- [ ] **Implement**: Test example — spec/14-capabilities.md § Testing with Capabilities
+  - [ ] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — shows test patterns with `with...in`
 
 ---
 
@@ -174,9 +174,9 @@ sections:
 
 > **STATUS**: Complete — compile-time enforcement via E2014 propagation errors
 
-- [x] **Implement**: Compile-time enforcement — spec/14-capabilities.md § Compile-time Enforcement
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for E2014 propagation errors
-  - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — caller must declare or provide capabilities
+- [ ] **Implement**: Compile-time enforcement — spec/14-capabilities.md § Compile-time Enforcement
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for E2014 propagation errors
+  - [ ] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — caller must declare or provide capabilities
 
 ---
 
@@ -185,8 +185,8 @@ sections:
 > **PREREQUISITE FOR**: Section 11 (FFI)
 > The Unsafe capability is required for FFI. Implement this before starting FFI work.
 
-- [x] **Implement**: `Unsafe` marker capability
-  - [x] Defined in prelude as marker trait (no methods): `library/std/prelude.ori`
+- [ ] **Implement**: `Unsafe` marker capability
+  - [ ] Defined in prelude as marker trait (no methods): `library/std/prelude.ori`
   - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe.ori` — basic tests
 
 - [ ] **Implement**: Unsafe capability requirements (Section 11)
@@ -211,28 +211,28 @@ Introduce `def impl` syntax to declare a default implementation for a trait. Imp
 
 ### Implementation
 
-- [x] **Implement**: Add `def` keyword to lexer — grammar.ebnf § DECLARATIONS
-  - [x] **Rust Tests**: `ori_lexer/src/lib.rs` — `def` token recognition
-  - [x] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
+- [ ] **Implement**: Add `def` keyword to lexer — grammar.ebnf § DECLARATIONS
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — `def` token recognition
+  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
 
-- [x] **Implement**: Parse `def impl Trait { ... }` — grammar.ebnf § DECLARATIONS
-  - [x] **Rust Tests**: `ori_parse/src/grammar/item/impl_def.rs` — DefImpl AST node parsing (5 tests)
-  - [x] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
+- [ ] **Implement**: Parse `def impl Trait { ... }` — grammar.ebnf § DECLARATIONS
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/item/impl_def.rs` — DefImpl AST node parsing (5 tests)
+  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
 
-- [x] **Implement**: IR representation for DefImpl
-  - [x] Add `DefImplDef` to module items (`ori_ir/src/ast/items/traits.rs`)
-  - [x] Track def_impls in Module struct
+- [ ] **Implement**: IR representation for DefImpl
+  - [ ] Add `DefImplDef` to module items (`ori_ir/src/ast/items/traits.rs`)
+  - [ ] Track def_impls in Module struct
 
-- [x] **Implement**: Type checking for `def impl`
-  - [x] **Rust Tests**: `ori_typeck/src/checker/trait_registration.rs` — register_def_impls
-  - [x] Verify trait exists
-  - [x] Method signatures converted to ImplMethodDef
-  - [x] Methods are associated (no self parameter)
-  - [x] One `def impl` per trait per module (coherence check)
+- [ ] **Implement**: Type checking for `def impl`
+  - [ ] **Rust Tests**: `ori_typeck/src/checker/trait_registration.rs` — register_def_impls
+  - [ ] Verify trait exists
+  - [ ] Method signatures converted to ImplMethodDef
+  - [ ] Methods are associated (no self parameter)
+  - [ ] One `def impl` per trait per module (coherence check)
 
-- [x] **Implement**: Evaluator support for def impl dispatch
-  - [x] **Rust Tests**: `ori_eval/src/module_registration.rs` — collect_def_impl_methods (2 tests)
-  - [x] Methods registered under trait name for `TraitName.method()` calls
+- [ ] **Implement**: Evaluator support for def impl dispatch
+  - [ ] **Rust Tests**: `ori_eval/src/module_registration.rs` — collect_def_impl_methods (2 tests)
+  - [ ] Methods registered under trait name for `TraitName.method()` calls
 
 - [ ] **Implement**: Module export with default — 12-modules.md
   - [ ] Mark exports as "has default" when `def impl` exists
@@ -419,18 +419,18 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
 
 ## 6.15 Section Completion Checklist
 
-- [x] 6.1-6.5 complete (declaration, traits, async, providing, propagation)
-- [x] 6.6 trait definitions in prelude (implementations in Section 7)
-- [x] 6.7-6.8 complete (testing/mocking, compile-time enforcement)
-- [x] 6.9 Unsafe marker trait defined (FFI enforcement in Section 11)
+- [ ] 6.1-6.5 complete (declaration, traits, async, providing, propagation)
+- [ ] 6.6 trait definitions in prelude (implementations in Section 7)
+- [ ] 6.7-6.8 complete (testing/mocking, compile-time enforcement)
+- [ ] 6.9 Unsafe marker trait defined (FFI enforcement in Section 11)
 - [ ] 6.10 Default implementations (`def impl`) — pending implementation
 - [ ] 6.11 Capability Composition — pending implementation
 - [ ] 6.12 Default Implementation Resolution — pending implementation
 - [ ] 6.14 Intrinsics Capability — pending implementation
-- [x] Spec updated: `spec/14-capabilities.md` reflects implementation
-- [x] CLAUDE.md updated with capabilities syntax
-- [x] 27 capability tests passing
-- [x] Full test suite: `./test-all.sh`
+- [ ] Spec updated: `spec/14-capabilities.md` reflects implementation
+- [ ] CLAUDE.md updated with capabilities syntax
+- [ ] 27 capability tests passing
+- [ ] Full test suite: `./test-all.sh`
 
 **Exit Criteria**: Effect tracking works per spec (6.1-6.9, 6.10-6.14 pending)
 

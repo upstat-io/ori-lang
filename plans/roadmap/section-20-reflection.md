@@ -118,10 +118,10 @@ for (name, value) in person.fields() do
 
 ### Implementation
 
-- [x] **Spec**: Add `spec/27-reflection.md` DONE
-  - [x] Reflect trait definition
-  - [x] TypeInfo, FieldInfo, VariantInfo types
-  - [x] Unknown type
+- [ ] **Spec**: Add `spec/27-reflection.md` DONE
+  - [ ] Reflect trait definition
+  - [ ] TypeInfo, FieldInfo, VariantInfo types
+  - [ ] Unknown type
   - [ ] **LLVM Support**: LLVM codegen for Reflect trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
@@ -192,10 +192,10 @@ type VariantInfo = {
 
 ### Implementation
 
-- [x] **Spec**: TypeInfo structure DONE (in spec/27-reflection.md)
-  - [x] All fields defined
-  - [x] TypeKind variants
-  - [x] FieldInfo, VariantInfo
+- [ ] **Spec**: TypeInfo structure DONE (in spec/27-reflection.md)
+  - [ ] All fields defined
+  - [ ] TypeKind variants
+  - [ ] FieldInfo, VariantInfo
   - [ ] **LLVM Support**: LLVM codegen for TypeInfo structure
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
@@ -257,10 +257,10 @@ match value.downcast<int>() {
 
 ### Implementation
 
-- [x] **Spec**: Unknown type semantics DONE (in spec/27-reflection.md)
-  - [x] Type erasure mechanism
-  - [x] Safe downcasting
-  - [x] Reference counting (ARC-compatible)
+- [ ] **Spec**: Unknown type semantics DONE (in spec/27-reflection.md)
+  - [ ] Type erasure mechanism
+  - [ ] Safe downcasting
+  - [ ] Reference counting (ARC-compatible)
   - [ ] **LLVM Support**: LLVM codegen for Unknown type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
 
@@ -532,8 +532,8 @@ Per `proposals/approved/reflection-api-proposal.md § Deferred Decisions`:
 
 ## Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[x]`
-- [x] Spec updated: `spec/27-reflection.md` complete DONE
+- [ ] All items above have all checkboxes marked `[ ]`
+- [ ] Spec updated: `spec/27-reflection.md` complete DONE
 - [ ] CLAUDE.md updated with Reflect, Unknown, TypeInfo
 - [ ] Reflect trait works with derive
 - [ ] TypeInfo accessible at runtime

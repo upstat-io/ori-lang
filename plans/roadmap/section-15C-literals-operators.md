@@ -560,7 +560,7 @@ let count = get_count() ?? 0
 
 ## 15C.8 Section Completion Checklist
 
-- [ ] All implementation items have checkboxes marked `[x]`
+- [ ] All implementation items have checkboxes marked `[ ]`
 - [ ] All spec docs updated
 - [ ] CLAUDE.md updated with syntax changes
 - [ ] Migration tools working

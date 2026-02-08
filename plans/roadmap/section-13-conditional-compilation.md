@@ -648,7 +648,7 @@ Causes a compile-time error with the given message. Valid only in compile-time e
 
 ## Section Completion Checklist
 
-- [ ] All items above have all checkboxes marked `[x]`
+- [ ] All items above have all checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/24-conditional-compilation.md` complete
 - [ ] CLAUDE.md updated with conditional compilation syntax
 - [ ] `#target(...)` works on items

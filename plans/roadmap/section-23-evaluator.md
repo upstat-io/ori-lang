@@ -1,7 +1,7 @@
 ---
 section: 23
 title: Full Evaluator Support
-status: in-progress
+status: not-started
 tier: 0
 goal: Complete evaluator support for entire Ori spec semantics
 spec:
@@ -14,19 +14,19 @@ spec:
 sections:
   - id: "23.1"
     title: Operators
-    status: complete
+    status: not-started
   - id: "23.2"
     title: Primitive Trait Methods
-    status: complete
+    status: not-started
   - id: "23.3"
     title: Type Coercion and Indexing
-    status: in-progress
+    status: not-started
   - id: "23.4"
     title: Control Flow
-    status: in-progress
+    status: not-started
   - id: "23.5"
     title: Derived Traits
-    status: complete
+    status: not-started
   - id: "23.6"
     title: Stdlib Types and Methods
     status: not-started
@@ -35,7 +35,7 @@ sections:
     status: not-started
   - id: "23.7"
     title: Section Completion Checklist
-    status: in-progress
+    status: not-started
 ---
 
 # Section 23: Full Evaluator Support
@@ -71,28 +71,28 @@ This section ensures the evaluator (interpreter) correctly implements all Ori la
 > **Test Status**: `STATUS: Lexer [OK], Parser [OK], Evaluator [PARTIAL]` in `tests/spec/expressions/coalesce.ori`
 > **Progress**: 26/31 tests pass. Remaining 5 failures: 3 chaining tests (need type info), 2 map tests (separate bug).
 
-- [x] **Implement**: `??` operator evaluation — **26/31 tests pass**
-  - [x] **Location**: `ori_eval/src/interpreter/mod.rs` — added short-circuit logic in `eval_binary`
-  - [x] **Semantics**: `Option<T> ?? T -> T` — return inner value if Some, else right operand
-  - [x] **Semantics**: `Result<T, E> ?? T -> T` — return inner value if Ok, else right operand
-  - [x] **Short-circuit**: Right operand is NOT evaluated if left is Some/Ok
+- [ ] **Implement**: `??` operator evaluation — **26/31 tests pass**
+  - [ ] **Location**: `ori_eval/src/interpreter/mod.rs` — added short-circuit logic in `eval_binary`
+  - [ ] **Semantics**: `Option<T> ?? T -> T` — return inner value if Some, else right operand
+  - [ ] **Semantics**: `Result<T, E> ?? T -> T` — return inner value if Ok, else right operand
+  - [ ] **Short-circuit**: Right operand is NOT evaluated if left is Some/Ok
   - [ ] **Known Limitation**: Chaining (`a ?? b ?? c`) with Option variables fails without type info
     - **Workaround**: Use explicit `.unwrap_or()` or `.or()` methods for chaining
   - [ ] **Depends On**: Map lookup returning `Option<V>` (Section 23.3.1) for map tests to pass
-  - [x] **Ori Tests**: `tests/spec/expressions/coalesce.ori`
+  - [ ] **Ori Tests**: `tests/spec/expressions/coalesce.ori`
 
 ### 23.1.2 Comparison Operators for Option/Result
 
-- [x] **Implement**: `<`, `<=`, `>`, `>=` for Option types
-  - [x] **Spec**: `None < Some(x)` for all x — Works correctly
-  - [x] **Verified**: `let a: Option<int> = None; let b = Some(1); assert(eq: a < b)` passes
-  - [x] **Ori Tests**: `tests/spec/expressions/operators_comparison.ori`
+- [ ] **Implement**: `<`, `<=`, `>`, `>=` for Option types
+  - [ ] **Spec**: `None < Some(x)` for all x — Works correctly
+  - [ ] **Verified**: `let a: Option<int> = None; let b = Some(1); assert(eq: a < b)` passes
+  - [ ] **Ori Tests**: `tests/spec/expressions/operators_comparison.ori`
 
 ### 23.1.3 Struct Equality with `#derive(Eq)`
 
-- [x] **Fix**: Equality operators for derived structs
-  - [x] **Verified**: `#derive(Eq) type Point = { x: int, y: int }` with `p1 == p2` works
-  - [x] **Ori Tests**: `tests/spec/expressions/operators_comparison.ori`
+- [ ] **Fix**: Equality operators for derived structs
+  - [ ] **Verified**: `#derive(Eq) type Point = { x: int, y: int }` with `p1 == p2` works
+  - [ ] **Ori Tests**: `tests/spec/expressions/operators_comparison.ori`
 
 ### 23.1.4 Shift Overflow Behavior
 
@@ -112,27 +112,27 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ### 23.2.1 Printable Trait (`.to_str()`)
 
-- [x] **Implement**: `.to_str()` on primitive types
-  - [x] `int.to_str()` — Works: `42.to_str() == "42"`
-  - [x] `str.to_str()` — Works
-  - [x] `bool.to_str()` — Works: `true.to_str() == "true"`
-  - [x] `float.to_str()` — Works
-  - [x] **Ori Tests**: `tests/spec/declarations/traits.ori`, `tests/spec/types/existential.ori`
+- [ ] **Implement**: `.to_str()` on primitive types
+  - [ ] `int.to_str()` — Works: `42.to_str() == "42"`
+  - [ ] `str.to_str()` — Works
+  - [ ] `bool.to_str()` — Works: `true.to_str() == "true"`
+  - [ ] `float.to_str()` — Works
+  - [ ] **Ori Tests**: `tests/spec/declarations/traits.ori`, `tests/spec/types/existential.ori`
 
 ### 23.2.2 Clone Trait (`.clone()`)
 
-- [x] **Implement**: `.clone()` on primitive types
-  - [x] `int.clone()` — Works: `let y = x.clone()`
-  - [x] `str.clone()` — Works
-  - [x] All primitives are cloneable
-  - [x] **Ori Tests**: `tests/spec/declarations/traits.ori`, `tests/spec/types/existential.ori`
+- [ ] **Implement**: `.clone()` on primitive types
+  - [ ] `int.clone()` — Works: `let y = x.clone()`
+  - [ ] `str.clone()` — Works
+  - [ ] All primitives are cloneable
+  - [ ] **Ori Tests**: `tests/spec/declarations/traits.ori`, `tests/spec/types/existential.ori`
 
 ### 23.2.3 Hashable Trait (`.hash()`)
 
-- [x] **Implement**: `.hash()` on primitive types
-  - [x] `int.hash()` — Works
-  - [x] `str.hash()` — Works
-  - [x] **Ori Tests**: `tests/spec/declarations/traits.ori`
+- [ ] **Implement**: `.hash()` on primitive types
+  - [ ] `int.hash()` — Works
+  - [ ] `str.hash()` — Works
+  - [ ] **Ori Tests**: `tests/spec/declarations/traits.ori`
 
 ---
 
@@ -143,8 +143,8 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ### 23.3.1 Map Index Return Type
 
-- [x] **Fix**: Map lookup works for existing keys
-  - [x] **Verified**: `let m = {"a": 1}; let val = m["a"]; assert(eq: val == 1)` works
+- [ ] **Fix**: Map lookup works for existing keys
+  - [ ] **Verified**: `let m = {"a": 1}; let val = m["a"]; assert(eq: val == 1)` works
   - [ ] **Pending**: Missing key behavior needs verification — spec says should return `Option<V>`
   - [ ] **Ori Tests**: `tests/spec/expressions/index_access.ori`, `tests/spec/expressions/literals.ori`
 
@@ -158,16 +158,16 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ### 23.3.3 String Index Return Type
 
-- [x] **Fix**: String indexing works
-  - [x] **Verified**: `let s = "hello"; let c = s[0]` compiles and runs
+- [ ] **Fix**: String indexing works
+  - [ ] **Verified**: `let s = "hello"; let c = s[0]` compiles and runs
   - [ ] **Pending**: Verify return type matches spec (str vs char)
   - [ ] **Ori Tests**: `tests/spec/expressions/index_access.ori`
 
 ### 23.3.4 List Index Assignment
 
-- [x] **Implement**: `list[i] = value` syntax
-  - [x] **Verified**: `let list = [1, 2, 3]; list[0] = 99; assert(eq: list[0] == 99)` works
-  - [x] **Ori Tests**: `tests/spec/expressions/index_access.ori`
+- [ ] **Implement**: `list[i] = value` syntax
+  - [ ] **Verified**: `let list = [1, 2, 3]; list[0] = 99; assert(eq: list[0] == 99)` works
+  - [ ] **Ori Tests**: `tests/spec/expressions/index_access.ori`
 
 ---
 
@@ -200,25 +200,25 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ### 23.5.1 `#derive(Eq)` Implementation
 
-- [x] **Fix**: Generated equality for structs
-  - [x] Compares all fields correctly
-  - [x] Works with `==` and `!=` operators
-  - [x] **Verified**: `#derive(Eq) type Point = {...}; assert(eq: p1 == p2)` works
-  - [x] **Ori Tests**: `tests/spec/expressions/operators_comparison.ori`
+- [ ] **Fix**: Generated equality for structs
+  - [ ] Compares all fields correctly
+  - [ ] Works with `==` and `!=` operators
+  - [ ] **Verified**: `#derive(Eq) type Point = {...}; assert(eq: p1 == p2)` works
+  - [ ] **Ori Tests**: `tests/spec/expressions/operators_comparison.ori`
 
 ### 23.5.2 `#derive(Clone)` Implementation
 
-- [x] **Fix**: Generated clone for structs
-  - [x] Clones all fields correctly
-  - [x] **Verified**: `#derive(Clone) type Point = {...}; let p2 = p1.clone()` works
-  - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori`
+- [ ] **Fix**: Generated clone for structs
+  - [ ] Clones all fields correctly
+  - [ ] **Verified**: `#derive(Clone) type Point = {...}; let p2 = p1.clone()` works
+  - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori`
 
 ### 23.5.3 `#derive(Hashable)` Implementation
 
-- [x] **Fix**: Generated hash for structs
-  - [x] Combines hashes of all fields
-  - [x] **Verified**: `#derive(Hashable) type Point = {...}; let h = p.hash()` works
-  - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori`
+- [ ] **Fix**: Generated hash for structs
+  - [ ] Combines hashes of all fields
+  - [ ] **Verified**: `#derive(Hashable) type Point = {...}; let h = p.hash()` works
+  - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori`
 
 ---
 
@@ -355,13 +355,13 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 
 > **STATUS**: MOSTLY COMPLETE — 1983 passed, 0 failed, 31 skipped (verified 2026-02-04)
 
-- [x] All operator evaluations implemented (23.1) — `??`, comparisons, equality work
-- [x] All primitive trait methods registered (23.2) — `.to_str()`, `.clone()`, `.hash()` work
-- [x] Most indexing behaviors correct per spec (23.3) — list/map/string indexing work
+- [ ] All operator evaluations implemented (23.1) — `??`, comparisons, equality work
+- [ ] All primitive trait methods registered (23.2) — `.to_str()`, `.clone()`, `.hash()` work
+- [ ] Most indexing behaviors correct per spec (23.3) — list/map/string indexing work
 - [ ] Control flow semantics (23.4) — break value propagation, function field calls still broken
-- [x] All derived traits working (23.5) — `#derive(Eq, Clone, Hashable)` work
+- [ ] All derived traits working (23.5) — `#derive(Eq, Clone, Hashable)` work
 - [ ] Stdlib types (23.6) — Queue/Stack not implemented
-- [x] Run `cargo st tests/` — 1983 passed, 31 skipped (skips are mostly LLVM/capability issues)
+- [ ] Run `cargo st tests/` — 1983 passed, 31 skipped (skips are mostly LLVM/capability issues)
 
 **Exit Criteria**: Every Ori spec semantic is correctly implemented in the evaluator. All spec tests must pass — no skipped tests allowed.
 

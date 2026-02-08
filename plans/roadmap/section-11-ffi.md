@@ -561,7 +561,7 @@ extern "js" {
 
 ## Section Completion Checklist
 
-- [ ] All items above have checkboxes marked `[x]`
+- [ ] All items above have checkboxes marked `[ ]`
 - [ ] Spec file `spec/23-ffi.md` complete
 - [ ] CLAUDE.md updated with FFI syntax
 - [ ] grammar.ebnf updated with extern blocks
