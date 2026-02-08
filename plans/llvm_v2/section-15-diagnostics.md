@@ -65,7 +65,7 @@ Structured problem types, one per compilation phase:
 | **`ArcProblem`** | **ARC IR (V2)** | **E4xxx** |
 | **`LlvmProblem`** | **LLVM codegen (V2)** | **E5xxx** |
 
-The `Problem` enum wraps all problem types with `From` impls and type predicates. The `HasSpan` trait extracts the primary source location. Macros (`impl_has_span!`, `impl_from_problem!`, `impl_problem_predicates!`) reduce boilerplate.
+The `Problem` enum wraps all problem types with `From` impls and type predicates. The `HasSpan` trait extracts the primary source location for front-end problem types. Macros (`impl_has_span!`, `impl_from_problem!`, `impl_problem_predicates!`) reduce boilerplate. Note: codegen problem types (`ArcProblem`, `LlvmProblem`, `CodegenProblem`) do **not** use `HasSpan` or `impl_has_span!` -- see Section 15.3.
 
 Note: `ArcProblem` and `LlvmProblem` follow the **direct-variant pattern** (like `ParseProblem`), where each error condition is a variant of the enum itself. This differs from the **wrapper pattern** used by `LexProblem`, which wraps an inner type. The direct-variant pattern is preferred for codegen because each error variant has distinct fields.
 
@@ -138,15 +138,10 @@ pub enum ArcProblem {
     },
 }
 
-impl_has_span!(ArcProblem {
-    span: [
-        ArcIrLoweringFailure,
-        BorrowInferenceFailure,
-        RcInsertionError,
-        TypeClassificationFailure,
-        DecisionTreeFailure,
-    ],
-});
+// Codegen problems do NOT implement `HasSpan`. Span information is handled
+// internally by each variant's `into_diagnostic()` method, which attaches
+// spans to the `Diagnostic` directly. This differs from front-end `Problem`
+// types which use the `HasSpan` trait for the `Render` pipeline.
 ```
 
 ### E5xxx: ori_llvm Errors
@@ -187,6 +182,8 @@ pub enum LlvmProblem {
     RuntimeLibraryNotFound {
         search_paths: Vec<String>,
     },
+    /// Covers both LinkerError::LinkFailed (with exit code) and
+    /// LinkerError::LinkerNotFound (exit_code: None, stderr has message).
     LinkerFailed {
         command: String,
         exit_code: Option<i32>,
@@ -200,7 +197,7 @@ pub enum LlvmProblem {
 }
 ```
 
-Note: `LlvmProblem` uses `Option<Span>` rather than mandatory spans because several error conditions (target/linker/runtime) are not tied to specific source locations. The `HasSpan` implementation returns `Span::DUMMY` for span-less errors, and renderers omit the source annotation in those cases.
+Note: `LlvmProblem` uses `Option<Span>` rather than mandatory spans because several error conditions (target/linker/runtime) are not tied to specific source locations. Codegen problems do **not** implement `HasSpan` -- span information is handled internally by each variant's `into_diagnostic()` method, which attaches spans to the `Diagnostic` directly. Renderers omit the source annotation for span-less variants.
 
 - [ ] Add E4001-E4005 to ErrorCode enum
 - [ ] Add E5001-E5007 to ErrorCode enum
@@ -224,8 +221,23 @@ pub enum CodegenProblem {
     Llvm(LlvmProblem),
 }
 
-impl_from_problem!(ArcProblem => CodegenProblem::Arc);
-impl_from_problem!(LlvmProblem => CodegenProblem::Llvm);
+// Note: impl_from_problem! targets the Problem enum and cannot be used here.
+// Use manual From impls since CodegenProblem is separate from Problem.
+impl From<ArcProblem> for CodegenProblem {
+    fn from(p: ArcProblem) -> Self { Self::Arc(p) }
+}
+impl From<LlvmProblem> for CodegenProblem {
+    fn from(p: LlvmProblem) -> Self { Self::Llvm(p) }
+}
+
+impl CodegenProblem {
+    pub fn into_diagnostic(&self, interner: &StringInterner) -> Diagnostic {
+        match self {
+            Self::Arc(p) => p.into_diagnostic(interner),
+            Self::Llvm(p) => p.into_diagnostic(interner),
+        }
+    }
+}
 ```
 
 ### Codegen Errors Are Separate From the Problem Enum (Design Decision)
@@ -257,13 +269,13 @@ fn render_all_diagnostics(
 ) -> Vec<Diagnostic> {
     let mut diagnostics: Vec<Diagnostic> = front_end_problems
         .iter()
-        .map(|p| p.render(interner))
+        .map(|p| p.into_diagnostic(interner))
         .collect();
     diagnostics.extend(
-        codegen_problems.iter().map(|p| p.render(interner))
+        codegen_problems.iter().map(|p| p.into_diagnostic(interner))
     );
-    // Sort by source location when spans are available
-    diagnostics.sort_by_key(|d| d.primary_span());
+    // Span does not derive Ord; sort by start offset as proxy
+    diagnostics.sort_by_key(|d| d.primary_span().map(|s| s.start));
     diagnostics
 }
 ```
@@ -272,7 +284,7 @@ This keeps the `Problem` enum clean for Salsa, keeps `CodegenProblem` free of un
 
 ### Render Implementation
 
-Create `oric/src/reporting/codegen.rs` with renderers for both `ArcProblem` and `LlvmProblem`. Following the existing pattern, rendering logic lives in `into_diagnostic()` inherent methods on each problem type, with `Render` trait impls delegating to `into_diagnostic()`. This matches how `ParseProblem` and `SemanticProblem` are structured.
+Create `oric/src/reporting/codegen.rs` with renderers for both `ArcProblem` and `LlvmProblem`. Rendering logic lives in `into_diagnostic()` inherent methods on each problem type. Unlike `ParseProblem` and `SemanticProblem`, codegen problems do **not** implement the `Render` trait because they are not part of the Salsa-tracked `Problem` enum and are never dispatched through `Problem::render()`. Instead, `render_all_diagnostics()` calls `into_diagnostic()` directly on each codegen problem.
 
 ```rust
 // Pseudocode: inherent method on ArcProblem
@@ -290,13 +302,6 @@ impl ArcProblem {
             }
             // ... other variants
         }
-    }
-}
-
-// Render trait delegates to into_diagnostic()
-impl Render for ArcProblem {
-    fn render(&self, interner: &StringInterner) -> Diagnostic {
-        self.into_diagnostic(interner)
     }
 }
 
@@ -324,12 +329,6 @@ impl LlvmProblem {
     }
 }
 
-// Render trait delegates to into_diagnostic()
-impl Render for LlvmProblem {
-    fn render(&self, interner: &StringInterner) -> Diagnostic {
-        self.into_diagnostic(interner)
-    }
-}
 ```
 
 All error messages follow Ori diagnostic guidelines: imperative suggestions ("try X", "use Y"), verb phrase fixes ("Replace X with Y"), and clear context about what went wrong and why.
@@ -337,7 +336,7 @@ All error messages follow Ori diagnostic guidelines: imperative suggestions ("tr
 - [ ] Create `codegen.rs` in `oric/src/problem/`
 - [ ] Create `codegen.rs` in `oric/src/reporting/`
 - [ ] Keep `Problem` enum unchanged (no `Codegen` variant) -- codegen errors merge at rendering stage only
-- [ ] Add `Render` impl for `CodegenProblem`, `ArcProblem`, `LlvmProblem`
+- [ ] Add `into_diagnostic()` inherent methods on `CodegenProblem`, `ArcProblem`, `LlvmProblem` (no `Render` trait impl -- codegen problems are not part of the `Problem` enum)
 - [ ] Implement `render_all_diagnostics()` that merges front-end `Problem`s with `CodegenProblem`s for display
 
 ---
@@ -350,11 +349,12 @@ Codegen error codes must be consistent with the error conditions defined in othe
 
 The existing `ori_llvm` crate uses per-module error enums (not a unified `CodegenError`). The mapping from these crate-local types to diagnostic codes is:
 
-- `EmitError::VerificationFailed` from Section 11's module verification maps to **E5001** (`ModuleVerificationFailed`). The V2 `verify_module()` call converts LLVM's verification error string into an `LlvmProblem::ModuleVerificationFailed`.
-- `OptimizationError::PassesFailed` maps to **E5002** (`PassPipelineError`).
-- `EmitError::EmissionFailed` (object emission failure) maps to **E5003** (`ObjectEmissionFailed`).
+- Module verification uses `module.verify()` (Inkwell's `Module::verify()` returns `Result<(), LLVMString>` directly, not through `EmitError`). The V2 `verify_module()` call converts LLVM's verification error string into an `LlvmProblem::ModuleVerificationFailed` (**E5001**).
+- `OptimizationError` -- all three variants (`PassBuilderOptionsCreationFailed`, `PassesFailed`, `InvalidPipeline`) map to **E5002** (`PassPipelineError`).
+- `EmitError::ObjectEmission` maps to **E5003** (`ObjectEmissionFailed`). `EmitError::AssemblyEmission` and `EmitError::BitcodeEmission` also map to **E5003** (same error code, different message detail).
+- `EmitError::TargetMachine` and `EmitError::ModuleConfiguration` resolve through their inner `TargetError` to **E5004** (`TargetNotSupported`).
 - `TargetError` variants map to **E5004** (`TargetNotSupported`).
-- `LinkerError` variants map to **E5006** (`LinkerFailed`).
+- `LinkerError` variants map to **E5006** (`LinkerFailed`). Both `LinkerError::LinkerNotFound` (with `exit_code: None`, stderr carrying the "not found" message) and `LinkerError::LinkFailed` are handled by the single `LlvmProblem::LinkerFailed` variant.
 - `DebugInfoError` variants map to **E5007** (`DebugInfoCreationFailed`).
 
 The `oric` crate wraps these crate-local errors into `LlvmProblem` variants at the boundary (in `oric/src/problem/`), following the established pattern where `ori_llvm` returns its own error types and `oric` converts them.

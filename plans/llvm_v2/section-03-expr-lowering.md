@@ -73,8 +73,10 @@ sections:
 /// added, forcing an explicit lowering decision.
 pub struct ExprLowerer<'a, 'ctx> {
     builder: &'a mut IrBuilder<'ctx>,
-    type_info: &'a TypeInfoStore,
-    scope: &'a mut Scope,
+    /// Shared reference — TypeInfoStore uses interior mutability (RefCell)
+    /// so get() and storage_type_id() take &self. See Section 01.5.
+    type_info: &'a TypeInfoStore<'a>,
+    scope: Scope,
     arena: &'a ExprArena,
     expr_types: &'a [Idx],
     pool: &'a Pool,
@@ -232,7 +234,7 @@ impl ExprLowerer<'_, '_> {
             ExprKind::Int(n) => Some(self.builder.const_i64(*n)),
             ExprKind::Float(bits) => Some(self.builder.const_f64(f64::from_bits(*bits))),
             ExprKind::Bool(b) => Some(self.builder.const_bool(*b)),
-            ExprKind::Char(c) => Some(self.builder.const_i32(*c as u32)),
+            ExprKind::Char(c) => Some(self.builder.const_i32(*c as i32)),
             // Unit uses i64(0) — matches TypeInfo's i64 representation for unit.
             // LLVM void cannot be stored/passed/phi'd, so unit must be a real value.
             ExprKind::Unit => Some(self.builder.const_i64(0)),
@@ -566,10 +568,19 @@ Blocks contain statements (`StmtKind::Expr(ExprId)` and `StmtKind::Let { pattern
 
 ```rust
 impl ExprLowerer<'_, '_> {
+    /// Lower a block expression.
+    ///
+    /// The lowerer temporarily switches to a child scope for block-local
+    /// bindings, restoring the parent scope after the block completes.
+    /// This ensures that `let` bindings inside the block are visible to
+    /// subsequent statements and the result expression, but do not leak
+    /// into the enclosing scope.
     fn lower_block(
         &mut self, stmts: StmtRange, result: ExprId, result_type: Idx,
     ) -> Option<ValueId> {
-        let mut child_scope = self.scope.child();
+        // Swap to child scope — block-local bindings are visible here
+        // but do not leak to the parent scope.
+        let parent_scope = std::mem::replace(&mut self.scope, self.scope.child());
 
         for stmt in self.arena.stmts(stmts) {
             match &stmt.kind {
@@ -578,18 +589,23 @@ impl ExprLowerer<'_, '_> {
                 }
                 StmtKind::Let { pattern, ty, init, mutable } => {
                     let init_val = self.lower(*init);
-                    // Create binding — mutable uses alloca, immutable uses SSA value
-                    self.bind_pattern(&mut child_scope, *pattern, init_val, *mutable);
+                    // Create binding in current (child) scope —
+                    // mutable uses alloca, immutable uses SSA value
+                    self.bind_pattern(*pattern, init_val, *mutable);
                 }
             }
         }
 
         // Block result: last expression, or unit if INVALID
-        if result != ExprId::INVALID {
+        let result_val = if result != ExprId::INVALID {
             self.lower(result)
         } else {
             None  // unit
-        }
+        };
+
+        // Restore parent scope — block-local bindings are discarded
+        self.scope = parent_scope;
+        result_val
     }
 }
 ```
@@ -640,7 +656,7 @@ impl ExprLowerer<'_, '_> {
         if let Some(v) = then_val { incoming.push((v, then_exit)); }
         if let Some(v) = else_val { incoming.push((v, else_exit)); }
 
-        let ty = self.type_info.get(result_type).storage_type(self.builder.cx());
+        let ty = self.type_info.storage_type_id(result_type, self.builder);
         self.builder.phi_from_incoming(ty, &incoming, "if_result")
     }
 
@@ -691,7 +707,7 @@ impl ExprLowerer<'_, '_> {
         if loop_ctx.break_values.is_empty() {
             None
         } else {
-            let ty = self.type_info.get(result_type).storage_type(self.builder.cx());
+            let ty = self.type_info.storage_type_id(result_type, self.builder);
             self.builder.phi_from_incoming(ty, &loop_ctx.break_values, "loop_result")
         }
     }
@@ -734,7 +750,7 @@ Each collection type uses its TypeInfo for layout:
 - [ ] Implement tuple lowering (build LLVM struct from elements)
 - [ ] Implement struct literal lowering (resolve fields, build LLVM struct)
 - [ ] Implement struct-with-spread lowering (copy base, override fields)
-- [ ] Implement range lowering (build `{start, end, step, inclusive}` struct — **V2 change:** layout changes from V1's `{start, end, inclusive}` to `{start, end, step, inclusive}` to match the AST's `Range { start, end, step, inclusive }` fields. The `step` field defaults to 1 when not specified in source.)
+- [ ] Implement range lowering (build `{start, end, inclusive}` struct — matches Section 01's `TypeInfo::Range` layout `{i64, i64, i1}`. The AST's `Range { start, end, step, inclusive }` has a `step` field, but the runtime range struct does NOT store step — step is used at the for-loop lowering site to control iteration stride, not stored in the range value itself. When `step` is `ExprId::INVALID`, the for-loop uses a default stride of 1.)
 - [ ] Implement field access lowering (`struct_gep` + load)
 - [ ] Implement indexing lowering (bounds check + element access)
 

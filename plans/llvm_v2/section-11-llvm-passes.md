@@ -142,7 +142,7 @@ These attributes are set during function declaration (in `declare_runtime_functi
 
 ```rust
 // ori_rc_inc(ptr): Increment reference count.
-// NOT readonly/readnone — modifies the refcount word at ptr-16.
+// NOT readonly/readnone — modifies the refcount word at ptr-8.
 // argmemonly — only touches memory reachable from the argument pointer.
 // nounwind — RC operations never throw.
 fn declare_ori_rc_inc(cx: &CodegenCx) {
@@ -197,15 +197,30 @@ fn declare_ori_rc_free(cx: &CodegenCx) {
 | Attribute | Applied To | Why |
 |-----------|-----------|-----|
 | `nounwind` | All RC functions | Enables LLVM to optimize exception handling paths around RC calls. Drop functions are `nounwind` because panic during drop = abort. |
-| `memory(argmem: readwrite)` | `ori_rc_inc`, `ori_rc_dec` | Prevents LICM from moving RC ops past unrelated memory operations. The function only reads/writes memory reachable from its pointer arguments (strong_count at `ptr-16`, weak_count at `ptr-8`). See implementation note below. |
+| `memory(argmem: readwrite)` | `ori_rc_inc`, `ori_rc_dec` | Prevents LICM from moving RC ops past unrelated memory operations. The function only reads/writes memory reachable from its pointer arguments (strong_count at `ptr-8`). See implementation note below. |
 | NOT `readonly`/`readnone` | `ori_rc_inc`, `ori_rc_dec` | Prevents DSE from eliminating RC stores. These functions modify the refcount word. |
 | `noalias` (return) | `ori_rc_alloc` | Enables alias analysis. A fresh allocation does not alias any existing pointer. |
 
-**Implementation note — `memory(argmem: readwrite)` attribute:** The `memory` attribute was introduced in LLVM 16 (replacing `argmemonly`). Ori targets LLVM 18+. Options for creating this attribute via inkwell:
-1. **String attribute API** (preferred): `context.create_string_attribute("memory", "argmem: readwrite")` — simplest, works if inkwell exposes `LLVMCreateStringAttribute`.
-2. **Raw llvm-sys**: Call `LLVMCreateMemoryEffectsAttribute` directly via `llvm_sys::core` for precise control over the memory effects encoding.
-3. **Legacy fallback**: The older `argmemonly` string attribute works on LLVM 16-17 but is deprecated. Since Ori targets LLVM 18+, prefer the `memory(...)` form.
+**Implementation note — `memory(argmem: readwrite)` attribute:** LLVM's `memory` attribute is a bitfield-encoded `MemoryEffects` class, NOT a string attribute. Using `create_string_attribute("memory", "argmem: readwrite")` creates arbitrary key-value metadata, not the actual LLVM optimization hint — LLVM passes will ignore it entirely. Use raw `llvm_sys` API (`LLVMCreateEnumAttribute` with the encoded MemoryEffects value, or `LLVMCreateMemoryEffectsAttribute` if available in the llvm-sys version). This matches the existing pattern in `declare.rs` which already uses `create_enum_attribute` for other function attributes. The `memory` attribute was introduced in LLVM 16 (replacing the deprecated `argmemonly`). Ori targets LLVM 18+.
 Verify the chosen approach emits correct IR by checking `--emit=llvm-ir` output for `memory(argmem: readwrite)` on RC function declarations.
+
+**Helper stub for creating the attribute via llvm-sys:**
+
+```rust
+/// Create the memory(argmem: readwrite) attribute via llvm-sys.
+///
+/// The `memory` attribute encodes a `MemoryEffects` bitfield where each
+/// 2-bit pair represents access to a memory location kind (default, argmem,
+/// inaccessiblemem). The exact encoding depends on the LLVM version.
+/// Verify against `llvm/include/llvm/Support/ModRef.h` for your llvm-sys version.
+fn create_memory_argmem_attr(cx: &Context) -> Attribute {
+    let kind = Attribute::get_named_enum_kind_id("memory");
+    // MemoryEffects encoding for argmem: readwrite (ModRef on ArgMem location).
+    // TODO: verify exact encoded value against the project's LLVM version
+    // by cross-referencing llvm/include/llvm/Support/ModRef.h.
+    cx.create_enum_attribute(kind, /* encoded MemoryEffects value */ 12)
+}
+```
 
 ### Specialized Drop Functions
 
@@ -221,6 +236,8 @@ fn declare_drop_function(cx: &CodegenCx, name: &str) {
     func.add_attribute(AttributeLoc::Function, noinline_attr);
 }
 ```
+
+**Blocked by: Sections 05-09 (ARC pipeline).** The `ori_rc_*` functions do not exist until the ARC pipeline is implemented. Keep the design documentation above for reference but defer implementation checklist items until the ARC pipeline is in place.
 
 - [ ] Add `nounwind` + `memory(argmem: readwrite)` to `ori_rc_inc` and `ori_rc_dec` declarations
 - [ ] Add `nounwind` + `noalias` (return) to `ori_rc_alloc` declaration
@@ -366,7 +383,7 @@ The `OptPipeline` type (wrapping `run_optimization_passes` and related configura
 ## Completion Checklist
 
 - [ ] All existing `passes.rs` functionality preserved and tested
-- [ ] Profile presets renamed: Debug, Release, ReleaseFast, ReleaseSmall, ReleaseMinSize
+- [ ] Profile presets: `debug()` and `release()` preserved; rename `aggressive()` → `release_fast()`, `size()` → `release_small()`, `min_size()` → `release_min_size()`
 - [ ] Module verification runs unconditionally before optimization on all paths (JIT and AOT)
 - [ ] All RC runtime functions have correct LLVM attributes (nounwind, memory, noalias)
 - [ ] Specialized drop functions have nounwind + argmemonly + noinline

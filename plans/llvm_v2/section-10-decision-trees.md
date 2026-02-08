@@ -31,7 +31,7 @@ sections:
 - **Swift** -- Pattern compilation to SIL `switch_enum` instruction
 - **Maranget (2008)** "Compiling Pattern Matching to Good Decision Trees" -- The foundational algorithm that Roc and Elm implement
 
-**Current state:** `ori_llvm/src/matching.rs` compiles match arms sequentially (arm 1 check -> arm 2 check -> ...). This is O(n) per match. Decision trees can be O(log n) or O(1) for tag dispatch.
+**Current state:** `ori_llvm/src/matching.rs` compiles match arms sequentially (arm 1 check -> arm 2 check -> ...). This is O(n) per match. More critically, the if-else chain of `icmp` + `cond_br` instructions misses LLVM's `switch` terminator, which enables jump table (O(1)) and binary search compilation by the LLVM backend. Decision trees produce `switch` terminators for tag dispatch, achieving O(log n) or O(1) performance.
 
 **Exhaustiveness note:** Exhaustiveness checking is performed by `ori_types` before codegen ever runs. The decision tree compiler can assume the match is exhaustive. The `Fail` node in the decision tree maps to LLVM `unreachable` -- if reached, it indicates a compiler bug, not a user error.
 
@@ -111,6 +111,12 @@ pub enum PathInstruction {
     /// Extract element at index from a list (for list pattern matching).
     ListElement(u32),
 }
+
+// Note: As-patterns (`x @ P`) do NOT require an additional PathInstruction variant.
+// `x` is bound to the scrutinee at the current path without extending the path.
+// The inner pattern `P` is processed normally through the existing instructions.
+// During `extract_bindings`, as-patterns simply record a binding at the current
+// ScrutineePath; the sub-pattern continues matching at the same path.
 ```
 
 ### Test Kinds and Values

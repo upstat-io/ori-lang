@@ -245,12 +245,21 @@ pub fn insert_rc_ops(
             //    Push Inc LAST (it will appear BEFORE instruction post-reverse).
             //
             //    Correctness for duplicate uses: if a variable appears N times in
-            //    used_vars() (e.g., `Apply { args: [x, x] }`), the first iteration
-            //    finds x in `live` (used later), emits Inc, and x stays in live.
-            //    The second iteration also finds x in `live`, emits another Inc.
-            //    This correctly produces N-1 extra Inc's for N uses of the same
-            //    variable in a single instruction (the last use consumes ownership,
-            //    each additional use needs its own Inc).
+            //    used_vars() (e.g., `Apply { args: [x, x] }`), two sub-cases
+            //    both produce the correct N-1 Inc's:
+            //
+            //    (a) x is in live_out (used later beyond this instruction):
+            //        Every iteration finds x in `live`, emits Inc. After N
+            //        iterations, N Inc's are emitted. But x was already in live
+            //        from live_out, so one of those N uses is "free" (ownership
+            //        carried forward). Net: N-1 extra Inc's. Correct.
+            //
+            //    (b) x is NOT in live_out (this is the last instruction using x,
+            //        but x appears multiple times within it):
+            //        First iteration: x not in `live`, no Inc. `live.insert(x)`.
+            //        Second through Nth iterations: x is in `live`, emit Inc.
+            //        Net: N-1 Inc's. The first use consumes the existing
+            //        ownership, each additional use needs its own Inc. Correct.
             for &used in instr.used_vars() {
                 if pool.needs_rc(func.var_type(used)) {
                     if live.contains(&used) {
@@ -526,14 +535,18 @@ cleanup_3:  // cleanup block — Dec all live RC vars
 
 > **Implementation note:** Panic cleanup is the most complex part of the RC system. Consider implementing it as a later phase — start with Apply everywhere (leak on panic), then add Invoke + cleanup blocks as a refinement pass. The correctness of non-panicking paths does not depend on cleanup blocks.
 
+**0.1-alpha:**
 - [ ] Implement early exit cleanup: Dec all live vars at break/continue/return terminators
+- [ ] Test: verify early exit cleanup for basic control flow (break, continue)
+
+**Post-0.1-alpha:**
 - [ ] Identify potentially-panicking calls (conservative: all user function calls)
 - [ ] Convert panicking `Apply` instructions to `Invoke` terminators with cleanup blocks
 - [ ] Generate cleanup blocks with Dec for all live RC'd variables at invoke point
 - [ ] Add `Resume` variant to `ArcTerminator` for cleanup block termination
 - [ ] LLVM emission: `invoke` instruction, `landingpad`, `resume`
 - [ ] Implement `__ori_personality` function (or reuse existing unwinding ABI)
-- [ ] Test: verify no leaks on panic paths
+- [ ] Test: verify no leaks on panic paths (leak-free panic)
 
 ## 07.6 Reset/Reuse Detection
 

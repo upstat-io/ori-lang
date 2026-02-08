@@ -25,7 +25,7 @@ type store, TypeInfoStore, indexed storage, no dyn Trait, Pool only
 ArcClassification, ori_arc, no LLVM dependency
 Channel, Function, function pointer, closure pointer
 unit i64, never i64, void not BasicTypeEnum
-Roc-style RC, 16-byte header, strong_count at ptr minus 16, weak_count at ptr minus 8, heap layout, C FFI
+Roc-style RC, 8-byte header, strong_count at ptr minus 8, heap layout, C FFI
 Idx::NONE guard, unreachable tags, Var, BoundVar, Scheme, Infer
 newtype transparent, alias resolved, no Newtype variant, no Alias variant
 Pool flattening, struct field data, enum variant data, prerequisite refactor
@@ -111,7 +111,7 @@ Rust FnAbi, ArgAbi, PassMode, Direct, Indirect, Pair
 Swift NativeConventionSchema, Explosion
 closure, lambda, fat pointer, env_ptr, fn_ptr
 tagged i64, coerce_to_i64, bit 0 tag, ori_closure_box, LAMBDA_COUNTER
-capture by value, environment struct, ARC-managed captures, ptr-16 closure env
+capture by value, environment struct, ARC-managed captures, ptr-8 closure env
 TypeInfoStore, no TypeInfoRegistry
 no-capture optimization, null env_ptr, direct call
 __lambda_N, max 8 captures, capture count, boxed closure
@@ -194,7 +194,7 @@ derived value, borrows set, projection borrow optimization
 specialized drop functions, compile-time drop, per-type drop
 drop_MyStruct, drop_List_Str, _ori_drop$ naming
 closure env drop, Dec each capture, env struct RC
-ori_rt redesign, 16-byte header, ptr-16 strong_count, ptr-8 weak_count
+ori_rt redesign, 8-byte header, ptr-8 strong_count
 ori_rc_alloc, ori_rc_inc, ori_rc_dec, ori_rc_free, drop_fn
 early exit cleanup, Dec live vars, break continue return
 panic cleanup, full cleanup blocks, Invoke terminator
@@ -244,7 +244,7 @@ reuse-eligible patterns, match arm reconstruct, spread struct
 recursive data transformation, list map, tree map
 ArcInstr::Reset, ArcInstr::Reuse, intermediate IR operations
 ArcInstr::IsShared, ArcInstr::Set, expanded operations
-IsShared inline, load ptr-16, icmp sgt 1, not a runtime call
+IsShared inline, load ptr-8, icmp sgt 1, not a runtime call
 Lean 4 ExpandResetReuse, reset/reuse expansion algorithm
 Koka ParcReuse, genAllocAt, genReuseAddress, size-based pool (not adopted)
 Roc HelperOp Reset, ResetRef, Reuse
