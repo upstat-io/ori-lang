@@ -148,7 +148,7 @@ Pool integration, Idx properties, type queries, ori_arc depends on ori_types
 ```
 
 ### Section 06: ARC IR & Borrow Inference
-**File:** `section-06-borrow-inference.md` | **Status:** Not Started
+**File:** `section-06-borrow-inference.md` | **Status:** In Progress (06.0-06.2 complete, 06.3 LLVM integration remaining)
 
 ```
 ARC IR, basic blocks, explicit control flow, terminators
@@ -175,6 +175,11 @@ no RC for borrowed parameters, eliminate inc/dec
 ArcIrBuilder, builder API, AST-to-ARC-IR lowering
 var_types, var_type(), spans side table, Span preservation
 PrimOp, LitValue, TBD during implementation
+infer_borrows, apply_borrows, initialize_all_borrowed, update_ownership
+ArcClassifier, is_scalar, needs_rc, scalar skipped
+mark_owned, try_mark_param_owned, param_index, is_owned_var
+check_tail_call, tail position detection, last Apply in block
+unknown callee, external function, conservative all args Owned
 ```
 
 ### Section 07: RC Insertion via Liveness
