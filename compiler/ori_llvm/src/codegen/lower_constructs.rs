@@ -305,8 +305,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
 
     /// Lower `recurse(args...)` — tail-recursive call to current function.
     ///
-    /// Compiles the arguments, then emits a direct call to the current
-    /// function. True tail-call optimization (TCO) is a future enhancement.
+    /// Compiles the arguments, then emits a tail call to the current
+    /// function. The `tail` attribute combined with `fastcc` enables LLVM
+    /// to perform tail call optimization (reusing the caller's stack frame),
+    /// preventing stack overflow on deep recursion.
     fn lower_exp_recurse(
         &mut self,
         exp: &ori_ir::FunctionExp,
@@ -320,7 +322,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         }
 
         self.builder
-            .call(self.current_function, &arg_vals, "recurse")
+            .call_tail(self.current_function, &arg_vals, "recurse")
     }
 
     /// Lower `cache(key: ..., value: ...)` — memoization.
