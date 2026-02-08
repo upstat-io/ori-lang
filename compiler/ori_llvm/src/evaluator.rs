@@ -398,9 +398,17 @@ fn add_runtime_mappings_to_engine(
             "ori_str_from_float",
             runtime::ori_str_from_float as *const () as usize,
         ),
+        ("ori_rc_new", runtime::ori_rc_new as *const () as usize),
+        ("ori_rc_data", runtime::ori_rc_data as *const () as usize),
+        ("ori_rc_inc", runtime::ori_rc_inc as *const () as usize),
+        ("ori_rc_dec", runtime::ori_rc_dec as *const () as usize),
         (
-            "ori_closure_box",
-            runtime::ori_closure_box as *const () as usize,
+            "ori_args_from_argv",
+            runtime::ori_args_from_argv as *const () as usize,
+        ),
+        (
+            "ori_register_panic_handler",
+            runtime::ori_register_panic_handler as *const () as usize,
         ),
     ];
 

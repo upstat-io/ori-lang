@@ -424,8 +424,11 @@ pub extern "C" fn ori_print_bool(b: bool) {
 
 /// Panic with a message.
 ///
-/// In JIT mode, sets thread-local panic state and `longjmp`s back to the
-/// test runner. In AOT mode, prints to stderr and terminates.
+/// Dispatch order:
+/// 1. Store panic state (for JIT test assertions)
+/// 2. If user `@panic` handler registered and not re-entrant: call trampoline
+/// 3. If JIT mode: `longjmp` back to test runner
+/// 4. AOT default: print to stderr and `exit(1)`
 #[no_mangle]
 pub extern "C" fn ori_panic(s: *const OriStr) {
     let msg = if s.is_null() {
@@ -440,6 +443,9 @@ pub extern "C" fn ori_panic(s: *const OriStr) {
     // Store panic state in thread-local storage
     PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
     PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.clone()));
+
+    // Call user @panic handler if registered (AOT only, not re-entrant)
+    call_panic_trampoline(&msg);
 
     // In JIT mode, longjmp back to the test runner instead of terminating
     if is_jit_mode() {
@@ -457,8 +463,7 @@ pub extern "C" fn ori_panic(s: *const OriStr) {
 
 /// Panic with a C string message.
 ///
-/// In JIT mode, sets panic state and `longjmp`s back to the test runner.
-/// In AOT mode, prints to stderr and terminates.
+/// Same dispatch order as `ori_panic`: user handler → JIT longjmp → exit.
 #[no_mangle]
 pub extern "C" fn ori_panic_cstr(s: *const i8) {
     let msg = if s.is_null() {
@@ -471,6 +476,9 @@ pub extern "C" fn ori_panic_cstr(s: *const i8) {
 
     PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
     PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.clone()));
+
+    // Call user @panic handler if registered (AOT only, not re-entrant)
+    call_panic_trampoline(&msg);
 
     // In JIT mode, longjmp back to the test runner instead of terminating
     if is_jit_mode() {
@@ -702,12 +710,149 @@ pub extern "C" fn ori_max_int(a: i64, b: i64) -> i64 {
     a.max(b)
 }
 
-/// Allocate memory for a closure struct.
+/// Convert C `argc`/`argv` to an Ori `[str]` list.
 ///
-/// Used when a closure has captures and needs to be boxed for returning.
-/// The size should be the total size of the closure struct in bytes.
+/// Skips `argv[0]` (program name) per the Ori spec: `@main(args)` receives
+/// only user-supplied arguments. Returns `OriList { len, cap, data }` by value.
+///
+/// Each element is an `OriStr { len: i64, data: *const u8 }` (16 bytes).
+/// String data is copied to owned allocations so the caller doesn't depend
+/// on the lifetime of the original `argv` strings.
 #[no_mangle]
-pub extern "C" fn ori_closure_box(size: i64) -> *mut u8 {
-    let size = size.max(8) as usize;
-    ori_alloc(size, 8)
+pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriList {
+    // Empty list if no user args or null argv
+    if argc <= 1 || argv.is_null() {
+        return OriList {
+            len: 0,
+            cap: 0,
+            data: std::ptr::null_mut(),
+        };
+    }
+
+    let count = (argc - 1) as usize; // skip argv[0]
+                                     // Allocate contiguous array for OriStr elements (16 bytes each)
+    let layout = std::alloc::Layout::array::<OriStr>(count)
+        .unwrap_or_else(|_| std::alloc::Layout::new::<u8>());
+    // SAFETY: Layout is valid (count > 0, OriStr has standard alignment)
+    let data = unsafe { std::alloc::alloc(layout) };
+    if data.is_null() {
+        return OriList {
+            len: 0,
+            cap: 0,
+            data: std::ptr::null_mut(),
+        };
+    }
+
+    let elements = data.cast::<OriStr>();
+    for i in 0..count {
+        // SAFETY: argv is valid for argc entries; we access argv[i+1]
+        let c_str = unsafe { CStr::from_ptr(*argv.add(i + 1)) };
+        let bytes = c_str.to_bytes();
+        let len = bytes.len();
+
+        // Copy string data to owned allocation
+        let str_data = if len > 0 {
+            let str_layout = std::alloc::Layout::array::<u8>(len)
+                .unwrap_or_else(|_| std::alloc::Layout::new::<u8>());
+            // SAFETY: Layout is valid
+            let ptr = unsafe { std::alloc::alloc(str_layout) };
+            if !ptr.is_null() {
+                // SAFETY: bytes and ptr are valid for len bytes
+                unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, len) };
+            }
+            ptr
+        } else {
+            std::ptr::null_mut()
+        };
+
+        // SAFETY: elements[i] is within the allocated array
+        unsafe {
+            elements.add(i).write(OriStr {
+                len: len as i64,
+                data: str_data,
+            });
+        }
+    }
+
+    OriList {
+        len: count as i64,
+        cap: count as i64,
+        data: data.cast::<u8>(),
+    }
+}
+
+// ── Panic handler registration ──────────────────────────────────────────
+
+/// Type for the panic trampoline function.
+///
+/// The trampoline is an LLVM-generated function that receives raw C values
+/// and constructs the Ori `PanicInfo` struct before calling the user's
+/// `@panic` handler. Signature:
+/// `(msg_ptr, msg_len, file_ptr, file_len, line, col) -> void`
+type PanicTrampoline = extern "C" fn(*const u8, i64, *const u8, i64, i64, i64);
+
+/// Global panic trampoline function pointer.
+///
+/// Set by `ori_register_panic_handler` during `main()` initialization.
+/// Called by `ori_panic`/`ori_panic_cstr` before default behavior.
+///
+/// # Safety
+///
+/// Access is limited to single-threaded AOT initialization (`main()` before
+/// spawning threads). Thread-local `IN_PANIC_HANDLER` provides re-entrancy
+/// protection.
+static mut ORI_PANIC_TRAMPOLINE: Option<PanicTrampoline> = None;
+
+thread_local! {
+    /// Re-entrancy guard: prevents infinite recursion if the user's `@panic`
+    /// handler itself panics.
+    static IN_PANIC_HANDLER: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Call the user's panic trampoline if registered and not re-entrant.
+///
+/// The trampoline receives raw C values (message pointer, length, empty
+/// file/location) and constructs the Ori `PanicInfo` struct in LLVM IR
+/// before calling the user's `@panic` function.
+///
+/// If the handler returns normally, we proceed with default behavior.
+/// If the handler itself panics (re-entrancy), we skip it to avoid loops.
+fn call_panic_trampoline(msg: &str) {
+    // SAFETY: Read of global set during single-threaded main() init
+    let trampoline = unsafe { ORI_PANIC_TRAMPOLINE };
+    let Some(trampoline) = trampoline else {
+        return;
+    };
+
+    // Re-entrancy guard: if @panic handler panics, skip it
+    let already_in_handler = IN_PANIC_HANDLER.with(|h| h.get());
+    if already_in_handler {
+        return;
+    }
+
+    IN_PANIC_HANDLER.with(|h| h.set(true));
+
+    let msg_ptr = msg.as_ptr();
+    let msg_len = msg.len() as i64;
+    // Empty file/location — populated when debug info infrastructure arrives (Section 13)
+    let empty_ptr = b"\0".as_ptr();
+    trampoline(msg_ptr, msg_len, empty_ptr, 0, 0, 0);
+
+    IN_PANIC_HANDLER.with(|h| h.set(false));
+}
+
+/// Register a panic trampoline function.
+///
+/// Called from the generated `main()` wrapper when the user defines `@panic`.
+/// The trampoline is an LLVM-generated function that bridges C values to Ori
+/// `PanicInfo` struct construction.
+#[no_mangle]
+pub extern "C" fn ori_register_panic_handler(handler: *const ()) {
+    if handler.is_null() {
+        return;
+    }
+    // SAFETY: Called once during single-threaded main() initialization
+    unsafe {
+        ORI_PANIC_TRAMPOLINE = Some(std::mem::transmute::<*const (), PanicTrampoline>(handler));
+    }
 }

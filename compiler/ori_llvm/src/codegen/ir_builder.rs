@@ -1582,6 +1582,32 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         }
     }
 
+    /// Get or declare a void-returning function by name.
+    ///
+    /// If the function already exists in the module, registers it in the
+    /// arena and returns its ID. Otherwise declares a new void function.
+    pub fn get_or_declare_void_function(
+        &mut self,
+        name: &str,
+        param_types: &[LLVMTypeId],
+    ) -> FunctionId {
+        if let Some(func) = self.scx.llmod.get_function(name) {
+            self.arena.push_function(func)
+        } else {
+            self.declare_void_function(name, param_types)
+        }
+    }
+
+    /// Get a function's address as a pointer `ValueId`.
+    ///
+    /// Used for passing function pointers to runtime calls (e.g., registering
+    /// the panic handler trampoline).
+    pub fn get_function_ptr(&mut self, func: FunctionId) -> ValueId {
+        let func_val = self.arena.get_function(func);
+        let ptr_val = func_val.as_global_value().as_pointer_value();
+        self.arena.push_value(ptr_val.into())
+    }
+
     // -----------------------------------------------------------------------
     // Raw value access (for interop with existing code)
     // -----------------------------------------------------------------------
