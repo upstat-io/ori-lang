@@ -173,6 +173,34 @@ impl Mangler {
         result
     }
 
+    /// Mangle an inherent method (method defined directly on a type, not via trait).
+    ///
+    /// # Arguments
+    ///
+    /// * `module_path` - The module path (empty for root module)
+    /// * `type_name` - The type name (e.g., "Point", "Line")
+    /// * `method_name` - The method name (e.g., "distance", "length")
+    ///
+    /// # Returns
+    ///
+    /// The mangled symbol name: `_ori_[<module>$]<type>$<method>`.
+    #[must_use]
+    pub fn mangle_method(&self, module_path: &str, type_name: &str, method_name: &str) -> String {
+        let mut result = String::with_capacity(64);
+        result.push_str(MANGLE_PREFIX);
+
+        if !module_path.is_empty() {
+            self.encode_module_path(&mut result, module_path);
+            result.push(MODULE_SEP);
+        }
+
+        self.encode_type_name(&mut result, type_name);
+        result.push(MODULE_SEP);
+        self.encode_identifier(&mut result, method_name);
+
+        result
+    }
+
     /// Mangle a generic function instantiation.
     ///
     /// # Arguments

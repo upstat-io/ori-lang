@@ -210,7 +210,7 @@ pub fn compile_to_llvm<'ctx>(
 
         // 3. Two-pass function compilation
         let function_sigs = build_function_sigs(parse_result, type_result);
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, interner, pool);
+        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, interner, pool, "");
         fc.declare_all(&parse_result.module.functions, &function_sigs);
 
         // 4. Compile impl methods
@@ -230,6 +230,19 @@ pub fn compile_to_llvm<'ctx>(
             &parse_result.arena,
             &type_result.typed.expr_types,
         );
+
+        // 6. Generate C main() entry point wrapper for @main (AOT only)
+        for (func, sig) in parse_result
+            .module
+            .functions
+            .iter()
+            .zip(function_sigs.iter())
+        {
+            if sig.is_main {
+                fc.generate_main_wrapper(func.name, sig);
+                break;
+            }
+        }
     }
 
     // Debug IR output
@@ -322,7 +335,8 @@ pub fn compile_to_llvm_with_imports<'ctx>(
 
         // 4. Two-pass function compilation
         let function_sigs = build_function_sigs(parse_result, type_result);
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, interner, pool);
+        let mut fc =
+            FunctionCompiler::new(&mut builder, &store, &resolver, interner, pool, module_name);
 
         // Declare imports first so they're visible to function bodies
         fc.declare_imports(&import_sigs);
@@ -345,6 +359,19 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             &parse_result.arena,
             &type_result.typed.expr_types,
         );
+
+        // 7. Generate C main() entry point wrapper for @main (AOT only)
+        for (func, sig) in parse_result
+            .module
+            .functions
+            .iter()
+            .zip(function_sigs.iter())
+        {
+            if sig.is_main {
+                fc.generate_main_wrapper(func.name, sig);
+                break;
+            }
+        }
     }
 
     // Debug output

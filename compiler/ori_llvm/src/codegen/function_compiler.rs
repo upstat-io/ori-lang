@@ -13,10 +13,14 @@
 //! `compile_test()` with ABI-driven compilation that gets calling conventions
 //! and sret handling correct from the start.
 
+use std::cell::Cell;
+
 use ori_ir::{ExprArena, ExprId, Function, Name, StringInterner, TestDef};
 use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
+
+use crate::aot::mangle::Mangler;
 
 use super::abi::{compute_function_abi, CallConv, FunctionAbi, ParamPassing, ReturnPassing};
 use super::expr_lowerer::ExprLowerer;
@@ -40,18 +44,40 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
     interner: &'a StringInterner,
     pool: &'tcx Pool,
+    /// Symbol mangler for generating unique LLVM symbol names.
+    mangler: Mangler,
+    /// Module path for name mangling (e.g., "", "math", "data/utils").
+    module_path: &'a str,
     /// Declared functions: `Name` → (`FunctionId`, ABI).
     functions: FxHashMap<Name, (FunctionId, FunctionAbi)>,
+    /// Type-qualified method lookup: `(type_name, method_name)` → (`FunctionId`, ABI).
+    ///
+    /// Allows same-name methods on different types (e.g., `Point.distance` and
+    /// `Line.distance`) to coexist without collision. Populated by `compile_impls`.
+    method_functions: FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
+    /// Maps receiver type `Idx` → type `Name` for method dispatch.
+    ///
+    /// Used by `ExprLowerer` to resolve `expr_type(receiver)` to a type name
+    /// for lookup in `method_functions`. Populated by `compile_impls` using
+    /// `FunctionSig.param_types[0]` (the self parameter type).
+    type_idx_to_name: FxHashMap<Idx, Name>,
+    /// Module-wide lambda counter for unique lambda function names.
+    lambda_counter: Cell<u32>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Create a new function compiler.
+    ///
+    /// `module_path` determines name mangling: `""` for the root module,
+    /// `"math"` or `"data/utils"` for nested modules. All LLVM symbols
+    /// are mangled (e.g., `add` → `_ori_add`, `math.add` → `_ori_math$add`).
     pub fn new(
         builder: &'a mut IrBuilder<'scx, 'ctx>,
         type_info: &'a TypeInfoStore<'tcx>,
         type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
         interner: &'a StringInterner,
         pool: &'tcx Pool,
+        module_path: &'a str,
     ) -> Self {
         Self {
             builder,
@@ -59,7 +85,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             type_resolver,
             interner,
             pool,
+            mangler: Mangler::new(),
+            module_path,
             functions: FxHashMap::default(),
+            method_functions: FxHashMap::default(),
+            type_idx_to_name: FxHashMap::default(),
+            lambda_counter: Cell::new(0),
         }
     }
 
@@ -87,12 +118,26 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Declare a single function from its type checker signature.
+    ///
+    /// The LLVM symbol uses the mangled name (e.g., `_ori_add`), while the
+    /// `functions` map key uses the interned `Name` for internal lookups.
     fn declare_function(&mut self, name: Name, sig: &FunctionSig) {
+        let name_str = self.interner.lookup(name);
+        let symbol = self.mangler.mangle_function(self.module_path, name_str);
+        self.declare_function_with_symbol(name, &symbol, sig);
+    }
+
+    /// Declare a function with an explicit LLVM symbol name.
+    ///
+    /// Shared implementation for `declare_function` (top-level) and
+    /// `declare_impl_method` (impl block methods with type-qualified names).
+    fn declare_function_with_symbol(&mut self, name: Name, symbol: &str, sig: &FunctionSig) {
         let name_str = self.interner.lookup(name);
         let abi = compute_function_abi(sig, self.type_info);
 
         debug!(
             name = name_str,
+            symbol,
             params = abi.params.len(),
             call_conv = ?abi.call_conv,
             return_passing = ?abi.return_abi.passing,
@@ -128,15 +173,15 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             }
         }
 
-        // Declare the LLVM function
+        // Declare the LLVM function using the mangled symbol name
         let func_id = match &abi.return_abi.passing {
             ReturnPassing::Direct => {
                 self.builder
-                    .declare_function(name_str, &llvm_param_types, return_llvm_id)
+                    .declare_function(symbol, &llvm_param_types, return_llvm_id)
             }
             ReturnPassing::Sret { .. } | ReturnPassing::Void => self
                 .builder
-                .declare_void_function(name_str, &llvm_param_types),
+                .declare_void_function(symbol, &llvm_param_types),
         };
 
         // Set calling convention
@@ -222,6 +267,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.pool,
             func_id,
             &self.functions,
+            &self.method_functions,
+            &self.type_idx_to_name,
+            &self.lambda_counter,
+            self.module_path,
         );
 
         let result = lowerer.lower(body);
@@ -301,7 +350,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         for test in tests {
             let test_name_str = self.interner.lookup(test.name);
-            let wrapper_name = format!("__test_{test_name_str}");
+            let wrapper_name = self
+                .mangler
+                .mangle_function(self.module_path, &format!("test_{test_name_str}"));
 
             debug!(name = test_name_str, wrapper = %wrapper_name, "compiling test");
 
@@ -325,6 +376,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 self.pool,
                 func_id,
                 &self.functions,
+                &self.method_functions,
+                &self.type_idx_to_name,
+                &self.lambda_counter,
+                self.module_path,
             );
 
             lowerer.lower(test.body);
@@ -344,8 +399,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
     /// Compile impl block methods.
     ///
-    /// Impl methods are compiled as regular functions. The method name is used
-    /// directly (mangling is a future step in 04.5).
+    /// Impl methods use type-qualified mangled names: `_ori_[<module>$]<type>$<method>`.
+    /// This ensures different types can define methods with the same name without
+    /// LLVM symbol collision (e.g., `Point.distance` → `_ori_Point$distance`).
+    ///
+    /// Methods are inserted into both:
+    /// - `functions` (bare `method.name` key, for backward compat)
+    /// - `method_functions` (`(type_name, method_name)` key, for type-qualified dispatch)
+    ///
+    /// `type_idx_to_name` is also populated to map `sig.param_types[0]` (the self
+    /// parameter type) to the type name, enabling receiver type → type name resolution
+    /// during method call lowering.
     pub fn compile_impls(
         &mut self,
         impls: &[ori_ir::ImplDef],
@@ -353,38 +417,73 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         arena: &ExprArena,
         expr_types: &[Idx],
     ) {
-        // Build a lookup map for impl method sigs
-        let sig_map: FxHashMap<Name, &FunctionSig> =
-            impl_sigs.iter().map(|(name, sig)| (*name, sig)).collect();
+        // Consume impl_sigs positionally — the type checker pushes sigs in the
+        // same iteration order: `for impl_def { for method { register_impl_sig } }`.
+        // A flat HashMap keyed by method Name would lose entries when two types
+        // define same-name methods (e.g., Point.distance vs Line.distance).
+        let mut sig_iter = impl_sigs.iter();
 
         for impl_def in impls {
+            // Resolve the type name from self_path for mangling
+            let type_name = if let Some(first) = impl_def.self_path.first() {
+                self.interner.lookup(*first).to_owned()
+            } else {
+                String::new()
+            };
+
             for method in &impl_def.methods {
-                if let Some(sig) = sig_map.get(&method.name) {
-                    if sig.is_generic() {
-                        continue;
-                    }
-
-                    self.declare_function(method.name, sig);
-                    let Some(&(func_id, ref abi)) = self.functions.get(&method.name) else {
-                        continue;
-                    };
-                    let abi = abi.clone();
-
-                    self.define_function_body(
-                        method.name,
-                        func_id,
-                        &abi,
-                        method.body,
-                        arena,
-                        expr_types,
-                    );
-                } else {
-                    // No sig available — use a simple void function as placeholder
+                let Some((sig_name, sig)) = sig_iter.next() else {
                     trace!(
                         name = %self.interner.lookup(method.name),
-                        "no type signature for impl method — skipping"
+                        "no type signature for impl method — exhausted sig iterator"
                     );
+                    continue;
+                };
+
+                debug_assert_eq!(
+                    *sig_name, method.name,
+                    "impl sig/method name mismatch: sig has {:?}, method has {:?}",
+                    sig_name, method.name
+                );
+
+                if sig.is_generic() {
+                    continue;
                 }
+
+                // Use type-qualified mangled name for LLVM symbol
+                let method_str = self.interner.lookup(method.name);
+                let symbol = if type_name.is_empty() {
+                    self.mangler.mangle_function(self.module_path, method_str)
+                } else {
+                    self.mangler
+                        .mangle_method(self.module_path, &type_name, method_str)
+                };
+                self.declare_function_with_symbol(method.name, &symbol, sig);
+
+                let Some(&(func_id, ref abi)) = self.functions.get(&method.name) else {
+                    continue;
+                };
+                let abi = abi.clone();
+
+                // Populate type-qualified method map for dispatch
+                if let Some(&type_name_name) = impl_def.self_path.first() {
+                    self.method_functions
+                        .insert((type_name_name, method.name), (func_id, abi.clone()));
+
+                    // Map the self type Idx → type Name for receiver resolution
+                    if let Some(&self_type_idx) = sig.param_types.first() {
+                        self.type_idx_to_name.insert(self_type_idx, type_name_name);
+                    }
+                }
+
+                self.define_function_body(
+                    method.name,
+                    func_id,
+                    &abi,
+                    method.body,
+                    arena,
+                    expr_types,
+                );
             }
         }
     }
@@ -394,6 +493,111 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         for (name, sig) in imports {
             self.declare_function(*name, sig);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // AOT Entry Points
+    // -----------------------------------------------------------------------
+
+    /// Generate a C-compatible `main()` wrapper that calls the Ori `@main` function.
+    ///
+    /// The wrapper bridges the C calling convention (`ccc`) to Ori's internal
+    /// calling convention (`fastcc`). Four `@main` signatures are supported:
+    ///
+    /// | Ori signature               | C wrapper                                    |
+    /// |-----------------------------|----------------------------------------------|
+    /// | `@main () -> void`          | `define i32 @main() { call @_ori_main(); ret 0 }` |
+    /// | `@main () -> int`           | `define i32 @main() { trunc call @_ori_main() }` |
+    /// | `@main (args) -> void`      | `define i32 @main(i32, ptr) { ... }`         |
+    /// | `@main (args) -> int`       | `define i32 @main(i32, ptr) { ... }`         |
+    ///
+    /// Must be called after `declare_all()` + `define_all()` so the `@main`
+    /// function is already compiled. Returns `false` if no `@main` was found.
+    pub fn generate_main_wrapper(&mut self, main_name: Name, main_sig: &FunctionSig) -> bool {
+        let Some(&(ori_main_id, ref abi)) = self.functions.get(&main_name) else {
+            debug!("no @main function declared — skipping entry point wrapper");
+            return false;
+        };
+        let abi = abi.clone();
+
+        let has_args = !main_sig.param_types.is_empty();
+        let returns_int = main_sig.return_type == Idx::INT;
+
+        debug!(
+            has_args,
+            returns_int, "generating C main() entry point wrapper"
+        );
+
+        // C main signature: i32 @main() or i32 @main(i32 %argc, ptr %argv)
+        let i32_ty = self.builder.i32_type();
+        let c_main_params = if has_args {
+            let ptr_ty = self.builder.ptr_type();
+            vec![i32_ty, ptr_ty]
+        } else {
+            vec![]
+        };
+
+        let c_main_id = self
+            .builder
+            .declare_function("main", &c_main_params, i32_ty);
+        self.builder.set_ccc(c_main_id);
+
+        let entry = self.builder.append_block(c_main_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(c_main_id);
+
+        // Build args for calling the Ori @main function
+        let call_args = if has_args {
+            // Call ori_args_from_argv(arg_count, arg_values) → Ori [str]
+            let arg_count = self.builder.get_param(c_main_id, 0);
+            let arg_values = self.builder.get_param(c_main_id, 1);
+
+            let ptr_ty = self.builder.ptr_type();
+            let str_llvm_ty = self.type_resolver.resolve(Idx::STR);
+            let str_ty_id = self.builder.register_type(str_llvm_ty);
+            let args_fn = self.builder.get_or_declare_function(
+                "ori_args_from_argv",
+                &[i32_ty, ptr_ty],
+                str_ty_id,
+            );
+            let args_val = self.builder.call(args_fn, &[arg_count, arg_values], "args");
+            if let Some(val) = args_val {
+                vec![val]
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+
+        // Call the Ori @main function
+        match &abi.return_abi.passing {
+            super::abi::ReturnPassing::Direct => {
+                let result = self
+                    .builder
+                    .call(ori_main_id, &call_args, "ori_main_result");
+                if returns_int {
+                    // Truncate i64 → i32 for C exit code
+                    if let Some(val) = result {
+                        let exit_code = self.builder.trunc(val, i32_ty, "exit_code");
+                        self.builder.ret(exit_code);
+                    } else {
+                        let zero = self.builder.const_i32(0);
+                        self.builder.ret(zero);
+                    }
+                } else {
+                    let zero = self.builder.const_i32(0);
+                    self.builder.ret(zero);
+                }
+            }
+            super::abi::ReturnPassing::Void | super::abi::ReturnPassing::Sret { .. } => {
+                self.builder.call(ori_main_id, &call_args, "");
+                let zero = self.builder.const_i32(0);
+                self.builder.ret(zero);
+            }
+        }
+
+        true
     }
 
     // -----------------------------------------------------------------------
@@ -408,6 +612,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Borrow the function map (for call-site ABI lookup).
     pub fn function_map(&self) -> &FxHashMap<Name, (FunctionId, FunctionAbi)> {
         &self.functions
+    }
+
+    /// Borrow the type-qualified method map.
+    pub fn method_function_map(&self) -> &FxHashMap<(Name, Name), (FunctionId, FunctionAbi)> {
+        &self.method_functions
+    }
+
+    /// Borrow the type index → type name mapping.
+    pub fn type_idx_to_name_map(&self) -> &FxHashMap<Idx, Name> {
+        &self.type_idx_to_name
     }
 }
 
@@ -478,7 +692,7 @@ mod tests {
             false,
         );
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool);
+        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
         fc.declare_function(func_name, &sig);
 
         let (_func_id, abi) = fc.get_function(func_name).unwrap();
@@ -486,7 +700,8 @@ mod tests {
         assert_eq!(abi.return_abi.passing, ReturnPassing::Direct);
         assert_eq!(abi.call_conv, CallConv::Fast);
 
-        assert!(scx.llmod.get_function("add").is_some());
+        // Function is declared with mangled name _ori_add
+        assert!(scx.llmod.get_function("_ori_add").is_some());
     }
 
     #[test]
@@ -502,7 +717,7 @@ mod tests {
         let func_name = interner.intern("do_thing");
         let sig = make_sig(func_name, vec![], vec![], Idx::UNIT, false);
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool);
+        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
         fc.declare_function(func_name, &sig);
 
         let (_, abi) = fc.get_function(func_name).unwrap();
@@ -523,7 +738,7 @@ mod tests {
         let func_name = interner.intern("get_list");
         let sig = make_sig(func_name, vec![], vec![], list_int, false);
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool);
+        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
         fc.declare_function(func_name, &sig);
 
         let (_, abi) = fc.get_function(func_name).unwrap();
@@ -534,7 +749,8 @@ mod tests {
         drop(builder);
         drop(resolver);
 
-        let llvm_fn = scx.llmod.get_function("get_list").unwrap();
+        // Function is declared with mangled name _ori_get_list
+        let llvm_fn = scx.llmod.get_function("_ori_get_list").unwrap();
         assert!(llvm_fn.get_type().get_return_type().is_none());
         assert_eq!(llvm_fn.count_params(), 1);
     }
@@ -552,7 +768,7 @@ mod tests {
         let func_name = interner.intern("main");
         let sig = make_sig(func_name, vec![], vec![], Idx::UNIT, true);
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool);
+        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
         fc.declare_function(func_name, &sig);
 
         let (_, abi) = fc.get_function(func_name).unwrap();
@@ -600,7 +816,7 @@ mod tests {
             visibility: ori_ir::Visibility::Private,
         };
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool);
+        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
         fc.declare_all(&[func], &[sig]);
 
         assert!(fc.get_function(func_name).is_none());
@@ -609,7 +825,9 @@ mod tests {
         drop(fc);
         drop(builder);
         drop(resolver);
+        // Generic functions are not declared at all (neither mangled nor unmangled)
         assert!(scx.llmod.get_function("identity").is_none());
+        assert!(scx.llmod.get_function("_ori_identity").is_none());
     }
 
     #[test]
@@ -642,12 +860,196 @@ mod tests {
             false,
         );
 
-        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool);
+        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
         fc.declare_function(add_name, &sig_add);
         fc.declare_function(sub_name, &sig_sub);
 
         assert_eq!(fc.function_map().len(), 2);
         assert!(fc.function_map().contains_key(&add_name));
         assert!(fc.function_map().contains_key(&sub_name));
+    }
+
+    #[test]
+    fn compile_impls_populates_method_functions_map() {
+        use ori_ir::{GenericParamRange, ImplDef, ImplMethod, ParsedType, ParsedTypeRange, Span};
+
+        let interner = StringInterner::new();
+        let point_name = interner.intern("Point");
+        let line_name = interner.intern("Line");
+
+        let mut pool = Pool::new();
+        // Create named type Idx values for receiver types
+        let point_idx = pool.named(point_name);
+        let line_idx = pool.named(line_name);
+
+        let ctx = Context::create();
+        let store = TypeInfoStore::new(&pool);
+        let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_method_dispatch"));
+        let resolver = TypeLayoutResolver::new(&store, &scx);
+        let mut builder = IrBuilder::new(&scx);
+
+        let distance_name = interner.intern("distance");
+        let self_name = interner.intern("self");
+
+        // Create two impl blocks with same-name method "distance"
+        let impl_point = ImplDef {
+            generics: GenericParamRange::EMPTY,
+            trait_path: None,
+            trait_type_args: ParsedTypeRange::EMPTY,
+            self_path: vec![point_name],
+            self_ty: ParsedType::Named {
+                name: point_name,
+                type_args: ParsedTypeRange::EMPTY,
+            },
+            where_clauses: vec![],
+            methods: vec![ImplMethod {
+                name: distance_name,
+                params: ori_ir::ParamRange::EMPTY,
+                return_ty: ParsedType::Primitive(ori_ir::TypeId::FLOAT),
+                body: ExprId::INVALID,
+                span: Span::new(0, 0),
+            }],
+            assoc_types: vec![],
+            span: Span::new(0, 0),
+        };
+
+        let impl_line = ImplDef {
+            generics: GenericParamRange::EMPTY,
+            trait_path: None,
+            trait_type_args: ParsedTypeRange::EMPTY,
+            self_path: vec![line_name],
+            self_ty: ParsedType::Named {
+                name: line_name,
+                type_args: ParsedTypeRange::EMPTY,
+            },
+            where_clauses: vec![],
+            methods: vec![ImplMethod {
+                name: distance_name,
+                params: ori_ir::ParamRange::EMPTY,
+                return_ty: ParsedType::Primitive(ori_ir::TypeId::FLOAT),
+                body: ExprId::INVALID,
+                span: Span::new(0, 0),
+            }],
+            assoc_types: vec![],
+            span: Span::new(0, 0),
+        };
+
+        // Signatures: distance(self: Point) -> float, distance(self: Line) -> float
+        let sig_point = make_sig(
+            distance_name,
+            vec![self_name],
+            vec![point_idx],
+            Idx::FLOAT,
+            false,
+        );
+        let sig_line = make_sig(
+            distance_name,
+            vec![self_name],
+            vec![line_idx],
+            Idx::FLOAT,
+            false,
+        );
+
+        let impl_sigs = vec![
+            (distance_name, sig_point.clone()),
+            (distance_name, sig_line.clone()),
+        ];
+
+        let arena = ori_ir::ExprArena::new();
+        let expr_types: Vec<Idx> = vec![];
+
+        let mut fc = FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "");
+
+        // Compile Point impl first, then Line impl
+        // Note: compile_impls processes all impls; same method name → last one
+        // overwrites in bare functions map, but BOTH should be in method_functions
+        fc.compile_impls(&[impl_point, impl_line], &impl_sigs, &arena, &expr_types);
+
+        // The bare functions map has only the LAST one (Line.distance overwrites Point.distance)
+        assert!(fc.function_map().contains_key(&distance_name));
+
+        // The type-qualified method map has BOTH
+        assert!(
+            fc.method_function_map()
+                .contains_key(&(point_name, distance_name)),
+            "method_functions should contain (Point, distance)"
+        );
+        assert!(
+            fc.method_function_map()
+                .contains_key(&(line_name, distance_name)),
+            "method_functions should contain (Line, distance)"
+        );
+
+        // The type Idx → Name map should have both types
+        assert_eq!(
+            fc.type_idx_to_name_map().get(&point_idx),
+            Some(&point_name),
+            "type_idx_to_name should map Point Idx → Point Name"
+        );
+        assert_eq!(
+            fc.type_idx_to_name_map().get(&line_idx),
+            Some(&line_name),
+            "type_idx_to_name should map Line Idx → Line Name"
+        );
+
+        // The two entries in method_functions should have DIFFERENT FunctionIds
+        // (because they are different LLVM functions with different mangled names)
+        let (point_func_id, _) = fc
+            .method_function_map()
+            .get(&(point_name, distance_name))
+            .unwrap();
+        let (line_func_id, _) = fc
+            .method_function_map()
+            .get(&(line_name, distance_name))
+            .unwrap();
+        assert_ne!(
+            point_func_id, line_func_id,
+            "Point.distance and Line.distance should have different FunctionIds"
+        );
+
+        // Must drop borrowers before accessing scx
+        drop(fc);
+        drop(builder);
+        drop(resolver);
+
+        // Verify mangled LLVM symbols exist
+        assert!(
+            scx.llmod.get_function("_ori_Point$distance").is_some(),
+            "LLVM module should have _ori_Point$distance"
+        );
+        assert!(
+            scx.llmod.get_function("_ori_Line$distance").is_some(),
+            "LLVM module should have _ori_Line$distance"
+        );
+    }
+
+    #[test]
+    fn module_path_appears_in_mangled_name() {
+        let pool = Pool::new();
+        let ctx = Context::create();
+        let interner = StringInterner::new();
+        let store = TypeInfoStore::new(&pool);
+        let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_module_mangle"));
+        let resolver = TypeLayoutResolver::new(&store, &scx);
+        let mut builder = IrBuilder::new(&scx);
+
+        let func_name = interner.intern("add");
+        let a_name = interner.intern("a");
+        let sig = make_sig(func_name, vec![a_name], vec![Idx::INT], Idx::INT, false);
+
+        // Use "math" as module path
+        let mut fc =
+            FunctionCompiler::new(&mut builder, &store, &resolver, &interner, &pool, "math");
+        fc.declare_function(func_name, &sig);
+
+        // Must drop borrowers before accessing scx directly
+        drop(fc);
+        drop(builder);
+        drop(resolver);
+
+        // Mangled as _ori_math$add
+        assert!(scx.llmod.get_function("_ori_math$add").is_some());
+        // Unmangled name should NOT exist
+        assert!(scx.llmod.get_function("add").is_none());
     }
 }

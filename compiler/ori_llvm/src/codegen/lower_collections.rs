@@ -66,7 +66,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     values.push(val);
                 } else {
                     // Shorthand: `{ x }` uses the binding `x`
-                    let val = self.lower_ident(fi.name)?;
+                    let val = self.lower_ident(fi.name, ori_ir::ExprId::INVALID)?;
                     values.push(val);
                 }
             }
@@ -86,7 +86,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 self.lower(val_id)?
             } else {
                 // Shorthand: `{ x }` uses the binding `x`
-                self.lower_ident(fi.name)?
+                self.lower_ident(fi.name, ori_ir::ExprId::INVALID)?
             };
 
             if let Some(idx) = field_idx {

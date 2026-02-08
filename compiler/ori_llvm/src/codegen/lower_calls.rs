@@ -6,6 +6,8 @@
 use ori_ir::{CallArgRange, ExprId, ExprKind, ExprRange, Name, ParamRange};
 use ori_types::Idx;
 
+use crate::aot::mangle::Mangler;
+
 use super::abi::ReturnPassing;
 use super::expr_lowerer::ExprLowerer;
 use super::scope::ScopeBinding;
@@ -41,7 +43,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
 
             // Check if callee is a local binding (closure)
             if let Some(binding) = self.scope.lookup(*func_name) {
-                return self.lower_closure_call(binding, args);
+                let callee_type = self.expr_type(func);
+                return self.lower_closure_call(binding, args, callee_type);
             }
 
             // Look up in declared function map (has ABI info for sret)
@@ -59,30 +62,45 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             return None;
         }
 
-        // Non-identifier callee (e.g., lambda expression or field access)
+        // Non-identifier callee (e.g., IIFE `(x -> x*2)(5)` or chained `f(1)(2)`)
+        // The callee is a fat-pointer closure { fn_ptr, env_ptr }
         let callee_val = self.lower(func)?;
 
-        // Compile args
+        // Extract fn_ptr and env_ptr from fat pointer
+        let fn_ptr = self.builder.extract_value(callee_val, 0, "callee.fn_ptr")?;
+        let env_ptr = self
+            .builder
+            .extract_value(callee_val, 1, "callee.env_ptr")?;
+
+        // Compile args with env_ptr prepended
         let arg_ids = self.arena.get_expr_list(args);
-        let mut arg_vals = Vec::with_capacity(arg_ids.len());
+        let mut arg_vals = Vec::with_capacity(arg_ids.len() + 1);
+        arg_vals.push(env_ptr);
         for &arg_id in arg_ids {
             arg_vals.push(self.lower(arg_id)?);
         }
 
-        // Indirect call through function pointer
+        // Get actual types from TypeInfo
         let callee_type = self.expr_type(func);
         let type_info = self.type_info.get(callee_type);
         if let TypeInfo::Function { params, ret } = &type_info {
-            let param_tys: Vec<_> = params.iter().map(|&idx| self.resolve_type(idx)).collect();
+            let ptr_ty = self.builder.ptr_type();
+            let mut call_param_types = Vec::with_capacity(1 + params.len());
+            call_param_types.push(ptr_ty);
+            for &idx in params {
+                call_param_types.push(self.resolve_type(idx));
+            }
             let ret_ty = self.resolve_type(*ret);
             self.builder
-                .call_indirect(ret_ty, &param_tys, callee_val, &arg_vals, "call")
+                .call_indirect(ret_ty, &call_param_types, fn_ptr, &arg_vals, "call")
         } else {
-            // Fallback: try as pointer call with i64 return
+            // Fallback: treat as ptr + i64 args
             let i64_ty = self.builder.i64_type();
-            let param_tys: Vec<_> = arg_vals.iter().map(|_| self.builder.i64_type()).collect();
+            let ptr_ty = self.builder.ptr_type();
+            let mut param_tys = vec![ptr_ty];
+            param_tys.extend(arg_ids.iter().map(|_| i64_ty));
             self.builder
-                .call_indirect(i64_ty, &param_tys, callee_val, &arg_vals, "call")
+                .call_indirect(i64_ty, &param_tys, fn_ptr, &arg_vals, "call")
         }
     }
 
@@ -125,31 +143,68 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Lower a closure call.
+    /// Lower a closure call via fat-pointer dispatch.
     ///
-    /// Closures in Ori are represented as:
-    /// - No captures: raw function pointer (i64)
-    /// - With captures: tagged pointer (lowest bit = 1) to heap closure struct
-    fn lower_closure_call(&mut self, binding: ScopeBinding, args: ExprRange) -> Option<ValueId> {
+    /// Closures are `{ fn_ptr: ptr, env_ptr: ptr }`. Calling convention:
+    /// 1. Extract `fn_ptr` and `env_ptr` from the fat pointer
+    /// 2. Prepend `env_ptr` as the first argument
+    /// 3. Call indirectly through `fn_ptr` with actual types
+    fn lower_closure_call(
+        &mut self,
+        binding: ScopeBinding,
+        args: ExprRange,
+        callee_type: Idx,
+    ) -> Option<ValueId> {
         let closure_val = match binding {
             ScopeBinding::Immutable(val) => val,
             ScopeBinding::Mutable { ptr, ty } => self.builder.load(ty, ptr, "closure"),
         };
 
+        // Extract fn_ptr and env_ptr from fat pointer
+        let fn_ptr = self
+            .builder
+            .extract_value(closure_val, 0, "closure.fn_ptr")?;
+        let env_ptr = self
+            .builder
+            .extract_value(closure_val, 1, "closure.env_ptr")?;
+
         // Compile arguments
         let arg_ids = self.arena.get_expr_list(args);
-        let mut arg_vals = Vec::with_capacity(arg_ids.len());
+        let mut arg_vals = Vec::with_capacity(arg_ids.len() + 1);
+        arg_vals.push(env_ptr); // Hidden env_ptr as first arg
         for &arg_id in arg_ids {
             arg_vals.push(self.lower(arg_id)?);
         }
 
-        // For now, treat as a simple function pointer call
-        // Full closure dispatch (tagged pointer, boxed captures) is handled
-        // by checking the lowest bit of the i64 value.
-        let i64_ty = self.builder.i64_type();
-        let param_tys: Vec<_> = arg_vals.iter().map(|_| i64_ty).collect();
-        self.builder
-            .call_indirect(i64_ty, &param_tys, closure_val, &arg_vals, "closure_call")
+        // Get actual param types and return type from TypeInfo
+        let type_info = self.type_info.get(callee_type);
+        let (param_idxs, ret_idx) = if let TypeInfo::Function { params, ret } = &type_info {
+            (params.clone(), *ret)
+        } else {
+            tracing::warn!(?type_info, "closure call on non-Function type");
+            let param_types = vec![Idx::INT; arg_ids.len()];
+            (param_types, Idx::INT)
+        };
+
+        // Build LLVM call param types: [ptr (env), ...actual_params]
+        let ptr_ty = self.builder.ptr_type();
+        let mut call_param_types = Vec::with_capacity(1 + param_idxs.len());
+        call_param_types.push(ptr_ty);
+        for &idx in &param_idxs {
+            let llvm_ty = self.type_resolver.resolve(idx);
+            call_param_types.push(self.builder.register_type(llvm_ty));
+        }
+
+        let ret_llvm_ty = self.type_resolver.resolve(ret_idx);
+        let ret_ty_id = self.builder.register_type(ret_llvm_ty);
+
+        self.builder.call_indirect(
+            ret_ty_id,
+            &call_param_types,
+            fn_ptr,
+            &arg_vals,
+            "closure_call",
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -169,7 +224,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
 
             // Check if callee is a local binding (closure)
             if let Some(binding) = self.scope.lookup(*func_name) {
-                return self.lower_closure_call_named(binding, args);
+                let callee_type = self.expr_type(func);
+                return self.lower_closure_call_named(binding, args, callee_type);
             }
 
             // Look up in declared function map (has ABI info for sret)
@@ -187,18 +243,41 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             return None;
         }
 
-        // Non-identifier callee
+        // Non-identifier callee — fat-pointer closure dispatch
         let callee_val = self.lower(func)?;
+
+        let fn_ptr = self.builder.extract_value(callee_val, 0, "callee.fn_ptr")?;
+        let env_ptr = self
+            .builder
+            .extract_value(callee_val, 1, "callee.env_ptr")?;
+
         let call_args = self.arena.get_call_args(args);
-        let mut arg_vals = Vec::with_capacity(call_args.len());
+        let mut arg_vals = Vec::with_capacity(call_args.len() + 1);
+        arg_vals.push(env_ptr);
         for arg in call_args {
             arg_vals.push(self.lower(arg.value)?);
         }
 
-        let i64_ty = self.builder.i64_type();
-        let param_tys: Vec<_> = arg_vals.iter().map(|_| i64_ty).collect();
-        self.builder
-            .call_indirect(i64_ty, &param_tys, callee_val, &arg_vals, "call_named")
+        let callee_type = self.expr_type(func);
+        let type_info = self.type_info.get(callee_type);
+        if let TypeInfo::Function { params, ret } = &type_info {
+            let ptr_ty = self.builder.ptr_type();
+            let mut call_param_types = Vec::with_capacity(1 + params.len());
+            call_param_types.push(ptr_ty);
+            for &idx in params {
+                call_param_types.push(self.resolve_type(idx));
+            }
+            let ret_ty = self.resolve_type(*ret);
+            self.builder
+                .call_indirect(ret_ty, &call_param_types, fn_ptr, &arg_vals, "call_named")
+        } else {
+            let i64_ty = self.builder.i64_type();
+            let ptr_ty = self.builder.ptr_type();
+            let mut param_tys = vec![ptr_ty];
+            param_tys.extend(call_args.iter().map(|_| i64_ty));
+            self.builder
+                .call_indirect(i64_ty, &param_tys, fn_ptr, &arg_vals, "call_named")
+        }
     }
 
     /// Lower a direct named-argument call.
@@ -241,27 +320,61 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Lower a closure call with named arguments.
+    /// Lower a closure call with named arguments via fat-pointer dispatch.
     fn lower_closure_call_named(
         &mut self,
         binding: ScopeBinding,
         args: CallArgRange,
+        callee_type: Idx,
     ) -> Option<ValueId> {
         let closure_val = match binding {
             ScopeBinding::Immutable(val) => val,
             ScopeBinding::Mutable { ptr, ty } => self.builder.load(ty, ptr, "closure"),
         };
 
+        // Extract fn_ptr and env_ptr from fat pointer
+        let fn_ptr = self
+            .builder
+            .extract_value(closure_val, 0, "closure.fn_ptr")?;
+        let env_ptr = self
+            .builder
+            .extract_value(closure_val, 1, "closure.env_ptr")?;
+
+        // Compile arguments
         let call_args = self.arena.get_call_args(args);
-        let mut arg_vals = Vec::with_capacity(call_args.len());
+        let mut arg_vals = Vec::with_capacity(call_args.len() + 1);
+        arg_vals.push(env_ptr); // Hidden env_ptr as first arg
         for arg in call_args {
             arg_vals.push(self.lower(arg.value)?);
         }
 
-        let i64_ty = self.builder.i64_type();
-        let param_tys: Vec<_> = arg_vals.iter().map(|_| i64_ty).collect();
-        self.builder
-            .call_indirect(i64_ty, &param_tys, closure_val, &arg_vals, "closure_call")
+        // Get actual param/return types
+        let type_info = self.type_info.get(callee_type);
+        let (param_idxs, ret_idx) = if let TypeInfo::Function { params, ret } = &type_info {
+            (params.clone(), *ret)
+        } else {
+            let param_types = vec![Idx::INT; call_args.len()];
+            (param_types, Idx::INT)
+        };
+
+        let ptr_ty = self.builder.ptr_type();
+        let mut call_param_types = Vec::with_capacity(1 + param_idxs.len());
+        call_param_types.push(ptr_ty);
+        for &idx in &param_idxs {
+            let llvm_ty = self.type_resolver.resolve(idx);
+            call_param_types.push(self.builder.register_type(llvm_ty));
+        }
+
+        let ret_llvm_ty = self.type_resolver.resolve(ret_idx);
+        let ret_ty_id = self.builder.register_type(ret_llvm_ty);
+
+        self.builder.call_indirect(
+            ret_ty_id,
+            &call_param_types,
+            fn_ptr,
+            &arg_vals,
+            "closure_call",
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -272,7 +385,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ///
     /// Dispatch order:
     /// 1. Built-in methods (type-specific, inline codegen)
-    /// 2. User-defined methods (module function lookup)
+    /// 2. Type-qualified method lookup via `method_functions[(type_name, method)]`
+    /// 3. Bare-name function map fallback (`functions[method]`)
+    /// 4. LLVM module lookup (runtime functions)
     pub(crate) fn lower_method_call(
         &mut self,
         receiver: ExprId,
@@ -282,43 +397,36 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         let recv_type = self.expr_type(receiver);
         let recv_val = self.lower(receiver)?;
 
-        // Try built-in method dispatch
+        // 1. Try built-in method dispatch
         let method_str = self.resolve_name(method).to_owned();
         if let Some(result) = self.lower_builtin_method(recv_val, recv_type, &method_str, args) {
             return Some(result);
         }
 
-        // User-defined method: check function map first (sret-aware)
+        // 2. Type-qualified method lookup: resolve receiver Idx → type Name,
+        //    then look up (type_name, method_name) in method_functions
+        if let Some(&type_name) = self.type_idx_to_name.get(&recv_type) {
+            if let Some((func_id, abi)) = self.method_functions.get(&(type_name, method)) {
+                let func_id = *func_id;
+                let abi = abi.clone();
+                return self.emit_method_call(func_id, &abi, recv_val, args, "method_call");
+            }
+        }
+
+        // 3. Bare-name fallback: check function map (sret-aware)
         if let Some((func_id, abi)) = self.functions.get(&method) {
             let func_id = *func_id;
             let abi = abi.clone();
-
-            let arg_ids = self.arena.get_expr_list(args);
-            let mut all_args = Vec::with_capacity(arg_ids.len() + 1);
-            all_args.push(recv_val); // receiver is first arg
-            for &arg_id in arg_ids {
-                all_args.push(self.lower(arg_id)?);
-            }
-
-            return match &abi.return_abi.passing {
-                ReturnPassing::Sret { .. } => {
-                    let ret_ty = self.resolve_type(abi.return_abi.ty);
-                    self.builder
-                        .call_with_sret(func_id, &all_args, ret_ty, "method_call")
-                }
-                ReturnPassing::Direct | ReturnPassing::Void => {
-                    self.builder.call(func_id, &all_args, "method_call")
-                }
-            };
+            return self.emit_method_call(func_id, &abi, recv_val, args, "method_call");
         }
 
-        // Fallback: look up in LLVM module (runtime functions, etc.)
+        // 4. LLVM module lookup (runtime functions, etc.)
         if let Some(llvm_func) = self.builder.scx().llmod.get_function(&method_str) {
             let func_id = self.builder.intern_function(llvm_func);
 
             let arg_ids = self.arena.get_expr_list(args);
             let mut all_args = Vec::with_capacity(arg_ids.len() + 1);
-            all_args.push(recv_val); // receiver is first arg
+            all_args.push(recv_val);
             for &arg_id in arg_ids {
                 all_args.push(self.lower(arg_id)?);
             }
@@ -336,6 +444,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Lower `ExprKind::MethodCallNamed { receiver, method, args }`.
+    ///
+    /// Dispatch order mirrors `lower_method_call`:
+    /// 1. Type-qualified method lookup via `method_functions[(type_name, method)]`
+    /// 2. Bare-name function map fallback
+    /// 3. LLVM module lookup (runtime functions)
     pub(crate) fn lower_method_call_named(
         &mut self,
         receiver: ExprId,
@@ -345,33 +458,31 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         let recv_type = self.expr_type(receiver);
         let recv_val = self.lower(receiver)?;
 
-        // User-defined method: check function map first (sret-aware)
+        // 1. Type-qualified method lookup
+        if let Some(&type_name) = self.type_idx_to_name.get(&recv_type) {
+            if let Some((func_id, abi)) = self.method_functions.get(&(type_name, method)) {
+                let func_id = *func_id;
+                let abi = abi.clone();
+                return self.emit_method_call_named(
+                    func_id,
+                    &abi,
+                    recv_val,
+                    args,
+                    "method_call_named",
+                );
+            }
+        }
+
+        // 2. Bare-name fallback
         if let Some((func_id, abi)) = self.functions.get(&method) {
             let func_id = *func_id;
             let abi = abi.clone();
-
-            let call_args = self.arena.get_call_args(args);
-            let mut all_args = Vec::with_capacity(call_args.len() + 1);
-            all_args.push(recv_val);
-            for arg in call_args {
-                all_args.push(self.lower(arg.value)?);
-            }
-
-            return match &abi.return_abi.passing {
-                ReturnPassing::Sret { .. } => {
-                    let ret_ty = self.resolve_type(abi.return_abi.ty);
-                    self.builder
-                        .call_with_sret(func_id, &all_args, ret_ty, "method_call_named")
-                }
-                ReturnPassing::Direct | ReturnPassing::Void => {
-                    self.builder.call(func_id, &all_args, "method_call_named")
-                }
-            };
+            return self.emit_method_call_named(func_id, &abi, recv_val, args, "method_call_named");
         }
 
         let method_name = self.resolve_name(method);
 
-        // Fallback: look up in LLVM module (runtime functions, etc.)
+        // 3. LLVM module lookup (runtime functions, etc.)
         if let Some(llvm_func) = self.builder.scx().llmod.get_function(method_name) {
             let func_id = self.builder.intern_function(llvm_func);
 
@@ -392,6 +503,69 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         );
         self.builder.record_codegen_error();
         None
+    }
+
+    // -----------------------------------------------------------------------
+    // Method call emission helpers
+    // -----------------------------------------------------------------------
+
+    /// Emit a method call with positional args, handling sret returns.
+    ///
+    /// Used by both type-qualified and bare-name method dispatch to avoid
+    /// duplicating the receiver-prepend + sret logic.
+    fn emit_method_call(
+        &mut self,
+        func_id: FunctionId,
+        abi: &super::abi::FunctionAbi,
+        recv_val: ValueId,
+        args: ExprRange,
+        name: &str,
+    ) -> Option<ValueId> {
+        let arg_ids = self.arena.get_expr_list(args);
+        let mut all_args = Vec::with_capacity(arg_ids.len() + 1);
+        all_args.push(recv_val);
+        for &arg_id in arg_ids {
+            all_args.push(self.lower(arg_id)?);
+        }
+
+        match &abi.return_abi.passing {
+            ReturnPassing::Sret { .. } => {
+                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                self.builder
+                    .call_with_sret(func_id, &all_args, ret_ty, name)
+            }
+            ReturnPassing::Direct | ReturnPassing::Void => {
+                self.builder.call(func_id, &all_args, name)
+            }
+        }
+    }
+
+    /// Emit a method call with named args, handling sret returns.
+    fn emit_method_call_named(
+        &mut self,
+        func_id: FunctionId,
+        abi: &super::abi::FunctionAbi,
+        recv_val: ValueId,
+        args: CallArgRange,
+        name: &str,
+    ) -> Option<ValueId> {
+        let call_args = self.arena.get_call_args(args);
+        let mut all_args = Vec::with_capacity(call_args.len() + 1);
+        all_args.push(recv_val);
+        for arg in call_args {
+            all_args.push(self.lower(arg.value)?);
+        }
+
+        match &abi.return_abi.passing {
+            ReturnPassing::Sret { .. } => {
+                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                self.builder
+                    .call_with_sret(func_id, &all_args, ret_ty, name)
+            }
+            ReturnPassing::Direct | ReturnPassing::Void => {
+                self.builder.call(func_id, &all_args, name)
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -739,31 +913,62 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
 
     /// Lower `ExprKind::Lambda { params, body }`.
     ///
-    /// Steps:
-    /// 1. Capture analysis: find free variables from the enclosing scope
-    /// 2. Declare lambda function with params + captures
-    /// 3. Compile body in the lambda's scope
-    /// 4. Return function pointer (no captures) or boxed closure (with captures)
-    pub(crate) fn lower_lambda(&mut self, params: ParamRange, body: ExprId) -> Option<ValueId> {
+    /// Produces a fat-pointer closure `{ fn_ptr: ptr, env_ptr: ptr }`:
+    /// 1. Capture analysis: find free variables with their types
+    /// 2. Declare lambda function with hidden `ptr %env` first param + actual-typed params
+    /// 3. In lambda body: unpack captures from env struct via `struct_gep`
+    /// 4. Compile body, emit return at native type (no i64 coercion)
+    /// 5. Build fat pointer: `{ fn_ptr, env_ptr }` (`env_ptr` = null if no captures)
+    pub(crate) fn lower_lambda(
+        &mut self,
+        params: ParamRange,
+        body: ExprId,
+        lambda_id: ExprId,
+    ) -> Option<ValueId> {
         let param_list = self.arena.get_params(params);
-        let param_count = param_list.len();
 
-        // Capture analysis: find free variables used in body
+        // Step 1: Capture analysis
         let captures = self.find_captures(body, params);
 
-        // Generate unique function name
-        let lambda_name = format!("__lambda_{}", self.current_function.raw());
+        // Step 2: Get lambda type info for actual param/return types
+        let lambda_type_idx = self.expr_type(lambda_id);
+        let type_info = self.type_info.get(lambda_type_idx);
+        let (fn_param_types, fn_ret_type) = if let TypeInfo::Function { params, ret } = &type_info {
+            (params.clone(), *ret)
+        } else {
+            tracing::warn!(?type_info, "lambda has non-Function type info");
+            // Fallback: use i64 for everything
+            let param_types = vec![Idx::INT; param_list.len()];
+            (param_types, Idx::INT)
+        };
 
-        // Build parameter types: all params + captures are i64
-        let i64_ty = self.builder.i64_type();
-        let total_params = param_count + captures.len();
-        let param_types: Vec<_> = (0..total_params).map(|_| i64_ty).collect();
-        let ret_ty = i64_ty;
+        // Step 3: Generate unique mangled lambda name via module-wide counter
+        let counter = self.lambda_counter.get();
+        self.lambda_counter.set(counter + 1);
+        let mangler = Mangler::new();
+        let lambda_name = mangler.mangle_function(self.module_path, &format!("__lambda_{counter}"));
+
+        // Step 4: Build LLVM function signature
+        // First param: hidden ptr %env (for captures)
+        // Remaining params: actual types from type info
+        let ptr_ty = self.builder.ptr_type();
+        let mut llvm_param_types = Vec::with_capacity(1 + fn_param_types.len());
+        llvm_param_types.push(ptr_ty); // hidden env_ptr
+
+        for &param_idx in &fn_param_types {
+            let llvm_ty = self.type_resolver.resolve(param_idx);
+            llvm_param_types.push(self.builder.register_type(llvm_ty));
+        }
+
+        // Return type: actual type (unit maps to i64)
+        let ret_llvm_ty = self.type_resolver.resolve(fn_ret_type);
+        let ret_ty_id = self.builder.register_type(ret_llvm_ty);
 
         // Declare the lambda function
         let lambda_func = self
             .builder
-            .declare_function(&lambda_name, &param_types, ret_ty);
+            .declare_function(&lambda_name, &llvm_param_types, ret_ty_id);
+        self.builder.set_fastcc(lambda_func);
         let entry_bb = self.builder.append_block(lambda_func, "entry");
 
         // Save builder position
@@ -774,35 +979,52 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         self.builder.set_current_function(lambda_func);
         self.builder.position_at_end(entry_bb);
 
-        // Create lambda scope
+        // Create lambda scope (swap out parent)
         let parent_scope = std::mem::take(&mut self.scope);
 
-        // Bind parameters
-        let lambda_fn_val = self.builder.get_function_value(lambda_func);
+        // Bind user parameters (LLVM params start at index 1, after hidden env_ptr)
         for (i, param) in param_list.iter().enumerate() {
-            let param_val = lambda_fn_val.get_nth_param(i as u32)?;
-            let param_id = self.builder.intern_value(param_val);
-            self.scope.bind_immutable(param.name, param_id);
+            let param_val = self.builder.get_param(lambda_func, (i + 1) as u32);
+            self.scope.bind_immutable(param.name, param_val);
         }
 
-        // Bind captures
-        for (i, (name, _val)) in captures.iter().enumerate() {
-            let capture_param = lambda_fn_val.get_nth_param((param_count + i) as u32)?;
-            let capture_id = self.builder.intern_value(capture_param);
-            self.scope.bind_immutable(*name, capture_id);
+        // Bind captures by unpacking from environment struct
+        if !captures.is_empty() {
+            let env_ptr = self.builder.get_param(lambda_func, 0);
+
+            // Build environment struct type from capture types
+            let capture_llvm_types: Vec<_> = captures
+                .iter()
+                .map(|&(_, _, ty)| self.type_resolver.resolve(ty))
+                .collect();
+            let env_struct_ty = self.builder.scx().type_struct(&capture_llvm_types, false);
+            let env_struct_ty_id = self.builder.register_type(env_struct_ty.into());
+
+            for (i, (name, _, ty)) in captures.iter().enumerate() {
+                let field_ptr = self.builder.struct_gep(
+                    env_struct_ty_id,
+                    env_ptr,
+                    i as u32,
+                    &format!("cap.{i}"),
+                );
+                let field_ty = self.type_resolver.resolve(*ty);
+                let field_ty_id = self.builder.register_type(field_ty);
+                let cap_val = self
+                    .builder
+                    .load(field_ty_id, field_ptr, &format!("cap.{i}.val"));
+                self.scope.bind_immutable(*name, cap_val);
+            }
         }
 
-        // Compile body
+        // Step 5: Compile body
         let body_val = self.lower(body);
 
-        // Return
+        // Emit return (native type, no coercion)
         if !self.builder.current_block_terminated() {
             if let Some(val) = body_val {
-                // Coerce to i64 for uniform return type
-                let body_type = self.expr_type(body);
-                let coerced = self.coerce_to_i64(val, body_type);
-                self.builder.ret(coerced);
+                self.builder.ret(val);
             } else {
+                // Unit return
                 let zero = self.builder.const_i64(0);
                 self.builder.ret(zero);
             }
@@ -814,23 +1036,26 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         self.builder.set_current_function(saved_func);
         self.builder.restore_position(saved_pos);
 
-        // Return function pointer or closure struct
-        if captures.is_empty() {
-            // No captures: return raw function pointer as i64
-            let fn_ptr = lambda_fn_val.as_global_value().as_pointer_value();
-            let fn_ptr_id = self.builder.intern_value(fn_ptr.into());
-            let i64_ty = self.builder.i64_type();
-            Some(self.builder.ptr_to_int(fn_ptr_id, i64_ty, "lambda_ptr"))
-        } else {
-            // With captures: build closure struct and box it
-            self.build_closure(lambda_func, &captures)
-        }
+        // Step 6: Build fat-pointer closure { fn_ptr, env_ptr }
+        let fn_val = self.builder.get_function_value(lambda_func);
+        let fn_ptr = fn_val.as_global_value().as_pointer_value();
+        let fn_ptr_id = self.builder.intern_value(fn_ptr.into());
+
+        let env_ptr = self.build_environment(&captures)?;
+
+        let closure_ty = self.builder.closure_type();
+        let fat_ptr = self
+            .builder
+            .build_struct(closure_ty, &[fn_ptr_id, env_ptr], "closure");
+        Some(fat_ptr)
     }
 
     /// Find free variables (captures) used in a lambda body.
     ///
-    /// Returns `(Name, ValueId)` pairs for each captured variable.
-    fn find_captures(&mut self, body: ExprId, params: ParamRange) -> Vec<(Name, ValueId)> {
+    /// Returns `(Name, ValueId, Idx)` triples — name, current value, and
+    /// type index — for each captured variable. The type is needed to build
+    /// the environment struct with native-typed fields.
+    fn find_captures(&mut self, body: ExprId, params: ParamRange) -> Vec<(Name, ValueId, Idx)> {
         let param_list = self.arena.get_params(params);
         let param_names: Vec<Name> = param_list.iter().map(|p| p.name).collect();
 
@@ -846,7 +1071,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         expr_id: ExprId,
         params: &[Name],
-        captures: &mut Vec<(Name, ValueId)>,
+        captures: &mut Vec<(Name, ValueId, Idx)>,
         seen: &mut std::collections::HashSet<Name>,
     ) {
         if !expr_id.is_valid() {
@@ -867,7 +1092,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                                 self.builder.load(ty, ptr, "capture")
                             }
                         };
-                        captures.push((*name, val));
+                        let capture_type = self.expr_type(expr_id);
+                        captures.push((*name, val, capture_type));
                     }
                 }
             }
@@ -1108,70 +1334,47 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Build a boxed closure from a lambda function and its captures.
+    /// Build a heap-allocated environment struct from captured values.
     ///
-    /// Closure layout on heap:
-    /// ```text
-    /// offset 0:  i8  capture_count
-    /// offset 8:  i64 fn_ptr
-    /// offset 16: i64 capture[0]
-    /// offset 24: i64 capture[1]
-    /// ...
-    /// ```
-    ///
-    /// Returns a tagged i64 pointer (lowest bit = 1).
-    fn build_closure(
-        &mut self,
-        lambda_func: FunctionId,
-        captures: &[(Name, ValueId)],
-    ) -> Option<ValueId> {
-        let capture_count = captures.len();
+    /// Returns a pointer to the environment, or null if no captures.
+    /// The environment is a struct with one field per capture, stored at
+    /// its native LLVM type (no i64 coercion).
+    fn build_environment(&mut self, captures: &[(Name, ValueId, Idx)]) -> Option<ValueId> {
+        if captures.is_empty() {
+            return Some(self.builder.const_null_ptr());
+        }
 
-        // Total size: 8 (count padded) + 8 (fn_ptr) + 8 * captures
-        let total_size = 8 + 8 + 8 * capture_count;
-        let size_val = self.builder.const_i64(total_size as i64);
+        // Build environment struct type from capture types
+        let capture_llvm_types: Vec<_> = captures
+            .iter()
+            .map(|&(_, _, ty)| self.type_resolver.resolve(ty))
+            .collect();
+        let env_struct_ty = self.builder.scx().type_struct(&capture_llvm_types, false);
+        let env_struct_ty_id = self.builder.register_type(env_struct_ty.into());
 
-        // Allocate via ori_closure_box
+        // Compute environment size (conservative: 8 bytes per capture minimum)
+        let env_size: usize = captures.len() * 8;
+        let size_val = self.builder.const_i64(env_size as i64);
+
+        // Allocate via ori_closure_box (heap allocation)
         let i64_ty = self.builder.i64_type();
         let ptr_ty = self.builder.ptr_type();
         let box_func = self
             .builder
             .get_or_declare_function("ori_closure_box", &[i64_ty], ptr_ty);
-        let heap_ptr = self.builder.call(box_func, &[size_val], "closure.ptr")?;
+        let heap_ptr = self.builder.call(box_func, &[size_val], "env.ptr")?;
 
-        // Store capture count at offset 0
-        let count_val = self.builder.const_i8(capture_count as i8);
-        let count_ptr = heap_ptr; // offset 0
-        self.builder.store(count_val, count_ptr);
-
-        // Store function pointer at offset 8
-        let fn_val = self.builder.get_function_value(lambda_func);
-        let fn_ptr = fn_val.as_global_value().as_pointer_value();
-        let fn_ptr_id = self.builder.intern_value(fn_ptr.into());
-        let fn_as_i64 = self.builder.ptr_to_int(fn_ptr_id, i64_ty, "closure.fn_i64");
-
-        let eight = self.builder.const_i64(1); // 1 element of i64 = offset 8
-        let fn_slot = self
-            .builder
-            .gep(i64_ty, heap_ptr, &[eight], "closure.fn_slot");
-        self.builder.store(fn_as_i64, fn_slot);
-
-        // Store captures starting at offset 16
-        for (i, (_name, val)) in captures.iter().enumerate() {
-            let offset = self.builder.const_i64((i + 2) as i64); // +2 for count+fn_ptr
-            let cap_slot = self
-                .builder
-                .gep(i64_ty, heap_ptr, &[offset], "closure.cap_slot");
-            // Coerce capture value to i64
-            let name_idx = self.expr_type(ExprId::INVALID); // captures are already i64
-            let _ = name_idx;
-            self.builder.store(*val, cap_slot);
+        // Store each capture into the environment struct
+        for (i, (_, val, _)) in captures.iter().enumerate() {
+            let field_ptr = self.builder.struct_gep(
+                env_struct_ty_id,
+                heap_ptr,
+                i as u32,
+                &format!("env.field.{i}"),
+            );
+            self.builder.store(*val, field_ptr);
         }
 
-        // Tag the pointer: set lowest bit to 1
-        let ptr_as_i64 = self.builder.ptr_to_int(heap_ptr, i64_ty, "closure.raw_ptr");
-        let one = self.builder.const_i64(1);
-        let tagged = self.builder.or(ptr_as_i64, one, "closure.tagged");
-        Some(tagged)
+        Some(heap_ptr)
     }
 }

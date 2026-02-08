@@ -256,7 +256,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             // 6. Two-pass function compilation
             debug!("declaring functions (phase 1)");
             let mut fc =
-                FunctionCompiler::new(&mut builder, &store, &resolver, interner, self.pool);
+                FunctionCompiler::new(&mut builder, &store, &resolver, interner, self.pool, "");
             fc.declare_all(&module.functions, function_sigs);
 
             // 7. Compile impl methods (declare + define)
