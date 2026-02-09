@@ -460,20 +460,20 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
         std::process::exit(1);
     }
 
-    // Step 4: Run optimization passes
+    // Step 4: Build optimization config
     let opt_config = build_optimization_config(options);
-    if let Err(e) =
-        ori_llvm::aot::run_optimization_passes(&llvm_module, emitter.machine(), &opt_config)
-    {
-        eprintln!("error: optimization failed: {e}");
-        std::process::exit(1);
-    }
 
     // Step 5: Determine output path
     let output_path = determine_output_path(path, options);
 
-    // Step 6: Emit based on emit type
+    // Step 6: Emit based on emit type (--emit flag)
+    // For --emit, we still verify+optimize first, then emit in the requested format.
     if let Some(emit_type) = options.emit {
+        if let Err(e) = ori_llvm::aot::optimize_module(&llvm_module, emitter.machine(), &opt_config)
+        {
+            eprintln!("error: optimization failed: {e}");
+            std::process::exit(1);
+        }
         emit_and_finish(
             &llvm_module,
             &emitter,
@@ -485,7 +485,7 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
         return;
     }
 
-    // Step 7: Emit object file to unique temp location
+    // Step 7: Verify → optimize → emit object file via unified pipeline
     // Use tempfile for unique directory to avoid race conditions in parallel builds
     let temp_dir = match TempDir::new() {
         Ok(dir) => dir,
@@ -504,8 +504,13 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
         eprintln!("  Emitting object to {}", obj_path.display());
     }
 
-    if let Err(e) = emitter.emit_object(&llvm_module, &obj_path) {
-        eprintln!("error: failed to emit object file: {e}");
+    if let Err(e) = emitter.verify_optimize_emit(
+        &llvm_module,
+        &opt_config,
+        &obj_path,
+        ori_llvm::aot::OutputFormat::Object,
+    ) {
+        eprintln!("error: pipeline failed: {e}");
         std::process::exit(1);
     }
 
@@ -629,10 +634,83 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
         }
     }
 
-    // Step 4: Link all object files
+    // Step 4: LTO merge (if enabled) or direct linking
+    let is_lto = !matches!(options.lto, LtoMode::Off);
+    let final_object_files = if is_lto && object_files.len() > 1 {
+        // LTO: merge bitcode files → run LTO pipeline → emit single object
+        use ori_llvm::aot::ObjectEmitter;
+        use ori_llvm::inkwell::context::Context;
+        use ori_llvm::inkwell::module::Module;
+
+        if options.verbose {
+            eprintln!("  Running LTO merge ({} modules)...", object_files.len());
+        }
+
+        let lto_context = Context::create();
+        // Load first bitcode as the base module
+        let merged_module = Module::parse_bitcode_from_path(&object_files[0], &lto_context)
+            .unwrap_or_else(|e| {
+                eprintln!(
+                    "error: failed to load bitcode '{}': {e}",
+                    object_files[0].display()
+                );
+                std::process::exit(1);
+            });
+
+        // Link remaining bitcode modules into the base
+        for bc_path in &object_files[1..] {
+            let other =
+                Module::parse_bitcode_from_path(bc_path, &lto_context).unwrap_or_else(|e| {
+                    eprintln!("error: failed to load bitcode '{}': {e}", bc_path.display());
+                    std::process::exit(1);
+                });
+            if let Err(e) = merged_module.link_in_module(other) {
+                eprintln!("error: LTO module linking failed: {e}");
+                std::process::exit(1);
+            }
+        }
+
+        // Configure merged module for target
+        let emitter = match ObjectEmitter::new(&target) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("error: failed to create object emitter: {e}");
+                std::process::exit(1);
+            }
+        };
+        if let Err(e) = emitter.configure_module(&merged_module) {
+            eprintln!("error: failed to configure merged module: {e}");
+            std::process::exit(1);
+        }
+
+        // Run LTO pipeline on merged module
+        let opt_config = build_optimization_config(options);
+        if let Err(e) =
+            ori_llvm::aot::run_lto_pipeline(&merged_module, emitter.machine(), &opt_config)
+        {
+            eprintln!("error: LTO pipeline failed: {e}");
+            std::process::exit(1);
+        }
+
+        // Emit final object
+        let final_obj = obj_dir.join("merged_lto.o");
+        if let Err(e) = emitter.emit_object(&merged_module, &final_obj) {
+            eprintln!("error: failed to emit LTO object: {e}");
+            std::process::exit(1);
+        }
+
+        if options.verbose {
+            eprintln!("  LTO merge complete → {}", final_obj.display());
+        }
+
+        vec![final_obj]
+    } else {
+        object_files
+    };
+
     // Note: temp_dir must stay alive until linking completes (auto-cleaned on drop)
     let output_path = determine_output_path(path, options);
-    link_and_finish(&object_files, &output_path, &target, options, start);
+    link_and_finish(&final_object_files, &output_path, &target, options, start);
 
     // temp_dir automatically cleans up when it goes out of scope
     drop(temp_dir);
@@ -747,15 +825,43 @@ fn compile_single_module(
         return None;
     }
 
-    // Run optimization passes
-    if let Err(e) =
-        ori_llvm::aot::run_optimization_passes(&llvm_module, emitter.machine(), ctx.opt_config)
-    {
-        eprintln!("error: optimization failed: {e}");
-        return None;
+    // Verify and optimize module
+    // When LTO is enabled, the config's pipeline_string() automatically
+    // returns the pre-link variant (e.g., thinlto-pre-link<O2>)
+    let is_lto = !matches!(ctx.opt_config.lto, ori_llvm::aot::LtoMode::Off);
+
+    if is_lto {
+        // LTO: run pre-link pipeline and emit bitcode
+        let bc_path = ctx
+            .obj_dir
+            .join(format!("{}.bc", module_name.replace('$', "_")));
+        if ctx.verbose {
+            eprintln!(
+                "    Emitting bitcode to {} (LTO pre-link)",
+                bc_path.display()
+            );
+        }
+        if let Err(e) = ori_llvm::aot::prelink_and_emit_bitcode(
+            &llvm_module,
+            emitter.machine(),
+            ctx.opt_config,
+            &bc_path,
+        ) {
+            eprintln!("error: LTO pre-link failed: {e}");
+            return None;
+        }
+        let obj_path = bc_path; // Return bitcode path in place of object path
+        return Some((
+            obj_path,
+            CompiledModuleInfo {
+                path: source_path.to_path_buf(),
+                module_name,
+                public_functions,
+            },
+        ));
     }
 
-    // Emit object file
+    // Non-LTO: verify → optimize → emit object file via unified pipeline
     let obj_path = ctx
         .obj_dir
         .join(format!("{}.o", module_name.replace('$', "_")));
@@ -763,8 +869,13 @@ fn compile_single_module(
         eprintln!("    Emitting object to {}", obj_path.display());
     }
 
-    if let Err(e) = emitter.emit_object(&llvm_module, &obj_path) {
-        eprintln!("error: failed to emit object file: {e}");
+    if let Err(e) = emitter.verify_optimize_emit(
+        &llvm_module,
+        ctx.opt_config,
+        &obj_path,
+        ori_llvm::aot::OutputFormat::Object,
+    ) {
+        eprintln!("error: pipeline failed: {e}");
         return None;
     }
 

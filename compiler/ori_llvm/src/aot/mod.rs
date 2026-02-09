@@ -96,7 +96,7 @@ pub use target::{
 };
 
 // Re-export key types from object
-pub use object::{EmitError, ObjectEmitter, OutputFormat};
+pub use object::{EmitError, ModulePipelineError, ObjectEmitter, OutputFormat};
 
 // Re-export key types from mangle
 pub use mangle::{demangle, is_ori_symbol, Mangler, MANGLE_PREFIX};
@@ -109,8 +109,8 @@ pub use debug::{
 
 // Re-export key types from passes
 pub use passes::{
-    run_custom_pipeline, run_optimization_passes, LtoMode, OptimizationConfig, OptimizationError,
-    OptimizationLevel,
+    optimize_module, prelink_and_emit_bitcode, run_custom_pipeline, run_lto_pipeline,
+    run_optimization_passes, LtoMode, OptimizationConfig, OptimizationError, OptimizationLevel,
 };
 
 // Re-export key types from linker

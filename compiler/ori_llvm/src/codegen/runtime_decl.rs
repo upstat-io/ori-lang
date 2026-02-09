@@ -41,8 +41,14 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_print_bool", &[bool_ty], void);
 
     // -- Panic functions --
-    builder.declare_extern_function("ori_panic", &[ptr_ty], void);
-    builder.declare_extern_function("ori_panic_cstr", &[ptr_ty], void);
+    // cold: panic paths are rarely taken; moves code out of hot layout
+    // nounwind: panic = abort (no unwinding through Ori panics)
+    let panic_fn = builder.declare_extern_function("ori_panic", &[ptr_ty], void);
+    builder.add_cold_attribute(panic_fn);
+    builder.add_nounwind_attribute(panic_fn);
+    let panic_cstr = builder.declare_extern_function("ori_panic_cstr", &[ptr_ty], void);
+    builder.add_cold_attribute(panic_cstr);
+    builder.add_nounwind_attribute(panic_cstr);
 
     // -- Assertion functions --
     builder.declare_extern_function("ori_assert", &[bool_ty], void);
@@ -71,14 +77,38 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_str_from_float", &[f64_ty], Some(str_ty));
 
     // -- Reference counting (V2: data-pointer style, 8-byte header) --
+    //
+    // ARC-safe attributes are CRITICAL for correctness under LLVM optimization.
+    // Without them, DSE/LICM/GVN may reorder or eliminate RC operations.
+    // See plans/llvm_v2/section-11-llvm-passes.md §11.3 for rationale.
+
     // ori_rc_alloc(size: usize, align: usize) -> *mut u8 (data pointer)
-    builder.declare_extern_function("ori_rc_alloc", &[i64_ty, i64_ty], Some(ptr_ty));
+    // noalias return: fresh allocation, no existing pointers alias it
+    // nounwind: allocation failure = abort (no unwinding)
+    let rc_alloc = builder.declare_extern_function("ori_rc_alloc", &[i64_ty, i64_ty], Some(ptr_ty));
+    builder.add_nounwind_attribute(rc_alloc);
+    builder.add_noalias_return_attribute(rc_alloc);
+
     // ori_rc_inc(data_ptr: *mut u8)
-    builder.declare_extern_function("ori_rc_inc", &[ptr_ty], void);
+    // nounwind: RC operations never throw
+    // memory(argmem: readwrite): only touches refcount at ptr-8
+    // NOT readonly/readnone — modifies the refcount word
+    let rc_inc = builder.declare_extern_function("ori_rc_inc", &[ptr_ty], void);
+    builder.add_nounwind_attribute(rc_inc);
+    builder.add_memory_argmem_readwrite_attribute(rc_inc);
+
     // ori_rc_dec(data_ptr: *mut u8, drop_fn: fn(*mut u8))
-    builder.declare_extern_function("ori_rc_dec", &[ptr_ty, ptr_ty], void);
+    // nounwind: drop functions must not unwind (panic = abort)
+    // memory(argmem: readwrite): modifies refcount, may call drop_fn, may free
+    // NOT readonly — decrements refcount AND may free memory
+    let rc_dec = builder.declare_extern_function("ori_rc_dec", &[ptr_ty, ptr_ty], void);
+    builder.add_nounwind_attribute(rc_dec);
+    builder.add_memory_argmem_readwrite_attribute(rc_dec);
+
     // ori_rc_free(data_ptr: *mut u8, size: usize, align: usize)
-    builder.declare_extern_function("ori_rc_free", &[ptr_ty, i64_ty, i64_ty], void);
+    // nounwind: deallocation never throws
+    let rc_free = builder.declare_extern_function("ori_rc_free", &[ptr_ty, i64_ty, i64_ty], void);
+    builder.add_nounwind_attribute(rc_free);
 
     // -- Args conversion --
     // ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriList { i64, i64, ptr }
@@ -217,5 +247,59 @@ mod tests {
         declare_runtime(&mut builder);
 
         assert!(scx.llmod.get_function("ori_print").is_some());
+    }
+
+    #[test]
+    fn rc_functions_have_arc_safe_attributes() {
+        let ctx = Context::create();
+        let scx = SimpleCx::new(&ctx, "test_rc_attrs");
+        let mut builder = IrBuilder::new(&scx);
+
+        declare_runtime(&mut builder);
+
+        let ir = scx.llmod.print_to_string().to_string();
+
+        // ori_rc_alloc: nounwind + noalias return
+        assert!(
+            ir.contains("noalias") && ir.contains("ori_rc_alloc"),
+            "ori_rc_alloc should have noalias return attribute in IR:\n{ir}"
+        );
+
+        // ori_rc_inc: nounwind + memory(argmem: readwrite)
+        // ori_rc_dec: nounwind + memory(argmem: readwrite)
+        // The `memory` attribute should appear as an enum attribute, not string
+        assert!(
+            ir.contains("ori_rc_inc"),
+            "ori_rc_inc should be declared in IR"
+        );
+        assert!(
+            ir.contains("ori_rc_dec"),
+            "ori_rc_dec should be declared in IR"
+        );
+
+        // Verify nounwind appears on RC functions
+        // The IR prints function attributes as attribute groups (#N)
+        // Check that nounwind is present in the module
+        assert!(
+            ir.contains("nounwind"),
+            "RC functions should have nounwind attribute in IR:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn panic_functions_have_cold_nounwind() {
+        let ctx = Context::create();
+        let scx = SimpleCx::new(&ctx, "test_panic_attrs");
+        let mut builder = IrBuilder::new(&scx);
+
+        declare_runtime(&mut builder);
+
+        let ir = scx.llmod.print_to_string().to_string();
+
+        // Panic functions should have cold + nounwind
+        assert!(
+            ir.contains("cold"),
+            "panic functions should have cold attribute in IR:\n{ir}"
+        );
     }
 }

@@ -102,6 +102,39 @@ impl From<TargetError> for EmitError {
     }
 }
 
+/// Error type for the full verify → optimize → emit pipeline.
+///
+/// Wraps the individual error types from each pipeline stage.
+#[derive(Debug, Clone)]
+pub enum ModulePipelineError {
+    /// LLVM IR verification failed (compiler bug).
+    Verification(String),
+    /// Optimization pass pipeline failed.
+    Optimization(super::passes::OptimizationError),
+    /// Object/bitcode/IR emission failed.
+    Emission(EmitError),
+}
+
+impl fmt::Display for ModulePipelineError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Verification(msg) => write!(f, "LLVM IR verification failed: {msg}"),
+            Self::Optimization(err) => write!(f, "optimization failed: {err}"),
+            Self::Emission(err) => write!(f, "emission failed: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ModulePipelineError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Verification(_) => None,
+            Self::Optimization(err) => Some(err),
+            Self::Emission(err) => Some(err),
+        }
+    }
+}
+
 /// Validate that the parent directory exists for an output path.
 fn validate_parent_exists(path: &Path) -> Result<(), EmitError> {
     if let Some(parent) = path.parent() {
@@ -330,6 +363,49 @@ impl ObjectEmitter {
             OutputFormat::Bitcode => self.emit_bitcode(module, path),
             OutputFormat::LlvmIr => self.emit_llvm_ir(module, path),
         }
+    }
+
+    /// Run the full verify → optimize → emit pipeline for a module.
+    ///
+    /// This is the recommended entry point for emitting optimized code.
+    /// Callers do not need to invoke verification or optimization separately.
+    ///
+    /// Pipeline:
+    /// 1. Verify module IR (unconditional — catches codegen bugs early)
+    /// 2. Run optimization passes (per `OptimizationConfig`)
+    /// 3. Emit to the requested output format
+    ///
+    /// # Arguments
+    ///
+    /// * `module` - The LLVM module (must be configured with `configure_module` first)
+    /// * `opt_config` - Optimization configuration (level, LTO, vectorization, etc.)
+    /// * `path` - Output file path
+    /// * `format` - Output format (object, assembly, bitcode, LLVM IR)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if verification, optimization, or emission fails.
+    pub fn verify_optimize_emit(
+        &self,
+        module: &Module<'_>,
+        opt_config: &super::passes::OptimizationConfig,
+        path: &Path,
+        format: OutputFormat,
+    ) -> Result<(), ModulePipelineError> {
+        // Step 1: Verify
+        if let Err(msg) = module.verify() {
+            return Err(ModulePipelineError::Verification(msg.to_string()));
+        }
+
+        // Step 2: Optimize
+        super::passes::run_optimization_passes(module, &self.machine, opt_config)
+            .map_err(ModulePipelineError::Optimization)?;
+
+        // Step 3: Emit
+        self.emit(module, path, format)
+            .map_err(ModulePipelineError::Emission)?;
+
+        Ok(())
     }
 
     /// Emit a module to a memory buffer as an object file.

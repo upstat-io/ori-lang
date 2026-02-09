@@ -10,7 +10,7 @@
 #[cfg(feature = "llvm")]
 mod tests {
     use ori_llvm::aot::passes::{
-        run_custom_pipeline, run_optimization_passes, LtoMode, OptimizationConfig,
+        optimize_module, run_custom_pipeline, run_optimization_passes, LtoMode, OptimizationConfig,
         OptimizationError, OptimizationLevel,
     };
 
@@ -172,14 +172,14 @@ mod tests {
         let release = OptimizationConfig::release();
         assert_eq!(release.level, OptimizationLevel::O2);
 
-        let aggressive = OptimizationConfig::aggressive();
-        assert_eq!(aggressive.level, OptimizationLevel::O3);
+        let release_fast = OptimizationConfig::release_fast();
+        assert_eq!(release_fast.level, OptimizationLevel::O3);
 
-        let size = OptimizationConfig::size();
-        assert_eq!(size.level, OptimizationLevel::Os);
+        let release_small = OptimizationConfig::release_small();
+        assert_eq!(release_small.level, OptimizationLevel::Os);
 
-        let min_size = OptimizationConfig::min_size();
-        assert_eq!(min_size.level, OptimizationLevel::Oz);
+        let release_min_size = OptimizationConfig::release_min_size();
+        assert_eq!(release_min_size.level, OptimizationLevel::Oz);
     }
 
     #[test]
@@ -304,6 +304,18 @@ mod tests {
             message: "invalid".to_string(),
         };
         assert!(format!("{err}").contains("bad"));
+
+        let err = OptimizationError::VerificationFailed {
+            message: "bad terminator".to_string(),
+        };
+        assert!(format!("{err}").contains("verification"));
+        assert!(format!("{err}").contains("bad terminator"));
+
+        let err = OptimizationError::BitcodeWriteFailed {
+            path: "/tmp/test.bc".to_string(),
+        };
+        assert!(format!("{err}").contains("bitcode"));
+        assert!(format!("{err}").contains("/tmp/test.bc"));
     }
 
     // -- Integration tests (require LLVM) --
@@ -450,7 +462,7 @@ mod tests {
         module.set_data_layout(&target_machine.get_target_data().get_data_layout());
 
         // Run O3 optimization
-        let config = OptimizationConfig::aggressive();
+        let config = OptimizationConfig::release_fast();
         let result = run_optimization_passes(&module, &target_machine, &config);
         assert!(result.is_ok(), "O3 optimization failed: {result:?}");
     }
@@ -497,12 +509,12 @@ mod tests {
         module.set_data_layout(&target_machine.get_target_data().get_data_layout());
 
         // Run Os optimization
-        let config = OptimizationConfig::size();
+        let config = OptimizationConfig::release_small();
         let result = run_optimization_passes(&module, &target_machine, &config);
         assert!(result.is_ok(), "Os optimization failed: {result:?}");
 
         // Run Oz optimization
-        let config = OptimizationConfig::min_size();
+        let config = OptimizationConfig::release_min_size();
         let result = run_optimization_passes(&module, &target_machine, &config);
         assert!(result.is_ok(), "Oz optimization failed: {result:?}");
     }
@@ -645,5 +657,110 @@ mod tests {
         if let Err(OptimizationError::PassesFailed { message }) = result {
             assert!(!message.is_empty());
         }
+    }
+
+    // -- optimize_module tests (verify + optimize pipeline) --
+
+    #[test]
+    fn test_optimize_module_verifies_and_optimizes() {
+        use ori_llvm::inkwell::context::Context;
+
+        if ori_llvm::inkwell::targets::Target::initialize_native(
+            &ori_llvm::inkwell::targets::InitializationConfig::default(),
+        )
+        .is_err()
+        {
+            return;
+        }
+
+        let context = Context::create();
+        let module = context.create_module("test_optimize_module");
+
+        // Create a valid module with a simple function
+        let i64_type = context.i64_type();
+        let fn_type = i64_type.fn_type(&[i64_type.into()], false);
+        let function = module.add_function("double", fn_type, None);
+        let entry = context.append_basic_block(function, "entry");
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let param = function.get_first_param().unwrap().into_int_value();
+        let two = i64_type.const_int(2, false);
+        let result = builder.build_int_mul(param, two, "doubled").unwrap();
+        builder.build_return(Some(&result)).unwrap();
+
+        let triple = ori_llvm::inkwell::targets::TargetMachine::get_default_triple();
+        let target = ori_llvm::inkwell::targets::Target::from_triple(&triple).unwrap();
+        let target_machine = target
+            .create_target_machine(
+                &triple,
+                "generic",
+                "",
+                ori_llvm::inkwell::OptimizationLevel::None,
+                ori_llvm::inkwell::targets::RelocMode::Default,
+                ori_llvm::inkwell::targets::CodeModel::Default,
+            )
+            .unwrap();
+
+        module.set_triple(&triple);
+        module.set_data_layout(&target_machine.get_target_data().get_data_layout());
+
+        // optimize_module should verify and then optimize successfully
+        let config = OptimizationConfig::release();
+        let result = optimize_module(&module, &target_machine, &config);
+        assert!(
+            result.is_ok(),
+            "optimize_module failed on valid IR: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_optimize_module_catches_invalid_ir() {
+        use ori_llvm::inkwell::context::Context;
+
+        if ori_llvm::inkwell::targets::Target::initialize_native(
+            &ori_llvm::inkwell::targets::InitializationConfig::default(),
+        )
+        .is_err()
+        {
+            return;
+        }
+
+        let context = Context::create();
+        let module = context.create_module("test_invalid_ir");
+
+        // Create an invalid module: function declares i64 return but returns void
+        let i64_type = context.i64_type();
+        let fn_type = i64_type.fn_type(&[], false);
+        let function = module.add_function("bad_fn", fn_type, None);
+        let entry = context.append_basic_block(function, "entry");
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        // Return void from a function that should return i64 — invalid IR
+        builder.build_return(None).unwrap();
+
+        let triple = ori_llvm::inkwell::targets::TargetMachine::get_default_triple();
+        let target = ori_llvm::inkwell::targets::Target::from_triple(&triple).unwrap();
+        let target_machine = target
+            .create_target_machine(
+                &triple,
+                "generic",
+                "",
+                ori_llvm::inkwell::OptimizationLevel::None,
+                ori_llvm::inkwell::targets::RelocMode::Default,
+                ori_llvm::inkwell::targets::CodeModel::Default,
+            )
+            .unwrap();
+
+        module.set_triple(&triple);
+        module.set_data_layout(&target_machine.get_target_data().get_data_layout());
+
+        // optimize_module should catch the invalid IR before optimization
+        let config = OptimizationConfig::release();
+        let result = optimize_module(&module, &target_machine, &config);
+        assert!(result.is_err(), "should reject invalid IR");
+        assert!(
+            matches!(result, Err(OptimizationError::VerificationFailed { .. })),
+            "should be VerificationFailed, got: {result:?}"
+        );
     }
 }

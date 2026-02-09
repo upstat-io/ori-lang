@@ -38,6 +38,7 @@ use inkwell::module::Module;
 use inkwell::targets::TargetMachine;
 use std::ffi::CString;
 use std::fmt;
+use std::path::Path;
 
 /// Optimization level for the pass pipeline.
 ///
@@ -283,21 +284,21 @@ impl OptimizationConfig {
         Self::new(OptimizationLevel::O2)
     }
 
-    /// Create an aggressive release configuration (O3).
+    /// Create an aggressive release configuration (O3, maximum performance).
     #[must_use]
-    pub fn aggressive() -> Self {
+    pub fn release_fast() -> Self {
         Self::new(OptimizationLevel::O3)
     }
 
     /// Create a size-optimized configuration (Os).
     #[must_use]
-    pub fn size() -> Self {
+    pub fn release_small() -> Self {
         Self::new(OptimizationLevel::Os)
     }
 
-    /// Create a minimal size configuration (Oz).
+    /// Create an aggressive size-optimized configuration (Oz, smallest code).
     #[must_use]
-    pub fn min_size() -> Self {
+    pub fn release_min_size() -> Self {
         Self::new(OptimizationLevel::Oz)
     }
 
@@ -436,9 +437,15 @@ impl Default for OptimizationConfig {
     }
 }
 
-/// Error type for optimization operations.
+/// Error type for the module codegen pipeline (verify → optimize → emit).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OptimizationError {
+    /// LLVM module verification failed.
+    ///
+    /// This indicates a compiler bug: the generated IR is malformed.
+    /// Caught unconditionally before optimization to prevent LLVM segfaults.
+    VerificationFailed { message: String },
+
     /// Failed to create pass builder options.
     PassBuilderOptionsCreationFailed,
 
@@ -447,11 +454,17 @@ pub enum OptimizationError {
 
     /// Invalid pass pipeline string.
     InvalidPipeline { pipeline: String, message: String },
+
+    /// Failed to write bitcode file during LTO pre-link phase.
+    BitcodeWriteFailed { path: String },
 }
 
 impl fmt::Display for OptimizationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::VerificationFailed { message } => {
+                write!(f, "LLVM IR verification failed: {message}")
+            }
             Self::PassBuilderOptionsCreationFailed => {
                 write!(f, "failed to create pass builder options")
             }
@@ -460,6 +473,9 @@ impl fmt::Display for OptimizationError {
             }
             Self::InvalidPipeline { pipeline, message } => {
                 write!(f, "invalid pipeline '{pipeline}': {message}")
+            }
+            Self::BitcodeWriteFailed { path } => {
+                write!(f, "failed to write bitcode file '{path}'")
             }
         }
     }
@@ -516,6 +532,41 @@ impl Drop for PassBuilderOptionsGuard {
             llvm_sys::transforms::pass_builder::LLVMDisposePassBuilderOptions(self.options);
         }
     }
+}
+
+/// Run the optimization pipeline with mandatory pre-verification.
+///
+/// Pipeline: `verify_module` → `run_optimization_passes`
+///
+/// Verification is unconditional — catching invalid IR early prevents
+/// LLVM segfaults during optimization or object emission. This is cheap
+/// relative to optimization and should always be used instead of calling
+/// `run_optimization_passes` directly.
+///
+/// # Arguments
+///
+/// * `module` - The LLVM module to verify and optimize
+/// * `target_machine` - Target machine for target-specific optimizations
+/// * `config` - Optimization configuration
+///
+/// # Errors
+///
+/// Returns `VerificationFailed` if the module contains invalid IR (compiler bug).
+/// Returns other `OptimizationError` variants if the pass pipeline fails.
+pub fn optimize_module(
+    module: &Module<'_>,
+    target_machine: &TargetMachine,
+    config: &OptimizationConfig,
+) -> Result<(), OptimizationError> {
+    // Step 1: Verify module (unconditional)
+    if let Err(msg) = module.verify() {
+        return Err(OptimizationError::VerificationFailed {
+            message: msg.to_string(),
+        });
+    }
+
+    // Step 2: Run optimization passes
+    run_optimization_passes(module, target_machine, config)
 }
 
 /// Run optimization passes on a module using the LLVM new pass manager.
@@ -672,4 +723,89 @@ pub fn run_custom_pipeline(
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// LTO Pipeline
+// ---------------------------------------------------------------------------
+
+/// Run the pre-link optimization phase for LTO.
+///
+/// When LTO is enabled, per-module compilation uses the pre-link pipeline
+/// (e.g., `thinlto-pre-link<O2>`) instead of the full pipeline. After
+/// pre-link optimization, the module should be emitted as bitcode (not
+/// object code) for the subsequent LTO merge phase.
+///
+/// This function verifies the module, runs the pre-link pipeline, and
+/// writes bitcode to the specified path.
+///
+/// # Errors
+///
+/// Returns `VerificationFailed` if the module IR is invalid.
+/// Returns `PassesFailed` if the pre-link pipeline fails.
+/// Returns `BitcodeWriteFailed` if the bitcode file cannot be written.
+pub fn prelink_and_emit_bitcode(
+    module: &Module<'_>,
+    target_machine: &TargetMachine,
+    config: &OptimizationConfig,
+    bitcode_path: &Path,
+) -> Result<(), OptimizationError> {
+    // Verify first
+    if let Err(msg) = module.verify() {
+        return Err(OptimizationError::VerificationFailed {
+            message: msg.to_string(),
+        });
+    }
+
+    // Run pre-link pipeline (config.pipeline_string() already returns
+    // the pre-link variant when LTO is configured)
+    run_optimization_passes(module, target_machine, config)?;
+
+    // Emit bitcode
+    if !module.write_bitcode_to_path(bitcode_path) {
+        return Err(OptimizationError::BitcodeWriteFailed {
+            path: bitcode_path.to_string_lossy().into_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Run the LTO phase on a merged module.
+///
+/// After all per-module bitcode files have been linked into a single module,
+/// this function runs the LTO pipeline (`thinlto<O2>` or `lto<O2>`) and
+/// produces the final optimized module.
+///
+/// # Arguments
+///
+/// * `module` - The merged LLVM module (all per-module bitcode linked together)
+/// * `target_machine` - Target machine for optimization
+/// * `config` - Base optimization config (must have LTO mode set)
+///
+/// # Errors
+///
+/// Returns `VerificationFailed` if the merged module is invalid.
+/// Returns `PassesFailed` if the LTO pipeline fails.
+pub fn run_lto_pipeline(
+    module: &Module<'_>,
+    target_machine: &TargetMachine,
+    config: &OptimizationConfig,
+) -> Result<(), OptimizationError> {
+    // Verify the merged module
+    if let Err(msg) = module.verify() {
+        return Err(OptimizationError::VerificationFailed {
+            message: msg.to_string(),
+        });
+    }
+
+    // Create LTO phase config
+    let lto_config = OptimizationConfig {
+        is_lto_phase: true,
+        ..config.clone()
+    };
+
+    // Run LTO pipeline (pipeline_string() returns the LTO variant when
+    // is_lto_phase is true)
+    run_optimization_passes(module, target_machine, &lto_config)
 }
