@@ -241,8 +241,7 @@ impl TestRunner {
         let interner = db.interner();
 
         // Type check with import resolution.
-        // Pool is used by the LLVM backend for compound type resolution (sret convention).
-        #[allow(unused_variables)]
+        // Pool is used by canonicalization and the LLVM backend for type resolution.
         let (type_result, pool) =
             typeck::type_check_with_imports_and_pool(&db, &parse_result, path);
 
@@ -334,20 +333,30 @@ impl TestRunner {
         // Run regular tests based on backend
         match config.backend {
             Backend::Interpreter => {
+                // Canonicalize: AST + types → self-contained canonical IR.
+                let canon_result = ori_canon::lower_module(
+                    &parse_result.module,
+                    &parse_result.arena,
+                    &type_result,
+                    &pool,
+                    interner,
+                );
+                let shared_canon = ori_ir::canon::SharedCanonResult::new(canon_result);
+
                 // Create evaluator in TestRun mode with type information
                 // TestRun mode: 500-depth recursion limit, test result collection
-                // Note: canonicalization deferred until ori_arc decision tree bug is fixed.
                 let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
                     .mode(ori_eval::EvalMode::TestRun {
                         only_attached: false,
                     })
                     .expr_types(&type_result.typed.expr_types)
                     .pattern_resolutions(&type_result.typed.pattern_resolutions)
+                    .canon(shared_canon.clone())
                     .build();
 
                 evaluator.register_prelude();
 
-                if let Err(e) = evaluator.load_module(&parse_result, path, None) {
+                if let Err(e) = evaluator.load_module(&parse_result, path, Some(&shared_canon)) {
                     summary.add_error(e);
                     return summary;
                 }
@@ -849,7 +858,10 @@ impl TestRunner {
         // Time the test execution
         let start = Instant::now();
 
-        // Evaluate the test body
+        // Evaluate the test body.
+        // Note: Test bodies use legacy eval(ExprId). Functions called within
+        // tests dispatch canonically since they have SharedCanonResult set
+        // via load_module. Full test body canonicalization is deferred (task #16).
         match evaluator.eval(test.body) {
             Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
             Err(e) => TestResult::failed(

@@ -753,6 +753,59 @@ impl Pool {
         Some(current)
     }
 
+    /// Resolve a type index by following inference variable links first,
+    /// then Named/Applied resolution chains.
+    ///
+    /// Unlike `resolve()`, which only follows the `resolutions` hashmap,
+    /// this method also follows `VarState::Link` chains left by the unifier.
+    /// After type checking, inference variables retain their `VarState::Link`
+    /// targets in the Pool. This method follows those links to find the
+    /// concrete type.
+    ///
+    /// For `Applied` types with no direct resolution (common for user-defined
+    /// types like `Shape` which the type checker records as `Applied("Shape", [])`),
+    /// falls back to searching for a `Named` resolution with the same name.
+    ///
+    /// Returns the fully-resolved type, or the input if no resolution exists.
+    pub fn resolve_fully(&self, idx: Idx) -> Idx {
+        // Step 1: Follow VarState::Link chains (inference variable resolution).
+        let mut current = idx;
+        for _ in 0..16 {
+            if self.tag(current) != Tag::Var {
+                break;
+            }
+            let var_id = self.data(current);
+            match self.var_state(var_id) {
+                VarState::Link { target } => current = *target,
+                _ => break,
+            }
+        }
+
+        // Step 2: Follow Named/Applied resolution chains.
+        if let Some(resolved) = self.resolve(current) {
+            return resolved;
+        }
+
+        // Step 3: For Applied types, fall back to Named resolution.
+        //
+        // The type checker records user-defined types as Applied(name, args)
+        // even for non-generic types (Applied("Shape", [])). But resolutions
+        // are keyed by Named("Shape"). When resolve() finds no entry for
+        // the Applied Idx, try looking up via the Named equivalent.
+        if self.tag(current) == Tag::Applied {
+            let name = self.applied_name(current);
+            for &key in self.resolutions.keys() {
+                if self.tag(key) == Tag::Named && self.named_name(key) == name {
+                    if let Some(concrete) = self.resolve(key) {
+                        return concrete;
+                    }
+                }
+            }
+        }
+
+        current
+    }
+
     // === Struct Accessors ===
 
     /// Get the name of a struct type.

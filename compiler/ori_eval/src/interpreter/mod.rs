@@ -49,6 +49,7 @@
 //! with the callee's arena.
 
 mod builder;
+mod can_eval;
 mod derived_methods;
 mod function_call;
 mod function_seq;
@@ -86,6 +87,7 @@ use crate::{
     UserMethodRegistry,
     Value,
 };
+use ori_ir::canon::SharedCanonResult;
 use ori_ir::{
     ArmRange, BinaryOp, BindingPattern, ExprArena, ExprId, ExprKind, Name, SharedArena, StmtKind,
     StringInterner, UnaryOp,
@@ -242,6 +244,12 @@ pub struct Interpreter<'a> {
     /// Used by `try_match` to distinguish `Binding("Pending")` (unit variant)
     /// from `Binding("x")` (variable). Sorted by `PatternKey` for binary search.
     pub(crate) pattern_resolutions: &'a [(ori_types::PatternKey, ori_types::PatternResolution)],
+    /// Canonical IR for the current module (optional during migration).
+    ///
+    /// When present, function calls on `FunctionValue`s with canonical bodies
+    /// dispatch via `eval_can()` instead of `eval()`. This enables incremental
+    /// migration from `ExprArena` to `CanonResult` without a big-bang rewrite.
+    pub(crate) canon: Option<SharedCanonResult>,
 }
 
 /// RAII Drop implementation for panic-safe scope cleanup.

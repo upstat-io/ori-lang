@@ -56,6 +56,9 @@ pub enum PathInstruction {
     StructField(u32),
     /// Extract element at index from a list (for list pattern matching).
     ListElement(u32),
+    /// Extract the sub-list starting at the given index (for `..rest` patterns).
+    /// `ListRest(2)` on `[a, b, c, d]` yields `[c, d]`.
+    ListRest(u32),
 }
 
 // ── Test Kinds ──────────────────────────────────────────────────────
@@ -111,8 +114,14 @@ pub enum TestValue {
     Bool(bool),
     /// Float literal match (exact bit equality via `u64` bits).
     Float(u64),
-    /// Integer range match (inclusive on both ends).
-    IntRange { lo: i64, hi: i64 },
+    /// Integer range match.
+    IntRange {
+        lo: i64,
+        hi: i64,
+        /// If `true`, the upper bound is inclusive (`lo..=hi`).
+        /// If `false`, the upper bound is exclusive (`lo..hi`).
+        inclusive: bool,
+    },
     /// List length match.
     ListLen {
         /// Expected length.
@@ -233,8 +242,17 @@ pub enum FlatPattern {
 
 impl FlatPattern {
     /// Returns `true` if this pattern matches anything (wildcard or binding).
+    ///
+    /// Or-patterns are wildcard-like if any alternative is wildcard-like
+    /// (e.g., `Or([LitInt(1), Wildcard])` matches anything).
+    /// At-patterns delegate to the inner pattern.
     pub fn is_wildcard_like(&self) -> bool {
-        matches!(self, FlatPattern::Wildcard | FlatPattern::Binding(_))
+        match self {
+            FlatPattern::Wildcard | FlatPattern::Binding(_) => true,
+            FlatPattern::Or(alts) => alts.iter().any(FlatPattern::is_wildcard_like),
+            FlatPattern::At { inner, .. } => inner.is_wildcard_like(),
+            _ => false,
+        }
     }
 
     /// Returns `true` if this pattern is a constructor (produces sub-patterns
@@ -308,9 +326,9 @@ impl FlatPattern {
                     elem.collect_bindings(&child_path, out);
                 }
                 if let Some(rest_name) = rest {
-                    // The rest binding refers to the full list at the current path.
-                    // The runtime will slice it at emission time.
-                    out.push((*rest_name, path.clone()));
+                    let mut rest_path = path.clone();
+                    rest_path.push(PathInstruction::ListRest(elements.len() as u32));
+                    out.push((*rest_name, rest_path));
                 }
             }
             FlatPattern::Or(alternatives) => {
@@ -339,6 +357,12 @@ pub struct PatternRow {
     pub arm_index: usize,
     /// Guard expression, if any (canonical).
     pub guard: Option<CanId>,
+    /// Accumulated variable bindings from specialization steps.
+    ///
+    /// When a `Binding(name)` or `At { name, .. }` pattern is consumed during
+    /// column specialization, the binding `(name, path)` is recorded here.
+    /// These are merged with pattern-derived bindings at the Leaf/Guard node.
+    pub bindings: Vec<(Name, ScrutineePath)>,
 }
 
 /// The pattern matrix: rows of arms, columns of sub-patterns.
@@ -464,9 +488,27 @@ mod tests {
 
     #[test]
     fn test_value_int_range() {
-        let r = TestValue::IntRange { lo: 1, hi: 10 };
-        assert_eq!(r, TestValue::IntRange { lo: 1, hi: 10 });
-        assert_ne!(r, TestValue::IntRange { lo: 1, hi: 11 });
+        let r = TestValue::IntRange {
+            lo: 1,
+            hi: 10,
+            inclusive: false,
+        };
+        assert_eq!(
+            r,
+            TestValue::IntRange {
+                lo: 1,
+                hi: 10,
+                inclusive: false
+            }
+        );
+        assert_ne!(
+            r,
+            TestValue::IntRange {
+                lo: 1,
+                hi: 11,
+                inclusive: false
+            }
+        );
     }
 
     // ── DecisionTree ────────────────────────────────────────────
@@ -828,9 +870,9 @@ mod tests {
         // head at [ListElement(0)]
         assert_eq!(bindings[0].0, name_head);
         assert_eq!(bindings[0].1.as_slice(), &[PathInstruction::ListElement(0)]);
-        // rest at root path (the full list — runtime slices it).
+        // rest at [ListRest(1)] — slice from index 1 onwards.
         assert_eq!(bindings[1].0, name_rest);
-        assert!(bindings[1].1.is_empty());
+        assert_eq!(bindings[1].1.as_slice(), &[PathInstruction::ListRest(1)]);
     }
 
     // ── PatternRow ──────────────────────────────────────────────
@@ -841,6 +883,7 @@ mod tests {
             patterns: vec![FlatPattern::Wildcard, FlatPattern::LitInt(42)],
             arm_index: 0,
             guard: None,
+            bindings: vec![],
         };
         assert_eq!(row.patterns.len(), 2);
         assert_eq!(row.arm_index, 0);
@@ -853,6 +896,7 @@ mod tests {
             patterns: vec![FlatPattern::Binding(Name::from_raw(1))],
             arm_index: 1,
             guard: Some(CanId::new(50)),
+            bindings: vec![],
         };
         assert!(row.guard.is_some());
     }

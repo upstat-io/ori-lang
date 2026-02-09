@@ -32,9 +32,9 @@ pub fn dispatch_list_method(
             require_args("contains", 1, args.len())?;
             Ok(Value::Bool(items.contains(&args[0])))
         }
-        "add" => {
-            require_args("add", 1, args.len())?;
-            let other = require_list_arg("add", &args, 0)?;
+        "add" | "concat" => {
+            require_args(method, 1, args.len())?;
+            let other = require_list_arg(method, &args, 0)?;
             let mut result = (*items).clone();
             result.extend_from_slice(other);
             Ok(Value::list(result))
@@ -96,9 +96,9 @@ pub fn dispatch_string_method(
             let suffix = require_str_arg("ends_with", &args, 0)?;
             Ok(Value::Bool(s.ends_with(suffix)))
         }
-        "add" => {
-            require_args("add", 1, args.len())?;
-            let other = require_str_arg("add", &args, 0)?;
+        "add" | "concat" => {
+            require_args(method, 1, args.len())?;
+            let other = require_str_arg(method, &args, 0)?;
             let result = format!("{}{}", &**s, other);
             Ok(Value::string(result))
         }

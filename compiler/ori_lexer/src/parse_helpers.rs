@@ -66,7 +66,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::approx_constant)] // Testing float parsing, not using mathematical constants
+    #[allow(
+        clippy::approx_constant,
+        reason = "testing float parsing, not using mathematical constants"
+    )]
     fn test_parse_float_skip_underscores() {
         assert_eq!(parse_float_skip_underscores("3.14"), Some(3.14));
         assert_eq!(parse_float_skip_underscores("1_000.5"), Some(1000.5));

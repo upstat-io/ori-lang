@@ -80,6 +80,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     // list - methods and traits
     ("list", "add"),
     ("list", "clone"),
+    ("list", "concat"),
     ("list", "contains"),
     ("list", "debug"),
     ("list", "first"),
@@ -120,6 +121,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "add"),
     ("str", "clone"),
     ("str", "compare"),
+    ("str", "concat"),
     ("str", "contains"),
     ("str", "debug"),
     ("str", "ends_with"),

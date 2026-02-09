@@ -36,8 +36,10 @@ fn resolve_common_escape(c: char) -> Option<char> {
 ///
 /// Fast path: if no backslashes, returns `None` to signal the caller can
 /// intern the source slice directly.
-// Source offsets are bounded by u32 per the lexer's design (entire source file < u32::MAX bytes).
-#[allow(clippy::cast_possible_truncation)]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
+)]
 pub(crate) fn unescape_string_v2(
     content: &str,
     base_offset: u32,
@@ -100,8 +102,10 @@ pub(crate) fn unescape_string_v2(
 ///
 /// Valid escapes per grammar line 127: `\'` `\\` `\n` `\t` `\r` `\0`.
 /// `\"` is **not** valid in char literals.
-// Source offsets are bounded by u32 per the lexer's design (entire source file < u32::MAX bytes).
-#[allow(clippy::cast_possible_truncation)]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
+)]
 pub(crate) fn unescape_char_v2(
     content: &str,
     base_offset: u32,
@@ -153,8 +157,10 @@ pub(crate) fn unescape_char_v2(
 ///
 /// Fast path: if no backslashes and no consecutive braces, returns `None`
 /// to signal the caller can intern the source slice directly.
-// Source offsets are bounded by u32 per the lexer's design (entire source file < u32::MAX bytes).
-#[allow(clippy::cast_possible_truncation)]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
+)]
 pub(crate) fn unescape_template_v2(
     content: &str,
     base_offset: u32,

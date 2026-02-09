@@ -46,8 +46,7 @@ pub mod foreign_keywords;
 mod keywords;
 pub mod lex_error;
 mod parse_helpers;
-pub mod token_flags;
-pub mod unicode_confusables;
+mod unicode_confusables;
 mod what_is_next;
 
 // Re-export core types from the standalone tokenizer crate.
@@ -71,7 +70,7 @@ use ori_lexer_core::RawScanner;
 ///
 /// # Salsa Compatibility
 /// Has all required traits: `Clone`, `Eq`, `PartialEq`, `Hash`, `Debug`, `Default`
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq, Hash)]
 pub struct LexOutput {
     /// The token stream for parsing.
     pub tokens: TokenList,
@@ -85,30 +84,6 @@ pub struct LexOutput {
     pub errors: Vec<LexError>,
     /// Accumulated warnings (e.g., detached doc comments).
     pub warnings: Vec<DetachedDocWarning>,
-}
-
-impl PartialEq for LexOutput {
-    fn eq(&self, other: &Self) -> bool {
-        self.tokens == other.tokens
-            && self.comments == other.comments
-            && self.blank_lines == other.blank_lines
-            && self.newlines == other.newlines
-            && self.errors == other.errors
-            && self.warnings == other.warnings
-    }
-}
-
-impl Eq for LexOutput {}
-
-impl std::hash::Hash for LexOutput {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.tokens.hash(state);
-        self.comments.hash(state);
-        self.blank_lines.hash(state);
-        self.newlines.hash(state);
-        self.errors.hash(state);
-        self.warnings.hash(state);
-    }
 }
 
 impl std::fmt::Debug for LexOutput {
@@ -508,7 +483,10 @@ fn is_declaration_start(kind: &TokenKind) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "test code: source lengths always fit u32"
+)]
 mod tests {
     use super::*;
 
