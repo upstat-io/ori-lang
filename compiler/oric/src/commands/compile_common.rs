@@ -215,6 +215,111 @@ fn run_borrow_inference(
     ori_arc::infer_borrows(&arc_functions, &classifier)
 }
 
+/// Run ARC pipeline with optional caching.
+///
+/// On cache hit (same module hash): deserializes cached ARC IR and extracts
+/// annotated signatures, skipping the full ARC analysis pipeline.
+///
+/// On cache miss: runs the full pipeline (lower → borrow inference → RC
+/// insertion → elimination → reuse), serializes the result to the cache.
+///
+/// Returns the annotated signatures (needed by codegen for RC operations).
+#[cfg(feature = "llvm")]
+pub fn run_arc_pipeline_cached(
+    parse_result: &ParseOutput,
+    function_sigs: &[ori_types::FunctionSig],
+    expr_types: &[Idx],
+    interner: &ori_ir::StringInterner,
+    pool: &Pool,
+    arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
+    module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
+) -> FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig> {
+    // Try cache hit
+    if let (Some(cache), Some(hash)) = (arc_cache, module_hash) {
+        let key = ori_llvm::aot::incremental::arc_cache::ArcIrCacheKey {
+            function_hash: hash,
+        };
+
+        if let Some(cached) = cache.get(&key) {
+            if let Ok(arc_functions) = cached.to_arc_functions() {
+                tracing::debug!("ARC IR cache hit — skipping ARC analysis");
+                let classifier = ori_arc::ArcClassifier::new(pool);
+                return ori_arc::infer_borrows(&arc_functions, &classifier);
+            }
+            tracing::debug!("ARC IR cache corrupt — re-analyzing");
+        }
+    }
+
+    // Cache miss — run full pipeline
+    let annotated_sigs =
+        run_borrow_inference(parse_result, function_sigs, expr_types, interner, pool);
+
+    // Cache the result for next time
+    if let (Some(cache), Some(hash)) = (arc_cache, module_hash) {
+        let key = ori_llvm::aot::incremental::arc_cache::ArcIrCacheKey {
+            function_hash: hash,
+        };
+
+        // We need to re-lower to get ArcFunctions for caching
+        // (run_borrow_inference doesn't expose them directly)
+        let classifier = ori_arc::ArcClassifier::new(pool);
+        let mut arc_functions = Vec::new();
+        let mut arc_problems = Vec::new();
+
+        for (func, sig) in parse_result
+            .module
+            .functions
+            .iter()
+            .zip(function_sigs.iter())
+        {
+            if sig.is_generic() {
+                continue;
+            }
+
+            let params: Vec<(ori_ir::Name, Idx)> = sig
+                .param_names
+                .iter()
+                .zip(sig.param_types.iter())
+                .map(|(&n, &t)| (n, t))
+                .collect();
+
+            let (arc_fn, lambdas) = ori_arc::lower_function(
+                func.name,
+                &params,
+                sig.return_type,
+                func.body,
+                &parse_result.arena,
+                expr_types,
+                interner,
+                pool,
+                &mut arc_problems,
+            );
+            arc_functions.push(arc_fn);
+            arc_functions.extend(lambdas);
+        }
+
+        // Apply the full ARC pipeline to get the final IR for caching
+        ori_arc::apply_borrows(&mut arc_functions, &annotated_sigs);
+        for func in &mut arc_functions {
+            let liveness = ori_arc::compute_liveness(func, &classifier);
+            ori_arc::insert_rc_ops(func, &classifier, &liveness);
+            ori_arc::eliminate_rc_ops(func);
+            ori_arc::detect_reset_reuse(func, &classifier);
+            ori_arc::expand_reset_reuse(func, &classifier);
+        }
+
+        if let Ok(cached) =
+            ori_llvm::aot::incremental::arc_cache::CachedArcIr::from_arc_functions(&arc_functions)
+        {
+            if let Err(e) = cache.put(&key, &cached) {
+                tracing::debug!("failed to write ARC IR cache: {e}");
+            }
+        }
+    }
+
+    annotated_sigs
+}
+
 /// Compile source to LLVM IR using the V2 codegen pipeline.
 ///
 /// Takes checked parse and type results and generates LLVM IR via:
@@ -359,6 +464,9 @@ pub fn compile_to_llvm<'ctx>(
 /// - The module name is explicitly provided for proper symbol mangling
 /// - Imported functions are declared as external symbols
 ///
+/// Optional `arc_cache` and `module_hash` parameters enable ARC IR caching.
+/// When provided, unchanged modules skip ARC analysis entirely.
+///
 /// The Pool is required for proper compound type resolution during codegen.
 #[cfg(feature = "llvm")]
 #[allow(unsafe_code, clippy::too_many_arguments)]
@@ -371,6 +479,8 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     source_path: &str,
     module_name: &str,
     imported_functions: &[ImportedFunctionInfo],
+    arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
+    module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
 ) -> ori_llvm::inkwell::module::Module<'ctx> {
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
     use ori_llvm::codegen::ir_builder::IrBuilder;
@@ -425,15 +535,17 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             })
             .collect();
 
-        // 4. Run ARC borrow inference pipeline
+        // 4. Run ARC borrow inference pipeline (with optional caching)
         let function_sigs = build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-        let annotated_sigs = run_borrow_inference(
+        let annotated_sigs = run_arc_pipeline_cached(
             parse_result,
             &function_sigs,
             &type_result.typed.expr_types,
             interner,
             pool,
+            arc_cache,
+            module_hash,
         );
 
         // 5. Two-pass function compilation with borrow annotations

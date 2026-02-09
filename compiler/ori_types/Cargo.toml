@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+cache = ["ori_ir/cache", "serde"]
+
 [dependencies]
 ori_ir.workspace = true
 ori_diagnostic.workspace = true
@@ -14,6 +17,9 @@ parking_lot.workspace = true
 rustc-hash.workspace = true
 bitflags.workspace = true
 tracing.workspace = true
+
+# Serialization (optional, for incremental compilation cache)
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 pretty_assertions.workspace = true

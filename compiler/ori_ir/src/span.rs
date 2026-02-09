@@ -45,6 +45,7 @@ impl std::error::Error for SpanError {}
 /// # Salsa Compatibility
 /// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug, Default
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Default)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 #[repr(C)]
 pub struct Span {
     pub start: u32,

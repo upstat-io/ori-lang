@@ -29,6 +29,7 @@ use crate::Ownership;
 /// Each `ArcVarId` identifies a unique SSA-like value within a single
 /// [`ArcFunction`]. IDs are allocated sequentially starting from 0.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 #[repr(transparent)]
 pub struct ArcVarId(u32);
 
@@ -57,6 +58,7 @@ impl ArcVarId {
 /// Each `ArcBlockId` identifies a basic block within a single
 /// [`ArcFunction`]. IDs are allocated sequentially starting from 0.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 #[repr(transparent)]
 pub struct ArcBlockId(u32);
 
@@ -87,6 +89,7 @@ impl ArcBlockId {
 /// Mirrors the literal variants of `ExprKind` from `ori_ir`, but in a
 /// form suitable for basic-block IR (no spans, no expression nesting).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum LitValue {
     Int(i64),
     Float(u64),
@@ -105,6 +108,7 @@ pub enum LitValue {
 /// By wrapping rather than duplicating, we stay in sync automatically
 /// when new operators are added to the language.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum PrimOp {
     Binary(BinaryOp),
     Unary(UnaryOp),
@@ -117,6 +121,7 @@ pub enum PrimOp {
 /// Values are the right-hand side of `Let` instructions. They are
 /// side-effect-free (except for primitive operations that may trap).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum ArcValue {
     /// Reference to an existing variable.
     Var(ArcVarId),
@@ -133,6 +138,7 @@ pub enum ArcValue {
 /// Distinguishes struct construction, enum variant construction, tuples,
 /// collection literals, and closure captures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum CtorKind {
     /// Named struct: `Point { x: 1, y: 2 }`.
     Struct(Name),
@@ -157,6 +163,7 @@ pub enum CtorKind {
 /// Ownership starts as `Owned` for all ref-typed parameters and is
 /// refined to `Borrowed` by borrow inference (Section 06.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct ArcParam {
     /// The variable ID bound to this parameter.
     pub var: ArcVarId,
@@ -174,6 +181,7 @@ pub struct ArcParam {
 /// a value bound to a `dst` variable. RC operations (`RcInc`, `RcDec`)
 /// are inserted by Section 07 and optimized by Section 08.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum ArcInstr {
     /// Bind a value to a variable: `let dst: ty = value`.
     Let {
@@ -396,6 +404,7 @@ impl ArcInstr {
 /// Every block ends with exactly one terminator. Terminators reference
 /// successor blocks by [`ArcBlockId`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum ArcTerminator {
     /// Return a value from the function.
     Return { value: ArcVarId },
@@ -491,6 +500,7 @@ impl ArcTerminator {
 /// via `Jump` arguments), a body of sequential instructions, and a
 /// terminator that transfers control.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct ArcBlock {
     /// This block's identifier.
     pub id: ArcBlockId,
@@ -510,6 +520,7 @@ pub struct ArcBlock {
 /// with ownership annotations, basic blocks, and metadata mapping
 /// variables back to types and source spans.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct ArcFunction {
     /// The function's mangled name.
     pub name: Name,
@@ -525,6 +536,10 @@ pub struct ArcFunction {
     pub var_types: Vec<Idx>,
     /// Source spans for instructions, indexed by `[block_index][instr_index]`.
     /// `None` for synthetic instructions (e.g., inserted RC operations).
+    ///
+    /// Skipped during cache serialization — spans are source metadata not needed
+    /// for cached codegen. Deserialized functions get empty span vectors.
+    #[cfg_attr(feature = "cache", serde(skip))]
     pub spans: Vec<Vec<Option<Span>>>,
 }
 
@@ -1443,6 +1458,197 @@ mod tests {
         assert_eq!(func.var_type(v2), Idx::BOOL);
         assert_eq!(func.var_types.len(), 3);
     }
+
+    // ── Serde roundtrip tests (cache feature) ──────────────────
+
+    #[cfg(feature = "cache")]
+    #[test]
+    fn test_arc_ir_roundtrip() {
+        let func = ArcFunction {
+            name: Name::from_raw(42),
+            params: vec![ArcParam {
+                var: ArcVarId::new(0),
+                ty: Idx::INT,
+                ownership: Ownership::Owned,
+            }],
+            return_type: Idx::INT,
+            blocks: vec![ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(42)),
+                }],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(1),
+                },
+            }],
+            entry: ArcBlockId::new(0),
+            var_types: vec![Idx::INT, Idx::INT],
+            spans: vec![vec![Some(ori_ir::Span::new(10, 20))]],
+        };
+
+        let bytes = bincode::serialize(&func).unwrap_or_else(|e| panic!("serialize failed: {e}"));
+        let deserialized: ArcFunction =
+            bincode::deserialize(&bytes).unwrap_or_else(|e| panic!("deserialize failed: {e}"));
+
+        // Core data should match exactly
+        assert_eq!(deserialized.name, func.name);
+        assert_eq!(deserialized.params, func.params);
+        assert_eq!(deserialized.return_type, func.return_type);
+        assert_eq!(deserialized.blocks, func.blocks);
+        assert_eq!(deserialized.entry, func.entry);
+        assert_eq!(deserialized.var_types, func.var_types);
+
+        // Spans are skipped during serialization — deserialized gets Default (empty vec)
+        assert!(
+            deserialized.spans.is_empty(),
+            "spans should be empty after deserialization (skipped by serde)"
+        );
+    }
+
+    #[cfg(feature = "cache")]
+    #[test]
+    fn test_arc_ir_all_instr_variants() {
+        // Every ArcInstr variant must serialize/deserialize cleanly
+        let instrs = vec![
+            ArcInstr::Let {
+                dst: ArcVarId::new(0),
+                ty: Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: ArcVarId::new(1),
+                ty: Idx::FLOAT,
+                value: ArcValue::Var(ArcVarId::new(0)),
+            },
+            ArcInstr::Let {
+                dst: ArcVarId::new(2),
+                ty: Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+                },
+            },
+            ArcInstr::Apply {
+                dst: ArcVarId::new(3),
+                ty: Idx::STR,
+                func: Name::from_raw(10),
+                args: vec![ArcVarId::new(0)],
+            },
+            ArcInstr::ApplyIndirect {
+                dst: ArcVarId::new(4),
+                ty: Idx::INT,
+                closure: ArcVarId::new(3),
+                args: vec![ArcVarId::new(0)],
+            },
+            ArcInstr::PartialApply {
+                dst: ArcVarId::new(5),
+                ty: Idx::UNIT,
+                func: Name::from_raw(20),
+                args: vec![ArcVarId::new(0)],
+            },
+            ArcInstr::Project {
+                dst: ArcVarId::new(6),
+                ty: Idx::INT,
+                value: ArcVarId::new(3),
+                field: 2,
+            },
+            ArcInstr::Construct {
+                dst: ArcVarId::new(7),
+                ty: Idx::UNIT,
+                ctor: CtorKind::Tuple,
+                args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+            },
+            ArcInstr::RcInc {
+                var: ArcVarId::new(0),
+                count: 3,
+            },
+            ArcInstr::RcDec {
+                var: ArcVarId::new(0),
+            },
+            ArcInstr::IsShared {
+                dst: ArcVarId::new(8),
+                var: ArcVarId::new(0),
+            },
+            ArcInstr::Set {
+                base: ArcVarId::new(0),
+                field: 1,
+                value: ArcVarId::new(1),
+            },
+            ArcInstr::SetTag {
+                base: ArcVarId::new(0),
+                tag: 42,
+            },
+            ArcInstr::Reset {
+                var: ArcVarId::new(0),
+                token: ArcVarId::new(9),
+            },
+            ArcInstr::Reuse {
+                token: ArcVarId::new(9),
+                dst: ArcVarId::new(10),
+                ty: Idx::STR,
+                ctor: CtorKind::Struct(Name::from_raw(5)),
+                args: vec![ArcVarId::new(0)],
+            },
+        ];
+
+        for (i, instr) in instrs.iter().enumerate() {
+            let bytes = bincode::serialize(instr)
+                .unwrap_or_else(|e| panic!("serialize instr {i} failed: {e}"));
+            let roundtripped: ArcInstr = bincode::deserialize(&bytes)
+                .unwrap_or_else(|e| panic!("deserialize instr {i} failed: {e}"));
+            assert_eq!(
+                &roundtripped, instr,
+                "roundtrip failed for instr variant {i}"
+            );
+        }
+
+        // Also test all terminator variants
+        let terminators = vec![
+            ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+            ArcTerminator::Jump {
+                target: ArcBlockId::new(1),
+                args: vec![ArcVarId::new(0)],
+            },
+            ArcTerminator::Branch {
+                cond: ArcVarId::new(0),
+                then_block: ArcBlockId::new(1),
+                else_block: ArcBlockId::new(2),
+            },
+            ArcTerminator::Switch {
+                scrutinee: ArcVarId::new(0),
+                cases: vec![(0, ArcBlockId::new(1)), (1, ArcBlockId::new(2))],
+                default: ArcBlockId::new(3),
+            },
+            ArcTerminator::Invoke {
+                dst: ArcVarId::new(1),
+                ty: Idx::INT,
+                func: Name::from_raw(10),
+                args: vec![ArcVarId::new(0)],
+                normal: ArcBlockId::new(1),
+                unwind: ArcBlockId::new(2),
+            },
+            ArcTerminator::Resume,
+            ArcTerminator::Unreachable,
+        ];
+
+        for (i, term) in terminators.iter().enumerate() {
+            let bytes = bincode::serialize(term)
+                .unwrap_or_else(|e| panic!("serialize terminator {i} failed: {e}"));
+            let roundtripped: ArcTerminator = bincode::deserialize(&bytes)
+                .unwrap_or_else(|e| panic!("deserialize terminator {i} failed: {e}"));
+            assert_eq!(
+                &roundtripped, term,
+                "roundtrip failed for terminator variant {i}"
+            );
+        }
+    }
+
+    // ── ArcFunction helpers ────────────────────────────────────────
 
     #[test]
     fn next_block_id_and_push() {

@@ -288,6 +288,16 @@ pub fn hash_string(s: &str) -> ContentHash {
     ContentHash(hasher.finish())
 }
 
+/// Hash raw bytes directly.
+///
+/// Used for hashing serialized data (e.g., bincode-encoded ARC IR).
+#[must_use]
+pub fn hash_bytes(data: &[u8]) -> ContentHash {
+    let mut hasher = FxHasher::default();
+    data.hash(&mut hasher);
+    ContentHash(hasher.finish())
+}
+
 /// Combine multiple hashes into one.
 #[must_use]
 pub fn combine_hashes(hash_list: &[ContentHash]) -> ContentHash {

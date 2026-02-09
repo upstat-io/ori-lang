@@ -48,6 +48,8 @@ bitflags = "2.6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 tracing-tree = "0.4"
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
 
 # Internal crates (workspace members only; excluded crates use path deps directly)
 ori_ir = { path = "compiler/ori_ir" }

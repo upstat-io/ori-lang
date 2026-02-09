@@ -44,13 +44,22 @@
 //! let result = builder.execute(plan)?;
 //! ```
 
+pub mod arc_cache;
 pub mod cache;
 pub mod deps;
+pub mod function_deps;
+pub mod function_hash;
 pub mod hash;
 pub mod parallel;
 
 // Re-export key types
+pub use arc_cache::ArcIrCache;
 pub use cache::{ArtifactCache, CacheConfig, CacheKey};
 pub use deps::{DependencyGraph, DependencyTracker};
+pub use function_deps::FunctionDependencyGraph;
+pub use function_hash::{compute_module_hash, extract_function_hashes, FunctionContentHash};
 pub use hash::{ContentHash, SourceHasher};
-pub use parallel::{CompilationPlan, ParallelCompiler, WorkItem};
+pub use parallel::{
+    execute_parallel, CompilationPlan, CompilationStats, CompileError, CompileResult,
+    ParallelCompiler, WorkItem,
+};

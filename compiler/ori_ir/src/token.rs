@@ -1199,6 +1199,7 @@ impl fmt::Debug for TokenKind {
 /// # Salsa Compatibility
 /// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum DurationUnit {
     Nanoseconds,
     Microseconds,
@@ -1258,6 +1259,7 @@ impl fmt::Debug for DurationUnit {
 /// # Salsa Compatibility
 /// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum SizeUnit {
     Bytes,
     Kilobytes,
