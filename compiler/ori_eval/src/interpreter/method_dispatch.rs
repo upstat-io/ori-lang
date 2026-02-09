@@ -42,6 +42,8 @@ impl Interpreter<'_> {
         method: Name,
         args: Vec<Value>,
     ) -> EvalResult {
+        self.mode_state.count_method_call();
+
         // Handle associated function calls on type references
         if let Value::TypeRef { type_name } = &receiver {
             // First check user-defined associated functions in the registry

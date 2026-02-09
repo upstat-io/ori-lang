@@ -155,6 +155,19 @@ impl<'a> Evaluator<'a> {
         &self.interpreter.user_method_registry
     }
 
+    /// Enable performance counters for `--profile` mode.
+    ///
+    /// Must be called before evaluation begins. When enabled, expression,
+    /// function call, method call, and pattern match counts are tracked.
+    pub fn enable_counters(&mut self) {
+        self.interpreter.enable_counters();
+    }
+
+    /// Get the counter report string, if counters are enabled.
+    pub fn counters_report(&self) -> Option<String> {
+        self.interpreter.counters_report()
+    }
+
     /// Create a scoped evaluator that automatically pops the environment scope on drop.
     ///
     /// This is the foundation for panic-safe scope management. The returned guard

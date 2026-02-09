@@ -58,20 +58,24 @@ fn main() {
         }
         "run" => {
             if args.len() < 3 {
-                eprintln!("Usage: ori run <file.ori> [--compile]");
+                eprintln!("Usage: ori run <file.ori> [--compile] [--profile]");
                 eprintln!();
                 eprintln!("Options:");
                 eprintln!("  --compile    AOT compile before running (faster repeated runs)");
+                eprintln!("  --profile    Print evaluation performance counters");
                 std::process::exit(1);
             }
 
             // Parse run options
             let mut compile_mode = false;
+            let mut profile = false;
             let mut file_path = None;
 
             for arg in args.iter().skip(2) {
                 if arg == "--compile" || arg == "-c" {
                     compile_mode = true;
+                } else if arg == "--profile" {
+                    profile = true;
                 } else if !arg.starts_with('-') && file_path.is_none() {
                     file_path = Some(arg.as_str());
                 }
@@ -79,14 +83,14 @@ fn main() {
 
             let Some(path) = file_path else {
                 eprintln!("error: missing file path");
-                eprintln!("Usage: ori run <file.ori> [--compile]");
+                eprintln!("Usage: ori run <file.ori> [--compile] [--profile]");
                 std::process::exit(1);
             };
 
             if compile_mode {
                 run_file_compiled(path);
             } else {
-                run_file(path);
+                run_file(path, profile);
             }
         }
         "test" => {
@@ -231,7 +235,7 @@ fn main() {
                 .extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("si"))
             {
-                run_file(command);
+                run_file(command, false);
             } else {
                 eprintln!("Unknown command: {command}");
                 eprintln!();
@@ -268,6 +272,7 @@ fn print_usage() {
     println!();
     println!("Run options:");
     println!("  --compile, -c       AOT compile before running (faster repeated runs)");
+    println!("  --profile           Print evaluation performance counters");
     println!();
     println!("Build options:");
     println!("  --release           Build with optimizations (O2, no debug)");

@@ -13,6 +13,7 @@ impl Interpreter<'_> {
     /// Evaluate a function call.
     #[tracing::instrument(level = "debug", skip_all)]
     pub(super) fn eval_call(&mut self, func: &Value, args: &[Value]) -> EvalResult {
+        self.mode_state.count_function_call();
         match func {
             Value::Function(f) => {
                 // Check recursion limit before making the call (WASM only)

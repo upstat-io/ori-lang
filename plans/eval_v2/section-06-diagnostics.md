@@ -15,7 +15,7 @@ sections:
     status: complete
   - id: "06.4"
     title: Performance Instrumentation
-    status: in-progress
+    status: complete
   - id: "06.5"
     title: Completion Checklist
     status: in-progress
@@ -23,7 +23,7 @@ sections:
 
 # Section 06: Structured Diagnostics
 
-**Status:** In Progress
+**Status:** Nearly Complete (ControlAction refactor deferred to Section 07)
 **Goal:** Make runtime errors as informative as compile-time errors — typed error categories, call stack backtraces, actionable context notes, and optional performance counters.
 
 **File:** `compiler/ori_eval/src/diagnostics.rs` (new) + updates to `ori_patterns/src/errors.rs`
@@ -62,7 +62,7 @@ pub struct EvalBacktrace {
   - [x] Clone-per-child model: child interpreter clones parent frames, pushes own frame (thread-safe, no shared mutable state)
   - [x] O(N) clone per call acceptable at practical depths (~24 bytes per frame, ~24 KiB at 1000 frames)
 - [x] Implement `EvalBacktrace::capture(call_stack)` — snapshot frames at error site
-- [ ] `EvalBacktrace::enrich(resolver)` — called by `oric` layer to add file/line info from source maps (deferred to Section 07)
+- [x] Backtrace enrichment with file/line info — implemented as `snapshot_to_diagnostic()` in `oric::problem::eval` using `LineOffsetTable` for span→line:col conversion
 - [x] `EvalBacktrace::display(interner)` — human-readable backtrace string (also `Display` impl)
 
 **Implementation notes:**
@@ -82,12 +82,15 @@ Redesign `EvalError` with typed categories instead of just `message: String`.
 - [x] Phased migration of existing error factories in `ori_patterns/src/errors.rs`:
   - [x] All factory functions use `from_kind()` for structured kinds
   - [x] `Custom` variant for uncategorized errors
-- [ ] Remove `ControlFlow` and `propagated_value` from `EvalError` (moved to `ControlAction` — future work, Section 07)
+- [x] `EvalErrorSnapshot` — Salsa-compatible snapshot type that captures diagnostic fields (message, kind_name, span, backtrace frames, notes) without `Value`
+- [x] `ModuleEvalResult::runtime_error()` preserves full `EvalError` context at Salsa query boundary
+- [ ] Remove `ControlFlow` and `propagated_value` from `EvalError` (moved to `ControlAction` — deferred to Section 07)
 
 **Implementation notes:**
 - Both `kind: EvalErrorKind` and `message: String` are kept for backward compatibility
 - `from_kind()` computes `message` from `kind.to_string()`, ensuring consistency
 - `EvalErrorKind` lives in `ori_patterns` (crate dependency constraint)
+- `EvalErrorSnapshot` is `Clone + Eq + Hash + Debug` (Salsa-compatible) — strips `Value` and `ControlFlow` from `EvalError`
 
 ---
 
@@ -132,9 +135,10 @@ pub struct EvalCounters {
 - [x] Store as `Option<EvalCounters>` on `ModeState` (connects to Section 05)
 - [x] Counter increment is no-op when `None` (zero cost in production)
 - [x] Convenience counter methods on `ModeState` (`count_expression()`, `count_function_call()`, etc.)
-- [ ] Add `--profile` CLI flag to `ori` → sets `counters = Some(EvalCounters::default())` (CLI wiring, deferred)
-- [ ] Print summary after evaluation (CLI wiring, deferred)
-- [ ] Wire counter increments into eval dispatch loop (Section 07 backend migration)
+- [x] Add `--profile` CLI flag to `ori run` → sets `counters = Some(EvalCounters::default())`
+- [x] Print counter summary to stderr after evaluation via `evaluator.counters_report()`
+- [x] Wire counter increments at existing dispatch sites: `count_expression()` in `eval_inner()`, `count_function_call()` in `eval_call()`, `count_method_call()` in `eval_method_call()`, `count_pattern_match()` in `eval_match()`
+- Note: `--profile` bypasses Salsa `evaluated()` query to access counters directly (Salsa drops evaluator after query completes)
 
 ---
 
@@ -146,12 +150,14 @@ pub struct EvalCounters {
 - [x] Builder pattern for error construction (`.with_span()`, `.with_backtrace()`, `.with_note()`)
 - [x] `eval_error_to_diagnostic()` in `oric` with E6xxx codes
 - [x] `EvalCounters` struct and `ModeState` integration
-- [x] `./test-all.sh` passes (8439 tests, 0 failures)
+- [x] `EvalErrorSnapshot` preserves full error context at Salsa boundary
+- [x] `snapshot_to_diagnostic()` enriches backtraces with file:line:col via `LineOffsetTable`
+- [x] `--profile` CLI flag with counter report on stderr
+- [x] Counter increments wired at `eval_inner()`, `eval_call()`, `eval_method_call()`, `eval_match()`
+- [x] `./test-all.sh` passes (8448 tests, 0 failures)
 
-**Remaining for full completion:**
-- [ ] `EvalBacktrace::enrich(resolver)` for file/line info from source maps
-- [ ] Remove `ControlFlow`/`propagated_value` from `EvalError` (→ `ControlAction`)
-- [ ] `--profile` CLI flag wiring
-- [ ] Counter increment wiring in eval dispatch loop
+**Deferred to Section 07:**
+- [ ] Remove `ControlFlow`/`propagated_value` from `EvalError` (→ `ControlAction`) — pervasive refactor, fits Section 07's dispatch rewrite
+- [ ] Counter wiring in new `eval_canon()` dispatch with `CanExpr`-aware granularity
 
-**Exit Criteria:** Runtime errors include typed categories, call stack backtraces, and context notes. `--profile` prints evaluation statistics. Errors are as informative as compile-time diagnostics.
+**Exit Criteria:** Runtime errors include typed categories, call stack backtraces, and context notes. `--profile` prints evaluation statistics. Errors are as informative as compile-time diagnostics. ✅ All criteria met except `ControlAction` refactor (deferred).

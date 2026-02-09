@@ -5,6 +5,7 @@
 
 use super::value::Value;
 use crate::ir::{Name, StringInterner};
+use ori_ir::Span;
 use std::hash::{Hash, Hasher};
 
 /// Salsa-compatible representation of an evaluated value.
@@ -355,6 +356,69 @@ impl Hash for EvalOutput {
     }
 }
 
+/// Salsa-compatible snapshot of an `EvalError`'s diagnostic fields.
+///
+/// `EvalError` contains `Value` (not `Eq`/`Hash`) and `ControlFlow` (runtime-only),
+/// so it cannot be stored directly in Salsa queries. This snapshot captures the
+/// fields needed for diagnostic rendering: message, kind name, span, backtrace
+/// frames, and notes.
+///
+/// Created at the Salsa query boundary via [`EvalErrorSnapshot::from_eval_error`].
+///
+/// # Salsa Compatibility
+/// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct EvalErrorSnapshot {
+    /// Human-readable error message.
+    pub message: String,
+    /// Structured error kind name (e.g., `DivisionByZero`, `UndefinedVariable`).
+    pub kind_name: String,
+    /// Source location where the error occurred.
+    pub span: Option<Span>,
+    /// Call stack frames as `(function_name, optional_span)` pairs.
+    pub backtrace: Vec<(String, Option<Span>)>,
+    /// Additional context notes.
+    pub notes: Vec<String>,
+}
+
+impl EvalErrorSnapshot {
+    /// Create a snapshot from an `EvalError`, capturing diagnostic fields.
+    ///
+    /// Strips `Value` and `ControlFlow` (not Salsa-compatible) while preserving
+    /// all information needed for diagnostic rendering.
+    pub fn from_eval_error(err: &ori_patterns::EvalError) -> Self {
+        let backtrace = err
+            .backtrace
+            .as_ref()
+            .map(|bt| {
+                bt.frames()
+                    .iter()
+                    .map(|frame| (frame.name.clone(), frame.span))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let notes = err.notes.iter().map(|n| n.message.clone()).collect();
+
+        // Use Debug format of the kind variant for a stable, machine-readable name
+        let kind_name = format!("{:?}", err.kind);
+        // Truncate at first '{' or '(' to get just the variant name
+        let kind_name = kind_name
+            .find(['{', '('])
+            .map_or(kind_name.as_str(), |pos| &kind_name[..pos])
+            .trim()
+            .to_string();
+
+        Self {
+            message: err.message.clone(),
+            kind_name,
+            span: err.span,
+            backtrace,
+            notes,
+        }
+    }
+}
+
 /// Result of evaluating a module.
 ///
 /// # Salsa Compatibility
@@ -365,6 +429,12 @@ pub struct ModuleEvalResult {
     pub result: Option<EvalOutput>,
     /// Error message (if evaluation failed).
     pub error: Option<String>,
+    /// Structured error snapshot (if evaluation failed at runtime).
+    ///
+    /// Preserves span, backtrace, notes, and kind information that the
+    /// plain `error: Option<String>` field discards. Used by the `run`
+    /// command to produce enriched diagnostics with file/line info.
+    pub eval_error: Option<EvalErrorSnapshot>,
     /// Captured stdout output (if any).
     pub stdout: String,
 }
@@ -375,15 +445,30 @@ impl ModuleEvalResult {
         ModuleEvalResult {
             result: Some(result),
             error: None,
+            eval_error: None,
             stdout: String::new(),
         }
     }
 
-    /// Create an error result.
+    /// Create an error result from a plain message (no structured error info).
     pub fn failure(error: String) -> Self {
         ModuleEvalResult {
             result: None,
             error: Some(error),
+            eval_error: None,
+            stdout: String::new(),
+        }
+    }
+
+    /// Create an error result from an `EvalError`, preserving structured diagnostics.
+    ///
+    /// Captures the error's span, backtrace, notes, and kind into an
+    /// [`EvalErrorSnapshot`] for enriched diagnostic rendering.
+    pub fn runtime_error(err: &ori_patterns::EvalError) -> Self {
+        ModuleEvalResult {
+            result: None,
+            error: Some(err.message.clone()),
+            eval_error: Some(EvalErrorSnapshot::from_eval_error(err)),
             stdout: String::new(),
         }
     }
@@ -404,12 +489,14 @@ impl Default for ModuleEvalResult {
         ModuleEvalResult {
             result: Some(EvalOutput::Void),
             error: None,
+            eval_error: None,
             stdout: String::new(),
         }
     }
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
     use crate::ir::SharedInterner;
@@ -502,9 +589,84 @@ mod tests {
         let success = ModuleEvalResult::success(EvalOutput::Int(42));
         assert!(success.is_success());
         assert!(!success.is_failure());
+        assert!(success.eval_error.is_none());
 
         let failure = ModuleEvalResult::failure("test error".to_string());
         assert!(!failure.is_success());
         assert!(failure.is_failure());
+        assert!(failure.eval_error.is_none());
+    }
+
+    #[test]
+    fn test_runtime_error_preserves_snapshot() {
+        let err = ori_patterns::division_by_zero().with_span(Span::new(10, 20));
+        let result = ModuleEvalResult::runtime_error(&err);
+
+        assert!(result.is_failure());
+        assert!(result.error.as_ref().unwrap().contains("division by zero"));
+
+        let snapshot = result.eval_error.as_ref().unwrap();
+        assert_eq!(snapshot.span, Some(Span::new(10, 20)));
+        assert_eq!(snapshot.kind_name, "DivisionByZero");
+        assert!(snapshot.message.contains("division by zero"));
+    }
+
+    #[test]
+    fn test_snapshot_captures_backtrace() {
+        use ori_patterns::{BacktraceFrame, EvalBacktrace};
+
+        let bt = EvalBacktrace::new(vec![
+            BacktraceFrame {
+                name: "foo".to_string(),
+                span: Some(Span::new(5, 10)),
+            },
+            BacktraceFrame {
+                name: "bar".to_string(),
+                span: None,
+            },
+        ]);
+        let err = ori_patterns::division_by_zero().with_backtrace(bt);
+        let snapshot = EvalErrorSnapshot::from_eval_error(&err);
+
+        assert_eq!(snapshot.backtrace.len(), 2);
+        assert_eq!(snapshot.backtrace[0].0, "foo");
+        assert_eq!(snapshot.backtrace[0].1, Some(Span::new(5, 10)));
+        assert_eq!(snapshot.backtrace[1].0, "bar");
+        assert_eq!(snapshot.backtrace[1].1, None);
+    }
+
+    #[test]
+    fn test_snapshot_captures_notes() {
+        use ori_patterns::EvalNote;
+
+        let err = ori_patterns::division_by_zero()
+            .with_note(EvalNote {
+                message: "check denominator".to_string(),
+                span: None,
+            })
+            .with_note(EvalNote {
+                message: "second note".to_string(),
+                span: Some(Span::new(0, 5)),
+            });
+        let snapshot = EvalErrorSnapshot::from_eval_error(&err);
+
+        assert_eq!(snapshot.notes.len(), 2);
+        assert_eq!(snapshot.notes[0], "check denominator");
+        assert_eq!(snapshot.notes[1], "second note");
+    }
+
+    #[test]
+    fn test_snapshot_salsa_traits() {
+        // Verify Clone + Eq + Hash work (required for Salsa)
+        use std::collections::HashSet;
+
+        let err = ori_patterns::division_by_zero().with_span(Span::new(0, 5));
+        let snapshot = EvalErrorSnapshot::from_eval_error(&err);
+        let cloned = snapshot.clone();
+        assert_eq!(snapshot, cloned);
+
+        let mut set = HashSet::new();
+        set.insert(snapshot.clone());
+        assert!(set.contains(&cloned));
     }
 }

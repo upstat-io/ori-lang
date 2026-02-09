@@ -78,8 +78,8 @@ pub use context::{shared_context, CompilerContext, SharedContext};
 pub use db::{CompilerDb, Db};
 pub use diagnostic::{Diagnostic, ErrorCode, Label, Severity};
 pub use eval::{
-    Environment, EvalError, EvalOutput, EvalResult, Evaluator, FunctionValue, ModuleEvalResult,
-    RangeValue, Value,
+    Environment, EvalError, EvalErrorSnapshot, EvalOutput, EvalResult, Evaluator, FunctionValue,
+    ModuleEvalResult, RangeValue, Value,
 };
 pub use input::SourceFile;
 pub use ir::{
