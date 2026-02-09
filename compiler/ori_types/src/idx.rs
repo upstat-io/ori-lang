@@ -17,6 +17,7 @@ use std::fmt;
 /// This is THE canonical type representation - no other type representation exists.
 /// Types are compared by index equality (O(1)), not structural comparison.
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 #[repr(transparent)]
 pub struct Idx(u32);
 

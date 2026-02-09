@@ -13,6 +13,7 @@
 
 /// Binary operators.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum BinaryOp {
     // Arithmetic
     Add,
@@ -133,6 +134,7 @@ impl BinaryOp {
 
 /// Unary operators.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum UnaryOp {
     Neg,
     Not,

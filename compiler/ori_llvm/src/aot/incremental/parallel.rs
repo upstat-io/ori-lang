@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
     clippy::disallowed_types,
     reason = "Arc required for thread-safe sharing"
 )]
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
 
 use super::deps::DependencyGraph;
@@ -68,10 +68,14 @@ pub struct CompilationPlan {
     pending: HashSet<usize>,
     /// Completed items.
     completed: HashSet<PathBuf>,
+    /// Items that failed compilation (used for failure cascade).
+    failed_items: HashSet<usize>,
     /// Reverse index: dep path -> items that depend on it (for O(1) lookup on completion).
     dependents: FxHashMap<PathBuf, Vec<usize>>,
     /// Count of unsatisfied dependencies per item.
     unsatisfied_deps: Vec<usize>,
+    /// Path-to-index mapping for O(1) failure marking.
+    path_to_index: FxHashMap<PathBuf, usize>,
 }
 
 impl CompilationPlan {
@@ -124,6 +128,9 @@ impl CompilationPlan {
         let idx = self.items.len();
         let dep_count = item.dependencies.len();
 
+        // Build path-to-index mapping for O(1) failure marking
+        self.path_to_index.insert(item.path.clone(), idx);
+
         // Build reverse index: for each dependency, record that this item depends on it
         for dep in &item.dependencies {
             self.dependents.entry(dep.clone()).or_default().push(idx);
@@ -169,9 +176,78 @@ impl CompilationPlan {
     }
 
     /// Check if the plan is complete.
+    ///
+    /// A plan is complete when there are no more ready or pending items.
+    /// Items may still be in `failed_items` — the plan is "done" even if
+    /// some items failed (their dependents were cascade-failed).
     #[must_use]
     pub fn is_complete(&self) -> bool {
         self.ready.is_empty() && self.pending.is_empty()
+    }
+
+    /// Mark an item as failed and cascade the failure to all dependents.
+    ///
+    /// Removes the item and all transitive dependents from pending/ready,
+    /// preventing wasted compilation of items that can't succeed.
+    pub fn mark_failed(&mut self, path: &Path) {
+        if let Some(&idx) = self.path_to_index.get(path) {
+            self.failed_items.insert(idx);
+            self.pending.remove(&idx);
+            // Remove from ready queue if present
+            self.ready.retain(|&i| i != idx);
+        }
+
+        // Cascade to all transitive dependents
+        let dependents = self.transitive_dependents(path);
+        for dep_path in &dependents {
+            if let Some(&dep_idx) = self.path_to_index.get(dep_path) {
+                self.failed_items.insert(dep_idx);
+                self.pending.remove(&dep_idx);
+                self.ready.retain(|&i| i != dep_idx);
+            }
+        }
+    }
+
+    /// Compute all transitive dependents of a path via BFS.
+    ///
+    /// Returns all items that directly or indirectly depend on the given path.
+    /// Used for failure cascade: if A fails, everything that depends on A
+    /// (and everything that depends on those, etc.) is also marked failed.
+    #[must_use]
+    pub fn transitive_dependents(&self, path: &Path) -> Vec<PathBuf> {
+        let mut result = Vec::new();
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(path.to_path_buf());
+        visited.insert(path.to_path_buf());
+
+        while let Some(current) = queue.pop_front() {
+            if let Some(dep_indices) = self.dependents.get(&current) {
+                for &idx in dep_indices {
+                    let dep_path = &self.items[idx].path;
+                    if visited.insert(dep_path.clone()) {
+                        result.push(dep_path.clone());
+                        queue.push_back(dep_path.clone());
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Check if an item has been marked as failed.
+    #[must_use]
+    pub fn is_failed(&self, path: &Path) -> bool {
+        self.path_to_index
+            .get(path)
+            .is_some_and(|idx| self.failed_items.contains(idx))
+    }
+
+    /// Get the number of failed items.
+    #[must_use]
+    pub fn failed_count(&self) -> usize {
+        self.failed_items.len()
     }
 
     /// Get the total number of items.
@@ -284,7 +360,7 @@ impl std::fmt::Display for CompileError {
 impl std::error::Error for CompileError {}
 
 /// Statistics from parallel compilation.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CompilationStats {
     /// Total items compiled.
     pub total: usize,
@@ -387,9 +463,210 @@ impl ParallelCompiler {
     }
 }
 
+/// Shared state for the dependency-aware parallel executor.
+///
+/// Protected by a `Mutex` and coordinated via `Condvar` for blocking
+/// when no work is available.
+struct SharedPlanState {
+    plan: Mutex<CompilationPlan>,
+    condvar: Condvar,
+}
+
+/// Execute a compilation plan in parallel with dependency tracking.
+///
+/// Unlike [`compile_parallel`] (which ignores dependencies and round-robins),
+/// this function respects the dependency graph:
+/// - Workers block on `Condvar` when no work is ready
+/// - Completing a module may unblock dependent modules
+/// - Failure cascade: if a module fails, all transitive dependents are skipped
+///
+/// `jobs` specifies the number of worker threads (0 = auto-detect).
+/// `compile_fn` receives a `&WorkItem` and returns `Result<CompileResult, CompileError>`.
+///
+/// Returns `CompilationStats` on success, or a list of errors on failure.
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc required for thread-safe sharing across worker threads"
+)]
+pub fn execute_parallel<F>(
+    plan: CompilationPlan,
+    jobs: usize,
+    compile_fn: F,
+) -> Result<CompilationStats, Vec<CompileError>>
+where
+    F: Fn(&WorkItem) -> Result<CompileResult, CompileError> + Send + Sync + 'static,
+{
+    let effective_jobs = if jobs == 0 {
+        thread::available_parallelism()
+            .map(std::num::NonZero::get)
+            .unwrap_or(1)
+    } else {
+        jobs
+    };
+
+    // Single-thread fallback: simpler, avoid threading overhead
+    if effective_jobs == 1 || plan.len() <= 1 {
+        return execute_sequential(plan, &compile_fn);
+    }
+
+    let state = Arc::new(SharedPlanState {
+        plan: Mutex::new(plan),
+        condvar: Condvar::new(),
+    });
+
+    let compile_fn = Arc::new(compile_fn);
+    let comp_stats = Arc::new(Mutex::new(CompilationStats::default()));
+    let errors = Arc::new(Mutex::new(Vec::<CompileError>::new()));
+
+    let mut handles = Vec::with_capacity(effective_jobs);
+
+    for _ in 0..effective_jobs {
+        let state = Arc::clone(&state);
+        let compile_fn = Arc::clone(&compile_fn);
+        let comp_stats = Arc::clone(&comp_stats);
+        let errors = Arc::clone(&errors);
+
+        let handle = thread::spawn(move || {
+            loop {
+                // Take next ready item under the lock
+                let item = {
+                    let mut plan = state.plan.lock().unwrap_or_else(PoisonError::into_inner);
+
+                    loop {
+                        // Try to take a ready item
+                        if let Some(item) = plan.take_next() {
+                            break Some(item.clone());
+                        }
+
+                        // No ready items — are we done?
+                        if plan.is_complete() {
+                            break None;
+                        }
+
+                        // Wait for a signal (item completed or failed)
+                        plan = state
+                            .condvar
+                            .wait(plan)
+                            .unwrap_or_else(PoisonError::into_inner);
+                    }
+                };
+
+                let Some(item) = item else {
+                    // Plan is complete — exit worker loop
+                    break;
+                };
+
+                // Compile outside the lock (the expensive part)
+                match compile_fn(&item) {
+                    Ok(result) => {
+                        let mut s = comp_stats.lock().unwrap_or_else(PoisonError::into_inner);
+                        s.total += 1;
+                        s.total_time_ms += result.time_ms;
+                        if result.cached {
+                            s.cached += 1;
+                        } else {
+                            s.compiled += 1;
+                        }
+                        drop(s);
+
+                        // Mark complete and wake others
+                        let mut plan = state.plan.lock().unwrap_or_else(PoisonError::into_inner);
+                        plan.complete(&item.path);
+                        state.condvar.notify_all();
+                    }
+                    Err(e) => {
+                        errors
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push(e);
+
+                        // Mark failed and cascade
+                        let mut plan = state.plan.lock().unwrap_or_else(PoisonError::into_inner);
+                        plan.mark_failed(&item.path);
+                        state.condvar.notify_all();
+                    }
+                }
+            }
+        });
+
+        handles.push(handle);
+    }
+
+    // Wait for all workers
+    for handle in handles {
+        handle.join().unwrap_or_else(|_| {
+            // Thread panicked — add an error
+            errors
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(CompileError {
+                    path: PathBuf::from("<worker>"),
+                    message: "worker thread panicked".to_string(),
+                });
+        });
+    }
+
+    let errors = match Arc::try_unwrap(errors) {
+        Ok(mutex) => mutex.into_inner().unwrap_or_default(),
+        Err(arc) => arc.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+    };
+
+    if errors.is_empty() {
+        let comp_stats = match Arc::try_unwrap(comp_stats) {
+            Ok(mutex) => mutex.into_inner().unwrap_or_default(),
+            Err(arc) => arc.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+        };
+        Ok(comp_stats)
+    } else {
+        Err(errors)
+    }
+}
+
+/// Sequential execution fallback for single-threaded or small plans.
+fn execute_sequential<F>(
+    mut plan: CompilationPlan,
+    compile_fn: &F,
+) -> Result<CompilationStats, Vec<CompileError>>
+where
+    F: Fn(&WorkItem) -> Result<CompileResult, CompileError>,
+{
+    let mut stats = CompilationStats::default();
+    let mut errors = Vec::new();
+
+    while let Some(item) = plan.take_next() {
+        let item = item.clone();
+
+        match compile_fn(&item) {
+            Ok(result) => {
+                stats.total += 1;
+                stats.total_time_ms += result.time_ms;
+                if result.cached {
+                    stats.cached += 1;
+                } else {
+                    stats.compiled += 1;
+                }
+                plan.complete(&item.path);
+            }
+            Err(e) => {
+                errors.push(e);
+                plan.mark_failed(&item.path);
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(stats)
+    } else {
+        Err(errors)
+    }
+}
+
 /// Execute compilation in parallel using multiple threads.
 ///
-/// This is a more sophisticated parallel executor using a work-stealing approach.
+/// **Deprecated**: Use [`execute_parallel`] instead, which respects dependency
+/// ordering and provides failure cascade. This function ignores dependencies
+/// and simply round-robins work items across threads.
+#[deprecated(note = "use execute_parallel() which respects dependency ordering")]
 #[expect(
     clippy::disallowed_types,
     reason = "Arc required for thread-safe sharing across worker threads"
@@ -604,6 +881,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_compile_parallel_single() {
         let mut plan = CompilationPlan::new();
         plan.add_item(WorkItem::new(p("test.ori"), h(1)));
@@ -618,6 +896,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_compile_parallel_multiple() {
         let mut plan = CompilationPlan::new();
         for i in 0..10 {
@@ -640,6 +919,237 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("test.ori"));
         assert!(msg.contains("undefined variable"));
+    }
+
+    #[test]
+    fn test_from_graph_three_file_dependency_order() {
+        use crate::aot::incremental::deps::DependencyGraph;
+
+        // Build a 3-file dependency graph:
+        //   main.ori → lib.ori → utils.ori
+        let mut graph = DependencyGraph::new();
+        graph.add_file(p("utils.ori"), h(1), vec![]);
+        graph.add_file(p("lib.ori"), h(2), vec![p("utils.ori")]);
+        graph.add_file(p("main.ori"), h(3), vec![p("lib.ori")]);
+
+        let files = vec![p("main.ori"), p("lib.ori"), p("utils.ori")];
+        let plan = CompilationPlan::from_graph(&graph, &files);
+
+        assert_eq!(plan.len(), 3);
+        assert!(!plan.is_complete());
+
+        // Execute the plan through ParallelCompiler to verify topological order
+        let compiler = ParallelCompiler::new(ParallelConfig::new(1));
+        let mut compilation_order = Vec::new();
+
+        let stats = compiler
+            .execute(plan, |item| {
+                compilation_order.push(item.path.clone());
+                Ok(CompileResult {
+                    path: item.path.clone(),
+                    output: PathBuf::from(format!("{}.o", item.path.display())),
+                    cached: false,
+                    time_ms: 1,
+                })
+            })
+            .unwrap_or_else(|_| panic!("compilation should succeed"));
+
+        assert_eq!(stats.total, 3);
+        assert_eq!(stats.compiled, 3);
+
+        // Verify topological order: utils before lib, lib before main
+        let utils_pos = compilation_order
+            .iter()
+            .position(|p| p == &PathBuf::from("utils.ori"))
+            .unwrap_or_else(|| panic!("utils.ori should be in compilation order"));
+        let lib_pos = compilation_order
+            .iter()
+            .position(|p| p == &PathBuf::from("lib.ori"))
+            .unwrap_or_else(|| panic!("lib.ori should be in compilation order"));
+        let main_pos = compilation_order
+            .iter()
+            .position(|p| p == &PathBuf::from("main.ori"))
+            .unwrap_or_else(|| panic!("main.ori should be in compilation order"));
+
+        assert!(
+            utils_pos < lib_pos,
+            "utils.ori ({utils_pos}) should compile before lib.ori ({lib_pos})"
+        );
+        assert!(
+            lib_pos < main_pos,
+            "lib.ori ({lib_pos}) should compile before main.ori ({main_pos})"
+        );
+    }
+
+    // ── execute_parallel tests ─────────────────────────────────
+
+    #[test]
+    fn test_execute_parallel_dependency_order() {
+        let mut plan = CompilationPlan::new();
+        plan.add_item(WorkItem::new(p("main.ori"), h(1)).with_dependencies(vec![p("lib.ori")]));
+        plan.add_item(WorkItem::new(p("lib.ori"), h(2)));
+
+        use std::sync::{Arc, Mutex};
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let order_clone = Arc::clone(&order);
+
+        let stats = execute_parallel(plan, 1, move |item| {
+            order_clone
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(item.path.clone());
+            Ok(CompileResult {
+                path: item.path.clone(),
+                output: PathBuf::from(format!("{}.o", item.path.display())),
+                cached: false,
+                time_ms: 1,
+            })
+        })
+        .unwrap_or_else(|_| panic!("should succeed"));
+
+        assert_eq!(stats.total, 2);
+        let order = order.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(order[0], p("lib.ori"), "lib should compile before main");
+        assert_eq!(order[1], p("main.ori"));
+    }
+
+    #[test]
+    fn test_execute_parallel_failure_cascade() {
+        let mut plan = CompilationPlan::new();
+
+        // main depends on lib, lib depends on utils
+        plan.add_item(WorkItem::new(p("main.ori"), h(1)).with_dependencies(vec![p("lib.ori")]));
+        plan.add_item(WorkItem::new(p("lib.ori"), h(2)).with_dependencies(vec![p("utils.ori")]));
+        plan.add_item(WorkItem::new(p("utils.ori"), h(3)));
+
+        // utils.ori fails → lib.ori and main.ori should be skipped
+        let result = execute_parallel(plan, 1, |item| {
+            if item.path == p("utils.ori") {
+                Err(CompileError {
+                    path: item.path.clone(),
+                    message: "utils failed".to_string(),
+                })
+            } else {
+                Ok(CompileResult {
+                    path: item.path.clone(),
+                    output: p("out.o"),
+                    cached: false,
+                    time_ms: 1,
+                })
+            }
+        });
+
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].path, p("utils.ori"));
+        // lib.ori and main.ori should NOT have been attempted (cascade failure)
+    }
+
+    #[test]
+    fn test_execute_parallel_single_thread_fallback() {
+        let mut plan = CompilationPlan::new();
+        plan.add_item(WorkItem::new(p("a.ori"), h(1)));
+
+        let stats = execute_parallel(plan, 1, |item| {
+            Ok(CompileResult {
+                path: item.path.clone(),
+                output: p("a.o"),
+                cached: false,
+                time_ms: 5,
+            })
+        })
+        .unwrap_or_else(|_| panic!("should succeed"));
+
+        assert_eq!(stats.total, 1);
+        assert_eq!(stats.compiled, 1);
+    }
+
+    #[test]
+    fn test_execute_parallel_empty_plan() {
+        let plan = CompilationPlan::new();
+
+        let stats = execute_parallel(plan, 4, |_item| {
+            Ok(CompileResult {
+                path: p("never.ori"),
+                output: p("never.o"),
+                cached: false,
+                time_ms: 0,
+            })
+        })
+        .unwrap_or_else(|_| panic!("empty plan should succeed"));
+
+        assert_eq!(stats.total, 0);
+    }
+
+    #[test]
+    fn test_execute_parallel_multi_thread_same_as_sequential() {
+        // Build the same plan twice, run with 1 thread and 4 threads
+        fn make_plan() -> CompilationPlan {
+            let mut plan = CompilationPlan::new();
+            plan.add_item(WorkItem::new(PathBuf::from("a.ori"), ContentHash::new(1)));
+            plan.add_item(WorkItem::new(PathBuf::from("b.ori"), ContentHash::new(2)));
+            plan.add_item(WorkItem::new(PathBuf::from("c.ori"), ContentHash::new(3)));
+            plan
+        }
+
+        let stats_1 = execute_parallel(make_plan(), 1, |item| {
+            Ok(CompileResult {
+                path: item.path.clone(),
+                output: PathBuf::from(format!("{}.o", item.path.display())),
+                cached: false,
+                time_ms: 1,
+            })
+        })
+        .unwrap_or_else(|_| panic!("should succeed"));
+
+        let stats_4 = execute_parallel(make_plan(), 4, |item| {
+            Ok(CompileResult {
+                path: item.path.clone(),
+                output: PathBuf::from(format!("{}.o", item.path.display())),
+                cached: false,
+                time_ms: 1,
+            })
+        })
+        .unwrap_or_else(|_| panic!("should succeed"));
+
+        assert_eq!(stats_1.total, stats_4.total);
+        assert_eq!(stats_1.compiled, stats_4.compiled);
+    }
+
+    // ── mark_failed / transitive_dependents tests ────────────
+
+    #[test]
+    fn test_mark_failed_basic() {
+        let mut plan = CompilationPlan::new();
+        plan.add_item(WorkItem::new(p("a.ori"), h(1)));
+        plan.add_item(WorkItem::new(p("b.ori"), h(2)).with_dependencies(vec![p("a.ori")]));
+
+        plan.mark_failed(&p("a.ori"));
+
+        assert!(plan.is_failed(&p("a.ori")));
+        assert!(
+            plan.is_failed(&p("b.ori")),
+            "dependent should be cascade-failed"
+        );
+        assert_eq!(plan.failed_count(), 2);
+        assert!(
+            plan.is_complete(),
+            "all items failed, plan should be complete"
+        );
+    }
+
+    #[test]
+    fn test_transitive_dependents() {
+        let mut plan = CompilationPlan::new();
+        plan.add_item(WorkItem::new(p("a.ori"), h(1)));
+        plan.add_item(WorkItem::new(p("b.ori"), h(2)).with_dependencies(vec![p("a.ori")]));
+        plan.add_item(WorkItem::new(p("c.ori"), h(3)).with_dependencies(vec![p("b.ori")]));
+
+        let deps = plan.transitive_dependents(&p("a.ori"));
+
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&p("b.ori")));
+        assert!(deps.contains(&p("c.ori")));
     }
 
     #[test]

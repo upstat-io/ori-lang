@@ -606,6 +606,25 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
     let mangler = Mangler::new();
     let opt_config = build_optimization_config(options);
 
+    // Set up ARC IR cache for incremental compilation
+    let arc_cache = {
+        let cache_dir = obj_dir.join("arc_cache");
+        match ori_llvm::aot::incremental::ArcIrCache::new(&cache_dir) {
+            Ok(cache) => {
+                if options.verbose {
+                    eprintln!("  ARC IR cache enabled at {}", cache_dir.display());
+                }
+                Some(cache)
+            }
+            Err(e) => {
+                if options.verbose {
+                    eprintln!("  ARC IR cache disabled: {e}");
+                }
+                None
+            }
+        }
+    };
+
     // Create compilation context (avoids passing many parameters to helper)
     let compile_ctx = ModuleCompileContext {
         db: &db,
@@ -616,6 +635,8 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
         base_dir: &dep_result.base_dir,
         obj_dir: &obj_dir,
         verbose: options.verbose,
+        arc_cache,
+        module_hash: None, // Per-module hashes computed below if needed
     };
 
     // Pre-allocate vectors with known capacity to avoid reallocation
@@ -727,6 +748,10 @@ struct ModuleCompileContext<'a> {
     base_dir: &'a Path,
     obj_dir: &'a Path,
     verbose: bool,
+    /// Optional ARC IR cache for incremental compilation.
+    arc_cache: Option<ori_llvm::aot::incremental::ArcIrCache>,
+    /// Per-module content hashes for ARC cache keying.
+    module_hash: Option<rustc_hash::FxHashMap<PathBuf, ori_llvm::aot::incremental::ContentHash>>,
 }
 
 /// Information about a compiled module, including its function signatures.
@@ -798,7 +823,7 @@ fn compile_single_module(
         ctx.mangler,
     );
 
-    // Compile to LLVM IR
+    // Compile to LLVM IR (with ARC cache if available)
     let context = Context::create();
     let llvm_module = compile_to_llvm_with_imports(
         &context,
@@ -809,6 +834,10 @@ fn compile_single_module(
         &source_path_str,
         &module_name,
         &imported_functions,
+        ctx.arc_cache.as_ref(),
+        ctx.module_hash
+            .as_ref()
+            .and_then(|hashes| hashes.get(source_path).copied()),
     );
 
     // Configure module for target

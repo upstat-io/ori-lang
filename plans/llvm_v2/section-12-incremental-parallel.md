@@ -1,24 +1,24 @@
 ---
 section: "12"
 title: Incremental & Parallel Codegen
-status: not-started
+status: in-progress
 goal: Function-level incremental compilation with two-layer caching (ARC IR + object code), Salsa hybrid integration, and dependency-respecting parallel compilation
 sections:
   - id: "12.1"
     title: Existing Infrastructure (Preserve)
-    status: not-started
+    status: complete
   - id: "12.2"
     title: Function-Level Incremental Compilation
-    status: not-started
+    status: in-progress
   - id: "12.3"
     title: Two-Layer Cache
-    status: not-started
+    status: in-progress
   - id: "12.4"
     title: Salsa Integration (Hybrid)
-    status: not-started
+    status: in-progress
   - id: "12.5"
     title: Parallel Compilation
-    status: not-started
+    status: complete
   - id: "12.6"
     title: Multi-File Integration
     status: not-started
@@ -26,7 +26,7 @@ sections:
 
 # Section 12: Incremental & Parallel Codegen
 
-**Status:** Not Started
+**Status:** In Progress (0.1-alpha scope: Layer 1 ARC IR caching + parallel executor complete; integration wired into `ori build`)
 **Goal:** Don't recompile the world when one function changes. Compile independent codegen units in parallel. Per-module LLVM modules with Layer 1 ARC IR caching, hybrid Salsa/ArtifactCache invalidation, and dependency-respecting multi-threaded execution.
 
 **0.1-alpha scope**: Per-module LLVM modules with Layer 1 ARC IR caching. Layer 2 per-function object caching (requiring `ld -r` merging) is deferred to a future version due to platform complexity (Windows/MSVC compatibility) and limited incremental benefit over Layer 1. The Layer 2 design documentation is retained below for reference but is marked as future work.
@@ -56,8 +56,8 @@ The `aot/incremental/` module provides file-level incremental compilation. V2 pr
 
 **What V2 preserves:** DependencyGraph, ArtifactCache structure, CompilationPlan scheduling, SourceHasher infrastructure. These become the file-level scaffolding. Function-level tracking is layered on top without replacing the file-level infrastructure, which remains the fallback granularity.
 
-- [ ] Verify all existing incremental infrastructure works after V2 module restructuring
-- [ ] Ensure file-level incremental remains functional as fallback
+- [x] Verify all existing incremental infrastructure works after V2 module restructuring
+- [x] Ensure file-level incremental remains functional as fallback
 
 ---
 
@@ -261,12 +261,12 @@ Function-level tracking is not always possible. The following cases fall back to
 
 The existing file-level infrastructure (DependencyGraph, `files_to_recompile()`) handles these cases. Function-level granularity is an optimization layered on top, not a replacement.
 
-- [ ] Implement `FunctionContentHash` with AST-body + signature + callees + globals hashing
-- [ ] Implement `FunctionDependencyGraph` with signature-aware invalidation
+- [x] Implement `FunctionContentHash` with AST-body + signature + callees + globals hashing
+- [x] Implement `FunctionDependencyGraph` with signature-aware invalidation
 - [ ] Implement per-function LLVM module creation (one function per module) *(deferred — post-0.1-alpha)*
 - [ ] Wire up fallback to file-level for module-level initialization and dependency cycles
-- [ ] Test: changing function body without signature change does NOT recompile callers
-- [ ] Test: changing function signature DOES recompile all callers
+- [x] Test: changing function body without signature change does NOT recompile callers
+- [x] Test: changing function signature DOES recompile all callers
 
 ---
 
@@ -382,13 +382,13 @@ build/
     └── meta/                      # Metadata (existing)
 ```
 
-- [ ] Add `Serialize`/`Deserialize` derives to ARC IR types in `ori_arc` (behind `cache` feature flag)
-- [ ] Implement `ArcIrCacheKey` and `CachedArcIr` with bincode serialization
-- [ ] Implement `ObjectCacheKey` combining ARC IR hash + optimization config
-- [ ] Implement function-level cache directory structure within existing `ArtifactCache`
-- [ ] Test: Layer 1 cache hit (unchanged function skips ARC analysis)
-- [ ] Test: Layer 2 cache hit (unchanged ARC IR + same opt level skips LLVM)
-- [ ] Test: changing opt level invalidates Layer 2 but not Layer 1
+- [x] Add `Serialize`/`Deserialize` derives to ARC IR types in `ori_arc` (behind `cache` feature flag)
+- [x] Implement `ArcIrCacheKey` and `CachedArcIr` with bincode serialization
+- [ ] Implement `ObjectCacheKey` combining ARC IR hash + optimization config *(deferred — post-0.1-alpha)*
+- [ ] Implement function-level cache directory structure within existing `ArtifactCache` *(deferred — post-0.1-alpha)*
+- [x] Test: Layer 1 cache hit (unchanged function skips ARC analysis)
+- [ ] Test: Layer 2 cache hit (unchanged ARC IR + same opt level skips LLVM) *(deferred — post-0.1-alpha)*
+- [ ] Test: changing opt level invalidates Layer 2 but not Layer 1 *(deferred — post-0.1-alpha)*
 - [ ] Benchmark: measure ARC IR serialization/deserialization overhead vs. recomputation
 
 ---
@@ -459,7 +459,7 @@ The existing `db.rs` and `query/mod.rs` provide the foundation:
 
 - [ ] Document the Salsa/ArtifactCache boundary in code comments
 - [ ] Use `Durability::HIGH` for build configuration inputs
-- [ ] Implement the typed()-to-FunctionContentHash extraction
+- [x] Implement the typed()-to-FunctionContentHash extraction
 - [ ] Verify early cutoff works for whitespace-only changes (tokens unchanged → no reparse)
 - [ ] Verify early cutoff works for comment-only changes (AST unchanged → no recheck)
 - [ ] Test: modify function body without signature change → typed() result changes → only that function recompiles
@@ -674,11 +674,11 @@ impl CompilationPlan {
 
 Section 02 establishes that `ValueId` is scoped to a single LLVM Context. The parallel compilation model respects this: each thread's `IrBuilder` operates on its own Context and arena. No `ValueId` crosses a thread boundary. This is enforced by the lifetime parameter on `IrBuilder<'ctx>`.
 
-- [ ] Implement `execute_parallel` combining `CompilationPlan` scheduling with `std::thread` workers
-- [ ] Replace the existing `compile_parallel` round-robin function with dependency-respecting version
-- [ ] Ensure one LLVM Context per thread (already the pattern, verify preserved)
-- [ ] Test: parallel compilation produces identical output to sequential compilation
-- [ ] Test: dependency ordering is respected (dependent functions wait for prerequisites)
+- [x] Implement `execute_parallel` combining `CompilationPlan` scheduling with `std::thread` workers
+- [x] Replace the existing `compile_parallel` round-robin function with dependency-respecting version
+- [x] Ensure one LLVM Context per thread (already the pattern, verify preserved)
+- [x] Test: parallel compilation produces identical output to sequential compilation
+- [x] Test: dependency ordering is respected (dependent functions wait for prerequisites)
 - [ ] Benchmark: measure parallelism scaling (2, 4, 8, 16 threads)
 
 ---
@@ -776,19 +776,19 @@ fn compile_module_functions(
 
 ## Completion Checklist
 
-- [ ] Function-level content hashing implemented (body + signature + callees + globals)
-- [ ] Function-level dependency graph with signature-aware invalidation
-- [ ] ARC IR cache (Layer 1): serialize/deserialize ARC IR per function via bincode
+- [x] Function-level content hashing implemented (body + signature + callees + globals)
+- [x] Function-level dependency graph with signature-aware invalidation
+- [x] ARC IR cache (Layer 1): serialize/deserialize ARC IR per module via bincode
 - [ ] Object code cache (Layer 2): per-function .o files keyed by ARC IR hash + opt config *(deferred — post-0.1-alpha)*
 - [ ] Salsa hybrid integration: front-end queries with early cutoff, ArtifactCache for back-end
 - [ ] Codegen is NOT a Salsa query (documented with rationale)
-- [ ] `execute_parallel` replaces `compile_parallel` with dependency-respecting multi-threaded execution
-- [ ] `std::thread` used throughout (no rayon)
-- [ ] One LLVM Context per thread, no cross-context ValueId sharing
+- [x] `execute_parallel` replaces `compile_parallel` with dependency-respecting multi-threaded execution
+- [x] `std::thread` used throughout (no rayon)
+- [x] One LLVM Context per thread, no cross-context ValueId sharing
 - [ ] Multi-level scheduling: module topological order + function parallelism + ld -r + final link *(deferred — post-0.1-alpha; 0.1-alpha uses per-module granularity)*
 - [ ] `ld -r` partial linking merges per-function .o into per-module .o before final link *(deferred — post-0.1-alpha)*
-- [ ] Cross-module references resolved at link time via mangled names
+- [x] Cross-module references resolved at link time via mangled names
 - [ ] Fallback to file-level for module-level initialization and dependency cycles
-- [ ] All existing incremental infrastructure preserved and functional
+- [x] All existing incremental infrastructure preserved and functional
 
 **Exit Criteria:** Changing one function recompiles only that function (and callers if the signature changed). Multi-core machines compile faster via dependency-respecting parallel execution. ARC analysis results are cached and reused across builds. Switching between debug and release skips ARC analysis (Layer 1 cache hit) while recompiling LLVM modules (Layer 2 cache miss).

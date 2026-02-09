@@ -14,6 +14,7 @@ use std::hash::{Hash, Hasher};
 /// # Salsa Compatibility
 /// Has all required traits: Copy, Clone, Eq, `PartialEq`, Ord, `PartialOrd`, Hash, Debug
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 #[repr(transparent)]
 pub struct Name(u32);
 

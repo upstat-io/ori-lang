@@ -46,6 +46,7 @@ use crate::{ArcClassification, ArcClassifier};
 /// The codegen layer uses `field_type` entries to look up each child's
 /// own drop function, enabling recursive drop.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum DropKind {
     /// No RC'd children — just free the allocation.
     ///
@@ -106,6 +107,7 @@ pub enum DropKind {
 /// Scalar types (which don't need RC) return `None` from
 /// `compute_drop_info`.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct DropInfo {
     /// The type this drop info describes.
     pub ty: Idx,

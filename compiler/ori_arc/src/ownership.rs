@@ -17,6 +17,7 @@ use ori_types::Idx;
 /// (callee promises not to store the reference) or owned (callee may retain,
 /// requiring the caller to increment the reference count).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum Ownership {
     /// The callee borrows the value — it will not store or return it.
     /// No `rc_inc` needed at the call site.
@@ -32,6 +33,7 @@ pub enum Ownership {
 /// Produced by borrow inference (Section 06.2) and consumed by
 /// RC insertion (Section 07) to decide where to place `rc_inc`/`rc_dec`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnnotatedParam {
     /// The parameter name (interned).
     pub name: Name,
@@ -46,6 +48,7 @@ pub struct AnnotatedParam {
 /// This is the output of borrow inference for a single function.
 /// RC insertion reads these to decide call-site RC operations.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnnotatedSig {
     /// Annotated parameters (order matches the function definition).
     pub params: Vec<AnnotatedParam>,

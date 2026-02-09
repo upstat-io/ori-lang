@@ -11,13 +11,17 @@ repository = "https://github.com/upstat-io/ori-lang"
 
 [dependencies]
 # Ori crates (relative paths since excluded from workspace)
-ori_arc = { path = "../ori_arc" }
-ori_ir = { path = "../ori_ir" }
+ori_arc = { path = "../ori_arc", features = ["cache"] }
+ori_ir = { path = "../ori_ir", features = ["cache"] }
 ori_rt = { path = "../ori_rt" }
-ori_types = { path = "../ori_types" }
+ori_types = { path = "../ori_types", features = ["cache"] }
 
 # Fast hash map for compiler internals
 rustc-hash = "2.1"
+
+# Serialization for incremental compilation cache
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
 
 # Persistent (immutable) data structures for O(1)-clone scope nesting
 im = "15"
