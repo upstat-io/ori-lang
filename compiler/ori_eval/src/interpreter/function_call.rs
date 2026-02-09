@@ -40,7 +40,8 @@ impl Interpreter<'_> {
 
                 // Bind parameters, evaluating defaults for missing arguments
                 let func_arena = f.arena();
-                let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
+                let mut call_interpreter =
+                    self.create_function_interpreter(func_arena, call_env, self.self_name);
                 bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
 
                 // Bind 'self' to the current function for recursive patterns
@@ -82,7 +83,8 @@ impl Interpreter<'_> {
 
                 // Bind parameters, evaluating defaults for missing arguments
                 let func_arena = f.arena();
-                let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
+                let mut call_interpreter =
+                    self.create_function_interpreter(func_arena, call_env, self.self_name);
                 bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
 
                 // Bind 'self' to the MEMOIZED function so recursive calls also use the cache
@@ -159,7 +161,7 @@ impl Interpreter<'_> {
 
                     // Create interpreter for guard and body evaluation
                     let mut call_interpreter =
-                        self.create_function_interpreter(func_arena, call_env);
+                        self.create_function_interpreter(func_arena, call_env, self.self_name);
 
                     // Bind parameters (positionally, since patterns already matched)
                     for (param, arg) in f.params.iter().zip(args.iter()) {
@@ -285,7 +287,8 @@ impl Interpreter<'_> {
 
             // Step 2: Create function interpreter with function's arena for default eval
             let func_arena = f.arena();
-            let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
+            let mut call_interpreter =
+                self.create_function_interpreter(func_arena, call_env, self.self_name);
 
             // Step 3: Bind parameters, using evaluated args or evaluating defaults
             for (i, param) in f.params.iter().enumerate() {

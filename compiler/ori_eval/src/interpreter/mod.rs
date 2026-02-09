@@ -59,6 +59,7 @@ mod scope_guard;
 pub use builder::InterpreterBuilder;
 pub use scope_guard::ScopedInterpreter;
 
+use crate::eval_mode::{EvalMode, ModeState};
 use crate::evaluate_binary;
 use crate::print_handler::SharedPrintHandler;
 use crate::{
@@ -148,32 +149,23 @@ impl TypeNames {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
-use ori_patterns::recursion_limit_exceeded;
 use ori_patterns::{
-    propagated_error_message, EvalContext, EvalError, EvalResult, PatternDefinition,
-    PatternExecutor, PatternRegistry,
+    propagated_error_message, recursion_limit_exceeded, EvalContext, EvalError, EvalResult,
+    PatternDefinition, PatternExecutor, PatternRegistry,
 };
 use ori_stack::ensure_sufficient_stack;
-
-/// Default maximum call depth for WASM builds to prevent stack exhaustion.
-///
-/// WASM has a fixed stack that cannot grow dynamically like native builds.
-/// This limit prevents cryptic "Maximum call stack size exceeded" errors
-/// by failing gracefully with a clear "maximum recursion depth exceeded" message.
-///
-/// The default (200) is conservative for browser environments. WASM runtimes
-/// outside browsers (Node.js, Wasmtime, etc.) may support higher limits.
-///
-/// On native builds, `stacker` handles deep recursion by growing the stack,
-/// so this limit is not enforced.
-#[cfg(target_arch = "wasm32")]
-pub const DEFAULT_MAX_CALL_DEPTH: usize = 200;
 
 /// Tree-walking interpreter for Ori expressions.
 ///
 /// This is the portable interpreter that works in both native and WASM contexts.
 /// For Salsa-integrated evaluation with imports, see `oric::Evaluator`.
+///
+/// # Evaluation Modes
+///
+/// The interpreter's behavior is parameterized by `EvalMode`:
+/// - `Interpret` — full I/O for `ori run`
+/// - `ConstEval` — budget-limited, no I/O, deterministic
+/// - `TestRun` — captures output, collects test results
 pub struct Interpreter<'a> {
     /// String interner for name lookup.
     pub interner: &'a StringInterner,
@@ -186,18 +178,20 @@ pub struct Interpreter<'a> {
     /// Pre-interned type names for hot-path method dispatch.
     /// Avoids repeated `intern()` calls in `get_value_type_name()`.
     pub(crate) type_names: TypeNames,
-    /// Current call depth for recursion limit tracking (WASM only).
+    /// Evaluation mode — determines I/O, recursion, budget policies.
+    pub(crate) mode: EvalMode,
+    /// Per-mode mutable state (budget counters, etc.).
     ///
-    /// On WASM builds, this is checked against `max_call_depth` to prevent
-    /// stack exhaustion. On native builds with `stacker`, this is tracked
-    /// but not enforced.
-    pub(crate) call_depth: usize,
-    /// Maximum call depth before erroring (WASM only).
+    /// Used by `check_budget()` during function calls in `ConstEval` mode.
+    /// Wired into the dispatch loop in Section 07 (backend migration).
+    #[expect(dead_code, reason = "Wired in eval_v2 Section 07 backend migration")]
+    pub(crate) mode_state: ModeState,
+    /// Live call stack for recursion tracking and backtrace capture.
     ///
-    /// Configurable at runtime via `InterpreterBuilder::max_call_depth()`.
-    /// Defaults to `DEFAULT_MAX_CALL_DEPTH` (200).
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) max_call_depth: usize,
+    /// Replaces the old `call_depth: usize` with proper frame tracking.
+    /// Depth is checked on `push()` against `mode.max_recursion_depth()`.
+    /// On error, `capture()` produces an `EvalBacktrace` for diagnostics.
+    pub(crate) call_stack: crate::diagnostics::CallStack,
     /// Pattern registry for `function_exp` evaluation.
     pub registry: SharedRegistry<PatternRegistry>,
     /// User-defined method registry for impl block methods.
@@ -225,10 +219,10 @@ pub struct Interpreter<'a> {
     pub(crate) prelude_loaded: bool,
     /// Print handler for the Print capability.
     ///
-    /// Determines where print output goes:
-    /// - Native: stdout (default)
-    /// - WASM: buffer for capture
-    /// - Tests: buffer for assertions
+    /// Determined by evaluation mode:
+    /// - `Interpret`: stdout (default)
+    /// - `TestRun`: buffer for capture
+    /// - `ConstEval`: silent (discards output)
     pub print_handler: SharedPrintHandler,
     /// Whether this interpreter owns a scoped environment that should be popped on drop.
     ///
@@ -336,30 +330,29 @@ impl<'a> Interpreter<'a> {
 
     /// Check if the current call depth exceeds the recursion limit.
     ///
-    /// On WASM, this enforces the configured `max_call_depth` to prevent stack exhaustion.
-    /// On native builds with `stacker`, this is a no-op since the stack grows dynamically.
-    #[cfg(target_arch = "wasm32")]
+    /// Depth is tracked via `call_stack.depth()`. Frame names for backtraces
+    /// are populated by `create_function_interpreter()` (placeholder names
+    /// for now; proper function names in Section 07 with `CanExpr` context).
+    ///
+    /// The limit is determined by `EvalMode::max_recursion_depth()`:
+    /// - `Interpret` (native): `None` — stacker grows the stack dynamically
+    /// - `Interpret` (WASM): `Some(200)` — fixed stack
+    /// - `ConstEval`: `Some(64)` — tight budget
+    /// - `TestRun`: `Some(500)` — generous but bounded
     #[inline]
     pub(crate) fn check_recursion_limit(&self) -> Result<(), EvalError> {
-        if self.call_depth >= self.max_call_depth {
-            Err(recursion_limit_exceeded(self.max_call_depth))
-        } else {
-            Ok(())
+        if let Some(max_depth) = self.mode.max_recursion_depth() {
+            if self.call_stack.depth() >= max_depth {
+                return Err(recursion_limit_exceeded(max_depth));
+            }
         }
+        Ok(())
     }
 
-    /// Check if the current call depth exceeds the recursion limit.
-    ///
-    /// On native builds, this is a no-op since `stacker` handles stack growth.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Get the current evaluation mode.
     #[inline]
-    #[expect(
-        clippy::unused_self,
-        clippy::unnecessary_wraps,
-        reason = "API parity with WASM version which uses self.call_depth and returns Result"
-    )]
-    pub(crate) fn check_recursion_limit(&self) -> Result<(), EvalError> {
-        Ok(())
+    pub fn mode(&self) -> &EvalMode {
+        &self.mode
     }
 
     /// Check if two expressions have the same type.
@@ -1195,10 +1188,10 @@ impl<'a> Interpreter<'a> {
 
         /// Result of a single loop iteration with RAII guard.
         enum IterResult {
-            Continue,         // Normal continue or guard failed
-            Yield(Value),     // Yield mode: value to collect
-            Break(Value),     // Break with value
-            Error(EvalError), // Propagate error
+            Continue,              // Normal continue or guard failed
+            Yield(Value),          // Yield mode: value to collect
+            Break(Value),          // Break with value
+            Error(Box<EvalError>), // Propagate error
         }
 
         /// Lazy iterator over for loop items to avoid pre-collecting all elements.
@@ -1306,7 +1299,7 @@ impl<'a> Interpreter<'a> {
                     if guard.is_present() {
                         match eval.eval(guard) {
                             Ok(v) if !v.is_truthy() => return IterResult::Continue,
-                            Err(e) => return IterResult::Error(e),
+                            Err(e) => return IterResult::Error(Box::new(e)),
                             Ok(_) => {}
                         }
                     }
@@ -1332,7 +1325,7 @@ impl<'a> Interpreter<'a> {
                         }
                         return Ok(Value::list(results));
                     }
-                    IterResult::Error(e) => return Err(e),
+                    IterResult::Error(e) => return Err(*e),
                 }
             }
             Ok(Value::list(results))
@@ -1344,7 +1337,7 @@ impl<'a> Interpreter<'a> {
                     if guard.is_present() {
                         match eval.eval(guard) {
                             Ok(v) if !v.is_truthy() => return IterResult::Continue,
-                            Err(e) => return IterResult::Error(e),
+                            Err(e) => return IterResult::Error(Box::new(e)),
                             Ok(_) => {}
                         }
                     }
@@ -1365,7 +1358,7 @@ impl<'a> Interpreter<'a> {
                     IterResult::Continue => {}
                     IterResult::Yield(_) => unreachable!("Yield only in yield mode"),
                     IterResult::Break(v) => return Ok(v),
-                    IterResult::Error(e) => return Err(e),
+                    IterResult::Error(e) => return Err(*e),
                 }
             }
             Ok(Value::Void)
@@ -1381,7 +1374,7 @@ impl<'a> Interpreter<'a> {
                 Err(e) => match to_loop_action(e) {
                     LoopAction::Continue | LoopAction::ContinueWith(_) => {}
                     LoopAction::Break(v) => return Ok(v),
-                    LoopAction::Error(e) => return Err(e),
+                    LoopAction::Error(e) => return Err(*e),
                 },
             }
         }
@@ -1436,44 +1429,42 @@ impl<'a> Interpreter<'a> {
     /// A new interpreter configured to evaluate the function body.
     /// The returned interpreter's lifetime is tied to `func_arena`, not `self`,
     /// but requires that `'a` outlives `'b` since we pass the interner through.
-    #[cfg(target_arch = "wasm32")]
     pub(crate) fn create_function_interpreter<'b>(
         &self,
         func_arena: &'b ExprArena,
         call_env: Environment,
+        call_name: Name,
     ) -> Interpreter<'b>
     where
         'a: 'b,
     {
-        let imported_arena = SharedArena::new(func_arena.clone());
-        InterpreterBuilder::new(self.interner, func_arena)
-            .env(call_env)
-            .imported_arena(imported_arena)
-            .user_method_registry(self.user_method_registry.clone())
-            .print_handler(self.print_handler.clone())
-            .call_depth(self.call_depth.saturating_add(1))
-            .max_call_depth(self.max_call_depth)
-            .pattern_resolutions(self.pattern_resolutions)
-            .with_scoped_env_ownership() // RAII: scope will be popped when interpreter drops
-            .build()
-    }
+        // Clone the parent's call stack and push a frame for this call.
+        // The depth check in check_recursion_limit() has already passed,
+        // so this push cannot fail (depth < max at the check point).
+        let mut child_stack = self.call_stack.clone();
+        // Safety: check_recursion_limit() is called before create_function_interpreter()
+        // at every call site, so depth < max_depth is guaranteed.
+        // Invariant: check_recursion_limit() passed, so depth < max_depth.
+        // push() cannot fail here.
+        #[expect(
+            clippy::expect_used,
+            reason = "Invariant: check_recursion_limit already passed"
+        )]
+        child_stack
+            .push(crate::diagnostics::CallFrame {
+                name: call_name,
+                call_span: None,
+            })
+            .expect("check_recursion_limit passed but CallStack::push failed");
 
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn create_function_interpreter<'b>(
-        &self,
-        func_arena: &'b ExprArena,
-        call_env: Environment,
-    ) -> Interpreter<'b>
-    where
-        'a: 'b,
-    {
         let imported_arena = SharedArena::new(func_arena.clone());
         InterpreterBuilder::new(self.interner, func_arena)
             .env(call_env)
             .imported_arena(imported_arena)
             .user_method_registry(self.user_method_registry.clone())
             .print_handler(self.print_handler.clone())
-            .call_depth(self.call_depth.saturating_add(1))
+            .mode(self.mode.clone())
+            .call_stack(child_stack)
             .pattern_resolutions(self.pattern_resolutions)
             .with_scoped_env_ownership() // RAII: scope will be popped when interpreter drops
             .build()

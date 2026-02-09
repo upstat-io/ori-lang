@@ -53,7 +53,7 @@ impl Interpreter<'_> {
                 .cloned();
 
             if let Some(ref method_def) = user_method {
-                return self.eval_associated_function(method_def, &args);
+                return self.eval_associated_function(method_def, &args, method);
             }
 
             // Fall back to built-in associated functions (Duration, Size)
@@ -90,7 +90,7 @@ impl Interpreter<'_> {
         // Execute based on resolution type
         match resolution {
             MethodResolution::User(user_method) => {
-                self.eval_user_method(receiver, &user_method, &args)
+                self.eval_user_method(receiver, &user_method, &args, method)
             }
             MethodResolution::Derived(derived_info) => {
                 self.eval_derived_method(receiver, &derived_info, &args)
@@ -426,6 +426,7 @@ impl Interpreter<'_> {
         receiver: Value,
         method: &UserMethod,
         args: &[Value],
+        method_name: Name,
     ) -> EvalResult {
         // Check recursion limit before making the call (WASM only)
         self.check_recursion_limit()?;
@@ -457,7 +458,8 @@ impl Interpreter<'_> {
         // Evaluate method body using the method's arena (arena threading pattern).
         // The scope is popped automatically via RAII when call_interpreter drops.
         let func_arena: &ExprArena = &method.arena;
-        let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
+        let mut call_interpreter =
+            self.create_function_interpreter(func_arena, call_env, method_name);
         call_interpreter.eval(method.body)
     }
 
@@ -469,6 +471,7 @@ impl Interpreter<'_> {
         &mut self,
         method: &UserMethod,
         args: &[Value],
+        method_name: Name,
     ) -> EvalResult {
         // Check recursion limit before making the call (WASM only)
         self.check_recursion_limit()?;
@@ -494,7 +497,8 @@ impl Interpreter<'_> {
 
         // Evaluate function body using the method's arena
         let func_arena: &ExprArena = &method.arena;
-        let mut call_interpreter = self.create_function_interpreter(func_arena, call_env);
+        let mut call_interpreter =
+            self.create_function_interpreter(func_arena, call_env, method_name);
         call_interpreter.eval(method.body)
     }
 

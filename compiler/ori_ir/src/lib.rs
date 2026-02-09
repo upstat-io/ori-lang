@@ -39,6 +39,7 @@ pub mod ast;
 pub mod builtin_constants;
 pub mod builtin_methods;
 mod builtin_type;
+pub mod canon;
 mod comment;
 mod derives;
 mod expr_id;

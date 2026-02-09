@@ -334,9 +334,12 @@ impl TestRunner {
         // Run regular tests based on backend
         match config.backend {
             Backend::Interpreter => {
-                // Create evaluator with database and type information for proper evaluation
-                // Type info enables operators like ?? to distinguish chaining vs unwrapping
+                // Create evaluator in TestRun mode with type information
+                // TestRun mode: 500-depth recursion limit, test result collection
                 let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
+                    .mode(ori_eval::EvalMode::TestRun {
+                        only_attached: false,
+                    })
                     .expr_types(&type_result.typed.expr_types)
                     .pattern_resolutions(&type_result.typed.pattern_resolutions)
                     .build();

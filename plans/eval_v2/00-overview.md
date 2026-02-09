@@ -104,7 +104,7 @@ pub enum CanExpr {
     Continue(CanId),
 
     // === Bindings ===
-    Block { stmts: CanStmtRange, result: CanId },
+    Block { stmts: CanRange, result: CanId },
     Let { pattern: BindingPatternId, ty: ParsedTypeId, init: CanId, mutable: bool },
     Assign { target: CanId, value: CanId },
 
@@ -173,7 +173,9 @@ ori_arc (ARC analysis — consumes CanExpr)
   decision_tree/      — emit.rs (emit decision trees as ARC IR blocks — types moved to ori_ir)
 ```
 
-**Dependency resolution:** Decision tree types (`DecisionTree`, `ScrutineePath`, `TestKind`, `TestValue`) move from `ori_arc` to `ori_ir/canon/tree.rs`. This breaks the circular dependency: `ori_canon` needs decision tree types to build them, `ori_arc` needs them to emit ARC IR from them. With types in `ori_ir`, both crates depend on `ori_ir` (which they already do).
+**Dependency resolution:** Decision tree types (`DecisionTree`, `ScrutineePath`, `TestKind`, `TestValue`, `FlatPattern`, `PatternRow`, `PatternMatrix`) move from `ori_arc` to `ori_ir/canon/tree.rs`. This breaks the circular dependency: `ori_canon` needs decision tree types to build them, `ori_arc` needs them to emit ARC IR from them. With types in `ori_ir`, both crates depend on `ori_ir` (which they already do).
+
+**Key architectural deviation:** `CanNode` uses `TypeId` (from `ori_ir`) instead of `Idx` (from `ori_types`), because `ori_ir` cannot depend on `ori_types`. Both share the same u32 index layout, so conversion is free.
 
 ### Salsa Integration
 
@@ -192,15 +194,15 @@ fn canonicalize(db: &dyn Db, module: Module) -> CanonResult {
 
 ## Section Overview
 
-| Section | Title | Focus | Est. Lines |
-|---------|-------|-------|-----------|
-| 01 | Canonical IR | `CanExpr`, `CanArena`, `CanId` types + decision tree type relocation | ~600 |
-| 02 | AST Lowering | `ExprArena → CanArena` transformation (all 52 variants) | ~2,000 |
-| 03 | Pattern Compilation | Decision trees via Maranget, baked into canonical form | ~800 |
-| 04 | Constant Folding | Compile-time evaluation during lowering | ~500 |
-| 05 | Evaluation Modes | `EvalMode` enum — Interpret/ConstEval/TestRun | ~500 |
-| 06 | Structured Diagnostics | `EvalErrorKind`, backtraces, `EvalCounters`, `--profile` | ~800 |
-| 07 | Backend Migration | Rewrite eval + LLVM to consume `CanExpr`; delete old dispatch | ~2,500 |
+| Section | Title | Focus | Est. Lines | Status |
+|---------|-------|-------|-----------|--------|
+| 01 | Canonical IR | `CanExpr`, `CanArena`, `CanId` types + decision tree type relocation | ~600 | ✅ Complete |
+| 02 | AST Lowering | `ExprArena → CanArena` transformation (all 52 variants) | ~2,000 | ✅ Complete |
+| 03 | Pattern Compilation | Decision trees via Maranget, baked into canonical form | ~800 | ✅ Complete |
+| 04 | Constant Folding | Compile-time evaluation during lowering | ~500 | ✅ Complete |
+| 05 | Evaluation Modes | `EvalMode` enum — Interpret/ConstEval/TestRun | ~500 | ✅ Complete |
+| 06 | Structured Diagnostics | `EvalErrorKind`, backtraces, `EvalCounters`, `--profile` | ~800 | In Progress |
+| 07 | Backend Migration | Rewrite eval + LLVM to consume `CanExpr`; delete old dispatch | ~2,500 | Not Started |
 
 **Total: ~7,700 lines**
 
@@ -227,10 +229,11 @@ Section 07 (Backend Migration) ← depends on ALL above
 
 ## Migration Strategy
 
-1. **Section 01**: Define types in `ori_ir`. Move decision tree types from `ori_arc` to `ori_ir`. Create `ori_canon` crate skeleton. No behavioral changes.
-2. **Section 02**: Implement lowering pass. `ExprArena → CanArena` for all 52 variants (7 desugared, 44 mapped, 1 error). Integration-test against existing spec tests by round-tripping through canonical form.
-3. **Sections 03-04**: Pattern compilation and constant folding integrated into the lowering pass. Decision trees stored in `CanArena`. Constants stored in constant pool.
-4. **Sections 05-06**: `EvalMode` and structured diagnostics — independent improvements to the evaluator. These can land before or after backend migration.
+1. **Section 01** ✅: Define types in `ori_ir`. Move decision tree types from `ori_arc` to `ori_ir`. Create `ori_canon` crate skeleton. No behavioral changes. *Completed 2026-02-09.*
+2. **Section 02** ✅: Implement lowering pass. `ExprArena → CanArena` for all 52 variants (7 desugared, 44 mapped, 1 error). 14 unit tests. Sugar elimination in `desugar.rs`. Round-trip integration testing deferred to Section 07. *Completed 2026-02-09.*
+3. **Sections 03-04** ✅: Pattern compilation and constant folding integrated into the lowering pass. Decision trees stored in `DecisionTreePool`. Constants stored in `ConstantPool`. Decision tree walker in `ori_eval` ready for Section 07 wiring. *Completed 2026-02-09.*
+4. **Section 05** ✅: `EvalMode` enum (Interpret/ConstEval/TestRun) with policy methods, `ModeState` for budget tracking, `PrintHandlerImpl::Silent` for const-eval, unified recursion limits (removed `#[cfg]` duplication). All construction sites specify mode. Test runner uses `TestRun` mode. *Completed 2026-02-09.*
+4b. **Section 06** 🔄: Structured diagnostics — `EvalErrorKind` (24 variants), `CallStack` replacing `call_depth`, `EvalBacktrace` for error context, `EvalCounters` for `--profile`, `eval_error_to_diagnostic()` with E6xxx error codes. Core infrastructure complete. Remaining: CLI `--profile` flag wiring, `ControlAction` refactor, backtrace enrichment. *In progress 2026-02-09.*
 5. **Section 07**: The payoff. Rewrite `ori_eval` to dispatch on `CanExpr`. Update `ori_arc` to lower from `CanExpr`. Delete all `ExprKind` dispatch from both backends. Verify full test suite.
 
 At every step, `./test-all.sh` must pass. Section 07 is the "big bang" step — but by that point, the canonical IR is proven correct (Sections 01-04) and the backends just need mechanical migration.

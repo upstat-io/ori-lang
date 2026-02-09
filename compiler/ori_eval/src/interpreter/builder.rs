@@ -4,9 +4,9 @@ use super::resolvers::{
     BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, MethodResolverKind,
     UserRegistryResolver,
 };
-#[cfg(target_arch = "wasm32")]
-use super::DEFAULT_MAX_CALL_DEPTH;
 use super::{Interpreter, TypeNames};
+use crate::diagnostics::CallStack;
+use crate::eval_mode::{EvalMode, ModeState};
 use crate::{
     stdout_handler, Environment, SharedMutableRegistry, SharedPrintHandler, SharedRegistry,
     UserMethodRegistry,
@@ -16,18 +16,23 @@ use ori_patterns::PatternRegistry;
 use ori_types::{Idx, PatternKey, PatternResolution};
 
 /// Builder for creating Interpreter instances with various configurations.
+///
+/// Every interpreter requires an explicit `EvalMode`. The default is `Interpret`,
+/// but callers should specify the mode appropriate for their context:
+/// - `EvalMode::Interpret` for `ori run`
+/// - `EvalMode::TestRun { .. }` for `ori test`
+/// - `EvalMode::ConstEval { .. }` for compile-time evaluation
 pub struct InterpreterBuilder<'a> {
     interner: &'a StringInterner,
     arena: &'a ExprArena,
     env: Option<Environment>,
+    mode: EvalMode,
     registry: Option<SharedRegistry<PatternRegistry>>,
     imported_arena: Option<SharedArena>,
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
     print_handler: Option<SharedPrintHandler>,
     owns_scoped_env: bool,
-    call_depth: usize,
-    #[cfg(target_arch = "wasm32")]
-    max_call_depth: usize,
+    call_stack: Option<CallStack>,
     /// Expression type table from type checking.
     expr_types: Option<&'a [Idx]>,
     /// Pattern resolutions from type checking.
@@ -35,41 +40,31 @@ pub struct InterpreterBuilder<'a> {
 }
 
 impl<'a> InterpreterBuilder<'a> {
-    /// Create a new builder.
-    #[cfg(target_arch = "wasm32")]
+    /// Create a new builder with default `Interpret` mode.
     pub fn new(interner: &'a StringInterner, arena: &'a ExprArena) -> Self {
         Self {
             interner,
             arena,
             env: None,
+            mode: EvalMode::default(),
             registry: None,
             imported_arena: None,
             user_method_registry: None,
             print_handler: None,
             owns_scoped_env: false,
-            call_depth: 0,
-            max_call_depth: DEFAULT_MAX_CALL_DEPTH,
+            call_stack: None,
             expr_types: None,
             pattern_resolutions: &[],
         }
     }
 
-    /// Create a new builder.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new(interner: &'a StringInterner, arena: &'a ExprArena) -> Self {
-        Self {
-            interner,
-            arena,
-            env: None,
-            registry: None,
-            imported_arena: None,
-            user_method_registry: None,
-            print_handler: None,
-            owns_scoped_env: false,
-            call_depth: 0,
-            expr_types: None,
-            pattern_resolutions: &[],
-        }
+    /// Set the evaluation mode.
+    ///
+    /// Controls I/O access, recursion limits, test collection, and const-eval budget.
+    #[must_use]
+    pub fn mode(mut self, mode: EvalMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     /// Set the initial environment.
@@ -102,8 +97,7 @@ impl<'a> InterpreterBuilder<'a> {
 
     /// Set the print handler for the Print capability.
     ///
-    /// Default is stdout for native builds.
-    /// Use `buffer_handler()` for WASM or testing.
+    /// Default is stdout for `Interpret` mode. Overrides mode-based default.
     #[must_use]
     pub fn print_handler(mut self, handler: SharedPrintHandler) -> Self {
         self.print_handler = Some(handler);
@@ -120,25 +114,13 @@ impl<'a> InterpreterBuilder<'a> {
         self
     }
 
-    /// Set the initial call depth for recursion tracking.
+    /// Set the call stack for recursion tracking.
     ///
     /// Used when creating child interpreters for function calls to propagate
-    /// the current call depth.
+    /// the parent's call stack (clone-per-child model).
     #[must_use]
-    pub fn call_depth(mut self, depth: usize) -> Self {
-        self.call_depth = depth;
-        self
-    }
-
-    /// Set the maximum call depth for recursion limiting (WASM only).
-    ///
-    /// Default is 200, which is conservative for browser environments.
-    /// WASM runtimes outside browsers (Node.js, Wasmtime, etc.) may support
-    /// higher limits depending on their stack configuration.
-    #[cfg(target_arch = "wasm32")]
-    #[must_use]
-    pub fn max_call_depth(mut self, limit: usize) -> Self {
-        self.max_call_depth = limit;
+    pub fn call_stack(mut self, stack: CallStack) -> Self {
+        self.call_stack = Some(stack);
         self
     }
 
@@ -166,8 +148,7 @@ impl<'a> InterpreterBuilder<'a> {
         self
     }
 
-    /// Build the interpreter (WASM version with max_call_depth).
-    #[cfg(target_arch = "wasm32")]
+    /// Build the interpreter.
     pub fn build(self) -> Interpreter<'a> {
         let pat_reg = self
             .registry
@@ -191,50 +172,15 @@ impl<'a> InterpreterBuilder<'a> {
         // Pre-intern all primitive type names for hot-path method dispatch
         let type_names = TypeNames::new(self.interner);
 
-        Interpreter {
-            interner: self.interner,
-            arena: self.arena,
-            env: self.env.unwrap_or_default(),
-            self_name,
-            type_names,
-            call_depth: self.call_depth,
-            max_call_depth: self.max_call_depth,
-            registry: pat_reg,
-            user_method_registry: user_meth_reg,
-            method_dispatcher,
-            imported_arena: self.imported_arena,
-            prelude_loaded: false,
-            print_handler: self.print_handler.unwrap_or_else(stdout_handler),
-            owns_scoped_env: self.owns_scoped_env,
-            expr_types: self.expr_types,
-            pattern_resolutions: self.pattern_resolutions,
-        }
-    }
+        // Default print handler depends on mode if not explicitly set
+        let print_handler = self.print_handler.unwrap_or_else(stdout_handler);
 
-    /// Build the interpreter (native version without `max_call_depth`).
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn build(self) -> Interpreter<'a> {
-        let pat_reg = self
-            .registry
-            .unwrap_or_else(|| SharedRegistry::new(PatternRegistry::new()));
+        let mode_state = ModeState::new(&self.mode);
 
-        let user_meth_reg = self
-            .user_method_registry
-            .unwrap_or_else(|| SharedMutableRegistry::new(UserMethodRegistry::new()));
-
-        // Build method dispatcher once. Because user_method_registry uses interior
-        // mutability (RwLock), the dispatcher will see methods registered later.
-        let method_dispatcher = MethodDispatcher::new(vec![
-            MethodResolverKind::UserRegistry(UserRegistryResolver::new(user_meth_reg.clone())),
-            MethodResolverKind::Collection(CollectionMethodResolver::new(self.interner)),
-            MethodResolverKind::Builtin(BuiltinMethodResolver::new()),
-        ]);
-
-        // Pre-compute the Name for "self" to avoid repeated interning
-        let self_name = self.interner.intern("self");
-
-        // Pre-intern all primitive type names for hot-path method dispatch
-        let type_names = TypeNames::new(self.interner);
+        // Default call stack uses the mode's recursion limit
+        let call_stack = self
+            .call_stack
+            .unwrap_or_else(|| CallStack::new(self.mode.max_recursion_depth()));
 
         Interpreter {
             interner: self.interner,
@@ -242,13 +188,15 @@ impl<'a> InterpreterBuilder<'a> {
             env: self.env.unwrap_or_default(),
             self_name,
             type_names,
-            call_depth: self.call_depth,
+            mode: self.mode,
+            mode_state,
+            call_stack,
             registry: pat_reg,
             user_method_registry: user_meth_reg,
             method_dispatcher,
             imported_arena: self.imported_arena,
             prelude_loaded: false,
-            print_handler: self.print_handler.unwrap_or_else(stdout_handler),
+            print_handler,
             owns_scoped_env: self.owns_scoped_env,
             expr_types: self.expr_types,
             pattern_resolutions: self.pattern_resolutions,
