@@ -189,7 +189,7 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
                 success: false,
                 output: String::new(),
                 printed,
-                error: Some(e.message),
+                error: Some(e.into_eval_error().message),
                 error_type: Some("runtime".to_string()),
             }
         }

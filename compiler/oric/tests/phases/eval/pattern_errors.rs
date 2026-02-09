@@ -10,7 +10,7 @@
 #![allow(clippy::single_char_pattern, clippy::uninlined_format_args)]
 
 use ori_ir::BinaryOp;
-use ori_patterns::{ControlFlow, EvalError, Value};
+use ori_patterns::{ControlAction, EvalError, Value};
 
 // Import all error factory functions
 use ori_patterns::{
@@ -38,44 +38,57 @@ use ori_patterns::{
 fn test_eval_error_new() {
     let err = EvalError::new("test message");
     assert_eq!(err.message, "test message");
-    assert!(err.propagated_value.is_none());
-    assert!(err.control_flow.is_none());
+}
+
+// -- ControlAction tests --
+
+#[test]
+fn test_control_action_break() {
+    let action = ControlAction::Break(Value::int(42));
+    assert!(!action.is_error());
+    if let ControlAction::Break(v) = action {
+        assert_eq!(v, Value::int(42));
+    } else {
+        panic!("expected ControlAction::Break");
+    }
 }
 
 #[test]
-fn test_eval_error_propagate() {
-    let value = Value::int(42);
-    let err = EvalError::propagate(value.clone(), "propagated error");
-    assert_eq!(err.message, "propagated error");
-    assert_eq!(err.propagated_value, Some(value));
-    assert!(err.control_flow.is_none());
-}
-
-// -- ControlFlow tests --
-
-#[test]
-fn test_control_flow_break() {
-    let err = EvalError::break_with(Value::int(42));
-    assert!(err.message.contains("break"));
-    assert!(err.is_control_flow());
-    assert_eq!(err.control_flow, Some(ControlFlow::Break(Value::int(42))));
+fn test_control_action_continue() {
+    let action = ControlAction::Continue(Value::Void);
+    assert!(!action.is_error());
+    if let ControlAction::Continue(v) = action {
+        assert!(matches!(v, Value::Void));
+    } else {
+        panic!("expected ControlAction::Continue");
+    }
 }
 
 #[test]
-fn test_control_flow_continue() {
-    let err = EvalError::continue_signal();
-    assert_eq!(err.message, "continue");
-    assert!(err.is_control_flow());
-    assert_eq!(err.control_flow, Some(ControlFlow::Continue(Value::Void)));
+fn test_control_action_propagate() {
+    let action = ControlAction::Propagate(Value::int(42));
+    assert!(!action.is_error());
+    if let ControlAction::Propagate(v) = action {
+        assert_eq!(v, Value::int(42));
+    } else {
+        panic!("expected ControlAction::Propagate");
+    }
 }
 
 #[test]
-fn test_is_control_flow() {
-    let regular_err = EvalError::new("error");
-    assert!(!regular_err.is_control_flow());
+fn test_control_action_error() {
+    let action = ControlAction::from(EvalError::new("error"));
+    assert!(action.is_error());
 
-    let break_err = EvalError::break_with(Value::Void);
-    assert!(break_err.is_control_flow());
+    let err = action.into_eval_error();
+    assert_eq!(err.message, "error");
+}
+
+#[test]
+fn test_control_action_from_eval_error() {
+    let err = EvalError::new("test");
+    let action: ControlAction = err.into();
+    assert!(action.is_error());
 }
 
 // -- Binary Operation Errors --

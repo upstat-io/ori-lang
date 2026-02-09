@@ -21,7 +21,7 @@ impl PatternDefinition for CatchPattern {
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
         match ctx.eval_prop("expr", exec) {
             Ok(value) => Ok(Value::ok(value)),
-            Err(e) => Ok(Value::err(Value::string(e.message))),
+            Err(e) => Ok(Value::err(Value::string(e.into_eval_error().message))),
         }
     }
 }

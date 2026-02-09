@@ -56,7 +56,7 @@ pub fn dispatch_list_method(
             let parts: Vec<String> = items.iter().map(|v| format!("{v:?}")).collect();
             Ok(Value::string(format!("[{}]", parts.join(", "))))
         }
-        _ => Err(no_such_method(method, "list")),
+        _ => Err(no_such_method(method, "list").into()),
     }
 }
 
@@ -138,7 +138,7 @@ pub fn dispatch_string_method(
             s.hash(&mut hasher);
             Ok(Value::int(hasher.finish().cast_signed()))
         }
-        _ => Err(no_such_method(method, "str")),
+        _ => Err(no_such_method(method, "str").into()),
     }
 }
 
@@ -159,7 +159,7 @@ pub fn dispatch_range_method(receiver: Value, method: &str, args: Vec<Value>) ->
             let n = require_int_arg("contains", &args, 0)?;
             Ok(Value::Bool(r.contains(n)))
         }
-        _ => Err(no_such_method(method, "range")),
+        _ => Err(no_such_method(method, "range").into()),
     }
 }
 
@@ -191,6 +191,6 @@ pub fn dispatch_map_method(receiver: Value, method: &str, args: Vec<Value>) -> E
             let values: Vec<Value> = map.values().cloned().collect();
             Ok(Value::list(values))
         }
-        _ => Err(no_such_method(method, "map")),
+        _ => Err(no_such_method(method, "map").into()),
     }
 }

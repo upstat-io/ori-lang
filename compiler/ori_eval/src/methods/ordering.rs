@@ -70,7 +70,7 @@ pub fn dispatch_ordering_method(
         "equals" => {
             require_args("equals", 1, args.len())?;
             let Some(other_ord) = extract_ordering(&args[0]) else {
-                return Err(EvalError::new("equals requires Ordering value"));
+                return Err(EvalError::new("equals requires Ordering value").into());
             };
             Ok(Value::Bool(ord == other_ord))
         }
@@ -79,7 +79,7 @@ pub fn dispatch_ordering_method(
         "compare" => {
             require_args("compare", 1, args.len())?;
             let Some(other_ord) = extract_ordering(&args[0]) else {
-                return Err(EvalError::new("compare requires Ordering value"));
+                return Err(EvalError::new("compare requires Ordering value").into());
             };
             // Tags are ordered: Less(0) < Equal(1) < Greater(2)
             Ok(ordering_to_value(
@@ -88,6 +88,6 @@ pub fn dispatch_ordering_method(
             ))
         }
 
-        _ => Err(no_such_method(method, "Ordering")),
+        _ => Err(no_such_method(method, "Ordering").into()),
     }
 }

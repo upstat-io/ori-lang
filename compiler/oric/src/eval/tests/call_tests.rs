@@ -323,7 +323,11 @@ mod function_val_call {
 
         let result = eval_function_val_call(always_error, &[]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("always fails"));
+        assert!(result
+            .unwrap_err()
+            .into_eval_error()
+            .message
+            .contains("always fails"));
     }
 
     #[test]
@@ -379,7 +383,10 @@ mod function_val_call {
         }
 
         let result = eval_function_val_call(custom_error, &[]);
-        assert_eq!(result.unwrap_err().message, "custom error message");
+        assert_eq!(
+            result.unwrap_err().into_eval_error().message,
+            "custom error message"
+        );
     }
 }
 
@@ -463,7 +470,7 @@ mod extract_named_args_tests {
         let range = arena.alloc_call_args(call_args);
 
         // Mock evaluation function that returns the int value
-        let eval_fn = |expr_id: ExprId| -> Result<Value, crate::eval::EvalError> {
+        let eval_fn = |expr_id: ExprId| -> Result<Value, crate::eval::ControlAction> {
             // In real usage, this would evaluate the expression
             // For testing, we just return a value based on the expression ID
             Ok(Value::int(expr_id.raw() as i64))
@@ -505,7 +512,7 @@ mod extract_named_args_tests {
         let range = arena.alloc_call_args(call_args);
 
         let mut counter = 0;
-        let eval_fn = |_: ExprId| -> Result<Value, crate::eval::EvalError> {
+        let eval_fn = |_: ExprId| -> Result<Value, crate::eval::ControlAction> {
             counter += 1;
             Ok(Value::int(counter))
         };
@@ -522,7 +529,7 @@ mod extract_named_args_tests {
         let arena = ExprArena::new();
         let range = CallArgRange::EMPTY;
 
-        let eval_fn = |_: ExprId| -> Result<Value, crate::eval::EvalError> {
+        let eval_fn = |_: ExprId| -> Result<Value, crate::eval::ControlAction> {
             panic!("should not be called for empty args")
         };
 
@@ -543,13 +550,17 @@ mod extract_named_args_tests {
         }];
         let range = arena.alloc_call_args(call_args);
 
-        let eval_fn = |_: ExprId| -> Result<Value, crate::eval::EvalError> {
-            Err(crate::eval::EvalError::new("evaluation failed"))
+        let eval_fn = |_: ExprId| -> Result<Value, crate::eval::ControlAction> {
+            Err(crate::eval::EvalError::new("evaluation failed").into())
         };
 
         let result = extract_named_args(range, &arena, eval_fn);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("evaluation failed"));
+        assert!(result
+            .unwrap_err()
+            .into_eval_error()
+            .message
+            .contains("evaluation failed"));
     }
 
     #[test]
@@ -581,7 +592,7 @@ mod extract_named_args_tests {
         let order = Rc::new(RefCell::new(Vec::new()));
         let order_clone = Rc::clone(&order);
 
-        let eval_fn = move |expr_id: ExprId| -> Result<Value, crate::eval::EvalError> {
+        let eval_fn = move |expr_id: ExprId| -> Result<Value, crate::eval::ControlAction> {
             order_clone.borrow_mut().push(expr_id);
             Ok(Value::int(expr_id.raw() as i64))
         };

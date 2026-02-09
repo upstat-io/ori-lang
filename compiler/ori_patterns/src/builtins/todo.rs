@@ -32,7 +32,7 @@ impl PatternDefinition for TodoPattern {
         } else {
             "not yet implemented".to_string()
         };
-        Err(EvalError::new(msg))
+        Err(EvalError::new(msg).into())
     }
 }
 
@@ -56,7 +56,7 @@ mod tests {
         let result = TodoPattern.evaluate(&ctx, &mut exec);
 
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.unwrap_err().into_eval_error();
         assert!(err.message.contains("not yet implemented"));
     }
 
@@ -78,7 +78,7 @@ mod tests {
         let result = TodoPattern.evaluate(&ctx, &mut exec);
 
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.unwrap_err().into_eval_error();
         assert!(err.message.contains("not yet implemented"));
         assert!(err.message.contains("implement algorithm"));
     }

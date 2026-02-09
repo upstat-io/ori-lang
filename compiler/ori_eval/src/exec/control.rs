@@ -37,6 +37,7 @@ use ori_ir::{
     ArmRange, BindingPattern, ExprArena, ExprId, ExprKind, MatchPattern, Name, StmtKind, StmtRange,
     StringInterner,
 };
+use ori_patterns::ControlAction;
 use ori_types::{PatternKey, PatternResolution};
 
 /// Look up a pattern resolution by key using binary search.
@@ -120,14 +121,14 @@ pub fn bind_pattern(
         BindingPattern::Tuple(patterns) => {
             if let Value::Tuple(values) = value {
                 if patterns.len() != values.len() {
-                    return Err(tuple_pattern_mismatch());
+                    return Err(tuple_pattern_mismatch().into());
                 }
                 for (pat, val) in patterns.iter().zip(values.iter()) {
                     bind_pattern(pat, val.clone(), mutability, env)?;
                 }
                 Ok(Value::Void)
             } else {
-                Err(expected_tuple())
+                Err(expected_tuple().into())
             }
         }
         BindingPattern::Struct { fields } => {
@@ -141,18 +142,18 @@ pub fn bind_pattern(
                             env.define(*field_name, val.clone(), mutability);
                         }
                     } else {
-                        return Err(missing_struct_field());
+                        return Err(missing_struct_field().into());
                     }
                 }
                 Ok(Value::Void)
             } else {
-                Err(expected_struct())
+                Err(expected_struct().into())
             }
         }
         BindingPattern::List { elements, rest } => {
             if let Value::List(values) = value {
                 if values.len() < elements.len() {
-                    return Err(list_pattern_too_long());
+                    return Err(list_pattern_too_long().into());
                 }
                 for (pat, val) in elements.iter().zip(values.iter()) {
                     bind_pattern(pat, val.clone(), mutability, env)?;
@@ -163,7 +164,7 @@ pub fn bind_pattern(
                 }
                 Ok(Value::Void)
             } else {
-                Err(expected_list())
+                Err(expected_list().into())
             }
         }
     }
@@ -562,7 +563,7 @@ where
         }
     }
 
-    Err(non_exhaustive_match())
+    Err(non_exhaustive_match().into())
 }
 
 /// Result of a for loop iteration.
@@ -574,14 +575,14 @@ pub enum LoopAction {
     ContinueWith(Value),
     /// Exit loop with value
     Break(Value),
-    /// Propagate error
-    Error(Box<EvalError>),
+    /// Propagate error or other non-loop control action
+    Error(ControlAction),
 }
 
 /// Evaluate a loop expression.
 pub fn eval_loop<F>(body: ExprId, mut eval_fn: F) -> EvalResult
 where
-    F: FnMut(ExprId) -> Result<LoopAction, EvalError>,
+    F: FnMut(ExprId) -> Result<LoopAction, ControlAction>,
 {
     loop {
         match eval_fn(body)? {
@@ -590,25 +591,23 @@ where
                 return Ok(val);
             }
             LoopAction::Error(e) => {
-                return Err(*e);
+                return Err(e);
             }
         }
     }
 }
 
-/// Convert an `EvalError` to a `LoopAction` using the `ControlFlow` enum.
+/// Convert a `ControlAction` to a `LoopAction`.
 ///
-/// Control flow signals (break/continue) are indicated by the `control_flow`
-/// field on `EvalError`. Regular errors (where `control_flow` is `None`) are
-/// propagated as `LoopAction::Error`.
-pub fn to_loop_action(error: EvalError) -> LoopAction {
-    use ori_patterns::ControlFlow;
-
-    match error.control_flow {
-        Some(ControlFlow::Continue(v)) if !matches!(v, Value::Void) => LoopAction::ContinueWith(v),
-        Some(ControlFlow::Continue(_)) => LoopAction::Continue,
-        Some(ControlFlow::Break(v)) => LoopAction::Break(v),
-        None => LoopAction::Error(Box::new(error)),
+/// Control flow signals (break/continue) become the corresponding `LoopAction`
+/// variants. Errors and propagation signals are wrapped in `LoopAction::Error`
+/// for re-raising after the loop.
+pub fn to_loop_action(action: ControlAction) -> LoopAction {
+    match action {
+        ControlAction::Continue(v) if !matches!(v, Value::Void) => LoopAction::ContinueWith(v),
+        ControlAction::Continue(_) => LoopAction::Continue,
+        ControlAction::Break(v) => LoopAction::Break(v),
+        other => LoopAction::Error(other),
     }
 }
 
@@ -625,19 +624,19 @@ pub fn eval_assign(
         ExprKind::Ident(name) => {
             env.assign(*name, value.clone()).map_err(|_| {
                 let name_str = interner.lookup(*name);
-                cannot_assign_immutable(name_str)
+                ControlAction::from(cannot_assign_immutable(name_str))
             })?;
             Ok(value)
         }
         ExprKind::Index { .. } => {
             // Assignment to index would require mutable values
-            Err(index_assignment_not_implemented())
+            Err(index_assignment_not_implemented().into())
         }
         ExprKind::Field { .. } => {
             // Assignment to field would require mutable structs
-            Err(field_assignment_not_implemented())
+            Err(field_assignment_not_implemented().into())
         }
-        _ => Err(invalid_assignment_target()),
+        _ => Err(invalid_assignment_target().into()),
     }
 }
 

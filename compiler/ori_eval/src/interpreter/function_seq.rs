@@ -3,6 +3,7 @@
 use super::Interpreter;
 use crate::{for_pattern_requires_list, EvalResult, Mutability, Value};
 use ori_ir::{FunctionSeq, SeqBinding};
+use ori_patterns::ControlAction;
 
 impl Interpreter<'_> {
     /// Evaluate a `function_seq` expression (run, try, match).
@@ -84,12 +85,12 @@ impl Interpreter<'_> {
                                         };
                                         scoped.bind_pattern(pat, unwrapped, mutability)?;
                                     }
-                                    Err(e) => {
-                                        // If this is a propagated error, return the value
-                                        if let Some(propagated) = e.propagated_value {
-                                            return Ok(propagated);
-                                        }
-                                        return Err(e);
+                                    Err(ControlAction::Propagate(v)) => {
+                                        // Propagated error from ? operator — return the value
+                                        return Ok(v);
+                                    }
+                                    Err(other) => {
+                                        return Err(other);
                                     }
                                 }
                             }
@@ -122,7 +123,7 @@ impl Interpreter<'_> {
                 let items = self.eval(*over)?;
 
                 let Value::List(items_list) = items else {
-                    return Err(for_pattern_requires_list(items.type_name()));
+                    return Err(for_pattern_requires_list(items.type_name()).into());
                 };
 
                 // Iterate and find first match

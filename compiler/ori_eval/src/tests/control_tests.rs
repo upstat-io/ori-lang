@@ -5,22 +5,20 @@
 use crate::environment::{Environment, Mutability};
 use crate::exec::control::{bind_pattern, eval_if, to_loop_action, LoopAction};
 use ori_ir::{BindingPattern, ExprId, Name};
-use ori_patterns::{EvalError, Value};
+use ori_patterns::{ControlAction, EvalError, Value};
 
 mod to_loop_action_tests {
     use super::*;
 
     #[test]
     fn control_flow_continue_returns_continue() {
-        let err = EvalError::continue_signal();
-        let action = to_loop_action(err);
+        let action = to_loop_action(ControlAction::Continue(Value::Void));
         assert!(matches!(action, LoopAction::Continue));
     }
 
     #[test]
     fn control_flow_continue_with_value_returns_continue_with() {
-        let err = EvalError::continue_with(Value::int(42));
-        let action = to_loop_action(err);
+        let action = to_loop_action(ControlAction::Continue(Value::int(42)));
         if let LoopAction::ContinueWith(v) = action {
             assert_eq!(v, Value::int(42));
         } else {
@@ -30,8 +28,7 @@ mod to_loop_action_tests {
 
     #[test]
     fn control_flow_break_returns_break_with_value() {
-        let err = EvalError::break_with(Value::int(42));
-        let action = to_loop_action(err);
+        let action = to_loop_action(ControlAction::Break(Value::int(42)));
         if let LoopAction::Break(v) = action {
             assert_eq!(v, Value::int(42));
         } else {
@@ -41,8 +38,7 @@ mod to_loop_action_tests {
 
     #[test]
     fn control_flow_break_void_returns_break_void() {
-        let err = EvalError::break_with(Value::Void);
-        let action = to_loop_action(err);
+        let action = to_loop_action(ControlAction::Break(Value::Void));
         if let LoopAction::Break(v) = action {
             assert!(matches!(v, Value::Void));
         } else {
@@ -52,10 +48,10 @@ mod to_loop_action_tests {
 
     #[test]
     fn no_control_flow_returns_error() {
-        let err = EvalError::new("some error message");
+        let err = ControlAction::from(EvalError::new("some error message"));
         let action = to_loop_action(err);
         if let LoopAction::Error(e) = action {
-            assert_eq!(e.message, "some error message");
+            assert_eq!(e.into_eval_error().message, "some error message");
         } else {
             panic!("expected LoopAction::Error");
         }
@@ -214,7 +210,7 @@ mod eval_if_tests {
         let then_branch = ExprId::new(2);
 
         let result = eval_if(cond, then_branch, ExprId::INVALID, |_| {
-            Err(EvalError::new("test error"))
+            Err(EvalError::new("test error").into())
         });
         assert!(result.is_err());
     }

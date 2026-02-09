@@ -3,7 +3,7 @@
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
 use crate::eval::exec::control::{bind_pattern, eval_if, to_loop_action, LoopAction};
-use crate::eval::{Environment, EvalError, Mutability, Value};
+use crate::eval::{ControlAction, Environment, EvalError, Mutability, Value};
 use crate::ir::{BindingPattern, ExprId, SharedInterner};
 
 // If/Else Tests
@@ -75,7 +75,7 @@ mod if_else {
     #[test]
     fn condition_error_propagates() {
         let result = eval_if(ExprId::new(0), ExprId::new(1), ExprId::INVALID, |_| {
-            Err(crate::eval::EvalError::new("condition error"))
+            Err(crate::eval::EvalError::new("condition error").into())
         });
         assert!(result.is_err());
     }
@@ -326,15 +326,15 @@ mod pattern_binding {
     }
 }
 
-// Loop Control Tests (using typed ControlFlow enum)
+// Loop Control Tests (using ControlAction enum)
 
 mod loop_control {
     use super::*;
 
     #[test]
     fn continue_signal_returns_continue() {
-        let err = EvalError::continue_signal();
-        match to_loop_action(err) {
+        let action = ControlAction::Continue(Value::Void);
+        match to_loop_action(action) {
             LoopAction::Continue => {}
             other => panic!("expected Continue, got {other:?}"),
         }
@@ -342,8 +342,8 @@ mod loop_control {
 
     #[test]
     fn continue_with_value_returns_continue_with() {
-        let err = EvalError::continue_with(Value::int(42));
-        match to_loop_action(err) {
+        let action = ControlAction::Continue(Value::int(42));
+        match to_loop_action(action) {
             LoopAction::ContinueWith(v) => assert_eq!(v, Value::int(42)),
             other => panic!("expected ContinueWith, got {other:?}"),
         }
@@ -351,8 +351,8 @@ mod loop_control {
 
     #[test]
     fn break_void_returns_break_void() {
-        let err = EvalError::break_with(Value::Void);
-        match to_loop_action(err) {
+        let action = ControlAction::Break(Value::Void);
+        match to_loop_action(action) {
             LoopAction::Break(Value::Void) => {}
             other => panic!("expected Break(Void), got {other:?}"),
         }
@@ -360,8 +360,8 @@ mod loop_control {
 
     #[test]
     fn break_with_value_returns_break_with_value() {
-        let err = EvalError::break_with(Value::int(42));
-        match to_loop_action(err) {
+        let action = ControlAction::Break(Value::int(42));
+        match to_loop_action(action) {
             LoopAction::Break(v) => assert_eq!(v, Value::int(42)),
             other => panic!("expected Break with value, got {other:?}"),
         }
@@ -369,9 +369,9 @@ mod loop_control {
 
     #[test]
     fn regular_error_returns_error() {
-        let err = EvalError::new("some error");
-        match to_loop_action(err) {
-            LoopAction::Error(e) => assert_eq!(e.message, "some error"),
+        let action = ControlAction::from(EvalError::new("some error"));
+        match to_loop_action(action) {
+            LoopAction::Error(e) => assert_eq!(e.into_eval_error().message, "some error"),
             other => panic!("expected Error, got {other:?}"),
         }
     }

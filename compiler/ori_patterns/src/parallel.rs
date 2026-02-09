@@ -68,7 +68,7 @@ impl PatternDefinition for ParallelPattern {
             tasks_prop.ok_or_else(|| EvalError::new("parallel requires .tasks property"))?;
         let tasks_value = exec.eval(tasks_prop.value)?;
         let Value::List(task_list) = tasks_value else {
-            return Err(EvalError::new("parallel .tasks must be a list"));
+            return Err(EvalError::new("parallel .tasks must be a list").into());
         };
 
         // Extract .timeout (optional) - convert nanoseconds to milliseconds

@@ -52,7 +52,7 @@ pub fn dispatch_bool_method(
             require_args("hash", 0, args.len())?;
             Ok(Value::int(i64::from(a)))
         }
-        _ => Err(no_such_method(method, "bool")),
+        _ => Err(no_such_method(method, "bool").into()),
     }
 }
 
@@ -103,7 +103,7 @@ pub fn dispatch_char_method(
             require_args("hash", 0, args.len())?;
             Ok(Value::int(i64::from(c as u32)))
         }
-        _ => Err(no_such_method(method, "char")),
+        _ => Err(no_such_method(method, "char").into()),
     }
 }
 
@@ -150,7 +150,7 @@ pub fn dispatch_byte_method(
             require_args("hash", 0, args.len())?;
             Ok(Value::int(i64::from(b)))
         }
-        _ => Err(no_such_method(method, "byte")),
+        _ => Err(no_such_method(method, "byte").into()),
     }
 }
 
@@ -167,11 +167,11 @@ pub fn dispatch_newtype_method(receiver: Value, method: &str, args: Vec<Value>) 
     match method {
         "unwrap" => {
             if !args.is_empty() {
-                return Err(wrong_arg_count("unwrap", 0, args.len()));
+                return Err(wrong_arg_count("unwrap", 0, args.len()).into());
             }
             Ok((*inner).clone())
         }
-        _ => Err(no_such_method(method, "newtype")),
+        _ => Err(no_such_method(method, "newtype").into()),
     }
 }
 
@@ -188,7 +188,7 @@ pub fn dispatch_option_method(
 ) -> EvalResult {
     match (method, &receiver) {
         ("unwrap" | "unwrap_or", Value::Some(v)) => Ok((**v).clone()),
-        ("unwrap", Value::None) => Err(EvalError::new("called unwrap on None")),
+        ("unwrap", Value::None) => Err(EvalError::new("called unwrap on None").into()),
         ("is_some", Value::Some(_)) | ("is_none", Value::None) => Ok(Value::Bool(true)),
         ("is_some", Value::None) | ("is_none", Value::Some(_)) => Ok(Value::Bool(false)),
         ("unwrap_or", Value::None) => {
@@ -218,7 +218,7 @@ pub fn dispatch_option_method(
             let ord = compare_option_values(&receiver, &args[0], interner)?;
             Ok(ordering_to_value(ord, interner))
         }
-        _ => Err(no_such_method(method, "Option")),
+        _ => Err(no_such_method(method, "Option").into()),
     }
 }
 
@@ -236,7 +236,7 @@ pub fn dispatch_result_method(
     match method {
         "unwrap" => match &receiver {
             Value::Ok(v) => Ok((**v).clone()),
-            Value::Err(e) => Err(EvalError::new(format!("called unwrap on Err: {e:?}"))),
+            Value::Err(e) => Err(EvalError::new(format!("called unwrap on Err: {e:?}")).into()),
             _ => unreachable!(),
         },
         "is_ok" => Ok(Value::Bool(matches!(&receiver, Value::Ok(_)))),
@@ -247,6 +247,6 @@ pub fn dispatch_result_method(
             let ord = compare_result_values(&receiver, other, interner)?;
             Ok(ordering_to_value(ord, interner))
         }
-        _ => Err(no_such_method(method, "Result")),
+        _ => Err(no_such_method(method, "Result").into()),
     }
 }

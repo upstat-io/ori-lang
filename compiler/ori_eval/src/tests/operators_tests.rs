@@ -98,21 +98,33 @@ fn test_shift_amount_validation() {
 fn test_addition_overflow() {
     let result = evaluate_binary(Value::int(i64::MAX), Value::int(1), BinaryOp::Add);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("integer overflow"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("integer overflow"));
 }
 
 #[test]
 fn test_subtraction_overflow() {
     let result = evaluate_binary(Value::int(i64::MIN), Value::int(1), BinaryOp::Sub);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("integer overflow"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("integer overflow"));
 }
 
 #[test]
 fn test_multiplication_overflow() {
     let result = evaluate_binary(Value::int(i64::MAX), Value::int(2), BinaryOp::Mul);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("integer overflow"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("integer overflow"));
 }
 
 #[test]
@@ -120,7 +132,11 @@ fn test_division_overflow() {
     // i64::MIN / -1 overflows because |i64::MIN| > i64::MAX
     let result = evaluate_binary(Value::int(i64::MIN), Value::int(-1), BinaryOp::Div);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("integer overflow"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("integer overflow"));
 }
 
 #[test]
@@ -173,7 +189,11 @@ fn assert_overflow(left: i64, right: i64, op: BinaryOp) {
         "expected overflow for {left} {op:?} {right}"
     );
     assert!(
-        result.unwrap_err().message.contains("integer overflow"),
+        result
+            .unwrap_err()
+            .into_eval_error()
+            .message
+            .contains("integer overflow"),
         "expected 'integer overflow' message"
     );
 }
@@ -238,21 +258,33 @@ fn overflow_rem_min_mod_neg1() {
 fn div_zero_message() {
     let result = evaluate_binary(Value::int(42), Value::int(0), BinaryOp::Div);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("division by zero"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("division by zero"));
 }
 
 #[test]
 fn mod_zero_message() {
     let result = evaluate_binary(Value::int(42), Value::int(0), BinaryOp::Mod);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("modulo by zero"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("modulo by zero"));
 }
 
 #[test]
 fn floor_div_zero_message() {
     let result = evaluate_binary(Value::int(42), Value::int(0), BinaryOp::FloorDiv);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("division by zero"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("division by zero"));
 }
 
 #[test]
@@ -391,26 +423,42 @@ fn shr_zero_shift() {
 fn shl_64_out_of_range() {
     let result = evaluate_binary(Value::int(1), Value::int(64), BinaryOp::Shl);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("out of range"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("out of range"));
 }
 
 #[test]
 fn shr_64_out_of_range() {
     let result = evaluate_binary(Value::int(1), Value::int(64), BinaryOp::Shr);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("out of range"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("out of range"));
 }
 
 #[test]
 fn shl_negative_out_of_range() {
     let result = evaluate_binary(Value::int(1), Value::int(-1), BinaryOp::Shl);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("out of range"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("out of range"));
 }
 
 #[test]
 fn shr_negative_out_of_range() {
     let result = evaluate_binary(Value::int(1), Value::int(-1), BinaryOp::Shr);
     assert!(result.is_err());
-    assert!(result.unwrap_err().message.contains("out of range"));
+    assert!(result
+        .unwrap_err()
+        .into_eval_error()
+        .message
+        .contains("out of range"));
 }

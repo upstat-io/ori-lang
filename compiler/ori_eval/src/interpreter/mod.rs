@@ -150,8 +150,8 @@ impl TypeNames {
     }
 }
 use ori_patterns::{
-    propagated_error_message, recursion_limit_exceeded, EvalContext, EvalError, EvalResult,
-    PatternDefinition, PatternExecutor, PatternRegistry,
+    recursion_limit_exceeded, ControlAction, EvalContext, EvalError, EvalResult, PatternDefinition,
+    PatternExecutor, PatternRegistry,
 };
 use ori_stack::ensure_sufficient_stack;
 
@@ -403,21 +403,17 @@ impl<'a> Interpreter<'a> {
 
     /// Attach a span to an error if it doesn't already have one.
     ///
-    /// This ensures errors from operator evaluation have source location
-    /// information for better error messages.
+    /// Only attaches spans to `ControlAction::Error` variants; control flow
+    /// signals (Break, Continue, Propagate) pass through unchanged.
     #[inline]
-    fn attach_span(err: EvalError, span: ori_ir::Span) -> EvalError {
-        if err.span.is_none() {
-            err.with_span(span)
-        } else {
-            err
-        }
+    fn attach_span(action: ControlAction, span: ori_ir::Span) -> ControlAction {
+        action.with_span_if_error(span)
     }
 
     /// Evaluate a list of expressions from an `ExprRange`.
     ///
     /// Helper to reduce repetition in collection and call evaluation.
-    fn eval_expr_list(&mut self, range: ori_ir::ExprRange) -> Result<Vec<Value>, EvalError> {
+    fn eval_expr_list(&mut self, range: ori_ir::ExprRange) -> Result<Vec<Value>, ControlAction> {
         self.arena
             .get_expr_list(range)
             .iter()
@@ -429,7 +425,7 @@ impl<'a> Interpreter<'a> {
     /// Evaluate call arguments from a `CallArgRange`.
     ///
     /// Helper for named argument evaluation in method calls.
-    fn eval_call_args(&mut self, range: ori_ir::CallArgRange) -> Result<Vec<Value>, EvalError> {
+    fn eval_call_args(&mut self, range: ori_ir::CallArgRange) -> Result<Vec<Value>, ControlAction> {
         self.arena
             .get_call_args(range)
             .iter()
@@ -448,7 +444,8 @@ impl<'a> Interpreter<'a> {
                  This is likely a compiler bug.",
                 expr_id.index(),
                 self.arena.expr_count()
-            )));
+            ))
+            .into());
         }
         let expr = self.arena.get_expr(expr_id);
 
@@ -514,7 +511,8 @@ impl<'a> Interpreter<'a> {
                             } else {
                                 return Err(EvalError::new(
                                     "spread operator requires a list".to_string(),
-                                ));
+                                )
+                                .into());
                             }
                         }
                     }
@@ -612,7 +610,7 @@ impl<'a> Interpreter<'a> {
             ExprKind::FunctionRef(name) => self
                 .env
                 .lookup(*name)
-                .ok_or_else(|| undefined_function(self.interner.lookup(*name))),
+                .ok_or_else(|| undefined_function(self.interner.lookup(*name)).into()),
             ExprKind::MethodCall {
                 receiver,
                 method,
@@ -679,7 +677,7 @@ impl<'a> Interpreter<'a> {
                                     map.insert(k.clone(), v.clone());
                                 }
                             } else {
-                                return Err(spread_requires_map());
+                                return Err(spread_requires_map().into());
                             }
                         }
                     }
@@ -740,7 +738,8 @@ impl<'a> Interpreter<'a> {
                             } else {
                                 return Err(EvalError::new(
                                     "spread requires a struct value".to_string(),
-                                ));
+                                )
+                                .into());
                             }
                         }
                     }
@@ -754,7 +753,7 @@ impl<'a> Interpreter<'a> {
                 } else {
                     Value::Void
                 };
-                Err(EvalError::break_with(val))
+                Err(ControlAction::Break(val))
             }
             ExprKind::Continue(v) => {
                 let val = if v.is_present() {
@@ -762,7 +761,7 @@ impl<'a> Interpreter<'a> {
                 } else {
                     Value::Void
                 };
-                Err(EvalError::continue_with(val))
+                Err(ControlAction::Continue(val))
             }
             ExprKind::Assign { target, value } => {
                 let val = self.eval(*value)?;
@@ -770,11 +769,8 @@ impl<'a> Interpreter<'a> {
             }
             ExprKind::Try(inner) => match self.eval(*inner)? {
                 Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
-                Value::Err(e) => Err(EvalError::propagate(
-                    Value::Err(e.clone()),
-                    propagated_error_message(&e),
-                )),
-                Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
+                Value::Err(e) => Err(ControlAction::Propagate(Value::Err(e))),
+                Value::None => Err(ControlAction::Propagate(Value::None)),
                 other => Ok(other),
             },
             ExprKind::Cast { expr, ty, fallible } => {
@@ -784,7 +780,7 @@ impl<'a> Interpreter<'a> {
             ExprKind::Const(name) => self
                 .env
                 .lookup(*name)
-                .ok_or_else(|| undefined_const(self.interner.lookup(*name))),
+                .ok_or_else(|| undefined_const(self.interner.lookup(*name)).into()),
             // Capability provision: with Capability = Provider in body
             // For now, we evaluate the provider (which may have side effects),
             // then bind it to the capability name in a new scope and evaluate the body.
@@ -807,13 +803,13 @@ impl<'a> Interpreter<'a> {
                 }
                 Ok(Value::string(result))
             }
-            ExprKind::Error => Err(parse_error()),
-            ExprKind::HashLength => Err(hash_outside_index()),
+            ExprKind::Error => Err(parse_error().into()),
+            ExprKind::HashLength => Err(hash_outside_index().into()),
             ExprKind::SelfRef => self
                 .env
                 .lookup(self.interner.intern("self"))
-                .ok_or_else(self_outside_method),
-            ExprKind::Await(_) => Err(await_not_supported()),
+                .ok_or_else(|| self_outside_method().into()),
+            ExprKind::Await(_) => Err(await_not_supported().into()),
         }
     }
 
@@ -830,9 +826,7 @@ impl<'a> Interpreter<'a> {
                 self.interner.lookup(*name)
             }
             _ => {
-                return Err(EvalError::new(format!(
-                    "unsupported cast target type: {ty:?}"
-                )));
+                return Err(EvalError::new(format!("unsupported cast target type: {ty:?}")).into());
             }
         };
 
@@ -848,7 +842,8 @@ impl<'a> Interpreter<'a> {
                     }
                     return Err(EvalError::new(format!(
                         "value {raw} out of range for byte (0-255)"
-                    )));
+                    ))
+                    .into());
                 }
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 Ok(Value::Byte(raw as u8))
@@ -863,7 +858,8 @@ impl<'a> Interpreter<'a> {
                 } else {
                     return Err(EvalError::new(format!(
                         "value {raw} is not a valid Unicode codepoint"
-                    )));
+                    ))
+                    .into());
                 }
             }
 
@@ -882,14 +878,14 @@ impl<'a> Interpreter<'a> {
                 Ok(n) => Ok(Value::int(n)),
                 Err(_) if fallible => return Ok(Value::None),
                 Err(_) => {
-                    return Err(EvalError::new(format!("cannot parse '{s}' as int")));
+                    return Err(EvalError::new(format!("cannot parse '{s}' as int")).into());
                 }
             },
             ("float", Value::Str(s)) => match s.parse::<f64>() {
                 Ok(n) => Ok(Value::Float(n)),
                 Err(_) if fallible => return Ok(Value::None),
                 Err(_) => {
-                    return Err(EvalError::new(format!("cannot parse '{s}' as float")));
+                    return Err(EvalError::new(format!("cannot parse '{s}' as float")).into());
                 }
             },
 
@@ -911,7 +907,8 @@ impl<'a> Interpreter<'a> {
                 Err(EvalError::new(format!(
                     "cannot convert {} to {target_name}",
                     value.type_name()
-                )))
+                ))
+                .into())
             }
         };
 
@@ -1015,10 +1012,11 @@ impl<'a> Interpreter<'a> {
                         return self.eval(right);
                     }
                     _ => {
-                        let err = EvalError::new(format!(
+                        let err: ControlAction = EvalError::new(format!(
                             "operator '??' requires Option or Result, got {}",
                             left_val.type_name()
-                        ));
+                        ))
+                        .into();
                         return Err(Self::attach_span(err, span));
                     }
                 }
@@ -1191,7 +1189,7 @@ impl<'a> Interpreter<'a> {
             }
         }
 
-        Err(non_exhaustive_match())
+        Err(non_exhaustive_match().into())
     }
 
     /// Evaluate a for loop using `exec::control` helpers.
@@ -1209,10 +1207,10 @@ impl<'a> Interpreter<'a> {
 
         /// Result of a single loop iteration with RAII guard.
         enum IterResult {
-            Continue,              // Normal continue or guard failed
-            Yield(Value),          // Yield mode: value to collect
-            Break(Value),          // Break with value
-            Error(Box<EvalError>), // Propagate error
+            Continue,             // Normal continue or guard failed
+            Yield(Value),         // Yield mode: value to collect
+            Break(Value),         // Break with value
+            Error(ControlAction), // Propagate error or control action
         }
 
         /// Lazy iterator over for loop items to avoid pre-collecting all elements.
@@ -1305,7 +1303,7 @@ impl<'a> Interpreter<'a> {
                 step: range.step,
                 inclusive: range.inclusive,
             },
-            _ => return Err(for_requires_iterable()),
+            _ => return Err(for_requires_iterable().into()),
         };
 
         if is_yield {
@@ -1320,7 +1318,7 @@ impl<'a> Interpreter<'a> {
                     if guard.is_present() {
                         match eval.eval(guard) {
                             Ok(v) if !v.is_truthy() => return IterResult::Continue,
-                            Err(e) => return IterResult::Error(Box::new(e)),
+                            Err(e) => return IterResult::Error(e),
                             Ok(_) => {}
                         }
                     }
@@ -1346,7 +1344,7 @@ impl<'a> Interpreter<'a> {
                         }
                         return Ok(Value::list(results));
                     }
-                    IterResult::Error(e) => return Err(*e),
+                    IterResult::Error(e) => return Err(e),
                 }
             }
             Ok(Value::list(results))
@@ -1358,7 +1356,7 @@ impl<'a> Interpreter<'a> {
                     if guard.is_present() {
                         match eval.eval(guard) {
                             Ok(v) if !v.is_truthy() => return IterResult::Continue,
-                            Err(e) => return IterResult::Error(Box::new(e)),
+                            Err(e) => return IterResult::Error(e),
                             Ok(_) => {}
                         }
                     }
@@ -1379,7 +1377,7 @@ impl<'a> Interpreter<'a> {
                     IterResult::Continue => {}
                     IterResult::Yield(_) => unreachable!("Yield only in yield mode"),
                     IterResult::Break(v) => return Ok(v),
-                    IterResult::Error(e) => return Err(*e),
+                    IterResult::Error(e) => return Err(e),
                 }
             }
             Ok(Value::Void)
@@ -1395,7 +1393,7 @@ impl<'a> Interpreter<'a> {
                 Err(e) => match to_loop_action(e) {
                     LoopAction::Continue | LoopAction::ContinueWith(_) => {}
                     LoopAction::Break(v) => return Ok(v),
-                    LoopAction::Error(e) => return Err(*e),
+                    LoopAction::Error(e) => return Err(e),
                 },
             }
         }

@@ -39,7 +39,7 @@ pub fn dispatch_associated_function(type_name: &str, method: &str, args: Vec<Val
     match type_name {
         "Duration" => units::dispatch_duration_associated(method, &args),
         "Size" => units::dispatch_size_associated(method, &args),
-        _ => Err(no_such_method(method, type_name)),
+        _ => Err(no_such_method(method, type_name).into()),
     }
 }
 
@@ -75,6 +75,6 @@ pub fn dispatch_builtin_method(
         Value::Duration(_) => units::dispatch_duration_method(receiver, method, args, interner),
         Value::Size(_) => units::dispatch_size_method(receiver, method, args, interner),
         Value::Ordering(_) => ordering::dispatch_ordering_method(receiver, method, args, interner),
-        _ => Err(no_such_method(method, receiver.type_name())),
+        _ => Err(no_such_method(method, receiver.type_name()).into()),
     }
 }
