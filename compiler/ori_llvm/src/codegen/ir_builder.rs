@@ -1474,6 +1474,77 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     // Function attributes
     // -----------------------------------------------------------------------
 
+    /// Add the `nounwind` attribute to a function.
+    ///
+    /// Declares the function will not unwind (no exceptions). Enables LLVM
+    /// to optimize exception handling paths around calls to this function.
+    pub fn add_nounwind_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("nounwind");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
+    /// Add the `noinline` attribute to a function.
+    ///
+    /// Prevents LLVM from inlining this function. Used for cold paths like
+    /// specialized drop functions and panic handlers.
+    pub fn add_noinline_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("noinline");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
+    /// Add the `cold` attribute to a function.
+    ///
+    /// Hints that this function is rarely called. LLVM uses this to:
+    /// - Move cold code out of hot code layout
+    /// - Reduce inlining priority
+    /// - Optimize branch prediction away from cold paths
+    pub fn add_cold_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("cold");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
+    /// Add the `noalias` attribute to a function's return value.
+    ///
+    /// Guarantees the returned pointer does not alias any other pointer
+    /// visible to the caller. Used for allocation functions like `ori_rc_alloc`
+    /// where the returned pointer is a fresh heap allocation.
+    pub fn add_noalias_return_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("noalias");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Return, attr);
+    }
+
+    /// Add the `memory(argmem: readwrite)` attribute to a function.
+    ///
+    /// Declares the function only reads/writes memory reachable from its pointer
+    /// arguments (no global memory access, no inaccessible memory). This is
+    /// critical for ARC runtime functions (`ori_rc_inc`, `ori_rc_dec`) which
+    /// modify refcount at `ptr - 8` but don't access any other memory.
+    ///
+    /// # LLVM `MemoryEffects` Encoding
+    ///
+    /// The `memory` attribute uses a bitfield encoding from `ModRef.h`:
+    /// - Bits \[1:0\]: `DefaultMem` access (None=0, Ref=1, Mod=2, ModRef=3)
+    /// - Bits \[3:2\]: `ArgMem` access
+    /// - Bits \[5:4\]: `InaccessibleMem` access
+    ///
+    /// `memory(argmem: readwrite)` = DefaultMem:None | ArgMem:ModRef | InaccessibleMem:None
+    /// = 0 | (3 << 2) | (0 << 4) = 12
+    pub fn add_memory_argmem_readwrite_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("memory");
+        // MemoryEffects encoding: argmem: readwrite (ModRef=3 at ArgMem position bits [3:2])
+        let attr = self.scx.llcx.create_enum_attribute(kind, 12);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
     /// Add the `sret(T)` attribute to a function parameter.
     ///
     /// Marks the parameter as a hidden struct return pointer. LLVM uses

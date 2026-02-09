@@ -209,25 +209,19 @@ pub fn run_file_compiled(path: &str) {
         std::process::exit(1);
     }
 
-    // Run optimization passes (O2 for good performance)
-    let opt_config = ori_llvm::aot::OptimizationConfig::new(ori_llvm::aot::OptimizationLevel::O2);
-    if let Err(e) =
-        ori_llvm::aot::run_optimization_passes(&llvm_module, emitter.machine(), &opt_config)
-    {
-        eprintln!("error: optimization failed: {e}");
-        std::process::exit(1);
-    }
-
     // Ensure cache directory exists
     if let Err(e) = std::fs::create_dir_all(&cache_dir) {
         eprintln!("warning: could not create cache directory: {e}");
     }
 
-    // Emit object file to temp location
+    // Verify → optimize → emit object file via unified pipeline (O2 for good performance)
+    let opt_config = ori_llvm::aot::OptimizationConfig::new(ori_llvm::aot::OptimizationLevel::O2);
     let obj_path = cache_dir.join(format!("{binary_name}.o"));
 
-    if let Err(e) = emitter.emit(&llvm_module, &obj_path, OutputFormat::Object) {
-        eprintln!("error: failed to emit object file: {e}");
+    if let Err(e) =
+        emitter.verify_optimize_emit(&llvm_module, &opt_config, &obj_path, OutputFormat::Object)
+    {
+        eprintln!("error: pipeline failed: {e}");
         std::process::exit(1);
     }
 
