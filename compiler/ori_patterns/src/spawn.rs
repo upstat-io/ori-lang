@@ -49,7 +49,7 @@ impl PatternDefinition for SpawnPattern {
 
         let tasks_value = exec.eval(tasks_prop.value)?;
         let Value::List(task_list) = tasks_value else {
-            return Err(EvalError::new("spawn .tasks must be a list"));
+            return Err(EvalError::new("spawn .tasks must be a list").into());
         };
 
         // Extract .max_concurrent (optional)
@@ -156,6 +156,10 @@ mod tests {
         let result = SpawnPattern.evaluate(&ctx, &mut exec);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("must be a list"));
+        assert!(result
+            .unwrap_err()
+            .into_eval_error()
+            .message
+            .contains("must be a list"));
     }
 }

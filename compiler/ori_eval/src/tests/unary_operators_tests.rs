@@ -45,7 +45,11 @@ mod negation {
     fn int_min_overflow_errors() {
         let result = evaluate_unary(Value::int(i64::MIN), UnaryOp::Neg);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("integer overflow"));
+        assert!(result
+            .unwrap_err()
+            .into_eval_error()
+            .message
+            .contains("integer overflow"));
     }
 
     #[test]
@@ -346,7 +350,7 @@ mod negation_boundaries {
     fn neg_min_overflow_message() {
         let result = evaluate_unary(Value::int(i64::MIN), UnaryOp::Neg);
         assert!(result.is_err());
-        let msg = result.unwrap_err().message;
+        let msg = result.unwrap_err().into_eval_error().message;
         assert!(msg.contains("integer overflow"), "got: {msg}");
         assert!(msg.contains("negation"), "got: {msg}");
     }

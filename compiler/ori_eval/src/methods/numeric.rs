@@ -30,53 +30,53 @@ pub fn dispatch_int_method(
             let b = require_scalar_int_arg("add", &args, 0)?;
             a.checked_add(b)
                 .map(Value::Int)
-                .ok_or_else(|| integer_overflow("addition"))
+                .ok_or_else(|| integer_overflow("addition").into())
         }
         "sub" => {
             require_args("sub", 1, args.len())?;
             let b = require_scalar_int_arg("sub", &args, 0)?;
             a.checked_sub(b)
                 .map(Value::Int)
-                .ok_or_else(|| integer_overflow("subtraction"))
+                .ok_or_else(|| integer_overflow("subtraction").into())
         }
         "mul" => {
             require_args("mul", 1, args.len())?;
             let b = require_scalar_int_arg("mul", &args, 0)?;
             a.checked_mul(b)
                 .map(Value::Int)
-                .ok_or_else(|| integer_overflow("multiplication"))
+                .ok_or_else(|| integer_overflow("multiplication").into())
         }
         "div" => {
             require_args("div", 1, args.len())?;
             let b = require_scalar_int_arg("div", &args, 0)?;
             if b.is_zero() {
-                Err(division_by_zero())
+                Err(division_by_zero().into())
             } else {
                 a.checked_div(b)
                     .map(Value::Int)
-                    .ok_or_else(|| integer_overflow("division"))
+                    .ok_or_else(|| integer_overflow("division").into())
             }
         }
         "floor_div" => {
             require_args("floor_div", 1, args.len())?;
             let b = require_scalar_int_arg("floor_div", &args, 0)?;
             if b.is_zero() {
-                Err(division_by_zero())
+                Err(division_by_zero().into())
             } else {
                 a.checked_floor_div(b)
                     .map(Value::Int)
-                    .ok_or_else(|| integer_overflow("floor division"))
+                    .ok_or_else(|| integer_overflow("floor division").into())
             }
         }
         "rem" => {
             require_args("rem", 1, args.len())?;
             let b = require_scalar_int_arg("rem", &args, 0)?;
             if b.is_zero() {
-                Err(modulo_by_zero())
+                Err(modulo_by_zero().into())
             } else {
                 a.checked_rem(b)
                     .map(Value::Int)
-                    .ok_or_else(|| integer_overflow("remainder"))
+                    .ok_or_else(|| integer_overflow("remainder").into())
             }
         }
         // Unary operators
@@ -84,7 +84,7 @@ pub fn dispatch_int_method(
             require_args("neg", 0, args.len())?;
             a.checked_neg()
                 .map(Value::Int)
-                .ok_or_else(|| integer_overflow("negation"))
+                .ok_or_else(|| integer_overflow("negation").into())
         }
         // Bitwise operators
         "bit_and" => {
@@ -110,14 +110,14 @@ pub fn dispatch_int_method(
             require_args("shl", 1, args.len())?;
             let b = require_scalar_int_arg("shl", &args, 0)?;
             a.checked_shl(b).map(Value::Int).ok_or_else(|| {
-                EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))
+                EvalError::new(format!("shift amount {} out of range (0-63)", b.raw())).into()
             })
         }
         "shr" => {
             require_args("shr", 1, args.len())?;
             let b = require_scalar_int_arg("shr", &args, 0)?;
             a.checked_shr(b).map(Value::Int).ok_or_else(|| {
-                EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))
+                EvalError::new(format!("shift amount {} out of range (0-63)", b.raw())).into()
             })
         }
         // Comparable trait
@@ -148,7 +148,7 @@ pub fn dispatch_int_method(
             // For integers, use the value itself as its hash (simple but effective)
             Ok(Value::Int(a))
         }
-        _ => Err(no_such_method(method, "int")),
+        _ => Err(no_such_method(method, "int").into()),
     }
 }
 
@@ -225,6 +225,6 @@ pub fn dispatch_float_method(
             // Use bits representation for consistent hashing
             Ok(Value::int(a.to_bits().cast_signed()))
         }
-        _ => Err(no_such_method(method, "float")),
+        _ => Err(no_such_method(method, "float").into()),
     }
 }

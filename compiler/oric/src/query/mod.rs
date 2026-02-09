@@ -246,7 +246,7 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
         // Call main with no arguments
         match evaluator.eval_call_value(&main_func, &[]) {
             Ok(value) => ModuleEvalResult::success(EvalOutput::from_value(&value, interner)),
-            Err(e) => ModuleEvalResult::runtime_error(&e),
+            Err(e) => ModuleEvalResult::runtime_error(&e.into_eval_error()),
         }
     } else {
         // No main function - try to evaluate first function only if it has no parameters
@@ -258,7 +258,7 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
                     Ok(value) => {
                         ModuleEvalResult::success(EvalOutput::from_value(&value, interner))
                     }
-                    Err(e) => ModuleEvalResult::runtime_error(&e),
+                    Err(e) => ModuleEvalResult::runtime_error(&e.into_eval_error()),
                 }
             } else {
                 // Function requires arguments - can't run without @main

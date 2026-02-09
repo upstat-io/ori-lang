@@ -36,7 +36,7 @@ pub use ori_eval::{
     dispatch_builtin_method, evaluate_binary, evaluate_unary, Environment, LocalScope, Mutability,
     Scope, UserMethod, UserMethodRegistry,
 };
-pub use ori_patterns::{EvalError, EvalResult};
+pub use ori_patterns::{ControlAction, EvalError, EvalResult};
 pub use output::{EvalErrorSnapshot, EvalOutput, ModuleEvalResult};
 pub use value::{FunctionValFn, FunctionValue, Heap, RangeValue, StructLayout, StructValue, Value};
 

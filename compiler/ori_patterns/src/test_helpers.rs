@@ -94,12 +94,14 @@ impl PatternExecutor for MockPatternExecutor {
         self.expr_values
             .get(&expr_id.index())
             .cloned()
-            .ok_or_else(|| EvalError::new(format!("no mock value for ExprId({})", expr_id.index())))
+            .ok_or_else(|| {
+                EvalError::new(format!("no mock value for ExprId({})", expr_id.index())).into()
+            })
     }
 
     fn call(&mut self, _func: &Value, _args: Vec<Value>) -> EvalResult {
         if self.call_results.is_empty() {
-            return Err(EvalError::new("no mock call results configured"));
+            return Err(EvalError::new("no mock call results configured").into());
         }
         let result = self.call_results[self.call_index].clone();
         self.call_index = (self.call_index + 1) % self.call_results.len();

@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: Structured Diagnostics
-status: in-progress
+status: complete
 goal: Enhance eval error reporting with typed EvalErrorKind, call stack backtraces, context notes, and --profile instrumentation
 sections:
   - id: "06.1"
@@ -9,7 +9,7 @@ sections:
     status: complete
   - id: "06.2"
     title: Structured EvalError
-    status: in-progress
+    status: complete
   - id: "06.3"
     title: Diagnostic Conversion
     status: complete
@@ -18,12 +18,12 @@ sections:
     status: complete
   - id: "06.5"
     title: Completion Checklist
-    status: in-progress
+    status: complete
 ---
 
 # Section 06: Structured Diagnostics
 
-**Status:** Nearly Complete (ControlAction refactor deferred to Section 07)
+**Status:** Complete
 **Goal:** Make runtime errors as informative as compile-time errors — typed error categories, call stack backtraces, actionable context notes, and optional performance counters.
 
 **File:** `compiler/ori_eval/src/diagnostics.rs` (new) + updates to `ori_patterns/src/errors.rs`
@@ -84,13 +84,14 @@ Redesign `EvalError` with typed categories instead of just `message: String`.
   - [x] `Custom` variant for uncategorized errors
 - [x] `EvalErrorSnapshot` — Salsa-compatible snapshot type that captures diagnostic fields (message, kind_name, span, backtrace frames, notes) without `Value`
 - [x] `ModuleEvalResult::runtime_error()` preserves full `EvalError` context at Salsa query boundary
-- [ ] Remove `ControlFlow` and `propagated_value` from `EvalError` (moved to `ControlAction` — deferred to Section 07)
+- [x] Remove `ControlFlow` and `propagated_value` from `EvalError` (moved to `ControlAction`)
 
 **Implementation notes:**
 - Both `kind: EvalErrorKind` and `message: String` are kept for backward compatibility
 - `from_kind()` computes `message` from `kind.to_string()`, ensuring consistency
 - `EvalErrorKind` lives in `ori_patterns` (crate dependency constraint)
-- `EvalErrorSnapshot` is `Clone + Eq + Hash + Debug` (Salsa-compatible) — strips `Value` and `ControlFlow` from `EvalError`
+- `EvalErrorSnapshot` is `Clone + Eq + Hash + Debug` (Salsa-compatible) — strips `Value` from `EvalError`
+- `ControlAction` enum separates control flow (Break/Continue/Propagate) from errors — `EvalResult = Result<Value, ControlAction>`
 
 ---
 
@@ -154,10 +155,10 @@ pub struct EvalCounters {
 - [x] `snapshot_to_diagnostic()` enriches backtraces with file:line:col via `LineOffsetTable`
 - [x] `--profile` CLI flag with counter report on stderr
 - [x] Counter increments wired at `eval_inner()`, `eval_call()`, `eval_method_call()`, `eval_match()`
-- [x] `./test-all.sh` passes (8448 tests, 0 failures)
+- [x] `ControlAction` refactor: control flow signals (Break/Continue/Propagate) separated from `EvalError`
+- [x] `./test-all.sh` passes (8456 tests, 0 failures)
 
 **Deferred to Section 07:**
-- [ ] Remove `ControlFlow`/`propagated_value` from `EvalError` (→ `ControlAction`) — pervasive refactor, fits Section 07's dispatch rewrite
 - [ ] Counter wiring in new `eval_canon()` dispatch with `CanExpr`-aware granularity
 
-**Exit Criteria:** Runtime errors include typed categories, call stack backtraces, and context notes. `--profile` prints evaluation statistics. Errors are as informative as compile-time diagnostics. ✅ All criteria met except `ControlAction` refactor (deferred).
+**Exit Criteria:** Runtime errors include typed categories, call stack backtraces, and context notes. `--profile` prints evaluation statistics. Errors are as informative as compile-time diagnostics. `ControlAction` cleanly separates control flow from errors. ✅ All criteria met.

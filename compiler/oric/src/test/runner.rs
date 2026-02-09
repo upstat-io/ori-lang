@@ -674,9 +674,12 @@ impl TestRunner {
         // Run the test from the compiled module (no recompilation!)
         match compiled.run_test(test.name) {
             Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
-            Err(e) => {
-                TestResult::failed(test.name, test.targets.clone(), e.message, start.elapsed())
-            }
+            Err(e) => TestResult::failed(
+                test.name,
+                test.targets.clone(),
+                e.into_eval_error().message,
+                start.elapsed(),
+            ),
         }
     }
 
@@ -848,9 +851,12 @@ impl TestRunner {
         // Evaluate the test body
         match evaluator.eval(test.body) {
             Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
-            Err(e) => {
-                TestResult::failed(test.name, test.targets.clone(), e.message, start.elapsed())
-            }
+            Err(e) => TestResult::failed(
+                test.name,
+                test.targets.clone(),
+                e.into_eval_error().message,
+                start.elapsed(),
+            ),
         }
     }
 }

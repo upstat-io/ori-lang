@@ -34,7 +34,7 @@ impl PatternDefinition for TimeoutPattern {
         // In interpreter, just run the operation without actual timeout
         match ctx.eval_prop("operation", exec) {
             Ok(value) => Ok(Value::ok(value)),
-            Err(e) => Ok(Value::err(Value::string(e.message))),
+            Err(e) => Ok(Value::err(Value::string(e.into_eval_error().message))),
         }
     }
 }

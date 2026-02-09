@@ -17,7 +17,9 @@ use ori_patterns::{
 /// Used for Add, Sub, Mul where the only error case is overflow.
 #[inline]
 fn checked_arith<T>(result: Option<T>, wrap: fn(T) -> Value, op_name: &'static str) -> EvalResult {
-    result.map(wrap).ok_or_else(|| integer_overflow(op_name))
+    result
+        .map(wrap)
+        .ok_or_else(|| integer_overflow(op_name).into())
 }
 
 /// Checked division with zero guard.
@@ -34,9 +36,10 @@ where
     F: FnOnce() -> Option<T>,
 {
     if is_zero {
-        Err(division_by_zero())
+        Err(division_by_zero().into())
     } else {
-        op().map(wrap).ok_or_else(|| integer_overflow(op_name))
+        op().map(wrap)
+            .ok_or_else(|| integer_overflow(op_name).into())
     }
 }
 
@@ -54,9 +57,10 @@ where
     F: FnOnce() -> Option<T>,
 {
     if is_zero {
-        Err(modulo_by_zero())
+        Err(modulo_by_zero().into())
     } else {
-        op().map(wrap).ok_or_else(|| integer_overflow(op_name))
+        op().map(wrap)
+            .ok_or_else(|| integer_overflow(op_name).into())
     }
 }
 
@@ -92,7 +96,7 @@ pub fn evaluate_binary(left: Value, right: Value, op: BinaryOp) -> EvalResult {
             eval_result_binary(&left, &right, op)
         }
         (Value::Struct(a), Value::Struct(b)) => eval_struct_binary(a, b, op),
-        _ => Err(binary_type_mismatch(left.type_name(), right.type_name())),
+        _ => Err(binary_type_mismatch(left.type_name(), right.type_name()).into()),
     }
 }
 
@@ -125,17 +129,15 @@ fn eval_int_binary(a: ScalarInt, b: ScalarInt, op: BinaryOp) -> EvalResult {
         BinaryOp::BitAnd => Ok(Value::Int(a & b)),
         BinaryOp::BitOr => Ok(Value::Int(a | b)),
         BinaryOp::BitXor => Ok(Value::Int(a ^ b)),
-        BinaryOp::Shl => a
-            .checked_shl(b)
-            .map(Value::Int)
-            .ok_or_else(|| EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))),
-        BinaryOp::Shr => a
-            .checked_shr(b)
-            .map(Value::Int)
-            .ok_or_else(|| EvalError::new(format!("shift amount {} out of range (0-63)", b.raw()))),
+        BinaryOp::Shl => a.checked_shl(b).map(Value::Int).ok_or_else(|| {
+            EvalError::new(format!("shift amount {} out of range (0-63)", b.raw())).into()
+        }),
+        BinaryOp::Shr => a.checked_shr(b).map(Value::Int).ok_or_else(|| {
+            EvalError::new(format!("shift amount {} out of range (0-63)", b.raw())).into()
+        }),
         BinaryOp::Range => Ok(Value::Range(RangeValue::exclusive(a.raw(), b.raw()))),
         BinaryOp::RangeInclusive => Ok(Value::Range(RangeValue::inclusive(a.raw(), b.raw()))),
-        _ => Err(invalid_binary_op_for("integers", op)),
+        _ => Err(invalid_binary_op_for("integers", op).into()),
     }
 }
 
@@ -168,7 +170,7 @@ fn eval_float_binary(a: f64, b: f64, op: BinaryOp) -> EvalResult {
             a.partial_cmp(&b),
             Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
         ))),
-        _ => Err(invalid_binary_op_for("floats", op)),
+        _ => Err(invalid_binary_op_for("floats", op).into()),
     }
 }
 
@@ -177,7 +179,7 @@ fn eval_bool_binary(a: bool, b: bool, op: BinaryOp) -> EvalResult {
     match op {
         BinaryOp::Eq => Ok(Value::Bool(a == b)),
         BinaryOp::NotEq => Ok(Value::Bool(a != b)),
-        _ => Err(invalid_binary_op_for("booleans", op)),
+        _ => Err(invalid_binary_op_for("booleans", op).into()),
     }
 }
 
@@ -195,7 +197,7 @@ fn eval_string_binary(a: &str, b: &str, op: BinaryOp) -> EvalResult {
         BinaryOp::LtEq => Ok(Value::Bool(a <= b)),
         BinaryOp::Gt => Ok(Value::Bool(a > b)),
         BinaryOp::GtEq => Ok(Value::Bool(a >= b)),
-        _ => Err(invalid_binary_op_for("strings", op)),
+        _ => Err(invalid_binary_op_for("strings", op).into()),
     }
 }
 
@@ -209,7 +211,7 @@ fn eval_list_binary(a: &Heap<Vec<Value>>, b: &Heap<Vec<Value>>, op: BinaryOp) ->
         }
         BinaryOp::Eq => Ok(Value::Bool(**a == **b)),
         BinaryOp::NotEq => Ok(Value::Bool(**a != **b)),
-        _ => Err(invalid_binary_op_for("lists", op)),
+        _ => Err(invalid_binary_op_for("lists", op).into()),
     }
 }
 
@@ -222,7 +224,7 @@ fn eval_char_binary(a: char, b: char, op: BinaryOp) -> EvalResult {
         BinaryOp::LtEq => Ok(Value::Bool(a <= b)),
         BinaryOp::Gt => Ok(Value::Bool(a > b)),
         BinaryOp::GtEq => Ok(Value::Bool(a >= b)),
-        _ => Err(invalid_binary_op_for("char", op)),
+        _ => Err(invalid_binary_op_for("char", op).into()),
     }
 }
 
@@ -231,7 +233,7 @@ fn eval_tuple_binary(a: &Heap<Vec<Value>>, b: &Heap<Vec<Value>>, op: BinaryOp) -
     match op {
         BinaryOp::Eq => Ok(Value::Bool(**a == **b)),
         BinaryOp::NotEq => Ok(Value::Bool(**a != **b)),
-        _ => Err(invalid_binary_op_for("tuples", op)),
+        _ => Err(invalid_binary_op_for("tuples", op).into()),
     }
 }
 
@@ -249,24 +251,24 @@ fn eval_option_binary(left: &Value, right: &Value, op: BinaryOp) -> EvalResult {
                 // Compare inner values recursively
                 evaluate_binary((**a).clone(), (**b).clone(), op)
             }
-            _ => Err(invalid_binary_op_for("Option", op)),
+            _ => Err(invalid_binary_op_for("Option", op).into()),
         },
         (Value::None, Value::None) => match op {
             BinaryOp::Eq | BinaryOp::LtEq | BinaryOp::GtEq => Ok(Value::Bool(true)),
             BinaryOp::NotEq | BinaryOp::Lt | BinaryOp::Gt => Ok(Value::Bool(false)),
-            _ => Err(invalid_binary_op_for("Option", op)),
+            _ => Err(invalid_binary_op_for("Option", op).into()),
         },
         (Value::None, Value::Some(_)) => match op {
             // None < Some(_) - None is always less than Some
             BinaryOp::Eq | BinaryOp::Gt | BinaryOp::GtEq => Ok(Value::Bool(false)),
             BinaryOp::NotEq | BinaryOp::Lt | BinaryOp::LtEq => Ok(Value::Bool(true)),
-            _ => Err(invalid_binary_op_for("Option", op)),
+            _ => Err(invalid_binary_op_for("Option", op).into()),
         },
         (Value::Some(_), Value::None) => match op {
             // Some(_) > None - Some is always greater than None
             BinaryOp::Eq | BinaryOp::Lt | BinaryOp::LtEq => Ok(Value::Bool(false)),
             BinaryOp::NotEq | BinaryOp::Gt | BinaryOp::GtEq => Ok(Value::Bool(true)),
-            _ => Err(invalid_binary_op_for("Option", op)),
+            _ => Err(invalid_binary_op_for("Option", op).into()),
         },
         _ => unreachable!(),
     }
@@ -278,12 +280,12 @@ fn eval_result_binary(left: &Value, right: &Value, op: BinaryOp) -> EvalResult {
         (Value::Ok(a), Value::Ok(b)) | (Value::Err(a), Value::Err(b)) => match op {
             BinaryOp::Eq => Ok(Value::Bool(*a == *b)),
             BinaryOp::NotEq => Ok(Value::Bool(*a != *b)),
-            _ => Err(invalid_binary_op_for("Result", op)),
+            _ => Err(invalid_binary_op_for("Result", op).into()),
         },
         (Value::Ok(_), Value::Err(_)) | (Value::Err(_), Value::Ok(_)) => match op {
             BinaryOp::Eq => Ok(Value::Bool(false)),
             BinaryOp::NotEq => Ok(Value::Bool(true)),
-            _ => Err(invalid_binary_op_for("Result", op)),
+            _ => Err(invalid_binary_op_for("Result", op).into()),
         },
         _ => unreachable!(),
     }
@@ -306,7 +308,7 @@ fn eval_duration_binary(a: i64, b: i64, op: BinaryOp) -> EvalResult {
         BinaryOp::LtEq => Ok(Value::Bool(a <= b)),
         BinaryOp::Gt => Ok(Value::Bool(a > b)),
         BinaryOp::GtEq => Ok(Value::Bool(a >= b)),
-        _ => Err(invalid_binary_op_for("Duration", op)),
+        _ => Err(invalid_binary_op_for("Duration", op).into()),
     }
 }
 
@@ -325,7 +327,7 @@ fn eval_duration_int_binary(a: i64, b: ScalarInt, op: BinaryOp) -> EvalResult {
             Value::Duration,
             "duration division",
         ),
-        _ => Err(invalid_binary_op_for("Duration and int", op)),
+        _ => Err(invalid_binary_op_for("Duration and int", op).into()),
     }
 }
 
@@ -337,7 +339,7 @@ fn eval_int_duration_binary(a: ScalarInt, b: i64, op: BinaryOp) -> EvalResult {
             Value::Duration,
             "duration multiplication",
         ),
-        _ => Err(invalid_binary_op_for("int and Duration", op)),
+        _ => Err(invalid_binary_op_for("int and Duration", op).into()),
     }
 }
 
@@ -346,10 +348,9 @@ fn eval_size_binary(a: u64, b: u64, op: BinaryOp) -> EvalResult {
     match op {
         BinaryOp::Add => checked_arith(a.checked_add(b), Value::Size, "size addition"),
         // Size subtraction has special error message (not "overflow" but "negative value")
-        BinaryOp::Sub => a
-            .checked_sub(b)
-            .map(Value::Size)
-            .ok_or_else(|| EvalError::new("size subtraction would result in negative value")),
+        BinaryOp::Sub => a.checked_sub(b).map(Value::Size).ok_or_else(|| {
+            EvalError::new("size subtraction would result in negative value").into()
+        }),
         BinaryOp::Mod => checked_mod(b == 0, || a.checked_rem(b), Value::Size, "size modulo"),
         BinaryOp::Eq => Ok(Value::Bool(a == b)),
         BinaryOp::NotEq => Ok(Value::Bool(a != b)),
@@ -357,7 +358,7 @@ fn eval_size_binary(a: u64, b: u64, op: BinaryOp) -> EvalResult {
         BinaryOp::LtEq => Ok(Value::Bool(a <= b)),
         BinaryOp::Gt => Ok(Value::Bool(a > b)),
         BinaryOp::GtEq => Ok(Value::Bool(a >= b)),
-        _ => Err(invalid_binary_op_for("Size", op)),
+        _ => Err(invalid_binary_op_for("Size", op).into()),
     }
 }
 
@@ -367,21 +368,23 @@ fn eval_size_int_binary(a: u64, b: ScalarInt, op: BinaryOp) -> EvalResult {
     let b_val = b.raw();
     match op {
         BinaryOp::Mul => match b_val.cmp(&0) {
-            Ordering::Less => Err(EvalError::new("cannot multiply Size by negative integer")),
+            Ordering::Less => {
+                Err(EvalError::new("cannot multiply Size by negative integer").into())
+            }
             Ordering::Equal | Ordering::Greater => a
                 .checked_mul(b_val.cast_unsigned())
                 .map(Value::Size)
-                .ok_or_else(|| integer_overflow("size multiplication")),
+                .ok_or_else(|| integer_overflow("size multiplication").into()),
         },
         BinaryOp::Div => match b_val.cmp(&0) {
-            Ordering::Equal => Err(division_by_zero()),
-            Ordering::Less => Err(EvalError::new("cannot divide Size by negative integer")),
+            Ordering::Equal => Err(division_by_zero().into()),
+            Ordering::Less => Err(EvalError::new("cannot divide Size by negative integer").into()),
             Ordering::Greater => a
                 .checked_div(b_val.cast_unsigned())
                 .map(Value::Size)
-                .ok_or_else(|| integer_overflow("size division")),
+                .ok_or_else(|| integer_overflow("size division").into()),
         },
-        _ => Err(invalid_binary_op_for("Size and int", op)),
+        _ => Err(invalid_binary_op_for("Size and int", op).into()),
     }
 }
 
@@ -391,14 +394,16 @@ fn eval_int_size_binary(a: ScalarInt, b: u64, op: BinaryOp) -> EvalResult {
     let a_val = a.raw();
     match op {
         BinaryOp::Mul => match a_val.cmp(&0) {
-            Ordering::Less => Err(EvalError::new("cannot multiply Size by negative integer")),
+            Ordering::Less => {
+                Err(EvalError::new("cannot multiply Size by negative integer").into())
+            }
             Ordering::Equal | Ordering::Greater => a_val
                 .cast_unsigned()
                 .checked_mul(b)
                 .map(Value::Size)
-                .ok_or_else(|| integer_overflow("size multiplication")),
+                .ok_or_else(|| integer_overflow("size multiplication").into()),
         },
-        _ => Err(invalid_binary_op_for("int and Size", op)),
+        _ => Err(invalid_binary_op_for("int and Size", op).into()),
     }
 }
 
@@ -429,6 +434,6 @@ fn eval_struct_binary(
             let equal = a.fields == b.fields;
             Ok(Value::Bool(!equal))
         }
-        _ => Err(invalid_binary_op_for("struct", op)),
+        _ => Err(invalid_binary_op_for("struct", op).into()),
     }
 }

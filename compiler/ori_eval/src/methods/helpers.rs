@@ -251,5 +251,5 @@ pub fn require_byte_arg(method: &str, args: &[Value], index: usize) -> Result<u8
 pub fn len_to_value(len: usize, collection_type: &str) -> EvalResult {
     i64::try_from(len)
         .map(Value::int)
-        .map_err(|_| EvalError::new(format!("{collection_type} too large")))
+        .map_err(|_| EvalError::new(format!("{collection_type} too large")).into())
 }

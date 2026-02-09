@@ -152,7 +152,11 @@ mod binary_values {
     fn div_by_zero_error() {
         let result = eval_binary_values(Value::int(10), BinaryOp::Div, Value::int(0));
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("division by zero"));
+        assert!(result
+            .unwrap_err()
+            .into_eval_error()
+            .message
+            .contains("division by zero"));
     }
 
     #[test]

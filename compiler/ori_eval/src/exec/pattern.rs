@@ -15,11 +15,11 @@
 //! These are evaluated via the `PatternRegistry` which implements
 //! the Open/Closed principle for extensibility.
 
-use crate::{Environment, EvalError, EvalResult, Value};
+use crate::{Environment, EvalResult, Value};
 use ori_ir::{
     ArmRange, BindingPattern, ExprArena, ExprId, FunctionSeq, SeqBinding, SeqBindingRange,
 };
-use ori_patterns::propagated_error_message;
+use ori_patterns::ControlAction;
 
 /// Evaluate a run pattern (sequential evaluation).
 ///
@@ -103,12 +103,12 @@ where
                         let pat = arena.get_binding_pattern(*pattern);
                         bind_fn(pat, unwrapped, *mutable, env)?;
                     }
-                    Err(e) => {
-                        // If this is a propagated error, return the value
-                        if let Some(propagated) = e.propagated_value {
-                            return Ok(propagated);
-                        }
-                        return Err(e);
+                    Err(ControlAction::Propagate(v)) => {
+                        // Propagated error from ? operator — return the value
+                        return Ok(v);
+                    }
+                    Err(other) => {
+                        return Err(other);
                     }
                 }
             }
@@ -165,11 +165,8 @@ where
 pub fn eval_try_expr(value: Value) -> EvalResult {
     match value {
         Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
-        Value::Err(e) => Err(EvalError::propagate(
-            Value::Err(e.clone()),
-            propagated_error_message(&e),
-        )),
-        Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
+        Value::Err(e) => Err(ControlAction::Propagate(Value::Err(e))),
+        Value::None => Err(ControlAction::Propagate(Value::None)),
         other => Ok(other),
     }
 }
@@ -191,8 +188,8 @@ mod tests {
         let value = Value::err(Value::string("error"));
         let result = eval_try_expr(value);
         assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.propagated_value.is_some());
+        let action = result.unwrap_err();
+        assert!(matches!(action, ControlAction::Propagate(Value::Err(_))));
     }
 
     #[test]
@@ -207,9 +204,8 @@ mod tests {
         let value = Value::None;
         let result = eval_try_expr(value);
         assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.propagated_value.is_some());
-        assert!(matches!(err.propagated_value.unwrap(), Value::None));
+        let action = result.unwrap_err();
+        assert!(matches!(action, ControlAction::Propagate(Value::None)));
     }
 
     #[test]

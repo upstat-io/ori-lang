@@ -5,7 +5,7 @@
 //! trait objects for better performance and exhaustiveness checking.
 
 use ori_ir::UnaryOp;
-use ori_patterns::{integer_overflow, propagated_error_message, EvalError, EvalResult, Value};
+use ori_patterns::{integer_overflow, ControlAction, EvalError, EvalResult, Value};
 
 /// Evaluate a unary operation using direct pattern matching.
 ///
@@ -17,12 +17,12 @@ pub fn evaluate_unary(value: Value, op: UnaryOp) -> EvalResult {
         (Value::Int(n), UnaryOp::Neg) => n
             .checked_neg()
             .map(Value::Int)
-            .ok_or_else(|| integer_overflow("negation")),
+            .ok_or_else(|| integer_overflow("negation").into()),
         (Value::Float(f), UnaryOp::Neg) => Ok(Value::Float(-f)),
         (Value::Duration(d), UnaryOp::Neg) => d
             .checked_neg()
             .map(Value::Duration)
-            .ok_or_else(|| integer_overflow("duration negation")),
+            .ok_or_else(|| integer_overflow("duration negation").into()),
 
         // Logical not
         (Value::Bool(b), UnaryOp::Not) => Ok(Value::Bool(!b)),
@@ -34,7 +34,7 @@ pub fn evaluate_unary(value: Value, op: UnaryOp) -> EvalResult {
         (_, UnaryOp::Try) => eval_try(value),
 
         // Invalid combinations
-        _ => Err(invalid_unary_op(value.type_name(), op)),
+        _ => Err(invalid_unary_op(value.type_name(), op).into()),
     }
 }
 
@@ -46,11 +46,8 @@ pub fn evaluate_unary(value: Value, op: UnaryOp) -> EvalResult {
 fn eval_try(value: Value) -> EvalResult {
     match value {
         Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
-        Value::Err(e) => Err(EvalError::propagate(
-            Value::Err(e.clone()),
-            propagated_error_message(&e),
-        )),
-        Value::None => Err(EvalError::propagate(Value::None, "propagated None")),
+        Value::Err(e) => Err(ControlAction::Propagate(Value::Err(e))),
+        Value::None => Err(ControlAction::Propagate(Value::None)),
         other => Ok(other),
     }
 }

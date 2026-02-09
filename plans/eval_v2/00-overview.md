@@ -201,7 +201,7 @@ fn canonicalize(db: &dyn Db, module: Module) -> CanonResult {
 | 03 | Pattern Compilation | Decision trees via Maranget, baked into canonical form | ~800 | ✅ Complete |
 | 04 | Constant Folding | Compile-time evaluation during lowering | ~500 | ✅ Complete |
 | 05 | Evaluation Modes | `EvalMode` enum — Interpret/ConstEval/TestRun | ~500 | ✅ Complete |
-| 06 | Structured Diagnostics | `EvalErrorKind`, backtraces, `EvalCounters`, `--profile` | ~800 | Nearly Complete |
+| 06 | Structured Diagnostics | `EvalErrorKind`, backtraces, `EvalCounters`, `--profile`, `ControlAction` | ~800 | ✅ Complete |
 | 07 | Backend Migration | Rewrite eval + LLVM to consume `CanExpr`; delete old dispatch | ~2,500 | Not Started |
 
 **Total: ~7,700 lines**
@@ -233,7 +233,7 @@ Section 07 (Backend Migration) ← depends on ALL above
 2. **Section 02** ✅: Implement lowering pass. `ExprArena → CanArena` for all 52 variants (7 desugared, 44 mapped, 1 error). 14 unit tests. Sugar elimination in `desugar.rs`. Round-trip integration testing deferred to Section 07. *Completed 2026-02-09.*
 3. **Sections 03-04** ✅: Pattern compilation and constant folding integrated into the lowering pass. Decision trees stored in `DecisionTreePool`. Constants stored in `ConstantPool`. Decision tree walker in `ori_eval` ready for Section 07 wiring. *Completed 2026-02-09.*
 4. **Section 05** ✅: `EvalMode` enum (Interpret/ConstEval/TestRun) with policy methods, `ModeState` for budget tracking, `PrintHandlerImpl::Silent` for const-eval, unified recursion limits (removed `#[cfg]` duplication). All construction sites specify mode. Test runner uses `TestRun` mode. *Completed 2026-02-09.*
-4b. **Section 06** ✅: Structured diagnostics — `EvalErrorKind` (24 variants), `CallStack` replacing `call_depth`, `EvalBacktrace` for error context, `EvalCounters` for `--profile`, `eval_error_to_diagnostic()` with E6xxx error codes. `EvalErrorSnapshot` preserves full error context at Salsa boundary. `snapshot_to_diagnostic()` enriches backtraces with file:line:col. `--profile` CLI flag wired with counter report. Counter increments at `eval_inner()`, `eval_call()`, `eval_method_call()`, `eval_match()`. Only `ControlAction` refactor deferred to Section 07 (pervasive, fits dispatch rewrite). *Nearly complete 2026-02-09.*
+4b. **Section 06** ✅: Structured diagnostics — `EvalErrorKind` (24 variants), `CallStack` replacing `call_depth`, `EvalBacktrace` for error context, `EvalCounters` for `--profile`, `eval_error_to_diagnostic()` with E6xxx error codes. `EvalErrorSnapshot` preserves full error context at Salsa boundary. `snapshot_to_diagnostic()` enriches backtraces with file:line:col. `--profile` CLI flag wired with counter report. Counter increments at `eval_inner()`, `eval_call()`, `eval_method_call()`, `eval_match()`. `ControlAction` refactor: control flow signals (Break/Continue/Propagate) extracted from `EvalError` into first-class enum; `EvalResult = Result<Value, ControlAction>`. *Complete 2026-02-09.*
 5. **Section 07**: The payoff. Rewrite `ori_eval` to dispatch on `CanExpr`. Update `ori_arc` to lower from `CanExpr`. Delete all `ExprKind` dispatch from both backends. Verify full test suite.
 
 At every step, `./test-all.sh` must pass. Section 07 is the "big bang" step — but by that point, the canonical IR is proven correct (Sections 01-04) and the backends just need mechanical migration.

@@ -175,14 +175,14 @@ fn eval_with_profile(
     let eval_result = if let Some(main_func) = evaluator.env().lookup(main_name) {
         match evaluator.eval_call_value(&main_func, &[]) {
             Ok(value) => ModuleEvalResult::success(EvalOutput::from_value(&value, interner)),
-            Err(e) => ModuleEvalResult::runtime_error(&e),
+            Err(e) => ModuleEvalResult::runtime_error(&e.into_eval_error()),
         }
     } else if let Some(func) = parse_result.module.functions.first() {
         let params = parse_result.arena.get_params(func.params);
         if params.is_empty() {
             match evaluator.eval(func.body) {
                 Ok(value) => ModuleEvalResult::success(EvalOutput::from_value(&value, interner)),
-                Err(e) => ModuleEvalResult::runtime_error(&e),
+                Err(e) => ModuleEvalResult::runtime_error(&e.into_eval_error()),
             }
         } else {
             ModuleEvalResult::success(EvalOutput::Void)

@@ -192,7 +192,8 @@ impl Interpreter<'_> {
                             _ => {
                                 return Err(crate::EvalError::new(
                                     "guard expression must return bool".to_string(),
-                                ));
+                                )
+                                .into());
                             }
                         }
                     }
@@ -212,7 +213,8 @@ impl Interpreter<'_> {
                 let clause_count = clauses.len();
                 Err(crate::EvalError::new(format!(
                     "no matching clause found for function call (tried {clause_count} clauses)"
-                )))
+                ))
+                .into())
             }
             Value::FunctionVal(func_ptr, _name) => eval_function_val_call(*func_ptr, args),
             Value::VariantConstructor {
@@ -226,7 +228,8 @@ impl Interpreter<'_> {
                         self.interner.lookup(*variant_name),
                         *field_count,
                         args.len(),
-                    ));
+                    )
+                    .into());
                 }
                 // Construct the variant with the provided arguments
                 Ok(Value::variant(*type_name, *variant_name, args.to_vec()))
@@ -238,12 +241,13 @@ impl Interpreter<'_> {
                         self.interner.lookup(*type_name),
                         1,
                         args.len(),
-                    ));
+                    )
+                    .into());
                 }
                 // Construct the newtype wrapping the underlying value
                 Ok(Value::newtype(*type_name, args[0].clone()))
             }
-            _ => Err(not_callable(func.type_name())),
+            _ => Err(not_callable(func.type_name()).into()),
         }
     }
 
@@ -301,9 +305,9 @@ impl Interpreter<'_> {
                     call_interpreter.eval(default_expr)?
                 } else {
                     // No argument and no default - shouldn't happen after check
-                    return Err(crate::EvalError::new(
-                        "missing required argument".to_string(),
-                    ));
+                    return Err(
+                        crate::EvalError::new("missing required argument".to_string()).into(),
+                    );
                 };
                 call_interpreter
                     .env

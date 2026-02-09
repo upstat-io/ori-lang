@@ -20,7 +20,7 @@ fn duration_from_int(method: &str, args: &[Value], multiplier: i64) -> EvalResul
     let val = require_int_arg(method, args, 0)?;
     val.checked_mul(multiplier)
         .map(Value::Duration)
-        .ok_or_else(|| EvalError::new("duration overflow"))
+        .ok_or_else(|| EvalError::new("duration overflow").into())
 }
 
 /// Create a Size value from an integer with a multiplier.
@@ -32,13 +32,13 @@ fn size_from_int(method: &str, args: &[Value], multiplier: u64) -> EvalResult {
     require_args(method, 1, args.len())?;
     let val = require_int_arg(method, args, 0)?;
     if val < 0 {
-        return Err(EvalError::new("Size cannot be negative"));
+        return Err(EvalError::new("Size cannot be negative").into());
     }
     #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
     (val as u64)
         .checked_mul(multiplier)
         .map(Value::Size)
-        .ok_or_else(|| EvalError::new("size overflow"))
+        .ok_or_else(|| EvalError::new("size overflow").into())
 }
 
 /// Dispatch Duration associated functions (factory methods).
@@ -54,7 +54,7 @@ pub fn dispatch_duration_associated(method: &str, args: &[Value]) -> EvalResult 
             require_args("default", 0, args.len())?;
             Ok(Value::Duration(0)) // 0ns is the default Duration
         }
-        _ => Err(no_such_method(method, "Duration")),
+        _ => Err(no_such_method(method, "Duration").into()),
     }
 }
 
@@ -70,7 +70,7 @@ pub fn dispatch_size_associated(method: &str, args: &[Value]) -> EvalResult {
             require_args("default", 0, args.len())?;
             Ok(Value::Size(0)) // 0b is the default Size
         }
-        _ => Err(no_such_method(method, "Size")),
+        _ => Err(no_such_method(method, "Size").into()),
     }
 }
 
@@ -103,49 +103,49 @@ pub fn dispatch_duration_method(
             let other = require_duration_arg("add", &args, 0)?;
             ns.checked_add(other)
                 .map(Value::Duration)
-                .ok_or_else(|| integer_overflow("duration addition"))
+                .ok_or_else(|| integer_overflow("duration addition").into())
         }
         "sub" | "subtract" => {
             require_args(method, 1, args.len())?;
             let other = require_duration_arg(method, &args, 0)?;
             ns.checked_sub(other)
                 .map(Value::Duration)
-                .ok_or_else(|| integer_overflow("duration subtraction"))
+                .ok_or_else(|| integer_overflow("duration subtraction").into())
         }
         "mul" | "multiply" => {
             require_args(method, 1, args.len())?;
             let scalar = require_int_arg(method, &args, 0)?;
             ns.checked_mul(scalar)
                 .map(Value::Duration)
-                .ok_or_else(|| integer_overflow("duration multiplication"))
+                .ok_or_else(|| integer_overflow("duration multiplication").into())
         }
         "div" | "divide" => {
             require_args(method, 1, args.len())?;
             let scalar = require_int_arg(method, &args, 0)?;
             if scalar == 0 {
-                Err(division_by_zero())
+                Err(division_by_zero().into())
             } else {
                 ns.checked_div(scalar)
                     .map(Value::Duration)
-                    .ok_or_else(|| integer_overflow("duration division"))
+                    .ok_or_else(|| integer_overflow("duration division").into())
             }
         }
         "rem" | "remainder" => {
             require_args(method, 1, args.len())?;
             let other = require_duration_arg(method, &args, 0)?;
             if other == 0 {
-                Err(modulo_by_zero())
+                Err(modulo_by_zero().into())
             } else {
                 ns.checked_rem(other)
                     .map(Value::Duration)
-                    .ok_or_else(|| integer_overflow("duration modulo"))
+                    .ok_or_else(|| integer_overflow("duration modulo").into())
             }
         }
         "neg" | "negate" => {
             require_args(method, 0, args.len())?;
             ns.checked_neg()
                 .map(Value::Duration)
-                .ok_or_else(|| integer_overflow("duration negation"))
+                .ok_or_else(|| integer_overflow("duration negation").into())
         }
         // Trait methods
         "hash" => {
@@ -177,7 +177,7 @@ pub fn dispatch_duration_method(
             let other = require_duration_arg("compare", &args, 0)?;
             Ok(ordering_to_value(ns.cmp(&other), interner))
         }
-        _ => Err(no_such_method(method, "Duration")),
+        _ => Err(no_such_method(method, "Duration").into()),
     }
 }
 
@@ -233,7 +233,7 @@ pub fn dispatch_size_method(
     let to_int = |v: u64| -> EvalResult {
         i64::try_from(v)
             .map(Value::int)
-            .map_err(|_| EvalError::new("size value too large for int"))
+            .map_err(|_| EvalError::new("size value too large for int").into())
     };
 
     match method {
@@ -250,53 +250,52 @@ pub fn dispatch_size_method(
             bytes
                 .checked_add(other)
                 .map(Value::Size)
-                .ok_or_else(|| integer_overflow("size addition"))
+                .ok_or_else(|| integer_overflow("size addition").into())
         }
         "sub" | "subtract" => {
             require_args(method, 1, args.len())?;
             let other = require_size_arg(method, &args, 0)?;
-            bytes
-                .checked_sub(other)
-                .map(Value::Size)
-                .ok_or_else(|| EvalError::new("size subtraction would result in negative value"))
+            bytes.checked_sub(other).map(Value::Size).ok_or_else(|| {
+                EvalError::new("size subtraction would result in negative value").into()
+            })
         }
         "mul" | "multiply" => {
             require_args(method, 1, args.len())?;
             let scalar = require_int_arg(method, &args, 0)?;
             if scalar < 0 {
-                return Err(EvalError::new("cannot multiply Size by negative integer"));
+                return Err(EvalError::new("cannot multiply Size by negative integer").into());
             }
             #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
             bytes
                 .checked_mul(scalar as u64)
                 .map(Value::Size)
-                .ok_or_else(|| integer_overflow("size multiplication"))
+                .ok_or_else(|| integer_overflow("size multiplication").into())
         }
         "div" | "divide" => {
             require_args(method, 1, args.len())?;
             let scalar = require_int_arg(method, &args, 0)?;
             if scalar == 0 {
-                return Err(division_by_zero());
+                return Err(division_by_zero().into());
             }
             if scalar < 0 {
-                return Err(EvalError::new("cannot divide Size by negative integer"));
+                return Err(EvalError::new("cannot divide Size by negative integer").into());
             }
             #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
             bytes
                 .checked_div(scalar as u64)
                 .map(Value::Size)
-                .ok_or_else(|| integer_overflow("size division"))
+                .ok_or_else(|| integer_overflow("size division").into())
         }
         "rem" | "remainder" => {
             require_args(method, 1, args.len())?;
             let other = require_size_arg(method, &args, 0)?;
             if other == 0 {
-                Err(modulo_by_zero())
+                Err(modulo_by_zero().into())
             } else {
                 bytes
                     .checked_rem(other)
                     .map(Value::Size)
-                    .ok_or_else(|| integer_overflow("size modulo"))
+                    .ok_or_else(|| integer_overflow("size modulo").into())
             }
         }
         // Trait methods
@@ -329,7 +328,7 @@ pub fn dispatch_size_method(
             let other = require_size_arg("compare", &args, 0)?;
             Ok(ordering_to_value(bytes.cmp(&other), interner))
         }
-        _ => Err(no_such_method(method, "Size")),
+        _ => Err(no_such_method(method, "Size").into()),
     }
 }
 

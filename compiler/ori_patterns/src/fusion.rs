@@ -113,7 +113,7 @@ impl FusedPattern {
                         }
                         Ok(Value::list(results))
                     }
-                    _ => Err(EvalError::new("fused map-filter requires a list")),
+                    _ => Err(EvalError::new("fused map-filter requires a list").into()),
                 }
             }
 
@@ -139,7 +139,7 @@ impl FusedPattern {
                         }
                         Ok(Value::list(results))
                     }
-                    _ => Err(EvalError::new("fused filter-map requires a list")),
+                    _ => Err(EvalError::new("fused filter-map requires a list").into()),
                 }
             }
 
@@ -163,7 +163,7 @@ impl FusedPattern {
                         }
                         Ok(acc)
                     }
-                    _ => Err(EvalError::new("fused map-fold requires a list")),
+                    _ => Err(EvalError::new("fused map-fold requires a list").into()),
                 }
             }
 
@@ -188,7 +188,7 @@ impl FusedPattern {
                         }
                         Ok(acc)
                     }
-                    _ => Err(EvalError::new("fused filter-fold requires a list")),
+                    _ => Err(EvalError::new("fused filter-fold requires a list").into()),
                 }
             }
 
@@ -216,7 +216,7 @@ impl FusedPattern {
                         }
                         Ok(acc)
                     }
-                    _ => Err(EvalError::new("fused map-filter-fold requires a list")),
+                    _ => Err(EvalError::new("fused map-filter-fold requires a list").into()),
                 }
             }
 
@@ -239,7 +239,7 @@ impl FusedPattern {
                         }
                         Ok(Value::None)
                     }
-                    _ => Err(EvalError::new("fused map-find requires a list")),
+                    _ => Err(EvalError::new("fused map-find requires a list").into()),
                 }
             }
 
@@ -264,7 +264,7 @@ impl FusedPattern {
                         }
                         Ok(Value::None)
                     }
-                    _ => Err(EvalError::new("fused filter-find requires a list")),
+                    _ => Err(EvalError::new("fused filter-find requires a list").into()),
                 }
             }
         }

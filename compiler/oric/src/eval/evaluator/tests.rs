@@ -22,14 +22,18 @@ use std::sync::Arc;
 fn test_eval_error() {
     let err = EvalError::new("test error");
     assert_eq!(err.message, "test error");
-    assert!(err.propagated_value.is_none());
 }
 
 #[test]
-fn test_eval_error_propagate() {
-    let err = EvalError::propagate(Value::None, "propagated");
-    assert_eq!(err.message, "propagated");
-    assert!(err.propagated_value.is_some());
+fn test_control_action_propagate() {
+    use crate::eval::ControlAction;
+    let action = ControlAction::Propagate(Value::None);
+    assert!(!action.is_error());
+    if let ControlAction::Propagate(v) = action {
+        assert!(matches!(v, Value::None));
+    } else {
+        panic!("expected ControlAction::Propagate");
+    }
 }
 
 #[test]
@@ -443,7 +447,7 @@ fn test_scope_cleanup_with_result_error() {
         assert_eq!(scoped.env().depth(), 2);
 
         // Return an error - scope should still be cleaned up
-        Err(EvalError::new("intentional error"))
+        Err(EvalError::new("intentional error").into())
     });
 
     assert!(result.is_err());

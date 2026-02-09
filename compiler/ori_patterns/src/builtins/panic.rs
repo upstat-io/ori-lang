@@ -23,7 +23,7 @@ impl PatternDefinition for PanicPattern {
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
         let msg = ctx.eval_prop("msg", exec)?;
-        Err(EvalError::new(format!("panic: {}", msg.display_value())))
+        Err(EvalError::new(format!("panic: {}", msg.display_value())).into())
     }
 }
 
@@ -53,7 +53,8 @@ mod tests {
         let result = PanicPattern.evaluate(&ctx, &mut exec);
 
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let action = result.unwrap_err();
+        let err = action.into_eval_error();
         assert!(err.message.contains("panic:"));
         assert!(err.message.contains("test error"));
     }

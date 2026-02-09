@@ -32,7 +32,7 @@ pub fn eval_expr(source: &str) -> EvalResult {
     let parsed = parser::parse(&tokens, interner);
 
     if parsed.has_errors() {
-        return Err(EvalError::new(format!("parse errors: {:?}", parsed.errors)));
+        return Err(EvalError::new(format!("parse errors: {:?}", parsed.errors)).into());
     }
 
     let mut evaluator = Evaluator::new(interner, &parsed.arena, &db);
@@ -59,7 +59,7 @@ pub fn eval_source(source: &str) -> EvalResult {
     let parsed = parser::parse(&tokens, interner);
 
     if parsed.has_errors() {
-        return Err(EvalError::new(format!("parse errors: {:?}", parsed.errors)));
+        return Err(EvalError::new(format!("parse errors: {:?}", parsed.errors)).into());
     }
 
     let mut evaluator = Evaluator::new(interner, &parsed.arena, &db);
@@ -72,7 +72,7 @@ pub fn eval_source(source: &str) -> EvalResult {
         }
     }
 
-    Err(EvalError::new("no main function found"))
+    Err(EvalError::new("no main function found").into())
 }
 
 // Parse Helpers

@@ -32,7 +32,7 @@ impl PatternDefinition for UnreachablePattern {
         } else {
             "entered unreachable code".to_string()
         };
-        Err(EvalError::new(msg))
+        Err(EvalError::new(msg).into())
     }
 }
 
@@ -56,7 +56,7 @@ mod tests {
         let result = UnreachablePattern.evaluate(&ctx, &mut exec);
 
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.unwrap_err().into_eval_error();
         assert!(err.message.contains("entered unreachable code"));
     }
 
@@ -78,7 +78,7 @@ mod tests {
         let result = UnreachablePattern.evaluate(&ctx, &mut exec);
 
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.unwrap_err().into_eval_error();
         assert!(err.message.contains("entered unreachable code"));
         assert!(err.message.contains("impossible state"));
     }

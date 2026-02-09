@@ -23,6 +23,7 @@ use crate::{
     tuple_index_out_of_bounds,
     unbounded_range_end,
     undefined_variable,
+    ControlAction,
     Environment,
     EvalError,
     EvalResult,
@@ -82,7 +83,7 @@ pub fn eval_ident(
         return Ok(Value::TypeRef { type_name: name });
     }
 
-    Err(undefined_variable(name_str))
+    Err(undefined_variable(name_str).into())
 }
 
 /// Check if a type name is a built-in type with associated functions.
@@ -156,21 +157,21 @@ where
     let start_val = if start.is_present() {
         eval_fn(start)?
             .as_int()
-            .ok_or_else(|| range_bound_not_int("start"))?
+            .ok_or_else(|| ControlAction::from(range_bound_not_int("start")))?
     } else {
         0
     };
     let end_val = if end.is_present() {
         eval_fn(end)?
             .as_int()
-            .ok_or_else(|| range_bound_not_int("end"))?
+            .ok_or_else(|| ControlAction::from(range_bound_not_int("end")))?
     } else {
-        return Err(unbounded_range_end());
+        return Err(unbounded_range_end().into());
     };
     let step_val = if step.is_present() {
         eval_fn(step)?
             .as_int()
-            .ok_or_else(|| range_bound_not_int("step"))?
+            .ok_or_else(|| ControlAction::from(range_bound_not_int("step")))?
     } else {
         1
     };
@@ -216,31 +217,33 @@ pub fn eval_index(value: Value, index: Value) -> EvalResult {
     match (value, index) {
         (Value::List(items), Value::Int(i)) => {
             let raw = i.raw();
-            let idx = resolve_index(raw, items.len()).ok_or_else(|| index_out_of_bounds(raw))?;
+            let idx = resolve_index(raw, items.len())
+                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw)))?;
             items
                 .get(idx)
                 .cloned()
-                .ok_or_else(|| index_out_of_bounds(raw))
+                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw)))
         }
         (Value::Str(s), Value::Int(i)) => {
             // String indexing returns a single-codepoint str (not char)
             let raw = i.raw();
             let char_count = s.chars().count();
-            let idx = resolve_index(raw, char_count).ok_or_else(|| index_out_of_bounds(raw))?;
+            let idx = resolve_index(raw, char_count)
+                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw)))?;
             s.chars()
                 .nth(idx)
                 .map(|c| Value::string(c.to_string()))
-                .ok_or_else(|| index_out_of_bounds(raw))
+                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw)))
         }
         (Value::Map(map), key) => {
             // Map indexing returns Option<V>: Some(value) if found, None if not
             // Convert the key to a map key string (type-prefixed for uniqueness)
             match key.to_map_key() {
                 Ok(key_str) => Ok(map.get(&key_str).cloned().map_or(Value::None, Value::some)),
-                Err(_) => Err(cannot_index("map", key.type_name())),
+                Err(_) => Err(cannot_index("map", key.type_name()).into()),
             }
         }
-        (value, index) => Err(cannot_index(value.type_name(), index.type_name())),
+        (value, index) => Err(cannot_index(value.type_name(), index.type_name()).into()),
     }
 }
 
@@ -249,7 +252,7 @@ pub fn eval_field_access(value: Value, field: Name, interner: &StringInterner) -
     match value {
         Value::Struct(s) => s.get_field(field).cloned().ok_or_else(|| {
             let field_name = interner.lookup(field);
-            no_field_on_struct(field_name)
+            no_field_on_struct(field_name).into()
         }),
         Value::Tuple(items) => {
             // Tuple field access like t.0, t.1
@@ -258,18 +261,18 @@ pub fn eval_field_access(value: Value, field: Name, interner: &StringInterner) -
                 items
                     .get(idx)
                     .cloned()
-                    .ok_or_else(|| tuple_index_out_of_bounds(idx))
+                    .ok_or_else(|| tuple_index_out_of_bounds(idx).into())
             } else {
-                Err(invalid_tuple_field(field_name))
+                Err(invalid_tuple_field(field_name).into())
             }
         }
         Value::ModuleNamespace(ns) => {
             // Qualified access: module.member
             ns.get(&field).cloned().ok_or_else(|| {
                 let member_name = interner.lookup(field);
-                no_member_in_module(member_name)
+                no_member_in_module(member_name).into()
             })
         }
-        value => Err(cannot_access_field(value.type_name())),
+        value => Err(cannot_access_field(value.type_name()).into()),
     }
 }

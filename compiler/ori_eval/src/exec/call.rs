@@ -7,6 +7,7 @@ use crate::{
     wrong_function_args, Environment, EvalError, EvalResult, FunctionValue, Mutability, Value,
 };
 use ori_ir::{CallArgRange, ExprArena, ExprId, Name, StringInterner};
+use ori_patterns::ControlAction;
 
 /// Check if a function has the correct argument count.
 ///
@@ -52,7 +53,7 @@ pub fn bind_parameters_with_defaults(
     interpreter: &mut crate::Interpreter<'_>,
     func: &FunctionValue,
     args: &[Value],
-) -> Result<(), EvalError> {
+) -> Result<(), ControlAction> {
     for (i, param) in func.params.iter().enumerate() {
         let value = if i < args.len() {
             // Argument was provided
@@ -62,9 +63,9 @@ pub fn bind_parameters_with_defaults(
             interpreter.eval(default_expr)?
         } else {
             // No argument and no default - this shouldn't happen if check_arg_count passed
-            return Err(EvalError::new(format!(
-                "missing required argument for parameter {i}"
-            )));
+            return Err(
+                EvalError::new(format!("missing required argument for parameter {i}")).into(),
+            );
         };
         interpreter.env.define(*param, value, Mutability::Immutable);
     }
@@ -79,7 +80,7 @@ pub fn bind_parameters_from_named_args(
     interpreter: &mut crate::Interpreter<'_>,
     func: &FunctionValue,
     args: CallArgRange,
-) -> Result<(), EvalError> {
+) -> Result<(), ControlAction> {
     use rustc_hash::FxHashMap;
 
     // Build a map of argument name -> expression ID from the call args
@@ -101,9 +102,9 @@ pub fn bind_parameters_from_named_args(
             interpreter.eval(default_expr)?
         } else {
             // No argument and no default - this shouldn't happen if check_arg_count passed
-            return Err(EvalError::new(
-                "missing required argument for parameter".to_string(),
-            ));
+            return Err(
+                EvalError::new("missing required argument for parameter".to_string()).into(),
+            );
         };
         interpreter.env.define(*param, value, Mutability::Immutable);
     }
@@ -166,7 +167,7 @@ pub fn eval_function_val_call(
     func: fn(&[Value]) -> Result<Value, String>,
     args: &[Value],
 ) -> EvalResult {
-    func(args).map_err(EvalError::new)
+    func(args).map_err(|s| EvalError::new(s).into())
 }
 
 /// Evaluate a call with named arguments.
@@ -176,7 +177,7 @@ pub fn extract_named_args<F>(
     args: CallArgRange,
     arena: &ExprArena,
     mut eval_fn: F,
-) -> Result<Vec<Value>, EvalError>
+) -> Result<Vec<Value>, ControlAction>
 where
     F: FnMut(ExprId) -> EvalResult,
 {
@@ -349,7 +350,10 @@ mod tests {
             let args: Vec<Value> = vec![];
             let result = eval_function_val_call(fail, &args);
             assert!(result.is_err());
-            assert_eq!(result.unwrap_err().message, "intentional error");
+            assert_eq!(
+                result.unwrap_err().into_eval_error().message,
+                "intentional error"
+            );
         }
     }
 }

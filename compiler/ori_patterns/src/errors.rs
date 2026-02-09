@@ -14,19 +14,73 @@ use ori_ir::{BinaryOp, Span};
 use std::fmt;
 
 /// Result of evaluation.
-pub type EvalResult = Result<Value, EvalError>;
-
-/// Control flow signals for break, continue, and return.
 ///
-/// These are not errors but signals that need to be propagated up the call stack
-/// to the appropriate handler (loop, function boundary).
-#[derive(Clone, Debug, PartialEq)]
-pub enum ControlFlow {
+/// The `Err` variant carries a `ControlAction`, which distinguishes runtime errors
+/// from control flow signals (break, continue, propagate). This separation is
+/// enforced by exhaustive matching — callers must handle each signal kind.
+///
+/// Prior art: Rust Miri uses `InterpResult<T> = Result<T, InterpError>` with
+/// control flow as a separate mechanism.
+pub type EvalResult = Result<Value, ControlAction>;
+
+/// Non-value outcomes from expression evaluation.
+///
+/// Replaces the old pattern of stuffing control flow signals into `EvalError` fields.
+/// The `Err` variant of `EvalResult`. Exhaustive matching at call sites enforces
+/// correct handling of each signal kind.
+///
+/// `EvalError` is boxed because it is ~128 bytes (kind, message, span, backtrace,
+/// notes). Without boxing, `ControlAction` would bloat every `Result<Value, ControlAction>`
+/// on the stack. Boxing keeps `ControlAction` at ~max(8, sizeof(Value)) + discriminant.
+#[derive(Clone, Debug)]
+pub enum ControlAction {
+    /// A runtime error (the only variant that represents failure).
+    Error(Box<EvalError>),
     /// Break from a loop, optionally with a value.
     Break(Value),
-    /// Continue to the next iteration of a loop.
-    /// In `for...yield` context, may carry a substitution value.
+    /// Continue to next iteration, optionally with a substitution value (for...yield).
     Continue(Value),
+    /// Propagation from `?` operator — carries the original Err/None value.
+    Propagate(Value),
+}
+
+impl ControlAction {
+    /// Convert to `EvalError`, collapsing control flow variants into descriptive errors.
+    ///
+    /// Used at Salsa boundaries and other places that need a plain `EvalError`.
+    pub fn into_eval_error(self) -> EvalError {
+        match self {
+            ControlAction::Error(e) => *e,
+            ControlAction::Break(v) => EvalError::new(format!("break:{v}")),
+            ControlAction::Continue(v) => EvalError::new(format!("continue:{v}")),
+            ControlAction::Propagate(v) => EvalError::new(format!("propagated error: {v:?}")),
+        }
+    }
+
+    /// Attach a span to this action, but only if it is an `Error` without one.
+    ///
+    /// Control flow signals (Break, Continue, Propagate) pass through unchanged.
+    #[must_use]
+    pub fn with_span_if_error(self, span: Span) -> Self {
+        match self {
+            ControlAction::Error(e) if e.span.is_none() => {
+                ControlAction::Error(Box::new(e.with_span(span)))
+            }
+            other => other,
+        }
+    }
+
+    /// Check if this action is a runtime error (not a control flow signal).
+    #[inline]
+    pub fn is_error(&self) -> bool {
+        matches!(self, ControlAction::Error(_))
+    }
+}
+
+impl From<EvalError> for ControlAction {
+    fn from(e: EvalError) -> Self {
+        ControlAction::Error(Box::new(e))
+    }
 }
 
 // Structured error types
@@ -325,6 +379,9 @@ impl fmt::Display for EvalBacktrace {
 }
 
 /// Evaluation error.
+///
+/// Represents a runtime error only — control flow signals (break, continue,
+/// propagate) are handled by `ControlAction` variants, not by `EvalError`.
 #[derive(Clone, Debug)]
 pub struct EvalError {
     /// Structured error category for diagnostic conversion.
@@ -339,10 +396,6 @@ pub struct EvalError {
     /// Kept as a field for backward compatibility with code that
     /// accesses `error.message` directly.
     pub message: String,
-    /// If this error is from `?` propagation, holds the original Err/None value.
-    pub propagated_value: Option<Value>,
-    /// If this is a control flow signal (break/continue), holds the signal.
-    pub control_flow: Option<ControlFlow>,
     /// Source location where the error occurred.
     pub span: Option<Span>,
     /// Call stack backtrace at the error site.
@@ -366,8 +419,6 @@ impl EvalError {
                 message: msg.clone(),
             },
             message: msg,
-            propagated_value: None,
-            control_flow: None,
             span: None,
             backtrace: None,
             notes: Vec::new(),
@@ -383,71 +434,6 @@ impl EvalError {
         Self {
             kind,
             message,
-            propagated_value: None,
-            control_flow: None,
-            span: None,
-            backtrace: None,
-            notes: Vec::new(),
-        }
-    }
-
-    /// Create an error for propagating an Err or None value.
-    pub fn propagate(value: Value, message: impl Into<String>) -> Self {
-        let msg = message.into();
-        Self {
-            kind: EvalErrorKind::Custom {
-                message: msg.clone(),
-            },
-            message: msg,
-            propagated_value: Some(value),
-            control_flow: None,
-            span: None,
-            backtrace: None,
-            notes: Vec::new(),
-        }
-    }
-
-    /// Create a break signal with a value.
-    pub fn break_with(value: Value) -> Self {
-        let msg = format!("break:{value}");
-        Self {
-            kind: EvalErrorKind::Custom {
-                message: msg.clone(),
-            },
-            message: msg,
-            propagated_value: None,
-            control_flow: Some(ControlFlow::Break(value)),
-            span: None,
-            backtrace: None,
-            notes: Vec::new(),
-        }
-    }
-
-    /// Create a continue signal without a substitution value.
-    pub fn continue_signal() -> Self {
-        Self {
-            kind: EvalErrorKind::Custom {
-                message: "continue".to_string(),
-            },
-            message: "continue".to_string(),
-            propagated_value: None,
-            control_flow: Some(ControlFlow::Continue(Value::Void)),
-            span: None,
-            backtrace: None,
-            notes: Vec::new(),
-        }
-    }
-
-    /// Create a continue signal with a substitution value (for `for...yield`).
-    pub fn continue_with(value: Value) -> Self {
-        let msg = format!("continue:{value}");
-        Self {
-            kind: EvalErrorKind::Custom {
-                message: msg.clone(),
-            },
-            message: msg,
-            propagated_value: None,
-            control_flow: Some(ControlFlow::Continue(value)),
             span: None,
             backtrace: None,
             notes: Vec::new(),
@@ -473,12 +459,6 @@ impl EvalError {
     pub fn with_note(mut self, note: EvalNote) -> Self {
         self.notes.push(note);
         self
-    }
-
-    /// Check if this error is a control flow signal.
-    #[inline]
-    pub fn is_control_flow(&self) -> bool {
-        self.control_flow.is_some()
     }
 }
 
@@ -1134,19 +1114,85 @@ mod tests {
         }
     }
 
-    // Control flow signals preserve kind as Custom
+    // ControlAction tests
 
     #[test]
-    fn break_with_is_control_flow() {
-        let err = EvalError::break_with(Value::int(42));
-        assert!(err.is_control_flow());
-        assert!(matches!(err.kind, EvalErrorKind::Custom { .. }));
+    fn control_action_break_carries_value() {
+        let action = ControlAction::Break(Value::int(42));
+        assert!(!action.is_error());
+        if let ControlAction::Break(v) = action {
+            assert_eq!(v, Value::int(42));
+        } else {
+            panic!("expected Break");
+        }
     }
 
     #[test]
-    fn continue_signal_is_control_flow() {
-        let err = EvalError::continue_signal();
-        assert!(err.is_control_flow());
-        assert!(matches!(err.kind, EvalErrorKind::Custom { .. }));
+    fn control_action_continue_carries_value() {
+        let action = ControlAction::Continue(Value::Void);
+        assert!(!action.is_error());
+        assert!(matches!(action, ControlAction::Continue(Value::Void)));
+    }
+
+    #[test]
+    fn control_action_propagate_carries_value() {
+        let action = ControlAction::Propagate(Value::None);
+        assert!(!action.is_error());
+        assert!(matches!(action, ControlAction::Propagate(Value::None)));
+    }
+
+    #[test]
+    fn control_action_error_is_error() {
+        let action: ControlAction = EvalError::new("test").into();
+        assert!(action.is_error());
+    }
+
+    #[test]
+    fn control_action_from_eval_error() {
+        let err = division_by_zero();
+        let action: ControlAction = err.into();
+        assert!(action.is_error());
+        if let ControlAction::Error(e) = action {
+            assert_eq!(e.kind, EvalErrorKind::DivisionByZero);
+        } else {
+            panic!("expected Error");
+        }
+    }
+
+    #[test]
+    fn control_action_into_eval_error_roundtrip() {
+        let err = division_by_zero();
+        let msg = err.message.clone();
+        let action: ControlAction = err.into();
+        let recovered = action.into_eval_error();
+        assert_eq!(recovered.message, msg);
+    }
+
+    #[test]
+    fn control_action_into_eval_error_from_break() {
+        let action = ControlAction::Break(Value::int(5));
+        let err = action.into_eval_error();
+        assert!(err.message.contains("break"));
+    }
+
+    #[test]
+    fn control_action_with_span_if_error_attaches_span() {
+        let span = Span::new(10, 20);
+        let action: ControlAction = EvalError::new("test").into();
+        let action = action.with_span_if_error(span);
+        if let ControlAction::Error(e) = action {
+            assert_eq!(e.span, Some(span));
+        } else {
+            panic!("expected Error");
+        }
+    }
+
+    #[test]
+    fn control_action_with_span_if_error_ignores_control_flow() {
+        let span = Span::new(10, 20);
+        let action = ControlAction::Break(Value::Void);
+        let action = action.with_span_if_error(span);
+        // Break should pass through unchanged
+        assert!(matches!(action, ControlAction::Break(Value::Void)));
     }
 }

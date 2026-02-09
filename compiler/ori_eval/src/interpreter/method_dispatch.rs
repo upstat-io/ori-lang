@@ -140,41 +140,41 @@ impl Interpreter<'_> {
             CollectionMethod::Map => match receiver {
                 Value::List(items) => self.eval_list_map(items.as_ref(), args),
                 Value::Range(range) => self.eval_range_map(&range, args),
-                _ => Err(map_requires_collection()),
+                _ => Err(map_requires_collection().into()),
             },
             CollectionMethod::Filter => match receiver {
                 Value::List(items) => self.eval_list_filter(items.as_ref(), args),
                 Value::Range(range) => self.eval_range_filter(&range, args),
-                _ => Err(filter_requires_collection()),
+                _ => Err(filter_requires_collection().into()),
             },
             CollectionMethod::Fold => match receiver {
                 Value::List(items) => self.eval_list_fold(items.as_ref(), args),
                 Value::Range(range) => self.eval_range_fold(&range, args),
-                _ => Err(fold_requires_collection()),
+                _ => Err(fold_requires_collection().into()),
             },
             CollectionMethod::Find => match receiver {
                 Value::List(items) => self.eval_list_find(items.as_ref(), args),
-                _ => Err(find_requires_list()),
+                _ => Err(find_requires_list().into()),
             },
             CollectionMethod::Collect => match receiver {
                 Value::Range(range) => self.eval_range_collect(&range, args),
-                _ => Err(collect_requires_range()),
+                _ => Err(collect_requires_range().into()),
             },
             CollectionMethod::Any => match receiver {
                 Value::List(items) => self.eval_list_any(items.as_ref(), args),
-                _ => Err(any_requires_list()),
+                _ => Err(any_requires_list().into()),
             },
             CollectionMethod::All => match receiver {
                 Value::List(items) => self.eval_list_all(items.as_ref(), args),
-                _ => Err(all_requires_list()),
+                _ => Err(all_requires_list().into()),
             },
             CollectionMethod::MapEntries => match receiver {
-                Value::Map(_) => Err(map_entries_not_implemented()),
-                _ => Err(map_entries_requires_map()),
+                Value::Map(_) => Err(map_entries_not_implemented().into()),
+                _ => Err(map_entries_requires_map().into()),
             },
             CollectionMethod::FilterEntries => match receiver {
-                Value::Map(_) => Err(filter_entries_not_implemented()),
-                _ => Err(filter_entries_requires_map()),
+                Value::Map(_) => Err(filter_entries_not_implemented().into()),
+                _ => Err(filter_entries_requires_map().into()),
             },
         }
     }
@@ -435,7 +435,7 @@ impl Interpreter<'_> {
 
         // Method params include 'self' as first parameter
         if method.params.len() != args.len() + 1 {
-            return Err(wrong_function_args(method.params.len() - 1, args.len()));
+            return Err(wrong_function_args(method.params.len() - 1, args.len()).into());
         }
 
         // Create new environment with captures
@@ -480,7 +480,7 @@ impl Interpreter<'_> {
 
         // Associated functions don't have 'self', so params == args
         if method.params.len() != args.len() {
-            return Err(wrong_function_args(method.params.len(), args.len()));
+            return Err(wrong_function_args(method.params.len(), args.len()).into());
         }
 
         // Create new environment with captures
