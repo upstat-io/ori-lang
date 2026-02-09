@@ -37,7 +37,7 @@ pub use ori_eval::{
     Scope, UserMethod, UserMethodRegistry,
 };
 pub use ori_patterns::{EvalError, EvalResult};
-pub use output::{EvalOutput, ModuleEvalResult};
+pub use output::{EvalErrorSnapshot, EvalOutput, ModuleEvalResult};
 pub use value::{FunctionValFn, FunctionValue, Heap, RangeValue, StructLayout, StructValue, Value};
 
 #[cfg(test)]

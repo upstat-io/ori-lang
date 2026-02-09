@@ -79,7 +79,7 @@ ori run, ori check, ori test, machine
 ---
 
 ### Section 06: Structured Diagnostics
-**File:** `section-06-diagnostics.md` | **Status:** In Progress (2026-02-09)
+**File:** `section-06-diagnostics.md` | **Status:** Nearly Complete (2026-02-09) — ControlAction refactor deferred to Section 07
 
 ```
 EvalErrorKind, EvalError, structured, typed, category
@@ -88,6 +88,8 @@ backtrace, call stack, depth, overflow, frame
 EvalNote, context, note, span, message
 Diagnostic, conversion, E6xxx, error code, eval_error_to_diagnostic
 EvalCounters, profile, instrumentation, statistics, ModeState
+EvalErrorSnapshot, snapshot_to_diagnostic, LineOffsetTable, enrichment
+--profile, counters_report, enable_counters, counter wiring
 ```
 
 ---

@@ -18,7 +18,10 @@ use super::read_file;
 ///
 /// Accumulates all errors (parse and type) before exiting, giving the user
 /// a complete picture of issues rather than stopping at the first error.
-pub fn run_file(path: &str) {
+///
+/// When `profile` is true, enables performance counters and prints a report
+/// to stderr after evaluation completes.
+pub fn run_file(path: &str, profile: bool) {
     let content = read_file(path);
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);
@@ -82,23 +85,118 @@ pub fn run_file(path: &str) {
     }
 
     // Evaluate only if no errors
-    let eval_result = evaluated(&db, file);
+    if profile {
+        eval_with_profile(&db, &parse_result, file, path, &mut emitter);
+    } else {
+        let eval_result = evaluated(&db, file);
+        report_eval_result(&eval_result, &db, file, path, &mut emitter);
+    }
+}
+
+/// Report evaluation results, using enriched diagnostics for runtime errors.
+fn report_eval_result(
+    eval_result: &oric::eval::ModuleEvalResult,
+    db: &oric::CompilerDb,
+    file: oric::SourceFile,
+    path: &str,
+    emitter: &mut TerminalEmitter<std::io::Stderr>,
+) {
     if eval_result.is_failure() {
-        let error_msg = eval_result
-            .error
-            .unwrap_or_else(|| "unknown runtime error".to_string());
-        eprintln!("error: runtime error in '{path}': {error_msg}");
+        // Use enriched diagnostics when we have a structured error snapshot
+        if let Some(ref snapshot) = eval_result.eval_error {
+            let source = file.text(db);
+            let diag = oric::problem::eval::snapshot_to_diagnostic(snapshot, source.as_str(), path);
+            emitter.emit(&diag);
+            emitter.flush();
+        } else {
+            let error_msg = eval_result
+                .error
+                .as_deref()
+                .unwrap_or("unknown runtime error");
+            eprintln!("error: runtime error in '{path}': {error_msg}");
+        }
         std::process::exit(1);
     }
 
     // Print the result if it's not void
-    if let Some(result) = eval_result.result {
+    if let Some(ref result) = eval_result.result {
         use oric::EvalOutput;
         match result {
             EvalOutput::Void => {}
             _ => println!("{}", result.display(db.interner())),
         }
     }
+}
+
+/// Evaluate with profiling enabled — bypasses Salsa query to access counters.
+fn eval_with_profile(
+    db: &oric::CompilerDb,
+    parse_result: &oric::parser::ParseOutput,
+    file: oric::SourceFile,
+    path: &str,
+    emitter: &mut TerminalEmitter<std::io::Stderr>,
+) {
+    use oric::eval::{EvalOutput, Evaluator, ModuleEvalResult};
+    use oric::Db;
+
+    let interner = db.interner();
+    let file_path = file.path(db);
+
+    // Type check (returns result + pool)
+    let (type_result, _pool) =
+        oric::typeck::type_check_with_imports_and_pool(db, parse_result, file_path);
+
+    if type_result.has_errors() {
+        let error_count = type_result.errors().len();
+        let result = ModuleEvalResult::failure(format!(
+            "{error_count} type error{} found",
+            if error_count == 1 { "" } else { "s" }
+        ));
+        report_eval_result(&result, db, file, path, emitter);
+        return;
+    }
+
+    // Create evaluator with profiling enabled
+    let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
+        .expr_types(&type_result.typed.expr_types)
+        .pattern_resolutions(&type_result.typed.pattern_resolutions)
+        .build();
+    evaluator.register_prelude();
+    evaluator.enable_counters();
+
+    if let Err(e) = evaluator.load_module(parse_result, file_path) {
+        let result = ModuleEvalResult::failure(format!("module error: {e}"));
+        report_eval_result(&result, db, file, path, emitter);
+        return;
+    }
+
+    // Evaluate main function or first zero-arg function
+    let main_name = interner.intern("main");
+    let eval_result = if let Some(main_func) = evaluator.env().lookup(main_name) {
+        match evaluator.eval_call_value(&main_func, &[]) {
+            Ok(value) => ModuleEvalResult::success(EvalOutput::from_value(&value, interner)),
+            Err(e) => ModuleEvalResult::runtime_error(&e),
+        }
+    } else if let Some(func) = parse_result.module.functions.first() {
+        let params = parse_result.arena.get_params(func.params);
+        if params.is_empty() {
+            match evaluator.eval(func.body) {
+                Ok(value) => ModuleEvalResult::success(EvalOutput::from_value(&value, interner)),
+                Err(e) => ModuleEvalResult::runtime_error(&e),
+            }
+        } else {
+            ModuleEvalResult::success(EvalOutput::Void)
+        }
+    } else {
+        ModuleEvalResult::default()
+    };
+
+    // Print counters report to stderr before result
+    if let Some(report) = evaluator.counters_report() {
+        eprintln!("{report}");
+    }
+
+    report_eval_result(&eval_result, db, file, path, emitter);
 }
 
 /// Run an Ori source file using AOT compilation.

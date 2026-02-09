@@ -18,6 +18,10 @@
 //! - E6080–E6089: Not-implemented errors
 //! - E6099: Custom/uncategorized
 
+use std::fmt::Write;
+
+use crate::eval::EvalErrorSnapshot;
+use ori_diagnostic::span_utils::LineOffsetTable;
 use ori_diagnostic::{Diagnostic, ErrorCode};
 use ori_patterns::{EvalError, EvalErrorKind};
 
@@ -49,6 +53,51 @@ pub fn eval_error_to_diagnostic(err: &EvalError) -> Diagnostic {
     // Add suggestions for common fixable errors
     if let Some(suggestion) = suggestion_for_kind(&err.kind) {
         diag = diag.with_suggestion(suggestion);
+    }
+
+    diag
+}
+
+/// Convert an `EvalErrorSnapshot` into a `Diagnostic` with enriched file/line info.
+///
+/// Unlike [`eval_error_to_diagnostic`] which works with raw `EvalError` (and its
+/// `EvalErrorKind` for error code mapping), this function works with the Salsa-compatible
+/// snapshot and enriches backtrace spans with `file:line:col` using `LineOffsetTable`.
+///
+/// Falls back to byte offsets if source is unavailable.
+pub fn snapshot_to_diagnostic(
+    snapshot: &EvalErrorSnapshot,
+    source: &str,
+    file_path: &str,
+) -> Diagnostic {
+    // Use E6099 (Custom) since we don't have the structured kind in the snapshot.
+    // The snapshot captures the kind_name for display but not the enum variant.
+    let mut diag = Diagnostic::error(ErrorCode::E6099).with_message(&snapshot.message);
+
+    let table = LineOffsetTable::build(source);
+
+    // Add primary label at the error span
+    if let Some(span) = snapshot.span {
+        let (line, col) = table.offset_to_line_col(source, span.start);
+        diag = diag.with_label(span, format!("runtime error at {file_path}:{line}:{col}"));
+    }
+
+    // Add context notes
+    for note in &snapshot.notes {
+        diag = diag.with_note(note);
+    }
+
+    // Add enriched backtrace as a note
+    if !snapshot.backtrace.is_empty() {
+        let mut bt_lines = String::from("call stack:");
+        for (i, (name, span)) in snapshot.backtrace.iter().enumerate() {
+            let _ = write!(bt_lines, "\n  {i}: {name}");
+            if let Some(span) = span {
+                let (line, col) = table.offset_to_line_col(source, span.start);
+                let _ = write!(bt_lines, " at {file_path}:{line}:{col}");
+            }
+        }
+        diag = diag.with_note(bt_lines);
     }
 
     diag
@@ -154,8 +203,10 @@ fn suggestion_for_kind(kind: &EvalErrorKind) -> Option<String> {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
+    use crate::eval::EvalErrorSnapshot;
     use ori_ir::Span;
     use ori_patterns::{BacktraceFrame, EvalBacktrace, EvalNote};
 
@@ -319,5 +370,95 @@ mod tests {
                 "duplicate error code {code} for kind {kind:?}"
             );
         }
+    }
+
+    // Enriched snapshot-to-diagnostic tests
+
+    #[test]
+    fn snapshot_enriches_span_with_file_line_col() {
+        // Source: "let x = 1 / 0" — the "/ 0" starts at offset 10
+        let source = "let x = 1 / 0";
+        let snapshot = EvalErrorSnapshot {
+            message: "division by zero".to_string(),
+            kind_name: "DivisionByZero".to_string(),
+            span: Some(Span::new(10, 13)),
+            backtrace: vec![],
+            notes: vec![],
+        };
+
+        let diag = snapshot_to_diagnostic(&snapshot, source, "main.ori");
+        assert_eq!(diag.labels.len(), 1);
+        assert!(diag.labels[0].message.contains("main.ori:1:11"));
+    }
+
+    #[test]
+    fn snapshot_enriches_multiline_span() {
+        let source = "let x = 1\nlet y = 2 / 0";
+        // "/ 0" at line 2, col 11 (offset 20)
+        let snapshot = EvalErrorSnapshot {
+            message: "division by zero".to_string(),
+            kind_name: "DivisionByZero".to_string(),
+            span: Some(Span::new(20, 23)),
+            backtrace: vec![],
+            notes: vec![],
+        };
+
+        let diag = snapshot_to_diagnostic(&snapshot, source, "math.ori");
+        assert!(diag.labels[0].message.contains("math.ori:2:11"));
+    }
+
+    #[test]
+    fn snapshot_enriches_backtrace_with_file_line() {
+        // Source layout:
+        //   offset 0:  "fn foo() =\n"  (line 1)
+        //   offset 12: "  bar()\n"     (line 2, bar() call at offset 13)
+        //   offset 20: "fn bar() =\n"  (line 3)
+        //   offset 32: "  1 / 0"       (line 4, "/" at offset 34)
+        let source = "fn foo() =\n  bar()\nfn bar() =\n  1 / 0";
+        let snapshot = EvalErrorSnapshot {
+            message: "division by zero".to_string(),
+            kind_name: "DivisionByZero".to_string(),
+            span: Some(Span::new(34, 37)),
+            backtrace: vec![
+                ("bar".to_string(), Some(Span::new(34, 37))),
+                ("foo".to_string(), Some(Span::new(13, 18))),
+            ],
+            notes: vec![],
+        };
+
+        let diag = snapshot_to_diagnostic(&snapshot, source, "test.ori");
+        let bt_note = diag.notes.iter().find(|n| n.contains("call stack"));
+        assert!(bt_note.is_some());
+        let bt = bt_note.unwrap();
+        assert!(bt.contains("0: bar at test.ori:4:5"), "actual: {bt}");
+        assert!(bt.contains("1: foo at test.ori:2:3"), "actual: {bt}");
+    }
+
+    #[test]
+    fn snapshot_no_span_produces_no_label() {
+        let snapshot = EvalErrorSnapshot {
+            message: "runtime error".to_string(),
+            kind_name: "Custom".to_string(),
+            span: None,
+            backtrace: vec![],
+            notes: vec![],
+        };
+
+        let diag = snapshot_to_diagnostic(&snapshot, "", "test.ori");
+        assert!(diag.labels.is_empty());
+    }
+
+    #[test]
+    fn snapshot_preserves_notes() {
+        let snapshot = EvalErrorSnapshot {
+            message: "error".to_string(),
+            kind_name: "Custom".to_string(),
+            span: None,
+            backtrace: vec![],
+            notes: vec!["hint: check input".to_string()],
+        };
+
+        let diag = snapshot_to_diagnostic(&snapshot, "", "test.ori");
+        assert!(diag.notes.iter().any(|n| n.contains("check input")));
     }
 }

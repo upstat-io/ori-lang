@@ -180,11 +180,10 @@ pub struct Interpreter<'a> {
     pub(crate) type_names: TypeNames,
     /// Evaluation mode — determines I/O, recursion, budget policies.
     pub(crate) mode: EvalMode,
-    /// Per-mode mutable state (budget counters, etc.).
+    /// Per-mode mutable state (budget counters, profiling).
     ///
-    /// Used by `check_budget()` during function calls in `ConstEval` mode.
-    /// Wired into the dispatch loop in Section 07 (backend migration).
-    #[expect(dead_code, reason = "Wired in eval_v2 Section 07 backend migration")]
+    /// Tracks call budget for `ConstEval` mode and optional performance counters
+    /// for `--profile`. Counter increments are inlined no-ops when profiling is off.
     pub(crate) mode_state: ModeState,
     /// Live call stack for recursion tracking and backtrace capture.
     ///
@@ -355,6 +354,24 @@ impl<'a> Interpreter<'a> {
         &self.mode
     }
 
+    /// Enable performance counters for `--profile` mode.
+    ///
+    /// Must be called before evaluation begins. When enabled, expression,
+    /// function call, method call, and pattern match counts are tracked.
+    /// When disabled (default), all counter increments are inlined no-ops.
+    pub fn enable_counters(&mut self) {
+        self.mode_state.enable_counters();
+    }
+
+    /// Get the counter report string, if counters are enabled.
+    ///
+    /// Returns `None` when profiling is off (default).
+    pub fn counters_report(&self) -> Option<String> {
+        self.mode_state
+            .counters()
+            .map(crate::diagnostics::EvalCounters::report)
+    }
+
     /// Check if two expressions have the same type.
     ///
     /// Used by the `??` operator to determine whether to chain or unwrap.
@@ -422,6 +439,8 @@ impl<'a> Interpreter<'a> {
 
     /// Inner evaluation logic (wrapped by `eval` for stack safety).
     fn eval_inner(&mut self, expr_id: ExprId) -> EvalResult {
+        self.mode_state.count_expression();
+
         // Check arena bounds before access
         if expr_id.index() >= self.arena.expr_count() {
             return Err(EvalError::new(format!(
@@ -1127,6 +1146,8 @@ impl<'a> Interpreter<'a> {
     /// Uses RAII scope guard to ensure scope is popped even on panic.
     pub(super) fn eval_match(&mut self, value: &Value, arms: ArmRange) -> EvalResult {
         use crate::exec::control::try_match;
+
+        self.mode_state.count_pattern_match();
 
         let arm_range_start = arms.start;
         let arm_list = self.arena.get_arms(arms);
