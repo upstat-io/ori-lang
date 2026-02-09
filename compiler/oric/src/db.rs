@@ -28,6 +28,7 @@
 use crate::input::SourceFile;
 use crate::ir::{SharedInterner, StringInterner};
 use parking_lot::{Mutex, RwLock};
+use salsa::Durability;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -160,9 +161,19 @@ impl Db for CompilerDb {
             }
         }
 
-        // Read file and create SourceFile input
+        // Read file and create SourceFile input.
+        //
+        // Stdlib/prelude files use Durability::HIGH because they don't change
+        // between builds. This lets Salsa skip revalidating queries that depend
+        // only on the prelude when the user edits their own files.
         let content = std::fs::read_to_string(&canonical).ok()?;
-        let file = SourceFile::new(self, canonical.clone(), content);
+        let file = if is_stdlib_path(&canonical) {
+            SourceFile::builder(canonical.clone(), content)
+                .durability(Durability::HIGH)
+                .new(self)
+        } else {
+            SourceFile::new(self, canonical.clone(), content)
+        };
 
         // Cache it (write lock for insertion)
         {
@@ -215,6 +226,17 @@ impl salsa::Database for CompilerDb {
     }
 }
 
+/// Check if a path belongs to the standard library.
+///
+/// Stdlib files (prelude, core modules) don't change between builds and are
+/// marked with `Durability::HIGH` so Salsa can skip revalidating queries that
+/// depend only on stable library code.
+fn is_stdlib_path(path: &Path) -> bool {
+    // Check for library/std/ directory in the path components
+    let path_str = path.to_string_lossy();
+    path_str.contains("/library/std/") || path_str.contains("\\library\\std\\")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +257,25 @@ mod tests {
     #[test]
     fn test_db_default() {
         let _db = CompilerDb::default();
+    }
+
+    #[test]
+    fn test_is_stdlib_path() {
+        // Unix-style paths
+        assert!(is_stdlib_path(Path::new(
+            "/home/user/ori/library/std/prelude.ori"
+        )));
+        assert!(is_stdlib_path(Path::new(
+            "/home/user/ori/library/std/io.ori"
+        )));
+
+        // Windows-style paths
+        assert!(is_stdlib_path(Path::new(
+            "C:\\Users\\user\\ori\\library\\std\\prelude.ori"
+        )));
+
+        // User files are NOT stdlib
+        assert!(!is_stdlib_path(Path::new("/home/user/project/main.ori")));
+        assert!(!is_stdlib_path(Path::new("/home/user/project/src/lib.ori")));
     }
 }

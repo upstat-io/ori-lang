@@ -266,7 +266,7 @@ pipeline order: runs BEFORE Section 08, after Section 07
 ```
 
 ### Section 10: Pattern Match Decision Trees
-**File:** `section-10-decision-trees.md` | **Status:** Not Started
+**File:** `section-10-decision-trees.md` | **Status:** Complete
 
 ```
 decision tree, pattern compilation, match lowering
@@ -290,7 +290,7 @@ current: sequential if-else, future: decision tree based
 ```
 
 ### Section 11: LLVM Optimization Pass Configuration
-**File:** `section-11-llvm-passes.md` | **Status:** Not Started
+**File:** `section-11-llvm-passes.md` | **Status:** Complete
 
 ```
 optimization passes, LLVM pass manager, opt level, new pass manager
@@ -328,7 +328,7 @@ Swift IRGenModule, ARC runtime attributes
 ```
 
 ### Section 12: Incremental & Parallel Codegen
-**File:** `section-12-incremental-parallel.md` | **Status:** Not Started
+**File:** `section-12-incremental-parallel.md` | **Status:** Complete
 
 ```
 incremental compilation, caching, content hash, function-level
@@ -366,7 +366,7 @@ compile_module_functions, extract_function_hashes, FunctionCache
 ```
 
 ### Section 13: Debug Info Generation
-**File:** `section-13-debug-info.md` | **Status:** Not Started
+**File:** `section-13-debug-info.md` | **Status:** Complete
 
 ```
 debug info, DWARF, DWARF 4, DWARF 5, CodeView, source maps, debuginfo
@@ -398,7 +398,7 @@ Swift IRGenDebugInfo, SIL-to-LLVM debug mapping
 ```
 
 ### Section 14: Codegen Test Harness
-**File:** `section-14-test-harness.md` | **Status:** Not Started
+**File:** `section-14-test-harness.md` | **Status:** Complete
 
 ```
 codegen testing, test harness, three-level testing
@@ -431,7 +431,7 @@ Roc test_mono, gen_llvm execution tests
 ```
 
 ### Section 15: Diagnostics & Error Reporting
-**File:** `section-15-diagnostics.md` | **Status:** Not Started
+**File:** `section-15-diagnostics.md` | **Status:** Complete
 
 ```
 codegen errors, diagnostic, error reporting, error codes
@@ -482,9 +482,9 @@ Gleam compiler-core error, structured error types
 | 07 | RC Insertion via Liveness (Complete) | `section-07-rc-insertion.md` | 2 |
 | 09 | Constructor Reuse (FBIP) (Complete) | `section-09-constructor-reuse.md` | 2 |
 | 08 | RC Elimination via Dataflow (Complete) | `section-08-rc-elimination.md` | 2 |
-| 10 | Pattern Match Decision Trees | `section-10-decision-trees.md` | 3 |
-| 11 | LLVM Optimization Passes | `section-11-llvm-passes.md` | 3 |
-| 12 | Incremental & Parallel Codegen | `section-12-incremental-parallel.md` | 3 |
-| 13 | Debug Info Generation | `section-13-debug-info.md` | 4 |
-| 14 | Codegen Test Harness | `section-14-test-harness.md` | 4 |
-| 15 | Diagnostics & Error Reporting | `section-15-diagnostics.md` | 4 |
+| 10 | Pattern Match Decision Trees (Complete) | `section-10-decision-trees.md` | 3 |
+| 11 | LLVM Optimization Passes (Complete) | `section-11-llvm-passes.md` | 3 |
+| 12 | Incremental & Parallel Codegen (Complete) | `section-12-incremental-parallel.md` | 3 |
+| 13 | Debug Info Generation (Complete) | `section-13-debug-info.md` | 4 |
+| 14 | Codegen Test Harness (Complete) | `section-14-test-harness.md` | 4 |
+| 15 | Diagnostics & Error Reporting (Complete) | `section-15-diagnostics.md` | 4 |

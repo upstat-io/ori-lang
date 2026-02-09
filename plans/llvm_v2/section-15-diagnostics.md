@@ -1,29 +1,29 @@
 ---
 section: "15"
 title: Diagnostics & Error Reporting
-status: not-started
+status: complete
 goal: Structured codegen diagnostics with E4xxx (ori_arc) and E5xxx (ori_llvm) error codes, following the Problem/Reporting pattern
 sections:
   - id: "15.1"
     title: Existing Diagnostic Infrastructure
-    status: not-started
+    status: complete
   - id: "15.2"
     title: Codegen Error Codes
-    status: not-started
+    status: complete
   - id: "15.3"
     title: CodegenProblem Type
-    status: not-started
+    status: complete
   - id: "15.4"
     title: Cross-Section Integration
-    status: not-started
+    status: complete
   - id: "15.5"
     title: Error Recovery
-    status: not-started
+    status: complete
 ---
 
 # Section 15: Diagnostics & Error Reporting
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Structured codegen error reporting with dedicated error code ranges (E4xxx for `ori_arc`, E5xxx for `ori_llvm`), following the existing Problem/Reporting 1:1 coupling pattern. Replaces panics with proper error accumulation and source-located diagnostics.
 
 **Reference compilers:**
@@ -84,10 +84,10 @@ The current codegen path uses several ad-hoc error mechanisms:
 
 V2 replaces all of these with structured `ArcProblem`/`LlvmProblem` types that flow through the existing diagnostic pipeline.
 
-- [ ] Add E4xxx and E5xxx ranges to `ErrorCode` enum in `ori_diagnostic`
-- [ ] Create `ArcProblem` and `LlvmProblem` types in `oric/src/problem/`
-- [ ] Create corresponding renderers in `oric/src/reporting/`
-- [ ] Replace codegen panics with error accumulation
+- [x] Add E4xxx and E5xxx ranges to `ErrorCode` enum in `ori_diagnostic`
+- [x] Create `ArcProblem` and `LlvmProblem` types in `oric/src/problem/`
+- [x] Create corresponding renderers in `oric/src/reporting/`
+- [x] Replace codegen panics with error accumulation
 
 ---
 
@@ -199,10 +199,10 @@ pub enum LlvmProblem {
 
 Note: `LlvmProblem` uses `Option<Span>` rather than mandatory spans because several error conditions (target/linker/runtime) are not tied to specific source locations. Codegen problems do **not** implement `HasSpan` -- span information is handled internally by each variant's `into_diagnostic()` method, which attaches spans to the `Diagnostic` directly. Renderers omit the source annotation for span-less variants.
 
-- [ ] Add E4001-E4005 to ErrorCode enum
-- [ ] Add E5001-E5007 to ErrorCode enum
-- [ ] Create `ArcProblem` enum with all variants
-- [ ] Create `LlvmProblem` enum with all variants
+- [x] Add E4001-E4005 to ErrorCode enum
+- [x] Add E5001-E5007 to ErrorCode enum
+- [x] Create `ArcProblem` enum with all variants
+- [x] Create `LlvmProblem` enum with all variants
 
 ---
 
@@ -333,11 +333,11 @@ impl LlvmProblem {
 
 All error messages follow Ori diagnostic guidelines: imperative suggestions ("try X", "use Y"), verb phrase fixes ("Replace X with Y"), and clear context about what went wrong and why.
 
-- [ ] Create `codegen.rs` in `oric/src/problem/`
-- [ ] Create `codegen.rs` in `oric/src/reporting/`
-- [ ] Keep `Problem` enum unchanged (no `Codegen` variant) -- codegen errors merge at rendering stage only
-- [ ] Add `into_diagnostic()` inherent methods on `CodegenProblem`, `ArcProblem`, `LlvmProblem` (no `Render` trait impl -- codegen problems are not part of the `Problem` enum)
-- [ ] Implement `render_all_diagnostics()` that merges front-end `Problem`s with `CodegenProblem`s for display
+- [x] Create `codegen.rs` in `oric/src/problem/`
+- [x] Create `codegen.rs` in `oric/src/reporting/`
+- [x] Keep `Problem` enum unchanged (no `Codegen` variant) -- codegen errors merge at rendering stage only
+- [x] Add `into_diagnostic()` inherent methods on `CodegenProblem`, `ArcProblem`, `LlvmProblem` (no `Render` trait impl -- codegen problems are not part of the `Problem` enum)
+- [x] Implement `render_all_diagnostics()` that merges front-end `Problem`s with `CodegenProblem`s for display
 
 ---
 
@@ -379,9 +379,9 @@ The `oric` crate wraps these crate-local errors into `LlvmProblem` variants at t
 
 - Debug info creation failure maps to **E5007** (`DebugInfoCreationFailed`). This wraps `DebugInfoError` from `aot/debug.rs` into the diagnostic pipeline.
 
-- [ ] Map existing ori_llvm error types (EmitError, OptimizationError, LinkerError, TargetError, DebugInfoError) to E5xxx codes
-- [ ] Map ARC IR transformation errors to E4xxx codes
-- [ ] Ensure all error paths have source spans where possible
+- [x] Map existing ori_llvm error types (EmitError, OptimizationError, LinkerError, TargetError, DebugInfoError) to E5xxx codes
+- [x] Map ARC IR transformation errors to E4xxx codes
+- [x] Ensure all error paths have source spans where possible
 
 ---
 
@@ -460,10 +460,10 @@ let diagnostics = render_all_diagnostics(
 
 This ensures codegen errors appear alongside parse and type errors in the unified diagnostic output, sorted by source location when spans are available, without polluting the Salsa-tracked `Problem` enum.
 
-- [ ] Implement module verification recovery (skip failed module)
-- [ ] Implement debug info fallback (degrade gracefully)
-- [ ] Implement optimization level fallback
-- [ ] Implement error accumulation in codegen pipeline
-- [ ] Replace all codegen `panic!` with `LlvmProblem` / `ArcProblem` reporting
+- [x] Implement module verification recovery (skip failed module)
+- [x] Implement debug info fallback (degrade gracefully)
+- [x] Implement optimization level fallback
+- [x] Implement error accumulation in codegen pipeline
+- [x] Replace all codegen `panic!` with `LlvmProblem` / `ArcProblem` reporting
 
 **Exit Criteria:** No codegen panics on valid Ori code. Invalid IR is caught by verification and reported with source context. All codegen errors flow through the unified diagnostic pipeline with proper error codes, messages, and suggestions.

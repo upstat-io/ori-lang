@@ -1129,3 +1129,168 @@ fn test_tokens_early_cutoff_on_whitespace_edit() {
         logs
     );
 }
+
+// --- Section 12.4: Salsa early cutoff verification tests ---
+
+#[test]
+fn test_comment_only_change_triggers_early_cutoff_for_parsed() {
+    // Changing a regular comment's text does NOT change code tokens (same kind,
+    // same flags). This means parsed() should use early cutoff and NOT re-execute.
+    let mut db = CompilerDb::new();
+    db.enable_logging();
+
+    let file = SourceFile::new(
+        &db,
+        PathBuf::from("/test.ori"),
+        "// old comment\n@main () -> int = 42".to_string(),
+    );
+
+    // First call — executes lex_result + tokens + parsed
+    let _ = parsed(&db, file);
+    let _ = db.take_logs(); // Clear initial logs
+
+    // Change only the comment text (regular → regular, different text)
+    file.set_text(&mut db)
+        .to("// new comment\n@main () -> int = 42".to_string());
+
+    let _ = parsed(&db, file);
+    let logs = db.take_logs();
+
+    // Only lex_result + tokens should re-execute (2 events at most).
+    // parsed() should NOT re-execute because code tokens are position-
+    // independent equal (same TokenKind and TokenFlags for @main, (, ), etc.).
+    assert!(
+        logs.len() <= 2,
+        "comment-only edit should trigger early cutoff for parsed(); got {} logs: {:#?}",
+        logs.len(),
+        logs
+    );
+}
+
+#[test]
+fn test_comment_only_change_triggers_early_cutoff_for_typed() {
+    // If tokens are unchanged after a comment edit, then parsed() is skipped,
+    // which means typed() is also skipped (transitive early cutoff).
+    let mut db = CompilerDb::new();
+    db.enable_logging();
+
+    let file = SourceFile::new(
+        &db,
+        PathBuf::from("/test.ori"),
+        "// comment v1\n@main () -> int = 42".to_string(),
+    );
+
+    // First call — execute the full pipeline
+    let result1 = typed(&db, file);
+    let _ = db.take_logs();
+
+    // Change only comment text
+    file.set_text(&mut db)
+        .to("// comment v2\n@main () -> int = 42".to_string());
+
+    let result2 = typed(&db, file);
+    let logs = db.take_logs();
+
+    // typed() should produce identical results
+    assert_eq!(
+        result1.typed.functions.len(),
+        result2.typed.functions.len(),
+        "typed results should be identical after comment-only change"
+    );
+
+    // typed() should NOT be in the re-executed queries.
+    // We expect at most lex_result + tokens to re-execute (2 events).
+    // If parsed() also re-executes that's 3, but typed() should not.
+    let typed_reexecuted = logs.iter().any(|l| l.contains("typed"));
+    assert!(
+        !typed_reexecuted,
+        "typed() should NOT re-execute on comment-only change; logs: {logs:#?}",
+    );
+}
+
+#[test]
+#[cfg(feature = "llvm")]
+fn test_body_change_without_signature_change_produces_different_module_hash() {
+    // When a function's body changes but its signature stays the same,
+    // the module hash should change (different expr_types) but individual
+    // function signature hashes should be identical.
+    //
+    // This is the foundation of function-level incremental compilation:
+    // only the changed function needs recompilation, not its callers.
+
+    use ori_llvm::aot::incremental::function_hash::{compute_module_hash, extract_function_hashes};
+
+    let db = CompilerDb::new();
+
+    // Version 1: body returns a + b
+    let file1 = SourceFile::new(
+        &db,
+        PathBuf::from("/test1.ori"),
+        "add (a: int, b: int) -> int = a + b".to_string(),
+    );
+    let type1 = typed(&db, file1);
+    let hashes1 = extract_function_hashes(&type1.typed.functions, &type1.typed.expr_types);
+
+    // Version 2: same signature, different body (extra operation)
+    let file2 = SourceFile::new(
+        &db,
+        PathBuf::from("/test2.ori"),
+        "add (a: int, b: int) -> int = a + b + 0".to_string(),
+    );
+    let type2 = typed(&db, file2);
+    let hashes2 = extract_function_hashes(&type2.typed.functions, &type2.typed.expr_types);
+
+    assert_eq!(hashes1.len(), 1, "should have 1 function hash");
+    assert_eq!(hashes2.len(), 1, "should have 1 function hash");
+
+    // Module hash should differ (body expression types changed)
+    let mh1 = compute_module_hash(&hashes1);
+    let mh2 = compute_module_hash(&hashes2);
+    assert_ne!(mh1, mh2, "module hash should differ when body changes");
+
+    // Signature hash should be identical (same params and return type)
+    assert_eq!(
+        hashes1[0].1.signature_hash(),
+        hashes2[0].1.signature_hash(),
+        "signature hash should be unchanged when only body changes"
+    );
+}
+
+#[test]
+fn test_typed_early_cutoff_on_body_change() {
+    // Changing a function's body (but not its signature) should cause typed()
+    // to re-execute, producing a different TypeCheckResult with different
+    // expression types. This verifies the Salsa → codegen handoff works:
+    // Salsa detects the change, and downstream function hashing sees it.
+    let mut db = CompilerDb::new();
+    db.enable_logging();
+
+    let file = SourceFile::new(
+        &db,
+        PathBuf::from("/test.ori"),
+        "@main () -> int = 42".to_string(),
+    );
+
+    let result1 = typed(&db, file);
+    let _ = db.take_logs();
+
+    // Change body only (same signature: () -> int)
+    file.set_text(&mut db)
+        .to("@main () -> int = 100".to_string());
+
+    let result2 = typed(&db, file);
+    let logs = db.take_logs();
+
+    // typed() SHOULD re-execute because the parsed AST changed
+    let typed_reexecuted = logs.iter().any(|l| l.contains("typed"));
+    assert!(
+        typed_reexecuted,
+        "typed() should re-execute when body changes; logs: {logs:#?}",
+    );
+
+    // Return types should still match (signature unchanged)
+    assert_eq!(
+        result1.typed.functions[0].return_type, result2.typed.functions[0].return_type,
+        "return type should be unchanged"
+    );
+}

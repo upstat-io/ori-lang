@@ -414,6 +414,7 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     use tempfile::TempDir;
 
     use super::compile_common::{check_source, compile_to_llvm};
+    use crate::problem::codegen::{report_codegen_error, CodegenProblem};
 
     // Step 1: Parse and type-check the source file
     if options.verbose {
@@ -429,13 +430,7 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     };
 
     // Step 2: Configure target
-    let target = match configure_target(options) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("error: failed to configure target: {e}");
-            std::process::exit(1);
-        }
-    };
+    let target = configure_target(options).unwrap_or_else(|e| report_codegen_error(e));
 
     if options.verbose {
         eprintln!("  Target: {}", target.triple());
@@ -443,21 +438,18 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     }
 
     // Step 3: Generate LLVM IR
+    // This is the Salsa/ArtifactCache boundary: Salsa queries (tokens → parsed →
+    // typed) are done; codegen uses ArtifactCache for incremental caching.
     let context = Context::create();
     let llvm_module = compile_to_llvm(&context, &db, &parse_result, &type_result, &pool, path);
 
     // Configure module for target
-    let emitter = match ObjectEmitter::new(&target) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!("error: failed to create object emitter: {e}");
-            std::process::exit(1);
-        }
-    };
+    let emitter = ObjectEmitter::new(&target).unwrap_or_else(|e| report_codegen_error(e));
 
     if let Err(e) = emitter.configure_module(&llvm_module) {
-        eprintln!("error: failed to configure module: {e}");
-        std::process::exit(1);
+        report_codegen_error(CodegenProblem::ModuleConfigFailed {
+            message: e.to_string(),
+        });
     }
 
     // Step 4: Build optimization config
@@ -471,8 +463,7 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     if let Some(emit_type) = options.emit {
         if let Err(e) = ori_llvm::aot::optimize_module(&llvm_module, emitter.machine(), &opt_config)
         {
-            eprintln!("error: optimization failed: {e}");
-            std::process::exit(1);
+            report_codegen_error(e);
         }
         emit_and_finish(
             &llvm_module,
@@ -490,8 +481,11 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     let temp_dir = match TempDir::new() {
         Ok(dir) => dir,
         Err(e) => {
-            eprintln!("error: failed to create temp directory: {e}");
-            std::process::exit(1);
+            report_codegen_error(CodegenProblem::EmissionFailed {
+                format: "object".into(),
+                path: String::new(),
+                message: format!("failed to create temp directory: {e}"),
+            });
         }
     };
     let module_name = Path::new(path)
@@ -510,8 +504,7 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
         &obj_path,
         ori_llvm::aot::OutputFormat::Object,
     ) {
-        eprintln!("error: pipeline failed: {e}");
-        std::process::exit(1);
+        report_codegen_error(e);
     }
 
     // Step 8: Link into executable
@@ -527,6 +520,8 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
     use ori_llvm::aot::{build_dependency_graph, Mangler};
     use oric::CompilerDb;
     use tempfile::TempDir;
+
+    use crate::problem::codegen::{report_codegen_error, CodegenProblem};
 
     // Step 1: Build dependency graph
     if options.verbose {
@@ -562,8 +557,9 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
     let dep_result = match build_dependency_graph(&entry_canonical, resolve_import) {
         Ok(result) => result,
         Err(e) => {
-            eprintln!("error: {e}");
-            std::process::exit(1);
+            report_codegen_error(CodegenProblem::ModuleConfigFailed {
+                message: e.to_string(),
+            });
         }
     };
 
@@ -578,13 +574,7 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
     }
 
     // Step 2: Configure target
-    let target = match configure_target(options) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("error: failed to configure target: {e}");
-            std::process::exit(1);
-        }
-    };
+    let target = configure_target(options).unwrap_or_else(|e| report_codegen_error(e));
 
     if options.verbose {
         eprintln!("  Target: {}", target.triple());
@@ -596,8 +586,11 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
     let temp_dir = match TempDir::new() {
         Ok(dir) => dir,
         Err(e) => {
-            eprintln!("error: failed to create temp directory: {e}");
-            std::process::exit(1);
+            report_codegen_error(CodegenProblem::EmissionFailed {
+                format: "object".into(),
+                path: String::new(),
+                message: format!("failed to create temp directory: {e}"),
+            });
         }
     };
     let obj_dir = temp_dir.path().to_path_buf();
@@ -671,37 +664,38 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
         // Load first bitcode as the base module
         let merged_module = Module::parse_bitcode_from_path(&object_files[0], &lto_context)
             .unwrap_or_else(|e| {
-                eprintln!(
-                    "error: failed to load bitcode '{}': {e}",
-                    object_files[0].display()
-                );
-                std::process::exit(1);
+                report_codegen_error(CodegenProblem::EmissionFailed {
+                    format: "bitcode".into(),
+                    path: object_files[0].display().to_string(),
+                    message: format!("failed to load: {e}"),
+                });
             });
 
         // Link remaining bitcode modules into the base
         for bc_path in &object_files[1..] {
             let other =
                 Module::parse_bitcode_from_path(bc_path, &lto_context).unwrap_or_else(|e| {
-                    eprintln!("error: failed to load bitcode '{}': {e}", bc_path.display());
-                    std::process::exit(1);
+                    report_codegen_error(CodegenProblem::EmissionFailed {
+                        format: "bitcode".into(),
+                        path: bc_path.display().to_string(),
+                        message: format!("failed to load: {e}"),
+                    });
                 });
             if let Err(e) = merged_module.link_in_module(other) {
-                eprintln!("error: LTO module linking failed: {e}");
-                std::process::exit(1);
+                report_codegen_error(CodegenProblem::OptimizationFailed {
+                    pipeline: "LTO module linking".into(),
+                    message: e.to_string(),
+                });
             }
         }
 
         // Configure merged module for target
-        let emitter = match ObjectEmitter::new(&target) {
-            Ok(e) => e,
-            Err(e) => {
-                eprintln!("error: failed to create object emitter: {e}");
-                std::process::exit(1);
-            }
-        };
+        let emitter = ObjectEmitter::new(&target).unwrap_or_else(|e| report_codegen_error(e));
+
         if let Err(e) = emitter.configure_module(&merged_module) {
-            eprintln!("error: failed to configure merged module: {e}");
-            std::process::exit(1);
+            report_codegen_error(CodegenProblem::ModuleConfigFailed {
+                message: e.to_string(),
+            });
         }
 
         // Run LTO pipeline on merged module
@@ -709,15 +703,17 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
         if let Err(e) =
             ori_llvm::aot::run_lto_pipeline(&merged_module, emitter.machine(), &opt_config)
         {
-            eprintln!("error: LTO pipeline failed: {e}");
-            std::process::exit(1);
+            report_codegen_error(e);
         }
 
         // Emit final object
         let final_obj = obj_dir.join("merged_lto.o");
         if let Err(e) = emitter.emit_object(&merged_module, &final_obj) {
-            eprintln!("error: failed to emit LTO object: {e}");
-            std::process::exit(1);
+            report_codegen_error(CodegenProblem::EmissionFailed {
+                format: "LTO object".into(),
+                path: final_obj.display().to_string(),
+                message: e.to_string(),
+            });
         }
 
         if options.verbose {
@@ -782,6 +778,7 @@ fn compile_single_module(
     use oric::SourceFile;
 
     use super::compile_common::{check_source, compile_to_llvm_with_imports};
+    use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics, CodegenProblem};
 
     let source_path_str = source_path.to_string_lossy();
 
@@ -793,7 +790,14 @@ fn compile_single_module(
     let content = match std::fs::read_to_string(source_path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("error: failed to read '{}': {}", source_path.display(), e);
+            let diag = CodegenProblem::EmissionFailed {
+                format: "source".into(),
+                path: source_path.display().to_string(),
+                message: format!("failed to read: {e}"),
+            };
+            let mut acc = CodegenDiagnostics::new();
+            acc.push(diag);
+            emit_codegen_diagnostics(acc);
             return None;
         }
     };
@@ -823,7 +827,9 @@ fn compile_single_module(
         ctx.mangler,
     );
 
-    // Compile to LLVM IR (with ARC cache if available)
+    // Compile to LLVM IR (with ARC cache if available).
+    // Salsa/ArtifactCache boundary: typed() results flow into codegen via
+    // function content hashes; ArcIrCache provides Layer 1 caching.
     let context = Context::create();
     let llvm_module = compile_to_llvm_with_imports(
         &context,
@@ -844,13 +850,19 @@ fn compile_single_module(
     let emitter = match ObjectEmitter::new(ctx.target) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("error: failed to create object emitter: {e}");
+            let mut acc = CodegenDiagnostics::new();
+            acc.push(e.into());
+            emit_codegen_diagnostics(acc);
             return None;
         }
     };
 
     if let Err(e) = emitter.configure_module(&llvm_module) {
-        eprintln!("error: failed to configure module: {e}");
+        let mut acc = CodegenDiagnostics::new();
+        acc.push(CodegenProblem::ModuleConfigFailed {
+            message: e.to_string(),
+        });
+        emit_codegen_diagnostics(acc);
         return None;
     }
 
@@ -876,7 +888,9 @@ fn compile_single_module(
             ctx.opt_config,
             &bc_path,
         ) {
-            eprintln!("error: LTO pre-link failed: {e}");
+            let mut acc = CodegenDiagnostics::new();
+            acc.push(e.into());
+            emit_codegen_diagnostics(acc);
             return None;
         }
         let obj_path = bc_path; // Return bitcode path in place of object path
@@ -904,7 +918,9 @@ fn compile_single_module(
         &obj_path,
         ori_llvm::aot::OutputFormat::Object,
     ) {
-        eprintln!("error: pipeline failed: {e}");
+        let mut acc = CodegenDiagnostics::new();
+        acc.push(e.into());
+        emit_codegen_diagnostics(acc);
         return None;
     }
 
@@ -1043,8 +1059,7 @@ fn emit_and_finish(
     };
 
     if let Err(e) = emitter.emit(llvm_module, &emit_path, format) {
-        eprintln!("error: failed to emit: {e}");
-        std::process::exit(1);
+        crate::problem::codegen::report_codegen_error(e);
     }
 
     let elapsed = start.elapsed();
@@ -1074,9 +1089,7 @@ fn link_and_finish(
     let runtime_config = match RuntimeConfig::detect() {
         Ok(config) => config,
         Err(e) => {
-            eprintln!("error: {e}");
-            eprintln!("hint: ensure libori_rt is built and available");
-            std::process::exit(1);
+            crate::problem::codegen::report_codegen_error(e);
         }
     };
 
@@ -1112,8 +1125,7 @@ fn link_and_finish(
     }
 
     if let Err(e) = driver.link(&link_input) {
-        eprintln!("error: linking failed: {e}");
-        std::process::exit(1);
+        crate::problem::codegen::report_codegen_error(e);
     }
 
     let elapsed = start.elapsed();
@@ -1127,16 +1139,18 @@ fn link_and_finish(
 /// Build command when LLVM feature is not enabled.
 #[cfg(not(feature = "llvm"))]
 pub fn build_file(_path: &str, _options: &BuildOptions) {
-    eprintln!("error: the 'build' command requires the LLVM backend");
-    eprintln!();
-    eprintln!("The Ori compiler was built without LLVM support.");
-    eprintln!("To enable AOT compilation, rebuild with the 'llvm' feature:");
-    eprintln!();
-    eprintln!("  cargo build --features llvm");
-    eprintln!();
-    eprintln!("Or use the LLVM-enabled Docker container:");
-    eprintln!();
-    eprintln!("  ./docker/llvm/run.sh ori build <file.ori>");
+    use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
+    use ori_diagnostic::{Diagnostic, ErrorCode};
+
+    let diag = Diagnostic::error(ErrorCode::E5004)
+        .with_message("the 'build' command requires the LLVM backend")
+        .with_note("the Ori compiler was built without LLVM support")
+        .with_suggestion("rebuild with `cargo build --features llvm`");
+
+    let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
+    let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty);
+    emitter.emit(&diag);
+    emitter.flush();
     std::process::exit(1);
 }
 

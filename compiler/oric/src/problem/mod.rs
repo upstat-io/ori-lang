@@ -35,6 +35,11 @@ pub mod lex;
 pub mod parse;
 pub mod semantic;
 
+#[cfg(feature = "llvm")]
+pub mod codegen;
+#[cfg(feature = "llvm")]
+pub use codegen::{report_codegen_error, CodegenProblem};
+
 pub use lex::LexProblem;
 pub use parse::ParseProblem;
 pub use semantic::SemanticProblem;

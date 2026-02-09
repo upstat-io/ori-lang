@@ -7,6 +7,24 @@
 //! 3. Generate LLVM IR
 //!
 //! By centralizing this logic, bug fixes and enhancements apply to both commands.
+//!
+//! # Salsa/ArtifactCache Boundary
+//!
+//! The compilation pipeline uses a **hybrid caching strategy**:
+//!
+//! - **Salsa** handles the front-end: `SourceFile → tokens() → parsed() → typed()`.
+//!   Salsa's early cutoff skips downstream queries when results are unchanged
+//!   (e.g., whitespace-only edits don't trigger re-parsing).
+//!
+//! - **ArtifactCache** handles the back-end: ARC IR caching (Layer 1) and
+//!   object code caching (Layer 2, future). Codegen is **not** a Salsa query
+//!   because LLVM types (`Module`, `FunctionValue`, `BasicBlock`) are lifetime-
+//!   bound to an LLVM `Context` and do not satisfy Salsa's `Clone + Eq + Hash`
+//!   requirements.
+//!
+//! The handoff occurs after `typed()`: function content hashes are computed from
+//! the `TypeCheckResult`, and the `ArcIrCache` checks whether ARC analysis can
+//! be skipped. See [`run_arc_pipeline_cached`] for the cache integration point.
 
 #[cfg(feature = "llvm")]
 use std::path::Path;
@@ -207,9 +225,12 @@ fn run_borrow_inference(
         arc_functions.extend(lambdas);
     }
 
-    // Log any ARC lowering issues (non-fatal)
-    for problem in &arc_problems {
-        tracing::debug!(?problem, "ARC IR lowering issue");
+    // Surface ARC lowering issues as structured diagnostics (non-fatal)
+    if !arc_problems.is_empty() {
+        use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};
+        let mut acc = CodegenDiagnostics::new();
+        acc.add_arc_problems(&arc_problems);
+        emit_codegen_diagnostics(acc);
     }
 
     ori_arc::infer_borrows(&arc_functions, &classifier)

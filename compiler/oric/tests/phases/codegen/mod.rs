@@ -70,3 +70,7 @@ mod mangling;
 // Runtime library configuration tests
 #[cfg(feature = "llvm")]
 mod runtime;
+
+// Diagnostic integration tests
+#[cfg(feature = "llvm")]
+mod diagnostics;
