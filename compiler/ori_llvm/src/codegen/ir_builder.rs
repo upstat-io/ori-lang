@@ -1683,6 +1683,14 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     // Raw value access (for interop with existing code)
     // -----------------------------------------------------------------------
 
+    /// Access the underlying inkwell `Builder` for direct LLVM operations.
+    ///
+    /// Needed by `DebugContext` to set debug locations and emit debug
+    /// intrinsics (`insert_declare_at_end`, `insert_dbg_value_before`).
+    pub fn inkwell_builder(&self) -> &InkwellBuilder<'ctx> {
+        &self.builder
+    }
+
     /// Get the raw `BasicValueEnum` for a `ValueId`.
     ///
     /// Use sparingly — this is for interop with code that hasn't been

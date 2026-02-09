@@ -264,6 +264,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                 "",
                 None,
                 None,
+                None, // No debug info for JIT
             );
             fc.declare_all(&module.functions, function_sigs);
 

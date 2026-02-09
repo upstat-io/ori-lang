@@ -16,11 +16,12 @@
 use std::cell::Cell;
 
 use ori_arc::{AnnotatedSig, ArcClassifier};
-use ori_ir::{ExprArena, ExprId, Function, Name, StringInterner, TestDef};
+use ori_ir::{ExprArena, ExprId, Function, Name, Span, StringInterner, TestDef};
 use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
 
+use crate::aot::debug::DebugContext;
 use crate::aot::mangle::Mangler;
 
 use super::abi::{
@@ -74,6 +75,8 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Type classifier for ARC analysis (scalar vs ref classification).
     /// Required when `annotated_sigs` is present.
     arc_classifier: Option<&'a ArcClassifier<'tcx>>,
+    /// Debug info context (None for JIT, Some for AOT with debug info enabled).
+    debug_context: Option<&'a DebugContext<'ctx>>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -96,6 +99,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         module_path: &'a str,
         annotated_sigs: Option<&'a FxHashMap<Name, AnnotatedSig>>,
         arc_classifier: Option<&'a ArcClassifier<'tcx>>,
+        debug_context: Option<&'a DebugContext<'ctx>>,
     ) -> Self {
         Self {
             builder,
@@ -111,6 +115,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             lambda_counter: Cell::new(0),
             annotated_sigs,
             arc_classifier,
+            debug_context,
         }
     }
 
@@ -133,7 +138,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 continue;
             }
 
-            self.declare_function(func.name, sig);
+            self.declare_function(func.name, sig, func.span);
         }
     }
 
@@ -141,17 +146,24 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// The LLVM symbol uses the mangled name (e.g., `_ori_add`), while the
     /// `functions` map key uses the interned `Name` for internal lookups.
-    fn declare_function(&mut self, name: Name, sig: &FunctionSig) {
+    fn declare_function(&mut self, name: Name, sig: &FunctionSig, span: Span) {
         let name_str = self.interner.lookup(name);
         let symbol = self.mangler.mangle_function(self.module_path, name_str);
-        self.declare_function_with_symbol(name, &symbol, sig);
+        self.declare_function_with_symbol(name, &symbol, sig, span);
     }
 
     /// Declare a function with an explicit LLVM symbol name.
     ///
     /// Shared implementation for `declare_function` (top-level) and
     /// `declare_impl_method` (impl block methods with type-qualified names).
-    fn declare_function_with_symbol(&mut self, name: Name, symbol: &str, sig: &FunctionSig) {
+    /// `span` is the source location of the function definition for debug info.
+    fn declare_function_with_symbol(
+        &mut self,
+        name: Name,
+        symbol: &str,
+        sig: &FunctionSig,
+        span: Span,
+    ) {
         let name_str = self.interner.lookup(name);
 
         // Use borrow-aware ABI when annotations are available
@@ -224,6 +236,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.builder.add_noalias_attribute(func_id, 0);
         }
 
+        // Attach DISubprogram for debug info
+        if let Some(dc) = self.debug_context {
+            if span != Span::DUMMY {
+                if let Ok(subprogram) = dc.create_function_at_offset(name_str, span.start) {
+                    let func_val = self.builder.get_function_value(func_id);
+                    dc.di().attach_function(func_val, subprogram);
+                }
+            }
+        }
+
         self.functions.insert(name, (func_id, abi));
     }
 
@@ -275,6 +297,14 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         let name_str = self.interner.lookup(name);
         debug!(name = name_str, "defining function body");
 
+        // Enter debug scope for this function
+        if let Some(dc) = self.debug_context {
+            let func_val = self.builder.get_function_value(func_id);
+            if let Some(subprogram) = func_val.get_subprogram() {
+                dc.enter_function(subprogram);
+            }
+        }
+
         // Create entry block
         let entry_block = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry_block);
@@ -299,6 +329,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             &self.type_idx_to_name,
             &self.lambda_counter,
             self.module_path,
+            self.debug_context,
         );
 
         let result = lowerer.lower(body);
@@ -306,6 +337,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         // Check if the block is already terminated (e.g., by panic, break, unreachable)
         if let Some(block) = self.builder.current_block() {
             if self.builder.block_has_terminator(block) {
+                // Exit debug scope even on early termination
+                if let Some(dc) = self.debug_context {
+                    dc.exit_function();
+                }
                 return;
             }
         }
@@ -332,6 +367,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             ReturnPassing::Void => {
                 self.builder.ret_void();
             }
+        }
+
+        // Exit debug scope after emitting return
+        if let Some(dc) = self.debug_context {
+            dc.exit_function();
         }
     }
 
@@ -426,6 +466,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 &self.type_idx_to_name,
                 &self.lambda_counter,
                 self.module_path,
+                self.debug_context,
             );
 
             lowerer.lower(test.body);
@@ -504,7 +545,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     self.mangler
                         .mangle_method(self.module_path, &type_name, method_str)
                 };
-                self.declare_function_with_symbol(method.name, &symbol, sig);
+                self.declare_function_with_symbol(method.name, &symbol, sig, method.span);
 
                 let Some(&(func_id, ref abi)) = self.functions.get(&method.name) else {
                     continue;
@@ -537,7 +578,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Declare external imported functions (for multi-module AOT compilation).
     pub fn declare_imports(&mut self, imports: &[(Name, FunctionSig)]) {
         for (name, sig) in imports {
-            self.declare_function(*name, sig);
+            self.declare_function(*name, sig, Span::DUMMY);
         }
     }
 
@@ -922,8 +963,9 @@ mod tests {
             "",
             None,
             None,
+            None,
         );
-        fc.declare_function(func_name, &sig);
+        fc.declare_function(func_name, &sig, Span::DUMMY);
 
         let (_func_id, abi) = fc.get_function(func_name).unwrap();
         assert_eq!(abi.params.len(), 2);
@@ -956,8 +998,9 @@ mod tests {
             "",
             None,
             None,
+            None,
         );
-        fc.declare_function(func_name, &sig);
+        fc.declare_function(func_name, &sig, Span::DUMMY);
 
         let (_, abi) = fc.get_function(func_name).unwrap();
         assert_eq!(abi.return_abi.passing, ReturnPassing::Void);
@@ -986,8 +1029,9 @@ mod tests {
             "",
             None,
             None,
+            None,
         );
-        fc.declare_function(func_name, &sig);
+        fc.declare_function(func_name, &sig, Span::DUMMY);
 
         let (_, abi) = fc.get_function(func_name).unwrap();
         assert!(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }));
@@ -1025,8 +1069,9 @@ mod tests {
             "",
             None,
             None,
+            None,
         );
-        fc.declare_function(func_name, &sig);
+        fc.declare_function(func_name, &sig, Span::DUMMY);
 
         let (_, abi) = fc.get_function(func_name).unwrap();
         assert_eq!(abi.call_conv, CallConv::C);
@@ -1082,6 +1127,7 @@ mod tests {
             "",
             None,
             None,
+            None,
         );
         fc.declare_all(&[func], &[sig]);
 
@@ -1135,9 +1181,10 @@ mod tests {
             "",
             None,
             None,
+            None,
         );
-        fc.declare_function(add_name, &sig_add);
-        fc.declare_function(sub_name, &sig_sub);
+        fc.declare_function(add_name, &sig_add, Span::DUMMY);
+        fc.declare_function(sub_name, &sig_sub, Span::DUMMY);
 
         assert_eq!(fc.function_map().len(), 2);
         assert!(fc.function_map().contains_key(&add_name));
@@ -1242,6 +1289,7 @@ mod tests {
             "",
             None,
             None,
+            None,
         );
 
         // Compile Point impl first, then Line impl
@@ -1331,8 +1379,9 @@ mod tests {
             "math",
             None,
             None,
+            None,
         );
-        fc.declare_function(func_name, &sig);
+        fc.declare_function(func_name, &sig, Span::DUMMY);
 
         // Must drop borrowers before accessing scx directly
         drop(fc);
