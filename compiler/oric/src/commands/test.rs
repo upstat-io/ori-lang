@@ -93,22 +93,25 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
             continue;
         }
 
-        // Print file errors (parse/type errors) and blocked tests
+        // Print file errors (parse/type/LLVM errors) and blocked tests
         if !file.errors.is_empty() {
-            // Skip expected file errors in non-verbose mode
-            if file.expected_file_error && !verbose {
+            // Skip LLVM compile errors in non-verbose mode
+            if file.llvm_compile_error && !verbose {
                 continue;
             }
 
             println!("\n{}", file.path.display());
-            if file.expected_file_error {
-                // Show as expected errors in verbose mode
-                for result in &file.results {
-                    if result.outcome.is_expected_failure() {
-                        let name = result.name_str(interner);
-                        println!("  XFAIL: {name} - blocked by type errors (expected)");
-                    }
+            if file.llvm_compile_error {
+                // Show the compilation error, then list blocked tests
+                for error in &file.errors {
+                    println!("  ERROR: {error}");
                 }
+                let blocked = file
+                    .results
+                    .iter()
+                    .filter(|r| r.outcome.is_llvm_compile_fail())
+                    .count();
+                println!("  ({blocked} tests blocked)");
             } else {
                 // Show which tests were blocked (real failures)
                 for result in &file.results {
@@ -149,9 +152,9 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
                         continue;
                     }
                 }
-                TestOutcome::ExpectedFailure(reason) => {
+                TestOutcome::LlvmCompileFail(reason) => {
                     if verbose {
-                        format!("  XFAIL: {name} - {reason}")
+                        format!("  LLVM COMPILE FAIL: {name} - {reason}")
                     } else {
                         continue;
                     }
@@ -165,30 +168,55 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
     println!();
     println!("Test Summary:");
 
-    // Build summary line with optional xfail info
     let mut parts = vec![
         format!("{} passed", summary.passed),
         format!("{} failed", summary.failed),
         format!("{} skipped", summary.skipped),
     ];
-    if summary.xfail > 0 {
-        parts.push(format!("{} expected failures", summary.xfail));
+    if summary.llvm_compile_fail > 0 {
+        parts.push(format!("{} llvm compile fail", summary.llvm_compile_fail));
     }
     if summary.error_files > 0 {
         parts.push(format!("{} files with errors", summary.error_files));
     }
     println!("  {}", parts.join(", "));
 
-    if summary.xfail_files > 0 {
+    if summary.llvm_compile_fail_files > 0 {
         println!(
-            "  ({} {} with expected errors)",
-            summary.xfail_files,
-            if summary.xfail_files == 1 {
+            "  ({} {} could not compile via LLVM)",
+            summary.llvm_compile_fail_files,
+            if summary.llvm_compile_fail_files == 1 {
                 "file"
             } else {
                 "files"
             }
         );
+
+        // Show breakdown of unique error reasons
+        let mut error_counts: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
+        for file in &summary.files {
+            if file.llvm_compile_error {
+                for error in &file.errors {
+                    *error_counts.entry(error.as_str()).or_default() += 1;
+                }
+            }
+        }
+        if !error_counts.is_empty() {
+            let mut sorted: Vec<_> = error_counts.into_iter().collect();
+            sorted.sort_by(|a, b| b.1.cmp(&a.1));
+            println!("  Reasons:");
+            for (error, count) in &sorted {
+                let plural = if *count == 1 { "file" } else { "files" };
+                // Truncate long error messages for readability
+                let display = if error.len() > 80 {
+                    format!("{}...", &error[..77])
+                } else {
+                    (*error).to_string()
+                };
+                println!("    {count} {plural}: {display}");
+            }
+        }
     }
 
     println!("  Completed in {:.2?}", summary.duration);
@@ -196,7 +224,10 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
     if summary.has_failures() {
         println!();
         println!("FAILED");
-    } else if summary.total() == 0 && summary.xfail == 0 && summary.xfail_files == 0 {
+    } else if summary.total() == 0
+        && summary.llvm_compile_fail == 0
+        && summary.llvm_compile_fail_files == 0
+    {
         println!();
         println!("NO TESTS FOUND");
     } else {

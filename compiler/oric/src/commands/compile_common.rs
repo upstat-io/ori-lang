@@ -324,9 +324,9 @@ pub fn run_arc_pipeline_cached(
         for func in &mut arc_functions {
             let liveness = ori_arc::compute_liveness(func, &classifier);
             ori_arc::insert_rc_ops(func, &classifier, &liveness);
-            ori_arc::eliminate_rc_ops(func);
             ori_arc::detect_reset_reuse(func, &classifier);
             ori_arc::expand_reset_reuse(func, &classifier);
+            ori_arc::eliminate_rc_ops(func);
         }
 
         if let Ok(cached) =

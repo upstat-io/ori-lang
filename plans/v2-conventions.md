@@ -436,3 +436,4 @@ ori_ir = { path = "../ori_ir" }
 | Lexer V2 | `plans/lexer_v2/` | Adopting (§1–§10) |
 | Parser V2 | `plans/parser_v2/` | Established (§1, §3, §6, §9) |
 | Types V2 | `plans/types_v2/` | Established (§1–§9) |
+| Diagnostic V2 | `plans/diag_v2/` | Adopting (§5, §7, §8) |
