@@ -119,7 +119,11 @@ fn test_recursion_limit_exceeded() {
     let err = recursion_limit_exceeded(200);
     assert!(err.message.contains("recursion"));
     assert!(err.message.contains("200"));
-    assert!(err.message.contains("WASM"));
+    assert!(err.message.contains("limit"));
+    assert_eq!(
+        err.kind,
+        ori_patterns::EvalErrorKind::StackOverflow { depth: 200 }
+    );
 }
 
 // -- Method Call Errors --

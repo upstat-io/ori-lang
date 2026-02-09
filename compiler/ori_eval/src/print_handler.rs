@@ -100,13 +100,15 @@ impl Default for BufferPrintHandler {
 
 /// Print handler implementation using enum dispatch.
 ///
-/// Only two variants exist (Stdout, Buffer), so enum dispatch
-/// is more efficient than trait objects (no vtable indirection).
+/// Uses enum dispatch for O(1) static dispatch — more efficient than
+/// trait objects (no vtable indirection).
 pub enum PrintHandlerImpl {
-    /// Writes to stdout (default)
+    /// Writes to stdout (default).
     Stdout(StdoutPrintHandler),
-    /// Captures to buffer (WASM/testing)
+    /// Captures to buffer (WASM/testing).
     Buffer(BufferPrintHandler),
+    /// Discards all output silently (const-eval mode).
+    Silent,
 }
 
 impl PrintHandlerImpl {
@@ -115,6 +117,7 @@ impl PrintHandlerImpl {
         match self {
             Self::Stdout(h) => h.println(msg),
             Self::Buffer(h) => h.println(msg),
+            Self::Silent => {}
         }
     }
 
@@ -123,16 +126,18 @@ impl PrintHandlerImpl {
         match self {
             Self::Stdout(h) => h.print(msg),
             Self::Buffer(h) => h.print(msg),
+            Self::Silent => {}
         }
     }
 
     /// Get all captured output (for testing/WASM).
     ///
-    /// Returns empty string for handlers that don't capture (like stdout).
+    /// Returns empty string for handlers that don't capture (stdout, silent).
     pub fn get_output(&self) -> String {
         match self {
             Self::Stdout(h) => h.get_output(),
             Self::Buffer(h) => h.get_output(),
+            Self::Silent => String::new(),
         }
     }
 
@@ -141,6 +146,7 @@ impl PrintHandlerImpl {
         match self {
             Self::Stdout(h) => h.clear(),
             Self::Buffer(h) => h.clear(),
+            Self::Silent => {}
         }
     }
 }
@@ -168,6 +174,17 @@ pub fn stdout_handler() -> SharedPrintHandler {
 )]
 pub fn buffer_handler() -> SharedPrintHandler {
     std::sync::Arc::new(PrintHandlerImpl::Buffer(BufferPrintHandler::new()))
+}
+
+/// Create a silent print handler that discards all output.
+///
+/// Used for `ConstEval` mode where print is forbidden (must be pure).
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc required for SharedPrintHandler"
+)]
+pub fn silent_handler() -> SharedPrintHandler {
+    std::sync::Arc::new(PrintHandlerImpl::Silent)
 }
 
 #[cfg(test)]
@@ -225,6 +242,22 @@ mod tests {
         let handler = buffer_handler();
         handler.println("test");
         assert_eq!(handler.get_output(), "test\n");
+    }
+
+    #[test]
+    fn silent_handler_discards_output() {
+        let handler = silent_handler();
+        handler.println("hello");
+        handler.print("world");
+        assert_eq!(handler.get_output(), "");
+    }
+
+    #[test]
+    fn silent_handler_clear_is_noop() {
+        let handler = silent_handler();
+        handler.println("hello");
+        handler.clear(); // Should not panic
+        assert_eq!(handler.get_output(), "");
     }
 
     #[test]

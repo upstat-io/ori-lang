@@ -575,7 +575,7 @@ pub enum LoopAction {
     /// Exit loop with value
     Break(Value),
     /// Propagate error
-    Error(EvalError),
+    Error(Box<EvalError>),
 }
 
 /// Evaluate a loop expression.
@@ -590,7 +590,7 @@ where
                 return Ok(val);
             }
             LoopAction::Error(e) => {
-                return Err(e);
+                return Err(*e);
             }
         }
     }
@@ -608,7 +608,7 @@ pub fn to_loop_action(error: EvalError) -> LoopAction {
         Some(ControlFlow::Continue(v)) if !matches!(v, Value::Void) => LoopAction::ContinueWith(v),
         Some(ControlFlow::Continue(_)) => LoopAction::Continue,
         Some(ControlFlow::Break(v)) => LoopAction::Break(v),
-        None => LoopAction::Error(error),
+        None => LoopAction::Error(Box::new(error)),
     }
 }
 

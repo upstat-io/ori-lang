@@ -588,6 +588,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ori_canon"
+version = "0.1.0-alpha.8"
+dependencies = [
+ "ori_arc",
+ "ori_ir",
+ "ori_types",
+ "pretty_assertions",
+ "rustc-hash",
+ "tracing",
+]
+
+[[package]]
 name = "ori_diagnostic"
 version = "0.1.0-alpha.8"
 dependencies = [

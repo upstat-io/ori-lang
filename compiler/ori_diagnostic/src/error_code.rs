@@ -9,6 +9,7 @@ use std::fmt;
 /// - E3xxx: Pattern errors
 /// - E4xxx: ARC analysis errors
 /// - E5xxx: Codegen / LLVM errors
+/// - E6xxx: Runtime / eval errors
 /// - E9xxx: Internal compiler errors
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum ErrorCode {
@@ -132,6 +133,56 @@ pub enum ErrorCode {
     /// ARC internal error (invariant violation)
     E4003,
 
+    // Runtime / Eval Errors (E6xxx)
+    /// Division by zero
+    E6001,
+    /// Modulo by zero
+    E6002,
+    /// Integer overflow
+    E6003,
+    /// Type mismatch
+    E6010,
+    /// Invalid binary operator for type
+    E6011,
+    /// Binary type mismatch
+    E6012,
+    /// Undefined variable
+    E6020,
+    /// Undefined function
+    E6021,
+    /// Undefined constant
+    E6022,
+    /// Undefined field
+    E6023,
+    /// Undefined method
+    E6024,
+    /// Index out of bounds
+    E6025,
+    /// Key not found
+    E6026,
+    /// Immutable binding
+    E6027,
+    /// Arity mismatch
+    E6030,
+    /// Stack overflow (recursion limit)
+    E6031,
+    /// Not callable
+    E6032,
+    /// Non-exhaustive match
+    E6040,
+    /// Assertion failed
+    E6050,
+    /// Panic called
+    E6051,
+    /// Missing capability
+    E6060,
+    /// Const-eval budget exceeded
+    E6070,
+    /// Not implemented feature
+    E6080,
+    /// Custom runtime error
+    E6099,
+
     // Codegen / LLVM Errors (E5xxx)
     /// LLVM module verification failed (ICE)
     E5001,
@@ -232,6 +283,31 @@ impl ErrorCode {
             ErrorCode::E4001 => "E4001",
             ErrorCode::E4002 => "E4002",
             ErrorCode::E4003 => "E4003",
+            // Runtime / Eval
+            ErrorCode::E6001 => "E6001",
+            ErrorCode::E6002 => "E6002",
+            ErrorCode::E6003 => "E6003",
+            ErrorCode::E6010 => "E6010",
+            ErrorCode::E6011 => "E6011",
+            ErrorCode::E6012 => "E6012",
+            ErrorCode::E6020 => "E6020",
+            ErrorCode::E6021 => "E6021",
+            ErrorCode::E6022 => "E6022",
+            ErrorCode::E6023 => "E6023",
+            ErrorCode::E6024 => "E6024",
+            ErrorCode::E6025 => "E6025",
+            ErrorCode::E6026 => "E6026",
+            ErrorCode::E6027 => "E6027",
+            ErrorCode::E6030 => "E6030",
+            ErrorCode::E6031 => "E6031",
+            ErrorCode::E6032 => "E6032",
+            ErrorCode::E6040 => "E6040",
+            ErrorCode::E6050 => "E6050",
+            ErrorCode::E6051 => "E6051",
+            ErrorCode::E6060 => "E6060",
+            ErrorCode::E6070 => "E6070",
+            ErrorCode::E6080 => "E6080",
+            ErrorCode::E6099 => "E6099",
             // Codegen / LLVM
             ErrorCode::E5001 => "E5001",
             ErrorCode::E5002 => "E5002",
@@ -258,6 +334,11 @@ impl ErrorCode {
     /// Check if this is a codegen/LLVM error (E5xxx range).
     pub fn is_codegen_error(&self) -> bool {
         self.as_str().starts_with("E5")
+    }
+
+    /// Check if this is a runtime/eval error (E6xxx range).
+    pub fn is_eval_error(&self) -> bool {
+        self.as_str().starts_with("E6")
     }
 
     /// Check if this is a warning code (Wxxx range).
@@ -313,6 +394,22 @@ mod tests {
     }
 
     #[test]
+    fn test_eval_error_codes() {
+        assert_eq!(ErrorCode::E6001.as_str(), "E6001");
+        assert_eq!(ErrorCode::E6020.as_str(), "E6020");
+        assert_eq!(ErrorCode::E6099.as_str(), "E6099");
+
+        assert!(ErrorCode::E6001.is_eval_error());
+        assert!(ErrorCode::E6031.is_eval_error());
+        assert!(ErrorCode::E6099.is_eval_error());
+
+        assert!(!ErrorCode::E6001.is_arc_error());
+        assert!(!ErrorCode::E6001.is_codegen_error());
+        assert!(!ErrorCode::E6001.is_parser_error());
+        assert!(!ErrorCode::E6001.is_warning());
+    }
+
+    #[test]
     fn test_predicate_exclusivity() {
         // Ensure predicates don't overlap
         let all_codes = [
@@ -322,6 +419,7 @@ mod tests {
             ErrorCode::E3001,
             ErrorCode::E4001,
             ErrorCode::E5001,
+            ErrorCode::E6001,
             ErrorCode::E9001,
             ErrorCode::W1001,
         ];
@@ -331,6 +429,7 @@ mod tests {
                 code.is_parser_error(),
                 code.is_arc_error(),
                 code.is_codegen_error(),
+                code.is_eval_error(),
                 code.is_warning(),
             ];
             // At most one predicate should be true for any code

@@ -8,7 +8,7 @@ use ori_ir::{SharedArena, SharedInterner};
 use ori_eval::{
     buffer_handler, collect_extend_methods, collect_impl_methods, process_derives,
     register_module_functions, register_newtype_constructors, register_variant_constructors,
-    InterpreterBuilder, UserMethodRegistry, Value, DEFAULT_MAX_CALL_DEPTH,
+    EvalMode, InterpreterBuilder, UserMethodRegistry, Value,
 };
 use serde::Serialize;
 
@@ -63,7 +63,8 @@ pub fn run_ori(source: &str, max_call_depth: Option<usize>) -> String {
 /// Get the default maximum call depth for WASM.
 #[wasm_bindgen]
 pub fn default_max_call_depth() -> usize {
-    DEFAULT_MAX_CALL_DEPTH
+    // EvalMode::Interpret returns Some(200) on WASM
+    EvalMode::Interpret.max_recursion_depth().unwrap_or(200)
 }
 
 fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
@@ -112,11 +113,12 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
         };
     }
 
-    // Create interpreter with the parse result's arena and buffer print handler
+    // Create interpreter with the parse result's arena and buffer print handler.
+    // EvalMode::Interpret on WASM enforces a 200-depth recursion limit.
+    let _ = max_call_depth; // Reserved for future per-session depth override
     let print_handler = buffer_handler();
     let mut interpreter = InterpreterBuilder::new(&interner, &parse_result.arena)
         .print_handler(print_handler.clone())
-        .max_call_depth(max_call_depth.unwrap_or(DEFAULT_MAX_CALL_DEPTH))
         .build();
 
     // Register built-in function_val functions (int, str, float, byte)

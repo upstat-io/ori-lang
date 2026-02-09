@@ -48,7 +48,9 @@ mod test_helpers;
 
 use ori_ir::{ExprArena, ExprId, NamedExpr, StringInterner};
 
-pub use errors::{ControlFlow, EvalError, EvalResult};
+pub use errors::{
+    BacktraceFrame, ControlFlow, EvalBacktrace, EvalError, EvalErrorKind, EvalNote, EvalResult,
+};
 pub use fusion::{ChainLink, FusedPattern, FusionHints, PatternChain};
 pub use method_key::{MethodKey, MethodKeyDisplay};
 pub use registry::{Pattern, PatternRegistry};

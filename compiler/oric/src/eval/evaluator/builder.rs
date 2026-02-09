@@ -5,8 +5,8 @@ use crate::context::CompilerContext;
 use crate::db::Db;
 use crate::ir::{ExprArena, SharedArena, StringInterner};
 use ori_eval::{
-    Environment, InterpreterBuilder, PatternRegistry, SharedMutableRegistry, SharedRegistry,
-    UserMethodRegistry,
+    Environment, EvalMode, InterpreterBuilder, PatternRegistry, SharedMutableRegistry,
+    SharedRegistry, UserMethodRegistry,
 };
 use ori_types::{Idx, PatternKey, PatternResolution};
 
@@ -17,6 +17,7 @@ pub struct EvaluatorBuilder<'a> {
     interner: &'a StringInterner,
     arena: &'a ExprArena,
     db: &'a dyn Db,
+    mode: EvalMode,
     env: Option<Environment>,
     registry: Option<SharedRegistry<PatternRegistry>>,
     context: Option<&'a CompilerContext>,
@@ -35,6 +36,7 @@ impl<'a> EvaluatorBuilder<'a> {
             interner,
             arena,
             db,
+            mode: EvalMode::default(),
             env: None,
             registry: None,
             context: None,
@@ -43,6 +45,15 @@ impl<'a> EvaluatorBuilder<'a> {
             expr_types: None,
             pattern_resolutions: &[],
         }
+    }
+
+    /// Set the evaluation mode.
+    ///
+    /// Controls I/O access, recursion limits, test collection, and const-eval budget.
+    #[must_use]
+    pub fn mode(mut self, mode: EvalMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     /// Set the initial environment.
@@ -106,8 +117,9 @@ impl<'a> EvaluatorBuilder<'a> {
 
     /// Build the evaluator.
     pub fn build(self) -> Evaluator<'a> {
-        // Build the underlying interpreter
-        let mut interpreter_builder = InterpreterBuilder::new(self.interner, self.arena);
+        // Build the underlying interpreter with the configured mode
+        let mut interpreter_builder =
+            InterpreterBuilder::new(self.interner, self.arena).mode(self.mode);
 
         if let Some(env) = self.env {
             interpreter_builder = interpreter_builder.env(env);

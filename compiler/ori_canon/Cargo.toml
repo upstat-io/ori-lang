@@ -1,0 +1,25 @@
+[package]
+name = "ori_canon"
+description = "Canonical IR lowering for the Ori compiler — ExprArena to CanArena transformation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Shared IR types (ExprKind, ExprArena, CanExpr, CanArena, etc.)
+ori_ir.workspace = true
+# Type system (Pool, Idx, type checking results)
+ori_types.workspace = true
+# ARC analysis (type classification, decision tree compilation)
+ori_arc.workspace = true
+
+# Utilities
+rustc-hash.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

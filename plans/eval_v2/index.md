@@ -13,7 +13,7 @@
 ## Keyword Clusters by Section
 
 ### Section 01: Canonical IR
-**File:** `section-01-canonical-ir.md` | **Status:** Not Started
+**File:** `section-01-canonical-ir.md` | **Status:** Complete (2026-02-09)
 
 ```
 CanExpr, CanArena, CanId, CanRange, CanNode
@@ -26,7 +26,7 @@ decision tree, relocation, ori_arc, shared types
 ---
 
 ### Section 02: AST Lowering
-**File:** `section-02-lowering.md` | **Status:** Not Started
+**File:** `section-02-lowering.md` | **Status:** Complete (2026-02-09)
 
 ```
 lower, lowering, Lowerer, ExprArena, CanArena, transform
@@ -40,7 +40,7 @@ type attachment, Idx, expr_types, resolved type
 ---
 
 ### Section 03: Pattern Compilation
-**File:** `section-03-pattern-compilation.md` | **Status:** Not Started
+**File:** `section-03-pattern-compilation.md` | **Status:** Complete (2026-02-09)
 
 ```
 pattern, match, decision tree, DecisionTree, compile, Maranget
@@ -54,7 +54,7 @@ MatchPattern, Wildcard, Binding, Variant, Struct, Tuple, List, Or, As
 ---
 
 ### Section 04: Constant Folding
-**File:** `section-04-constant-folding.md` | **Status:** Not Started
+**File:** `section-04-constant-folding.md` | **Status:** Complete (2026-02-09)
 
 ```
 constant, const, fold, folding, compile-time, Constness
@@ -66,7 +66,7 @@ overflow, division-by-zero, defer, runtime
 ---
 
 ### Section 05: Evaluation Modes
-**File:** `section-05-eval-modes.md` | **Status:** Not Started
+**File:** `section-05-eval-modes.md` | **Status:** Complete (2026-02-09)
 
 ```
 EvalMode, Interpret, ConstEval, TestRun, mode, policy
@@ -79,15 +79,15 @@ ori run, ori check, ori test, machine
 ---
 
 ### Section 06: Structured Diagnostics
-**File:** `section-06-diagnostics.md` | **Status:** Not Started
+**File:** `section-06-diagnostics.md` | **Status:** In Progress (2026-02-09)
 
 ```
 EvalErrorKind, EvalError, structured, typed, category
 CallStack, CallFrame, EvalBacktrace, BacktraceFrame
 backtrace, call stack, depth, overflow, frame
 EvalNote, context, note, span, message
-Diagnostic, conversion, E4xxx, error code
-EvalCounters, profile, instrumentation, statistics
+Diagnostic, conversion, E6xxx, error code, eval_error_to_diagnostic
+EvalCounters, profile, instrumentation, statistics, ModeState
 ```
 
 ---

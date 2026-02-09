@@ -28,7 +28,7 @@ use crate::ast::{BindingPattern, MatchPattern};
 /// Panic helper for capacity overflow (cold path, never inlined).
 #[cold]
 #[inline(never)]
-fn panic_capacity_exceeded(value: usize, context: &str, max: u64) -> ! {
+pub(crate) fn panic_capacity_exceeded(value: usize, context: &str, max: u64) -> ! {
     panic!(
         "arena capacity exceeded: {context} has {value} elements (0x{value:X}), max is {max} (0x{max:X})"
     )
@@ -37,7 +37,7 @@ fn panic_capacity_exceeded(value: usize, context: &str, max: u64) -> ! {
 /// Panic helper for range length overflow (cold path, never inlined).
 #[cold]
 #[inline(never)]
-fn panic_range_exceeded(value: usize, context: &str, max: u64) -> ! {
+pub(crate) fn panic_range_exceeded(value: usize, context: &str, max: u64) -> ! {
     panic!(
         "range length exceeded: {context} has {value} elements (0x{value:X}), max is {max} (0x{max:X})"
     )
@@ -45,14 +45,14 @@ fn panic_range_exceeded(value: usize, context: &str, max: u64) -> ! {
 
 /// Convert usize to u32, panicking with a clear message on overflow.
 #[inline]
-fn to_u32(value: usize, context: &str) -> u32 {
+pub(crate) fn to_u32(value: usize, context: &str) -> u32 {
     u32::try_from(value)
         .unwrap_or_else(|_| panic_capacity_exceeded(value, context, u64::from(u32::MAX)))
 }
 
 /// Convert usize to u16, panicking with a clear message on overflow.
 #[inline]
-fn to_u16(value: usize, context: &str) -> u16 {
+pub(crate) fn to_u16(value: usize, context: &str) -> u16 {
     u16::try_from(value)
         .unwrap_or_else(|_| panic_range_exceeded(value, context, u64::from(u16::MAX)))
 }

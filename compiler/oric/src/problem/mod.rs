@@ -31,6 +31,7 @@
 //! });
 //! ```
 
+pub mod eval;
 pub mod lex;
 pub mod parse;
 pub mod semantic;
@@ -40,6 +41,7 @@ pub mod codegen;
 #[cfg(feature = "llvm")]
 pub use codegen::{report_codegen_error, CodegenProblem};
 
+pub use eval::eval_error_to_diagnostic;
 pub use lex::LexProblem;
 pub use parse::ParseProblem;
 pub use semantic::SemanticProblem;
