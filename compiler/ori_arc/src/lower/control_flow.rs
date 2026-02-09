@@ -511,11 +511,13 @@ impl ArcLowerer<'_> {
                     self.arena,
                     scrut_ty,
                     self.pool,
+                    self.interner,
                 );
                 crate::decision_tree::PatternRow {
                     patterns: vec![flat],
                     arm_index: i,
                     guard: arm.guard.map(ori_ir::canon::CanId::from_expr_id),
+                    bindings: vec![],
                 }
             })
             .collect()

@@ -219,7 +219,7 @@ impl<'src> TokenCooker<'src> {
         }
     }
 
-    // ─── Error cooking helpers ─────────────────────────────────────────
+    // Error cooking helpers
 
     /// Cook an invalid byte, detecting Unicode confusables and cross-language
     /// patterns. This replaces the simple `InvalidByte` handling with
@@ -260,7 +260,7 @@ impl<'src> TokenCooker<'src> {
         TokenKind::Error
     }
 
-    // ─── Cooking helpers ─────────────────────────────────────────────────
+    // Cooking helpers
 
     #[inline]
     fn cook_ident(&mut self, offset: u32, len: u32) -> TokenKind {
@@ -618,7 +618,10 @@ fn detect_size_suffix(text: &str) -> (usize, SizeUnit) {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "test code: source lengths always fit u32"
+)]
 mod tests {
     use super::*;
 

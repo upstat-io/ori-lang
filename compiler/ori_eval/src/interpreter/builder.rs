@@ -11,6 +11,7 @@ use crate::{
     stdout_handler, Environment, SharedMutableRegistry, SharedPrintHandler, SharedRegistry,
     UserMethodRegistry,
 };
+use ori_ir::canon::SharedCanonResult;
 use ori_ir::{ExprArena, SharedArena, StringInterner};
 use ori_patterns::PatternRegistry;
 use ori_types::{Idx, PatternKey, PatternResolution};
@@ -37,6 +38,8 @@ pub struct InterpreterBuilder<'a> {
     expr_types: Option<&'a [Idx]>,
     /// Pattern resolutions from type checking.
     pattern_resolutions: &'a [(PatternKey, PatternResolution)],
+    /// Canonical IR for canonical evaluation path.
+    canon: Option<SharedCanonResult>,
 }
 
 impl<'a> InterpreterBuilder<'a> {
@@ -55,6 +58,7 @@ impl<'a> InterpreterBuilder<'a> {
             call_stack: None,
             expr_types: None,
             pattern_resolutions: &[],
+            canon: None,
         }
     }
 
@@ -148,6 +152,16 @@ impl<'a> InterpreterBuilder<'a> {
         self
     }
 
+    /// Set the canonical IR for canonical evaluation dispatch.
+    ///
+    /// When set, function calls on `FunctionValue`s with canonical bodies
+    /// will dispatch via `eval_can()` instead of legacy `eval()`.
+    #[must_use]
+    pub fn canon(mut self, canon: SharedCanonResult) -> Self {
+        self.canon = Some(canon);
+        self
+    }
+
     /// Build the interpreter.
     pub fn build(self) -> Interpreter<'a> {
         let pat_reg = self
@@ -200,6 +214,7 @@ impl<'a> InterpreterBuilder<'a> {
             owns_scoped_env: self.owns_scoped_env,
             expr_types: self.expr_types,
             pattern_resolutions: self.pattern_resolutions,
+            canon: self.canon,
         }
     }
 }

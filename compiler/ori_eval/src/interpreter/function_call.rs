@@ -51,9 +51,14 @@ impl Interpreter<'_> {
                     .env
                     .define(self.self_name, func.clone(), Mutability::Immutable);
 
-                // Evaluate body using the function's arena (arena threading pattern).
+                // Evaluate body: use canonical path when available, legacy otherwise.
                 // The scope is popped automatically via RAII when call_interpreter drops.
-                call_interpreter.eval(f.body)
+                if f.has_canon() {
+                    call_interpreter.canon = f.canon().cloned();
+                    call_interpreter.eval_can(f.can_body)
+                } else {
+                    call_interpreter.eval(f.body)
+                }
             }
             Value::MemoizedFunction(mf) => {
                 // Check cache first
@@ -94,9 +99,14 @@ impl Interpreter<'_> {
                     .env
                     .define(self.self_name, func.clone(), Mutability::Immutable);
 
-                // Evaluate body using the function's arena (arena threading pattern).
+                // Evaluate body: canonical path when available, legacy otherwise.
                 // The scope is popped automatically via RAII when call_interpreter drops.
-                let result = call_interpreter.eval(f.body);
+                let result = if f.has_canon() {
+                    call_interpreter.canon = f.canon().cloned();
+                    call_interpreter.eval_can(f.can_body)
+                } else {
+                    call_interpreter.eval(f.body)
+                };
 
                 // Cache the result before returning
                 if let Ok(ref value) = result {
@@ -319,8 +329,13 @@ impl Interpreter<'_> {
                 .env
                 .define(self.self_name, func.clone(), Mutability::Immutable);
 
-            // Evaluate body using the function's arena
-            call_interpreter.eval(f.body)
+            // Evaluate body: use canonical path when available, legacy otherwise.
+            if f.has_canon() {
+                call_interpreter.canon = f.canon().cloned();
+                call_interpreter.eval_can(f.can_body)
+            } else {
+                call_interpreter.eval(f.body)
+            }
         } else {
             // For other callables (MemoizedFunction, FunctionVal, constructors),
             // use positional evaluation

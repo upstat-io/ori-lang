@@ -4,4 +4,4 @@
 //! `ori_ir` so the parser cursor can access flags directly without depending
 //! on the lexer crate.
 
-pub use ori_ir::TokenFlags;
+pub(crate) use ori_ir::TokenFlags;

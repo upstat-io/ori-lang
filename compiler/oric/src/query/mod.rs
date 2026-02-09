@@ -242,10 +242,11 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
     );
     let shared_canon = ori_ir::canon::SharedCanonResult::new(canon_result);
 
-    // Create evaluator with type information (Idx-based)
+    // Create evaluator with type information and canonical IR
     let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
         .expr_types(&type_result.typed.expr_types)
         .pattern_resolutions(&type_result.typed.pattern_resolutions)
+        .canon(shared_canon.clone())
         .build();
     evaluator.register_prelude();
 
@@ -266,8 +267,14 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
         if let Some(func) = parse_result.module.functions.first() {
             let params = parse_result.arena.get_params(func.params);
             if params.is_empty() {
-                // Zero-argument function - safe to call
-                match evaluator.eval(func.body) {
+                // Zero-argument function - safe to call.
+                // Use canonical path if available, legacy otherwise.
+                let result = if let Some(can_id) = shared_canon.root_for(func.name) {
+                    evaluator.eval_can(can_id)
+                } else {
+                    evaluator.eval(func.body)
+                };
+                match result {
                     Ok(value) => {
                         ModuleEvalResult::success(EvalOutput::from_value(&value, interner))
                     }

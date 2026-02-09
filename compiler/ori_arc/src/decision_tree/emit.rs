@@ -260,7 +260,7 @@ fn emit_range_chain(
     ctx: &mut EmitContext,
 ) {
     for (tv, subtree) in edges {
-        if let TestValue::IntRange { lo, hi } = tv {
+        if let TestValue::IntRange { lo, hi, inclusive } = tv {
             // lo <= scrutinee
             let lo_val =
                 lowerer
@@ -275,15 +275,20 @@ fn emit_range_chain(
                 Some(ctx.span),
             );
 
-            // scrutinee <= hi
+            // scrutinee <= hi (inclusive) or scrutinee < hi (exclusive)
             let hi_val =
                 lowerer
                     .builder
                     .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(*hi)), None);
+            let hi_op = if *inclusive {
+                PrimOp::Binary(ori_ir::BinaryOp::LtEq)
+            } else {
+                PrimOp::Binary(ori_ir::BinaryOp::Lt)
+            };
             let hi_ok = lowerer.builder.emit_let(
                 Idx::BOOL,
                 ArcValue::PrimOp {
-                    op: PrimOp::Binary(ori_ir::BinaryOp::LtEq),
+                    op: hi_op,
                     args: vec![scrutinee, hi_val],
                 },
                 Some(ctx.span),
@@ -404,6 +409,10 @@ fn resolve_path(
             PathInstruction::TupleIndex(idx)
             | PathInstruction::StructField(idx)
             | PathInstruction::ListElement(idx) => *idx,
+            // List rest (slicing) not yet supported in LLVM backend.
+            // Emit element 0 as a placeholder — will be replaced when
+            // list pattern codegen is fully implemented.
+            PathInstruction::ListRest(_) => 0,
         };
         // Use UNIT as the type — the type system has already validated the access.
         // The actual type will be resolved during subsequent ARC analysis passes.

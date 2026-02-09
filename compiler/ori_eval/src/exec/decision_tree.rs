@@ -189,6 +189,23 @@ fn step_path(value: &Value, instruction: PathInstruction) -> Result<Value, EvalE
                 ))),
             }
         }
+
+        PathInstruction::ListRest(start_idx) => {
+            let start = start_idx as usize;
+            match value {
+                Value::List(items) => {
+                    let rest = if start <= items.len() {
+                        items[start..].to_vec()
+                    } else {
+                        Vec::new()
+                    };
+                    Ok(Value::list(rest))
+                }
+                _ => Err(EvalError::new(format!(
+                    "cannot extract list rest from {value:?}"
+                ))),
+            }
+        }
     }
 }
 
@@ -249,7 +266,9 @@ fn test_matches(
             .as_float()
             .is_some_and(|v| v.to_bits() == *expected_bits),
 
-        TestValue::IntRange { lo, hi } => value.as_int().is_some_and(|v| v >= *lo && v <= *hi),
+        TestValue::IntRange { lo, hi, inclusive } => value
+            .as_int()
+            .is_some_and(|v| v >= *lo && if *inclusive { v <= *hi } else { v < *hi }),
 
         TestValue::ListLen { len, is_exact } => match value.as_list() {
             Some(items) => {

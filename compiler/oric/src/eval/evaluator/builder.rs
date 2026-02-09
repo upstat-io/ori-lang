@@ -8,6 +8,7 @@ use ori_eval::{
     Environment, EvalMode, InterpreterBuilder, PatternRegistry, SharedMutableRegistry,
     SharedRegistry, UserMethodRegistry,
 };
+use ori_ir::canon::SharedCanonResult;
 use ori_types::{Idx, PatternKey, PatternResolution};
 
 /// Builder for creating Evaluator instances with various configurations.
@@ -27,6 +28,8 @@ pub struct EvaluatorBuilder<'a> {
     expr_types: Option<&'a [Idx]>,
     /// Pattern resolutions from type checking for Binding/UnitVariant disambiguation.
     pattern_resolutions: &'a [(PatternKey, PatternResolution)],
+    /// Canonical IR for canonical evaluation dispatch.
+    canon: Option<SharedCanonResult>,
 }
 
 impl<'a> EvaluatorBuilder<'a> {
@@ -44,6 +47,7 @@ impl<'a> EvaluatorBuilder<'a> {
             user_method_registry: None,
             expr_types: None,
             pattern_resolutions: &[],
+            canon: None,
         }
     }
 
@@ -115,6 +119,16 @@ impl<'a> EvaluatorBuilder<'a> {
         self
     }
 
+    /// Set the canonical IR for canonical evaluation dispatch.
+    ///
+    /// When set, the evaluator can dispatch via `eval_can()` for root expressions
+    /// that have been lowered to canonical IR.
+    #[must_use]
+    pub fn canon(mut self, canon: SharedCanonResult) -> Self {
+        self.canon = Some(canon);
+        self
+    }
+
     /// Build the evaluator.
     pub fn build(self) -> Evaluator<'a> {
         // Build the underlying interpreter with the configured mode
@@ -148,6 +162,11 @@ impl<'a> EvaluatorBuilder<'a> {
         // Pass pattern resolutions for Binding/UnitVariant disambiguation in match
         if !self.pattern_resolutions.is_empty() {
             interpreter_builder = interpreter_builder.pattern_resolutions(self.pattern_resolutions);
+        }
+
+        // Pass canonical IR for eval_can dispatch
+        if let Some(canon) = self.canon {
+            interpreter_builder = interpreter_builder.canon(canon);
         }
 
         Evaluator {

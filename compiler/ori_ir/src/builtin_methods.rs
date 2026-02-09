@@ -422,6 +422,13 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         ReturnSpec::SelfType,
         Some("Add"),
     ),
+    MethodDef::new(
+        BuiltinType::Str,
+        "concat",
+        &[ParamSpec::Str],
+        ReturnSpec::SelfType,
+        None,
+    ),
     // Duration methods
     MethodDef::comparable(BuiltinType::Duration),
     MethodDef::eq_trait(BuiltinType::Duration),

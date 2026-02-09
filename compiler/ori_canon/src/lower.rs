@@ -508,10 +508,13 @@ impl<'a> Lowerer<'a> {
 
         // Copy stmts out to avoid borrow conflict.
         let stmts: Vec<ori_ir::Stmt> = stmts.to_vec();
-        let start = self.arena.start_expr_list();
 
-        for stmt in &stmts {
-            let can_id = match &stmt.kind {
+        // Lower all statements BEFORE building the expr list. lower_expr may
+        // recursively lower nested match/block expressions whose own
+        // start/push/finish cycles would corrupt our range.
+        let lowered: Vec<CanId> = stmts
+            .iter()
+            .map(|stmt| match &stmt.kind {
                 ori_ir::StmtKind::Expr(expr_id) => self.lower_expr(*expr_id),
                 ori_ir::StmtKind::Let {
                     pattern,
@@ -521,8 +524,6 @@ impl<'a> Lowerer<'a> {
                 } => {
                     let init = self.lower_expr(*init);
                     let pattern = self.lower_binding_pattern(*pattern);
-                    // Let bindings produce unit in Ori (expression-based, but
-                    // the binding itself evaluates to ()).
                     self.push(
                         CanExpr::Let {
                             pattern,
@@ -533,10 +534,13 @@ impl<'a> Lowerer<'a> {
                         TypeId::UNIT,
                     )
                 }
-            };
+            })
+            .collect();
+
+        let start = self.arena.start_expr_list();
+        for can_id in lowered {
             self.arena.push_expr_list_item(can_id);
         }
-
         self.arena.finish_expr_list(start)
     }
 
@@ -716,18 +720,28 @@ impl<'a> Lowerer<'a> {
             .map(|arm| (arm.pattern.clone(), arm.guard, arm.body))
             .collect();
 
-        // Compile patterns → decision tree.
+        // Lower guards from ExprId → CanId before compiling patterns.
+        // Guards must be lowered here (where we have &mut self) rather than
+        // inside compile_patterns (which only borrows &self).
         let pattern_data: Vec<_> = arm_data
             .iter()
-            .map(|(pat, guard, _body)| (pat.clone(), *guard))
+            .map(|(pat, guard, _body)| {
+                let can_guard = guard.map(|g| self.lower_expr(g));
+                (pat.clone(), can_guard)
+            })
             .collect();
         let tree = crate::patterns::compile_patterns(self, &pattern_data, arms.start, scrutinee_ty);
         let dt_id = self.decision_trees.push(tree);
 
-        // Lower arm bodies.
+        // Lower arm bodies BEFORE building the expr list. lower_expr may
+        // recursively lower nested match expressions, which would push their
+        // own arm bodies into the flat expr_lists array, corrupting our range.
+        let lowered_bodies: Vec<CanId> = arm_data
+            .iter()
+            .map(|(_pattern, _guard, body)| self.lower_expr(*body))
+            .collect();
         let start = self.arena.start_expr_list();
-        for (_pattern, _guard, body) in &arm_data {
-            let can_body = self.lower_expr(*body);
+        for can_body in lowered_bodies {
             self.arena.push_expr_list_item(can_body);
         }
         let arms_range = self.arena.finish_expr_list(start);
@@ -978,10 +992,12 @@ impl<'a> Lowerer<'a> {
         }
 
         let bindings: Vec<_> = bindings.to_vec();
-        let start = self.arena.start_expr_list();
 
-        for binding in &bindings {
-            let can_id = match binding {
+        // Lower all bindings before building the expr list to avoid
+        // interleaving with nested start/push/finish cycles.
+        let lowered: Vec<CanId> = bindings
+            .iter()
+            .map(|binding| match binding {
                 ori_ir::SeqBinding::Let {
                     pattern,
                     ty: _,
@@ -1002,10 +1018,13 @@ impl<'a> Lowerer<'a> {
                     )
                 }
                 ori_ir::SeqBinding::Stmt { expr, .. } => self.lower_expr(*expr),
-            };
+            })
+            .collect();
+
+        let start = self.arena.start_expr_list();
+        for can_id in lowered {
             self.arena.push_expr_list_item(can_id);
         }
-
         self.arena.finish_expr_list(start)
     }
 
@@ -1017,10 +1036,11 @@ impl<'a> Lowerer<'a> {
         }
 
         let bindings: Vec<_> = bindings.to_vec();
-        let start = self.arena.start_expr_list();
 
-        for binding in &bindings {
-            let can_id = match binding {
+        // Lower all bindings before building the expr list.
+        let lowered: Vec<CanId> = bindings
+            .iter()
+            .map(|binding| match binding {
                 ori_ir::SeqBinding::Let {
                     pattern,
                     ty: _,
@@ -1028,7 +1048,6 @@ impl<'a> Lowerer<'a> {
                     mutable,
                     span,
                 } => {
-                    // Wrap the value expression in Try (?) for error propagation.
                     let value = self.lower_expr(*value);
                     let tried_value = self.push(CanExpr::Try(value), *span, TypeId::ERROR);
                     let pattern = self.lower_binding_pattern(*pattern);
@@ -1046,10 +1065,13 @@ impl<'a> Lowerer<'a> {
                     let value = self.lower_expr(*expr);
                     self.push(CanExpr::Try(value), *span, TypeId::ERROR)
                 }
-            };
+            })
+            .collect();
+
+        let start = self.arena.start_expr_list();
+        for can_id in lowered {
             self.arena.push_expr_list_item(can_id);
         }
-
         self.arena.finish_expr_list(start)
     }
 }

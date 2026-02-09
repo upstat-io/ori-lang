@@ -105,6 +105,14 @@ impl<'a> Evaluator<'a> {
         self.interpreter.eval(expr_id)
     }
 
+    /// Evaluate a canonical expression.
+    ///
+    /// Dispatches via the canonical IR path (`eval_can`). Requires that
+    /// the interpreter was built with a `SharedCanonResult`.
+    pub fn eval_can(&mut self, can_id: ori_ir::canon::CanId) -> EvalResult {
+        self.interpreter.eval_can(can_id)
+    }
+
     /// Get a reference to the environment.
     pub fn env(&self) -> &Environment {
         self.interpreter.env()

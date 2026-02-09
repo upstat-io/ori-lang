@@ -35,12 +35,40 @@ use super::{
 /// Debug-panics if `paths.len() != matrix[i].patterns.len()` for any row.
 #[allow(clippy::needless_pass_by_value)] // Recursive — sub-calls pass owned specialized matrices
 pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> DecisionTree {
-    debug_assert!(
-        matrix.iter().all(|row| row.patterns.len() == paths.len()),
-        "column count mismatch: paths={}, patterns={}",
-        paths.len(),
-        matrix.first().map_or(0, |r| r.patterns.len()),
-    );
+    if cfg!(debug_assertions) {
+        for (i, row) in matrix.iter().enumerate() {
+            if row.patterns.len() != paths.len() {
+                eprintln!("=== DECISION TREE BUG ===");
+                eprintln!(
+                    "Row {i}: paths={}, patterns={}, arm_index={}",
+                    paths.len(),
+                    row.patterns.len(),
+                    row.arm_index
+                );
+                for (j, p) in row.patterns.iter().enumerate() {
+                    eprintln!("  pattern[{j}]: {p:?}");
+                }
+                eprintln!("All rows:");
+                for (ri, r) in matrix.iter().enumerate() {
+                    eprintln!(
+                        "  row[{ri}] (arm {}): {} patterns",
+                        r.arm_index,
+                        r.patterns.len()
+                    );
+                    for (j, p) in r.patterns.iter().enumerate() {
+                        eprintln!("    [{j}]: {p:?}");
+                    }
+                }
+                eprintln!("Paths: {paths:?}");
+                panic!(
+                    "column count mismatch at row {i}: paths={}, patterns={}, arm_index={}",
+                    paths.len(),
+                    row.patterns.len(),
+                    row.arm_index,
+                );
+            }
+        }
+    }
 
     // 1. EMPTY MATRIX: no arms left → Fail (unreachable by exhaustiveness).
     if matrix.is_empty() {
@@ -209,6 +237,10 @@ fn decompose_single_constructor(
     let new_matrix = matrix
         .iter()
         .map(|row| {
+            // Collect any bindings from the consumed pattern (e.g., Binding or At).
+            let mut bindings = row.bindings.clone();
+            bindings.extend(collect_consumed_bindings(&row.patterns[col], base_path));
+
             let sub_pats = decompose_single_ctor_pattern(&row.patterns[col], sub_count);
             let mut new_patterns = Vec::with_capacity(row.patterns.len() - 1 + sub_pats.len());
             new_patterns.extend_from_slice(&row.patterns[..col]);
@@ -218,6 +250,7 @@ fn decompose_single_constructor(
                 patterns: new_patterns,
                 arm_index: row.arm_index,
                 guard: row.guard,
+                bindings,
             }
         })
         .collect();
@@ -398,9 +431,17 @@ fn test_values_from_pattern(pat: &FlatPattern) -> Vec<TestValue> {
             len: elements.len() as u32,
             is_exact: rest.is_none(),
         }],
-        FlatPattern::Range { start, end, .. } => {
+        FlatPattern::Range {
+            start,
+            end,
+            inclusive,
+        } => {
             if let (Some(lo), Some(hi)) = (start, end) {
-                vec![TestValue::IntRange { lo: *lo, hi: *hi }]
+                vec![TestValue::IntRange {
+                    lo: *lo,
+                    hi: *hi,
+                    inclusive: *inclusive,
+                }]
             } else {
                 // Open-ended ranges are treated as wildcards for decision purposes.
                 vec![]
@@ -480,9 +521,10 @@ fn specialize_matrix(
     new_paths.extend_from_slice(&paths[col + 1..]);
 
     // Build new rows.
+    let col_path = &paths[col];
     let mut new_matrix = Vec::new();
     for row in matrix {
-        if let Some(new_row) = specialize_row(row, col, tv, sub_count) {
+        if let Some(new_row) = specialize_row(row, col, tv, sub_count, col_path) {
             new_matrix.push(new_row);
         }
     }
@@ -568,10 +610,15 @@ fn specialize_row(
     col: usize,
     tv: &TestValue,
     expected_sub_count: usize,
+    col_path: &ScrutineePath,
 ) -> Option<PatternRow> {
     let pat = &row.patterns[col];
     match specialize_pattern(pat, tv, expected_sub_count) {
         SpecResult::Match(sub_patterns) => {
+            // Accumulate bindings from the consumed pattern.
+            let mut bindings = row.bindings.clone();
+            bindings.extend(collect_consumed_bindings(pat, col_path));
+
             let mut new_patterns = Vec::with_capacity(row.patterns.len() - 1 + sub_patterns.len());
             new_patterns.extend_from_slice(&row.patterns[..col]);
             new_patterns.extend(sub_patterns);
@@ -580,6 +627,7 @@ fn specialize_row(
                 patterns: new_patterns,
                 arm_index: row.arm_index,
                 guard: row.guard,
+                bindings,
             })
         }
         SpecResult::NoMatch => None,
@@ -663,31 +711,78 @@ fn specialize_pattern(pat: &FlatPattern, tv: &TestValue, expected_sub_count: usi
         }
 
         // List patterns match ListLen test values.
-        (FlatPattern::List { elements, .. }, TestValue::ListLen { len, .. }) => {
-            if elements.len() == *len as usize {
-                SpecResult::Match(elements.clone())
-            } else {
-                SpecResult::NoMatch
+        //
+        // Exact list patterns (rest=None, like `[x]`) only match exact-length
+        // test values (is_exact=true). Rest patterns (rest=Some, like `[h, ..t]`)
+        // match both exact and at-least test values. This prevents exact patterns
+        // from appearing in at-least subtrees where they would incorrectly win
+        // arm priority over rest patterns.
+        (FlatPattern::List { elements, rest }, TestValue::ListLen { len, is_exact }) => {
+            if elements.len() != *len as usize {
+                return SpecResult::NoMatch;
             }
+            // Exact pattern in at-least subtree → exclude
+            if rest.is_none() && !is_exact {
+                return SpecResult::NoMatch;
+            }
+            SpecResult::Match(elements.clone())
         }
 
         // Range patterns match IntRange test values.
-        (FlatPattern::Range { start, end, .. }, TestValue::IntRange { lo, hi }) => {
-            if start.as_ref() == Some(lo) && end.as_ref() == Some(hi) {
+        (
+            FlatPattern::Range {
+                start,
+                end,
+                inclusive,
+            },
+            TestValue::IntRange {
+                lo,
+                hi,
+                inclusive: tv_incl,
+            },
+        ) => {
+            if start.as_ref() == Some(lo) && end.as_ref() == Some(hi) && *inclusive == *tv_incl {
                 SpecResult::Match(vec![])
             } else {
                 SpecResult::NoMatch
             }
         }
 
-        // Or-pattern: match if ANY alternative matches.
+        // Or-pattern: combine sub-patterns from ALL matching alternatives.
         (FlatPattern::Or(alts), tv) => {
-            for alt in alts {
-                if let SpecResult::Match(subs) = specialize_pattern(alt, tv, expected_sub_count) {
-                    return SpecResult::Match(subs);
+            let matching: Vec<Vec<FlatPattern>> = alts
+                .iter()
+                .filter_map(|alt| {
+                    if let SpecResult::Match(subs) = specialize_pattern(alt, tv, expected_sub_count)
+                    {
+                        Some(subs)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            match matching.len() {
+                0 => SpecResult::NoMatch,
+                1 => {
+                    // SAFETY: matching.len() == 1, so into_iter().next() is always Some.
+                    #[expect(clippy::unwrap_used, reason = "Length checked to be 1")]
+                    let single = matching.into_iter().next().unwrap();
+                    SpecResult::Match(single)
+                }
+                _ => {
+                    // Multiple alternatives matched: combine sub-patterns
+                    // element-wise into Or patterns.
+                    let combined: Vec<FlatPattern> = (0..expected_sub_count)
+                        .map(|col| {
+                            let col_pats: Vec<FlatPattern> =
+                                matching.iter().map(|subs| subs[col].clone()).collect();
+                            FlatPattern::Or(col_pats)
+                        })
+                        .collect();
+                    SpecResult::Match(combined)
                 }
             }
-            SpecResult::NoMatch
         }
 
         // At-pattern: match on the inner pattern, keep the binding.
@@ -707,9 +802,14 @@ fn default_matrix(matrix: &PatternMatrix, col: usize, paths: &[ScrutineePath]) -
     new_paths.extend_from_slice(&paths[..col]);
     new_paths.extend_from_slice(&paths[col + 1..]);
 
+    let col_path = &paths[col];
     let mut new_matrix = Vec::new();
     for row in matrix {
         if row.patterns[col].is_wildcard_like() {
+            // Accumulate bindings from the consumed pattern.
+            let mut bindings = row.bindings.clone();
+            bindings.extend(collect_consumed_bindings(&row.patterns[col], col_path));
+
             let mut new_patterns = Vec::with_capacity(row.patterns.len() - 1);
             new_patterns.extend_from_slice(&row.patterns[..col]);
             new_patterns.extend_from_slice(&row.patterns[col + 1..]);
@@ -717,6 +817,7 @@ fn default_matrix(matrix: &PatternMatrix, col: usize, paths: &[ScrutineePath]) -
                 patterns: new_patterns,
                 arm_index: row.arm_index,
                 guard: row.guard,
+                bindings,
             });
         }
     }
@@ -731,15 +832,51 @@ fn default_matrix(matrix: &PatternMatrix, col: usize, paths: &[ScrutineePath]) -
 
 /// Extract all variable bindings from a row where every pattern is
 /// a wildcard or binding.
+///
+/// Merges the row's accumulated bindings (from prior specialization steps)
+/// with any bindings found in the remaining patterns.
 fn extract_all_bindings(
     row: &PatternRow,
     paths: &[ScrutineePath],
 ) -> Vec<(ori_ir::Name, ScrutineePath)> {
-    let mut bindings = Vec::new();
+    let mut bindings = row.bindings.clone();
     for (pat, path) in row.patterns.iter().zip(paths.iter()) {
         pat.collect_bindings(path, &mut bindings);
     }
     bindings
+}
+
+/// Collect variable bindings from a pattern being consumed at a given path.
+///
+/// When a pattern is removed from a row during specialization or decomposition,
+/// any `Binding(name)`, `At { name, .. }`, or `List { rest: Some(name) }` at
+/// the top level would lose their binding information. This function collects
+/// those bindings so they can be added to the row's accumulated bindings.
+fn collect_consumed_bindings(
+    pat: &FlatPattern,
+    path: &ScrutineePath,
+) -> Vec<(ori_ir::Name, ScrutineePath)> {
+    match pat {
+        FlatPattern::Binding(name) => vec![(*name, path.clone())],
+        FlatPattern::At { name, inner } => {
+            let mut bindings = vec![(*name, path.clone())];
+            bindings.extend(collect_consumed_bindings(inner, path));
+            bindings
+        }
+        FlatPattern::List {
+            elements,
+            rest: Some(name),
+        } => {
+            let mut rest_path = path.clone();
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "List patterns have << u32::MAX elements"
+            )]
+            rest_path.push(super::PathInstruction::ListRest(elements.len() as u32));
+            vec![(*name, rest_path)]
+        }
+        _ => vec![],
+    }
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -758,6 +895,7 @@ mod tests {
                 patterns,
                 arm_index,
                 guard: None,
+                bindings: vec![],
             })
             .collect()
     }
@@ -1012,11 +1150,13 @@ mod tests {
                 patterns: vec![FlatPattern::Binding(name_v)],
                 arm_index: 0,
                 guard: Some(guard_expr),
+                bindings: vec![],
             },
             PatternRow {
                 patterns: vec![FlatPattern::Wildcard],
                 arm_index: 1,
                 guard: None,
+                bindings: vec![],
             },
         ];
         let tree = compile(m, paths(1));
@@ -1241,6 +1381,7 @@ mod tests {
                 }],
                 arm_index: 0,
                 guard: Some(guard1),
+                bindings: vec![],
             },
             PatternRow {
                 patterns: vec![FlatPattern::Variant {
@@ -1250,6 +1391,7 @@ mod tests {
                 }],
                 arm_index: 1,
                 guard: Some(guard2),
+                bindings: vec![],
             },
             PatternRow {
                 patterns: vec![FlatPattern::Variant {
@@ -1259,6 +1401,7 @@ mod tests {
                 }],
                 arm_index: 2,
                 guard: None,
+                bindings: vec![],
             },
             PatternRow {
                 patterns: vec![FlatPattern::Variant {
@@ -1268,6 +1411,7 @@ mod tests {
                 }],
                 arm_index: 3,
                 guard: None,
+                bindings: vec![],
             },
         ];
         let tree = compile(m, paths(1));

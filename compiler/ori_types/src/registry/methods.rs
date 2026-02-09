@@ -435,6 +435,13 @@ impl MethodRegistry {
         });
 
         self.register_builtin(BuiltinMethod {
+            name: static_name("concat"),
+            receiver_tag: Tag::Str,
+            doc: "Concatenates two strings",
+            kind: BuiltinMethodKind::Fixed(Idx::STR),
+        });
+
+        self.register_builtin(BuiltinMethod {
             name: static_name("chars"),
             receiver_tag: Tag::Str,
             doc: "Returns list of characters",

@@ -55,7 +55,7 @@ pub fn lookup_foreign_keyword(ident: &str) -> Option<&'static str> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
 mod tests {
     use super::*;
 

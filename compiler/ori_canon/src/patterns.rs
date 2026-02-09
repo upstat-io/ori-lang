@@ -49,7 +49,7 @@ use crate::lower::Lowerer;
 /// A compiled `DecisionTree` ready for storage in the `DecisionTreePool`.
 pub(crate) fn compile_patterns(
     lowerer: &Lowerer<'_>,
-    arms: &[(MatchPattern, Option<ori_ir::ExprId>)],
+    arms: &[(MatchPattern, Option<ori_ir::canon::CanId>)],
     arm_range_start: u32,
     scrutinee_ty: ori_types::Idx,
 ) -> DecisionTree {
@@ -58,7 +58,7 @@ pub(crate) fn compile_patterns(
     }
 
     // Build the pattern matrix: one row per arm, one column (the scrutinee).
-    // Guards are lowered from ExprId to CanId via the lowerer.
+    // Guards are already lowered to CanId by the caller.
     let matrix: Vec<PatternRow> = arms
         .iter()
         .enumerate()
@@ -69,7 +69,8 @@ pub(crate) fn compile_patterns(
             PatternRow {
                 patterns: vec![flat],
                 arm_index,
-                guard: guard.map(ori_ir::canon::CanId::from_expr_id),
+                guard: *guard,
+                bindings: vec![],
             }
         })
         .collect();
@@ -111,6 +112,7 @@ fn flatten_arm_pattern(
         lowerer.src,
         scrutinee_ty,
         lowerer.pool,
+        lowerer.interner,
     )
 }
 
