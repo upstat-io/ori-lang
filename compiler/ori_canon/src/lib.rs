@@ -37,11 +37,13 @@ mod lower;
 mod patterns;
 mod validate;
 
-pub use lower::lower;
+pub use lower::{lower, lower_module};
 pub use validate::validate;
 
 // Re-export canonical IR types for convenience.
 pub use ori_ir::canon::{
-    CanArena, CanExpr, CanField, CanFieldRange, CanId, CanMapEntry, CanMapEntryRange, CanNode,
-    CanRange, CanonResult, ConstValue, ConstantId, ConstantPool, DecisionTreeId, DecisionTreePool,
+    CanArena, CanBindingPattern, CanBindingPatternId, CanBindingPatternRange, CanExpr, CanField,
+    CanFieldBinding, CanFieldBindingRange, CanFieldRange, CanId, CanMapEntry, CanMapEntryRange,
+    CanNamedExpr, CanNamedExprRange, CanNode, CanParam, CanParamRange, CanRange, CanonResult,
+    ConstValue, ConstantId, ConstantPool, DecisionTreeId, DecisionTreePool, SharedCanonResult,
 };

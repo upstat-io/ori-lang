@@ -515,7 +515,7 @@ impl ArcLowerer<'_> {
                 crate::decision_tree::PatternRow {
                     patterns: vec![flat],
                     arm_index: i,
-                    guard: arm.guard,
+                    guard: arm.guard.map(ori_ir::canon::CanId::from_expr_id),
                 }
             })
             .collect()
