@@ -189,16 +189,6 @@ pub enum Value {
     /// Used by the `recurse` pattern with `memo: true` to cache results
     /// of recursive calls, enabling efficient algorithms like memoized Fibonacci.
     MemoizedFunction(MemoizedFunctionValue),
-    /// Multi-clause function with pattern matching.
-    ///
-    /// Clauses are tried in order; first clause whose patterns match is executed.
-    /// Used for functions defined with multiple clauses like:
-    /// ```ori
-    /// @fib (0: int) -> int = 0
-    /// @fib (1: int) -> int = 1
-    /// @fib (n: int) -> int = fib(n: n - 1) + fib(n: n - 2)
-    /// ```
-    MultiClauseFunction(Heap<Vec<FunctionValue>>),
     /// Type conversion function (`function_val`).
     /// Examples: int(x), str(x), float(x), byte(x)
     FunctionVal(FunctionValFn, &'static str),
@@ -457,26 +447,6 @@ impl Value {
     pub fn module_namespace(members: BTreeMap<Name, Value>) -> Self {
         Value::ModuleNamespace(Heap::new(members))
     }
-
-    /// Create a multi-clause function from a list of clause function values.
-    ///
-    /// Multi-clause functions are functions with the same name but different
-    /// patterns. When called, the first clause whose patterns match the
-    /// arguments is executed.
-    ///
-    /// # Example
-    ///
-    /// ```text
-    /// // Fibonacci with pattern-based clauses:
-    /// // @fib (0: int) -> int = 0
-    /// // @fib (1: int) -> int = 1
-    /// // @fib (n: int) -> int = fib(n: n - 1) + fib(n: n - 2)
-    /// let fib = Value::multi_clause_function(clauses);
-    /// ```
-    #[inline]
-    pub fn multi_clause_function(clauses: Vec<FunctionValue>) -> Self {
-        Value::MultiClauseFunction(Heap::new(clauses))
-    }
 }
 
 // Value Methods
@@ -564,9 +534,7 @@ impl Value {
             Value::Newtype { .. } => "newtype",
             Value::NewtypeConstructor { .. } => "newtype_constructor",
             Value::Struct(_) => "struct",
-            Value::Function(_) | Value::MemoizedFunction(_) | Value::MultiClauseFunction(_) => {
-                "function"
-            }
+            Value::Function(_) | Value::MemoizedFunction(_) => "function",
             Value::FunctionVal(_, _) => "function_val",
             Value::Duration(_) => "Duration",
             Value::Size(_) => "Size",
@@ -640,9 +608,7 @@ impl Value {
             Value::Newtype { inner, .. } => inner.display_value(),
             Value::NewtypeConstructor { .. } => "<newtype_constructor>".to_string(),
             Value::Struct(s) => format!("{s:?}"),
-            Value::Function(_) | Value::MemoizedFunction(_) | Value::MultiClauseFunction(_) => {
-                "<function>".to_string()
-            }
+            Value::Function(_) | Value::MemoizedFunction(_) => "<function>".to_string(),
             Value::FunctionVal(_, name) => format!("<function_val {name}>"),
             Value::Duration(ns) => format_duration(*ns),
             Value::Size(bytes) => format!("{bytes}b"),
@@ -701,7 +667,6 @@ impl Value {
             | Value::Struct(_)
             | Value::Function(_)
             | Value::MemoizedFunction(_)
-            | Value::MultiClauseFunction(_)
             | Value::FunctionVal(_, _)
             | Value::Range(_)
             | Value::ModuleNamespace(_)
@@ -810,9 +775,6 @@ impl fmt::Debug for Value {
             Value::Struct(s) => write!(f, "Struct({s:?})"),
             Value::Function(func) => write!(f, "Function({func:?})"),
             Value::MemoizedFunction(mf) => write!(f, "MemoizedFunction({mf:?})"),
-            Value::MultiClauseFunction(clauses) => {
-                write!(f, "MultiClauseFunction({} clauses)", clauses.len())
-            }
             Value::FunctionVal(_, name) => write!(f, "FunctionVal({name})"),
             Value::Duration(ms) => write!(f, "Duration({ms}ms)"),
             Value::Size(bytes) => write!(f, "Size({bytes}b)"),
@@ -901,9 +863,7 @@ impl fmt::Display for Value {
                 write!(f, "<newtype_constructor {type_name:?}>")
             }
             Value::Struct(s) => write!(f, "<struct {:?}>", s.type_name),
-            Value::Function(_) | Value::MemoizedFunction(_) | Value::MultiClauseFunction(_) => {
-                write!(f, "<function>")
-            }
+            Value::Function(_) | Value::MemoizedFunction(_) => write!(f, "<function>"),
             Value::FunctionVal(_, name) => write!(f, "<function_val {name}>"),
             Value::Duration(ns) => write!(f, "{}", format_duration(*ns)),
             Value::Size(bytes) => {
@@ -1077,12 +1037,6 @@ impl std::hash::Hash for Value {
             Value::MemoizedFunction(mf) => {
                 // Hash by underlying function identity
                 mf.func.body.hash(state);
-            }
-            Value::MultiClauseFunction(clauses) => {
-                // Hash by the body of the first clause
-                if let Some(first) = clauses.first() {
-                    first.body.hash(state);
-                }
             }
             Value::FunctionVal(_, name) => name.hash(state),
             Value::Range(r) => {

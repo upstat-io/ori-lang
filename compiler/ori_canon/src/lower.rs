@@ -83,10 +83,31 @@ pub fn lower_module(
     let mut lowerer = Lowerer::new(src, &type_result.typed, pool, interner);
     let mut roots = Vec::with_capacity(module.functions.len() + module.tests.len());
 
-    // Lower each function body, recording name → CanId.
+    // Group functions by name to detect multi-clause definitions.
+    let mut func_groups: rustc_hash::FxHashMap<Name, Vec<&ori_ir::Function>> =
+        rustc_hash::FxHashMap::default();
     for func in &module.functions {
-        if func.body.is_valid() {
-            let can_id = lowerer.lower_expr(func.body);
+        func_groups.entry(func.name).or_default().push(func);
+    }
+
+    // Lower each function/group body, recording name → CanId.
+    // Iteration order must match `module.functions` for compatibility with
+    // `register_module_functions` which uses the same ordering.
+    let mut seen_names: rustc_hash::FxHashSet<Name> = rustc_hash::FxHashSet::default();
+    for func in &module.functions {
+        if !seen_names.insert(func.name) {
+            continue; // Already handled this group.
+        }
+        let group = &func_groups[&func.name];
+        if group.len() == 1 {
+            // Single clause — lower normally.
+            if func.body.is_valid() {
+                let can_id = lowerer.lower_expr(func.body);
+                roots.push((func.name, can_id));
+            }
+        } else {
+            // Multi-clause — synthesize a match body.
+            let can_id = lowerer.lower_multi_clause(group);
             roots.push((func.name, can_id));
         }
     }
@@ -813,6 +834,99 @@ impl<'a> Lowerer<'a> {
             .iter()
             .map(|(_pattern, _guard, body)| self.lower_expr(*body))
             .collect();
+        let start = self.arena.start_expr_list();
+        for can_body in lowered_bodies {
+            self.arena.push_expr_list_item(can_body);
+        }
+        let arms_range = self.arena.finish_expr_list(start);
+
+        self.push(
+            CanExpr::Match {
+                scrutinee: scrutinee_id,
+                decision_tree: dt_id,
+                arms: arms_range,
+            },
+            span,
+            ty,
+        )
+    }
+
+    // ── Multi-Clause Function Lowering ────────────────────────
+
+    /// Lower a group of same-name functions into a single body with a
+    /// synthesized match expression.
+    ///
+    /// Transforms:
+    /// ```text
+    /// @fib (0: int) -> int = 0
+    /// @fib (1: int) -> int = 1
+    /// @fib (n: int) -> int = fib(n - 1) + fib(n - 2)
+    /// ```
+    /// Into a single function body equivalent to:
+    /// ```text
+    /// match param0 {
+    ///   0 -> 0
+    ///   1 -> 1
+    ///   n -> fib(n - 1) + fib(n - 2)
+    /// }
+    /// ```
+    ///
+    /// For multi-parameter functions, the scrutinee is a tuple of the
+    /// parameters and each arm pattern is a tuple of the param patterns.
+    fn lower_multi_clause(&mut self, clauses: &[&ori_ir::Function]) -> CanId {
+        debug_assert!(clauses.len() >= 2);
+
+        // Use the first clause's span/type as the overall function span/type.
+        let span = clauses[0].span;
+        let ty = self.expr_type(clauses[0].body);
+
+        // Determine parameter names from the first clause.
+        let first_params = self.src.get_params(clauses[0].params);
+        let param_count = first_params.len();
+        let param_names: Vec<Name> = first_params.iter().map(|p| p.name).collect();
+
+        // Build the scrutinee: Ident for single-param, Tuple for multi-param.
+        // Types use ERROR because these are synthetic nodes — the evaluator
+        // dispatches on values, not types. Codegen (LLVM) would need real types,
+        // but multi-clause functions aren't supported there yet.
+        let scrutinee_id = if param_count == 1 {
+            self.push(CanExpr::Ident(param_names[0]), span, TypeId::ERROR)
+        } else {
+            let idents: Vec<CanId> = param_names
+                .iter()
+                .map(|&name| self.push(CanExpr::Ident(name), span, TypeId::ERROR))
+                .collect();
+            let range = self.arena.push_expr_list(&idents);
+            self.push(CanExpr::Tuple(range), span, TypeId::ERROR)
+        };
+
+        // Flatten each clause's parameter patterns into a FlatPattern row.
+        // Guards are lowered from ExprId → CanId before decision tree compilation.
+        let mut flat_rows: Vec<Vec<ori_ir::canon::tree::FlatPattern>> =
+            Vec::with_capacity(clauses.len());
+        let mut guards: Vec<Option<CanId>> = Vec::with_capacity(clauses.len());
+
+        for clause in clauses {
+            let params = self.src.get_params(clause.params).to_vec();
+            let row: Vec<_> = params
+                .iter()
+                .map(|p| crate::patterns::flatten_param_pattern(self, p))
+                .collect();
+            flat_rows.push(row);
+            guards.push(clause.guard.map(|g| self.lower_expr(g)));
+        }
+
+        // Compile the multi-column pattern matrix into a decision tree.
+        let tree = crate::patterns::compile_multi_clause_patterns(&flat_rows, &guards);
+        let dt_id = self.decision_trees.push(tree);
+
+        // Lower each clause body.
+        let lowered_bodies: Vec<CanId> = clauses
+            .iter()
+            .map(|clause| self.lower_expr(clause.body))
+            .collect();
+
+        // Build the arms CanRange.
         let start = self.arena.start_expr_list();
         for can_body in lowered_bodies {
             self.arena.push_expr_list_item(can_body);
