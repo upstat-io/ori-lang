@@ -1,26 +1,26 @@
 ---
 section: "14"
 title: Codegen Test Harness
-status: not-started
+status: complete
 goal: Three-level test strategy covering unit tests, LLVM FileCheck IR verification, and end-to-end execution tests for both ori_arc and ori_llvm
 sections:
   - id: "14.1"
     title: Existing Test Infrastructure Audit
-    status: not-started
+    status: complete
   - id: "14.2"
     title: "V2 Test Strategy: Three Levels"
-    status: not-started
+    status: complete
   - id: "14.3"
     title: ori_arc Test Strategy
-    status: not-started
+    status: complete
   - id: "14.4"
     title: "@test Annotation in AOT Context"
-    status: not-started
+    status: complete
 ---
 
 # Section 14: Codegen Test Harness
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** A comprehensive test framework for codegen with three testing levels: unit tests per lowering module, LLVM FileCheck-based IR verification, and end-to-end execution tests. Covers both `ori_arc` (ARC IR transformations) and `ori_llvm` (LLVM IR generation). Includes `ori_arc`-specific test strategy for borrow inference, RC insertion, RC elimination, and constructor reuse.
 
 **Reference compilers:**
@@ -106,9 +106,9 @@ Test harness utilities:
 | Memory safety tests | **Missing** | No ASAN/Valgrind integration |
 | `@test` AOT compilation | **Missing** | Test annotation not compiled to AOT |
 
-- [ ] Preserve all existing JIT and AOT pipeline tests
-- [ ] Add FileCheck-based IR verification (Section 14.2)
-- [ ] Add ARC IR transformation tests (Section 14.3)
+- [x] Preserve all existing JIT and AOT pipeline tests
+- [x] Add FileCheck-based IR verification (Section 14.2)
+- [x] Add ARC IR transformation tests (Section 14.3)
 
 ---
 
@@ -260,12 +260,12 @@ Memory safety tests verify:
 - No double-free (redundant dec)
 - Constructor reuse correctness (reset/reuse does not corrupt live data)
 
-- [ ] Implement FileCheck test infrastructure (`filecheck_test()` function)
-- [ ] Create FileCheck tests for basic expressions, control flow, functions
-- [ ] Create FileCheck tests for ARC operations (inc, dec, drop, reset/reuse)
-- [ ] Add AOT execution test infrastructure
-- [ ] Add ASAN integration to CI for memory safety regression testing
-- [ ] Ensure all existing JIT tests pass with V2 pipeline
+- [x] Implement FileCheck test infrastructure (`filecheck_test()` function)
+- [x] Create FileCheck tests for basic expressions, control flow, functions
+- [x] Create FileCheck tests for ARC operations (inc, dec, drop, reset/reuse)
+- [x] Add AOT execution test infrastructure
+- [x] Add ASAN integration to CI for memory safety regression testing
+- [x] Ensure all existing JIT tests pass with V2 pipeline
 
 ---
 
@@ -404,13 +404,13 @@ fn test_decision_tree_two_variants() {
 }
 ```
 
-- [ ] Create `ori_arc/src/tests/` module structure
-- [ ] Add ARC IR lowering tests (AST to basic blocks)
-- [ ] Add borrow inference tests (borrowed vs owned classification)
-- [ ] Add RC insertion tests (RcInc/RcDec placement)
-- [ ] Add RC elimination tests (paired operation removal)
-- [ ] Add constructor reuse tests (Reset/Reuse detection)
-- [ ] Add decision tree tests (pattern compilation)
+- [x] Create `ori_arc/src/tests/` module structure
+- [x] Add ARC IR lowering tests (AST to basic blocks)
+- [x] Add borrow inference tests (borrowed vs owned classification)
+- [x] Add RC insertion tests (RcInc/RcDec placement)
+- [x] Add RC elimination tests (paired operation removal)
+- [x] Add constructor reuse tests (Reset/Reuse detection)
+- [x] Add decision tree tests (pattern compilation)
 
 ---
 
@@ -482,11 +482,11 @@ ori test --only-attached src/math.ori  # Only tests targeting functions in math.
 
 In AOT mode, filtering happens at the runner generation step -- non-matching tests are simply not included in the generated `main()`.
 
-- [ ] Implement `_ori_test_` prefix for @test functions in codegen
-- [ ] Implement test runner binary generation
-- [ ] Add JIT test execution mode (default for `ori test`)
-- [ ] Add AOT test execution mode (`ori test --aot`)
-- [ ] Implement `--only-attached` filtering
-- [ ] Wire test discovery into incremental compilation dependency tracking
+- [x] Implement `_ori_test_` prefix for @test functions in codegen
+- [x] Implement test runner binary generation
+- [x] Add JIT test execution mode (default for `ori test`)
+- [x] Add AOT test execution mode (`ori test --aot`)
+- [x] Implement `--only-attached` filtering
+- [x] Wire test discovery into incremental compilation dependency tracking
 
 **Exit Criteria:** Each codegen module has unit tests. FileCheck-based IR verification catches IR regressions. Execution tests verify end-to-end correctness. ARC-specific tests verify borrow inference, RC insertion/elimination, and constructor reuse independently. `@test` functions compile and execute in both JIT and AOT modes.

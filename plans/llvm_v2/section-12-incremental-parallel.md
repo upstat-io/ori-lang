@@ -1,7 +1,7 @@
 ---
 section: "12"
 title: Incremental & Parallel Codegen
-status: in-progress
+status: complete
 goal: Function-level incremental compilation with two-layer caching (ARC IR + object code), Salsa hybrid integration, and dependency-respecting parallel compilation
 sections:
   - id: "12.1"
@@ -9,13 +9,13 @@ sections:
     status: complete
   - id: "12.2"
     title: Function-Level Incremental Compilation
-    status: in-progress
+    status: complete
   - id: "12.3"
     title: Two-Layer Cache
-    status: in-progress
+    status: complete
   - id: "12.4"
     title: Salsa Integration (Hybrid)
-    status: in-progress
+    status: complete
   - id: "12.5"
     title: Parallel Compilation
     status: complete
@@ -26,7 +26,7 @@ sections:
 
 # Section 12: Incremental & Parallel Codegen
 
-**Status:** In Progress (0.1-alpha scope: Layer 1 ARC IR caching + parallel executor complete; integration wired into `ori build`)
+**Status:** Complete (0.1-alpha scope: Layer 1 ARC IR caching, Salsa hybrid integration, parallel executor; remaining items deferred to post-0.1-alpha)
 **Goal:** Don't recompile the world when one function changes. Compile independent codegen units in parallel. Per-module LLVM modules with Layer 1 ARC IR caching, hybrid Salsa/ArtifactCache invalidation, and dependency-respecting multi-threaded execution.
 
 **0.1-alpha scope**: Per-module LLVM modules with Layer 1 ARC IR caching. Layer 2 per-function object caching (requiring `ld -r` merging) is deferred to a future version due to platform complexity (Windows/MSVC compatibility) and limited incremental benefit over Layer 1. The Layer 2 design documentation is retained below for reference but is marked as future work.
@@ -457,12 +457,12 @@ The existing `db.rs` and `query/mod.rs` provide the foundation:
 8. Link updated .o files with cached .o files
 ```
 
-- [ ] Document the Salsa/ArtifactCache boundary in code comments
-- [ ] Use `Durability::HIGH` for build configuration inputs
+- [x] Document the Salsa/ArtifactCache boundary in code comments
+- [x] Use `Durability::HIGH` for build configuration inputs
 - [x] Implement the typed()-to-FunctionContentHash extraction
-- [ ] Verify early cutoff works for whitespace-only changes (tokens unchanged → no reparse)
-- [ ] Verify early cutoff works for comment-only changes (AST unchanged → no recheck)
-- [ ] Test: modify function body without signature change → typed() result changes → only that function recompiles
+- [x] Verify early cutoff works for whitespace-only changes (tokens unchanged → no reparse)
+- [x] Verify early cutoff works for comment-only changes (AST unchanged → no recheck)
+- [x] Test: modify function body without signature change → typed() result changes → only that function recompiles
 
 ---
 
@@ -780,8 +780,8 @@ fn compile_module_functions(
 - [x] Function-level dependency graph with signature-aware invalidation
 - [x] ARC IR cache (Layer 1): serialize/deserialize ARC IR per module via bincode
 - [ ] Object code cache (Layer 2): per-function .o files keyed by ARC IR hash + opt config *(deferred — post-0.1-alpha)*
-- [ ] Salsa hybrid integration: front-end queries with early cutoff, ArtifactCache for back-end
-- [ ] Codegen is NOT a Salsa query (documented with rationale)
+- [x] Salsa hybrid integration: front-end queries with early cutoff, ArtifactCache for back-end
+- [x] Codegen is NOT a Salsa query (documented with rationale)
 - [x] `execute_parallel` replaces `compile_parallel` with dependency-respecting multi-threaded execution
 - [x] `std::thread` used throughout (no rayon)
 - [x] One LLVM Context per thread, no cross-context ValueId sharing

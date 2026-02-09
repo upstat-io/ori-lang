@@ -1,7 +1,31 @@
-//! Salsa Queries - Computed values that are cached
+//! Salsa Queries — Computed values that are cached and incrementally revalidated.
 //!
 //! Queries are functions that compute values from inputs or other queries.
 //! Salsa automatically caches results and invalidates when dependencies change.
+//!
+//! # Query Pipeline & Early Cutoff
+//!
+//! ```text
+//! SourceFile (#[salsa::input])
+//!     ↓ file.text(db)
+//! lex_result(db, file)     — tokens + errors; early cutoff on LexResult equality
+//!     ↓
+//! tokens(db, file)         — position-independent equality enables cutoff
+//!     ↓                      even when spans shift (whitespace edits)
+//! parsed(db, file)         — early cutoff on AST equality
+//!     ↓
+//! typed(db, file)          — early cutoff on TypeCheckResult equality
+//!     ↓
+//! [codegen boundary — NOT a Salsa query]
+//!     ↓
+//! ARC analysis → LLVM emission → object file (managed by ArtifactCache)
+//! ```
+//!
+//! Codegen is not a Salsa query because LLVM types are lifetime-bound to an
+//! LLVM `Context` and cannot satisfy `Clone + Eq + Hash`. The Salsa/ArtifactCache
+//! boundary is at `typed()`: function content hashes are computed from the
+//! `TypeCheckResult` and used as cache keys for ARC IR and object artifacts.
+//! See `commands/compile_common.rs` for the back-end caching strategy.
 
 use crate::db::Db;
 use crate::eval::{EvalOutput, Evaluator, ModuleEvalResult};

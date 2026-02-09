@@ -25,6 +25,9 @@ mod parse;
 mod semantic;
 pub mod typeck;
 
+#[cfg(feature = "llvm")]
+mod codegen;
+
 use crate::diagnostic::queue::{DiagnosticConfig, DiagnosticQueue, DiagnosticSeverity};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::problem::Problem;

@@ -183,30 +183,23 @@ pub fn run_file_compiled(path: &str) {
     };
 
     // Configure target (native)
-    let target = match ori_llvm::aot::TargetConfig::native() {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("error: failed to initialize native target: {e}");
-            std::process::exit(1);
-        }
-    };
+    let target = ori_llvm::aot::TargetConfig::native()
+        .unwrap_or_else(|e| crate::problem::codegen::report_codegen_error(e));
 
     // Generate LLVM IR (shared with build_file)
     let context = Context::create();
     let llvm_module = compile_to_llvm(&context, &db, &parse_result, &type_result, &pool, path);
 
     // Configure module for target
-    let emitter = match ObjectEmitter::new(&target) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!("error: failed to create object emitter: {e}");
-            std::process::exit(1);
-        }
-    };
+    let emitter = ObjectEmitter::new(&target)
+        .unwrap_or_else(|e| crate::problem::codegen::report_codegen_error(e));
 
     if let Err(e) = emitter.configure_module(&llvm_module) {
-        eprintln!("error: failed to configure module: {e}");
-        std::process::exit(1);
+        crate::problem::codegen::report_codegen_error(
+            crate::problem::codegen::CodegenProblem::ModuleConfigFailed {
+                message: e.to_string(),
+            },
+        );
     }
 
     // Ensure cache directory exists
@@ -221,8 +214,7 @@ pub fn run_file_compiled(path: &str) {
     if let Err(e) =
         emitter.verify_optimize_emit(&llvm_module, &opt_config, &obj_path, OutputFormat::Object)
     {
-        eprintln!("error: pipeline failed: {e}");
-        std::process::exit(1);
+        crate::problem::codegen::report_codegen_error(e);
     }
 
     // Link into executable
@@ -232,9 +224,7 @@ pub fn run_file_compiled(path: &str) {
     let runtime_config = match RuntimeConfig::detect() {
         Ok(config) => config,
         Err(e) => {
-            eprintln!("error: {e}");
-            eprintln!("hint: ensure libori_rt is built and available");
-            std::process::exit(1);
+            crate::problem::codegen::report_codegen_error(e);
         }
     };
 
@@ -249,10 +239,9 @@ pub fn run_file_compiled(path: &str) {
     runtime_config.configure_link(&mut link_input);
 
     if let Err(e) = driver.link(&link_input) {
-        eprintln!("error: linking failed: {e}");
         // Clean up partial artifacts
         let _ = std::fs::remove_file(&obj_path);
-        std::process::exit(1);
+        crate::problem::codegen::report_codegen_error(e);
     }
 
     // Clean up object file
@@ -299,16 +288,18 @@ fn get_cache_dir() -> PathBuf {
 /// Run with compile mode when LLVM feature is not enabled.
 #[cfg(not(feature = "llvm"))]
 pub fn run_file_compiled(_path: &str) {
-    eprintln!("error: the '--compile' flag requires the LLVM backend");
-    eprintln!();
-    eprintln!("The Ori compiler was built without LLVM support.");
-    eprintln!("To enable AOT compilation, rebuild with the 'llvm' feature:");
-    eprintln!();
-    eprintln!("  cargo build --features llvm");
-    eprintln!();
-    eprintln!("Or use the LLVM-enabled Docker container:");
-    eprintln!();
-    eprintln!("  ./docker/llvm/run.sh ori run --compile <file.ori>");
+    use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
+    use ori_diagnostic::{Diagnostic, ErrorCode};
+
+    let diag = Diagnostic::error(ErrorCode::E5004)
+        .with_message("the '--compile' flag requires the LLVM backend")
+        .with_note("the Ori compiler was built without LLVM support")
+        .with_suggestion("rebuild with `cargo build --features llvm`");
+
+    let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
+    let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty);
+    emitter.emit(&diag);
+    emitter.flush();
     std::process::exit(1);
 }
 
