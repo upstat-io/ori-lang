@@ -131,8 +131,8 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     // Wrap captures in Arc once for efficient sharing across all collect_* calls
     let mut user_methods = UserMethodRegistry::new();
     let captures = std::sync::Arc::new(interpreter.env().capture());
-    collect_impl_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
-    collect_extend_methods(&parse_result.module, &shared_arena, &captures, &mut user_methods);
+    collect_impl_methods(&parse_result.module, &shared_arena, &captures, None, &mut user_methods);
+    collect_extend_methods(&parse_result.module, &shared_arena, &captures, None, &mut user_methods);
 
     // Process derived traits (Eq, Clone, Hashable, Printable, Default)
     process_derives(

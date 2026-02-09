@@ -298,18 +298,18 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
         (BinaryOp::BitOr, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a | b)),
         (BinaryOp::BitXor, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a ^ b)),
         (BinaryOp::Shl, ConstValue::Int(a), ConstValue::Int(b)) => {
-            if (0..64).contains(&b) {
-                Some(ConstValue::Int(a << b))
-            } else {
-                None // Negative or oversized shift — defer to runtime.
-            }
-        }
-        (BinaryOp::Shr, ConstValue::Int(a), ConstValue::Int(b)) => {
-            if (0..64).contains(&b) {
-                Some(ConstValue::Int(a >> b))
+            let shift = u32::try_from(b).ok().filter(|&s| s < 64)?;
+            let result = a.wrapping_shl(shift);
+            // Round-trip check: if shifting back recovers the original, no overflow.
+            if result.wrapping_shr(shift) == a {
+                Some(ConstValue::Int(result))
             } else {
                 None
             }
+        }
+        (BinaryOp::Shr, ConstValue::Int(a), ConstValue::Int(b)) => {
+            let shift = u32::try_from(b).ok().filter(|&s| s < 64)?;
+            Some(ConstValue::Int(a >> shift))
         }
 
         // Unmatched type combinations — can't fold.

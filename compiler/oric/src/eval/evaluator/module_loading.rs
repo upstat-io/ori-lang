@@ -109,18 +109,21 @@ impl Evaluator<'_> {
             &parse_result.module,
             &shared_arena,
             &captures,
+            canon,
             &mut user_methods,
         );
         collect_extend_methods(
             &parse_result.module,
             &shared_arena,
             &captures,
+            canon,
             &mut user_methods,
         );
         collect_def_impl_methods(
             &parse_result.module,
             &shared_arena,
             &captures,
+            canon,
             &mut user_methods,
         );
 

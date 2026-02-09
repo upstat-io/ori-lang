@@ -88,6 +88,12 @@ pub(crate) fn compile_patterns(
 /// with no fields). We check `typed.resolve_pattern()` and convert these to
 /// `FlatPattern::Variant` with the resolved index before passing to
 /// `flatten_pattern()`.
+///
+/// When the type checker lacks resolution (e.g., untyped lambda parameters in
+/// higher-order methods like `.map()`/`.fold()`), we fall back to pool-based
+/// resolution: if the binding name starts with uppercase and is a variant of
+/// the scrutinee's enum type, treat it as a variant pattern. This mirrors the
+/// legacy evaluator's value-based fallback in `try_match`.
 fn flatten_arm_pattern(
     lowerer: &Lowerer<'_>,
     pattern: &MatchPattern,
@@ -105,6 +111,17 @@ fn flatten_arm_pattern(
                 fields: vec![],
             };
         }
+
+        // Fallback: resolve uppercase binding names as unit variants via the pool.
+        // Handles cases where the type checker lacks resolution (e.g., lambda
+        // parameters in higher-order methods where element types aren't propagated).
+        if let Some(idx) = try_resolve_unit_variant(lowerer, *name, scrutinee_ty) {
+            return FlatPattern::Variant {
+                variant_name: *name,
+                variant_index: idx,
+                fields: vec![],
+            };
+        }
     }
 
     ori_arc::decision_tree::flatten::flatten_pattern(
@@ -114,6 +131,69 @@ fn flatten_arm_pattern(
         lowerer.pool,
         lowerer.interner,
     )
+}
+
+/// Try to resolve a binding name as a unit variant of the scrutinee type.
+///
+/// Two resolution strategies:
+///
+/// 1. **Pool-based**: If `scrutinee_ty` resolves to an enum in the pool, check
+///    if the name matches a variant of that enum.
+///
+/// 2. **Registry-based fallback**: If `scrutinee_ty` is unresolved (e.g., a type
+///    variable from an untyped lambda parameter), search the module's type
+///    definitions for any enum with a matching unit variant. This handles cases
+///    where the type checker couldn't resolve the scrutinee type because the lambda
+///    parameter wasn't unified with the concrete element type during inference.
+///
+/// Returns the variant index if found, `None` otherwise.
+fn try_resolve_unit_variant(
+    lowerer: &Lowerer<'_>,
+    name: ori_ir::Name,
+    scrutinee_ty: ori_types::Idx,
+) -> Option<u32> {
+    use ori_types::TypeKind;
+
+    let name_str = lowerer.interner.lookup(name);
+    if !name_str.starts_with(char::is_uppercase) {
+        return None;
+    }
+
+    // Strategy 1: Pool-based resolution when scrutinee type is known.
+    let resolved = lowerer.pool.resolve_fully(scrutinee_ty);
+    if lowerer.pool.tag(resolved) == ori_types::Tag::Enum {
+        let count = lowerer.pool.enum_variant_count(resolved);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "enum variant count bounded by u8 (max 256)"
+        )]
+        for i in 0..count {
+            let (vname, _) = lowerer.pool.enum_variant(resolved, i);
+            if vname == name {
+                return Some(i as u32);
+            }
+        }
+        return None;
+    }
+
+    // Strategy 2: Registry-based fallback when scrutinee type is unresolved.
+    // Search the module's exported type definitions for any enum with a
+    // matching unit variant. This mirrors TypeRegistry::lookup_variant_def().
+    for type_entry in &lowerer.typed.types {
+        if let TypeKind::Enum { variants } = &type_entry.kind {
+            for (i, variant) in variants.iter().enumerate() {
+                if variant.name == name && variant.fields.is_unit() {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "enum variant count bounded by u8 (max 256)"
+                    )]
+                    return Some(i as u32);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]

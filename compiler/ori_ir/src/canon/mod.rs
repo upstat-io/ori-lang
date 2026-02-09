@@ -1475,8 +1475,11 @@ pub struct CanonResult {
     pub decision_trees: DecisionTreePool,
     /// The root expression (entry point for single-expression lowering).
     pub root: CanId,
-    /// Named roots for module-level lowering (one per function).
+    /// Named roots for module-level lowering (one per function/test).
     pub roots: Vec<(Name, CanId)>,
+    /// Method roots for `impl`/`extend`/`def_impl` blocks.
+    /// Keyed by `(type_name, method_name)` → canonical body.
+    pub method_roots: Vec<(Name, Name, CanId)>,
 }
 
 impl CanonResult {
@@ -1488,6 +1491,7 @@ impl CanonResult {
             decision_trees: DecisionTreePool::new(),
             root: CanId::INVALID,
             roots: Vec::new(),
+            method_roots: Vec::new(),
         }
     }
 
@@ -1497,6 +1501,14 @@ impl CanonResult {
             .iter()
             .find(|(n, _)| *n == name)
             .map(|(_, id)| *id)
+    }
+
+    /// Look up a method root by type name and method name.
+    pub fn method_root_for(&self, type_name: Name, method_name: Name) -> Option<CanId> {
+        self.method_roots
+            .iter()
+            .find(|(tn, mn, _)| *tn == type_name && *mn == method_name)
+            .map(|(_, _, id)| *id)
     }
 }
 
