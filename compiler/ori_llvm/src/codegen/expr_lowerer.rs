@@ -20,9 +20,11 @@
 
 use std::cell::Cell;
 
-use ori_ir::{ExprArena, ExprId, ExprKind, Name, StringInterner};
+use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span, StringInterner};
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
+
+use crate::aot::debug::DebugContext;
 
 use super::abi::FunctionAbi;
 use super::ir_builder::IrBuilder;
@@ -106,6 +108,8 @@ pub struct ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
     pub(crate) lambda_counter: &'a Cell<u32>,
     /// Module path for name mangling (e.g., "", "math").
     pub(crate) module_path: &'a str,
+    /// Debug info context (None for JIT, Some for AOT with debug info enabled).
+    pub(crate) debug_context: Option<&'a DebugContext<'ctx>>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
@@ -126,6 +130,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
         type_idx_to_name: &'a FxHashMap<Idx, Name>,
         lambda_counter: &'a Cell<u32>,
         module_path: &'a str,
+        debug_context: Option<&'a DebugContext<'ctx>>,
     ) -> Self {
         Self {
             builder,
@@ -143,6 +148,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             loop_ctx: None,
             lambda_counter,
             module_path,
+            debug_context,
         }
     }
 
@@ -186,6 +192,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
         }
 
         let expr = self.arena.get_expr(id);
+
+        // Set debug location for this expression so all emitted
+        // instructions are tagged with the correct source position.
+        if let Some(dc) = self.debug_context {
+            if expr.span != Span::DUMMY {
+                dc.set_location_from_offset_in_current_scope(
+                    self.builder.inkwell_builder(),
+                    expr.span.start,
+                );
+            }
+        }
+
         match &expr.kind {
             // --- Literals & identifiers (lower_literals.rs) ---
             ExprKind::Int(n) => Some(self.lower_int(*n)),
