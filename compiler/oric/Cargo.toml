@@ -32,6 +32,7 @@ ori_types.workspace = true
 ori_parse.workspace = true
 ori_patterns.workspace = true
 ori_eval.workspace = true
+ori_canon.workspace = true
 ori_fmt.workspace = true
 
 # Optional LLVM backend (requires LLVM installed)

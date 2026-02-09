@@ -16,7 +16,7 @@ use ori_ir::canon::{
 use ori_ir::{ExprArena, ExprId, ExprKind, ExprRange, Name, Span, TypeId};
 use ori_types::{TypeCheckResult, TypedModule};
 
-use ori_ir::SharedInterner;
+use ori_ir::StringInterner;
 
 /// Lower a type-checked AST to canonical form.
 ///
@@ -40,7 +40,7 @@ pub fn lower(
     type_result: &TypeCheckResult,
     pool: &ori_types::Pool,
     root: ExprId,
-    interner: &SharedInterner,
+    interner: &StringInterner,
 ) -> CanonResult {
     if !root.is_valid() {
         return CanonResult::empty();
@@ -78,7 +78,7 @@ pub fn lower_module(
     src: &ExprArena,
     type_result: &TypeCheckResult,
     pool: &ori_types::Pool,
-    interner: &SharedInterner,
+    interner: &StringInterner,
 ) -> CanonResult {
     let mut lowerer = Lowerer::new(src, &type_result.typed, pool, interner);
     let mut roots = Vec::with_capacity(module.functions.len());
@@ -117,7 +117,7 @@ pub(crate) struct Lowerer<'a> {
     /// Type pool for resolving variant indices and field types.
     pub(crate) pool: &'a ori_types::Pool,
     /// String interner for creating names during lowering.
-    pub(crate) interner: &'a SharedInterner,
+    pub(crate) interner: &'a StringInterner,
     /// Target canonical arena (being built).
     pub(crate) arena: CanArena,
     /// Compile-time constant pool.
@@ -137,7 +137,7 @@ impl<'a> Lowerer<'a> {
         src: &'a ExprArena,
         typed: &'a TypedModule,
         pool: &'a ori_types::Pool,
-        interner: &'a SharedInterner,
+        interner: &'a StringInterner,
     ) -> Self {
         // Pre-allocate based on source expression count.
         // Desugaring may increase the count slightly, so add 25% headroom.
@@ -1062,7 +1062,7 @@ impl<'a> Lowerer<'a> {
 ///
 /// Cast expressions need the type name for evaluator dispatch (e.g. `as int`).
 /// The LLVM backend ignores this and uses the resolved `TypeId` on `CanNode.ty`.
-fn type_id_to_name(type_id: TypeId, interner: &SharedInterner) -> Name {
+fn type_id_to_name(type_id: TypeId, interner: &StringInterner) -> Name {
     let s = match type_id {
         TypeId::INT => "int",
         TypeId::FLOAT => "float",
@@ -1092,8 +1092,8 @@ mod tests {
     }
 
     /// Create a shared interner for testing.
-    fn test_interner() -> SharedInterner {
-        SharedInterner::new()
+    fn test_interner() -> StringInterner {
+        StringInterner::new()
     }
 
     #[test]
