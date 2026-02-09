@@ -143,7 +143,7 @@ fn eval_with_profile(
     let file_path = file.path(db);
 
     // Type check (returns result + pool)
-    let (type_result, _pool) =
+    let (type_result, pool) =
         oric::typeck::type_check_with_imports_and_pool(db, parse_result, file_path);
 
     if type_result.has_errors() {
@@ -156,17 +156,26 @@ fn eval_with_profile(
         return;
     }
 
+    // Canonicalize: AST + types → self-contained canonical IR.
+    let canon_result = ori_canon::lower_module(
+        &parse_result.module,
+        &parse_result.arena,
+        &type_result,
+        &pool,
+        interner,
+    );
+    let shared_canon = ori_ir::canon::SharedCanonResult::new(canon_result);
+
     // Create evaluator with profiling enabled
-    // Note: canonicalization is wired in evaluated() query path; this profiling
-    // path defers canonical IR until the ori_arc decision tree bug is fixed.
     let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
         .expr_types(&type_result.typed.expr_types)
         .pattern_resolutions(&type_result.typed.pattern_resolutions)
+        .canon(shared_canon.clone())
         .build();
     evaluator.register_prelude();
     evaluator.enable_counters();
 
-    if let Err(e) = evaluator.load_module(parse_result, file_path, None) {
+    if let Err(e) = evaluator.load_module(parse_result, file_path, Some(&shared_canon)) {
         let result = ModuleEvalResult::failure(format!("module error: {e}"));
         report_eval_result(&result, db, file, path, emitter);
         return;
@@ -182,7 +191,12 @@ fn eval_with_profile(
     } else if let Some(func) = parse_result.module.functions.first() {
         let params = parse_result.arena.get_params(func.params);
         if params.is_empty() {
-            match evaluator.eval(func.body) {
+            let result = if let Some(can_id) = shared_canon.root_for(func.name) {
+                evaluator.eval_can(can_id)
+            } else {
+                evaluator.eval(func.body)
+            };
+            match result {
                 Ok(value) => ModuleEvalResult::success(EvalOutput::from_value(&value, interner)),
                 Err(e) => ModuleEvalResult::runtime_error(&e.into_eval_error()),
             }

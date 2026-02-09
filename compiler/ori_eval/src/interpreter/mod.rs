@@ -1442,6 +1442,14 @@ impl<'a> Interpreter<'a> {
         &mut self.env
     }
 
+    /// Look up a canonical root by name.
+    ///
+    /// Returns the `CanId` for a named root (function or test body) if canonical
+    /// IR is available and the name exists in the roots list.
+    pub fn canon_root_for(&self, name: Name) -> Option<ori_ir::canon::CanId> {
+        self.canon.as_ref().and_then(|c| c.root_for(name))
+    }
+
     /// Create an interpreter for function/method body evaluation.
     ///
     /// This helper implements the arena threading pattern: the callee's arena

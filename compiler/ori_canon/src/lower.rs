@@ -81,7 +81,7 @@ pub fn lower_module(
     interner: &StringInterner,
 ) -> CanonResult {
     let mut lowerer = Lowerer::new(src, &type_result.typed, pool, interner);
-    let mut roots = Vec::with_capacity(module.functions.len());
+    let mut roots = Vec::with_capacity(module.functions.len() + module.tests.len());
 
     // Lower each function body, recording name → CanId.
     for func in &module.functions {
@@ -91,11 +91,83 @@ pub fn lower_module(
         }
     }
 
+    // Lower each test body into the same arena.
+    for test in &module.tests {
+        if test.body.is_valid() {
+            let can_id = lowerer.lower_expr(test.body);
+            roots.push((test.name, can_id));
+        }
+    }
+
+    // Lower impl/extend/def_impl method bodies for canonical user method dispatch.
+    let mut method_roots = Vec::new();
+
+    // Build trait default method map for unoverridden defaults.
+    let mut trait_defaults: rustc_hash::FxHashMap<Name, Vec<&ori_ir::TraitDefaultMethod>> =
+        rustc_hash::FxHashMap::default();
+    for trait_def in &module.traits {
+        for item in &trait_def.items {
+            if let ori_ir::TraitItem::DefaultMethod(dm) = item {
+                trait_defaults.entry(trait_def.name).or_default().push(dm);
+            }
+        }
+    }
+
+    for impl_def in &module.impls {
+        let Some(&type_name) = impl_def.self_path.last() else {
+            continue;
+        };
+
+        // Collect overridden method names.
+        let mut overridden: rustc_hash::FxHashSet<Name> = rustc_hash::FxHashSet::default();
+
+        for method in &impl_def.methods {
+            overridden.insert(method.name);
+            if method.body.is_valid() {
+                let can_id = lowerer.lower_expr(method.body);
+                method_roots.push((type_name, method.name, can_id));
+            }
+        }
+
+        // Lower default trait methods that weren't overridden.
+        if let Some(trait_path) = &impl_def.trait_path {
+            if let Some(&trait_name) = trait_path.last() {
+                if let Some(defaults) = trait_defaults.get(&trait_name) {
+                    for dm in defaults {
+                        if !overridden.contains(&dm.name) && dm.body.is_valid() {
+                            let can_id = lowerer.lower_expr(dm.body);
+                            method_roots.push((type_name, dm.name, can_id));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for extend_def in &module.extends {
+        for method in &extend_def.methods {
+            if method.body.is_valid() {
+                let can_id = lowerer.lower_expr(method.body);
+                method_roots.push((extend_def.target_type_name, method.name, can_id));
+            }
+        }
+    }
+
+    for def_impl_def in &module.def_impls {
+        for method in &def_impl_def.methods {
+            if method.body.is_valid() {
+                let can_id = lowerer.lower_expr(method.body);
+                method_roots.push((def_impl_def.trait_name, method.name, can_id));
+            }
+        }
+    }
+
     // Use the first function's root as the primary root (for single-expression compat).
     let root = roots.first().map_or(CanId::INVALID, |(_, id)| *id);
 
     let mut result = lowerer.finish(root);
     result.roots = roots;
+    result.method_roots = method_roots;
 
     #[cfg(debug_assertions)]
     crate::validate(&result);
@@ -170,6 +242,7 @@ impl<'a> Lowerer<'a> {
             decision_trees: self.decision_trees,
             root,
             roots: Vec::new(),
+            method_roots: Vec::new(),
         }
     }
 

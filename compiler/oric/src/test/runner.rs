@@ -858,11 +858,13 @@ impl TestRunner {
         // Time the test execution
         let start = Instant::now();
 
-        // Evaluate the test body.
-        // Note: Test bodies use legacy eval(ExprId). Functions called within
-        // tests dispatch canonically since they have SharedCanonResult set
-        // via load_module. Full test body canonicalization is deferred (task #16).
-        match evaluator.eval(test.body) {
+        // Evaluate the test body via canonical IR when available.
+        let result = if let Some(can_id) = evaluator.canon_root_for(test.name) {
+            evaluator.eval_can(can_id)
+        } else {
+            evaluator.eval(test.body)
+        };
+        match result {
             Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
             Err(e) => TestResult::failed(
                 test.name,

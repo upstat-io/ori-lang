@@ -11,6 +11,7 @@
 #![allow(clippy::disallowed_types)]
 
 use crate::Value;
+use ori_ir::canon::{CanId, SharedCanonResult};
 use ori_ir::{DerivedMethodInfo, ExprId, Name, SharedArena};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
@@ -18,6 +19,9 @@ use std::sync::Arc;
 use crate::method_key::MethodKey;
 
 /// A user-defined method from an impl block.
+///
+/// Supports dual-mode dispatch: legacy `ExprId` or canonical `CanId`.
+/// When `canon` is set, `eval_user_method` dispatches via the canonical path.
 ///
 /// # Arena Requirement (Thread Safety)
 /// Every method carries its own arena reference. This is required for thread
@@ -33,10 +37,14 @@ use crate::method_key::MethodKey;
 pub struct UserMethod {
     /// Parameter names (first is always `self`).
     pub params: Vec<Name>,
-    /// Method body expression.
+    /// Method body expression (legacy).
     pub body: ExprId,
+    /// Canonical method body (when available).
+    pub can_body: CanId,
     /// Arena for evaluating the body (required for thread safety).
     pub arena: SharedArena,
+    /// Canonical IR for canonical dispatch (when available).
+    pub canon: Option<SharedCanonResult>,
     /// Captured variables from the defining scope (Arc for cheap cloning).
     pub captures: Arc<FxHashMap<Name, Value>>,
 }
@@ -58,7 +66,9 @@ impl UserMethod {
         UserMethod {
             params,
             body,
+            can_body: CanId::INVALID,
             arena,
+            canon: None,
             captures,
         }
     }
@@ -73,6 +83,17 @@ impl UserMethod {
         arena: SharedArena,
     ) -> Self {
         Self::new(params, body, Arc::new(captures), arena)
+    }
+
+    /// Attach canonical IR to this method for canonical dispatch.
+    pub fn set_canon(&mut self, can_body: CanId, canon: SharedCanonResult) {
+        self.can_body = can_body;
+        self.canon = Some(canon);
+    }
+
+    /// Check if this method has canonical IR available.
+    pub fn has_canon(&self) -> bool {
+        self.canon.is_some() && self.can_body.is_valid()
     }
 }
 

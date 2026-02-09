@@ -838,10 +838,17 @@ impl Interpreter<'_> {
                     Err(e) => {
                         self.env.pop_scope();
                         match to_loop_action(e) {
-                            LoopAction::Continue | LoopAction::ContinueWith(_) => {
+                            LoopAction::Continue => continue,
+                            LoopAction::ContinueWith(v) => {
+                                results.push(v);
                                 continue;
                             }
-                            LoopAction::Break(v) => return Ok(Value::list(vec![v])),
+                            LoopAction::Break(v) => {
+                                if !matches!(v, Value::Void) {
+                                    results.push(v);
+                                }
+                                return Ok(Value::list(results));
+                            }
                             LoopAction::Error(e) => return Err(e),
                         }
                     }

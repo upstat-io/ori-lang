@@ -457,12 +457,17 @@ impl Interpreter<'_> {
             call_env.define(*param, arg.clone(), Mutability::Immutable);
         }
 
-        // Evaluate method body using the method's arena (arena threading pattern).
+        // Evaluate method body: canonical path when available, legacy otherwise.
         // The scope is popped automatically via RAII when call_interpreter drops.
         let func_arena: &ExprArena = &method.arena;
         let mut call_interpreter =
             self.create_function_interpreter(func_arena, call_env, method_name);
-        call_interpreter.eval(method.body)
+        if method.has_canon() {
+            call_interpreter.canon.clone_from(&method.canon);
+            call_interpreter.eval_can(method.can_body)
+        } else {
+            call_interpreter.eval(method.body)
+        }
     }
 
     /// Evaluate an associated function (no `self` parameter).
@@ -497,11 +502,16 @@ impl Interpreter<'_> {
             call_env.define(*param, arg.clone(), Mutability::Immutable);
         }
 
-        // Evaluate function body using the method's arena
+        // Evaluate function body: canonical path when available, legacy otherwise.
         let func_arena: &ExprArena = &method.arena;
         let mut call_interpreter =
             self.create_function_interpreter(func_arena, call_env, method_name);
-        call_interpreter.eval(method.body)
+        if method.has_canon() {
+            call_interpreter.canon.clone_from(&method.canon);
+            call_interpreter.eval_can(method.can_body)
+        } else {
+            call_interpreter.eval(method.body)
+        }
     }
 
     // NOTE: Derived method evaluation has been moved to `derived_methods.rs`
