@@ -348,7 +348,7 @@ fn emit_guard(
     lowerer: &mut crate::lower::ArcLowerer<'_>,
     arm_index: usize,
     bindings: &[(Name, ScrutineePath)],
-    guard: ExprId,
+    guard: ori_ir::canon::CanId,
     on_fail: &DecisionTree,
     ctx: &mut EmitContext,
 ) {
@@ -356,7 +356,9 @@ fn emit_guard(
     bind_pattern_variables(lowerer, bindings, ctx);
 
     // Evaluate the guard expression.
-    let guard_result = lowerer.lower_expr(guard);
+    // Bridge: ARC backend hasn't migrated to CanonResult yet, so convert
+    // CanId back to ExprId for the current lowering path.
+    let guard_result = lowerer.lower_expr(guard.to_expr_id());
 
     let body_block = lowerer.builder.new_block();
     let fail_block = lowerer.builder.new_block();

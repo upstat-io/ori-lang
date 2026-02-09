@@ -17,7 +17,8 @@
 //! - Roc `crates/compiler/mono/src/ir/decision_tree.rs`
 //! - Elm `compiler/src/Nitpick/PatternMatches.hs`
 
-use crate::{ExprId, Name};
+use super::CanId;
+use crate::Name;
 
 // ── Scrutinee Path Tracking ─────────────────────────────────────────
 
@@ -164,12 +165,8 @@ pub enum DecisionTree {
         arm_index: usize,
         /// Variable bindings for this arm.
         bindings: Vec<(Name, ScrutineePath)>,
-        /// The guard expression to evaluate.
-        ///
-        /// Currently references the source AST (`ExprId`). After full
-        /// `eval_v2` migration (Section 03), this will reference a `CanId`
-        /// in the canonical arena instead.
-        guard: ExprId,
+        /// The guard expression to evaluate (canonical).
+        guard: CanId,
         /// Decision tree to execute if the guard fails. This contains
         /// the remaining compatible arms — not just the next sequential arm.
         on_fail: Box<DecisionTree>,
@@ -340,8 +337,8 @@ pub struct PatternRow {
     pub patterns: Vec<FlatPattern>,
     /// The arm index in the original match expression.
     pub arm_index: usize,
-    /// Guard expression, if any.
-    pub guard: Option<ExprId>,
+    /// Guard expression, if any (canonical).
+    pub guard: Option<CanId>,
 }
 
 /// The pattern matrix: rows of arms, columns of sub-patterns.
@@ -560,7 +557,7 @@ mod tests {
         let guard_tree = DecisionTree::Guard {
             arm_index: 0,
             bindings: vec![(Name::from_raw(1), vec![PathInstruction::TagPayload(0)])],
-            guard: ExprId::new(100),
+            guard: CanId::new(100),
             on_fail: Box::new(DecisionTree::Leaf {
                 arm_index: 1,
                 bindings: vec![(Name::from_raw(1), vec![PathInstruction::TagPayload(0)])],
@@ -855,7 +852,7 @@ mod tests {
         let row = PatternRow {
             patterns: vec![FlatPattern::Binding(Name::from_raw(1))],
             arm_index: 1,
-            guard: Some(ExprId::new(50)),
+            guard: Some(CanId::new(50)),
         };
         assert!(row.guard.is_some());
     }

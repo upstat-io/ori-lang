@@ -85,8 +85,7 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
         | CanExpr::FunctionRef(_)
         | CanExpr::HashLength
         | CanExpr::None
-        | CanExpr::FunctionSeq(_)
-        | CanExpr::FunctionExp(_)
+        | CanExpr::FunctionExp { .. }
         | CanExpr::Error => {}
 
         // Constant — validate pool reference.

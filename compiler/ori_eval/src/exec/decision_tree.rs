@@ -39,7 +39,7 @@ pub struct MatchResult {
 /// - `tree`: The compiled decision tree.
 /// - `scrutinee`: The runtime value being matched.
 /// - `interner`: String interner for resolving `Name` values in string comparisons.
-/// - `eval_guard`: Callback to evaluate guard expressions. Takes the guard's `ExprId`
+/// - `eval_guard`: Callback to evaluate guard expressions. Takes the guard's `CanId`
 ///   and a slice of bindings; returns `Ok(true)` if the guard passes, `Ok(false)` if
 ///   it fails, or `Err` for evaluation errors.
 ///
@@ -54,7 +54,7 @@ pub fn eval_decision_tree<F>(
     eval_guard: &mut F,
 ) -> Result<MatchResult, EvalError>
 where
-    F: FnMut(ori_ir::ExprId, &[(Name, Value)]) -> Result<bool, EvalError>,
+    F: FnMut(ori_ir::canon::CanId, &[(Name, Value)]) -> Result<bool, EvalError>,
 {
     match tree {
         DecisionTree::Leaf {
@@ -285,7 +285,8 @@ pub fn test_tag_by_name(value: &Value, variant_name: Name) -> bool {
 #[expect(clippy::expect_used, reason = "Tests use expect for brevity")]
 mod tests {
     use ori_ir::canon::tree::{DecisionTree, PathInstruction, TestKind, TestValue};
-    use ori_ir::{ExprId, Name, SharedInterner};
+    use ori_ir::canon::CanId;
+    use ori_ir::{Name, SharedInterner};
     use ori_patterns::Value;
 
     use super::{eval_decision_tree, resolve_path, test_tag_by_name};
@@ -295,7 +296,7 @@ mod tests {
     }
 
     // No guard callback — panics if called.
-    fn no_guard(_: ExprId, _: &[(Name, Value)]) -> Result<bool, ori_patterns::EvalError> {
+    fn no_guard(_: CanId, _: &[(Name, Value)]) -> Result<bool, ori_patterns::EvalError> {
         panic!("guard should not be called in this test")
     }
 
@@ -526,7 +527,7 @@ mod tests {
         let tree = DecisionTree::Guard {
             arm_index: 0,
             bindings: vec![(name_v, vec![])],
-            guard: ExprId::new(100),
+            guard: CanId::new(100),
             on_fail: Box::new(DecisionTree::Leaf {
                 arm_index: 1,
                 bindings: vec![],
@@ -534,7 +535,7 @@ mod tests {
         };
 
         // Guard passes → arm 0.
-        let mut guard_fn = |_: ExprId, _: &[(Name, Value)]| Ok(true);
+        let mut guard_fn = |_: CanId, _: &[(Name, Value)]| Ok(true);
         let r = eval_decision_tree(&tree, &Value::int(5), &interner, &mut guard_fn)
             .expect("should match");
         assert_eq!(r.arm_index, 0);
@@ -550,7 +551,7 @@ mod tests {
         let tree = DecisionTree::Guard {
             arm_index: 0,
             bindings: vec![(name_v, vec![])],
-            guard: ExprId::new(100),
+            guard: CanId::new(100),
             on_fail: Box::new(DecisionTree::Leaf {
                 arm_index: 1,
                 bindings: vec![],
@@ -558,7 +559,7 @@ mod tests {
         };
 
         // Guard fails → fall through to arm 1.
-        let mut guard_fn = |_: ExprId, _: &[(Name, Value)]| Ok(false);
+        let mut guard_fn = |_: CanId, _: &[(Name, Value)]| Ok(false);
         let r = eval_decision_tree(&tree, &Value::int(5), &interner, &mut guard_fn)
             .expect("should match");
         assert_eq!(r.arm_index, 1);

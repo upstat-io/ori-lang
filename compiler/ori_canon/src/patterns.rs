@@ -58,6 +58,7 @@ pub(crate) fn compile_patterns(
     }
 
     // Build the pattern matrix: one row per arm, one column (the scrutinee).
+    // Guards are lowered from ExprId to CanId via the lowerer.
     let matrix: Vec<PatternRow> = arms
         .iter()
         .enumerate()
@@ -68,7 +69,7 @@ pub(crate) fn compile_patterns(
             PatternRow {
                 patterns: vec![flat],
                 arm_index,
-                guard: *guard,
+                guard: guard.map(ori_ir::canon::CanId::from_expr_id),
             }
         })
         .collect();

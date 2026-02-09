@@ -34,10 +34,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::arena::{to_u16, to_u32};
-use crate::{
-    BinaryOp, BindingPatternId, DurationUnit, FunctionExpId, FunctionSeqId, Name, ParamRange,
-    ParsedTypeId, SizeUnit, Span, TypeId, UnaryOp,
-};
+use crate::{BinaryOp, DurationUnit, FunctionExpKind, Name, SizeUnit, Span, TypeId, UnaryOp};
 
 pub use tree::{
     DecisionTree, FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestKind,
@@ -76,6 +73,27 @@ impl CanId {
     #[inline]
     pub const fn raw(self) -> u32 {
         self.0
+    }
+
+    /// Bridge: create a `CanId` from an `ExprId`'s raw index.
+    ///
+    /// Used by backends that haven't migrated to `CanonResult` yet (`ori_arc`).
+    /// The resulting `CanId` carries the same raw index as the `ExprId`, which
+    /// the backend interprets in its own context.
+    ///
+    /// This will be removed once the ARC backend migrates to `CanonResult` (07.2).
+    #[inline]
+    pub const fn from_expr_id(id: crate::ExprId) -> Self {
+        Self(id.raw())
+    }
+
+    /// Bridge: convert back to an `ExprId` raw index.
+    ///
+    /// Used by backends that haven't migrated to `CanonResult` yet.
+    /// Will be removed once all backends use `CanonResult` (07.2).
+    #[inline]
+    pub const fn to_expr_id(self) -> crate::ExprId {
+        crate::ExprId::new(self.0)
     }
 
     /// Returns `true` if this is a valid (non-sentinel) ID.
@@ -235,6 +253,247 @@ impl fmt::Debug for CanFieldRange {
     }
 }
 
+// ── CanBindingPatternId / CanBindingPattern ─────────────────────────
+
+/// Index into a [`CanArena`]'s binding pattern storage.
+///
+/// Replaces `BindingPatternId` (which indexes `ExprArena.binding_patterns`)
+/// with a canonical equivalent that keeps the IR self-contained.
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[repr(transparent)]
+pub struct CanBindingPatternId(u32);
+
+impl CanBindingPatternId {
+    #[inline]
+    pub const fn new(index: u32) -> Self {
+        Self(index)
+    }
+
+    #[inline]
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl fmt::Debug for CanBindingPatternId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CanBindingPatternId({})", self.0)
+    }
+}
+
+/// Range of binding pattern IDs in `CanArena.binding_pattern_lists`.
+///
+/// Used for `Tuple` and `List` sub-patterns which contain multiple children.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Default)]
+#[repr(C)]
+pub struct CanBindingPatternRange {
+    pub start: u32,
+    pub len: u16,
+}
+
+impl CanBindingPatternRange {
+    pub const EMPTY: Self = Self { start: 0, len: 0 };
+
+    #[inline]
+    pub const fn new(start: u32, len: u16) -> Self {
+        Self { start, len }
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.len as usize
+    }
+}
+
+impl fmt::Debug for CanBindingPatternRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CanBindingPatternRange({}..{})",
+            self.start,
+            self.start + u32::from(self.len)
+        )
+    }
+}
+
+/// Range of field bindings in `CanArena.field_bindings`.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Default)]
+#[repr(C)]
+pub struct CanFieldBindingRange {
+    pub start: u32,
+    pub len: u16,
+}
+
+impl CanFieldBindingRange {
+    pub const EMPTY: Self = Self { start: 0, len: 0 };
+
+    #[inline]
+    pub const fn new(start: u32, len: u16) -> Self {
+        Self { start, len }
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.len as usize
+    }
+}
+
+impl fmt::Debug for CanFieldBindingRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CanFieldBindingRange({}..{})",
+            self.start,
+            self.start + u32::from(self.len)
+        )
+    }
+}
+
+/// Canonical binding pattern — self-contained, no `ExprArena` references.
+///
+/// Mirrors `BindingPattern` from `ori_ir::ast` but stores sub-patterns
+/// in `CanArena` via `CanBindingPatternId` instead of `Vec<BindingPattern>`.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum CanBindingPattern {
+    /// Simple name binding: `let x = ...`
+    Name(Name),
+    /// Tuple destructuring: `let (a, b) = ...`
+    Tuple(CanBindingPatternRange),
+    /// Struct destructuring: `let { x, y } = ...`
+    Struct { fields: CanFieldBindingRange },
+    /// List destructuring: `let [head, ..tail] = ...`
+    List {
+        elements: CanBindingPatternRange,
+        rest: Option<Name>,
+    },
+    /// Wildcard: `let _ = ...`
+    Wildcard,
+}
+
+/// A struct field binding in canonical form: field name + sub-pattern.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub struct CanFieldBinding {
+    pub name: Name,
+    pub pattern: CanBindingPatternId,
+}
+
+// ── CanParam ────────────────────────────────────────────────────────
+
+/// Canonical function parameter — only what evaluation/codegen needs.
+///
+/// Replaces `Param` (which contains `MatchPattern`, `ParsedType`, `ExprId`)
+/// with a minimal representation: just the name and an optional default.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub struct CanParam {
+    /// Parameter name.
+    pub name: Name,
+    /// Default value expression. `CanId::INVALID` if no default.
+    pub default: CanId,
+}
+
+/// Range of canonical parameters in `CanArena.params`.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Default)]
+#[repr(C)]
+pub struct CanParamRange {
+    pub start: u32,
+    pub len: u16,
+}
+
+impl CanParamRange {
+    pub const EMPTY: Self = Self { start: 0, len: 0 };
+
+    #[inline]
+    pub const fn new(start: u32, len: u16) -> Self {
+        Self { start, len }
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.len as usize
+    }
+}
+
+impl fmt::Debug for CanParamRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CanParamRange({}..{})",
+            self.start,
+            self.start + u32::from(self.len)
+        )
+    }
+}
+
+// ── CanNamedExpr ────────────────────────────────────────────────────
+
+/// A named expression in canonical form (for `FunctionExp` props).
+///
+/// Replaces `NamedExpr` which contains `ExprId` (an `ExprArena` reference)
+/// with a canonical version that uses `CanId`.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub struct CanNamedExpr {
+    pub name: Name,
+    pub value: CanId,
+}
+
+/// Range of named expressions in `CanArena.named_exprs`.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Default)]
+#[repr(C)]
+pub struct CanNamedExprRange {
+    pub start: u32,
+    pub len: u16,
+}
+
+impl CanNamedExprRange {
+    pub const EMPTY: Self = Self { start: 0, len: 0 };
+
+    #[inline]
+    pub const fn new(start: u32, len: u16) -> Self {
+        Self { start, len }
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.len as usize
+    }
+}
+
+impl fmt::Debug for CanNamedExprRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CanNamedExprRange({}..{})",
+            self.start,
+            self.start + u32::from(self.len)
+        )
+    }
+}
+
 // ── ConstantId / DecisionTreeId ─────────────────────────────────────
 
 /// Index into a [`ConstantPool`]. References a compile-time-folded value.
@@ -364,10 +623,14 @@ pub enum CanExpr {
     },
     /// Unary operation: `op operand`
     Unary { op: UnaryOp, operand: CanId },
-    /// Type cast: `expr as Type` (infallible) or `expr as? Type` (fallible)
+    /// Type cast: `expr as Type` (infallible) or `expr as? Type` (fallible).
+    ///
+    /// Stores the target type name (e.g. "int", "float", "str") instead of
+    /// `ParsedTypeId`. The evaluator dispatches on the name; the LLVM backend
+    /// uses the resolved `TypeId` from `CanNode.ty`.
     Cast {
         expr: CanId,
-        ty: ParsedTypeId,
+        target: Name,
         fallible: bool,
     },
 
@@ -419,10 +682,11 @@ pub enum CanExpr {
     // === Bindings ===
     /// Block: `{ stmts; result }`. INVALID result = unit block.
     Block { stmts: CanRange, result: CanId },
-    /// Let binding: `let pattern [: ty] = init`
+    /// Let binding: `let pattern = init`.
+    ///
+    /// Type info is on `CanNode.ty`; no `ParsedTypeId` needed.
     Let {
-        pattern: BindingPatternId,
-        ty: ParsedTypeId,
+        pattern: CanBindingPatternId,
         init: CanId,
         mutable: bool,
     },
@@ -430,12 +694,10 @@ pub enum CanExpr {
     Assign { target: CanId, value: CanId },
 
     // === Functions ===
-    /// Lambda: `params -> body`
-    Lambda {
-        params: ParamRange,
-        ret_ty: ParsedTypeId,
-        body: CanId,
-    },
+    /// Lambda: `params -> body`.
+    ///
+    /// Return type is on `CanNode.ty`; no `ParsedTypeId` needed.
+    Lambda { params: CanParamRange, body: CanId },
 
     // === Collections (no spread variants — already expanded) ===
     /// List literal: `[a, b, c]`
@@ -480,10 +742,14 @@ pub enum CanExpr {
     },
 
     // === Special Forms ===
-    /// Sequential function composition: `run`, `try`, `match`
-    FunctionSeq(FunctionSeqId),
-    /// Named function expression: `map`, `filter`, `fold`
-    FunctionExp(FunctionExpId),
+    /// Named function expression: `print`, `panic`, `todo`, etc.
+    ///
+    /// Inlined from `FunctionExpId` — the kind and canonical props are
+    /// stored directly, eliminating the `ExprArena` side-table reference.
+    FunctionExp {
+        kind: FunctionExpKind,
+        props: CanNamedExprRange,
+    },
 
     // === Error Recovery ===
     /// Parse/type error placeholder. Propagates silently through lowering.
@@ -515,8 +781,12 @@ impl fmt::Debug for CanExpr {
                 write!(f, "Binary({op:?}, {left:?}, {right:?})")
             }
             CanExpr::Unary { op, operand } => write!(f, "Unary({op:?}, {operand:?})"),
-            CanExpr::Cast { expr, ty, fallible } => {
-                write!(f, "Cast({expr:?}, {ty:?}, fallible={fallible})")
+            CanExpr::Cast {
+                expr,
+                target,
+                fallible,
+            } => {
+                write!(f, "Cast({expr:?}, {target:?}, fallible={fallible})")
             }
             CanExpr::Call { func, args } => write!(f, "Call({func:?}, {args:?})"),
             CanExpr::MethodCall {
@@ -564,19 +834,14 @@ impl fmt::Debug for CanExpr {
             CanExpr::Block { stmts, result } => write!(f, "Block({stmts:?}, {result:?})"),
             CanExpr::Let {
                 pattern,
-                ty,
                 init,
                 mutable,
             } => {
-                write!(f, "Let({pattern:?}, {ty:?}, {init:?}, mut={mutable})")
+                write!(f, "Let({pattern:?}, {init:?}, mut={mutable})")
             }
             CanExpr::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),
-            CanExpr::Lambda {
-                params,
-                ret_ty,
-                body,
-            } => {
-                write!(f, "Lambda({params:?}, {ret_ty:?}, {body:?})")
+            CanExpr::Lambda { params, body } => {
+                write!(f, "Lambda({params:?}, {body:?})")
             }
             CanExpr::List(r) => write!(f, "List({r:?})"),
             CanExpr::Tuple(r) => write!(f, "Tuple({r:?})"),
@@ -606,8 +871,9 @@ impl fmt::Debug for CanExpr {
             } => {
                 write!(f, "WithCapability({capability:?}, {provider:?}, {body:?})")
             }
-            CanExpr::FunctionSeq(id) => write!(f, "FunctionSeq({id:?})"),
-            CanExpr::FunctionExp(id) => write!(f, "FunctionExp({id:?})"),
+            CanExpr::FunctionExp { kind, props } => {
+                write!(f, "FunctionExp({kind:?}, {props:?})")
+            }
             CanExpr::Error => write!(f, "Error"),
         }
     }
@@ -876,6 +1142,16 @@ pub struct CanArena {
     map_entries: Vec<CanMapEntry>,
     /// Struct field initializers (name-value pairs).
     fields: Vec<CanField>,
+    /// Canonical binding patterns (indexed by `CanBindingPatternId`).
+    binding_patterns: Vec<CanBindingPattern>,
+    /// Flattened binding pattern ID lists (for Tuple/List sub-patterns).
+    binding_pattern_lists: Vec<CanBindingPatternId>,
+    /// Struct field bindings (indexed by `CanFieldBindingRange`).
+    field_bindings: Vec<CanFieldBinding>,
+    /// Canonical function parameters (indexed by `CanParamRange`).
+    params: Vec<CanParam>,
+    /// Named expressions for `FunctionExp` props (indexed by `CanNamedExprRange`).
+    named_exprs: Vec<CanNamedExpr>,
 }
 
 impl CanArena {
@@ -888,6 +1164,11 @@ impl CanArena {
             expr_lists: Vec::new(),
             map_entries: Vec::new(),
             fields: Vec::new(),
+            binding_patterns: Vec::new(),
+            binding_pattern_lists: Vec::new(),
+            field_bindings: Vec::new(),
+            params: Vec::new(),
+            named_exprs: Vec::new(),
         }
     }
 
@@ -903,6 +1184,11 @@ impl CanArena {
             expr_lists: Vec::with_capacity(estimated),
             map_entries: Vec::new(),
             fields: Vec::new(),
+            binding_patterns: Vec::new(),
+            binding_pattern_lists: Vec::new(),
+            field_bindings: Vec::new(),
+            params: Vec::new(),
+            named_exprs: Vec::new(),
         }
     }
 
@@ -1039,6 +1325,110 @@ impl CanArena {
         let end = start + range.len();
         &self.fields[start..end]
     }
+
+    // ── Binding pattern allocation ─────────────────────────────
+
+    /// Allocate a canonical binding pattern, returning its ID.
+    pub fn push_binding_pattern(&mut self, pattern: CanBindingPattern) -> CanBindingPatternId {
+        let id = CanBindingPatternId::new(to_u32(self.binding_patterns.len(), "binding patterns"));
+        self.binding_patterns.push(pattern);
+        id
+    }
+
+    /// Get a canonical binding pattern by ID.
+    pub fn get_binding_pattern(&self, id: CanBindingPatternId) -> &CanBindingPattern {
+        &self.binding_patterns[id.index()]
+    }
+
+    /// Allocate a range of binding pattern IDs (for Tuple/List sub-patterns).
+    pub fn push_binding_pattern_list(
+        &mut self,
+        ids: &[CanBindingPatternId],
+    ) -> CanBindingPatternRange {
+        if ids.is_empty() {
+            return CanBindingPatternRange::EMPTY;
+        }
+        let start = to_u32(self.binding_pattern_lists.len(), "binding pattern lists");
+        self.binding_pattern_lists.extend_from_slice(ids);
+        CanBindingPatternRange::new(start, to_u16(ids.len(), "binding pattern list"))
+    }
+
+    /// Get binding pattern IDs from a range.
+    pub fn get_binding_pattern_list(
+        &self,
+        range: CanBindingPatternRange,
+    ) -> &[CanBindingPatternId] {
+        if range.is_empty() {
+            return &[];
+        }
+        let start = range.start as usize;
+        let end = start + range.len();
+        &self.binding_pattern_lists[start..end]
+    }
+
+    /// Allocate a range of field bindings.
+    pub fn push_field_bindings(&mut self, bindings: &[CanFieldBinding]) -> CanFieldBindingRange {
+        if bindings.is_empty() {
+            return CanFieldBindingRange::EMPTY;
+        }
+        let start = to_u32(self.field_bindings.len(), "field bindings");
+        self.field_bindings.extend_from_slice(bindings);
+        CanFieldBindingRange::new(start, to_u16(bindings.len(), "field binding list"))
+    }
+
+    /// Get field bindings from a range.
+    pub fn get_field_bindings(&self, range: CanFieldBindingRange) -> &[CanFieldBinding] {
+        if range.is_empty() {
+            return &[];
+        }
+        let start = range.start as usize;
+        let end = start + range.len();
+        &self.field_bindings[start..end]
+    }
+
+    // ── Param allocation ───────────────────────────────────────
+
+    /// Allocate a range of canonical parameters.
+    pub fn push_params(&mut self, params: &[CanParam]) -> CanParamRange {
+        if params.is_empty() {
+            return CanParamRange::EMPTY;
+        }
+        let start = to_u32(self.params.len(), "params");
+        self.params.extend_from_slice(params);
+        CanParamRange::new(start, to_u16(params.len(), "param list"))
+    }
+
+    /// Get canonical parameters from a range.
+    pub fn get_params(&self, range: CanParamRange) -> &[CanParam] {
+        if range.is_empty() {
+            return &[];
+        }
+        let start = range.start as usize;
+        let end = start + range.len();
+        &self.params[start..end]
+    }
+
+    // ── Named expression allocation ────────────────────────────
+
+    /// Allocate a range of named expressions.
+    pub fn push_named_exprs(&mut self, exprs: &[CanNamedExpr]) -> CanNamedExprRange {
+        if exprs.is_empty() {
+            return CanNamedExprRange::EMPTY;
+        }
+        let start = to_u32(self.named_exprs.len(), "named exprs");
+        self.named_exprs.extend_from_slice(exprs);
+        CanNamedExprRange::new(start, to_u16(exprs.len(), "named expr list"))
+    }
+
+    /// Get named expressions from a range.
+    pub fn get_named_exprs(&self, range: CanNamedExprRange) -> &[CanNamedExpr] {
+        if range.is_empty() {
+            return &[];
+        }
+        let start = range.start as usize;
+        let end = start + range.len();
+        &self.named_exprs[start..end]
+    }
 }
 
 impl Default for CanArena {
@@ -1055,6 +1445,11 @@ impl PartialEq for CanArena {
             && self.expr_lists == other.expr_lists
             && self.map_entries == other.map_entries
             && self.fields == other.fields
+            && self.binding_patterns == other.binding_patterns
+            && self.binding_pattern_lists == other.binding_pattern_lists
+            && self.field_bindings == other.field_bindings
+            && self.params == other.params
+            && self.named_exprs == other.named_exprs
     }
 }
 
@@ -1078,8 +1473,10 @@ pub struct CanonResult {
     pub constants: ConstantPool,
     /// Pool of compiled decision trees.
     pub decision_trees: DecisionTreePool,
-    /// The root expression (entry point).
+    /// The root expression (entry point for single-expression lowering).
     pub root: CanId,
+    /// Named roots for module-level lowering (one per function).
+    pub roots: Vec<(Name, CanId)>,
 }
 
 impl CanonResult {
@@ -1090,7 +1487,46 @@ impl CanonResult {
             constants: ConstantPool::new(),
             decision_trees: DecisionTreePool::new(),
             root: CanId::INVALID,
+            roots: Vec::new(),
         }
+    }
+
+    /// Look up a named root by function name.
+    pub fn root_for(&self, name: Name) -> Option<CanId> {
+        self.roots
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, id)| *id)
+    }
+}
+
+/// Thread-safe shared reference to a `CanonResult`.
+///
+/// Analogous to `SharedArena` but for canonical IR. Functions carry this
+/// to resolve `CanId` values in their body during evaluation.
+#[derive(Clone, Debug)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc is the implementation of SharedCanonResult"
+)]
+pub struct SharedCanonResult(std::sync::Arc<CanonResult>);
+
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc is the implementation of SharedCanonResult"
+)]
+impl SharedCanonResult {
+    /// Create a new shared canon result.
+    pub fn new(result: CanonResult) -> Self {
+        Self(std::sync::Arc::new(result))
+    }
+}
+
+impl std::ops::Deref for SharedCanonResult {
+    type Target = CanonResult;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

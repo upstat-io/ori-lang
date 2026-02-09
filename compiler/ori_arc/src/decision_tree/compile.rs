@@ -1001,11 +1001,11 @@ mod tests {
 
     #[test]
     fn compile_with_guard() {
-        use ori_ir::ExprId;
+        use ori_ir::canon::CanId;
 
         // match x { v if v > 0 -> pos, _ -> other }
         let name_v = Name::from_raw(1);
-        let guard_expr = ExprId::new(100);
+        let guard_expr = CanId::new(100);
 
         let m = vec![
             PatternRow {
@@ -1218,7 +1218,7 @@ mod tests {
 
     #[test]
     fn compile_guards_overlapping_variants() {
-        use ori_ir::ExprId;
+        use ori_ir::canon::CanId;
 
         // match opt {
         //   Some(x) if x > 0 -> positive
@@ -1229,8 +1229,8 @@ mod tests {
         let name_x = Name::from_raw(1);
         let some_name = Name::from_raw(10);
         let none_name = Name::from_raw(11);
-        let guard1 = ExprId::new(101);
-        let guard2 = ExprId::new(102);
+        let guard1 = CanId::new(101);
+        let guard2 = CanId::new(102);
 
         let m = vec![
             PatternRow {
