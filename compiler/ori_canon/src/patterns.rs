@@ -25,7 +25,7 @@
 //! See `eval_v2` Section 03 for the full pattern compilation specification.
 
 use ori_ir::ast::patterns::MatchPattern;
-use ori_ir::canon::tree::{DecisionTree, FlatPattern, PatternRow, ScrutineePath};
+use ori_ir::canon::tree::{DecisionTree, FlatPattern, PathInstruction, PatternRow, ScrutineePath};
 use ori_types::PatternKey;
 
 use crate::lower::Lowerer;
@@ -131,6 +131,79 @@ fn flatten_arm_pattern(
         lowerer.pool,
         lowerer.interner,
     )
+}
+
+/// Compile multi-clause function parameter patterns into a decision tree.
+///
+/// Each clause contributes one row. Each parameter contributes one column.
+/// The scrutinee is either a single value (1 param) or a tuple (N params).
+///
+/// # Arguments
+///
+/// - `lowerer`: The active lowerer.
+/// - `clauses`: Parameter patterns for each clause (each inner Vec is one clause's params).
+/// - `guards`: Optional guard `CanId` for each clause.
+///
+/// # Returns
+///
+/// A compiled `DecisionTree` ready for storage in the `DecisionTreePool`.
+pub(crate) fn compile_multi_clause_patterns(
+    clauses: &[Vec<FlatPattern>],
+    guards: &[Option<ori_ir::canon::CanId>],
+) -> DecisionTree {
+    if clauses.is_empty() {
+        return DecisionTree::Fail;
+    }
+
+    let col_count = clauses[0].len();
+
+    let matrix: Vec<PatternRow> = clauses
+        .iter()
+        .zip(guards.iter())
+        .enumerate()
+        .map(|(arm_index, (patterns, guard))| PatternRow {
+            patterns: patterns.clone(),
+            arm_index,
+            guard: *guard,
+            bindings: vec![],
+        })
+        .collect();
+
+    // Initial paths: for single-column, root at empty path.
+    // For multi-column, each column projects via TupleIndex.
+    let paths: Vec<ScrutineePath> = if col_count == 1 {
+        vec![Vec::new()]
+    } else {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "param count always fits u32"
+        )]
+        (0..col_count)
+            .map(|i| vec![PathInstruction::TupleIndex(i as u32)])
+            .collect()
+    };
+
+    ori_arc::decision_tree::compile::compile(matrix, paths)
+}
+
+/// Flatten a function parameter pattern into a `FlatPattern`.
+///
+/// Handles `Option<MatchPattern>` from `Param.pattern`:
+/// - `None` → binding (the parameter name)
+/// - `Some(pattern)` → flatten via the standard pipeline
+pub(crate) fn flatten_param_pattern(
+    lowerer: &Lowerer<'_>,
+    param: &ori_ir::ast::items::Param,
+) -> FlatPattern {
+    match &param.pattern {
+        None => FlatPattern::Binding(param.name),
+        Some(pattern) => {
+            // Use UNIT type as scrutinee_ty since multi-clause functions lack type info.
+            // This works for all literal patterns (Int, String, Bool) which don't need
+            // type resolution, and for variant patterns via the registry-based fallback.
+            flatten_arm_pattern(lowerer, pattern, PatternKey::Arm(0), ori_types::Idx::UNIT)
+        }
+    }
 }
 
 /// Try to resolve a binding name as a unit variant of the scrutinee type.

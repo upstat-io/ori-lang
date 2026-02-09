@@ -88,34 +88,17 @@ pub fn register_module_functions(
             let func = funcs[0];
             let params_slice = arena.get_params(func.params);
             let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
-            // Note: MatchPattern clone is cheap - small enum with u32 newtypes (no heap alloc)
-            let patterns: Vec<_> = params_slice.iter().map(|p| p.pattern.clone()).collect();
             let defaults: Vec<_> = params_slice.iter().map(|p| p.default).collect();
             let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
 
-            // Use with_patterns if there are any patterns or a guard
-            let has_patterns = patterns.iter().any(Option::is_some) || func.guard.is_some();
-            let mut func_value = if has_patterns {
-                FunctionValue::with_patterns(
-                    params,
-                    patterns,
-                    func.guard,
-                    defaults,
-                    func.body,
-                    captures.clone(),
-                    arena.clone(),
-                    capabilities,
-                )
-            } else {
-                FunctionValue::with_defaults(
-                    params,
-                    defaults,
-                    func.body,
-                    captures.clone(),
-                    arena.clone(),
-                    capabilities,
-                )
-            };
+            let mut func_value = FunctionValue::with_defaults(
+                params,
+                defaults,
+                func.body,
+                captures.clone(),
+                arena.clone(),
+                capabilities,
+            );
 
             // Attach canonical IR if available
             if let (Some(can_ids), Some(c)) = (canon_lookup.get(&name), canon) {
@@ -126,45 +109,34 @@ pub fn register_module_functions(
 
             env.define(name, Value::Function(func_value), Mutability::Immutable);
         } else {
-            // Multiple functions with same name - create Value::MultiClauseFunction
-            let can_ids = canon_lookup.get(&name);
-            let clauses: Vec<FunctionValue> = funcs
-                .iter()
-                .enumerate()
-                .map(|(i, func)| {
-                    let params_slice = arena.get_params(func.params);
-                    let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
-                    // Note: MatchPattern clone is cheap - small enum with u32 newtypes (no heap alloc)
-                    let patterns: Vec<_> = params_slice.iter().map(|p| p.pattern.clone()).collect();
-                    let defaults: Vec<_> = params_slice.iter().map(|p| p.default).collect();
-                    let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
+            // Multiple functions with same name — dispatch lowered to a single
+            // canonical match body by `lower_module()`. Register using the first
+            // clause's parameters (the match body handles clause selection).
+            let first_func = funcs[0];
+            let params_slice = arena.get_params(first_func.params);
+            let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
+            let defaults: Vec<_> = params_slice.iter().map(|p| p.default).collect();
+            let capabilities: Vec<_> = first_func.capabilities.iter().map(|c| c.name).collect();
 
-                    let mut fv = FunctionValue::with_patterns(
-                        params,
-                        patterns,
-                        func.guard,
-                        defaults,
-                        func.body,
-                        captures.clone(),
-                        arena.clone(),
-                        capabilities,
-                    );
-
-                    // Attach canonical IR if available (each clause has its own CanId)
-                    if let (Some(ids), Some(c)) = (can_ids, canon) {
-                        if let Some(&can_id) = ids.get(i) {
-                            fv.set_canon(can_id, c.clone());
-                        }
-                    }
-
-                    fv
-                })
-                .collect();
-            env.define(
-                name,
-                Value::multi_clause_function(clauses),
-                Mutability::Immutable,
+            let mut func_value = FunctionValue::with_defaults(
+                params,
+                defaults,
+                first_func.body,
+                captures.clone(),
+                arena.clone(),
+                capabilities,
             );
+
+            // Attach the canonical match body (synthesized by lower_module).
+            // The canon_lookup groups all same-name roots; the first entry
+            // is the synthesized match body for the multi-clause group.
+            if let (Some(can_ids), Some(c)) = (canon_lookup.get(&name), canon) {
+                if let Some(&can_id) = can_ids.first() {
+                    func_value.set_canon(can_id, c.clone());
+                }
+            }
+
+            env.define(name, Value::Function(func_value), Mutability::Immutable);
         }
     }
 }

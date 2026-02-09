@@ -5,7 +5,6 @@ use crate::exec::call::{
     bind_captures, bind_parameters_with_defaults, check_arg_count, check_named_arg_count,
     eval_function_val_call, extract_named_args,
 };
-use crate::exec::control::try_match;
 use crate::{not_callable, EvalResult, Mutability, Value};
 use ori_ir::CallArgRange;
 
@@ -114,117 +113,6 @@ impl Interpreter<'_> {
                 }
 
                 result
-            }
-            Value::MultiClauseFunction(clauses) => {
-                // Check recursion limit before making the call (WASM only)
-                self.check_recursion_limit()?;
-
-                // Try each clause in order until one matches
-                for f in clauses.iter() {
-                    // Check argument count
-                    if args.len() != f.params.len() {
-                        continue; // Wrong arity, try next clause
-                    }
-
-                    // Try to match each argument against its pattern
-                    let mut all_bindings: Vec<(ori_ir::Name, Value)> = Vec::new();
-                    let mut all_match = true;
-                    let func_arena = f.arena();
-
-                    for (i, arg) in args.iter().enumerate() {
-                        if let Some(pattern) = f.patterns.get(i).and_then(|p| p.as_ref()) {
-                            // There's a pattern for this parameter - match against it
-                            if let Some(bindings) = try_match(
-                                pattern,
-                                arg,
-                                func_arena,
-                                self.interner,
-                                None,
-                                self.pattern_resolutions,
-                            )? {
-                                all_bindings.extend(bindings);
-                            } else {
-                                all_match = false;
-                                break;
-                            }
-                        }
-                        // No pattern means simple binding - always matches
-                        // The binding is done via the parameter name
-                    }
-
-                    if !all_match {
-                        continue; // Patterns didn't match, try next clause
-                    }
-
-                    // Create environment for clause execution
-                    let mut call_env = self.env.child();
-                    call_env.push_scope();
-
-                    // Bind captured variables
-                    bind_captures(&mut call_env, f);
-
-                    // Pass capabilities from calling scope
-                    for cap_name in f.capabilities() {
-                        if let Some(cap_value) = self.env.lookup(*cap_name) {
-                            call_env.define(*cap_name, cap_value, Mutability::Immutable);
-                        }
-                    }
-
-                    // Create interpreter for guard and body evaluation
-                    let mut call_interpreter =
-                        self.create_function_interpreter(func_arena, call_env, self.self_name);
-
-                    // Bind parameters (positionally, since patterns already matched)
-                    for (param, arg) in f.params.iter().zip(args.iter()) {
-                        call_interpreter
-                            .env
-                            .define(*param, arg.clone(), Mutability::Immutable);
-                    }
-
-                    // Bind pattern-extracted bindings
-                    for (name, value) in all_bindings {
-                        call_interpreter
-                            .env
-                            .define(name, value, Mutability::Immutable);
-                    }
-
-                    // Check guard if present
-                    if let Some(guard_expr) = f.guard {
-                        let guard_result = call_interpreter.eval(guard_expr)?;
-                        match guard_result {
-                            Value::Bool(true) => {
-                                // Guard passed - execute body
-                            }
-                            Value::Bool(false) => {
-                                // Guard failed - try next clause
-                                continue;
-                            }
-                            _ => {
-                                return Err(crate::EvalError::new(
-                                    "guard expression must return bool".to_string(),
-                                )
-                                .into());
-                            }
-                        }
-                    }
-
-                    // Bind 'self' to the multi-clause function for recursion
-                    call_interpreter.env.define(
-                        self.self_name,
-                        func.clone(),
-                        Mutability::Immutable,
-                    );
-
-                    // Execute the matching clause's body
-                    return call_interpreter.eval(f.body);
-                }
-
-                // No clause matched - non-exhaustive patterns error
-                let clause_count = clauses.len();
-                Err(crate::EvalError::new(format!(
-                    "no matching clause found for function call (tried {clause_count} clauses)"
-                ))
-                .into())
             }
             Value::FunctionVal(func_ptr, _name) => eval_function_val_call(*func_ptr, args),
             Value::VariantConstructor {

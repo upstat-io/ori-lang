@@ -71,10 +71,7 @@ impl Interpreter<'_> {
             if let Some(field_value) = s.get_field(method) {
                 // Check if the field is callable
                 match &field_value {
-                    Value::Function(_)
-                    | Value::MemoizedFunction(_)
-                    | Value::MultiClauseFunction(_)
-                    | Value::FunctionVal(_, _) => {
+                    Value::Function(_) | Value::MemoizedFunction(_) | Value::FunctionVal(_, _) => {
                         return self.eval_call(field_value, &args);
                     }
                     _ => {
@@ -409,9 +406,7 @@ impl Interpreter<'_> {
             | Value::Newtype { type_name, .. }
             | Value::NewtypeConstructor { type_name }
             | Value::TypeRef { type_name } => *type_name,
-            Value::Function(_) | Value::MemoizedFunction(_) | Value::MultiClauseFunction(_) => {
-                names.function
-            }
+            Value::Function(_) | Value::MemoizedFunction(_) => names.function,
             Value::FunctionVal(_, _) => names.function_val,
             Value::ModuleNamespace(_) => names.module,
             Value::Error(_) => names.error,
