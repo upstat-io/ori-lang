@@ -21,9 +21,25 @@ use inkwell::execution_engine::ExecutionEngine;
 use rustc_hash::FxHashMap;
 use tracing::{debug, instrument};
 
-use ori_ir::ast::{Module, TestDef};
+use ori_ir::ast::{Function, Module, TestDef};
 use ori_ir::{ExprArena, Name, StringInterner};
 use ori_types::{FunctionSig, Idx, Pool, TypeEntry};
+
+/// A single imported function ready for LLVM compilation.
+///
+/// Pairs a function AST with its type-checked signature and the arena/`expr_types`
+/// from its source module. Created by the caller after resolving, filtering,
+/// and type-checking imported modules.
+pub struct ImportedFunctionForCodegen<'a> {
+    /// The function AST from the imported module.
+    pub function: &'a Function,
+    /// Type-checked signature for this function.
+    pub sig: &'a FunctionSig,
+    /// Expression arena for this function's AST nodes.
+    pub arena: &'a ExprArena,
+    /// Expression types from the imported module (indexed by `ExprId`).
+    pub expr_types: &'a [Idx],
+}
 
 use crate::codegen::function_compiler::FunctionCompiler;
 use crate::codegen::ir_builder::IrBuilder;
@@ -201,9 +217,12 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
     /// - `function_sigs`: Function signatures from type checker (aligned with module.functions)
     /// - `user_types`: User-defined type entries from type checker
     /// - `impl_sigs`: Impl method signatures as (`Name`, `FunctionSig`) pairs
+    /// - `imported_functions`: Individual imported functions to compile into
+    ///   this JIT module so calls to them resolve correctly
     #[instrument(skip_all, level = "debug", fields(
         functions = module.functions.len(),
         tests = tests.len(),
+        imports = imported_functions.len(),
     ))]
     pub fn compile_module_with_tests<'a>(
         &'a self,
@@ -215,6 +234,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         function_sigs: &[FunctionSig],
         user_types: &[TypeEntry],
         impl_sigs: &[(Name, FunctionSig)],
+        imported_functions: &[ImportedFunctionForCodegen<'_>],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         use inkwell::OptimizationLevel;
 
@@ -268,6 +288,24 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             );
             fc.declare_all(&module.functions, function_sigs);
 
+            // 6b. Declare imported functions (phase 1)
+            // Imported functions must be declared before any define_all so that
+            // call sites in the main module can resolve references to them.
+            if !imported_functions.is_empty() {
+                debug!(
+                    count = imported_functions.len(),
+                    "declaring imported functions"
+                );
+                for imp_fn in imported_functions {
+                    // declare_all skips generics internally, but we use it
+                    // with single-element slices for each imported function
+                    fc.declare_all(
+                        std::slice::from_ref(imp_fn.function),
+                        std::slice::from_ref(imp_fn.sig),
+                    );
+                }
+            }
+
             // 7. Compile impl methods (declare + define)
             if !module.impls.is_empty() {
                 debug!("compiling impl methods");
@@ -277,6 +315,21 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             // 8. Define all function bodies (phase 2)
             debug!("defining function bodies (phase 2)");
             fc.define_all(&module.functions, function_sigs, arena, expr_types);
+
+            // 8b. Define imported function bodies (phase 2)
+            // Bodies are compiled into the same LLVM module so the JIT engine
+            // can resolve calls without a linker.
+            if !imported_functions.is_empty() {
+                debug!("defining imported function bodies (phase 2)");
+                for imp_fn in imported_functions {
+                    fc.define_all(
+                        std::slice::from_ref(imp_fn.function),
+                        std::slice::from_ref(imp_fn.sig),
+                        imp_fn.arena,
+                        imp_fn.expr_types,
+                    );
+                }
+            }
 
             // 9. Compile test wrappers
             debug!("compiling test wrappers");

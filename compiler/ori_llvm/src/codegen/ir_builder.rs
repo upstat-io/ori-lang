@@ -23,7 +23,8 @@
 //! | Conversions | `bitcast`, `trunc`, `sext`, `zext`, `si_to_fp`, ... |
 //! | Control flow | `br`, `cond_br`, `switch`, `select`, `ret`, `ret_void`, `unreachable` |
 //! | Aggregates | `extract_value`, `insert_value`, `build_struct` |
-//! | Calls | `call`, `call_tail`, `call_indirect` |
+//! | Calls | `call`, `call_tail`, `call_indirect`, `invoke`, `invoke_indirect` |
+//! | EH | `landingpad`, `resume`, `set_personality` |
 //! | Phi nodes | `phi`, `phi_from_incoming` |
 //! | Types | `register_type`, `bool_type`, `i8_type`, `i32_type`, ... |
 //! | Blocks | `append_block`, `position_at_end`, `current_block`, ... |
@@ -779,9 +780,15 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         self.fcmp_impl(FloatPredicate::OGE, lhs, rhs, name)
     }
 
-    /// Ordered not equal.
+    /// Ordered not equal (false if either is NaN).
     pub fn fcmp_one(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         self.fcmp_impl(FloatPredicate::ONE, lhs, rhs, name)
+    }
+
+    /// Unordered not equal (true if either is NaN or values differ).
+    /// This is the correct IEEE 754 `!=` — NaN != NaN returns true.
+    pub fn fcmp_une(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
+        self.fcmp_impl(FloatPredicate::UNE, lhs, rhs, name)
     }
 
     /// Ordered (both non-NaN).
@@ -1142,6 +1149,121 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             .try_as_basic_value()
             .basic()
             .map(|v| self.arena.push_value(v))
+    }
+
+    // -----------------------------------------------------------------------
+    // Exception handling (invoke / landingpad / resume)
+    // -----------------------------------------------------------------------
+
+    /// Build a direct invoke (call that may unwind).
+    ///
+    /// On normal return, execution continues at `then_block`.
+    /// On unwind (exception), execution continues at `catch_block`.
+    ///
+    /// Returns `None` for void-returning functions, `Some(ValueId)` otherwise.
+    /// The result value is only valid in `then_block`.
+    pub fn invoke(
+        &mut self,
+        callee: FunctionId,
+        args: &[ValueId],
+        then_block: BlockId,
+        catch_block: BlockId,
+        name: &str,
+    ) -> Option<ValueId> {
+        let func = self.arena.get_function(callee);
+        let arg_vals: Vec<BasicValueEnum<'ctx>> =
+            args.iter().map(|&id| self.arena.get_value(id)).collect();
+        let then_bb = self.arena.get_block(then_block);
+        let catch_bb = self.arena.get_block(catch_block);
+        let call_val = self
+            .builder
+            .build_invoke(func, &arg_vals, then_bb, catch_bb, name)
+            .expect("invoke");
+        call_val
+            .try_as_basic_value()
+            .basic()
+            .map(|v| self.arena.push_value(v))
+    }
+
+    /// Build an indirect invoke through a function pointer.
+    ///
+    /// Like [`invoke`], but the callee is a function pointer with an
+    /// explicit type signature.
+    pub fn invoke_indirect(
+        &mut self,
+        return_type: LLVMTypeId,
+        param_types: &[LLVMTypeId],
+        fn_ptr: ValueId,
+        args: &[ValueId],
+        then_block: BlockId,
+        catch_block: BlockId,
+        name: &str,
+    ) -> Option<ValueId> {
+        let ptr = self.arena.get_value(fn_ptr).into_pointer_value();
+        let arg_vals: Vec<BasicValueEnum<'ctx>> =
+            args.iter().map(|&id| self.arena.get_value(id)).collect();
+
+        let ret_ty = self.arena.get_type(return_type);
+        let param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = param_types
+            .iter()
+            .map(|&id| self.arena.get_type(id).into())
+            .collect();
+        let func_ty = ret_ty.fn_type(&param_tys, false);
+
+        let then_bb = self.arena.get_block(then_block);
+        let catch_bb = self.arena.get_block(catch_block);
+        let call_val = self
+            .builder
+            .build_indirect_invoke(func_ty, ptr, &arg_vals, then_bb, catch_bb, name)
+            .expect("invoke_indirect");
+        call_val
+            .try_as_basic_value()
+            .basic()
+            .map(|v| self.arena.push_value(v))
+    }
+
+    /// Build a `landingpad` instruction for exception handling cleanup.
+    ///
+    /// `personality` is the personality function (typically `__gxx_personality_v0`
+    /// for C++/Rust Itanium EH ABI). `is_cleanup` should be `true` for cleanup
+    /// pads that don't catch specific exceptions.
+    ///
+    /// Returns the landing pad value (an `{ i8*, i32 }` struct) as a `ValueId`.
+    pub fn landingpad(&mut self, personality: FunctionId, is_cleanup: bool, name: &str) -> ValueId {
+        let personality_fn = self.arena.get_function(personality);
+
+        // Landing pad type is { ptr, i32 } (Itanium ABI convention).
+        let i8_ptr_ty = self.scx.ptr_type;
+        let i32_ty = self.scx.llcx.i32_type();
+        let lp_ty = self
+            .scx
+            .llcx
+            .struct_type(&[i8_ptr_ty.into(), i32_ty.into()], false);
+
+        let lp_val = self
+            .builder
+            .build_landing_pad(lp_ty, personality_fn, &[], is_cleanup, name)
+            .expect("landingpad");
+        self.arena.push_value(lp_val)
+    }
+
+    /// Build a `resume` instruction to re-raise an exception.
+    ///
+    /// `value` must be the result of a `landingpad` instruction.
+    /// This terminates the current basic block.
+    pub fn resume(&mut self, value: ValueId) {
+        let v = self.arena.get_value(value);
+        self.builder.build_resume(v).expect("resume");
+    }
+
+    /// Set the personality function on an LLVM function.
+    ///
+    /// Required for any function containing `invoke`/`landingpad`.
+    /// Typically `__gxx_personality_v0` (Itanium EH ABI on Linux/macOS).
+    pub fn set_personality(&mut self, func: FunctionId, personality: FunctionId) {
+        let func_val = self.arena.get_function(func);
+        let personality_fn = self.arena.get_function(personality);
+        func_val.set_personality_function(personality_fn);
     }
 
     // -----------------------------------------------------------------------
@@ -2400,6 +2522,227 @@ mod tests {
 
         // Result should be a value (loaded from sret alloca)
         assert!(result.is_some());
+        drop(irb);
+    }
+
+    // -- Exception handling --
+
+    /// Helper: set up a function with entry, then, and catch blocks for invoke tests.
+    fn setup_invoke_blocks(irb: &mut IrBuilder<'_, '_>) -> (FunctionId, BlockId, BlockId, BlockId) {
+        let i64_ty = irb.i64_type();
+        let func = irb.declare_function("invoke_test_fn", &[i64_ty], i64_ty);
+        let entry = irb.append_block(func, "entry");
+        let then_block = irb.append_block(func, "then");
+        let catch_block = irb.append_block(func, "catch");
+        irb.set_current_function(func);
+        irb.position_at_end(entry);
+        (func, entry, then_block, catch_block)
+    }
+
+    #[test]
+    fn invoke_produces_invoke_instruction() {
+        let ctx = Context::create();
+        let scx = test_scx(&ctx);
+        let mut irb = IrBuilder::new(&scx);
+
+        let (func, _entry, then_block, catch_block) = setup_invoke_blocks(&mut irb);
+
+        let arg = irb.const_i64(42);
+        let result = irb.invoke(func, &[arg], then_block, catch_block, "inv_result");
+        assert!(result.is_some());
+
+        // The invoke terminates the entry block.
+        assert!(irb.current_block_terminated());
+
+        let ir = scx.llmod.print_to_string().to_string();
+        assert!(ir.contains("invoke"), "Expected 'invoke' in IR, got:\n{ir}");
+        drop(irb);
+    }
+
+    #[test]
+    fn invoke_void_returns_none() {
+        let ctx = Context::create();
+        let scx = test_scx(&ctx);
+        let mut irb = IrBuilder::new(&scx);
+
+        let i64_ty = irb.i64_type();
+        let caller = irb.declare_function("invoke_void_caller", &[], i64_ty);
+        let entry = irb.append_block(caller, "entry");
+        let then_block = irb.append_block(caller, "then");
+        let catch_block = irb.append_block(caller, "catch");
+        irb.set_current_function(caller);
+        irb.position_at_end(entry);
+
+        // Declare a void callee.
+        let ptr_ty = irb.ptr_type();
+        let void_fn = irb.declare_extern_function("void_callee", &[ptr_ty], None);
+
+        let arg = irb.const_i64(0);
+        let ptr_val = irb.int_to_ptr(arg, "as_ptr");
+        let result = irb.invoke(void_fn, &[ptr_val], then_block, catch_block, "");
+        assert!(result.is_none(), "void invoke should return None");
+        drop(irb);
+    }
+
+    #[test]
+    fn landingpad_produces_struct_value() {
+        let ctx = Context::create();
+        let scx = test_scx(&ctx);
+        let mut irb = IrBuilder::new(&scx);
+
+        let (func, _entry, then_block, catch_block) = setup_invoke_blocks(&mut irb);
+
+        // Declare personality function.
+        let personality = irb.declare_extern_function("__gxx_personality_v0", &[], None);
+        irb.set_personality(func, personality);
+
+        // Invoke in entry, then landingpad in catch.
+        let arg = irb.const_i64(1);
+        irb.invoke(func, &[arg], then_block, catch_block, "inv");
+
+        irb.position_at_end(catch_block);
+        let lp = irb.landingpad(personality, true, "lp");
+
+        // The landing pad value is a struct { ptr, i32 }.
+        let lp_val = irb.raw_value(lp);
+        assert!(lp_val.is_struct_value());
+
+        let ir = scx.llmod.print_to_string().to_string();
+        assert!(
+            ir.contains("landingpad"),
+            "Expected 'landingpad' in IR, got:\n{ir}"
+        );
+        drop(irb);
+    }
+
+    #[test]
+    fn resume_terminates_block() {
+        let ctx = Context::create();
+        let scx = test_scx(&ctx);
+        let mut irb = IrBuilder::new(&scx);
+
+        let (func, _entry, then_block, catch_block) = setup_invoke_blocks(&mut irb);
+
+        let personality = irb.declare_extern_function("__gxx_personality_v0", &[], None);
+        irb.set_personality(func, personality);
+
+        let arg = irb.const_i64(1);
+        irb.invoke(func, &[arg], then_block, catch_block, "inv");
+
+        // Build landingpad + resume in catch block.
+        irb.position_at_end(catch_block);
+        let lp = irb.landingpad(personality, true, "lp");
+        assert!(!irb.current_block_terminated());
+        irb.resume(lp);
+        assert!(irb.current_block_terminated());
+
+        let ir = scx.llmod.print_to_string().to_string();
+        assert!(ir.contains("resume"), "Expected 'resume' in IR, got:\n{ir}");
+        drop(irb);
+    }
+
+    #[test]
+    fn full_invoke_landingpad_resume_flow() {
+        let ctx = Context::create();
+        let scx = test_scx(&ctx);
+        let mut irb = IrBuilder::new(&scx);
+
+        let i64_ty = irb.i64_type();
+
+        // Declare personality.
+        let personality = irb.declare_extern_function("__gxx_personality_v0", &[], None);
+
+        // Declare a callee that might throw.
+        let callee = irb.declare_function("may_throw", &[i64_ty], i64_ty);
+
+        // Build the caller function.
+        let caller = irb.declare_function("caller", &[i64_ty], i64_ty);
+        irb.set_personality(caller, personality);
+        let entry = irb.append_block(caller, "entry");
+        let normal = irb.append_block(caller, "normal");
+        let unwind = irb.append_block(caller, "unwind");
+        irb.set_current_function(caller);
+
+        // Entry: invoke callee → normal or unwind.
+        irb.position_at_end(entry);
+        let arg = irb.const_i64(42);
+        let result = irb.invoke(callee, &[arg], normal, unwind, "result");
+        assert!(result.is_some());
+
+        // Normal: return the invoke result.
+        irb.position_at_end(normal);
+        irb.ret(result.unwrap());
+
+        // Unwind: landingpad + resume.
+        irb.position_at_end(unwind);
+        let lp = irb.landingpad(personality, true, "lp");
+        irb.resume(lp);
+
+        // Verify the complete EH flow in the IR.
+        let ir = scx.llmod.print_to_string().to_string();
+        assert!(ir.contains("invoke"), "Missing invoke in IR:\n{ir}");
+        assert!(ir.contains("landingpad"), "Missing landingpad in IR:\n{ir}");
+        assert!(ir.contains("resume"), "Missing resume in IR:\n{ir}");
+        assert!(ir.contains("cleanup"), "Missing cleanup flag in IR:\n{ir}");
+        assert!(
+            ir.contains("to label %normal unwind label %unwind"),
+            "Missing invoke branch targets in IR:\n{ir}"
+        );
+        drop(irb);
+    }
+
+    #[test]
+    fn set_personality_on_function() {
+        let ctx = Context::create();
+        let scx = test_scx(&ctx);
+        let mut irb = IrBuilder::new(&scx);
+
+        let i64_ty = irb.i64_type();
+        let func = irb.declare_function("personality_test", &[], i64_ty);
+        let personality = irb.declare_extern_function("__gxx_personality_v0", &[], None);
+        irb.set_personality(func, personality);
+
+        let ir = scx.llmod.print_to_string().to_string();
+        assert!(
+            ir.contains("personality"),
+            "Expected 'personality' in IR, got:\n{ir}"
+        );
+        drop(irb);
+    }
+
+    #[test]
+    fn invoke_indirect_produces_invoke() {
+        let ctx = Context::create();
+        let scx = test_scx(&ctx);
+        let mut irb = IrBuilder::new(&scx);
+
+        let i64_ty = irb.i64_type();
+        let caller = irb.declare_function("indirect_invoke_test", &[], i64_ty);
+        let entry = irb.append_block(caller, "entry");
+        let then_block = irb.append_block(caller, "then");
+        let catch_block = irb.append_block(caller, "catch");
+        irb.set_current_function(caller);
+        irb.position_at_end(entry);
+
+        // Get a function pointer to invoke indirectly.
+        let target = irb.declare_function("target_fn", &[i64_ty], i64_ty);
+        let fn_ptr = irb.get_function_ptr(target);
+
+        let arg = irb.const_i64(7);
+        let result = irb.invoke_indirect(
+            i64_ty,
+            &[i64_ty],
+            fn_ptr,
+            &[arg],
+            then_block,
+            catch_block,
+            "indirect_inv",
+        );
+        assert!(result.is_some());
+        assert!(irb.current_block_terminated());
+
+        let ir = scx.llmod.print_to_string().to_string();
+        assert!(ir.contains("invoke"), "Expected 'invoke' in IR, got:\n{ir}");
         drop(irb);
     }
 }

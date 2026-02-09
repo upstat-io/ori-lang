@@ -15,6 +15,33 @@ use super::scope::ArcScope;
 use super::ArcIrBuilder;
 
 impl ArcLowerer<'_> {
+    // ── Nounwind classification ──────────────────────────────
+
+    /// Check if a function name refers to a nounwind call.
+    ///
+    /// Runtime functions (`ori_*`) and compiler-internal helpers (`__*`)
+    /// are known to never unwind. User-defined functions may panic, so
+    /// they require `Invoke` terminators for cleanup.
+    fn is_nounwind_call(&self, name: Name) -> bool {
+        let s = self.interner.lookup(name);
+        s.starts_with("ori_") || s.starts_with("__")
+    }
+
+    /// Emit either Apply (nounwind) or Invoke (may-unwind) for a direct call.
+    fn emit_call_or_invoke(
+        &mut self,
+        ty: Idx,
+        name: Name,
+        args: Vec<ArcVarId>,
+        span: Span,
+    ) -> ArcVarId {
+        if self.is_nounwind_call(name) {
+            self.builder.emit_apply(ty, name, args, Some(span))
+        } else {
+            self.builder.emit_invoke(ty, name, args, Some(span))
+        }
+    }
+
     // ── Call (positional) ──────────────────────────────────────
 
     pub(crate) fn lower_call(
@@ -32,11 +59,14 @@ impl ArcLowerer<'_> {
 
         match &func_expr.kind {
             ExprKind::Ident(name) | ExprKind::FunctionRef(name) => {
-                // Direct call.
-                self.builder.emit_apply(ty, *name, arg_vars, Some(span))
+                // Direct call — Invoke if user-defined, Apply if runtime.
+                self.emit_call_or_invoke(ty, *name, arg_vars, span)
             }
             _ => {
                 // Indirect call through a closure value.
+                // Closures may invoke user-defined functions, but indirect
+                // calls stay as ApplyIndirect for now — they'll be handled
+                // when we add indirect invoke support.
                 let closure_var = self.lower_expr(func);
                 self.builder
                     .emit_apply_indirect(ty, closure_var, arg_vars, Some(span))
@@ -62,7 +92,7 @@ impl ArcLowerer<'_> {
 
         match &func_expr.kind {
             ExprKind::Ident(name) | ExprKind::FunctionRef(name) => {
-                self.builder.emit_apply(ty, *name, arg_vars, Some(span))
+                self.emit_call_or_invoke(ty, *name, arg_vars, span)
             }
             _ => {
                 let closure_var = self.lower_expr(func);
@@ -89,7 +119,7 @@ impl ArcLowerer<'_> {
         for &id in &arg_ids {
             all_args.push(self.lower_expr(id));
         }
-        self.builder.emit_apply(ty, method, all_args, Some(span))
+        self.emit_call_or_invoke(ty, method, all_args, span)
     }
 
     // ── Method call (named arguments) ──────────────────────────
@@ -109,7 +139,7 @@ impl ArcLowerer<'_> {
         for arg in &call_args {
             all_args.push(self.lower_expr(arg.value));
         }
-        self.builder.emit_apply(ty, method, all_args, Some(span))
+        self.emit_call_or_invoke(ty, method, all_args, span)
     }
 
     // ── Lambda ─────────────────────────────────────────────────
@@ -193,17 +223,19 @@ mod tests {
     use ori_types::Idx;
     use ori_types::Pool;
 
-    use crate::ir::ArcInstr;
+    use crate::ir::{ArcInstr, ArcTerminator};
 
-    #[test]
-    fn lower_direct_call() {
-        let interner = StringInterner::new();
+    /// Helper: lower a Call expression and return the resulting function.
+    fn lower_call_expr(
+        interner: &StringInterner,
+        func_name: Name,
+        arg_val: i64,
+    ) -> crate::ir::ArcFunction {
         let pool = Pool::new();
         let mut arena = ExprArena::new();
 
-        let func_name = Name::from_raw(200);
         let func_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(func_name), Span::new(0, 1)));
-        let arg = arena.alloc_expr(Expr::new(ExprKind::Int(42), Span::new(2, 4)));
+        let arg = arena.alloc_expr(Expr::new(ExprKind::Int(arg_val), Span::new(2, 4)));
         let args = arena.alloc_expr_list_inline(&[arg]);
         let call = arena.alloc_expr(Expr::new(
             ExprKind::Call {
@@ -215,7 +247,7 @@ mod tests {
 
         let max_id = call.index() + 1;
         let mut expr_types = vec![Idx::ERROR; max_id];
-        expr_types[func_ref.index()] = Idx::INT; // Function type (simplified).
+        expr_types[func_ref.index()] = Idx::INT;
         expr_types[arg.index()] = Idx::INT;
         expr_types[call.index()] = Idx::INT;
 
@@ -227,28 +259,144 @@ mod tests {
             call,
             &arena,
             &expr_types,
-            &interner,
+            interner,
             &pool,
             &mut problems,
         );
-
         assert!(problems.is_empty());
-        // Should have: let arg=42, Apply(func_name, [arg])
-        let has_apply = func.blocks[0]
-            .body
-            .iter()
-            .any(|i| matches!(i, ArcInstr::Apply { .. }));
-        assert!(has_apply, "expected Apply instruction");
+        func
     }
 
     #[test]
-    fn lower_method_call() {
+    fn user_call_emits_invoke() {
+        let interner = StringInterner::new();
+        let func_name = interner.intern("my_function");
+
+        let func = lower_call_expr(&interner, func_name, 42);
+
+        // User-defined call should produce an Invoke terminator (not Apply).
+        let has_invoke = func.blocks.iter().any(|b| {
+            matches!(
+                &b.terminator,
+                ArcTerminator::Invoke { func, .. } if *func == func_name
+            )
+        });
+        assert!(has_invoke, "expected Invoke terminator for user call");
+
+        // Should NOT have Apply for this call.
+        let has_apply = func.blocks[0]
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::Apply { func, .. } if *func == func_name));
+        assert!(!has_apply, "user call should not emit Apply");
+    }
+
+    #[test]
+    fn runtime_call_emits_apply() {
+        let interner = StringInterner::new();
+        let func_name = interner.intern("ori_print_int");
+
+        let func = lower_call_expr(&interner, func_name, 42);
+
+        // Runtime intrinsic should produce Apply (not Invoke).
+        let has_apply = func.blocks[0]
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::Apply { func, .. } if *func == func_name));
+        assert!(has_apply, "expected Apply for runtime call");
+
+        // Should NOT have Invoke for this call.
+        let has_invoke = func.blocks.iter().any(|b| {
+            matches!(
+                &b.terminator,
+                ArcTerminator::Invoke { func, .. } if *func == func_name
+            )
+        });
+        assert!(!has_invoke, "runtime call should not emit Invoke");
+    }
+
+    #[test]
+    fn compiler_intrinsic_call_emits_apply() {
+        let interner = StringInterner::new();
+        let func_name = interner.intern("__index");
+
+        let func = lower_call_expr(&interner, func_name, 0);
+
+        // Compiler-internal helpers should produce Apply (not Invoke).
+        let has_apply = func.blocks[0]
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::Apply { func, .. } if *func == func_name));
+        assert!(has_apply, "expected Apply for compiler intrinsic");
+    }
+
+    #[test]
+    fn invoke_creates_normal_and_unwind_blocks() {
+        let interner = StringInterner::new();
+        let func_name = interner.intern("my_function");
+
+        let func = lower_call_expr(&interner, func_name, 42);
+
+        // Invoke should create normal and unwind blocks.
+        // Entry block (0) has the Invoke terminator.
+        // Block 1 is the normal continuation.
+        // Block 2 is the unwind block with Resume.
+        assert!(
+            func.blocks.len() >= 3,
+            "expected at least 3 blocks (entry + normal + unwind), got {}",
+            func.blocks.len()
+        );
+
+        // Find the Invoke terminator and verify its structure.
+        let invoke_block = func
+            .blocks
+            .iter()
+            .find(|b| matches!(&b.terminator, ArcTerminator::Invoke { .. }));
+        assert!(invoke_block.is_some(), "expected an Invoke terminator");
+
+        // There should be a Resume terminator in the unwind block.
+        let has_resume = func
+            .blocks
+            .iter()
+            .any(|b| matches!(&b.terminator, ArcTerminator::Resume));
+        assert!(has_resume, "expected Resume terminator in unwind block");
+    }
+
+    #[test]
+    fn invoke_dst_is_valid_variable() {
+        let interner = StringInterner::new();
+        let func_name = interner.intern("my_function");
+
+        let func = lower_call_expr(&interner, func_name, 42);
+
+        // The Invoke's dst should be a valid variable that's returned.
+        if let Some(block) = func
+            .blocks
+            .iter()
+            .find(|b| matches!(&b.terminator, ArcTerminator::Invoke { .. }))
+        {
+            if let ArcTerminator::Invoke { dst, normal, .. } = &block.terminator {
+                // The normal continuation should be able to use the dst.
+                let normal_block = &func.blocks[normal.index()];
+                // The function returns the invoke result, so the normal block
+                // should have a Return terminator using dst.
+                assert!(
+                    matches!(&normal_block.terminator, ArcTerminator::Return { value } if *value == *dst),
+                    "expected normal block to return the invoke dst"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lower_method_call_user_defined() {
         let interner = StringInterner::new();
         let pool = Pool::new();
         let mut arena = ExprArena::new();
 
+        // Method name that is NOT a runtime/compiler intrinsic.
+        let method_name = interner.intern("to_string");
         let receiver = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
-        let method_name = Name::from_raw(300);
         let args = arena.alloc_expr_list_inline(&[]);
         let method_call = arena.alloc_expr(Expr::new(
             ExprKind::MethodCall {
@@ -278,10 +426,13 @@ mod tests {
         );
 
         assert!(problems.is_empty());
-        // Should have: let recv=1, Apply(method, [recv])
-        let has_apply = func.blocks[0].body.iter().any(|i| {
-            matches!(i, ArcInstr::Apply { func, args, .. } if args.len() == 1 && *func == method_name)
+        // User-defined method should produce Invoke.
+        let has_invoke = func.blocks.iter().any(|b| {
+            matches!(
+                &b.terminator,
+                ArcTerminator::Invoke { func, .. } if *func == method_name
+            )
         });
-        assert!(has_apply, "expected method Apply");
+        assert!(has_invoke, "expected Invoke for user-defined method call");
     }
 }

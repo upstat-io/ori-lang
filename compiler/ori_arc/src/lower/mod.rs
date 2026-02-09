@@ -265,6 +265,46 @@ impl ArcIrBuilder {
         dst
     }
 
+    // ── Invoke (call that may unwind) ─────────────────────────
+
+    /// Emit an `Invoke` terminator for a function call that may unwind.
+    ///
+    /// Creates a normal continuation block and an unwind cleanup block.
+    /// The current block is terminated with `Invoke`. The builder is
+    /// positioned at the normal block on return. The unwind block is
+    /// terminated with `Resume` (cleanup blocks will be filled in later
+    /// by the RC insertion pass).
+    ///
+    /// Returns the `dst` variable holding the call result (defined at
+    /// the normal block's entry).
+    pub fn emit_invoke(
+        &mut self,
+        ty: Idx,
+        func: Name,
+        args: Vec<ArcVarId>,
+        span: Option<Span>,
+    ) -> ArcVarId {
+        let dst = self.fresh_var(ty);
+        let normal = self.new_block();
+        let unwind = self.new_block();
+
+        // Track the span on the invoking block (one span per instruction,
+        // but Invoke is a terminator so we don't push to spans here —
+        // terminators don't have span slots in the current design).
+        let _ = span;
+
+        self.terminate_invoke(dst, ty, func, args, normal, unwind);
+
+        // Unwind block: initially just Resume. The RC insertion pass
+        // (Phase 3C) will add cleanup RcDec instructions before Resume.
+        self.position_at(unwind);
+        self.terminate_resume();
+
+        // Position at the normal continuation block for subsequent lowering.
+        self.position_at(normal);
+        dst
+    }
+
     // ── Terminators ────────────────────────────────────────────
 
     /// Terminate with `Return`.
@@ -327,6 +367,47 @@ impl ArcIrBuilder {
             cases,
             default,
         });
+    }
+
+    /// Terminate with `Invoke` (function call that may unwind).
+    ///
+    /// The `dst` variable is defined at the `normal` continuation block's
+    /// entry, NOT in the current block. The `unwind` block receives control
+    /// if the callee unwinds (panics).
+    pub fn terminate_invoke(
+        &mut self,
+        dst: ArcVarId,
+        ty: Idx,
+        func: Name,
+        args: Vec<ArcVarId>,
+        normal: ArcBlockId,
+        unwind: ArcBlockId,
+    ) {
+        let block = &mut self.blocks[self.current_block.index()];
+        debug_assert!(
+            block.terminator.is_none(),
+            "block {} already terminated",
+            self.current_block.raw()
+        );
+        block.terminator = Some(ArcTerminator::Invoke {
+            dst,
+            ty,
+            func,
+            args,
+            normal,
+            unwind,
+        });
+    }
+
+    /// Terminate with `Resume` (re-raise an unwinding panic).
+    pub fn terminate_resume(&mut self) {
+        let block = &mut self.blocks[self.current_block.index()];
+        debug_assert!(
+            block.terminator.is_none(),
+            "block {} already terminated",
+            self.current_block.raw()
+        );
+        block.terminator = Some(ArcTerminator::Resume);
     }
 
     /// Terminate with `Unreachable`.

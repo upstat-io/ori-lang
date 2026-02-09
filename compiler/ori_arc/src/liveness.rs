@@ -70,12 +70,18 @@ pub fn compute_liveness(func: &ArcFunction, classifier: &dyn ArcClassification) 
 
     tracing::debug!(function = func.name.raw(), num_blocks, "computing liveness");
 
+    // Step 0.5: Build Invoke dst mapping.
+    // An Invoke terminator defines `dst` at the normal successor's entry,
+    // not at the invoking block. Precompute which blocks receive Invoke
+    // definitions so gen/kill can account for them.
+    let invoke_defs = collect_invoke_defs(func);
+
     // Step 1: Precompute gen/kill for each block.
     let mut gen: Vec<LiveSet> = Vec::with_capacity(num_blocks);
     let mut kill: Vec<LiveSet> = Vec::with_capacity(num_blocks);
 
     for block in &func.blocks {
-        let (block_gen, block_kill) = compute_gen_kill(block, func, classifier);
+        let (block_gen, block_kill) = compute_gen_kill(block, func, classifier, &invoke_defs);
         gen.push(block_gen);
         kill.push(block_kill);
     }
@@ -141,10 +147,14 @@ pub fn compute_liveness(func: &ArcFunction, classifier: &dyn ArcClassification) 
 /// Walk instructions forward. A variable is in `gen` if it's used before
 /// being defined. A variable is in `kill` if it's defined in this block.
 /// Block parameters are in `kill` (they're definitions at the block entry).
+///
+/// Invoke `dst` variables are treated as definitions at the normal
+/// successor's entry (via `invoke_defs`), not at the invoking block.
 fn compute_gen_kill(
     block: &ArcBlock,
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
+    invoke_defs: &rustc_hash::FxHashMap<ArcBlockId, Vec<ArcVarId>>,
 ) -> (LiveSet, LiveSet) {
     let mut gen = LiveSet::default();
     let mut kill = LiveSet::default();
@@ -153,6 +163,17 @@ fn compute_gen_kill(
     for &(param_var, _) in &block.params {
         if needs_rc_var(param_var, func, classifier) {
             kill.insert(param_var);
+        }
+    }
+
+    // Invoke dst variables defined at this block's entry.
+    // An Invoke in a predecessor block defines `dst` at the normal
+    // successor — that definition acts like a block parameter.
+    if let Some(dsts) = invoke_defs.get(&block.id) {
+        for &dst in dsts {
+            if needs_rc_var(dst, func, classifier) {
+                kill.insert(dst);
+            }
         }
     }
 
@@ -180,6 +201,24 @@ fn compute_gen_kill(
     }
 
     (gen, kill)
+}
+
+/// Collect Invoke `dst` definitions mapped to their normal successor blocks.
+///
+/// An `Invoke { dst, normal, .. }` defines `dst` at the entry of `normal`.
+/// This is analogous to how LLVM's `invoke` instruction defines its result
+/// in the normal successor only, not the unwind successor. We collect these
+/// so `compute_gen_kill` can add them to the kill set of the normal block.
+pub(crate) fn collect_invoke_defs(
+    func: &ArcFunction,
+) -> rustc_hash::FxHashMap<ArcBlockId, Vec<ArcVarId>> {
+    let mut map = rustc_hash::FxHashMap::default();
+    for block in &func.blocks {
+        if let ArcTerminator::Invoke { dst, normal, .. } = &block.terminator {
+            map.entry(*normal).or_insert_with(Vec::new).push(*dst);
+        }
+    }
+    map
 }
 
 /// Check whether a variable needs RC tracking.
@@ -224,9 +263,9 @@ fn successor_edges(terminator: &ArcTerminator) -> Vec<(ArcBlockId, &[ArcVarId])>
         }
 
         ArcTerminator::Invoke { normal, unwind, .. } => {
-            // TODO(post-0.1-alpha): Invoke defines `dst` at the normal
-            // successor entry. For now Invoke is not emitted by the lowering
-            // pass, but the edges are correct for dataflow purposes.
+            // Invoke defines `dst` at the normal successor entry (handled
+            // via `collect_invoke_defs` → kill set). The unwind successor
+            // does NOT receive the `dst` definition.
             vec![(*normal, &[]), (*unwind, &[])]
         }
 
@@ -740,6 +779,143 @@ mod tests {
 
         assert!(result.live_in[0].contains(&v(0)));
         assert_eq!(result.live_in[0].len(), 1);
+    }
+
+    /// Invoke: dst NOT live in unwind block, IS available in normal block.
+    #[test]
+    fn invoke_dst_not_live_in_unwind() {
+        // Block 0: invoke f(v0) → dst=v1, normal=b1, unwind=b2
+        // Block 1 (normal): return v1
+        // Block 2 (unwind): return v0  (v1 is NOT defined here)
+        let func = make_func(
+            vec![param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Invoke {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![v(0)],
+                        normal: b(1),
+                        unwind: b(2),
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Return { value: v(1) },
+                },
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    // Unwind block returns the original param, NOT the invoke dst.
+                    terminator: ArcTerminator::Resume,
+                },
+            ],
+            vec![Idx::STR, Idx::STR],
+        );
+
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let result = compute_liveness(&func, &classifier);
+
+        // Block 1 (normal): v1 is defined at entry (Invoke dst) and used in Return.
+        // gen={}, kill={v1} → live_in = {} (v1 is born here).
+        assert!(
+            !result.live_in[1].contains(&v(1)),
+            "v1 should NOT be in live_in of normal block (it's defined there)"
+        );
+
+        // Block 2 (unwind): v1 is NOT defined here.
+        // If v1 appeared in live_in[2], that would be a bug — it would trigger
+        // RC ops for a variable that was never produced on the unwind path.
+        assert!(
+            !result.live_in[2].contains(&v(1)),
+            "v1 must NOT be in live_in of unwind block"
+        );
+        assert!(
+            !result.live_out[2].contains(&v(1)),
+            "v1 must NOT be in live_out of unwind block"
+        );
+
+        // Block 0: v0 is used as an Invoke arg → gen={v0}
+        assert!(result.live_in[0].contains(&v(0)));
+    }
+
+    /// Invoke: a live str variable before the invoke should be live in
+    /// both normal and unwind successors (it needs cleanup on unwind).
+    #[test]
+    fn invoke_live_var_propagates_to_unwind() {
+        // Block 0: let v1: str = "hello"; invoke f(v0) → dst=v2, normal=b1, unwind=b2
+        // Block 1 (normal): return v1  (uses v1)
+        // Block 2 (unwind): resume (v1 needs RcDec on cleanup)
+        let func = make_func(
+            vec![param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: ArcValue::Literal(LitValue::String(Name::from_raw(100))),
+                    }],
+                    terminator: ArcTerminator::Invoke {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![v(0)],
+                        normal: b(1),
+                        unwind: b(2),
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Return { value: v(1) },
+                },
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Resume,
+                },
+            ],
+            vec![Idx::STR, Idx::STR, Idx::STR],
+        );
+
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let result = compute_liveness(&func, &classifier);
+
+        // v1 is live at block 0's exit (it's used in normal successor b1).
+        assert!(
+            result.live_out[0].contains(&v(1)),
+            "v1 should be live at block 0 exit"
+        );
+
+        // v1 should be live_in for the normal block (used in Return).
+        assert!(
+            result.live_in[1].contains(&v(1)),
+            "v1 should be live_in for normal block"
+        );
+
+        // v1 should NOT be in unwind's live_in (Resume doesn't use it).
+        // BUT: once RC insertion adds cleanup RcDec(v1) to the unwind block,
+        // that will create a use and v1 will become live there. Before RC
+        // insertion, liveness only sees what the IR declares.
+        assert!(
+            !result.live_in[2].contains(&v(1)),
+            "v1 should not be in unwind live_in before RC insertion"
+        );
     }
 
     /// Verify postorder visits successors before predecessors.

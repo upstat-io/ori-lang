@@ -41,6 +41,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
+use crate::rc_insert::compute_predecessors;
 
 // ── Lattice States ──────────────────────────────────────────────────
 
@@ -92,9 +93,9 @@ struct EliminationCandidate {
 
 /// Eliminate redundant `RcInc`/`RcDec` pairs in an ARC IR function.
 ///
-/// Runs bidirectional intra-block dataflow analysis to find Inc/Dec
-/// pairs with no intervening use of the variable. Iterates until
-/// no more pairs can be found (cascading elimination).
+/// Runs both intra-block (bidirectional dataflow) and cross-block
+/// (single-predecessor edge pair) elimination. Iterates until no
+/// more pairs can be found (cascading elimination).
 ///
 /// Returns the total number of pairs eliminated.
 ///
@@ -105,7 +106,9 @@ pub fn eliminate_rc_ops(func: &mut ArcFunction) -> usize {
     let mut total = 0;
 
     loop {
-        let eliminated = eliminate_once(func);
+        let intra = eliminate_once(func);
+        let cross = eliminate_cross_block_pairs(func);
+        let eliminated = intra + cross;
         if eliminated == 0 {
             break;
         }
@@ -305,6 +308,134 @@ fn apply_eliminations(func: &mut ArcFunction, candidates: &[EliminationCandidate
     }
 
     candidates.len()
+}
+
+// ── Cross-Block Edge-Pair Elimination ────────────────────────────────
+
+/// Eliminate `RcInc(x)` at end of block P / `RcDec(x)` at start of block B
+/// where B has exactly one predecessor P and `x` is not used in between
+/// (i.e., P's terminator does not use `x` and no instruction between the
+/// Inc position and end of P's body uses `x`).
+///
+/// This targets the most common cross-block redundancy created by RC
+/// insertion's edge cleanup trampolines: P ends with `RcInc(x); Jump(B)`
+/// and B starts with `RcDec(x)`.
+///
+/// Returns the number of pairs eliminated.
+fn eliminate_cross_block_pairs(func: &mut ArcFunction) -> usize {
+    let predecessors = compute_predecessors(func);
+    let mut removals: Vec<(usize, usize)> = Vec::new();
+
+    for (block_idx, preds) in predecessors.iter().enumerate() {
+        // Only handle single-predecessor blocks (safe, no merging needed).
+        if preds.len() != 1 {
+            continue;
+        }
+        let pred_idx = preds[0];
+        // Skip self-loops.
+        if pred_idx == block_idx {
+            continue;
+        }
+
+        // Collect leading RcDec instructions at the start of this block.
+        let succ_body = &func.blocks[block_idx].body;
+        let mut leading_decs: Vec<(usize, ArcVarId)> = Vec::new();
+        for (j, instr) in succ_body.iter().enumerate() {
+            if let ArcInstr::RcDec { var } = instr {
+                leading_decs.push((j, *var));
+            } else {
+                // Stop at the first non-Dec instruction.
+                break;
+            }
+        }
+
+        if leading_decs.is_empty() {
+            continue;
+        }
+
+        // Collect variables used by the predecessor's terminator.
+        let term_uses: FxHashSet<ArcVarId> = func.blocks[pred_idx]
+            .terminator
+            .used_vars()
+            .into_iter()
+            .collect();
+
+        let pred_body = &func.blocks[pred_idx].body;
+
+        for &(dec_pos_in_succ, dec_var) in &leading_decs {
+            // The terminator must not use this variable.
+            if term_uses.contains(&dec_var) {
+                continue;
+            }
+
+            // Scan predecessor body backwards for a matching RcInc.
+            let mut found_inc_pos = None;
+            for j in (0..pred_body.len()).rev() {
+                match &pred_body[j] {
+                    ArcInstr::RcInc { var, count } if *var == dec_var && *count == 1 => {
+                        found_inc_pos = Some(j);
+                        break;
+                    }
+                    other => {
+                        // If this instruction uses the variable, the Inc (if any
+                        // earlier) can't be eliminated with this Dec.
+                        if other.used_vars().contains(&dec_var) {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if let Some(inc_pos) = found_inc_pos {
+                // Record the pair for removal: (block, position).
+                removals.push((pred_idx, inc_pos));
+                removals.push((block_idx, dec_pos_in_succ));
+            }
+        }
+    }
+
+    if removals.is_empty() {
+        return 0;
+    }
+
+    // Group by block and apply.
+    let mut by_block: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    for (blk, pos) in &removals {
+        by_block.entry(*blk).or_default().insert(*pos);
+    }
+
+    for (&block_idx, remove_set) in &by_block {
+        let block = &mut func.blocks[block_idx];
+        let spans = &mut func.spans[block_idx];
+
+        let old_body = std::mem::take(&mut block.body);
+        let old_spans = std::mem::take(spans);
+
+        let retained = old_body.len() - remove_set.len();
+        let mut new_body = Vec::with_capacity(retained);
+        let mut new_spans = Vec::with_capacity(retained);
+
+        for (i, instr) in old_body.into_iter().enumerate() {
+            if !remove_set.contains(&i) {
+                new_body.push(instr);
+                new_spans.push(old_spans.get(i).copied().flatten());
+            }
+        }
+
+        block.body = new_body;
+        *spans = new_spans;
+    }
+
+    let pairs = removals.len() / 2;
+    if pairs > 0 {
+        tracing::debug!(
+            function = func.name.raw(),
+            pairs,
+            "eliminated cross-block RC pairs",
+        );
+    }
+
+    pairs
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -1299,5 +1430,259 @@ mod tests {
         );
 
         assert_eq!(eliminate_rc_ops(&mut func), 0);
+    }
+
+    // ── Cross-Block Edge Pair Elimination ──────────────────────
+
+    /// `RcInc(x)` at end of B0, `RcDec(x)` at start of B1 (single
+    /// predecessor) → eliminated.
+    #[test]
+    fn cross_block_edge_pair_eliminated() {
+        let mut func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![ArcInstr::RcInc {
+                        var: v(0),
+                        count: 1,
+                    }],
+                    terminator: ArcTerminator::Jump {
+                        target: b(1),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![ArcInstr::RcDec { var: v(0) }],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+            ],
+            vec![Idx::STR],
+        );
+
+        let eliminated = eliminate_rc_ops(&mut func);
+
+        assert_eq!(eliminated, 1);
+        assert_eq!(count_rc_ops(&func, 0), 0);
+        assert_eq!(count_rc_ops(&func, 1), 0);
+    }
+
+    /// Cross-block pair where `x` IS used by the terminator → NOT eliminated.
+    #[test]
+    fn cross_block_terminator_uses_var_not_eliminated() {
+        let mut func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                }],
+                // Return uses v(0) — blocks cross-block elimination.
+                terminator: ArcTerminator::Return { value: v(0) },
+            }],
+            vec![Idx::STR],
+        );
+
+        let eliminated = eliminate_rc_ops(&mut func);
+
+        // Only intra-block analysis can run here; no cross-block target.
+        // The Inc has no matching Dec in the same block.
+        assert_eq!(eliminated, 0);
+    }
+
+    /// Multi-predecessor block: `RcDec(x)` at start of merge block
+    /// reached from two different predecessors → NOT eliminated
+    /// (conservative, would need Inc in ALL predecessors).
+    #[test]
+    fn cross_block_diamond_not_eliminated() {
+        let mut func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                // B0: branch to B1 or B2
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(LitValue::Bool(true)),
+                    }],
+                    terminator: ArcTerminator::Branch {
+                        cond: v(1),
+                        then_block: b(1),
+                        else_block: b(2),
+                    },
+                },
+                // B1: Inc(x) then jump to merge
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![ArcInstr::RcInc {
+                        var: v(0),
+                        count: 1,
+                    }],
+                    terminator: ArcTerminator::Jump {
+                        target: b(3),
+                        args: vec![],
+                    },
+                },
+                // B2: no Inc, also jumps to merge
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Jump {
+                        target: b(3),
+                        args: vec![],
+                    },
+                },
+                // B3 (merge): Dec(x) at start — has TWO predecessors
+                ArcBlock {
+                    id: b(3),
+                    params: vec![],
+                    body: vec![ArcInstr::RcDec { var: v(0) }],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+            ],
+            vec![Idx::STR, Idx::BOOL],
+        );
+
+        let eliminated = eliminate_rc_ops(&mut func);
+
+        // B3 has 2 predecessors → cross-block won't eliminate.
+        // B1's Inc has no matching Dec in B1.
+        assert_eq!(eliminated, 0);
+        assert_eq!(count_inc(&func, 1, v(0)), 1);
+        assert_eq!(count_dec(&func, 3, v(0)), 1);
+    }
+
+    /// Cross-block chain: Inc at end of B0, no use in B1, Dec at start
+    /// of B1 → eliminated (B1 is single-predecessor).
+    #[test]
+    fn cross_block_with_intervening_unrelated_instr() {
+        let mut func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![
+                        // Unrelated instruction, then Inc(x)
+                        ArcInstr::Let {
+                            dst: v(1),
+                            ty: Idx::INT,
+                            value: ArcValue::Literal(LitValue::Int(42)),
+                        },
+                        ArcInstr::RcInc {
+                            var: v(0),
+                            count: 1,
+                        },
+                    ],
+                    terminator: ArcTerminator::Jump {
+                        target: b(1),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![ArcInstr::RcDec { var: v(0) }],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+            ],
+            vec![Idx::STR, Idx::INT],
+        );
+
+        let eliminated = eliminate_rc_ops(&mut func);
+
+        assert_eq!(eliminated, 1);
+        assert_eq!(count_rc_ops(&func, 0), 0);
+        assert_eq!(count_rc_ops(&func, 1), 0);
+        // The Let instruction in B0 remains.
+        assert_eq!(body_len(&func, 0), 1);
+    }
+
+    /// Cross-block: Inc NOT at end of B0 (instruction uses x after Inc)
+    /// → NOT eliminated.
+    #[test]
+    fn cross_block_use_after_inc_in_pred_not_eliminated() {
+        let mut func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![
+                        ArcInstr::RcInc {
+                            var: v(0),
+                            count: 1,
+                        },
+                        // Uses v(0) AFTER the Inc — blocks cross-block elimination.
+                        ArcInstr::Apply {
+                            dst: v(1),
+                            ty: Idx::UNIT,
+                            func: Name::from_raw(99),
+                            args: vec![v(0)],
+                        },
+                    ],
+                    terminator: ArcTerminator::Jump {
+                        target: b(1),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![ArcInstr::RcDec { var: v(0) }],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+            ],
+            vec![Idx::STR, Idx::UNIT],
+        );
+
+        let eliminated = eliminate_rc_ops(&mut func);
+
+        assert_eq!(eliminated, 0);
+    }
+
+    /// Self-loop: block jumps to itself → NOT eliminated.
+    #[test]
+    fn cross_block_self_loop_not_eliminated() {
+        let mut func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::RcDec { var: v(0) },
+                    ArcInstr::RcInc {
+                        var: v(0),
+                        count: 1,
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: b(0),
+                    args: vec![],
+                },
+            }],
+            vec![Idx::STR],
+        );
+
+        let eliminated = eliminate_rc_ops(&mut func);
+
+        // Dec→Inc in same block is NOT safe (Dec might free).
+        // Self-loop cross-block is skipped.
+        assert_eq!(eliminated, 0);
     }
 }

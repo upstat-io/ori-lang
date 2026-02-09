@@ -376,6 +376,8 @@ impl TestRunner {
                 // compile_fail tests are already handled in the common path above.
                 Self::run_file_llvm(
                     &mut summary,
+                    &db,
+                    path,
                     &parse_result,
                     &regular_tests,
                     &type_result,
@@ -407,6 +409,8 @@ impl TestRunner {
     #[cfg(feature = "llvm")]
     fn run_file_llvm(
         summary: &mut FileSummary,
+        db: &crate::db::CompilerDb,
+        file_path: &Path,
         parse_result: &ori_parse::ParseOutput,
         regular_tests: &[&crate::ir::TestDef],
         type_result: &TypeCheckResult,
@@ -414,7 +418,7 @@ impl TestRunner {
         interner: &crate::ir::StringInterner,
         config: &TestRunnerConfig,
     ) {
-        use ori_llvm::evaluator::OwnedLLVMEvaluator;
+        use ori_llvm::evaluator::{ImportedFunctionForCodegen, OwnedLLVMEvaluator};
 
         // Skip LLVM compilation if no regular tests to run
         if regular_tests.is_empty() {
@@ -446,6 +450,87 @@ impl TestRunner {
         // Create LLVM evaluator with type pool for proper compound type resolution
         // (needed for sret convention on large struct returns like List, Map, etc.)
         let llvm_eval = OwnedLLVMEvaluator::with_pool(pool);
+
+        // Resolve imports so imported functions can be compiled into the JIT module.
+        // Uses the unified import pipeline — same resolution path as the type checker
+        // and interpreter.
+        let resolved = crate::imports::resolve_imports(db, parse_result, file_path);
+
+        // Type-check each explicitly imported module to get expr_types + function_sigs.
+        // Note: prelude functions are NOT compiled into the JIT module because:
+        // 1. Most prelude content is traits (no code to compile)
+        // 2. Generic utility functions are skipped by codegen
+        // 3. Some non-generic prelude functions (e.g., `compare`) use types the
+        //    V2 codegen doesn't support yet (sum types), causing IR verification failures
+        // Prelude functions that are needed for testing (assert, assert_eq) come from
+        // std.testing via explicit import, not from the prelude.
+        let mut imported_type_results: Vec<TypeCheckResult> = Vec::new();
+        for imp_module in &resolved.modules {
+            let imp_path = std::path::PathBuf::from(&imp_module.module_path);
+            let (imp_tc, _) =
+                typeck::type_check_with_imports_and_pool(db, &imp_module.parse_output, &imp_path);
+            imported_type_results.push(imp_tc);
+        }
+
+        // Build per-function codegen structs for explicitly imported functions only.
+        // We need owned FunctionSig values that outlive the ImportedFunctionForCodegen refs.
+        let mut imported_sigs_storage: Vec<ori_types::FunctionSig> = Vec::new();
+
+        struct FnRef {
+            func_index: usize,
+            module_index: usize,
+        }
+        let mut fn_refs: Vec<FnRef> = Vec::new();
+
+        for func_ref in &resolved.imported_functions {
+            if func_ref.is_module_alias {
+                continue;
+            }
+            let imp_module = &resolved.modules[func_ref.module_index];
+            let tc = &imported_type_results[func_ref.module_index];
+
+            // Find the function by original_name in the imported module
+            if let Some((idx, _func)) = imp_module
+                .parse_output
+                .module
+                .functions
+                .iter()
+                .enumerate()
+                .find(|(_, f)| f.name == func_ref.original_name)
+            {
+                // Find its type-checked signature
+                if let Some(sig) = tc
+                    .typed
+                    .functions
+                    .iter()
+                    .find(|s| s.name == func_ref.original_name)
+                {
+                    if sig.is_generic() {
+                        continue;
+                    }
+                    imported_sigs_storage.push(sig.clone());
+                    fn_refs.push(FnRef {
+                        func_index: idx,
+                        module_index: func_ref.module_index,
+                    });
+                }
+            }
+        }
+
+        // Build ImportedFunctionForCodegen from the stable storage
+        let imported_for_codegen: Vec<ImportedFunctionForCodegen<'_>> = fn_refs
+            .iter()
+            .enumerate()
+            .map(|(sig_idx, fref)| {
+                let parse_output = &resolved.modules[fref.module_index].parse_output;
+                ImportedFunctionForCodegen {
+                    function: &parse_output.module.functions[fref.func_index],
+                    sig: &imported_sigs_storage[sig_idx],
+                    arena: &parse_output.arena,
+                    expr_types: &imported_type_results[fref.module_index].typed.expr_types,
+                }
+            })
+            .collect();
 
         // Build function signatures aligned with module.functions order.
         // typed.functions is sorted by name (Salsa determinism), but
@@ -502,6 +587,7 @@ impl TestRunner {
                 &function_sigs,
                 &type_result.typed.types,
                 &type_result.typed.impl_sigs,
+                &imported_for_codegen,
             )
         }));
 

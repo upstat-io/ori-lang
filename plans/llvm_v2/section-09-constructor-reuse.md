@@ -144,10 +144,10 @@ fn to_string(opt: option[int]) -> option[str] =
 
 Even though `option[int]` and `option[str]` may have the same layout, we do NOT reuse across different concrete types. Correctness first.
 
-- [ ] Identify reuse-eligible patterns during RC insertion (Section 07)
-- [ ] Restrict reuse to same-type constructors (Lean 4 constructor-identity rule)
-- [ ] Handle spread-struct patterns as reuse candidates
-- [ ] Handle recursive data structure patterns (list map, tree map)
+- [x] Identify reuse-eligible patterns during RC insertion (Section 07)
+- [x] Restrict reuse to same-type constructors (Lean 4 constructor-identity rule)
+- [x] Handle spread-struct patterns as reuse candidates
+- [x] Handle recursive data structure patterns (list map, tree map)
 
 ### Future work
 
@@ -206,10 +206,10 @@ Reuse { token: t, dst: y, ty, ctor, args }
 
 The `RcDec` is removed (it is subsumed by the Reset's slow-path dec).
 
-- [ ] Define `Reset` and `Reuse` as `ArcInstr` variants (Section 06.0)
-- [ ] Implement detection in Section 07: scan for `dec x` + `Construct same_type` patterns
-- [ ] Generate `Reset`/`Reuse` pairs, removing the original `RcDec`
-- [ ] Verify same-type constraint (constructor-identity rule)
+- [x] Define `Reset` and `Reuse` as `ArcInstr` variants (Section 06.0)
+- [x] Implement detection in Section 07: scan for `dec x` + `Construct same_type` patterns
+- [x] Generate `Reset`/`Reuse` pairs, removing the original `RcDec`
+- [x] Verify same-type constraint (constructor-identity rule)
 
 ## 09.3 Two-Path Expansion Algorithm
 
@@ -304,13 +304,13 @@ slow_5:
     Jump { target: merge, args: [%result] }
 ```
 
-- [ ] Implement `expand_reset_reuse` pass over ARC IR functions
-- [ ] Split each `Reset` into `IsShared` + `Branch` (then=slow, else=fast)
-- [ ] Expand fast-path `Reuse` into `Set` instructions (in-place field mutation)
-- [ ] Expand slow-path `Reuse` into `RcDec` + `Construct` (fresh allocation)
-- [ ] Handle tag updates for different enum variants via `ArcInstr::SetTag { base, tag }` (defined in Section 06.0)
-- [ ] Verify no `Reset` or `Reuse` instructions remain after expansion
-- [ ] Add `ArcInstr::IsShared`, `ArcInstr::Set`, and `ArcInstr::SetTag` variants for the expanded operations (defined in Section 06.0)
+- [x] Implement `expand_reset_reuse` pass over ARC IR functions
+- [x] Split each `Reset` into `IsShared` + `Branch` (then=slow, else=fast)
+- [x] Expand fast-path `Reuse` into `Set` instructions (in-place field mutation)
+- [x] Expand slow-path `Reuse` into `RcDec` + `Construct` (fresh allocation)
+- [x] Handle tag updates for different enum variants via `ArcInstr::SetTag { base, tag }` (defined in Section 06.0)
+- [x] Verify no `Reset` or `Reuse` instructions remain after expansion
+- [x] Add `ArcInstr::IsShared`, `ArcInstr::Set`, and `ArcInstr::SetTag` variants for the expanded operations (defined in Section 06.0)
 
 ## 09.4 Projection-Increment Erasure
 
@@ -368,11 +368,11 @@ Reuse { token: %t, dst: %r, ctor: Cons, args: [%new_head, %tail] }
 // Slow path: dec %list, then inc %tail (restore the erased inc)
 ```
 
-- [ ] Implement backward scan for `Project`/`RcInc` patterns before `Reset`
-- [ ] Build claimed-fields bitmask per Reset
-- [ ] Fast path: emit `RcDec` for unclaimed replaced fields only
-- [ ] Slow path: emit `RcInc` for claimed fields (restoring erased increments)
-- [ ] Handle multi-field constructors with mixed claimed/unclaimed fields
+- [x] Implement backward scan for `Project`/`RcInc` patterns before `Reset`
+- [x] Build claimed-fields bitmask per Reset
+- [x] Fast path: emit `RcDec` for unclaimed replaced fields only
+- [x] Slow path: emit `RcInc` for claimed fields (restoring erased increments)
+- [x] Handle multi-field constructors with mixed claimed/unclaimed fields
 
 ## 09.5 Self-Set Elimination
 
@@ -406,9 +406,9 @@ Cons(head, tail) -> Cons(f(head), tail)
 //                                     Set { base: list, field: 1, value: tail } is a no-op
 ```
 
-- [ ] Implement self-set detection during fast-path emission
-- [ ] Track `Project` origins to identify self-referential writes
-- [ ] Skip `Set` instructions that are no-ops
+- [x] Implement self-set detection during fast-path emission
+- [x] Track `Project` origins to identify self-referential writes
+- [x] Skip `Set` instructions that are no-ops
 
 ---
 

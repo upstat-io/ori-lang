@@ -1,4 +1,4 @@
-# Eval V2 Index
+# Canonical IR & Evaluation Pipeline — Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.
 
@@ -12,134 +12,98 @@
 
 ## Keyword Clusters by Section
 
-### Section 01: Value System V2
-**File:** `section-01-value-system.md` | **Status:** Not Started
+### Section 01: Canonical IR
+**File:** `section-01-canonical-ir.md` | **Status:** Not Started
 
 ```
-value, Value enum, ValuePool, interning, intern pool, ori_value crate
-Heap, Arc, Cow, ScalarInt, immediate, scalar, checked arithmetic
-representation, promotion, small value, constant
-factory method, value creation, heap allocation
-ori_patterns decomposition, crate extraction
-Zig InternPool, Rust Immediate, Go representation promotion
-```
-
----
-
-### Section 02: Machine Abstraction
-**File:** `section-02-machine-abstraction.md` | **Status:** Not Started
-
-```
-machine, EvalMode enum, evaluation mode, enum dispatch
-interpreter, const eval, test runner, REPL
-policy, parametric, match dispatch, Salsa-compatible
-Rust CTFE Machine, Go operand mode, Zig comptime
-compile-time, runtime, check mode, ModeState
+CanExpr, CanArena, CanId, CanRange, CanNode
+canonical, IR, type definition, arena, index
+ConstantId, ConstantPool, DecisionTreeId, DecisionTreePool
+CanonResult, ori_canon, ori_ir, crate
+decision tree, relocation, ori_arc, shared types
 ```
 
 ---
 
-### Section 03: Environment V2
-**File:** `section-03-environment.md` | **Status:** Not Started
+### Section 02: AST Lowering
+**File:** `section-02-lowering.md` | **Status:** Not Started
 
 ```
-environment, scope, binding, variable, lookup
-ScopeStack, FxHashMap, hash-based, scope stack
-RAII, guard, drop, push scope, pop scope, ScopedInterpreter
-capture, closure, lexical, CapturedEnv, SmallVec
-define, update, mutability, immutable, mutable
-```
-
----
-
-### Section 04: Pattern Compilation
-**File:** `section-04-pattern-compilation.md` | **Status:** Not Started
-
-```
-pattern, match, decision tree, exhaustiveness
-compile, arm, guard, wildcard, constructor
-Gleam exhaustiveness, Elm DecisionTree, Roc exhaustive
-PatternCompiler, DecisionTree, Switch, Leaf, Chain
-variant inference, narrowing, unreachable
+lower, lowering, Lowerer, ExprArena, CanArena, transform
+ExprKind, mapping, variant, desugar, desugaring, sugar
+CallNamed, MethodCallNamed, named argument, positional, reorder
+TemplateLiteral, TemplateFull, template, interpolation, to_str, concat
+ListWithSpread, MapWithSpread, StructWithSpread, spread, merge
+type attachment, Idx, expr_types, resolved type
 ```
 
 ---
 
-### Section 05: Structured Control Flow
-**File:** `section-05-control-flow.md` | **Status:** Not Started
+### Section 03: Pattern Compilation
+**File:** `section-03-pattern-compilation.md` | **Status:** Not Started
 
 ```
-control flow, break, continue, loop, for, while
-join point, JoinPointId, structured, block
-EvalError, ControlAction, error-based, signal
-EvalFlow, FlowOrError, eval_flow, flow action
-try operator, question mark, propagate, early exit
-Roc join point, Go SSA, static scheduling
-```
-
----
-
-### Section 06: Method Resolution V2
-**File:** `section-06-method-resolution.md` | **Status:** Not Started
-
-```
-method, dispatch, resolution, resolver, chain
-builtin, user, trait, impl, associated
-hash, lookup, MethodTable, MethodResolver
-numeric, collection, variant, unit
-type-directed, receiver, self
+pattern, match, decision tree, DecisionTree, compile, Maranget
+PatternMatrix, PatternRow, CompilerPattern, column selection
+Switch, Leaf, Guard, Fail, ScrutineePath, PathInstruction
+TestKind, TestValue, EnumTag, IntEq, StrEq, ListLen
+eval_decision_tree, resolve_path, interpreter
+MatchPattern, Wildcard, Binding, Variant, Struct, Tuple, List, Or, As
 ```
 
 ---
 
-### Section 07: Constant Evaluation
-**File:** `section-07-constant-evaluation.md` | **Status:** Not Started
+### Section 04: Constant Folding
+**File:** `section-04-constant-folding.md` | **Status:** Not Started
 
 ```
-constant, const, compile-time, folding, propagation
-static, initialization, scheduling, eager, lazy
-Zig comptime, Go constant, Rust CTFE
-memoization, cache, deterministic
-constexpr, pure, side-effect-free
-```
-
----
-
-### Section 08: Canonical Eval IR
-**File:** `section-08-canonical-ir.md` | **Status:** Not Started
-
-```
-IR, intermediate representation, lowering, canonical
-EvalIR, ExprArena, transformation, optimization
-dead code, elimination, unreachable, unused
-Roc mono IR, Elm optimized AST, Zig AIR
-arena, node, instruction, statement
+constant, const, fold, folding, compile-time, Constness
+ConstantPool, ConstantId, intern, dedup, sentinel
+arithmetic, pure operator, dead branch, elimination
+overflow, division-by-zero, defer, runtime
 ```
 
 ---
 
-### Section 09: Reference Counting Integration
-**File:** `section-09-reference-counting.md` | **Status:** Not Started
+### Section 05: Evaluation Modes
+**File:** `section-05-eval-modes.md` | **Status:** Not Started
 
 ```
-reference counting, ARC, RC, Inc, Dec, Free
-Perceus, reuse, borrow, ownership, drop
-insertion, analysis, optimization, elision
-Roc inc_dec, Swift ARC, Koka FBIP, Lean RC
-memory, allocation, deallocation, leak
+EvalMode, Interpret, ConstEval, TestRun, mode, policy
+ModeState, budget, call_count, test_results, memo_cache
+allows_io, allows_capability, collects_tests, max_recursion_depth
+Salsa, query, builder, SharedPrintHandler, PrintHandlerImpl
+ori run, ori check, ori test, machine
 ```
 
 ---
 
-### Section 10: Tracing & Diagnostics V2
-**File:** `section-10-tracing-diagnostics.md` | **Status:** Not Started
+### Section 06: Structured Diagnostics
+**File:** `section-06-diagnostics.md` | **Status:** Not Started
 
 ```
-tracing, diagnostic, error, backtrace, span
-ORI_LOG, debug, trace, instrument
-EvalError, structured, report, message
-Rust InterpError, Elm error reporting, Gleam diagnostic
-performance, profiling, instrumentation
+EvalErrorKind, EvalError, structured, typed, category
+CallStack, CallFrame, EvalBacktrace, BacktraceFrame
+backtrace, call stack, depth, overflow, frame
+EvalNote, context, note, span, message
+Diagnostic, conversion, E4xxx, error code
+EvalCounters, profile, instrumentation, statistics
+```
+
+---
+
+### Section 07: Backend Migration
+**File:** `section-07-backend-migration.md` | **Status:** Not Started
+
+```
+migration, backend, rewrite, dispatch, eval_canon
+ori_eval, ori_arc, ori_llvm, ExprKind, CanExpr
+shadow, validate, cut-over, delete, dead code
+sync, verification, cross-backend, divergence
+invoke, landingpad, resume, unwind, panic, cleanup, exception handling
+ArcTerminator, Invoke, Resume, __gxx_personality_v0, Itanium EH
+cross-block, RC elimination, dataflow, rc_elim, edge pair
+ASAN, leak, end-to-end, AOT panic, debug info
 ```
 
 ---
@@ -148,13 +112,10 @@ performance, profiling, instrumentation
 
 | ID | Title | File | Tier |
 |----|-------|------|------|
-| 01 | Value System V2 | `section-01-value-system.md` | 0 |
-| 02 | Machine Abstraction | `section-02-machine-abstraction.md` | 0 |
-| 03 | Environment V2 | `section-03-environment.md` | 0 |
-| 04 | Pattern Compilation | `section-04-pattern-compilation.md` | 1 |
-| 05 | Structured Control Flow | `section-05-control-flow.md` | 1 |
-| 06 | Method Resolution V2 | `section-06-method-resolution.md` | 1 |
-| 07 | Constant Evaluation | `section-07-constant-evaluation.md` | 2 |
-| 08 | Canonical Eval IR | `section-08-canonical-ir.md` | 2 |
-| 09 | Reference Counting Integration | `section-09-reference-counting.md` | 3 |
-| 10 | Tracing & Diagnostics V2 | `section-10-tracing-diagnostics.md` | 3 |
+| 01 | Canonical IR | `section-01-canonical-ir.md` | 0 |
+| 02 | AST Lowering | `section-02-lowering.md` | 1 |
+| 03 | Pattern Compilation | `section-03-pattern-compilation.md` | 1 |
+| 04 | Constant Folding | `section-04-constant-folding.md` | 1 |
+| 05 | Evaluation Modes | `section-05-eval-modes.md` | 1 |
+| 06 | Structured Diagnostics | `section-06-diagnostics.md` | 1 |
+| 07 | Backend Migration | `section-07-backend-migration.md` | 2 |

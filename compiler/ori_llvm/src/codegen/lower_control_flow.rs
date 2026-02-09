@@ -6,7 +6,7 @@
 use std::mem;
 
 use ori_ir::{
-    ArmRange, BindingPattern, BindingPatternId, ExprId, ExprKind, Span, StmtKind, StmtRange,
+    ArmRange, BindingPattern, BindingPatternId, ExprId, ExprKind, Name, Span, StmtKind, StmtRange,
 };
 use ori_types::Idx;
 
@@ -153,6 +153,56 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         Some(self.builder.const_i64(0))
     }
 
+    /// Emit debug info for a mutable binding (alloca-backed).
+    fn emit_debug_mutable(&self, name_str: &str, ptr: ValueId, init_type: Idx, init_id: ExprId) {
+        if let Some(dc) = self.debug_context {
+            if dc.level() == DebugLevel::Full {
+                let init_span = self.arena.get_expr(init_id).span;
+                if init_span != Span::DUMMY {
+                    if let Some(di_ty) = dc.resolve_debug_type(init_type, self.pool) {
+                        let alloca_ptr = self.builder.raw_value(ptr).into_pointer_value();
+                        let block = self
+                            .builder
+                            .raw_block(self.builder.current_block().unwrap());
+                        dc.emit_declare_for_alloca(
+                            alloca_ptr,
+                            name_str,
+                            di_ty,
+                            init_span.start,
+                            block,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Emit debug info for an immutable binding (SSA value).
+    fn emit_debug_immutable(&self, name: Name, val: ValueId, init_id: ExprId) {
+        if let Some(dc) = self.debug_context {
+            if dc.level() == DebugLevel::Full {
+                let init_type = self.expr_type(init_id);
+                let init_span = self.arena.get_expr(init_id).span;
+                if init_span != Span::DUMMY {
+                    if let Some(di_ty) = dc.resolve_debug_type(init_type, self.pool) {
+                        let raw_val = self.builder.raw_value(val);
+                        let block = self
+                            .builder
+                            .raw_block(self.builder.current_block().unwrap());
+                        let name_str = self.resolve_name(name);
+                        dc.emit_value_for_binding_at_end(
+                            raw_val,
+                            name_str,
+                            di_ty,
+                            init_span.start,
+                            block,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// Bind a pattern to a value, adding entries to the current scope.
     ///
     /// Currently handles `Name` and `Wildcard` patterns. Destructuring
@@ -175,32 +225,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                             .create_entry_alloca(self.current_function, &name_str, llvm_ty);
                     self.builder.store(val, ptr);
                     self.scope.bind_mutable(*name, ptr, llvm_ty);
-
-                    // Emit DILocalVariable for mutable binding (alloca)
-                    if let Some(dc) = self.debug_context {
-                        if dc.level() == DebugLevel::Full {
-                            let init_span = self.arena.get_expr(init_id).span;
-                            if init_span != Span::DUMMY {
-                                // Use int as placeholder type (full TypeInfo::debug_type is deferred)
-                                if let Ok(di_ty) = dc.di().int_type() {
-                                    let alloca_ptr =
-                                        self.builder.raw_value(ptr).into_pointer_value();
-                                    let block = self
-                                        .builder
-                                        .raw_block(self.builder.current_block().unwrap());
-                                    dc.emit_declare_for_alloca(
-                                        alloca_ptr,
-                                        &name_str,
-                                        di_ty.as_type(),
-                                        init_span.start,
-                                        block,
-                                    );
-                                }
-                            }
-                        }
-                    }
+                    self.emit_debug_mutable(&name_str, ptr, init_type, init_id);
                 } else {
                     self.scope.bind_immutable(*name, val);
+                    self.emit_debug_immutable(*name, val, init_id);
                 }
             }
             BindingPattern::Wildcard => {

@@ -53,6 +53,7 @@ macro_rules! static_assert_size {
 
 pub mod commands;
 pub mod db;
+pub mod imports;
 pub mod input;
 pub mod ir;
 pub mod parser;

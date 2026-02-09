@@ -190,15 +190,15 @@ No existing module needs modification. No giant match arms to extend.
 
 **ARC pipeline execution order:** 05 → 06 → 07 → 09 → 08. Section numbers indicate topic grouping, not execution order. Section 09 runs before 08 following Lean 4's pipeline design: RC insertion (07) produces Reset/Reuse intermediate operations, constructor reuse expansion (09) expands those into concrete IsShared + Branch + RcInc/RcDec instructions, and then RC elimination (08) runs over the complete set of RcInc/RcDec instructions from both passes.
 
-### Tier 3: Optimization (Performance) -- Not Started
-- Section 10: Pattern match decision trees
-- Section 11: LLVM optimization pass configuration
-- Section 12: Incremental/parallel codegen
+### Tier 3: Optimization (Performance) -- Complete
+- Section 10: Pattern match decision trees -- **Complete** (decision trees in `ori_arc`)
+- Section 11: LLVM optimization pass configuration -- **Complete** (ARC-safe attributes)
+- Section 12: Incremental/parallel codegen -- **Complete** (ARC IR caching, parallel codegen)
 
-### Tier 4: Polish (Quality of Life) -- Not Started
-- Section 13: Debug info generation
-- Section 14: Codegen test harness
-- Section 15: Diagnostics and error reporting
+### Tier 4: Polish (Quality of Life) -- Complete
+- Section 13: Debug info generation -- **Complete** (DILocalVariable support)
+- Section 14: Codegen test harness -- **Complete**
+- Section 15: Diagnostics and error reporting -- **Complete** (codegen diagnostics pipeline)
 
 ## Implementation Progress
 
@@ -215,7 +215,12 @@ No existing module needs modification. No giant match arms to extend.
 | 07 | Complete | `ori_arc/src/liveness.rs` (07.1), `ori_arc/src/rc_insert.rs` (07.2 + 07.5), `ori_rt` V2 API (07.3), `ori_arc/src/drop.rs` (07.4), `ori_arc/src/reset_reuse.rs` (07.6) |
 | 08 | Complete | `ori_arc/src/rc_elim.rs` — bidirectional intra-block dataflow, cascading elimination, 27 tests |
 | 09 | Complete | `ori_arc/src/expand_reuse.rs` — two-path expansion, projection-increment erasure, self-set elimination |
-| 10-15 | Not Started | |
+| 10 | Complete | `ori_arc/src/lower/` — pattern match decision trees |
+| 11 | Complete | `ori_llvm` — LLVM pass pipeline v2 with ARC-safe attributes |
+| 12 | Complete | `ori_arc` — incremental ARC IR caching and parallel codegen |
+| 13 | Complete | `ori_llvm` — debug info pipeline wiring and DILocalVariable support |
+| 14 | Complete | Codegen test harness |
+| 15 | Complete | `ori_llvm` — codegen diagnostics pipeline |
 
 ## Dependencies
 

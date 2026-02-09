@@ -419,7 +419,7 @@ impl<'ctx> IrBuilder<'ctx> {
 - [x] Implement `current_block_terminated()` check
 - [x] Implement `phi_from_incoming()` with single-value optimization
 - [x] Handle unreachable blocks (mark with `unreachable` instruction)
-- [ ] Handle merge blocks for if/match/loop — deferred to Section 03 (expression lowering)
+- [x] Handle merge blocks for if/match/loop — completed in Section 03 (expression lowering)
 
 ---
 
@@ -429,7 +429,7 @@ impl<'ctx> IrBuilder<'ctx> {
 - [x] ID-based value system (ValueId, LLVMTypeId, BlockId, FunctionId)
 - [x] `Scope` with persistent map (`im::HashMap`) and `ScopeBinding` enum (Immutable/Mutable)
 - [x] Block and control flow management
-- [ ] All existing Builder functionality preserved — verified during Section 03 migration
+- [x] All existing Builder functionality preserved — verified during Section 03 migration
 - [x] No `'ll` lifetime exposed to callers (uses `IrBuilder<'scx, 'ctx>` two-lifetime pattern)
 - [x] `debug_assert!` type checking on arithmetic/comparison ops
 - [x] Tests for each instruction category (37 tests across 3 files)

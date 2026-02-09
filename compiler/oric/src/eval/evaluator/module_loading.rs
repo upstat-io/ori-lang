@@ -1,84 +1,23 @@
 //! Module loading methods for the Evaluator.
 //!
 //! Provides Salsa-integrated module loading with proper dependency tracking.
-//! All file access goes through `db.load_file()`.
+//! Import resolution is handled by `imports::resolve_imports()` (unified pipeline);
+//! this module consumes the resolved data to build interpreter-specific
+//! `FunctionValue` objects and register them in the environment.
 
 use super::super::module::import;
 use super::Evaluator;
+use crate::imports;
 use crate::ir::SharedArena;
 use crate::parser::ParseOutput;
-use crate::query::parsed;
 use ori_eval::{
     collect_def_impl_methods, collect_extend_methods, collect_impl_methods, process_derives,
     register_module_functions, register_newtype_constructors, register_variant_constructors,
     UserMethodRegistry,
 };
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 impl Evaluator<'_> {
-    /// Generate candidate paths for the prelude.
-    fn prelude_candidates(current_file: &Path) -> Vec<PathBuf> {
-        let mut candidates = Vec::new();
-        let mut dir = current_file.parent();
-        while let Some(d) = dir {
-            candidates.push(d.join("library").join("std").join("prelude.ori"));
-            dir = d.parent();
-        }
-        candidates
-    }
-
-    /// Check if a file is the prelude itself.
-    pub(super) fn is_prelude_file(file_path: &Path) -> bool {
-        file_path.ends_with("library/std/prelude.ori")
-            || file_path.file_name().is_some_and(|n| n == "prelude.ori")
-                && file_path.parent().is_some_and(|p| p.ends_with("std"))
-    }
-
-    /// Auto-load the prelude (library/std/prelude.ori).
-    ///
-    /// This is called automatically by `load_module` to make prelude functions
-    /// available without explicit import. All file access goes through
-    /// `db.load_file()` for proper Salsa tracking.
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "Result return type maintained for API consistency with load_module"
-    )]
-    pub(super) fn load_prelude(&mut self, current_file: &Path) -> Result<(), String> {
-        // Don't load prelude if we're already loading it (avoid infinite recursion)
-        if Self::is_prelude_file(current_file) {
-            self.prelude_loaded = true;
-            return Ok(());
-        }
-
-        // Mark as loaded before actually loading to prevent recursion
-        self.prelude_loaded = true;
-
-        // Find and load prelude via Salsa-tracked file loading
-        let prelude_file = Self::prelude_candidates(current_file)
-            .iter()
-            .find_map(|candidate| self.db.load_file(candidate));
-
-        let Some(prelude_file) = prelude_file else {
-            // Prelude not found - this is okay (e.g., tests outside project)
-            return Ok(());
-        };
-
-        let prelude_result = parsed(self.db, prelude_file);
-        let prelude_arena = SharedArena::new(prelude_result.arena.clone());
-        let module_functions = import::build_module_functions(&prelude_result, &prelude_arena);
-
-        // Register all public functions from the prelude into the global environment
-        for func in &prelude_result.module.functions {
-            if func.visibility.is_public() {
-                if let Some(value) = module_functions.get(&func.name) {
-                    self.env_mut().define_global(func.name, value.clone());
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Load a module: resolve imports and register all functions.
     ///
     /// This is the core module loading logic used by both the query system
@@ -88,41 +27,59 @@ impl Evaluator<'_> {
     /// 3. Registering all local functions
     /// 4. Registering all impl block methods
     ///
-    /// All file access goes through `db.load_file()` for proper Salsa tracking.
-    ///
-    /// After calling this, all functions from the module (and its imports)
-    /// are available in the environment for evaluation.
-    ///
-    /// Note: Type checking should be done by the caller before calling this method.
-    /// The type checker doesn't resolve imports, so it must be called on the resolved
-    /// module context, not on individual files in isolation.
+    /// Import resolution uses the unified `imports::resolve_imports()` pipeline,
+    /// which handles prelude discovery and `use` statement resolution via Salsa.
+    /// The interpreter consumes the resolved data to build `FunctionValue` objects
+    /// with captures and register them in the environment.
     pub fn load_module(
         &mut self,
         parse_result: &ParseOutput,
         file_path: &Path,
     ) -> Result<(), String> {
-        // Auto-load prelude if not already loaded and this isn't the prelude itself
+        // Resolve all imports via the unified pipeline (prelude + explicit use statements).
+        let resolved = imports::resolve_imports(self.db, parse_result, file_path);
+
+        // Register prelude functions (if not already loaded)
         if !self.prelude_loaded {
-            self.load_prelude(file_path)?;
+            self.prelude_loaded = true;
+            if let Some(ref prelude) = resolved.prelude {
+                let prelude_arena = SharedArena::new(prelude.parse_output.arena.clone());
+                let module_functions =
+                    import::build_module_functions(&prelude.parse_output, &prelude_arena);
+
+                for func in &prelude.parse_output.module.functions {
+                    if func.visibility.is_public() {
+                        if let Some(value) = module_functions.get(&func.name) {
+                            self.env_mut().define_global(func.name, value.clone());
+                        }
+                    }
+                }
+            }
         }
 
-        // Resolve and load imports via Salsa-tracked resolution
-        for imp in &parse_result.module.imports {
-            let resolved =
-                import::resolve_import(self.db, &imp.path, file_path).map_err(|e| e.message)?;
-            let imported_result = parsed(self.db, resolved.file);
+        // Report import resolution errors
+        if let Some(error) = resolved.errors.first() {
+            return Err(error.message.clone());
+        }
 
-            let imported_arena = SharedArena::new(imported_result.arena.clone());
-            let imported_module = import::ImportedModule::new(&imported_result, &imported_arena);
+        // Register explicitly imported functions.
+        // Each resolved module carries its import_index so we can find
+        // the corresponding UseDef for visibility/alias handling.
+        for imp_module in &resolved.modules {
+            let imp = &parse_result.module.imports[imp_module.import_index];
 
-            // Access interner directly from interpreter to avoid borrow conflict
+            let imported_arena = SharedArena::new(imp_module.parse_output.arena.clone());
+            let imported_module =
+                import::ImportedModule::new(&imp_module.parse_output, &imported_arena);
+
             let interner = self.interpreter.interner;
+            let import_path = std::path::Path::new(&imp_module.module_path);
             import::register_imports(
                 imp,
                 &imported_module,
                 &mut self.interpreter.env,
                 interner,
-                &resolved.path,
+                import_path,
                 file_path,
             )
             .map_err(|e| e.message)?;

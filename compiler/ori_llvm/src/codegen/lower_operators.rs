@@ -75,7 +75,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             BinaryOp::Eq if is_str => self.lower_str_eq(lhs, rhs),
             BinaryOp::Eq => Some(self.builder.icmp_eq(lhs, rhs, "eq")),
 
-            BinaryOp::NotEq if is_float => Some(self.builder.fcmp_one(lhs, rhs, "fne")),
+            BinaryOp::NotEq if is_float => Some(self.builder.fcmp_une(lhs, rhs, "fne")),
             BinaryOp::NotEq if is_str => self.lower_str_ne(lhs, rhs),
             BinaryOp::NotEq => Some(self.builder.icmp_ne(lhs, rhs, "ne")),
 

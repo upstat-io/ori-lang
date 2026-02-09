@@ -70,10 +70,40 @@ sections:
 
 ## Current Test Results
 
-| Test Suite | Passed | Failed | Skipped | Total |
-|------------|--------|--------|---------|-------|
-| All Ori tests | 1572 | 0 | 39 | 1611 |
-| Rust unit tests | 206 | 0 | 1 | 207 |
+| Test Suite | Passed | Failed | Skipped | LCFail | Total |
+|------------|--------|--------|---------|--------|-------|
+| Ori spec (interpreter) | 3035 | 0 | 42 | - | 3077 |
+| Ori spec (LLVM backend) | 1082 | 1 | 9 | 1985 | 3077 |
+| Rust unit tests (LLVM) | 527 | 0 | 15 | - | 542 |
+
+## Import Resolution (Unified Pipeline)
+
+The JIT test runner resolves imports via `oric::imports::resolve_imports()` and compiles
+imported function bodies directly into the JIT module. This uses the same `declare_all` /
+`define_all` path as main module functions, so **most new codegen features automatically
+work for imported functions too**.
+
+### Features that need import-aware changes
+
+When implementing these features, ensure they also work across module boundaries:
+
+- **Generic monomorphization**: `declare_all` skips generics (`sig.is_generic()`). To
+  compile `assert_eq<T: Eq>(actual: int, expected: int)`, the monomorphization pass must
+  collect concrete instantiation sites from the *calling* module and generate specialized
+  versions of imported generic functions. This is the single largest gap — `assert_eq` is
+  used in 2,472 test call sites.
+
+- **Impl blocks from imported modules**: Currently only top-level functions are compiled
+  from imports. If an imported module has `impl Type { @method ... }`, those methods need
+  `compile_impls()` processing with the imported module's impl_sigs.
+
+- **Type declarations from imported modules**: `register_user_types()` only processes the
+  main module's types. Imported struct/sum type definitions need registration so the LLVM
+  type resolver can compute their layouts.
+
+- **Prelude functions**: Currently skipped in JIT mode because some prelude functions
+  (e.g., `compare` returning `Ordering`) use types the codegen can't handle yet. Once sum
+  type codegen (21.2) works, prelude compilation should be re-enabled.
 
 ---
 
@@ -137,6 +167,8 @@ sections:
   - [ ] Variant constructor codegen
   - [ ] Tag-based dispatch in match
   - [ ] Multi-field variant payloads
+  - [ ] **Import note**: Once sum types work, re-enable prelude function compilation in
+        JIT mode (`runner.rs`). Currently skipped because `compare() -> Ordering` fails.
 
 - [ ] **Implement**: Fixed-capacity lists `[T, max N]`
   - [ ] Inline allocation strategy
@@ -222,6 +254,10 @@ sections:
   - [ ] Generate method dispatch for user-defined methods
   - [ ] Support associated functions (methods without `self` parameter)
   - [ ] Enable `Type.method()` syntax for user-defined types
+  - [ ] **Import note**: When impl blocks work, also compile imported modules' impl blocks
+        via `compile_impls()`. Currently only top-level functions are compiled from imports.
+  - [ ] **Import note**: `register_user_types()` must also process imported modules' type
+        declarations so the LLVM type resolver can compute their layouts.
   - [ ] **Tests**: `tests/spec/types/associated_functions.ori` (9 tests passing)
 
 - [ ] **Implement**: User-defined operator dispatch
@@ -316,6 +352,16 @@ sections:
 ---
 
 ## 21.7 Function Sequences & Expressions
+
+- [ ] **Implement**: Generic function monomorphization
+  - [ ] Collect monomorphization sites (call sites with concrete type args)
+  - [ ] Clone generic function bodies with type substitution
+  - [ ] Re-type-check monomorphized bodies to get concrete expr_types
+  - [ ] Compile specialized instances through normal declare/define path
+  - [ ] **Import note**: Must collect call sites from the *calling* module and generate
+        specialized versions of imported generic functions (e.g., `assert_eq<int>`).
+        Currently `declare_all` skips all generics — this is the single biggest gap
+        for LLVM test coverage (affects 2,472+ `assert_eq` call sites).
 
 - [ ] **Implement**: Basic function codegen
   - [ ] **Rust Tests**: `tests/function_tests.rs`, `tests/function_call_tests.rs`
@@ -606,6 +652,10 @@ sections:
   - [ ] `CPtr` opaque pointer type (size_t sized)
   - [ ] `Option<CPtr>` for nullable pointers (None = null)
   - [ ] C variadic functions: `extern "c" { @printf (fmt: CPtr, ...) -> c_int }`
+    - [ ] Parse variadic `...` in extern function declarations
+    - [ ] LLVM codegen: emit variadic function type (`fn_type(..., true)`)
+    - [ ] Argument promotion rules: `float` → `double`, `i8`/`i16` → `i32` (C ABI)
+    - [ ] Variadic calls only allowed for extern declarations (not user-defined)
   - [ ] Library linking: `-l<lib>` flag generation
   - [ ] **Rust Tests**: `ori_llvm/src/ffi/c_ffi_tests.rs`
 
@@ -850,10 +900,12 @@ ori_llvm/src/
 ## 21.19 Section Completion Checklist
 
 **Infrastructure:**
-- [ ] JIT compilation working
-- [ ] All current Ori tests pass (1572/1572, 39 skipped)
-- [ ] All Rust unit tests pass (206/206)
-- [ ] Architecture follows Rust patterns
+- [x] JIT compilation working
+- [ ] All current Ori tests pass via LLVM (1082/3077 passing, 1985 LCFail)
+- [x] All Rust unit tests pass (527/527, 15 skipped)
+- [x] Architecture follows Rust patterns
+- [x] Unified import pipeline (imports resolved once, compiled into JIT module)
+- [ ] Generic monomorphization (biggest remaining gap for test coverage)
 - [ ] AOT compilation (see Section 21B)
 
 **Type System:**

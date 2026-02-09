@@ -9,10 +9,11 @@
 //! ```text
 //! typed() query
 //!   └── type_check_with_imports()
-//!       └── ori_types::check_module_with_imports(module, arena, interner, |checker| {
-//!               register_prelude()    ← loads prelude via Salsa
-//!               register_imports()    ← resolves imports via Salsa
-//!           })
+//!       └── resolve_imports()  ← unified import pipeline
+//!           └── ori_types::check_module_with_imports(module, arena, interner, |checker| {
+//!                   register_builtins()
+//!                   register_resolved_imports()  ← consumes ResolvedImports
+//!               })
 //! ```
 //!
 //! The closure-based API decouples `ori_types` from oric-specific types
@@ -22,13 +23,10 @@
 use std::path::{Path, PathBuf};
 
 use ori_types::TypeCheckResult;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::db::Db;
-use crate::eval::module::import::resolve_import;
-use crate::ir::Name;
+use crate::imports;
 use crate::parser::ParseOutput;
-use crate::query::parsed;
 
 // Prelude Auto-Loading
 
@@ -82,6 +80,9 @@ pub fn type_check_with_imports_and_pool(
 ) -> (TypeCheckResult, ori_types::Pool) {
     let interner = db.interner();
 
+    // Resolve all imports via the unified pipeline.
+    let resolved = imports::resolve_imports(db, parse_result, current_file);
+
     // Use closure-based API: oric orchestrates import resolution,
     // ori_types handles type resolution internally.
     ori_types::check_module_with_imports(
@@ -90,8 +91,7 @@ pub fn type_check_with_imports_and_pool(
         interner,
         |checker| {
             register_builtins(interner, checker);
-            register_prelude(db, current_file, checker);
-            register_imports(db, parse_result, current_file, checker);
+            register_resolved_imports(&resolved, checker);
         },
     )
 }
@@ -147,111 +147,65 @@ fn register_builtins(
     }
 }
 
-/// Register prelude functions with the type checker.
+/// Register prelude and imported functions with the type checker from resolved imports.
 ///
-/// Uses `register_imported_function()` which handles type resolution internally.
-fn register_prelude(db: &dyn Db, current_file: &Path, checker: &mut ori_types::ModuleChecker<'_>) {
-    // Don't load prelude if we're type checking the prelude itself
-    if is_prelude_file(current_file) {
-        return;
-    }
-
-    // Find the prelude file via Salsa
-    let prelude_file = prelude_candidates(current_file)
-        .iter()
-        .find_map(|candidate| db.load_file(candidate));
-
-    let Some(prelude_file) = prelude_file else {
-        // Prelude not found — okay for tests outside the project
-        return;
-    };
-
-    let prelude_parsed = parsed(db, prelude_file);
-
-    // Register all public prelude functions
-    for func in &prelude_parsed.module.functions {
-        if func.visibility.is_public() {
-            checker.register_imported_function(func, &prelude_parsed.arena);
-        }
-    }
-}
-
-/// Register imported functions and module aliases with the type checker.
-///
-/// For each import in the module:
-/// 1. Resolve the import path to a file (via Salsa's `resolve_import`)
-/// 2. Parse the imported file (via Salsa's `parsed` query)
-/// 3. Register functions using `register_imported_function()`
-///
-/// The `ModuleChecker` resolves types from the AST using its own Pool internally.
-fn register_imports(
-    db: &dyn Db,
-    parse_result: &ParseOutput,
-    current_file: &Path,
+/// Consumes a `ResolvedImports` produced by the unified import pipeline.
+/// Uses `resolved.imported_functions` directly — each entry already tracks the
+/// local name, original name, source module, and whether it's a module alias.
+fn register_resolved_imports(
+    resolved: &imports::ResolvedImports,
     checker: &mut ori_types::ModuleChecker<'_>,
 ) {
-    for imp in &parse_result.module.imports {
-        // Resolve import path to a file
-        let resolved = match resolve_import(db, &imp.path, current_file) {
-            Ok(resolved) => resolved,
-            Err(e) => {
-                // Push import error to checker
-                let span = e.span.unwrap_or(imp.span);
-                checker.push_error(ori_types::TypeCheckError::import_error(e.message, span));
-                continue;
+    // 1. Register prelude functions (all public)
+    if let Some(ref prelude) = resolved.prelude {
+        for func in &prelude.parse_output.module.functions {
+            if func.visibility.is_public() {
+                checker.register_imported_function(func, &prelude.parse_output.arena);
             }
-        };
+        }
+    }
 
-        // Parse the imported file via Salsa query
-        let imported_parsed = parsed(db, resolved.file);
+    // 2. Report any import resolution errors
+    for error in &resolved.errors {
+        checker.push_error(ori_types::TypeCheckError::import_error(
+            error.message.clone(),
+            error.span,
+        ));
+    }
 
-        // Handle module alias imports (use std.http as http)
-        if let Some(alias) = imp.module_alias {
-            checker.register_module_alias(alias, &imported_parsed.module, &imported_parsed.arena);
+    // 3. Register explicitly imported functions
+    // Each imported_function ref maps directly to a resolved module and function.
+    for func_ref in &resolved.imported_functions {
+        let module = &resolved.modules[func_ref.module_index];
+        let imported_parsed = &module.parse_output;
+
+        // Module alias imports: register the entire module under an alias name
+        if func_ref.is_module_alias {
+            checker.register_module_alias(
+                func_ref.local_name,
+                &imported_parsed.module,
+                &imported_parsed.arena,
+            );
             continue;
         }
 
-        // Handle individual item imports
-        // Build a map of imported function names to their aliases
-        let import_map: FxHashMap<Name, Option<Name>> = imp
-            .items
+        // Find the function by its original name in the source module
+        let Some(func) = imported_parsed
+            .module
+            .functions
             .iter()
-            .map(|item| (item.name, item.alias))
-            .collect();
+            .find(|f| f.name == func_ref.original_name)
+        else {
+            continue;
+        };
 
-        // Build a set of names that request private access
-        let private_access: FxHashSet<Name> = imp
-            .items
-            .iter()
-            .filter(|item| item.is_private)
-            .map(|item| item.name)
-            .collect();
-
-        // Register each imported function
-        for func in &imported_parsed.module.functions {
-            // Only include functions that are actually imported
-            let Some(&alias) = import_map.get(&func.name) else {
-                continue;
-            };
-
-            // Note: Visibility enforcement for imports is not yet active.
-            // V1 allowed importing any named function regardless of visibility.
-            // When visibility enforcement is added (roadmap: Section 4 - Modules),
-            // this should check: !func.visibility.is_public() && !private_access.contains(&func.name)
-            let _ = &private_access; // suppress unused warning
-
-            // Register with alias support: if aliased, we need to register
-            // under the alias name. We do this by registering the function
-            // and then updating the signature name if aliased.
-            if let Some(alias_name) = alias {
-                // For aliased imports, create a renamed copy of the function
-                // We register the function first, then re-register under the alias
-                let mut aliased_func = func.clone();
-                aliased_func.name = alias_name;
-                checker.register_imported_function(&aliased_func, &imported_parsed.arena);
-            } else {
-                checker.register_imported_function(func, &imported_parsed.arena);
-            }
+        // Register with alias support
+        if func_ref.local_name == func_ref.original_name {
+            checker.register_imported_function(func, &imported_parsed.arena);
+        } else {
+            let mut aliased_func = func.clone();
+            aliased_func.name = func_ref.local_name;
+            checker.register_imported_function(&aliased_func, &imported_parsed.arena);
         }
     }
 }

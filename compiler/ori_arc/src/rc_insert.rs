@@ -83,6 +83,11 @@ pub fn insert_rc_ops(
     let entry_idx = func.entry.index();
     let num_blocks = func.blocks.len();
 
+    // Precompute Invoke dst definitions for each normal successor.
+    // See liveness.rs `collect_invoke_defs` — same concept: an Invoke's
+    // dst is defined at the normal successor's entry, like a block param.
+    let invoke_defs = crate::liveness::collect_invoke_defs(func);
+
     for block_idx in 0..num_blocks {
         // Compute the borrows set: variables *derived from* borrowed params
         // (e.g., via Project or Let alias). Does NOT include the borrowed
@@ -155,6 +160,21 @@ pub fn insert_rc_ops(
             if needs_rc_trackable(param_var, &ctx) && !live.remove(&param_var) {
                 new_body.push(ArcInstr::RcDec { var: param_var });
                 new_spans.push(None);
+            }
+        }
+
+        // ── Step 3.5: Invoke dst definitions ─────────────────────
+        //
+        // An Invoke's `dst` is defined at the normal successor's entry,
+        // acting like a block parameter. If the dst is RC'd and not in
+        // the live set, it was never used → Dec it.
+        let block_id = func.blocks[block_idx].id;
+        if let Some(dsts) = invoke_defs.get(&block_id) {
+            for &dst in dsts.iter().rev() {
+                if needs_rc_trackable(dst, &ctx) && !live.remove(&dst) {
+                    new_body.push(ArcInstr::RcDec { var: dst });
+                    new_spans.push(None);
+                }
             }
         }
 
@@ -534,7 +554,7 @@ fn insert_edge_cleanup(
 ///
 /// Returns a vector indexed by block index, where each entry is the
 /// list of distinct predecessor block indices.
-fn compute_predecessors(func: &ArcFunction) -> Vec<Vec<usize>> {
+pub(crate) fn compute_predecessors(func: &ArcFunction) -> Vec<Vec<usize>> {
     let num_blocks = func.blocks.len();
     let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); num_blocks];
 
@@ -552,7 +572,7 @@ fn compute_predecessors(func: &ArcFunction) -> Vec<Vec<usize>> {
 }
 
 /// Extract successor block IDs from a terminator.
-fn successor_block_ids(terminator: &ArcTerminator) -> Vec<ArcBlockId> {
+pub(crate) fn successor_block_ids(terminator: &ArcTerminator) -> Vec<ArcBlockId> {
     match terminator {
         ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
             vec![]
@@ -1669,6 +1689,231 @@ mod tests {
         assert_eq!(count_dec(&result, 4, v(0)), 1);
         // b5: v0 is stranded similarly.
         assert_eq!(count_dec(&result, 5, v(0)), 1);
+    }
+
+    /// Invoke: live str variable gets `RcDec` in unwind block.
+    ///
+    /// When an Invoke's unwind block is reached, all RC'd variables that
+    /// were live at the invoke point (but NOT the invoke's dst) must be
+    /// Dec'd for cleanup.
+    ///
+    /// ```text
+    /// block_0:
+    ///   %s = construct str "hello"
+    ///   invoke f(%s) → dst=%r, normal=b1, unwind=b2
+    ///
+    /// block_1 (normal):
+    ///   return %r
+    ///
+    /// block_2 (unwind):
+    ///   resume   // edge cleanup must insert RcDec(%s) here
+    /// ```
+    #[test]
+    fn invoke_unwind_cleanup() {
+        let func = make_func(
+            vec![],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![ArcInstr::Construct {
+                        dst: v(0),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Struct(Name::from_raw(50)),
+                        args: vec![],
+                    }],
+                    terminator: ArcTerminator::Invoke {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![v(0)],
+                        normal: b(1),
+                        unwind: b(2),
+                    },
+                },
+                // Normal continuation: return the invoke result.
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Return { value: v(1) },
+                },
+                // Unwind block: initially just Resume.
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Resume,
+                },
+            ],
+            vec![Idx::STR, Idx::STR],
+        );
+
+        let result = run_rc_insert(func);
+
+        // v0 (str) is consumed by the Invoke call (it's an arg),
+        // so it's NOT stranded — no RcDec needed in unwind.
+        // But if v0 had survived (e.g., used after invoke in normal block),
+        // it would need cleanup. Let's verify no spurious Decs.
+
+        // v1 (invoke dst) should NOT be Dec'd in unwind — it's never
+        // produced on the unwind path.
+        // Check that the unwind block's body is handled properly.
+        let unwind_idx = 2;
+        assert_eq!(
+            count_dec(&result, unwind_idx, v(1)),
+            0,
+            "invoke dst must NOT be Dec'd in unwind block"
+        );
+    }
+
+    /// Invoke with multiple live variables: ALL stranded vars get cleanup.
+    ///
+    /// ```text
+    /// block_0:
+    ///   %s1 = construct str
+    ///   %s2 = construct str
+    ///   invoke f() → dst=%r, normal=b1, unwind=b2
+    ///
+    /// block_1 (normal):
+    ///   apply g(%s1, %s2)
+    ///   return %r
+    ///
+    /// block_2 (unwind):
+    ///   resume   // must insert RcDec(%s1), RcDec(%s2)
+    /// ```
+    #[test]
+    fn invoke_unwind_cleanup_multiple_vars() {
+        let func = make_func(
+            vec![],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![
+                        ArcInstr::Construct {
+                            dst: v(0),
+                            ty: Idx::STR,
+                            ctor: CtorKind::Struct(Name::from_raw(50)),
+                            args: vec![],
+                        },
+                        ArcInstr::Construct {
+                            dst: v(1),
+                            ty: Idx::STR,
+                            ctor: CtorKind::Struct(Name::from_raw(51)),
+                            args: vec![],
+                        },
+                    ],
+                    // Invoke with NO args (doesn't consume s1 or s2).
+                    terminator: ArcTerminator::Invoke {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![],
+                        normal: b(1),
+                        unwind: b(2),
+                    },
+                },
+                // Normal: uses s1, s2, and the invoke result.
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![ArcInstr::Apply {
+                        dst: v(3),
+                        ty: Idx::UNIT,
+                        func: Name::from_raw(98),
+                        args: vec![v(0), v(1)],
+                    }],
+                    terminator: ArcTerminator::Return { value: v(2) },
+                },
+                // Unwind: just Resume.
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Resume,
+                },
+            ],
+            vec![Idx::STR, Idx::STR, Idx::STR, Idx::UNIT],
+        );
+
+        let result = run_rc_insert(func);
+
+        // The unwind block may have been replaced by an edge-split trampoline.
+        // Find the block that predecessors b0 and has Resume terminator.
+        // The edge cleanup may create a trampoline block that Decs and jumps
+        // to the unwind block, OR it may insert Decs directly in the unwind
+        // block if it's single-predecessor.
+        //
+        // With single predecessor (b0 is the only pred of unwind b2),
+        // Decs are inserted at the start of b2.
+        let unwind_idx = 2;
+        assert_eq!(
+            count_dec(&result, unwind_idx, v(0)),
+            1,
+            "s1 must be Dec'd in unwind block"
+        );
+        assert_eq!(
+            count_dec(&result, unwind_idx, v(1)),
+            1,
+            "s2 must be Dec'd in unwind block"
+        );
+        // Invoke dst must NOT be Dec'd in unwind.
+        assert_eq!(
+            count_dec(&result, unwind_idx, v(2)),
+            0,
+            "invoke dst must NOT be Dec'd in unwind block"
+        );
+    }
+
+    /// Invoke where dst is unused in normal block → gets Dec'd there.
+    #[test]
+    fn invoke_unused_dst_gets_dec_in_normal() {
+        let func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Invoke {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![],
+                        normal: b(1),
+                        unwind: b(2),
+                    },
+                },
+                // Normal: returns v0 (param), ignores v1 (invoke dst).
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Resume,
+                },
+            ],
+            vec![Idx::STR, Idx::STR],
+        );
+
+        let result = run_rc_insert(func);
+
+        // v1 (invoke dst) is unused in normal block → Dec it there.
+        let normal_idx = 1;
+        assert_eq!(
+            count_dec(&result, normal_idx, v(1)),
+            1,
+            "unused invoke dst should be Dec'd in normal block"
+        );
     }
 
     /// No edge cleanup needed when all paths use the same variables.

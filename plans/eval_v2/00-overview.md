@@ -1,269 +1,252 @@
-# Eval V2: A Best-of-Breed Evaluator Architecture for Ori
+# Canonical IR & Evaluation Pipeline
 
-> **Design Plan** — Synthesizes patterns from Rust (CTFE/Miri), Go, Zig, Gleam, Elm, Roc, and TypeScript into a novel, highly modular eval system for Ori.
+> **Synthesizes** Roc (Can → Mono, shared backend IR, arena allocation) and Elm (Canonical → Optimized, decision trees, destructor paths) into a unified canonicalization pipeline for Ori. Both `ori_eval` and `ori_arc`/`ori_llvm` consume the same canonical form — new language features are implemented once.
 
 ## Motivation
 
-The current Ori evaluator (`ori_eval`) is a functional tree-walking interpreter (~12K lines) with Arc-enforced values, chain-of-responsibility method dispatch, and Salsa integration. While it works, it has several architectural limitations that will compound as the language grows:
+Every new language feature requires dual implementation across `ori_eval` and `ori_llvm`/`ori_arc`. Both backends independently handle all 52 `ExprKind` variants — including 7 sugar variants that require identical non-trivial transformations. This dual implementation creates:
 
-1. **Monolithic value type** — `Value` enum with 30 variants; heap-allocated variants wrapped in `Arc<T>` via `Heap<T>`
-2. **Error-based control flow** — `break`/`continue` propagated as `EvalError` variants
-3. **No constant folding** — All expressions evaluated at runtime, even compile-time-known ones
-4. **No pattern compilation** — Match arms tested sequentially, not compiled to decision trees
-5. **Single evaluation mode** — Same code path for `ori run`, `ori check`, and test execution
-6. **Thread-unsafe scope chain** — `Rc<RefCell<T>>` in Environment prevents per-scope parallelism. Other subsystems (captures, print handlers, test runner) already use Arc-based patterns.
-7. **No IR lowering** — Evaluates directly from the parse AST (ExprArena)
-8. **Weak integration boundary** — Type checker provides only `Idx[]` and pattern resolutions
+1. **Semantic divergence** — Subtle behavioral differences accumulate between backends
+2. **Double implementation cost** — Every feature is written twice, each with its own bugs
+3. **LLVM stubs** — Features work in eval but are missing in LLVM (template literals, some spreads)
+4. **No shared optimizations** — Constant folding, pattern compilation, desugaring all duplicated
 
-## Design Philosophy
-
-> **"Each compiler taught us something different. The goal is not to copy any one, but to synthesize a design that is uniquely suited to Ori's expression-based, capability-tracked, ARC-managed paradigm."**
-
-### Key Principles
-
-1. **Machine-parametric evaluation** (from Rust): One core interpreter, multiple evaluation policies
-2. **Interned value pool** (from Zig): Common values stored once, referenced by index
-3. **Progressive lowering** (from Elm/Roc): AST → Canonical IR → Eval IR → Codegen IR
-4. **Decision tree patterns** (from Gleam/Elm): Compile match arms, don't interpret them
-5. **Structured control flow** (from Roc): Join points, not error-based break/continue
-6. **Perceus-inspired RC** (from Roc/Swift): Reference counting with reuse analysis
-7. **Fact-based narrowing** (from TypeScript): Efficient type refinement through control flow
-8. **Arena-first allocation** (from Zig/Roc): Temporary structures in arenas, intern for permanence
+Both Roc and Elm solve this by introducing a canonical IR between the frontend and backends. Complex syntax is reduced to primitive operations once. Backends never see sugar.
 
 ## Prior Art Synthesis
 
-| Pattern | Source | Ori Adaptation |
-|---------|--------|----------------|
-| Machine trait | Rust CTFE | `EvalMode` enum — Interpret, ConstEval, TestRun (enum dispatch) |
-| InternPool | Zig | `ValuePool` — intern constants, small values, type refs |
-| Progressive AST lowering | Elm (3-tier), Roc (can→mono) | `ExprArena` → `EvalIR` (new canonical IR) |
-| Decision tree matching | Gleam, Elm | `PatternCompiler` producing `DecisionTree` |
-| Join points | Roc mono IR | `JoinPoint` in EvalIR for break/continue/early-exit |
-| Perceus RC | Roc, Koka | `RcInsertion` pass on EvalIR |
-| Operand modes | Go | `EvalContext` tracking const/runtime/builtin |
-| Fact-based narrowing | TypeScript | `TypeFacts` bit flags for efficient refinement |
-| Lambda sets | Roc | `ClosureLayout` for closure specialization |
-| CPS unification | Elm | Already in ori_types — extend for eval integration |
-| Representation promotion | Go constants | `ValueRepr` auto-promotes small→big |
-| Arena allocation | Zig, Roc (bumpalo) | `EvalArena` for temporary eval structures |
-| Trampoline pattern | TypeScript | For deeply nested binary expressions |
-| Memoized function calls | Zig InternPool | `MemoCache` keyed on (func, args) |
-| Error recovery expressions | Gleam | `EvalIR::Invalid` for continued eval after errors |
-| Variant inference | Gleam | `InferredVariant` on pattern match results |
-| Graph-based DCE | Elm | Dead code elimination in EvalIR |
-| Lazy string concat | Go | `LazyStr` for compile-time string building |
-| Static init scheduling | Go | Separate constant vs. runtime initialization |
+| Compiler | Pipeline | What We Adopt |
+|----------|----------|---------------|
+| **Roc** | Parse → **Can** → Constrain → Solve → **Mono** → Codegen | Arena-allocated canonical IR with IDs; both dev + LLVM backends consume identical Mono IR; explicit captures; `Symbol` (resolved names) |
+| **Elm** | Parse → **Canonical** → TypeCheck → Nitpick → **Optimized** → JS | Decision trees baked into Optimized form; `Destructor`/`Path` for pattern access; tail call detection; dead code via dependency graph |
+| **Ori** | Parse → TypeCheck → ??? → Eval / LLVM | Ori's type checker already does what Roc's Can and Elm's Canonical do (name resolution, type inference, pattern resolution). What's missing is the **Optimized/Mono** stage. |
 
----
+### What Comes From Each
 
-## Architecture Overview
+**From Roc:**
+- `CanExpr` as a proper new type (not in-place mutation) — type-level guarantee that sugar is absent
+- `CanArena` with arena allocation and `CanId` indices (following Ori's existing arena patterns)
+- Both backends consume the **same** IR (Roc's key architectural win)
+- Explicit type information attached to expressions (resolved, not inferred)
+- Pattern compilation producing typed nodes shared across backends
 
-### Crate Structure (Post-V2)
+**From Elm:**
+- Decision trees baked into Match nodes (not a side table) — `Decider` with `Leaf`/`Chain`/`FanOut`
+- `Destructor`/`Path` for pattern variable binding (root → field → index navigation)
+- Clean phase invariants (Canonical guarantees X, Optimized guarantees Y)
+- `Constant(Value)` nodes for folded expressions — backends skip evaluation/emission entirely
 
-```
-oric (CLI, Salsa queries, module loading)
-  ↓
-ori_eval (evaluation core — enum-dispatch EvalMode)
-  ├── machine.rs          — EvalMode enum (Interpret, ConstEval, TestRun) + match dispatch
-  ├── interpreter.rs      — Tree-walking eval
-  ├── const_eval.rs       — Compile-time evaluation
-  ├── value/
-  │   ├── pool.rs         — ValuePool (interned constants)
-  │   └── heap.rs         — Heap<T> (Arc-enforced, unchanged API)
-  ├── env/
-  │   ├── scope.rs        — ScopeStack (replaces Environment)
-  │   ├── binding.rs      — Binding types with mutability
-  │   └── capture.rs      — Closure capture logic
-  ├── pattern/
-  │   ├── compiler.rs     — Decision tree compiler
-  │   ├── decision.rs     — DecisionTree types
-  │   └── exhaustive.rs   — Integration with exhaustiveness checker
-  ├── control/
-  │   ├── flow.rs         — Structured control flow (no error-based)
-  │   ├── join.rs         — Join points for break/continue
-  │   └── try_op.rs       — Try operator (`?`) handling
-  ├── method/
-  │   ├── resolver.rs     — Hash-based method resolution
-  │   ├── builtin.rs      — Builtin method registry
-  │   └── dispatch.rs     — Dispatch logic (replaces chain)
-  ├── exec/
-  │   ├── expr.rs         — Expression evaluation
-  │   ├── call.rs         — Function call logic
-  │   ├── operators.rs    — Binary/unary operators
-  │   └── collections.rs  — List/map/tuple operations
-  ├── ir/                    — Canonical evaluation IR (sub-module, not separate crate)
-  │   ├── ir.rs              — EvalIR enum (lowered from ExprArena)
-  │   ├── lower.rs           — ExprArena → EvalIR lowering
-  │   ├── optimize.rs        — Constant folding, dead code elimination
-  │   ├── rc.rs              — Reference counting insertion
-  │   └── arena.rs           — Arena for EvalIR nodes
-  └── diag/
-      ├── backtrace.rs    — Eval backtrace capture
-      └── tracing.rs      — Tracing integration
-      (Note: EvalError/EvalResult remain in ori_patterns to avoid circular deps)
-  ↓
-ori_patterns (pattern traits, implementations, and eval error types — references ori_value)
-  ├── registry.rs         — PatternRegistry (unchanged)
-  ├── errors.rs           — EvalError, EvalResult (remain here to avoid circular deps)
-  └── patterns.rs         — Pattern-specific logic
-  ↓
-ori_value (Value enum, heap, composite types — used by eval, codegen, patterns)
-  ├── value/mod.rs        — Value enum (canonical location)
-  ├── value/repr.rs       — Value representation
-  ├── value/heap.rs       — Heap<T> type
-  ↓
-ori_types (type checking infrastructure — no Value dependency)
-  ↓
-ori_ir / ori_diagnostic (unchanged)
-```
+**Evaluation improvements:**
+- `EvalMode` enum (Section 05) — Interpret/ConstEval/TestRun with match dispatch, Salsa-compatible
+- Structured `EvalErrorKind` + `EvalBacktrace` (Section 06) — typed errors with call stacks
+- `EvalCounters` for `--profile` instrumentation (Section 06.4)
 
-### Evaluation Pipeline (Post-V2)
+## Architecture
+
+### Pipeline (Post-Canon)
 
 ```
-Source → Lexer → Parser → Type Checker ──→ EvalIR Lowering ──→ Evaluation
-                              ↓                   ↓                ↓
-                         TypeCheckResult     EvalIR + Opts    Value/EvalError
-                         (types, patterns)   (const-folded,   (result)
-                                              RC-annotated)
+Source → Lex → Parse → Type Check → Canonicalize ─┬─→ ori_eval  (interprets CanExpr)
+                                      (NEW)        └─→ ori_arc   (lowers CanExpr to ARC IR → ori_llvm)
 ```
 
-### Phase Boundaries
+### Canonical IR Type
+
+A proper new type — not in-place `ExprArena` mutation. Sugar variants **cannot be represented** in `CanExpr`. This is the Roc/Elm approach: the type system enforces the invariant.
+
+```rust
+/// Canonical expression node — sugar-free, type-annotated, pattern-compiled.
+///
+/// This is NOT ExprKind with variants removed. It is a distinct type with
+/// distinct semantics. Backends pattern-match on CanExpr exhaustively —
+/// no unreachable!() arms, no sugar handling.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum CanExpr {
+    // === Literals ===
+    Int(i64),
+    Float(u64),
+    Bool(bool),
+    Str(Name),
+    Char(char),
+    Duration { value: u64, unit: DurationUnit },
+    Size { value: u64, unit: SizeUnit },
+    Unit,
+
+    // === Compile-Time Constant (folded during canonicalization) ===
+    Constant(ConstantId),  // Index into constant pool
+
+    // === References ===
+    Ident(Name),
+    Const(Name),
+    SelfRef,
+    FunctionRef(Name),
+    HashLength,
+
+    // === Operators ===
+    Binary { op: BinaryOp, left: CanId, right: CanId },
+    Unary { op: UnaryOp, operand: CanId },
+    Cast { expr: CanId, ty: ParsedTypeId, fallible: bool },
+
+    // === Calls (always positional — named args already reordered) ===
+    Call { func: CanId, args: CanRange },
+    MethodCall { receiver: CanId, method: Name, args: CanRange },
+
+    // === Access ===
+    Field { receiver: CanId, field: Name },
+    Index { receiver: CanId, index: CanId },
+
+    // === Control Flow ===
+    If { cond: CanId, then_branch: CanId, else_branch: CanId },
+    Match { scrutinee: CanId, decision_tree: DecisionTreeId, arms: CanRange },
+    For { binding: Name, iter: CanId, guard: CanId, body: CanId, is_yield: bool },
+    Loop { body: CanId },
+    Break(CanId),
+    Continue(CanId),
+
+    // === Bindings ===
+    Block { stmts: CanStmtRange, result: CanId },
+    Let { pattern: BindingPatternId, ty: ParsedTypeId, init: CanId, mutable: bool },
+    Assign { target: CanId, value: CanId },
+
+    // === Functions ===
+    Lambda { params: ParamRange, ret_ty: ParsedTypeId, body: CanId },
+
+    // === Collections (no spread variants — already expanded) ===
+    List(CanRange),
+    Tuple(CanRange),
+    Map(CanMapEntryRange),
+    Struct { name: Name, fields: CanFieldRange },
+    Range { start: CanId, end: CanId, step: CanId, inclusive: bool },
+
+    // === Algebraic ===
+    Ok(CanId),
+    Err(CanId),
+    Some(CanId),
+    None,
+
+    // === Error Handling ===
+    Try(CanId),
+    Await(CanId),
+
+    // === Capabilities ===
+    WithCapability { capability: Name, provider: CanId, body: CanId },
+
+    // === Special Forms ===
+    FunctionSeq(FunctionSeqId),
+    FunctionExp(FunctionExpId),
+
+    // === Error Recovery ===
+    Error,
+}
+```
+
+**What's different from ExprKind:**
+- No `CallNamed` / `MethodCallNamed` — desugared to positional `Call` / `MethodCall`
+- No `TemplateLiteral` / `TemplateFull` — desugared to `Str` + `.to_str()` + `.concat()` chains
+- No `ListWithSpread` / `MapWithSpread` / `StructWithSpread` — desugared to `List`/`Map`/`Struct` + method calls
+- Added `Constant(ConstantId)` — compile-time-folded values
+- Added `DecisionTreeId` on Match — patterns pre-compiled to decision trees
+- Uses `CanId` / `CanRange` (not `ExprId` / `ExprRange`) — distinct index space
+
+### Crate Structure
 
 ```
-Phase 1: Parse          │ ExprArena (52 ExprKind variants), MatchPatterns, FunctionSeq/Exp
-Phase 2: Type Check     │ TypeCheckResult (expr_types, pattern_resolutions, FunctionSig, capabilities)
-Phase 3: IR Lower       │ EvalIR (desugared, patterns compiled, type info consumed)    ← NEW
-Phase 4: Optimize       │ EvalIR (constant-folded, dead code removed)                  ← NEW
-Phase 5: RC Insert      │ EvalIR (with Rc(RcOp) annotations — Inc/Dec/Free/Reset/Reuse) ← NEW
-Phase 6: Evaluate       │ Value (using enum-dispatch EvalMode interpreter on EvalIR only)
+ori_ir (shared types — no logic, depended on by everyone)
+  ast/expr.rs         — ExprKind, ExprArena, ExprId (parse AST — unchanged)
+  canon/mod.rs        — CanExpr, CanArena, CanId, CanRange (canonical IR — NEW)
+  canon/tree.rs       — DecisionTree, ScrutineePath, TestKind, TestValue (MOVED from ori_arc)
+
+ori_canon (NEW crate — lowering logic)
+  lower.rs            — ExprArena + TypeCheckResult → CanArena
+  desugar.rs          — Sugar elimination during lowering
+  patterns.rs         — Pattern → DecisionTree compilation (Maranget algorithm)
+  const_fold.rs       — Constant folding during lowering
+  validate.rs         — Debug assertions on canonical invariants
+
+ori_eval (interpreter — consumes CanExpr)
+  interpreter/        — Rewritten to dispatch on CanExpr (not ExprKind)
+  machine.rs          — EvalMode enum (Interpret/ConstEval/TestRun)
+  diagnostics.rs      — EvalErrorKind, EvalBacktrace, EvalCounters
+
+ori_arc (ARC analysis — consumes CanExpr)
+  lower/              — CanExpr → ARC IR basic blocks (instead of ExprKind → ARC IR)
+  decision_tree/      — emit.rs (emit decision trees as ARC IR blocks — types moved to ori_ir)
 ```
 
-### Upstream Feature Coverage
+**Dependency resolution:** Decision tree types (`DecisionTree`, `ScrutineePath`, `TestKind`, `TestValue`) move from `ori_arc` to `ori_ir/canon/tree.rs`. This breaks the circular dependency: `ori_canon` needs decision tree types to build them, `ori_arc` needs them to emit ARC IR from them. With types in `ori_ir`, both crates depend on `ori_ir` (which they already do).
 
-The lowerer must handle **every** feature the parser and type checker produce:
-- All 52 ExprKind variants (lowered to EvalIR nodes or desugared)
-- All 10 MatchPattern variants (compiled to decision trees)
-- FunctionSeq patterns (run, try, match, for)
-- FunctionExp patterns (cache, parallel, spawn, timeout, recurse, with, print, panic, catch, todo, unreachable)
-- Template literals with interpolation and format specs
-- Named arguments (reordered using FunctionSig)
-- Spread operators (desugared to collection operations)
-- Pipeline operator (desugared to nested calls)
-- Cast expressions (using type Idx from type checker)
-- Per-expression types from `expr_types` (for casts, type-dependent dispatch)
-- Pattern resolutions from type checker (variant vs variable disambiguation)
-- Capability declarations from FunctionSig (for effect checking)
+### Salsa Integration
+
+```rust
+/// Salsa query: canonicalize a module.
+/// This is the single point where both backends diverge from raw parse output.
+#[salsa::tracked]
+fn canonicalize(db: &dyn Db, module: Module) -> CanonResult {
+    let parse_result = parse(db, module);
+    let type_result = type_check(db, module);
+    ori_canon::lower(parse_result, type_result)
+}
+```
 
 ---
 
 ## Section Overview
 
-### Tier 0: Foundation (Sections 1-3)
+| Section | Title | Focus | Est. Lines |
+|---------|-------|-------|-----------|
+| 01 | Canonical IR | `CanExpr`, `CanArena`, `CanId` types + decision tree type relocation | ~600 |
+| 02 | AST Lowering | `ExprArena → CanArena` transformation (all 52 variants) | ~2,000 |
+| 03 | Pattern Compilation | Decision trees via Maranget, baked into canonical form | ~800 |
+| 04 | Constant Folding | Compile-time evaluation during lowering | ~500 |
+| 05 | Evaluation Modes | `EvalMode` enum — Interpret/ConstEval/TestRun | ~500 |
+| 06 | Structured Diagnostics | `EvalErrorKind`, backtraces, `EvalCounters`, `--profile` | ~800 |
+| 07 | Backend Migration | Rewrite eval + LLVM to consume `CanExpr`; delete old dispatch | ~2,500 |
 
-Core infrastructure that everything else depends on.
-
-| Section | Focus | Inspired By |
-|---------|-------|-------------|
-| 1 | Value System V2 | Zig InternPool, Rust Immediate, Go promotion |
-| 2 | Machine Abstraction | Rust Machine trait, Go operand modes |
-| 3 | Environment V2 | Current + thread-safety + RAII improvements |
-
-### Tier 1: Evaluation Core (Sections 4-6)
-
-The heart of the new evaluator.
-
-| Section | Focus | Inspired By |
-|---------|-------|-------------|
-| 4 | Pattern Compilation | Gleam/Elm decision trees |
-| 5 | Structured Control Flow | Roc join points, Go static scheduling |
-| 6 | Method Resolution V2 | Current chain → hash-based dispatch |
-
-### Tier 2: Optimization (Sections 7-8)
-
-Compile-time evaluation and IR lowering.
-
-| Section | Focus | Inspired By |
-|---------|-------|-------------|
-| 7 | Constant Evaluation | Zig comptime, Go constants, Rust CTFE |
-| 8 | Canonical Eval IR | Roc can→mono, Elm 3-tier AST |
-
-### Tier 3: Memory & Diagnostics (Sections 9-10)
-
-Reference counting and observability.
-
-| Section | Focus | Inspired By |
-|---------|-------|-------------|
-| 9 | Reference Counting Integration | Roc Perceus, Swift ARC, Koka FBIP |
-| 10 | Tracing & Diagnostics V2 | Rust backtrace, Elm error reporting |
+**Total: ~7,700 lines**
 
 ---
 
 ## Dependency Graph
 
 ```
-Phase 0 (ori_value extraction) ──→ Section 1 (Values) ──→ Section 2 (Machine) ──→ Section 3 (Environment)
-                                       ↓                      ↓                        ↓
-                                       │                      │          ┌──────────────┼──────────────┐
-                                       │                      │          ↓              ↓              ↓
-                                       │                      │   Section 4 (Patterns) Section 5 (Control Flow) Section 6 (Methods)
-                                       │                      │          │              │
-                                       │                      │          │              ↓
-                                       │                      │          │   Section 7 (Const Eval)
-                                       │                      │          │              │
-                                       │                      │          ↓              ↓
-                                       │                      └────→ Section 8 (Eval IR) ←── Section 4, 5, 7
-                                       │                                    │
-                                       │                          ┌─────────┼─────────┐
-                                       │                          ↓                   ↓
-                                       │                   Section 9 (RC)      Section 10 (Diagnostics)
-                                       │                          ↑
-                                       └──────────────────────────┘
+Section 01 (Canonical IR types)
+    ↓
+Section 02 (AST Lowering) ←─── Section 03 (Pattern Compilation)
+    ↓                           Section 04 (Constant Folding)
+    ↓
+Section 05 (Evaluation Modes)  ← independent, can proceed after 01
+Section 06 (Structured Diagnostics) ← independent, can proceed after 01
+    ↓
+Section 07 (Backend Migration) ← depends on ALL above
 ```
 
-**Edges:**
-- Phase 0 → 1 (ori_value crate extraction is prerequisite for Value System V2)
-- 1 → 2 → 3 (foundation chain)
-- 3 → 4, 3 → 5, 3 → 6 (tier 1 depends on environment)
-- 5 → 7 (const eval uses control flow types)
-- 4 → 8, 5 → 8, 7 → 8 (IR lowering consumes patterns, control flow, const eval)
-- 2 → 8 (IR lowering uses EvalMode)
-- 8 → 9 (RC insertion operates on EvalIR)
-- 8 → 10 (diagnostics uses EvalIR types)
-- 1 → 9 (RC needs ValuePool/ValueId for interned value classification)
-- 5 → 8 (EvalFlow/FlowOrError used by interpreter on EvalIR)
-
-**Critical Path**: Phase 0 → 1 → 2 → 3 → 5 → 7 → 8 (must be sequential)
-**Parallelizable**: 4 and 6 can proceed independently after 3; 9 and 10 after 8
+**Critical path**: 01 → 02 → 07
+**Parallelizable**: 03, 04, 05, 06 can all proceed in parallel after Section 01
 
 ---
 
 ## Migration Strategy
 
-The eval_v2 is a **complete replacement** of the current eval system. Each phase delivers working code, but the end goal is full transition — no compatibility layers, no dual paths, no legacy code left behind.
+1. **Section 01**: Define types in `ori_ir`. Move decision tree types from `ori_arc` to `ori_ir`. Create `ori_canon` crate skeleton. No behavioral changes.
+2. **Section 02**: Implement lowering pass. `ExprArena → CanArena` for all 52 variants (7 desugared, 44 mapped, 1 error). Integration-test against existing spec tests by round-tripping through canonical form.
+3. **Sections 03-04**: Pattern compilation and constant folding integrated into the lowering pass. Decision trees stored in `CanArena`. Constants stored in constant pool.
+4. **Sections 05-06**: `EvalMode` and structured diagnostics — independent improvements to the evaluator. These can land before or after backend migration.
+5. **Section 07**: The payoff. Rewrite `ori_eval` to dispatch on `CanExpr`. Update `ori_arc` to lower from `CanExpr`. Delete all `ExprKind` dispatch from both backends. Verify full test suite.
 
-1. **Phase 0** (Pre-requisite): Decompose `ori_patterns` crate. Value, Heap, and composite types move to new `ori_value` crate. EvalError and EvalResult remain in `ori_patterns` (moving them to `ori_eval` would create a circular dependency since `ori_eval` depends on `ori_patterns`). Pattern traits/implementations remain in `ori_patterns`, updated to reference `ori_value` for value types. All downstream imports updated.
-2. **Phase 1** (Sections 1-3): New value pool and machine abstraction replace current internals. Old factory methods and unparameterized interpreter removed.
-3. **Phase 2** (Sections 4-6): Pattern compiler and method resolver fully replace current implementations. Chain-of-responsibility dispatcher deleted.
-4. **Phase 3** (Sections 7-8): EvalIR becomes the sole evaluation path. ExprArena direct evaluation removed from interpreter. All evaluation goes through lowering.
-5. **Phase 4** (Sections 9-10): RC insertion and diagnostics complete the system.
-
-At each phase, `./test-all.sh` must pass. Old code is deleted as each replacement is validated — not kept as fallback.
+At every step, `./test-all.sh` must pass. Section 07 is the "big bang" step — but by that point, the canonical IR is proven correct (Sections 01-04) and the backends just need mechanical migration.
 
 ---
 
 ## Success Criteria
 
-The eval_v2 plan is complete when:
-
-1. **All tests pass** — `./test-all.sh` green throughout migration
-2. **Machine modes** — `ori run`, `ori check --no-test`, and `ori test` use distinct EvalMode enum variants
-3. **Constant folding** — Compile-time-known expressions evaluated during IR lowering
-4. **Decision trees** — Match expressions compiled, not sequentially interpreted
-5. **Structured control flow** — No `EvalError` variants for break/continue
-6. **Thread-safe option** — Environment can optionally use `Arc<Mutex<T>>`
-7. **Performance** — No regression on existing benchmarks; match expressions measurably faster
-8. **Diagnostics** — Eval errors include backtraces and structured span information
-9. **No legacy code** — Old eval_inner dispatch, chain-of-responsibility dispatcher, and ExprArena direct evaluation are fully removed
+1. **Type-level sugar guarantee** — `CanExpr` has no sugar variants. Backends exhaustively match without `unreachable!()`
+2. **Shared pattern compilation** — Decision trees compiled once in `ori_canon`, consumed by both `ori_eval` and `ori_arc`
+3. **Shared constant folding** — Compile-time-known expressions pre-evaluated, both backends skip them
+4. **Evaluation modes** — `ori run`, `ori check`, `ori test` use distinct `EvalMode` variants
+5. **Structured errors** — Runtime errors have typed kinds, backtraces, and context notes
+6. **All tests pass** — `./test-all.sh` green throughout migration
+7. **New feature cost halved** — Sugar features need ONE implementation (in `ori_canon/desugar.rs`)
+8. **Net negative LOC in backends** — More code deleted from dual-implementation than added in `ori_canon`
 
 ---
 
@@ -273,7 +256,12 @@ The eval_v2 plan is complete when:
 |----------|---------|
 | `plans/eval_v2/section-*.md` | Detailed section plans |
 | `plans/eval_v2/index.md` | Keyword-based section discovery |
-| `compiler/ori_eval/` | Current evaluator (migration source) |
-| `compiler/ori_patterns/` | Current value types and patterns (Value, Heap move to ori_value in Phase 0) |
-| `docs/ori_lang/0.1-alpha/spec/` | Language specification (authoritative) |
-| `~/projects/reference_repos/lang_repos/` | Reference compiler implementations |
+| `plans/llvm_v2/section-10-decision-trees.md` | Decision tree types + algorithm (relocated to `ori_ir`) |
+| `plans/llvm_v2/00-overview.md` | LLVM V2 / `ori_arc` architecture |
+| `compiler/ori_ir/src/ast/expr.rs` | `ExprKind` (52 variants — source for lowering) |
+| `compiler/ori_eval/` | Current evaluator (migration target) |
+| `compiler/ori_llvm/` + `compiler/ori_arc/` | LLVM backend (migration target) |
+| Reference: Roc `crates/compiler/can/src/expr.rs` | Roc canonical IR |
+| Reference: Roc `crates/compiler/mono/src/ir.rs` | Roc mono IR (shared by both backends) |
+| Reference: Elm `compiler/src/AST/Canonical.hs` | Elm canonical AST |
+| Reference: Elm `compiler/src/AST/Optimized.hs` | Elm optimized AST (decision trees, destructors) |
