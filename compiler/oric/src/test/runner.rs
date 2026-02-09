@@ -336,6 +336,7 @@ impl TestRunner {
             Backend::Interpreter => {
                 // Create evaluator in TestRun mode with type information
                 // TestRun mode: 500-depth recursion limit, test result collection
+                // Note: canonicalization deferred until ori_arc decision tree bug is fixed.
                 let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
                     .mode(ori_eval::EvalMode::TestRun {
                         only_attached: false,
@@ -346,7 +347,7 @@ impl TestRunner {
 
                 evaluator.register_prelude();
 
-                if let Err(e) = evaluator.load_module(&parse_result, path) {
+                if let Err(e) = evaluator.load_module(&parse_result, path, None) {
                     summary.add_error(e);
                     return summary;
                 }

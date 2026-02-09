@@ -217,7 +217,7 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
     let file_path = file.path(db);
 
     // Type check (returns result + pool)
-    let (type_result, _pool) =
+    let (type_result, pool) =
         typeck::type_check_with_imports_and_pool(db, &parse_result, file_path);
 
     // Check for type errors using the error guarantee
@@ -229,6 +229,19 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
         ));
     }
 
+    // Canonicalize: AST + types → self-contained canonical IR.
+    // This produces a CanonResult with all ExprArena references resolved.
+    // Functions carry the SharedCanonResult so the evaluator can dispatch
+    // on CanExpr (Part B2) instead of ExprKind.
+    let canon_result = ori_canon::lower_module(
+        &parse_result.module,
+        &parse_result.arena,
+        &type_result,
+        &pool,
+        interner,
+    );
+    let shared_canon = ori_ir::canon::SharedCanonResult::new(canon_result);
+
     // Create evaluator with type information (Idx-based)
     let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
         .expr_types(&type_result.typed.expr_types)
@@ -236,7 +249,7 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
         .build();
     evaluator.register_prelude();
 
-    if let Err(e) = evaluator.load_module(&parse_result, file_path) {
+    if let Err(e) = evaluator.load_module(&parse_result, file_path, Some(&shared_canon)) {
         return ModuleEvalResult::failure(format!("module error: {e}"));
     }
 

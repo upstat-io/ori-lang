@@ -157,6 +157,8 @@ fn eval_with_profile(
     }
 
     // Create evaluator with profiling enabled
+    // Note: canonicalization is wired in evaluated() query path; this profiling
+    // path defers canonical IR until the ori_arc decision tree bug is fixed.
     let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
         .expr_types(&type_result.typed.expr_types)
         .pattern_resolutions(&type_result.typed.pattern_resolutions)
@@ -164,7 +166,7 @@ fn eval_with_profile(
     evaluator.register_prelude();
     evaluator.enable_counters();
 
-    if let Err(e) = evaluator.load_module(parse_result, file_path) {
+    if let Err(e) = evaluator.load_module(parse_result, file_path, None) {
         let result = ModuleEvalResult::failure(format!("module error: {e}"));
         report_eval_result(&result, db, file, path, emitter);
         return;

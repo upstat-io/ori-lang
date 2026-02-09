@@ -145,7 +145,7 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     interpreter.user_method_registry.write().merge(user_methods);
 
     // Register all functions from the module into the environment
-    register_module_functions(&parse_result.module, &shared_arena, interpreter.env_mut());
+    register_module_functions(&parse_result.module, &shared_arena, interpreter.env_mut(), None);
 
     // Register variant constructors from sum type declarations
     register_variant_constructors(&parse_result.module, interpreter.env_mut());

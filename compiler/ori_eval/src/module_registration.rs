@@ -16,6 +16,7 @@
 #![allow(clippy::disallowed_types)]
 
 use crate::{Environment, FunctionValue, Mutability, UserMethod, UserMethodRegistry, Value};
+use ori_ir::canon::SharedCanonResult;
 use ori_ir::{Module, Name, SharedArena, TypeDeclKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
@@ -42,12 +43,22 @@ pub struct MethodCollectionConfig<'a> {
 /// Functions with the same name are grouped as multi-clause functions, with
 /// pattern matching determining which clause to execute at runtime.
 ///
+/// When `canon` is provided, each function's `FunctionValue` is enriched with
+/// canonical IR data (`can_body` + `SharedCanonResult`), enabling the evaluator
+/// to dispatch on `CanExpr` instead of `ExprKind`.
+///
 /// # Arguments
 ///
 /// * `module` - The module containing functions to register
 /// * `arena` - Shared arena for expression lookup
 /// * `env` - The environment to register functions into
-pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut Environment) {
+/// * `canon` - Optional canonical IR (from `ori_canon::lower_module`)
+pub fn register_module_functions(
+    module: &Module,
+    arena: &SharedArena,
+    env: &mut Environment,
+    canon: Option<&SharedCanonResult>,
+) {
     // Group functions by name to support multi-clause definitions
     let mut func_groups: FxHashMap<Name, Vec<&ori_ir::Function>> = FxHashMap::default();
     for func in &module.functions {
@@ -55,6 +66,19 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
     }
 
     let captures = env.capture();
+
+    // Build a lookup from function name → CanId for canonical wiring.
+    // A function may appear multiple times in roots (multi-clause), so we
+    // collect all CanIds per name in order.
+    let canon_lookup: FxHashMap<Name, Vec<ori_ir::canon::CanId>> = canon
+        .map(|c| {
+            let mut map: FxHashMap<Name, Vec<ori_ir::canon::CanId>> = FxHashMap::default();
+            for &(name, can_id) in &c.roots {
+                map.entry(name).or_default().push(can_id);
+            }
+            map
+        })
+        .unwrap_or_default();
 
     for (name, funcs) in func_groups {
         if funcs.len() == 1 {
@@ -69,7 +93,7 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
 
             // Use with_patterns if there are any patterns or a guard
             let has_patterns = patterns.iter().any(Option::is_some) || func.guard.is_some();
-            let func_value = if has_patterns {
+            let mut func_value = if has_patterns {
                 FunctionValue::with_patterns(
                     params,
                     patterns,
@@ -90,12 +114,22 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
                     capabilities,
                 )
             };
+
+            // Attach canonical IR if available
+            if let (Some(can_ids), Some(c)) = (canon_lookup.get(&name), canon) {
+                if let Some(&can_id) = can_ids.first() {
+                    func_value.set_canon(can_id, c.clone());
+                }
+            }
+
             env.define(name, Value::Function(func_value), Mutability::Immutable);
         } else {
             // Multiple functions with same name - create Value::MultiClauseFunction
+            let can_ids = canon_lookup.get(&name);
             let clauses: Vec<FunctionValue> = funcs
                 .iter()
-                .map(|func| {
+                .enumerate()
+                .map(|(i, func)| {
                     let params_slice = arena.get_params(func.params);
                     let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
                     // Note: MatchPattern clone is cheap - small enum with u32 newtypes (no heap alloc)
@@ -103,7 +137,7 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
                     let defaults: Vec<_> = params_slice.iter().map(|p| p.default).collect();
                     let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
 
-                    FunctionValue::with_patterns(
+                    let mut fv = FunctionValue::with_patterns(
                         params,
                         patterns,
                         func.guard,
@@ -112,7 +146,16 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
                         captures.clone(),
                         arena.clone(),
                         capabilities,
-                    )
+                    );
+
+                    // Attach canonical IR if available (each clause has its own CanId)
+                    if let (Some(ids), Some(c)) = (can_ids, canon) {
+                        if let Some(&can_id) = ids.get(i) {
+                            fv.set_canon(can_id, c.clone());
+                        }
+                    }
+
+                    fv
                 })
                 .collect();
             env.define(
@@ -392,7 +435,7 @@ mod tests {
 
         let arena = SharedArena::new(result.arena.clone());
         let mut env = Environment::new();
-        register_module_functions(&result.module, &arena, &mut env);
+        register_module_functions(&result.module, &arena, &mut env, None);
 
         let add_name = interner.intern("add");
         let main_name = interner.intern("main");

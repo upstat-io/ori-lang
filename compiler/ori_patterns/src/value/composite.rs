@@ -16,6 +16,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock};
 
+use ori_ir::canon::{CanId, SharedCanonResult};
 use ori_ir::{ExprArena, ExprId, MatchPattern, Name, SharedArena};
 
 use super::Value;
@@ -115,39 +116,52 @@ impl StructValue {
 /// This eliminates potential race conditions and simplifies reasoning about
 /// closure behavior.
 ///
-/// # Arena Requirement (Thread Safety)
-/// Every function carries its own arena reference. This is required for thread
-/// safety in parallel execution - when functions are called from different
-/// contexts (e.g., parallel test runner), they must use their own arena to
-/// resolve `ExprId` values correctly.
+/// # Dual-Mode Evaluation (Transition)
+///
+/// During the migration from `ExprArena`-based to `CanonResult`-based evaluation,
+/// functions carry both `body`/`arena` (legacy) and `can_body`/`canon` (canonical).
+/// The evaluator uses `can_body`/`canon` when available, falling back to
+/// `body`/`arena` for multi-clause pattern matching (until Part C).
+///
+/// After Part C completes, `body`, `arena`, `patterns`, and `guard` will be removed.
 #[derive(Clone)]
 pub struct FunctionValue {
     /// Parameter names.
     pub params: Vec<Name>,
-    /// Parameter patterns for clause-based matching.
+    /// Parameter patterns for clause-based matching (legacy).
     /// `patterns[i]` is `Some(pattern)` if parameter `i` has a pattern (e.g., literal `0`).
     /// If `None`, the parameter is a simple name binding.
     /// Length matches `params.len()`.
+    /// Will be removed when Part C replaces multi-clause dispatch with decision trees.
     pub patterns: Vec<Option<MatchPattern>>,
-    /// Guard clause expression (evaluated after patterns match).
+    /// Guard clause expression — legacy `ExprId` (evaluated after patterns match).
     /// If present, clause only matches if guard evaluates to true.
+    /// Will be removed when Part C replaces multi-clause dispatch with decision trees.
     pub guard: Option<ExprId>,
-    /// Default value expressions for each parameter.
+    /// Default value expressions for each parameter (legacy `ExprId`).
     /// `defaults[i]` is `Some(expr_id)` if parameter `i` has a default value.
     /// The length matches `params.len()`.
     pub defaults: Vec<Option<ExprId>>,
-    /// Body expression.
+    /// Body expression (legacy `ExprId`).
     pub body: ExprId,
+    /// Canonical body expression. When set, the evaluator dispatches on `CanExpr`
+    /// from the canonical arena instead of `ExprKind` from `ExprArena`.
+    pub can_body: CanId,
     /// Captured environment (frozen at creation).
     ///
     /// No `RwLock` needed since captures are immutable after creation.
     captures: Arc<FxHashMap<Name, Value>>,
-    /// Arena for expression resolution.
+    /// Legacy arena for expression resolution.
     ///
-    /// Required for thread safety - the body `ExprId` must be resolved
-    /// against this arena, not whatever arena happens to be in scope
-    /// at call time.
+    /// Still needed for multi-clause pattern matching (`try_match` reads
+    /// `MatchPattern::Literal(ExprId)` from this arena). Will be removed by Part C.
     arena: SharedArena,
+    /// Canonical IR for this function's body.
+    ///
+    /// When set, `can_body` indexes into this result's `CanArena`.
+    /// Functions created from canonicalized modules have this; lambdas
+    /// inherit it from their enclosing function.
+    canon: Option<SharedCanonResult>,
     /// Required capabilities (from `uses` clause).
     ///
     /// When calling this function, capabilities with these names must be
@@ -176,8 +190,10 @@ impl FunctionValue {
             guard: None,
             defaults: vec![None; len],
             body,
+            can_body: CanId::INVALID,
             captures: Arc::new(captures),
             arena,
+            canon: None,
             capabilities: Vec::new(),
         }
     }
@@ -204,8 +220,10 @@ impl FunctionValue {
             guard: None,
             defaults: vec![None; len],
             body,
+            can_body: CanId::INVALID,
             captures: Arc::new(captures),
             arena,
+            canon: None,
             capabilities,
         }
     }
@@ -235,8 +253,10 @@ impl FunctionValue {
             guard: None,
             defaults,
             body,
+            can_body: CanId::INVALID,
             captures: Arc::new(captures),
             arena,
+            canon: None,
             capabilities,
         }
     }
@@ -274,8 +294,10 @@ impl FunctionValue {
             guard,
             defaults,
             body,
+            can_body: CanId::INVALID,
             captures: Arc::new(captures),
             arena,
+            canon: None,
             capabilities,
         }
     }
@@ -316,8 +338,10 @@ impl FunctionValue {
             guard: None,
             defaults: vec![None; len],
             body,
+            can_body: CanId::INVALID,
             captures,
             arena,
+            canon: None,
             capabilities,
         }
     }
@@ -350,8 +374,10 @@ impl FunctionValue {
             guard: None,
             defaults,
             body,
+            can_body: CanId::INVALID,
             captures,
             arena,
+            canon: None,
             capabilities,
         }
     }
@@ -381,8 +407,10 @@ impl FunctionValue {
             guard,
             defaults,
             body,
+            can_body: CanId::INVALID,
             captures,
             arena,
+            canon: None,
             capabilities,
         }
     }
@@ -402,9 +430,29 @@ impl FunctionValue {
         !self.captures.is_empty()
     }
 
-    /// Get the arena for this function.
+    /// Get the legacy arena for this function (for multi-clause pattern matching).
     pub fn arena(&self) -> &ExprArena {
         &self.arena
+    }
+
+    /// Get the canonical IR for this function, if available.
+    pub fn canon(&self) -> Option<&SharedCanonResult> {
+        self.canon.as_ref()
+    }
+
+    /// Check if this function has canonical IR available.
+    pub fn has_canon(&self) -> bool {
+        self.canon.is_some() && self.can_body.is_valid()
+    }
+
+    /// Set canonical IR for this function.
+    ///
+    /// Called after construction to attach canonical data without modifying
+    /// every constructor's signature. The `can_body` must index into the
+    /// `canon` result's `CanArena`.
+    pub fn set_canon(&mut self, can_body: CanId, canon: SharedCanonResult) {
+        self.can_body = can_body;
+        self.canon = Some(canon);
     }
 
     /// Get the required capabilities for this function.

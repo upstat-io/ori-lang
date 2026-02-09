@@ -15,6 +15,7 @@ use ori_eval::{
     register_module_functions, register_newtype_constructors, register_variant_constructors,
     UserMethodRegistry,
 };
+use ori_ir::canon::SharedCanonResult;
 use std::path::Path;
 
 impl Evaluator<'_> {
@@ -35,6 +36,7 @@ impl Evaluator<'_> {
         &mut self,
         parse_result: &ParseOutput,
         file_path: &Path,
+        canon: Option<&SharedCanonResult>,
     ) -> Result<(), String> {
         // Resolve all imports via the unified pipeline (prelude + explicit use statements).
         let resolved = imports::resolve_imports(self.db, parse_result, file_path);
@@ -90,8 +92,8 @@ impl Evaluator<'_> {
         // when called from different contexts (e.g., from within a prelude function)
         let shared_arena = SharedArena::new(parse_result.arena.clone());
 
-        // Then register all local functions
-        register_module_functions(&parse_result.module, &shared_arena, self.env_mut());
+        // Then register all local functions (with canonical IR when available)
+        register_module_functions(&parse_result.module, &shared_arena, self.env_mut(), canon);
 
         // Register variant constructors from type declarations
         register_variant_constructors(&parse_result.module, self.env_mut());
