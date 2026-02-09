@@ -175,7 +175,7 @@ impl TypeInfo {
 **Note:** `ArcClass` is defined in `ori_arc` (Section 05), not here. The `TypeInfo` enum does not contain ARC classification — it queries `ArcClassification` when needed for emit_retain/emit_release decisions.
 
 - [x] Define `TypeInfo` enum in `ori_llvm/src/codegen/type_info.rs`
-- [ ] Import `ParamPassing`, `ReturnPassing` enums from Section 04.2 (canonical definitions)
+- [x] Import `ParamPassing`, `ReturnPassing` enums from Section 04.2 (canonical definitions)
 - [x] Implement all methods on `TypeInfo` via `match self { ... }`
 - [x] Define `TypeInfoStore` to look up TypeInfo by `Idx` (see 01.5)
 - [x] Implement `TypeInfo::Error` variant for unknown/error types and unreachable tags

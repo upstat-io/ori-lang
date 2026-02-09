@@ -40,6 +40,18 @@
 
 use std::cell::{Cell, RefCell};
 use std::ffi::CStr;
+use std::panic;
+
+/// Ori panic payload for stack unwinding (AOT mode).
+///
+/// Wrapped in `std::panic::panic_any` so the Itanium EH ABI
+/// unwinds through LLVM-generated `invoke`/`landingpad` pairs,
+/// giving cleanup handlers a chance to release RC'd resources.
+///
+/// The entry point wrapper catches this with `catch_unwind`.
+pub struct OriPanic {
+    pub message: String,
+}
 
 /// Ori string representation: { i64 len, *const u8 data }
 #[repr(C)]
@@ -479,14 +491,16 @@ pub extern "C" fn ori_panic(s: *const OriStr) {
         }
     }
 
-    // AOT path: print and terminate
+    // AOT path: unwind via Rust panic infrastructure.
+    // LLVM invoke/landingpad in the caller will catch this and run
+    // RC cleanup before re-raising or terminating.
     eprintln!("ori panic: {msg}");
-    std::process::exit(1);
+    panic::panic_any(OriPanic { message: msg });
 }
 
 /// Panic with a C string message.
 ///
-/// Same dispatch order as `ori_panic`: user handler → JIT longjmp → exit.
+/// Same dispatch order as `ori_panic`: user handler → JIT longjmp → unwind.
 #[no_mangle]
 pub extern "C" fn ori_panic_cstr(s: *const i8) {
     let msg = if s.is_null() {
@@ -512,9 +526,9 @@ pub extern "C" fn ori_panic_cstr(s: *const i8) {
         }
     }
 
-    // AOT path: print and terminate
+    // AOT path: unwind via Rust panic infrastructure
     eprintln!("ori panic: {msg}");
-    std::process::exit(1);
+    panic::panic_any(OriPanic { message: msg });
 }
 
 /// Assert that a condition is true.
@@ -877,5 +891,39 @@ pub extern "C" fn ori_register_panic_handler(handler: *const ()) {
     // SAFETY: Called once during single-threaded main() initialization
     unsafe {
         ORI_PANIC_TRAMPOLINE = Some(std::mem::transmute::<*const (), PanicTrampoline>(handler));
+    }
+}
+
+// ── AOT entry point wrapper ─────────────────────────────────────────────
+
+/// Wrap an AOT `@main` call with `catch_unwind` to handle Ori panics.
+///
+/// The LLVM-generated `main()` calls this instead of calling `@main` directly.
+/// This catches the `OriPanic` payload from `panic_any` and converts it to
+/// `exit(1)`, preventing the Rust runtime from printing an ugly panic message.
+///
+/// `main_fn` is a function pointer to the user's compiled `@main` (void → void
+/// or void → int variant).
+///
+/// Returns 0 on success, 1 on panic.
+#[no_mangle]
+pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        main_fn();
+    }));
+
+    match result {
+        Ok(()) => 0,
+        Err(payload) => {
+            // Check if this is our structured OriPanic
+            if payload.downcast_ref::<OriPanic>().is_some() {
+                // Message already printed by ori_panic/ori_panic_cstr
+                1
+            } else {
+                // Unknown panic (shouldn't happen in well-formed programs)
+                eprintln!("ori panic: unexpected error");
+                1
+            }
+        }
     }
 }

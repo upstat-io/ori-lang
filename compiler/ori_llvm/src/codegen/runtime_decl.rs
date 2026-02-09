@@ -42,13 +42,16 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
 
     // -- Panic functions --
     // cold: panic paths are rarely taken; moves code out of hot layout
-    // nounwind: panic = abort (no unwinding through Ori panics)
+    // NOT nounwind: ori_panic unwinds via Rust panic infrastructure
+    // so LLVM invoke/landingpad can run RC cleanup handlers
     let panic_fn = builder.declare_extern_function("ori_panic", &[ptr_ty], void);
     builder.add_cold_attribute(panic_fn);
-    builder.add_nounwind_attribute(panic_fn);
     let panic_cstr = builder.declare_extern_function("ori_panic_cstr", &[ptr_ty], void);
     builder.add_cold_attribute(panic_cstr);
-    builder.add_nounwind_attribute(panic_cstr);
+
+    // -- Entry point wrapper --
+    // ori_run_main wraps @main with catch_unwind for clean panic handling
+    builder.declare_extern_function("ori_run_main", &[ptr_ty], Some(i32_ty));
 
     // -- Assertion functions --
     builder.declare_extern_function("ori_assert", &[bool_ty], void);
@@ -129,6 +132,13 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
 
     // -- Panic handler registration --
     builder.declare_extern_function("ori_register_panic_handler", &[ptr_ty], void);
+
+    // -- EH personality (Itanium ABI) --
+    // Required by any function containing invoke/landingpad.
+    // Declared as external — provided by the C++ runtime (libgcc/libc++abi).
+    let personality =
+        builder.declare_extern_function("__gxx_personality_v0", &[i32_ty], Some(i32_ty));
+    builder.add_nounwind_attribute(personality);
 }
 
 // ---------------------------------------------------------------------------

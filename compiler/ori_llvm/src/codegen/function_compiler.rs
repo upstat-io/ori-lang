@@ -21,7 +21,7 @@ use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
 
-use crate::aot::debug::DebugContext;
+use crate::aot::debug::{DebugContext, DebugLevel};
 use crate::aot::mangle::Mangler;
 
 use super::abi::{
@@ -32,7 +32,7 @@ use super::expr_lowerer::ExprLowerer;
 use super::ir_builder::IrBuilder;
 use super::scope::Scope;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
-use super::value_id::FunctionId;
+use super::value_id::{FunctionId, ValueId};
 
 // ---------------------------------------------------------------------------
 // FunctionCompiler
@@ -386,7 +386,14 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
         let param_offset: u32 = u32::from(has_sret);
 
+        let emit_debug = self
+            .debug_context
+            .is_some_and(|dc| dc.level() == DebugLevel::Full);
+
         let mut llvm_param_idx = param_offset;
+        // DWARF arg numbers are 1-based
+        let mut dwarf_arg_no: u32 = 1;
+
         for param in &abi.params {
             match &param.passing {
                 ParamPassing::Direct | ParamPassing::Indirect { .. } => {
@@ -395,7 +402,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     self.builder.set_value_name(param_val, name_str);
 
                     scope.bind_immutable(param.name, param_val);
+
+                    if emit_debug {
+                        self.emit_param_debug(param_val, name_str, dwarf_arg_no, param.ty);
+                    }
+
                     llvm_param_idx += 1;
+                    dwarf_arg_no += 1;
                 }
                 ParamPassing::Reference => {
                     // Borrowed parameter: received as pointer, load the value
@@ -408,15 +421,36 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     let param_ty_id = self.builder.register_type(param_ty);
                     let loaded = self.builder.load(param_ty_id, param_ptr, name_str);
                     scope.bind_immutable(param.name, loaded);
+
+                    if emit_debug {
+                        self.emit_param_debug(loaded, name_str, dwarf_arg_no, param.ty);
+                    }
+
                     llvm_param_idx += 1;
+                    dwarf_arg_no += 1;
                 }
                 ParamPassing::Void => {
                     // Void parameters aren't physically passed — no LLVM param to bind
+                    dwarf_arg_no += 1;
                 }
             }
         }
 
         scope
+    }
+
+    /// Emit `DW_TAG_formal_parameter` debug info for a single parameter.
+    fn emit_param_debug(&mut self, val: ValueId, name: &str, arg_no: u32, ty: Idx) {
+        let dc = self.debug_context.expect("checked by caller");
+        let Some(di_ty) = dc.resolve_debug_type(ty, self.pool) else {
+            return;
+        };
+        let Some(block_id) = self.builder.current_block() else {
+            return;
+        };
+        let block = self.builder.raw_block(block_id);
+        let raw_val = self.builder.raw_value(val);
+        dc.emit_param_debug_info(raw_val, name, arg_no, di_ty, block);
     }
 
     // -----------------------------------------------------------------------

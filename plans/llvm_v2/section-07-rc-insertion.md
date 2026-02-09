@@ -185,16 +185,16 @@ The key advantage of operating on ARC IR: branching, loops, and early exits are 
 - **Block parameters are definitions** at block entry. They must be included in the `kill` set and removed from `live_in`. When computing `live_out` from a successor's `live_in`, block parameters in the successor are replaced with the corresponding jump arguments from the predecessor's terminator.
 - **Postorder traversal** ensures efficient convergence: in the absence of loops, one pass suffices. With loops, the back-edges require additional iterations, but postorder minimizes the number of iterations needed.
 
-- [ ] Implement backward dataflow liveness on ARC IR blocks
-- [ ] Compute gen/kill sets with forward instruction scan (upward-exposed uses)
-- [ ] Compute postorder traversal from CFG edges
-- [ ] Implement `successor_args()` to extract jump arguments per successor
-- [ ] Implement `used_vars()` and `defined_var()` on `ArcInstr` and `ArcTerminator`
-- [ ] Handle block parameters as definitions (include in kill set)
-- [ ] Handle block parameter substitution in live_out computation
-- [ ] Handle loops: fixed-point iteration converges naturally via back-edges
-- [ ] Handle closures: captured variables live until closure value is dead
-- [ ] Test liveness on simple ARC IR functions (verify last-use detection)
+- [x] Implement backward dataflow liveness on ARC IR blocks
+- [x] Compute gen/kill sets with forward instruction scan (upward-exposed uses)
+- [x] Compute postorder traversal from CFG edges
+- [x] Implement `successor_args()` to extract jump arguments per successor
+- [x] Implement `used_vars()` and `defined_var()` on `ArcInstr` and `ArcTerminator`
+- [x] Handle block parameters as definitions (include in kill set)
+- [x] Handle block parameter substitution in live_out computation
+- [x] Handle loops: fixed-point iteration converges naturally via back-edges
+- [x] Handle closures: captured variables live until closure value is dead
+- [x] Test liveness on simple ARC IR functions (verify last-use detection)
 
 ## 07.2 RC Operation Insertion
 
@@ -311,14 +311,14 @@ When a `Project` instruction extracts a field from a variable that is a Borrowed
 
 This ensures that values derived from borrowed parameters correctly transition to independent ownership when needed.
 
-- [ ] Implement RC insertion on ARC IR blocks using liveness results
-- [ ] Implement correct backward push order: Dec, instruction, Inc (reversed to Inc, instruction, Dec)
-- [ ] Handle Borrowed parameters (skip entirely per borrow_info)
-- [ ] Handle multiple uses (inc before each non-last use)
-- [ ] Handle dead variables (dec immediately after definition)
-- [ ] Handle block boundaries (variables live-out but not used in successors)
-- [ ] Implement derived value (borrows) tracking for projection optimization
-- [ ] Test: verify RC instructions on simple ARC IR functions
+- [x] Implement RC insertion on ARC IR blocks using liveness results
+- [x] Implement correct backward push order: Dec, instruction, Inc (reversed to Inc, instruction, Dec)
+- [x] Handle Borrowed parameters (skip entirely per borrow_info)
+- [x] Handle multiple uses (inc before each non-last use)
+- [x] Handle dead variables (dec immediately after definition)
+- [x] Handle block boundaries (variables live-out but not used in successors)
+- [x] Implement derived value (borrows) tracking for projection optimization
+- [x] Test: verify RC instructions on simple ARC IR functions
 
 ## 07.3 Runtime Integration
 
@@ -383,11 +383,11 @@ Heap allocation:
 | `{K: V}` | `{i64, i64, ptr, ptr}` | `[rc \| keys...]`, `[rc \| vals...]` |
 | `set[T]` | `{i64, i64, ptr}` | `[rc \| elements...]` |
 
-- [ ] **Prerequisite:** Redesign `ori_rt` to Roc-style layout before V2 codegen
-- [ ] Implement new `ori_rt` API: `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free`
-- [ ] Implement RC op emission in codegen (IrBuilder emits calls to ori_rt)
-- [ ] Emit correct pointer arithmetic: strong_count at `ptr - 8`, data at `ptr`
-- [ ] Pass specialized drop function pointer to `ori_rc_dec`
+- [x] **Prerequisite:** Redesign `ori_rt` to Roc-style layout before V2 codegen
+- [x] Implement new `ori_rt` API: `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free`
+- [x] Implement RC op emission in codegen (IrBuilder emits calls to ori_rt)
+- [x] Emit correct pointer arithmetic: strong_count at `ptr - 8`, data at `ptr`
+- [x] Pass specialized drop function pointer to `ori_rc_dec`
 
 ### Weak References for Cycle Safety
 
@@ -611,11 +611,11 @@ Cross-block detection is not required for the initial implementation but the ARC
 
 **Section 09** expands `Reset`/`Reuse` pairs into `isShared` + fast/slow conditional paths. After Section 09, no `Reset` or `Reuse` instructions remain in the ARC IR.
 
-- [ ] Scan for `RcDec` + `Construct same_type` patterns after RC insertion
-- [ ] Verify same-type constraint (constructor-identity, not size-based)
-- [ ] Verify no aliasing of the dec'd variable between dec and construct
-- [ ] Replace `RcDec`/`Construct` with `Reset`/`Reuse` pairs
-- [ ] Test: `map` over a list produces `Reset`/`Reuse` pairs
+- [x] Scan for `RcDec` + `Construct same_type` patterns after RC insertion
+- [x] Verify same-type constraint (constructor-identity, not size-based)
+- [x] Verify no aliasing of the dec'd variable between dec and construct
+- [x] Replace `RcDec`/`Construct` with `Reset`/`Reuse` pairs
+- [x] Test: `map` over a list produces `Reset`/`Reuse` pairs
 
 ---
 

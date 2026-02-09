@@ -79,8 +79,17 @@ fn test_compile_module_with_tests_empty() {
     };
 
     let arena = ori_ir::ExprArena::new();
-    let result =
-        evaluator.compile_module_with_tests(&module, &[], &arena, &interner, &[], &[], &[], &[]);
+    let result = evaluator.compile_module_with_tests(
+        &module,
+        &[],
+        &arena,
+        &interner,
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+    );
 
     assert!(
         result.is_ok(),
