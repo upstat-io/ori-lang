@@ -22,29 +22,29 @@ impl Parser<'_> {
     ///
     /// Returns `EmptyErr` if no `$` is present.
     pub(crate) fn parse_const(&mut self, visibility: Visibility) -> ParseOutcome<ConstDef> {
-        if !self.check(&TokenKind::Dollar) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Dollar, self.position());
+        if !self.cursor.check(&TokenKind::Dollar) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Dollar, self.cursor.position());
         }
 
         self.parse_const_body(visibility)
     }
 
     fn parse_const_body(&mut self, visibility: Visibility) -> ParseOutcome<ConstDef> {
-        let start_span = self.current_span();
+        let start_span = self.cursor.current_span();
 
         // $
-        committed!(self.expect(&TokenKind::Dollar));
+        committed!(self.cursor.expect(&TokenKind::Dollar));
 
         // name
-        let name = committed!(self.expect_ident());
+        let name = committed!(self.cursor.expect_ident());
 
         // =
-        committed!(self.expect(&TokenKind::Eq));
+        committed!(self.cursor.expect(&TokenKind::Eq));
 
         // literal value
         let value = require!(self, self.parse_literal_expr(), "literal value");
 
-        let span = start_span.merge(self.previous_span());
+        let span = start_span.merge(self.cursor.previous_span());
 
         ParseOutcome::consumed_ok(ConstDef {
             name,
@@ -58,10 +58,10 @@ impl Parser<'_> {
     ///
     /// Returns `EmptyErr` if the current token is not a valid literal.
     fn parse_literal_expr(&mut self) -> ParseOutcome<ori_ir::ExprId> {
-        let span = self.current_span();
-        let kind = match *self.current_kind() {
+        let span = self.cursor.current_span();
+        let kind = match *self.cursor.current_kind() {
             TokenKind::Int(n) => {
-                self.advance();
+                self.cursor.advance();
                 let Ok(value) = i64::try_from(n) else {
                     return ParseOutcome::consumed_err(
                         ParseError::new(
@@ -75,37 +75,37 @@ impl Parser<'_> {
                 ExprKind::Int(value)
             }
             TokenKind::Float(bits) => {
-                self.advance();
+                self.cursor.advance();
                 ExprKind::Float(bits)
             }
             TokenKind::String(s) => {
-                self.advance();
+                self.cursor.advance();
                 ExprKind::String(s)
             }
             TokenKind::True => {
-                self.advance();
+                self.cursor.advance();
                 ExprKind::Bool(true)
             }
             TokenKind::False => {
-                self.advance();
+                self.cursor.advance();
                 ExprKind::Bool(false)
             }
             TokenKind::Char(c) => {
-                self.advance();
+                self.cursor.advance();
                 ExprKind::Char(c)
             }
             // Duration literals (e.g., 100ms, 30s)
             TokenKind::Duration(value, unit) => {
-                self.advance();
+                self.cursor.advance();
                 ExprKind::Duration { value, unit }
             }
             // Size literals (e.g., 4kb, 10mb)
             TokenKind::Size(value, unit) => {
-                self.advance();
+                self.cursor.advance();
                 ExprKind::Size { value, unit }
             }
             _ => {
-                return ParseOutcome::empty_err(CONST_LITERAL_TOKENS, self.position());
+                return ParseOutcome::empty_err(CONST_LITERAL_TOKENS, self.cursor.position());
             }
         };
 

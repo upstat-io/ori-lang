@@ -96,15 +96,18 @@ ControlAction, Break, Continue, Propagate, control flow separation
 ---
 
 ### Section 07: Backend Migration
-**File:** `section-07-backend-migration.md` | **Status:** Not Started
+**File:** `section-07-backend-migration.md` | **Status:** In Progress (07.1 + 07.2 Complete — 2026-02-10)
 
 ```
-migration, backend, rewrite, dispatch, eval_canon
+migration, backend, rewrite, dispatch, eval_can, eval_canon
 ori_eval, ori_arc, ori_llvm, ExprKind, CanExpr
-shadow, validate, cut-over, delete, dead code
+dual-mode, canonical path, legacy fallback, cut-over, delete, dead code
+lower_module, lower_multi_clause, multi-clause function, decision tree
+self-contained IR, CanBindingPattern, CanParam, CanNamedExpr, SharedCanonResult
+FunctionValue, can_body, MultiClauseFunction eliminated
 sync, verification, cross-backend, divergence
 invoke, landingpad, resume, unwind, panic, cleanup, exception handling
-ArcTerminator, Invoke, Resume, __gxx_personality_v0, Itanium EH
+ArcTerminator, Invoke, Resume, rust_eh_personality, Itanium EH, fastcc CC mismatch
 cross-block, RC elimination, dataflow, rc_elim, edge pair
 ASAN, leak, end-to-end, AOT panic, debug info
 ```
@@ -121,4 +124,4 @@ ASAN, leak, end-to-end, AOT panic, debug info
 | 04 | Constant Folding | `section-04-constant-folding.md` | 1 |
 | 05 | Evaluation Modes | `section-05-eval-modes.md` | 1 |
 | 06 | Structured Diagnostics | `section-06-diagnostics.md` | 1 |
-| 07 | Backend Migration | `section-07-backend-migration.md` | 2 |
+| 07 | Backend Migration (07.1-07.2 Complete) | `section-07-backend-migration.md` | 2 |

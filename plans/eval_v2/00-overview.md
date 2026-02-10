@@ -85,7 +85,7 @@ pub enum CanExpr {
     // === Operators ===
     Binary { op: BinaryOp, left: CanId, right: CanId },
     Unary { op: UnaryOp, operand: CanId },
-    Cast { expr: CanId, ty: ParsedTypeId, fallible: bool },
+    Cast { expr: CanId, target: Name, fallible: bool },  // target is type name, not ParsedTypeId
 
     // === Calls (always positional — named args already reordered) ===
     Call { func: CanId, args: CanRange },
@@ -105,11 +105,11 @@ pub enum CanExpr {
 
     // === Bindings ===
     Block { stmts: CanRange, result: CanId },
-    Let { pattern: BindingPatternId, ty: ParsedTypeId, init: CanId, mutable: bool },
+    Let { pattern: CanBindingPatternId, init: CanId, mutable: bool },  // self-contained
     Assign { target: CanId, value: CanId },
 
     // === Functions ===
-    Lambda { params: ParamRange, ret_ty: ParsedTypeId, body: CanId },
+    Lambda { params: CanParamRange, body: CanId },  // self-contained, no ParsedTypeId
 
     // === Collections (no spread variants — already expanded) ===
     List(CanRange),
@@ -131,9 +131,8 @@ pub enum CanExpr {
     // === Capabilities ===
     WithCapability { capability: Name, provider: CanId, body: CanId },
 
-    // === Special Forms ===
-    FunctionSeq(FunctionSeqId),
-    FunctionExp(FunctionExpId),
+    // === Special Forms (self-contained — no ExprArena back-references) ===
+    FunctionExp { kind: FunctionExpKind, props: CanNamedExprRange },  // inlined, no FunctionExpId
 
     // === Error Recovery ===
     Error,
@@ -144,9 +143,15 @@ pub enum CanExpr {
 - No `CallNamed` / `MethodCallNamed` — desugared to positional `Call` / `MethodCall`
 - No `TemplateLiteral` / `TemplateFull` — desugared to `Str` + `.to_str()` + `.concat()` chains
 - No `ListWithSpread` / `MapWithSpread` / `StructWithSpread` — desugared to `List`/`Map`/`Struct` + method calls
+- No `FunctionSeq` — desugared to `Block`/`Match` during lowering
+- No `ParsedTypeId` — resolved types on `CanNode.ty`, cast targets use `Name`
+- No `BindingPatternId` — replaced by self-contained `CanBindingPatternId`
+- No `ParamRange` — replaced by self-contained `CanParamRange`
+- No `FunctionExpId` — inlined as `FunctionExp { kind, props: CanNamedExprRange }`
 - Added `Constant(ConstantId)` — compile-time-folded values
 - Added `DecisionTreeId` on Match — patterns pre-compiled to decision trees
 - Uses `CanId` / `CanRange` (not `ExprId` / `ExprRange`) — distinct index space
+- **Fully self-contained** — zero `ExprArena` back-references; evaluator and LLVM backend need only `CanonResult`
 
 ### Crate Structure
 
@@ -202,7 +207,7 @@ fn canonicalize(db: &dyn Db, module: Module) -> CanonResult {
 | 04 | Constant Folding | Compile-time evaluation during lowering | ~500 | ✅ Complete |
 | 05 | Evaluation Modes | `EvalMode` enum — Interpret/ConstEval/TestRun | ~500 | ✅ Complete |
 | 06 | Structured Diagnostics | `EvalErrorKind`, backtraces, `EvalCounters`, `--profile`, `ControlAction` | ~800 | ✅ Complete |
-| 07 | Backend Migration | Rewrite eval + LLVM to consume `CanExpr`; delete old dispatch | ~2,500 | Not Started |
+| 07 | Backend Migration | Rewrite eval + LLVM to consume `CanExpr`; delete old dispatch | ~2,500 | 07.1-07.2 Complete (eval + LLVM/ARC + invoke) |
 
 **Total: ~7,700 lines**
 
@@ -234,9 +239,11 @@ Section 07 (Backend Migration) ← depends on ALL above
 3. **Sections 03-04** ✅: Pattern compilation and constant folding integrated into the lowering pass. Decision trees stored in `DecisionTreePool`. Constants stored in `ConstantPool`. Decision tree walker in `ori_eval` ready for Section 07 wiring. *Completed 2026-02-09.*
 4. **Section 05** ✅: `EvalMode` enum (Interpret/ConstEval/TestRun) with policy methods, `ModeState` for budget tracking, `PrintHandlerImpl::Silent` for const-eval, unified recursion limits (removed `#[cfg]` duplication). All construction sites specify mode. Test runner uses `TestRun` mode. *Completed 2026-02-09.*
 4b. **Section 06** ✅: Structured diagnostics — `EvalErrorKind` (24 variants), `CallStack` replacing `call_depth`, `EvalBacktrace` for error context, `EvalCounters` for `--profile`, `eval_error_to_diagnostic()` with E6xxx error codes. `EvalErrorSnapshot` preserves full error context at Salsa boundary. `snapshot_to_diagnostic()` enriches backtraces with file:line:col. `--profile` CLI flag wired with counter report. Counter increments at `eval_inner()`, `eval_call()`, `eval_method_call()`, `eval_match()`. `ControlAction` refactor: control flow signals (Break/Continue/Propagate) extracted from `EvalError` into first-class enum; `EvalResult = Result<Value, ControlAction>`. *Complete 2026-02-09.*
-5. **Section 07**: The payoff. Rewrite `ori_eval` to dispatch on `CanExpr`. Update `ori_arc` to lower from `CanExpr`. Delete all `ExprKind` dispatch from both backends. Verify full test suite.
+5. **Section 07.1** ✅: Evaluator migration complete. Self-contained canonical IR (zero ExprArena back-references). `eval_can()` dispatches exhaustively on `CanExpr`. `lower_module()` canonicalizes all function bodies. Multi-clause functions compiled to decision trees at lowering time (`Value::MultiClauseFunction` eliminated). `FunctionValue` carries `SharedCanonResult`. All 8434 tests pass. *Completed 2026-02-09.*
+6. **Section 07.2** ✅: LLVM/ARC migration. Both backends now consume `CanExpr` exclusively (~500+ lines of sugar dispatch deleted). `invoke`/`landingpad` wired for user-defined calls with `rust_eh_personality`. All 8434 tests pass. *Completed 2026-02-10.*
+7. **Section 07.3-07.5**: Dead code removal and cross-backend sync verification.
 
-At every step, `./test-all.sh` must pass. Section 07 is the "big bang" step — but by that point, the canonical IR is proven correct (Sections 01-04) and the backends just need mechanical migration.
+At every step, `./test-all.sh` must pass. Section 07.1 proved the canonical IR correct end-to-end in the evaluator. Section 07.2 is mechanical — `ori_arc` already consumes the same decision tree types from `ori_ir`.
 
 ---
 

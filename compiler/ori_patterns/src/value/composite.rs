@@ -147,6 +147,10 @@ pub struct FunctionValue {
     /// Functions created from canonicalized modules have this; lambdas
     /// inherit it from their enclosing function.
     canon: Option<SharedCanonResult>,
+    /// Canonical default expressions for each parameter.
+    /// `can_defaults[i]` is `Some(can_id)` if parameter `i` has a canonicalized default.
+    /// When set, the evaluator uses `eval_can(can_id)` instead of `eval(defaults[i])`.
+    can_defaults: Vec<Option<CanId>>,
     /// Required capabilities (from `uses` clause).
     ///
     /// When calling this function, capabilities with these names must be
@@ -177,6 +181,7 @@ impl FunctionValue {
             captures: Arc::new(captures),
             arena,
             canon: None,
+            can_defaults: Vec::new(),
             capabilities: Vec::new(),
         }
     }
@@ -205,6 +210,7 @@ impl FunctionValue {
             captures: Arc::new(captures),
             arena,
             canon: None,
+            can_defaults: Vec::new(),
             capabilities,
         }
     }
@@ -235,6 +241,7 @@ impl FunctionValue {
             captures: Arc::new(captures),
             arena,
             canon: None,
+            can_defaults: Vec::new(),
             capabilities,
         }
     }
@@ -272,6 +279,7 @@ impl FunctionValue {
             captures,
             arena,
             canon: None,
+            can_defaults: Vec::new(),
             capabilities,
         }
     }
@@ -305,6 +313,7 @@ impl FunctionValue {
             captures,
             arena,
             canon: None,
+            can_defaults: Vec::new(),
             capabilities,
         }
     }
@@ -347,6 +356,28 @@ impl FunctionValue {
     pub fn set_canon(&mut self, can_body: CanId, canon: SharedCanonResult) {
         self.can_body = can_body;
         self.canon = Some(canon);
+    }
+
+    /// Set canonical default expressions for this function's parameters.
+    ///
+    /// Called after construction to attach canonicalized defaults without modifying
+    /// every constructor. The `CanId` values index into the function's `canon` arena.
+    pub fn set_can_defaults(&mut self, can_defaults: Vec<Option<CanId>>) {
+        debug_assert!(
+            can_defaults.is_empty() || can_defaults.len() == self.params.len(),
+            "can_defaults length must match params length"
+        );
+        self.can_defaults = can_defaults;
+    }
+
+    /// Get the canonical default expressions for this function's parameters.
+    pub fn can_defaults(&self) -> &[Option<CanId>] {
+        &self.can_defaults
+    }
+
+    /// Check if this function has canonical defaults available.
+    pub fn has_can_defaults(&self) -> bool {
+        self.can_defaults.iter().any(Option::is_some)
     }
 
     /// Get the required capabilities for this function.

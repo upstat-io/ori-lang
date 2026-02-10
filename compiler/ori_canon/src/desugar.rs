@@ -46,10 +46,10 @@ impl Lowerer<'_> {
         let src_args: Vec<(Option<Name>, ExprId)> =
             src_args.iter().map(|a| (a.name, a.value)).collect();
 
-        // Try to resolve the function signature for reordering.
-        let param_names = self.resolve_func_param_names(func_kind);
+        // Try to resolve the function signature for reordering and default filling.
+        let params = self.resolve_func_params(func_kind);
 
-        let lowered_args = self.reorder_and_lower_args(&src_args, param_names.as_deref());
+        let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
         let args_range = self.arena.push_expr_list(&lowered_args);
 
         self.push(
@@ -83,10 +83,10 @@ impl Lowerer<'_> {
         let src_args: Vec<(Option<Name>, ExprId)> =
             src_args.iter().map(|a| (a.name, a.value)).collect();
 
-        // Try to resolve the method signature for reordering.
-        let param_names = self.resolve_method_param_names(method);
+        // Try to resolve the method signature for reordering and default filling.
+        let params = self.resolve_method_params(method);
 
-        let lowered_args = self.reorder_and_lower_args(&src_args, param_names.as_deref());
+        let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
         let args_range = self.arena.push_expr_list(&lowered_args);
 
         self.push(
@@ -100,20 +100,22 @@ impl Lowerer<'_> {
         )
     }
 
-    /// Reorder named arguments to match parameter order, then lower each.
+    /// Reorder named arguments to match parameter order, filling omitted
+    /// parameters with their default expressions.
     ///
-    /// If `param_names` is available, arguments with names are placed in the
+    /// If `params` is available, arguments with names are placed in the
     /// corresponding parameter position. Unnamed/positional arguments fill
-    /// remaining slots left-to-right. If `param_names` is `None`, arguments
-    /// stay in source order (fallback).
+    /// remaining slots left-to-right. Empty slots are filled by lowering the
+    /// parameter's default expression. If `params` is `None`, arguments stay
+    /// in source order (fallback for lambdas and error recovery).
     fn reorder_and_lower_args(
         &mut self,
         src_args: &[(Option<Name>, ExprId)],
-        param_names: Option<&[Name]>,
+        params: Option<&[(Name, Option<ExprId>)]>,
     ) -> Vec<CanId> {
-        match param_names {
+        match params {
             Some(params) if !params.is_empty() => {
-                // Build positional slots.
+                // Build positional slots matching parameter count.
                 let mut slots: Vec<Option<CanId>> = vec![None; params.len()];
                 let mut unnamed = Vec::new();
 
@@ -121,7 +123,7 @@ impl Lowerer<'_> {
                     let lowered = self.lower_expr(value);
                     if let Some(arg_name) = name {
                         // Find the parameter position by name.
-                        if let Some(pos) = params.iter().position(|&p| p == arg_name) {
+                        if let Some(pos) = params.iter().position(|(p, _)| *p == arg_name) {
                             slots[pos] = Some(lowered);
                         } else {
                             // Unknown param name — append as-is (error recovery).
@@ -132,17 +134,21 @@ impl Lowerer<'_> {
                     }
                 }
 
-                // Fill empty slots with unnamed arguments left-to-right.
+                // Fill empty slots: first try unnamed positional args, then defaults.
                 let mut unnamed_iter = unnamed.into_iter();
-                for slot in &mut slots {
+                for (i, slot) in slots.iter_mut().enumerate() {
                     if slot.is_none() {
                         if let Some(val) = unnamed_iter.next() {
                             *slot = Some(val);
+                        } else if let Some(default_expr) = params[i].1 {
+                            // Lower the default expression from the function signature.
+                            *slot = Some(self.lower_expr(default_expr));
                         }
                     }
                 }
 
-                // Collect: named args in position, then any remaining unnamed.
+                // Collect: all slots (filled by named args, positional args, or defaults),
+                // then any remaining unnamed args (error recovery — more args than params).
                 let mut result: Vec<CanId> = slots.into_iter().flatten().collect();
                 result.extend(unnamed_iter);
                 result
@@ -157,22 +163,47 @@ impl Lowerer<'_> {
         }
     }
 
-    /// Try to resolve parameter names from a function expression.
-    fn resolve_func_param_names(&self, func_kind: ori_ir::ExprKind) -> Option<Vec<Name>> {
+    /// Try to resolve parameter info (names + defaults) from a function expression.
+    fn resolve_func_params(
+        &self,
+        func_kind: ori_ir::ExprKind,
+    ) -> Option<Vec<(Name, Option<ExprId>)>> {
         let (ori_ir::ExprKind::Ident(name) | ori_ir::ExprKind::FunctionRef(name)) = func_kind
         else {
             return None;
         };
-        self.typed.function(name).map(|sig| sig.param_names.clone())
+        self.typed.function(name).map(|sig| {
+            sig.param_names
+                .iter()
+                .zip(
+                    sig.param_defaults
+                        .iter()
+                        .copied()
+                        .chain(std::iter::repeat(None)),
+                )
+                .map(|(&name, default)| (name, default))
+                .collect()
+        })
     }
 
-    /// Try to resolve parameter names from a method signature.
-    fn resolve_method_param_names(&self, method: Name) -> Option<Vec<Name>> {
+    /// Try to resolve parameter info (names + defaults) from a method signature.
+    fn resolve_method_params(&self, method: Name) -> Option<Vec<(Name, Option<ExprId>)>> {
         self.typed
             .impl_sigs
             .iter()
             .find(|(name, _)| *name == method)
-            .map(|(_, sig)| sig.param_names.clone())
+            .map(|(_, sig)| {
+                sig.param_names
+                    .iter()
+                    .zip(
+                        sig.param_defaults
+                            .iter()
+                            .copied()
+                            .chain(std::iter::repeat(None)),
+                    )
+                    .map(|(&name, default)| (name, default))
+                    .collect()
+            })
     }
 
     // ── TemplateLiteral → .concat() chain ──────────────────────

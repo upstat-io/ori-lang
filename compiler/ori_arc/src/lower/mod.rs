@@ -7,7 +7,7 @@
 //!
 //! # Entry Point
 //!
-//! [`lower_function`] takes a typed function body and produces an [`ArcFunction`]
+//! [`lower_function_can`] takes a canonical IR body and produces an [`ArcFunction`]
 //! plus any lambda bodies as additional [`ArcFunction`]s.
 //!
 //! # Architecture
@@ -26,7 +26,8 @@ mod expr;
 mod patterns;
 pub(crate) mod scope;
 
-use ori_ir::{ExprArena, ExprId, Name, Span, StringInterner};
+use ori_ir::canon::{CanId, CanonResult};
+use ori_ir::{Name, Span, StringInterner};
 use ori_types::Idx;
 use ori_types::Pool;
 
@@ -474,19 +475,19 @@ impl ArcIrBuilder {
 
 // ── Public entry point ─────────────────────────────────────────────
 
-/// Lower a typed function body into ARC IR.
+/// Lower a typed function body from canonical IR into ARC IR.
 ///
-/// Returns the lowered function plus any lambda bodies encountered
-/// during lowering. `problems` collects non-fatal diagnostics.
+/// This is the canonical-IR entry point, consuming `CanId` + `CanonResult`
+/// instead of `ExprId` + `ExprArena`. Returns the lowered function plus
+/// any lambda bodies encountered during lowering.
 // Public API entry point — a config struct would add unnecessary complexity.
 #[allow(clippy::too_many_arguments)]
-pub fn lower_function(
+pub fn lower_function_can(
     name: Name,
     params: &[(Name, Idx)],
     return_type: Idx,
-    body: ExprId,
-    arena: &ExprArena,
-    expr_types: &[Idx],
+    body: CanId,
+    canon: &CanonResult,
     interner: &StringInterner,
     pool: &Pool,
     problems: &mut Vec<ArcProblem>,
@@ -512,8 +513,8 @@ pub fn lower_function(
     // Lower the body expression.
     let mut lowerer = ArcLowerer {
         builder: &mut builder,
-        arena,
-        expr_types,
+        arena: &canon.arena,
+        canon,
         interner,
         pool,
         scope,

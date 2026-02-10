@@ -17,8 +17,8 @@ impl Parser<'_> {
         attrs: ParsedAttrs,
         visibility: Visibility,
     ) -> ParseOutcome<FunctionOrTest> {
-        if !self.check(&TokenKind::At) {
-            return ParseOutcome::empty_err_expected(&TokenKind::At, self.position());
+        if !self.cursor.check(&TokenKind::At) {
+            return ParseOutcome::empty_err_expected(&TokenKind::At, self.cursor.position());
         }
 
         self.in_error_context(crate::ErrorContext::FunctionDef, |p| {
@@ -31,37 +31,37 @@ impl Parser<'_> {
         attrs: ParsedAttrs,
         visibility: Visibility,
     ) -> ParseOutcome<FunctionOrTest> {
-        let start_span = self.current_span();
+        let start_span = self.cursor.current_span();
 
         // @
-        committed!(self.expect(&TokenKind::At));
+        committed!(self.cursor.expect(&TokenKind::At));
 
         // name
-        let name = committed!(self.expect_ident());
+        let name = committed!(self.cursor.expect_ident());
 
         // Check if this is a targeted test (has `tests` keyword)
-        if self.check(&TokenKind::Tests) {
+        if self.cursor.check(&TokenKind::Tests) {
             // Parse test targets: tests @target1 tests @target2 ...
             let mut targets = Vec::new();
-            while self.check(&TokenKind::Tests) {
-                self.advance(); // consume `tests`
-                committed!(self.expect(&TokenKind::At));
-                let target = committed!(self.expect_ident());
+            while self.cursor.check(&TokenKind::Tests) {
+                self.cursor.advance(); // consume `tests`
+                committed!(self.cursor.expect(&TokenKind::At));
+                let target = committed!(self.cursor.expect_ident());
                 targets.push(target);
             }
 
             // (params)
-            committed!(self.expect(&TokenKind::LParen));
+            committed!(self.cursor.expect(&TokenKind::LParen));
             let params = committed!(self.parse_params());
-            committed!(self.expect(&TokenKind::RParen));
+            committed!(self.cursor.expect(&TokenKind::RParen));
 
             // -> Type (required)
-            committed!(self.expect(&TokenKind::Arrow));
+            committed!(self.cursor.expect(&TokenKind::Arrow));
             let return_ty = Some(committed!(self.parse_type_required().into_result()));
 
             // = body
-            committed!(self.expect(&TokenKind::Eq));
-            self.skip_newlines();
+            committed!(self.cursor.expect(&TokenKind::Eq));
+            self.cursor.skip_newlines();
             let body = require!(
                 self,
                 self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr),
@@ -82,20 +82,20 @@ impl Parser<'_> {
                 expected_errors: attrs.expected_errors,
                 fail_expected: attrs.fail_expected,
             }))
-        } else if self.interner().lookup(name).starts_with("test_") {
+        } else if self.cursor.interner().lookup(name).starts_with("test_") {
             // Free-floating test (name starts with test_ but no targets)
             // (params)
-            committed!(self.expect(&TokenKind::LParen));
+            committed!(self.cursor.expect(&TokenKind::LParen));
             let params = committed!(self.parse_params());
-            committed!(self.expect(&TokenKind::RParen));
+            committed!(self.cursor.expect(&TokenKind::RParen));
 
             // -> Type (required)
-            committed!(self.expect(&TokenKind::Arrow));
+            committed!(self.cursor.expect(&TokenKind::Arrow));
             let return_ty = Some(committed!(self.parse_type_required().into_result()));
 
             // = body
-            committed!(self.expect(&TokenKind::Eq));
-            self.skip_newlines();
+            committed!(self.cursor.expect(&TokenKind::Eq));
+            self.cursor.skip_newlines();
             let body = require!(
                 self,
                 self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr),
@@ -119,30 +119,30 @@ impl Parser<'_> {
         } else {
             // Regular function
             // Optional generic parameters: <T, U: Bound>
-            let generics = if self.check(&TokenKind::Lt) {
+            let generics = if self.cursor.check(&TokenKind::Lt) {
                 committed!(self.parse_generics().into_result())
             } else {
                 GenericParamRange::EMPTY
             };
 
             // (params)
-            committed!(self.expect(&TokenKind::LParen));
+            committed!(self.cursor.expect(&TokenKind::LParen));
             let params = committed!(self.parse_params());
-            committed!(self.expect(&TokenKind::RParen));
+            committed!(self.cursor.expect(&TokenKind::RParen));
 
             // -> Type (required)
-            committed!(self.expect(&TokenKind::Arrow));
+            committed!(self.cursor.expect(&TokenKind::Arrow));
             let return_ty = Some(committed!(self.parse_type_required().into_result()));
 
             // Optional uses clause: uses Http, FileSystem
-            let capabilities = if self.check(&TokenKind::Uses) {
+            let capabilities = if self.cursor.check(&TokenKind::Uses) {
                 committed!(self.parse_uses_clause().into_result())
             } else {
                 Vec::new()
             };
 
             // Optional where clauses: where T: Clone, U: Default
-            let where_clauses = if self.check(&TokenKind::Where) {
+            let where_clauses = if self.cursor.check(&TokenKind::Where) {
                 committed!(self.parse_where_clauses().into_result())
             } else {
                 Vec::new()
@@ -151,8 +151,8 @@ impl Parser<'_> {
             // Optional guard clause: if condition
             // Grammar: guard_clause = "if" expression
             // Use parse_non_assign_expr because `=` is the body delimiter, not assignment
-            let guard = if self.check(&TokenKind::If) {
-                self.advance(); // consume `if`
+            let guard = if self.cursor.check(&TokenKind::If) {
+                self.cursor.advance(); // consume `if`
                 Some(require!(
                     self,
                     self.parse_non_assign_expr(),
@@ -163,8 +163,8 @@ impl Parser<'_> {
             };
 
             // = body
-            committed!(self.expect(&TokenKind::Eq));
-            self.skip_newlines();
+            committed!(self.cursor.expect(&TokenKind::Eq));
+            self.cursor.skip_newlines();
             let body = require!(
                 self,
                 self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr),
@@ -204,18 +204,18 @@ impl Parser<'_> {
 
         let start = self.arena.start_params();
         self.series_direct(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
-            if p.check(&TokenKind::RParen) {
+            if p.cursor.check(&TokenKind::RParen) {
                 return Ok(false);
             }
 
-            let param_span = p.current_span();
+            let param_span = p.cursor.current_span();
 
             // Determine if this is a pattern or simple identifier
-            let (name, pattern) = match *p.current_kind() {
+            let (name, pattern) = match *p.cursor.current_kind() {
                 // `self` for trait/impl methods
                 TokenKind::SelfLower => {
-                    p.advance();
-                    (p.interner().intern("self"), None)
+                    p.cursor.advance();
+                    (p.cursor.interner().intern("self"), None)
                 }
 
                 // Literal patterns for clause-based functions
@@ -228,7 +228,7 @@ impl Parser<'_> {
                 | TokenKind::Underscore => {
                     let pat = p.parse_match_pattern()?;
                     // Generate synthetic name for literal patterns
-                    let gen_name = p.interner().intern("_arg");
+                    let gen_name = p.cursor.interner().intern("_arg");
                     (gen_name, Some(pat))
                 }
 
@@ -236,55 +236,55 @@ impl Parser<'_> {
                 TokenKind::LBracket => {
                     let pat = p.parse_match_pattern()?;
                     // Generate synthetic name for list patterns
-                    let gen_name = p.interner().intern("_arg");
+                    let gen_name = p.cursor.interner().intern("_arg");
                     (gen_name, Some(pat))
                 }
 
                 // Negative literal: -42
                 TokenKind::Minus => {
                     let pat = p.parse_match_pattern()?;
-                    let gen_name = p.interner().intern("_arg");
+                    let gen_name = p.cursor.interner().intern("_arg");
                     (gen_name, Some(pat))
                 }
 
                 // Simple identifier (most common case)
                 TokenKind::Ident(name) => {
-                    p.advance();
+                    p.cursor.advance();
                     (name, None)
                 }
 
                 // Context-sensitive keywords usable as parameter names
                 TokenKind::Timeout => {
-                    p.advance();
-                    (p.interner().intern("timeout"), None)
+                    p.cursor.advance();
+                    (p.cursor.interner().intern("timeout"), None)
                 }
                 TokenKind::Parallel => {
-                    p.advance();
-                    (p.interner().intern("parallel"), None)
+                    p.cursor.advance();
+                    (p.cursor.interner().intern("parallel"), None)
                 }
                 TokenKind::Cache => {
-                    p.advance();
-                    (p.interner().intern("cache"), None)
+                    p.cursor.advance();
+                    (p.cursor.interner().intern("cache"), None)
                 }
                 TokenKind::Catch => {
-                    p.advance();
-                    (p.interner().intern("catch"), None)
+                    p.cursor.advance();
+                    (p.cursor.interner().intern("catch"), None)
                 }
                 TokenKind::Spawn => {
-                    p.advance();
-                    (p.interner().intern("spawn"), None)
+                    p.cursor.advance();
+                    (p.cursor.interner().intern("spawn"), None)
                 }
                 TokenKind::Recurse => {
-                    p.advance();
-                    (p.interner().intern("recurse"), None)
+                    p.cursor.advance();
+                    (p.cursor.interner().intern("recurse"), None)
                 }
                 TokenKind::Run => {
-                    p.advance();
-                    (p.interner().intern("run"), None)
+                    p.cursor.advance();
+                    (p.cursor.interner().intern("run"), None)
                 }
                 TokenKind::Try => {
-                    p.advance();
-                    (p.interner().intern("try"), None)
+                    p.cursor.advance();
+                    (p.cursor.interner().intern("try"), None)
                 }
 
                 _ => {
@@ -292,20 +292,20 @@ impl Parser<'_> {
                         ori_diagnostic::ErrorCode::E1002,
                         format!(
                             "expected parameter name or pattern, found {}",
-                            p.current_kind().display_name()
+                            p.cursor.current_kind().display_name()
                         ),
-                        p.current_span(),
+                        p.cursor.current_span(),
                     ));
                 }
             };
 
             // : [...] Type (optional, not required for `self`)
             // Variadic syntax: `: ...Type`
-            let (is_variadic, ty) = if p.check(&TokenKind::Colon) {
-                p.advance();
+            let (is_variadic, ty) = if p.cursor.check(&TokenKind::Colon) {
+                p.cursor.advance();
                 // Check for variadic: ...Type
-                if p.check(&TokenKind::DotDotDot) {
-                    p.advance();
+                if p.cursor.check(&TokenKind::DotDotDot) {
+                    p.cursor.advance();
                     (true, p.parse_type())
                 } else {
                     (false, p.parse_type())
@@ -315,15 +315,15 @@ impl Parser<'_> {
             };
 
             // = default_value (optional)
-            let default = if p.check(&TokenKind::Eq) {
-                p.advance();
+            let default = if p.cursor.check(&TokenKind::Eq) {
+                p.cursor.advance();
                 Some(p.parse_expr().into_result()?)
             } else {
                 None
             };
 
             let end_span = if default.is_some() || ty.is_some() {
-                p.previous_span()
+                p.cursor.previous_span()
             } else {
                 param_span
             };

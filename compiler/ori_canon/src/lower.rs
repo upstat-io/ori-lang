@@ -10,8 +10,8 @@
 use ori_ir::ast::items::Module;
 use ori_ir::canon::{
     CanArena, CanBindingPattern, CanBindingPatternId, CanExpr, CanField, CanFieldBinding, CanId,
-    CanMapEntry, CanNamedExpr, CanNode, CanParam, CanRange, CanonResult, ConstantPool,
-    DecisionTreePool,
+    CanMapEntry, CanNamedExpr, CanNode, CanParam, CanRange, CanonResult, CanonRoot, ConstantPool,
+    DecisionTreePool, MethodRoot,
 };
 use ori_ir::{ExprArena, ExprId, ExprKind, ExprRange, Name, Span, TypeId};
 use ori_types::{TypeCheckResult, TypedModule};
@@ -90,7 +90,7 @@ pub fn lower_module(
         func_groups.entry(func.name).or_default().push(func);
     }
 
-    // Lower each function/group body, recording name → CanId.
+    // Lower each function/group body, recording name → CanonRoot.
     // Iteration order must match `module.functions` for compatibility with
     // `register_module_functions` which uses the same ordering.
     let mut seen_names: rustc_hash::FxHashSet<Name> = rustc_hash::FxHashSet::default();
@@ -100,23 +100,37 @@ pub fn lower_module(
         }
         let group = &func_groups[&func.name];
         if group.len() == 1 {
-            // Single clause — lower normally.
+            // Single clause — lower body and parameter defaults.
             if func.body.is_valid() {
                 let can_id = lowerer.lower_expr(func.body);
-                roots.push((func.name, can_id));
+                let defaults = lowerer.lower_param_defaults(func.params);
+                roots.push(CanonRoot {
+                    name: func.name,
+                    body: can_id,
+                    defaults,
+                });
             }
         } else {
-            // Multi-clause — synthesize a match body.
+            // Multi-clause — synthesize a match body. Use first clause's defaults.
             let can_id = lowerer.lower_multi_clause(group);
-            roots.push((func.name, can_id));
+            let defaults = lowerer.lower_param_defaults(group[0].params);
+            roots.push(CanonRoot {
+                name: func.name,
+                body: can_id,
+                defaults,
+            });
         }
     }
 
-    // Lower each test body into the same arena.
+    // Lower each test body into the same arena (tests have no defaults).
     for test in &module.tests {
         if test.body.is_valid() {
             let can_id = lowerer.lower_expr(test.body);
-            roots.push((test.name, can_id));
+            roots.push(CanonRoot {
+                name: test.name,
+                body: can_id,
+                defaults: Vec::new(),
+            });
         }
     }
 
@@ -146,7 +160,11 @@ pub fn lower_module(
             overridden.insert(method.name);
             if method.body.is_valid() {
                 let can_id = lowerer.lower_expr(method.body);
-                method_roots.push((type_name, method.name, can_id));
+                method_roots.push(MethodRoot {
+                    type_name,
+                    method_name: method.name,
+                    body: can_id,
+                });
             }
         }
 
@@ -157,7 +175,11 @@ pub fn lower_module(
                     for dm in defaults {
                         if !overridden.contains(&dm.name) && dm.body.is_valid() {
                             let can_id = lowerer.lower_expr(dm.body);
-                            method_roots.push((type_name, dm.name, can_id));
+                            method_roots.push(MethodRoot {
+                                type_name,
+                                method_name: dm.name,
+                                body: can_id,
+                            });
                         }
                     }
                 }
@@ -169,7 +191,11 @@ pub fn lower_module(
         for method in &extend_def.methods {
             if method.body.is_valid() {
                 let can_id = lowerer.lower_expr(method.body);
-                method_roots.push((extend_def.target_type_name, method.name, can_id));
+                method_roots.push(MethodRoot {
+                    type_name: extend_def.target_type_name,
+                    method_name: method.name,
+                    body: can_id,
+                });
             }
         }
     }
@@ -178,13 +204,17 @@ pub fn lower_module(
         for method in &def_impl_def.methods {
             if method.body.is_valid() {
                 let can_id = lowerer.lower_expr(method.body);
-                method_roots.push((def_impl_def.trait_name, method.name, can_id));
+                method_roots.push(MethodRoot {
+                    type_name: def_impl_def.trait_name,
+                    method_name: method.name,
+                    body: can_id,
+                });
             }
         }
     }
 
     // Use the first function's root as the primary root (for single-expression compat).
-    let root = roots.first().map_or(CanId::INVALID, |(_, id)| *id);
+    let root = roots.first().map_or(CanId::INVALID, |r| r.body);
 
     let mut result = lowerer.finish(root);
     result.roots = roots;
@@ -1030,6 +1060,21 @@ impl<'a> Lowerer<'a> {
             .collect();
 
         self.arena.push_params(&can_params)
+    }
+
+    /// Lower parameter defaults from a `ParamRange` to `Vec<Option<CanId>>`.
+    ///
+    /// Unlike `lower_params` (which produces a `CanParamRange` for lambda parameters),
+    /// this extracts only the default expressions for module-level functions, where
+    /// defaults are stored separately from the parameter list in `CanonRoot.defaults`.
+    fn lower_param_defaults(&mut self, param_range: ori_ir::ParamRange) -> Vec<Option<CanId>> {
+        let src_params = self.src.get_params(param_range);
+        // Copy out to avoid borrow conflict with `self.lower_expr`.
+        let defaults: Vec<_> = src_params.iter().map(|p| p.default).collect();
+        defaults
+            .into_iter()
+            .map(|default| default.map(|expr_id| self.lower_expr(expr_id)))
+            .collect()
     }
 
     // ── Cast Target Name Extraction ───────────────────────────

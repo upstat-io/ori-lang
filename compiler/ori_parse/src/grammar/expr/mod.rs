@@ -73,8 +73,8 @@ impl Parser<'_> {
     /// on deeply nested expressions.
     pub(crate) fn parse_expr(&mut self) -> ParseOutcome<ExprId> {
         trace!(
-            pos = self.position(),
-            kind = self.current_kind().display_name(),
+            pos = self.cursor.position(),
+            kind = self.cursor.current_kind().display_name(),
             "parse_expr"
         );
         ensure_sufficient_stack(|| self.parse_expr_inner())
@@ -101,9 +101,9 @@ impl Parser<'_> {
         let left = chain!(self, self.parse_binary_pratt(0));
 
         // Check for assignment (= but not == or =>)
-        if self.check(&TokenKind::Eq) {
+        if self.cursor.check(&TokenKind::Eq) {
             let left_span = self.arena.get_expr(left).span;
-            self.advance();
+            self.cursor.advance();
             let right = require!(self, self.parse_expr(), "expression after `=`");
             let right_span = self.arena.get_expr(right).span;
             let span = left_span.merge(right_span);
@@ -138,14 +138,17 @@ impl Parser<'_> {
         let mut parsed_range = false;
 
         loop {
-            self.skip_newlines();
+            self.cursor.skip_newlines();
 
             // Range operators (non-standard binary with optional end/step).
             // Checked before standard operators because `..`/`..=` are not in
             // the infix binding power table (they need special parsing).
             if !parsed_range
                 && min_bp <= bp::RANGE
-                && matches!(self.current_kind(), TokenKind::DotDot | TokenKind::DotDotEq)
+                && matches!(
+                    self.cursor.current_kind(),
+                    TokenKind::DotDot | TokenKind::DotDotEq
+                )
             {
                 left = committed!(self.parse_range_continuation(left));
                 parsed_range = true;
@@ -160,7 +163,7 @@ impl Parser<'_> {
                     break;
                 }
                 for _ in 0..token_count {
-                    self.advance();
+                    self.cursor.advance();
                 }
                 let right = require!(self, self.parse_binary_pratt(r_bp), "right operand");
                 let span = self
@@ -188,14 +191,14 @@ impl Parser<'_> {
     /// called `parse_shift` for both operands.
     #[inline]
     fn parse_range_continuation(&mut self, left: ExprId) -> Result<ExprId, ParseError> {
-        let inclusive = matches!(self.current_kind(), TokenKind::DotDotEq);
-        self.advance();
+        let inclusive = matches!(self.cursor.current_kind(), TokenKind::DotDotEq);
+        self.cursor.advance();
 
         // Parse end expression (optional for open-ended ranges like 0..)
         let end = if matches!(
-            self.current_kind(),
+            self.cursor.current_kind(),
             TokenKind::Comma | TokenKind::RParen | TokenKind::RBracket | TokenKind::By
-        ) || self.is_at_end()
+        ) || self.cursor.is_at_end()
         {
             ExprId::INVALID
         } else {
@@ -203,8 +206,8 @@ impl Parser<'_> {
         };
 
         // Parse optional step: `by <expr>`
-        let step = if matches!(self.current_kind(), TokenKind::By) {
-            self.advance();
+        let step = if matches!(self.cursor.current_kind(), TokenKind::By) {
+            self.cursor.advance();
             self.parse_binary_pratt(bp::SHIFT.0).into_result()?
         } else {
             ExprId::INVALID
@@ -222,7 +225,10 @@ impl Parser<'_> {
                 .span
                 .merge(self.arena.get_expr(end).span)
         } else {
-            self.arena.get_expr(left).span.merge(self.previous_span())
+            self.arena
+                .get_expr(left)
+                .span
+                .merge(self.cursor.previous_span())
         };
 
         Ok(self.arena.alloc_expr(Expr::new(
@@ -247,15 +253,15 @@ impl Parser<'_> {
         const I64_MIN_ABS: u64 = 9_223_372_036_854_775_808;
 
         if let Some(op) = self.match_unary_op() {
-            let start = self.current_span();
+            let start = self.cursor.current_span();
 
             // Fold negation with integer literals: `-42` → `ExprKind::Int(-42)`
             // After folding, still apply postfix operators for cases like `-100 as float`.
             if op == UnaryOp::Neg {
-                if let TokenKind::Int(n) = *self.peek_next_kind() {
-                    self.advance(); // consume `-`
-                    let lit_span = self.current_span();
-                    self.advance(); // consume integer literal
+                if let TokenKind::Int(n) = *self.cursor.peek_next_kind() {
+                    self.cursor.advance(); // consume `-`
+                    let lit_span = self.cursor.current_span();
+                    self.cursor.advance(); // consume integer literal
                     let span = start.merge(lit_span);
 
                     let expr = if let Ok(signed) = i64::try_from(n) {
@@ -280,7 +286,7 @@ impl Parser<'_> {
                 }
             }
 
-            self.advance();
+            self.cursor.advance();
             let operand = require!(self, self.parse_unary(), "operand after unary operator");
 
             let span = start.merge(self.arena.get_expr(operand).span);

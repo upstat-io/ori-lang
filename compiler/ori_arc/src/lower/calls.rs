@@ -1,10 +1,13 @@
 //! Call and lambda lowering.
 //!
-//! Lowers function calls (direct, named, method) and lambda expressions.
+//! Lowers function calls (direct, method) and lambda expressions.
 //! Lambda bodies become separate [`ArcFunction`]s.
+//!
+//! Named-argument call variants (`CallNamed`, `MethodCallNamed`) are
+//! eliminated during canonicalization — all calls here use positional args.
 
-use ori_ir::ast::ExprKind;
-use ori_ir::{CallArgRange, ExprId, ExprRange, Name, ParamRange, Span};
+use ori_ir::canon::{CanExpr, CanId, CanParamRange, CanRange};
+use ori_ir::{Name, Span};
 use ori_types::Idx;
 
 use crate::ir::{ArcParam, ArcVarId, CtorKind};
@@ -42,57 +45,24 @@ impl ArcLowerer<'_> {
         }
     }
 
-    // ── Call (positional) ──────────────────────────────────────
+    // ── Call (positional — named args already desugared) ──────
 
     pub(crate) fn lower_call(
         &mut self,
-        func: ExprId,
-        args: ExprRange,
+        func: CanId,
+        args: CanRange,
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
-        let func_expr = self.arena.get_expr(func);
+        let func_kind = *self.arena.kind(func);
 
-        // Check if the callee is a direct function reference.
+        // Lower all arguments first.
         let arg_ids: Vec<_> = self.arena.get_expr_list(args).to_vec();
         let arg_vars: Vec<_> = arg_ids.iter().map(|&id| self.lower_expr(id)).collect();
 
-        match &func_expr.kind {
-            ExprKind::Ident(name) | ExprKind::FunctionRef(name) => {
-                // Direct call — Invoke if user-defined, Apply if runtime.
-                self.emit_call_or_invoke(ty, *name, arg_vars, span)
-            }
-            _ => {
-                // Indirect call through a closure value.
-                // Closures may invoke user-defined functions, but indirect
-                // calls stay as ApplyIndirect for now — they'll be handled
-                // when we add indirect invoke support.
-                let closure_var = self.lower_expr(func);
-                self.builder
-                    .emit_apply_indirect(ty, closure_var, arg_vars, Some(span))
-            }
-        }
-    }
-
-    // ── Call (named arguments) ─────────────────────────────────
-
-    pub(crate) fn lower_call_named(
-        &mut self,
-        func: ExprId,
-        args: CallArgRange,
-        ty: Idx,
-        span: Span,
-    ) -> ArcVarId {
-        let func_expr = self.arena.get_expr(func);
-        let call_args: Vec<_> = self.arena.get_call_args(args).to_vec();
-        let arg_vars: Vec<_> = call_args
-            .iter()
-            .map(|arg| self.lower_expr(arg.value))
-            .collect();
-
-        match &func_expr.kind {
-            ExprKind::Ident(name) | ExprKind::FunctionRef(name) => {
-                self.emit_call_or_invoke(ty, *name, arg_vars, span)
+        match func_kind {
+            CanExpr::Ident(name) | CanExpr::FunctionRef(name) => {
+                self.emit_call_or_invoke(ty, name, arg_vars, span)
             }
             _ => {
                 let closure_var = self.lower_expr(func);
@@ -102,13 +72,13 @@ impl ArcLowerer<'_> {
         }
     }
 
-    // ── Method call (positional) ───────────────────────────────
+    // ── Method call (positional — named args already desugared)
 
     pub(crate) fn lower_method_call(
         &mut self,
-        receiver: ExprId,
+        receiver: CanId,
         method: Name,
-        args: ExprRange,
+        args: CanRange,
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
@@ -122,26 +92,6 @@ impl ArcLowerer<'_> {
         self.emit_call_or_invoke(ty, method, all_args, span)
     }
 
-    // ── Method call (named arguments) ──────────────────────────
-
-    pub(crate) fn lower_method_call_named(
-        &mut self,
-        receiver: ExprId,
-        method: Name,
-        args: CallArgRange,
-        ty: Idx,
-        span: Span,
-    ) -> ArcVarId {
-        let recv_var = self.lower_expr(receiver);
-        let call_args: Vec<_> = self.arena.get_call_args(args).to_vec();
-        let mut all_args = Vec::with_capacity(call_args.len() + 1);
-        all_args.push(recv_var);
-        for arg in &call_args {
-            all_args.push(self.lower_expr(arg.value));
-        }
-        self.emit_call_or_invoke(ty, method, all_args, span)
-    }
-
     // ── Lambda ─────────────────────────────────────────────────
 
     /// Lower a lambda expression.
@@ -150,8 +100,8 @@ impl ArcLowerer<'_> {
     /// itself produces a `Construct(Closure { func }, captures)`.
     pub(crate) fn lower_lambda(
         &mut self,
-        params: ParamRange,
-        body: ExprId,
+        params: CanParamRange,
+        body: CanId,
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
@@ -164,9 +114,6 @@ impl ArcLowerer<'_> {
         let mut lambda_params = Vec::with_capacity(param_slice.len());
 
         for param in &param_slice {
-            // Parameter types come from the function type, not individual type annotations.
-            // For lambda lowering, we default to UNIT here — the actual types are
-            // refined by the type checker and available through the function type.
             let param_ty = Idx::UNIT;
             let var = lambda_builder.fresh_var(param_ty);
             lambda_scope.bind(param.name, var);
@@ -185,7 +132,7 @@ impl ArcLowerer<'_> {
             let mut lambda_lowerer = ArcLowerer {
                 builder: &mut lambda_builder,
                 arena: self.arena,
-                expr_types: self.expr_types,
+                canon: self.canon,
                 interner: self.interner,
                 pool: self.pool,
                 scope: lambda_scope,
@@ -203,8 +150,6 @@ impl ArcLowerer<'_> {
         let lambda_func = lambda_builder.finish(lambda_name, lambda_params, body_ty, entry);
         self.lambdas.push(lambda_func);
 
-        // The lambda expression produces a Closure construct.
-        // For now, captures are empty — a capture analysis pass will fill them.
         self.builder.emit_construct(
             ty,
             CtorKind::Closure { func: lambda_name },
@@ -218,8 +163,8 @@ impl ArcLowerer<'_> {
 
 #[cfg(test)]
 mod tests {
-    use ori_ir::ast::{Expr, ExprKind};
-    use ori_ir::{ExprArena, Name, Span, StringInterner};
+    use ori_ir::canon::{CanArena, CanExpr, CanNode, CanonResult};
+    use ori_ir::{Name, Span, StringInterner, TypeId};
     use ori_types::Idx;
     use ori_types::Pool;
 
@@ -232,33 +177,44 @@ mod tests {
         arg_val: i64,
     ) -> crate::ir::ArcFunction {
         let pool = Pool::new();
-        let mut arena = ExprArena::new();
+        let mut arena = CanArena::with_capacity(100);
 
-        let func_ref = arena.alloc_expr(Expr::new(ExprKind::Ident(func_name), Span::new(0, 1)));
-        let arg = arena.alloc_expr(Expr::new(ExprKind::Int(arg_val), Span::new(2, 4)));
-        let args = arena.alloc_expr_list_inline(&[arg]);
-        let call = arena.alloc_expr(Expr::new(
-            ExprKind::Call {
+        let func_ref = arena.push(CanNode::new(
+            CanExpr::Ident(func_name),
+            Span::new(0, 1),
+            TypeId::from_raw(Idx::INT.raw()),
+        ));
+        let arg = arena.push(CanNode::new(
+            CanExpr::Int(arg_val),
+            Span::new(2, 4),
+            TypeId::from_raw(Idx::INT.raw()),
+        ));
+        let args = arena.push_expr_list(&[arg]);
+        let call = arena.push(CanNode::new(
+            CanExpr::Call {
                 func: func_ref,
                 args,
             },
             Span::new(0, 5),
+            TypeId::from_raw(Idx::INT.raw()),
         ));
 
-        let max_id = call.index() + 1;
-        let mut expr_types = vec![Idx::ERROR; max_id];
-        expr_types[func_ref.index()] = Idx::INT;
-        expr_types[arg.index()] = Idx::INT;
-        expr_types[call.index()] = Idx::INT;
+        let canon = CanonResult {
+            arena,
+            constants: ori_ir::canon::ConstantPool::new(),
+            decision_trees: ori_ir::canon::DecisionTreePool::default(),
+            root: call,
+            roots: vec![],
+            method_roots: vec![],
+        };
 
         let mut problems = Vec::new();
-        let (func, _) = super::super::super::lower_function(
+        let (func, _) = super::super::super::lower_function_can(
             Name::from_raw(1),
             &[],
             Idx::INT,
             call,
-            &arena,
-            &expr_types,
+            &canon,
             interner,
             &pool,
             &mut problems,
@@ -274,7 +230,6 @@ mod tests {
 
         let func = lower_call_expr(&interner, func_name, 42);
 
-        // User-defined call should produce an Invoke terminator (not Apply).
         let has_invoke = func.blocks.iter().any(|b| {
             matches!(
                 &b.terminator,
@@ -283,7 +238,6 @@ mod tests {
         });
         assert!(has_invoke, "expected Invoke terminator for user call");
 
-        // Should NOT have Apply for this call.
         let has_apply = func.blocks[0]
             .body
             .iter()
@@ -298,14 +252,12 @@ mod tests {
 
         let func = lower_call_expr(&interner, func_name, 42);
 
-        // Runtime intrinsic should produce Apply (not Invoke).
         let has_apply = func.blocks[0]
             .body
             .iter()
             .any(|i| matches!(i, ArcInstr::Apply { func, .. } if *func == func_name));
         assert!(has_apply, "expected Apply for runtime call");
 
-        // Should NOT have Invoke for this call.
         let has_invoke = func.blocks.iter().any(|b| {
             matches!(
                 &b.terminator,
@@ -322,7 +274,6 @@ mod tests {
 
         let func = lower_call_expr(&interner, func_name, 0);
 
-        // Compiler-internal helpers should produce Apply (not Invoke).
         let has_apply = func.blocks[0]
             .body
             .iter()
@@ -337,24 +288,18 @@ mod tests {
 
         let func = lower_call_expr(&interner, func_name, 42);
 
-        // Invoke should create normal and unwind blocks.
-        // Entry block (0) has the Invoke terminator.
-        // Block 1 is the normal continuation.
-        // Block 2 is the unwind block with Resume.
         assert!(
             func.blocks.len() >= 3,
             "expected at least 3 blocks (entry + normal + unwind), got {}",
             func.blocks.len()
         );
 
-        // Find the Invoke terminator and verify its structure.
         let invoke_block = func
             .blocks
             .iter()
             .find(|b| matches!(&b.terminator, ArcTerminator::Invoke { .. }));
         assert!(invoke_block.is_some(), "expected an Invoke terminator");
 
-        // There should be a Resume terminator in the unwind block.
         let has_resume = func
             .blocks
             .iter()
@@ -369,17 +314,13 @@ mod tests {
 
         let func = lower_call_expr(&interner, func_name, 42);
 
-        // The Invoke's dst should be a valid variable that's returned.
         if let Some(block) = func
             .blocks
             .iter()
             .find(|b| matches!(&b.terminator, ArcTerminator::Invoke { .. }))
         {
             if let ArcTerminator::Invoke { dst, normal, .. } = &block.terminator {
-                // The normal continuation should be able to use the dst.
                 let normal_block = &func.blocks[normal.index()];
-                // The function returns the invoke result, so the normal block
-                // should have a Return terminator using dst.
                 assert!(
                     matches!(&normal_block.terminator, ArcTerminator::Return { value } if *value == *dst),
                     "expected normal block to return the invoke dst"
@@ -392,41 +333,47 @@ mod tests {
     fn lower_method_call_user_defined() {
         let interner = StringInterner::new();
         let pool = Pool::new();
-        let mut arena = ExprArena::new();
+        let mut arena = CanArena::with_capacity(100);
 
-        // Method name that is NOT a runtime/compiler intrinsic.
         let method_name = interner.intern("to_string");
-        let receiver = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
-        let args = arena.alloc_expr_list_inline(&[]);
-        let method_call = arena.alloc_expr(Expr::new(
-            ExprKind::MethodCall {
+        let receiver = arena.push(CanNode::new(
+            CanExpr::Int(1),
+            Span::new(0, 1),
+            TypeId::from_raw(Idx::INT.raw()),
+        ));
+        let args = arena.push_expr_list(&[]);
+        let method_call = arena.push(CanNode::new(
+            CanExpr::MethodCall {
                 receiver,
                 method: method_name,
                 args,
             },
             Span::new(0, 10),
+            TypeId::from_raw(Idx::STR.raw()),
         ));
 
-        let max_id = method_call.index() + 1;
-        let mut expr_types = vec![Idx::ERROR; max_id];
-        expr_types[receiver.index()] = Idx::INT;
-        expr_types[method_call.index()] = Idx::STR;
+        let canon = CanonResult {
+            arena,
+            constants: ori_ir::canon::ConstantPool::new(),
+            decision_trees: ori_ir::canon::DecisionTreePool::default(),
+            root: method_call,
+            roots: vec![],
+            method_roots: vec![],
+        };
 
         let mut problems = Vec::new();
-        let (func, _) = super::super::super::lower_function(
+        let (func, _) = super::super::super::lower_function_can(
             Name::from_raw(1),
             &[],
             Idx::STR,
             method_call,
-            &arena,
-            &expr_types,
+            &canon,
             &interner,
             &pool,
             &mut problems,
         );
 
         assert!(problems.is_empty());
-        // User-defined method should produce Invoke.
         let has_invoke = func.blocks.iter().any(|b| {
             matches!(
                 &b.terminator,

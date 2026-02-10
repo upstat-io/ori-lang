@@ -135,9 +135,11 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
 
     // -- EH personality (Itanium ABI) --
     // Required by any function containing invoke/landingpad.
-    // Declared as external — provided by the C++ runtime (libgcc/libc++abi).
+    // We use Rust's personality function (already in libori_rt.a) instead of
+    // __gxx_personality_v0 (which would require linking libstdc++).
+    // rust_eh_personality parses the same LSDA format that LLVM generates.
     let personality =
-        builder.declare_extern_function("__gxx_personality_v0", &[i32_ty], Some(i32_ty));
+        builder.declare_extern_function("rust_eh_personality", &[i32_ty], Some(i32_ty));
     builder.add_nounwind_attribute(personality);
 }
 

@@ -31,13 +31,13 @@ fn test_snapshot_captures_position() {
     assert_eq!(snapshot.cursor_pos(), 0);
 
     // Advance and verify position changed
-    parser.advance();
-    parser.advance();
-    assert_eq!(parser.position(), 2);
+    parser.cursor.advance();
+    parser.cursor.advance();
+    assert_eq!(parser.cursor.position(), 2);
 
     // Restore and verify position reverted
     parser.restore(snapshot);
-    assert_eq!(parser.position(), 0);
+    assert_eq!(parser.cursor.position(), 0);
 }
 
 #[test]
@@ -64,17 +64,17 @@ fn test_try_parse_success_preserves_position() {
     let (mut parser, _) = create_parser("let x = 42");
 
     // Start at 'let'
-    assert!(parser.check(&TokenKind::Let));
+    assert!(parser.cursor.check(&TokenKind::Let));
 
     // try_parse that succeeds should advance position
     let result = parser.try_parse(|p| {
-        p.expect(&TokenKind::Let)?;
+        p.cursor.expect(&TokenKind::Let)?;
         Ok(())
     });
 
     assert!(result.is_some());
     // Position should be after 'let'
-    assert!(parser.check_ident()); // Now at 'x'
+    assert!(parser.cursor.check_ident()); // Now at 'x'
 }
 
 #[test]
@@ -82,39 +82,39 @@ fn test_try_parse_failure_restores_position() {
     let (mut parser, _) = create_parser("let x = 42");
 
     // Start at 'let'
-    assert!(parser.check(&TokenKind::Let));
-    let start_pos = parser.position();
+    assert!(parser.cursor.check(&TokenKind::Let));
+    let start_pos = parser.cursor.position();
 
     // try_parse that fails should restore position
     let result = parser.try_parse(|p| {
-        p.expect(&TokenKind::Let)?;
-        p.expect(&TokenKind::If)?; // This will fail - there's no 'if'
+        p.cursor.expect(&TokenKind::Let)?;
+        p.cursor.expect(&TokenKind::If)?; // This will fail - there's no 'if'
         Ok(())
     });
 
     assert!(result.is_none());
     // Position should be restored to start
-    assert_eq!(parser.position(), start_pos);
-    assert!(parser.check(&TokenKind::Let));
+    assert_eq!(parser.cursor.position(), start_pos);
+    assert!(parser.cursor.check(&TokenKind::Let));
 }
 
 #[test]
 fn test_look_ahead_always_restores() {
     let (mut parser, _) = create_parser("let x = 42");
 
-    let start_pos = parser.position();
+    let start_pos = parser.cursor.position();
 
     // look_ahead should always restore, even on success
     let is_let = parser.look_ahead(|p| {
-        p.advance(); // consume 'let'
-        p.advance(); // consume 'x'
-        p.check(&TokenKind::Eq) // check for '='
+        p.cursor.advance(); // consume 'let'
+        p.cursor.advance(); // consume 'x'
+        p.cursor.check(&TokenKind::Eq) // check for '='
     });
 
     assert!(is_let);
     // Position should be restored despite success
-    assert_eq!(parser.position(), start_pos);
-    assert!(parser.check(&TokenKind::Let));
+    assert_eq!(parser.cursor.position(), start_pos);
+    assert!(parser.cursor.check(&TokenKind::Let));
 }
 
 #[test]
@@ -139,20 +139,20 @@ fn test_nested_snapshots() {
     let (mut parser, _) = create_parser("let x = 42 + 1");
 
     let snapshot1 = parser.snapshot();
-    parser.advance(); // 'let' -> 'x'
-    parser.advance(); // 'x' -> '='
+    parser.cursor.advance(); // 'let' -> 'x'
+    parser.cursor.advance(); // 'x' -> '='
 
     let snapshot2 = parser.snapshot();
-    parser.advance(); // '=' -> '42'
-    parser.advance(); // '42' -> '+'
+    parser.cursor.advance(); // '=' -> '42'
+    parser.cursor.advance(); // '42' -> '+'
 
     // Restore to snapshot2
     parser.restore(snapshot2);
-    assert!(parser.check(&TokenKind::Eq));
+    assert!(parser.cursor.check(&TokenKind::Eq));
 
     // Restore to snapshot1
     parser.restore(snapshot1);
-    assert!(parser.check(&TokenKind::Let));
+    assert!(parser.cursor.check(&TokenKind::Let));
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn test_try_parse_with_context_change() {
     // try_parse with context modification
     let result = parser.try_parse(|p| {
         p.context = p.context.with(ParseContext::IN_TYPE);
-        p.expect(&TokenKind::If)?; // Will fail
+        p.cursor.expect(&TokenKind::If)?; // Will fail
         Ok(())
     });
 
@@ -186,7 +186,7 @@ fn test_try_parse_returns_value_on_success() {
     let (mut parser, _) = create_parser("let x = 42");
 
     let result = parser.try_parse(|p| {
-        p.advance(); // consume 'let'
+        p.cursor.advance(); // consume 'let'
         Ok(42)
     });
 
@@ -199,8 +199,8 @@ fn test_look_ahead_returns_computed_value() {
 
     let count = parser.look_ahead(|p| {
         let mut n = 0;
-        while !p.is_at_end() {
-            p.advance();
+        while !p.cursor.is_at_end() {
+            p.cursor.advance();
             n += 1;
         }
         n
@@ -210,7 +210,7 @@ fn test_look_ahead_returns_computed_value() {
     assert!(count >= 4);
 
     // Position should still be at start
-    assert!(parser.check(&TokenKind::Let));
+    assert!(parser.cursor.check(&TokenKind::Let));
 }
 
 // ============================================================================
@@ -229,24 +229,24 @@ fn test_look_ahead_for_pattern_detection() {
 
     let is_capability_syntax = parser.look_ahead(|p| {
         // Check: with
-        if !p.check(&TokenKind::With) {
+        if !p.cursor.check(&TokenKind::With) {
             return false;
         }
-        p.advance();
+        p.cursor.advance();
 
         // Check: Ident
-        if !p.check_ident() {
+        if !p.cursor.check_ident() {
             return false;
         }
-        p.advance();
+        p.cursor.advance();
 
         // Check: =
-        p.check(&TokenKind::Eq)
+        p.cursor.check(&TokenKind::Eq)
     });
 
     assert!(is_capability_syntax);
     // Position unchanged
-    assert!(parser.check(&TokenKind::With));
+    assert!(parser.cursor.check(&TokenKind::With));
 }
 
 /// Demonstrates using `try_parse()` for fallback parsing.
@@ -259,31 +259,31 @@ fn test_try_parse_for_fallback() {
 
     // Try to parse as "let" binding (will fail)
     let binding_result = parser.try_parse(|p| {
-        p.expect(&TokenKind::Let)?;
-        p.expect_ident()
+        p.cursor.expect(&TokenKind::Let)?;
+        p.cursor.expect_ident()
     });
 
     assert!(binding_result.is_none());
     // Position restored - we can now try as expression
-    assert!(matches!(parser.current_kind(), TokenKind::Int(_)));
+    assert!(matches!(parser.cursor.current_kind(), TokenKind::Int(_)));
 
     // Try to parse as integer (will succeed)
     let int_result = parser.try_parse(|p| {
-        if let TokenKind::Int(n) = *p.current_kind() {
-            p.advance();
+        if let TokenKind::Int(n) = *p.cursor.current_kind() {
+            p.cursor.advance();
             Ok(n)
         } else {
             Err(crate::ParseError::new(
                 ori_diagnostic::ErrorCode::E1001,
                 "expected int".to_string(),
-                p.current_span(),
+                p.cursor.current_span(),
             ))
         }
     });
 
     assert_eq!(int_result, Some(42));
     // Position advanced past the integer
-    assert!(parser.check(&TokenKind::Plus));
+    assert!(parser.cursor.check(&TokenKind::Plus));
 }
 
 /// Demonstrates manual snapshot for complex decision logic.
@@ -297,15 +297,15 @@ fn test_manual_snapshot_for_complex_decision() {
     let snapshot = parser.snapshot();
 
     // Parse identifier
-    let name = parser.expect_ident();
+    let name = parser.cursor.expect_ident();
     assert!(name.is_ok());
 
     // Check what follows - if `=`, this is an assignment
     // In a real parser, we might decide to restore and parse differently
-    if parser.check(&TokenKind::Eq) {
+    if parser.cursor.check(&TokenKind::Eq) {
         // This is an assignment - keep the parse
-        parser.advance(); // consume '='
-        assert!(matches!(parser.current_kind(), TokenKind::Int(_)));
+        parser.cursor.advance(); // consume '='
+        assert!(matches!(parser.cursor.current_kind(), TokenKind::Int(_)));
     } else {
         // Not an assignment - restore and try something else
         parser.restore(snapshot);

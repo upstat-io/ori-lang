@@ -14,19 +14,19 @@ impl Parser<'_> {
     ///
     /// Returns `EmptyErr` if no `impl` keyword is present.
     pub(crate) fn parse_impl(&mut self) -> ParseOutcome<ImplDef> {
-        if !self.check(&TokenKind::Impl) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Impl, self.position());
+        if !self.cursor.check(&TokenKind::Impl) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Impl, self.cursor.position());
         }
 
         self.in_error_context(crate::ErrorContext::ImplBlock, Self::parse_impl_body)
     }
 
     fn parse_impl_body(&mut self) -> ParseOutcome<ImplDef> {
-        let start_span = self.current_span();
-        committed!(self.expect(&TokenKind::Impl));
+        let start_span = self.cursor.current_span();
+        committed!(self.cursor.expect(&TokenKind::Impl));
 
         // Optional generics: <T, U: Bound>
-        let generics = if self.check(&TokenKind::Lt) {
+        let generics = if self.cursor.check(&TokenKind::Lt) {
             committed!(self.parse_generics().into_result())
         } else {
             GenericParamRange::EMPTY
@@ -37,40 +37,42 @@ impl Parser<'_> {
         let (first_path, first_ty) = require!(self, self.parse_impl_type(), "type after `impl`");
 
         // Check for `for` keyword to determine if this is a trait impl
-        let (trait_path, trait_type_args, self_path, self_ty) = if self.check(&TokenKind::For) {
-            self.advance();
-            // Parse the implementing type
-            let (impl_path, impl_ty) = require!(self, self.parse_impl_type(), "type after `for`");
-            // Extract type args from trait type (first_ty is a ParsedType::Named with type_args)
-            let trait_type_args = match &first_ty {
-                ori_ir::ParsedType::Named { type_args, .. } => *type_args,
-                _ => ParsedTypeRange::EMPTY,
+        let (trait_path, trait_type_args, self_path, self_ty) =
+            if self.cursor.check(&TokenKind::For) {
+                self.cursor.advance();
+                // Parse the implementing type
+                let (impl_path, impl_ty) =
+                    require!(self, self.parse_impl_type(), "type after `for`");
+                // Extract type args from trait type (first_ty is a ParsedType::Named with type_args)
+                let trait_type_args = match &first_ty {
+                    ori_ir::ParsedType::Named { type_args, .. } => *type_args,
+                    _ => ParsedTypeRange::EMPTY,
+                };
+                (Some(first_path), trait_type_args, impl_path, impl_ty)
+            } else {
+                (None, ParsedTypeRange::EMPTY, first_path, first_ty)
             };
-            (Some(first_path), trait_type_args, impl_path, impl_ty)
-        } else {
-            (None, ParsedTypeRange::EMPTY, first_path, first_ty)
-        };
 
         // Optional where clause
-        let where_clauses = if self.check(&TokenKind::Where) {
+        let where_clauses = if self.cursor.check(&TokenKind::Where) {
             committed!(self.parse_where_clauses().into_result())
         } else {
             Vec::new()
         };
 
         // Impl body: { methods and associated types }
-        committed!(self.expect(&TokenKind::LBrace));
-        self.skip_newlines();
+        committed!(self.cursor.expect(&TokenKind::LBrace));
+        self.cursor.skip_newlines();
 
         let mut methods = Vec::new();
         let mut assoc_types = Vec::new();
 
-        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-            if self.check(&TokenKind::Type) {
+        while !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
+            if self.cursor.check(&TokenKind::Type) {
                 // Associated type definition: type Item = T
                 let at = committed!(self.parse_impl_assoc_type());
                 assoc_types.push(at);
-            } else if self.check(&TokenKind::At) {
+            } else if self.cursor.check(&TokenKind::At) {
                 // Method: @name (...) -> Type = body
                 let method = committed!(self.parse_impl_method());
                 methods.push(method);
@@ -80,18 +82,18 @@ impl Parser<'_> {
                         ori_diagnostic::ErrorCode::E1001,
                         format!(
                             "expected method definition (@name) or associated type definition (type Name = ...), found {}",
-                            self.current_kind().display_name()
+                            self.cursor.current_kind().display_name()
                         ),
-                        self.current_span(),
+                        self.cursor.current_span(),
                     ),
-                    self.current_span(),
+                    self.cursor.current_span(),
                 );
             }
-            self.skip_newlines();
+            self.cursor.skip_newlines();
         }
 
-        let end_span = self.current_span();
-        committed!(self.expect(&TokenKind::RBrace));
+        let end_span = self.cursor.current_span();
+        committed!(self.cursor.expect(&TokenKind::RBrace));
 
         ParseOutcome::consumed_ok(ImplDef {
             generics,
@@ -108,24 +110,24 @@ impl Parser<'_> {
 
     /// Parse a method in an impl block.
     pub(crate) fn parse_impl_method(&mut self) -> Result<ImplMethod, ParseError> {
-        let start_span = self.current_span();
+        let start_span = self.cursor.current_span();
 
         // @name
-        self.expect(&TokenKind::At)?;
-        let name = self.expect_ident()?;
+        self.cursor.expect(&TokenKind::At)?;
+        let name = self.cursor.expect_ident()?;
 
         // (params)
-        self.expect(&TokenKind::LParen)?;
+        self.cursor.expect(&TokenKind::LParen)?;
         let params = self.parse_params()?;
-        self.expect(&TokenKind::RParen)?;
+        self.cursor.expect(&TokenKind::RParen)?;
 
         // -> Type
-        self.expect(&TokenKind::Arrow)?;
+        self.cursor.expect(&TokenKind::Arrow)?;
         let return_ty = self.parse_type_required().into_result()?;
 
         // = body
-        self.expect(&TokenKind::Eq)?;
-        self.skip_newlines();
+        self.cursor.expect(&TokenKind::Eq)?;
+        self.cursor.skip_newlines();
         let body = self
             .with_context(ParseContext::IN_FUNCTION, Self::parse_expr)
             .into_result()?;
@@ -144,19 +146,19 @@ impl Parser<'_> {
     /// Parse an associated type definition in an impl block.
     /// Syntax: type Name = Type
     fn parse_impl_assoc_type(&mut self) -> Result<ImplAssocType, ParseError> {
-        let start_span = self.current_span();
+        let start_span = self.cursor.current_span();
 
         // type
-        self.expect(&TokenKind::Type)?;
+        self.cursor.expect(&TokenKind::Type)?;
 
         // Name
-        let name = self.expect_ident()?;
+        let name = self.cursor.expect_ident()?;
 
         // = Type
-        self.expect(&TokenKind::Eq)?;
+        self.cursor.expect(&TokenKind::Eq)?;
         let ty = self.parse_type_required().into_result()?;
 
-        let end_span = self.current_span();
+        let end_span = self.cursor.current_span();
 
         Ok(ImplAssocType {
             name,
@@ -176,33 +178,33 @@ impl Parser<'_> {
     /// - No `for Type` clause (anonymous implementation)
     /// - Methods must not have `self` parameter (stateless)
     pub(crate) fn parse_def_impl(&mut self, visibility: Visibility) -> ParseOutcome<DefImplDef> {
-        if !self.check(&TokenKind::Def) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Def, self.position());
+        if !self.cursor.check(&TokenKind::Def) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Def, self.cursor.position());
         }
 
         self.parse_def_impl_body(visibility)
     }
 
     fn parse_def_impl_body(&mut self, visibility: Visibility) -> ParseOutcome<DefImplDef> {
-        let start_span = self.current_span();
+        let start_span = self.cursor.current_span();
 
         // def
-        committed!(self.expect(&TokenKind::Def));
+        committed!(self.cursor.expect(&TokenKind::Def));
 
         // impl
-        committed!(self.expect(&TokenKind::Impl));
+        committed!(self.cursor.expect(&TokenKind::Impl));
 
         // TraitName (simple identifier, no path for now)
-        let trait_name = committed!(self.expect_ident());
+        let trait_name = committed!(self.cursor.expect_ident());
 
         // Body: { methods }
-        committed!(self.expect(&TokenKind::LBrace));
-        self.skip_newlines();
+        committed!(self.cursor.expect(&TokenKind::LBrace));
+        self.cursor.skip_newlines();
 
         let mut methods = Vec::new();
 
-        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
-            if self.check(&TokenKind::At) {
+        while !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
+            if self.cursor.check(&TokenKind::At) {
                 // Method: @name (...) -> Type = body
                 let method = committed!(self.parse_impl_method());
                 methods.push(method);
@@ -212,18 +214,18 @@ impl Parser<'_> {
                         ori_diagnostic::ErrorCode::E1001,
                         format!(
                             "expected method definition (@name) in def impl block, found {}",
-                            self.current_kind().display_name()
+                            self.cursor.current_kind().display_name()
                         ),
-                        self.current_span(),
+                        self.cursor.current_span(),
                     ),
-                    self.current_span(),
+                    self.cursor.current_span(),
                 );
             }
-            self.skip_newlines();
+            self.cursor.skip_newlines();
         }
 
-        let end_span = self.current_span();
-        committed!(self.expect(&TokenKind::RBrace));
+        let end_span = self.cursor.current_span();
+        committed!(self.cursor.expect(&TokenKind::RBrace));
 
         ParseOutcome::consumed_ok(DefImplDef {
             trait_name,

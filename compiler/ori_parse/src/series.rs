@@ -125,7 +125,7 @@ impl Parser<'_> {
     /// let args = self.series(
     ///     SeriesConfig::comma(TokenKind::RParen),
     ///     |p| {
-    ///         if p.check(&TokenKind::RParen) {
+    ///         if p.cursor.check(&TokenKind::RParen) {
     ///             Ok(None)
     ///         } else {
     ///             Ok(Some(p.parse_expr()?))
@@ -145,11 +145,11 @@ impl Parser<'_> {
 
         loop {
             if config.skip_newlines {
-                self.skip_newlines();
+                self.cursor.skip_newlines();
             }
 
             // Check for terminator
-            if self.check(&config.terminator) || self.is_at_end() {
+            if self.cursor.check(&config.terminator) || self.cursor.is_at_end() {
                 break;
             }
 
@@ -161,7 +161,7 @@ impl Parser<'_> {
                 // (we expected an item after separator)
                 if !items.is_empty() && config.trailing == TrailingSeparator::Forbidden {
                     return Err(ParseError::expected_item(
-                        self.current_span(),
+                        self.cursor.current_span(),
                         &config.terminator,
                     ));
                 }
@@ -169,32 +169,32 @@ impl Parser<'_> {
             }
 
             if config.skip_newlines {
-                self.skip_newlines();
+                self.cursor.skip_newlines();
             }
 
             // Check for separator
-            if self.check(&config.separator) {
-                self.advance();
+            if self.cursor.check(&config.separator) {
+                self.cursor.advance();
 
                 if config.skip_newlines {
-                    self.skip_newlines();
+                    self.cursor.skip_newlines();
                 }
 
                 // Check for trailing separator
-                if self.check(&config.terminator) {
+                if self.cursor.check(&config.terminator) {
                     if config.trailing == TrailingSeparator::Forbidden {
                         return Err(ParseError::unexpected_trailing_separator(
-                            self.previous_span(),
+                            self.cursor.previous_span(),
                             &config.separator,
                         ));
                     }
                     // Allowed or Required both break here
                     break;
                 }
-            } else if !self.check(&config.terminator) && !self.is_at_end() {
+            } else if !self.cursor.check(&config.terminator) && !self.cursor.is_at_end() {
                 // No separator and no terminator - error
                 return Err(ParseError::expected_separator_or_terminator(
-                    self.current_span(),
+                    self.cursor.current_span(),
                     &config.separator,
                     &config.terminator,
                 ));
@@ -207,7 +207,7 @@ impl Parser<'_> {
         // Validate count constraints
         if items.len() < config.min_count {
             return Err(ParseError::too_few_items(
-                self.current_span(),
+                self.cursor.current_span(),
                 config.min_count,
                 items.len(),
             ));
@@ -215,7 +215,7 @@ impl Parser<'_> {
         if let Some(max) = config.max_count {
             if items.len() > max {
                 return Err(ParseError::too_many_items(
-                    self.current_span(),
+                    self.cursor.current_span(),
                     max,
                     items.len(),
                 ));
@@ -235,7 +235,7 @@ impl Parser<'_> {
         F: FnMut(&mut Self) -> Result<Option<T>, ParseError>,
     {
         let items = self.series(&SeriesConfig::comma(TokenKind::RParen), parse_item)?;
-        self.expect(&TokenKind::RParen)?;
+        self.cursor.expect(&TokenKind::RParen)?;
         Ok(items)
     }
 
@@ -247,7 +247,7 @@ impl Parser<'_> {
         F: FnMut(&mut Self) -> Result<Option<T>, ParseError>,
     {
         let items = self.series(&SeriesConfig::comma(TokenKind::RBracket), parse_item)?;
-        self.expect(&TokenKind::RBracket)?;
+        self.cursor.expect(&TokenKind::RBracket)?;
         Ok(items)
     }
 
@@ -259,7 +259,7 @@ impl Parser<'_> {
         F: FnMut(&mut Self) -> Result<Option<T>, ParseError>,
     {
         let items = self.series(&SeriesConfig::comma(TokenKind::RBrace), parse_item)?;
-        self.expect(&TokenKind::RBrace)?;
+        self.cursor.expect(&TokenKind::RBrace)?;
         Ok(items)
     }
 
@@ -271,7 +271,7 @@ impl Parser<'_> {
         F: FnMut(&mut Self) -> Result<Option<T>, ParseError>,
     {
         let items = self.series(&SeriesConfig::comma(TokenKind::Gt), parse_item)?;
-        self.expect(&TokenKind::Gt)?;
+        self.cursor.expect(&TokenKind::Gt)?;
         Ok(items)
     }
 
@@ -302,10 +302,10 @@ impl Parser<'_> {
 
         loop {
             if config.skip_newlines {
-                self.skip_newlines();
+                self.cursor.skip_newlines();
             }
 
-            if self.check(&config.terminator) || self.is_at_end() {
+            if self.cursor.check(&config.terminator) || self.cursor.is_at_end() {
                 break;
             }
 
@@ -314,7 +314,7 @@ impl Parser<'_> {
             } else {
                 if count > 0 && config.trailing == TrailingSeparator::Forbidden {
                     return Err(ParseError::expected_item(
-                        self.current_span(),
+                        self.cursor.current_span(),
                         &config.terminator,
                     ));
                 }
@@ -322,28 +322,28 @@ impl Parser<'_> {
             }
 
             if config.skip_newlines {
-                self.skip_newlines();
+                self.cursor.skip_newlines();
             }
 
-            if self.check(&config.separator) {
-                self.advance();
+            if self.cursor.check(&config.separator) {
+                self.cursor.advance();
 
                 if config.skip_newlines {
-                    self.skip_newlines();
+                    self.cursor.skip_newlines();
                 }
 
-                if self.check(&config.terminator) {
+                if self.cursor.check(&config.terminator) {
                     if config.trailing == TrailingSeparator::Forbidden {
                         return Err(ParseError::unexpected_trailing_separator(
-                            self.previous_span(),
+                            self.cursor.previous_span(),
                             &config.separator,
                         ));
                     }
                     break;
                 }
-            } else if !self.check(&config.terminator) && !self.is_at_end() {
+            } else if !self.cursor.check(&config.terminator) && !self.cursor.is_at_end() {
                 return Err(ParseError::expected_separator_or_terminator(
-                    self.current_span(),
+                    self.cursor.current_span(),
                     &config.separator,
                     &config.terminator,
                 ));
@@ -354,14 +354,18 @@ impl Parser<'_> {
 
         if count < config.min_count {
             return Err(ParseError::too_few_items(
-                self.current_span(),
+                self.cursor.current_span(),
                 config.min_count,
                 count,
             ));
         }
         if let Some(max) = config.max_count {
             if count > max {
-                return Err(ParseError::too_many_items(self.current_span(), max, count));
+                return Err(ParseError::too_many_items(
+                    self.cursor.current_span(),
+                    max,
+                    count,
+                ));
             }
         }
 
@@ -376,7 +380,7 @@ impl Parser<'_> {
         F: FnMut(&mut Self) -> Result<bool, ParseError>,
     {
         let count = self.series_direct(&SeriesConfig::comma(TokenKind::RParen), parse_and_push)?;
-        self.expect(&TokenKind::RParen)?;
+        self.cursor.expect(&TokenKind::RParen)?;
         Ok(count)
     }
 
@@ -389,7 +393,7 @@ impl Parser<'_> {
     {
         let count =
             self.series_direct(&SeriesConfig::comma(TokenKind::RBracket), parse_and_push)?;
-        self.expect(&TokenKind::RBracket)?;
+        self.cursor.expect(&TokenKind::RBracket)?;
         Ok(count)
     }
 
@@ -401,7 +405,7 @@ impl Parser<'_> {
         F: FnMut(&mut Self) -> Result<bool, ParseError>,
     {
         let count = self.series_direct(&SeriesConfig::comma(TokenKind::RBrace), parse_and_push)?;
-        self.expect(&TokenKind::RBrace)?;
+        self.cursor.expect(&TokenKind::RBrace)?;
         Ok(count)
     }
 
@@ -413,7 +417,7 @@ impl Parser<'_> {
         F: FnMut(&mut Self) -> Result<bool, ParseError>,
     {
         let count = self.series_direct(&SeriesConfig::comma(TokenKind::Gt), parse_and_push)?;
-        self.expect(&TokenKind::Gt)?;
+        self.cursor.expect(&TokenKind::Gt)?;
         Ok(count)
     }
 }

@@ -51,6 +51,9 @@ pub mod function_compiler;
 pub mod runtime_decl;
 pub mod type_registration;
 
+// -- ARC IR emission (Tier 2 — Section 07.2) --
+pub mod arc_emitter;
+
 // -- Expression lowering (Section 03) --
 pub mod expr_lowerer;
 mod lower_calls;

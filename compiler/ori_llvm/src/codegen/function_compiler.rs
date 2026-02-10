@@ -15,8 +15,12 @@
 
 use std::cell::Cell;
 
-use ori_arc::{AnnotatedSig, ArcClassifier};
-use ori_ir::{ExprArena, ExprId, Function, Name, Span, StringInterner, TestDef};
+use ori_arc::{
+    compute_liveness, detect_reset_reuse, eliminate_rc_ops, expand_reset_reuse, insert_rc_ops,
+    lower_function_can, AnnotatedSig, ArcClassifier,
+};
+use ori_ir::canon::{CanId, CanonResult};
+use ori_ir::{Function, Name, Span, StringInterner, TestDef};
 use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
@@ -28,6 +32,7 @@ use super::abi::{
     compute_function_abi, compute_function_abi_with_ownership, CallConv, FunctionAbi, ParamPassing,
     ReturnPassing,
 };
+use super::arc_emitter::ArcIrEmitter;
 use super::expr_lowerer::ExprLowerer;
 use super::ir_builder::IrBuilder;
 use super::scope::Scope;
@@ -77,6 +82,9 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     arc_classifier: Option<&'a ArcClassifier<'tcx>>,
     /// Debug info context (None for JIT, Some for AOT with debug info enabled).
     debug_context: Option<&'a DebugContext<'ctx>>,
+    /// When `true`, use Tier 2 ARC codegen path (ARC IR → LLVM IR with RC).
+    /// When `false` (default), use Tier 1 (`ExprLowerer` → LLVM IR, no RC).
+    use_arc_codegen: bool,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -116,7 +124,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             annotated_sigs,
             arc_classifier,
             debug_context,
+            use_arc_codegen: false,
         }
+    }
+
+    /// Enable Tier 2 ARC codegen for all functions compiled through this instance.
+    ///
+    /// Requires `arc_classifier` to be set (passed in constructor). When enabled,
+    /// `define_function_body` runs the full ARC pipeline (lower → borrow → liveness
+    /// → RC insert → detect/expand reuse → RC eliminate → `ArcIrEmitter`) instead
+    /// of the Tier 1 `ExprLowerer` path.
+    pub fn set_arc_codegen(&mut self, enabled: bool) {
+        self.use_arc_codegen = enabled;
     }
 
     // -----------------------------------------------------------------------
@@ -262,8 +281,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         &mut self,
         module_functions: &[Function],
         function_sigs: &[FunctionSig],
-        arena: &ExprArena,
-        expr_types: &[Idx],
+        canon: &CanonResult,
     ) {
         for (func, sig) in module_functions.iter().zip(function_sigs.iter()) {
             if sig.is_generic() {
@@ -280,30 +298,49 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             };
             let abi = abi.clone();
 
-            self.define_function_body(func.name, func_id, &abi, func.body, arena, expr_types);
+            // Look up the canonical body for this function
+            let body = canon.root_for(func.name).unwrap_or(canon.root);
+            self.define_function_body(func.name, func_id, &abi, body, canon);
         }
     }
 
     /// Define a single function body.
+    ///
+    /// Dispatches to Tier 1 (`ExprLowerer`) or Tier 2 (`ArcIrEmitter`) based
+    /// on `use_arc_codegen`. Both paths produce correct LLVM IR; Tier 2 adds
+    /// RC lifecycle operations (`ori_rc_inc`/`ori_rc_dec`).
     fn define_function_body(
         &mut self,
         name: Name,
         func_id: FunctionId,
         abi: &FunctionAbi,
-        body: ExprId,
-        arena: &ExprArena,
-        expr_types: &[Idx],
+        body: CanId,
+        canon: &CanonResult,
+    ) {
+        if self.use_arc_codegen {
+            if let Some(classifier) = self.arc_classifier {
+                self.define_function_body_arc(name, func_id, abi, body, canon, classifier);
+                return;
+            }
+            // Fall through to Tier 1 if no classifier available
+            warn!("ARC codegen requested but no classifier — falling back to Tier 1");
+        }
+        self.define_function_body_tier1(name, func_id, abi, body, canon);
+    }
+
+    /// Tier 1: `ExprLowerer`-based codegen (no RC operations).
+    fn define_function_body_tier1(
+        &mut self,
+        name: Name,
+        func_id: FunctionId,
+        abi: &FunctionAbi,
+        body: CanId,
+        canon: &CanonResult,
     ) {
         let name_str = self.interner.lookup(name);
-        debug!(name = name_str, "defining function body");
+        debug!(name = name_str, tier = 1, "defining function body");
 
-        // Enter debug scope for this function
-        if let Some(dc) = self.debug_context {
-            let func_val = self.builder.get_function_value(func_id);
-            if let Some(subprogram) = func_val.get_subprogram() {
-                dc.enter_function(subprogram);
-            }
-        }
+        self.enter_debug_scope(func_id);
 
         // Create entry block
         let entry_block = self.builder.append_block(func_id, "entry");
@@ -319,8 +356,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.type_info,
             self.type_resolver,
             scope,
-            arena,
-            expr_types,
+            canon,
             self.interner,
             self.pool,
             func_id,
@@ -337,18 +373,113 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         // Check if the block is already terminated (e.g., by panic, break, unreachable)
         if let Some(block) = self.builder.current_block() {
             if self.builder.block_has_terminator(block) {
-                // Exit debug scope even on early termination
-                if let Some(dc) = self.debug_context {
-                    dc.exit_function();
-                }
+                self.exit_debug_scope();
                 return;
             }
         }
 
         // Emit return instruction based on ABI
+        self.emit_return(func_id, abi, result, name_str);
+        self.exit_debug_scope();
+    }
+
+    /// Tier 2: ARC IR → LLVM IR codegen (with RC lifecycle).
+    ///
+    /// Runs the full ARC pipeline: lower → liveness → RC insert → detect/expand
+    /// reuse → RC eliminate → `ArcIrEmitter`. The emitter handles block creation,
+    /// parameter binding, and return emission internally.
+    fn define_function_body_arc(
+        &mut self,
+        name: Name,
+        func_id: FunctionId,
+        abi: &FunctionAbi,
+        body: CanId,
+        canon: &CanonResult,
+        classifier: &ArcClassifier,
+    ) {
+        let name_str = self.interner.lookup(name);
+        debug!(name = name_str, tier = 2, "defining function body (ARC)");
+
+        self.enter_debug_scope(func_id);
+        self.builder.set_current_function(func_id);
+
+        // Build parameter list for ARC IR lowering: (Name, Idx) pairs
+        let params: Vec<(Name, Idx)> = abi.params.iter().map(|p| (p.name, p.ty)).collect();
+        let return_type = abi.return_abi.ty;
+
+        // Step 1: Lower canonical IR → ARC IR
+        let mut problems = Vec::new();
+        let (mut arc_func, _lambdas) = lower_function_can(
+            name,
+            &params,
+            return_type,
+            body,
+            canon,
+            self.interner,
+            self.pool,
+            &mut problems,
+        );
+
+        for problem in &problems {
+            debug!(?problem, "ARC lowering problem");
+        }
+
+        // Step 2: Run full ARC pipeline (insert → detect → expand → eliminate)
+        let liveness = compute_liveness(&arc_func, classifier);
+        insert_rc_ops(&mut arc_func, classifier, &liveness);
+        detect_reset_reuse(&mut arc_func, classifier);
+        expand_reset_reuse(&mut arc_func, classifier);
+        let eliminated = eliminate_rc_ops(&mut arc_func);
+
+        trace!(
+            name = name_str,
+            blocks = arc_func.blocks.len(),
+            eliminated,
+            "ARC pipeline complete"
+        );
+
+        // Step 3: Emit LLVM IR from ARC IR
+        let mut emitter = ArcIrEmitter::new(
+            self.builder,
+            self.type_info,
+            self.type_resolver,
+            self.interner,
+            self.pool,
+            func_id,
+            &self.functions,
+        );
+        emitter.emit_function(&arc_func, abi);
+
+        self.exit_debug_scope();
+    }
+
+    /// Enter debug scope for the function being compiled.
+    fn enter_debug_scope(&self, func_id: FunctionId) {
+        if let Some(dc) = self.debug_context {
+            let func_val = self.builder.get_function_value(func_id);
+            if let Some(subprogram) = func_val.get_subprogram() {
+                dc.enter_function(subprogram);
+            }
+        }
+    }
+
+    /// Exit debug scope after function compilation.
+    fn exit_debug_scope(&self) {
+        if let Some(dc) = self.debug_context {
+            dc.exit_function();
+        }
+    }
+
+    /// Emit the return instruction based on ABI passing mode.
+    fn emit_return(
+        &mut self,
+        func_id: FunctionId,
+        abi: &FunctionAbi,
+        result: Option<ValueId>,
+        name_str: &str,
+    ) {
         match &abi.return_abi.passing {
             ReturnPassing::Sret { .. } => {
-                // Store result through the hidden sret pointer, then ret void
                 if let Some(val) = result {
                     let sret_ptr = self.builder.get_param(func_id, 0);
                     self.builder.store(val, sret_ptr);
@@ -359,7 +490,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 if let Some(val) = result {
                     self.builder.ret(val);
                 } else {
-                    // No value produced — shouldn't happen for Direct return, but be safe
                     warn!(name = name_str, "direct return function produced no value");
                     self.builder.ret_void();
                 }
@@ -367,11 +497,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             ReturnPassing::Void => {
                 self.builder.ret_void();
             }
-        }
-
-        // Exit debug scope after emitting return
-        if let Some(dc) = self.debug_context {
-            dc.exit_function();
         }
     }
 
@@ -463,8 +588,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     pub fn compile_tests(
         &mut self,
         tests: &[&TestDef],
-        arena: &ExprArena,
-        expr_types: &[Idx],
+        canon: &CanonResult,
     ) -> FxHashMap<Name, String> {
         let mut test_wrappers = FxHashMap::default();
 
@@ -475,6 +599,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 .mangle_function(self.module_path, &format!("test_{test_name_str}"));
 
             debug!(name = test_name_str, wrapper = %wrapper_name, "compiling test");
+
+            // Look up the canonical body for this test
+            let body = canon.root_for(test.name).unwrap_or(canon.root);
 
             // Declare void → void wrapper
             let func_id = self.builder.declare_void_function(&wrapper_name, &[]);
@@ -490,8 +617,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 self.type_info,
                 self.type_resolver,
                 Scope::new(),
-                arena,
-                expr_types,
+                canon,
                 self.interner,
                 self.pool,
                 func_id,
@@ -503,7 +629,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 self.debug_context,
             );
 
-            lowerer.lower(test.body);
+            lowerer.lower(body);
 
             // Ensure terminator
             if let Some(block) = self.builder.current_block() {
@@ -535,8 +661,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         &mut self,
         impls: &[ori_ir::ImplDef],
         impl_sigs: &[(Name, FunctionSig)],
-        arena: &ExprArena,
-        expr_types: &[Idx],
+        canon: &CanonResult,
     ) {
         // Consume impl_sigs positionally — the type checker pushes sigs in the
         // same iteration order: `for impl_def { for method { register_impl_sig } }`.
@@ -546,11 +671,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         for impl_def in impls {
             // Resolve the type name from self_path for mangling
-            let type_name = if let Some(first) = impl_def.self_path.first() {
-                self.interner.lookup(*first).to_owned()
-            } else {
-                String::new()
-            };
+            let type_name_name = impl_def.self_path.first().copied();
+            let type_name = type_name_name
+                .map(|n| self.interner.lookup(n).to_owned())
+                .unwrap_or_default();
 
             for method in &impl_def.methods {
                 let Some((sig_name, sig)) = sig_iter.next() else {
@@ -587,24 +711,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 let abi = abi.clone();
 
                 // Populate type-qualified method map for dispatch
-                if let Some(&type_name_name) = impl_def.self_path.first() {
+                if let Some(tnn) = type_name_name {
                     self.method_functions
-                        .insert((type_name_name, method.name), (func_id, abi.clone()));
+                        .insert((tnn, method.name), (func_id, abi.clone()));
 
                     // Map the self type Idx → type Name for receiver resolution
                     if let Some(&self_type_idx) = sig.param_types.first() {
-                        self.type_idx_to_name.insert(self_type_idx, type_name_name);
+                        self.type_idx_to_name.insert(self_type_idx, tnn);
                     }
                 }
 
-                self.define_function_body(
-                    method.name,
-                    func_id,
-                    &abi,
-                    method.body,
-                    arena,
-                    expr_types,
-                );
+                // Look up the canonical body for this impl method
+                let body = type_name_name
+                    .and_then(|tnn| canon.method_root_for(tnn, method.name))
+                    .or_else(|| canon.root_for(method.name))
+                    .unwrap_or(canon.root);
+
+                self.define_function_body(method.name, func_id, &abi, body, canon);
             }
         }
     }
@@ -931,6 +1054,7 @@ mod tests {
     use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
     use crate::context::SimpleCx;
     use inkwell::context::Context;
+    use ori_ir::canon::CanId;
     use ori_ir::Name;
     use ori_types::{Idx, Pool};
     use std::mem::ManuallyDrop;
@@ -958,6 +1082,7 @@ mod tests {
             where_clauses: vec![],
             generic_param_mapping: vec![],
             required_params,
+            param_defaults: vec![],
         }
     }
 
@@ -1137,6 +1262,7 @@ mod tests {
             where_clauses: vec![],
             generic_param_mapping: vec![],
             required_params: 0,
+            param_defaults: vec![],
         };
 
         let func = Function {
@@ -1147,7 +1273,7 @@ mod tests {
             capabilities: vec![],
             where_clauses: vec![],
             guard: None,
-            body: ExprId::INVALID,
+            body: ori_ir::ExprId::INVALID,
             span: ori_ir::Span::new(0, 0),
             visibility: ori_ir::Visibility::Private,
         };
@@ -1262,7 +1388,7 @@ mod tests {
                 name: distance_name,
                 params: ori_ir::ParamRange::EMPTY,
                 return_ty: ParsedType::Primitive(ori_ir::TypeId::FLOAT),
-                body: ExprId::INVALID,
+                body: ori_ir::ExprId::INVALID,
                 span: Span::new(0, 0),
             }],
             assoc_types: vec![],
@@ -1283,7 +1409,7 @@ mod tests {
                 name: distance_name,
                 params: ori_ir::ParamRange::EMPTY,
                 return_ty: ParsedType::Primitive(ori_ir::TypeId::FLOAT),
-                body: ExprId::INVALID,
+                body: ori_ir::ExprId::INVALID,
                 span: Span::new(0, 0),
             }],
             assoc_types: vec![],
@@ -1311,8 +1437,16 @@ mod tests {
             (distance_name, sig_line.clone()),
         ];
 
-        let arena = ori_ir::ExprArena::new();
-        let expr_types: Vec<Idx> = vec![];
+        // Create a minimal CanonResult for testing (methods have INVALID bodies,
+        // which is fine since we're only testing declaration/dispatch, not lowering)
+        let canon = ori_ir::canon::CanonResult {
+            arena: Default::default(),
+            constants: Default::default(),
+            decision_trees: ori_ir::canon::DecisionTreePool::new(),
+            root: CanId::INVALID,
+            roots: vec![],
+            method_roots: vec![],
+        };
 
         let mut fc = FunctionCompiler::new(
             &mut builder,
@@ -1329,7 +1463,7 @@ mod tests {
         // Compile Point impl first, then Line impl
         // Note: compile_impls processes all impls; same method name → last one
         // overwrites in bare functions map, but BOTH should be in method_functions
-        fc.compile_impls(&[impl_point, impl_line], &impl_sigs, &arena, &expr_types);
+        fc.compile_impls(&[impl_point, impl_line], &impl_sigs, &canon);
 
         // The bare functions map has only the LAST one (Line.distance overwrites Point.distance)
         assert!(fc.function_map().contains_key(&distance_name));

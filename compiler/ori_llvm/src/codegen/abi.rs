@@ -561,6 +561,7 @@ mod tests {
             where_clauses: vec![],
             generic_param_mapping: vec![],
             required_params: 2,
+            param_defaults: vec![],
         };
 
         let abi = compute_function_abi(&sig, &store);
@@ -591,6 +592,7 @@ mod tests {
             where_clauses: vec![],
             generic_param_mapping: vec![],
             required_params: 0,
+            param_defaults: vec![],
         };
 
         let abi = compute_function_abi(&sig, &store);
@@ -618,6 +620,7 @@ mod tests {
             where_clauses: vec![],
             generic_param_mapping: vec![],
             required_params: 0,
+            param_defaults: vec![],
         };
 
         let abi = compute_function_abi(&sig, &store);
@@ -779,6 +782,7 @@ mod tests {
             where_clauses: vec![],
             generic_param_mapping: vec![],
             required_params: 2,
+            param_defaults: vec![],
         };
 
         let annotated = AnnotatedSig {
@@ -826,6 +830,7 @@ mod tests {
             where_clauses: vec![],
             generic_param_mapping: vec![],
             required_params: 1,
+            param_defaults: vec![],
         };
 
         // No borrow info → falls through to standard compute_function_abi

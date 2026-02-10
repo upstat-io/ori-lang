@@ -54,26 +54,26 @@ impl Parser<'_> {
     /// Internal implementation for parsing run/try expressions.
     fn parse_function_seq_internal(&mut self, kind: FunctionSeqKind) -> ParseOutcome<ExprId> {
         let is_try = matches!(kind, FunctionSeqKind::Try);
-        let start_span = self.previous_span();
-        committed!(self.expect(&TokenKind::LParen));
-        self.skip_newlines();
+        let start_span = self.cursor.previous_span();
+        committed!(self.cursor.expect(&TokenKind::LParen));
+        self.cursor.skip_newlines();
 
         let mut bindings = Vec::new();
         let mut result_expr = None;
 
-        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-            self.skip_newlines();
+        while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
+            self.cursor.skip_newlines();
 
-            if self.check(&TokenKind::Let) {
-                let binding_span = self.current_span();
-                self.advance();
+            if self.cursor.check(&TokenKind::Let) {
+                let binding_span = self.cursor.current_span();
+                self.cursor.advance();
 
                 // Per spec: mutable by default, $ prefix for immutable
-                let mutable = if self.check(&TokenKind::Dollar) {
-                    self.advance();
+                let mutable = if self.cursor.check(&TokenKind::Dollar) {
+                    self.cursor.advance();
                     false
-                } else if self.check(&TokenKind::Mut) {
-                    self.advance();
+                } else if self.cursor.check(&TokenKind::Mut) {
+                    self.cursor.advance();
                     true
                 } else {
                     true
@@ -82,15 +82,15 @@ impl Parser<'_> {
                 let pattern = committed!(self.parse_binding_pattern());
                 let pattern_id = self.arena.alloc_binding_pattern(pattern);
 
-                let ty = if self.check(&TokenKind::Colon) {
-                    self.advance();
+                let ty = if self.cursor.check(&TokenKind::Colon) {
+                    self.cursor.advance();
                     self.parse_type()
                         .map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
                 } else {
                     ParsedTypeId::INVALID
                 };
 
-                committed!(self.expect(&TokenKind::Eq));
+                committed!(self.cursor.expect(&TokenKind::Eq));
                 let value = require!(self, self.parse_expr(), "expression after `=`");
                 let end_span = self.arena.get_expr(value).span;
 
@@ -102,17 +102,17 @@ impl Parser<'_> {
                     span: binding_span.merge(end_span),
                 });
             } else {
-                let expr_span = self.current_span();
+                let expr_span = self.cursor.current_span();
                 let expr = require!(self, self.parse_expr(), "expression");
                 let end_span = self.arena.get_expr(expr).span;
 
-                self.skip_newlines();
+                self.cursor.skip_newlines();
 
-                if self.check(&TokenKind::Comma) {
-                    self.advance();
-                    self.skip_newlines();
+                if self.cursor.check(&TokenKind::Comma) {
+                    self.cursor.advance();
+                    self.cursor.skip_newlines();
 
-                    if self.check(&TokenKind::RParen) {
+                    if self.cursor.check(&TokenKind::RParen) {
                         result_expr = Some(expr);
                     } else {
                         bindings.push(SeqBinding::Stmt {
@@ -125,17 +125,17 @@ impl Parser<'_> {
                 result_expr = Some(expr);
             }
 
-            self.skip_newlines();
+            self.cursor.skip_newlines();
 
-            if !self.check(&TokenKind::RParen) {
-                committed!(self.expect(&TokenKind::Comma));
-                self.skip_newlines();
+            if !self.cursor.check(&TokenKind::RParen) {
+                committed!(self.cursor.expect(&TokenKind::Comma));
+                self.cursor.skip_newlines();
             }
         }
 
-        self.skip_newlines();
-        committed!(self.expect(&TokenKind::RParen));
-        let end_span = self.previous_span();
+        self.cursor.skip_newlines();
+        committed!(self.cursor.expect(&TokenKind::RParen));
+        let end_span = self.cursor.previous_span();
 
         let Some(result) = result_expr else {
             return ParseOutcome::consumed_err(
@@ -185,31 +185,31 @@ impl Parser<'_> {
     }
 
     fn parse_match_expr_body(&mut self) -> ParseOutcome<ExprId> {
-        let start_span = self.previous_span();
-        committed!(self.expect(&TokenKind::LParen));
-        self.skip_newlines();
+        let start_span = self.cursor.previous_span();
+        committed!(self.cursor.expect(&TokenKind::LParen));
+        self.cursor.skip_newlines();
 
         let scrutinee = require!(self, self.parse_expr(), "match scrutinee");
 
-        self.skip_newlines();
-        committed!(self.expect(&TokenKind::Comma));
-        self.skip_newlines();
+        self.cursor.skip_newlines();
+        committed!(self.cursor.expect(&TokenKind::Comma));
+        self.cursor.skip_newlines();
 
         // Match arms use a Vec because nested match expressions share
         // the same `arms` buffer, causing same-buffer nesting conflicts.
         let mut arms: Vec<MatchArm> = Vec::new();
         committed!(self.paren_series_direct(|p| {
-            if p.check(&TokenKind::RParen) {
+            if p.cursor.check(&TokenKind::RParen) {
                 return Ok(false);
             }
 
-            let arm_span = p.current_span();
+            let arm_span = p.cursor.current_span();
             let pattern = p.parse_match_pattern()?;
 
             // Check for guard: pattern.match(condition)
             let guard = p.parse_pattern_guard()?;
 
-            p.expect(&TokenKind::Arrow)?;
+            p.cursor.expect(&TokenKind::Arrow)?;
             let body = p.parse_expr().into_result()?;
             let end_span = p.arena.get_expr(body).span;
 
@@ -221,7 +221,7 @@ impl Parser<'_> {
             });
             Ok(true)
         }));
-        let end_span = self.previous_span();
+        let end_span = self.cursor.previous_span();
 
         if arms.is_empty() {
             return ParseOutcome::consumed_err(
@@ -253,33 +253,33 @@ impl Parser<'_> {
     ///
     /// Called after `for` keyword has been consumed by `parse_primary`.
     pub(crate) fn parse_for_pattern(&mut self) -> ParseOutcome<ExprId> {
-        let start_span = self.previous_span();
-        committed!(self.expect(&TokenKind::LParen));
-        self.skip_newlines();
+        let start_span = self.cursor.previous_span();
+        committed!(self.cursor.expect(&TokenKind::LParen));
+        self.cursor.skip_newlines();
 
         let mut over: Option<ExprId> = None;
         let mut map: Option<ExprId> = None;
         let mut match_arm: Option<MatchArm> = None;
         let mut default: Option<ExprId> = None;
 
-        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-            self.skip_newlines();
+        while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
+            self.cursor.skip_newlines();
 
-            if !self.is_named_arg_start() {
+            if !self.cursor.is_named_arg_start() {
                 return ParseOutcome::consumed_err(
                     ParseError::new(
                         ori_diagnostic::ErrorCode::E1013,
                         "`for` pattern requires named properties (over:, match:, default:)"
                             .to_string(),
-                        self.current_span(),
+                        self.cursor.current_span(),
                     ),
                     start_span,
                 );
             }
 
-            let name = committed!(self.expect_ident_or_keyword());
-            committed!(self.expect(&TokenKind::Colon));
-            let name_str = self.interner().lookup(name);
+            let name = committed!(self.cursor.expect_ident_or_keyword());
+            committed!(self.cursor.expect(&TokenKind::Colon));
+            let name_str = self.cursor.interner().lookup(name);
 
             match name_str {
                 "over" => {
@@ -297,10 +297,10 @@ impl Parser<'_> {
                     ));
                 }
                 "match" => {
-                    let arm_span = self.current_span();
+                    let arm_span = self.cursor.current_span();
                     let pattern = committed!(self.parse_match_pattern());
                     let guard = committed!(self.parse_pattern_guard());
-                    committed!(self.expect(&TokenKind::Arrow));
+                    committed!(self.cursor.expect(&TokenKind::Arrow));
                     let body = require!(self, self.parse_expr(), "match body in for pattern");
                     let end_span = self.arena.get_expr(body).span;
                     match_arm = Some(MatchArm {
@@ -322,23 +322,23 @@ impl Parser<'_> {
                         ParseError::new(
                             ori_diagnostic::ErrorCode::E1013,
                             format!("`for` pattern does not accept property `{unknown}`"),
-                            self.previous_span(),
+                            self.cursor.previous_span(),
                         ),
                         start_span,
                     );
                 }
             }
 
-            self.skip_newlines();
-            if !self.check(&TokenKind::RParen) {
-                committed!(self.expect(&TokenKind::Comma));
-                self.skip_newlines();
+            self.cursor.skip_newlines();
+            if !self.cursor.check(&TokenKind::RParen) {
+                committed!(self.cursor.expect(&TokenKind::Comma));
+                self.cursor.skip_newlines();
             }
         }
 
-        self.skip_newlines();
-        committed!(self.expect(&TokenKind::RParen));
-        let end_span = self.previous_span();
+        self.cursor.skip_newlines();
+        committed!(self.cursor.expect(&TokenKind::RParen));
+        let end_span = self.cursor.previous_span();
         let span = start_span.merge(end_span);
 
         let Some(over) = over else {
@@ -397,10 +397,10 @@ impl Parser<'_> {
 
         // Check for or-pattern continuation: pattern | pattern | ...
         // Uses a Vec because patterns can recursively nest (same buffer).
-        if self.check(&TokenKind::Pipe) {
+        if self.cursor.check(&TokenKind::Pipe) {
             let mut alternatives = vec![self.arena.alloc_match_pattern(base)];
-            while self.check(&TokenKind::Pipe) {
-                self.advance();
+            while self.cursor.check(&TokenKind::Pipe) {
+                self.cursor.advance();
                 let alt = self.parse_match_pattern_base().into_result()?;
                 alternatives.push(self.arena.alloc_match_pattern(alt));
             }
@@ -431,23 +431,26 @@ impl Parser<'_> {
 
     /// Parse wildcard pattern: `_`
     fn parse_pattern_wildcard(&mut self) -> ParseOutcome<MatchPattern> {
-        if !self.check(&TokenKind::Underscore) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Underscore, self.position());
+        if !self.cursor.check(&TokenKind::Underscore) {
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Underscore,
+                self.cursor.position(),
+            );
         }
-        self.advance();
+        self.cursor.advance();
         ParseOutcome::consumed_ok(MatchPattern::Wildcard)
     }
 
     /// Parse literal patterns: integers (possibly negative), booleans, strings.
     /// Also handles range patterns: `1..10`, `1..=10`.
     fn parse_pattern_literal(&mut self) -> ParseOutcome<MatchPattern> {
-        match *self.current_kind() {
+        match *self.cursor.current_kind() {
             // Negative integer literal: -42
             TokenKind::Minus => {
-                let start_span = self.current_span();
-                self.advance();
-                if let TokenKind::Int(n) = *self.current_kind() {
-                    self.advance();
+                let start_span = self.cursor.current_span();
+                self.cursor.advance();
+                if let TokenKind::Int(n) = *self.cursor.current_kind() {
+                    self.cursor.advance();
                     let Ok(value) = i64::try_from(n) else {
                         return ParseOutcome::consumed_err(
                             ParseError::new(
@@ -458,7 +461,7 @@ impl Parser<'_> {
                             start_span,
                         );
                     };
-                    let span = start_span.merge(self.previous_span());
+                    let span = start_span.merge(self.cursor.previous_span());
                     ParseOutcome::consumed_ok(MatchPattern::Literal(
                         self.arena
                             .alloc_expr(Expr::new(ExprKind::Int(-value), span)),
@@ -468,7 +471,7 @@ impl Parser<'_> {
                         ParseError::new(
                             ori_diagnostic::ErrorCode::E1002,
                             "expected integer after `-` in pattern".to_string(),
-                            self.current_span(),
+                            self.cursor.current_span(),
                         ),
                         start_span,
                     )
@@ -477,8 +480,8 @@ impl Parser<'_> {
 
             // Positive integer literal: 42 (with possible range)
             TokenKind::Int(n) => {
-                let pat_span = self.current_span();
-                self.advance();
+                let pat_span = self.cursor.current_span();
+                self.cursor.advance();
                 let Ok(value) = i64::try_from(n) else {
                     return ParseOutcome::consumed_err(
                         ParseError::new(
@@ -491,9 +494,10 @@ impl Parser<'_> {
                 };
 
                 // Check for range pattern: 1..10 or 1..=10
-                if self.check(&TokenKind::DotDot) || self.check(&TokenKind::DotDotEq) {
-                    let inclusive = self.check(&TokenKind::DotDotEq);
-                    self.advance();
+                if self.cursor.check(&TokenKind::DotDot) || self.cursor.check(&TokenKind::DotDotEq)
+                {
+                    let inclusive = self.cursor.check(&TokenKind::DotDotEq);
+                    self.cursor.advance();
                     let start_expr = self
                         .arena
                         .alloc_expr(Expr::new(ExprKind::Int(value), pat_span));
@@ -519,51 +523,51 @@ impl Parser<'_> {
 
                 ParseOutcome::consumed_ok(MatchPattern::Literal(
                     self.arena
-                        .alloc_expr(Expr::new(ExprKind::Int(value), self.previous_span())),
+                        .alloc_expr(Expr::new(ExprKind::Int(value), self.cursor.previous_span())),
                 ))
             }
             TokenKind::True => {
-                self.advance();
+                self.cursor.advance();
                 ParseOutcome::consumed_ok(MatchPattern::Literal(
                     self.arena
-                        .alloc_expr(Expr::new(ExprKind::Bool(true), self.previous_span())),
+                        .alloc_expr(Expr::new(ExprKind::Bool(true), self.cursor.previous_span())),
                 ))
             }
             TokenKind::False => {
-                self.advance();
-                ParseOutcome::consumed_ok(MatchPattern::Literal(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Bool(false), self.previous_span())),
-                ))
+                self.cursor.advance();
+                ParseOutcome::consumed_ok(MatchPattern::Literal(self.arena.alloc_expr(Expr::new(
+                    ExprKind::Bool(false),
+                    self.cursor.previous_span(),
+                ))))
             }
             TokenKind::String(name) => {
-                self.advance();
-                ParseOutcome::consumed_ok(MatchPattern::Literal(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::String(name), self.previous_span())),
-                ))
+                self.cursor.advance();
+                ParseOutcome::consumed_ok(MatchPattern::Literal(self.arena.alloc_expr(Expr::new(
+                    ExprKind::String(name),
+                    self.cursor.previous_span(),
+                ))))
             }
-            _ => ParseOutcome::empty_err(PATTERN_LITERAL_TOKENS, self.position()),
+            _ => ParseOutcome::empty_err(PATTERN_LITERAL_TOKENS, self.cursor.position()),
         }
     }
 
     /// Parse identifier pattern: binding, at-pattern, named variant, or named struct.
     fn parse_pattern_ident(&mut self) -> ParseOutcome<MatchPattern> {
-        let TokenKind::Ident(name) = *self.current_kind() else {
+        let TokenKind::Ident(name) = *self.cursor.current_kind() else {
             return ParseOutcome::empty_err_expected(
                 &TokenKind::Ident(Name::EMPTY),
-                self.position(),
+                self.cursor.position(),
             );
         };
 
-        self.advance();
+        self.cursor.advance();
 
         // Check for at-pattern: x @ pattern
-        if self.check(&TokenKind::At) {
-            self.advance();
+        if self.cursor.check(&TokenKind::At) {
+            self.cursor.advance();
             let pattern = match self.parse_match_pattern_base().into_result() {
                 Ok(p) => p,
-                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+                Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
             };
             let pattern_id = self.arena.alloc_match_pattern(pattern);
             return ParseOutcome::consumed_ok(MatchPattern::At {
@@ -573,24 +577,24 @@ impl Parser<'_> {
         }
 
         // Check for variant pattern: Name(x) or struct literal: Point { x, y }
-        if self.check(&TokenKind::LParen) {
-            self.advance();
+        if self.cursor.check(&TokenKind::LParen) {
+            self.cursor.advance();
             let inner = match self.parse_variant_inner_patterns() {
                 Ok(i) => i,
-                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+                Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
             };
-            match self.expect(&TokenKind::RParen) {
+            match self.cursor.expect(&TokenKind::RParen) {
                 Ok(_) => {}
-                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+                Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
             }
             return ParseOutcome::consumed_ok(MatchPattern::Variant { name, inner });
         }
 
-        if self.check(&TokenKind::LBrace) {
+        if self.cursor.check(&TokenKind::LBrace) {
             // Named struct pattern: Point { x, y }
             match self.parse_struct_pattern_fields() {
                 Ok(pat) => return ParseOutcome::consumed_ok(pat),
-                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+                Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
             }
         }
 
@@ -599,34 +603,34 @@ impl Parser<'_> {
 
     /// Parse anonymous struct pattern: `{ x, y }`
     fn parse_pattern_struct(&mut self) -> ParseOutcome<MatchPattern> {
-        if !self.check(&TokenKind::LBrace) {
-            return ParseOutcome::empty_err_expected(&TokenKind::LBrace, self.position());
+        if !self.cursor.check(&TokenKind::LBrace) {
+            return ParseOutcome::empty_err_expected(&TokenKind::LBrace, self.cursor.position());
         }
         match self.parse_struct_pattern_fields() {
             Ok(pat) => ParseOutcome::consumed_ok(pat),
-            Err(err) => ParseOutcome::consumed_err(err, self.current_span()),
+            Err(err) => ParseOutcome::consumed_err(err, self.cursor.current_span()),
         }
     }
 
     /// Parse list pattern: `[a, b, ..rest]`
     fn parse_pattern_list(&mut self) -> ParseOutcome<MatchPattern> {
-        if !self.check(&TokenKind::LBracket) {
-            return ParseOutcome::empty_err_expected(&TokenKind::LBracket, self.position());
+        if !self.cursor.check(&TokenKind::LBracket) {
+            return ParseOutcome::empty_err_expected(&TokenKind::LBracket, self.cursor.position());
         }
-        self.advance();
+        self.cursor.advance();
         // Pattern elements use a Vec because patterns can recursively
         // nest (e.g., `[a, (b, c), [d, e]]`), sharing the same buffer.
         let mut elements: Vec<MatchPatternId> = Vec::new();
         let mut rest = None;
 
-        while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
+        while !self.cursor.check(&TokenKind::RBracket) && !self.cursor.is_at_end() {
             // Check for rest pattern: ..rest or ..
-            if self.check(&TokenKind::DotDot) {
-                self.advance();
+            if self.cursor.check(&TokenKind::DotDot) {
+                self.cursor.advance();
                 // Optional name after .. (Name::EMPTY for anonymous rest)
-                if let TokenKind::Ident(name) = *self.current_kind() {
+                if let TokenKind::Ident(name) = *self.cursor.current_kind() {
                     rest = Some(name);
-                    self.advance();
+                    self.cursor.advance();
                 } else {
                     // Anonymous rest pattern: use empty name as sentinel
                     rest = Some(Name::EMPTY);
@@ -637,21 +641,21 @@ impl Parser<'_> {
 
             let elem = match self.parse_match_pattern() {
                 Ok(e) => e,
-                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+                Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
             };
             elements.push(self.arena.alloc_match_pattern(elem));
 
-            if !self.check(&TokenKind::RBracket) && !self.check(&TokenKind::DotDot) {
-                match self.expect(&TokenKind::Comma) {
+            if !self.cursor.check(&TokenKind::RBracket) && !self.cursor.check(&TokenKind::DotDot) {
+                match self.cursor.expect(&TokenKind::Comma) {
                     Ok(_) => {}
-                    Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+                    Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
                 }
             }
         }
 
-        match self.expect(&TokenKind::RBracket) {
+        match self.cursor.expect(&TokenKind::RBracket) {
             Ok(_) => {}
-            Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
         }
         let elements = self.arena.alloc_match_pattern_list(elements);
         ParseOutcome::consumed_ok(MatchPattern::List { elements, rest })
@@ -659,28 +663,28 @@ impl Parser<'_> {
 
     /// Parse builtin variant patterns: `Some(x)`, `None`, `Ok(x)`, `Err(x)`
     fn parse_pattern_builtin_variant(&mut self) -> ParseOutcome<MatchPattern> {
-        let (name_str, has_inner) = match *self.current_kind() {
+        let (name_str, has_inner) = match *self.cursor.current_kind() {
             TokenKind::Some => ("Some", true),
             TokenKind::None => ("None", false),
             TokenKind::Ok => ("Ok", true),
             TokenKind::Err => ("Err", true),
-            _ => return ParseOutcome::empty_err(PATTERN_VARIANT_TOKENS, self.position()),
+            _ => return ParseOutcome::empty_err(PATTERN_VARIANT_TOKENS, self.cursor.position()),
         };
 
-        let name = self.interner().intern(name_str);
-        self.advance();
+        let name = self.cursor.interner().intern(name_str);
+        self.cursor.advance();
         let inner = if has_inner {
-            match self.expect(&TokenKind::LParen) {
+            match self.cursor.expect(&TokenKind::LParen) {
                 Ok(_) => {}
-                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+                Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
             }
             let patterns = match self.parse_variant_inner_patterns() {
                 Ok(p) => p,
-                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+                Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
             };
-            match self.expect(&TokenKind::RParen) {
+            match self.cursor.expect(&TokenKind::RParen) {
                 Ok(_) => {}
-                Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+                Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
             }
             patterns
         } else {
@@ -693,16 +697,16 @@ impl Parser<'_> {
     fn parse_pattern_tuple(&mut self) -> ParseOutcome<MatchPattern> {
         use crate::series::SeriesConfig;
 
-        if !self.check(&TokenKind::LParen) {
-            return ParseOutcome::empty_err_expected(&TokenKind::LParen, self.position());
+        if !self.cursor.check(&TokenKind::LParen) {
+            return ParseOutcome::empty_err_expected(&TokenKind::LParen, self.cursor.position());
         }
 
-        self.advance();
+        self.cursor.advance();
         // Tuple patterns use a Vec because patterns can recursively
         // nest (e.g., `(a, (b, c))`), sharing the same buffer.
         let mut elements: Vec<MatchPatternId> = Vec::new();
         match self.series_direct(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
-            if p.check(&TokenKind::RParen) {
+            if p.cursor.check(&TokenKind::RParen) {
                 return Ok(false);
             }
             let pat = p.parse_match_pattern()?;
@@ -710,11 +714,11 @@ impl Parser<'_> {
             Ok(true)
         }) {
             Ok(_) => {}
-            Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
         }
-        match self.expect(&TokenKind::RParen) {
+        match self.cursor.expect(&TokenKind::RParen) {
             Ok(_) => {}
-            Err(err) => return ParseOutcome::consumed_err(err, self.current_span()),
+            Err(err) => return ParseOutcome::consumed_err(err, self.cursor.current_span()),
         }
         let range = self.arena.alloc_match_pattern_list(elements);
         ParseOutcome::consumed_ok(MatchPattern::Tuple(range))
@@ -724,29 +728,29 @@ impl Parser<'_> {
     ///
     /// Called after the `function_exp` keyword has been consumed by `parse_primary`.
     pub(crate) fn parse_function_exp(&mut self, kind: FunctionExpKind) -> ParseOutcome<ExprId> {
-        let start_span = self.previous_span();
-        committed!(self.expect(&TokenKind::LParen));
-        self.skip_newlines();
+        let start_span = self.cursor.previous_span();
+        committed!(self.cursor.expect(&TokenKind::LParen));
+        self.cursor.skip_newlines();
 
         // Named exprs use a Vec because function expressions can nest
         // (e.g., `parallel(f: timeout(t: 5s, ...))`), sharing the same buffer.
         let mut props: Vec<NamedExpr> = Vec::new();
         committed!(self.paren_series_direct(|p| {
-            if p.check(&TokenKind::RParen) {
+            if p.cursor.check(&TokenKind::RParen) {
                 return Ok(false);
             }
 
-            if !p.is_named_arg_start() {
+            if !p.cursor.is_named_arg_start() {
                 return Err(ParseError::new(
                     ori_diagnostic::ErrorCode::E1013,
                     format!("`{}` requires named properties (name: value)", kind.name()),
-                    p.current_span(),
+                    p.cursor.current_span(),
                 ));
             }
 
-            let name = p.expect_ident_or_keyword()?;
-            let prop_span = p.previous_span();
-            p.expect(&TokenKind::Colon)?;
+            let name = p.cursor.expect_ident_or_keyword()?;
+            let prop_span = p.cursor.previous_span();
+            p.cursor.expect(&TokenKind::Colon)?;
             let value = p.parse_expr().into_result()?;
             let end_span = p.arena.get_expr(value).span;
 
@@ -757,7 +761,7 @@ impl Parser<'_> {
             });
             Ok(true)
         }));
-        let end_span = self.previous_span();
+        let end_span = self.cursor.previous_span();
 
         let props_range = self.arena.alloc_named_exprs(props);
         let func_exp = FunctionExp {
@@ -784,7 +788,7 @@ impl Parser<'_> {
         // nest (e.g., `Ok(Some(x))`), sharing the same buffer.
         let mut elements: Vec<MatchPatternId> = Vec::new();
         self.series_direct(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
-            if p.check(&TokenKind::RParen) {
+            if p.cursor.check(&TokenKind::RParen) {
                 return Ok(false);
             }
             let pat = p.parse_match_pattern()?;
@@ -801,18 +805,18 @@ impl Parser<'_> {
 
     /// Parse struct pattern fields: `{ x, y: pattern, ... }`
     fn parse_struct_pattern_fields(&mut self) -> Result<MatchPattern, ParseError> {
-        self.advance(); // consume {
+        self.cursor.advance(); // consume {
 
         let fields: Vec<(ori_ir::Name, Option<MatchPatternId>)> = self.brace_series(|p| {
-            if p.check(&TokenKind::RBrace) {
+            if p.cursor.check(&TokenKind::RBrace) {
                 return Ok(None);
             }
 
-            let field_name = p.expect_ident()?;
+            let field_name = p.cursor.expect_ident()?;
 
             // Check for pattern binding: { x: pattern } vs shorthand { x }
-            let pattern_id = if p.check(&TokenKind::Colon) {
-                p.advance();
+            let pattern_id = if p.cursor.check(&TokenKind::Colon) {
+                p.cursor.advance();
                 let pat = p.parse_match_pattern()?;
                 Some(p.arena.alloc_match_pattern(pat))
             } else {
@@ -827,7 +831,10 @@ impl Parser<'_> {
 
     /// Check if current token can start a range bound (integer or minus).
     fn is_range_bound_start(&self) -> bool {
-        matches!(self.current_kind(), TokenKind::Int(_) | TokenKind::Minus)
+        matches!(
+            self.cursor.current_kind(),
+            TokenKind::Int(_) | TokenKind::Minus
+        )
     }
 
     /// Parse an optional pattern guard: `.match(condition)`
@@ -835,7 +842,7 @@ impl Parser<'_> {
     /// Returns `Some(expr_id)` if a guard is present, `None` otherwise.
     pub(crate) fn parse_pattern_guard(&mut self) -> Result<Option<ExprId>, ParseError> {
         // Check for .match(condition) syntax
-        if !self.check(&TokenKind::Dot) {
+        if !self.cursor.check(&TokenKind::Dot) {
             return Ok(None);
         }
 
@@ -845,30 +852,30 @@ impl Parser<'_> {
         }
 
         // Consume the `.`
-        self.advance();
+        self.cursor.advance();
 
         // Expect `match` identifier
-        if !self.check(&TokenKind::Match) {
+        if !self.cursor.check(&TokenKind::Match) {
             // Not a guard, could be a field access (but that's not valid here)
             return Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
                 "expected `match` after `.` in pattern guard".to_string(),
-                self.current_span(),
+                self.cursor.current_span(),
             ));
         }
-        self.advance();
+        self.cursor.advance();
 
         // Expect (condition)
-        self.expect(&TokenKind::LParen)?;
+        self.cursor.expect(&TokenKind::LParen)?;
         let condition = self.parse_expr().into_result()?;
-        self.expect(&TokenKind::RParen)?;
+        self.cursor.expect(&TokenKind::RParen)?;
 
         Ok(Some(condition))
     }
 
     /// Check if the current position has `.match(` syntax (guard syntax).
     fn is_guard_syntax(&self) -> bool {
-        if !self.check(&TokenKind::Dot) {
+        if !self.cursor.check(&TokenKind::Dot) {
             return false;
         }
         // Look ahead: . match (
@@ -877,12 +884,12 @@ impl Parser<'_> {
 
     /// Parse a range bound (integer, possibly negative).
     fn parse_range_bound(&mut self) -> Result<ExprId, ParseError> {
-        let start_span = self.current_span();
+        let start_span = self.cursor.current_span();
 
-        if self.check(&TokenKind::Minus) {
-            self.advance();
-            if let TokenKind::Int(n) = *self.current_kind() {
-                self.advance();
+        if self.cursor.check(&TokenKind::Minus) {
+            self.cursor.advance();
+            if let TokenKind::Int(n) = *self.cursor.current_kind() {
+                self.cursor.advance();
                 let value = i64::try_from(n).map_err(|_| {
                     ParseError::new(
                         ori_diagnostic::ErrorCode::E1002,
@@ -890,7 +897,7 @@ impl Parser<'_> {
                         start_span,
                     )
                 })?;
-                let span = start_span.merge(self.previous_span());
+                let span = start_span.merge(self.cursor.previous_span());
                 Ok(self
                     .arena
                     .alloc_expr(Expr::new(ExprKind::Int(-value), span)))
@@ -898,11 +905,11 @@ impl Parser<'_> {
                 Err(ParseError::new(
                     ori_diagnostic::ErrorCode::E1002,
                     "expected integer after `-` in range pattern".to_string(),
-                    self.current_span(),
+                    self.cursor.current_span(),
                 ))
             }
-        } else if let TokenKind::Int(n) = *self.current_kind() {
-            self.advance();
+        } else if let TokenKind::Int(n) = *self.cursor.current_kind() {
+            self.cursor.advance();
             let value = i64::try_from(n).map_err(|_| {
                 ParseError::new(
                     ori_diagnostic::ErrorCode::E1002,
@@ -912,12 +919,12 @@ impl Parser<'_> {
             })?;
             Ok(self
                 .arena
-                .alloc_expr(Expr::new(ExprKind::Int(value), self.previous_span())))
+                .alloc_expr(Expr::new(ExprKind::Int(value), self.cursor.previous_span())))
         } else {
             Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
                 "expected integer in range pattern".to_string(),
-                self.current_span(),
+                self.cursor.current_span(),
             ))
         }
     }

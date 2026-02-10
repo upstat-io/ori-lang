@@ -1457,6 +1457,36 @@ impl Eq for CanArena {}
 
 // ── CanonResult ─────────────────────────────────────────────────────
 
+/// A canonicalized function root — body + defaults in canonical IR.
+///
+/// Replaces the previous `(Name, CanId)` tuple in `CanonResult.roots`,
+/// adding canonical default expressions so that the evaluator can use
+/// `eval_can(CanId)` instead of `eval(ExprId)` for default parameter values.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CanonRoot {
+    /// Function or test name.
+    pub name: Name,
+    /// Canonical body expression.
+    pub body: CanId,
+    /// Canonical default expressions, parallel to the function's parameter list.
+    /// `defaults[i]` is `Some(can_id)` if parameter `i` has a default value,
+    /// `None` if the parameter is required.
+    pub defaults: Vec<Option<CanId>>,
+}
+
+/// A canonicalized method root — body in canonical IR.
+///
+/// Replaces the previous `(Name, Name, CanId)` tuple in `CanonResult.method_roots`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MethodRoot {
+    /// Type that owns the method (e.g., `Point`, `list`).
+    pub type_name: Name,
+    /// Method name.
+    pub method_name: Name,
+    /// Canonical body expression.
+    pub body: CanId,
+}
+
 /// Output of the canonicalization pass.
 ///
 /// Contains everything needed by both backends: the canonical expression
@@ -1476,10 +1506,9 @@ pub struct CanonResult {
     /// The root expression (entry point for single-expression lowering).
     pub root: CanId,
     /// Named roots for module-level lowering (one per function/test).
-    pub roots: Vec<(Name, CanId)>,
+    pub roots: Vec<CanonRoot>,
     /// Method roots for `impl`/`extend`/`def_impl` blocks.
-    /// Keyed by `(type_name, method_name)` → canonical body.
-    pub method_roots: Vec<(Name, Name, CanId)>,
+    pub method_roots: Vec<MethodRoot>,
 }
 
 impl CanonResult {
@@ -1497,18 +1526,20 @@ impl CanonResult {
 
     /// Look up a named root by function name.
     pub fn root_for(&self, name: Name) -> Option<CanId> {
-        self.roots
-            .iter()
-            .find(|(n, _)| *n == name)
-            .map(|(_, id)| *id)
+        self.roots.iter().find(|r| r.name == name).map(|r| r.body)
+    }
+
+    /// Look up a canon root by function name (includes defaults).
+    pub fn canon_root_for(&self, name: Name) -> Option<&CanonRoot> {
+        self.roots.iter().find(|r| r.name == name)
     }
 
     /// Look up a method root by type name and method name.
     pub fn method_root_for(&self, type_name: Name, method_name: Name) -> Option<CanId> {
         self.method_roots
             .iter()
-            .find(|(tn, mn, _)| *tn == type_name && *mn == method_name)
-            .map(|(_, _, id)| *id)
+            .find(|r| r.type_name == type_name && r.method_name == method_name)
+            .map(|r| r.body)
     }
 }
 

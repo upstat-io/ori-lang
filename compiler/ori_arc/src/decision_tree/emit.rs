@@ -9,7 +9,8 @@
 //! The emission is performed by [`emit_decision_tree`], called from
 //! `lower_match` in `lower/control_flow.rs`.
 
-use ori_ir::{ExprId, Name, Span};
+use ori_ir::canon::CanId;
+use ori_ir::{Name, Span};
 use ori_types::Idx;
 
 use crate::ir::{ArcBlockId, ArcValue, ArcVarId, LitValue, PrimOp};
@@ -29,7 +30,7 @@ pub(crate) struct EmitContext {
     /// The merge block all arms jump to after executing their body.
     pub merge_block: ArcBlockId,
     /// The body expression for each arm (indexed by `arm_index`).
-    pub arm_bodies: Vec<ExprId>,
+    pub arm_bodies: Vec<CanId>,
     /// Span of the match expression.
     pub span: Span,
 }
@@ -361,9 +362,7 @@ fn emit_guard(
     bind_pattern_variables(lowerer, bindings, ctx);
 
     // Evaluate the guard expression.
-    // Bridge: ARC backend hasn't migrated to CanonResult yet, so convert
-    // CanId back to ExprId for the current lowering path.
-    let guard_result = lowerer.lower_expr(guard.to_expr_id());
+    let guard_result = lowerer.lower_expr(guard);
 
     let body_block = lowerer.builder.new_block();
     let fail_block = lowerer.builder.new_block();

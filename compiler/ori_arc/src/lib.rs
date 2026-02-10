@@ -60,7 +60,7 @@ pub use ir::{
     CtorKind, LitValue, PrimOp,
 };
 pub use liveness::{compute_liveness, BlockLiveness, LiveSet};
-pub use lower::{lower_function, ArcProblem};
+pub use lower::{lower_function_can, ArcProblem};
 use ori_types::Idx;
 pub use ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 pub use rc_elim::eliminate_rc_ops;

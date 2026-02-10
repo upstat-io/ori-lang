@@ -31,11 +31,11 @@
 //! ```ignore
 //! // Good: Complex multi-token lookahead
 //! let is_with_capability = self.look_ahead(|p| {
-//!     p.check(&TokenKind::With)
-//!         && p.advance()
-//!         && p.check_ident()
-//!         && p.advance()
-//!         && p.check(&TokenKind::Eq)
+//!     p.cursor.check(&TokenKind::With)
+//!         && p.cursor.advance()
+//!         && p.cursor.check_ident()
+//!         && p.cursor.advance()
+//!         && p.cursor.check(&TokenKind::Eq)
 //! });
 //! ```
 //!

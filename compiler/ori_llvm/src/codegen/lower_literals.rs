@@ -4,7 +4,8 @@
 //! function references. These produce values without control flow or
 //! type-dependent dispatch.
 
-use ori_ir::{DurationUnit, Name, SizeUnit, TemplatePartRange};
+use ori_ir::canon::{CanId, ConstantId};
+use ori_ir::{DurationUnit, Name, SizeUnit};
 
 use super::expr_lowerer::ExprLowerer;
 use super::scope::ScopeBinding;
@@ -94,13 +95,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // Identifiers and references
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Ident(name)` — variable lookup.
+    /// Lower `CanExpr::Ident(name)` — variable lookup.
     ///
     /// Resolution order:
     /// 1. Scope (local/immutable/mutable bindings)
     /// 2. Declared functions map (V2 mangled names — user-defined functions)
     /// 3. LLVM module lookup (runtime functions with unmangled `ori_*` names)
-    pub(crate) fn lower_ident(&mut self, name: Name, expr_id: ori_ir::ExprId) -> Option<ValueId> {
+    pub(crate) fn lower_ident(&mut self, name: Name, expr_id: CanId) -> Option<ValueId> {
         match self.scope.lookup(name) {
             Some(ScopeBinding::Immutable(val)) => Some(val),
             Some(ScopeBinding::Mutable { ptr, ty }) => {
@@ -148,7 +149,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     fn wrap_function_as_value(
         &mut self,
         func_id: super::value_id::FunctionId,
-        expr_id: ori_ir::ExprId,
+        expr_id: CanId,
     ) -> Option<ValueId> {
         let fn_val = self.builder.get_function_value(func_id);
         let ptr_val = fn_val.as_global_value().as_pointer_value();
@@ -168,11 +169,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Lower `ExprKind::Const(name)` — compile-time constant reference.
+    /// Lower `CanExpr::Const(name)` — compile-time constant reference.
     ///
     /// Constants are bound in the scope like immutable variables.
     /// Falls back to identifier lookup.
-    pub(crate) fn lower_const(&mut self, name: Name, expr_id: ori_ir::ExprId) -> Option<ValueId> {
+    pub(crate) fn lower_const(&mut self, name: Name, expr_id: CanId) -> Option<ValueId> {
         self.lower_ident(name, expr_id)
     }
 
@@ -212,31 +213,32 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Lower `ExprKind::HashLength` — `#` (collection length in index context).
-    ///
-    /// Not yet implemented; requires context about which collection is
-    /// being indexed.
-    #[allow(clippy::unused_self)] // Will use self when hash length is implemented
-    pub(crate) fn lower_hash_length(&mut self) -> Option<ValueId> {
-        tracing::warn!("hash length (#) not yet implemented in V2 codegen");
-        None
-    }
-
     // -----------------------------------------------------------------------
-    // Template literals
+    // Compile-time constants
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::TemplateLiteral { head, parts }` — string interpolation.
+    /// Lower `CanExpr::Constant(id)` — emit a compile-time constant value.
     ///
-    /// Requires runtime string concatenation and `str_from_*` conversions.
-    /// Currently a stub that returns the head string.
-    pub(crate) fn lower_template_literal(
+    /// Reads the pre-computed value from the `ConstantPool` and emits the
+    /// appropriate LLVM constant.
+    pub(crate) fn lower_constant(
         &mut self,
-        head: Name,
-        _parts: TemplatePartRange,
+        const_id: ConstantId,
+        _expr_id: CanId,
     ) -> Option<ValueId> {
-        tracing::warn!("template literal interpolation not yet implemented in V2 codegen");
-        // Return the head as a plain string for now
-        self.lower_string(head)
+        use ori_ir::canon::ConstValue;
+        let val = self.canon.constants.get(const_id);
+        match val {
+            ConstValue::Int(n) => Some(self.lower_int(*n)),
+            ConstValue::Float(bits) => Some(self.lower_float(*bits)),
+            ConstValue::Bool(b) => Some(self.lower_bool(*b)),
+            ConstValue::Str(name) => self.lower_string(*name),
+            ConstValue::Char(c) => Some(self.lower_int(i64::from(u32::from(*c)))),
+            ConstValue::Unit => Some(self.lower_unit()),
+            ConstValue::Duration { value, .. } | ConstValue::Size { value, .. } => {
+                // Duration and Size are stored as i64 at the LLVM level
+                Some(self.lower_int(*value as i64))
+            }
+        }
     }
 }

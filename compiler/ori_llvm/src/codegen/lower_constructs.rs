@@ -1,15 +1,13 @@
 //! Special construct lowering for V2 codegen.
 //!
 //! Handles Ori's unique expression patterns:
-//! - `FunctionSeq`: `run { ... }`, `try { ... }`, `match`, `for` patterns
 //! - `FunctionExp`: `print(...)`, `panic(...)`, `todo`, `recurse`, etc.
 //! - `SelfRef`: recursive self-reference
 //! - `Await`: async (stub)
 //! - `WithCapability`: capability provision
 
-use ori_ir::{
-    ExprId, FunctionExpId, FunctionExpKind, FunctionSeq, FunctionSeqId, Name, SeqBinding,
-};
+use ori_ir::canon::{CanId, CanNamedExprRange};
+use ori_ir::{FunctionExpKind, Name};
 use ori_types::Idx;
 
 use super::expr_lowerer::ExprLowerer;
@@ -17,137 +15,27 @@ use super::value_id::ValueId;
 
 impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // -----------------------------------------------------------------------
-    // FunctionSeq: run, try, match, for_pattern
-    // -----------------------------------------------------------------------
-
-    /// Lower `ExprKind::FunctionSeq(id)`.
-    pub(crate) fn lower_function_seq(
-        &mut self,
-        seq_id: FunctionSeqId,
-        expr_id: ExprId,
-    ) -> Option<ValueId> {
-        let seq = self.arena.get_function_seq(seq_id).clone();
-        match &seq {
-            FunctionSeq::Run {
-                bindings, result, ..
-            } => self.lower_seq_run(*bindings, *result),
-            FunctionSeq::Try {
-                bindings, result, ..
-            } => self.lower_seq_try(*bindings, *result, expr_id),
-            FunctionSeq::Match {
-                scrutinee, arms, ..
-            } => self.lower_match(*scrutinee, *arms, expr_id),
-            FunctionSeq::ForPattern {
-                over,
-                map,
-                arm,
-                default,
-                ..
-            } => self.lower_seq_for_pattern(*over, *map, arm, *default, expr_id),
-        }
-    }
-
-    /// Lower `run { binding1; binding2; ...; result }`.
-    ///
-    /// Sequential execution: each binding is evaluated in order, with
-    /// let bindings adding to the scope.
-    fn lower_seq_run(
-        &mut self,
-        bindings: ori_ir::SeqBindingRange,
-        result: ExprId,
-    ) -> Option<ValueId> {
-        let binding_slice = self.arena.get_seq_bindings(bindings);
-
-        // Create a child scope for the run block
-        let child = self.scope.child();
-        let parent = std::mem::replace(&mut self.scope, child);
-
-        for binding in binding_slice {
-            match binding {
-                SeqBinding::Let {
-                    pattern,
-                    value,
-                    mutable,
-                    ..
-                } => {
-                    self.lower_let(*pattern, *value, *mutable);
-                }
-                SeqBinding::Stmt { expr, .. } => {
-                    self.lower(*expr);
-                }
-            }
-            if self.builder.current_block_terminated() {
-                break;
-            }
-        }
-
-        let result_val = if result.is_valid() && !self.builder.current_block_terminated() {
-            self.lower(result)
-        } else {
-            None
-        };
-
-        self.scope = parent;
-        result_val
-    }
-
-    /// Lower `try { binding1; binding2; ...; result }`.
-    ///
-    /// Like `run`, but each binding that returns `Result` is automatically
-    /// unwrapped with `?` semantics. If any step fails, the whole block
-    /// returns the error.
-    fn lower_seq_try(
-        &mut self,
-        bindings: ori_ir::SeqBindingRange,
-        result: ExprId,
-        _expr_id: ExprId,
-    ) -> Option<ValueId> {
-        // For now, lower exactly like `run` — full try semantics require
-        // checking each binding's result type and inserting automatic `?`
-        // propagation, which is done by the type checker rewriting to
-        // explicit Try nodes.
-        self.lower_seq_run(bindings, result)
-    }
-
-    /// Lower `for pattern` — iterate and pattern-match.
-    fn lower_seq_for_pattern(
-        &mut self,
-        over: ExprId,
-        map: Option<ExprId>,
-        arm: &ori_ir::MatchArm,
-        default: ExprId,
-        _expr_id: ExprId,
-    ) -> Option<ValueId> {
-        // Simplified: evaluate `over`, try to match the pattern on each element,
-        // apply `map` if present, fall through to `default`.
-        let over_val = self.lower(over)?;
-        let _ = (map, arm, default, over_val);
-        tracing::debug!("for_pattern lowering — simplified stub");
-
-        // Return unit for now
-        Some(self.builder.const_i64(0))
-    }
-
-    // -----------------------------------------------------------------------
     // FunctionExp: print, panic, todo, recurse, etc.
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::FunctionExp(id)`.
+    /// Lower `CanExpr::FunctionExp { kind, props }`.
+    ///
+    /// `FunctionExp` is inlined in the canonical IR — the kind and props range
+    /// are stored directly in the `CanExpr` variant, not behind an indirection.
     pub(crate) fn lower_function_exp(
         &mut self,
-        fexp_id: FunctionExpId,
-        expr_id: ExprId,
+        kind: FunctionExpKind,
+        props: CanNamedExprRange,
+        expr_id: CanId,
     ) -> Option<ValueId> {
-        let exp = self.arena.get_function_exp(fexp_id).clone();
-
-        match exp.kind {
-            FunctionExpKind::Print => self.lower_exp_print(&exp),
-            FunctionExpKind::Panic => self.lower_exp_panic(&exp),
+        match kind {
+            FunctionExpKind::Print => self.lower_exp_print(props),
+            FunctionExpKind::Panic => self.lower_exp_panic(props),
             FunctionExpKind::Todo => self.lower_exp_todo(),
             FunctionExpKind::Unreachable => self.lower_exp_unreachable(),
-            FunctionExpKind::Recurse => self.lower_exp_recurse(&exp, expr_id),
-            FunctionExpKind::Cache => self.lower_exp_cache(&exp, expr_id),
-            FunctionExpKind::Catch => self.lower_exp_catch(&exp, expr_id),
+            FunctionExpKind::Recurse => self.lower_exp_recurse(props, expr_id),
+            FunctionExpKind::Cache => self.lower_exp_cache(props, expr_id),
+            FunctionExpKind::Catch => self.lower_exp_catch(props, expr_id),
             FunctionExpKind::Parallel => {
                 tracing::warn!("parallel expression not yet implemented");
                 None
@@ -171,8 +59,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ///
     /// Dispatches to the appropriate `ori_print_*` runtime function
     /// based on the value type.
-    fn lower_exp_print(&mut self, exp: &ori_ir::FunctionExp) -> Option<ValueId> {
-        let named_exprs = self.arena.get_named_exprs(exp.props);
+    fn lower_exp_print(&mut self, props: CanNamedExprRange) -> Option<ValueId> {
+        let named_exprs = self.canon.arena.get_named_exprs(props);
         let msg_expr = named_exprs.iter().find(|ne| {
             let name = self.resolve_name(ne.name);
             name == "msg"
@@ -184,7 +72,6 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         match val_type {
             Idx::INT | Idx::DURATION | Idx::SIZE => {
                 let i64_ty = self.builder.i64_type();
-                // Use void return type — declare with a dummy return then discard
                 let func = self.builder.get_or_declare_function(
                     "ori_print_int",
                     &[i64_ty],
@@ -235,8 +122,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// Lower `panic(message: expr)`.
     ///
     /// Calls `ori_panic` with the message string, then emits `unreachable`.
-    fn lower_exp_panic(&mut self, exp: &ori_ir::FunctionExp) -> Option<ValueId> {
-        let named_exprs = self.arena.get_named_exprs(exp.props);
+    fn lower_exp_panic(&mut self, props: CanNamedExprRange) -> Option<ValueId> {
+        let named_exprs = self.canon.arena.get_named_exprs(props);
         let msg_expr = named_exprs.iter().find(|ne| {
             let name = self.resolve_name(ne.name);
             name == "message" || name == "value"
@@ -309,12 +196,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// function. The `tail` attribute combined with `fastcc` enables LLVM
     /// to perform tail call optimization (reusing the caller's stack frame),
     /// preventing stack overflow on deep recursion.
-    fn lower_exp_recurse(
-        &mut self,
-        exp: &ori_ir::FunctionExp,
-        _expr_id: ExprId,
-    ) -> Option<ValueId> {
-        let named_exprs = self.arena.get_named_exprs(exp.props);
+    fn lower_exp_recurse(&mut self, props: CanNamedExprRange, _expr_id: CanId) -> Option<ValueId> {
+        let named_exprs = self.canon.arena.get_named_exprs(props);
         let mut arg_vals = Vec::with_capacity(named_exprs.len());
         for ne in named_exprs {
             let val = self.lower(ne.value)?;
@@ -326,9 +209,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Lower `cache(key: ..., value: ...)` — memoization.
-    fn lower_exp_cache(&mut self, exp: &ori_ir::FunctionExp, _expr_id: ExprId) -> Option<ValueId> {
+    fn lower_exp_cache(&mut self, props: CanNamedExprRange, _expr_id: CanId) -> Option<ValueId> {
         // Simplified: just evaluate the value expression
-        let named_exprs = self.arena.get_named_exprs(exp.props);
+        let named_exprs = self.canon.arena.get_named_exprs(props);
         for ne in named_exprs {
             let name = self.resolve_name(ne.name);
             if name == "value" || name == "expr" {
@@ -340,9 +223,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Lower `catch(expr: ..., handler: ...)` — error catching.
-    fn lower_exp_catch(&mut self, exp: &ori_ir::FunctionExp, _expr_id: ExprId) -> Option<ValueId> {
+    fn lower_exp_catch(&mut self, props: CanNamedExprRange, _expr_id: CanId) -> Option<ValueId> {
         // Simplified: just evaluate the expr property
-        let named_exprs = self.arena.get_named_exprs(exp.props);
+        let named_exprs = self.canon.arena.get_named_exprs(props);
         for ne in named_exprs {
             let name = self.resolve_name(ne.name);
             if name == "expr" || name == "value" {
@@ -357,7 +240,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // SelfRef, Await, WithCapability
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::SelfRef` — recursive reference to current function.
+    /// Lower `CanExpr::SelfRef` — recursive reference to current function.
     ///
     /// Returns the current function as a pointer value.
     pub(crate) fn lower_self_ref(&mut self) -> Option<ValueId> {
@@ -366,23 +249,23 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         Some(self.builder.intern_value(ptr.into()))
     }
 
-    /// Lower `ExprKind::Await(inner)` — async (stub).
+    /// Lower `CanExpr::Await(inner)` — async (stub).
     ///
     /// For the sync runtime, await is a no-op: just evaluate the inner
     /// expression.
-    pub(crate) fn lower_await(&mut self, inner: ExprId) -> Option<ValueId> {
+    pub(crate) fn lower_await(&mut self, inner: CanId) -> Option<ValueId> {
         self.lower(inner)
     }
 
-    /// Lower `ExprKind::WithCapability { capability, provider, body }`.
+    /// Lower `CanExpr::WithCapability { capability, provider, body }`.
     ///
     /// Capability system not yet implemented. For now, just evaluates
     /// the body expression.
     pub(crate) fn lower_with_capability(
         &mut self,
         _capability: Name,
-        _provider: ExprId,
-        body: ExprId,
+        _provider: CanId,
+        body: CanId,
     ) -> Option<ValueId> {
         self.lower(body)
     }

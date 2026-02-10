@@ -1,11 +1,11 @@
-//! Expression lowering — the core dispatch for AST → ARC IR.
+//! Expression lowering — the core dispatch for canonical IR → ARC IR.
 //!
-//! [`ArcLowerer`] walks the typed expression tree and emits ARC IR
+//! [`ArcLowerer`] walks the canonical expression tree and emits ARC IR
 //! instructions via [`ArcIrBuilder`]. Each expression lowers to an
 //! [`ArcVarId`] (the SSA variable holding the result).
 
-use ori_ir::ast::ExprKind;
-use ori_ir::{ExprArena, ExprId, Name, Span, StringInterner};
+use ori_ir::canon::{CanArena, CanExpr, CanId, CanonResult};
+use ori_ir::{Name, Span, StringInterner};
 use ori_types::Idx;
 use ori_types::Pool;
 
@@ -28,14 +28,14 @@ pub(crate) struct LoopContext {
 
 // ── ArcLowerer ─────────────────────────────────────────────────────
 
-/// Expression lowerer that walks the typed AST and emits ARC IR.
+/// Expression lowerer that walks the canonical IR and emits ARC IR.
 ///
-/// Borrows the `ArcIrBuilder` and contextual data (arena, types, interner,
-/// pool) needed to lower each expression variant.
+/// Borrows the `ArcIrBuilder` and contextual data (arena, canon result,
+/// interner, pool) needed to lower each expression variant.
 pub struct ArcLowerer<'a> {
     pub(crate) builder: &'a mut ArcIrBuilder,
-    pub(crate) arena: &'a ExprArena,
-    pub(crate) expr_types: &'a [Idx],
+    pub(crate) arena: &'a CanArena,
+    pub(crate) canon: &'a CanonResult,
     pub(crate) interner: &'a StringInterner,
     pub(crate) pool: &'a Pool,
     pub(crate) scope: ArcScope,
@@ -45,15 +45,14 @@ pub struct ArcLowerer<'a> {
 }
 
 impl ArcLowerer<'_> {
-    /// Get the type of an expression by its ID.
+    /// Get the type of a canonical expression by its ID.
     #[inline]
-    pub(crate) fn expr_type(&self, id: ExprId) -> Idx {
-        let idx = id.index();
-        if idx < self.expr_types.len() {
-            self.expr_types[idx]
-        } else {
-            Idx::ERROR
+    pub(crate) fn expr_type(&self, id: CanId) -> Idx {
+        if !id.is_valid() {
+            return Idx::ERROR;
         }
+        let ty = self.arena.ty(id);
+        Idx::from_raw(ty.raw())
     }
 
     /// Emit a unit literal.
@@ -64,176 +63,131 @@ impl ArcLowerer<'_> {
 
     // ── Main dispatch ──────────────────────────────────────────
 
-    /// Lower a single expression, returning the `ArcVarId` of the result.
-    pub(crate) fn lower_expr(&mut self, expr_id: ExprId) -> ArcVarId {
-        if !expr_id.is_valid() {
+    /// Lower a single canonical expression, returning the `ArcVarId` of the result.
+    pub(crate) fn lower_expr(&mut self, id: CanId) -> ArcVarId {
+        if !id.is_valid() {
             return self.emit_unit();
         }
 
-        let expr = self.arena.get_expr(expr_id);
-        let span = expr.span;
-        let ty = self.expr_type(expr_id);
+        let kind = *self.arena.kind(id);
+        let span = self.arena.span(id);
+        let ty = self.expr_type(id);
 
-        match expr.kind {
+        match kind {
             // ── Literals ───────────────────────────────────────
-            ExprKind::Int(n) => {
+            CanExpr::Int(n) => {
                 self.builder
                     .emit_let(ty, ArcValue::Literal(LitValue::Int(n)), Some(span))
             }
-            ExprKind::Float(bits) => {
+            CanExpr::Float(bits) => {
                 self.builder
                     .emit_let(ty, ArcValue::Literal(LitValue::Float(bits)), Some(span))
             }
-            ExprKind::Bool(b) => {
+            CanExpr::Bool(b) => {
                 self.builder
                     .emit_let(ty, ArcValue::Literal(LitValue::Bool(b)), Some(span))
             }
-            ExprKind::String(name) => {
+            CanExpr::Str(name) => {
                 self.builder
                     .emit_let(ty, ArcValue::Literal(LitValue::String(name)), Some(span))
             }
-            ExprKind::Char(c) => {
+            CanExpr::Char(c) => {
                 self.builder
                     .emit_let(ty, ArcValue::Literal(LitValue::Char(c)), Some(span))
             }
-            ExprKind::Duration { value, unit } => self.builder.emit_let(
+            CanExpr::Duration { value, unit } => self.builder.emit_let(
                 ty,
                 ArcValue::Literal(LitValue::Duration { value, unit }),
                 Some(span),
             ),
-            ExprKind::Size { value, unit } => self.builder.emit_let(
+            CanExpr::Size { value, unit } => self.builder.emit_let(
                 ty,
                 ArcValue::Literal(LitValue::Size { value, unit }),
                 Some(span),
             ),
-            ExprKind::Unit => {
+            CanExpr::Unit | CanExpr::HashLength | CanExpr::FunctionRef(_) => {
                 self.builder
                     .emit_let(ty, ArcValue::Literal(LitValue::Unit), Some(span))
             }
 
+            // ── Compile-time constants ─────────────────────────
+            CanExpr::Constant(const_id) => self.lower_constant(const_id, ty, span),
+
             // ── Identifiers ───────────────────────────────────
-            ExprKind::Ident(name) | ExprKind::Const(name) => self.lower_ident(name, ty, span),
-            ExprKind::SelfRef => {
-                // `self` is pre-bound as a parameter — look it up.
+            CanExpr::Ident(name) | CanExpr::Const(name) => self.lower_ident(name, ty, span),
+            CanExpr::SelfRef => {
                 let self_name = self.interner.intern("self");
                 self.lower_ident(self_name, ty, span)
             }
-            ExprKind::FunctionRef(_name) => {
-                // Function references lower to a closure construct with no captures.
-                self.builder
-                    .emit_let(ty, ArcValue::Literal(LitValue::Unit), Some(span))
-            }
-            ExprKind::HashLength => {
-                // `#` in index context — placeholder for collection length.
-                self.builder
-                    .emit_let(ty, ArcValue::Literal(LitValue::Unit), Some(span))
-            }
 
             // ── Binary / Unary operators ──────────────────────
-            ExprKind::Binary { op, left, right } => self.lower_binary(op, left, right, ty, span),
-            ExprKind::Unary { op, operand } => self.lower_unary(op, operand, ty, span),
+            CanExpr::Binary { op, left, right } => self.lower_binary(op, left, right, ty, span),
+            CanExpr::Unary { op, operand } => self.lower_unary(op, operand, ty, span),
 
             // ── Control flow ──────────────────────────────────
-            ExprKind::Block { stmts, result } => self.lower_block(stmts, result, ty),
-            ExprKind::Let {
+            CanExpr::Block { stmts, result } => self.lower_block(stmts, result, ty),
+            CanExpr::Let {
                 pattern,
-                ty: _parsed_ty,
                 init,
                 mutable,
             } => self.lower_let(pattern, init, mutable),
-            ExprKind::If {
+            CanExpr::If {
                 cond,
                 then_branch,
                 else_branch,
             } => self.lower_if(cond, then_branch, else_branch, ty, span),
-            ExprKind::Match { scrutinee, arms } => self.lower_match(scrutinee, arms, ty, span),
-            ExprKind::Loop { body } => self.lower_loop(body, ty),
-            ExprKind::For {
+            CanExpr::Match {
+                scrutinee,
+                decision_tree,
+                arms,
+            } => self.lower_match(scrutinee, decision_tree, arms, ty, span),
+            CanExpr::Loop { body } => self.lower_loop(body, ty),
+            CanExpr::For {
                 binding,
                 iter,
                 guard,
                 body,
                 is_yield: _,
             } => self.lower_for(binding, iter, guard, body, ty),
-            ExprKind::Break(value) => self.lower_break(value),
-            ExprKind::Continue(value) => self.lower_continue(value),
-            ExprKind::Assign { target, value } => self.lower_assign(target, value, span),
+            CanExpr::Break(value) => self.lower_break(value),
+            CanExpr::Continue(value) => self.lower_continue(value),
+            CanExpr::Assign { target, value } => self.lower_assign(target, value, span),
 
             // ── Collections & constructors ────────────────────
-            ExprKind::Tuple(exprs) => self.lower_tuple(exprs, ty, span),
-            ExprKind::List(exprs) => self.lower_list(exprs, ty, span),
-            ExprKind::Map(entries) => self.lower_map(entries, ty, span),
-            ExprKind::Struct { name, fields } => self.lower_struct(name, fields, ty, span),
-            ExprKind::Ok(inner) => self.lower_ok(inner, ty, span),
-            ExprKind::Err(inner) => self.lower_err(inner, ty, span),
-            ExprKind::Some(inner) => self.lower_some(inner, ty, span),
-            ExprKind::None => self.lower_none(ty, span),
-            ExprKind::Field { receiver, field } => self.lower_field(receiver, field, ty, span),
-            ExprKind::Index { receiver, index } => self.lower_index(receiver, index, ty, span),
-            ExprKind::Range {
+            CanExpr::Tuple(exprs) => self.lower_tuple(exprs, ty, span),
+            CanExpr::List(exprs) => self.lower_list(exprs, ty, span),
+            CanExpr::Map(entries) => self.lower_map(entries, ty, span),
+            CanExpr::Struct { name, fields } => self.lower_struct(name, fields, ty, span),
+            CanExpr::Ok(inner) => self.lower_ok(inner, ty, span),
+            CanExpr::Err(inner) => self.lower_err(inner, ty, span),
+            CanExpr::Some(inner) => self.lower_some(inner, ty, span),
+            CanExpr::None => self.lower_none(ty, span),
+            CanExpr::Field { receiver, field } => self.lower_field(receiver, field, ty, span),
+            CanExpr::Index { receiver, index } => self.lower_index(receiver, index, ty, span),
+            CanExpr::Range {
                 start,
                 end,
                 step,
                 inclusive,
             } => self.lower_range(start, end, step, inclusive, ty, span),
-            ExprKind::Try(inner) => self.lower_try(inner, ty, span),
-            ExprKind::Cast {
+            CanExpr::Try(inner) => self.lower_try(inner, ty, span),
+            CanExpr::Cast {
                 expr,
-                ty: _parsed_ty,
+                target: _,
                 fallible,
             } => self.lower_cast(expr, fallible, ty, span),
-            ExprKind::ListWithSpread(elements) => self.lower_list_with_spread(elements, ty, span),
-            ExprKind::MapWithSpread(elements) => self.lower_map_with_spread(elements, ty, span),
-            ExprKind::StructWithSpread { name, fields } => {
-                self.lower_struct_with_spread(name, fields, ty, span)
-            }
-            ExprKind::TemplateFull(name) => self.lower_template_full(name, ty, span),
-            ExprKind::TemplateLiteral { head, parts } => {
-                self.lower_template_literal(head, parts, ty, span)
-            }
 
             // ── Calls ─────────────────────────────────────────
-            ExprKind::Call { func, args } => self.lower_call(func, args, ty, span),
-            ExprKind::CallNamed { func, args } => self.lower_call_named(func, args, ty, span),
-            ExprKind::MethodCall {
+            CanExpr::Call { func, args } => self.lower_call(func, args, ty, span),
+            CanExpr::MethodCall {
                 receiver,
                 method,
                 args,
             } => self.lower_method_call(receiver, method, args, ty, span),
-            ExprKind::MethodCallNamed {
-                receiver,
-                method,
-                args,
-            } => self.lower_method_call_named(receiver, method, args, ty, span),
-            ExprKind::Lambda {
-                params,
-                ret_ty: _,
-                body,
-            } => self.lower_lambda(params, body, ty, span),
+            CanExpr::Lambda { params, body } => self.lower_lambda(params, body, ty, span),
 
-            // ── Unsupported (post-0.1-alpha) ──────────────────
-            ExprKind::Await(_) => {
-                self.problems.push(ArcProblem::UnsupportedExpr {
-                    kind: "Await",
-                    span,
-                });
-                self.emit_unit()
-            }
-            ExprKind::WithCapability { .. } => {
-                self.problems.push(ArcProblem::UnsupportedExpr {
-                    kind: "WithCapability",
-                    span,
-                });
-                self.emit_unit()
-            }
-            ExprKind::FunctionSeq(_) => {
-                self.problems.push(ArcProblem::UnsupportedExpr {
-                    kind: "FunctionSeq",
-                    span,
-                });
-                self.emit_unit()
-            }
-            ExprKind::FunctionExp(_) => {
+            // ── Special forms ─────────────────────────────────
+            CanExpr::FunctionExp { kind: _, props: _ } => {
                 self.problems.push(ArcProblem::UnsupportedExpr {
                     kind: "FunctionExp",
                     span,
@@ -241,8 +195,24 @@ impl ArcLowerer<'_> {
                 self.emit_unit()
             }
 
+            // ── Unsupported (post-0.1-alpha) ──────────────────
+            CanExpr::Await(_) => {
+                self.problems.push(ArcProblem::UnsupportedExpr {
+                    kind: "Await",
+                    span,
+                });
+                self.emit_unit()
+            }
+            CanExpr::WithCapability { .. } => {
+                self.problems.push(ArcProblem::UnsupportedExpr {
+                    kind: "WithCapability",
+                    span,
+                });
+                self.emit_unit()
+            }
+
             // ── Error recovery ────────────────────────────────
-            ExprKind::Error => self.emit_unit(),
+            CanExpr::Error => self.emit_unit(),
         }
     }
 
@@ -250,11 +220,8 @@ impl ArcLowerer<'_> {
 
     fn lower_ident(&mut self, name: Name, ty: Idx, span: Span) -> ArcVarId {
         if let Some(var) = self.scope.lookup(name) {
-            // Emit a Var reference so the use is tracked.
             self.builder.emit_let(ty, ArcValue::Var(var), Some(span))
         } else {
-            // Unbound identifier — might be a global or an error.
-            // Emit a placeholder for now.
             tracing::debug!(
                 name = ?name,
                 "unbound identifier in ARC IR lowering"
@@ -264,13 +231,44 @@ impl ArcLowerer<'_> {
         }
     }
 
+    // ── Constant lowering ──────────────────────────────────────
+
+    /// Lower a compile-time constant from the `ConstantPool`.
+    fn lower_constant(
+        &mut self,
+        const_id: ori_ir::canon::ConstantId,
+        ty: Idx,
+        span: Span,
+    ) -> ArcVarId {
+        use ori_ir::canon::ConstValue;
+        let value = self.canon.constants.get(const_id);
+        let lit = match value {
+            ConstValue::Int(n) => LitValue::Int(*n),
+            ConstValue::Float(bits) => LitValue::Float(*bits),
+            ConstValue::Bool(b) => LitValue::Bool(*b),
+            ConstValue::Str(name) => LitValue::String(*name),
+            ConstValue::Char(c) => LitValue::Char(*c),
+            ConstValue::Unit => LitValue::Unit,
+            ConstValue::Duration { value, unit } => LitValue::Duration {
+                value: *value,
+                unit: *unit,
+            },
+            ConstValue::Size { value, unit } => LitValue::Size {
+                value: *value,
+                unit: *unit,
+            },
+        };
+        self.builder
+            .emit_let(ty, ArcValue::Literal(lit), Some(span))
+    }
+
     // ── Binary / Unary operators ───────────────────────────────
 
     fn lower_binary(
         &mut self,
         op: ori_ir::BinaryOp,
-        left: ExprId,
-        right: ExprId,
+        left: CanId,
+        right: CanId,
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
@@ -289,7 +287,7 @@ impl ArcLowerer<'_> {
     fn lower_unary(
         &mut self,
         op: ori_ir::UnaryOp,
-        operand: ExprId,
+        operand: CanId,
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
@@ -309,47 +307,54 @@ impl ArcLowerer<'_> {
 
 #[cfg(test)]
 mod tests {
-    use ori_ir::ast::{Expr, ExprKind};
-    use ori_ir::{BinaryOp, ExprArena, Name, Span, StringInterner, UnaryOp};
+    use ori_ir::canon::{CanArena, CanNode, CanonResult};
+    use ori_ir::{Name, Span, StringInterner, TypeId};
     use ori_types::Idx;
     use ori_types::Pool;
 
     use crate::ir::{ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
     use crate::lower::ArcProblem;
 
-    /// Helper: create a lowerer with a single expression body.
-    fn lower_single_expr(kind: ExprKind, ty: Idx) -> crate::ir::ArcFunction {
+    use super::super::lower_function_can;
+
+    /// Helper: create a lowerer with a single canonical expression body.
+    fn lower_single_expr(
+        canon: &CanonResult,
+        body: ori_ir::canon::CanId,
+        ty: Idx,
+    ) -> crate::ir::ArcFunction {
         let interner = StringInterner::new();
         let pool = Pool::new();
-        let mut arena = ExprArena::new();
-
-        let body_id = arena.alloc_expr(Expr::new(kind, Span::new(0, 10)));
-        let expr_types = {
-            let mut types = vec![Idx::ERROR; body_id.index() + 1];
-            types[body_id.index()] = ty;
-            types
-        };
 
         let mut problems = Vec::new();
         let name = Name::from_raw(1);
-        let (func, _lambdas) = super::super::lower_function(
-            name,
-            &[],
-            ty,
-            body_id,
-            &arena,
-            &expr_types,
-            &interner,
-            &pool,
-            &mut problems,
-        );
+        let (func, _lambdas) =
+            lower_function_can(name, &[], ty, body, canon, &interner, &pool, &mut problems);
         assert!(problems.is_empty(), "unexpected problems: {problems:?}");
         func
     }
 
+    fn make_canon(kind: ori_ir::canon::CanExpr, ty: Idx) -> (CanArena, CanonResult) {
+        let mut arena = CanArena::with_capacity(100);
+        let node = CanNode::new(kind, Span::new(0, 10), TypeId::from_raw(ty.raw()));
+        let body = arena.push(node);
+        let canon = CanonResult {
+            arena,
+            constants: ori_ir::canon::ConstantPool::new(),
+            decision_trees: ori_ir::canon::DecisionTreePool::default(),
+            root: body,
+            roots: vec![],
+            method_roots: vec![],
+        };
+        // Reborrow from canon
+        (CanArena::with_capacity(0), canon)
+    }
+
     #[test]
     fn lower_int_literal() {
-        let func = lower_single_expr(ExprKind::Int(42), Idx::INT);
+        let (_, canon) = make_canon(ori_ir::canon::CanExpr::Int(42), Idx::INT);
+        let body = canon.root;
+        let func = lower_single_expr(&canon, body, Idx::INT);
         assert_eq!(func.blocks.len(), 1);
         assert_eq!(func.blocks[0].body.len(), 1);
 
@@ -366,7 +371,9 @@ mod tests {
 
     #[test]
     fn lower_bool_literal() {
-        let func = lower_single_expr(ExprKind::Bool(true), Idx::BOOL);
+        let (_, canon) = make_canon(ori_ir::canon::CanExpr::Bool(true), Idx::BOOL);
+        let body = canon.root;
+        let func = lower_single_expr(&canon, body, Idx::BOOL);
         if let ArcInstr::Let { value, .. } = &func.blocks[0].body[0] {
             assert_eq!(*value, ArcValue::Literal(LitValue::Bool(true)));
         } else {
@@ -376,7 +383,9 @@ mod tests {
 
     #[test]
     fn lower_unit_literal() {
-        let func = lower_single_expr(ExprKind::Unit, Idx::UNIT);
+        let (_, canon) = make_canon(ori_ir::canon::CanExpr::Unit, Idx::UNIT);
+        let body = canon.root;
+        let func = lower_single_expr(&canon, body, Idx::UNIT);
         if let ArcInstr::Let { value, .. } = &func.blocks[0].body[0] {
             assert_eq!(*value, ArcValue::Literal(LitValue::Unit));
         } else {
@@ -385,39 +394,68 @@ mod tests {
     }
 
     #[test]
-    fn lower_binary_op() {
-        let interner = StringInterner::new();
-        let pool = Pool::new();
-        let mut arena = ExprArena::new();
+    fn lower_constant_pool_value() {
+        use ori_ir::canon::{ConstValue, ConstantPool};
 
-        let left_id = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(0, 1)));
-        let right_id = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(4, 5)));
-        let add_id = arena.alloc_expr(Expr::new(
-            ExprKind::Binary {
-                op: BinaryOp::Add,
-                left: left_id,
-                right: right_id,
+        let mut arena = CanArena::with_capacity(100);
+        let mut constants = ConstantPool::new();
+        let cid = constants.intern(ConstValue::Int(99));
+        let node = CanNode::new(
+            ori_ir::canon::CanExpr::Constant(cid),
+            Span::new(0, 5),
+            TypeId::from_raw(Idx::INT.raw()),
+        );
+        let body = arena.push(node);
+        let canon = CanonResult {
+            arena,
+            constants,
+            decision_trees: ori_ir::canon::DecisionTreePool::default(),
+            root: body,
+            roots: vec![],
+            method_roots: vec![],
+        };
+
+        let func = lower_single_expr(&canon, body, Idx::INT);
+        if let ArcInstr::Let { value, .. } = &func.blocks[0].body[0] {
+            assert_eq!(*value, ArcValue::Literal(LitValue::Int(99)));
+        } else {
+            panic!("expected Let with constant value");
+        }
+    }
+
+    #[test]
+    fn lower_binary_op() {
+        let mut arena = CanArena::with_capacity(100);
+        let left = arena.push(CanNode::new(
+            ori_ir::canon::CanExpr::Int(1),
+            Span::new(0, 1),
+            TypeId::from_raw(Idx::INT.raw()),
+        ));
+        let right = arena.push(CanNode::new(
+            ori_ir::canon::CanExpr::Int(2),
+            Span::new(4, 5),
+            TypeId::from_raw(Idx::INT.raw()),
+        ));
+        let add = arena.push(CanNode::new(
+            ori_ir::canon::CanExpr::Binary {
+                op: ori_ir::BinaryOp::Add,
+                left,
+                right,
             },
             Span::new(0, 5),
+            TypeId::from_raw(Idx::INT.raw()),
         ));
 
-        let mut expr_types = vec![Idx::ERROR; add_id.index() + 1];
-        expr_types[left_id.index()] = Idx::INT;
-        expr_types[right_id.index()] = Idx::INT;
-        expr_types[add_id.index()] = Idx::INT;
+        let canon = CanonResult {
+            arena,
+            constants: ori_ir::canon::ConstantPool::new(),
+            decision_trees: ori_ir::canon::DecisionTreePool::default(),
+            root: add,
+            roots: vec![],
+            method_roots: vec![],
+        };
 
-        let mut problems = Vec::new();
-        let (func, _) = super::super::lower_function(
-            Name::from_raw(1),
-            &[],
-            Idx::INT,
-            add_id,
-            &arena,
-            &expr_types,
-            &interner,
-            &pool,
-            &mut problems,
-        );
+        let func = lower_single_expr(&canon, add, Idx::INT);
 
         // Should have: let v0 = 1, let v1 = 2, let v2 = Add(v0, v1), return v2
         assert_eq!(func.blocks[0].body.len(), 3);
@@ -425,7 +463,7 @@ mod tests {
             assert!(matches!(
                 value,
                 ArcValue::PrimOp {
-                    op: PrimOp::Binary(BinaryOp::Add),
+                    op: PrimOp::Binary(ori_ir::BinaryOp::Add),
                     ..
                 }
             ));
@@ -436,42 +474,38 @@ mod tests {
 
     #[test]
     fn lower_unary_op() {
-        let interner = StringInterner::new();
-        let pool = Pool::new();
-        let mut arena = ExprArena::new();
-
-        let operand_id = arena.alloc_expr(Expr::new(ExprKind::Int(5), Span::new(1, 2)));
-        let neg_id = arena.alloc_expr(Expr::new(
-            ExprKind::Unary {
-                op: UnaryOp::Neg,
-                operand: operand_id,
+        let mut arena = CanArena::with_capacity(100);
+        let operand = arena.push(CanNode::new(
+            ori_ir::canon::CanExpr::Int(5),
+            Span::new(1, 2),
+            TypeId::from_raw(Idx::INT.raw()),
+        ));
+        let neg = arena.push(CanNode::new(
+            ori_ir::canon::CanExpr::Unary {
+                op: ori_ir::UnaryOp::Neg,
+                operand,
             },
             Span::new(0, 2),
+            TypeId::from_raw(Idx::INT.raw()),
         ));
 
-        let mut expr_types = vec![Idx::ERROR; neg_id.index() + 1];
-        expr_types[operand_id.index()] = Idx::INT;
-        expr_types[neg_id.index()] = Idx::INT;
+        let canon = CanonResult {
+            arena,
+            constants: ori_ir::canon::ConstantPool::new(),
+            decision_trees: ori_ir::canon::DecisionTreePool::default(),
+            root: neg,
+            roots: vec![],
+            method_roots: vec![],
+        };
 
-        let mut problems = Vec::new();
-        let (func, _) = super::super::lower_function(
-            Name::from_raw(1),
-            &[],
-            Idx::INT,
-            neg_id,
-            &arena,
-            &expr_types,
-            &interner,
-            &pool,
-            &mut problems,
-        );
+        let func = lower_single_expr(&canon, neg, Idx::INT);
 
         assert_eq!(func.blocks[0].body.len(), 2);
         if let ArcInstr::Let { value, .. } = &func.blocks[0].body[1] {
             assert!(matches!(
                 value,
                 ArcValue::PrimOp {
-                    op: PrimOp::Unary(UnaryOp::Neg),
+                    op: PrimOp::Unary(ori_ir::UnaryOp::Neg),
                     ..
                 }
             ));
@@ -482,26 +516,36 @@ mod tests {
 
     #[test]
     fn lower_unsupported_expr_produces_problem() {
+        let mut arena = CanArena::with_capacity(100);
+        let inner = arena.push(CanNode::new(
+            ori_ir::canon::CanExpr::Unit,
+            Span::new(6, 10),
+            TypeId::from_raw(Idx::UNIT.raw()),
+        ));
+        let await_id = arena.push(CanNode::new(
+            ori_ir::canon::CanExpr::Await(inner),
+            Span::new(0, 10),
+            TypeId::from_raw(Idx::UNIT.raw()),
+        ));
+
+        let canon = CanonResult {
+            arena,
+            constants: ori_ir::canon::ConstantPool::new(),
+            decision_trees: ori_ir::canon::DecisionTreePool::default(),
+            root: await_id,
+            roots: vec![],
+            method_roots: vec![],
+        };
+
         let interner = StringInterner::new();
         let pool = Pool::new();
-        let mut arena = ExprArena::new();
-
-        // Await is unsupported.
-        let inner_id = arena.alloc_expr(Expr::new(ExprKind::Unit, Span::new(6, 10)));
-        let await_id = arena.alloc_expr(Expr::new(ExprKind::Await(inner_id), Span::new(0, 10)));
-
-        let mut expr_types = vec![Idx::ERROR; await_id.index() + 1];
-        expr_types[inner_id.index()] = Idx::UNIT;
-        expr_types[await_id.index()] = Idx::UNIT;
-
         let mut problems = Vec::new();
-        let (_func, _) = super::super::lower_function(
+        let (_func, _) = lower_function_can(
             Name::from_raw(1),
             &[],
             Idx::UNIT,
             await_id,
-            &arena,
-            &expr_types,
+            &canon,
             &interner,
             &pool,
             &mut problems,
@@ -516,24 +560,32 @@ mod tests {
 
     #[test]
     fn lower_function_with_params() {
+        let mut arena = CanArena::with_capacity(100);
+        let param_name = Name::from_raw(100);
+        let body = arena.push(CanNode::new(
+            ori_ir::canon::CanExpr::Ident(param_name),
+            Span::new(0, 1),
+            TypeId::from_raw(Idx::INT.raw()),
+        ));
+
+        let canon = CanonResult {
+            arena,
+            constants: ori_ir::canon::ConstantPool::new(),
+            decision_trees: ori_ir::canon::DecisionTreePool::default(),
+            root: body,
+            roots: vec![],
+            method_roots: vec![],
+        };
+
         let interner = StringInterner::new();
         let pool = Pool::new();
-        let mut arena = ExprArena::new();
-
-        let param_name = Name::from_raw(100);
-        let body_id = arena.alloc_expr(Expr::new(ExprKind::Ident(param_name), Span::new(0, 1)));
-
-        let mut expr_types = vec![Idx::ERROR; body_id.index() + 1];
-        expr_types[body_id.index()] = Idx::INT;
-
         let mut problems = Vec::new();
-        let (func, _) = super::super::lower_function(
+        let (func, _) = lower_function_can(
             Name::from_raw(1),
             &[(param_name, Idx::INT)],
             Idx::INT,
-            body_id,
-            &arena,
-            &expr_types,
+            body,
+            &canon,
             &interner,
             &pool,
             &mut problems,
@@ -541,7 +593,6 @@ mod tests {
 
         assert_eq!(func.params.len(), 1);
         assert_eq!(func.params[0].ty, Idx::INT);
-        // The body should reference the param via ArcValue::Var.
         assert!(!func.blocks[0].body.is_empty());
     }
 }

@@ -303,21 +303,8 @@ impl<'a> Cursor<'a> {
     pub fn is_named_arg_start(&self) -> bool {
         let is_ident = matches!(self.current_kind(), TokenKind::Ident(_))
             || self.soft_keyword_to_name().is_some()
-            || self.is_keyword_usable_as_name();
+            || self.keyword_as_name().is_some();
         is_ident && self.next_is_colon()
-    }
-
-    /// Check if current token is a keyword that can be used as a named argument name.
-    fn is_keyword_usable_as_name(&self) -> bool {
-        matches!(
-            self.current_kind(),
-            TokenKind::Where
-                | TokenKind::Match
-                | TokenKind::For
-                | TokenKind::In
-                | TokenKind::If
-                | TokenKind::Type
-        )
     }
 
     /// Check if current token is a context-sensitive keyword that can be used as an identifier.
@@ -489,45 +476,47 @@ impl<'a> Cursor<'a> {
     /// Accept an identifier or a keyword that can be used as a named argument name.
     /// This handles cases like `where:` in the find pattern where `where` is a keyword.
     pub fn expect_ident_or_keyword(&mut self) -> Result<Name, ParseError> {
-        match *self.current_kind() {
-            TokenKind::Ident(name) => {
-                self.advance();
-                Ok(name)
-            }
-            // Keywords that can be used as named argument names
-            TokenKind::Where => {
-                self.advance();
-                Ok(self.interner.intern("where"))
-            }
-            TokenKind::Match => {
-                self.advance();
-                Ok(self.interner.intern("match"))
-            }
-            TokenKind::For => {
-                self.advance();
-                Ok(self.interner.intern("for"))
-            }
-            TokenKind::In => {
-                self.advance();
-                Ok(self.interner.intern("in"))
-            }
-            TokenKind::If => {
-                self.advance();
-                Ok(self.interner.intern("if"))
-            }
-            TokenKind::Type => {
-                self.advance();
-                Ok(self.interner.intern("type"))
-            }
-            _ => Err(ParseError::new(
-                ErrorCode::E1004,
-                format!(
-                    "expected identifier or keyword, found {}",
-                    self.current_kind().display_name()
-                ),
-                self.current_span(),
-            )),
+        if let TokenKind::Ident(name) = *self.current_kind() {
+            self.advance();
+            Ok(name)
+        } else if let Some(name_str) = self.keyword_as_name() {
+            let name = self.interner.intern(name_str);
+            self.advance();
+            Ok(name)
+        } else {
+            Err(self.make_expect_ident_or_keyword_error())
         }
+    }
+
+    /// Map keywords usable as named argument names to their string form.
+    ///
+    /// These keywords can appear as field names, named arguments, etc.
+    /// Returns `None` for non-keyword tokens or keywords that cannot be
+    /// used as names.
+    fn keyword_as_name(&self) -> Option<&'static str> {
+        match self.current_kind() {
+            TokenKind::Where => Some("where"),
+            TokenKind::Match => Some("match"),
+            TokenKind::For => Some("for"),
+            TokenKind::In => Some("in"),
+            TokenKind::If => Some("if"),
+            TokenKind::Type => Some("type"),
+            _ => None,
+        }
+    }
+
+    /// Build the error for a failed `expect_ident_or_keyword()` call.
+    #[cold]
+    #[inline(never)]
+    fn make_expect_ident_or_keyword_error(&self) -> ParseError {
+        ParseError::new(
+            ErrorCode::E1004,
+            format!(
+                "expected identifier or keyword, found {}",
+                self.current_kind().display_name()
+            ),
+            self.current_span(),
+        )
     }
 }
 
@@ -535,13 +524,29 @@ impl<'a> Cursor<'a> {
 mod tests {
     use super::*;
 
+    /// Owns the token list and interner so `Cursor` can borrow them
+    /// without `Box::leak`.
+    struct TestCtx {
+        tokens: TokenList,
+        interner: StringInterner,
+    }
+
+    impl TestCtx {
+        fn new(source: &str) -> Self {
+            let interner = StringInterner::new();
+            let tokens = ori_lexer::lex(source, &interner);
+            Self { tokens, interner }
+        }
+
+        fn cursor(&self) -> Cursor<'_> {
+            Cursor::new(&self.tokens, &self.interner)
+        }
+    }
+
     #[test]
     fn test_cursor_navigation() {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("let x = 42", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let x = 42");
+        let mut cursor = ctx.cursor();
 
         assert!(cursor.check(&TokenKind::Let));
         assert!(!cursor.is_at_end());
@@ -561,11 +566,8 @@ mod tests {
 
     #[test]
     fn test_expect_success() {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("let x", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let x");
+        let mut cursor = ctx.cursor();
 
         let result = cursor.expect(&TokenKind::Let);
         assert!(result.is_ok());
@@ -573,11 +575,8 @@ mod tests {
 
     #[test]
     fn test_expect_failure() {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("let x", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let x");
+        let mut cursor = ctx.cursor();
 
         let result = cursor.expect(&TokenKind::If);
         assert!(result.is_err());
@@ -585,11 +584,8 @@ mod tests {
 
     #[test]
     fn test_skip_newlines() {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("let\n\n\nx", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let\n\n\nx");
+        let mut cursor = ctx.cursor();
 
         cursor.advance(); // skip 'let'
         cursor.skip_newlines();
@@ -598,22 +594,16 @@ mod tests {
 
     #[test]
     fn test_lookahead() {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("foo()", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("foo()");
+        let cursor = ctx.cursor();
 
         assert!(cursor.next_is_lparen());
     }
 
     #[test]
     fn test_check_type_keyword() {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("int float bool str", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("int float bool str");
+        let mut cursor = ctx.cursor();
 
         assert!(cursor.check_type_keyword()); // int
         cursor.advance();
@@ -626,11 +616,8 @@ mod tests {
 
     #[test]
     fn test_token_capture() {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("let x = 42", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let x = 42");
+        let mut cursor = ctx.cursor();
 
         // Capture range covering "let x ="
         let start = cursor.start_capture();
@@ -652,11 +639,8 @@ mod tests {
 
     #[test]
     fn test_token_capture_empty() {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("let", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let");
+        let cursor = ctx.cursor();
 
         // Capture with no advancement
         let start = cursor.start_capture();
@@ -672,12 +656,9 @@ mod tests {
 
     #[test]
     fn test_newline_before_flag() {
-        let interner = StringInterner::new();
         // "let\nx" -> tokens: [let, \n, x, EOF]
-        let tokens = ori_lexer::lex("let\nx", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let\nx");
+        let mut cursor = ctx.cursor();
 
         // `let` is the first token — no newline before it
         assert!(!cursor.has_newline_before());
@@ -691,12 +672,9 @@ mod tests {
 
     #[test]
     fn test_no_newline_on_same_line() {
-        let interner = StringInterner::new();
         // "let x" -> tokens: [let, x, EOF]
-        let tokens = ori_lexer::lex("let x", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let x");
+        let mut cursor = ctx.cursor();
 
         // `let` — no newline before
         assert!(!cursor.has_newline_before());
@@ -708,12 +686,9 @@ mod tests {
 
     #[test]
     fn test_line_start_flag() {
-        let interner = StringInterner::new();
         // "let\nx" -> tokens: [let, \n, x, EOF]
-        let tokens = ori_lexer::lex("let\nx", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let\nx");
+        let mut cursor = ctx.cursor();
 
         cursor.advance(); // skip `let`
         cursor.skip_newlines();
@@ -725,12 +700,9 @@ mod tests {
 
     #[test]
     fn test_no_line_start_mid_line() {
-        let interner = StringInterner::new();
         // "let x = 42" -> all on same line
-        let tokens = ori_lexer::lex("let x = 42", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let x = 42");
+        let mut cursor = ctx.cursor();
 
         cursor.advance(); // skip `let`
 
@@ -740,12 +712,9 @@ mod tests {
 
     #[test]
     fn test_current_flags_returns_correct_value() {
-        let interner = StringInterner::new();
         // "let   x" -> tokens: [let, x, EOF]
-        let tokens = ori_lexer::lex("let   x", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let   x");
+        let mut cursor = ctx.cursor();
 
         cursor.advance(); // skip `let`
 
@@ -757,12 +726,9 @@ mod tests {
 
     #[test]
     fn test_multiple_newlines_flag() {
-        let interner = StringInterner::new();
         // "a\n\n\nb" -> tokens: [a, \n, \n, \n, b, EOF]
-        let tokens = ori_lexer::lex("a\n\n\nb", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("a\n\n\nb");
+        let mut cursor = ctx.cursor();
 
         cursor.advance(); // skip `a`
         cursor.skip_newlines();
@@ -775,12 +741,9 @@ mod tests {
 
     #[test]
     fn test_eof_flags() {
-        let interner = StringInterner::new();
         // "let\n" -> tokens: [let, \n, EOF]
-        let tokens = ori_lexer::lex("let\n", &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        let mut cursor = Cursor::new(tokens, interner);
+        let ctx = TestCtx::new("let\n");
+        let mut cursor = ctx.cursor();
 
         cursor.advance(); // skip `let`
         cursor.skip_newlines();

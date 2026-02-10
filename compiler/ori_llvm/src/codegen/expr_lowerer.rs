@@ -1,9 +1,8 @@
 //! Expression lowering coordinator for V2 codegen.
 //!
 //! `ExprLowerer` owns the lowering context (scope, loop state, function ID)
-//! and dispatches each `ExprKind` variant to a focused `lower_*` method
-//! implemented in separate files. This replaces the monolithic 387-line
-//! `Builder::compile_expr` match with independently testable modules.
+//! and dispatches each `CanExpr` variant to a focused `lower_*` method
+//! implemented in separate files.
 //!
 //! # Architecture
 //!
@@ -15,12 +14,13 @@
 //!   ├── lower_error_handling.rs — Ok, Err, Some, None, Try
 //!   ├── lower_collections.rs  — List, Map, Tuple, Struct, Range, Field, Index
 //!   ├── lower_calls.rs        — Call, MethodCall, Lambda
-//!   └── lower_constructs.rs   — FunctionSeq, FunctionExp, SelfRef, Await, …
+//!   └── lower_constructs.rs   — FunctionExp, SelfRef, Await, …
 //! ```
 
 use std::cell::Cell;
 
-use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span, StringInterner};
+use ori_ir::canon::{CanExpr, CanId, CanonResult};
+use ori_ir::{Name, Span, StringInterner};
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
 
@@ -58,7 +58,7 @@ pub(crate) struct LoopContext {
 // ExprLowerer
 // ---------------------------------------------------------------------------
 
-/// Coordinates expression lowering from AST (`ExprKind`) to LLVM IR (`ValueId`).
+/// Coordinates expression lowering from canonical IR (`CanExpr`) to LLVM IR (`ValueId`).
 ///
 /// Three lifetimes:
 /// - `'a`: borrow duration of the lowerer's dependencies
@@ -77,10 +77,8 @@ pub struct ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
     pub(crate) type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
     /// Current lexical scope (owned; swapped via `mem::replace` for blocks).
     pub(crate) scope: Scope,
-    /// The parsed expression tree.
-    pub(crate) arena: &'a ExprArena,
-    /// Parallel array: `expr_types[expr_id.index()] == Idx` (type of each expr).
-    pub(crate) expr_types: &'a [Idx],
+    /// Canonical IR — arena, constants, decision trees.
+    pub(crate) canon: &'a CanonResult,
     /// String interner for `Name` → `&str` resolution.
     pub(crate) interner: &'a StringInterner,
     /// Type pool for structural queries (used by future lowering extensions).
@@ -120,8 +118,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
         type_info: &'a TypeInfoStore<'tcx>,
         type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
         scope: Scope,
-        arena: &'a ExprArena,
-        expr_types: &'a [Idx],
+        canon: &'a CanonResult,
         interner: &'a StringInterner,
         pool: &'a Pool,
         current_function: FunctionId,
@@ -137,8 +134,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             type_info,
             type_resolver,
             scope,
-            arena,
-            expr_types,
+            canon,
             interner,
             pool,
             current_function,
@@ -161,12 +157,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
         self.builder.register_type(llvm_ty)
     }
 
-    /// Get the type index for an expression.
-    pub(crate) fn expr_type(&self, id: ExprId) -> Idx {
-        self.expr_types
-            .get(id.index())
-            .copied()
-            .unwrap_or(Idx::NONE)
+    /// Get the type index for a canonical expression.
+    pub(crate) fn expr_type(&self, id: CanId) -> Idx {
+        if !id.is_valid() {
+            return Idx::NONE;
+        }
+        Idx::from_raw(self.canon.arena.ty(id).raw())
     }
 
     /// Resolve a `Name` to a string slice via the interner.
@@ -178,142 +174,129 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
     // Main dispatch
     // -----------------------------------------------------------------------
 
-    /// Lower an expression to LLVM IR, returning a `ValueId`.
+    /// Lower a canonical expression to LLVM IR, returning a `ValueId`.
     ///
     /// Returns `None` for expressions that produce no value (e.g., `Unit`,
     /// `Error`, void-returning calls, terminated control flow).
     ///
-    /// Every `ExprKind` variant is listed explicitly — no catch-all — so
-    /// adding a new variant to the AST causes a compile error here.
-    #[allow(clippy::too_many_lines)] // Exhaustive dispatch over all ExprKind variants
-    pub fn lower(&mut self, id: ExprId) -> Option<ValueId> {
+    /// Every `CanExpr` variant is listed explicitly — no catch-all — so
+    /// adding a new variant to the canonical IR causes a compile error here.
+    #[allow(clippy::too_many_lines)] // Exhaustive dispatch over all CanExpr variants
+    pub fn lower(&mut self, id: CanId) -> Option<ValueId> {
         if !id.is_valid() {
             return None;
         }
 
-        let expr = self.arena.get_expr(id);
+        let kind = *self.canon.arena.kind(id);
+        let span = self.canon.arena.span(id);
 
         // Set debug location for this expression so all emitted
         // instructions are tagged with the correct source position.
         if let Some(dc) = self.debug_context {
-            if expr.span != Span::DUMMY {
+            if span != Span::DUMMY {
                 dc.set_location_from_offset_in_current_scope(
                     self.builder.inkwell_builder(),
-                    expr.span.start,
+                    span.start,
                 );
             }
         }
 
-        match &expr.kind {
+        match kind {
             // --- Literals & identifiers (lower_literals.rs) ---
-            ExprKind::Int(n) => Some(self.lower_int(*n)),
-            ExprKind::Float(bits) => Some(self.lower_float(*bits)),
-            ExprKind::Bool(b) => Some(self.lower_bool(*b)),
-            ExprKind::Char(c) => Some(self.lower_char(*c)),
-            ExprKind::String(name) | ExprKind::TemplateFull(name) => self.lower_string(*name),
-            ExprKind::Duration { value, unit } => Some(self.lower_duration(*value, *unit)),
-            ExprKind::Size { value, unit } => Some(self.lower_size(*value, *unit)),
-            ExprKind::Unit => Some(self.lower_unit()),
-            ExprKind::Ident(name) => self.lower_ident(*name, id),
-            ExprKind::Const(name) => self.lower_const(*name, id),
-            ExprKind::FunctionRef(name) => self.lower_function_ref(*name),
-            ExprKind::HashLength => self.lower_hash_length(),
-            ExprKind::TemplateLiteral { head, parts } => self.lower_template_literal(*head, *parts),
+            CanExpr::Int(n) => Some(self.lower_int(n)),
+            CanExpr::Float(bits) => Some(self.lower_float(bits)),
+            CanExpr::Bool(b) => Some(self.lower_bool(b)),
+            CanExpr::Char(c) => Some(self.lower_char(c)),
+            CanExpr::Str(name) => self.lower_string(name),
+            CanExpr::Duration { value, unit } => Some(self.lower_duration(value, unit)),
+            CanExpr::Size { value, unit } => Some(self.lower_size(value, unit)),
+            CanExpr::Unit | CanExpr::HashLength => Some(self.lower_unit()),
+            CanExpr::Ident(name) => self.lower_ident(name, id),
+            CanExpr::Const(name) => self.lower_const(name, id),
+            CanExpr::FunctionRef(name) => self.lower_function_ref(name),
+            CanExpr::Constant(const_id) => self.lower_constant(const_id, id),
 
             // --- Operators (lower_operators.rs) ---
-            ExprKind::Binary { op, left, right } => self.lower_binary(*op, *left, *right, id),
-            ExprKind::Unary { op, operand } => self.lower_unary(*op, *operand, id),
-            ExprKind::Cast {
+            CanExpr::Binary { op, left, right } => self.lower_binary(op, left, right, id),
+            CanExpr::Unary { op, operand } => self.lower_unary(op, operand, id),
+            CanExpr::Cast {
                 expr: inner,
                 fallible,
                 ..
-            } => self.lower_cast(*inner, *fallible, id),
+            } => self.lower_cast(inner, fallible, id),
 
             // --- Control flow (lower_control_flow.rs) ---
-            ExprKind::If {
+            CanExpr::If {
                 cond,
                 then_branch,
                 else_branch,
-            } => self.lower_if(*cond, *then_branch, *else_branch, id),
-            ExprKind::Block { stmts, result } => self.lower_block(*stmts, *result),
-            ExprKind::Let {
+            } => self.lower_if(cond, then_branch, else_branch, id),
+            CanExpr::Block { stmts, result } => self.lower_block(stmts, result),
+            CanExpr::Let {
                 pattern,
                 init,
                 mutable,
-                ..
-            } => self.lower_let(*pattern, *init, *mutable),
-            ExprKind::Loop { body } => self.lower_loop(*body, id),
-            ExprKind::For {
+            } => self.lower_let(pattern, init, mutable),
+            CanExpr::Loop { body } => self.lower_loop(body, id),
+            CanExpr::For {
                 binding,
                 iter,
                 guard,
                 body,
                 is_yield,
-            } => self.lower_for(*binding, *iter, *guard, *body, *is_yield, id),
-            ExprKind::Break(value) => self.lower_break(*value),
-            ExprKind::Continue(value) => self.lower_continue(*value),
-            ExprKind::Assign { target, value } => self.lower_assign(*target, *value),
-            ExprKind::Match { scrutinee, arms } => self.lower_match(*scrutinee, *arms, id),
+            } => self.lower_for(binding, iter, guard, body, is_yield, id),
+            CanExpr::Break(value) => self.lower_break(value),
+            CanExpr::Continue(value) => self.lower_continue(value),
+            CanExpr::Assign { target, value } => self.lower_assign(target, value),
+            CanExpr::Match {
+                scrutinee,
+                decision_tree,
+                arms,
+            } => self.lower_match(scrutinee, decision_tree, arms, id),
 
             // --- Error handling (lower_error_handling.rs) ---
-            ExprKind::Ok(inner) => self.lower_ok(*inner, id),
-            ExprKind::Err(inner) => self.lower_err(*inner, id),
-            ExprKind::Some(inner) => self.lower_some(*inner, id),
-            ExprKind::None => self.lower_none(id),
-            ExprKind::Try(inner) => self.lower_try(*inner, id),
+            CanExpr::Ok(inner) => self.lower_ok(inner, id),
+            CanExpr::Err(inner) => self.lower_err(inner, id),
+            CanExpr::Some(inner) => self.lower_some(inner, id),
+            CanExpr::None => self.lower_none(id),
+            CanExpr::Try(inner) => self.lower_try(inner, id),
 
             // --- Collections (lower_collections.rs) ---
-            ExprKind::Tuple(range) => self.lower_tuple(*range, id),
-            ExprKind::Struct { name, fields } => self.lower_struct(*name, *fields, id),
-            ExprKind::StructWithSpread { name, fields } => {
-                self.lower_struct_with_spread(*name, *fields, id)
-            }
-            ExprKind::Range {
+            CanExpr::Tuple(range) => self.lower_tuple(range, id),
+            CanExpr::Struct { name, fields } => self.lower_struct(name, fields, id),
+            CanExpr::Range {
                 start,
                 end,
                 step,
                 inclusive,
-            } => self.lower_range(*start, *end, *step, *inclusive),
-            ExprKind::Field { receiver, field } => self.lower_field(*receiver, *field),
-            ExprKind::Index { receiver, index } => self.lower_index(*receiver, *index),
-            ExprKind::List(range) => self.lower_list(*range, id),
-            ExprKind::ListWithSpread(elements) => self.lower_list_with_spread(*elements),
-            ExprKind::Map(entries) => self.lower_map(*entries, id),
-            ExprKind::MapWithSpread(elements) => self.lower_map_with_spread(*elements),
+            } => self.lower_range(start, end, step, inclusive),
+            CanExpr::Field { receiver, field } => self.lower_field(receiver, field),
+            CanExpr::Index { receiver, index } => self.lower_index(receiver, index),
+            CanExpr::List(range) => self.lower_list(range, id),
+            CanExpr::Map(entries) => self.lower_map(entries, id),
 
             // --- Calls (lower_calls.rs) ---
-            ExprKind::Call { func, args } => self.lower_call(*func, *args),
-            ExprKind::CallNamed { func, args } => self.lower_call_named(*func, *args),
-            ExprKind::MethodCall {
+            CanExpr::Call { func, args } => self.lower_call(func, args),
+            CanExpr::MethodCall {
                 receiver,
                 method,
                 args,
-            } => self.lower_method_call(*receiver, *method, *args),
-            ExprKind::MethodCallNamed {
-                receiver,
-                method,
-                args,
-            } => self.lower_method_call_named(*receiver, *method, *args),
-            ExprKind::Lambda {
-                params,
-                ret_ty: _,
-                body,
-            } => self.lower_lambda(*params, *body, id),
+            } => self.lower_method_call(receiver, method, args),
+            CanExpr::Lambda { params, body } => self.lower_lambda(params, body, id),
 
             // --- Constructs (lower_constructs.rs) ---
-            ExprKind::FunctionSeq(seq_id) => self.lower_function_seq(*seq_id, id),
-            ExprKind::FunctionExp(exp_id) => self.lower_function_exp(*exp_id, id),
-            ExprKind::SelfRef => self.lower_self_ref(),
-            ExprKind::Await(inner) => self.lower_await(*inner),
-            ExprKind::WithCapability {
+            CanExpr::FunctionExp { kind, props } => self.lower_function_exp(kind, props, id),
+            CanExpr::SelfRef => self.lower_self_ref(),
+            CanExpr::Await(inner) => self.lower_await(inner),
+            CanExpr::WithCapability {
                 capability,
                 provider,
                 body,
-            } => self.lower_with_capability(*capability, *provider, *body),
+            } => self.lower_with_capability(capability, provider, body),
 
             // --- Error placeholder (should not reach codegen) ---
-            ExprKind::Error => {
-                tracing::warn!("ExprKind::Error reached codegen");
+            CanExpr::Error => {
+                tracing::warn!("CanExpr::Error reached codegen");
                 None
             }
         }

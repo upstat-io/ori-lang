@@ -375,9 +375,16 @@ pub enum TokenTag {
 }
 
 // Compile-time assertion: all TokenTag values fit in 7 bits (< 128).
-const _: () = assert!(TokenTag::Eof as u8 <= 127);
+// This is required for TokenSet (u128 bitset), OPER_TABLE[128], and POSTFIX_BITSET.
+const _: () = assert!(TokenTag::MAX_DISCRIMINANT <= 127);
 
 impl TokenTag {
+    /// Maximum discriminant value across all variants.
+    ///
+    /// Must be < 128 for `TokenSet` (u128 bitset), `OPER_TABLE[128]`,
+    /// and `POSTFIX_BITSET`. Update this when adding new variants.
+    pub const MAX_DISCRIMINANT: u8 = Self::Eof as u8;
+
     /// Get a human-readable name for this tag.
     pub const fn name(self) -> &'static str {
         match self {
