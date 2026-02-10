@@ -1,7 +1,7 @@
 ---
 section: 7A
 title: Core Built-ins
-status: not-started
+status: in-progress
 tier: 2
 goal: Type conversions, assertions, I/O, and core built-in functions
 spec:
@@ -12,10 +12,10 @@ sections:
     status: not-started
   - id: "7A.2"
     title: Assertions
-    status: not-started
+    status: in-progress
   - id: "7A.3"
     title: I/O and Other
-    status: not-started
+    status: in-progress
   - id: "7A.4"
     title: Float NaN Behavior
     status: not-started
@@ -30,7 +30,7 @@ sections:
     status: not-started
   - id: "7A.8"
     title: Section Completion Checklist
-    status: not-started
+    status: in-progress
 ---
 
 # Section 7A: Core Built-ins
@@ -119,75 +119,60 @@ sections:
 
 ## 7A.2 Assertions
 
-- [ ] **Implement**: `assert(cond)` — spec/11-built-in-functions.md § assert
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+- [x] **Implement**: `assert(cond:)` ✅ (2026-02-10)
+  - [x] **Ori Tests**: Used in hundreds of tests across test suite (`assert(cond: ...)`)
   - [ ] **LLVM Support**: LLVM codegen for assert
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
 
-- [ ] **Implement**: `assert_eq(a, b)` — spec/11-built-in-functions.md § assert_eq
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_eq tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+- [x] **Implement**: `assert_eq(actual:, expected:)` ✅ (2026-02-10)
+  - [x] **Ori Tests**: Used in hundreds of tests across test suite
   - [ ] **LLVM Support**: LLVM codegen for assert_eq
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_eq codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
 
-- [ ] **Implement**: `assert_ne(a, b)` — spec/11-built-in-functions.md § assert_ne
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_ne tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+- [x] **Implement**: `assert_ne(actual:, expected:)` ✅ (2026-02-10)
+  - [x] **Ori Tests**: Used in module tests (`tests/spec/modules/`)
   - [ ] **LLVM Support**: LLVM codegen for assert_ne
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_ne codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
 
 - [ ] **Implement**: `assert_some(x)` — spec/11-built-in-functions.md § assert_some
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_some tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **Ori Tests**: Not verified — not found in test suite
   - [ ] **LLVM Support**: LLVM codegen for assert_some
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_some codegen
 
 - [ ] **Implement**: `assert_none(x)` — spec/11-built-in-functions.md § assert_none
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_none tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **Ori Tests**: Not verified — not found in test suite
   - [ ] **LLVM Support**: LLVM codegen for assert_none
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_none codegen
 
 - [ ] **Implement**: `assert_ok(x)` — spec/11-built-in-functions.md § assert_ok
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_ok tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **Ori Tests**: Not verified — not found in test suite
   - [ ] **LLVM Support**: LLVM codegen for assert_ok
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_ok codegen
 
 - [ ] **Implement**: `assert_err(x)` — spec/11-built-in-functions.md § assert_err
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — assert_err tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/assertions.ori`
+  - [ ] **Ori Tests**: Not verified — not found in test suite
   - [ ] **LLVM Support**: LLVM codegen for assert_err
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` — assert_err codegen
 
 ---
 
 ## 7A.3 I/O and Other
 
-- [ ] **Implement**: `print(x)` — spec/11-built-in-functions.md § print
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — print tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/io.ori`
-  - [ ] **LLVM Support**: LLVM codegen for print
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/io_tests.rs` — print codegen
+- [x] **Implement**: `print(x)` ✅ (2026-02-10)
+  - [x] **Ori Tests**: Used in test suite; LLVM has `_ori_print` runtime function
+  - [x] **LLVM Support**: LLVM codegen for print — `_ori_print` in runtime
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/io_tests.rs` (file does not exist)
 
-- [ ] **Implement**: `compare(a, b)` — spec/11-built-in-functions.md § compare
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — compare tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/compare.ori`
-  - [ ] **LLVM Support**: LLVM codegen for compare
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` — compare codegen
+- [x] **Implement**: `compare(a, b)` ✅ (2026-02-10)
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — 58 tests for `.compare(other:)`
+  - [x] **LLVM Support**: LLVM codegen for compare — inline IR in lower_calls.rs
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` (file does not exist)
 
-- [ ] **Implement**: `min(a, b)`, `max(a, b)` — spec/11-built-in-functions.md § min/max
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — min/max tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/minmax.ori`
+- [x] **Implement**: `min(a, b)`, `max(a, b)` ✅ (2026-02-10)
+  - [x] **Ori Tests**: Prelude functions available, verified in Section 4.6
   - [ ] **LLVM Support**: LLVM codegen for min/max
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` — min/max codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` (file does not exist)
 
-- [ ] **Implement**: `panic(msg)` — spec/11-built-in-functions.md § panic
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — panic tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/panic.ori`
-  - [ ] **LLVM Support**: LLVM codegen for panic
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — panic codegen
+- [x] **Implement**: `panic(msg)` ✅ (2026-02-10)
+  - [x] **Ori Tests**: Used in `#fail` test attributes (division by zero, index out of bounds)
+  - [x] **LLVM Support**: LLVM codegen for panic — `_ori_panic` in runtime
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` (file does not exist)
 
 ---
 

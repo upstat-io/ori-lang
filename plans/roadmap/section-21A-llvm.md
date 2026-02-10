@@ -1,31 +1,31 @@
 ---
 section: "21A"
 title: LLVM Backend
-status: not-started
+status: in-progress
 tier: 8
 goal: JIT compilation and LLVM codegen for Ori language
 sections:
   - id: "21.1"
     title: LLVM Setup & Infrastructure
-    status: not-started
+    status: in-progress
   - id: "21.2"
     title: Type Lowering
-    status: not-started
+    status: in-progress
   - id: "21.3"
     title: Expression Codegen
-    status: not-started
+    status: in-progress
   - id: "21.4"
     title: Operator Trait Dispatch
-    status: not-started
+    status: in-progress
   - id: "21.5"
     title: Control Flow
-    status: not-started
+    status: in-progress
   - id: "21.6"
     title: Pattern Matching
-    status: not-started
+    status: in-progress
   - id: "21.7"
     title: Function Sequences & Expressions
-    status: not-started
+    status: in-progress
   - id: "21.8"
     title: Concurrency Patterns
     status: not-started
@@ -34,13 +34,13 @@ sections:
     status: not-started
   - id: "21.10"
     title: Collections & Iterators
-    status: not-started
+    status: in-progress
   - id: "21.11"
     title: Lambda & Closure Support
-    status: not-started
+    status: in-progress
   - id: "21.12"
     title: Built-in Functions
-    status: not-started
+    status: in-progress
   - id: "21.13"
     title: FFI Support
     status: not-started
@@ -55,13 +55,13 @@ sections:
     status: not-started
   - id: "21.17"
     title: Runtime Support
-    status: not-started
+    status: in-progress
   - id: "21.18"
     title: Architecture (Reference)
-    status: not-started
+    status: in-progress
   - id: "21.19"
     title: Section Completion Checklist
-    status: not-started
+    status: in-progress
 ---
 
 # Section 21A: LLVM Backend

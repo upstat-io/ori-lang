@@ -1,7 +1,7 @@
 ---
 section: 8
 title: Pattern Evaluation
-status: not-started
+status: in-progress
 tier: 3
 goal: All patterns evaluate correctly
 spec:
@@ -9,16 +9,16 @@ spec:
 sections:
   - id: "8.1"
     title: run (Sequential Execution)
-    status: not-started
+    status: in-progress
   - id: "8.2"
     title: try (Error Propagation)
     status: not-started
   - id: "8.3"
     title: recurse (Recursive Functions)
-    status: not-started
+    status: in-progress
   - id: "8.4"
     title: parallel (All-Settled Concurrent Execution)
-    status: not-started
+    status: in-progress
   - id: "8.5"
     title: spawn (Fire and Forget)
     status: not-started
@@ -77,16 +77,16 @@ The spec formalizes two distinct pattern categories:
 
 > **Future Enhancement**: Approved proposal `proposals/approved/checks-proposal.md` adds `.pre_check:` and `.post_check:` properties to `run`. See Section 15.5.
 
-- [ ] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/10-patterns.md § run
-  - [ ] **Rust Tests**: `oric/src/patterns/run.rs` — run pattern execution tests
-  - [ ] **Ori Tests**: `tests/spec/patterns/run.ori` — 7 tests pass
+- [x] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/10-patterns.md § run ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator pattern execution — run pattern tests
+  - [x] **Ori Tests**: `tests/spec/patterns/run.ori` — 12 tests pass
   - [ ] **LLVM Support**: LLVM codegen for run pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — run pattern codegen
 
-- [ ] **Implement**: Binding `let [ "mut" ] identifier [ ":" type ] "=" expression` — spec/10-patterns.md § run
-- [ ] **Implement**: Evaluate each binding in order — spec/10-patterns.md § run
-- [ ] **Implement**: Each binding introduces variable into scope — spec/10-patterns.md § run
-- [ ] **Implement**: Final expression is the result — spec/10-patterns.md § run
+- [x] **Implement**: Binding `let [ "mut" ] identifier [ ":" type ] "=" expression` — spec/10-patterns.md § run ✅ (2026-02-10)
+- [x] **Implement**: Evaluate each binding in order — spec/10-patterns.md § run ✅ (2026-02-10)
+- [x] **Implement**: Each binding introduces variable into scope — spec/10-patterns.md § run ✅ (2026-02-10)
+- [x] **Implement**: Final expression is the result — spec/10-patterns.md § run ✅ (2026-02-10)
 
 ---
 
@@ -110,17 +110,17 @@ The spec formalizes two distinct pattern categories:
 
 ### Basic Implementation (complete)
 
-- [ ] **Implement**: `.condition:` property type `bool` — spec/10-patterns.md § recurse
-  - [ ] **Rust Tests**: `oric/src/patterns/recurse.rs` — recurse pattern execution tests
-  - [ ] **Ori Tests**: `tests/spec/patterns/recurse.ori` — 5 tests pass
+- [x] **Implement**: `.condition:` property type `bool` — spec/10-patterns.md § recurse ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator pattern execution — recurse pattern tests
+  - [x] **Ori Tests**: `tests/spec/patterns/recurse.ori` — 18 tests pass
 
-- [ ] **Implement**: `.base:` property type `T` — spec/10-patterns.md § recurse
-- [ ] **Implement**: `.step:` property uses `self()` — spec/10-patterns.md § recurse
+- [x] **Implement**: `.base:` property type `T` — spec/10-patterns.md § recurse ✅ (2026-02-10)
+- [x] **Implement**: `.step:` property uses `self()` — spec/10-patterns.md § recurse ✅ (2026-02-10)
 - [ ] **Implement**: Optional `.memo:` default false — spec/10-patterns.md § recurse
 - [ ] **Implement**: Optional `.parallel:` threshold — spec/10-patterns.md § recurse (stub: executes sequentially)
-- [ ] **Implement**: When `.condition` true, return `.base` — spec/10-patterns.md § recurse
-- [ ] **Implement**: Otherwise evaluate `.step` — spec/10-patterns.md § recurse
-- [ ] **Implement**: `self(...)` refers to recursive function — spec/10-patterns.md § recurse
+- [x] **Implement**: When `.condition` true, return `.base` — spec/10-patterns.md § recurse ✅ (2026-02-10)
+- [x] **Implement**: Otherwise evaluate `.step` — spec/10-patterns.md § recurse ✅ (2026-02-10)
+- [x] **Implement**: `self(...)` refers to recursive function — spec/10-patterns.md § recurse ✅ (2026-02-10)
 - [ ] **Implement**: Memoization caches during top-level call — spec/10-patterns.md § recurse
 
 ### Self Scoping (from approved proposal)
@@ -218,9 +218,9 @@ The spec formalizes two distinct pattern categories:
 > All tasks run to completion. Errors captured as Err values in result list.
 > Pattern itself never fails.
 
-- [ ] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § parallel
-  - [ ] **Rust Tests**: `oric/src/patterns/parallel.rs` — parallel pattern execution tests
-  - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 6 tests pass
+- [x] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § parallel ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator pattern execution — parallel pattern tests
+  - [x] **Ori Tests**: `tests/spec/patterns/parallel.ori` — 5 tests pass
   - [ ] **LLVM Support**: LLVM codegen for parallel pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — parallel pattern codegen
 

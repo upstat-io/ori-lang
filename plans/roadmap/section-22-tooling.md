@@ -1,13 +1,13 @@
 ---
 section: 22
 title: Tooling
-status: not-started
+status: in-progress
 tier: 8
 goal: Developer experience
 sections:
   - id: "22.1"
     title: Formatter
-    status: not-started
+    status: in-progress
   - id: "22.2"
     title: LSP Server
     status: not-started
@@ -19,7 +19,7 @@ sections:
     status: not-started
   - id: "22.5"
     title: Test Runner
-    status: not-started
+    status: in-progress
   - id: "22.6"
     title: Causality Tracking
     status: not-started

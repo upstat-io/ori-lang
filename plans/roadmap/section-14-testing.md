@@ -1,7 +1,7 @@
 ---
 section: 14
 title: Testing Framework
-status: not-started
+status: in-progress
 tier: 5
 goal: Mandatory testing enforcement with dependency-aware execution and incremental test execution during compilation
 spec:
@@ -12,10 +12,10 @@ sections:
     status: not-started
   - id: "14.2"
     title: Test Declaration
-    status: not-started
+    status: in-progress
   - id: "14.3"
     title: Test Attributes
-    status: not-started
+    status: in-progress
   - id: "14.4"
     title: Test Functions
     status: not-started
@@ -27,10 +27,10 @@ sections:
     status: not-started
   - id: "14.7"
     title: Test Execution
-    status: not-started
+    status: in-progress
   - id: "14.8"
     title: Compile-Fail Tests
-    status: not-started
+    status: in-progress
   - id: "14.9"
     title: Dependency-Aware Test Execution
     status: not-started
@@ -83,21 +83,21 @@ sections:
 
 ## 14.2 Test Declaration
 
-- [ ] **Implement**: Syntax `@test_name tests @target () -> void = ...` — spec/13-testing.md § Test Declaration, design/11-testing/02-test-syntax.md
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — test declaration parsing
-  - [ ] **Ori Tests**: `tests/spec/testing/declaration.ori`
+- [x] **Implement**: Syntax `@test_name tests @target () -> void = ...` — spec/13-testing.md § Test Declaration, design/11-testing/02-test-syntax.md ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — test declaration parsing
+  - [x] **Ori Tests**: All spec tests use this syntax (900+ tests across the test suite)
   - [ ] **LLVM Support**: LLVM codegen for test declaration syntax
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test declaration codegen
 
-- [ ] **Implement**: Semantics — spec/13-testing.md § Test Declaration
-  - [ ] **Rust Tests**: `oric/src/eval/testing.rs` — test semantics
-  - [ ] **Ori Tests**: `tests/spec/testing/declaration.ori`
+- [x] **Implement**: Semantics — spec/13-testing.md § Test Declaration ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator — test semantics
+  - [x] **Ori Tests**: All spec tests execute with correct semantics
   - [ ] **LLVM Support**: LLVM codegen for test semantics
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test semantics codegen
 
-- [ ] **Implement**: Multiple targets `@test tests @a tests @b` — spec/13-testing.md § Multiple Targets
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — multiple targets parsing
-  - [ ] **Ori Tests**: `tests/spec/testing/multiple_targets.ori`
+- [x] **Implement**: Multiple targets `@test tests @a tests @b` — spec/13-testing.md § Multiple Targets ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — multiple targets parsing
+  - [x] **Ori Tests**: `tests/spec/source/file_structure.ori` — test_multi tests @multi_a @multi_b @multi_c; `tests/spec/lexical/comments.ori`
   - [ ] **LLVM Support**: LLVM codegen for multiple test targets
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — multiple targets codegen
 
@@ -113,15 +113,15 @@ sections:
 
 ## 14.3 Test Attributes
 
-- [ ] **Implement**: Syntax `#[attribute]` — spec/13-testing.md § Test Attributes
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — attribute parsing
-  - [ ] **Ori Tests**: `tests/spec/testing/attributes.ori`
+- [x] **Implement**: Syntax `#attribute` (new syntax) — spec/13-testing.md § Test Attributes ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — attribute parsing
+  - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` — #skip, #fail, #compile_fail all work
   - [ ] **LLVM Support**: LLVM codegen for test attribute syntax
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test attribute syntax codegen
 
-- [ ] **Implement**: `#[skip("reason")]` — spec/13-testing.md § Skip Attribute
-  - [ ] **Rust Tests**: `oric/src/eval/testing.rs` — skip attribute handling
-  - [ ] **Ori Tests**: `tests/spec/testing/skip.ori`
+- [x] **Implement**: `#skip("reason")` — spec/13-testing.md § Skip Attribute ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator — skip attribute handling
+  - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori`, `tests/spec/expressions/loops.ori` — #skip used to skip unimplemented features
   - [ ] **LLVM Support**: LLVM codegen for skip attribute
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — skip attribute codegen
 
@@ -190,9 +190,9 @@ sections:
 
 ## 14.7 Test Execution
 
-- [ ] **Implement**: Running tests — spec/13-testing.md § Test Execution
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — test runner
-  - [ ] **Ori Tests**: `tests/spec/testing/execution.ori`
+- [x] **Implement**: Running tests — spec/13-testing.md § Test Execution ✅ (2026-02-10)
+  - [x] **Rust Tests**: CLI — test runner (`ori test`, `cargo st`)
+  - [x] **Ori Tests**: 900+ tests pass across the full test suite
   - [ ] **LLVM Support**: LLVM codegen for test execution
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test execution codegen
 
@@ -212,9 +212,9 @@ sections:
 
 ## 14.8 Compile-Fail Tests
 
-- [ ] **Implement**: Compile-fail tests — spec/13-testing.md § Compile-Fail Tests, design/11-testing/03-compile-fail-tests.md
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — compile-fail harness
-  - [ ] **Ori Tests**: `tests/spec/testing/compile_fail.ori`
+- [x] **Implement**: Compile-fail tests — spec/13-testing.md § Compile-Fail Tests, design/11-testing/03-compile-fail-tests.md ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator — compile-fail harness
+  - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` — #compile_fail("type"), #compile_fail("unknown identifier"); `#fail("message")` also works
   - [ ] **LLVM Support**: LLVM codegen for compile-fail tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — compile-fail tests codegen
 
