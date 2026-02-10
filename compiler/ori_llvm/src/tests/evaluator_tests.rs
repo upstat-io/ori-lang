@@ -78,18 +78,16 @@ fn test_compile_module_with_tests_empty() {
         def_impls: vec![],
     };
 
-    let arena = ori_ir::ExprArena::new();
-    let result = evaluator.compile_module_with_tests(
-        &module,
-        &[],
-        &arena,
-        &interner,
-        &[],
-        &[],
-        &[],
-        &[],
-        &[],
-    );
+    let canon = ori_ir::canon::CanonResult {
+        arena: Default::default(),
+        constants: Default::default(),
+        decision_trees: ori_ir::canon::DecisionTreePool::new(),
+        root: ori_ir::canon::CanId::INVALID,
+        roots: vec![],
+        method_roots: vec![],
+    };
+    let result =
+        evaluator.compile_module_with_tests(&module, &[], &canon, &interner, &[], &[], &[], &[]);
 
     assert!(
         result.is_ok(),

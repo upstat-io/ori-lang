@@ -69,14 +69,13 @@ pub fn register_module_functions(
 
     let captures = env.capture();
 
-    // Build a lookup from function name → CanId for canonical wiring.
-    // A function may appear multiple times in roots (multi-clause), so we
-    // collect all CanIds per name in order.
-    let canon_lookup: FxHashMap<Name, Vec<ori_ir::canon::CanId>> = canon
+    // Build a lookup from function name → CanonRoot for canonical wiring.
+    // Carries both body CanId and canonicalized defaults per function.
+    let canon_lookup: FxHashMap<Name, Vec<&ori_ir::canon::CanonRoot>> = canon
         .map(|c| {
-            let mut map: FxHashMap<Name, Vec<ori_ir::canon::CanId>> = FxHashMap::default();
-            for &(name, can_id) in &c.roots {
-                map.entry(name).or_default().push(can_id);
+            let mut map: FxHashMap<Name, Vec<&ori_ir::canon::CanonRoot>> = FxHashMap::default();
+            for root in &c.roots {
+                map.entry(root.name).or_default().push(root);
             }
             map
         })
@@ -100,10 +99,13 @@ pub fn register_module_functions(
                 capabilities,
             );
 
-            // Attach canonical IR if available
-            if let (Some(can_ids), Some(c)) = (canon_lookup.get(&name), canon) {
-                if let Some(&can_id) = can_ids.first() {
-                    func_value.set_canon(can_id, c.clone());
+            // Attach canonical IR and defaults if available
+            if let (Some(roots), Some(c)) = (canon_lookup.get(&name), canon) {
+                if let Some(root) = roots.first() {
+                    func_value.set_canon(root.body, c.clone());
+                    if root.defaults.iter().any(Option::is_some) {
+                        func_value.set_can_defaults(root.defaults.clone());
+                    }
                 }
             }
 
@@ -130,9 +132,12 @@ pub fn register_module_functions(
             // Attach the canonical match body (synthesized by lower_module).
             // The canon_lookup groups all same-name roots; the first entry
             // is the synthesized match body for the multi-clause group.
-            if let (Some(can_ids), Some(c)) = (canon_lookup.get(&name), canon) {
-                if let Some(&can_id) = can_ids.first() {
-                    func_value.set_canon(can_id, c.clone());
+            if let (Some(roots), Some(c)) = (canon_lookup.get(&name), canon) {
+                if let Some(root) = roots.first() {
+                    func_value.set_canon(root.body, c.clone());
+                    if root.defaults.iter().any(Option::is_some) {
+                        func_value.set_can_defaults(root.defaults.clone());
+                    }
                 }
             }
 

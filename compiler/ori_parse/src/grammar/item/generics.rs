@@ -24,7 +24,7 @@ impl Parser<'_> {
             ParseOutcome::consumed_ok(ty)
         } else {
             // No type found — soft error for callers to handle
-            ParseOutcome::empty_err_expected(&TokenKind::Ident(Name::EMPTY), self.position())
+            ParseOutcome::empty_err_expected(&TokenKind::Ident(Name::EMPTY), self.cursor.position())
         }
     }
 
@@ -40,40 +40,40 @@ impl Parser<'_> {
     pub(crate) fn parse_generics(&mut self) -> ParseOutcome<GenericParamRange> {
         use crate::series::SeriesConfig;
 
-        if !self.check(&TokenKind::Lt) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Lt, self.position());
+        if !self.cursor.check(&TokenKind::Lt) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Lt, self.cursor.position());
         }
 
         // Committed: `<` confirmed, all errors from here are hard errors
-        committed!(self.expect(&TokenKind::Lt));
+        committed!(self.cursor.expect(&TokenKind::Lt));
 
         let start = self.arena.start_generic_params();
         committed!(
             self.series_direct(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
-                if p.check(&TokenKind::Gt) {
+                if p.cursor.check(&TokenKind::Gt) {
                     return Ok(false);
                 }
 
-                let param_span = p.current_span();
+                let param_span = p.cursor.current_span();
 
                 // Check for const generic: $N
-                let is_const = p.check(&TokenKind::Dollar);
+                let is_const = p.cursor.check(&TokenKind::Dollar);
                 if is_const {
-                    p.advance(); // consume $
+                    p.cursor.advance(); // consume $
                 }
 
-                let name = p.expect_ident()?;
+                let name = p.cursor.expect_ident()?;
 
                 if is_const {
                     // Const generic: $N: int [= default]
                     // Type is required for const generics
-                    p.expect(&TokenKind::Colon)?;
+                    p.cursor.expect(&TokenKind::Colon)?;
                     let const_type = Some(p.parse_type_required().into_result()?);
 
                     // Optional default value (expression, not type)
                     // Use parse_non_comparison_expr to avoid `>` being treated as comparison
-                    let default_value = if p.check(&TokenKind::Eq) {
-                        p.advance();
+                    let default_value = if p.cursor.check(&TokenKind::Eq) {
+                        p.cursor.advance();
                         Some(p.parse_non_comparison_expr().into_result()?)
                     } else {
                         None
@@ -86,21 +86,21 @@ impl Parser<'_> {
                         is_const: true,
                         const_type,
                         default_value,
-                        span: param_span.merge(p.previous_span()),
+                        span: param_span.merge(p.cursor.previous_span()),
                     });
                 } else {
                     // Type parameter: T [: Bounds] [= Default]
                     // Optional bounds: : Bound + OtherBound
-                    let bounds = if p.check(&TokenKind::Colon) {
-                        p.advance();
+                    let bounds = if p.cursor.check(&TokenKind::Colon) {
+                        p.cursor.advance();
                         p.parse_bounds().into_result()?
                     } else {
                         Vec::new()
                     };
 
                     // Optional default type: = Type
-                    let default_type = if p.check(&TokenKind::Eq) {
-                        p.advance();
+                    let default_type = if p.cursor.check(&TokenKind::Eq) {
+                        p.cursor.advance();
                         Some(p.parse_type_required().into_result()?)
                     } else {
                         None
@@ -113,14 +113,14 @@ impl Parser<'_> {
                         is_const: false,
                         const_type: None,
                         default_value: None,
-                        span: param_span.merge(p.previous_span()),
+                        span: param_span.merge(p.cursor.previous_span()),
                     });
                 }
                 Ok(true)
             })
         );
 
-        committed!(self.expect(&TokenKind::Gt));
+        committed!(self.cursor.expect(&TokenKind::Gt));
         ParseOutcome::consumed_ok(self.arena.finish_generic_params(start))
     }
 
@@ -132,24 +132,24 @@ impl Parser<'_> {
         let mut bounds = Vec::new();
 
         // First bound — EmptyErr propagates if no identifier found
-        let bound_span = self.current_span();
+        let bound_span = self.cursor.current_span();
         let (first, rest) = chain!(self, self.parse_type_path_parts());
         bounds.push(TraitBound {
             first,
             rest,
-            span: bound_span.merge(self.previous_span()),
+            span: bound_span.merge(self.cursor.previous_span()),
         });
 
         // Additional bounds separated by `+`
-        while self.check(&TokenKind::Plus) {
-            self.advance();
-            let bound_span = self.current_span();
+        while self.cursor.check(&TokenKind::Plus) {
+            self.cursor.advance();
+            let bound_span = self.cursor.current_span();
             let (first, rest) =
                 require!(self, self.parse_type_path_parts(), "trait bound after `+`");
             bounds.push(TraitBound {
                 first,
                 rest,
-                span: bound_span.merge(self.previous_span()),
+                span: bound_span.merge(self.cursor.previous_span()),
             });
         }
 
@@ -171,18 +171,18 @@ impl Parser<'_> {
     /// Guarantees at least one segment by returning the first separately.
     /// Returns `EmptyErr` if no identifier is found at the current position.
     fn parse_type_path_parts(&mut self) -> ParseOutcome<(Name, Vec<Name>)> {
-        let Ok(first) = self.expect_ident() else {
+        let Ok(first) = self.cursor.expect_ident() else {
             return ParseOutcome::empty_err_expected(
                 &TokenKind::Ident(Name::EMPTY),
-                self.position(),
+                self.cursor.position(),
             );
         };
 
         let mut rest = Vec::new();
-        while self.check(&TokenKind::Dot) {
-            self.advance();
+        while self.cursor.check(&TokenKind::Dot) {
+            self.cursor.advance();
             // After `.`, an identifier is mandatory
-            let segment = committed!(self.expect_ident());
+            let segment = committed!(self.cursor.expect_ident());
             rest.push(segment);
         }
 
@@ -199,22 +199,22 @@ impl Parser<'_> {
             ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
                 "empty type path".to_string(),
-                self.current_span(),
+                self.cursor.current_span(),
             )
         }));
 
         // Check for type arguments: <T, U>
-        let type_args = if self.check(&TokenKind::Lt) {
+        let type_args = if self.cursor.check(&TokenKind::Lt) {
             use crate::series::SeriesConfig;
 
-            self.advance(); // <
-                            // Type arg lists use a Vec because nested generic args share the
-                            // same `parsed_type_lists` buffer (e.g., `Impl<Option<T>>`).
+            self.cursor.advance(); // <
+                                   // Type arg lists use a Vec because nested generic args share the
+                                   // same `parsed_type_lists` buffer (e.g., `Impl<Option<T>>`).
             let mut type_args: Vec<ParsedTypeId> = Vec::new();
             committed!(self.series_direct(
                 &SeriesConfig::comma(TokenKind::Gt).no_newlines(),
                 |p| {
-                    if p.check(&TokenKind::Gt) {
+                    if p.cursor.check(&TokenKind::Gt) {
                         return Ok(false);
                     }
                     let ty = p.parse_type_required().into_result()?;
@@ -222,8 +222,8 @@ impl Parser<'_> {
                     Ok(true)
                 }
             ));
-            if self.check(&TokenKind::Gt) {
-                self.advance(); // >
+            if self.cursor.check(&TokenKind::Gt) {
+                self.cursor.advance(); // >
             }
             self.arena.alloc_parsed_type_list(type_args)
         } else {
@@ -238,25 +238,25 @@ impl Parser<'_> {
     ///
     /// Returns `EmptyErr` if no `uses` keyword is present.
     pub(crate) fn parse_uses_clause(&mut self) -> ParseOutcome<Vec<CapabilityRef>> {
-        if !self.check(&TokenKind::Uses) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Uses, self.position());
+        if !self.cursor.check(&TokenKind::Uses) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Uses, self.cursor.position());
         }
 
         // Committed: `uses` keyword confirmed
-        committed!(self.expect(&TokenKind::Uses));
+        committed!(self.cursor.expect(&TokenKind::Uses));
 
         let mut capabilities = Vec::new();
         loop {
-            let cap_span = self.current_span();
-            let name = committed!(self.expect_ident());
+            let cap_span = self.cursor.current_span();
+            let name = committed!(self.cursor.expect_ident());
 
             capabilities.push(CapabilityRef {
                 name,
                 span: cap_span,
             });
 
-            if self.check(&TokenKind::Comma) {
-                self.advance();
+            if self.cursor.check(&TokenKind::Comma) {
+                self.cursor.advance();
             } else {
                 break;
             }
@@ -269,38 +269,38 @@ impl Parser<'_> {
     ///
     /// Returns `EmptyErr` if no `where` keyword is present.
     pub(crate) fn parse_where_clauses(&mut self) -> ParseOutcome<Vec<WhereClause>> {
-        if !self.check(&TokenKind::Where) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Where, self.position());
+        if !self.cursor.check(&TokenKind::Where) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Where, self.cursor.position());
         }
 
         // Committed: `where` keyword confirmed
-        committed!(self.expect(&TokenKind::Where));
+        committed!(self.cursor.expect(&TokenKind::Where));
 
         let mut clauses = Vec::new();
         loop {
-            let clause_span = self.current_span();
-            let param = committed!(self.expect_ident());
+            let clause_span = self.cursor.current_span();
+            let param = committed!(self.cursor.expect_ident());
 
             // Check for associated type projection: T.Item
-            let projection = if self.check(&TokenKind::Dot) {
-                self.advance();
-                Some(committed!(self.expect_ident()))
+            let projection = if self.cursor.check(&TokenKind::Dot) {
+                self.cursor.advance();
+                Some(committed!(self.cursor.expect_ident()))
             } else {
                 None
             };
 
-            committed!(self.expect(&TokenKind::Colon));
+            committed!(self.cursor.expect(&TokenKind::Colon));
             let bounds = require!(self, self.parse_bounds(), "trait bounds in where clause");
 
             clauses.push(WhereClause {
                 param,
                 projection,
                 bounds,
-                span: clause_span.merge(self.previous_span()),
+                span: clause_span.merge(self.cursor.previous_span()),
             });
 
-            if self.check(&TokenKind::Comma) {
-                self.advance();
+            if self.cursor.check(&TokenKind::Comma) {
+                self.cursor.advance();
             } else {
                 break;
             }

@@ -50,9 +50,7 @@ mod unicode_confusables;
 mod what_is_next;
 
 // Re-export core types from the standalone tokenizer crate.
-pub use ori_lexer_core::{
-    Cursor, EncodingIssue, EncodingIssueKind, RawTag, RawToken, SourceBuffer,
-};
+pub use ori_lexer_core::{EncodingIssue, EncodingIssueKind, RawTag, RawToken, SourceBuffer};
 
 use comments::classify_and_normalize_comment;
 use cooker::TokenCooker;
@@ -189,79 +187,14 @@ pub struct LexResult {
 
 /// Lex source code into tokens and accumulated errors.
 ///
-/// Uses the hand-written `RawScanner` + `TokenCooker` pipeline.
-/// Unlike [`lex()`] which discards errors, this returns them alongside
-/// the token stream so they can be surfaced through the Salsa query system.
+/// Delegates to [`lex_with_comments()`] to avoid duplicating the driver loop.
+/// Comments and formatting metadata are discarded; only the token stream
+/// and errors are kept.
 pub fn lex_full(source: &str, interner: &StringInterner) -> LexResult {
-    let buf = SourceBuffer::new(source);
-    let mut scanner = RawScanner::new(buf.cursor());
-    let mut cooker = TokenCooker::new(buf.as_bytes(), interner);
-    let mut result = TokenList::with_capacity(source.len() / 2 + 1);
-    let mut offset: u32 = 0;
-
-    // Trivia tracking for TokenFlags
-    let mut pending_flags = TokenFlags::EMPTY;
-
-    loop {
-        let raw = scanner.next_token();
-
-        if raw.tag == RawTag::Eof {
-            break;
-        }
-
-        match raw.tag {
-            // Accumulate trivia flags for the next significant token
-            RawTag::Whitespace => {
-                pending_flags.set(TokenFlags::SPACE_BEFORE);
-            }
-            RawTag::LineComment => {
-                pending_flags.set(TokenFlags::TRIVIA_BEFORE);
-            }
-
-            // Emit newline tokens (significant for parser)
-            RawTag::Newline => {
-                let token_span = make_span(offset, raw.len);
-                let flags = finalize_flags(pending_flags);
-                result.push_with_flags(Token::new(TokenKind::Newline, token_span), flags);
-                // After a newline, the next token is at line start
-                pending_flags =
-                    TokenFlags::from_bits(TokenFlags::NEWLINE_BEFORE | TokenFlags::LINE_START);
-            }
-
-            // Cook everything else
-            _ => {
-                let token_span = make_span(offset, raw.len);
-                let kind = cooker.cook(raw.tag, offset, raw.len);
-                let mut flags = finalize_flags(pending_flags);
-                if cooker.last_cook_had_error() {
-                    flags.set(TokenFlags::HAS_ERROR);
-                }
-                if cooker.last_cook_was_contextual_kw() {
-                    flags.set(TokenFlags::CONTEXTUAL_KW);
-                }
-                result.push_with_flags(Token::new(kind, token_span), flags);
-                pending_flags = TokenFlags::EMPTY;
-            }
-        }
-
-        offset += raw.len;
-    }
-
-    // Add EOF token
-    let eof_pos = u32::try_from(source.len()).unwrap_or_else(|_| {
-        let error_span = Span::new(u32::MAX - 1, u32::MAX);
-        result.push(Token::new(TokenKind::Error, error_span));
-        u32::MAX
-    });
-    let eof_span = Span::point(eof_pos);
-    let eof_flags = finalize_flags(pending_flags);
-    result.push_with_flags(Token::new(TokenKind::Eof, eof_span), eof_flags);
-
-    let errors = cooker.into_errors();
-
+    let output = lex_with_comments(source, interner);
     LexResult {
-        tokens: result,
-        errors,
+        tokens: output.tokens,
+        errors: output.errors,
     }
 }
 
@@ -1151,15 +1084,15 @@ let x = 1";
     }
 
     #[test]
-    fn is_doc_not_set_in_simple_lex() {
-        // The fast lex() path does not classify comments — IS_DOC never set
+    fn is_doc_set_in_simple_lex() {
+        // lex() delegates to lex_with_comments(), so IS_DOC is set
         let interner = StringInterner::new();
         let tokens = lex("// #Description\ndef", &interner);
         let flags = tokens.flags();
         // tokens: newline, def, EOF
         assert!(
-            !flags[1].is_doc(),
-            "lex() should not set IS_DOC (no comment classification)"
+            flags[1].is_doc(),
+            "lex() should set IS_DOC (delegates to lex_with_comments)"
         );
     }
 

@@ -162,12 +162,12 @@ impl Parser<'_> {
         let mut attrs = ParsedAttrs::default();
 
         // Start capture at the first attribute token (if any)
-        let capture_start = self.start_capture();
+        let capture_start = self.cursor.start_capture();
 
         // Accept both old `#[...]` syntax and new `#...` syntax for backwards compatibility
-        while self.check(&TokenKind::Hash) || self.check(&TokenKind::HashBracket) {
-            let uses_brackets = self.check(&TokenKind::HashBracket);
-            self.advance(); // consume # or #[
+        while self.cursor.check(&TokenKind::Hash) || self.cursor.check(&TokenKind::HashBracket) {
+            let uses_brackets = self.cursor.check(&TokenKind::HashBracket);
+            self.cursor.advance(); // consume # or #[
 
             let attr_kind = self.parse_attr_name(errors);
 
@@ -202,21 +202,21 @@ impl Parser<'_> {
                 }
             }
 
-            self.skip_newlines();
+            self.cursor.skip_newlines();
         }
 
         // Complete the capture (None if no attributes were parsed)
-        attrs.token_range = self.complete_capture(capture_start);
+        attrs.token_range = self.cursor.complete_capture(capture_start);
 
         attrs
     }
 
     /// Parse the attribute name and return its kind.
     fn parse_attr_name(&mut self, errors: &mut Vec<ParseError>) -> AttrKind {
-        match *self.current_kind() {
+        match *self.cursor.current_kind() {
             TokenKind::Ident(name) => {
-                self.advance();
-                match self.interner().lookup(name) {
+                self.cursor.advance();
+                match self.cursor.interner().lookup(name) {
                     "skip" => AttrKind::Skip,
                     "compile_fail" => AttrKind::CompileFail,
                     "fail" => AttrKind::Fail,
@@ -228,14 +228,14 @@ impl Parser<'_> {
                         errors.push(ParseError::new(
                             ErrorCode::E1006,
                             format!("unknown attribute '{s}'"),
-                            self.previous_span(),
+                            self.cursor.previous_span(),
                         ));
                         AttrKind::Unknown
                     }
                 }
             }
             TokenKind::Skip => {
-                self.advance();
+                self.cursor.advance();
                 AttrKind::Skip
             }
             _ => {
@@ -243,9 +243,9 @@ impl Parser<'_> {
                     ErrorCode::E1004,
                     format!(
                         "expected attribute name, found {}",
-                        self.current_kind().display_name()
+                        self.cursor.current_kind().display_name()
                     ),
-                    self.current_span(),
+                    self.cursor.current_span(),
                 ));
                 AttrKind::Unknown
             }
@@ -263,11 +263,11 @@ impl Parser<'_> {
         let attr_name_str = attr_kind.as_str();
 
         // Expect (
-        if !self.check(&TokenKind::LParen) {
+        if !self.cursor.check(&TokenKind::LParen) {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: format!("expected '(' after attribute name '{attr_name_str}'"),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -277,17 +277,17 @@ impl Parser<'_> {
             }
             return;
         }
-        self.advance(); // consume (
+        self.cursor.advance(); // consume (
 
         // Parse string value
-        let value = if let TokenKind::String(string_name) = *self.current_kind() {
-            self.advance();
+        let value = if let TokenKind::String(string_name) = *self.cursor.current_kind() {
+            self.cursor.advance();
             Some(string_name)
         } else {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: format!("attribute '{attr_name_str}' requires a string argument"),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -296,13 +296,13 @@ impl Parser<'_> {
         };
 
         // Expect )
-        if self.check(&TokenKind::RParen) {
-            self.advance();
+        if self.cursor.check(&TokenKind::RParen) {
+            self.cursor.advance();
         } else {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected ')' after attribute value".to_string(),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -311,13 +311,13 @@ impl Parser<'_> {
 
         // Expect ] only if old bracket syntax was used
         if uses_brackets {
-            if self.check(&TokenKind::RBracket) {
-                self.advance();
+            if self.cursor.check(&TokenKind::RBracket) {
+                self.cursor.advance();
             } else {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: "expected ']' to close attribute".to_string(),
-                    span: self.current_span(),
+                    span: self.cursor.current_span(),
                     context: None,
                     help: Vec::new(),
                     severity: DiagnosticSeverity::Hard,
@@ -354,11 +354,11 @@ impl Parser<'_> {
         uses_brackets: bool,
     ) {
         // Expect (
-        if !self.check(&TokenKind::LParen) {
+        if !self.cursor.check(&TokenKind::LParen) {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected '(' after 'compile_fail'".to_string(),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -370,24 +370,24 @@ impl Parser<'_> {
             }
             return;
         }
-        self.advance(); // consume (
+        self.cursor.advance(); // consume (
 
         // Check if this is the simple format (just a string) or extended format (named args)
-        if let TokenKind::String(string_name) = *self.current_kind() {
+        if let TokenKind::String(string_name) = *self.cursor.current_kind() {
             // Simple format: #[compile_fail("message")]
-            self.advance();
+            self.cursor.advance();
             attrs
                 .expected_errors
                 .push(ExpectedError::from_message(string_name));
 
             // Expect )
-            if self.check(&TokenKind::RParen) {
-                self.advance();
+            if self.cursor.check(&TokenKind::RParen) {
+                self.cursor.advance();
             } else {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: "expected ')' after compile_fail value".to_string(),
-                    span: self.current_span(),
+                    span: self.cursor.current_span(),
                     context: None,
                     help: Vec::new(),
                     severity: DiagnosticSeverity::Hard,
@@ -397,17 +397,17 @@ impl Parser<'_> {
             // Extended format: #[compile_fail(name: value, ...)]
             let mut expected = ExpectedError::default();
 
-            while !self.check(&TokenKind::RParen) && !self.is_at_end() {
+            while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
                 // Parse name: value
-                let param_name = if let TokenKind::Ident(name) = *self.current_kind() {
-                    let s = self.interner().lookup(name).to_owned();
-                    self.advance();
+                let param_name = if let TokenKind::Ident(name) = *self.cursor.current_kind() {
+                    let s = self.cursor.interner().lookup(name).to_owned();
+                    self.cursor.advance();
                     s
                 } else {
                     errors.push(ParseError {
                         code: ErrorCode::E1006,
                         message: "expected parameter name in compile_fail".to_string(),
-                        span: self.current_span(),
+                        span: self.cursor.current_span(),
                         context: None,
                         help: Vec::new(),
                         severity: DiagnosticSeverity::Hard,
@@ -421,11 +421,11 @@ impl Parser<'_> {
                 };
 
                 // Expect :
-                if !self.check(&TokenKind::Colon) {
+                if !self.cursor.check(&TokenKind::Colon) {
                     errors.push(ParseError {
                         code: ErrorCode::E1006,
                         message: format!("expected ':' after '{param_name}'"),
-                        span: self.current_span(),
+                        span: self.cursor.current_span(),
                         context: None,
                         help: Vec::new(),
                         severity: DiagnosticSeverity::Hard,
@@ -437,19 +437,19 @@ impl Parser<'_> {
                     }
                     return;
                 }
-                self.advance();
+                self.cursor.advance();
 
                 // Parse value based on parameter name
                 match param_name.as_str() {
                     "message" | "msg" => {
-                        if let TokenKind::String(s) = *self.current_kind() {
+                        if let TokenKind::String(s) = *self.cursor.current_kind() {
                             expected.message = Some(s);
-                            self.advance();
+                            self.cursor.advance();
                         } else {
                             errors.push(ParseError {
                                 code: ErrorCode::E1006,
                                 message: "expected string for 'message'".to_string(),
-                                span: self.current_span(),
+                                span: self.cursor.current_span(),
                                 context: None,
                                 help: Vec::new(),
                                 severity: DiagnosticSeverity::Hard,
@@ -457,14 +457,14 @@ impl Parser<'_> {
                         }
                     }
                     "code" => {
-                        if let TokenKind::String(s) = *self.current_kind() {
+                        if let TokenKind::String(s) = *self.cursor.current_kind() {
                             expected.code = Some(s);
-                            self.advance();
+                            self.cursor.advance();
                         } else {
                             errors.push(ParseError {
                                 code: ErrorCode::E1006,
                                 message: "expected string for 'code'".to_string(),
-                                span: self.current_span(),
+                                span: self.cursor.current_span(),
                                 context: None,
                                 help: Vec::new(),
                                 severity: DiagnosticSeverity::Hard,
@@ -472,14 +472,14 @@ impl Parser<'_> {
                         }
                     }
                     "line" => {
-                        if let TokenKind::Int(n) = *self.current_kind() {
+                        if let TokenKind::Int(n) = *self.cursor.current_kind() {
                             expected.line = u32::try_from(n).ok();
-                            self.advance();
+                            self.cursor.advance();
                         } else {
                             errors.push(ParseError {
                                 code: ErrorCode::E1006,
                                 message: "expected integer for 'line'".to_string(),
-                                span: self.current_span(),
+                                span: self.cursor.current_span(),
                                 context: None,
                                 help: Vec::new(),
                                 severity: DiagnosticSeverity::Hard,
@@ -487,14 +487,14 @@ impl Parser<'_> {
                         }
                     }
                     "column" | "col" => {
-                        if let TokenKind::Int(n) = *self.current_kind() {
+                        if let TokenKind::Int(n) = *self.cursor.current_kind() {
                             expected.column = u32::try_from(n).ok();
-                            self.advance();
+                            self.cursor.advance();
                         } else {
                             errors.push(ParseError {
                                 code: ErrorCode::E1006,
                                 message: "expected integer for 'column'".to_string(),
-                                span: self.current_span(),
+                                span: self.cursor.current_span(),
                                 context: None,
                                 help: Vec::new(),
                                 severity: DiagnosticSeverity::Hard,
@@ -505,7 +505,7 @@ impl Parser<'_> {
                         errors.push(ParseError {
                             code: ErrorCode::E1006,
                             message: format!("unknown compile_fail parameter '{param_name}'"),
-                            span: self.previous_span(),
+                            span: self.cursor.previous_span(),
                             context: None,
                             help: Vec::new(),
                             severity: DiagnosticSeverity::Hard,
@@ -514,9 +514,9 @@ impl Parser<'_> {
                 }
 
                 // Comma separator (optional before closing paren)
-                if self.check(&TokenKind::Comma) {
-                    self.advance();
-                } else if !self.check(&TokenKind::RParen) {
+                if self.cursor.check(&TokenKind::Comma) {
+                    self.cursor.advance();
+                } else if !self.cursor.check(&TokenKind::RParen) {
                     break;
                 }
             }
@@ -527,13 +527,13 @@ impl Parser<'_> {
             }
 
             // Expect )
-            if self.check(&TokenKind::RParen) {
-                self.advance();
+            if self.cursor.check(&TokenKind::RParen) {
+                self.cursor.advance();
             } else {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: "expected ')' after compile_fail parameters".to_string(),
-                    span: self.current_span(),
+                    span: self.cursor.current_span(),
                     context: None,
                     help: Vec::new(),
                     severity: DiagnosticSeverity::Hard,
@@ -543,13 +543,13 @@ impl Parser<'_> {
 
         // Expect ] only if old bracket syntax was used
         if uses_brackets {
-            if self.check(&TokenKind::RBracket) {
-                self.advance();
+            if self.cursor.check(&TokenKind::RBracket) {
+                self.cursor.advance();
             } else {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: "expected ']' to close attribute".to_string(),
-                    span: self.current_span(),
+                    span: self.cursor.current_span(),
                     context: None,
                     help: Vec::new(),
                     severity: DiagnosticSeverity::Hard,
@@ -566,11 +566,11 @@ impl Parser<'_> {
         uses_brackets: bool,
     ) {
         // Expect (
-        if !self.check(&TokenKind::LParen) {
+        if !self.cursor.check(&TokenKind::LParen) {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected '(' after 'derive'".to_string(),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -582,11 +582,11 @@ impl Parser<'_> {
             }
             return;
         }
-        self.advance(); // consume (
+        self.cursor.advance(); // consume (
 
         // Parse trait list: Trait1, Trait2, ...
-        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-            match self.expect_ident() {
+        while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
+            match self.cursor.expect_ident() {
                 Ok(name) => {
                     attrs.derive_traits.push(name);
                 }
@@ -602,21 +602,21 @@ impl Parser<'_> {
             }
 
             // Comma separator (optional before closing paren)
-            if self.check(&TokenKind::Comma) {
-                self.advance();
+            if self.cursor.check(&TokenKind::Comma) {
+                self.cursor.advance();
             } else {
                 break;
             }
         }
 
         // Expect )
-        if self.check(&TokenKind::RParen) {
-            self.advance();
+        if self.cursor.check(&TokenKind::RParen) {
+            self.cursor.advance();
         } else {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected ')' after derive trait list".to_string(),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -625,13 +625,13 @@ impl Parser<'_> {
 
         // Expect ] only if old bracket syntax was used
         if uses_brackets {
-            if self.check(&TokenKind::RBracket) {
-                self.advance();
+            if self.cursor.check(&TokenKind::RBracket) {
+                self.cursor.advance();
             } else {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: "expected ']' to close attribute".to_string(),
-                    span: self.current_span(),
+                    span: self.cursor.current_span(),
                     context: None,
                     help: Vec::new(),
                     severity: DiagnosticSeverity::Hard,
@@ -648,11 +648,11 @@ impl Parser<'_> {
         uses_brackets: bool,
     ) {
         // Expect (
-        if !self.check(&TokenKind::LParen) {
+        if !self.cursor.check(&TokenKind::LParen) {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected '(' after 'repr'".to_string(),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -664,28 +664,28 @@ impl Parser<'_> {
             }
             return;
         }
-        self.advance(); // consume (
+        self.cursor.advance(); // consume (
 
         // Parse repr value
-        if let TokenKind::String(string_name) = *self.current_kind() {
-            let repr_str = self.interner().lookup(string_name);
+        if let TokenKind::String(string_name) = *self.cursor.current_kind() {
+            let repr_str = self.cursor.interner().lookup(string_name);
             let repr = match repr_str {
                 "c" => Some(ReprAttr::C),
                 "packed" => Some(ReprAttr::Packed),
                 "transparent" => Some(ReprAttr::Transparent),
                 "aligned" => {
-                    self.advance(); // consume "aligned"
-                                    // Expect comma and alignment value
-                    if self.check(&TokenKind::Comma) {
-                        self.advance();
-                        if let TokenKind::Int(n) = *self.current_kind() {
-                            self.advance();
+                    self.cursor.advance(); // consume "aligned"
+                                           // Expect comma and alignment value
+                    if self.cursor.check(&TokenKind::Comma) {
+                        self.cursor.advance();
+                        if let TokenKind::Int(n) = *self.cursor.current_kind() {
+                            self.cursor.advance();
                             Some(ReprAttr::Aligned(n))
                         } else {
                             errors.push(ParseError {
                                 code: ErrorCode::E1006,
                                 message: "expected alignment value after 'aligned'".to_string(),
-                                span: self.current_span(),
+                                span: self.cursor.current_span(),
                                 context: None,
                                 help: Vec::new(),
                                 severity: DiagnosticSeverity::Hard,
@@ -696,7 +696,7 @@ impl Parser<'_> {
                         errors.push(ParseError {
                             code: ErrorCode::E1006,
                             message: "expected ',' after 'aligned'".to_string(),
-                            span: self.current_span(),
+                            span: self.cursor.current_span(),
                             context: None,
                             help: Vec::new(),
                             severity: DiagnosticSeverity::Hard,
@@ -708,7 +708,7 @@ impl Parser<'_> {
                     errors.push(ParseError {
                         code: ErrorCode::E1006,
                         message: format!("unknown repr value '{s}'"),
-                        span: self.previous_span(),
+                        span: self.cursor.previous_span(),
                         context: None,
                         help: Vec::new(),
                         severity: DiagnosticSeverity::Hard,
@@ -719,7 +719,7 @@ impl Parser<'_> {
 
             // For non-aligned repr, advance past the string
             if !matches!(repr, Some(ReprAttr::Aligned(_)) | None) {
-                self.advance();
+                self.cursor.advance();
             }
 
             attrs.repr = repr;
@@ -727,7 +727,7 @@ impl Parser<'_> {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected repr value string".to_string(),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -745,11 +745,11 @@ impl Parser<'_> {
         uses_brackets: bool,
     ) {
         // Expect (
-        if !self.check(&TokenKind::LParen) {
+        if !self.cursor.check(&TokenKind::LParen) {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected '(' after 'target'".to_string(),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -761,21 +761,21 @@ impl Parser<'_> {
             }
             return;
         }
-        self.advance(); // consume (
+        self.cursor.advance(); // consume (
 
         let mut target = TargetAttr::default();
 
         // Parse named arguments
-        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-            let param_name = if let TokenKind::Ident(name) = *self.current_kind() {
-                let s = self.interner().lookup(name).to_owned();
-                self.advance();
+        while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
+            let param_name = if let TokenKind::Ident(name) = *self.cursor.current_kind() {
+                let s = self.cursor.interner().lookup(name).to_owned();
+                self.cursor.advance();
                 s
             } else {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: "expected parameter name in target".to_string(),
-                    span: self.current_span(),
+                    span: self.cursor.current_span(),
                     context: None,
                     help: Vec::new(),
                     severity: DiagnosticSeverity::Hard,
@@ -789,11 +789,11 @@ impl Parser<'_> {
             };
 
             // Expect :
-            if !self.check(&TokenKind::Colon) {
+            if !self.cursor.check(&TokenKind::Colon) {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: format!("expected ':' after '{param_name}'"),
-                    span: self.current_span(),
+                    span: self.cursor.current_span(),
                     context: None,
                     help: Vec::new(),
                     severity: DiagnosticSeverity::Hard,
@@ -805,39 +805,39 @@ impl Parser<'_> {
                 }
                 return;
             }
-            self.advance();
+            self.cursor.advance();
 
             // Parse value
             match param_name.as_str() {
                 "os" => {
-                    if let TokenKind::String(s) = *self.current_kind() {
+                    if let TokenKind::String(s) = *self.cursor.current_kind() {
                         target.os = Some(s);
-                        self.advance();
+                        self.cursor.advance();
                     }
                 }
                 "arch" => {
-                    if let TokenKind::String(s) = *self.current_kind() {
+                    if let TokenKind::String(s) = *self.cursor.current_kind() {
                         target.arch = Some(s);
-                        self.advance();
+                        self.cursor.advance();
                     }
                 }
                 "family" => {
-                    if let TokenKind::String(s) = *self.current_kind() {
+                    if let TokenKind::String(s) = *self.cursor.current_kind() {
                         target.family = Some(s);
-                        self.advance();
+                        self.cursor.advance();
                     }
                 }
                 "not_os" => {
-                    if let TokenKind::String(s) = *self.current_kind() {
+                    if let TokenKind::String(s) = *self.cursor.current_kind() {
                         target.not_os = Some(s);
-                        self.advance();
+                        self.cursor.advance();
                     }
                 }
                 _ => {
                     errors.push(ParseError {
                         code: ErrorCode::E1006,
                         message: format!("unknown target parameter '{param_name}'"),
-                        span: self.previous_span(),
+                        span: self.cursor.previous_span(),
                         context: None,
                         help: Vec::new(),
                         severity: DiagnosticSeverity::Hard,
@@ -846,9 +846,9 @@ impl Parser<'_> {
             }
 
             // Comma separator
-            if self.check(&TokenKind::Comma) {
-                self.advance();
-            } else if !self.check(&TokenKind::RParen) {
+            if self.cursor.check(&TokenKind::Comma) {
+                self.cursor.advance();
+            } else if !self.cursor.check(&TokenKind::RParen) {
                 break;
             }
         }
@@ -865,11 +865,11 @@ impl Parser<'_> {
         uses_brackets: bool,
     ) {
         // Expect (
-        if !self.check(&TokenKind::LParen) {
+        if !self.cursor.check(&TokenKind::LParen) {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected '(' after 'cfg'".to_string(),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -881,37 +881,37 @@ impl Parser<'_> {
             }
             return;
         }
-        self.advance(); // consume (
+        self.cursor.advance(); // consume (
 
         let mut cfg = CfgAttr::default();
 
         // Parse arguments - can be bare identifiers or name: value
-        while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-            if let TokenKind::Ident(name) = *self.current_kind() {
-                let param_name = self.interner().lookup(name).to_owned();
-                self.advance();
+        while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
+            if let TokenKind::Ident(name) = *self.cursor.current_kind() {
+                let param_name = self.cursor.interner().lookup(name).to_owned();
+                self.cursor.advance();
 
-                if self.check(&TokenKind::Colon) {
+                if self.cursor.check(&TokenKind::Colon) {
                     // Named parameter
-                    self.advance();
+                    self.cursor.advance();
                     match param_name.as_str() {
                         "feature" => {
-                            if let TokenKind::String(s) = *self.current_kind() {
+                            if let TokenKind::String(s) = *self.cursor.current_kind() {
                                 cfg.feature = Some(s);
-                                self.advance();
+                                self.cursor.advance();
                             }
                         }
                         "not_feature" => {
-                            if let TokenKind::String(s) = *self.current_kind() {
+                            if let TokenKind::String(s) = *self.cursor.current_kind() {
                                 cfg.not_feature = Some(s);
-                                self.advance();
+                                self.cursor.advance();
                             }
                         }
                         _ => {
                             errors.push(ParseError {
                                 code: ErrorCode::E1006,
                                 message: format!("unknown cfg parameter '{param_name}'"),
-                                span: self.previous_span(),
+                                span: self.cursor.previous_span(),
                                 context: None,
                                 help: Vec::new(),
                                 severity: DiagnosticSeverity::Hard,
@@ -928,7 +928,7 @@ impl Parser<'_> {
                             errors.push(ParseError {
                                 code: ErrorCode::E1006,
                                 message: format!("unknown cfg flag '{param_name}'"),
-                                span: self.previous_span(),
+                                span: self.cursor.previous_span(),
                                 context: None,
                                 help: Vec::new(),
                                 severity: DiagnosticSeverity::Hard,
@@ -940,7 +940,7 @@ impl Parser<'_> {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: "expected cfg parameter".to_string(),
-                    span: self.current_span(),
+                    span: self.cursor.current_span(),
                     context: None,
                     help: Vec::new(),
                     severity: DiagnosticSeverity::Hard,
@@ -949,9 +949,9 @@ impl Parser<'_> {
             }
 
             // Comma separator
-            if self.check(&TokenKind::Comma) {
-                self.advance();
-            } else if !self.check(&TokenKind::RParen) {
+            if self.cursor.check(&TokenKind::Comma) {
+                self.cursor.advance();
+            } else if !self.cursor.check(&TokenKind::RParen) {
                 break;
             }
         }
@@ -963,13 +963,13 @@ impl Parser<'_> {
     /// Helper to finish parsing attribute parentheses and brackets.
     fn finish_attr_paren(&mut self, uses_brackets: bool, errors: &mut Vec<ParseError>) {
         // Expect )
-        if self.check(&TokenKind::RParen) {
-            self.advance();
+        if self.cursor.check(&TokenKind::RParen) {
+            self.cursor.advance();
         } else {
             errors.push(ParseError {
                 code: ErrorCode::E1006,
                 message: "expected ')' to close attribute".to_string(),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: DiagnosticSeverity::Hard,
@@ -978,13 +978,13 @@ impl Parser<'_> {
 
         // Expect ] only if old bracket syntax was used
         if uses_brackets {
-            if self.check(&TokenKind::RBracket) {
-                self.advance();
+            if self.cursor.check(&TokenKind::RBracket) {
+                self.cursor.advance();
             } else {
                 errors.push(ParseError {
                     code: ErrorCode::E1006,
                     message: "expected ']' to close attribute".to_string(),
-                    span: self.current_span(),
+                    span: self.cursor.current_span(),
                     context: None,
                     help: Vec::new(),
                     severity: DiagnosticSeverity::Hard,
@@ -995,24 +995,24 @@ impl Parser<'_> {
 
     /// Skip tokens until we find a `]`.
     fn skip_to_rbracket(&mut self) {
-        while !self.check(&TokenKind::RBracket) && !self.is_at_end() {
-            self.advance();
+        while !self.cursor.check(&TokenKind::RBracket) && !self.cursor.is_at_end() {
+            self.cursor.advance();
         }
-        if self.check(&TokenKind::RBracket) {
-            self.advance();
+        if self.cursor.check(&TokenKind::RBracket) {
+            self.cursor.advance();
         }
     }
 
     /// Skip tokens until we find a `)` or newline (for bracket-less attributes).
     fn skip_to_rparen_or_newline(&mut self) {
-        while !self.check(&TokenKind::RParen)
-            && !self.check(&TokenKind::Newline)
-            && !self.is_at_end()
+        while !self.cursor.check(&TokenKind::RParen)
+            && !self.cursor.check(&TokenKind::Newline)
+            && !self.cursor.is_at_end()
         {
-            self.advance();
+            self.cursor.advance();
         }
-        if self.check(&TokenKind::RParen) {
-            self.advance();
+        if self.cursor.check(&TokenKind::RParen) {
+            self.cursor.advance();
         }
     }
 }

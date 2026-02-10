@@ -4,7 +4,8 @@
 //! Short-circuit operators (`&&`, `||`, `??`) use conditional branching
 //! with phi nodes — they do NOT eagerly evaluate both operands.
 
-use ori_ir::{BinaryOp, ExprId, UnaryOp};
+use ori_ir::canon::CanId;
+use ori_ir::{BinaryOp, UnaryOp};
 use ori_types::Idx;
 
 use super::expr_lowerer::ExprLowerer;
@@ -19,9 +20,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     pub(crate) fn lower_binary(
         &mut self,
         op: BinaryOp,
-        left: ExprId,
-        right: ExprId,
-        expr_id: ExprId,
+        left: CanId,
+        right: CanId,
+        expr_id: CanId,
     ) -> Option<ValueId> {
         // Short-circuit operators must NOT evaluate right before branching.
         match op {
@@ -159,7 +160,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// merge:
     ///   %result = phi [false, entry], [%b, rhs]
     /// ```
-    fn lower_short_circuit_and(&mut self, left: ExprId, right: ExprId) -> Option<ValueId> {
+    fn lower_short_circuit_and(&mut self, left: CanId, right: CanId) -> Option<ValueId> {
         let lhs = self.lower(left)?;
 
         let rhs_bb = self.builder.append_block(self.current_function, "and.rhs");
@@ -203,7 +204,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// merge:
     ///   %result = phi [true, entry], [%b, rhs]
     /// ```
-    fn lower_short_circuit_or(&mut self, left: ExprId, right: ExprId) -> Option<ValueId> {
+    fn lower_short_circuit_or(&mut self, left: CanId, right: CanId) -> Option<ValueId> {
         let lhs = self.lower(left)?;
 
         let rhs_bb = self.builder.append_block(self.current_function, "or.rhs");
@@ -242,7 +243,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ///
     /// For `Option`: check `tag != 0` (is Some), extract payload or eval `b`.
     /// For `Result`: check `tag == 0` (is Ok), extract payload or eval `b`.
-    fn lower_coalesce(&mut self, left: ExprId, right: ExprId, expr_id: ExprId) -> Option<ValueId> {
+    fn lower_coalesce(&mut self, left: CanId, right: CanId, expr_id: CanId) -> Option<ValueId> {
         let left_type = self.expr_type(left);
         let type_info = self.type_info.get(left_type);
 
@@ -380,8 +381,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     pub(crate) fn lower_unary(
         &mut self,
         op: UnaryOp,
-        operand: ExprId,
-        _expr_id: ExprId,
+        operand: CanId,
+        _expr_id: CanId,
     ) -> Option<ValueId> {
         let val = self.lower(operand)?;
         let operand_type = self.expr_type(operand);
@@ -421,9 +422,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// Fallible (`as?`): wraps result in `Option` (Some on success).
     pub(crate) fn lower_cast(
         &mut self,
-        inner: ExprId,
+        inner: CanId,
         fallible: bool,
-        expr_id: ExprId,
+        expr_id: CanId,
     ) -> Option<ValueId> {
         let val = self.lower(inner)?;
         let source_type = self.expr_type(inner);

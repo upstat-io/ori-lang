@@ -149,6 +149,33 @@ pub fn check_named_arg_count(
     Ok(())
 }
 
+/// Bind function parameters with support for canonical default values.
+///
+/// Like `bind_parameters_with_defaults`, but evaluates default expressions via
+/// `eval_can(CanId)` instead of `eval(ExprId)`. Used when the function has
+/// canonical IR available, eliminating the last legacy `eval()` path in
+/// canonical function calls.
+pub fn bind_parameters_with_can_defaults(
+    interpreter: &mut crate::Interpreter<'_>,
+    func: &FunctionValue,
+    args: &[Value],
+) -> Result<(), ControlAction> {
+    let can_defaults = func.can_defaults();
+    for (i, param) in func.params.iter().enumerate() {
+        let value = if i < args.len() {
+            args[i].clone()
+        } else if let Some(Some(can_id)) = can_defaults.get(i) {
+            interpreter.eval_can(*can_id)?
+        } else {
+            return Err(
+                EvalError::new(format!("missing required argument for parameter {i}")).into(),
+            );
+        };
+        interpreter.env.define(*param, value, Mutability::Immutable);
+    }
+    Ok(())
+}
+
 /// Bind captured variables to an environment.
 pub fn bind_captures(env: &mut Environment, func: &FunctionValue) {
     for (name, value) in func.captures() {

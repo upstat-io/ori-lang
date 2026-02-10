@@ -34,6 +34,8 @@ use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 #[cfg(feature = "llvm")]
 use ori_diagnostic::queue::DiagnosticQueue;
 #[cfg(feature = "llvm")]
+use ori_ir::canon::CanonResult;
+#[cfg(feature = "llvm")]
 use ori_ir::StringInterner;
 #[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
@@ -60,19 +62,20 @@ pub struct ImportedFunctionInfo {
     pub return_type: Idx,
 }
 
-/// Check a source file for parse and type errors.
+/// Check a source file for parse and type errors, then canonicalize.
 ///
 /// Prints all errors to stderr and returns `None` if any errors occurred.
 /// This accumulates all errors before reporting, giving users a complete picture.
 ///
-/// Returns the Pool alongside parse/type results so callers can pass it to
-/// LLVM codegen (needed for sret convention on large struct returns).
+/// Returns the Pool and `CanonResult` alongside parse/type results so callers
+/// can pass them to LLVM codegen. The `CanonResult` contains the canonical IR
+/// that both `ori_arc` and `ori_llvm` backends will consume.
 #[cfg(feature = "llvm")]
 pub fn check_source(
     db: &CompilerDb,
     file: SourceFile,
     path: &str,
-) -> Option<(ParseOutput, TypeCheckResult, Pool)> {
+) -> Option<(ParseOutput, TypeCheckResult, Pool, CanonResult)> {
     let mut has_errors = false;
 
     // Create emitter with source context for rich snippet rendering
@@ -119,7 +122,18 @@ pub fn check_source(
         emitter.flush();
         None
     } else {
-        Some((parse_result, type_result, pool))
+        // Canonicalize: AST + types → self-contained canonical IR.
+        // This produces a CanonResult that both ori_arc and ori_llvm
+        // backends can consume, dispatching on CanExpr instead of ExprKind.
+        let interner = db.interner();
+        let canon_result = ori_canon::lower_module(
+            &parse_result.module,
+            &parse_result.arena,
+            &type_result,
+            &pool,
+            interner,
+        );
+        Some((parse_result, type_result, pool, canon_result))
     }
 }
 
@@ -166,6 +180,7 @@ fn build_function_sigs(
                         where_clauses: vec![],
                         generic_param_mapping: vec![],
                         required_params: 0,
+                        param_defaults: vec![],
                     }
                 })
         })
@@ -184,7 +199,7 @@ fn build_function_sigs(
 fn run_borrow_inference(
     parse_result: &ParseOutput,
     function_sigs: &[FunctionSig],
-    expr_types: &[Idx],
+    canon: &CanonResult,
     interner: &StringInterner,
     pool: &Pool,
 ) -> FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig> {
@@ -210,13 +225,14 @@ fn run_borrow_inference(
             .map(|(&n, &t)| (n, t))
             .collect();
 
-        let (arc_fn, lambdas) = ori_arc::lower_function(
+        // Look up the canonical root for this function.
+        let body_id = canon.root_for(func.name).unwrap_or(canon.root);
+        let (arc_fn, lambdas) = ori_arc::lower_function_can(
             func.name,
             &params,
             sig.return_type,
-            func.body,
-            &parse_result.arena,
-            expr_types,
+            body_id,
+            canon,
             interner,
             pool,
             &mut arc_problems,
@@ -249,7 +265,7 @@ fn run_borrow_inference(
 pub fn run_arc_pipeline_cached(
     parse_result: &ParseOutput,
     function_sigs: &[ori_types::FunctionSig],
-    expr_types: &[Idx],
+    canon: &CanonResult,
     interner: &ori_ir::StringInterner,
     pool: &Pool,
     arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
@@ -272,8 +288,7 @@ pub fn run_arc_pipeline_cached(
     }
 
     // Cache miss — run full pipeline
-    let annotated_sigs =
-        run_borrow_inference(parse_result, function_sigs, expr_types, interner, pool);
+    let annotated_sigs = run_borrow_inference(parse_result, function_sigs, canon, interner, pool);
 
     // Cache the result for next time
     if let (Some(cache), Some(hash)) = (arc_cache, module_hash) {
@@ -304,13 +319,13 @@ pub fn run_arc_pipeline_cached(
                 .map(|(&n, &t)| (n, t))
                 .collect();
 
-            let (arc_fn, lambdas) = ori_arc::lower_function(
+            let body_id = canon.root_for(func.name).unwrap_or(canon.root);
+            let (arc_fn, lambdas) = ori_arc::lower_function_can(
                 func.name,
                 &params,
                 sig.return_type,
-                func.body,
-                &parse_result.arena,
-                expr_types,
+                body_id,
+                canon,
                 interner,
                 pool,
                 &mut arc_problems,
@@ -350,6 +365,8 @@ pub fn run_arc_pipeline_cached(
 ///
 /// The Pool is required for proper compound type resolution during codegen
 /// (e.g., determining which return types need the sret calling convention).
+///
+/// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
 #[cfg(feature = "llvm")]
 #[allow(unsafe_code)]
 pub fn compile_to_llvm<'ctx>(
@@ -358,6 +375,7 @@ pub fn compile_to_llvm<'ctx>(
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
     pool: &'ctx Pool,
+    canon: &CanonResult,
     source_path: &str,
 ) -> ori_llvm::inkwell::module::Module<'ctx> {
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
@@ -402,13 +420,8 @@ pub fn compile_to_llvm<'ctx>(
         // 3. Run ARC borrow inference pipeline
         let function_sigs = build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-        let annotated_sigs = run_borrow_inference(
-            parse_result,
-            &function_sigs,
-            &type_result.typed.expr_types,
-            interner,
-            pool,
-        );
+        let annotated_sigs =
+            run_borrow_inference(parse_result, &function_sigs, canon, interner, pool);
 
         // 4. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(
@@ -429,18 +442,12 @@ pub fn compile_to_llvm<'ctx>(
             fc.compile_impls(
                 &parse_result.module.impls,
                 &type_result.typed.impl_sigs,
-                &parse_result.arena,
-                &type_result.typed.expr_types,
+                canon,
             );
         }
 
         // 6. Define all function bodies
-        fc.define_all(
-            &parse_result.module.functions,
-            &function_sigs,
-            &parse_result.arena,
-            &type_result.typed.expr_types,
-        );
+        fc.define_all(&parse_result.module.functions, &function_sigs, canon);
 
         // 7. Generate C main() entry point wrapper for @main (AOT only)
         // Also detect @panic handler for registration in main()
@@ -490,6 +497,7 @@ pub fn compile_to_llvm<'ctx>(
 /// When provided, unchanged modules skip ARC analysis entirely.
 ///
 /// The Pool is required for proper compound type resolution during codegen.
+/// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
 #[cfg(feature = "llvm")]
 #[allow(unsafe_code, clippy::too_many_arguments)]
 pub fn compile_to_llvm_with_imports<'ctx>(
@@ -498,6 +506,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
     pool: &'ctx Pool,
+    canon: &CanonResult,
     source_path: &str,
     module_name: &str,
     imported_functions: &[ImportedFunctionInfo],
@@ -552,6 +561,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                     where_clauses: vec![],
                     generic_param_mapping: vec![],
                     required_params: info.param_types.len(),
+                    param_defaults: vec![],
                 };
                 (name, sig)
             })
@@ -563,7 +573,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         let annotated_sigs = run_arc_pipeline_cached(
             parse_result,
             &function_sigs,
-            &type_result.typed.expr_types,
+            canon,
             interner,
             pool,
             arc_cache,
@@ -592,18 +602,12 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             fc.compile_impls(
                 &parse_result.module.impls,
                 &type_result.typed.impl_sigs,
-                &parse_result.arena,
-                &type_result.typed.expr_types,
+                canon,
             );
         }
 
         // 7. Define all function bodies
-        fc.define_all(
-            &parse_result.module.functions,
-            &function_sigs,
-            &parse_result.arena,
-            &type_result.typed.expr_types,
-        );
+        fc.define_all(&parse_result.module.functions, &function_sigs, canon);
 
         // 8. Generate C main() entry point wrapper for @main (AOT only)
         // Also detect @panic handler for registration in main()

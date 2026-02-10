@@ -469,6 +469,15 @@ impl TestRunner {
         // and interpreter.
         let resolved = crate::imports::resolve_imports(db, parse_result, file_path);
 
+        // Canonicalize the main module — produces CanonResult consumed by codegen.
+        let canon_result = ori_canon::lower_module(
+            &parse_result.module,
+            &parse_result.arena,
+            type_result,
+            pool,
+            interner,
+        );
+
         // Type-check each explicitly imported module to get expr_types + function_sigs.
         // Note: prelude functions are NOT compiled into the JIT module because:
         // 1. Most prelude content is traits (no code to compile)
@@ -478,11 +487,20 @@ impl TestRunner {
         // Prelude functions that are needed for testing (assert, assert_eq) come from
         // std.testing via explicit import, not from the prelude.
         let mut imported_type_results: Vec<TypeCheckResult> = Vec::new();
+        let mut imported_canon_results: Vec<ori_ir::canon::CanonResult> = Vec::new();
         for imp_module in &resolved.modules {
             let imp_path = std::path::PathBuf::from(&imp_module.module_path);
-            let (imp_tc, _) =
+            let (imp_tc, imp_pool) =
                 typeck::type_check_with_imports_and_pool(db, &imp_module.parse_output, &imp_path);
+            let imp_canon = ori_canon::lower_module(
+                &imp_module.parse_output.module,
+                &imp_module.parse_output.arena,
+                &imp_tc,
+                &imp_pool,
+                interner,
+            );
             imported_type_results.push(imp_tc);
+            imported_canon_results.push(imp_canon);
         }
 
         // Build per-function codegen structs for explicitly imported functions only.
@@ -539,8 +557,7 @@ impl TestRunner {
                 ImportedFunctionForCodegen {
                     function: &parse_output.module.functions[fref.func_index],
                     sig: &imported_sigs_storage[sig_idx],
-                    arena: &parse_output.arena,
-                    expr_types: &imported_type_results[fref.module_index].typed.expr_types,
+                    canon: &imported_canon_results[fref.module_index],
                 }
             })
             .collect();
@@ -582,6 +599,7 @@ impl TestRunner {
                             where_clauses: vec![],
                             generic_param_mapping: vec![],
                             required_params: 0,
+                            param_defaults: vec![],
                         }
                     })
             })
@@ -594,9 +612,8 @@ impl TestRunner {
             llvm_eval.compile_module_with_tests(
                 &parse_result.module,
                 &filtered_tests,
-                &parse_result.arena,
+                &canon_result,
                 interner,
-                &type_result.typed.expr_types,
                 &function_sigs,
                 &type_result.typed.types,
                 &type_result.typed.impl_sigs,
@@ -684,12 +701,9 @@ impl TestRunner {
         // Run the test from the compiled module (no recompilation!)
         match compiled.run_test(test.name) {
             Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
-            Err(e) => TestResult::failed(
-                test.name,
-                test.targets.clone(),
-                e.into_eval_error().message,
-                start.elapsed(),
-            ),
+            Err(e) => {
+                TestResult::failed(test.name, test.targets.clone(), e.message, start.elapsed())
+            }
         }
     }
 

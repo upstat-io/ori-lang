@@ -1,12 +1,13 @@
 //! Collection and constructor lowering.
 //!
 //! Lowers tuple, list, map, struct, Ok/Err/Some/None, field access, index,
-//! range, try (`?`), cast, spread variants, and template strings.
+//! range, try (`?`), and cast.
+//!
+//! Spread variants (`ListWithSpread`, `MapWithSpread`, `StructWithSpread`)
+//! and template strings are eliminated during canonicalization.
 
-use ori_ir::{
-    ExprId, ExprRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange, Name,
-    Span, StructLitFieldRange, TemplatePartRange,
-};
+use ori_ir::canon::{CanFieldRange, CanId, CanMapEntryRange, CanRange};
+use ori_ir::{Name, Span};
 use ori_types::{Idx, Tag};
 
 use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
@@ -16,7 +17,7 @@ use super::expr::ArcLowerer;
 impl ArcLowerer<'_> {
     // ── Tuple ──────────────────────────────────────────────────
 
-    pub(crate) fn lower_tuple(&mut self, exprs: ExprRange, ty: Idx, span: Span) -> ArcVarId {
+    pub(crate) fn lower_tuple(&mut self, exprs: CanRange, ty: Idx, span: Span) -> ArcVarId {
         let elem_ids: Vec<_> = self.arena.get_expr_list(exprs).to_vec();
         let args: Vec<_> = elem_ids.iter().map(|&id| self.lower_expr(id)).collect();
         self.builder
@@ -25,7 +26,7 @@ impl ArcLowerer<'_> {
 
     // ── List ───────────────────────────────────────────────────
 
-    pub(crate) fn lower_list(&mut self, exprs: ExprRange, ty: Idx, span: Span) -> ArcVarId {
+    pub(crate) fn lower_list(&mut self, exprs: CanRange, ty: Idx, span: Span) -> ArcVarId {
         let elem_ids: Vec<_> = self.arena.get_expr_list(exprs).to_vec();
         let args: Vec<_> = elem_ids.iter().map(|&id| self.lower_expr(id)).collect();
         self.builder
@@ -34,7 +35,7 @@ impl ArcLowerer<'_> {
 
     // ── Map ────────────────────────────────────────────────────
 
-    pub(crate) fn lower_map(&mut self, entries: MapEntryRange, ty: Idx, span: Span) -> ArcVarId {
+    pub(crate) fn lower_map(&mut self, entries: CanMapEntryRange, ty: Idx, span: Span) -> ArcVarId {
         let entry_slice: Vec<_> = self.arena.get_map_entries(entries).to_vec();
         let mut args = Vec::with_capacity(entry_slice.len() * 2);
         for entry in &entry_slice {
@@ -50,21 +51,14 @@ impl ArcLowerer<'_> {
     pub(crate) fn lower_struct(
         &mut self,
         name: Name,
-        fields: FieldInitRange,
+        fields: CanFieldRange,
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
-        let field_inits: Vec<_> = self.arena.get_field_inits(fields).to_vec();
-        let args: Vec<_> = field_inits
+        let field_slice: Vec<_> = self.arena.get_fields(fields).to_vec();
+        let args: Vec<_> = field_slice
             .iter()
-            .map(|init| {
-                if let Some(value_id) = init.value {
-                    self.lower_expr(value_id)
-                } else {
-                    // Shorthand: `Point { x }` — look up `x` in scope.
-                    self.lower_ident_by_name(init.name, ty, span)
-                }
-            })
+            .map(|field| self.lower_expr(field.value))
             .collect();
         self.builder
             .emit_construct(ty, CtorKind::Struct(name), args, Some(span))
@@ -72,7 +66,7 @@ impl ArcLowerer<'_> {
 
     // ── Ok / Err / Some / None ─────────────────────────────────
 
-    pub(crate) fn lower_ok(&mut self, inner: ExprId, ty: Idx, span: Span) -> ArcVarId {
+    pub(crate) fn lower_ok(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
         let arg = if inner.is_valid() {
             self.lower_expr(inner)
         } else {
@@ -90,7 +84,7 @@ impl ArcLowerer<'_> {
         )
     }
 
-    pub(crate) fn lower_err(&mut self, inner: ExprId, ty: Idx, span: Span) -> ArcVarId {
+    pub(crate) fn lower_err(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
         let arg = if inner.is_valid() {
             self.lower_expr(inner)
         } else {
@@ -108,7 +102,7 @@ impl ArcLowerer<'_> {
         )
     }
 
-    pub(crate) fn lower_some(&mut self, inner: ExprId, ty: Idx, span: Span) -> ArcVarId {
+    pub(crate) fn lower_some(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
         let arg = self.lower_expr(inner);
         let option_name = self.interner.intern("Option");
         self.builder.emit_construct(
@@ -139,7 +133,7 @@ impl ArcLowerer<'_> {
 
     pub(crate) fn lower_field(
         &mut self,
-        receiver: ExprId,
+        receiver: CanId,
         field: Name,
         ty: Idx,
         span: Span,
@@ -152,8 +146,8 @@ impl ArcLowerer<'_> {
 
     pub(crate) fn lower_index(
         &mut self,
-        receiver: ExprId,
-        index: ExprId,
+        receiver: CanId,
+        index: CanId,
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
@@ -168,9 +162,9 @@ impl ArcLowerer<'_> {
 
     pub(crate) fn lower_range(
         &mut self,
-        start: ExprId,
-        end: ExprId,
-        step: ExprId,
+        start: CanId,
+        end: CanId,
+        step: CanId,
         _inclusive: bool,
         ty: Idx,
         span: Span,
@@ -201,14 +195,12 @@ impl ArcLowerer<'_> {
     // ── Try (?) ────────────────────────────────────────────────
 
     /// Lower `expr?` — desugar to match on Ok/Err variant tag.
-    pub(crate) fn lower_try(&mut self, inner: ExprId, ty: Idx, span: Span) -> ArcVarId {
+    pub(crate) fn lower_try(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
         let scrut = self.lower_expr(inner);
         let inner_ty = self.expr_type(inner);
 
-        // Project tag field (field 0 = discriminant for result type).
         let tag_var = self.builder.emit_project(Idx::INT, scrut, 0, Some(span));
 
-        // ok_val = tag == 0 (Ok variant).
         let zero = self
             .builder
             .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), None);
@@ -227,12 +219,10 @@ impl ArcLowerer<'_> {
 
         self.builder.terminate_branch(is_ok, ok_block, err_block);
 
-        // Ok path: extract payload and jump to merge.
         self.builder.position_at(ok_block);
         let ok_payload = self.builder.emit_project(ty, scrut, 1, Some(span));
         self.builder.terminate_jump(merge_block, vec![ok_payload]);
 
-        // Err path: extract error, wrap in Err, and return early.
         self.builder.position_at(err_block);
         let err_payload = self.builder.emit_project(Idx::ERROR, scrut, 1, Some(span));
         let result_name = self.interner.intern("Result");
@@ -247,7 +237,6 @@ impl ArcLowerer<'_> {
         );
         self.builder.terminate_return(wrapped_err);
 
-        // Continue in merge block.
         self.builder.position_at(merge_block);
         self.builder.add_block_param(merge_block, ty)
     }
@@ -256,7 +245,7 @@ impl ArcLowerer<'_> {
 
     pub(crate) fn lower_cast(
         &mut self,
-        expr: ExprId,
+        expr: CanId,
         _fallible: bool,
         ty: Idx,
         span: Span,
@@ -266,123 +255,7 @@ impl ArcLowerer<'_> {
         self.builder.emit_apply(ty, cast_fn, vec![val], Some(span))
     }
 
-    // ── Spread variants ────────────────────────────────────────
-
-    pub(crate) fn lower_list_with_spread(
-        &mut self,
-        elements: ListElementRange,
-        ty: Idx,
-        span: Span,
-    ) -> ArcVarId {
-        let elem_slice: Vec<_> = self.arena.get_list_elements(elements).to_vec();
-        let mut args = Vec::new();
-        for elem in &elem_slice {
-            match elem {
-                ori_ir::ListElement::Expr { expr, .. }
-                | ori_ir::ListElement::Spread { expr, .. } => {
-                    args.push(self.lower_expr(*expr));
-                }
-            }
-        }
-        let spread_fn = self.interner.intern("__list_spread");
-        self.builder.emit_apply(ty, spread_fn, args, Some(span))
-    }
-
-    pub(crate) fn lower_map_with_spread(
-        &mut self,
-        elements: MapElementRange,
-        ty: Idx,
-        span: Span,
-    ) -> ArcVarId {
-        let elem_slice: Vec<_> = self.arena.get_map_elements(elements).to_vec();
-        let mut args = Vec::new();
-        for elem in &elem_slice {
-            match elem {
-                ori_ir::MapElement::Entry(entry) => {
-                    args.push(self.lower_expr(entry.key));
-                    args.push(self.lower_expr(entry.value));
-                }
-                ori_ir::MapElement::Spread { expr, .. } => {
-                    args.push(self.lower_expr(*expr));
-                }
-            }
-        }
-        let spread_fn = self.interner.intern("__map_spread");
-        self.builder.emit_apply(ty, spread_fn, args, Some(span))
-    }
-
-    pub(crate) fn lower_struct_with_spread(
-        &mut self,
-        _name: Name,
-        fields: StructLitFieldRange,
-        ty: Idx,
-        span: Span,
-    ) -> ArcVarId {
-        let field_slice: Vec<_> = self.arena.get_struct_lit_fields(fields).to_vec();
-        let mut args = Vec::new();
-        for field in &field_slice {
-            match field {
-                ori_ir::StructLitField::Field(init) => {
-                    if let Some(value_id) = init.value {
-                        args.push(self.lower_expr(value_id));
-                    } else {
-                        args.push(self.lower_ident_by_name(init.name, ty, span));
-                    }
-                }
-                ori_ir::StructLitField::Spread { expr, .. } => {
-                    args.push(self.lower_expr(*expr));
-                }
-            }
-        }
-        let spread_fn = self.interner.intern("__struct_spread");
-        self.builder.emit_apply(ty, spread_fn, args, Some(span))
-    }
-
-    // ── Template strings ───────────────────────────────────────
-
-    pub(crate) fn lower_template_full(&mut self, name: Name, ty: Idx, span: Span) -> ArcVarId {
-        self.builder
-            .emit_let(ty, ArcValue::Literal(LitValue::String(name)), Some(span))
-    }
-
-    pub(crate) fn lower_template_literal(
-        &mut self,
-        head: Name,
-        parts: TemplatePartRange,
-        ty: Idx,
-        span: Span,
-    ) -> ArcVarId {
-        let part_slice: Vec<_> = self.arena.get_template_parts(parts).to_vec();
-        let mut args = Vec::new();
-        args.push(
-            self.builder
-                .emit_let(Idx::STR, ArcValue::Literal(LitValue::String(head)), None),
-        );
-        for part in &part_slice {
-            args.push(self.lower_expr(part.expr));
-            if part.text_after != Name::EMPTY {
-                args.push(self.builder.emit_let(
-                    Idx::STR,
-                    ArcValue::Literal(LitValue::String(part.text_after)),
-                    None,
-                ));
-            }
-        }
-        let format_fn = self.interner.intern("__format");
-        self.builder.emit_apply(ty, format_fn, args, Some(span))
-    }
-
     // ── Helpers ────────────────────────────────────────────────
-
-    /// Helper for struct shorthand — look up a name in scope and emit a Var ref.
-    pub(crate) fn lower_ident_by_name(&mut self, name: Name, ty: Idx, span: Span) -> ArcVarId {
-        if let Some(var) = self.scope.lookup(name) {
-            self.builder.emit_let(ty, ArcValue::Var(var), Some(span))
-        } else {
-            self.builder
-                .emit_let(ty, ArcValue::Literal(LitValue::Unit), Some(span))
-        }
-    }
 
     /// Resolve a field name to its index in the struct type.
     // Field indices never exceed u32.
@@ -390,7 +263,6 @@ impl ArcLowerer<'_> {
     fn resolve_field_index(&self, recv_ty: Idx, field: Name) -> u32 {
         let tag = self.pool.tag(recv_ty);
 
-        // For resolved struct types, look up the field index.
         if tag == Tag::Struct {
             let count = self.pool.struct_field_count(recv_ty);
             for i in 0..count {
@@ -401,7 +273,6 @@ impl ArcLowerer<'_> {
             }
         }
 
-        // Try resolving named types.
         if let Some(resolved) = self.pool.resolve(recv_ty) {
             if self.pool.tag(resolved) == Tag::Struct {
                 let count = self.pool.struct_field_count(resolved);
@@ -414,7 +285,6 @@ impl ArcLowerer<'_> {
             }
         }
 
-        // For tuples, the field name is a numeric index like "0", "1", etc.
         if tag == Tag::Tuple {
             let field_str = self.interner.lookup(field);
             if let Ok(idx) = field_str.parse::<u32>() {
@@ -435,8 +305,8 @@ impl ArcLowerer<'_> {
 
 #[cfg(test)]
 mod tests {
-    use ori_ir::ast::{Expr, ExprKind};
-    use ori_ir::{ExprArena, Name, Span, StringInterner};
+    use ori_ir::canon::{CanArena, CanExpr, CanNode, CanonResult};
+    use ori_ir::{Name, Span, StringInterner, TypeId};
     use ori_types::{Idx, Pool};
 
     use crate::ir::{ArcInstr, CtorKind};
@@ -445,26 +315,41 @@ mod tests {
     fn lower_tuple() {
         let interner = StringInterner::new();
         let pool = Pool::new();
-        let mut arena = ExprArena::new();
+        let mut arena = CanArena::with_capacity(200);
 
-        let a = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(1, 2)));
-        let b = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::new(4, 5)));
-        let exprs = arena.alloc_expr_list_inline(&[a, b]);
-        let tup = arena.alloc_expr(Expr::new(ExprKind::Tuple(exprs), Span::new(0, 6)));
+        let a = arena.push(CanNode::new(
+            CanExpr::Int(1),
+            Span::new(1, 2),
+            TypeId::from_raw(Idx::INT.raw()),
+        ));
+        let b = arena.push(CanNode::new(
+            CanExpr::Int(2),
+            Span::new(4, 5),
+            TypeId::from_raw(Idx::INT.raw()),
+        ));
+        let exprs = arena.push_expr_list(&[a, b]);
+        let tup = arena.push(CanNode::new(
+            CanExpr::Tuple(exprs),
+            Span::new(0, 6),
+            TypeId::from_raw(Idx::UNIT.raw()),
+        ));
 
-        let mut expr_types = vec![Idx::ERROR; tup.index() + 1];
-        expr_types[a.index()] = Idx::INT;
-        expr_types[b.index()] = Idx::INT;
-        expr_types[tup.index()] = Idx::UNIT;
+        let canon = CanonResult {
+            arena,
+            constants: ori_ir::canon::ConstantPool::new(),
+            decision_trees: ori_ir::canon::DecisionTreePool::default(),
+            root: tup,
+            roots: vec![],
+            method_roots: vec![],
+        };
 
         let mut problems = Vec::new();
-        let (func, _) = super::super::super::lower_function(
+        let (func, _) = super::super::super::lower_function_can(
             Name::from_raw(1),
             &[],
             Idx::UNIT,
             tup,
-            &arena,
-            &expr_types,
+            &canon,
             &interner,
             &pool,
             &mut problems,
@@ -485,20 +370,30 @@ mod tests {
     fn lower_none() {
         let interner = StringInterner::new();
         let pool = Pool::new();
-        let mut arena = ExprArena::new();
+        let mut arena = CanArena::with_capacity(200);
 
-        let none_id = arena.alloc_expr(Expr::new(ExprKind::None, Span::new(0, 4)));
-        let mut expr_types = vec![Idx::ERROR; none_id.index() + 1];
-        expr_types[none_id.index()] = Idx::UNIT;
+        let none_id = arena.push(CanNode::new(
+            CanExpr::None,
+            Span::new(0, 4),
+            TypeId::from_raw(Idx::UNIT.raw()),
+        ));
+
+        let canon = CanonResult {
+            arena,
+            constants: ori_ir::canon::ConstantPool::new(),
+            decision_trees: ori_ir::canon::DecisionTreePool::default(),
+            root: none_id,
+            roots: vec![],
+            method_roots: vec![],
+        };
 
         let mut problems = Vec::new();
-        let (func, _) = super::super::super::lower_function(
+        let (func, _) = super::super::super::lower_function_can(
             Name::from_raw(1),
             &[],
             Idx::UNIT,
             none_id,
-            &arena,
-            &expr_types,
+            &canon,
             &interner,
             &pool,
             &mut problems,

@@ -129,7 +129,7 @@ impl Parser<'_> {
     /// current token is not a binary operator.
     #[inline]
     pub(crate) fn infix_binding_power(&self) -> Option<(u8, u8, BinaryOp, usize)> {
-        let tag = self.current_tag();
+        let tag = self.cursor.current_tag();
 
         // Fast path: tags >= 128 are never operators (we only have 116 token kinds)
         if tag >= 128 {
@@ -143,10 +143,10 @@ impl Parser<'_> {
 
         // Special case: Gt may be compound >= or >>
         if tag == TokenKind::TAG_GT {
-            if self.is_greater_equal() {
+            if self.cursor.is_greater_equal() {
                 return Some((bp::COMPARISON.0, bp::COMPARISON.1, BinaryOp::GtEq, 2));
             }
-            if self.is_shift_right() {
+            if self.cursor.is_shift_right() {
                 return Some((bp::SHIFT.0, bp::SHIFT.1, BinaryOp::Shr, 2));
             }
         }
@@ -161,7 +161,7 @@ impl Parser<'_> {
 
     #[inline]
     pub(crate) fn match_unary_op(&self) -> Option<UnaryOp> {
-        match self.current_tag() {
+        match self.cursor.current_tag() {
             TokenKind::TAG_MINUS => Some(UnaryOp::Neg),
             TokenKind::TAG_BANG => Some(UnaryOp::Not),
             TokenKind::TAG_TILDE => Some(UnaryOp::BitNot),
@@ -171,14 +171,14 @@ impl Parser<'_> {
 
     /// Match `function_exp` keywords.
     pub(crate) fn match_function_exp_kind(&self) -> Option<FunctionExpKind> {
-        let tag = self.current_tag();
+        let tag = self.cursor.current_tag();
 
         // `with` has special capability provision syntax: with Ident = ...
         if tag == TokenKind::TAG_WITH {
-            if self.is_with_capability_syntax() {
+            if self.cursor.is_with_capability_syntax() {
                 return None;
             }
-            if self.next_is_lparen() {
+            if self.cursor.next_is_lparen() {
                 return Some(FunctionExpKind::With);
             }
             return None;
@@ -186,7 +186,7 @@ impl Parser<'_> {
 
         // All pattern/function keywords are context-sensitive:
         // only treated as keywords when followed by `(`
-        if !self.next_is_lparen() {
+        if !self.cursor.next_is_lparen() {
             return None;
         }
 

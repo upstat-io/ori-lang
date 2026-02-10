@@ -22,12 +22,13 @@ use rustc_hash::FxHashMap;
 use tracing::{debug, instrument};
 
 use ori_ir::ast::{Function, Module, TestDef};
-use ori_ir::{ExprArena, Name, StringInterner};
-use ori_types::{FunctionSig, Idx, Pool, TypeEntry};
+use ori_ir::canon::CanonResult;
+use ori_ir::{Name, StringInterner};
+use ori_types::{FunctionSig, Pool, TypeEntry};
 
 /// A single imported function ready for LLVM compilation.
 ///
-/// Pairs a function AST with its type-checked signature and the arena/`expr_types`
+/// Pairs a function AST with its type-checked signature and the canonical IR
 /// from its source module. Created by the caller after resolving, filtering,
 /// and type-checking imported modules.
 pub struct ImportedFunctionForCodegen<'a> {
@@ -35,10 +36,8 @@ pub struct ImportedFunctionForCodegen<'a> {
     pub function: &'a Function,
     /// Type-checked signature for this function.
     pub sig: &'a FunctionSig,
-    /// Expression arena for this function's AST nodes.
-    pub arena: &'a ExprArena,
-    /// Expression types from the imported module (indexed by `ExprId`).
-    pub expr_types: &'a [Idx],
+    /// Canonical IR for this function's source module.
+    pub canon: &'a CanonResult,
 }
 
 use crate::codegen::function_compiler::FunctionCompiler;
@@ -211,9 +210,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
     ///
     /// - `module`: The parsed module containing functions and type declarations
     /// - `tests`: The tests to compile wrappers for
-    /// - `arena`: Expression arena for looking up AST nodes
+    /// - `canon`: Canonical IR for this module
     /// - `interner`: String interner for name resolution
-    /// - `expr_types`: Type of each expression (indexed by `ExprId`)
     /// - `function_sigs`: Function signatures from type checker (aligned with module.functions)
     /// - `user_types`: User-defined type entries from type checker
     /// - `impl_sigs`: Impl method signatures as (`Name`, `FunctionSig`) pairs
@@ -228,9 +226,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         &'a self,
         module: &Module,
         tests: &[&TestDef],
-        arena: &ExprArena,
+        canon: &CanonResult,
         interner: &StringInterner,
-        expr_types: &[Idx],
         function_sigs: &[FunctionSig],
         user_types: &[TypeEntry],
         impl_sigs: &[(Name, FunctionSig)],
@@ -309,12 +306,12 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             // 7. Compile impl methods (declare + define)
             if !module.impls.is_empty() {
                 debug!("compiling impl methods");
-                fc.compile_impls(&module.impls, impl_sigs, arena, expr_types);
+                fc.compile_impls(&module.impls, impl_sigs, canon);
             }
 
             // 8. Define all function bodies (phase 2)
             debug!("defining function bodies (phase 2)");
-            fc.define_all(&module.functions, function_sigs, arena, expr_types);
+            fc.define_all(&module.functions, function_sigs, canon);
 
             // 8b. Define imported function bodies (phase 2)
             // Bodies are compiled into the same LLVM module so the JIT engine
@@ -325,15 +322,14 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                     fc.define_all(
                         std::slice::from_ref(imp_fn.function),
                         std::slice::from_ref(imp_fn.sig),
-                        imp_fn.arena,
-                        imp_fn.expr_types,
+                        imp_fn.canon,
                     );
                 }
             }
 
             // 9. Compile test wrappers
             debug!("compiling test wrappers");
-            let wrappers = fc.compile_tests(tests, arena, expr_types);
+            let wrappers = fc.compile_tests(tests, canon);
 
             // Drop fc to release &mut builder borrow
             drop(fc);
@@ -472,6 +468,10 @@ fn add_runtime_mappings_to_engine(
             "ori_register_panic_handler",
             runtime::ori_register_panic_handler as *const () as usize,
         ),
+        // Exception handling personality function — required by any function
+        // containing `invoke`/`landingpad`. Not in the dynamic symbol table,
+        // so MCJIT's dlsym-based resolution can't find it automatically.
+        ("rust_eh_personality", rust_eh_personality_addr()),
     ];
 
     for &(name, addr) in mappings {
@@ -483,4 +483,17 @@ fn add_runtime_mappings_to_engine(
     }
 
     Ok(())
+}
+
+/// Get the address of `rust_eh_personality` for JIT symbol mapping.
+///
+/// This function is defined in the Rust standard library and handles
+/// DWARF-based exception handling (Itanium ABI). It's present in the
+/// host binary but not exported in the dynamic symbol table, so the
+/// LLVM MCJIT can't resolve it via `dlsym`. We provide it explicitly.
+fn rust_eh_personality_addr() -> usize {
+    extern "C" {
+        fn rust_eh_personality();
+    }
+    rust_eh_personality as *const () as usize
 }

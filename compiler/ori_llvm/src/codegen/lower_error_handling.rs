@@ -14,7 +14,7 @@
 //!   is the larger of the two types. Values smaller than the payload slot are
 //!   stored via alloca+store+load reinterpretation.
 
-use ori_ir::ExprId;
+use ori_ir::canon::CanId;
 use ori_types::Idx;
 
 use super::expr_lowerer::ExprLowerer;
@@ -30,7 +30,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ///
     /// With `TypeLayoutResolver`, the Option struct is `{i8, resolve(T)}`.
     /// The inner value's type matches the payload slot exactly — no coercion needed.
-    pub(crate) fn lower_some(&mut self, inner: ExprId, expr_id: ExprId) -> Option<ValueId> {
+    pub(crate) fn lower_some(&mut self, inner: CanId, expr_id: CanId) -> Option<ValueId> {
         let result_type = self.expr_type(expr_id);
         let opt_ty = self.resolve_type(result_type);
         let tag = self.builder.const_i8(1); // Some = 1
@@ -46,7 +46,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Lower `ExprKind::None` → `{i8 tag=0, <zero> payload}`.
-    pub(crate) fn lower_none(&mut self, expr_id: ExprId) -> Option<ValueId> {
+    pub(crate) fn lower_none(&mut self, expr_id: CanId) -> Option<ValueId> {
         let result_type = self.expr_type(expr_id);
         let opt_ty = self.resolve_type(result_type);
         let tag = self.builder.const_i8(0); // None = 0
@@ -66,7 +66,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ///
     /// The Result struct is `{i8, max(resolve(ok), resolve(err))}`. If the ok
     /// value's type differs from the payload type, we reinterpret via alloca.
-    pub(crate) fn lower_ok(&mut self, inner: ExprId, expr_id: ExprId) -> Option<ValueId> {
+    pub(crate) fn lower_ok(&mut self, inner: CanId, expr_id: CanId) -> Option<ValueId> {
         let result_type = self.expr_type(expr_id);
         let res_ty = self.resolve_type(result_type);
         let tag = self.builder.const_i8(0); // Ok = 0
@@ -82,7 +82,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Lower `ExprKind::Err(inner)` → `{i8 tag=1, <payload_type> payload}`.
-    pub(crate) fn lower_err(&mut self, inner: ExprId, expr_id: ExprId) -> Option<ValueId> {
+    pub(crate) fn lower_err(&mut self, inner: CanId, expr_id: CanId) -> Option<ValueId> {
         let result_type = self.expr_type(expr_id);
         let res_ty = self.resolve_type(result_type);
         let tag = self.builder.const_i8(1); // Err = 1
@@ -128,7 +128,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// propagate:
     ///   ; return Err(err_payload) from the enclosing function
     /// ```
-    pub(crate) fn lower_try(&mut self, inner: ExprId, expr_id: ExprId) -> Option<ValueId> {
+    pub(crate) fn lower_try(&mut self, inner: CanId, expr_id: CanId) -> Option<ValueId> {
         let inner_val = self.lower(inner)?;
         let inner_type = self.expr_type(inner);
         let type_info = self.type_info.get(inner_type);

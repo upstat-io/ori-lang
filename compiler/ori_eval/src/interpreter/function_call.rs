@@ -2,8 +2,8 @@
 
 use super::Interpreter;
 use crate::exec::call::{
-    bind_captures, bind_parameters_with_defaults, check_arg_count, check_named_arg_count,
-    eval_function_val_call, extract_named_args,
+    bind_captures, bind_parameters_with_can_defaults, bind_parameters_with_defaults,
+    check_arg_count, check_named_arg_count, eval_function_val_call, extract_named_args,
 };
 use crate::{not_callable, EvalResult, Mutability, Value};
 use ori_ir::CallArgRange;
@@ -38,11 +38,23 @@ impl Interpreter<'_> {
                     // Runtime errors will occur if the function tries to use the capability.
                 }
 
-                // Bind parameters, evaluating defaults for missing arguments
+                // Bind parameters, evaluating defaults for missing arguments.
+                // Canon must be set before binding when using canonical defaults
+                // so that `eval_can()` can resolve default expressions.
                 let func_arena = f.arena();
                 let mut call_interpreter =
                     self.create_function_interpreter(func_arena, call_env, self.self_name);
-                bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
+
+                if f.has_canon() {
+                    call_interpreter.canon = f.canon().cloned();
+                    if f.has_can_defaults() {
+                        bind_parameters_with_can_defaults(&mut call_interpreter, f, args)?;
+                    } else {
+                        bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
+                    }
+                } else {
+                    bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
+                }
 
                 // Bind 'self' to the current function for recursive patterns
                 // Uses pre-computed self_name to avoid repeated interning
@@ -53,7 +65,6 @@ impl Interpreter<'_> {
                 // Evaluate body: use canonical path when available, legacy otherwise.
                 // The scope is popped automatically via RAII when call_interpreter drops.
                 if f.has_canon() {
-                    call_interpreter.canon = f.canon().cloned();
                     call_interpreter.eval_can(f.can_body)
                 } else {
                     call_interpreter.eval(f.body)
@@ -86,11 +97,22 @@ impl Interpreter<'_> {
                     }
                 }
 
-                // Bind parameters, evaluating defaults for missing arguments
+                // Bind parameters, evaluating defaults for missing arguments.
+                // Canon must be set before binding when using canonical defaults.
                 let func_arena = f.arena();
                 let mut call_interpreter =
                     self.create_function_interpreter(func_arena, call_env, self.self_name);
-                bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
+
+                if f.has_canon() {
+                    call_interpreter.canon = f.canon().cloned();
+                    if f.has_can_defaults() {
+                        bind_parameters_with_can_defaults(&mut call_interpreter, f, args)?;
+                    } else {
+                        bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
+                    }
+                } else {
+                    bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
+                }
 
                 // Bind 'self' to the MEMOIZED function so recursive calls also use the cache
                 // Uses pre-computed self_name to avoid repeated interning
@@ -101,7 +123,6 @@ impl Interpreter<'_> {
                 // Evaluate body: canonical path when available, legacy otherwise.
                 // The scope is popped automatically via RAII when call_interpreter drops.
                 let result = if f.has_canon() {
-                    call_interpreter.canon = f.canon().cloned();
                     call_interpreter.eval_can(f.can_body)
                 } else {
                     call_interpreter.eval(f.body)

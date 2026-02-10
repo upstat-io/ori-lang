@@ -3,10 +3,8 @@
 //! Handles construction and access for tuples, structs, ranges, lists,
 //! maps, sets, and their field/index operations.
 
-use ori_ir::{
-    ExprId, ExprRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange, Name,
-    StructLitFieldRange,
-};
+use ori_ir::canon::{CanFieldRange, CanId, CanMapEntryRange, CanRange};
+use ori_ir::Name;
 use ori_types::Idx;
 
 use super::expr_lowerer::ExprLowerer;
@@ -18,11 +16,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // Tuple
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Tuple(range)` — `(a, b, c)`.
+    /// Lower `CanExpr::Tuple(range)` — `(a, b, c)`.
     ///
     /// Compiles each element and builds an LLVM struct.
-    pub(crate) fn lower_tuple(&mut self, range: ExprRange, expr_id: ExprId) -> Option<ValueId> {
-        let expr_ids = self.arena.get_expr_list(range);
+    pub(crate) fn lower_tuple(&mut self, range: CanRange, expr_id: CanId) -> Option<ValueId> {
+        let expr_ids = self.canon.arena.get_expr_list(range);
         let mut values = Vec::with_capacity(expr_ids.len());
 
         for &eid in expr_ids {
@@ -39,20 +37,20 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // Struct literal
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Struct { name, fields }` — `Point { x: 1, y: 2 }`.
+    /// Lower `CanExpr::Struct { name, fields }` — `Point { x: 1, y: 2 }`.
     ///
     /// Resolves field order from the `TypeInfo` and builds the struct
     /// with fields in declaration order (not source order).
     pub(crate) fn lower_struct(
         &mut self,
         _name: Name,
-        fields: FieldInitRange,
-        expr_id: ExprId,
+        fields: CanFieldRange,
+        expr_id: CanId,
     ) -> Option<ValueId> {
         let result_type = self.expr_type(expr_id);
         let type_info = self.type_info.get(result_type);
 
-        let field_inits = self.arena.get_field_inits(fields);
+        let field_inits = self.canon.arena.get_fields(fields);
 
         // Get declared field order from TypeInfo
         let declared_fields: Vec<(Name, Idx)> = if let TypeInfo::Struct { fields } = &type_info {
@@ -61,14 +59,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             // Fall back to source order
             let mut values = Vec::with_capacity(field_inits.len());
             for fi in field_inits {
-                if let Some(val_id) = fi.value {
-                    let val = self.lower(val_id)?;
-                    values.push(val);
-                } else {
-                    // Shorthand: `{ x }` uses the binding `x`
-                    let val = self.lower_ident(fi.name, ori_ir::ExprId::INVALID)?;
-                    values.push(val);
-                }
+                let val = self.lower(fi.value)?;
+                values.push(val);
             }
             let struct_ty = self.resolve_type(result_type);
             return Some(self.builder.build_struct(struct_ty, &values, "struct"));
@@ -82,12 +74,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 .iter()
                 .position(|(name, _)| *name == fi.name);
 
-            let val = if let Some(val_id) = fi.value {
-                self.lower(val_id)?
-            } else {
-                // Shorthand: `{ x }` uses the binding `x`
-                self.lower_ident(fi.name, ori_ir::ExprId::INVALID)?
-            };
+            let val = self.lower(fi.value)?;
 
             if let Some(idx) = field_idx {
                 values[idx] = Some(val);
@@ -104,33 +91,19 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         Some(self.builder.build_struct(struct_ty, &filled, "struct"))
     }
 
-    /// Lower `ExprKind::StructWithSpread { name, fields }`.
-    ///
-    /// Struct with spread syntax: `Point { ...base, x: 10 }`.
-    #[allow(clippy::unused_self)] // Will use self when spread is implemented
-    pub(crate) fn lower_struct_with_spread(
-        &mut self,
-        _name: Name,
-        _fields: StructLitFieldRange,
-        _expr_id: ExprId,
-    ) -> Option<ValueId> {
-        tracing::warn!("struct spread syntax not yet implemented in V2 codegen");
-        None
-    }
-
     // -----------------------------------------------------------------------
     // Range
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Range { start, end, step, inclusive }`.
+    /// Lower `CanExpr::Range { start, end, step, inclusive }`.
     ///
     /// Produces `{i64 start, i64 end, i1 inclusive}`. Step is not stored
     /// in the struct (for-loops default to step=1).
     pub(crate) fn lower_range(
         &mut self,
-        start: ExprId,
-        end: ExprId,
-        _step: ExprId,
+        start: CanId,
+        end: CanId,
+        _step: CanId,
         inclusive: bool,
     ) -> Option<ValueId> {
         let start_val = self.lower(start)?;
@@ -162,11 +135,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // Field access
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Field { receiver, field }` — `expr.field`.
+    /// Lower `CanExpr::Field { receiver, field }` — `expr.field`.
     ///
     /// For structs: compute field index from `TypeInfo`, emit `extractvalue`.
     /// For tuples: field name is the numeric index (e.g., `.0`, `.1`).
-    pub(crate) fn lower_field(&mut self, receiver: ExprId, field: Name) -> Option<ValueId> {
+    pub(crate) fn lower_field(&mut self, receiver: CanId, field: Name) -> Option<ValueId> {
         let recv_val = self.lower(receiver)?;
         let recv_type = self.expr_type(receiver);
         let type_info = self.type_info.get(recv_type);
@@ -243,11 +216,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // Index access
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Index { receiver, index }` — `expr[index]`.
+    /// Lower `CanExpr::Index { receiver, index }` — `expr[index]`.
     ///
     /// For lists: bounds-check + element pointer access.
     /// For tuples: static index extraction.
-    pub(crate) fn lower_index(&mut self, receiver: ExprId, index: ExprId) -> Option<ValueId> {
+    pub(crate) fn lower_index(&mut self, receiver: CanId, index: CanId) -> Option<ValueId> {
         let recv_val = self.lower(receiver)?;
         let idx_val = self.lower(index)?;
         let recv_type = self.expr_type(receiver);
@@ -352,11 +325,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // List literal
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::List(range)` — `[a, b, c]`.
+    /// Lower `CanExpr::List(range)` — `[a, b, c]`.
     ///
     /// Allocates a list via `ori_list_new`, then stores each element.
-    pub(crate) fn lower_list(&mut self, range: ExprRange, expr_id: ExprId) -> Option<ValueId> {
-        let expr_ids = self.arena.get_expr_list(range);
+    pub(crate) fn lower_list(&mut self, range: CanRange, expr_id: CanId) -> Option<ValueId> {
+        let expr_ids = self.canon.arena.get_expr_list(range);
         let count = expr_ids.len();
 
         let result_type = self.expr_type(expr_id);
@@ -403,25 +376,19 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         )
     }
 
-    /// Lower `ExprKind::ListWithSpread(elements)`.
-    #[allow(clippy::unused_self)] // Will use self when spread is implemented
-    pub(crate) fn lower_list_with_spread(
-        &mut self,
-        _elements: ListElementRange,
-    ) -> Option<ValueId> {
-        tracing::warn!("list spread syntax not yet implemented in V2 codegen");
-        None
-    }
-
     // -----------------------------------------------------------------------
     // Map literal
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Map(entries)` — `{k: v, ...}`.
+    /// Lower `CanExpr::Map(entries)` — `{k: v, ...}`.
     ///
     /// Allocates key and value arrays, stores entries, builds map struct.
-    pub(crate) fn lower_map(&mut self, entries: MapEntryRange, expr_id: ExprId) -> Option<ValueId> {
-        let map_entries = self.arena.get_map_entries(entries);
+    pub(crate) fn lower_map(
+        &mut self,
+        entries: CanMapEntryRange,
+        expr_id: CanId,
+    ) -> Option<ValueId> {
+        let map_entries = self.canon.arena.get_map_entries(entries);
         let count = map_entries.len();
 
         let result_type = self.expr_type(expr_id);
@@ -483,12 +450,5 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             self.builder
                 .build_struct(map_ty, &[len, cap, keys_buf, vals_buf], "map"),
         )
-    }
-
-    /// Lower `ExprKind::MapWithSpread(elements)`.
-    #[allow(clippy::unused_self)] // Will use self when spread is implemented
-    pub(crate) fn lower_map_with_spread(&mut self, _elements: MapElementRange) -> Option<ValueId> {
-        tracing::warn!("map spread syntax not yet implemented in V2 codegen");
-        None
     }
 }

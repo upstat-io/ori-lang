@@ -15,31 +15,31 @@ impl Parser<'_> {
     ///
     /// The `visibility` parameter tracks whether this is a public re-export (`pub use`).
     pub(crate) fn parse_use(&mut self, visibility: Visibility) -> ParseOutcome<UseDef> {
-        if !self.check(&TokenKind::Use) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Use, self.position());
+        if !self.cursor.check(&TokenKind::Use) {
+            return ParseOutcome::empty_err_expected(&TokenKind::Use, self.cursor.position());
         }
 
         self.parse_use_body(visibility)
     }
 
     fn parse_use_body(&mut self, visibility: Visibility) -> ParseOutcome<UseDef> {
-        let start_span = self.current_span();
-        committed!(self.expect(&TokenKind::Use));
+        let start_span = self.cursor.current_span();
+        committed!(self.cursor.expect(&TokenKind::Use));
 
         // Parse import path
-        let path = if let TokenKind::String(s) = *self.current_kind() {
+        let path = if let TokenKind::String(s) = *self.cursor.current_kind() {
             // Relative path: './math', '../utils'
-            self.advance();
+            self.cursor.advance();
             ImportPath::Relative(s)
         } else {
             // Module path: std.math, std.collections
             let mut segments = Vec::new();
             loop {
-                let name = committed!(self.expect_ident());
+                let name = committed!(self.cursor.expect_ident());
                 segments.push(name);
 
-                if self.check(&TokenKind::Dot) {
-                    self.advance();
+                if self.cursor.check(&TokenKind::Dot) {
+                    self.cursor.advance();
                 } else {
                     break;
                 }
@@ -48,10 +48,10 @@ impl Parser<'_> {
         };
 
         // Check for module alias: `use path as alias`
-        if self.check(&TokenKind::As) {
-            self.advance();
-            let alias = committed!(self.expect_ident());
-            let end_span = self.previous_span();
+        if self.cursor.check(&TokenKind::As) {
+            self.cursor.advance();
+            let alias = committed!(self.cursor.expect_ident());
+            let end_span = self.cursor.previous_span();
             return ParseOutcome::consumed_ok(UseDef {
                 path,
                 items: vec![],
@@ -62,28 +62,28 @@ impl Parser<'_> {
         }
 
         // Parse imported items: { item1, item2 as alias }
-        committed!(self.expect(&TokenKind::LBrace));
+        committed!(self.cursor.expect(&TokenKind::LBrace));
 
         let items: Vec<UseItem> = committed!(self.brace_series(|p| {
-            if p.check(&TokenKind::RBrace) {
+            if p.cursor.check(&TokenKind::RBrace) {
                 return Ok(None);
             }
 
             // Check for private import prefix ::
-            let is_private = if p.check(&TokenKind::DoubleColon) {
-                p.advance();
+            let is_private = if p.cursor.check(&TokenKind::DoubleColon) {
+                p.cursor.advance();
                 true
             } else {
                 false
             };
 
             // Item name
-            let name = p.expect_ident()?;
+            let name = p.cursor.expect_ident()?;
 
             // Optional alias: `as alias`
-            let alias = if p.check(&TokenKind::As) {
-                p.advance();
-                Some(p.expect_ident()?)
+            let alias = if p.cursor.check(&TokenKind::As) {
+                p.cursor.advance();
+                Some(p.cursor.expect_ident()?)
             } else {
                 None
             };
@@ -95,7 +95,7 @@ impl Parser<'_> {
             }))
         }));
 
-        let end_span = self.previous_span();
+        let end_span = self.cursor.previous_span();
 
         ParseOutcome::consumed_ok(UseDef {
             path,

@@ -1179,6 +1179,10 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             .builder
             .build_invoke(func, &arg_vals, then_bb, catch_bb, name)
             .expect("invoke");
+        // inkwell's build_invoke does not automatically copy the calling
+        // convention from the callee (unlike build_call). Without this,
+        // fastcc callees get invoked with the default ccc, causing SIGSEGV.
+        call_val.set_call_convention(func.get_call_conventions());
         call_val
             .try_as_basic_value()
             .basic()

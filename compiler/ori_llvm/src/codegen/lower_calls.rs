@@ -1,9 +1,10 @@
 //! Function call, method call, and lambda lowering for V2 codegen.
 //!
-//! Handles direct calls, named-argument calls, method dispatch (builtin +
-//! user-defined), and lambda/closure compilation with capture analysis.
+//! Handles direct calls, method dispatch (builtin + user-defined), and
+//! lambda/closure compilation with capture analysis.
 
-use ori_ir::{CallArgRange, ExprId, ExprKind, ExprRange, Name, ParamRange};
+use ori_ir::canon::{CanExpr, CanId, CanParamRange, CanRange};
+use ori_ir::Name;
 use ori_types::Idx;
 
 use crate::aot::mangle::Mangler;
@@ -12,25 +13,25 @@ use super::abi::{ParamPassing, ReturnPassing};
 use super::expr_lowerer::ExprLowerer;
 use super::scope::ScopeBinding;
 use super::type_info::TypeInfo;
-use super::value_id::{FunctionId, ValueId};
+use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // -----------------------------------------------------------------------
     // Direct call (positional args)
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Call { func, args }`.
+    /// Lower `CanExpr::Call { func, args }`.
     ///
     /// Handles:
     /// 1. Built-in type conversions (`str()`, `int()`, `float()`, `byte()`)
     /// 2. Closure calls (if callee is a local binding)
     /// 3. Direct function calls via module lookup
-    pub(crate) fn lower_call(&mut self, func: ExprId, args: ExprRange) -> Option<ValueId> {
-        let func_expr = self.arena.get_expr(func);
+    pub(crate) fn lower_call(&mut self, func: CanId, args: CanRange) -> Option<ValueId> {
+        let func_kind = *self.canon.arena.kind(func);
 
         // Check if callee is a named function
-        if let ExprKind::Ident(func_name) = &func_expr.kind {
-            let name_str = self.resolve_name(*func_name);
+        if let CanExpr::Ident(func_name) = func_kind {
+            let name_str = self.resolve_name(func_name);
 
             // Built-in type conversion functions
             match name_str {
@@ -42,13 +43,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             }
 
             // Check if callee is a local binding (closure)
-            if let Some(binding) = self.scope.lookup(*func_name) {
+            if let Some(binding) = self.scope.lookup(func_name) {
                 let callee_type = self.expr_type(func);
                 return self.lower_closure_call(binding, args, callee_type);
             }
 
             // Look up in declared function map (has ABI info for sret)
-            if let Some((func_id, abi)) = self.functions.get(func_name) {
+            if let Some((func_id, abi)) = self.functions.get(&func_name) {
                 return self.lower_abi_call(*func_id, abi, args);
             }
 
@@ -73,7 +74,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             .extract_value(callee_val, 1, "callee.env_ptr")?;
 
         // Compile args with env_ptr prepended
-        let arg_ids = self.arena.get_expr_list(args);
+        let arg_ids = self.canon.arena.get_expr_list(args);
         let mut arg_vals = Vec::with_capacity(arg_ids.len() + 1);
         arg_vals.push(env_ptr);
         for &arg_id in arg_ids {
@@ -105,8 +106,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Lower a direct function call with positional arguments.
-    fn lower_direct_call(&mut self, func_id: FunctionId, args: ExprRange) -> Option<ValueId> {
-        let arg_ids = self.arena.get_expr_list(args);
+    fn lower_direct_call(&mut self, func_id: FunctionId, args: CanRange) -> Option<ValueId> {
+        let arg_ids = self.canon.arena.get_expr_list(args);
         let mut arg_vals = Vec::with_capacity(arg_ids.len());
         for &arg_id in arg_ids {
             arg_vals.push(self.lower(arg_id)?);
@@ -128,9 +129,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         func_id: FunctionId,
         abi: &super::abi::FunctionAbi,
-        args: ExprRange,
+        args: CanRange,
     ) -> Option<ValueId> {
-        let arg_ids = self.arena.get_expr_list(args);
+        let arg_ids = self.canon.arena.get_expr_list(args);
         let mut raw_arg_vals = Vec::with_capacity(arg_ids.len());
         for &arg_id in arg_ids {
             raw_arg_vals.push(self.lower(arg_id)?);
@@ -142,11 +143,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         match &abi.return_abi.passing {
             ReturnPassing::Sret { .. } => {
                 let ret_ty = self.resolve_type(abi.return_abi.ty);
-                self.builder
-                    .call_with_sret(func_id, &arg_vals, ret_ty, "call")
+                self.invoke_user_function_sret(func_id, &arg_vals, ret_ty, "call")
             }
             ReturnPassing::Direct | ReturnPassing::Void => {
-                self.builder.call(func_id, &arg_vals, "call")
+                self.invoke_user_function(func_id, &arg_vals, "call")
             }
         }
     }
@@ -160,7 +160,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     fn lower_closure_call(
         &mut self,
         binding: ScopeBinding,
-        args: ExprRange,
+        args: CanRange,
         callee_type: Idx,
     ) -> Option<ValueId> {
         let closure_val = match binding {
@@ -177,7 +177,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             .extract_value(closure_val, 1, "closure.env_ptr")?;
 
         // Compile arguments
-        let arg_ids = self.arena.get_expr_list(args);
+        let arg_ids = self.canon.arena.get_expr_list(args);
         let mut arg_vals = Vec::with_capacity(arg_ids.len() + 1);
         arg_vals.push(env_ptr); // Hidden env_ptr as first arg
         for &arg_id in arg_ids {
@@ -216,183 +216,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     // -----------------------------------------------------------------------
-    // Named-argument call
-    // -----------------------------------------------------------------------
-
-    /// Lower `ExprKind::CallNamed { func, args }`.
-    ///
-    /// Named arguments are compiled in source order. Proper reordering
-    /// to match parameter declaration order requires function signature
-    /// lookup, which is deferred to function ABI integration.
-    pub(crate) fn lower_call_named(&mut self, func: ExprId, args: CallArgRange) -> Option<ValueId> {
-        let func_expr = self.arena.get_expr(func);
-
-        if let ExprKind::Ident(func_name) = &func_expr.kind {
-            let name_str = self.resolve_name(*func_name);
-
-            // Check if callee is a local binding (closure)
-            if let Some(binding) = self.scope.lookup(*func_name) {
-                let callee_type = self.expr_type(func);
-                return self.lower_closure_call_named(binding, args, callee_type);
-            }
-
-            // Look up in declared function map (has ABI info for sret)
-            if let Some((func_id, abi)) = self.functions.get(func_name) {
-                return self.lower_abi_call_named(*func_id, abi, args);
-            }
-
-            // Look up in LLVM module (runtime functions, etc.)
-            if let Some(llvm_func) = self.builder.scx().llmod.get_function(name_str) {
-                let func_id = self.builder.intern_function(llvm_func);
-                return self.lower_direct_call_named(func_id, args);
-            }
-
-            tracing::warn!(name = name_str, "unresolved function in named call");
-            return None;
-        }
-
-        // Non-identifier callee — fat-pointer closure dispatch
-        let callee_val = self.lower(func)?;
-
-        let fn_ptr = self.builder.extract_value(callee_val, 0, "callee.fn_ptr")?;
-        let env_ptr = self
-            .builder
-            .extract_value(callee_val, 1, "callee.env_ptr")?;
-
-        let call_args = self.arena.get_call_args(args);
-        let mut arg_vals = Vec::with_capacity(call_args.len() + 1);
-        arg_vals.push(env_ptr);
-        for arg in call_args {
-            arg_vals.push(self.lower(arg.value)?);
-        }
-
-        let callee_type = self.expr_type(func);
-        let type_info = self.type_info.get(callee_type);
-        if let TypeInfo::Function { params, ret } = &type_info {
-            let ptr_ty = self.builder.ptr_type();
-            let mut call_param_types = Vec::with_capacity(1 + params.len());
-            call_param_types.push(ptr_ty);
-            for &idx in params {
-                call_param_types.push(self.resolve_type(idx));
-            }
-            let ret_ty = self.resolve_type(*ret);
-            self.builder
-                .call_indirect(ret_ty, &call_param_types, fn_ptr, &arg_vals, "call_named")
-        } else {
-            let i64_ty = self.builder.i64_type();
-            let ptr_ty = self.builder.ptr_type();
-            let mut param_tys = vec![ptr_ty];
-            param_tys.extend(call_args.iter().map(|_| i64_ty));
-            self.builder
-                .call_indirect(i64_ty, &param_tys, fn_ptr, &arg_vals, "call_named")
-        }
-    }
-
-    /// Lower a direct named-argument call.
-    fn lower_direct_call_named(
-        &mut self,
-        func_id: FunctionId,
-        args: CallArgRange,
-    ) -> Option<ValueId> {
-        let call_args = self.arena.get_call_args(args);
-        let mut arg_vals = Vec::with_capacity(call_args.len());
-        for arg in call_args {
-            arg_vals.push(self.lower(arg.value)?);
-        }
-
-        self.builder.call(func_id, &arg_vals, "call_named")
-    }
-
-    /// Lower a named-argument call with known ABI (sret + borrow-aware).
-    fn lower_abi_call_named(
-        &mut self,
-        func_id: FunctionId,
-        abi: &super::abi::FunctionAbi,
-        args: CallArgRange,
-    ) -> Option<ValueId> {
-        let call_args = self.arena.get_call_args(args);
-        let mut raw_arg_vals = Vec::with_capacity(call_args.len());
-        for arg in call_args {
-            raw_arg_vals.push(self.lower(arg.value)?);
-        }
-
-        // Build final argument list, respecting passing modes
-        let arg_vals = self.apply_param_passing(&raw_arg_vals, &abi.params);
-
-        match &abi.return_abi.passing {
-            ReturnPassing::Sret { .. } => {
-                let ret_ty = self.resolve_type(abi.return_abi.ty);
-                self.builder
-                    .call_with_sret(func_id, &arg_vals, ret_ty, "call_named")
-            }
-            ReturnPassing::Direct | ReturnPassing::Void => {
-                self.builder.call(func_id, &arg_vals, "call_named")
-            }
-        }
-    }
-
-    /// Lower a closure call with named arguments via fat-pointer dispatch.
-    fn lower_closure_call_named(
-        &mut self,
-        binding: ScopeBinding,
-        args: CallArgRange,
-        callee_type: Idx,
-    ) -> Option<ValueId> {
-        let closure_val = match binding {
-            ScopeBinding::Immutable(val) => val,
-            ScopeBinding::Mutable { ptr, ty } => self.builder.load(ty, ptr, "closure"),
-        };
-
-        // Extract fn_ptr and env_ptr from fat pointer
-        let fn_ptr = self
-            .builder
-            .extract_value(closure_val, 0, "closure.fn_ptr")?;
-        let env_ptr = self
-            .builder
-            .extract_value(closure_val, 1, "closure.env_ptr")?;
-
-        // Compile arguments
-        let call_args = self.arena.get_call_args(args);
-        let mut arg_vals = Vec::with_capacity(call_args.len() + 1);
-        arg_vals.push(env_ptr); // Hidden env_ptr as first arg
-        for arg in call_args {
-            arg_vals.push(self.lower(arg.value)?);
-        }
-
-        // Get actual param/return types
-        let type_info = self.type_info.get(callee_type);
-        let (param_idxs, ret_idx) = if let TypeInfo::Function { params, ret } = &type_info {
-            (params.clone(), *ret)
-        } else {
-            let param_types = vec![Idx::INT; call_args.len()];
-            (param_types, Idx::INT)
-        };
-
-        let ptr_ty = self.builder.ptr_type();
-        let mut call_param_types = Vec::with_capacity(1 + param_idxs.len());
-        call_param_types.push(ptr_ty);
-        for &idx in &param_idxs {
-            let llvm_ty = self.type_resolver.resolve(idx);
-            call_param_types.push(self.builder.register_type(llvm_ty));
-        }
-
-        let ret_llvm_ty = self.type_resolver.resolve(ret_idx);
-        let ret_ty_id = self.builder.register_type(ret_llvm_ty);
-
-        self.builder.call_indirect(
-            ret_ty_id,
-            &call_param_types,
-            fn_ptr,
-            &arg_vals,
-            "closure_call",
-        )
-    }
-
-    // -----------------------------------------------------------------------
     // Method call
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::MethodCall { receiver, method, args }`.
+    /// Lower `CanExpr::MethodCall { receiver, method, args }`.
     ///
     /// Dispatch order:
     /// 1. Built-in methods (type-specific, inline codegen)
@@ -401,9 +228,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// 4. LLVM module lookup (runtime functions)
     pub(crate) fn lower_method_call(
         &mut self,
-        receiver: ExprId,
+        receiver: CanId,
         method: Name,
-        args: ExprRange,
+        args: CanRange,
     ) -> Option<ValueId> {
         let recv_type = self.expr_type(receiver);
         let recv_val = self.lower(receiver)?;
@@ -435,7 +262,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         if let Some(llvm_func) = self.builder.scx().llmod.get_function(&method_str) {
             let func_id = self.builder.intern_function(llvm_func);
 
-            let arg_ids = self.arena.get_expr_list(args);
+            let arg_ids = self.canon.arena.get_expr_list(args);
             let mut all_args = Vec::with_capacity(arg_ids.len() + 1);
             all_args.push(recv_val);
             for &arg_id in arg_ids {
@@ -454,70 +281,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         None
     }
 
-    /// Lower `ExprKind::MethodCallNamed { receiver, method, args }`.
-    ///
-    /// Dispatch order mirrors `lower_method_call`:
-    /// 1. Type-qualified method lookup via `method_functions[(type_name, method)]`
-    /// 2. Bare-name function map fallback
-    /// 3. LLVM module lookup (runtime functions)
-    pub(crate) fn lower_method_call_named(
-        &mut self,
-        receiver: ExprId,
-        method: Name,
-        args: CallArgRange,
-    ) -> Option<ValueId> {
-        let recv_type = self.expr_type(receiver);
-        let recv_val = self.lower(receiver)?;
-
-        // 1. Type-qualified method lookup
-        if let Some(&type_name) = self.type_idx_to_name.get(&recv_type) {
-            if let Some((func_id, abi)) = self.method_functions.get(&(type_name, method)) {
-                let func_id = *func_id;
-                let abi = abi.clone();
-                return self.emit_method_call_named(
-                    func_id,
-                    &abi,
-                    recv_val,
-                    args,
-                    "method_call_named",
-                );
-            }
-        }
-
-        // 2. Bare-name fallback
-        if let Some((func_id, abi)) = self.functions.get(&method) {
-            let func_id = *func_id;
-            let abi = abi.clone();
-            return self.emit_method_call_named(func_id, &abi, recv_val, args, "method_call_named");
-        }
-
-        let method_name = self.resolve_name(method);
-
-        // 3. LLVM module lookup (runtime functions, etc.)
-        if let Some(llvm_func) = self.builder.scx().llmod.get_function(method_name) {
-            let func_id = self.builder.intern_function(llvm_func);
-
-            let call_args = self.arena.get_call_args(args);
-            let mut all_args = Vec::with_capacity(call_args.len() + 1);
-            all_args.push(recv_val);
-            for arg in call_args {
-                all_args.push(self.lower(arg.value)?);
-            }
-
-            return self.builder.call(func_id, &all_args, "method_call_named");
-        }
-
-        tracing::warn!(
-            method = method_name,
-            ?recv_type,
-            "unresolved named method call"
-        );
-        self.builder.record_codegen_error();
-        None
-    }
-
     // -----------------------------------------------------------------------
-    // Method call emission helpers
+    // Method call emission helper
     // -----------------------------------------------------------------------
 
     /// Emit a method call with positional args, handling sret + borrow passing.
@@ -529,10 +294,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         func_id: FunctionId,
         abi: &super::abi::FunctionAbi,
         recv_val: ValueId,
-        args: ExprRange,
+        args: CanRange,
         name: &str,
     ) -> Option<ValueId> {
-        let arg_ids = self.arena.get_expr_list(args);
+        let arg_ids = self.canon.arena.get_expr_list(args);
         let mut raw_args = Vec::with_capacity(arg_ids.len() + 1);
         raw_args.push(recv_val);
         for &arg_id in arg_ids {
@@ -545,44 +310,118 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         match &abi.return_abi.passing {
             ReturnPassing::Sret { .. } => {
                 let ret_ty = self.resolve_type(abi.return_abi.ty);
-                self.builder
-                    .call_with_sret(func_id, &all_args, ret_ty, name)
+                self.invoke_user_function_sret(func_id, &all_args, ret_ty, name)
             }
             ReturnPassing::Direct | ReturnPassing::Void => {
-                self.builder.call(func_id, &all_args, name)
+                self.invoke_user_function(func_id, &all_args, name)
             }
         }
     }
 
-    /// Emit a method call with named args, handling sret + borrow passing.
-    fn emit_method_call_named(
+    // -----------------------------------------------------------------------
+    // Exception-aware call helpers
+    // -----------------------------------------------------------------------
+
+    /// Ensure the personality function is set on the current LLVM function.
+    ///
+    /// Looks up `__gxx_personality_v0` from the LLVM module, interns it,
+    /// and sets it as the personality function on the current function.
+    /// Idempotent — calling multiple times on the same function is safe.
+    fn ensure_personality(&mut self) -> FunctionId {
+        let personality_fn = self
+            .builder
+            .scx()
+            .llmod
+            .get_function("rust_eh_personality")
+            .expect("rust_eh_personality not declared — call declare_runtime() first");
+        let personality_id = self.builder.intern_function(personality_fn);
+        self.builder
+            .set_personality(self.current_function, personality_id);
+        personality_id
+    }
+
+    /// Emit an `invoke` to a user-defined function with a cleanup landingpad.
+    ///
+    /// User-defined functions may panic (unwind via Rust's panic infrastructure).
+    /// Using `invoke` instead of `call` gives LLVM correct unwind edges so
+    /// cleanup code (RC decrements) can run during stack unwinding.
+    ///
+    /// The cleanup landingpad currently re-raises immediately. RC cleanup
+    /// will be inserted here once cross-block liveness analysis is wired.
+    fn invoke_user_function(
         &mut self,
         func_id: FunctionId,
-        abi: &super::abi::FunctionAbi,
-        recv_val: ValueId,
-        args: CallArgRange,
+        args: &[ValueId],
         name: &str,
     ) -> Option<ValueId> {
-        let call_args = self.arena.get_call_args(args);
-        let mut raw_args = Vec::with_capacity(call_args.len() + 1);
-        raw_args.push(recv_val);
-        for arg in call_args {
-            raw_args.push(self.lower(arg.value)?);
-        }
+        let personality = self.ensure_personality();
 
-        // Apply param passing modes (Reference → alloca + store + pass ptr)
-        let all_args = self.apply_param_passing(&raw_args, &abi.params);
+        let normal_bb = self
+            .builder
+            .append_block(self.current_function, &format!("{name}.cont"));
+        let unwind_bb = self
+            .builder
+            .append_block(self.current_function, &format!("{name}.unwind"));
 
-        match &abi.return_abi.passing {
-            ReturnPassing::Sret { .. } => {
-                let ret_ty = self.resolve_type(abi.return_abi.ty);
-                self.builder
-                    .call_with_sret(func_id, &all_args, ret_ty, name)
-            }
-            ReturnPassing::Direct | ReturnPassing::Void => {
-                self.builder.call(func_id, &all_args, name)
-            }
-        }
+        let result = self
+            .builder
+            .invoke(func_id, args, normal_bb, unwind_bb, name);
+
+        // Build cleanup landingpad: catch-all cleanup, re-raise
+        self.builder.position_at_end(unwind_bb);
+        let lp = self.builder.landingpad(personality, true, "lp");
+        self.builder.resume(lp);
+
+        // Continue in normal block
+        self.builder.position_at_end(normal_bb);
+
+        result
+    }
+
+    /// Emit an `invoke` with sret return convention and a cleanup landingpad.
+    ///
+    /// Like [`invoke_user_function`] but for functions returning via hidden
+    /// sret pointer. The sret alloca is in the entry block, the invoke
+    /// branches to normal/unwind, and the load happens in the normal block.
+    fn invoke_user_function_sret(
+        &mut self,
+        func_id: FunctionId,
+        args: &[ValueId],
+        sret_type: LLVMTypeId,
+        name: &str,
+    ) -> Option<ValueId> {
+        let personality = self.ensure_personality();
+
+        let sret_ptr = self.builder.create_entry_alloca(
+            self.current_function,
+            &format!("{name}.sret"),
+            sret_type,
+        );
+
+        let mut full_args = Vec::with_capacity(args.len() + 1);
+        full_args.push(sret_ptr);
+        full_args.extend_from_slice(args);
+
+        let normal_bb = self
+            .builder
+            .append_block(self.current_function, &format!("{name}.cont"));
+        let unwind_bb = self
+            .builder
+            .append_block(self.current_function, &format!("{name}.unwind"));
+
+        // Invoke the sret function (void return — result is stored through sret pointer)
+        self.builder
+            .invoke(func_id, &full_args, normal_bb, unwind_bb, "");
+
+        // Build cleanup landingpad
+        self.builder.position_at_end(unwind_bb);
+        let lp = self.builder.landingpad(personality, true, "lp");
+        self.builder.resume(lp);
+
+        // Continue in normal block and load result
+        self.builder.position_at_end(normal_bb);
+        let result = self.builder.load(sret_type, sret_ptr, name);
+        Some(result)
     }
 
     // -----------------------------------------------------------------------
@@ -597,9 +436,6 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ///
     /// For `Direct`/`Indirect`: passes through as-is.
     /// For `Void`: skips the parameter.
-    ///
-    /// This centralizes the Reference-at-call-site logic used by
-    /// `lower_abi_call`, `lower_abi_call_named`, and method call emission.
     fn apply_param_passing(
         &mut self,
         raw_args: &[ValueId],
@@ -659,7 +495,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         recv_val: ValueId,
         recv_type: Idx,
         method: &str,
-        args: ExprRange,
+        args: CanRange,
     ) -> Option<ValueId> {
         match recv_type {
             Idx::INT | Idx::DURATION | Idx::SIZE => self.lower_int_method(recv_val, method, args),
@@ -683,15 +519,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Built-in int methods.
-    fn lower_int_method(
-        &mut self,
-        recv: ValueId,
-        method: &str,
-        args: ExprRange,
-    ) -> Option<ValueId> {
+    fn lower_int_method(&mut self, recv: ValueId, method: &str, args: CanRange) -> Option<ValueId> {
         match method {
             "compare" => {
-                let arg_ids = self.arena.get_expr_list(args);
+                let arg_ids = self.canon.arena.get_expr_list(args);
                 let other = self.lower(*arg_ids.first()?)?;
                 // Three-way comparison: returns Ordering (i8)
                 // Less=0 if self < other, Equal=1 if self == other, Greater=2 if self > other
@@ -719,11 +550,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         recv: ValueId,
         method: &str,
-        args: ExprRange,
+        args: CanRange,
     ) -> Option<ValueId> {
         match method {
             "compare" => {
-                let arg_ids = self.arena.get_expr_list(args);
+                let arg_ids = self.canon.arena.get_expr_list(args);
                 let other = self.lower(*arg_ids.first()?)?;
                 let lt = self.builder.fcmp_olt(recv, other, "fcmp.lt");
                 let gt = self.builder.fcmp_ogt(recv, other, "fcmp.gt");
@@ -748,11 +579,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         recv: ValueId,
         method: &str,
-        args: ExprRange,
+        args: CanRange,
     ) -> Option<ValueId> {
         match method {
             "compare" => {
-                let arg_ids = self.arena.get_expr_list(args);
+                let arg_ids = self.canon.arena.get_expr_list(args);
                 let other = self.lower(*arg_ids.first()?)?;
                 // false < true
                 let i8_ty = self.builder.i8_type();
@@ -800,7 +631,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         recv: ValueId,
         method: &str,
-        _args: ExprRange,
+        _args: CanRange,
     ) -> Option<ValueId> {
         match method {
             "len" | "length" => self.builder.extract_value(recv, 0, "str.len"),
@@ -818,7 +649,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         recv: ValueId,
         method: &str,
-        _args: ExprRange,
+        _args: CanRange,
     ) -> Option<ValueId> {
         let tag = self.builder.extract_value(recv, 0, "opt.tag")?;
         let zero = self.builder.const_i8(0);
@@ -839,7 +670,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         recv: ValueId,
         method: &str,
-        _args: ExprRange,
+        _args: CanRange,
     ) -> Option<ValueId> {
         let tag = self.builder.extract_value(recv, 0, "res.tag")?;
         let zero = self.builder.const_i8(0);
@@ -858,7 +689,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         recv: ValueId,
         _recv_type: Idx,
         method: &str,
-        _args: ExprRange,
+        _args: CanRange,
     ) -> Option<ValueId> {
         match method {
             "len" | "length" => self.builder.extract_value(recv, 0, "list.len"),
@@ -876,8 +707,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // -----------------------------------------------------------------------
 
     /// Lower `str(expr)` — convert value to string.
-    fn lower_builtin_str(&mut self, args: ExprRange) -> Option<ValueId> {
-        let arg_ids = self.arena.get_expr_list(args);
+    fn lower_builtin_str(&mut self, args: CanRange) -> Option<ValueId> {
+        let arg_ids = self.canon.arena.get_expr_list(args);
         let arg_id = *arg_ids.first()?;
         let val = self.lower(arg_id)?;
         let arg_type = self.expr_type(arg_id);
@@ -914,8 +745,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Lower `int(expr)` — convert value to int.
-    fn lower_builtin_int(&mut self, args: ExprRange) -> Option<ValueId> {
-        let arg_ids = self.arena.get_expr_list(args);
+    fn lower_builtin_int(&mut self, args: CanRange) -> Option<ValueId> {
+        let arg_ids = self.canon.arena.get_expr_list(args);
         let arg_id = *arg_ids.first()?;
         let val = self.lower(arg_id)?;
         let arg_type = self.expr_type(arg_id);
@@ -946,8 +777,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Lower `float(expr)` — convert value to float.
-    fn lower_builtin_float(&mut self, args: ExprRange) -> Option<ValueId> {
-        let arg_ids = self.arena.get_expr_list(args);
+    fn lower_builtin_float(&mut self, args: CanRange) -> Option<ValueId> {
+        let arg_ids = self.canon.arena.get_expr_list(args);
         let arg_id = *arg_ids.first()?;
         let val = self.lower(arg_id)?;
         let arg_type = self.expr_type(arg_id);
@@ -966,8 +797,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Lower `byte(expr)` — convert value to byte.
-    fn lower_builtin_byte(&mut self, args: ExprRange) -> Option<ValueId> {
-        let arg_ids = self.arena.get_expr_list(args);
+    fn lower_builtin_byte(&mut self, args: CanRange) -> Option<ValueId> {
+        let arg_ids = self.canon.arena.get_expr_list(args);
         let arg_id = *arg_ids.first()?;
         let val = self.lower(arg_id)?;
         let arg_type = self.expr_type(arg_id);
@@ -989,7 +820,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // Lambda
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Lambda { params, body }`.
+    /// Lower `CanExpr::Lambda { params, body }`.
     ///
     /// Produces a fat-pointer closure `{ fn_ptr: ptr, env_ptr: ptr }`:
     /// 1. Capture analysis: find free variables with their types
@@ -999,11 +830,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// 5. Build fat pointer: `{ fn_ptr, env_ptr }` (`env_ptr` = null if no captures)
     pub(crate) fn lower_lambda(
         &mut self,
-        params: ParamRange,
-        body: ExprId,
-        lambda_id: ExprId,
+        params: CanParamRange,
+        body: CanId,
+        lambda_id: CanId,
     ) -> Option<ValueId> {
-        let param_list = self.arena.get_params(params);
+        let param_list = self.canon.arena.get_params(params);
 
         // Step 1: Capture analysis
         let captures = self.find_captures(body, params);
@@ -1133,8 +964,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// Returns `(Name, ValueId, Idx)` triples — name, current value, and
     /// type index — for each captured variable. The type is needed to build
     /// the environment struct with native-typed fields.
-    fn find_captures(&mut self, body: ExprId, params: ParamRange) -> Vec<(Name, ValueId, Idx)> {
-        let param_list = self.arena.get_params(params);
+    fn find_captures(&mut self, body: CanId, params: CanParamRange) -> Vec<(Name, ValueId, Idx)> {
+        let param_list = self.canon.arena.get_params(params);
         let param_names: Vec<Name> = param_list.iter().map(|p| p.name).collect();
 
         let mut captures = Vec::new();
@@ -1143,11 +974,14 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         captures
     }
 
-    /// Recursively collect free variables from an expression.
-    #[allow(clippy::too_many_lines)] // Exhaustive traversal over all ExprKind variants
+    /// Recursively collect free variables from a canonical expression.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "dispatch table — each arm is 1-3 lines"
+    )]
     fn collect_free_vars(
         &mut self,
-        expr_id: ExprId,
+        expr_id: CanId,
         params: &[Name],
         captures: &mut Vec<(Name, ValueId, Idx)>,
         seen: &mut std::collections::HashSet<Name>,
@@ -1156,13 +990,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        let expr = self.arena.get_expr(expr_id);
-        match &expr.kind {
-            ExprKind::Ident(name) => {
+        let kind = *self.canon.arena.kind(expr_id);
+        match kind {
+            CanExpr::Ident(name) => {
                 // Capture if: in outer scope, not a parameter, not already captured
-                if !params.contains(name) && !seen.contains(name) {
-                    if let Some(binding) = self.scope.lookup(*name) {
-                        seen.insert(*name);
+                if !params.contains(&name) && !seen.contains(&name) {
+                    if let Some(binding) = self.scope.lookup(name) {
+                        seen.insert(name);
                         let val = match binding {
                             ScopeBinding::Immutable(v) => v,
                             ScopeBinding::Mutable { ptr, ty } => {
@@ -1171,244 +1005,136 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                             }
                         };
                         let capture_type = self.expr_type(expr_id);
-                        captures.push((*name, val, capture_type));
+                        captures.push((name, val, capture_type));
                     }
                 }
             }
-            ExprKind::Binary { left, right, .. } => {
-                self.collect_free_vars(*left, params, captures, seen);
-                self.collect_free_vars(*right, params, captures, seen);
+            CanExpr::Binary { left, right, .. } => {
+                self.collect_free_vars(left, params, captures, seen);
+                self.collect_free_vars(right, params, captures, seen);
             }
-            ExprKind::Unary { operand, .. } => {
-                self.collect_free_vars(*operand, params, captures, seen);
+            CanExpr::Unary { operand, .. } => {
+                self.collect_free_vars(operand, params, captures, seen);
             }
-            ExprKind::Call { func, args } => {
-                self.collect_free_vars(*func, params, captures, seen);
-                for &arg in self.arena.get_expr_list(*args) {
+            CanExpr::Call { func, args } => {
+                self.collect_free_vars(func, params, captures, seen);
+                for &arg in self.canon.arena.get_expr_list(args) {
                     self.collect_free_vars(arg, params, captures, seen);
                 }
             }
-            ExprKind::If {
+            CanExpr::If {
                 cond,
                 then_branch,
                 else_branch,
             } => {
-                self.collect_free_vars(*cond, params, captures, seen);
-                self.collect_free_vars(*then_branch, params, captures, seen);
-                self.collect_free_vars(*else_branch, params, captures, seen);
+                self.collect_free_vars(cond, params, captures, seen);
+                self.collect_free_vars(then_branch, params, captures, seen);
+                self.collect_free_vars(else_branch, params, captures, seen);
             }
-            ExprKind::Block { stmts, result } => {
-                for stmt in self.arena.get_stmt_range(*stmts) {
-                    match &stmt.kind {
-                        ori_ir::StmtKind::Expr(e) => {
-                            self.collect_free_vars(*e, params, captures, seen);
-                        }
-                        ori_ir::StmtKind::Let { init, .. } => {
-                            self.collect_free_vars(*init, params, captures, seen);
-                        }
-                    }
+            CanExpr::Block { stmts, result } => {
+                for &stmt in self.canon.arena.get_expr_list(stmts) {
+                    self.collect_free_vars(stmt, params, captures, seen);
                 }
-                self.collect_free_vars(*result, params, captures, seen);
+                self.collect_free_vars(result, params, captures, seen);
             }
-            ExprKind::Lambda { body, .. } | ExprKind::Loop { body } => {
-                self.collect_free_vars(*body, params, captures, seen);
+            CanExpr::Lambda { body, .. } | CanExpr::Loop { body } => {
+                self.collect_free_vars(body, params, captures, seen);
             }
-            ExprKind::Field { receiver, .. } => {
-                self.collect_free_vars(*receiver, params, captures, seen);
+            CanExpr::Field { receiver, .. } => {
+                self.collect_free_vars(receiver, params, captures, seen);
             }
-            ExprKind::Index { receiver, index } => {
-                self.collect_free_vars(*receiver, params, captures, seen);
-                self.collect_free_vars(*index, params, captures, seen);
+            CanExpr::Index { receiver, index } => {
+                self.collect_free_vars(receiver, params, captures, seen);
+                self.collect_free_vars(index, params, captures, seen);
             }
-            ExprKind::For {
+            CanExpr::For {
                 iter, body, guard, ..
             } => {
-                self.collect_free_vars(*iter, params, captures, seen);
-                self.collect_free_vars(*guard, params, captures, seen);
-                self.collect_free_vars(*body, params, captures, seen);
+                self.collect_free_vars(iter, params, captures, seen);
+                self.collect_free_vars(guard, params, captures, seen);
+                self.collect_free_vars(body, params, captures, seen);
             }
-            ExprKind::Match { scrutinee, arms } => {
-                self.collect_free_vars(*scrutinee, params, captures, seen);
-                for arm in self.arena.get_arms(*arms) {
-                    self.collect_free_vars(arm.body, params, captures, seen);
+            CanExpr::Match {
+                scrutinee, arms, ..
+            } => {
+                self.collect_free_vars(scrutinee, params, captures, seen);
+                for &arm_body in self.canon.arena.get_expr_list(arms) {
+                    self.collect_free_vars(arm_body, params, captures, seen);
                 }
             }
-            ExprKind::Ok(e)
-            | ExprKind::Err(e)
-            | ExprKind::Some(e)
-            | ExprKind::Try(e)
-            | ExprKind::Await(e)
-            | ExprKind::Break(e)
-            | ExprKind::Continue(e) => {
-                self.collect_free_vars(*e, params, captures, seen);
+            CanExpr::Ok(e)
+            | CanExpr::Err(e)
+            | CanExpr::Some(e)
+            | CanExpr::Try(e)
+            | CanExpr::Await(e)
+            | CanExpr::Break(e)
+            | CanExpr::Continue(e) => {
+                self.collect_free_vars(e, params, captures, seen);
             }
-            ExprKind::Assign { target, value } => {
-                self.collect_free_vars(*target, params, captures, seen);
-                self.collect_free_vars(*value, params, captures, seen);
+            CanExpr::Assign { target, value } => {
+                self.collect_free_vars(target, params, captures, seen);
+                self.collect_free_vars(value, params, captures, seen);
             }
-            ExprKind::Cast { expr, .. } => {
-                self.collect_free_vars(*expr, params, captures, seen);
+            CanExpr::Cast { expr, .. } => {
+                self.collect_free_vars(expr, params, captures, seen);
             }
-            ExprKind::Tuple(range) | ExprKind::List(range) => {
-                for &e in self.arena.get_expr_list(*range) {
+            CanExpr::Tuple(range) | CanExpr::List(range) => {
+                for &e in self.canon.arena.get_expr_list(range) {
                     self.collect_free_vars(e, params, captures, seen);
                 }
             }
-            ExprKind::MethodCall { receiver, args, .. } => {
-                self.collect_free_vars(*receiver, params, captures, seen);
-                for &arg in self.arena.get_expr_list(*args) {
+            CanExpr::MethodCall { receiver, args, .. } => {
+                self.collect_free_vars(receiver, params, captures, seen);
+                for &arg in self.canon.arena.get_expr_list(args) {
                     self.collect_free_vars(arg, params, captures, seen);
                 }
             }
-            ExprKind::WithCapability { body, provider, .. } => {
-                self.collect_free_vars(*provider, params, captures, seen);
-                self.collect_free_vars(*body, params, captures, seen);
+            CanExpr::WithCapability { body, provider, .. } => {
+                self.collect_free_vars(provider, params, captures, seen);
+                self.collect_free_vars(body, params, captures, seen);
             }
-            // Leaf expressions — no free variables
-            ExprKind::Int(_)
-            | ExprKind::Float(_)
-            | ExprKind::Bool(_)
-            | ExprKind::Char(_)
-            | ExprKind::String(_)
-            | ExprKind::Unit
-            | ExprKind::None
-            | ExprKind::Error
-            | ExprKind::SelfRef
-            | ExprKind::FunctionRef(_)
-            | ExprKind::Const(_)
-            | ExprKind::HashLength
-            | ExprKind::TemplateFull(_)
-            | ExprKind::Duration { .. }
-            | ExprKind::Size { .. } => {}
-            // Complex expressions that may have sub-expressions
-            ExprKind::Let { init, .. } => {
-                self.collect_free_vars(*init, params, captures, seen);
+            CanExpr::Let { init, .. } => {
+                self.collect_free_vars(init, params, captures, seen);
             }
-            ExprKind::CallNamed { func, args } => {
-                self.collect_free_vars(*func, params, captures, seen);
-                for arg in self.arena.get_call_args(*args) {
-                    self.collect_free_vars(arg.value, params, captures, seen);
-                }
-            }
-            ExprKind::MethodCallNamed { receiver, args, .. } => {
-                self.collect_free_vars(*receiver, params, captures, seen);
-                for arg in self.arena.get_call_args(*args) {
-                    self.collect_free_vars(arg.value, params, captures, seen);
-                }
-            }
-            ExprKind::TemplateLiteral { parts, .. } => {
-                for part in self.arena.get_template_parts(*parts) {
-                    self.collect_free_vars(part.expr, params, captures, seen);
-                }
-            }
-            ExprKind::Range {
+            CanExpr::Range {
                 start, end, step, ..
             } => {
-                self.collect_free_vars(*start, params, captures, seen);
-                self.collect_free_vars(*end, params, captures, seen);
-                self.collect_free_vars(*step, params, captures, seen);
+                self.collect_free_vars(start, params, captures, seen);
+                self.collect_free_vars(end, params, captures, seen);
+                self.collect_free_vars(step, params, captures, seen);
             }
-            ExprKind::Struct { fields, .. } => {
-                for fi in self.arena.get_field_inits(*fields) {
-                    if let Some(val) = fi.value {
-                        self.collect_free_vars(val, params, captures, seen);
-                    }
+            CanExpr::Struct { fields, .. } => {
+                for fi in self.canon.arena.get_fields(fields) {
+                    self.collect_free_vars(fi.value, params, captures, seen);
                 }
             }
-            ExprKind::StructWithSpread { fields, .. } => {
-                for field in self.arena.get_struct_lit_fields(*fields) {
-                    match field {
-                        ori_ir::StructLitField::Field(fi) => {
-                            if let Some(val) = fi.value {
-                                self.collect_free_vars(val, params, captures, seen);
-                            }
-                        }
-                        ori_ir::StructLitField::Spread { expr, .. } => {
-                            self.collect_free_vars(*expr, params, captures, seen);
-                        }
-                    }
-                }
-            }
-            ExprKind::Map(entries) => {
-                for entry in self.arena.get_map_entries(*entries) {
+            CanExpr::Map(entries) => {
+                for entry in self.canon.arena.get_map_entries(entries) {
                     self.collect_free_vars(entry.key, params, captures, seen);
                     self.collect_free_vars(entry.value, params, captures, seen);
                 }
             }
-            ExprKind::ListWithSpread(elems) => {
-                for elem in self.arena.get_list_elements(*elems) {
-                    match elem {
-                        ori_ir::ListElement::Expr { expr, .. }
-                        | ori_ir::ListElement::Spread { expr, .. } => {
-                            self.collect_free_vars(*expr, params, captures, seen);
-                        }
-                    }
-                }
-            }
-            ExprKind::MapWithSpread(elems) => {
-                for elem in self.arena.get_map_elements(*elems) {
-                    match elem {
-                        ori_ir::MapElement::Entry(entry) => {
-                            self.collect_free_vars(entry.key, params, captures, seen);
-                            self.collect_free_vars(entry.value, params, captures, seen);
-                        }
-                        ori_ir::MapElement::Spread { expr, .. } => {
-                            self.collect_free_vars(*expr, params, captures, seen);
-                        }
-                    }
-                }
-            }
-            ExprKind::FunctionSeq(seq_id) => {
-                let seq = self.arena.get_function_seq(*seq_id);
-                match seq {
-                    ori_ir::FunctionSeq::Run {
-                        bindings, result, ..
-                    }
-                    | ori_ir::FunctionSeq::Try {
-                        bindings, result, ..
-                    } => {
-                        for binding in self.arena.get_seq_bindings(*bindings) {
-                            match binding {
-                                ori_ir::SeqBinding::Let { value, .. } => {
-                                    self.collect_free_vars(*value, params, captures, seen);
-                                }
-                                ori_ir::SeqBinding::Stmt { expr, .. } => {
-                                    self.collect_free_vars(*expr, params, captures, seen);
-                                }
-                            }
-                        }
-                        self.collect_free_vars(*result, params, captures, seen);
-                    }
-                    ori_ir::FunctionSeq::Match {
-                        scrutinee, arms, ..
-                    } => {
-                        self.collect_free_vars(*scrutinee, params, captures, seen);
-                        for arm in self.arena.get_arms(*arms) {
-                            self.collect_free_vars(arm.body, params, captures, seen);
-                        }
-                    }
-                    ori_ir::FunctionSeq::ForPattern {
-                        over,
-                        map,
-                        arm,
-                        default,
-                        ..
-                    } => {
-                        self.collect_free_vars(*over, params, captures, seen);
-                        if let Some(m) = map {
-                            self.collect_free_vars(*m, params, captures, seen);
-                        }
-                        self.collect_free_vars(arm.body, params, captures, seen);
-                        self.collect_free_vars(*default, params, captures, seen);
-                    }
-                }
-            }
-            ExprKind::FunctionExp(fexp_id) => {
-                let exp = self.arena.get_function_exp(*fexp_id);
-                for ne in self.arena.get_named_exprs(exp.props) {
+            CanExpr::FunctionExp { props, .. } => {
+                for ne in self.canon.arena.get_named_exprs(props) {
                     self.collect_free_vars(ne.value, params, captures, seen);
                 }
             }
+            // Leaf expressions — no free variables
+            CanExpr::Constant(_)
+            | CanExpr::Int(_)
+            | CanExpr::Float(_)
+            | CanExpr::Bool(_)
+            | CanExpr::Char(_)
+            | CanExpr::Str(_)
+            | CanExpr::Unit
+            | CanExpr::None
+            | CanExpr::Error
+            | CanExpr::SelfRef
+            | CanExpr::FunctionRef(_)
+            | CanExpr::Const(_)
+            | CanExpr::HashLength
+            | CanExpr::Duration { .. }
+            | CanExpr::Size { .. } => {}
         }
     }
 

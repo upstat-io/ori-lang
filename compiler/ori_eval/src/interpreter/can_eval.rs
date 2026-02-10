@@ -642,11 +642,9 @@ impl Interpreter<'_> {
         // Set canonical data so function calls dispatch via eval_can
         func.set_canon(body, shared_canon);
 
-        // Set defaults (converted to ExprId for legacy compatibility)
-        let legacy_defaults: Vec<Option<ori_ir::ExprId>> =
-            defaults.iter().map(|d| d.map(CanId::to_expr_id)).collect();
-        if legacy_defaults.iter().any(Option::is_some) {
-            func.defaults = legacy_defaults;
+        // Set canonical defaults directly (no legacy ExprId conversion needed)
+        if defaults.iter().any(Option::is_some) {
+            func.set_can_defaults(defaults);
         }
 
         Ok(Value::Function(func))

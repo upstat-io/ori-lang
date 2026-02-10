@@ -203,8 +203,9 @@ fn infer_function_signature_with_arena(
         })
         .collect();
 
-    // Count required params (those without default values)
-    let required_params = params.iter().filter(|p| p.default.is_none()).count();
+    // Collect default expressions and count required params.
+    let param_defaults: Vec<Option<ori_ir::ExprId>> = params.iter().map(|p| p.default).collect();
+    let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
 
     // Check for special function attributes
     let main_name = checker.interner().intern("main");
@@ -224,6 +225,7 @@ fn infer_function_signature_with_arena(
         where_clauses,
         generic_param_mapping,
         required_params,
+        param_defaults,
     };
 
     (sig, var_ids)
@@ -260,7 +262,8 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
         None => Idx::UNIT,
     };
 
-    let required_params = param_types.len();
+    let param_defaults: Vec<Option<ori_ir::ExprId>> = params.iter().map(|p| p.default).collect();
+    let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
 
     FunctionSig {
         name: test.name,
@@ -276,6 +279,7 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
         where_clauses: Vec::new(),
         generic_param_mapping: Vec::new(),
         required_params,
+        param_defaults,
     }
 }
 

@@ -1,6 +1,6 @@
 //! Four-way parse outcome for Elm-style progress tracking.
 //!
-//! This module provides `ParseOutcome`, a more expressive alternative to `ParseResult`
+//! This module provides `ParseOutcome`, a four-way result type
 //! that distinguishes between four parsing states:
 //!
 //! | Progress | Result | Variant | Meaning |
@@ -32,10 +32,10 @@
 //! }
 //! ```
 //!
-//! ## Migration
+//! ## Integration
 //!
-//! `ParseOutcome` coexists with the existing `ParseResult`. Use `From` conversions
-//! to bridge between the two types during gradual migration.
+//! `ParseOutcome` is the primary parse result type. Convert to `Result<T, ParseError>`
+//! via the `From` impl when needed.
 
 use crate::error::ErrorContext;
 use crate::recovery::TokenSet;
@@ -406,53 +406,6 @@ impl<T> From<ParseOutcome<T>> for Result<T, ParseError> {
     }
 }
 
-/// Extension methods to convert from existing `ParseResult`.
-impl<T> From<crate::ParseResult<T>> for ParseOutcome<T> {
-    fn from(result: crate::ParseResult<T>) -> Self {
-        use crate::Progress;
-        match (result.progress, result.result) {
-            (Progress::Made, Ok(value)) => ParseOutcome::ConsumedOk { value },
-            (Progress::None, Ok(value)) => ParseOutcome::EmptyOk { value },
-            (Progress::Made, Err(error)) => ParseOutcome::ConsumedErr {
-                consumed_span: error.span,
-                error,
-            },
-            (Progress::None, Err(error)) => {
-                // Convert to EmptyErr with empty expected set
-                // In practice, callers should provide expected tokens
-                ParseOutcome::EmptyErr {
-                    expected: TokenSet::new(),
-                    position: error.span.start as usize,
-                }
-            }
-        }
-    }
-}
-
-impl<T> From<ParseOutcome<T>> for crate::ParseResult<T> {
-    fn from(outcome: ParseOutcome<T>) -> Self {
-        use crate::Progress;
-        match outcome {
-            ParseOutcome::ConsumedOk { value } => crate::ParseResult {
-                progress: Progress::Made,
-                result: Ok(value),
-            },
-            ParseOutcome::EmptyOk { value } => crate::ParseResult {
-                progress: Progress::None,
-                result: Ok(value),
-            },
-            ParseOutcome::ConsumedErr { error, .. } => crate::ParseResult {
-                progress: Progress::Made,
-                result: Err(error),
-            },
-            ParseOutcome::EmptyErr { expected, position } => crate::ParseResult {
-                progress: Progress::None,
-                result: Err(ParseError::from_expected_tokens(&expected, position)),
-            },
-        }
-    }
-}
-
 // === Backtracking Macros ===
 //
 // These macros implement Elm/Roc-style automatic backtracking using the
@@ -495,7 +448,7 @@ macro_rules! one_of {
     ($self:expr, $first:expr $(, $rest:expr)* $(,)?) => {{
         let original = $self.snapshot();
         let mut accumulated_expected = $crate::recovery::TokenSet::new();
-        let mut last_position: usize = $self.position();
+        let mut last_position: usize = $self.cursor.position();
 
         // Try first alternative
         match $first {
@@ -920,43 +873,38 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_from_parse_result() {
-        use crate::{ParseResult, Progress};
-
-        let pr = ParseResult {
-            progress: Progress::Made,
-            result: Ok(42),
-        };
-        let outcome: ParseOutcome<i32> = pr.into();
-        assert!(matches!(outcome, ParseOutcome::ConsumedOk { value: 42 }));
-
-        let pr = ParseResult {
-            progress: Progress::None,
-            result: Ok(42),
-        };
-        let outcome: ParseOutcome<i32> = pr.into();
-        assert!(matches!(outcome, ParseOutcome::EmptyOk { value: 42 }));
-    }
-
     // === Macro Tests ===
     //
     // These tests verify the backtracking macros work correctly.
     // We use a simple mock parser that tracks position for snapshot/restore.
 
+    /// Mock cursor that tracks position, matching the `one_of!` macro's
+    /// expectation that `$self.cursor.position()` is available.
+    struct MockCursor {
+        position: usize,
+    }
+
+    impl MockCursor {
+        fn position(&self) -> usize {
+            self.position
+        }
+    }
+
     /// Mock parser for testing macros
     struct MockParser {
-        position: usize,
+        cursor: MockCursor,
     }
 
     impl MockParser {
         fn new() -> Self {
-            Self { position: 0 }
+            Self {
+                cursor: MockCursor { position: 0 },
+            }
         }
 
         fn snapshot(&self) -> MockSnapshot {
             MockSnapshot {
-                position: self.position,
+                position: self.cursor.position,
             }
         }
 
@@ -965,15 +913,15 @@ mod tests {
             reason = "matches macro API which clones"
         )]
         fn restore(&mut self, snap: MockSnapshot) {
-            self.position = snap.position;
+            self.cursor.position = snap.position;
         }
 
         fn position(&self) -> usize {
-            self.position
+            self.cursor.position
         }
 
         fn advance(&mut self) {
-            self.position += 1;
+            self.cursor.position += 1;
         }
 
         /// Parse something that succeeds after consuming
@@ -993,19 +941,25 @@ mod tests {
 
         /// Parse something that fails without consuming (soft error)
         fn parse_soft_fail(&mut self) -> ParseOutcome<i32> {
-            ParseOutcome::empty_err(TokenSet::new().with(TokenKind::LParen), self.position)
+            ParseOutcome::empty_err(
+                TokenSet::new().with(TokenKind::LParen),
+                self.cursor.position,
+            )
         }
 
         /// Parse something that fails after consuming (hard error)
         #[expect(clippy::cast_possible_truncation, reason = "test position fits in u32")]
         fn parse_hard_fail(&mut self) -> ParseOutcome<i32> {
             self.advance();
-            ParseOutcome::consumed_err(make_error(), Span::new(self.position as u32, 1))
+            ParseOutcome::consumed_err(make_error(), Span::new(self.cursor.position as u32, 1))
         }
 
         /// Parse something that fails with a different expected token
         fn parse_soft_fail_bracket(&mut self) -> ParseOutcome<i32> {
-            ParseOutcome::empty_err(TokenSet::new().with(TokenKind::LBracket), self.position)
+            ParseOutcome::empty_err(
+                TokenSet::new().with(TokenKind::LBracket),
+                self.cursor.position,
+            )
         }
     }
 

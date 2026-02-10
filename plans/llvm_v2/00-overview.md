@@ -202,7 +202,7 @@ No existing module needs modification. No giant match arms to extend.
 
 ## Implementation Progress
 
-> Last updated: 2026-02-08. ori_arc crate: 279 tests passing. Full test suite: 8,288 passed, 0 failed.
+> Last updated: 2026-02-09. ori_arc crate: 279 tests passing. Full test suite: 8,434 passed, 0 failed.
 
 | Section | Status | Implementation |
 |---------|--------|----------------|
@@ -225,8 +225,9 @@ No existing module needs modification. No giant match arms to extend.
 ## Dependencies
 
 ```
-ori_arc depends on:  ori_ir (ExprArena, ExprKind), ori_types (Pool, Idx)
+ori_arc depends on:  ori_ir (ExprArena, ExprKind, CanExpr, CanArena), ori_types (Pool, Idx)
 ori_llvm depends on: ori_arc, ori_ir, ori_types, ori_rt (RC runtime: ori_rc_inc, ori_rc_dec, ori_rc_alloc, ori_rc_free)
+ori_canon depends on: ori_ir, ori_types, ori_arc (decision tree compilation)
 
 Tier 1 (ori_llvm foundation) depends on: ori_ir, ori_types
 Tier 2 (ori_arc)             depends on: ori_ir, ori_types
@@ -247,6 +248,19 @@ The V2 architecture can be built incrementally alongside the existing `ori_llvm`
 5. **Phase 5**: Remove old `Builder` code, the `codegen_v2` feature flag, and the existing backend trait abstraction (`BackendTypes`, `TypeMethods`, `BuilderMethods`, `CodegenMethods`) — these are replaced by direct LLVM implementation without the indirection layer (YAGNI — only one backend).
 
 Each phase is independently testable and doesn't break existing functionality.
+
+### eval_v2 Section 07.1 (Complete — 2026-02-09)
+
+The evaluator migration (eval_v2 Section 07.1) made `CanExpr` fully self-contained with zero `ExprArena` back-references. Key changes relevant to LLVM/ARC migration:
+
+- **`CanBindingPattern`**, **`CanParam`**, **`CanNamedExpr`** replace ExprArena-indexed types
+- **`FunctionSeq`** desugared to `Block`/`Match` during lowering (no `FunctionSeqId`)
+- **`Cast { target: Name }`** replaces `ParsedTypeId` (LLVM backend uses `CanNode.ty` for resolved type)
+- **`lower_module()`** canonicalizes all function bodies into one `CanArena` with named roots
+- **Multi-clause functions** compiled to synthesized `CanExpr::Match` with decision trees — `Value::MultiClauseFunction` eliminated
+- **Decision tree guards** use `CanId` (not `ExprId`)
+
+The LLVM/ARC migration (eval_v2 Section 07.2) can now consume `CanonResult` directly — `ori_arc` needs to update its lowering to read from `CanArena` instead of `ExprArena`.
 
 ### Backend Trait Removal (Phase 5)
 

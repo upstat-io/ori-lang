@@ -6,6 +6,13 @@
 use super::cursor::Cursor;
 use ori_ir::TokenKind;
 
+// Compile-time assertion: TokenSet uses a u128 bitset, so all discriminant
+// indices must fit in 0..127. If this fails, TokenSet needs a wider backing type.
+const _: () = assert!(
+    ori_ir::TokenTag::MAX_DISCRIMINANT <= 127,
+    "TokenSet uses u128 bitset; all discriminant indices must be < 128"
+);
+
 /// A set of token kinds using bitset representation for O(1) membership testing.
 ///
 /// Each bit in the u128 corresponds to a `TokenKind` discriminant index.
@@ -247,14 +254,25 @@ pub fn synchronize_counted(cursor: &mut Cursor<'_>, recovery: TokenSet) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ori_ir::StringInterner;
+    use ori_ir::{StringInterner, TokenList};
 
-    fn make_cursor(source: &str) -> (Cursor<'static>, StringInterner) {
-        let interner = StringInterner::new();
-        let tokens = ori_lexer::lex(source, &interner);
-        let tokens = Box::leak(Box::new(tokens));
-        let interner = Box::leak(Box::new(interner));
-        (Cursor::new(tokens, interner), StringInterner::new())
+    /// Owns the token list and interner so `Cursor` can borrow them
+    /// without `Box::leak`.
+    struct TestCtx {
+        tokens: TokenList,
+        interner: StringInterner,
+    }
+
+    impl TestCtx {
+        fn new(source: &str) -> Self {
+            let interner = StringInterner::new();
+            let tokens = ori_lexer::lex(source, &interner);
+            Self { tokens, interner }
+        }
+
+        fn cursor(&self) -> Cursor<'_> {
+            Cursor::new(&self.tokens, &self.interner)
+        }
     }
 
     #[test]
@@ -343,7 +361,8 @@ mod tests {
 
     #[test]
     fn test_synchronize_to_function() {
-        let (mut cursor, _) = make_cursor("let x = broken + @next_func () -> int = 42");
+        let ctx = TestCtx::new("let x = broken + @next_func () -> int = 42");
+        let mut cursor = ctx.cursor();
 
         // Start parsing, encounter error, need to sync
         cursor.advance(); // let
@@ -360,7 +379,8 @@ mod tests {
 
     #[test]
     fn test_synchronize_to_expr_follow() {
-        let (mut cursor, _) = make_cursor("(broken + , next)");
+        let ctx = TestCtx::new("(broken + , next)");
+        let mut cursor = ctx.cursor();
 
         cursor.advance(); // (
         cursor.advance(); // broken
@@ -374,7 +394,8 @@ mod tests {
 
     #[test]
     fn test_synchronize_eof() {
-        let (mut cursor, _) = make_cursor("let x = 42");
+        let ctx = TestCtx::new("let x = 42");
+        let mut cursor = ctx.cursor();
 
         // Try to sync to non-existent token
         let found = synchronize(&mut cursor, FUNCTION_BOUNDARY);
@@ -384,7 +405,8 @@ mod tests {
 
     #[test]
     fn test_synchronize_counted() {
-        let (mut cursor, _) = make_cursor("a b c @func");
+        let ctx = TestCtx::new("a b c @func");
+        let mut cursor = ctx.cursor();
 
         let result = synchronize_counted(&mut cursor, FUNCTION_BOUNDARY);
         assert_eq!(result, Some(3)); // Skipped: a, b, c

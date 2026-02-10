@@ -425,7 +425,8 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     let file = SourceFile::new(&db, PathBuf::from(path), content.to_string());
 
     // Check for parse and type errors
-    let Some((parse_result, type_result, pool)) = check_source(&db, file, path) else {
+    let Some((parse_result, type_result, pool, canon_result)) = check_source(&db, file, path)
+    else {
         std::process::exit(1)
     };
 
@@ -441,7 +442,15 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     // This is the Salsa/ArtifactCache boundary: Salsa queries (tokens → parsed →
     // typed) are done; codegen uses ArtifactCache for incremental caching.
     let context = Context::create();
-    let llvm_module = compile_to_llvm(&context, &db, &parse_result, &type_result, &pool, path);
+    let llvm_module = compile_to_llvm(
+        &context,
+        &db,
+        &parse_result,
+        &type_result,
+        &pool,
+        &canon_result,
+        path,
+    );
 
     // Configure module for target
     let emitter = ObjectEmitter::new(&target).unwrap_or_else(|e| report_codegen_error(e));
@@ -807,7 +816,8 @@ fn compile_single_module(
 
     // Load and check the source
     let file = SourceFile::new(ctx.db, source_path.to_path_buf(), content);
-    let (parse_result, type_result, pool) = check_source(ctx.db, file, &source_path_str)?;
+    let (parse_result, type_result, pool, canon_result) =
+        check_source(ctx.db, file, &source_path_str)?;
 
     // Extract public function signatures with actual types from type checking
     let public_functions = extract_public_function_types(
@@ -837,6 +847,7 @@ fn compile_single_module(
         &parse_result,
         &type_result,
         &pool,
+        &canon_result,
         &source_path_str,
         &module_name,
         &imported_functions,

@@ -8,7 +8,6 @@ mod error;
 mod grammar;
 pub mod incremental;
 mod outcome;
-mod progress;
 mod recovery;
 pub mod series;
 mod snapshot;
@@ -20,7 +19,6 @@ pub use context::ParseContext;
 pub use cursor::Cursor;
 pub use error::{DetachmentReason, ErrorContext, ParseError, ParseWarning};
 pub use outcome::ParseOutcome;
-pub use progress::{ParseResult, Progress, WithProgress};
 pub use recovery::{synchronize, TokenSet, FUNCTION_BOUNDARY, STMT_BOUNDARY};
 pub use series::{SeriesConfig, TrailingSeparator};
 pub use snapshot::ParserSnapshot;
@@ -30,8 +28,8 @@ pub use snapshot::ParserSnapshot;
 // They're automatically available at crate root via #[macro_export]
 
 use ori_ir::{
-    ExprArena, Function, Module, ModuleExtra, Name, Span, StringInterner, TestDef, Token,
-    TokenKind, TokenList, Visibility,
+    ExprArena, Function, Module, ModuleExtra, Span, StringInterner, TestDef, TokenKind, TokenList,
+    Visibility,
 };
 use tracing::debug;
 
@@ -47,7 +45,7 @@ pub(crate) use grammar::ParsedAttrs;
 
 /// Parser state.
 pub struct Parser<'a> {
-    cursor: Cursor<'a>,
+    pub(crate) cursor: Cursor<'a>,
     arena: ExprArena,
     /// Current parsing context flags.
     pub(crate) context: ParseContext,
@@ -174,7 +172,7 @@ impl<'a> Parser<'a> {
     /// ```ignore
     /// fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
     ///     self.in_error_context(ErrorContext::IfExpression, |p| {
-    ///         p.expect(&TokenKind::If)?;
+    ///         p.cursor.expect(&TokenKind::If)?;
     ///         let cond = p.parse_expr()?;
     ///         // ...
     ///     })
@@ -197,149 +195,11 @@ impl<'a> Parser<'a> {
         f(self).with_error_context(context)
     }
 
-    /// Cursor delegation methods - delegate to the underlying Cursor for token navigation.
-    #[inline]
-    fn current(&self) -> &Token {
-        self.cursor.current()
-    }
-
-    /// Get the discriminant tag of the current token (fast u8 lookup).
-    #[inline]
-    fn current_tag(&self) -> u8 {
-        self.cursor.current_tag()
-    }
-
-    #[inline]
-    fn current_kind(&self) -> &TokenKind {
-        self.cursor.current_kind()
-    }
-
-    #[inline]
-    fn current_span(&self) -> Span {
-        self.cursor.current_span()
-    }
-
-    #[inline]
-    fn previous_span(&self) -> Span {
-        self.cursor.previous_span()
-    }
-
-    #[inline]
-    fn is_at_end(&self) -> bool {
-        self.cursor.is_at_end()
-    }
-
-    #[inline]
-    fn check(&self, kind: &TokenKind) -> bool {
-        self.cursor.check(kind)
-    }
-
-    #[inline]
-    fn check_ident(&self) -> bool {
-        self.cursor.check_ident()
-    }
-
-    #[inline]
-    fn check_type_keyword(&self) -> bool {
-        self.cursor.check_type_keyword()
-    }
-
-    #[inline]
-    fn peek_next_kind(&self) -> &TokenKind {
-        self.cursor.peek_next_kind()
-    }
-
-    #[inline]
-    fn next_is_lparen(&self) -> bool {
-        self.cursor.next_is_lparen()
-    }
-
-    #[inline]
-    fn next_is_colon(&self) -> bool {
-        self.cursor.next_is_colon()
-    }
-
-    #[inline]
-    fn is_named_arg_start(&self) -> bool {
-        self.cursor.is_named_arg_start()
-    }
-
-    #[inline]
-    fn is_with_capability_syntax(&self) -> bool {
-        self.cursor.is_with_capability_syntax()
-    }
-
-    #[inline]
-    fn soft_keyword_to_name(&self) -> Option<&'static str> {
-        self.cursor.soft_keyword_to_name()
-    }
-
-    /// Check if looking at `>` followed immediately by `>` (no whitespace).
-    /// Used for detecting `>>` shift operator in expression context.
-    #[inline]
-    fn is_shift_right(&self) -> bool {
-        self.cursor.is_shift_right()
-    }
-
-    /// Check if looking at `>` followed immediately by `=` (no whitespace).
-    /// Used for detecting `>=` comparison operator in expression context.
-    #[inline]
-    fn is_greater_equal(&self) -> bool {
-        self.cursor.is_greater_equal()
-    }
-
-    #[inline]
-    fn advance(&mut self) -> &Token {
-        self.cursor.advance()
-    }
-
-    #[inline]
-    fn skip_newlines(&mut self) {
-        self.cursor.skip_newlines();
-    }
-
-    #[inline]
-    fn expect(&mut self, kind: &TokenKind) -> Result<&Token, ParseError> {
-        self.cursor.expect(kind)
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Token Capture
-    // ─────────────────────────────────────────────────────────────────────────
+    // --- Token Capture ---
     //
     // These methods support lazy token capture for formatters and future macros.
     // Instead of storing tokens directly, we capture index ranges into the
     // cached TokenList, which is very memory efficient.
-
-    /// Mark the current position for starting a token capture.
-    ///
-    /// Use with `complete_capture()` to capture a range of tokens:
-    /// ```ignore
-    /// let start = parser.start_capture();
-    /// let expr = parser.parse_expr()?;
-    /// let capture = parser.complete_capture(start);
-    /// ```
-    #[inline]
-    #[allow(dead_code)] // Infrastructure for formatters and future macros
-    pub(crate) fn start_capture(&self) -> u32 {
-        self.cursor.start_capture()
-    }
-
-    /// Complete a token capture from a start position.
-    ///
-    /// Returns `TokenCapture::None` if no tokens were consumed.
-    #[inline]
-    #[allow(dead_code)] // Infrastructure for formatters and future macros
-    pub(crate) fn complete_capture(&self, start: u32) -> ori_ir::TokenCapture {
-        self.cursor.complete_capture(start)
-    }
-
-    /// Get the token list for accessing captured ranges.
-    #[inline]
-    #[allow(dead_code)] // Infrastructure for formatters and future macros
-    pub(crate) fn tokens(&self) -> &TokenList {
-        self.cursor.tokens()
-    }
 
     /// Execute a parser and capture its tokens.
     ///
@@ -358,9 +218,9 @@ impl<'a> Parser<'a> {
     where
         F: FnOnce(&mut Self) -> T,
     {
-        let start = self.start_capture();
+        let start = self.cursor.start_capture();
         let result = f(self);
-        let capture = self.complete_capture(start);
+        let capture = self.cursor.complete_capture(start);
         (result, capture)
     }
 
@@ -394,12 +254,12 @@ impl<'a> Parser<'a> {
 
     /// Check if the current token matches any kind in the set.
     ///
-    /// Unlike `check()`, this tests against multiple token kinds at once.
+    /// Unlike `cursor.check()`, this tests against multiple token kinds at once.
     /// Returns `true` if any match is found.
     #[inline]
     #[allow(dead_code)] // Infrastructure for enhanced error messages
     pub(crate) fn check_one_of(&self, expected: &TokenSet) -> bool {
-        expected.contains(self.current_kind())
+        expected.contains(self.cursor.current_kind())
     }
 
     /// Expect one of several token kinds, generating a helpful error if none match.
@@ -411,9 +271,9 @@ impl<'a> Parser<'a> {
     #[cold]
     #[allow(dead_code)] // Infrastructure for enhanced error messages
     pub(crate) fn expect_one_of(&mut self, expected: &TokenSet) -> Result<TokenKind, ParseError> {
-        let current = self.current_kind().clone();
+        let current = self.cursor.current_kind().clone();
         if expected.contains(&current) {
-            self.advance();
+            self.cursor.advance();
             Ok(current)
         } else {
             Err(ParseError::new(
@@ -423,34 +283,9 @@ impl<'a> Parser<'a> {
                     expected.format_expected(),
                     current.display_name()
                 ),
-                self.current_span(),
+                self.cursor.current_span(),
             ))
         }
-    }
-
-    #[inline]
-    fn expect_ident(&mut self) -> Result<Name, ParseError> {
-        self.cursor.expect_ident()
-    }
-
-    #[inline]
-    fn expect_ident_or_keyword(&mut self) -> Result<Name, ParseError> {
-        self.cursor.expect_ident_or_keyword()
-    }
-
-    /// Get access to the string interner.
-    #[inline]
-    fn interner(&self) -> &StringInterner {
-        self.cursor.interner()
-    }
-
-    /// Get the current position in the token stream.
-    ///
-    /// Used for progress tracking - compare positions before and after
-    /// parsing to determine if tokens were consumed.
-    #[inline]
-    pub(crate) fn position(&self) -> usize {
-        self.cursor.position()
     }
 
     // --- Speculative Parsing (Snapshots) ---
@@ -473,7 +308,7 @@ impl<'a> Parser<'a> {
     /// ```ignore
     /// let snapshot = self.snapshot();
     /// // Try parsing as type
-    /// if self.parse_type().is_ok() && self.check(&TokenKind::Eq) {
+    /// if self.parse_type().is_ok() && self.cursor.check(&TokenKind::Eq) {
     ///     // Commit: this is a type annotation
     /// } else {
     ///     // Rollback and try as expression
@@ -541,7 +376,7 @@ impl<'a> Parser<'a> {
     /// ```ignore
     /// // Check if this looks like a type annotation
     /// let is_type_annotation = self.look_ahead(|p| {
-    ///     p.parse_type().is_ok() && p.check(&TokenKind::Eq)
+    ///     p.parse_type().is_ok() && p.cursor.check(&TokenKind::Eq)
     /// });
     ///
     /// if is_type_annotation {
@@ -605,15 +440,15 @@ impl<'a> Parser<'a> {
         self.parse_imports(&mut module.imports, &mut errors);
 
         // Parse declarations (functions, tests, traits, impls, types, etc.)
-        while !self.is_at_end() {
-            self.skip_newlines();
-            if self.is_at_end() {
+        while !self.cursor.is_at_end() {
+            self.cursor.skip_newlines();
+            if self.cursor.is_at_end() {
                 break;
             }
 
             let attrs = self.parse_attributes(&mut errors);
-            let visibility = if self.check(&TokenKind::Pub) {
-                self.advance();
+            let visibility = if self.cursor.check(&TokenKind::Pub) {
+                self.cursor.advance();
                 Visibility::Public
             } else {
                 Visibility::Private
@@ -638,18 +473,18 @@ impl<'a> Parser<'a> {
     /// Imports must appear at the beginning of the file per spec.
     /// Parses both `use ...` and `pub use ...` (re-export) statements.
     fn parse_imports(&mut self, imports: &mut Vec<ori_ir::UseDef>, errors: &mut Vec<ParseError>) {
-        while !self.is_at_end() {
-            self.skip_newlines();
-            if self.is_at_end() {
+        while !self.cursor.is_at_end() {
+            self.cursor.skip_newlines();
+            if self.cursor.is_at_end() {
                 break;
             }
 
-            let is_pub_use =
-                self.check(&TokenKind::Pub) && matches!(self.peek_next_kind(), TokenKind::Use);
+            let is_pub_use = self.cursor.check(&TokenKind::Pub)
+                && matches!(self.cursor.peek_next_kind(), TokenKind::Use);
 
-            if self.check(&TokenKind::Use) || is_pub_use {
+            if self.cursor.check(&TokenKind::Use) || is_pub_use {
                 let visibility = if is_pub_use {
-                    self.advance();
+                    self.cursor.advance();
                     Visibility::Public
                 } else {
                     Visibility::Private
@@ -677,7 +512,7 @@ impl<'a> Parser<'a> {
         module: &mut Module,
         errors: &mut Vec<ParseError>,
     ) {
-        if self.check(&TokenKind::At) {
+        if self.cursor.check(&TokenKind::At) {
             let outcome = self.parse_function_or_test(attrs, visibility);
             match outcome {
                 ParseOutcome::ConsumedOk { value } | ParseOutcome::EmptyOk { value } => match value
@@ -693,7 +528,7 @@ impl<'a> Parser<'a> {
                     errors.push(ParseError::from_expected_tokens(&expected, position));
                 }
             }
-        } else if self.check(&TokenKind::Trait) {
+        } else if self.cursor.check(&TokenKind::Trait) {
             let outcome = self.parse_trait(visibility);
             self.handle_outcome(
                 outcome,
@@ -701,7 +536,9 @@ impl<'a> Parser<'a> {
                 errors,
                 Self::recover_to_function,
             );
-        } else if self.check(&TokenKind::Def) && matches!(self.peek_next_kind(), TokenKind::Impl) {
+        } else if self.cursor.check(&TokenKind::Def)
+            && matches!(self.cursor.peek_next_kind(), TokenKind::Impl)
+        {
             let outcome = self.parse_def_impl(visibility);
             self.handle_outcome(
                 outcome,
@@ -709,7 +546,7 @@ impl<'a> Parser<'a> {
                 errors,
                 Self::recover_to_function,
             );
-        } else if self.check(&TokenKind::Impl) {
+        } else if self.cursor.check(&TokenKind::Impl) {
             let outcome = self.parse_impl();
             self.handle_outcome(
                 outcome,
@@ -717,7 +554,7 @@ impl<'a> Parser<'a> {
                 errors,
                 Self::recover_to_function,
             );
-        } else if self.check(&TokenKind::Extend) {
+        } else if self.cursor.check(&TokenKind::Extend) {
             let outcome = self.parse_extend();
             self.handle_outcome(
                 outcome,
@@ -725,7 +562,7 @@ impl<'a> Parser<'a> {
                 errors,
                 Self::recover_to_function,
             );
-        } else if self.check(&TokenKind::Type) {
+        } else if self.cursor.check(&TokenKind::Type) {
             let outcome = self.parse_type_decl(attrs, visibility);
             self.handle_outcome(
                 outcome,
@@ -733,10 +570,10 @@ impl<'a> Parser<'a> {
                 errors,
                 Self::recover_to_function,
             );
-        } else if self.check(&TokenKind::Let) {
+        } else if self.cursor.check(&TokenKind::Let) {
             // `let $name = value` — constant declaration (spec §04-constants)
-            self.advance(); // consume `let`
-            if self.check(&TokenKind::Dollar) {
+            self.cursor.advance(); // consume `let`
+            if self.cursor.check(&TokenKind::Dollar) {
                 let outcome = self.parse_const(visibility);
                 self.handle_outcome(
                     outcome,
@@ -750,7 +587,7 @@ impl<'a> Parser<'a> {
                     ParseError::new(
                         ori_diagnostic::ErrorCode::E1002,
                         "module-level bindings must be immutable".to_string(),
-                        self.current_span(),
+                        self.cursor.current_span(),
                     )
                     .with_help(
                         "Use `let $name = value` with the `$` prefix for module-level constants"
@@ -759,7 +596,7 @@ impl<'a> Parser<'a> {
                 );
                 self.recover_to_function();
             }
-        } else if self.check(&TokenKind::Dollar) {
+        } else if self.cursor.check(&TokenKind::Dollar) {
             // Also accept `$name = value` without `let` for backwards compatibility
             let outcome = self.parse_const(visibility);
             self.handle_outcome(
@@ -768,41 +605,41 @@ impl<'a> Parser<'a> {
                 errors,
                 Self::recover_to_function,
             );
-        } else if self.check(&TokenKind::Use) {
+        } else if self.cursor.check(&TokenKind::Use) {
             // Import after declarations - error
             errors.push(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
                 "import statements must appear at the beginning of the file".to_string(),
-                self.current_span(),
+                self.cursor.current_span(),
             ));
             // Skip the entire use statement to avoid infinite loop
-            self.advance();
-            while !self.is_at_end()
-                && !self.check(&TokenKind::At)
-                && !self.check(&TokenKind::Trait)
-                && !self.check(&TokenKind::Impl)
-                && !self.check(&TokenKind::Type)
-                && !self.check(&TokenKind::Use)
+            self.cursor.advance();
+            while !self.cursor.is_at_end()
+                && !self.cursor.check(&TokenKind::At)
+                && !self.cursor.check(&TokenKind::Trait)
+                && !self.cursor.check(&TokenKind::Impl)
+                && !self.cursor.check(&TokenKind::Type)
+                && !self.cursor.check(&TokenKind::Use)
             {
-                self.advance();
+                self.cursor.advance();
             }
-        } else if self.current_tag() == TokenKind::TAG_ERROR {
+        } else if self.cursor.current_tag() == TokenKind::TAG_ERROR {
             // Error tokens from the lexer — skip without emitting a parse error.
             // The real diagnostic was already emitted by the lex error pipeline.
-            self.advance();
-        } else if self.check(&TokenKind::Return) {
+            self.cursor.advance();
+        } else if self.cursor.check(&TokenKind::Return) {
             // `return` is reserved so users get a targeted error, not "unexpected identifier"
             let kind = error::ParseErrorKind::UnsupportedKeyword {
                 keyword: TokenKind::Return,
                 reason: "Ori is expression-based: the last expression in a block is its value",
             };
-            errors.push(ParseError::from_kind(&kind, self.current_span()));
-            self.advance();
-        } else if self.current_tag() == TokenKind::TAG_IDENT {
+            errors.push(ParseError::from_kind(&kind, self.cursor.current_span()));
+            self.cursor.advance();
+        } else if self.cursor.current_tag() == TokenKind::TAG_IDENT {
             // Check for foreign keywords from other languages at declaration position.
             // e.g., `fn main()` → "use `@name (params) -> type = body` in Ori"
-            if let TokenKind::Ident(name) = *self.current_kind() {
-                let ident_str = self.interner().lookup(name);
+            if let TokenKind::Ident(name) = *self.cursor.current_kind() {
+                let ident_str = self.cursor.interner().lookup(name);
                 if let Some(suggestion) =
                     ori_lexer::foreign_keywords::lookup_foreign_keyword(ident_str)
                 {
@@ -810,50 +647,50 @@ impl<'a> Parser<'a> {
                         ParseError::new(
                             ori_diagnostic::ErrorCode::E1002,
                             format!("`{ident_str}` is not an Ori keyword"),
-                            self.current_span(),
+                            self.cursor.current_span(),
                         )
                         .with_help(String::from(suggestion)),
                     );
-                    self.advance();
+                    self.cursor.advance();
                     return;
                 }
             }
             // Not a foreign keyword — emit error for unexpected identifier
             if attrs.is_empty() {
                 let kind = error::ParseErrorKind::ExpectedDeclaration {
-                    found: self.current_kind().clone(),
+                    found: self.cursor.current_kind().clone(),
                 };
-                errors.push(ParseError::from_kind(&kind, self.current_span()));
+                errors.push(ParseError::from_kind(&kind, self.cursor.current_span()));
             } else {
                 errors.push(ParseError {
                     code: ori_diagnostic::ErrorCode::E1006,
                     message: "attributes must be followed by a function or test definition"
                         .to_string(),
-                    span: self.current_span(),
+                    span: self.cursor.current_span(),
                     context: None,
                     help: Vec::new(),
                     severity: ori_diagnostic::queue::DiagnosticSeverity::Hard,
                 });
             }
-            self.advance();
+            self.cursor.advance();
         } else if !attrs.is_empty() {
             // Attributes without a following function/test
             errors.push(ParseError {
                 code: ori_diagnostic::ErrorCode::E1006,
                 message: "attributes must be followed by a function or test definition".to_string(),
-                span: self.current_span(),
+                span: self.cursor.current_span(),
                 context: None,
                 help: Vec::new(),
                 severity: ori_diagnostic::queue::DiagnosticSeverity::Hard,
             });
-            self.advance();
+            self.cursor.advance();
         } else {
             // Unknown token at module level — not a valid declaration start
             let kind = error::ParseErrorKind::ExpectedDeclaration {
-                found: self.current_kind().clone(),
+                found: self.cursor.current_kind().clone(),
             };
-            errors.push(ParseError::from_kind(&kind, self.current_span()));
-            self.advance();
+            errors.push(ParseError::from_kind(&kind, self.cursor.current_span()));
+            self.cursor.advance();
         }
     }
 
@@ -884,13 +721,13 @@ impl<'a> Parser<'a> {
         self.parse_imports(&mut module.imports, &mut errors);
 
         // Parse remaining declarations with potential reuse
-        while !self.is_at_end() {
-            self.skip_newlines();
-            if self.is_at_end() {
+        while !self.cursor.is_at_end() {
+            self.cursor.skip_newlines();
+            if self.cursor.is_at_end() {
                 break;
             }
 
-            let pos = self.current_span().start;
+            let pos = self.cursor.current_span().start;
 
             // Try to find a reusable declaration at this position
             if let Some(decl_ref) = state.cursor.find_at(pos) {
@@ -954,8 +791,8 @@ impl<'a> Parser<'a> {
             state.stats.reparsed_count += 1;
 
             let attrs = self.parse_attributes(&mut errors);
-            let visibility = if self.check(&TokenKind::Pub) {
-                self.advance();
+            let visibility = if self.cursor.check(&TokenKind::Pub) {
+                self.cursor.advance();
                 Visibility::Public
             } else {
                 Visibility::Private
@@ -983,8 +820,8 @@ impl<'a> Parser<'a> {
         // Adjust the span end for the change delta to get the new end position
         let adjusted_end = self.cursor.current_span().start.max(span.end);
 
-        while !self.is_at_end() && self.current_span().start < adjusted_end {
-            self.advance();
+        while !self.cursor.is_at_end() && self.cursor.current_span().start < adjusted_end {
+            self.cursor.advance();
         }
     }
 }
@@ -1166,13 +1003,14 @@ pub fn parse_incremental(
 ///
 /// This is used to determine how far back to extend the change region
 /// for lookahead safety. Returns 0 if no token ends before `pos`.
+///
+/// Uses binary search (O(log n)) since tokens are sorted by span position.
 fn find_token_end_before(tokens: &TokenList, pos: u32) -> u32 {
-    let mut prev_end = 0u32;
-    for token in tokens.iter() {
-        if token.span.start >= pos {
-            break;
-        }
-        prev_end = token.span.end;
+    let slice = tokens.as_slice();
+    let idx = slice.partition_point(|t| t.span.start < pos);
+    if idx > 0 {
+        slice[idx - 1].span.end
+    } else {
+        0
     }
-    prev_end
 }

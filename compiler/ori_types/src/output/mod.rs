@@ -12,7 +12,7 @@
 //! Uses [`Idx`] (pool-based) instead of `TypeId` (legacy interning).
 
 use ori_diagnostic::ErrorGuaranteed;
-use ori_ir::{Name, Span};
+use ori_ir::{ExprId, Name, Span};
 
 use crate::registry::TypeEntry;
 use crate::{Idx, TypeCheckError};
@@ -244,6 +244,13 @@ pub struct FunctionSig {
     ///
     /// A call is valid if `required_params <= num_args <= param_types.len()`.
     pub required_params: usize,
+
+    /// Default expressions for each parameter (parallel to `param_names`/`param_types`).
+    ///
+    /// `Some(expr_id)` if the parameter has a default value expression in the source AST,
+    /// `None` if the parameter is required. Used by the canonicalizer to fill in omitted
+    /// arguments when desugaring `CallNamed` to positional `Call`.
+    pub param_defaults: Vec<Option<ExprId>>,
 }
 
 /// A where-clause constraint on a function.
@@ -279,6 +286,7 @@ impl FunctionSig {
             where_clauses: Vec::new(),
             generic_param_mapping: Vec::new(),
             required_params,
+            param_defaults: Vec::new(),
         }
     }
 
@@ -428,6 +436,7 @@ mod tests {
             where_clauses: vec![],
             generic_param_mapping: vec![None],
             required_params: 1,
+            param_defaults: vec![],
         };
 
         assert!(sig.is_generic());

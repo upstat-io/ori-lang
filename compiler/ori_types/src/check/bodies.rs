@@ -346,6 +346,8 @@ fn check_impl_method(
     // Export impl method signature for codegen.
     // Codegen needs param_types, return_type, and type_params to compute ABI.
     let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
+    let param_defaults: Vec<Option<ori_ir::ExprId>> = params.iter().map(|p| p.default).collect();
+    let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
     let sig = FunctionSig {
         name: method.name,
         type_params: type_params.to_vec(),
@@ -359,7 +361,8 @@ fn check_impl_method(
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
-        required_params: params.len(),
+        required_params,
+        param_defaults,
     };
     checker.register_impl_sig(method.name, sig);
 }

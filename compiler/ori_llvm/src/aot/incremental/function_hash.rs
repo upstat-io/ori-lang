@@ -211,6 +211,7 @@ mod tests {
             where_clauses: vec![],
             generic_param_mapping: vec![],
             required_params: 0,
+            param_defaults: vec![],
         }
     }
 
@@ -270,6 +271,7 @@ mod tests {
                 where_clauses: vec![],
                 generic_param_mapping: vec![],
                 required_params: 0,
+                param_defaults: vec![],
             },
         ];
 
