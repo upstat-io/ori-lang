@@ -1,5 +1,7 @@
 # LLVM V2: Best-of-Breed Codegen Architecture
 
+> **Status: COMPLETE** — Closed 2026-02-10. All 15 sections done. ori_arc: 279 tests, full suite: 8,434 passed. Deferred items (01.6 heap layout docs, 12.6 multi-file integration) tracked in main roadmap.
+>
 > **Description**: Replace the current monolithic `ori_llvm` codegen with a layered, modular architecture synthesized from patterns across Rust, Zig, Roc, Swift, Koka, Lean 4, Go, Gleam, and TypeScript compilers. The result is a highly extensible, ARC-aware codegen pipeline where adding new LLVM features is straightforward, each module has a single responsibility, and ARC optimization happens at the right abstraction level.
 >
 > **Primary Goal**: Make LLVM extension *easy*. Every new Ori language feature should map to a focused codegen module with clear inputs, outputs, and testing patterns. No more struggling with LLVM.

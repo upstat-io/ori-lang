@@ -69,18 +69,26 @@ sections:
 - [ ] **Implement**: Type check struct literals — spec/06-types.md § Struct Types
   - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — struct literal type checking
   - [ ] **Ori Tests**: `tests/spec/types/struct.ori`
+  - [ ] **LLVM Support**: LLVM codegen for struct literal construction
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — struct literal codegen
 
 - [ ] **Implement**: Shorthand `Point { x, y }` — spec/06-types.md § Struct Types
   - [ ] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — shorthand parsing
   - [ ] **Ori Tests**: `tests/spec/types/struct.ori`
+  - [ ] **LLVM Support**: LLVM codegen for shorthand struct construction
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — shorthand struct codegen
 
 - [ ] **Implement**: Field access — spec/06-types.md § Struct Types
   - [ ] **Rust Tests**: `oric/src/typeck/infer/postfix.rs` — field access type inference
   - [ ] **Ori Tests**: `tests/spec/types/struct.ori`
+  - [ ] **LLVM Support**: LLVM codegen for struct field access
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — field access codegen
 
 - [ ] **Implement**: Destructuring — spec/09-expressions.md § Destructuring
   - [ ] **Rust Tests**: Parser in `ori_parse/src/grammar/expr/primary.rs` — `parse_binding_pattern()`
   - [ ] **Ori Tests**: `tests/spec/expressions/bindings.ori` — 8 new tests for struct/list/tuple destructuring
+  - [ ] **LLVM Support**: LLVM codegen for struct destructuring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — destructuring codegen
 
 ---
 

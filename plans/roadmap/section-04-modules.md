@@ -63,6 +63,8 @@ sections:
 - [ ] **Implement**: Module structure — spec/12-modules.md § Module Structure
   - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — module loading tests
   - [ ] **Ori Tests**: `tests/spec/modules/use_imports.ori`
+  - [ ] **LLVM Support**: LLVM codegen for module loading
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — module loading codegen
 
 - [ ] **Implement**: Module corresponds to file — spec/12-modules.md § Module Structure
   - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — file mapping tests
@@ -181,6 +183,8 @@ sections:
 - [ ] **Implement**: Qualified access — spec/12-modules.md § Qualified Access
   - [ ] **Rust Tests**: `oric/src/eval/` — qualified access evaluation
   - [ ] **Ori Tests**: `tests/spec/modules/qualified.ori`
+  - [ ] **LLVM Support**: LLVM codegen for qualified access dispatch
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — qualified access codegen
   - Note: Runtime evaluation complete; type checker needs ModuleNamespace support
 
 ---
@@ -202,26 +206,36 @@ sections:
 - [ ] **Implement**: Types: `Option`, `Result`, `Error`, `Ordering` — spec/12-modules.md § Prelude
   - [ ] **Rust Tests**: `oric/src/eval/` — built-in type tests
   - [ ] **Ori Tests**: Option/Result used throughout `tests/spec/`
+  - [ ] **LLVM Support**: LLVM codegen for prelude type representations
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude type codegen
 
 - [ ] **Implement**: Built-in functions: `print`, `panic`, `int`, `float`, `str`, `byte` — spec/12-modules.md § Prelude
   - [ ] **Rust Tests**: `oric/src/eval/evaluator/` — `register_prelude()` tests
   - [ ] **Ori Tests**: Built-ins used throughout test suite
+  - [ ] **LLVM Support**: LLVM codegen for built-in functions
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — built-in function codegen
 
 - [ ] **Implement**: Built-in methods: `.len()`, `.is_empty()`, `.is_some()`, etc. — Lean Core
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — method dispatch tests
   - [ ] **Ori Tests**: `tests/spec/traits/core/` — method tests
+  - [ ] **LLVM Support**: LLVM codegen for built-in methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — built-in method codegen
 
 - [ ] **Implement**: Auto-import prelude from `library/std/prelude.ori` — spec/12-modules.md § Prelude
   - [ ] `Evaluator::load_prelude()` auto-loads prelude before any module
   - [ ] All public functions from prelude available without import
   - [ ] **Rust Tests**: `oric/src/eval/evaluator/` — prelude loading tests
   - [ ] **Ori Tests**: `test_autoload.ori` verifies assert_eq, is_some work without import
+  - [ ] **LLVM Support**: LLVM codegen for prelude auto-loading
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude loading codegen
 
 - [ ] **Implement**: Prelude functions auto-available
   - [ ] `assert`, `assert_eq`, `assert_ne`, `assert_some`, `assert_none`, `assert_ok`, `assert_err`
   - [ ] `is_some`, `is_none`, `is_ok`, `is_err`
   - [ ] `len`, `is_empty`
   - [ ] `compare`, `min`, `max`
+  - [ ] **LLVM Support**: LLVM codegen for prelude functions
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude function codegen
   - Note: Trait definitions in prelude (Eq, Comparable, etc.) parse but need Section 3 for full integration
 
 ---

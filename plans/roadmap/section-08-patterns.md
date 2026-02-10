@@ -80,6 +80,8 @@ The spec formalizes two distinct pattern categories:
 - [ ] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/10-patterns.md § run
   - [ ] **Rust Tests**: `oric/src/patterns/run.rs` — run pattern execution tests
   - [ ] **Ori Tests**: `tests/spec/patterns/run.ori` — 7 tests pass
+  - [ ] **LLVM Support**: LLVM codegen for run pattern
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — run pattern codegen
 
 - [ ] **Implement**: Binding `let [ "mut" ] identifier [ ":" type ] "=" expression` — spec/10-patterns.md § run
 - [ ] **Implement**: Evaluate each binding in order — spec/10-patterns.md § run
@@ -93,6 +95,8 @@ The spec formalizes two distinct pattern categories:
 - [ ] **Implement**: Grammar `try_expr = "try" "(" { binding "," } expression ")"` — spec/10-patterns.md § try
   - [ ] **Rust Tests**: `oric/src/patterns/try.rs` — try pattern execution tests
   - [ ] **Ori Tests**: `tests/spec/patterns/try.ori` — 5 tests pass
+  - [ ] **LLVM Support**: LLVM codegen for try pattern
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — try pattern codegen
 
 - [ ] **Implement**: Binding with `Result<T, E>` gives variable type `T` — spec/10-patterns.md § try
 - [ ] **Implement**: If `Err(e)`, return immediately — spec/10-patterns.md § try
@@ -217,6 +221,8 @@ The spec formalizes two distinct pattern categories:
 - [ ] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § parallel
   - [ ] **Rust Tests**: `oric/src/patterns/parallel.rs` — parallel pattern execution tests
   - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 6 tests pass
+  - [ ] **LLVM Support**: LLVM codegen for parallel pattern
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — parallel pattern codegen
 
 - [ ] **Implement**: Returns `[Result<T, E>]` — spec/10-patterns.md § parallel
 - [ ] **Implement**: Optional `.timeout:` (per-task) — spec/10-patterns.md § parallel
@@ -232,6 +238,8 @@ The spec formalizes two distinct pattern categories:
 - [ ] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § spawn
   - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — spawn pattern execution tests
   - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 3 tests pass
+  - [ ] **LLVM Support**: LLVM codegen for spawn pattern
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — spawn pattern codegen
 
 - [ ] **Implement**: Returns `void` — spec/10-patterns.md § spawn
 - [ ] **Implement**: Optional `.max_concurrent:` — spec/10-patterns.md § spawn
@@ -245,6 +253,8 @@ The spec formalizes two distinct pattern categories:
 - [ ] **Implement**: `.operation:` property — spec/10-patterns.md § timeout
   - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — timeout pattern execution tests
   - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 4 tests pass
+  - [ ] **LLVM Support**: LLVM codegen for timeout pattern
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — timeout pattern codegen
 
 - [ ] **Implement**: `.after:` property — spec/10-patterns.md § timeout
 - [ ] **Implement**: Return `Result<T, TimeoutError>` — spec/10-patterns.md § timeout
@@ -401,6 +411,8 @@ The spec formalizes two distinct pattern categories:
 - [ ] **Implement**: `.over:` property — spec/10-patterns.md § for
   - [ ] **Rust Tests**: `oric/src/patterns/for.rs` — for pattern execution tests
   - [ ] **Ori Tests**: `tests/spec/patterns/for.ori` — 8 tests pass
+  - [ ] **LLVM Support**: LLVM codegen for for pattern
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — for pattern codegen
 
 - [ ] **Implement**: Optional `.map:` property — spec/10-patterns.md § for
 - [ ] **Implement**: `.match:` property — spec/10-patterns.md § for

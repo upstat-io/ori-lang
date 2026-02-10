@@ -67,10 +67,14 @@ sections:
 - [ ] **Implement**: `uses` clause — spec/14-capabilities.md § Capability Declaration, design/14-capabilities/02-uses-clause.md
   - [ ] **Rust Tests**: `ori_parse/src/lib.rs` — uses clause parsing (4 tests)
   - [ ] **Ori Tests**: `tests/spec/capabilities/declaration.ori` (3 tests)
+  - [ ] **LLVM Support**: LLVM codegen for `uses` clause in function signatures
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — uses clause codegen
 
 - [ ] **Implement**: Multiple capabilities — spec/14-capabilities.md § Multiple Capabilities
   - [ ] **Rust Tests**: `ori_parse/src/lib.rs` — multiple capabilities parsing
   - [ ] **Ori Tests**: `tests/spec/capabilities/declaration.ori` — @save_and_log example
+  - [ ] **LLVM Support**: LLVM codegen for multiple capabilities in function signatures
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — multiple capabilities codegen
 
 ---
 
@@ -79,6 +83,8 @@ sections:
 - [ ] **Implement**: Capability traits — spec/14-capabilities.md § Capability Traits
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability trait validation
   - [ ] **Ori Tests**: `tests/spec/capabilities/traits.ori` — 5 tests for capability traits
+  - [ ] **LLVM Support**: LLVM codegen for capability trait dispatch
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — capability traits codegen
 
 ---
 
@@ -89,6 +95,8 @@ sections:
 - [ ] **Implement**: Explicit suspension declaration — spec/14-capabilities.md § Suspend Capability
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 4 tests (marker trait, signature storage, combined capabilities, sync function)
   - [ ] **Ori Tests**: `tests/spec/capabilities/suspend.ori` (5 tests)
+  - [ ] **LLVM Support**: LLVM codegen for explicit suspension declaration
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — suspend capability codegen
 
 - [ ] **Implement**: Sync vs suspending behavior — spec/14-capabilities.md § Suspend Capability
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_sync_function_no_suspend_capability`
@@ -114,10 +122,14 @@ sections:
   - [ ] **Rust Tests**: `ori_parse/src/lib.rs` — with expression parsing (3 tests)
   - [ ] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — with expression evaluation
   - [ ] **Ori Tests**: `tests/spec/capabilities/providing.ori` (7 tests)
+  - [ ] **LLVM Support**: LLVM codegen for `with...in` capability binding
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — with-in expression codegen
 
 - [ ] **Implement**: Scoping — spec/14-capabilities.md § Capability Scoping
   - [ ] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — capability scoping via push_scope/pop_scope
   - [ ] **Ori Tests**: `tests/spec/capabilities/providing.ori` — scoping and shadowing tests
+  - [ ] **LLVM Support**: LLVM codegen for capability scoping (push/pop)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — capability scoping codegen
 
 ---
 
@@ -126,6 +138,8 @@ sections:
 - [ ] **Implement**: Runtime capability propagation — capabilities flow through function calls
   - [ ] **Changes**: `FunctionValue` now stores capabilities, `eval_call` passes them to called functions
   - [ ] **Ori Tests**: `tests/spec/capabilities/traits.ori` — tests capability propagation
+  - [ ] **LLVM Support**: LLVM codegen for runtime capability propagation through calls
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — capability propagation codegen
 
 - [ ] **Implement**: Static transitive requirements — spec/14-capabilities.md § Capability Propagation
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability propagation (E2014)
@@ -164,6 +178,8 @@ sections:
 - [ ] **Implement**: Mock implementations — spec/14-capabilities.md § Testing with Capabilities
   - [ ] **Rust Tests**: Type checking handles trait implementations for capability mocking
   - [ ] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — MockHttp, MockLogger examples
+  - [ ] **LLVM Support**: LLVM codegen for mock capability implementations
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — mock implementations codegen
 
 - [ ] **Implement**: Test example — spec/14-capabilities.md § Testing with Capabilities
   - [ ] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — shows test patterns with `with...in`
@@ -188,6 +204,8 @@ sections:
 - [ ] **Implement**: `Unsafe` marker capability
   - [ ] Defined in prelude as marker trait (no methods): `library/std/prelude.ori`
   - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe.ori` — basic tests
+  - [ ] **LLVM Support**: LLVM codegen for Unsafe marker capability
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — unsafe capability codegen
 
 - [ ] **Implement**: Unsafe capability requirements (Section 11)
   - [ ] Required for: raw pointer operations (future)

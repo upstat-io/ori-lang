@@ -1,5 +1,7 @@
 # Canonical IR & Evaluation Pipeline
 
+> **Status: COMPLETE** — Closed 2026-02-10. All 7 sections done. CanExpr pipeline live in both backends. 8,490 tests passing. Remaining cleanup (ori_eval ExprKind removal, cross-block RC/ASAN) tracked in main roadmap.
+>
 > **Synthesizes** Roc (Can → Mono, shared backend IR, arena allocation) and Elm (Canonical → Optimized, decision trees, destructor paths) into a unified canonicalization pipeline for Ori. Both `ori_eval` and `ori_arc`/`ori_llvm` consume the same canonical form — new language features are implemented once.
 
 ## Motivation
@@ -207,7 +209,7 @@ fn canonicalize(db: &dyn Db, module: Module) -> CanonResult {
 | 04 | Constant Folding | Compile-time evaluation during lowering | ~500 | ✅ Complete |
 | 05 | Evaluation Modes | `EvalMode` enum — Interpret/ConstEval/TestRun | ~500 | ✅ Complete |
 | 06 | Structured Diagnostics | `EvalErrorKind`, backtraces, `EvalCounters`, `--profile`, `ControlAction` | ~800 | ✅ Complete |
-| 07 | Backend Migration | Rewrite eval + LLVM to consume `CanExpr`; delete old dispatch | ~2,500 | 07.1-07.2 Complete (eval + LLVM/ARC + invoke) |
+| 07 | Backend Migration | Rewrite eval + LLVM to consume `CanExpr`; delete old dispatch | ~2,500 | ✅ Complete |
 
 **Total: ~7,700 lines**
 
