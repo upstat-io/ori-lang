@@ -53,34 +53,50 @@ sections:
 - [ ] **Implement**: `int` type — spec/06-types.md § int
   - [ ] **Rust Tests**: `oric/src/typeck/` — type representation and checking
   - [ ] **Ori Tests**: `tests/spec/types/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for int type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/primitive_tests.rs` — int type codegen
 
 - [ ] **Implement**: `float` type — spec/06-types.md § float
   - [ ] **Rust Tests**: `oric/src/typeck/` — type representation and checking
   - [ ] **Ori Tests**: `tests/spec/types/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for float type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/primitive_tests.rs` — float type codegen
 
 - [ ] **Implement**: `bool` type — spec/06-types.md § bool
   - [ ] **Rust Tests**: `oric/src/typeck/` — type representation and checking
   - [ ] **Ori Tests**: `tests/spec/types/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for bool type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/primitive_tests.rs` — bool type codegen
 
 - [ ] **Implement**: `str` type — spec/06-types.md § str
   - [ ] **Rust Tests**: `oric/src/typeck/` — type representation and checking
   - [ ] **Ori Tests**: `tests/spec/types/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for str type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/primitive_tests.rs` — str type codegen
 
 - [ ] **Implement**: `char` type — spec/06-types.md § char
   - [ ] **Rust Tests**: `oric/src/typeck/` — type representation and checking
   - [ ] **Ori Tests**: `tests/spec/types/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for char type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/primitive_tests.rs` — char type codegen
 
 - [ ] **Implement**: `byte` type — spec/06-types.md § byte
   - [ ] **Rust Tests**: `oric/src/typeck/` — type representation and checking
   - [ ] **Ori Tests**: `tests/spec/types/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for byte type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/primitive_tests.rs` — byte type codegen
 
 - [ ] **Implement**: `void` type — spec/06-types.md § void
   - [ ] **Rust Tests**: `oric/src/typeck/` — type representation and checking
   - [ ] **Ori Tests**: `tests/spec/types/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for void type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/primitive_tests.rs` — void type codegen
 
 - [ ] **Implement**: `Never` type — spec/06-types.md § Never
   - [ ] **Rust Tests**: `oric/src/typeck/` — type representation and checking
   - [ ] **Ori Tests**: `tests/spec/types/primitives.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Never type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/primitive_tests.rs` — Never type codegen
 
 **Note**: Also fixed parser bug where type keywords (`int`, `float`, etc.) couldn't be used as builtin conversion function calls. See `parser/mod.rs:1007-1042`.
 
@@ -208,36 +224,54 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 - [ ] **Implement**: Never coerces to any type T in assignment contexts
   - [ ] **Rust Tests**: `ori_types/src/context.rs` — Never unification tests
   - [ ] **Ori Tests**: `tests/spec/types/never.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Never coercion in assignment contexts
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/never_tests.rs` — Never assignment coercion codegen
 
 - [ ] **Implement**: Never coerces in conditional branches
   - [ ] **Ori Tests**: `tests/spec/types/never.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Never coercion in conditional branches
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/never_tests.rs` — Never conditional coercion codegen
 
 - [ ] **Implement**: Never coerces in match arms
   - [ ] **Ori Tests**: `tests/spec/types/never.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Never coercion in match arms
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/never_tests.rs` — Never match arm coercion codegen
 
 ### Expressions Producing Never
 
 - [ ] **Implement**: panic(msg:) returns Never
   - [ ] **Ori Tests**: `tests/spec/types/never.ori`
+  - [ ] **LLVM Support**: LLVM codegen for panic(msg:) returning Never
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/never_tests.rs` — panic Never codegen
 
 - [ ] **Implement**: todo() and todo(reason:) return Never
   - [ ] **Rust Tests**: `ori_patterns/src/builtins/todo.rs`
   - [ ] **Ori Tests**: `tests/spec/types/never.ori`
+  - [ ] **LLVM Support**: LLVM codegen for todo() returning Never
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/never_tests.rs` — todo Never codegen
 
 - [ ] **Implement**: unreachable() and unreachable(reason:) return Never
   - [ ] **Rust Tests**: `ori_patterns/src/builtins/unreachable.rs`
   - [ ] **Ori Tests**: `tests/spec/types/never.ori`
+  - [ ] **LLVM Support**: LLVM codegen for unreachable() returning Never
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/never_tests.rs` — unreachable Never codegen
 
 ### Pending (Future Work)
 
 - [ ] **Implement**: break/continue have type Never inside loops
   - [ ] **Ori Tests**: `tests/spec/control_flow/never_break_continue.ori`
+  - [ ] **LLVM Support**: LLVM codegen for break/continue as Never type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/never_tests.rs` — break/continue Never codegen
 
 - [ ] **Implement**: Early-return path of ? operator has type Never
   - [ ] **Ori Tests**: `tests/spec/control_flow/never_propagation.ori`
+  - [ ] **LLVM Support**: LLVM codegen for ? operator early-return as Never
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/never_tests.rs` — ? operator Never codegen
 
 - [ ] **Implement**: Infinite loop (no break) has type Never
   - [ ] **Ori Tests**: `tests/spec/control_flow/never_infinite_loop.ori`
+  - [ ] **LLVM Support**: LLVM codegen for infinite loop as Never type
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/never_tests.rs` — infinite loop Never codegen
 
 - [ ] **Implement**: Never variants can be omitted from match exhaustiveness
   - [ ] **Rust Tests**: `oric/src/typeck/` — exhaustiveness with Never tests
@@ -249,6 +283,8 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 
 - [ ] **Implement**: Allow Never in sum type variant payloads
   - [ ] **Ori Tests**: `tests/spec/types/never_sum_variant.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Never in sum type variant payloads
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/never_tests.rs` — Never sum variant codegen
 
 ---
 

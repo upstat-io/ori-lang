@@ -21,7 +21,7 @@ sections:
     status: complete
   - id: "12.6"
     title: Multi-File Integration
-    status: not-started
+    status: rejected
 ---
 
 # Section 12: Incremental & Parallel Codegen
@@ -683,7 +683,18 @@ Section 02 establishes that `ValueId` is scoped to a single LLVM Context. The pa
 
 ---
 
-## 12.6 Multi-File Integration
+## 12.6 Multi-File Integration — REJECTED
+
+> **Status: Rejected.** Per-function `ld -r` partial linking adds significant complexity for marginal benefit over per-module compilation with Layer 1 ARC IR caching.
+>
+> **Reasoning:**
+> 1. **Platform incompatibility** — `ld -r` (relocatable linking) is not supported on Windows/MSVC, requiring a platform-specific fallback that negates the simplicity argument.
+> 2. **Diminishing returns** — Layer 1 ARC IR caching already skips the expensive ARC analysis pipeline for unchanged functions. The remaining cost is LLVM emission, which is fast per-function within a module-level LLVM module. Per-function `.o` files save only the LLVM emission of unchanged functions — a fraction of a fraction of total build time.
+> 3. **Linker pressure** — Producing hundreds of per-function `.o` files and merging them via `ld -r` adds I/O overhead and linker invocations that may exceed the time saved by skipping LLVM emission for cached functions.
+> 4. **Complexity budget** — The two-level scheduling (module ordering + function parallelism + partial link + final link) is a large surface area to maintain and debug for an optimization that only helps large multi-file projects with frequent small edits — a scenario Ori won't encounter until well past 1.0.
+> 5. **Zig's approach doesn't transfer** — Zig's per-function `updateFunc` works because Zig patches object files in-place (no `ld -r`). Ori doesn't have an in-place patching strategy, making the comparison misleading.
+>
+> The per-module compilation approach (one LLVM module per `.ori` file) with Layer 1 ARC IR caching is the production design. If incremental build times become a bottleneck post-1.0, revisit with profiling data.
 
 The existing `multi_file.rs` pipeline integrates with function-level caching via a two-level scheduling strategy: module-level topological ordering first, then function-level parallelism within each module.
 

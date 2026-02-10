@@ -21,7 +21,7 @@ sections:
     status: done
   - id: "01.6"
     title: Heap Layout for RC Types
-    status: not-started
+    status: complete
   - id: "01.7"
     title: Completion Checklist
     status: done
