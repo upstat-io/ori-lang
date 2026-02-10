@@ -1,7 +1,7 @@
 ---
 section: 4
 title: Module System
-status: not-started
+status: in-progress
 tier: 1
 goal: Multi-file compilation
 spec:
@@ -9,22 +9,22 @@ spec:
 sections:
   - id: "4.1"
     title: Module Definition
-    status: not-started
+    status: in-progress
   - id: "4.2"
     title: Import Parsing
-    status: not-started
+    status: in-progress
   - id: "4.3"
     title: Visibility
-    status: not-started
+    status: in-progress
   - id: "4.4"
     title: Module Resolution
-    status: not-started
+    status: in-progress
   - id: "4.5"
     title: Test Modules
-    status: not-started
+    status: complete
   - id: "4.6"
     title: Prelude
-    status: not-started
+    status: in-progress
   - id: "4.7"
     title: Import Graph Tooling
     status: not-started
@@ -33,10 +33,10 @@ sections:
     status: not-started
   - id: "4.9"
     title: Remaining Work (Pre-existing)
-    status: not-started
+    status: in-progress
   - id: "4.10"
     title: Section Completion Checklist
-    status: not-started
+    status: in-progress
   - id: "4.11"
     title: Module-Level Constants
     status: not-started
@@ -54,25 +54,25 @@ sections:
 > **PROPOSAL**: `proposals/approved/no-circular-imports-proposal.md` — Circular import rejection
 > **PROPOSAL**: `proposals/approved/module-system-details-proposal.md` — Entry points, re-export chains, visibility
 
-**Status**: Partial — Core complete (4.1-4.6, 4.10), tooling pending (4.7), module details pending (4.8), extension methods pending (4.11)
+**Status**: In-progress — Core evaluator complete (4.1-4.6), LLVM multi-file infrastructure present (dependency graph, topological sort, symbol mangling), tooling pending (4.7), module details pending (4.8), constants pending (4.11), extension methods pending (4.12). Verified 2026-02-10.
 
 ---
 
 ## 4.1 Module Definition
 
-- [ ] **Implement**: Module structure — spec/12-modules.md § Module Structure
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — module loading tests
-  - [ ] **Ori Tests**: `tests/spec/modules/use_imports.ori`
-  - [ ] **LLVM Support**: LLVM codegen for module loading
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — module loading codegen
+- [x] **Implement**: Module structure — spec/12-modules.md § Module Structure ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — module loading tests
+  - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori` (10 tests, pub/private functions, types, config vars)
+  - [ ] **LLVM Support**: LLVM codegen for module loading — multi_file.rs infrastructure exists, no dedicated tests
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — module loading codegen (file does not exist)
 
-- [ ] **Implement**: Module corresponds to file — spec/12-modules.md § Module Structure
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — file mapping tests
-  - [ ] **Ori Tests**: `tests/spec/modules/use_imports.ori`
+- [x] **Implement**: Module corresponds to file — spec/12-modules.md § Module Structure ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — file mapping tests
+  - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori`
 
-- [ ] **Implement**: Module name from file path — spec/12-modules.md § Module Structure
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — path resolution tests
-  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
+- [x] **Implement**: Module name from file path — spec/12-modules.md § Module Structure ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — path resolution tests (`test_generate_relative_candidates_file_module`)
+  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
 
 ---
 
@@ -80,89 +80,91 @@ sections:
 
 **Relative imports:**
 
-- [ ] **Implement**: `use './path' { item1, item2 }` — spec/12-modules.md § Relative Imports
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — relative path parsing
-  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_imports.test.ori`
+- [x] **Implement**: `use './path' { item1, item2 }` — spec/12-modules.md § Relative Imports ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — relative path parsing
+  - [x] **Ori Tests**: `tests/spec/modules/_test/use_imports.test.ori` (4 tests: add, make_multiplier, calculate, double)
 
-- [ ] **Implement**: Parent `use '../utils' { helper }` — spec/12-modules.md § Relative Imports
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — parent path resolution
-  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_imports.test.ori`
+- [x] **Implement**: Parent `use '../utils' { helper }` — spec/12-modules.md § Relative Imports ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — parent path resolution (`test_generate_relative_candidates`)
+  - [x] **Ori Tests**: `tests/spec/modules/_test/use_imports.test.ori` (uses `"../use_imports"`)
 
-- [ ] **Implement**: Subdirectory `use './http/client' { get }` — spec/12-modules.md § Relative Imports
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — subdirectory path resolution
-  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
+- [x] **Implement**: Subdirectory `use './http/client' { get }` — spec/12-modules.md § Relative Imports ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — subdirectory path resolution (`test_generate_relative_candidates_nested_directory`)
+  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
 
 **Module imports:**
 
-- [ ] **Implement**: `use std.module { item }` — spec/12-modules.md § Module Imports
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — stdlib path resolution
-  - [ ] **Ori Tests**: All test files use `use std.testing { assert_eq }`
+- [x] **Implement**: `use std.module { item }` — spec/12-modules.md § Module Imports ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — stdlib path resolution
+  - [x] **Ori Tests**: All test files use `use std.testing { assert_eq }`
 
 - [ ] **Implement**: Nested `use std.net.http { get }` — spec/12-modules.md § Module Imports
   - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — nested module resolution
-  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
+  - [ ] **Ori Tests**: N/A — no nested stdlib modules exist yet to test
 
 **Private imports:**
 
-- [ ] **Implement**: `use './path' { ::private_item }` — spec/12-modules.md § Private Imports
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — private import handling
-  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori`
+- [x] **Implement**: `use './path' { ::private_item }` — spec/12-modules.md § Private Imports ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — private import handling
+  - [x] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori` (2 tests: private fn access, private + public combo)
 
-- [ ] **Implement**: `::` prefix — spec/12-modules.md § Private Imports
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — `::` prefix parsing
-  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori`
+- [x] **Implement**: `::` prefix — spec/12-modules.md § Private Imports ✅ (2026-02-10)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — `::` prefix parsing
+  - [x] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori`
 
 **Aliases:**
 
-- [ ] **Implement**: `use './math' { add as plus }` — spec/12-modules.md § Aliases
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — alias parsing
-  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_aliases.test.ori`
+- [x] **Implement**: `use './math' { add as plus }` — spec/12-modules.md § Aliases ✅ (2026-02-10)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — alias parsing
+  - [x] **Ori Tests**: `tests/spec/modules/_test/use_aliases.test.ori` (3 tests: aliased functions)
 
-- [ ] **Implement**: Module alias `use std.net.http as http` — spec/12-modules.md § Aliases
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — module alias parsing
-  - [ ] **Ori Tests**: `tests/spec/modules/_test/module_alias.test.ori`
-  - Note: Parsing and runtime complete; qualified access needs type checker support
+- [x] **Implement**: Module alias `use std.net.http as http` — spec/12-modules.md § Aliases ✅ (2026-02-10)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — module alias parsing
+  - [x] **Ori Tests**: `tests/spec/modules/_test/module_alias.test.ori` (11 tests: qualified access `math.add()`, etc.)
+  - Note: Parsing and runtime complete; qualified access works via evaluator. Type checker ModuleNamespace support pending.
 
 ---
 
 ## 4.3 Visibility
 
-- [ ] **Implement**: `pub` on functions — spec/12-modules.md § Visibility
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — `pub` keyword parsing
-  - [ ] **Ori Tests**: `tests/spec/modules/use_imports.ori`
+- [x] **Implement**: `pub` on functions — spec/12-modules.md § Visibility ✅ (2026-02-10)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — `pub` keyword parsing
+  - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori` (`pub @add`, `pub @make_multiplier`, etc.)
 
-- [ ] **Implement**: `pub` on types — spec/12-modules.md § Visibility
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — type visibility parsing
-  - [ ] **Ori Tests**: `library/std/prelude.ori` — `pub type Option`, `pub type Result`
+- [x] **Implement**: `pub` on types — spec/12-modules.md § Visibility ✅ (2026-02-10)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — type visibility parsing
+  - [x] **Ori Tests**: `library/std/prelude.ori` — `pub type Option`, `pub type Result`; `use_imports.ori` has `pub type Point`
 
-- [ ] **Implement**: `pub` on config variables — spec/12-modules.md § Visibility
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — config visibility parsing
-  - [ ] **Ori Tests**: `tests/spec/modules/use_imports.ori`
+- [x] **Implement**: `pub` on config variables — spec/12-modules.md § Visibility ✅ (2026-02-10)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — config visibility parsing
+  - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori` (`pub $default_timeout`, private `$internal_limit`)
 
-- [ ] **Implement**: Re-exports `pub use` — spec/12-modules.md § Re-exports
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/` — re-export parsing
-  - [ ] **Ori Tests**: `tests/spec/modules/reexporter.ori`
-  - Note: Parsing complete; full re-export resolution pending
+- [x] **Implement**: Re-exports `pub use` — spec/12-modules.md § Re-exports ✅ (2026-02-10)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/` — re-export parsing
+  - [x] **Ori Tests**: `tests/spec/modules/reexporter.ori` (`pub use "./math_lib" { add, multiply }`)
+  - Note: Basic re-export works; multi-level chain resolution pending (4.8)
 
-- [ ] **Implement**: Private by default — spec/12-modules.md § Visibility
-  - [ ] **Rust Tests**: `oric/src/eval/module/` — visibility enforcement
-  - [ ] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori`
+- [x] **Implement**: Private by default — spec/12-modules.md § Visibility ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/` — visibility enforcement
+  - [x] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori` (private access with `::` prefix)
 
 ---
 
 ## 4.4 Module Resolution
 
-- [ ] **Implement**: File path resolution — spec/12-modules.md § Module Resolution
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — path resolution tests
-  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
+- [x] **Implement**: File path resolution — spec/12-modules.md § Module Resolution ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — path resolution tests (`test_generate_relative_candidates_*`)
+  - [x] **Ori Tests**: `tests/spec/modules/_test/directory_module.test.ori` (file + dir modules), `_test/precedence.test.ori` (file precedence over dir)
 
-- [ ] **Implement**: Module dependency graph — spec/12-modules.md § Dependency Graph
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — `LoadingContext` tests
-  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
+- [x] **Implement**: Module dependency graph — spec/12-modules.md § Dependency Graph ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — `LoadingContext` tests
+  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
+  - Note: LLVM also has `DependencyGraph` in `ori_llvm/src/aot/incremental/deps.rs` for AOT multi-file
 
-- [ ] **Implement**: Cycle detection — spec/12-modules.md § Cycle Detection, proposals/approved/no-circular-imports-proposal.md
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — `test_loading_context_cycle_*`
-  - [ ] **Ori Tests**: N/A (tested via Rust unit tests)
+- [x] **Implement**: Cycle detection — spec/12-modules.md § Cycle Detection, proposals/approved/no-circular-imports-proposal.md ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — `test_loading_context_cycle_detection`, `test_loading_context_cycle_error`
+  - [x] **Ori Tests**: N/A (tested via Rust unit tests)
+  - Note: LLVM multi_file.rs also has cycle detection (`CyclicDependency` error)
 
 - [ ] **Implement**: Enhanced cycle error messages — proposals/approved/no-circular-imports-proposal.md § Error Message
   - [ ] Show full cycle path in error (a.ori -> b.ori -> a.ori)
@@ -176,66 +178,66 @@ sections:
   - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — multi-cycle detection tests
   - [ ] **Ori Tests**: `tests/spec/modules/multiple_cycles.ori`
 
-- [ ] **Implement**: Name resolution — spec/12-modules.md § Name Resolution
-  - [ ] **Rust Tests**: `oric/src/eval/module/` — name resolution tests
-  - [ ] **Ori Tests**: All import tests verify name resolution
+- [x] **Implement**: Name resolution — spec/12-modules.md § Name Resolution ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/` — name resolution tests
+  - [x] **Ori Tests**: All import tests verify name resolution (use_imports, use_private, use_aliases, module_alias)
 
-- [ ] **Implement**: Qualified access — spec/12-modules.md § Qualified Access
-  - [ ] **Rust Tests**: `oric/src/eval/` — qualified access evaluation
-  - [ ] **Ori Tests**: `tests/spec/modules/qualified.ori`
-  - [ ] **LLVM Support**: LLVM codegen for qualified access dispatch
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — qualified access codegen
+- [x] **Implement**: Qualified access — spec/12-modules.md § Qualified Access ✅ evaluator (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/` — qualified access evaluation
+  - [x] **Ori Tests**: `tests/spec/modules/_test/module_alias.test.ori` (11 tests: `math.add()`, `math.multiply()`, etc.)
+  - [ ] **LLVM Support**: LLVM codegen for qualified access dispatch — multi_file.rs has module-qualified mangling (`_ori_<module>$<function>`)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — qualified access codegen (file does not exist)
   - Note: Runtime evaluation complete; type checker needs ModuleNamespace support
 
 ---
 
 ## 4.5 Test Modules
 
-- [ ] **Implement**: `_test/` convention — spec/12-modules.md § Test Modules
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — test module detection
-  - [ ] **Ori Tests**: `tests/spec/modules/_test/test_module_access.test.ori`
+- [x] **Implement**: `_test/` convention — spec/12-modules.md § Test Modules ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — test module detection (`test_is_test_module_valid`, `_not_in_test_dir`, `_wrong_extension`, `_nested`)
+  - [x] **Ori Tests**: `tests/spec/modules/_test/test_module_access.test.ori` (2 tests)
 
-- [ ] **Implement**: Test files access private items — spec/12-modules.md § Test Modules
-  - [ ] **Rust Tests**: `oric/src/eval/module/` — private access rules
-  - [ ] **Ori Tests**: `tests/spec/modules/_test/test_module_access.test.ori`
+- [x] **Implement**: Test files access private items — spec/12-modules.md § Test Modules ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — private access rules (`test_is_parent_module_import_*`)
+  - [x] **Ori Tests**: `tests/spec/modules/_test/test_module_access.test.ori` (accesses private items without `::` prefix)
 
 ---
 
 ## 4.6 Prelude
 
-- [ ] **Implement**: Types: `Option`, `Result`, `Error`, `Ordering` — spec/12-modules.md § Prelude
-  - [ ] **Rust Tests**: `oric/src/eval/` — built-in type tests
-  - [ ] **Ori Tests**: Option/Result used throughout `tests/spec/`
-  - [ ] **LLVM Support**: LLVM codegen for prelude type representations
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude type codegen
+- [x] **Implement**: Types: `Option`, `Result`, `Error`, `Ordering` — spec/12-modules.md § Prelude ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/` — built-in type tests
+  - [x] **Ori Tests**: Option/Result used throughout `tests/spec/`, Ordering verified in `tests/spec/types/ordering/`
+  - [ ] **LLVM Support**: LLVM codegen for prelude type representations — Option/Result have inline IR in lower_calls.rs
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude type codegen (file does not exist)
 
-- [ ] **Implement**: Built-in functions: `print`, `panic`, `int`, `float`, `str`, `byte` — spec/12-modules.md § Prelude
-  - [ ] **Rust Tests**: `oric/src/eval/evaluator/` — `register_prelude()` tests
-  - [ ] **Ori Tests**: Built-ins used throughout test suite
-  - [ ] **LLVM Support**: LLVM codegen for built-in functions
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — built-in function codegen
+- [x] **Implement**: Built-in functions: `print`, `panic`, `int`, `float`, `str`, `byte` — spec/12-modules.md § Prelude ✅ (2026-02-10)
+  - [x] **Rust Tests**: `oric/src/eval/evaluator/` — `register_prelude()` tests
+  - [x] **Ori Tests**: Built-ins used throughout test suite
+  - [x] **LLVM Support**: LLVM codegen for built-in functions — `print` via `_ori_print`, `panic` via `_ori_panic`, conversions via inline IR
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — built-in function codegen (file does not exist)
 
-- [ ] **Implement**: Built-in methods: `.len()`, `.is_empty()`, `.is_some()`, etc. — Lean Core
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — method dispatch tests
-  - [ ] **Ori Tests**: `tests/spec/traits/core/` — method tests
-  - [ ] **LLVM Support**: LLVM codegen for built-in methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — built-in method codegen
+- [x] **Implement**: Built-in methods: `.len()`, `.is_empty()`, `.is_some()`, etc. — Lean Core ✅ (2026-02-10)
+  - [x] **Rust Tests**: `ori_eval/src/methods.rs` — method dispatch tests
+  - [x] **Ori Tests**: `tests/spec/traits/core/` — len (14 tests), comparable (58 tests); `tests/spec/types/` — option, result tests
+  - [x] **LLVM Support**: LLVM codegen for built-in methods — inline IR in `lower_calls.rs` (len, is_empty, is_some, is_none, unwrap, unwrap_or, is_ok, is_err, compare)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — built-in method codegen (file does not exist)
 
-- [ ] **Implement**: Auto-import prelude from `library/std/prelude.ori` — spec/12-modules.md § Prelude
-  - [ ] `Evaluator::load_prelude()` auto-loads prelude before any module
-  - [ ] All public functions from prelude available without import
-  - [ ] **Rust Tests**: `oric/src/eval/evaluator/` — prelude loading tests
-  - [ ] **Ori Tests**: `test_autoload.ori` verifies assert_eq, is_some work without import
+- [x] **Implement**: Auto-import prelude from `library/std/prelude.ori` — spec/12-modules.md § Prelude ✅ (2026-02-10)
+  - [x] `Evaluator::load_prelude()` auto-loads prelude before any module
+  - [x] All public functions from prelude available without import
+  - [x] **Rust Tests**: `oric/src/eval/evaluator/` — prelude loading tests
+  - [x] **Ori Tests**: All test files use `use std.testing { assert_eq }` which depends on prelude
   - [ ] **LLVM Support**: LLVM codegen for prelude auto-loading
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude loading codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude loading codegen (file does not exist)
 
-- [ ] **Implement**: Prelude functions auto-available
-  - [ ] `assert`, `assert_eq`, `assert_ne`, `assert_some`, `assert_none`, `assert_ok`, `assert_err`
-  - [ ] `is_some`, `is_none`, `is_ok`, `is_err`
-  - [ ] `len`, `is_empty`
-  - [ ] `compare`, `min`, `max`
-  - [ ] **LLVM Support**: LLVM codegen for prelude functions
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude function codegen
+- [x] **Implement**: Prelude functions auto-available ✅ (2026-02-10)
+  - [x] `assert`, `assert_eq`, `assert_ne`, `assert_some`, `assert_none`, `assert_ok`, `assert_err`
+  - [x] `is_some`, `is_none`, `is_ok`, `is_err`
+  - [x] `len`, `is_empty`
+  - [x] `compare`, `min`, `max`
+  - [ ] **LLVM Support**: LLVM codegen for prelude functions — partial (print, panic, len, compare have IR; assert_* not yet)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude function codegen (file does not exist)
   - Note: Trait definitions in prelude (Eq, Comparable, etc.) parse but need Section 3 for full integration
 
 ---
@@ -316,9 +318,12 @@ sections:
 ## 4.9 Remaining Work (Pre-existing)
 
 **Parsing/Runtime complete, type checker pending:**
-- Module alias syntax: `use std.net.http as http` — parsing, runtime, type checker
-- Re-exports: `pub use './client' { get, post }` — parsing, full resolution pending
-- Qualified access: `module.function()` — runtime, type checker needs ModuleNamespace support
+- [x] Module alias syntax: `use "../math_lib" as math` — parsing ✅, runtime ✅ (verified via 11 tests in module_alias.test.ori)
+- [x] Re-exports: `pub use './client' { get, post }` — basic parsing ✅, basic resolution ✅ (verified via reexporter.ori)
+- [x] Qualified access: `module.function()` — runtime ✅ (verified via module_alias.test.ori)
+- [ ] Type checker ModuleNamespace support — pending
+- [ ] Multi-level re-export chain resolution — pending (4.8)
+- [ ] Nested stdlib modules (`std.net.http`) — no modules to test yet
 
 ---
 
@@ -493,20 +498,23 @@ Extension methods add methods to existing types without modifying their definiti
 
 ## 4.10 Section Completion Checklist
 
-- [ ] Core module imports working (relative, module, private, aliases)
-- [ ] Visibility system working (`pub`, private by default, `::`)
-- [ ] Module resolution working (path resolution, stdlib lookup)
-- [ ] Cycle detection working
-- [ ] Test module private access working
-- [ ] Built-in prelude types and functions working
-- [ ] Auto-load stdlib prelude
-- [ ] `Self` type parsing in traits
-- [ ] Trait/impl parsing at module level
-- [ ] Module alias syntax (`use std.net.http as http`) — parsing/runtime complete
-- [ ] Re-exports (`pub use`) — parsing complete
-- [ ] Qualified access (`module.function()`) — runtime complete, type checker pending
+- [x] Core module imports working (relative, module, private, aliases) ✅
+- [x] Visibility system working (`pub`, private by default, `::`) ✅
+- [x] Module resolution working (path resolution, stdlib lookup, directory modules, file precedence) ✅
+- [x] Cycle detection working (Rust unit tests: `test_loading_context_cycle_*`) ✅
+- [x] Test module private access working (`_test/` convention, `test_module_access.test.ori`) ✅
+- [x] Built-in prelude types and functions working (Option, Result, Ordering, print, panic, etc.) ✅
+- [x] Auto-load stdlib prelude (`use std.testing` works in all test files) ✅
+- [x] `Self` type parsing in traits (see Section 3) ✅
+- [x] Trait/impl parsing at module level (see Section 3) ✅
+- [x] Module alias syntax (`use "../path" as alias`) — parsing/runtime complete ✅
+- [x] Re-exports (`pub use`) — basic parsing/resolution complete ✅
+- [x] Qualified access (`module.function()`) — runtime complete ✅
+- [ ] Type checker ModuleNamespace support — pending
+- [ ] LLVM multi-file AOT compilation — infrastructure exists (multi_file.rs), no integration tests
+- [ ] Enhanced cycle error messages (4.4) — pending
 - [ ] Type definitions parsing (see Section 5)
 - [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: Multi-file projects compile (core support complete)
-**Status**: Section 4 parsing and runtime complete. Type checker support for module namespaces pending.
+**Status**: Section 4 evaluator and parser complete. LLVM multi-file infrastructure present. Type checker support for module namespaces pending. Verified 2026-02-10.

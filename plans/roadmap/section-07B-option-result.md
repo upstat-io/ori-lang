@@ -1,7 +1,7 @@
 ---
 section: 7B
 title: Option & Result
-status: not-started
+status: in-progress
 tier: 2
 goal: Option and Result type methods
 spec:
@@ -9,10 +9,10 @@ spec:
 sections:
   - id: "7B.1"
     title: Option Functions
-    status: not-started
+    status: in-progress
   - id: "7B.2"
     title: Result Functions
-    status: not-started
+    status: in-progress
   - id: "7B.3"
     title: Error Return Traces
     status: not-started
@@ -31,15 +31,15 @@ sections:
 
 ## 7B.1 Option Functions
 
-- [ ] **Implement**: `is_some(x)` — spec/11-built-in-functions.md § is_some
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — is_some tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/option.ori`
+- [x] **Implement**: `is_some(x)` — spec/11-built-in-functions.md § is_some ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator builtin — is_some tests
+  - [x] **Ori Tests**: Used in `tests/spec/inference/polymorphism.ori`, `tests/spec/inference/generics.ori`
   - [ ] **LLVM Support**: LLVM codegen for is_some
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_tests.rs` — is_some codegen
 
-- [ ] **Implement**: `is_none(x)` — spec/11-built-in-functions.md § is_none
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — is_none tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/option.ori`
+- [x] **Implement**: `is_none(x)` — spec/11-built-in-functions.md § is_none ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator builtin — is_none tests
+  - [x] **Ori Tests**: Used in `tests/spec/inference/polymorphism.ori`
   - [ ] **LLVM Support**: LLVM codegen for is_none
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_tests.rs` — is_none codegen
 
@@ -49,9 +49,9 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for Option.map
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_tests.rs` — Option.map codegen
 
-- [ ] **Implement**: `Option.unwrap_or` — spec/11-built-in-functions.md § Option.unwrap_or
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Option.unwrap_or tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/option.ori`
+- [x] **Implement**: `Option.unwrap_or` — spec/11-built-in-functions.md § Option.unwrap_or ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator method dispatch — Option.unwrap_or tests
+  - [x] **Ori Tests**: `tests/spec/inference/generics.ori` — `opt.unwrap_or(default: 42)`
   - [ ] **LLVM Support**: LLVM codegen for Option.unwrap_or
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_tests.rs` — Option.unwrap_or codegen
 
@@ -77,15 +77,15 @@ sections:
 
 ## 7B.2 Result Functions
 
-- [ ] **Implement**: `is_ok(x)` — spec/11-built-in-functions.md § is_ok
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — is_ok tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/result.ori`
+- [x] **Implement**: `is_ok(x)` — spec/11-built-in-functions.md § is_ok ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator builtin — is_ok tests
+  - [x] **Ori Tests**: `tests/spec/inference/generics.ori` — `is_ok(r: res)`
   - [ ] **LLVM Support**: LLVM codegen for is_ok
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — is_ok codegen
 
-- [ ] **Implement**: `is_err(x)` — spec/11-built-in-functions.md § is_err
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — is_err tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/result.ori`
+- [x] **Implement**: `is_err(x)` — spec/11-built-in-functions.md § is_err ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator builtin — is_err tests
+  - [x] **Ori Tests**: `tests/spec/inference/generics.ori`
   - [ ] **LLVM Support**: LLVM codegen for is_err
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — is_err codegen
 

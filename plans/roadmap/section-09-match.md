@@ -1,7 +1,7 @@
 ---
 section: 9
 title: Match Expressions
-status: not-started
+status: in-progress
 tier: 3
 goal: Full pattern matching support
 spec:
@@ -9,16 +9,16 @@ spec:
 sections:
   - id: "9.0"
     title: Match Expression Syntax
-    status: not-started
+    status: in-progress
   - id: "9.1"
     title: match Expression
-    status: not-started
+    status: in-progress
   - id: "9.2"
     title: Pattern Types
-    status: not-started
+    status: in-progress
   - id: "9.3"
     title: Pattern Guards
-    status: not-started
+    status: in-progress
   - id: "9.4"
     title: Exhaustiveness Checking
     status: not-started
@@ -56,45 +56,45 @@ Status: **IMPLEMENTED** — This proposal formalizes existing behavior.
 
 ## 9.1 match Expression
 
-- [ ] **Implement**: Grammar `match_expr = "match" "(" expression "," match_arms ")"` — spec/10-patterns.md § match
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — match expression parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori`
+- [x] **Implement**: Grammar `match_expr = "match" "(" expression "," match_arms ")"` — spec/10-patterns.md § match ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser and evaluator — match expression tests
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori` — 58 tests pass
   - [ ] **LLVM Support**: LLVM codegen for match expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match expression codegen
 
-- [ ] **Implement**: Grammar `match_arms = match_arm { "," match_arm } [ "," ]` — spec/10-patterns.md § match
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — match arms parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori`
+- [x] **Implement**: Grammar `match_arms = match_arm { "," match_arm } [ "," ]` — spec/10-patterns.md § match ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — match arms parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for match arms
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match arms codegen
 
-- [ ] **Implement**: Grammar `match_arm = pattern [ guard ] "->" expression` — spec/10-patterns.md § match
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — match arm parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori`
+- [x] **Implement**: Grammar `match_arm = pattern [ guard ] "->" expression` — spec/10-patterns.md § match ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — match arm parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for match arm
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match arm codegen
 
-- [ ] **Implement**: Evaluate scrutinee expression — spec/10-patterns.md § match
-  - [ ] **Rust Tests**: `oric/src/eval/exec/match.rs` — scrutinee evaluation
-  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori`
+- [x] **Implement**: Evaluate scrutinee expression — spec/10-patterns.md § match ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator — scrutinee evaluation
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for scrutinee evaluation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — scrutinee evaluation codegen
 
-- [ ] **Implement**: Test each arm's pattern in order — spec/10-patterns.md § match
-  - [ ] **Rust Tests**: `oric/src/eval/exec/match.rs` — pattern matching order
-  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori`
+- [x] **Implement**: Test each arm's pattern in order — spec/10-patterns.md § match ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator — pattern matching order
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for pattern matching order
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — pattern matching order codegen
 
-- [ ] **Implement**: If pattern matches and guard passes, evaluate arm — spec/10-patterns.md § match
-  - [ ] **Rust Tests**: `oric/src/eval/exec/match.rs` — arm evaluation
-  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori`
+- [x] **Implement**: If pattern matches and guard passes, evaluate arm — spec/10-patterns.md § match ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator — arm evaluation
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for arm evaluation with guard
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — arm evaluation codegen
 
-- [ ] **Implement**: Return the result — spec/10-patterns.md § match
-  - [ ] **Rust Tests**: `oric/src/eval/exec/match.rs` — result return
-  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori`
+- [x] **Implement**: Return the result — spec/10-patterns.md § match ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator — result return
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for match result return
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match result return codegen
 
@@ -102,51 +102,51 @@ Status: **IMPLEMENTED** — This proposal formalizes existing behavior.
 
 ## 9.2 Pattern Types
 
-- [ ] **Implement**: `literal_pattern = literal` — spec/10-patterns.md § Pattern Types
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — literal pattern parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori`
+- [x] **Implement**: `literal_pattern = literal` — spec/10-patterns.md § Pattern Types ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — literal pattern parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori`, `tests/spec/patterns/match_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for literal pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — literal pattern codegen
 
-- [ ] **Implement**: `binding_pattern = identifier` — spec/10-patterns.md § Pattern Types
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — binding pattern parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
+- [x] **Implement**: `binding_pattern = identifier` — spec/10-patterns.md § Pattern Types ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — binding pattern parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/match_patterns.ori` — 36 tests
   - [ ] **LLVM Support**: LLVM codegen for binding pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — binding pattern codegen
 
-- [ ] **Implement**: `wildcard_pattern = "_"` — spec/10-patterns.md § Pattern Types
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — wildcard pattern parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori`
+- [x] **Implement**: `wildcard_pattern = "_"` — spec/10-patterns.md § Pattern Types ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — wildcard pattern parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for wildcard pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — wildcard pattern codegen
 
-- [ ] **Implement**: `variant_pattern = type_path [ "(" ... ")" ]` — spec/10-patterns.md § Pattern Types
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — variant pattern parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
+- [x] **Implement**: `variant_pattern = type_path [ "(" ... ")" ]` — spec/10-patterns.md § Pattern Types ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — variant pattern parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`, `tests/spec/declarations/sum_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for variant pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — variant pattern codegen
 
-- [ ] **Implement**: `struct_pattern = "{" ... [ ".." ] "}"` — spec/10-patterns.md § Pattern Types
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — struct pattern parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
+- [x] **Implement**: `struct_pattern = "{" ... [ ".." ] "}"` — spec/10-patterns.md § Pattern Types ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — struct pattern parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori` — struct destructuring tests
   - [ ] **LLVM Support**: LLVM codegen for struct pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — struct pattern codegen
 
-- [ ] **Implement**: `field_pattern = identifier [ ":" pattern ]` — spec/10-patterns.md § Pattern Types
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — field pattern parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
+- [x] **Implement**: `field_pattern = identifier [ ":" pattern ]` — spec/10-patterns.md § Pattern Types ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — field pattern parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for field pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — field pattern codegen
 
-- [ ] **Implement**: `list_pattern = "[" ... "]"` — spec/10-patterns.md § Pattern Types
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — list pattern parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
+- [x] **Implement**: `list_pattern = "[" ... "]"` — spec/10-patterns.md § Pattern Types ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — list pattern parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori` — list destructure tests
   - [ ] **LLVM Support**: LLVM codegen for list pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — list pattern codegen
 
-- [ ] **Implement**: `list_elem = pattern | ".." [ identifier ]` — spec/10-patterns.md § Pattern Types
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — list element parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
+- [x] **Implement**: `list_elem = pattern | ".." [ identifier ]` — spec/10-patterns.md § Pattern Types ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — list element parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori` — head/tail, first_two_rest
   - [ ] **LLVM Support**: LLVM codegen for list element pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — list element pattern codegen
 
@@ -172,21 +172,21 @@ Status: **IMPLEMENTED** — This proposal formalizes existing behavior.
 
 ## 9.3 Pattern Guards
 
-- [ ] **Implement**: Grammar `guard = "." "match" "(" expression ")"` — spec/10-patterns.md § Guards
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — guard parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_guards.ori`
+- [x] **Implement**: Grammar `guard = "." "match" "(" expression ")"` — spec/10-patterns.md § Guards ✅ (2026-02-10)
+  - [x] **Rust Tests**: Parser — guard parsing
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori` — guard tests included
   - [ ] **LLVM Support**: LLVM codegen for guard expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — guard expression codegen
 
-- [ ] **Implement**: Guard expression must evaluate to `bool` — spec/10-patterns.md § Guards
-  - [ ] **Rust Tests**: `oric/src/typeck/infer/pattern.rs` — guard type checking
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_guards.ori`
+- [x] **Implement**: Guard expression must evaluate to `bool` — spec/10-patterns.md § Guards ✅ (2026-02-10)
+  - [x] **Rust Tests**: Type checker — guard type checking
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for guard type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — guard type checking codegen
 
-- [ ] **Implement**: Variables bound by pattern are in scope — spec/10-patterns.md § Guards
-  - [ ] **Rust Tests**: `oric/src/eval/exec/match.rs` — guard scoping
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_guards.ori`
+- [x] **Implement**: Variables bound by pattern are in scope — spec/10-patterns.md § Guards ✅ (2026-02-10)
+  - [x] **Rust Tests**: Evaluator — guard scoping
+  - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for guard scoping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — guard scoping codegen
 
