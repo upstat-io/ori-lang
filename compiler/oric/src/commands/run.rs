@@ -168,7 +168,6 @@ fn eval_with_profile(
 
     // Create evaluator with profiling enabled
     let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
-        .expr_types(&type_result.typed.expr_types)
         .pattern_resolutions(&type_result.typed.pattern_resolutions)
         .canon(shared_canon.clone())
         .build();
@@ -191,14 +190,16 @@ fn eval_with_profile(
     } else if let Some(func) = parse_result.module.functions.first() {
         let params = parse_result.arena.get_params(func.params);
         if params.is_empty() {
-            let result = if let Some(can_id) = shared_canon.root_for(func.name) {
-                evaluator.eval_can(can_id)
-            } else {
-                evaluator.eval(func.body)
-            };
-            match result {
-                Ok(value) => ModuleEvalResult::success(EvalOutput::from_value(&value, interner)),
-                Err(e) => ModuleEvalResult::runtime_error(&e.into_eval_error()),
+            match shared_canon.root_for(func.name) {
+                Some(can_id) => match evaluator.eval_can(can_id) {
+                    Ok(value) => {
+                        ModuleEvalResult::success(EvalOutput::from_value(&value, interner))
+                    }
+                    Err(e) => ModuleEvalResult::runtime_error(&e.into_eval_error()),
+                },
+                None => ModuleEvalResult::failure(
+                    "internal error: function has no canonical root".to_string(),
+                ),
             }
         } else {
             ModuleEvalResult::success(EvalOutput::Void)

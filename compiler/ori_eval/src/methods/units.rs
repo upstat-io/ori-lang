@@ -1,15 +1,16 @@
 //! Method dispatch for unit types (Duration, Size).
 
-use super::compare::ordering_to_value;
-use super::helpers::{require_args, require_duration_arg, require_int_arg, require_size_arg};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use ori_ir::builtin_constants::{duration, size};
-use ori_ir::StringInterner;
 use ori_patterns::{
     division_by_zero, integer_overflow, modulo_by_zero, no_such_method, EvalError, EvalResult,
     Value,
 };
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+
+use super::compare::ordering_to_value;
+use super::helpers::{require_args, require_duration_arg, require_int_arg, require_size_arg};
 
 /// Create a Duration value from an integer with a multiplier.
 ///
@@ -80,23 +81,18 @@ pub fn dispatch_size_associated(method: &str, args: &[Value]) -> EvalResult {
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-pub fn dispatch_duration_method(
-    receiver: Value,
-    method: &str,
-    args: Vec<Value>,
-    interner: &StringInterner,
-) -> EvalResult {
+pub fn dispatch_duration_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Duration(ns) = receiver else {
         unreachable!("dispatch_duration_method called with non-duration receiver")
     };
 
     match method {
         "nanoseconds" => Ok(Value::int(ns)),
-        "microseconds" => Ok(Value::int(ns / 1_000)),
-        "milliseconds" => Ok(Value::int(ns / 1_000_000)),
-        "seconds" => Ok(Value::int(ns / 1_000_000_000)),
-        "minutes" => Ok(Value::int(ns / (60 * 1_000_000_000))),
-        "hours" => Ok(Value::int(ns / (60 * 60 * 1_000_000_000))),
+        "microseconds" => Ok(Value::int(ns / duration::NS_PER_US)),
+        "milliseconds" => Ok(Value::int(ns / duration::NS_PER_MS)),
+        "seconds" => Ok(Value::int(ns / duration::NS_PER_S)),
+        "minutes" => Ok(Value::int(ns / duration::NS_PER_M)),
+        "hours" => Ok(Value::int(ns / duration::NS_PER_H)),
         // Operator methods
         "add" => {
             require_args("add", 1, args.len())?;
@@ -175,7 +171,7 @@ pub fn dispatch_duration_method(
         "compare" => {
             require_args("compare", 1, args.len())?;
             let other = require_duration_arg("compare", &args, 0)?;
-            Ok(ordering_to_value(ns.cmp(&other), interner))
+            Ok(ordering_to_value(ns.cmp(&other)))
         }
         _ => Err(no_such_method(method, "Duration").into()),
     }
@@ -219,12 +215,7 @@ fn format_duration(ns: i64) -> String {
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-pub fn dispatch_size_method(
-    receiver: Value,
-    method: &str,
-    args: Vec<Value>,
-    interner: &StringInterner,
-) -> EvalResult {
+pub fn dispatch_size_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Size(bytes) = receiver else {
         unreachable!("dispatch_size_method called with non-size receiver")
     };
@@ -326,7 +317,7 @@ pub fn dispatch_size_method(
         "compare" => {
             require_args("compare", 1, args.len())?;
             let other = require_size_arg("compare", &args, 0)?;
-            Ok(ordering_to_value(bytes.cmp(&other), interner))
+            Ok(ordering_to_value(bytes.cmp(&other)))
         }
         _ => Err(no_such_method(method, "Size").into()),
     }

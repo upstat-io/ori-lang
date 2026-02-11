@@ -122,6 +122,7 @@ pub trait MethodResolver {
 /// - Eliminates virtual dispatch overhead
 /// - Enables exhaustive matching at compile time
 /// - Better cache locality (no heap indirection)
+#[derive(Clone)]
 pub enum MethodResolverKind {
     /// User-defined and derived methods (priority 0)
     UserRegistry(UserRegistryResolver),
@@ -169,6 +170,7 @@ impl MethodResolverKind {
 ///
 /// Tries resolvers in priority order (lowest priority number first)
 /// until one returns a match or all have been tried.
+#[derive(Clone)]
 pub struct MethodDispatcher {
     resolvers: Vec<MethodResolverKind>,
 }

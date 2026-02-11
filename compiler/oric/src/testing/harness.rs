@@ -14,8 +14,7 @@ use ori_types::TypeCheckResult;
 
 /// Evaluate a source expression and return the result value.
 ///
-/// This is a convenience function for testing that handles all the
-/// boilerplate of lexing, parsing, and evaluating.
+/// Goes through the full pipeline: lex → parse → typecheck → canonicalize → eval.
 ///
 /// # Example
 ///
@@ -26,32 +25,14 @@ use ori_types::TypeCheckResult;
 /// assert_eq!(result, Value::int(3));
 /// ```
 pub fn eval_expr(source: &str) -> EvalResult {
-    let db = CompilerDb::new();
-    let interner = db.interner();
-    let tokens = ori_lexer::lex(source, interner);
-    let parsed = parser::parse(&tokens, interner);
-
-    if parsed.has_errors() {
-        return Err(EvalError::new(format!("parse errors: {:?}", parsed.errors)).into());
-    }
-
-    let mut evaluator = Evaluator::new(interner, &parsed.arena, &db);
-
-    // Find and evaluate main function if it exists
-    for func in &parsed.module.functions {
-        let name = interner.lookup(func.name);
-        if name == "main" {
-            return evaluator.eval(func.body);
-        }
-    }
-
-    // If no main function, try to evaluate as a single expression
-    // This requires wrapping in a main function
+    // If no main function wrapping, add one
     let wrapped_source = format!("@main () -> _ = {source}");
-    eval_expr(&wrapped_source)
+    eval_source(&wrapped_source)
 }
 
 /// Evaluate a full source file with a main function.
+///
+/// Goes through the full pipeline: lex → parse → typecheck → canonicalize → eval.
 pub fn eval_source(source: &str) -> EvalResult {
     let db = CompilerDb::new();
     let interner = db.interner();
@@ -62,13 +43,39 @@ pub fn eval_source(source: &str) -> EvalResult {
         return Err(EvalError::new(format!("parse errors: {:?}", parsed.errors)).into());
     }
 
-    let mut evaluator = Evaluator::new(interner, &parsed.arena, &db);
+    // Type check
+    let (type_result, pool) = ori_types::check_module_with_imports(
+        &parsed.module,
+        &parsed.arena,
+        interner,
+        |_checker| {},
+    );
 
-    // Find and evaluate main function
+    if type_result.has_errors() {
+        return Err(EvalError::new(format!("type errors: {:?}", type_result.errors())).into());
+    }
+
+    // Canonicalize
+    let canon_result =
+        ori_canon::lower_module(&parsed.module, &parsed.arena, &type_result, &pool, interner);
+    let shared_canon = ori_ir::canon::SharedCanonResult::new(canon_result);
+
+    // Create evaluator with canonical IR
+    let mut evaluator = Evaluator::builder(interner, &parsed.arena, &db)
+        .pattern_resolutions(&type_result.typed.pattern_resolutions)
+        .canon(shared_canon.clone())
+        .build();
+
+    // Find main function's canonical root
+    let main_name = interner.intern("main");
+    if let Some(can_id) = shared_canon.root_for(main_name) {
+        return evaluator.eval_can(can_id);
+    }
+
+    // Try first zero-arg function
     for func in &parsed.module.functions {
-        let name = interner.lookup(func.name);
-        if name == "main" {
-            return evaluator.eval(func.body);
+        if let Some(can_id) = shared_canon.root_for(func.name) {
+            return evaluator.eval_can(can_id);
         }
     }
 

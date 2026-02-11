@@ -63,7 +63,7 @@ pub fn infer_borrows(
     while changed {
         changed = false;
         for func in functions {
-            if update_ownership(func, &mut sigs, classifier) {
+            if update_ownership(func, &mut sigs) {
                 changed = true;
             }
         }
@@ -174,11 +174,7 @@ fn try_mark_param_owned(var: ArcVarId, func: &ArcFunction, sig: &mut AnnotatedSi
 /// Single pass over one function, checking all parameter uses.
 ///
 /// Returns `true` if any parameter's ownership changed.
-fn update_ownership(
-    func: &ArcFunction,
-    sigs: &mut FxHashMap<Name, AnnotatedSig>,
-    classifier: &ArcClassifier,
-) -> bool {
+fn update_ownership(func: &ArcFunction, sigs: &mut FxHashMap<Name, AnnotatedSig>) -> bool {
     let mut changed = false;
 
     // Clone this function's sig to avoid simultaneous &/&mut borrow of `sigs`.
@@ -189,7 +185,7 @@ fn update_ownership(
     };
 
     for block in &func.blocks {
-        // ── Scan instructions ──────────────────────────────────
+        // Scan instructions
         for instr in &block.body {
             match instr {
                 ArcInstr::Apply {
@@ -264,7 +260,7 @@ fn update_ownership(
             }
         }
 
-        // ── Scan terminator ────────────────────────────────────
+        // Scan terminator
         match &block.terminator {
             ArcTerminator::Return { value } => {
                 // Returning a parameter transfers ownership to the caller.
@@ -273,7 +269,7 @@ fn update_ownership(
                 // Tail call preservation: if this return immediately follows
                 // an Apply whose result is the returned value, check whether
                 // any arguments need ownership promotion.
-                changed |= check_tail_call(block, *value, func, &mut my_sig, sigs, classifier);
+                changed |= check_tail_call(block, *value, func, &mut my_sig, sigs);
             }
 
             ArcTerminator::Jump { args, .. } => {
@@ -329,7 +325,6 @@ fn check_tail_call(
     func: &ArcFunction,
     my_sig: &mut AnnotatedSig,
     sigs: &FxHashMap<Name, AnnotatedSig>,
-    _classifier: &ArcClassifier,
 ) -> bool {
     let mut changed = false;
 

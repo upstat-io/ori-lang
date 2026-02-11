@@ -129,12 +129,14 @@ fn eval_int_binary(a: ScalarInt, b: ScalarInt, op: BinaryOp) -> EvalResult {
         BinaryOp::BitAnd => Ok(Value::Int(a & b)),
         BinaryOp::BitOr => Ok(Value::Int(a | b)),
         BinaryOp::BitXor => Ok(Value::Int(a ^ b)),
-        BinaryOp::Shl => a.checked_shl(b).map(Value::Int).ok_or_else(|| {
-            EvalError::new(format!("shift amount {} out of range (0-63)", b.raw())).into()
-        }),
-        BinaryOp::Shr => a.checked_shr(b).map(Value::Int).ok_or_else(|| {
-            EvalError::new(format!("shift amount {} out of range (0-63)", b.raw())).into()
-        }),
+        BinaryOp::Shl => a
+            .checked_shl(b)
+            .map(Value::Int)
+            .ok_or_else(|| shift_out_of_range(b.raw()).into()),
+        BinaryOp::Shr => a
+            .checked_shr(b)
+            .map(Value::Int)
+            .ok_or_else(|| shift_out_of_range(b.raw()).into()),
         BinaryOp::Range => Ok(Value::Range(RangeValue::exclusive(a.raw(), b.raw()))),
         BinaryOp::RangeInclusive => Ok(Value::Range(RangeValue::inclusive(a.raw(), b.raw()))),
         _ => Err(invalid_binary_op_for("integers", op).into()),
@@ -347,10 +349,10 @@ fn eval_int_duration_binary(a: ScalarInt, b: i64, op: BinaryOp) -> EvalResult {
 fn eval_size_binary(a: u64, b: u64, op: BinaryOp) -> EvalResult {
     match op {
         BinaryOp::Add => checked_arith(a.checked_add(b), Value::Size, "size addition"),
-        // Size subtraction has special error message (not "overflow" but "negative value")
-        BinaryOp::Sub => a.checked_sub(b).map(Value::Size).ok_or_else(|| {
-            EvalError::new("size subtraction would result in negative value").into()
-        }),
+        BinaryOp::Sub => a
+            .checked_sub(b)
+            .map(Value::Size)
+            .ok_or_else(|| size_would_be_negative().into()),
         BinaryOp::Mod => checked_mod(b == 0, || a.checked_rem(b), Value::Size, "size modulo"),
         BinaryOp::Eq => Ok(Value::Bool(a == b)),
         BinaryOp::NotEq => Ok(Value::Bool(a != b)),
@@ -368,9 +370,7 @@ fn eval_size_int_binary(a: u64, b: ScalarInt, op: BinaryOp) -> EvalResult {
     let b_val = b.raw();
     match op {
         BinaryOp::Mul => match b_val.cmp(&0) {
-            Ordering::Less => {
-                Err(EvalError::new("cannot multiply Size by negative integer").into())
-            }
+            Ordering::Less => Err(size_negative_multiply().into()),
             Ordering::Equal | Ordering::Greater => a
                 .checked_mul(b_val.cast_unsigned())
                 .map(Value::Size)
@@ -378,7 +378,7 @@ fn eval_size_int_binary(a: u64, b: ScalarInt, op: BinaryOp) -> EvalResult {
         },
         BinaryOp::Div => match b_val.cmp(&0) {
             Ordering::Equal => Err(division_by_zero().into()),
-            Ordering::Less => Err(EvalError::new("cannot divide Size by negative integer").into()),
+            Ordering::Less => Err(size_negative_divide().into()),
             Ordering::Greater => a
                 .checked_div(b_val.cast_unsigned())
                 .map(Value::Size)
@@ -394,9 +394,7 @@ fn eval_int_size_binary(a: ScalarInt, b: u64, op: BinaryOp) -> EvalResult {
     let a_val = a.raw();
     match op {
         BinaryOp::Mul => match a_val.cmp(&0) {
-            Ordering::Less => {
-                Err(EvalError::new("cannot multiply Size by negative integer").into())
-            }
+            Ordering::Less => Err(size_negative_multiply().into()),
             Ordering::Equal | Ordering::Greater => a_val
                 .cast_unsigned()
                 .checked_mul(b)
@@ -405,6 +403,32 @@ fn eval_int_size_binary(a: ScalarInt, b: u64, op: BinaryOp) -> EvalResult {
         },
         _ => Err(invalid_binary_op_for("int and Size", op).into()),
     }
+}
+
+// Operator Error Factories
+
+/// Shift amount is outside the valid range for 64-bit integers.
+#[cold]
+fn shift_out_of_range(amount: i64) -> EvalError {
+    EvalError::new(format!("shift amount {amount} out of range (0-63)"))
+}
+
+/// Size subtraction would produce a negative result.
+#[cold]
+fn size_would_be_negative() -> EvalError {
+    EvalError::new("size subtraction would result in negative value")
+}
+
+/// Cannot multiply or divide Size by a negative integer.
+#[cold]
+fn size_negative_multiply() -> EvalError {
+    EvalError::new("cannot multiply Size by negative integer")
+}
+
+/// Cannot divide Size by a negative integer.
+#[cold]
+fn size_negative_divide() -> EvalError {
+    EvalError::new("cannot divide Size by negative integer")
 }
 
 /// Binary operations on struct values.

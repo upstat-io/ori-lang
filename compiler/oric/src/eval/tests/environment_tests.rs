@@ -6,7 +6,7 @@
 
 use crate::eval::Value;
 use crate::ir::SharedInterner;
-use ori_eval::{Environment, LocalScope, Mutability, Scope};
+use ori_eval::{AssignError, Environment, LocalScope, Mutability, Scope};
 
 // Scope Tests
 
@@ -88,7 +88,7 @@ mod scope {
         scope.define(x, Value::int(1), Mutability::Immutable);
         let result = scope.assign(x, Value::int(2));
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("immutable"));
+        assert_eq!(result.unwrap_err(), AssignError::Immutable);
     }
 
     #[test]
@@ -99,7 +99,7 @@ mod scope {
         let mut scope = Scope::new();
         let result = scope.assign(x, Value::int(1));
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("undefined"));
+        assert_eq!(result.unwrap_err(), AssignError::Undefined);
     }
 
     #[test]

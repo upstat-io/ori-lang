@@ -4,17 +4,15 @@ use super::resolvers::{
     BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, MethodResolverKind,
     UserRegistryResolver,
 };
-use super::{Interpreter, TypeNames};
+use super::{Interpreter, PrintNames, TypeNames};
 use crate::diagnostics::CallStack;
 use crate::eval_mode::{EvalMode, ModeState};
 use crate::{
-    stdout_handler, Environment, SharedMutableRegistry, SharedPrintHandler, SharedRegistry,
-    UserMethodRegistry,
+    stdout_handler, Environment, SharedMutableRegistry, SharedPrintHandler, UserMethodRegistry,
 };
 use ori_ir::canon::SharedCanonResult;
 use ori_ir::{ExprArena, SharedArena, StringInterner};
-use ori_patterns::PatternRegistry;
-use ori_types::{Idx, PatternKey, PatternResolution};
+use ori_types::{PatternKey, PatternResolution};
 
 /// Builder for creating Interpreter instances with various configurations.
 ///
@@ -28,14 +26,11 @@ pub struct InterpreterBuilder<'a> {
     arena: &'a ExprArena,
     env: Option<Environment>,
     mode: EvalMode,
-    registry: Option<SharedRegistry<PatternRegistry>>,
     imported_arena: Option<SharedArena>,
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
     print_handler: Option<SharedPrintHandler>,
     owns_scoped_env: bool,
     call_stack: Option<CallStack>,
-    /// Expression type table from type checking.
-    expr_types: Option<&'a [Idx]>,
     /// Pattern resolutions from type checking.
     pattern_resolutions: &'a [(PatternKey, PatternResolution)],
     /// Canonical IR for canonical evaluation path.
@@ -50,13 +45,11 @@ impl<'a> InterpreterBuilder<'a> {
             arena,
             env: None,
             mode: EvalMode::default(),
-            registry: None,
             imported_arena: None,
             user_method_registry: None,
             print_handler: None,
             owns_scoped_env: false,
             call_stack: None,
-            expr_types: None,
             pattern_resolutions: &[],
             canon: None,
         }
@@ -75,13 +68,6 @@ impl<'a> InterpreterBuilder<'a> {
     #[must_use]
     pub fn env(mut self, env: Environment) -> Self {
         self.env = Some(env);
-        self
-    }
-
-    /// Set the pattern registry.
-    #[must_use]
-    pub fn registry(mut self, r: PatternRegistry) -> Self {
-        self.registry = Some(SharedRegistry::new(r));
         self
     }
 
@@ -128,17 +114,6 @@ impl<'a> InterpreterBuilder<'a> {
         self
     }
 
-    /// Set the expression type table from type checking.
-    ///
-    /// Enables type-aware evaluation for operators like `??` that need
-    /// to distinguish between chaining (`Option<T> ?? Option<T>`) and
-    /// unwrapping (`Option<T> ?? T`).
-    #[must_use]
-    pub fn expr_types(mut self, types: &'a [Idx]) -> Self {
-        self.expr_types = Some(types);
-        self
-    }
-
     /// Set the pattern resolutions from type checking.
     ///
     /// Enables correct disambiguation of `Binding("Pending")` (unit variant)
@@ -164,10 +139,6 @@ impl<'a> InterpreterBuilder<'a> {
 
     /// Build the interpreter.
     pub fn build(self) -> Interpreter<'a> {
-        let pat_reg = self
-            .registry
-            .unwrap_or_else(|| SharedRegistry::new(PatternRegistry::new()));
-
         let user_meth_reg = self
             .user_method_registry
             .unwrap_or_else(|| SharedMutableRegistry::new(UserMethodRegistry::new()));
@@ -186,6 +157,9 @@ impl<'a> InterpreterBuilder<'a> {
         // Pre-intern all primitive type names for hot-path method dispatch
         let type_names = TypeNames::new(self.interner);
 
+        // Pre-intern print method names for PatternExecutor print dispatch
+        let print_names = PrintNames::new(self.interner);
+
         // Default print handler depends on mode if not explicitly set
         let print_handler = self.print_handler.unwrap_or_else(stdout_handler);
 
@@ -196,23 +170,29 @@ impl<'a> InterpreterBuilder<'a> {
             .call_stack
             .unwrap_or_else(|| CallStack::new(self.mode.max_recursion_depth()));
 
+        // Ensure imported_arena is always set so lambda capture never
+        // needs to deep-clone the arena. If not explicitly provided,
+        // wrap the top-level arena reference in a SharedArena.
+        let imported_arena = self
+            .imported_arena
+            .unwrap_or_else(|| ori_ir::SharedArena::new(self.arena.clone()));
+
         Interpreter {
             interner: self.interner,
             arena: self.arena,
             env: self.env.unwrap_or_default(),
             self_name,
             type_names,
+            print_names,
             mode: self.mode,
             mode_state,
             call_stack,
-            registry: pat_reg,
             user_method_registry: user_meth_reg,
             method_dispatcher,
-            imported_arena: self.imported_arena,
+            imported_arena: Some(imported_arena),
             prelude_loaded: false,
             print_handler,
             owns_scoped_env: self.owns_scoped_env,
-            expr_types: self.expr_types,
             pattern_resolutions: self.pattern_resolutions,
             canon: self.canon,
         }

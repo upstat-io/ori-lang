@@ -211,7 +211,8 @@ impl<'a> Interpreter<'a> {
 #[allow(
     clippy::semicolon_if_nothing_returned,
     clippy::items_after_statements,
-    clippy::unnecessary_wraps
+    clippy::unnecessary_wraps,
+    reason = "test code: relaxed style for readability"
 )]
 mod tests {
     use super::*;

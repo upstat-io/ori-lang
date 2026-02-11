@@ -168,6 +168,8 @@ pub enum TokenCategory {
     Hash,
     /// #[
     HashBracket,
+    /// #!
+    HashBang,
     /// :
     Colon,
     /// ::
@@ -437,6 +439,7 @@ impl From<&TokenKind> for TokenCategory {
             TokenKind::Todo => TokenCategory::Todo,
             TokenKind::Unreachable => TokenCategory::Unreachable,
             TokenKind::HashBracket => TokenCategory::HashBracket,
+            TokenKind::HashBang => TokenCategory::HashBang,
             TokenKind::At => TokenCategory::At,
             TokenKind::Dollar => TokenCategory::Dollar,
             TokenKind::Hash => TokenCategory::Hash,

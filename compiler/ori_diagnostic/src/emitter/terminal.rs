@@ -142,8 +142,6 @@ impl<W: Write> TerminalEmitter<W> {
         }
     }
 
-    /// Create a new terminal emitter with a boolean color flag.
-    ///
     /// Create a terminal emitter for stdout with explicit color mode.
     ///
     /// # Arguments
@@ -203,7 +201,10 @@ impl<W: Write> TerminalEmitter<W> {
     /// Get source and line table references (panics if `has_source()` is false).
     ///
     /// Callers must ensure `has_source()` before calling.
-    #[allow(clippy::expect_used)] // Invariant: only called after has_source() check
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: only called after has_source() check"
+    )]
     fn source_ctx(&self) -> (&str, &LineOffsetTable) {
         let source = self
             .source
@@ -216,7 +217,7 @@ impl<W: Write> TerminalEmitter<W> {
         (source, table)
     }
 
-    // --- Low-level write helpers ---
+    // Low-level write helpers
 
     /// Write text with optional ANSI color codes.
     fn write_colored(&mut self, text: &str, color: &str) {
@@ -310,7 +311,7 @@ impl<W: Write> TerminalEmitter<W> {
         let _ = writeln!(self.writer);
     }
 
-    // --- Snippet rendering ---
+    // Snippet rendering
 
     /// Emit labels with rich source snippets.
     ///
@@ -670,7 +671,7 @@ impl<W: Write> TerminalEmitter<W> {
         );
     }
 
-    // --- Fallback (byte-offset) rendering ---
+    // Fallback (byte-offset) rendering
 
     /// Emit labels in the legacy byte-offset format (when no source is available).
     fn emit_labels_fallback(&mut self, diagnostic: &Diagnostic) {
@@ -727,6 +728,16 @@ impl<W: Write> TerminalEmitter<W> {
                 let _ = write!(self.writer, "help");
             }
             let _ = writeln!(self.writer, ": {suggestion}");
+        }
+
+        for suggestion in &diagnostic.structured_suggestions {
+            let _ = write!(self.writer, "  = ");
+            if self.colors {
+                let _ = write!(self.writer, "{}help{}", colors::HELP, colors::RESET);
+            } else {
+                let _ = write!(self.writer, "help");
+            }
+            let _ = writeln!(self.writer, ": {}", suggestion.message);
         }
     }
 }
@@ -793,7 +804,7 @@ impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
-#[allow(clippy::cast_possible_truncation)] // Test offsets are small
+#[expect(clippy::cast_possible_truncation, reason = "test offsets are small")]
 mod tests {
     use super::*;
     use crate::ErrorCode;

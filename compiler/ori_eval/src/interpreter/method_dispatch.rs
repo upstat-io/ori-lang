@@ -1,40 +1,28 @@
 //! Method dispatch methods for the Interpreter.
 
+use ori_ir::Name;
+
+use crate::{
+    all_requires_list, any_requires_list, collect_requires_range, dispatch_builtin_method,
+    filter_entries_not_implemented, filter_entries_requires_map, filter_requires_collection,
+    find_requires_list, fold_requires_collection, map_entries_not_implemented,
+    map_entries_requires_map, map_requires_collection, wrong_arg_count, wrong_function_args,
+    EvalError, EvalResult, Mutability, UserMethod, Value,
+};
+
 use super::resolvers::{CollectionMethod, MethodResolution};
 use super::Interpreter;
-use crate::{
-    // Error factories for collection methods
-    all_requires_list,
-    any_requires_list,
-    collect_requires_range,
-    dispatch_builtin_method,
-    filter_entries_not_implemented,
-    filter_entries_requires_map,
-    filter_requires_collection,
-    find_requires_list,
-    fold_requires_collection,
-    map_entries_not_implemented,
-    map_entries_requires_map,
-    map_requires_collection,
-    wrong_arg_count,
-    wrong_function_args,
-    EvalError,
-    EvalResult,
-    Mutability,
-    UserMethod,
-    Value,
-};
-use ori_ir::{ExprArena, Name};
 
 impl Interpreter<'_> {
     /// Evaluate a method call using the Chain of Responsibility pattern.
     ///
     /// Methods are resolved in priority order:
-    /// 0. Associated functions on type references (e.g., `Duration.from_seconds`)
-    /// 1. User-defined methods from impl blocks (priority 0)
-    /// 2. Derived methods from `#[derive(...)]` (priority 1)
-    /// 3. Collection methods requiring interpreter (priority 2)
-    /// 4. Built-in methods in `MethodRegistry` (priority 3)
+    /// 0. Print methods (invoked via `PatternExecutor` for the Print capability)
+    /// 1. Associated functions on type references (e.g., `Duration.from_seconds`)
+    /// 2. User-defined methods from impl blocks (priority 0)
+    /// 3. Derived methods from `#[derive(...)]` (priority 1)
+    /// 4. Collection methods requiring interpreter (priority 2)
+    /// 5. Built-in methods in `MethodRegistry` (priority 3)
     #[tracing::instrument(level = "debug", skip(self, receiver, args))]
     pub fn eval_method_call(
         &mut self,
@@ -43,6 +31,18 @@ impl Interpreter<'_> {
         args: Vec<Value>,
     ) -> EvalResult {
         self.mode_state.count_method_call();
+
+        // Handle print methods (invoked via PatternExecutor for the Print capability).
+        // Pre-interned Name comparison avoids string lookup on every method call.
+        let pn = self.print_names;
+        if method == pn.println || method == pn.builtin_println {
+            self.handle_println(&args);
+            return Ok(Value::Void);
+        }
+        if method == pn.print || method == pn.builtin_print {
+            self.handle_print(&args);
+            return Ok(Value::Void);
+        }
 
         // Handle associated function calls on type references
         if let Value::TypeRef { type_name } = &receiver {
@@ -371,6 +371,26 @@ impl Interpreter<'_> {
         self.fold_iterator(range.iter().map(Value::int), args[0].clone(), &args[1])
     }
 
+    /// Handle a `println` method call via the print handler.
+    fn handle_println(&self, args: &[Value]) {
+        if let Some(msg) = args.first() {
+            match msg {
+                Value::Str(s) => self.print_handler.println(s),
+                other => self.print_handler.println(&other.display_value()),
+            }
+        }
+    }
+
+    /// Handle a `print` method call via the print handler.
+    fn handle_print(&self, args: &[Value]) {
+        if let Some(msg) = args.first() {
+            match msg {
+                Value::Str(s) => self.print_handler.print(s),
+                other => self.print_handler.print(&other.display_value()),
+            }
+        }
+    }
+
     /// Get the concrete type name for a value as an interned Name.
     ///
     /// For struct values, returns the struct's `type_name` directly.
@@ -452,17 +472,13 @@ impl Interpreter<'_> {
             call_env.define(*param, arg.clone(), Mutability::Immutable);
         }
 
-        // Evaluate method body: canonical path when available, legacy otherwise.
+        // Evaluate method body via canonical IR.
         // The scope is popped automatically via RAII when call_interpreter drops.
-        let func_arena: &ExprArena = &method.arena;
         let mut call_interpreter =
-            self.create_function_interpreter(func_arena, call_env, method_name);
-        if method.has_canon() {
-            call_interpreter.canon.clone_from(&method.canon);
-            call_interpreter.eval_can(method.can_body)
-        } else {
-            call_interpreter.eval(method.body)
-        }
+            self.create_function_interpreter(&method.arena, call_env, method_name);
+
+        call_interpreter.canon.clone_from(&method.canon);
+        call_interpreter.eval_can(method.can_body)
     }
 
     /// Evaluate an associated function (no `self` parameter).
@@ -497,21 +513,13 @@ impl Interpreter<'_> {
             call_env.define(*param, arg.clone(), Mutability::Immutable);
         }
 
-        // Evaluate function body: canonical path when available, legacy otherwise.
-        let func_arena: &ExprArena = &method.arena;
+        // Evaluate function body via canonical IR.
         let mut call_interpreter =
-            self.create_function_interpreter(func_arena, call_env, method_name);
-        if method.has_canon() {
-            call_interpreter.canon.clone_from(&method.canon);
-            call_interpreter.eval_can(method.can_body)
-        } else {
-            call_interpreter.eval(method.body)
-        }
-    }
+            self.create_function_interpreter(&method.arena, call_env, method_name);
 
-    // NOTE: Derived method evaluation has been moved to `derived_methods.rs`
-    // for better separation of concerns. The method `eval_derived_method`
-    // and its helpers are now in that module.
+        call_interpreter.canon.clone_from(&method.canon);
+        call_interpreter.eval_can(method.can_body)
+    }
 }
 
 #[cfg(test)]

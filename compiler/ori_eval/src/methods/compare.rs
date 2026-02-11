@@ -1,8 +1,9 @@
 //! Value comparison utilities.
 
+use std::cmp::Ordering;
+
 use ori_ir::StringInterner;
 use ori_patterns::{EvalError, OrderingValue, Value};
-use std::cmp::Ordering;
 
 /// Compare two Option values.
 ///
@@ -94,7 +95,7 @@ pub fn compare_result_values(
 /// Convert Rust Ordering to Ori Ordering value.
 ///
 /// Creates a first-class `Value::Ordering` value.
-pub fn ordering_to_value(ord: Ordering, _interner: &StringInterner) -> Value {
+pub fn ordering_to_value(ord: Ordering) -> Value {
     Value::ordering_from_cmp(ord)
 }
 

@@ -1,24 +1,19 @@
 //! Method dispatch for numeric types (int, float).
 
-use super::compare::ordering_to_value;
-use super::helpers::{require_args, require_float_arg, require_scalar_int_arg};
-use ori_ir::StringInterner;
 use ori_patterns::{
     division_by_zero, integer_overflow, modulo_by_zero, no_such_method, EvalError, EvalResult,
     Value,
 };
+
+use super::compare::ordering_to_value;
+use super::helpers::{require_args, require_float_arg, require_scalar_int_arg};
 
 /// Dispatch operator methods on integer values.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-pub fn dispatch_int_method(
-    receiver: Value,
-    method: &str,
-    args: Vec<Value>,
-    interner: &StringInterner,
-) -> EvalResult {
+pub fn dispatch_int_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Int(a) = receiver else {
         unreachable!("dispatch_int_method called with non-int receiver")
     };
@@ -124,7 +119,7 @@ pub fn dispatch_int_method(
         "compare" => {
             require_args("compare", 1, args.len())?;
             let b = require_scalar_int_arg("compare", &args, 0)?;
-            Ok(ordering_to_value(a.cmp(&b), interner))
+            Ok(ordering_to_value(a.cmp(&b)))
         }
         // Eq trait
         "equals" => {
@@ -157,12 +152,7 @@ pub fn dispatch_int_method(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-pub fn dispatch_float_method(
-    receiver: Value,
-    method: &str,
-    args: Vec<Value>,
-    interner: &StringInterner,
-) -> EvalResult {
+pub fn dispatch_float_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Float(a) = receiver else {
         unreachable!("dispatch_float_method called with non-float receiver")
     };
@@ -197,7 +187,7 @@ pub fn dispatch_float_method(
             require_args("compare", 1, args.len())?;
             let b = require_float_arg("compare", &args, 0)?;
             // Use total_cmp for IEEE 754 total ordering (handles NaN consistently)
-            Ok(ordering_to_value(a.total_cmp(&b), interner))
+            Ok(ordering_to_value(a.total_cmp(&b)))
         }
         // Eq trait - exact bit comparison (intentional for float equality)
         "equals" => {

@@ -5,6 +5,7 @@
 mod context;
 mod cursor;
 mod error;
+mod foreign_keywords;
 mod grammar;
 pub mod incremental;
 mod outcome;
@@ -640,8 +641,7 @@ impl<'a> Parser<'a> {
             // e.g., `fn main()` → "use `@name (params) -> type = body` in Ori"
             if let TokenKind::Ident(name) = *self.cursor.current_kind() {
                 let ident_str = self.cursor.interner().lookup(name);
-                if let Some(suggestion) =
-                    ori_lexer::foreign_keywords::lookup_foreign_keyword(ident_str)
+                if let Some(suggestion) = crate::foreign_keywords::lookup_foreign_keyword(ident_str)
                 {
                     errors.push(
                         ParseError::new(

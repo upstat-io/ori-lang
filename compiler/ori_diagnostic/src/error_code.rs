@@ -1,3 +1,8 @@
+//! Error codes for all compiler diagnostics.
+//!
+//! Each error code is a unique identifier (e.g., `E1001`) with the first digit
+//! indicating the compiler phase. Used for `--explain` lookups and documentation.
+
 use std::fmt;
 
 /// Error codes for all compiler diagnostics.
@@ -133,6 +138,26 @@ pub enum ErrorCode {
     /// ARC internal error (invariant violation)
     E4003,
 
+    // Codegen / LLVM Errors (E5xxx)
+    /// LLVM module verification failed (ICE)
+    E5001,
+    /// Optimization pipeline failed
+    E5002,
+    /// Object/assembly/bitcode emission failed
+    E5003,
+    /// Target not supported / target configuration failed
+    E5004,
+    /// Runtime library (`libori_rt.a`) not found
+    E5005,
+    /// Linker failed
+    E5006,
+    /// Debug info creation failed
+    E5007,
+    /// WASM-specific error
+    E5008,
+    /// Module target configuration failed
+    E5009,
+
     // Runtime / Eval Errors (E6xxx)
     /// Division by zero
     E6001,
@@ -182,26 +207,6 @@ pub enum ErrorCode {
     E6080,
     /// Custom runtime error
     E6099,
-
-    // Codegen / LLVM Errors (E5xxx)
-    /// LLVM module verification failed (ICE)
-    E5001,
-    /// Optimization pipeline failed
-    E5002,
-    /// Object/assembly/bitcode emission failed
-    E5003,
-    /// Target not supported / target configuration failed
-    E5004,
-    /// Runtime library (`libori_rt.a`) not found
-    E5005,
-    /// Linker failed
-    E5006,
-    /// Debug info creation failed
-    E5007,
-    /// WASM-specific error
-    E5008,
-    /// Module target configuration failed
-    E5009,
 
     // Internal Errors (E9xxx)
     /// Internal compiler error
@@ -283,6 +288,16 @@ impl ErrorCode {
             ErrorCode::E4001 => "E4001",
             ErrorCode::E4002 => "E4002",
             ErrorCode::E4003 => "E4003",
+            // Codegen / LLVM
+            ErrorCode::E5001 => "E5001",
+            ErrorCode::E5002 => "E5002",
+            ErrorCode::E5003 => "E5003",
+            ErrorCode::E5004 => "E5004",
+            ErrorCode::E5005 => "E5005",
+            ErrorCode::E5006 => "E5006",
+            ErrorCode::E5007 => "E5007",
+            ErrorCode::E5008 => "E5008",
+            ErrorCode::E5009 => "E5009",
             // Runtime / Eval
             ErrorCode::E6001 => "E6001",
             ErrorCode::E6002 => "E6002",
@@ -308,16 +323,6 @@ impl ErrorCode {
             ErrorCode::E6070 => "E6070",
             ErrorCode::E6080 => "E6080",
             ErrorCode::E6099 => "E6099",
-            // Codegen / LLVM
-            ErrorCode::E5001 => "E5001",
-            ErrorCode::E5002 => "E5002",
-            ErrorCode::E5003 => "E5003",
-            ErrorCode::E5004 => "E5004",
-            ErrorCode::E5005 => "E5005",
-            ErrorCode::E5006 => "E5006",
-            ErrorCode::E5007 => "E5007",
-            ErrorCode::E5008 => "E5008",
-            ErrorCode::E5009 => "E5009",
             // Internal
             ErrorCode::E9001 => "E9001",
             ErrorCode::E9002 => "E9002",

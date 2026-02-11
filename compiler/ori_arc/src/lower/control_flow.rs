@@ -17,7 +17,7 @@ use super::expr::{ArcLowerer, LoopContext};
 use super::scope::merge_mutable_vars;
 
 impl ArcLowerer<'_> {
-    // ── Block ──────────────────────────────────────────────────
+    // Block
 
     /// Lower `Block { stmts, result }`.
     ///
@@ -46,7 +46,7 @@ impl ArcLowerer<'_> {
         result_var
     }
 
-    // ── Let ────────────────────────────────────────────────────
+    // Let
 
     /// Lower `Let { pattern, init, mutable }`.
     ///
@@ -64,7 +64,7 @@ impl ArcLowerer<'_> {
         self.emit_unit()
     }
 
-    // ── If / Else ──────────────────────────────────────────────
+    // If / Else
 
     /// Lower `If { cond, then_branch, else_branch }`.
     ///
@@ -156,7 +156,7 @@ impl ArcLowerer<'_> {
         result_param
     }
 
-    // ── Loop ───────────────────────────────────────────────────
+    // Loop
 
     /// Lower `Loop { body }` — infinite loop with break/continue.
     pub(crate) fn lower_loop(&mut self, body: CanId, ty: Idx) -> ArcVarId {
@@ -211,7 +211,7 @@ impl ArcLowerer<'_> {
         self.builder.add_block_param(exit_block, ty)
     }
 
-    // ── For ────────────────────────────────────────────────────
+    // For
 
     /// Lower `For { binding, iter, guard, body }` — range iteration.
     pub(crate) fn lower_for(
@@ -296,8 +296,9 @@ impl ArcLowerer<'_> {
         self.emit_unit()
     }
 
-    // ── Break / Continue ───────────────────────────────────────
+    // Break / Continue
 
+    /// Lower a `break` expression to ARC IR.
     pub(crate) fn lower_break(&mut self, value: CanId) -> ArcVarId {
         let break_val = if value.is_valid() {
             self.lower_expr(value)
@@ -315,6 +316,7 @@ impl ArcLowerer<'_> {
         self.emit_unit()
     }
 
+    /// Lower a `continue` expression to ARC IR.
     pub(crate) fn lower_continue(&mut self, _value: CanId) -> ArcVarId {
         if let Some(ref ctx) = self.loop_ctx {
             let continue_block = ctx.continue_block;
@@ -332,7 +334,7 @@ impl ArcLowerer<'_> {
         self.emit_unit()
     }
 
-    // ── Assign ─────────────────────────────────────────────────
+    // Assign
 
     /// Lower `Assign { target, value }` — SSA rebinding for mutable variables.
     pub(crate) fn lower_assign(&mut self, target: CanId, value: CanId, span: Span) -> ArcVarId {
@@ -373,7 +375,7 @@ impl ArcLowerer<'_> {
         self.emit_unit()
     }
 
-    // ── Match ──────────────────────────────────────────────────
+    // Match
 
     /// Lower `Match { scrutinee, decision_tree, arms }` via pre-compiled decision tree.
     ///
@@ -389,7 +391,6 @@ impl ArcLowerer<'_> {
         span: Span,
     ) -> ArcVarId {
         let scrut_var = self.lower_expr(scrutinee);
-        let scrut_ty = self.expr_type(scrutinee);
 
         let arm_ids: Vec<_> = self.arena.get_expr_list(arms).to_vec();
         if arm_ids.is_empty() {
@@ -404,7 +405,6 @@ impl ArcLowerer<'_> {
 
         let mut ctx = crate::decision_tree::emit::EmitContext {
             root_scrutinee: scrut_var,
-            scrutinee_ty: scrut_ty,
             merge_block,
             arm_bodies: arm_ids,
             span,
@@ -417,7 +417,7 @@ impl ArcLowerer<'_> {
     }
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {

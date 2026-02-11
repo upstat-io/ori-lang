@@ -28,9 +28,7 @@ compiler/
     ├── lex_error.rs            # LexError types (WHERE+WHAT+WHY+HOW)
     ├── comments.rs             # Comment classification (doc vs regular)
     ├── parse_helpers.rs        # Numeric literal parsing utilities
-    ├── token_flags.rs          # TokenFlags metadata (parallel array)
     ├── unicode_confusables.rs  # Unicode → ASCII suggestions
-    ├── foreign_keywords.rs     # Cross-language keyword detection
     └── what_is_next.rs         # Context-aware error suggestions
 ```
 

@@ -22,7 +22,7 @@
 use ori_ir::canon::{CanArena, CanExpr, CanId, CanNode, ConstValue, ConstantPool};
 use ori_ir::{BinaryOp, UnaryOp};
 
-// ── Constness Classification ─────────────────────────────────────
+// Constness Classification
 
 /// Whether an expression can be evaluated at compile time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,7 +119,7 @@ fn is_pure_unary(op: UnaryOp) -> bool {
     matches!(op, UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot)
 }
 
-// ── Constant Folding ────────────────────────────────────────────
+// Constant Folding
 
 /// Try to fold a canonical expression to a constant.
 ///
@@ -189,7 +189,7 @@ fn try_fold_if(
     }
 }
 
-// ── Value Extraction ────────────────────────────────────────────
+// Value Extraction
 
 /// Extract a `ConstValue` from a canonical expression node.
 ///
@@ -211,23 +211,24 @@ fn extract_const_value(
     }
 }
 
-// ── Binary Folding ──────────────────────────────────────────────
+// Binary Folding
 
 /// Evaluate a binary operation on two constant values.
 ///
 /// Returns `None` if the operation would cause undefined behavior
 /// (division by zero, integer overflow) — these are deferred to runtime.
 fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<ConstValue> {
-    match (op, left.clone(), right.clone()) {
+    // Match by reference — all inner data is Copy, so no cloning needed.
+    match (op, left, right) {
         // Integer arithmetic (with overflow detection).
         (BinaryOp::Add, ConstValue::Int(a), ConstValue::Int(b)) => {
-            a.checked_add(b).map(ConstValue::Int)
+            a.checked_add(*b).map(ConstValue::Int)
         }
         (BinaryOp::Sub, ConstValue::Int(a), ConstValue::Int(b)) => {
-            a.checked_sub(b).map(ConstValue::Int)
+            a.checked_sub(*b).map(ConstValue::Int)
         }
         (BinaryOp::Mul, ConstValue::Int(a), ConstValue::Int(b)) => {
-            a.checked_mul(b).map(ConstValue::Int)
+            a.checked_mul(*b).map(ConstValue::Int)
         }
         // Division-by-zero: defer to runtime.
         (
@@ -236,14 +237,14 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
             ConstValue::Int(0),
         ) => None,
         (BinaryOp::Div, ConstValue::Int(a), ConstValue::Int(b)) => {
-            a.checked_div(b).map(ConstValue::Int)
+            a.checked_div(*b).map(ConstValue::Int)
         }
         (BinaryOp::Mod, ConstValue::Int(a), ConstValue::Int(b)) => {
-            a.checked_rem(b).map(ConstValue::Int)
+            a.checked_rem(*b).map(ConstValue::Int)
         }
         (BinaryOp::FloorDiv, ConstValue::Int(a), ConstValue::Int(b)) => {
             // Floor division: round towards negative infinity.
-            a.checked_div(b).map(|q| {
+            a.checked_div(*b).map(|q| {
                 if (a ^ b) < 0 && a % b != 0 {
                     ConstValue::Int(q - 1)
                 } else {
@@ -254,20 +255,20 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
 
         // Float arithmetic.
         (BinaryOp::Add, ConstValue::Float(a), ConstValue::Float(b)) => Some(ConstValue::Float(
-            (f64::from_bits(a) + f64::from_bits(b)).to_bits(),
+            (f64::from_bits(*a) + f64::from_bits(*b)).to_bits(),
         )),
         (BinaryOp::Sub, ConstValue::Float(a), ConstValue::Float(b)) => Some(ConstValue::Float(
-            (f64::from_bits(a) - f64::from_bits(b)).to_bits(),
+            (f64::from_bits(*a) - f64::from_bits(*b)).to_bits(),
         )),
         (BinaryOp::Mul, ConstValue::Float(a), ConstValue::Float(b)) => Some(ConstValue::Float(
-            (f64::from_bits(a) * f64::from_bits(b)).to_bits(),
+            (f64::from_bits(*a) * f64::from_bits(*b)).to_bits(),
         )),
         (BinaryOp::Div, ConstValue::Float(a), ConstValue::Float(b)) => {
-            let bv = f64::from_bits(b);
+            let bv = f64::from_bits(*b);
             if bv == 0.0 {
                 None // Defer div-by-zero to runtime.
             } else {
-                Some(ConstValue::Float((f64::from_bits(a) / bv).to_bits()))
+                Some(ConstValue::Float((f64::from_bits(*a) / bv).to_bits()))
             }
         }
 
@@ -290,25 +291,29 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
         (BinaryOp::NotEq, ConstValue::Str(a), ConstValue::Str(b)) => Some(ConstValue::Bool(a != b)),
 
         // Boolean logic.
-        (BinaryOp::And, ConstValue::Bool(a), ConstValue::Bool(b)) => Some(ConstValue::Bool(a && b)),
-        (BinaryOp::Or, ConstValue::Bool(a), ConstValue::Bool(b)) => Some(ConstValue::Bool(a || b)),
+        (BinaryOp::And, ConstValue::Bool(a), ConstValue::Bool(b)) => {
+            Some(ConstValue::Bool(*a && *b))
+        }
+        (BinaryOp::Or, ConstValue::Bool(a), ConstValue::Bool(b)) => {
+            Some(ConstValue::Bool(*a || *b))
+        }
 
         // Bitwise operations (integers).
         (BinaryOp::BitAnd, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a & b)),
         (BinaryOp::BitOr, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a | b)),
         (BinaryOp::BitXor, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a ^ b)),
         (BinaryOp::Shl, ConstValue::Int(a), ConstValue::Int(b)) => {
-            let shift = u32::try_from(b).ok().filter(|&s| s < 64)?;
+            let shift = u32::try_from(*b).ok().filter(|&s| s < 64)?;
             let result = a.wrapping_shl(shift);
             // Round-trip check: if shifting back recovers the original, no overflow.
-            if result.wrapping_shr(shift) == a {
+            if result.wrapping_shr(shift) == *a {
                 Some(ConstValue::Int(result))
             } else {
                 None
             }
         }
         (BinaryOp::Shr, ConstValue::Int(a), ConstValue::Int(b)) => {
-            let shift = u32::try_from(b).ok().filter(|&s| s < 64)?;
+            let shift = u32::try_from(*b).ok().filter(|&s| s < 64)?;
             Some(ConstValue::Int(a >> shift))
         }
 
@@ -317,22 +322,21 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
     }
 }
 
-// ── Unary Folding ───────────────────────────────────────────────
+// Unary Folding
 
 /// Evaluate a unary operation on a constant value.
 fn fold_unary(op: UnaryOp, val: &ConstValue) -> Option<ConstValue> {
-    match (op, val.clone()) {
+    // Match by reference — all inner data is Copy, so no cloning needed.
+    match (op, val) {
         (UnaryOp::Neg, ConstValue::Int(v)) => v.checked_neg().map(ConstValue::Int),
         (UnaryOp::Neg, ConstValue::Float(bits)) => {
-            Some(ConstValue::Float((-f64::from_bits(bits)).to_bits()))
+            Some(ConstValue::Float((-f64::from_bits(*bits)).to_bits()))
         }
         (UnaryOp::Not, ConstValue::Bool(v)) => Some(ConstValue::Bool(!v)),
         (UnaryOp::BitNot, ConstValue::Int(v)) => Some(ConstValue::Int(!v)),
         _ => None,
     }
 }
-
-// ── Tests ───────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

@@ -18,8 +18,6 @@ use super::FlatPattern;
 ///
 /// The `interner` is needed to resolve variant names for well-known types
 /// (`Option`, `Result`) which have dedicated Pool tags rather than `Tag::Enum`.
-// Variant indices never exceed u32.
-#[allow(clippy::cast_possible_truncation)]
 pub fn flatten_pattern(
     pattern: &MatchPattern,
     arena: &ExprArena,
@@ -77,9 +75,8 @@ pub fn flatten_pattern(
         MatchPattern::Struct { fields } => {
             let flat_fields: Vec<(Name, FlatPattern)> = fields
                 .iter()
-                .enumerate()
-                .map(|(i, (field_name, sub_pat))| {
-                    let field_ty = resolve_struct_field_ty(pool, scrutinee_ty, *field_name, i);
+                .map(|(field_name, sub_pat)| {
+                    let field_ty = resolve_struct_field_ty(pool, scrutinee_ty, *field_name);
                     let flat = if let Some(pat_id) = sub_pat {
                         let inner_pat = arena.get_match_pattern(*pat_id);
                         flatten_pattern(inner_pat, arena, field_ty, pool, interner)
@@ -151,7 +148,7 @@ pub fn flatten_pattern(
     }
 }
 
-// ── Literal Extraction ──────────────────────────────────────────────
+// Literal extraction
 
 /// Convert a literal expression to a `FlatPattern`.
 fn flatten_literal(arena: &ExprArena, expr_id: ExprId) -> FlatPattern {
@@ -183,7 +180,7 @@ fn extract_int_literal(arena: &ExprArena, expr_id: ExprId) -> i64 {
     }
 }
 
-// ── Type Resolution Helpers ─────────────────────────────────────────
+// Type resolution helpers
 
 /// Resolve a variant name to its discriminant index.
 ///
@@ -191,8 +188,10 @@ fn extract_int_literal(arena: &ExprArena, expr_id: ExprId) -> i64 {
 /// - `Tag::Enum`: looks up variant by name in the enum definition
 /// - `Tag::Option`: `None` = 0, `Some` = 1
 /// - `Tag::Result`: `Ok` = 0, `Err` = 1
-// Variant indices never exceed u32.
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "variant indices never exceed u32"
+)]
 fn resolve_variant_index(
     pool: &ori_types::Pool,
     enum_ty: ori_types::Idx,
@@ -294,7 +293,6 @@ fn resolve_struct_field_ty(
     pool: &ori_types::Pool,
     struct_ty: ori_types::Idx,
     field_name: Name,
-    _fallback_index: usize,
 ) -> ori_types::Idx {
     use ori_types::Tag;
     let resolved = pool.resolve_fully(struct_ty);

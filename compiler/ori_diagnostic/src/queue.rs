@@ -7,16 +7,24 @@
 //! - Follow-on error filtering
 //! - `ErrorGuaranteed` proof that errors were emitted
 
-use crate::{Diagnostic, ErrorCode, ErrorGuaranteed};
 use ori_ir::Span;
+
+use crate::{Diagnostic, ErrorCode, ErrorGuaranteed};
 
 /// Number of characters to use for message prefix deduplication.
 const MESSAGE_PREFIX_LEN: usize = 30;
 
-/// Extract the first N characters of a message for deduplication.
+/// Get the `&str` slice of the first N characters of a message.
+///
+/// Returns a borrowed slice rather than allocating a new `String`.
+/// For ASCII messages (the common case), this is a simple byte slice.
 #[inline]
-fn message_prefix(msg: &str) -> String {
-    msg.chars().take(MESSAGE_PREFIX_LEN).collect()
+fn message_prefix(msg: &str) -> &str {
+    let byte_end = msg
+        .char_indices()
+        .nth(MESSAGE_PREFIX_LEN)
+        .map_or(msg.len(), |(idx, _)| idx);
+    &msg[..byte_end]
 }
 
 /// Case-insensitive substring check without allocation.
@@ -201,9 +209,8 @@ impl DiagnosticQueue {
             if Self::is_syntax_error(&diag) {
                 self.last_syntax_line = Some(line);
             } else {
-                // Take first ~30 chars of message for dedup
-                let prefix = message_prefix(&diag.message);
-                self.last_error = Some((line, prefix));
+                // Store first ~30 chars of message for dedup
+                self.last_error = Some((line, message_prefix(&diag.message).to_owned()));
             }
         }
 

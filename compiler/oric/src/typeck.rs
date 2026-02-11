@@ -138,11 +138,12 @@ fn register_builtins(
     }
 
     // Ordering values: Less, Equal, Greater
+    // Must use the pre-interned Idx::ORDERING — pool.named() would create a
+    // different Named idx that doesn't unify with return type annotations.
     {
-        let ordering_ty = checker.pool_mut().named(interner.intern("Ordering"));
         for variant in &["Less", "Equal", "Greater"] {
             let name = interner.intern(variant);
-            checker.register_builtin_value(name, ordering_ty);
+            checker.register_builtin_value(name, ori_types::Idx::ORDERING);
         }
     }
 }

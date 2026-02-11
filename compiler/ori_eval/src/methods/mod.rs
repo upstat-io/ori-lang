@@ -56,13 +56,13 @@ pub fn dispatch_builtin_method(
     interner: &StringInterner,
 ) -> EvalResult {
     match &receiver {
-        Value::Int(_) => numeric::dispatch_int_method(receiver, method, args, interner),
-        Value::Float(_) => numeric::dispatch_float_method(receiver, method, args, interner),
-        Value::Bool(_) => variants::dispatch_bool_method(receiver, method, args, interner),
-        Value::Char(_) => variants::dispatch_char_method(receiver, method, args, interner),
-        Value::Byte(_) => variants::dispatch_byte_method(receiver, method, args, interner),
+        Value::Int(_) => numeric::dispatch_int_method(receiver, method, args),
+        Value::Float(_) => numeric::dispatch_float_method(receiver, method, args),
+        Value::Bool(_) => variants::dispatch_bool_method(receiver, method, args),
+        Value::Char(_) => variants::dispatch_char_method(receiver, method, args),
+        Value::Byte(_) => variants::dispatch_byte_method(receiver, method, args),
         Value::List(_) => collections::dispatch_list_method(receiver, method, args, interner),
-        Value::Str(_) => collections::dispatch_string_method(receiver, method, args, interner),
+        Value::Str(_) => collections::dispatch_string_method(receiver, method, args),
         Value::Map(_) => collections::dispatch_map_method(receiver, method, args),
         Value::Range(_) => collections::dispatch_range_method(receiver, method, args),
         Value::Some(_) | Value::None => {
@@ -72,9 +72,9 @@ pub fn dispatch_builtin_method(
             variants::dispatch_result_method(receiver, method, args, interner)
         }
         Value::Newtype { .. } => variants::dispatch_newtype_method(receiver, method, args),
-        Value::Duration(_) => units::dispatch_duration_method(receiver, method, args, interner),
-        Value::Size(_) => units::dispatch_size_method(receiver, method, args, interner),
-        Value::Ordering(_) => ordering::dispatch_ordering_method(receiver, method, args, interner),
+        Value::Duration(_) => units::dispatch_duration_method(receiver, method, args),
+        Value::Size(_) => units::dispatch_size_method(receiver, method, args),
+        Value::Ordering(_) => ordering::dispatch_ordering_method(receiver, method, args),
         _ => Err(no_such_method(method, receiver.type_name()).into()),
     }
 }

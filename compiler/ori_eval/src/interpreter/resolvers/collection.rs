@@ -7,6 +7,7 @@ use super::{CollectionMethod, MethodResolution, MethodResolver, Value};
 use ori_ir::{Name, StringInterner};
 
 /// Pre-interned method names for efficient comparison.
+#[derive(Clone)]
 struct MethodNames {
     map: Name,
     filter: Name,
@@ -40,6 +41,7 @@ impl MethodNames {
 /// - collect on ranges
 /// - map, filter on maps
 /// - any, all on lists
+#[derive(Clone)]
 pub struct CollectionMethodResolver {
     methods: MethodNames,
 }

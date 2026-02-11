@@ -1,6 +1,10 @@
-use std::fmt;
+//! Core diagnostic types for structured error reporting.
+//!
+//! Defines [`Diagnostic`], [`Label`], [`Severity`], and [`Suggestion`] — the
+//! building blocks that all compiler phases use to report errors and warnings.
 
 use ori_ir::Span;
+use std::fmt;
 
 use crate::ErrorCode;
 

@@ -349,7 +349,6 @@ impl TestRunner {
                     .mode(ori_eval::EvalMode::TestRun {
                         only_attached: false,
                     })
-                    .expr_types(&type_result.typed.expr_types)
                     .pattern_resolutions(&type_result.typed.pattern_resolutions)
                     .canon(shared_canon.clone())
                     .build();
@@ -872,12 +871,15 @@ impl TestRunner {
         // Time the test execution
         let start = Instant::now();
 
-        // Evaluate the test body via canonical IR when available.
-        let result = if let Some(can_id) = evaluator.canon_root_for(test.name) {
-            evaluator.eval_can(can_id)
-        } else {
-            evaluator.eval(test.body)
+        let Some(can_id) = evaluator.canon_root_for(test.name) else {
+            return TestResult::failed(
+                test.name,
+                test.targets.clone(),
+                "internal error: test has no canonical root".to_string(),
+                start.elapsed(),
+            );
         };
+        let result = evaluator.eval_can(can_id);
         match result {
             Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
             Err(e) => TestResult::failed(

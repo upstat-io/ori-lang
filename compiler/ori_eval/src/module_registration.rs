@@ -12,14 +12,17 @@
 //! (WASM, embedded interpreters, testing) can call these functions directly after
 //! parsing.
 
-// Arc is required for SharedArena API
-#![allow(clippy::disallowed_types)]
+#![expect(
+    clippy::disallowed_types,
+    reason = "Arc required for SharedArena API and shared captures"
+)]
 
-use crate::{Environment, FunctionValue, Mutability, UserMethod, UserMethodRegistry, Value};
 use ori_ir::canon::SharedCanonResult;
 use ori_ir::{Module, Name, SharedArena, TypeDeclKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
+
+use crate::{Environment, FunctionValue, Mutability, UserMethod, UserMethodRegistry, Value};
 
 /// Configuration for method collection operations.
 ///
@@ -87,19 +90,17 @@ pub fn register_module_functions(
             let func = funcs[0];
             let params_slice = arena.get_params(func.params);
             let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
-            let defaults: Vec<_> = params_slice.iter().map(|p| p.default).collect();
             let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
 
-            let mut func_value = FunctionValue::with_defaults(
+            let mut func_value = FunctionValue::with_capabilities(
                 params,
-                defaults,
                 func.body,
                 captures.clone(),
                 arena.clone(),
                 capabilities,
             );
 
-            // Attach canonical IR and defaults if available
+            // Attach canonical IR and defaults
             if let (Some(roots), Some(c)) = (canon_lookup.get(&name), canon) {
                 if let Some(root) = roots.first() {
                     func_value.set_canon(root.body, c.clone());
@@ -117,12 +118,10 @@ pub fn register_module_functions(
             let first_func = funcs[0];
             let params_slice = arena.get_params(first_func.params);
             let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
-            let defaults: Vec<_> = params_slice.iter().map(|p| p.default).collect();
             let capabilities: Vec<_> = first_func.capabilities.iter().map(|c| c.name).collect();
 
-            let mut func_value = FunctionValue::with_defaults(
+            let mut func_value = FunctionValue::with_capabilities(
                 params,
-                defaults,
                 first_func.body,
                 captures.clone(),
                 arena.clone(),
@@ -130,8 +129,6 @@ pub fn register_module_functions(
             );
 
             // Attach the canonical match body (synthesized by lower_module).
-            // The canon_lookup groups all same-name roots; the first entry
-            // is the synthesized match body for the multi-clause group.
             if let (Some(roots), Some(c)) = (canon_lookup.get(&name), canon) {
                 if let Some(root) = roots.first() {
                     func_value.set_canon(root.body, c.clone());

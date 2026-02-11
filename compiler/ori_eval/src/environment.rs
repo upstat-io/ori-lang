@@ -26,6 +26,18 @@ pub enum Mutability {
     Immutable,
 }
 
+/// Error returned by `Scope::assign` when assignment fails.
+///
+/// Typed error replaces the previous `Result<(), String>`, letting callers
+/// distinguish the failure mode and produce the correct diagnostic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AssignError {
+    /// Variable exists but is immutable.
+    Immutable,
+    /// Variable not found in any scope.
+    Undefined,
+}
+
 impl Mutability {
     /// Returns `true` if this is `Mutable`.
     #[inline]
@@ -164,10 +176,10 @@ impl Scope {
 
     /// Assign to a variable.
     #[inline]
-    pub fn assign(&mut self, name: Name, value: Value) -> Result<(), String> {
+    pub fn assign(&mut self, name: Name, value: Value) -> Result<(), AssignError> {
         if let Some(binding) = self.bindings.get_mut(&name) {
             if !binding.mutability.is_mutable() {
-                return Err("cannot assign to immutable variable".to_string());
+                return Err(AssignError::Immutable);
             }
             binding.value = value;
             return Ok(());
@@ -175,7 +187,7 @@ impl Scope {
         if let Some(parent) = &self.parent {
             return parent.borrow_mut().assign(name, value);
         }
-        Err("undefined variable".to_string())
+        Err(AssignError::Undefined)
     }
 }
 
@@ -251,7 +263,7 @@ impl Environment {
 
     /// Assign to a variable.
     #[inline]
-    pub fn assign(&mut self, name: Name, value: Value) -> Result<(), String> {
+    pub fn assign(&mut self, name: Name, value: Value) -> Result<(), AssignError> {
         self.current_scope().borrow_mut().assign(name, value)
     }
 

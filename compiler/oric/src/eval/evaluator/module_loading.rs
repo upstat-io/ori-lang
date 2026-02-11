@@ -32,6 +32,11 @@ impl Evaluator<'_> {
     /// which handles prelude discovery and `use` statement resolution via Salsa.
     /// The interpreter consumes the resolved data to build `FunctionValue` objects
     /// with captures and register them in the environment.
+    ///
+    /// When canonical IR is available (via `canon`), imported modules are also
+    /// type-checked and canonicalized so that imported functions have canonical
+    /// bodies. This ensures the evaluator uses `eval_can(CanId)` for all function
+    /// calls, including cross-module ones.
     pub fn load_module(
         &mut self,
         parse_result: &ParseOutput,
@@ -40,14 +45,23 @@ impl Evaluator<'_> {
     ) -> Result<(), String> {
         // Resolve all imports via the unified pipeline (prelude + explicit use statements).
         let resolved = imports::resolve_imports(self.db, parse_result, file_path);
+        let interner = self.interpreter.interner;
 
         // Register prelude functions (if not already loaded)
         if !self.prelude_loaded {
             self.prelude_loaded = true;
             if let Some(ref prelude) = resolved.prelude {
                 let prelude_arena = SharedArena::new(prelude.parse_output.arena.clone());
-                let module_functions =
-                    import::build_module_functions(&prelude.parse_output, &prelude_arena);
+
+                // Type-check and canonicalize prelude for canonical function dispatch.
+                let prelude_canon =
+                    Self::canonicalize_module(self.db, &prelude.parse_output, &prelude.module_path);
+
+                let module_functions = import::build_module_functions(
+                    &prelude.parse_output,
+                    &prelude_arena,
+                    prelude_canon.as_ref(),
+                );
 
                 for func in &prelude.parse_output.module.functions {
                     if func.visibility.is_public() {
@@ -71,10 +85,20 @@ impl Evaluator<'_> {
             let imp = &parse_result.module.imports[imp_module.import_index];
 
             let imported_arena = SharedArena::new(imp_module.parse_output.arena.clone());
-            let imported_module =
-                import::ImportedModule::new(&imp_module.parse_output, &imported_arena);
 
-            let interner = self.interpreter.interner;
+            // Type-check and canonicalize the imported module for canonical dispatch.
+            let imp_canon = Self::canonicalize_module(
+                self.db,
+                &imp_module.parse_output,
+                &imp_module.module_path,
+            );
+
+            let imported_module = import::ImportedModule::new(
+                &imp_module.parse_output,
+                &imported_arena,
+                imp_canon.as_ref(),
+            );
+
             let import_path = std::path::Path::new(&imp_module.module_path);
             import::register_imports(
                 imp,
@@ -83,6 +107,7 @@ impl Evaluator<'_> {
                 interner,
                 import_path,
                 file_path,
+                imp_canon.as_ref(),
             )
             .map_err(|e| e.message)?;
         }
@@ -136,5 +161,40 @@ impl Evaluator<'_> {
         self.user_method_registry().write().merge(user_methods);
 
         Ok(())
+    }
+
+    /// Type-check and canonicalize a module, returning its `SharedCanonResult`.
+    ///
+    /// This enables imported functions to carry canonical IR for `eval_can()`
+    /// dispatch. Uses Salsa caching so repeated calls for the same module are free.
+    fn canonicalize_module(
+        db: &dyn crate::db::Db,
+        parse_output: &ParseOutput,
+        module_path: &str,
+    ) -> Option<SharedCanonResult> {
+        let path = std::path::Path::new(module_path);
+        let (type_result, pool) =
+            crate::typeck::type_check_with_imports_and_pool(db, parse_output, path);
+
+        // Only canonicalize if there are no type errors — otherwise the
+        // canonical IR may be incomplete or inconsistent.
+        if type_result.has_errors() {
+            tracing::debug!(
+                module = module_path,
+                errors = type_result.errors().len(),
+                "skipping canonicalization due to type errors"
+            );
+            return None;
+        }
+
+        let interner = db.interner();
+        let canon = ori_canon::lower_module(
+            &parse_output.module,
+            &parse_output.arena,
+            &type_result,
+            &pool,
+            interner,
+        );
+        Some(SharedCanonResult::new(canon))
     }
 }

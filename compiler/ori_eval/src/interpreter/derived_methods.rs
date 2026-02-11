@@ -7,11 +7,12 @@
 //! - `#[derive(Printable)]` -> `to_string` method
 //! - `#[derive(Default)]` -> `default` method
 
-use super::Interpreter;
 use crate::{
     default_requires_type_context, wrong_function_args, DerivedMethodInfo, DerivedTrait,
     EvalResult, Value,
 };
+
+use super::Interpreter;
 
 impl Interpreter<'_> {
     /// Evaluate a derived method (from `#[derive(...)]`).

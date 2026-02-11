@@ -92,7 +92,7 @@ impl<'src> TokenCooker<'src> {
         self.errors_before_cook = self.errors.len();
         self.contextual_kw = false;
         match tag {
-            // === Direct-map operators ===
+            // Direct-map operators
             RawTag::Plus => TokenKind::Plus,
             RawTag::Minus => TokenKind::Minus,
             RawTag::Star => TokenKind::Star,
@@ -109,7 +109,7 @@ impl<'src> TokenCooker<'src> {
             RawTag::Dot => TokenKind::Dot,
             RawTag::Question => TokenKind::Question,
 
-            // === Compound operators ===
+            // Compound operators
             RawTag::EqualEqual => TokenKind::EqEq,
             RawTag::BangEqual => TokenKind::NotEq,
             RawTag::LessEqual => TokenKind::LtEq,
@@ -124,7 +124,7 @@ impl<'src> TokenCooker<'src> {
             RawTag::Shl => TokenKind::Shl,
             RawTag::QuestionQuestion => TokenKind::DoubleQuestion,
 
-            // === Delimiters ===
+            // Delimiters
             RawTag::LeftParen => TokenKind::LParen,
             RawTag::RightParen => TokenKind::RParen,
             RawTag::LeftBracket => TokenKind::LBracket,
@@ -142,32 +142,33 @@ impl<'src> TokenCooker<'src> {
             RawTag::Underscore => TokenKind::Underscore,
             RawTag::Dollar => TokenKind::Dollar,
             RawTag::HashBracket => TokenKind::HashBracket,
+            RawTag::HashBang => TokenKind::HashBang,
 
-            // === Identifiers → keyword lookup + intern ===
+            // Identifiers
             RawTag::Ident => self.cook_ident(offset, len),
 
-            // === Numeric literals ===
+            // Numeric literals
             RawTag::Int => self.cook_int(offset, len),
             RawTag::HexInt => self.cook_hex_int(offset, len),
             RawTag::BinInt => self.cook_bin_int(offset, len),
             RawTag::Float => self.cook_float(offset, len),
 
-            // === Duration/Size ===
+            // Duration/size
             RawTag::Duration => self.cook_duration(offset, len),
             RawTag::Size => self.cook_size(offset, len),
 
-            // === String/Char ===
+            // String/char
             RawTag::String => self.cook_string(offset, len),
             RawTag::Char => self.cook_char(offset, len),
 
-            // === Template literals ===
+            // Template literals
             RawTag::TemplateHead => self.cook_template_head(offset, len),
             RawTag::TemplateMiddle => self.cook_template_middle(offset, len),
             RawTag::TemplateTail => self.cook_template_tail(offset, len),
             RawTag::TemplateComplete => self.cook_template_complete(offset, len),
             RawTag::FormatSpec => self.cook_format_spec(offset, len),
 
-            // === Error tags ===
+            // Error tags
             RawTag::InvalidByte => self.cook_invalid_byte(offset, len),
             RawTag::UnterminatedString => {
                 self.errors
@@ -196,7 +197,7 @@ impl<'src> TokenCooker<'src> {
                     .push(LexError::invalid_string_escape(span(offset, len), esc_char));
                 TokenKind::Error
             }
-            // === Trivia (should NOT reach cook — handled by driver) ===
+            // Trivia (should not reach cook — handled by driver)
             RawTag::Whitespace | RawTag::Newline | RawTag::LineComment => {
                 debug_assert!(
                     false,
@@ -205,7 +206,7 @@ impl<'src> TokenCooker<'src> {
                 TokenKind::Error
             }
 
-            // === EOF (should NOT reach cook — handled by driver) ===
+            // EOF (should not reach cook — handled by driver)
             RawTag::Eof => {
                 debug_assert!(
                     false,
@@ -235,7 +236,10 @@ impl<'src> TokenCooker<'src> {
                     if let Some((suggested, name)) = unicode_confusables::lookup_confusable(ch) {
                         // Span should cover the full multi-byte character
                         // char::len_utf8() is always 1..=4, safe to truncate
-                        #[allow(clippy::cast_possible_truncation)]
+                        #[allow(
+                            clippy::cast_possible_truncation,
+                            reason = "char::len_utf8() is 1..=4, fits u32"
+                        )]
                         let char_len = ch.len_utf8() as u32;
                         let full_span = span(offset, char_len);
                         self.errors
@@ -1034,6 +1038,15 @@ mod tests {
             cooker.cook(RawTag::HashBracket, 13, 2),
             TokenKind::HashBracket
         );
+    }
+
+    #[test]
+    fn hashbang_mapping() {
+        let source = "#!foo";
+        let interner = StringInterner::new();
+        let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+        assert_eq!(cooker.cook(RawTag::HashBang, 0, 2), TokenKind::HashBang);
+        assert!(cooker.errors().is_empty());
     }
 
     // === Suffix detection ===

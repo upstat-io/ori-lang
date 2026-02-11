@@ -667,6 +667,18 @@ pub fn spread_requires_map() -> EvalError {
     EvalError::new("spread in map literal requires a map value")
 }
 
+/// Spread requires a list value.
+#[cold]
+pub fn spread_requires_list() -> EvalError {
+    EvalError::new("spread in list literal requires a list value")
+}
+
+/// Spread requires a struct value.
+#[cold]
+pub fn spread_requires_struct() -> EvalError {
+    EvalError::new("spread in struct literal requires a struct value")
+}
+
 // Control Flow Errors
 
 /// Non-exhaustive match.

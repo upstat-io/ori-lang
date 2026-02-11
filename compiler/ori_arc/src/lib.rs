@@ -37,6 +37,7 @@ mod classify;
 pub mod decision_tree;
 pub mod drop;
 pub mod expand_reuse;
+mod graph;
 pub mod ir;
 pub mod liveness;
 pub mod lower;
@@ -44,6 +45,8 @@ pub mod ownership;
 pub mod rc_elim;
 pub mod rc_insert;
 pub mod reset_reuse;
+
+use ori_types::Idx;
 
 pub use borrow::{apply_borrows, infer_borrows};
 pub use classify::ArcClassifier;
@@ -61,7 +64,6 @@ pub use ir::{
 };
 pub use liveness::{compute_liveness, BlockLiveness, LiveSet};
 pub use lower::{lower_function_can, ArcProblem};
-use ori_types::Idx;
 pub use ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 pub use rc_elim::eliminate_rc_ops;
 pub use rc_insert::insert_rc_ops;
@@ -120,7 +122,7 @@ pub trait ArcClassification {
     }
 }
 
-// ── Pipeline integration tests ──────────────────────────────────────
+// Pipeline integration tests
 
 #[cfg(test)]
 mod pipeline_tests {
@@ -255,9 +257,15 @@ mod pipeline_tests {
         let pool = Pool::new();
         let classifier = ArcClassifier::new(&pool);
 
-        // Run pipeline in correct order
+        // Run pipeline in correct order (skipping detect — IR has pre-placed Reset/Reuse)
         let mut func_correct = func.clone();
-        run_full_pipeline(&mut func_correct, &classifier);
+        {
+            let liveness = compute_liveness(&func_correct, &classifier);
+            insert_rc_ops(&mut func_correct, &classifier, &liveness);
+            // detect_reset_reuse skipped: IR already contains Reset/Reuse from setup
+            expand_reset_reuse(&mut func_correct, &classifier);
+            eliminate_rc_ops(&mut func_correct);
+        }
 
         // No Reset/Reuse should remain after expansion
         let has_reset = func_correct
@@ -285,7 +293,7 @@ mod pipeline_tests {
         let liveness = compute_liveness(&func_wrong, &classifier);
         insert_rc_ops(&mut func_wrong, &classifier, &liveness);
         eliminate_rc_ops(&mut func_wrong); // wrong: runs too early
-        detect_reset_reuse(&mut func_wrong, &classifier);
+                                           // detect_reset_reuse skipped: IR already contains Reset/Reuse from setup
         expand_reset_reuse(&mut func_wrong, &classifier);
 
         // Wrong order should have MORE remaining RC ops (expand generated

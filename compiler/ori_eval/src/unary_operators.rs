@@ -57,5 +57,3 @@ fn eval_try(value: Value) -> EvalResult {
 fn invalid_unary_op(type_name: &str, op: UnaryOp) -> EvalError {
     EvalError::new(format!("invalid unary {op:?} on {type_name}"))
 }
-
-// Tests relocated to tests/unary_operators_tests.rs per coding guidelines (>200 lines)

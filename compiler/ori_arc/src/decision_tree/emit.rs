@@ -25,8 +25,6 @@ use super::{DecisionTree, PathInstruction, ScrutineePath, TestKind, TestValue};
 pub(crate) struct EmitContext {
     /// The root scrutinee variable.
     pub root_scrutinee: ArcVarId,
-    /// Type of the root scrutinee (for projections).
-    pub scrutinee_ty: Idx,
     /// The merge block all arms jump to after executing their body.
     pub merge_block: ArcBlockId,
     /// The body expression for each arm (indexed by `arm_index`).
@@ -85,7 +83,7 @@ pub(crate) fn emit_tree(
     }
 }
 
-// ── Switch Emission ─────────────────────────────────────────────────
+// Switch emission
 
 fn emit_switch(
     lowerer: &mut crate::lower::ArcLowerer<'_>,
@@ -95,13 +93,7 @@ fn emit_switch(
     default: Option<&DecisionTree>,
     ctx: &mut EmitContext,
 ) {
-    let scrutinee = resolve_path(
-        lowerer,
-        ctx.root_scrutinee,
-        ctx.scrutinee_ty,
-        path,
-        ctx.span,
-    );
+    let scrutinee = resolve_path(lowerer, ctx.root_scrutinee, path, ctx.span);
 
     match test_kind {
         TestKind::EnumTag => emit_tag_switch(lowerer, scrutinee, edges, default, ctx),
@@ -325,7 +317,7 @@ fn emit_range_chain(
     }
 }
 
-// ── Leaf Emission ───────────────────────────────────────────────────
+// Leaf emission
 
 /// Emit a leaf node: bind pattern variables and execute the arm body.
 fn emit_leaf(
@@ -347,7 +339,7 @@ fn emit_leaf(
     }
 }
 
-// ── Guard Emission ──────────────────────────────────────────────────
+// Guard emission
 
 /// Emit a guard node: bind variables, test guard, branch.
 fn emit_guard(
@@ -385,18 +377,15 @@ fn emit_guard(
     emit_tree(lowerer, on_fail, ctx);
 }
 
-// ── Path Resolution ─────────────────────────────────────────────────
+// Path resolution
 
 /// Resolve a scrutinee path to an `ArcVarId` by emitting `Project` instructions.
 ///
 /// Starting from `root`, follows each `PathInstruction` step, projecting
 /// fields at each level to reach the target sub-value.
-// Field indices never exceed u32.
-#[allow(clippy::cast_possible_truncation)]
 fn resolve_path(
     lowerer: &mut crate::lower::ArcLowerer<'_>,
     root: ArcVarId,
-    _root_ty: Idx,
     path: &[PathInstruction],
     span: Span,
 ) -> ArcVarId {
@@ -422,7 +411,7 @@ fn resolve_path(
     current
 }
 
-// ── Binding ─────────────────────────────────────────────────────────
+// Binding
 
 /// Bind pattern variables by resolving their paths from the root scrutinee.
 fn bind_pattern_variables(
@@ -431,18 +420,12 @@ fn bind_pattern_variables(
     ctx: &EmitContext,
 ) {
     for (name, path) in bindings {
-        let var = resolve_path(
-            lowerer,
-            ctx.root_scrutinee,
-            ctx.scrutinee_ty,
-            path,
-            ctx.span,
-        );
+        let var = resolve_path(lowerer, ctx.root_scrutinee, path, ctx.span);
         lowerer.scope.bind(*name, var);
     }
 }
 
-// ── Literal Emission ────────────────────────────────────────────────
+// Literal emission
 
 /// Emit a literal value corresponding to a `TestValue`.
 fn emit_test_value_literal(

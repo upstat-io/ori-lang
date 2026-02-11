@@ -18,7 +18,7 @@ use super::scope::ArcScope;
 use super::ArcIrBuilder;
 
 impl ArcLowerer<'_> {
-    // ── Nounwind classification ──────────────────────────────
+    // Nounwind classification
 
     /// Check if a function name refers to a nounwind call.
     ///
@@ -45,8 +45,9 @@ impl ArcLowerer<'_> {
         }
     }
 
-    // ── Call (positional — named args already desugared) ──────
+    // Call (positional -- named args already desugared)
 
+    /// Lower a function call expression to ARC IR.
     pub(crate) fn lower_call(
         &mut self,
         func: CanId,
@@ -72,8 +73,9 @@ impl ArcLowerer<'_> {
         }
     }
 
-    // ── Method call (positional — named args already desugared)
+    // Method call (positional -- named args already desugared)
 
+    /// Lower a method call expression to ARC IR.
     pub(crate) fn lower_method_call(
         &mut self,
         receiver: CanId,
@@ -92,7 +94,7 @@ impl ArcLowerer<'_> {
         self.emit_call_or_invoke(ty, method, all_args, span)
     }
 
-    // ── Lambda ─────────────────────────────────────────────────
+    // Lambda
 
     /// Lower a lambda expression.
     ///
@@ -159,7 +161,7 @@ impl ArcLowerer<'_> {
     }
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {

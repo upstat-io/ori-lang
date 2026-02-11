@@ -33,33 +33,36 @@ use super::{
 /// # Panics
 ///
 /// Debug-panics if `paths.len() != matrix[i].patterns.len()` for any row.
-#[allow(clippy::needless_pass_by_value)] // Recursive — sub-calls pass owned specialized matrices
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "recursive — sub-calls pass owned specialized matrices"
+)]
 pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> DecisionTree {
     if cfg!(debug_assertions) {
         for (i, row) in matrix.iter().enumerate() {
             if row.patterns.len() != paths.len() {
-                eprintln!("=== DECISION TREE BUG ===");
-                eprintln!(
+                tracing::error!("DECISION TREE BUG");
+                tracing::error!(
                     "Row {i}: paths={}, patterns={}, arm_index={}",
                     paths.len(),
                     row.patterns.len(),
                     row.arm_index
                 );
                 for (j, p) in row.patterns.iter().enumerate() {
-                    eprintln!("  pattern[{j}]: {p:?}");
+                    tracing::error!("  pattern[{j}]: {p:?}");
                 }
-                eprintln!("All rows:");
+                tracing::error!("All rows:");
                 for (ri, r) in matrix.iter().enumerate() {
-                    eprintln!(
+                    tracing::error!(
                         "  row[{ri}] (arm {}): {} patterns",
                         r.arm_index,
                         r.patterns.len()
                     );
                     for (j, p) in r.patterns.iter().enumerate() {
-                        eprintln!("    [{j}]: {p:?}");
+                        tracing::error!("    [{j}]: {p:?}");
                     }
                 }
-                eprintln!("Paths: {paths:?}");
+                tracing::error!("Paths: {paths:?}");
                 panic!(
                     "column count mismatch at row {i}: paths={}, patterns={}, arm_index={}",
                     paths.len(),
@@ -144,7 +147,7 @@ pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> DecisionTree
     }
 }
 
-// ── Column Selection ────────────────────────────────────────────────
+// Column selection
 
 /// Choose the best column to split on.
 ///
@@ -180,7 +183,7 @@ fn pick_column(matrix: &PatternMatrix) -> usize {
     best_col
 }
 
-// ── Single-Constructor Decomposition ─────────────────────────────────
+// Single-constructor decomposition
 
 /// Check if a column contains only single-constructor patterns (Tuple/Struct)
 /// plus wildcards. These types don't need a runtime test — they're always
@@ -284,14 +287,23 @@ fn find_single_ctor_path_instruction(
     for row in matrix {
         let pat = unwrap_at_or(&row.patterns[col]);
         match pat {
-            #[allow(clippy::cast_possible_truncation)] // field indices are always < u32::MAX
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "field indices are always < u32::MAX"
+            )]
             FlatPattern::Tuple(_) => return PathInstruction::TupleIndex(index as u32),
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "field indices are always < u32::MAX"
+            )]
             FlatPattern::Struct { .. } => return PathInstruction::StructField(index as u32),
             _ => {}
         }
     }
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field indices are always < u32::MAX"
+    )]
     PathInstruction::TupleIndex(index as u32) // Fallback (shouldn't happen).
 }
 
@@ -357,9 +369,12 @@ fn constructor_key(pat: &FlatPattern) -> Option<ConstructorKey> {
         FlatPattern::Variant { variant_index, .. } => Some(ConstructorKey::Variant(*variant_index)),
         FlatPattern::Tuple(_) => Some(ConstructorKey::Tuple),
         FlatPattern::Struct { .. } => Some(ConstructorKey::Struct),
-        FlatPattern::List { elements, rest } => {
-            #[allow(clippy::cast_possible_truncation)]
-            // list patterns always have < u32::MAX elements
+        FlatPattern::List { elements, rest } =>
+        {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "list patterns always have < u32::MAX elements"
+            )]
             Some(ConstructorKey::ListLen(
                 elements.len() as u32,
                 rest.is_some(),
@@ -378,7 +393,7 @@ fn constructor_key(pat: &FlatPattern) -> Option<ConstructorKey> {
     }
 }
 
-// ── Test Value Collection ───────────────────────────────────────────
+// Test value collection
 
 /// Collect all distinct test values at a given column.
 ///
@@ -426,7 +441,10 @@ fn test_values_from_pattern(pat: &FlatPattern) -> Vec<TestValue> {
             // Instead, specialization directly decomposes their fields.
             vec![]
         }
-        #[allow(clippy::cast_possible_truncation)] // list patterns always have < u32::MAX elements
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "list patterns always have < u32::MAX elements"
+        )]
         FlatPattern::List { elements, rest } => vec![TestValue::ListLen {
             len: elements.len() as u32,
             is_exact: rest.is_none(),
@@ -483,7 +501,7 @@ fn infer_test_kind(values: &[TestValue]) -> TestKind {
     }
 }
 
-// ── Matrix Specialization ───────────────────────────────────────────
+// Matrix specialization
 
 /// The result of specializing or defaulting a matrix.
 struct Specialized {
@@ -590,7 +608,10 @@ fn variant_field_count(pat: &FlatPattern, target_index: u32) -> Option<usize> {
 }
 
 /// Get the path instruction for the i-th sub-pattern of a test value.
-#[allow(clippy::cast_possible_truncation)] // field indices are always < u32::MAX
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "field/element indices are always < u32::MAX"
+)]
 fn sub_path_instruction(tv: &TestValue, index: usize) -> super::PathInstruction {
     use super::PathInstruction;
     match tv {
@@ -828,7 +849,7 @@ fn default_matrix(matrix: &PatternMatrix, col: usize, paths: &[ScrutineePath]) -
     }
 }
 
-// ── Binding Extraction ──────────────────────────────────────────────
+// Binding extraction
 
 /// Extract all variable bindings from a row where every pattern is
 /// a wildcard or binding.
@@ -879,7 +900,7 @@ fn collect_consumed_bindings(
     }
 }
 
-// ── Tests ───────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {
@@ -904,7 +925,7 @@ mod tests {
         vec![Vec::new(); n]
     }
 
-    // ── Empty and trivial ───────────────────────────────────────
+    // Empty and trivial
 
     #[test]
     fn compile_empty_matrix() {
@@ -937,7 +958,7 @@ mod tests {
         }
     }
 
-    // ── Bool matching ───────────────────────────────────────────
+    // Bool matching
 
     #[test]
     fn compile_bool_exhaustive() {
@@ -963,7 +984,7 @@ mod tests {
         }
     }
 
-    // ── Int matching with default ───────────────────────────────
+    // Int matching with default
 
     #[test]
     fn compile_int_with_default() {
@@ -993,7 +1014,7 @@ mod tests {
         }
     }
 
-    // ── Enum variant matching ───────────────────────────────────
+    // Enum variant matching
 
     #[test]
     fn compile_option_match() {
@@ -1069,7 +1090,7 @@ mod tests {
         }
     }
 
-    // ── Wildcard mixed with constructors ────────────────────────
+    // Wildcard mixed with constructors
 
     #[test]
     fn compile_variant_with_wildcard() {
@@ -1101,7 +1122,7 @@ mod tests {
         }
     }
 
-    // ── Multi-column matching ───────────────────────────────────
+    // Multi-column matching
 
     #[test]
     fn compile_two_column_int() {
@@ -1135,7 +1156,7 @@ mod tests {
         }
     }
 
-    // ── Guard handling ──────────────────────────────────────────
+    // Guard handling
 
     #[test]
     fn compile_with_guard() {
@@ -1176,7 +1197,7 @@ mod tests {
         }
     }
 
-    // ── Tuple decomposition ─────────────────────────────────────
+    // Tuple decomposition
 
     #[test]
     fn compile_tuple_all_wildcards() {
@@ -1210,7 +1231,7 @@ mod tests {
         }
     }
 
-    // ── Or-pattern ──────────────────────────────────────────────
+    // Or-pattern
 
     #[test]
     fn compile_or_pattern() {
@@ -1241,7 +1262,7 @@ mod tests {
         }
     }
 
-    // ── pick_column heuristic ───────────────────────────────────
+    // pick_column heuristic
 
     #[test]
     fn pick_column_prefers_more_constructors() {
@@ -1263,7 +1284,7 @@ mod tests {
         assert_eq!(pick_column(&m), 0);
     }
 
-    // ── String matching ─────────────────────────────────────────
+    // String matching
 
     #[test]
     fn compile_string_match() {
@@ -1288,7 +1309,7 @@ mod tests {
         }
     }
 
-    // ── Or-pattern with variant bindings ──────────────────────
+    // Or-pattern with variant bindings
 
     #[test]
     fn compile_or_pattern_variant_bindings() {
@@ -1354,7 +1375,7 @@ mod tests {
         }
     }
 
-    // ── Guards with overlapping patterns ──────────────────────
+    // Guards with overlapping patterns
 
     #[test]
     fn compile_guards_overlapping_variants() {
@@ -1491,7 +1512,7 @@ mod tests {
         }
     }
 
-    // ── Struct decomposition ──────────────────────────────────
+    // Struct decomposition
 
     #[test]
     fn compile_struct_decomposition() {
@@ -1536,7 +1557,7 @@ mod tests {
         }
     }
 
-    // ── Nested enum inside tuple ──────────────────────────────
+    // Nested enum inside tuple
 
     #[test]
     fn compile_nested_enum_in_tuple() {

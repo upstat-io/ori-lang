@@ -7,7 +7,7 @@
 //! - `ErrorContext` for Elm-style "while parsing X" messages
 
 use ori_diagnostic::queue::DiagnosticSeverity;
-use ori_diagnostic::{Diagnostic, ErrorCode, Label};
+use ori_diagnostic::{Applicability, Diagnostic, ErrorCode};
 // Re-export SourceInfo from ori_diagnostic for use in cross-file error labels
 pub use ori_diagnostic::SourceInfo;
 use ori_ir::{Span, TokenKind};
@@ -1480,38 +1480,7 @@ pub struct Note {
     pub span: Option<Span>,
 }
 
-// ============================================================================
-// ParseErrorDetails - Comprehensive Error Information (Section 04.1)
-// ============================================================================
-
-/// Confidence level for auto-fix suggestions.
-///
-/// Inspired by Rust's `Applicability` in `rustc_errors`. This determines
-/// whether an IDE or formatter can safely auto-apply a suggestion.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum Applicability {
-    /// Safe to apply automatically.
-    ///
-    /// The fix is definitely correct and won't change semantics.
-    /// Example: Adding a missing semicolon, fixing typos in keywords.
-    MachineApplicable,
-
-    /// May need human review (the default).
-    ///
-    /// The fix is likely correct but involves judgment calls.
-    /// Example: Suggesting an alternative spelling for an undefined name.
-    #[default]
-    MaybeIncorrect,
-
-    /// Just a hint, don't auto-apply.
-    ///
-    /// The suggestion has placeholders or requires user input.
-    /// Example: "Consider adding a type annotation here: `let x: ???`"
-    HasPlaceholders,
-}
-
-// NOTE: SourceInfo is re-exported from ori_diagnostic at the top of this file.
-// This keeps a single source of truth for the cross-file label infrastructure.
+// Applicability and SourceInfo are imported from ori_diagnostic at the top of this file.
 
 /// A secondary label pointing to related code.
 ///
@@ -1760,15 +1729,10 @@ impl ParseErrorDetails {
         // Add extra labels (supports both same-file and cross-file)
         for extra in &self.extra_labels {
             if let Some(ref src_info) = extra.src_info {
-                // Cross-file label
-                diag.labels.push(Label::secondary_cross_file(
-                    extra.span,
-                    &extra.text,
-                    src_info.clone(),
-                ));
+                diag =
+                    diag.with_cross_file_secondary_label(extra.span, &extra.text, src_info.clone());
             } else {
-                // Same-file label
-                diag.labels.push(Label::secondary(extra.span, &extra.text));
+                diag = diag.with_secondary_label(extra.span, &extra.text);
             }
         }
 
@@ -1779,18 +1743,11 @@ impl ParseErrorDetails {
 
         // Add code suggestion as structured fix
         if let Some(ref suggestion) = self.suggestion {
-            let applicability = match suggestion.applicability {
-                Applicability::MachineApplicable => {
-                    ori_diagnostic::Applicability::MachineApplicable
-                }
-                Applicability::MaybeIncorrect => ori_diagnostic::Applicability::MaybeIncorrect,
-                Applicability::HasPlaceholders => ori_diagnostic::Applicability::HasPlaceholders,
-            };
             diag = diag.with_structured_suggestion(ori_diagnostic::Suggestion::new(
                 &suggestion.message,
                 suggestion.span,
                 &suggestion.replacement,
-                applicability,
+                suggestion.applicability,
                 0,
             ));
         }
@@ -2746,13 +2703,6 @@ mod tests {
         assert!(details.text.contains("closing"));
         assert!(!details.extra_labels.is_empty());
         assert!(details.extra_labels[0].text.contains("opened"));
-    }
-
-    // === Applicability Tests ===
-
-    #[test]
-    fn test_applicability_default() {
-        assert_eq!(Applicability::default(), Applicability::MaybeIncorrect);
     }
 
     // === CodeSuggestion Tests ===

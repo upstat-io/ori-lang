@@ -110,7 +110,7 @@ pub(crate) fn merge_mutable_vars(
     rebindings
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {

@@ -14,14 +14,16 @@ use crate::ir::ArcVarId;
 use super::expr::ArcLowerer;
 
 impl ArcLowerer<'_> {
-    // ── bind_pattern (for let) ─────────────────────────────────
+    // bind_pattern (for let)
 
     /// Bind a `CanBindingPattern` to an ARC IR value.
     ///
     /// Recursively destructures tuples, structs, and lists, adding
     /// `Project` instructions for each field and binding names in the scope.
-    // Field/variant/element indices never exceed u32.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field/variant/element indices never exceed u32"
+    )]
     pub(crate) fn bind_pattern(
         &mut self,
         pattern: &CanBindingPattern,
@@ -87,7 +89,7 @@ impl ArcLowerer<'_> {
         }
     }
 
-    // ── Type helpers ───────────────────────────────────────────
+    // Type helpers
 
     /// Get the type of a tuple element.
     fn tuple_elem_type(&self, tuple_ty: Idx, index: usize) -> Idx {
@@ -127,7 +129,7 @@ impl ArcLowerer<'_> {
     }
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {

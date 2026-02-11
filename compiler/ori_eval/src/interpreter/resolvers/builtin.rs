@@ -13,6 +13,7 @@ use ori_ir::Name;
 /// This resolver always returns `Builtin` for any method, delegating
 /// the actual lookup to the `MethodRegistry`. If the method doesn't exist,
 /// the registry will return an appropriate error.
+#[derive(Clone)]
 pub struct BuiltinMethodResolver;
 
 impl BuiltinMethodResolver {

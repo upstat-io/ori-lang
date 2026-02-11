@@ -110,7 +110,7 @@ where
     }
 }
 
-// ── Path Resolution ────────────────────────────────────────────────
+// Path resolution
 
 /// Navigate from a root value to a sub-value following a scrutinee path.
 ///
@@ -223,7 +223,7 @@ fn resolve_bindings(
         .collect()
 }
 
-// ── Test Matching ──────────────────────────────────────────────────
+// Test matching
 
 /// Check if a runtime value matches a decision tree edge's test value.
 fn test_matches(
@@ -289,7 +289,8 @@ fn test_matches(
 ///
 /// The Maranget compiler stores `variant_index` (numeric), but the evaluator
 /// represents user-defined variants by name. This helper handles both.
-pub fn test_tag_by_name(value: &Value, variant_name: Name) -> bool {
+#[cfg(test)]
+fn test_tag_by_name(value: &Value, variant_name: Name) -> bool {
     match value {
         Value::Variant {
             variant_name: vn, ..
@@ -297,8 +298,6 @@ pub fn test_tag_by_name(value: &Value, variant_name: Name) -> bool {
         _ => false,
     }
 }
-
-// ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
 #[expect(clippy::expect_used, reason = "Tests use expect for brevity")]

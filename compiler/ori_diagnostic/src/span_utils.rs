@@ -42,7 +42,10 @@ impl LineOffsetTable {
     ///
     /// Scans the source once to find all newlines, O(n) construction
     /// for O(log L) lookups where L is the number of lines.
-    #[allow(clippy::cast_possible_truncation)] // Source files are limited to u32::MAX bytes
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "source files are limited to u32::MAX bytes"
+    )]
     pub fn build(source: &str) -> Self {
         let mut offsets = vec![0u32];
         for (i, byte) in source.as_bytes().iter().enumerate() {
@@ -58,7 +61,10 @@ impl LineOffsetTable {
     ///
     /// Returns the line number (1-indexed) containing the given byte offset.
     #[inline]
-    #[allow(clippy::cast_possible_truncation)] // Line count limited by source file size (u32)
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "line count limited by source file size (u32)"
+    )]
     pub fn line_from_offset(&self, offset: u32) -> u32 {
         // Binary search for the largest line start <= offset
         let line_idx = match self.offsets.binary_search(&offset) {
@@ -106,7 +112,10 @@ impl LineOffsetTable {
         let end = self
             .line_start_offset(line + 1)
             .map_or(source.len(), |o| (o as usize).saturating_sub(1));
-        #[allow(clippy::cast_possible_truncation)] // Source files are limited to u32::MAX bytes
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "source files are limited to u32::MAX bytes"
+        )]
         Some(end as u32)
     }
 
@@ -316,7 +325,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_possible_truncation)] // Test source string is small
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "test source string is small"
+    )]
     fn test_line_offset_table_matches_linear_scan() {
         // Verify that LineOffsetTable produces identical results to linear scan
         let source = "first line\nsecond longer line\n\nfourth after empty\nlast";

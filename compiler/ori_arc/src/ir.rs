@@ -22,7 +22,7 @@ use ori_types::Idx;
 
 use crate::Ownership;
 
-// ── ID newtypes ─────────────────────────────────────────────────────
+// ID newtypes
 
 /// Variable ID within an ARC IR function.
 ///
@@ -82,7 +82,7 @@ impl ArcBlockId {
     }
 }
 
-// ── Literal values ──────────────────────────────────────────────────
+// Literal values
 
 /// Literal value in the ARC IR.
 ///
@@ -101,7 +101,7 @@ pub enum LitValue {
     Unit,
 }
 
-// ── Primitive operations ────────────────────────────────────────────
+// Primitive operations
 
 /// Primitive operation — wraps `BinaryOp`/`UnaryOp` from `ori_ir`.
 ///
@@ -114,7 +114,7 @@ pub enum PrimOp {
     Unary(UnaryOp),
 }
 
-// ── Values ──────────────────────────────────────────────────────────
+// Values
 
 /// A value expression in the ARC IR.
 ///
@@ -131,7 +131,7 @@ pub enum ArcValue {
     PrimOp { op: PrimOp, args: Vec<ArcVarId> },
 }
 
-// ── Constructor kinds ───────────────────────────────────────────────
+// Constructor kinds
 
 /// The kind of constructor for a `Construct` instruction.
 ///
@@ -156,7 +156,7 @@ pub enum CtorKind {
     Closure { func: Name },
 }
 
-// ── Parameters ──────────────────────────────────────────────────────
+// Parameters
 
 /// A function parameter in the ARC IR, annotated with ownership.
 ///
@@ -173,7 +173,7 @@ pub struct ArcParam {
     pub ownership: Ownership,
 }
 
-// ── Instructions ────────────────────────────────────────────────────
+// Instructions
 
 /// A single instruction in an ARC IR basic block.
 ///
@@ -232,7 +232,7 @@ pub enum ArcInstr {
         args: Vec<ArcVarId>,
     },
 
-    // ── RC operations (inserted by Section 07) ──────────────────
+    // RC operations (inserted by Section 07)
     /// Increment reference count. `count` allows batched increments
     /// when a value is passed to multiple owned parameters.
     RcInc { var: ArcVarId, count: u32 },
@@ -240,7 +240,7 @@ pub enum ArcInstr {
     /// Decrement reference count and free if zero.
     RcDec { var: ArcVarId },
 
-    // ── Reuse operations (inserted by Section 09) ───────────────
+    // Reuse operations (inserted by Section 09)
     /// Test whether a value's reference count is 1 (uniquely owned).
     /// Result is a `bool` bound to `dst`.
     IsShared { dst: ArcVarId, var: ArcVarId },
@@ -397,7 +397,7 @@ impl ArcInstr {
     }
 }
 
-// ── Terminators ─────────────────────────────────────────────────────
+// Terminators
 
 /// Block terminator — how control leaves a basic block.
 ///
@@ -492,7 +492,7 @@ impl ArcTerminator {
     }
 }
 
-// ── Blocks ──────────────────────────────────────────────────────────
+// Blocks
 
 /// A basic block in the ARC IR.
 ///
@@ -512,7 +512,7 @@ pub struct ArcBlock {
     pub terminator: ArcTerminator,
 }
 
-// ── Functions ───────────────────────────────────────────────────────
+// Functions
 
 /// A complete function in the ARC IR.
 ///
@@ -611,7 +611,7 @@ impl ArcFunction {
     }
 }
 
-// ── Tests ───────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {
@@ -624,7 +624,7 @@ mod tests {
 
     use super::*;
 
-    // ── ID newtypes ─────────────────────────────────────────────
+    // ID newtypes
 
     #[test]
     fn arc_var_id_basics() {
@@ -664,7 +664,7 @@ mod tests {
         assert_eq!(mem::size_of::<ArcBlockId>(), 4);
     }
 
-    // ── LitValue ────────────────────────────────────────────────
+    // LitValue
 
     #[test]
     fn lit_value_int() {
@@ -719,7 +719,7 @@ mod tests {
         );
     }
 
-    // ── PrimOp ──────────────────────────────────────────────────
+    // PrimOp
 
     #[test]
     fn prim_op_binary() {
@@ -740,7 +740,7 @@ mod tests {
         assert_ne!(PrimOp::Binary(BinaryOp::Add), PrimOp::Unary(UnaryOp::Neg),);
     }
 
-    // ── ArcValue ────────────────────────────────────────────────
+    // ArcValue
 
     #[test]
     fn arc_value_var() {
@@ -763,7 +763,7 @@ mod tests {
         assert!(matches!(v, ArcValue::PrimOp { .. }));
     }
 
-    // ── CtorKind ────────────────────────────────────────────────
+    // CtorKind
 
     #[test]
     fn ctor_kind_struct() {
@@ -788,7 +788,7 @@ mod tests {
         assert_ne!(CtorKind::ListLiteral, CtorKind::SetLiteral);
     }
 
-    // ── ArcParam ────────────────────────────────────────────────
+    // ArcParam
 
     #[test]
     fn arc_param_borrowed() {
@@ -810,7 +810,7 @@ mod tests {
         assert_eq!(p.ownership, Ownership::Owned);
     }
 
-    // ── ArcInstr ────────────────────────────────────────────────
+    // ArcInstr
 
     #[test]
     fn instr_let() {
@@ -903,7 +903,7 @@ mod tests {
         assert!(matches!(instr, ArcInstr::PartialApply { .. }));
     }
 
-    // ── ArcTerminator ───────────────────────────────────────────
+    // ArcTerminator
 
     #[test]
     fn terminator_return() {
@@ -967,7 +967,7 @@ mod tests {
         assert!(matches!(t, ArcTerminator::Unreachable));
     }
 
-    // ── ArcBlock ────────────────────────────────────────────────
+    // ArcBlock
 
     #[test]
     fn arc_block_construction() {
@@ -1010,7 +1010,7 @@ mod tests {
         assert_eq!(block.params[1].1, Idx::STR);
     }
 
-    // ── ArcFunction ─────────────────────────────────────────────
+    // ArcFunction
 
     #[test]
     fn arc_function_var_type_single() {
@@ -1075,7 +1075,7 @@ mod tests {
         assert_eq!(func.var_type(ArcVarId::new(2)), Idx::BOOL);
     }
 
-    // ── ArcInstr::defined_var ──────────────────────────────────
+    // ArcInstr::defined_var
 
     #[test]
     fn defined_var_let() {
@@ -1197,7 +1197,7 @@ mod tests {
         assert_eq!(instr.defined_var(), None);
     }
 
-    // ── ArcInstr::used_vars ────────────────────────────────────
+    // ArcInstr::used_vars
 
     #[test]
     fn used_vars_let_var() {
@@ -1362,7 +1362,7 @@ mod tests {
         assert_eq!(instr.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
     }
 
-    // ── ArcTerminator::used_vars ───────────────────────────────
+    // ArcTerminator::used_vars
 
     #[test]
     fn terminator_used_vars_return() {
@@ -1424,7 +1424,7 @@ mod tests {
         assert!(ArcTerminator::Unreachable.used_vars().is_empty());
     }
 
-    // ── ArcFunction helpers ────────────────────────────────────────
+    // ArcFunction helpers
 
     #[test]
     fn fresh_var_sequential_ids() {
@@ -1459,7 +1459,7 @@ mod tests {
         assert_eq!(func.var_types.len(), 3);
     }
 
-    // ── Serde roundtrip tests (cache feature) ──────────────────
+    // Serde roundtrip tests (cache feature)
 
     #[cfg(feature = "cache")]
     #[test]
@@ -1648,7 +1648,7 @@ mod tests {
         }
     }
 
-    // ── ArcFunction helpers ────────────────────────────────────────
+    // ArcFunction block management
 
     #[test]
     fn next_block_id_and_push() {

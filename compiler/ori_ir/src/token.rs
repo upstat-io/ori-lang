@@ -137,6 +137,7 @@ pub enum TokenKind {
     Unreachable,
 
     HashBracket,    // #[
+    HashBang,       // #!
     At,             // @
     Dollar,         // $
     Hash,           // #
@@ -316,7 +317,7 @@ pub enum TokenTag {
 
     // 74: Template format spec
     FormatSpec = 74,
-    // 75: reserved
+    HashBang = 75, // #!
 
     // === Punctuation (76-99) ===
     HashBracket = 76,    // #[
@@ -461,6 +462,7 @@ impl TokenTag {
             Self::KwTodo => "todo",
             Self::KwUnreachable => "unreachable",
             Self::HashBracket => "#[",
+            Self::HashBang => "#!",
             Self::At => "@",
             Self::Dollar => "$",
             Self::Hash => "#",
@@ -514,7 +516,7 @@ impl TokenTag {
 
 /// Number of [`TokenKind`] variants. Used for bitset sizing and test verification.
 #[cfg(test)]
-pub(crate) const TOKEN_KIND_COUNT: usize = 122;
+pub(crate) const TOKEN_KIND_COUNT: usize = 123;
 
 impl TokenKind {
     // ─────────────────────────────────────────────────────────────────────────
@@ -612,7 +614,8 @@ impl TokenKind {
     pub const TAG_TODO: u8 = TokenTag::KwTodo as u8;
     pub const TAG_UNREACHABLE: u8 = TokenTag::KwUnreachable as u8;
 
-    // Punctuation (76-99)
+    // Punctuation (75-99)
+    pub const TAG_HASH_BANG: u8 = TokenTag::HashBang as u8;
     pub const TAG_HASH_BRACKET: u8 = TokenTag::HashBracket as u8;
     pub const TAG_AT: u8 = TokenTag::At as u8;
     pub const TAG_DOLLAR: u8 = TokenTag::Dollar as u8;
@@ -763,7 +766,8 @@ impl TokenKind {
             Self::Todo => TokenTag::KwTodo as u8,
             Self::Unreachable => TokenTag::KwUnreachable as u8,
 
-            // Punctuation (76-99)
+            // Punctuation (75-99)
+            Self::HashBang => TokenTag::HashBang as u8,
             Self::HashBracket => TokenTag::HashBracket as u8,
             Self::At => TokenTag::At as u8,
             Self::Dollar => TokenTag::Dollar as u8,
@@ -968,6 +972,7 @@ impl TokenKind {
             TokenKind::Todo => "todo",
             TokenKind::Unreachable => "unreachable",
             TokenKind::HashBracket => "#[",
+            TokenKind::HashBang => "#!",
             TokenKind::At => "@",
             TokenKind::Dollar => "$",
             TokenKind::Hash => "#",
@@ -1123,7 +1128,7 @@ impl TokenKind {
 
             // 74: FormatSpec
             74 => Some("format spec"),
-            // 75: reserved
+            75 => Some("#!"),
 
             // Punctuation (76-99)
             76 => Some("#["),
@@ -1863,6 +1868,7 @@ mod tests {
             TokenKind::Todo,
             TokenKind::Unreachable,
             TokenKind::HashBracket,
+            TokenKind::HashBang,
             TokenKind::At,
             TokenKind::Dollar,
             TokenKind::Hash,
@@ -2106,9 +2112,9 @@ mod tests {
             None
         );
 
-        // Test gap indices (should return None)
+        // Test non-gap indices in the 74-75 range
         assert_eq!(TokenKind::friendly_name_from_index(74), Some("format spec"));
-        assert_eq!(TokenKind::friendly_name_from_index(75), None);
+        assert_eq!(TokenKind::friendly_name_from_index(75), Some("#!"));
 
         // Test out of range
         assert_eq!(TokenKind::friendly_name_from_index(200), None);
@@ -2278,6 +2284,7 @@ mod tests {
             TokenTag::TemplateTail,
             TokenTag::TemplateComplete,
             TokenTag::FormatSpec,
+            TokenTag::HashBang,
             TokenTag::KwAsync,
             TokenTag::KwBreak,
             TokenTag::KwContinue,
@@ -2342,6 +2349,7 @@ mod tests {
             TokenTag::KwTodo,
             TokenTag::KwUnreachable,
             TokenTag::HashBracket,
+            TokenTag::HashBang,
             TokenTag::At,
             TokenTag::Dollar,
             TokenTag::Hash,

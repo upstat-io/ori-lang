@@ -102,7 +102,7 @@ impl EvalMode {
 /// the current mode are `None` (zero overhead).
 pub struct ModeState {
     /// Call counter for budget tracking (`ConstEval` only).
-    pub call_count: usize,
+    call_count: usize,
     /// Maximum call budget (`ConstEval` only).
     budget: Option<u32>,
     /// Optional performance counters activated by `--profile`.
