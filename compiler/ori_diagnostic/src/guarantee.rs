@@ -1,3 +1,8 @@
+//! Type-level proof that at least one error was emitted.
+//!
+//! [`ErrorGuaranteed`] ensures that error paths actually report diagnostics
+//! rather than silently failing. It can only be constructed by emitting an error.
+
 use std::fmt;
 
 /// Proof that at least one error was emitted.

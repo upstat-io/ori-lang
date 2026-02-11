@@ -3,11 +3,11 @@
 //! This module provides helper functions for function call evaluation,
 //! including argument validation, parameter binding, and capture handling.
 
+use ori_patterns::ControlAction;
+
 use crate::{
     wrong_function_args, Environment, EvalError, EvalResult, FunctionValue, Mutability, Value,
 };
-use ori_ir::{CallArgRange, ExprArena, ExprId, Name, StringInterner};
-use ori_patterns::ControlAction;
 
 /// Check if a function has the correct argument count.
 ///
@@ -34,128 +34,11 @@ fn wrong_function_args_range(min: usize, max: usize, got: usize) -> EvalError {
     EvalError::new(format!("expected {min} to {max} arguments, got {got}"))
 }
 
-/// Bind function parameters to argument values in an environment.
-///
-/// This is the simple case for functions without defaults.
-pub fn bind_parameters(env: &mut Environment, func: &FunctionValue, args: &[Value]) {
-    for (param, arg) in func.params.iter().zip(args.iter()) {
-        env.define(*param, arg.clone(), Mutability::Immutable);
-    }
-}
-
 /// Bind function parameters with support for default values.
 ///
-/// For parameters not provided in `args`, evaluates the default expression.
-/// This requires an interpreter to evaluate default expressions.
-///
-/// This version assumes args are provided in parameter order (positional).
+/// For parameters not provided in `args`, evaluates the default
+/// expression via `eval_can()`. Assumes args are positional.
 pub fn bind_parameters_with_defaults(
-    interpreter: &mut crate::Interpreter<'_>,
-    func: &FunctionValue,
-    args: &[Value],
-) -> Result<(), ControlAction> {
-    for (i, param) in func.params.iter().enumerate() {
-        let value = if i < args.len() {
-            // Argument was provided
-            args[i].clone()
-        } else if let Some(default_expr) = func.defaults.get(i).and_then(|d| *d) {
-            // Evaluate default expression
-            interpreter.eval(default_expr)?
-        } else {
-            // No argument and no default - this shouldn't happen if check_arg_count passed
-            return Err(
-                EvalError::new(format!("missing required argument for parameter {i}")).into(),
-            );
-        };
-        interpreter.env.define(*param, value, Mutability::Immutable);
-    }
-    Ok(())
-}
-
-/// Bind function parameters from named arguments with default support.
-///
-/// This version matches arguments by name to parameters, allowing arguments
-/// to be provided in any order and enabling skipping defaulted parameters.
-pub fn bind_parameters_from_named_args(
-    interpreter: &mut crate::Interpreter<'_>,
-    func: &FunctionValue,
-    args: CallArgRange,
-) -> Result<(), ControlAction> {
-    use rustc_hash::FxHashMap;
-
-    // Build a map of argument name -> expression ID from the call args
-    let call_args = interpreter.arena.get_call_args(args);
-    let mut arg_map: FxHashMap<Name, ExprId> = FxHashMap::default();
-    for arg in call_args {
-        if let Some(name) = arg.name {
-            arg_map.insert(name, arg.value);
-        }
-    }
-
-    // Bind each parameter
-    for (i, param) in func.params.iter().enumerate() {
-        let value = if let Some(&arg_expr) = arg_map.get(param) {
-            // Named argument was provided for this parameter
-            interpreter.eval(arg_expr)?
-        } else if let Some(default_expr) = func.defaults.get(i).and_then(|d| *d) {
-            // Use default expression
-            interpreter.eval(default_expr)?
-        } else {
-            // No argument and no default - this shouldn't happen if check_arg_count passed
-            return Err(
-                EvalError::new("missing required argument for parameter".to_string()).into(),
-            );
-        };
-        interpreter.env.define(*param, value, Mutability::Immutable);
-    }
-    Ok(())
-}
-
-/// Check argument count for named arguments against a function.
-///
-/// With default parameters, validates that:
-/// - All required parameters (those without defaults) are provided
-/// - No more arguments than total parameters
-/// - All argument names match valid parameter names
-pub fn check_named_arg_count(
-    func: &FunctionValue,
-    args: CallArgRange,
-    arena: &ExprArena,
-) -> Result<(), EvalError> {
-    let call_args = arena.get_call_args(args);
-    let arg_count = call_args.len();
-
-    // Build set of provided argument names
-    let mut provided_names: rustc_hash::FxHashSet<Name> = rustc_hash::FxHashSet::default();
-    for arg in call_args {
-        if let Some(name) = arg.name {
-            provided_names.insert(name);
-        }
-    }
-
-    // Check that all required parameters are provided
-    for (i, param) in func.params.iter().enumerate() {
-        let has_default = func.defaults.get(i).is_some_and(Option::is_some);
-        if !has_default && !provided_names.contains(param) {
-            return Err(EvalError::new("missing required argument".to_string()));
-        }
-    }
-
-    // Check we don't have more arguments than parameters
-    if arg_count > func.params.len() {
-        return Err(wrong_function_args(func.params.len(), arg_count));
-    }
-
-    Ok(())
-}
-
-/// Bind function parameters with support for canonical default values.
-///
-/// Like `bind_parameters_with_defaults`, but evaluates default expressions via
-/// `eval_can(CanId)` instead of `eval(ExprId)`. Used when the function has
-/// canonical IR available, eliminating the last legacy `eval()` path in
-/// canonical function calls.
-pub fn bind_parameters_with_can_defaults(
     interpreter: &mut crate::Interpreter<'_>,
     func: &FunctionValue,
     args: &[Value],
@@ -183,12 +66,6 @@ pub fn bind_captures(env: &mut Environment, func: &FunctionValue) {
     }
 }
 
-/// Bind 'self' for recursive calls.
-pub fn bind_self(env: &mut Environment, func: Value, interner: &StringInterner) {
-    let self_name = interner.intern("self");
-    env.define(self_name, func, Mutability::Immutable);
-}
-
 /// Evaluate a call to a `FunctionVal` (built-in function).
 pub fn eval_function_val_call(
     func: fn(&[Value]) -> Result<Value, String>,
@@ -197,30 +74,11 @@ pub fn eval_function_val_call(
     func(args).map_err(|s| EvalError::new(s).into())
 }
 
-/// Evaluate a call with named arguments.
-///
-/// This extracts the values from named arguments and calls the function.
-pub fn extract_named_args<F>(
-    args: CallArgRange,
-    arena: &ExprArena,
-    mut eval_fn: F,
-) -> Result<Vec<Value>, ControlAction>
-where
-    F: FnMut(ExprId) -> EvalResult,
-{
-    let call_args = arena.get_call_args(args);
-    call_args.iter().map(|arg| eval_fn(arg.value)).collect()
-}
-
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 #[expect(
     clippy::cast_possible_truncation,
     reason = "Test values fit in target types"
-)]
-#[expect(
-    clippy::cast_possible_wrap,
-    reason = "Test values are within signed range"
 )]
 mod tests {
     use super::*;
@@ -267,47 +125,6 @@ mod tests {
             let func = make_function_value(0);
             let args: Vec<Value> = vec![];
             assert!(check_arg_count(&func, &args).is_ok());
-        }
-    }
-
-    mod bind_parameters_tests {
-        use super::*;
-
-        #[test]
-        fn binds_single_parameter() {
-            let func = make_function_value(1);
-            let args = vec![Value::int(42)];
-            let mut env = Environment::new();
-            env.push_scope();
-            bind_parameters(&mut env, &func, &args);
-            let param_name = func.params[0];
-            assert_eq!(env.lookup(param_name), Some(Value::int(42)));
-        }
-
-        #[test]
-        fn binds_multiple_parameters() {
-            let func = make_function_value(3);
-            let args = vec![Value::int(1), Value::int(2), Value::int(3)];
-            let mut env = Environment::new();
-            env.push_scope();
-            bind_parameters(&mut env, &func, &args);
-            for (i, &param_name) in func.params.iter().enumerate() {
-                let expected = Value::int((i + 1) as i64);
-                assert_eq!(env.lookup(param_name), Some(expected));
-            }
-        }
-
-        #[test]
-        fn parameters_are_immutable() {
-            let func = make_function_value(1);
-            let args = vec![Value::int(42)];
-            let mut env = Environment::new();
-            env.push_scope();
-            bind_parameters(&mut env, &func, &args);
-            let param_name = func.params[0];
-            // Try to reassign - should fail
-            let result = env.assign(param_name, Value::int(99));
-            assert!(result.is_err());
         }
     }
 

@@ -32,7 +32,7 @@
 //! - Koka: Perceus paper §3.2 (liveness-based RC insertion)
 //! - Appel: "Modern Compiler Implementation" §10.1 (dataflow analysis)
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 use crate::ArcClassification;
@@ -74,7 +74,7 @@ pub fn compute_liveness(func: &ArcFunction, classifier: &dyn ArcClassification) 
     // An Invoke terminator defines `dst` at the normal successor's entry,
     // not at the invoking block. Precompute which blocks receive Invoke
     // definitions so gen/kill can account for them.
-    let invoke_defs = collect_invoke_defs(func);
+    let invoke_defs = crate::graph::collect_invoke_defs(func);
 
     // Step 1: Precompute gen/kill for each block.
     let mut gen: Vec<LiveSet> = Vec::with_capacity(num_blocks);
@@ -154,7 +154,7 @@ fn compute_gen_kill(
     block: &ArcBlock,
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
-    invoke_defs: &rustc_hash::FxHashMap<ArcBlockId, Vec<ArcVarId>>,
+    invoke_defs: &FxHashMap<ArcBlockId, Vec<ArcVarId>>,
 ) -> (LiveSet, LiveSet) {
     let mut gen = LiveSet::default();
     let mut kill = LiveSet::default();
@@ -201,24 +201,6 @@ fn compute_gen_kill(
     }
 
     (gen, kill)
-}
-
-/// Collect Invoke `dst` definitions mapped to their normal successor blocks.
-///
-/// An `Invoke { dst, normal, .. }` defines `dst` at the entry of `normal`.
-/// This is analogous to how LLVM's `invoke` instruction defines its result
-/// in the normal successor only, not the unwind successor. We collect these
-/// so `compute_gen_kill` can add them to the kill set of the normal block.
-pub(crate) fn collect_invoke_defs(
-    func: &ArcFunction,
-) -> rustc_hash::FxHashMap<ArcBlockId, Vec<ArcVarId>> {
-    let mut map = rustc_hash::FxHashMap::default();
-    for block in &func.blocks {
-        if let ArcTerminator::Invoke { dst, normal, .. } = &block.terminator {
-            map.entry(*normal).or_insert_with(Vec::new).push(*dst);
-        }
-    }
-    map
 }
 
 /// Check whether a variable needs RC tracking.
@@ -335,7 +317,7 @@ mod tests {
 
     use super::{compute_liveness, compute_postorder};
 
-    // ── Helpers ─────────────────────────────────────────────────
+    // Helpers
 
     fn make_func(
         params: Vec<ArcParam>,
@@ -372,7 +354,7 @@ mod tests {
         ArcBlockId::new(n)
     }
 
-    // ── Tests ───────────────────────────────────────────────────
+    // Tests
 
     /// Single block: str param used and returned.
     /// `live_in` = {v0}, `live_out` = {} (Return has no successors).

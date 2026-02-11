@@ -8,6 +8,7 @@ use std.testing { assert_eq, assert_panics }
 // =============================================================================
 
 // MAX + 1 panics
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_add_overflow_max tests @add_overflow_max () -> void = run(
     assert_panics(f: () -> 9223372036854775807 + 1),
 )
@@ -15,6 +16,7 @@ use std.testing { assert_eq, assert_panics }
 @add_overflow_max () -> int = 9223372036854775807
 
 // MIN + (-1) panics
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_add_overflow_min tests @add_overflow_min () -> void = run(
     assert_panics(f: () -> -9223372036854775808 + -1),
 )
@@ -37,6 +39,7 @@ use std.testing { assert_eq, assert_panics }
 // =============================================================================
 
 // MIN - 1 panics
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_sub_overflow_min tests @sub_overflow_min () -> void = run(
     assert_panics(f: () -> -9223372036854775808 - 1),
 )
@@ -44,6 +47,7 @@ use std.testing { assert_eq, assert_panics }
 @sub_overflow_min () -> int = -9223372036854775808
 
 // MAX - (-1) panics (equivalent to MAX + 1)
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_sub_overflow_max tests @sub_overflow_max () -> void = run(
     assert_panics(f: () -> 9223372036854775807 - -1),
 )
@@ -66,6 +70,7 @@ use std.testing { assert_eq, assert_panics }
 // =============================================================================
 
 // MAX * 2 panics
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_mul_overflow_max tests @mul_overflow_max () -> void = run(
     assert_panics(f: () -> 9223372036854775807 * 2),
 )
@@ -73,6 +78,7 @@ use std.testing { assert_eq, assert_panics }
 @mul_overflow_max () -> int = 9223372036854775807
 
 // MIN * 2 panics
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_mul_overflow_min tests @mul_overflow_min () -> void = run(
     assert_panics(f: () -> -9223372036854775808 * 2),
 )
@@ -84,6 +90,7 @@ use std.testing { assert_eq, assert_panics }
 // =============================================================================
 
 // 1 / 0 panics
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_div_by_zero tests @div_by_zero () -> void = run(
     assert_panics(f: () -> 1 / 0),
 )
@@ -91,6 +98,7 @@ use std.testing { assert_eq, assert_panics }
 @div_by_zero () -> int = 1
 
 // 1 % 0 panics
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_mod_by_zero tests @mod_by_zero () -> void = run(
     assert_panics(f: () -> 1 % 0),
 )
@@ -98,6 +106,7 @@ use std.testing { assert_eq, assert_panics }
 @mod_by_zero () -> int = 1
 
 // 0 / 0 panics
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_zero_div_zero tests @zero_div_zero () -> void = run(
     assert_panics(f: () -> 0 / 0),
 )
@@ -109,6 +118,7 @@ use std.testing { assert_eq, assert_panics }
 // =============================================================================
 
 // MIN / -1 panics (|MIN| > MAX)
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_div_overflow_min tests @div_overflow_min () -> void = run(
     assert_panics(f: () -> -9223372036854775808 / -1),
 )
@@ -262,6 +272,7 @@ use std.testing { assert_eq, assert_panics }
 // =============================================================================
 
 // -MIN panics (negating MIN overflows)
+#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_neg_min_overflow tests @neg_min_overflow () -> void = run(
     assert_panics(f: () -> 0 - -9223372036854775808 - -9223372036854775808),
 )

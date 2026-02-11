@@ -47,8 +47,10 @@ pub fn validate(result: &CanonResult) {
 
     // Walk all nodes and validate references.
     for i in 0..arena.len() {
-        // Arena indices are always within u32 range (enforced by CanArena::push).
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "arena indices always fit u32"
+        )]
         let id = ori_ir::canon::CanId::new(i as u32);
         let kind = arena.kind(id);
         let ty = arena.ty(id);

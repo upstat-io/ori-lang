@@ -28,7 +28,7 @@ pub struct LexError {
 /// What kind of lexer error occurred.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum LexErrorKind {
-    // === String/Char Errors ===
+    // String/char errors
     /// Missing closing `"` for string literal.
     UnterminatedString,
     /// Missing closing `'` for char literal.
@@ -50,7 +50,7 @@ pub enum LexErrorKind {
     /// Multiple characters in char literal `'ab'`.
     MultiCharLiteral,
 
-    // === Numeric Errors ===
+    // Numeric errors
     /// Integer literal overflowed `u64`.
     IntOverflow,
     /// Hex integer literal overflowed `u64`.
@@ -70,7 +70,7 @@ pub enum LexErrorKind {
     /// Consecutive underscores in numeric literal (e.g., `1__000`).
     ConsecutiveUnderscores,
 
-    // === Character Errors ===
+    // Character errors
     /// Non-printable or invalid byte in source.
     InvalidByte { byte: u8 },
     /// Standalone `\` outside of escape context.
@@ -83,19 +83,25 @@ pub enum LexErrorKind {
     },
     /// Interior null byte in source.
     InvalidNullByte,
+    /// UTF-8 BOM at file start. Forbidden per spec: `02-source-code.md` § Encoding.
+    Utf8Bom,
+    /// UTF-16 LE BOM at file start. Wrong encoding — Ori requires UTF-8.
+    Utf16LeBom,
+    /// UTF-16 BE BOM at file start. Wrong encoding — Ori requires UTF-8.
+    Utf16BeBom,
     /// ASCII control character (0x01-0x1F except `\t`, `\n`, `\r`).
     InvalidControlChar { byte: u8 },
 
-    // === Unit Literal Errors ===
+    // Unit literal errors
     /// Decimal duration/size literal cannot be represented as a whole number
     /// of base units (nanoseconds for duration, bytes for size).
     DecimalNotRepresentable,
 
-    // === Reserved-Future Keyword Errors ===
+    // Reserved-future keyword errors
     /// A keyword reserved for future use (`asm`, `inline`, `static`, `union`, `view`).
     ReservedFutureKeyword { keyword: &'static str },
 
-    // === Cross-Language Pattern Errors ===
+    // Cross-language pattern errors
     /// `;` used (C/JavaScript/Rust habit).
     Semicolon,
     /// `===` or `!==` used (JavaScript habit).
@@ -388,6 +394,62 @@ impl LexError {
         }
     }
 
+    /// Create an interior null byte error (from `SourceBuffer` encoding detection).
+    #[cold]
+    pub fn interior_null(span: Span) -> Self {
+        Self {
+            span,
+            kind: LexErrorKind::InvalidNullByte,
+            context: LexErrorContext::TopLevel,
+            suggestions: vec![LexSuggestion::text(
+                "remove the null byte — null bytes are not allowed in Ori source",
+                0,
+            )],
+        }
+    }
+
+    /// Create a UTF-8 BOM error (from `SourceBuffer` encoding detection).
+    #[cold]
+    pub fn utf8_bom(span: Span) -> Self {
+        Self {
+            span,
+            kind: LexErrorKind::Utf8Bom,
+            context: LexErrorContext::TopLevel,
+            suggestions: vec![LexSuggestion::removal(
+                "remove the UTF-8 BOM — Ori source must not start with a byte order mark",
+                span,
+            )],
+        }
+    }
+
+    /// Create a UTF-16 LE BOM error (from `SourceBuffer` encoding detection).
+    #[cold]
+    pub fn utf16_le_bom(span: Span) -> Self {
+        Self {
+            span,
+            kind: LexErrorKind::Utf16LeBom,
+            context: LexErrorContext::TopLevel,
+            suggestions: vec![LexSuggestion::text(
+                "re-encode the file as UTF-8 — Ori does not support UTF-16",
+                0,
+            )],
+        }
+    }
+
+    /// Create a UTF-16 BE BOM error (from `SourceBuffer` encoding detection).
+    #[cold]
+    pub fn utf16_be_bom(span: Span) -> Self {
+        Self {
+            span,
+            kind: LexErrorKind::Utf16BeBom,
+            context: LexErrorContext::TopLevel,
+            suggestions: vec![LexSuggestion::text(
+                "re-encode the file as UTF-8 — Ori does not support UTF-16",
+                0,
+            )],
+        }
+    }
+
     /// Create a standalone backslash error.
     #[cold]
     pub fn standalone_backslash(span: Span) -> Self {
@@ -631,6 +693,10 @@ mod tests {
         let _ = LexError::bin_int_overflow(s);
         let _ = LexError::float_parse_error(s);
         let _ = LexError::invalid_byte(s, 0xFF);
+        let _ = LexError::interior_null(s);
+        let _ = LexError::utf8_bom(Span::new(0, 3));
+        let _ = LexError::utf16_le_bom(Span::new(0, 2));
+        let _ = LexError::utf16_be_bom(Span::new(0, 2));
         let _ = LexError::standalone_backslash(s);
         let _ = LexError::decimal_not_representable(s);
         let _ = LexError::unicode_confusable(s, '\u{201C}', '"', "Left Double Quotation Mark");
@@ -661,6 +727,46 @@ mod tests {
         };
         assert_eq!(w.span, Span::new(0, 10));
         assert_eq!(w.marker, DocMarker::Description);
+    }
+
+    // Encoding issue factory tests
+
+    #[test]
+    fn utf8_bom_error() {
+        let span = Span::new(0, 3);
+        let err = LexError::utf8_bom(span);
+        assert_eq!(err.kind, LexErrorKind::Utf8Bom);
+        assert_eq!(err.span, span);
+        // Has a removal suggestion
+        assert_eq!(err.suggestions.len(), 1);
+        assert!(err.suggestions[0].replacement.is_some());
+    }
+
+    #[test]
+    fn utf16_le_bom_error() {
+        let span = Span::new(0, 2);
+        let err = LexError::utf16_le_bom(span);
+        assert_eq!(err.kind, LexErrorKind::Utf16LeBom);
+        assert_eq!(err.span, span);
+        assert!(!err.suggestions.is_empty());
+    }
+
+    #[test]
+    fn utf16_be_bom_error() {
+        let span = Span::new(0, 2);
+        let err = LexError::utf16_be_bom(span);
+        assert_eq!(err.kind, LexErrorKind::Utf16BeBom);
+        assert_eq!(err.span, span);
+        assert!(!err.suggestions.is_empty());
+    }
+
+    #[test]
+    fn interior_null_error() {
+        let span = Span::new(5, 6);
+        let err = LexError::interior_null(span);
+        assert_eq!(err.kind, LexErrorKind::InvalidNullByte);
+        assert_eq!(err.span, span);
+        assert!(!err.suggestions.is_empty());
     }
 
     #[test]

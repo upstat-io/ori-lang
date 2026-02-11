@@ -14,7 +14,7 @@ use crate::ir::{ArcFunction, ArcValue, ArcVarId, LitValue, PrimOp};
 use super::scope::ArcScope;
 use super::{ArcIrBuilder, ArcProblem};
 
-// ── Loop context ───────────────────────────────────────────────────
+// Loop context
 
 /// Context for the enclosing loop (used by `break`/`continue`).
 pub(crate) struct LoopContext {
@@ -26,7 +26,7 @@ pub(crate) struct LoopContext {
     pub mutable_var_types: rustc_hash::FxHashMap<Name, Idx>,
 }
 
-// ── ArcLowerer ─────────────────────────────────────────────────────
+// ArcLowerer
 
 /// Expression lowerer that walks the canonical IR and emits ARC IR.
 ///
@@ -61,7 +61,7 @@ impl ArcLowerer<'_> {
             .emit_let(Idx::UNIT, ArcValue::Literal(LitValue::Unit), None)
     }
 
-    // ── Main dispatch ──────────────────────────────────────────
+    // Main dispatch
 
     /// Lower a single canonical expression, returning the `ArcVarId` of the result.
     pub(crate) fn lower_expr(&mut self, id: CanId) -> ArcVarId {
@@ -74,7 +74,7 @@ impl ArcLowerer<'_> {
         let ty = self.expr_type(id);
 
         match kind {
-            // ── Literals ───────────────────────────────────────
+            // Literals
             CanExpr::Int(n) => {
                 self.builder
                     .emit_let(ty, ArcValue::Literal(LitValue::Int(n)), Some(span))
@@ -110,21 +110,21 @@ impl ArcLowerer<'_> {
                     .emit_let(ty, ArcValue::Literal(LitValue::Unit), Some(span))
             }
 
-            // ── Compile-time constants ─────────────────────────
+            // Compile-time constants
             CanExpr::Constant(const_id) => self.lower_constant(const_id, ty, span),
 
-            // ── Identifiers ───────────────────────────────────
+            // Identifiers
             CanExpr::Ident(name) | CanExpr::Const(name) => self.lower_ident(name, ty, span),
             CanExpr::SelfRef => {
                 let self_name = self.interner.intern("self");
                 self.lower_ident(self_name, ty, span)
             }
 
-            // ── Binary / Unary operators ──────────────────────
+            // Binary / Unary operators
             CanExpr::Binary { op, left, right } => self.lower_binary(op, left, right, ty, span),
             CanExpr::Unary { op, operand } => self.lower_unary(op, operand, ty, span),
 
-            // ── Control flow ──────────────────────────────────
+            // Control flow
             CanExpr::Block { stmts, result } => self.lower_block(stmts, result, ty),
             CanExpr::Let {
                 pattern,
@@ -153,7 +153,7 @@ impl ArcLowerer<'_> {
             CanExpr::Continue(value) => self.lower_continue(value),
             CanExpr::Assign { target, value } => self.lower_assign(target, value, span),
 
-            // ── Collections & constructors ────────────────────
+            // Collections & constructors
             CanExpr::Tuple(exprs) => self.lower_tuple(exprs, ty, span),
             CanExpr::List(exprs) => self.lower_list(exprs, ty, span),
             CanExpr::Map(entries) => self.lower_map(entries, ty, span),
@@ -177,7 +177,7 @@ impl ArcLowerer<'_> {
                 fallible,
             } => self.lower_cast(expr, fallible, ty, span),
 
-            // ── Calls ─────────────────────────────────────────
+            // Calls
             CanExpr::Call { func, args } => self.lower_call(func, args, ty, span),
             CanExpr::MethodCall {
                 receiver,
@@ -186,7 +186,7 @@ impl ArcLowerer<'_> {
             } => self.lower_method_call(receiver, method, args, ty, span),
             CanExpr::Lambda { params, body } => self.lower_lambda(params, body, ty, span),
 
-            // ── Special forms ─────────────────────────────────
+            // Special forms
             CanExpr::FunctionExp { kind: _, props: _ } => {
                 self.problems.push(ArcProblem::UnsupportedExpr {
                     kind: "FunctionExp",
@@ -195,7 +195,7 @@ impl ArcLowerer<'_> {
                 self.emit_unit()
             }
 
-            // ── Unsupported (post-0.1-alpha) ──────────────────
+            // Unsupported (post-0.1-alpha)
             CanExpr::Await(_) => {
                 self.problems.push(ArcProblem::UnsupportedExpr {
                     kind: "Await",
@@ -211,12 +211,12 @@ impl ArcLowerer<'_> {
                 self.emit_unit()
             }
 
-            // ── Error recovery ────────────────────────────────
+            // Error recovery
             CanExpr::Error => self.emit_unit(),
         }
     }
 
-    // ── Identifier lowering ────────────────────────────────────
+    // Identifier lowering
 
     fn lower_ident(&mut self, name: Name, ty: Idx, span: Span) -> ArcVarId {
         if let Some(var) = self.scope.lookup(name) {
@@ -231,7 +231,7 @@ impl ArcLowerer<'_> {
         }
     }
 
-    // ── Constant lowering ──────────────────────────────────────
+    // Constant lowering
 
     /// Lower a compile-time constant from the `ConstantPool`.
     fn lower_constant(
@@ -262,7 +262,7 @@ impl ArcLowerer<'_> {
             .emit_let(ty, ArcValue::Literal(lit), Some(span))
     }
 
-    // ── Binary / Unary operators ───────────────────────────────
+    // Binary / Unary operators
 
     fn lower_binary(
         &mut self,
@@ -303,7 +303,7 @@ impl ArcLowerer<'_> {
     }
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {

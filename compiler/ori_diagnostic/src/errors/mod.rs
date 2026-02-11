@@ -10,9 +10,10 @@
 //! 2. Add an entry to the `DOCS` array below
 //! 3. Run `cargo build` to embed the new documentation
 
-use crate::ErrorCode;
 use std::collections::HashMap;
 use std::sync::LazyLock;
+
+use crate::ErrorCode;
 
 /// Lazily-initialized `HashMap` for O(1) error documentation lookup.
 static DOCS_MAP: LazyLock<HashMap<ErrorCode, &'static str>> =

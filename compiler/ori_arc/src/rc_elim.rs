@@ -40,10 +40,10 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::graph::compute_predecessors;
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
-use crate::rc_insert::compute_predecessors;
 
-// ── Lattice States ──────────────────────────────────────────────────
+// Lattice states
 
 /// Top-down RC state for a variable during forward scan.
 ///
@@ -71,7 +71,7 @@ enum BottomUpState {
     MightBeUsed,
 }
 
-// ── Elimination Candidate ───────────────────────────────────────────
+// Elimination candidate
 
 /// A matched `RcInc`/`RcDec` pair eligible for safe elimination.
 ///
@@ -89,7 +89,7 @@ struct EliminationCandidate {
     dec_pos: usize,
 }
 
-// ── Public API ──────────────────────────────────────────────────────
+// Public API
 
 /// Eliminate redundant `RcInc`/`RcDec` pairs in an ARC IR function.
 ///
@@ -126,7 +126,7 @@ pub fn eliminate_rc_ops(func: &mut ArcFunction) -> usize {
     total
 }
 
-// ── Single Elimination Pass ─────────────────────────────────────────
+// Single elimination pass
 
 /// Run one round of elimination. Returns the number of pairs found and removed.
 fn eliminate_once(func: &mut ArcFunction) -> usize {
@@ -150,7 +150,7 @@ fn eliminate_once(func: &mut ArcFunction) -> usize {
     apply_eliminations(func, &candidates)
 }
 
-// ── Top-Down (Forward) Pass ─────────────────────────────────────────
+// Top-down (forward) pass
 
 /// Scan a block's instructions forward, looking for `RcInc(x); ...; RcDec(x)`
 /// pairs where no instruction between them uses `x`.
@@ -209,7 +209,7 @@ fn invalidate_td(state: &mut FxHashMap<ArcVarId, TopDownState>, var: ArcVarId) {
     }
 }
 
-// ── Bottom-Up (Backward) Pass ───────────────────────────────────────
+// Bottom-up (backward) pass
 
 /// Scan a block's instructions backward, looking for `RcInc(x); ...; RcDec(x)`
 /// pairs where no instruction between them uses `x`.
@@ -271,7 +271,7 @@ fn invalidate_bu(state: &mut FxHashMap<ArcVarId, BottomUpState>, var: ArcVarId) 
     }
 }
 
-// ── Apply Eliminations ──────────────────────────────────────────────
+// Apply eliminations
 
 /// Remove the instructions at the matched positions. Returns the number
 /// of pairs eliminated.
@@ -310,7 +310,7 @@ fn apply_eliminations(func: &mut ArcFunction, candidates: &[EliminationCandidate
     candidates.len()
 }
 
-// ── Cross-Block Edge-Pair Elimination ────────────────────────────────
+// Cross-block edge-pair elimination
 
 /// Eliminate `RcInc(x)` at end of block P / `RcDec(x)` at start of block B
 /// where B has exactly one predecessor P and `x` is not used in between
@@ -438,7 +438,7 @@ fn eliminate_cross_block_pairs(func: &mut ArcFunction) -> usize {
     pairs
 }
 
-// ── Tests ───────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {
@@ -453,7 +453,7 @@ mod tests {
 
     use super::eliminate_rc_ops;
 
-    // ── Helpers ─────────────────────────────────────────────────
+    // Helpers
 
     fn make_func(
         params: Vec<ArcParam>,
@@ -522,7 +522,7 @@ mod tests {
         func.blocks[block_idx].body.len()
     }
 
-    // ── Basic Elimination ───────────────────────────────────────
+    // Basic elimination
 
     /// Adjacent `RcInc(x); RcDec(x)` → both eliminated.
     #[test]
@@ -622,7 +622,7 @@ mod tests {
         assert_eq!(count_dec(&func, 0, v(0)), 1);
     }
 
-    // ── Dec Before Inc (Unsafe) ─────────────────────────────────
+    // Dec before Inc (unsafe)
 
     /// `RcDec(x); RcInc(x)` → NOT eliminated (Dec might free x).
     #[test]
@@ -652,7 +652,7 @@ mod tests {
         assert_eq!(count_dec(&func, 0, v(0)), 1);
     }
 
-    // ── Multiple Independent Pairs ──────────────────────────────
+    // Multiple independent pairs
 
     /// Two independent pairs: `RcInc(x); RcDec(x); RcInc(y); RcDec(y)`.
     #[test]
@@ -729,7 +729,7 @@ mod tests {
         assert_eq!(count_rc_ops(&func, 0), 0);
     }
 
-    // ── Cascading Elimination ───────────────────────────────────
+    // Cascading elimination
 
     /// Nested pairs: `RcInc(x); RcInc(x); RcDec(x); RcDec(x)`.
     /// First pass eliminates the inner pair, second pass eliminates the outer.
@@ -764,7 +764,7 @@ mod tests {
         assert_eq!(count_rc_ops(&func, 0), 0);
     }
 
-    // ── Edge Cases ──────────────────────────────────────────────
+    // Edge cases
 
     /// No RC ops at all → no elimination.
     #[test]
@@ -866,7 +866,7 @@ mod tests {
         assert_eq!(count_dec(&func, 0, v(0)), 1);
     }
 
-    // ── Multi-Block ─────────────────────────────────────────────
+    // Multi-block
 
     /// Each block analyzed independently — pairs within a block are
     /// eliminated, cross-block pairs are not.
@@ -924,7 +924,7 @@ mod tests {
         assert_eq!(count_dec(&func, 1, v(0)), 1);
     }
 
-    // ── Non-RC Instruction Preservation ─────────────────────────
+    // Non-RC instruction preservation
 
     /// Non-RC instructions are preserved after elimination.
     #[test]
@@ -972,7 +972,7 @@ mod tests {
         assert!(matches!(func.blocks[0].body[2], ArcInstr::Let { .. }));
     }
 
-    // ── Construct / Project Use ─────────────────────────────────
+    // Construct / Project use
 
     /// `RcInc(x); Construct(..., x, ...); RcDec(x)` → NOT eliminated.
     /// x is used in the Construct.
@@ -1045,7 +1045,7 @@ mod tests {
         assert_eq!(eliminated, 0);
     }
 
-    // ── Partial Elimination ─────────────────────────────────────
+    // Partial elimination
 
     /// One pair eliminable, one not — only the eliminable one is removed.
     #[test]
@@ -1090,7 +1090,7 @@ mod tests {
         assert_eq!(count_dec(&func, 0, v(1)), 1);
     }
 
-    // ── Reuse-Related Patterns ──────────────────────────────────
+    // Reuse-related patterns
 
     /// Pattern from reuse expansion: `IsShared` + `RcInc`/`RcDec` in slow path.
     /// The Inc/Dec pair around an `IsShared` that uses a DIFFERENT var is eliminable.
@@ -1155,7 +1155,7 @@ mod tests {
         assert_eq!(eliminated, 0);
     }
 
-    // ── Sequential Same-Var Pairs ───────────────────────────────
+    // Sequential same-var pairs
 
     /// `Inc(x); Dec(x); Inc(x); Dec(x)` — two sequential pairs, both eliminated.
     #[test]
@@ -1189,7 +1189,7 @@ mod tests {
         assert_eq!(count_rc_ops(&func, 0), 0);
     }
 
-    // ── Empty Block ─────────────────────────────────────────────
+    // Empty block
 
     /// Empty block body (only terminator) → no crash, no changes.
     #[test]
@@ -1211,7 +1211,7 @@ mod tests {
         assert_eq!(eliminated, 0);
     }
 
-    // ── Span Preservation ───────────────────────────────────────
+    // Span preservation
 
     /// Span vectors are correctly maintained after elimination.
     #[test]
@@ -1248,7 +1248,7 @@ mod tests {
         assert_eq!(func.spans[0].len(), func.blocks[0].body.len());
     }
 
-    // ── Set / SetTag Operations ─────────────────────────────────
+    // Set / SetTag operations
 
     /// Set instruction using the tracked var prevents elimination.
     #[test]
@@ -1308,7 +1308,7 @@ mod tests {
         assert_eq!(eliminated, 0);
     }
 
-    // ── ApplyIndirect ───────────────────────────────────────────
+    // ApplyIndirect
 
     /// Indirect call using the tracked var as closure prevents elimination.
     #[test]
@@ -1374,7 +1374,7 @@ mod tests {
         assert_eq!(eliminated, 0);
     }
 
-    // ── PartialApply ────────────────────────────────────────────
+    // PartialApply
 
     /// `PartialApply` capturing the tracked var prevents elimination.
     #[test]
@@ -1408,7 +1408,7 @@ mod tests {
         assert_eq!(eliminated, 0);
     }
 
-    // ── Return Value ────────────────────────────────────────────
+    // Return value
 
     /// `eliminate_rc_ops` returns 0 for functions with no RC ops.
     #[test]
@@ -1432,7 +1432,7 @@ mod tests {
         assert_eq!(eliminate_rc_ops(&mut func), 0);
     }
 
-    // ── Cross-Block Edge Pair Elimination ──────────────────────
+    // Cross-block edge pair elimination
 
     /// `RcInc(x)` at end of B0, `RcDec(x)` at start of B1 (single
     /// predecessor) → eliminated.

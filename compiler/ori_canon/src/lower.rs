@@ -13,10 +13,8 @@ use ori_ir::canon::{
     CanMapEntry, CanNamedExpr, CanNode, CanParam, CanRange, CanonResult, CanonRoot, ConstantPool,
     DecisionTreePool, MethodRoot,
 };
-use ori_ir::{ExprArena, ExprId, ExprKind, ExprRange, Name, Span, TypeId};
+use ori_ir::{ExprArena, ExprId, ExprKind, ExprRange, Name, Span, StringInterner, TypeId};
 use ori_types::{TypeCheckResult, TypedModule};
-
-use ori_ir::StringInterner;
 
 /// Lower a type-checked AST to canonical form.
 ///
@@ -226,7 +224,7 @@ pub fn lower_module(
     result
 }
 
-// ── Lowerer ─────────────────────────────────────────────────────────
+// Lowerer
 
 /// State for the AST-to-CanonIR lowering pass.
 ///
@@ -234,21 +232,27 @@ pub fn lower_module(
 /// the target canonical arena and auxiliary pools being built.
 pub(crate) struct Lowerer<'a> {
     /// Source expression arena (read-only).
+    /// Accessed by: lower.rs, desugar.rs, patterns.rs
     pub(crate) src: &'a ExprArena,
     /// Type check output (read-only).
+    /// Accessed by: lower.rs, desugar.rs, patterns.rs
     pub(crate) typed: &'a TypedModule,
     /// Type pool for resolving variant indices and field types.
+    /// Accessed by: lower.rs, patterns.rs
     pub(crate) pool: &'a ori_types::Pool,
     /// String interner for creating names during lowering.
+    /// Accessed by: lower.rs, patterns.rs
     pub(crate) interner: &'a StringInterner,
     /// Target canonical arena (being built).
+    /// Accessed by: lower.rs, desugar.rs
     pub(crate) arena: CanArena,
     /// Compile-time constant pool.
-    pub(crate) constants: ConstantPool,
+    constants: ConstantPool,
     /// Compiled decision trees for match expressions.
-    pub(crate) decision_trees: DecisionTreePool,
+    decision_trees: DecisionTreePool,
 
     // Pre-interned method names for desugaring.
+    // Accessed by: lower.rs, desugar.rs
     pub(crate) name_to_str: Name,
     pub(crate) name_concat: Name,
     pub(crate) name_merge: Name,
@@ -325,7 +329,7 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    // ── Expression Lowering ─────────────────────────────────────
+    // Expression Lowering
 
     /// Lower a single expression from `ExprId` to `CanId`.
     ///
@@ -339,7 +343,7 @@ impl<'a> Lowerer<'a> {
         let ty = self.expr_type(id);
 
         match kind {
-            // === Leaf nodes — direct mapping ===
+            // Leaf nodes — direct mapping
             ExprKind::Int(v) => self.push(CanExpr::Int(v), span, ty),
             ExprKind::Float(bits) => self.push(CanExpr::Float(bits), span, ty),
             ExprKind::Bool(v) => self.push(CanExpr::Bool(v), span, ty),
@@ -358,7 +362,7 @@ impl<'a> Lowerer<'a> {
             ExprKind::HashLength => self.push(CanExpr::HashLength, span, ty),
             ExprKind::Error => self.push(CanExpr::Error, span, ty),
 
-            // === Unary nodes — lower child ===
+            // Unary nodes — lower child
             ExprKind::Unary { op, operand } => {
                 let operand = self.lower_expr(operand);
                 let id = self.push(CanExpr::Unary { op, operand }, span, ty);
@@ -403,7 +407,7 @@ impl<'a> Lowerer<'a> {
                 self.push(CanExpr::Loop { body }, span, ty)
             }
 
-            // === Binary nodes — lower both children ===
+            // Binary nodes — lower both children
             ExprKind::Binary { op, left, right } => {
                 let left = self.lower_expr(left);
                 let right = self.lower_expr(right);
@@ -448,7 +452,7 @@ impl<'a> Lowerer<'a> {
                 self.push(CanExpr::Assign { target, value }, span, ty)
             }
 
-            // === Control flow ===
+            // Control flow
             ExprKind::If {
                 cond,
                 then_branch,
@@ -514,11 +518,11 @@ impl<'a> Lowerer<'a> {
                 )
             }
 
-            // === Special forms — lowered to canonical representations ===
+            // Special forms
             ExprKind::FunctionSeq(seq_id) => self.lower_function_seq(seq_id, span, ty),
             ExprKind::FunctionExp(exp_id) => self.lower_function_exp(exp_id, span, ty),
 
-            // === Containers ===
+            // Containers
             ExprKind::Call { func, args } => self.lower_call(func, args, span, ty),
             ExprKind::MethodCall {
                 receiver,
@@ -579,7 +583,7 @@ impl<'a> Lowerer<'a> {
             }
             ExprKind::Match { scrutinee, arms } => self.lower_match(scrutinee, arms, span, ty),
 
-            // === Sugar variants — delegate to desugar.rs ===
+            // Sugar variants
             ExprKind::TemplateFull(name) => {
                 // Trivial desugaring: template without interpolation is just a string.
                 self.push(CanExpr::Str(name), span, ty)
@@ -601,10 +605,10 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    // ── Container Lowering Helpers ──────────────────────────────
+    // Container Lowering Helpers
 
     /// Lower an `ExprRange` (expression list) to a `CanRange`.
-    pub(crate) fn lower_expr_range(&mut self, range: ExprRange) -> CanRange {
+    fn lower_expr_range(&mut self, range: ExprRange) -> CanRange {
         let src_ids = self.src.get_expr_list(range);
         if src_ids.is_empty() {
             return CanRange::EMPTY;
@@ -729,7 +733,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Lower map entries from the source arena to canonical map entries.
-    pub(crate) fn lower_map_entries(
+    fn lower_map_entries(
         &mut self,
         range: ori_ir::MapEntryRange,
     ) -> ori_ir::canon::CanMapEntryRange {
@@ -775,10 +779,7 @@ impl<'a> Lowerer<'a> {
     ///
     /// Handles the shorthand syntax: `FieldInit { name, value: None }` is
     /// desugared to `CanExpr::Ident(name)` (implicit variable reference).
-    pub(crate) fn lower_field_inits(
-        &mut self,
-        range: ori_ir::FieldInitRange,
-    ) -> ori_ir::canon::CanFieldRange {
+    fn lower_field_inits(&mut self, range: ori_ir::FieldInitRange) -> ori_ir::canon::CanFieldRange {
         let src_fields = self.src.get_field_inits(range);
         if src_fields.is_empty() {
             return ori_ir::canon::CanFieldRange::EMPTY;
@@ -838,20 +839,23 @@ impl<'a> Lowerer<'a> {
             .unwrap_or(ori_types::Idx::UNIT);
 
         // Extract arm data to avoid borrow conflict (patterns + guards + bodies).
+        // We separate bodies from patterns+guards so patterns can be consumed
+        // (moved) into pattern_data without a second clone.
         let src_arms = self.src.get_arms(arms);
-        let arm_data: Vec<_> = src_arms
+        let mut patterns_and_guards: Vec<_> = src_arms
             .iter()
-            .map(|arm| (arm.pattern.clone(), arm.guard, arm.body))
+            .map(|arm| (arm.pattern.clone(), arm.guard))
             .collect();
+        let bodies: Vec<_> = src_arms.iter().map(|arm| arm.body).collect();
 
-        // Lower guards from ExprId → CanId before compiling patterns.
-        // Guards must be lowered here (where we have &mut self) rather than
-        // inside compile_patterns (which only borrows &self).
-        let pattern_data: Vec<_> = arm_data
-            .iter()
-            .map(|(pat, guard, _body)| {
+        // Lower guards from ExprId → CanId and take ownership of patterns
+        // in a single pass. Guards must be lowered here (where we have &mut self)
+        // rather than inside compile_patterns (which only borrows &self).
+        let pattern_data: Vec<_> = patterns_and_guards
+            .drain(..)
+            .map(|(pat, guard)| {
                 let can_guard = guard.map(|g| self.lower_expr(g));
-                (pat.clone(), can_guard)
+                (pat, can_guard)
             })
             .collect();
         let tree = crate::patterns::compile_patterns(self, &pattern_data, arms.start, scrutinee_ty);
@@ -860,10 +864,7 @@ impl<'a> Lowerer<'a> {
         // Lower arm bodies BEFORE building the expr list. lower_expr may
         // recursively lower nested match expressions, which would push their
         // own arm bodies into the flat expr_lists array, corrupting our range.
-        let lowered_bodies: Vec<CanId> = arm_data
-            .iter()
-            .map(|(_pattern, _guard, body)| self.lower_expr(*body))
-            .collect();
+        let lowered_bodies: Vec<CanId> = bodies.iter().map(|body| self.lower_expr(*body)).collect();
         let start = self.arena.start_expr_list();
         for can_body in lowered_bodies {
             self.arena.push_expr_list_item(can_body);
@@ -881,7 +882,7 @@ impl<'a> Lowerer<'a> {
         )
     }
 
-    // ── Multi-Clause Function Lowering ────────────────────────
+    // Multi-Clause Function Lowering
 
     /// Lower a group of same-name functions into a single body with a
     /// synthesized match expression.
@@ -974,16 +975,13 @@ impl<'a> Lowerer<'a> {
         )
     }
 
-    // ── Binding Pattern Lowering ──────────────────────────────
+    // Binding Pattern Lowering
 
     /// Lower a `BindingPatternId` (`ExprArena` reference) to `CanBindingPatternId`.
     ///
     /// Recursively lowers `BindingPattern` → `CanBindingPattern`, storing
     /// sub-patterns in the canonical arena.
-    pub(crate) fn lower_binding_pattern(
-        &mut self,
-        bp_id: ori_ir::BindingPatternId,
-    ) -> CanBindingPatternId {
+    fn lower_binding_pattern(&mut self, bp_id: ori_ir::BindingPatternId) -> CanBindingPatternId {
         let bp = self.src.get_binding_pattern(bp_id).clone();
         self.lower_binding_pattern_value(&bp)
     }
@@ -1036,7 +1034,7 @@ impl<'a> Lowerer<'a> {
         self.arena.push_binding_pattern(can_bp)
     }
 
-    // ── Param Lowering ────────────────────────────────────────
+    // Param Lowering
 
     /// Lower a `ParamRange` (`ExprArena` reference) to `CanParamRange`.
     fn lower_params(&mut self, param_range: ori_ir::ParamRange) -> ori_ir::canon::CanParamRange {
@@ -1077,7 +1075,7 @@ impl<'a> Lowerer<'a> {
             .collect()
     }
 
-    // ── Cast Target Name Extraction ───────────────────────────
+    // Cast Target Name Extraction
 
     /// Extract the target type name from a `ParsedTypeId` for `Cast` expressions.
     ///
@@ -1096,7 +1094,7 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    // ── FunctionExp Lowering ──────────────────────────────────
+    // FunctionExp Lowering
 
     /// Lower a `FunctionExp` (`ExprArena` side-table) to inline `CanExpr::FunctionExp`.
     fn lower_function_exp(
@@ -1123,7 +1121,7 @@ impl<'a> Lowerer<'a> {
         self.push(CanExpr::FunctionExp { kind, props }, span, ty)
     }
 
-    // ── FunctionSeq Desugaring ────────────────────────────────
+    // FunctionSeq Desugaring
 
     /// Lower a `FunctionSeq` (`ExprArena` side-table) into primitive `CanExpr` nodes.
     ///
@@ -1161,33 +1159,28 @@ impl<'a> Lowerer<'a> {
                 over,
                 map,
                 arm,
-                default,
+                default: _,
                 ..
             } => {
                 // Desugar ForPattern into a For expression.
                 // The arm's pattern becomes a match inside the for body.
                 let iter = self.lower_expr(over);
 
-                // If there's a map transform, apply it first via a method call.
-                let iter = if let Some(map_expr) = map {
-                    let map_fn = self.lower_expr(map_expr);
-                    let args = self.arena.push_expr_list(&[map_fn]);
-                    self.push(
-                        CanExpr::MethodCall {
-                            receiver: iter,
-                            method: self.name_concat, // placeholder — ForPattern maps are rare
-                            args,
-                        },
-                        span,
-                        ty,
-                    )
+                // If there's a map transform, emit Error — ForPattern map
+                // semantics are not fully specified yet. Emitting a MethodCall
+                // with a wrong method name (e.g., "concat") would cause
+                // backends to dispatch incorrectly.
+                let iter = if map.is_some() {
+                    self.push(CanExpr::Error, span, ty)
                 } else {
                     iter
                 };
 
                 // Lower the arm body directly.
+                // Note: we do NOT lower the default expression — ForPattern
+                // default handling is deferred. Lowering it would allocate
+                // orphaned nodes in the arena.
                 let body = self.lower_expr(arm.body);
-                let default = self.lower_expr(default);
 
                 // Use a simple for with the binding from the arm pattern.
                 let binding = match &arm.pattern {
@@ -1198,9 +1191,6 @@ impl<'a> Lowerer<'a> {
 
                 let guard = arm.guard.map_or(CanId::INVALID, |g| self.lower_expr(g));
 
-                // If there's no default needed, just use the for.
-                // Otherwise wrap with if-let or similar pattern.
-                let _ = default; // ForPattern default handling deferred to runtime
                 self.push(
                     CanExpr::For {
                         binding,
@@ -1308,10 +1298,6 @@ impl<'a> Lowerer<'a> {
     }
 }
 
-/// Map well-known `TypeId` constants to their interned names.
-///
-/// Used by cast target extraction to get the type name that the
-/// evaluator dispatches on.
 /// Map a primitive `TypeId` to its interned name.
 ///
 /// Cast expressions need the type name for evaluator dispatch (e.g. `as int`).

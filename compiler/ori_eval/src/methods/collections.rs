@@ -1,11 +1,12 @@
 //! Method dispatch for collection types (list, str, map, range).
 
+use ori_ir::StringInterner;
+use ori_patterns::{no_such_method, EvalResult, Value};
+
 use super::compare::{compare_lists, ordering_to_value};
 use super::helpers::{
     len_to_value, require_args, require_int_arg, require_list_arg, require_str_arg,
 };
-use ori_ir::StringInterner;
-use ori_patterns::{no_such_method, EvalResult, Value};
 
 /// Dispatch methods on list values.
 #[expect(
@@ -43,7 +44,7 @@ pub fn dispatch_list_method(
             require_args("compare", 1, args.len())?;
             let other = require_list_arg("compare", &args, 0)?;
             let ord = compare_lists(&items, other, interner)?;
-            Ok(ordering_to_value(ord, interner))
+            Ok(ordering_to_value(ord))
         }
         // Clone trait - deep clone of list
         "clone" => {
@@ -65,12 +66,7 @@ pub fn dispatch_list_method(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-pub fn dispatch_string_method(
-    receiver: Value,
-    method: &str,
-    args: Vec<Value>,
-    interner: &StringInterner,
-) -> EvalResult {
+pub fn dispatch_string_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Str(s) = receiver else {
         unreachable!("dispatch_string_method called with non-string receiver")
     };
@@ -106,7 +102,7 @@ pub fn dispatch_string_method(
         "compare" => {
             require_args("compare", 1, args.len())?;
             let other = require_str_arg("compare", &args, 0)?;
-            Ok(ordering_to_value((**s).cmp(other), interner))
+            Ok(ordering_to_value((**s).cmp(other)))
         }
         // Eq trait
         "equals" => {

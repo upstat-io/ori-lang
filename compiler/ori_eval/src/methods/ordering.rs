@@ -1,9 +1,9 @@
 //! Method dispatch for Ordering type.
 
+use ori_patterns::{no_such_method, EvalError, EvalResult, OrderingValue, Value};
+
 use super::compare::{extract_ordering, ordering_to_value};
 use super::helpers::require_args;
-use ori_ir::StringInterner;
-use ori_patterns::{no_such_method, EvalError, EvalResult, OrderingValue, Value};
 
 /// Dispatch methods on Ordering values.
 ///
@@ -17,12 +17,7 @@ use ori_patterns::{no_such_method, EvalError, EvalResult, OrderingValue, Value};
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-pub fn dispatch_ordering_method(
-    receiver: Value,
-    method: &str,
-    args: Vec<Value>,
-    interner: &StringInterner,
-) -> EvalResult {
+pub fn dispatch_ordering_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     // Extract the OrderingValue from Value::Ordering
     let Some(ord) = extract_ordering(&receiver) else {
         unreachable!("dispatch_ordering_method called with non-ordering receiver")
@@ -82,10 +77,7 @@ pub fn dispatch_ordering_method(
                 return Err(EvalError::new("compare requires Ordering value").into());
             };
             // Tags are ordered: Less(0) < Equal(1) < Greater(2)
-            Ok(ordering_to_value(
-                ord.to_tag().cmp(&other_ord.to_tag()),
-                interner,
-            ))
+            Ok(ordering_to_value(ord.to_tag().cmp(&other_ord.to_tag())))
         }
 
         _ => Err(no_such_method(method, "Ordering").into()),

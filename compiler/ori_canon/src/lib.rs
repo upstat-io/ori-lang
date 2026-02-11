@@ -40,7 +40,6 @@ mod validate;
 pub use lower::{lower, lower_module};
 pub use validate::validate;
 
-// Re-export canonical IR types for convenience.
 pub use ori_ir::canon::{
     CanArena, CanBindingPattern, CanBindingPatternId, CanBindingPatternRange, CanExpr, CanField,
     CanFieldBinding, CanFieldBindingRange, CanFieldRange, CanId, CanMapEntry, CanMapEntryRange,

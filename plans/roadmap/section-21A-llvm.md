@@ -385,6 +385,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] `with(acquire:, use:, release:)` codegen
   - [ ] Guaranteed release even on panic
   - [ ] Resource binding in `use:` block
+  - [ ] **Note**: Interpreter has a loud stub in `can_eval.rs` — replace stub with real impl when ready (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
 
 ---
 
@@ -406,6 +407,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] `uses Suspend` capability requirement
   - [ ] `Sendable` bound on task return types
   - [ ] **Rust Tests**: `ori_llvm/src/concurrency/parallel_tests.rs`
+  - [ ] **Interpreter**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real parallel eval (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
 
 - [ ] **Implement**: Spawn pattern
   - [ ] `spawn(tasks:, max_concurrent:)` → `void`
@@ -413,6 +415,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Background execution with structured lifetime
   - [ ] Tasks must complete before parent scope exits
   - [ ] **Rust Tests**: `ori_llvm/src/concurrency/spawn_tests.rs`
+  - [ ] **Interpreter**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real spawn eval (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
 
 - [ ] **Implement**: Timeout pattern
   - [ ] `timeout(op:, after:)` → `Result<T, TimeoutError>`
@@ -420,6 +423,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Cleanup: resources released, destructors run
   - [ ] Cooperative cancellation model (no preemption)
   - [ ] **Rust Tests**: `ori_llvm/src/concurrency/timeout_tests.rs`
+  - [ ] **Interpreter**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real timeout eval (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
 
 - [ ] **Implement**: Cache pattern
   - [ ] `cache(key:, op:, ttl:)` codegen
@@ -428,6 +432,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Thread-safe cache access
   - [ ] `uses Cache` capability requirement
   - [ ] **Rust Tests**: `ori_llvm/src/concurrency/cache_tests.rs`
+  - [ ] **Interpreter**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real cache eval (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
 
 - [ ] **Implement**: Nursery pattern
   - [ ] `nursery(body:, on_error:, timeout:)` codegen

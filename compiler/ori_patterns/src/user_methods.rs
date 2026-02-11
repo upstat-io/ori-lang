@@ -90,11 +90,6 @@ impl UserMethod {
         self.can_body = can_body;
         self.canon = Some(canon);
     }
-
-    /// Check if this method has canonical IR available.
-    pub fn has_canon(&self) -> bool {
-        self.canon.is_some() && self.can_body.is_valid()
-    }
 }
 
 /// A method that can be either user-defined or derived.

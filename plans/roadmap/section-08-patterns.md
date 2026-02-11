@@ -217,6 +217,8 @@ The spec formalizes two distinct pattern categories:
 > **REDESIGNED**: parallel now uses list-only form and all-settled semantics.
 > All tasks run to completion. Errors captured as Err values in result list.
 > Pattern itself never fails.
+>
+> **STUB**: Interpreter has a loud stub in `can_eval.rs:eval_can_function_exp` (sequential execution + `tracing::warn!`). When implementing for real, replace the stub there. See `plans/eval_legacy_removal/section-02-inline-patterns.md`.
 
 - [x] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § parallel ✅ (2026-02-10)
   - [x] **Rust Tests**: Evaluator pattern execution — parallel pattern tests
@@ -234,6 +236,8 @@ The spec formalizes two distinct pattern categories:
 ## 8.5 spawn (Fire and Forget)
 
 > **NEW**: spawn executes tasks without waiting. Returns void immediately. Errors discarded.
+>
+> **STUB**: Interpreter has a loud stub in `can_eval.rs:eval_can_function_exp` (synchronous execution + `tracing::warn!`). When implementing for real, replace the stub there. See `plans/eval_legacy_removal/section-02-inline-patterns.md`.
 
 - [ ] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § spawn
   - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — spawn pattern execution tests
@@ -248,7 +252,9 @@ The spec formalizes two distinct pattern categories:
 
 ## 8.6 timeout (Time-Bounded)
 
-> **NOTE**: Stub implementation - timeout not enforced in interpreter, always returns Ok(result).
+> **NOTE**: Stub implementation — timeout not enforced in interpreter, always returns Ok(result).
+>
+> **STUB**: Interpreter has a loud stub in `can_eval.rs:eval_can_function_exp` (no timeout enforcement + `tracing::warn!`). When implementing for real, replace the stub there. See `plans/eval_legacy_removal/section-02-inline-patterns.md`.
 
 - [ ] **Implement**: `.operation:` property — spec/10-patterns.md § timeout
   - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — timeout pattern execution tests
@@ -267,6 +273,8 @@ The spec formalizes two distinct pattern categories:
 **Proposal**: `proposals/approved/cache-pattern-proposal.md`
 
 > **SPEC**: `cache(key: url, op: fetch(url), ttl: 5m)` — Requires `Cache` capability
+>
+> **STUB**: Interpreter has a loud stub in `can_eval.rs:eval_can_function_exp` (calls op directly, no memoization + `tracing::warn!`). When implementing for real, replace the stub there. See `plans/eval_legacy_removal/section-02-inline-patterns.md`.
 
 ### Basic Semantics (complete)
 
@@ -356,6 +364,8 @@ The spec formalizes two distinct pattern categories:
 **Proposal**: `proposals/approved/with-pattern-proposal.md`
 
 > **NOTE**: Uses `.action:` instead of spec's `.use:` (`use` is reserved keyword).
+>
+> **STUB**: Interpreter has a loud stub in `can_eval.rs:eval_can_function_exp` (RAII acquire/action/release + `tracing::warn!`). The RAII semantics are real but blocked on type checker for lambda inference. When implementing fully, replace the stub there. See `plans/eval_legacy_removal/section-02-inline-patterns.md`.
 
 ### Basic Implementation (complete)
 

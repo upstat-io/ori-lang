@@ -43,7 +43,7 @@ use ori_eval::{
 /// {
 ///     let mut scoped = evaluator.scoped();
 ///     scoped.env_mut().define(name, value, Mutability::Immutable);
-///     scoped.eval(body)?;
+///     scoped.eval_can(can_id)?;
 /// } // Scope automatically popped when `scoped` goes out of scope
 /// ```
 pub struct ScopedEvaluator<'guard, 'eval> {
@@ -100,11 +100,6 @@ impl<'a> Evaluator<'a> {
         EvaluatorBuilder::new(interner, arena, db)
     }
 
-    /// Evaluate an expression.
-    pub fn eval(&mut self, expr_id: crate::ir::ExprId) -> EvalResult {
-        self.interpreter.eval(expr_id)
-    }
-
     /// Evaluate a canonical expression.
     ///
     /// Dispatches via the canonical IR path (`eval_can`). Requires that
@@ -143,7 +138,7 @@ impl<'a> Evaluator<'a> {
 
     /// Get the expression arena.
     pub fn arena(&self) -> &ExprArena {
-        self.interpreter.arena
+        self.interpreter.arena()
     }
 
     /// Register the prelude functions.
@@ -168,7 +163,7 @@ impl<'a> Evaluator<'a> {
 
     /// Get the user method registry for registering impl block methods.
     pub fn user_method_registry(&self) -> &SharedMutableRegistry<UserMethodRegistry> {
-        &self.interpreter.user_method_registry
+        self.interpreter.user_method_registry()
     }
 
     /// Enable performance counters for `--profile` mode.
@@ -200,7 +195,7 @@ impl<'a> Evaluator<'a> {
     /// {
     ///     let mut scoped = evaluator.scoped();
     ///     scoped.env_mut().define(name, value, Mutability::Immutable);
-    ///     scoped.eval(body)?;
+    ///     scoped.eval_can(can_id)?;
     /// } // Scope popped here, even on panic
     /// ```
     pub fn scoped(&mut self) -> ScopedEvaluator<'_, 'a> {
@@ -218,7 +213,7 @@ impl<'a> Evaluator<'a> {
     /// ```text
     /// evaluator.with_env_scope(|scoped| {
     ///     scoped.env_mut().define(name, value, Mutability::Immutable);
-    ///     scoped.eval(body)
+    ///     scoped.eval_can(can_id)
     /// })
     /// ```
     pub fn with_env_scope<T, F>(&mut self, f: F) -> T

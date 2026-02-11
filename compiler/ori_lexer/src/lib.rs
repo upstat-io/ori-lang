@@ -36,21 +36,16 @@
 //! - [`cooker`]: Token cooking layer
 //! - [`keywords`]: Keyword resolution
 //! - [`cook_escape`]: Spec-strict escape processing
-//! - [`token_flags`]: Per-token whitespace metadata (re-exported from `ori_ir`)
 //! - [`lex_error`]: Lexer error types
 
 mod comments;
 mod cook_escape;
 mod cooker;
-pub mod foreign_keywords;
 mod keywords;
 pub mod lex_error;
 mod parse_helpers;
 mod unicode_confusables;
 mod what_is_next;
-
-// Re-export core types from the standalone tokenizer crate.
-pub use ori_lexer_core::{EncodingIssue, EncodingIssueKind, RawTag, RawToken, SourceBuffer};
 
 use comments::classify_and_normalize_comment;
 use cooker::TokenCooker;
@@ -59,7 +54,7 @@ use ori_ir::{
     Comment, CommentKind, CommentList, ModuleExtra, Span, StringInterner, Token, TokenFlags,
     TokenKind, TokenList,
 };
-use ori_lexer_core::RawScanner;
+use ori_lexer_core::{EncodingIssueKind, RawScanner, RawTag, SourceBuffer};
 
 /// Output from lexing with comment capture and metadata.
 ///
@@ -142,12 +137,12 @@ impl LexOutput {
     /// This transfers ownership of comments and positions into a format
     /// suitable for `ParseOutput`.
     pub fn into_metadata(self) -> ModuleExtra {
-        let mut metadata = ModuleExtra::new();
-        metadata.comments = self.comments;
-        metadata.blank_lines = self.blank_lines;
-        metadata.newlines = self.newlines;
-        // trailing_commas will be filled in by the parser
-        metadata
+        ModuleExtra {
+            comments: self.comments,
+            blank_lines: self.blank_lines,
+            newlines: self.newlines,
+            trailing_commas: Vec::new(), // filled in by the parser
+        }
     }
 
     /// Decompose into tokens and metadata.
@@ -224,6 +219,26 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
     let mut scanner = RawScanner::new(buf.cursor());
     let mut cooker = TokenCooker::new(buf.as_bytes(), interner);
     let mut output = LexOutput::with_capacity(source.len());
+
+    // Convert encoding issues detected by SourceBuffer into LexErrors.
+    // These provide more specific diagnostics than the raw scanner's generic
+    // InvalidByte tokens (e.g., "UTF-8 BOM" vs "invalid byte 0xEF").
+    for issue in buf.encoding_issues() {
+        let issue_span = match issue.kind {
+            EncodingIssueKind::Utf8Bom => Span::new(issue.pos, issue.pos + 3),
+            EncodingIssueKind::Utf16LeBom | EncodingIssueKind::Utf16BeBom => {
+                Span::new(issue.pos, issue.pos + 2)
+            }
+            EncodingIssueKind::InteriorNull => Span::new(issue.pos, issue.pos + 1),
+        };
+        output.errors.push(match issue.kind {
+            EncodingIssueKind::Utf8Bom => LexError::utf8_bom(issue_span),
+            EncodingIssueKind::Utf16LeBom => LexError::utf16_le_bom(issue_span),
+            EncodingIssueKind::Utf16BeBom => LexError::utf16_be_bom(issue_span),
+            EncodingIssueKind::InteriorNull => LexError::interior_null(issue_span),
+        });
+    }
+
     let mut offset: u32 = 0;
     let mut last_significant_was_newline = false;
 
@@ -363,8 +378,9 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
         .tokens
         .push_with_flags(Token::new(TokenKind::Eof, eof_span), eof_flags);
 
-    // Wire accumulated cooker errors into the output
-    output.errors = cooker.into_errors();
+    // Append accumulated cooker errors to the output (preserving encoding issue
+    // errors already pushed during SourceBuffer construction).
+    output.errors.extend(cooker.into_errors());
 
     output
 }
@@ -1138,5 +1154,131 @@ let x = 1";
         assert!(debug.contains("LexOutput"));
         assert!(debug.contains("tokens"));
         assert!(debug.contains("comments"));
+    }
+
+    // === Encoding issue detection tests ===
+
+    #[test]
+    fn utf8_bom_produces_error() {
+        let interner = StringInterner::new();
+        let source = "\u{FEFF}let x = 1";
+        let output = lex_with_comments(source, &interner);
+        assert!(output.has_errors(), "UTF-8 BOM should produce an error");
+        let bom_errors: Vec<_> = output
+            .errors
+            .iter()
+            .filter(|e| e.kind == lex_error::LexErrorKind::Utf8Bom)
+            .collect();
+        assert_eq!(bom_errors.len(), 1);
+        assert_eq!(bom_errors[0].span, Span::new(0, 3));
+    }
+
+    #[test]
+    fn utf8_bom_only_produces_error() {
+        // BOM-only file should still produce the error
+        let interner = StringInterner::new();
+        let source = "\u{FEFF}";
+        let output = lex_with_comments(source, &interner);
+        let bom_errors: Vec<_> = output
+            .errors
+            .iter()
+            .filter(|e| e.kind == lex_error::LexErrorKind::Utf8Bom)
+            .collect();
+        assert_eq!(bom_errors.len(), 1);
+    }
+
+    #[test]
+    fn clean_source_no_encoding_errors() {
+        let interner = StringInterner::new();
+        let output = lex_with_comments("let x = 42", &interner);
+        let encoding_errors: Vec<_> = output
+            .errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.kind,
+                    lex_error::LexErrorKind::Utf8Bom
+                        | lex_error::LexErrorKind::Utf16LeBom
+                        | lex_error::LexErrorKind::Utf16BeBom
+                        | lex_error::LexErrorKind::InvalidNullByte
+                )
+            })
+            .collect();
+        assert!(
+            encoding_errors.is_empty(),
+            "clean source should have no encoding errors"
+        );
+    }
+
+    #[test]
+    fn interior_null_produces_error() {
+        let interner = StringInterner::new();
+        let source = "let\0x";
+        let output = lex_with_comments(source, &interner);
+        let null_errors: Vec<_> = output
+            .errors
+            .iter()
+            .filter(|e| e.kind == lex_error::LexErrorKind::InvalidNullByte)
+            .collect();
+        assert_eq!(
+            null_errors.len(),
+            1,
+            "interior null should produce InvalidNullByte error"
+        );
+        assert_eq!(null_errors[0].span, Span::new(3, 4));
+    }
+
+    #[test]
+    fn multiple_interior_nulls_produce_errors() {
+        let interner = StringInterner::new();
+        let source = "\0a\0";
+        let output = lex_with_comments(source, &interner);
+        let null_errors: Vec<_> = output
+            .errors
+            .iter()
+            .filter(|e| e.kind == lex_error::LexErrorKind::InvalidNullByte)
+            .collect();
+        assert_eq!(null_errors.len(), 2, "each null should produce an error");
+    }
+
+    // === HashBang token tests ===
+
+    #[test]
+    fn hashbang_produces_token() {
+        let interner = StringInterner::new();
+        let source = "#!compiler_version";
+        let output = lex_with_comments(source, &interner);
+        // #! should produce HashBang token, not Error
+        assert_eq!(output.tokens[0].kind, TokenKind::HashBang);
+        assert_eq!(output.tokens[0].span, Span::new(0, 2));
+    }
+
+    #[test]
+    fn hashbang_no_error() {
+        let interner = StringInterner::new();
+        let source = "#!foo";
+        let output = lex_with_comments(source, &interner);
+        // HashBang should not produce any error
+        let hashbang_errors: Vec<_> = output
+            .errors
+            .iter()
+            .filter(|e| e.span == Span::new(0, 2))
+            .collect();
+        assert!(
+            hashbang_errors.is_empty(),
+            "#! should not produce errors, got: {hashbang_errors:?}"
+        );
+    }
+
+    #[test]
+    fn hashbang_followed_by_ident() {
+        let interner = StringInterner::new();
+        let source = "#!version";
+        let tokens = lex(source, &interner);
+        // tokens: #!, version, EOF
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0].kind, TokenKind::HashBang);
+        assert!(matches!(tokens[1].kind, TokenKind::Ident(_)));
+        assert_eq!(tokens[2].kind, TokenKind::Eof);
     }
 }

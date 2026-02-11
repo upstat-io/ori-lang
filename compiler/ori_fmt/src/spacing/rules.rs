@@ -194,6 +194,8 @@ pub static SPACE_RULES: &[SpaceRule] = &[
         SpaceAction::None,
     )
     .with_priority(35),
+    // No space after #! in file attributes: #!compiler_version
+    SpaceRule::new("HashBangContent", Exact(HashBang), Any, SpaceAction::None).with_priority(35),
     // Priority 40: Operator rules
     // Space around binary operators: a + b, x == y
     SpaceRule::new(

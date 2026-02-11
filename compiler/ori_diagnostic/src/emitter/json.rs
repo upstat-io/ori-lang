@@ -95,7 +95,7 @@ impl<W: Write> DiagnosticEmitter for JsonEmitter<W> {
         }
         let _ = writeln!(self.writer, "    ],");
 
-        // Suggestions
+        // Suggestions (text-only)
         let _ = writeln!(self.writer, "    \"suggestions\": [");
         for (i, suggestion) in diagnostic.suggestions.iter().enumerate() {
             let comma = trailing_comma(i, diagnostic.suggestions.len());
@@ -105,6 +105,20 @@ impl<W: Write> DiagnosticEmitter for JsonEmitter<W> {
                 escape_json(suggestion),
                 comma
             );
+        }
+        let _ = writeln!(self.writer, "    ],");
+
+        // Structured suggestions (with spans and applicability)
+        let _ = writeln!(self.writer, "    \"structured_suggestions\": [");
+        for (i, suggestion) in diagnostic.structured_suggestions.iter().enumerate() {
+            let comma = trailing_comma(i, diagnostic.structured_suggestions.len());
+            let _ = writeln!(self.writer, "      {{");
+            let _ = writeln!(
+                self.writer,
+                "        \"message\": \"{}\"",
+                escape_json(&suggestion.message)
+            );
+            let _ = writeln!(self.writer, "      }}{comma}");
         }
         let _ = writeln!(self.writer, "    ]");
 

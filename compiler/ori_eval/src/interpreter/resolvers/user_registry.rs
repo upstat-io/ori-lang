@@ -18,6 +18,7 @@ use ori_ir::Name;
 ///
 /// Uses `SharedMutableRegistry` so that methods registered after the dispatcher
 /// is created are still visible.
+#[derive(Clone)]
 pub struct UserRegistryResolver {
     registry: SharedMutableRegistry<UserMethodRegistry>,
 }

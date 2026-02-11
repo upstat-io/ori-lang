@@ -1,21 +1,17 @@
 //! Method dispatch for variant types (Option, Result, bool, char, byte, newtype).
 
+use ori_ir::StringInterner;
+use ori_patterns::{no_such_method, EvalError, EvalResult, Value};
+
 use super::compare::{compare_option_values, compare_result_values, ordering_to_value};
 use super::helpers::{require_args, require_bool_arg, require_byte_arg, require_char_arg};
-use ori_ir::StringInterner;
-use ori_patterns::{no_such_method, wrong_arg_count, EvalError, EvalResult, Value};
 
 /// Dispatch operator methods on bool values.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-pub fn dispatch_bool_method(
-    receiver: Value,
-    method: &str,
-    args: Vec<Value>,
-    interner: &StringInterner,
-) -> EvalResult {
+pub fn dispatch_bool_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Bool(a) = receiver else {
         unreachable!("dispatch_bool_method called with non-bool receiver")
     };
@@ -29,7 +25,7 @@ pub fn dispatch_bool_method(
         "compare" => {
             require_args("compare", 1, args.len())?;
             let b = require_bool_arg("compare", &args, 0)?;
-            Ok(ordering_to_value(a.cmp(&b), interner))
+            Ok(ordering_to_value(a.cmp(&b)))
         }
         // Eq trait
         "equals" => {
@@ -61,12 +57,7 @@ pub fn dispatch_bool_method(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-pub fn dispatch_char_method(
-    receiver: Value,
-    method: &str,
-    args: Vec<Value>,
-    interner: &StringInterner,
-) -> EvalResult {
+pub fn dispatch_char_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Char(c) = receiver else {
         unreachable!("dispatch_char_method called with non-char receiver")
     };
@@ -76,7 +67,7 @@ pub fn dispatch_char_method(
         "compare" => {
             require_args("compare", 1, args.len())?;
             let other = require_char_arg("compare", &args, 0)?;
-            Ok(ordering_to_value(c.cmp(&other), interner))
+            Ok(ordering_to_value(c.cmp(&other)))
         }
         // Eq trait
         "equals" => {
@@ -112,12 +103,7 @@ pub fn dispatch_char_method(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
-pub fn dispatch_byte_method(
-    receiver: Value,
-    method: &str,
-    args: Vec<Value>,
-    interner: &StringInterner,
-) -> EvalResult {
+pub fn dispatch_byte_method(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
     let Value::Byte(b) = receiver else {
         unreachable!("dispatch_byte_method called with non-byte receiver")
     };
@@ -127,7 +113,7 @@ pub fn dispatch_byte_method(
         "compare" => {
             require_args("compare", 1, args.len())?;
             let other = require_byte_arg("compare", &args, 0)?;
-            Ok(ordering_to_value(b.cmp(&other), interner))
+            Ok(ordering_to_value(b.cmp(&other)))
         }
         // Eq trait
         "equals" => {
@@ -166,9 +152,7 @@ pub fn dispatch_newtype_method(receiver: Value, method: &str, args: Vec<Value>) 
 
     match method {
         "unwrap" => {
-            if !args.is_empty() {
-                return Err(wrong_arg_count("unwrap", 0, args.len()).into());
-            }
+            require_args("unwrap", 0, args.len())?;
             Ok((*inner).clone())
         }
         _ => Err(no_such_method(method, "newtype").into()),
@@ -216,7 +200,7 @@ pub fn dispatch_option_method(
         ("compare", _) => {
             require_args("compare", 1, args.len())?;
             let ord = compare_option_values(&receiver, &args[0], interner)?;
-            Ok(ordering_to_value(ord, interner))
+            Ok(ordering_to_value(ord))
         }
         _ => Err(no_such_method(method, "Option").into()),
     }
@@ -245,7 +229,7 @@ pub fn dispatch_result_method(
             require_args("compare", 1, args.len())?;
             let other = &args[0];
             let ord = compare_result_values(&receiver, other, interner)?;
-            Ok(ordering_to_value(ord, interner))
+            Ok(ordering_to_value(ord))
         }
         _ => Err(no_such_method(method, "Result").into()),
     }

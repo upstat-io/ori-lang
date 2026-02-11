@@ -9,7 +9,6 @@
 //! fixes are implemented, consider evaluating enum dispatch for better
 //! performance if profiling shows the vtable indirection is significant.
 
-// Box and Arc are needed for trait objects in the registry
 #![expect(
     clippy::disallowed_types,
     reason = "Box/Arc needed for trait object storage"

@@ -49,6 +49,16 @@ use crate::ArcClassification;
 /// * `func` — the ARC IR function to transform (mutated in place).
 /// * `classifier` — type classifier for `needs_rc()` checks.
 pub fn detect_reset_reuse(func: &mut ArcFunction, classifier: &dyn ArcClassification) {
+    // Precondition: detection creates Reset/Reuse — none should exist yet.
+    debug_assert!(
+        !func
+            .blocks
+            .iter()
+            .flat_map(|b| b.body.iter())
+            .any(|i| matches!(i, ArcInstr::Reset { .. } | ArcInstr::Reuse { .. })),
+        "detect_reset_reuse: IR already contains Reset/Reuse — pipeline ordering error"
+    );
+
     tracing::debug!(
         function = func.name.raw(),
         "detecting reset/reuse opportunities"

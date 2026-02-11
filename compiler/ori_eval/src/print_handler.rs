@@ -9,7 +9,7 @@
 //! Uses enum dispatch instead of trait objects for O(1) static dispatch
 //! on this frequently-used path.
 
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 /// Default print handler that writes to stdout.
 #[derive(Default)]
@@ -58,37 +58,25 @@ impl BufferPrintHandler {
 
     /// Print a line (with newline).
     pub fn println(&self, msg: &str) {
-        let mut buf = self
-            .buffer
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut buf = self.buffer.lock();
         buf.push_str(msg);
         buf.push('\n');
     }
 
     /// Print without newline.
     pub fn print(&self, msg: &str) {
-        let mut buf = self
-            .buffer
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut buf = self.buffer.lock();
         buf.push_str(msg);
     }
 
     /// Get all captured output.
     pub fn get_output(&self) -> String {
-        self.buffer
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+        self.buffer.lock().clone()
     }
 
     /// Clear captured output.
     pub fn clear(&self) {
-        self.buffer
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
+        self.buffer.lock().clear();
     }
 }
 

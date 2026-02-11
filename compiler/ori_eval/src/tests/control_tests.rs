@@ -2,10 +2,8 @@
 //!
 //! Relocated from `exec/control.rs` per coding guidelines (>200 lines).
 
-use crate::environment::{Environment, Mutability};
-use crate::exec::control::{bind_pattern, eval_if, to_loop_action, LoopAction};
-use ori_ir::{BindingPattern, ExprId, Name};
-use ori_patterns::{ControlAction, EvalError, Value};
+use crate::exec::control::{to_loop_action, LoopAction};
+use ori_patterns::{ControlAction, Value};
 
 mod to_loop_action_tests {
     use super::*;
@@ -28,9 +26,9 @@ mod to_loop_action_tests {
 
     #[test]
     fn control_flow_break_returns_break_with_value() {
-        let action = to_loop_action(ControlAction::Break(Value::int(42)));
+        let action = to_loop_action(ControlAction::Break(Value::int(99)));
         if let LoopAction::Break(v) = action {
-            assert_eq!(v, Value::int(42));
+            assert_eq!(v, Value::int(99));
         } else {
             panic!("expected LoopAction::Break");
         }
@@ -40,178 +38,20 @@ mod to_loop_action_tests {
     fn control_flow_break_void_returns_break_void() {
         let action = to_loop_action(ControlAction::Break(Value::Void));
         if let LoopAction::Break(v) = action {
-            assert!(matches!(v, Value::Void));
+            assert_eq!(v, Value::Void);
         } else {
             panic!("expected LoopAction::Break(Void)");
         }
     }
 
     #[test]
-    fn no_control_flow_returns_error() {
-        let err = ControlAction::from(EvalError::new("some error message"));
-        let action = to_loop_action(err);
+    fn eval_error_becomes_loop_error() {
+        let err = ori_patterns::EvalError::new("test error");
+        let action = to_loop_action(ControlAction::from(err));
         if let LoopAction::Error(e) = action {
-            assert_eq!(e.into_eval_error().message, "some error message");
+            assert!(matches!(e, ControlAction::Error(_)));
         } else {
             panic!("expected LoopAction::Error");
         }
-    }
-}
-
-mod bind_pattern_tests {
-    use super::*;
-
-    #[test]
-    fn name_pattern_binds_value() {
-        let mut env = Environment::new();
-        let name = Name::from_raw(1);
-        let pattern = BindingPattern::Name(name);
-        bind_pattern(&pattern, Value::int(42), Mutability::Immutable, &mut env).unwrap();
-        assert_eq!(env.lookup(name), Some(Value::int(42)));
-    }
-
-    #[test]
-    fn wildcard_pattern_succeeds_without_binding() {
-        let mut env = Environment::new();
-        let result = bind_pattern(
-            &BindingPattern::Wildcard,
-            Value::int(42),
-            Mutability::Immutable,
-            &mut env,
-        );
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn tuple_pattern_binds_elements() {
-        let mut env = Environment::new();
-        let name1 = Name::from_raw(1);
-        let name2 = Name::from_raw(2);
-        let pattern = BindingPattern::Tuple(vec![
-            BindingPattern::Name(name1),
-            BindingPattern::Name(name2),
-        ]);
-        let tuple = Value::tuple(vec![Value::int(1), Value::int(2)]);
-        bind_pattern(&pattern, tuple, Mutability::Immutable, &mut env).unwrap();
-        assert_eq!(env.lookup(name1), Some(Value::int(1)));
-        assert_eq!(env.lookup(name2), Some(Value::int(2)));
-    }
-
-    #[test]
-    fn tuple_pattern_mismatch_errors() {
-        let mut env = Environment::new();
-        let name1 = Name::from_raw(1);
-        let pattern = BindingPattern::Tuple(vec![BindingPattern::Name(name1)]);
-        let tuple = Value::tuple(vec![Value::int(1), Value::int(2)]);
-        let result = bind_pattern(&pattern, tuple, Mutability::Immutable, &mut env);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn tuple_pattern_non_tuple_errors() {
-        let mut env = Environment::new();
-        let pattern = BindingPattern::Tuple(vec![]);
-        let result = bind_pattern(&pattern, Value::int(42), Mutability::Immutable, &mut env);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn list_pattern_binds_elements() {
-        let mut env = Environment::new();
-        let name1 = Name::from_raw(1);
-        let rest_name = Name::from_raw(2);
-        let pattern = BindingPattern::List {
-            elements: vec![BindingPattern::Name(name1)],
-            rest: Some(rest_name),
-        };
-        let list = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
-        bind_pattern(&pattern, list, Mutability::Immutable, &mut env).unwrap();
-        assert_eq!(env.lookup(name1), Some(Value::int(1)));
-        let rest = env.lookup(rest_name).unwrap();
-        if let Value::List(items) = rest {
-            assert_eq!(items.len(), 2);
-        } else {
-            panic!("expected list");
-        }
-    }
-
-    #[test]
-    fn list_pattern_too_short_errors() {
-        let mut env = Environment::new();
-        let name1 = Name::from_raw(1);
-        let name2 = Name::from_raw(2);
-        let pattern = BindingPattern::List {
-            elements: vec![BindingPattern::Name(name1), BindingPattern::Name(name2)],
-            rest: None,
-        };
-        let list = Value::list(vec![Value::int(1)]);
-        let result = bind_pattern(&pattern, list, Mutability::Immutable, &mut env);
-        assert!(result.is_err());
-    }
-}
-
-mod eval_if_tests {
-    use super::*;
-
-    #[test]
-    fn true_condition_returns_then_branch() {
-        let cond = ExprId::new(1);
-        let then_branch = ExprId::new(2);
-        let else_branch = ExprId::new(3);
-
-        let mut call_count = 0;
-        let result = eval_if(cond, then_branch, else_branch, |_id| {
-            call_count += 1;
-            if call_count == 1 {
-                // Condition
-                Ok(Value::Bool(true))
-            } else {
-                // Then branch
-                Ok(Value::int(42))
-            }
-        });
-        assert_eq!(result.unwrap(), Value::int(42));
-    }
-
-    #[test]
-    fn false_condition_returns_else_branch() {
-        let cond = ExprId::new(1);
-        let then_branch = ExprId::new(2);
-        let else_branch = ExprId::new(3);
-
-        let mut call_count = 0;
-        let result = eval_if(cond, then_branch, else_branch, |_id| {
-            call_count += 1;
-            if call_count == 1 {
-                // Condition
-                Ok(Value::Bool(false))
-            } else {
-                // Else branch
-                Ok(Value::int(99))
-            }
-        });
-        assert_eq!(result.unwrap(), Value::int(99));
-    }
-
-    #[test]
-    fn false_condition_no_else_returns_void() {
-        let cond = ExprId::new(1);
-        let then_branch = ExprId::new(2);
-
-        let result = eval_if(cond, then_branch, ExprId::INVALID, |_| {
-            Ok(Value::Bool(false))
-        });
-        assert_eq!(result.unwrap(), Value::Void);
-    }
-
-    #[test]
-    fn condition_error_propagates() {
-        let cond = ExprId::new(1);
-        let then_branch = ExprId::new(2);
-
-        let result = eval_if(cond, then_branch, ExprId::INVALID, |_| {
-            Err(EvalError::new("test error").into())
-        });
-        assert!(result.is_err());
     }
 }

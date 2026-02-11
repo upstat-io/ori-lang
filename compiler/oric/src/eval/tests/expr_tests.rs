@@ -2,122 +2,9 @@
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
-use crate::eval::exec::expr::{
-    eval_binary_values, eval_index, eval_literal, get_collection_length,
-};
-use crate::eval::Value;
-use crate::ir::{BinaryOp, ExprKind, SharedInterner};
-
-// Literal Evaluation Tests
-
-mod literals {
-    use super::*;
-
-    #[test]
-    fn int() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Int(42), &interner);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().unwrap(), Value::int(42));
-    }
-
-    #[test]
-    fn int_zero() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Int(0), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::int(0));
-    }
-
-    #[test]
-    fn int_negative() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Int(-42), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::int(-42));
-    }
-
-    #[test]
-    fn int_max() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Int(i64::MAX), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::int(i64::MAX));
-    }
-
-    #[test]
-    fn int_min() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Int(i64::MIN), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::int(i64::MIN));
-    }
-
-    #[test]
-    #[expect(
-        clippy::approx_constant,
-        reason = "testing float literal evaluation, not using pi"
-    )]
-    fn float() {
-        let interner = SharedInterner::default();
-        let bits = 3.14_f64.to_bits();
-        let result = eval_literal(&ExprKind::Float(bits), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Float(3.14));
-    }
-
-    #[test]
-    fn float_zero() {
-        let interner = SharedInterner::default();
-        let bits = 0.0_f64.to_bits();
-        let result = eval_literal(&ExprKind::Float(bits), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Float(0.0));
-    }
-
-    #[test]
-    fn bool_true() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Bool(true), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Bool(true));
-    }
-
-    #[test]
-    fn bool_false() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Bool(false), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Bool(false));
-    }
-
-    #[test]
-    fn unit() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Unit, &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Void);
-    }
-
-    #[test]
-    fn char_ascii() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Char('a'), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Char('a'));
-    }
-
-    #[test]
-    fn char_unicode() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Char('λ'), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Char('λ'));
-    }
-
-    #[test]
-    fn char_emoji() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Char('😀'), &interner);
-        assert_eq!(result.unwrap().unwrap(), Value::Char('😀'));
-    }
-
-    #[test]
-    fn non_literal_returns_none() {
-        let interner = SharedInterner::default();
-        let result = eval_literal(&ExprKind::Error, &interner);
-        assert!(result.is_none());
-    }
-}
+use crate::eval::exec::expr::{eval_index, get_collection_length};
+use crate::eval::{evaluate_binary, Value};
+use crate::ir::BinaryOp;
 
 // Binary Value Evaluation Tests (Index Context)
 
@@ -126,31 +13,31 @@ mod binary_values {
 
     #[test]
     fn add() {
-        let result = eval_binary_values(Value::int(2), BinaryOp::Add, Value::int(3));
+        let result = evaluate_binary(Value::int(2), Value::int(3), BinaryOp::Add);
         assert_eq!(result.unwrap(), Value::int(5));
     }
 
     #[test]
     fn sub() {
-        let result = eval_binary_values(Value::int(5), BinaryOp::Sub, Value::int(3));
+        let result = evaluate_binary(Value::int(5), Value::int(3), BinaryOp::Sub);
         assert_eq!(result.unwrap(), Value::int(2));
     }
 
     #[test]
     fn mul() {
-        let result = eval_binary_values(Value::int(4), BinaryOp::Mul, Value::int(3));
+        let result = evaluate_binary(Value::int(4), Value::int(3), BinaryOp::Mul);
         assert_eq!(result.unwrap(), Value::int(12));
     }
 
     #[test]
     fn div() {
-        let result = eval_binary_values(Value::int(10), BinaryOp::Div, Value::int(3));
+        let result = evaluate_binary(Value::int(10), Value::int(3), BinaryOp::Div);
         assert_eq!(result.unwrap(), Value::int(3));
     }
 
     #[test]
     fn div_by_zero_error() {
-        let result = eval_binary_values(Value::int(10), BinaryOp::Div, Value::int(0));
+        let result = evaluate_binary(Value::int(10), Value::int(0), BinaryOp::Div);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -160,16 +47,14 @@ mod binary_values {
     }
 
     #[test]
-    fn eq_supported_after_delegation() {
-        // eval_binary_values now delegates to evaluate_binary, which supports all ops
-        let result = eval_binary_values(Value::int(1), BinaryOp::Eq, Value::int(1));
+    fn eq() {
+        let result = evaluate_binary(Value::int(1), Value::int(1), BinaryOp::Eq);
         assert_eq!(result.unwrap(), Value::Bool(true));
     }
 
     #[test]
-    fn float_supported_after_delegation() {
-        // eval_binary_values now delegates to evaluate_binary, which supports floats
-        let result = eval_binary_values(Value::Float(1.0), BinaryOp::Add, Value::Float(2.0));
+    fn float_add() {
+        let result = evaluate_binary(Value::Float(1.0), Value::Float(2.0), BinaryOp::Add);
         assert_eq!(result.unwrap(), Value::Float(3.0));
     }
 }

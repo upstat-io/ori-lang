@@ -1,8 +1,7 @@
 //! Canonical expression evaluation — `CanExpr` dispatch.
 //!
-//! This module provides `eval_can(CanId)` as a parallel evaluation path alongside
-//! the legacy `eval(ExprId)`. Functions with canonical bodies (`has_canon()`) dispatch
-//! here; functions without fall back to the legacy path.
+//! This module provides `eval_can(CanId)` as the sole evaluation path.
+//! All function and method calls dispatch through `eval_can`.
 //!
 //! # Architecture
 //!
@@ -28,8 +27,9 @@ use super::Interpreter;
 use crate::exec::expr;
 use crate::{
     await_not_supported, evaluate_binary, evaluate_unary, hash_outside_index, map_key_not_hashable,
-    non_exhaustive_match, parse_error, self_outside_method, undefined_const, undefined_function,
-    FunctionValue, MemoizedFunctionValue, Mutability, StructValue,
+    non_exhaustive_match, parse_error, range_bound_not_int, self_outside_method,
+    unbounded_range_end, undefined_const, undefined_function, FunctionValue, MemoizedFunctionValue,
+    Mutability, RangeValue, StructValue,
 };
 
 impl Interpreter<'_> {
@@ -49,8 +49,8 @@ impl Interpreter<'_> {
     /// before calling `eval_can`.
     #[inline]
     fn canon_ref(&self) -> &CanonResult {
-        // SAFETY: eval_can is only called when canon is known to be Some.
-        // This is enforced by the call sites (function_call checks has_canon()).
+        // Invariant: eval_can is only called when canon is known to be Some.
+        // This is enforced by the call sites (function_call sets canon before calling).
         #[expect(clippy::expect_used, reason = "Invariant: eval_can requires canon")]
         self.canon
             .as_ref()
@@ -81,7 +81,7 @@ impl Interpreter<'_> {
         let kind = *canon.arena.kind(can_id);
 
         match kind {
-            // === Literals ===
+            // Literals
             CanExpr::Int(n) => Ok(Value::int(n)),
             CanExpr::Float(bits) => Ok(Value::Float(f64::from_bits(bits))),
             CanExpr::Bool(b) => Ok(Value::Bool(b)),
@@ -91,13 +91,13 @@ impl Interpreter<'_> {
             CanExpr::Size { value, unit } => Ok(Value::Size(unit.to_bytes(value))),
             CanExpr::Unit => Ok(Value::Void),
 
-            // === Compile-Time Constant ===
+            // Compile-Time Constant
             CanExpr::Constant(id) => {
                 let cv = self.canon_ref().constants.get(id);
                 Ok(const_to_value(cv, self.interner))
             }
 
-            // === References ===
+            // References
             CanExpr::Ident(name) => expr::eval_ident(
                 name,
                 &self.env,
@@ -118,7 +118,7 @@ impl Interpreter<'_> {
                 .ok_or_else(|| undefined_function(self.interner.lookup(name)).into()),
             CanExpr::HashLength => Err(hash_outside_index().into()),
 
-            // === Operators ===
+            // Operators
             CanExpr::Binary { op, left, right } => self.eval_can_binary(can_id, left, op, right),
             CanExpr::Unary { op, operand } => self.eval_can_unary(can_id, op, operand),
             CanExpr::Cast {
@@ -130,7 +130,7 @@ impl Interpreter<'_> {
                 self.eval_can_cast(value, target, fallible)
             }
 
-            // === Calls ===
+            // Calls
             CanExpr::Call { func, args } => {
                 let func_val = self.eval_can(func)?;
                 let arg_vals = self.eval_can_expr_list(args)?;
@@ -146,19 +146,23 @@ impl Interpreter<'_> {
                 self.dispatch_method_call(recv, method, arg_vals)
             }
 
-            // === Access ===
+            // Access
             CanExpr::Field { receiver, field } => {
+                let span = self.can_span(can_id);
                 let value = self.eval_can(receiver)?;
                 expr::eval_field_access(value, field, self.interner)
+                    .map_err(|e| Self::attach_span(e, span))
             }
             CanExpr::Index { receiver, index } => {
+                let span = self.can_span(can_id);
                 let value = self.eval_can(receiver)?;
-                let length = expr::get_collection_length(&value)?;
+                let length = expr::get_collection_length(&value)
+                    .map_err(|e| Self::attach_span(e.into(), span))?;
                 let idx = self.eval_can_with_hash_length(index, length)?;
-                expr::eval_index(value, idx)
+                expr::eval_index(value, idx).map_err(|e| Self::attach_span(e, span))
             }
 
-            // === Control Flow ===
+            // Control Flow
             CanExpr::If {
                 cond,
                 then_branch,
@@ -208,7 +212,7 @@ impl Interpreter<'_> {
                 Err(ControlAction::Continue(val))
             }
 
-            // === Bindings ===
+            // Bindings
             CanExpr::Block { stmts, result } => self.eval_can_block(stmts, result),
             CanExpr::Let {
                 pattern,
@@ -230,13 +234,13 @@ impl Interpreter<'_> {
                 self.eval_can_assign(target, val)
             }
 
-            // === Functions ===
+            // Functions
             CanExpr::Lambda { params, body } => self.eval_can_lambda(params, body),
 
-            // === Collections ===
+            // Collections
             CanExpr::List(range) => Ok(Value::list(self.eval_can_expr_list(range)?)),
             CanExpr::Tuple(range) => Ok(Value::tuple(self.eval_can_expr_list(range)?)),
-            CanExpr::Map(entries) => self.eval_can_map(entries),
+            CanExpr::Map(entries) => self.eval_can_map(can_id, entries),
             CanExpr::Struct { name, fields } => self.eval_can_struct(name, fields),
             CanExpr::Range {
                 start,
@@ -245,7 +249,7 @@ impl Interpreter<'_> {
                 inclusive,
             } => self.eval_can_range(start, end, step, inclusive),
 
-            // === Algebraic ===
+            // Algebraic
             CanExpr::Ok(inner) => Ok(Value::ok(if inner.is_valid() {
                 self.eval_can(inner)?
             } else {
@@ -259,7 +263,7 @@ impl Interpreter<'_> {
             CanExpr::Some(inner) => Ok(Value::some(self.eval_can(inner)?)),
             CanExpr::None => Ok(Value::None),
 
-            // === Error Handling ===
+            // Error Handling
             CanExpr::Try(inner) => match self.eval_can(inner)? {
                 Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
                 Value::Err(e) => Err(ControlAction::Propagate(Value::Err(e))),
@@ -268,30 +272,27 @@ impl Interpreter<'_> {
             },
             CanExpr::Await(_) => Err(await_not_supported().into()),
 
-            // === Capabilities ===
+            // Capabilities
             CanExpr::WithCapability {
                 capability,
                 provider,
                 body,
             } => {
                 let provider_val = self.eval_can(provider)?;
-                self.env.push_scope();
-                self.env
-                    .define(capability, provider_val, Mutability::Immutable);
-                let result = self.eval_can(body);
-                self.env.pop_scope();
-                result
+                self.with_binding(capability, provider_val, Mutability::Immutable, |scoped| {
+                    scoped.eval_can(body)
+                })
             }
 
-            // === Special Forms ===
+            // Special Forms
             CanExpr::FunctionExp { kind, props } => self.eval_can_function_exp(kind, props),
 
-            // === Error Recovery ===
+            // Error Recovery
             CanExpr::Error => Err(parse_error().into()),
         }
     }
 
-    // ── Binary Operators ────────────────────────────────────────────
+    // Binary Operators
 
     /// Evaluate a canonical binary operation with short-circuit support.
     fn eval_can_binary(
@@ -371,7 +372,7 @@ impl Interpreter<'_> {
         evaluate_binary(left_val, right_val, op).map_err(|e| Self::attach_span(e, span))
     }
 
-    // ── Unary Operators ────────────────────────────────────────────
+    // Unary Operators
 
     /// Evaluate a canonical unary operation.
     fn eval_can_unary(&mut self, expr_id: CanId, op: UnaryOp, operand: CanId) -> EvalResult {
@@ -390,7 +391,7 @@ impl Interpreter<'_> {
         evaluate_unary(value, op).map_err(|e| Self::attach_span(e, span))
     }
 
-    // ── Type Cast ──────────────────────────────────────────────────
+    // Type Cast
 
     /// Evaluate a canonical type cast using the target type name.
     ///
@@ -400,7 +401,10 @@ impl Interpreter<'_> {
         let target_name = self.interner.lookup(target);
         let result = match (target_name, &value) {
             // int conversions
-            #[allow(clippy::cast_precision_loss)]
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "intentional int-to-float conversion"
+            )]
             ("float", Value::Int(n)) => Ok(Value::Float(n.raw() as f64)),
             ("byte", Value::Int(n)) => {
                 let raw = n.raw();
@@ -413,12 +417,20 @@ impl Interpreter<'_> {
                     ))
                     .into());
                 }
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "range checked on line above"
+                )]
                 Ok(Value::Byte(raw as u8))
             }
             ("char", Value::Int(n)) => {
                 let raw = n.raw();
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "char::from_u32 validates the value"
+                )]
                 if let Some(c) = char::from_u32(raw as u32) {
                     Ok(Value::Char(c))
                 } else if fallible {
@@ -432,7 +444,10 @@ impl Interpreter<'_> {
             }
             ("int", Value::Byte(b)) => Ok(Value::int(i64::from(*b))),
             ("int", Value::Char(c)) => Ok(Value::int(i64::from(*c as u32))),
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "intentional float-to-int truncation"
+            )]
             ("int", Value::Float(f)) => Ok(Value::int(*f as i64)),
             ("int", Value::Str(s)) => match s.parse::<i64>() {
                 Ok(n) => Ok(Value::int(n)),
@@ -475,33 +490,27 @@ impl Interpreter<'_> {
         }
     }
 
-    // ── Block ──────────────────────────────────────────────────────
+    // Block
 
     /// Evaluate a canonical block: `{ stmts; result }`.
     fn eval_can_block(&mut self, stmts: CanRange, result: CanId) -> EvalResult {
-        self.env.push_scope();
+        let mut scoped = self.scoped();
 
         // Evaluate each statement. In canonical IR, block statements are just
         // expressions (Let bindings are expressions that return Void).
-        let stmt_ids: Vec<CanId> = self.canon_ref().arena.get_expr_list(stmts).to_vec();
+        let stmt_ids: Vec<CanId> = scoped.canon_ref().arena.get_expr_list(stmts).to_vec();
         for stmt_id in stmt_ids {
-            let res = self.eval_can(stmt_id);
-            if let Err(e) = res {
-                self.env.pop_scope();
-                return Err(e);
-            }
+            scoped.eval_can(stmt_id)?;
         }
 
-        let r = if result.is_valid() {
-            self.eval_can(result)
+        if result.is_valid() {
+            scoped.eval_can(result)
         } else {
             Ok(Value::Void)
-        };
-        self.env.pop_scope();
-        r
+        }
     }
 
-    // ── Binding Pattern ────────────────────────────────────────────
+    // Binding Pattern
 
     /// Bind a canonical binding pattern to a value.
     fn bind_can_pattern(
@@ -582,7 +591,7 @@ impl Interpreter<'_> {
         }
     }
 
-    // ── Assignment ────────────────────────────────────────────────
+    // Assignment
 
     /// Evaluate a canonical assignment: `target = value`.
     fn eval_can_assign(&mut self, target: CanId, value: Value) -> EvalResult {
@@ -590,9 +599,12 @@ impl Interpreter<'_> {
         let kind = *canon.arena.kind(target);
         match kind {
             CanExpr::Ident(name) => {
-                self.env.assign(name, value.clone()).map_err(|_| {
+                self.env.assign(name, value.clone()).map_err(|e| {
                     let name_str = self.interner.lookup(name);
-                    ControlAction::from(crate::cannot_assign_immutable(name_str))
+                    ControlAction::from(match e {
+                        crate::AssignError::Immutable => crate::cannot_assign_immutable(name_str),
+                        crate::AssignError::Undefined => crate::undefined_variable(name_str),
+                    })
                 })?;
                 Ok(value)
             }
@@ -602,7 +614,7 @@ impl Interpreter<'_> {
         }
     }
 
-    // ── Lambda ─────────────────────────────────────────────────────
+    // Lambda
 
     /// Evaluate a canonical lambda: create a `FunctionValue` with canonical data.
     fn eval_can_lambda(&mut self, params: CanParamRange, body: CanId) -> EvalResult {
@@ -631,7 +643,9 @@ impl Interpreter<'_> {
             );
         };
 
-        // Also carry the legacy arena (still needed for methods/patterns that use ExprId).
+        // Carry the shared arena (O(1) Arc clone). The imported_arena is always set
+        // for function calls; only the top-level interpreter may lack it, in which
+        // case we create a SharedArena from the borrowed arena.
         let arena = match &self.imported_arena {
             Some(a) => a.clone(),
             None => ori_ir::SharedArena::new(self.arena.clone()),
@@ -650,22 +664,25 @@ impl Interpreter<'_> {
         Ok(Value::Function(func))
     }
 
-    // ── Map ────────────────────────────────────────────────────────
+    // Map
 
     /// Evaluate a canonical map literal: `{ k: v, ... }`.
-    fn eval_can_map(&mut self, entries: CanMapEntryRange) -> EvalResult {
+    fn eval_can_map(&mut self, can_id: CanId, entries: CanMapEntryRange) -> EvalResult {
+        let span = self.can_span(can_id);
         let entry_list: Vec<_> = self.canon_ref().arena.get_map_entries(entries).to_vec();
         let mut map = std::collections::BTreeMap::new();
         for entry in &entry_list {
             let key = self.eval_can(entry.key)?;
             let value = self.eval_can(entry.value)?;
-            let key_str = key.to_map_key().map_err(|_| map_key_not_hashable())?;
+            let key_str = key
+                .to_map_key()
+                .map_err(|_| Self::attach_span(map_key_not_hashable().into(), span))?;
             map.insert(key_str, value);
         }
         Ok(Value::map(map))
     }
 
-    // ── Struct ─────────────────────────────────────────────────────
+    // Struct
 
     /// Evaluate a canonical struct literal: `Point { x: 0, y: 0 }`.
     fn eval_can_struct(&mut self, name: Name, fields: ori_ir::canon::CanFieldRange) -> EvalResult {
@@ -679,9 +696,11 @@ impl Interpreter<'_> {
         Ok(Value::Struct(StructValue::new(name, field_values)))
     }
 
-    // ── Range ──────────────────────────────────────────────────────
+    // Range
 
     /// Evaluate a canonical range: `start..end`, `start..=end`, `start..end by step`.
+    ///
+    /// Evaluates range bounds directly via `eval_can` — no `ExprId` roundtrip.
     fn eval_can_range(
         &mut self,
         start: CanId,
@@ -689,36 +708,40 @@ impl Interpreter<'_> {
         step: CanId,
         inclusive: bool,
     ) -> EvalResult {
-        expr::eval_range(
-            if start.is_valid() {
-                start.to_expr_id()
-            } else {
-                ori_ir::ExprId::INVALID
-            },
-            if end.is_valid() {
-                end.to_expr_id()
-            } else {
-                ori_ir::ExprId::INVALID
-            },
-            if step.is_valid() {
-                step.to_expr_id()
-            } else {
-                ori_ir::ExprId::INVALID
-            },
-            inclusive,
-            |eid| {
-                // Bridge: convert ExprId back to CanId and evaluate canonically.
-                // This works because eval_range uses INVALID checks on ExprId,
-                // and we only pass valid ExprIds that map 1:1 to our CanIds.
-                // The eval_range function just calls eval_fn(expr_id) on start/end/step.
-                // We stored CanId.to_expr_id() above, so convert back here.
-                let cid = ori_ir::canon::CanId::from_expr_id(eid);
-                self.eval_can(cid)
-            },
-        )
+        let start_val = if start.is_valid() {
+            self.eval_can(start)?
+                .as_int()
+                .ok_or_else(|| ControlAction::from(range_bound_not_int("start")))?
+        } else {
+            0
+        };
+        let end_val = if end.is_valid() {
+            self.eval_can(end)?
+                .as_int()
+                .ok_or_else(|| ControlAction::from(range_bound_not_int("end")))?
+        } else {
+            return Err(unbounded_range_end().into());
+        };
+        let step_val = if step.is_valid() {
+            self.eval_can(step)?
+                .as_int()
+                .ok_or_else(|| ControlAction::from(range_bound_not_int("step")))?
+        } else {
+            1
+        };
+
+        if inclusive {
+            Ok(Value::Range(RangeValue::inclusive_with_step(
+                start_val, end_val, step_val,
+            )))
+        } else {
+            Ok(Value::Range(RangeValue::exclusive_with_step(
+                start_val, end_val, step_val,
+            )))
+        }
     }
 
-    // ── Match (Decision Tree) ─────────────────────────────────────
+    // Match (Decision Tree)
 
     /// Evaluate a canonical match expression via decision tree.
     fn eval_can_match(
@@ -740,13 +763,14 @@ impl Interpreter<'_> {
             value,
             self.interner,
             &mut |guard_id, bindings| {
-                // Bind guard variables in a temporary scope
-                self.env.push_scope();
-                for (name, val) in bindings {
-                    self.env.define(*name, val.clone(), Mutability::Immutable);
-                }
-                let guard_result = self.eval_can(guard_id);
-                self.env.pop_scope();
+                // Bind guard variables in a RAII-guarded scope
+                let guard_result = {
+                    let mut scoped = self.scoped();
+                    for (name, val) in bindings {
+                        scoped.env.define(*name, val.clone(), Mutability::Immutable);
+                    }
+                    scoped.eval_can(guard_id)
+                };
 
                 match guard_result {
                     Ok(Value::Bool(b)) => Ok(b),
@@ -763,25 +787,19 @@ impl Interpreter<'_> {
 
         match result {
             Ok(match_result) => {
-                // Bind matched variables and evaluate the arm body
+                // Bind matched variables and evaluate the arm body in a RAII-guarded scope
                 let arm_id = arm_ids
                     .get(match_result.arm_index)
                     .copied()
                     .ok_or_else(non_exhaustive_match)?;
 
-                self.env.push_scope();
-                for (name, val) in &match_result.bindings {
-                    self.env.define(*name, val.clone(), Mutability::Immutable);
-                }
-                let body_result = self.eval_can(arm_id);
-                self.env.pop_scope();
-                body_result
+                self.with_match_bindings(match_result.bindings, |scoped| scoped.eval_can(arm_id))
             }
             Err(e) => Err(e.into()),
         }
     }
 
-    // ── For Loop ──────────────────────────────────────────────────
+    // For Loop
 
     /// Evaluate a canonical for loop.
     fn eval_can_for(
@@ -794,15 +812,15 @@ impl Interpreter<'_> {
     ) -> EvalResult {
         use crate::exec::control::{to_loop_action, LoopAction};
 
-        // Build an iterator from the value
-        let items: Vec<Value> = match iter_val {
-            Value::List(items) => items.to_vec(),
-            Value::Map(map) => map
-                .iter()
-                .map(|(k, v)| Value::tuple(vec![Value::string(k.clone()), v.clone()]))
-                .collect(),
-            Value::Range(range) => range.iter().map(Value::int).collect(),
-            Value::Str(s) => s.chars().map(Value::Char).collect(),
+        // Build a lazy iterator from the value (no upfront allocation for Range/Str)
+        let iter: Box<dyn Iterator<Item = Value> + '_> = match iter_val {
+            Value::List(items) => Box::new(items.iter().cloned()),
+            Value::Map(map) => Box::new(
+                map.iter()
+                    .map(|(k, v)| Value::tuple(vec![Value::string(k.clone()), v.clone()])),
+            ),
+            Value::Range(range) => Box::new(range.iter().map(Value::int)),
+            Value::Str(s) => Box::new(s.chars().map(Value::Char)),
             _ => {
                 return Err(crate::for_requires_iterable().into());
             }
@@ -810,92 +828,70 @@ impl Interpreter<'_> {
 
         if is_yield {
             // for...yield collects results into a list
-            let mut results = Vec::with_capacity(items.len());
-            for item in items {
-                self.env.push_scope();
-                self.env.define(binding, item, Mutability::Immutable);
+            let capacity = match iter_val {
+                Value::List(items) => items.len(),
+                Value::Map(map) => map.len(),
+                _ => 0,
+            };
+            let mut results = Vec::with_capacity(capacity);
+            for item in iter {
+                let mut scoped = self.scoped();
+                scoped.env.define(binding, item, Mutability::Immutable);
 
                 // Check guard
                 if guard.is_valid() {
-                    let guard_val = self.eval_can(guard);
-                    match guard_val {
-                        Ok(v) if !v.is_truthy() => {
-                            self.env.pop_scope();
-                            continue;
-                        }
-                        Err(e) => {
-                            self.env.pop_scope();
-                            return Err(e);
-                        }
+                    match scoped.eval_can(guard) {
+                        Ok(v) if !v.is_truthy() => continue,
+                        Err(e) => return Err(e),
                         _ => {}
                     }
                 }
 
-                match self.eval_can(body) {
+                match scoped.eval_can(body) {
                     Ok(v) => results.push(v),
-                    Err(e) => {
-                        self.env.pop_scope();
-                        match to_loop_action(e) {
-                            LoopAction::Continue => continue,
-                            LoopAction::ContinueWith(v) => {
+                    Err(e) => match to_loop_action(e) {
+                        LoopAction::Continue => {}
+                        LoopAction::ContinueWith(v) => results.push(v),
+                        LoopAction::Break(v) => {
+                            if !matches!(v, Value::Void) {
                                 results.push(v);
-                                continue;
                             }
-                            LoopAction::Break(v) => {
-                                if !matches!(v, Value::Void) {
-                                    results.push(v);
-                                }
-                                return Ok(Value::list(results));
-                            }
-                            LoopAction::Error(e) => return Err(e),
+                            return Ok(Value::list(results));
                         }
-                    }
+                        LoopAction::Error(e) => return Err(e),
+                    },
                 }
-                self.env.pop_scope();
             }
             Ok(Value::list(results))
         } else {
             // Regular for loop returns Void
-            for item in items {
-                self.env.push_scope();
-                self.env.define(binding, item, Mutability::Immutable);
+            for item in iter {
+                let mut scoped = self.scoped();
+                scoped.env.define(binding, item, Mutability::Immutable);
 
                 // Check guard
                 if guard.is_valid() {
-                    let guard_val = self.eval_can(guard);
-                    match guard_val {
-                        Ok(v) if !v.is_truthy() => {
-                            self.env.pop_scope();
-                            continue;
-                        }
-                        Err(e) => {
-                            self.env.pop_scope();
-                            return Err(e);
-                        }
+                    match scoped.eval_can(guard) {
+                        Ok(v) if !v.is_truthy() => continue,
+                        Err(e) => return Err(e),
                         _ => {}
                     }
                 }
 
-                match self.eval_can(body) {
+                match scoped.eval_can(body) {
                     Ok(_) => {}
-                    Err(e) => {
-                        self.env.pop_scope();
-                        match to_loop_action(e) {
-                            LoopAction::Continue | LoopAction::ContinueWith(_) => {
-                                continue;
-                            }
-                            LoopAction::Break(v) => return Ok(v),
-                            LoopAction::Error(e) => return Err(e),
-                        }
-                    }
+                    Err(e) => match to_loop_action(e) {
+                        LoopAction::Continue | LoopAction::ContinueWith(_) => {}
+                        LoopAction::Break(v) => return Ok(v),
+                        LoopAction::Error(e) => return Err(e),
+                    },
                 }
-                self.env.pop_scope();
             }
             Ok(Value::Void)
         }
     }
 
-    // ── Loop ──────────────────────────────────────────────────────
+    // Loop
 
     /// Evaluate a canonical infinite loop.
     fn eval_can_loop(&mut self, body: CanId) -> EvalResult {
@@ -913,7 +909,7 @@ impl Interpreter<'_> {
         }
     }
 
-    // ── Hash Length ────────────────────────────────────────────────
+    // Hash Length
 
     /// Evaluate a canonical expression with `#` resolved to a collection length.
     fn eval_can_with_hash_length(&mut self, can_id: CanId, length: i64) -> EvalResult {
@@ -938,7 +934,7 @@ impl Interpreter<'_> {
         }
     }
 
-    // ── FunctionExp ────────────────────────────────────────────────
+    // FunctionExp
 
     /// Evaluate a canonical `FunctionExp` by pre-evaluating props and dispatching.
     ///
@@ -993,14 +989,70 @@ impl Interpreter<'_> {
             }
             // Catch and Recurse handled above via early return
             FunctionExpKind::Catch | FunctionExpKind::Recurse => unreachable!(),
-            // For patterns that need the full pattern registry (cache, recurse,
-            // parallel, spawn, timeout, with), fall back to the legacy path.
-            // This is safe because the interpreter still has self.arena.
-            _ => Err(EvalError::new(format!(
-                "pattern '{}' not yet supported in canonical evaluation mode",
-                kind.name()
-            ))
-            .into()),
+
+            // Stub patterns — honest stubs that evaluate args via the canonical
+            // path and emit tracing::warn! so they're impossible to miss in logs.
+            // Real implementations are roadmap items.
+            FunctionExpKind::Cache => {
+                tracing::warn!(
+                    "pattern 'cache' is a stub — operation is called without memoization"
+                );
+                let operation = find_prop_value(&values, "operation", self.interner)?;
+                match operation {
+                    Value::Function(_) | Value::FunctionVal(_, _) => {
+                        self.eval_call(&operation, &[])
+                    }
+                    _ => Ok(operation),
+                }
+            }
+            FunctionExpKind::Parallel => {
+                tracing::warn!("pattern 'parallel' is a stub — tasks are executed sequentially");
+                let tasks = find_prop_value(&values, "tasks", self.interner)?;
+                let Value::List(task_list) = tasks else {
+                    return Err(EvalError::new("parallel: tasks must be a list".to_string()).into());
+                };
+                let mut results = Vec::with_capacity(task_list.len());
+                for task in task_list.iter() {
+                    let result = match self.eval_call(task, &[]) {
+                        Ok(v) => Value::ok(v),
+                        Err(ControlAction::Error(e)) => {
+                            Value::err(Value::string(e.message.clone()))
+                        }
+                        Err(e) => return Err(e),
+                    };
+                    results.push(result);
+                }
+                Ok(Value::list(results))
+            }
+            FunctionExpKind::Spawn => {
+                tracing::warn!("pattern 'spawn' is a stub — tasks are executed synchronously");
+                let tasks = find_prop_value(&values, "tasks", self.interner)?;
+                let Value::List(task_list) = tasks else {
+                    return Err(EvalError::new("spawn: tasks must be a list".to_string()).into());
+                };
+                for task in task_list.iter() {
+                    let _ = self.eval_call(task, &[]);
+                }
+                Ok(Value::Void)
+            }
+            FunctionExpKind::Timeout => {
+                tracing::warn!("pattern 'timeout' is a stub — no timeout enforcement");
+                let operation = find_prop_value(&values, "operation", self.interner)?;
+                Ok(Value::ok(operation))
+            }
+            FunctionExpKind::With => {
+                tracing::warn!(
+                    "pattern 'with' is a stub — resource management without type checker integration"
+                );
+                let resource = find_prop_value(&values, "acquire", self.interner)?;
+                let action_fn = find_prop_value(&values, "action", self.interner)?;
+                let result = self.eval_call(&action_fn, std::slice::from_ref(&resource));
+                // Always call release if provided (RAII guarantee)
+                if let Ok(release_fn) = find_prop_value(&values, "release", self.interner) {
+                    let _ = self.eval_call(&release_fn, std::slice::from_ref(&resource));
+                }
+                result
+            }
         }
     }
 
@@ -1046,14 +1098,15 @@ impl Interpreter<'_> {
             let memo_val = self.eval_can(mid)?;
             if memo_val.is_truthy() {
                 // Wrap `self` in a memoized function for the step evaluation
-                if let Some(Value::Function(f)) = self.env.lookup(self.self_name) {
+                let self_name = self.self_name;
+                if let Some(Value::Function(f)) = self.env.lookup(self_name) {
                     let memoized = Value::MemoizedFunction(MemoizedFunctionValue::new(f));
-                    self.env.push_scope();
-                    self.env
-                        .define(self.self_name, memoized, Mutability::Immutable);
-                    let result = self.eval_can_recurse_body(condition_id, base_id, step_id);
-                    self.env.pop_scope();
-                    return result;
+                    return self.with_binding(
+                        self_name,
+                        memoized,
+                        Mutability::Immutable,
+                        |scoped| scoped.eval_can_recurse_body(condition_id, base_id, step_id),
+                    );
                 }
             }
         }
@@ -1077,7 +1130,7 @@ impl Interpreter<'_> {
     }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────
+// Helpers
 
 /// Convert a `ConstValue` from the constant pool to a runtime `Value`.
 fn const_to_value(cv: &ori_ir::canon::ConstValue, interner: &ori_ir::StringInterner) -> Value {

@@ -24,7 +24,7 @@ use ori_ir::{
 use crate::lower::Lowerer;
 
 impl Lowerer<'_> {
-    // ── CallNamed → Call ────────────────────────────────────────
+    // CallNamed → Call
 
     /// Desugar `CallNamed { func, args: CallArgRange }` to `Call { func, args: CanRange }`.
     ///
@@ -62,7 +62,7 @@ impl Lowerer<'_> {
         )
     }
 
-    // ── MethodCallNamed → MethodCall ────────────────────────────
+    // MethodCallNamed → MethodCall
 
     /// Desugar `MethodCallNamed { receiver, method, args }` to `MethodCall`.
     ///
@@ -206,7 +206,7 @@ impl Lowerer<'_> {
             })
     }
 
-    // ── TemplateLiteral → .concat() chain ──────────────────────
+    // TemplateLiteral → .concat() chain
 
     /// Desugar `` `head {expr1} mid {expr2} tail` `` into a chain of
     /// `.concat()` calls:
@@ -283,7 +283,7 @@ impl Lowerer<'_> {
         result
     }
 
-    // ── ListWithSpread → List + .concat() ──────────────────────
+    // ListWithSpread → List + .concat()
 
     /// Desugar `[a, b, ...c, d, ...e]` into:
     ///
@@ -339,7 +339,7 @@ impl Lowerer<'_> {
         self.chain_method_calls(segments, self.name_concat, span, ty)
     }
 
-    // ── MapWithSpread → Map + .merge() ─────────────────────────
+    // MapWithSpread → Map + .merge()
 
     /// Desugar `{k1: v1, ...base, k2: v2}` into:
     ///
@@ -401,7 +401,7 @@ impl Lowerer<'_> {
         self.chain_method_calls(segments, self.name_merge, span, ty)
     }
 
-    // ── StructWithSpread → Struct ──────────────────────────────
+    // StructWithSpread → Struct
 
     /// Desugar `Point { ...base, x: 10 }` into a flat `Struct` with all fields
     /// resolved by extracting individual fields from the spread expression.
@@ -545,8 +545,9 @@ impl Lowerer<'_> {
                             value: val,
                         });
                     }
-                    FieldData::Spread { expr, .. } => {
-                        let _spread = self.lower_expr(*expr);
+                    FieldData::Spread { .. } => {
+                        // Struct definition not found — skip lowering the spread
+                        // expression to avoid allocating orphaned nodes in the arena.
                     }
                 }
             }
@@ -562,7 +563,7 @@ impl Lowerer<'_> {
         }
     }
 
-    // ── Shared Helpers ─────────────────────────────────────────
+    // Shared Helpers
 
     /// Chain a list of segments via left-to-right method calls.
     ///

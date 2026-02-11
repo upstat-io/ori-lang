@@ -30,6 +30,7 @@ use crate::eval::{Environment, FunctionValue, Mutability, Value};
 use crate::input::SourceFile;
 use crate::ir::{ImportPath, Name, SharedArena, StringInterner};
 use crate::parser::ParseOutput;
+use ori_ir::canon::SharedCanonResult;
 use rustc_hash::FxHashMap;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -444,9 +445,15 @@ pub struct ImportedModule<'a> {
 impl<'a> ImportedModule<'a> {
     /// Create a new imported module from parse result and arena.
     ///
-    /// Builds the function map automatically.
-    pub fn new(result: &'a ParseOutput, arena: &'a SharedArena) -> Self {
-        let functions = Self::build_functions(result, arena);
+    /// Builds the function map automatically. When `canon` is provided,
+    /// each function's `FunctionValue` is enriched with canonical IR data,
+    /// enabling the evaluator to dispatch on `CanExpr` instead of `ExprKind`.
+    pub fn new(
+        result: &'a ParseOutput,
+        arena: &'a SharedArena,
+        canon: Option<&SharedCanonResult>,
+    ) -> Self {
+        let functions = Self::build_functions(result, arena, canon);
         ImportedModule {
             result,
             arena,
@@ -458,21 +465,33 @@ impl<'a> ImportedModule<'a> {
     ///
     /// This allows imported functions to call other functions from their module.
     /// Uses `BTreeMap` for deterministic iteration order.
+    ///
+    /// When `canon` is provided, attaches canonical IR to each function via
+    /// `set_canon()`, mirroring `register_module_functions` for local functions.
     fn build_functions(
         parse_result: &ParseOutput,
         imported_arena: &SharedArena,
+        canon: Option<&SharedCanonResult>,
     ) -> BTreeMap<Name, Value> {
         let mut module_functions: BTreeMap<Name, Value> = BTreeMap::new();
 
         for func in &parse_result.module.functions {
             let (params, capabilities) = extract_function_metadata(func, imported_arena);
-            let func_value = FunctionValue::with_capabilities(
+            let mut func_value = FunctionValue::with_capabilities(
                 params,
                 func.body,
                 FxHashMap::default(),
                 imported_arena.clone(),
                 capabilities,
             );
+
+            // Attach canonical IR when available
+            if let Some(cr) = canon {
+                if let Some(root) = cr.root_for(func.name) {
+                    func_value.set_canon(root, cr.clone());
+                }
+            }
+
             module_functions.insert(func.name, Value::Function(func_value));
         }
 
@@ -484,11 +503,14 @@ impl<'a> ImportedModule<'a> {
 ///
 /// This allows imported functions to call other functions from their module.
 /// Uses `BTreeMap` for deterministic iteration order.
+///
+/// When `canon` is provided, attaches canonical IR to each function.
 pub fn build_module_functions(
     parse_result: &ParseOutput,
     imported_arena: &SharedArena,
+    canon: Option<&SharedCanonResult>,
 ) -> BTreeMap<Name, Value> {
-    ImportedModule::build_functions(parse_result, imported_arena)
+    ImportedModule::build_functions(parse_result, imported_arena, canon)
 }
 
 /// Register imported items into the environment.
@@ -512,10 +534,11 @@ pub fn register_imports(
     interner: &StringInterner,
     import_path: &Path,
     current_file: &Path,
+    canon: Option<&SharedCanonResult>,
 ) -> Result<(), ImportError> {
     // Handle module alias: `use path as alias`
     if let Some(alias) = import.module_alias {
-        return register_module_alias(import, imported, env, alias, import_path);
+        return register_module_alias(import, imported, env, alias, import_path, canon);
     }
 
     // Check if this is a test module importing from its parent module
@@ -555,13 +578,20 @@ pub fn register_imports(
                 captures.insert(*name, value.clone());
             }
 
-            let func_value = FunctionValue::with_capabilities(
+            let mut func_value = FunctionValue::with_capabilities(
                 params,
                 func.body,
                 captures,
                 imported.arena.clone(),
                 capabilities,
             );
+
+            // Attach canonical IR when available
+            if let Some(cr) = canon {
+                if let Some(can_id) = cr.root_for(func.name) {
+                    func_value.set_canon(can_id, cr.clone());
+                }
+            }
 
             // Use alias if provided, otherwise use original name
             let bind_name = item.alias.unwrap_or(item.name);
@@ -592,6 +622,7 @@ fn register_module_alias(
     env: &mut Environment,
     alias: Name,
     import_path: &Path,
+    canon: Option<&SharedCanonResult>,
 ) -> Result<(), ImportError> {
     // Module alias imports should not have individual items
     if !import.items.is_empty() {
@@ -618,13 +649,20 @@ fn register_module_alias(
     for func in &imported.result.module.functions {
         if func.visibility.is_public() {
             let (params, capabilities) = extract_function_metadata(func, imported.arena);
-            let func_value = FunctionValue::with_shared_captures(
+            let mut func_value = FunctionValue::with_shared_captures(
                 params,
                 func.body,
                 Arc::clone(&shared_captures),
                 imported.arena.clone(),
                 capabilities,
             );
+
+            // Attach canonical IR when available
+            if let Some(cr) = canon {
+                if let Some(can_id) = cr.root_for(func.name) {
+                    func_value.set_canon(can_id, cr.clone());
+                }
+            }
 
             namespace.insert(func.name, Value::Function(func_value));
         }

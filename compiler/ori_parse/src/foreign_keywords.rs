@@ -1,13 +1,11 @@
 //! Foreign keyword detection for cross-language habit messages.
 //!
 //! Known keywords from other languages that are NOT Ori keywords.
-//! When encountered, the cooker can produce a helpful note suggesting
-//! the Ori equivalent. This is advisory only — these are valid identifiers
-//! in Ori and do not produce errors.
+//! When encountered at declaration position, the parser emits a helpful
+//! error suggesting the Ori equivalent (e.g., `fn` → `@name (params) -> type = body`).
 //!
-//! Detection deferred to later phases since identifiers don't error
-//! in the lexer today. This module exists as a lookup table for
-//! future use by the parser or IDE.
+//! These are valid identifiers in Ori — the error is only emitted when
+//! they appear where a declaration is expected.
 
 /// Known keywords from other languages with their Ori equivalents.
 ///

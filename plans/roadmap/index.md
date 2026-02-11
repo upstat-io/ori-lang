@@ -6,6 +6,10 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
+> **PRIORITY BLOCKER — Do This First**: Section 10.7 `catch(expr)` pattern must be implemented before other roadmap work. `assert_panics` depends on `catch`, and 16 spec tests (11 in `integer_safety.ori`, 5 in `operators_bitwise.ori`) are `#skip`ped until it lands. Without `catch`, panic-related tests cannot verify correct behavior.
+
+---
+
 ## How to Use
 
 1. **Search this file** (Ctrl+F / Cmd+F) for keywords related to what you're looking for

@@ -94,19 +94,18 @@ pub(crate) fn lookup_confusable(ch: char) -> Option<(char, &'static str)> {
         })
 }
 
-/// Check if a character is a "smart quote" (curly quote from word processors).
-///
-/// These are the most common confusable in practice and deserve an
-/// especially clear error message.
-#[cfg(test)]
-fn is_smart_quote(ch: char) -> bool {
-    matches!(ch, '\u{2018}' | '\u{2019}' | '\u{201C}' | '\u{201D}')
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
 mod tests {
     use super::*;
+
+    /// Check if a character is a "smart quote" (curly quote from word processors).
+    ///
+    /// These are the most common confusable in practice and deserve an
+    /// especially clear error message.
+    fn is_smart_quote(ch: char) -> bool {
+        matches!(ch, '\u{2018}' | '\u{2019}' | '\u{201C}' | '\u{201D}')
+    }
 
     #[test]
     fn table_is_sorted() {

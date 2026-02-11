@@ -36,7 +36,7 @@ use ori_types::{Idx, Pool, Tag};
 use crate::ir::{ArcFunction, ArcInstr};
 use crate::{ArcClassification, ArcClassifier};
 
-// ── Drop descriptor types ──────────────────────────────────────────
+// Drop descriptor types
 
 /// Describes the cleanup needed when a reference-counted value's
 /// refcount reaches zero.
@@ -115,7 +115,7 @@ pub struct DropInfo {
     pub kind: DropKind,
 }
 
-// ── Core API ───────────────────────────────────────────────────────
+// Core API
 
 /// Compute the drop descriptor for a type.
 ///
@@ -151,7 +151,10 @@ pub fn compute_closure_env_drop(capture_types: &[Idx], classifier: &ArcClassifie
         .enumerate()
         .filter_map(|(i, &ty)| {
             if classifier.needs_rc(ty) {
-                #[allow(clippy::cast_possible_truncation)] // field index < u32::MAX
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "field indices are bounded by struct layout, never exceed u32"
+                )]
                 Some((i as u32, ty))
             } else {
                 None
@@ -197,14 +200,14 @@ pub fn collect_drop_infos(functions: &[ArcFunction], classifier: &ArcClassifier)
     infos
 }
 
-// ── Internal helpers ───────────────────────────────────────────────
+// Internal helpers
 
 /// Compute the drop kind for a non-scalar type.
 fn compute_drop_kind(ty: Idx, pool: &Pool, classifier: &ArcClassifier) -> DropKind {
     let (resolved_ty, resolved_tag) = resolve_type(ty, pool);
 
     match resolved_tag {
-        // ── Collections ────────────────────────────────────────
+        // Collections
 
         // List: iterate elements if RC'd, otherwise just free buffer.
         Tag::List => {
@@ -245,7 +248,7 @@ fn compute_drop_kind(ty: Idx, pool: &Pool, classifier: &ArcClassifier) -> DropKi
             }
         }
 
-        // ── Fixed-layout compound types ────────────────────────
+        // Fixed-layout compound types
 
         // Struct: Dec each RC'd field.
         Tag::Struct => compute_fields_drop(
@@ -267,7 +270,7 @@ fn compute_drop_kind(ty: Idx, pool: &Pool, classifier: &ArcClassifier) -> DropKi
             )
         }
 
-        // ── Tagged unions stored as special Pool types ─────────
+        // Tagged unions stored as special Pool types
 
         // option[T] → 2-variant enum: None (no fields), Some(T).
         Tag::Option => {
@@ -310,7 +313,7 @@ fn compute_drop_kind(ty: Idx, pool: &Pool, classifier: &ArcClassifier) -> DropKi
             }
         }
 
-        // ── Trivial fallback ──────────────────────────────────────
+        // Trivial fallback
         //
         // Named/Applied/Alias: resolve_type should have resolved
         //   these; unresolved named types get trivial drop.
@@ -332,7 +335,10 @@ fn compute_fields_drop(
         .enumerate()
         .filter_map(|(i, field_ty)| {
             if classifier.needs_rc(field_ty) {
-                #[allow(clippy::cast_possible_truncation)] // field index < u32::MAX
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "field indices are bounded by struct layout, never exceed u32"
+                )]
                 Some((i as u32, field_ty))
             } else {
                 None
@@ -362,7 +368,10 @@ fn compute_enum_drop(
                 .enumerate()
                 .filter_map(|(i, field_ty)| {
                     if classifier.needs_rc(field_ty) {
-                        #[allow(clippy::cast_possible_truncation)] // field index < u32::MAX
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "field indices are bounded by struct layout, never exceed u32"
+                        )]
                         Some((i as u32, field_ty))
                     } else {
                         None
@@ -391,10 +400,13 @@ fn resolve_type(ty: Idx, pool: &Pool) -> (Idx, Tag) {
     }
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "tests use unwrap for concise assertions"
+)]
 mod tests {
     use ori_ir::Name;
     use ori_types::{EnumVariant, Idx, Pool};
@@ -407,13 +419,13 @@ mod tests {
 
     use super::*;
 
-    // ── Helper ─────────────────────────────────────────────────
+    // Helper
 
     fn cls(pool: &Pool) -> ArcClassifier<'_> {
         ArcClassifier::new(pool)
     }
 
-    // ── Scalar types → None ────────────────────────────────────
+    // Scalar types -> None
 
     #[test]
     fn scalar_returns_none() {
@@ -481,7 +493,7 @@ mod tests {
         assert!(compute_drop_info(e, &c).is_none());
     }
 
-    // ── str → Trivial ──────────────────────────────────────────
+    // str -> Trivial
 
     #[test]
     fn str_is_trivial() {
@@ -493,7 +505,7 @@ mod tests {
         assert_eq!(info.kind, DropKind::Trivial);
     }
 
-    // ── List ───────────────────────────────────────────────────
+    // List
 
     #[test]
     fn list_of_scalar_is_trivial() {
@@ -536,7 +548,7 @@ mod tests {
         );
     }
 
-    // ── Set ────────────────────────────────────────────────────
+    // Set
 
     #[test]
     fn set_of_scalar_is_trivial() {
@@ -563,7 +575,7 @@ mod tests {
         );
     }
 
-    // ── Map ────────────────────────────────────────────────────
+    // Map
 
     #[test]
     fn map_scalar_keys_and_values_is_trivial() {
@@ -629,7 +641,7 @@ mod tests {
         );
     }
 
-    // ── Struct ─────────────────────────────────────────────────
+    // Struct
 
     #[test]
     fn struct_with_one_rc_field() {
@@ -668,7 +680,7 @@ mod tests {
         );
     }
 
-    // ── Tuple ──────────────────────────────────────────────────
+    // Tuple
 
     #[test]
     fn tuple_with_rc_element() {
@@ -694,7 +706,7 @@ mod tests {
         );
     }
 
-    // ── Enum ───────────────────────────────────────────────────
+    // Enum
 
     #[test]
     fn enum_with_rc_variant_fields() {
@@ -780,7 +792,7 @@ mod tests {
         assert!(compute_drop_info(e, &c).is_none());
     }
 
-    // ── Option ─────────────────────────────────────────────────
+    // Option
 
     #[test]
     fn option_str_is_enum_drop() {
@@ -798,7 +810,7 @@ mod tests {
         );
     }
 
-    // ── Result ─────────────────────────────────────────────────
+    // Result
 
     #[test]
     fn result_str_int_drops_ok_only() {
@@ -848,7 +860,7 @@ mod tests {
         );
     }
 
-    // ── Channel ────────────────────────────────────────────────
+    // Channel
 
     #[test]
     fn channel_is_trivial() {
@@ -860,7 +872,7 @@ mod tests {
         assert_eq!(info.kind, DropKind::Trivial);
     }
 
-    // ── Function ───────────────────────────────────────────────
+    // Function
 
     #[test]
     fn function_is_trivial() {
@@ -872,7 +884,7 @@ mod tests {
         assert_eq!(info.kind, DropKind::Trivial);
     }
 
-    // ── Named type resolution ──────────────────────────────────
+    // Named type resolution
 
     #[test]
     fn named_type_resolves_to_struct_drop() {
@@ -893,7 +905,7 @@ mod tests {
         assert_eq!(info.kind, DropKind::Fields(vec![(0, Idx::STR)]));
     }
 
-    // ── Closure env drop ───────────────────────────────────────
+    // Closure env drop
 
     #[test]
     fn closure_env_all_scalar() {
@@ -926,7 +938,7 @@ mod tests {
         assert_eq!(kind, DropKind::ClosureEnv(vec![(0, Idx::STR)]));
     }
 
-    // ── collect_drop_infos ─────────────────────────────────────
+    // collect_drop_infos
 
     #[test]
     fn collect_from_empty_functions() {
@@ -1061,7 +1073,7 @@ mod tests {
         assert!(infos.is_empty());
     }
 
-    // ── Nested compound types ──────────────────────────────────
+    // Nested compound types
 
     #[test]
     fn struct_with_nested_option_str_field() {

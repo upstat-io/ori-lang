@@ -29,7 +29,7 @@ use rustc_hash::FxHashMap;
 use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
 use crate::ArcClassification;
 
-// ── Data structures ────────────────────────────────────────────────
+// Data structures
 
 /// A matched `Reset`/`Reuse` pair within a single block.
 struct ResetReusePair {
@@ -39,8 +39,6 @@ struct ResetReusePair {
     reuse_idx: usize,
     /// The variable being tested for uniqueness (`Reset.var`).
     reset_var: ArcVarId,
-    /// The reuse token (`Reset.token`).
-    _token: ArcVarId,
     /// Destination of the `Reuse` instruction.
     reuse_dst: ArcVarId,
     /// Type of the constructed value.
@@ -60,7 +58,7 @@ type ProjMap = FxHashMap<(ArcVarId, u32), ArcVarId>;
 /// Maps `field_index` → `projected_var`.
 type ClaimedFields = FxHashMap<u32, ArcVarId>;
 
-// ── Public API ─────────────────────────────────────────────────────
+// Public API
 
 /// Expand all `Reset`/`Reuse` pairs into `IsShared` + conditional fast/slow paths.
 ///
@@ -89,7 +87,7 @@ pub fn expand_reset_reuse(func: &mut ArcFunction, classifier: &dyn ArcClassifica
     );
 }
 
-// ── Block expansion ────────────────────────────────────────────────
+// Block expansion
 
 /// Attempt to expand a single block's `Reset`/`Reuse` pair.
 fn try_expand_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn ArcClassification) {
@@ -222,7 +220,7 @@ fn try_expand_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn A
     }
 }
 
-// ── Pair detection ─────────────────────────────────────────────────
+// Pair detection
 
 /// Find the first `Reset`/`Reuse` pair in a block.
 fn find_reset_reuse_pair(block: &ArcBlock) -> Option<ResetReusePair> {
@@ -246,7 +244,6 @@ fn find_reset_reuse_pair(block: &ArcBlock) -> Option<ResetReusePair> {
                             reset_idx: i,
                             reuse_idx: j,
                             reset_var,
-                            _token: token_var,
                             reuse_dst: *dst,
                             reuse_ty: *ty,
                             reuse_ctor: *ctor,
@@ -260,7 +257,7 @@ fn find_reset_reuse_pair(block: &ArcBlock) -> Option<ResetReusePair> {
     None
 }
 
-// ── Projection map ─────────────────────────────────────────────────
+// Projection map
 
 /// Build a map from `(base_var, field_index)` → `projected_var` for all
 /// `Project` instructions in `instrs` that project from `base`.
@@ -279,7 +276,7 @@ fn build_proj_map(instrs: &[ArcInstr], base: ArcVarId) -> ProjMap {
     map
 }
 
-// ── Projection-increment erasure (§09.4) ───────────────────────────
+// Projection-increment erasure (§09.4)
 
 /// Scan backwards for `Project`/`RcInc` patterns and identify which
 /// increments can be erased.
@@ -315,7 +312,7 @@ fn erase_proj_increments(instrs: &[ArcInstr], proj_map: &ProjMap) -> (Vec<usize>
     (erased, claimed)
 }
 
-// ── Between-instruction reordering ─────────────────────────────────
+// Between-instruction reordering
 
 /// Move instructions between `Reset` and `Reuse` to before the `Reset`.
 ///
@@ -361,12 +358,8 @@ fn move_between_to_prefix(func: &mut ArcFunction, block_idx: usize, pair: &Reset
     }
 }
 
-// ── Fast-path construction (§09.3 + §09.5) ────────────────────────
+// Fast-path construction (§09.3 + §09.5)
 
-/// Build the fast-path block: in-place field mutation via `Set`.
-///
-/// On the fast path, the value is uniquely owned (refcount == 1).
-/// We mutate fields in-place and return the original object.
 /// Configuration for building fast/slow path blocks.
 struct ExpansionContext<'a> {
     pair: &'a ResetReusePair,
@@ -376,6 +369,10 @@ struct ExpansionContext<'a> {
     merge_id: Option<ArcBlockId>,
 }
 
+/// Build the fast-path block: in-place field mutation via `Set`.
+///
+/// On the fast path, the value is uniquely owned (refcount == 1).
+/// We mutate fields in-place and return the original object.
 fn build_fast_path(
     func: &mut ArcFunction,
     block_id: ArcBlockId,
@@ -441,7 +438,7 @@ fn build_fast_path(
     }
 }
 
-// ── Slow-path construction (§09.3) ────────────────────────────────
+// Slow-path construction (§09.3)
 
 /// Build the slow-path block: `RcDec` + fresh `Construct`.
 ///
@@ -498,7 +495,7 @@ fn build_slow_path(
     }
 }
 
-// ── Merge block ────────────────────────────────────────────────────
+// Merge block
 
 /// Build the merge block that receives the result from fast/slow paths.
 ///
@@ -532,7 +529,7 @@ fn build_merge_block(
     }
 }
 
-// ── Self-set detection (§09.5) ─────────────────────────────────────
+// Self-set detection (§09.5)
 
 /// Check whether writing `value` to `base.field` is a self-set (no-op).
 ///
@@ -541,7 +538,7 @@ fn is_self_set(base: ArcVarId, field: u32, value: ArcVarId, proj_map: &ProjMap) 
     proj_map.get(&(base, field)) == Some(&value)
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {
@@ -557,7 +554,7 @@ mod tests {
 
     use super::expand_reset_reuse;
 
-    // ── Helpers ─────────────────────────────────────────────────
+    // Helpers
 
     fn make_func(
         params: Vec<ArcParam>,
@@ -610,7 +607,7 @@ mod tests {
             .count()
     }
 
-    // ── Test 1: No Reset/Reuse → pass-through ──────────────────
+    // Test 1: No Reset/Reuse -> pass-through
 
     #[test]
     fn no_pair_passthrough() {
@@ -634,7 +631,7 @@ mod tests {
         assert_eq!(result.blocks.len(), 1, "no new blocks should be created");
     }
 
-    // ── Test 2: Basic expansion — Reset/Reuse with no projections
+    // Test 2: Basic expansion -- Reset/Reuse with no projections
 
     #[test]
     fn basic_expansion() {
@@ -699,7 +696,7 @@ mod tests {
         ));
     }
 
-    // ── Test 3: Self-set elimination ───────────────────────────
+    // Test 3: Self-set elimination
 
     #[test]
     fn self_set_eliminated() {
@@ -781,7 +778,7 @@ mod tests {
         );
     }
 
-    // ── Test 4: Projection-increment erasure ───────────────────
+    // Test 4: Projection-increment erasure
 
     #[test]
     fn proj_inc_erasure() {
@@ -872,7 +869,7 @@ mod tests {
         assert_eq!(slow_incs.len(), 1, "slow path should restore RcInc for v2");
     }
 
-    // ── Test 5: Slow path has RcDec + Construct ────────────────
+    // Test 5: Slow path has RcDec + Construct
 
     #[test]
     fn slow_path_dec_construct() {
@@ -924,7 +921,7 @@ mod tests {
         assert_eq!(constructs.len(), 1, "slow path should have one Construct");
     }
 
-    // ── Test 6: Enum variant → SetTag on fast path ─────────────
+    // Test 6: Enum variant -> SetTag on fast path
 
     #[test]
     fn enum_variant_set_tag() {
@@ -977,7 +974,7 @@ mod tests {
         );
     }
 
-    // ── Test 7: Suffix instructions create merge block ─────────
+    // Test 7: Suffix instructions create merge block
 
     #[test]
     fn suffix_creates_merge_block() {
@@ -1037,7 +1034,7 @@ mod tests {
         assert!(has_apply, "merge block should contain the suffix Apply");
     }
 
-    // ── Test 8: Between instructions moved to prefix ───────────
+    // Test 8: Between instructions moved to prefix
 
     #[test]
     fn between_instrs_moved() {
@@ -1095,7 +1092,7 @@ mod tests {
         );
     }
 
-    // ── Test 9: Fast path substitutes reuse_dst → reset_var ────
+    // Test 9: Fast path substitutes reuse_dst -> reset_var
 
     #[test]
     fn fast_path_variable_substitution() {
@@ -1152,7 +1149,7 @@ mod tests {
         }
     }
 
-    // ── Test 10: Dec unclaimed replaced fields on fast path ────
+    // Test 10: Dec unclaimed replaced fields on fast path
 
     #[test]
     fn fast_path_dec_unclaimed_field() {

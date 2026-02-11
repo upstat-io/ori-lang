@@ -63,7 +63,7 @@ pub(crate) fn compile_patterns(
         .iter()
         .enumerate()
         .map(|(arm_index, (pattern, guard))| {
-            #[allow(clippy::cast_possible_truncation)] // arm count always fits u32
+            #[expect(clippy::cast_possible_truncation, reason = "arm count always fits u32")]
             let key = PatternKey::Arm(arm_range_start + arm_index as u32);
             let flat = flatten_arm_pattern(lowerer, pattern, key, scrutinee_ty);
             PatternRow {

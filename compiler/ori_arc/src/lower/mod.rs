@@ -28,8 +28,7 @@ pub(crate) mod scope;
 
 use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};
-use ori_types::Idx;
-use ori_types::Pool;
+use ori_types::{Idx, Pool};
 
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
@@ -40,7 +39,7 @@ use crate::Ownership;
 pub use self::expr::ArcLowerer;
 pub use self::scope::ArcScope;
 
-// ── Diagnostics ────────────────────────────────────────────────────
+// Diagnostics
 
 /// Problem encountered during ARC IR lowering.
 ///
@@ -57,7 +56,7 @@ pub enum ArcProblem {
     InternalError { message: String, span: Span },
 }
 
-// ── BlockBuilder ───────────────────────────────────────────────────
+// BlockBuilder
 
 /// In-progress basic block being constructed.
 struct BlockBuilder {
@@ -80,7 +79,7 @@ impl BlockBuilder {
     }
 }
 
-// ── ArcIrBuilder ───────────────────────────────────────────────────
+// ArcIrBuilder
 
 /// Builder for an in-progress ARC IR function.
 ///
@@ -118,11 +117,13 @@ impl ArcIrBuilder {
         }
     }
 
-    // ── Block management ───────────────────────────────────────
+    // Block management
 
     /// Allocate a new empty block and return its ID.
-    // Block indices never exceed u32.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "block indices never exceed u32"
+    )]
     pub fn new_block(&mut self) -> ArcBlockId {
         let id = ArcBlockId::new(self.blocks.len() as u32);
         self.blocks.push(BlockBuilder::new(id));
@@ -158,7 +159,7 @@ impl ArcIrBuilder {
         ArcBlockId::new(0)
     }
 
-    // ── Variable allocation ────────────────────────────────────
+    // Variable allocation
 
     /// Allocate a fresh variable with the given type.
     pub fn fresh_var(&mut self, ty: Idx) -> ArcVarId {
@@ -175,7 +176,7 @@ impl ArcIrBuilder {
         var
     }
 
-    // ── Instruction emission ───────────────────────────────────
+    // Instruction emission
 
     /// Emit a `Let` instruction binding a value to a fresh variable.
     pub fn emit_let(&mut self, ty: Idx, value: ArcValue, span: Option<Span>) -> ArcVarId {
@@ -266,7 +267,7 @@ impl ArcIrBuilder {
         dst
     }
 
-    // ── Invoke (call that may unwind) ─────────────────────────
+    // Invoke (call that may unwind)
 
     /// Emit an `Invoke` terminator for a function call that may unwind.
     ///
@@ -306,7 +307,7 @@ impl ArcIrBuilder {
         dst
     }
 
-    // ── Terminators ────────────────────────────────────────────
+    // Terminators
 
     /// Terminate with `Return`.
     pub fn terminate_return(&mut self, value: ArcVarId) {
@@ -422,7 +423,7 @@ impl ArcIrBuilder {
         block.terminator = Some(ArcTerminator::Unreachable);
     }
 
-    // ── Finalization ───────────────────────────────────────────
+    // Finalization
 
     /// Consume the builder and produce a finished [`ArcFunction`].
     ///
@@ -473,15 +474,17 @@ impl ArcIrBuilder {
     }
 }
 
-// ── Public entry point ─────────────────────────────────────────────
+// Public entry point
 
 /// Lower a typed function body from canonical IR into ARC IR.
 ///
 /// This is the canonical-IR entry point, consuming `CanId` + `CanonResult`
 /// instead of `ExprId` + `ExprArena`. Returns the lowered function plus
 /// any lambda bodies encountered during lowering.
-// Public API entry point — a config struct would add unnecessary complexity.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "public API entry point -- a config struct would add unnecessary complexity"
+)]
 pub fn lower_function_can(
     name: Name,
     params: &[(Name, Idx)],
@@ -534,7 +537,7 @@ pub fn lower_function_can(
     (func, lambdas)
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {

@@ -36,6 +36,7 @@
 
 use rustc_hash::FxHashSet;
 
+use crate::graph::compute_predecessors;
 use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 use crate::liveness::BlockLiveness;
 use crate::ownership::Ownership;
@@ -70,6 +71,16 @@ pub fn insert_rc_ops(
     classifier: &dyn ArcClassification,
     liveness: &BlockLiveness,
 ) {
+    // Precondition: RC insertion should run on fresh IR with no existing RC ops.
+    debug_assert!(
+        !func
+            .blocks
+            .iter()
+            .flat_map(|b| b.body.iter())
+            .any(|i| matches!(i, ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. })),
+        "insert_rc_ops: IR already contains RcInc/RcDec — pipeline ordering error"
+    );
+
     tracing::debug!(function = func.name.raw(), "inserting RC operations");
 
     // Collect borrowed function parameters.
@@ -86,7 +97,7 @@ pub fn insert_rc_ops(
     // Precompute Invoke dst definitions for each normal successor.
     // See liveness.rs `collect_invoke_defs` — same concept: an Invoke's
     // dst is defined at the normal successor's entry, like a block param.
-    let invoke_defs = crate::liveness::collect_invoke_defs(func);
+    let invoke_defs = crate::graph::collect_invoke_defs(func);
 
     for block_idx in 0..num_blocks {
         // Compute the borrows set: variables *derived from* borrowed params
@@ -113,7 +124,7 @@ pub fn insert_rc_ops(
         let block = &func.blocks[block_idx];
         let old_spans = &func.spans[block_idx];
 
-        // ── Step 1: Process terminator uses ──────────────────────
+        // Step 1: Process terminator uses
         //
         // The terminator's used_vars are "live at exit" of the instruction
         // stream. If a terminator var is already live (used later in a
@@ -126,7 +137,7 @@ pub fn insert_rc_ops(
             &ctx,
         );
 
-        // ── Step 2: Backward body pass ───────────────────────────
+        // Step 2: Backward body pass
         for (instr_idx, instr) in block.body.iter().enumerate().rev() {
             let span = if instr_idx < old_spans.len() {
                 old_spans[instr_idx]
@@ -152,7 +163,7 @@ pub fn insert_rc_ops(
             process_instruction_uses(instr, &mut live, &mut new_body, &mut new_spans, &ctx);
         }
 
-        // ── Step 3: Block parameters ─────────────────────────────
+        // Step 3: Block parameters
         //
         // Any block param that is RC'd, not borrowed, and not in the live
         // set at this point was never used in the block body → Dec it.
@@ -163,7 +174,7 @@ pub fn insert_rc_ops(
             }
         }
 
-        // ── Step 3.5: Invoke dst definitions ─────────────────────
+        // Step 3.5: Invoke dst definitions
         //
         // An Invoke's `dst` is defined at the normal successor's entry,
         // acting like a block parameter. If the dst is RC'd and not in
@@ -178,7 +189,7 @@ pub fn insert_rc_ops(
             }
         }
 
-        // ── Step 4: Entry block function params ──────────────────
+        // Step 4: Entry block function params
         //
         // Owned function params that are not in `live` after processing
         // the entry block body need a Dec (unused param).
@@ -194,7 +205,7 @@ pub fn insert_rc_ops(
             }
         }
 
-        // ── Reverse to get correct order ─────────────────────────
+        // Reverse to get correct order
         new_body.reverse();
         new_spans.reverse();
 
@@ -202,7 +213,7 @@ pub fn insert_rc_ops(
         func.spans[block_idx] = new_spans;
     }
 
-    // ── Step 5: Edge cleanup ────────────────────────────────────
+    // Step 5: Edge cleanup
     //
     // After per-block RC insertion, handle "stranded" variables that are
     // live at a predecessor's exit but not needed by a successor.
@@ -406,7 +417,7 @@ fn needs_rc_trackable(var: ArcVarId, ctx: &RcContext<'_>) -> bool {
         && ctx.classifier.needs_rc(ctx.func.var_type(var))
 }
 
-// ── Edge cleanup ──────────────────────────────────────────────────────
+// Edge cleanup
 //
 // After per-block RC insertion, variables that are live at a
 // predecessor's exit but not live at a successor's entry need `RcDec`
@@ -550,48 +561,6 @@ fn insert_edge_cleanup(
     }
 }
 
-/// Compute the predecessor list for each block (deduplicated).
-///
-/// Returns a vector indexed by block index, where each entry is the
-/// list of distinct predecessor block indices.
-pub(crate) fn compute_predecessors(func: &ArcFunction) -> Vec<Vec<usize>> {
-    let num_blocks = func.blocks.len();
-    let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); num_blocks];
-
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        let mut seen = FxHashSet::default();
-        for succ_id in successor_block_ids(&block.terminator) {
-            let succ_idx = succ_id.index();
-            if succ_idx < num_blocks && seen.insert(succ_idx) {
-                predecessors[succ_idx].push(block_idx);
-            }
-        }
-    }
-
-    predecessors
-}
-
-/// Extract successor block IDs from a terminator.
-pub(crate) fn successor_block_ids(terminator: &ArcTerminator) -> Vec<ArcBlockId> {
-    match terminator {
-        ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
-            vec![]
-        }
-        ArcTerminator::Jump { target, .. } => vec![*target],
-        ArcTerminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => vec![*then_block, *else_block],
-        ArcTerminator::Switch { cases, default, .. } => {
-            let mut targets: Vec<ArcBlockId> = cases.iter().map(|&(_, b)| b).collect();
-            targets.push(*default);
-            targets
-        }
-        ArcTerminator::Invoke { normal, unwind, .. } => vec![*normal, *unwind],
-    }
-}
-
 /// Compute the global set of borrow-derived variables across all blocks.
 ///
 /// A variable is borrow-derived if it was created by `Project` or `Let(Var)`
@@ -667,7 +636,7 @@ mod tests {
 
     use super::insert_rc_ops;
 
-    // ── Helpers ─────────────────────────────────────────────────
+    // Helpers
 
     fn make_func(
         params: Vec<ArcParam>,
@@ -748,7 +717,7 @@ mod tests {
             .count()
     }
 
-    // ── Tests ───────────────────────────────────────────────────
+    // Tests
 
     /// Passthrough — `fn(x: str) -> str { x }`.
     /// Ownership transfers through return, no RC ops needed.

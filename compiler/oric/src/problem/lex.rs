@@ -173,6 +173,21 @@ fn render_lex_error(err: &LexError) -> Diagnostic {
             .with_message("null byte in source")
             .with_label(span, "unexpected null byte"),
 
+        LexErrorKind::Utf8Bom => Diagnostic::error(ErrorCode::E0002)
+            .with_message("source file starts with a UTF-8 BOM")
+            .with_label(span, "byte order mark not allowed")
+            .with_note("Ori source files must be UTF-8 without a byte order mark"),
+
+        LexErrorKind::Utf16LeBom => Diagnostic::error(ErrorCode::E0002)
+            .with_message("source file appears to be UTF-16 LE encoded")
+            .with_label(span, "UTF-16 LE byte order mark detected")
+            .with_note("Ori source files must be UTF-8 encoded"),
+
+        LexErrorKind::Utf16BeBom => Diagnostic::error(ErrorCode::E0002)
+            .with_message("source file appears to be UTF-16 BE encoded")
+            .with_label(span, "UTF-16 BE byte order mark detected")
+            .with_note("Ori source files must be UTF-8 encoded"),
+
         LexErrorKind::InvalidControlChar { byte } => Diagnostic::error(ErrorCode::E0002)
             .with_message(format!("invalid control character (0x{byte:02X})"))
             .with_label(span, "unexpected control character"),

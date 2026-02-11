@@ -15,8 +15,9 @@ use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
 use super::expr::ArcLowerer;
 
 impl ArcLowerer<'_> {
-    // ── Tuple ──────────────────────────────────────────────────
+    // Tuple
 
+    /// Lower a tuple expression to ARC IR.
     pub(crate) fn lower_tuple(&mut self, exprs: CanRange, ty: Idx, span: Span) -> ArcVarId {
         let elem_ids: Vec<_> = self.arena.get_expr_list(exprs).to_vec();
         let args: Vec<_> = elem_ids.iter().map(|&id| self.lower_expr(id)).collect();
@@ -24,8 +25,9 @@ impl ArcLowerer<'_> {
             .emit_construct(ty, CtorKind::Tuple, args, Some(span))
     }
 
-    // ── List ───────────────────────────────────────────────────
+    // List
 
+    /// Lower a list expression to ARC IR.
     pub(crate) fn lower_list(&mut self, exprs: CanRange, ty: Idx, span: Span) -> ArcVarId {
         let elem_ids: Vec<_> = self.arena.get_expr_list(exprs).to_vec();
         let args: Vec<_> = elem_ids.iter().map(|&id| self.lower_expr(id)).collect();
@@ -33,8 +35,9 @@ impl ArcLowerer<'_> {
             .emit_construct(ty, CtorKind::ListLiteral, args, Some(span))
     }
 
-    // ── Map ────────────────────────────────────────────────────
+    // Map
 
+    /// Lower a map expression to ARC IR.
     pub(crate) fn lower_map(&mut self, entries: CanMapEntryRange, ty: Idx, span: Span) -> ArcVarId {
         let entry_slice: Vec<_> = self.arena.get_map_entries(entries).to_vec();
         let mut args = Vec::with_capacity(entry_slice.len() * 2);
@@ -46,8 +49,9 @@ impl ArcLowerer<'_> {
             .emit_construct(ty, CtorKind::MapLiteral, args, Some(span))
     }
 
-    // ── Struct ─────────────────────────────────────────────────
+    // Struct
 
+    /// Lower a struct expression to ARC IR.
     pub(crate) fn lower_struct(
         &mut self,
         name: Name,
@@ -64,8 +68,9 @@ impl ArcLowerer<'_> {
             .emit_construct(ty, CtorKind::Struct(name), args, Some(span))
     }
 
-    // ── Ok / Err / Some / None ─────────────────────────────────
+    // Ok / Err / Some / None
 
+    /// Lower an `Ok` constructor to ARC IR.
     pub(crate) fn lower_ok(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
         let arg = if inner.is_valid() {
             self.lower_expr(inner)
@@ -84,6 +89,7 @@ impl ArcLowerer<'_> {
         )
     }
 
+    /// Lower an `Err` constructor to ARC IR.
     pub(crate) fn lower_err(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
         let arg = if inner.is_valid() {
             self.lower_expr(inner)
@@ -102,6 +108,7 @@ impl ArcLowerer<'_> {
         )
     }
 
+    /// Lower a `Some` constructor to ARC IR.
     pub(crate) fn lower_some(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
         let arg = self.lower_expr(inner);
         let option_name = self.interner.intern("Option");
@@ -116,6 +123,7 @@ impl ArcLowerer<'_> {
         )
     }
 
+    /// Lower a `None` constructor to ARC IR.
     pub(crate) fn lower_none(&mut self, ty: Idx, span: Span) -> ArcVarId {
         let option_name = self.interner.intern("Option");
         self.builder.emit_construct(
@@ -129,8 +137,9 @@ impl ArcLowerer<'_> {
         )
     }
 
-    // ── Field / Index ──────────────────────────────────────────
+    // Field / Index
 
+    /// Lower a field access expression to ARC IR.
     pub(crate) fn lower_field(
         &mut self,
         receiver: CanId,
@@ -144,6 +153,7 @@ impl ArcLowerer<'_> {
         self.builder.emit_project(ty, recv, field_idx, Some(span))
     }
 
+    /// Lower an index expression to ARC IR.
     pub(crate) fn lower_index(
         &mut self,
         receiver: CanId,
@@ -158,8 +168,9 @@ impl ArcLowerer<'_> {
             .emit_apply(ty, index_fn, vec![recv, idx_var], Some(span))
     }
 
-    // ── Range ──────────────────────────────────────────────────
+    // Range
 
+    /// Lower a range expression to ARC IR.
     pub(crate) fn lower_range(
         &mut self,
         start: CanId,
@@ -192,7 +203,7 @@ impl ArcLowerer<'_> {
             .emit_construct(ty, CtorKind::Tuple, args, Some(span))
     }
 
-    // ── Try (?) ────────────────────────────────────────────────
+    // Try (?)
 
     /// Lower `expr?` — desugar to match on Ok/Err variant tag.
     pub(crate) fn lower_try(&mut self, inner: CanId, ty: Idx, span: Span) -> ArcVarId {
@@ -241,8 +252,9 @@ impl ArcLowerer<'_> {
         self.builder.add_block_param(merge_block, ty)
     }
 
-    // ── Cast ───────────────────────────────────────────────────
+    // Cast
 
+    /// Lower a type cast expression to ARC IR.
     pub(crate) fn lower_cast(
         &mut self,
         expr: CanId,
@@ -255,11 +267,13 @@ impl ArcLowerer<'_> {
         self.builder.emit_apply(ty, cast_fn, vec![val], Some(span))
     }
 
-    // ── Helpers ────────────────────────────────────────────────
+    // Helpers
 
     /// Resolve a field name to its index in the struct type.
-    // Field indices never exceed u32.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field indices never exceed u32"
+    )]
     fn resolve_field_index(&self, recv_ty: Idx, field: Name) -> u32 {
         let tag = self.pool.tag(recv_ty);
 
@@ -301,7 +315,7 @@ impl ArcLowerer<'_> {
     }
 }
 
-// ── Tests ──────────────────────────────────────────────────────────
+// Tests
 
 #[cfg(test)]
 mod tests {

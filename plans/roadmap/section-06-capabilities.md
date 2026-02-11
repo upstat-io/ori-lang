@@ -113,6 +113,7 @@ sections:
 - [ ] **Implement**: Concurrency with `parallel` — spec/14-capabilities.md § Suspend Capability
   - [ ] **Deferred to Section 8**: `parallel` pattern evaluation
   - [ ] **Ori Tests**: `tests/spec/patterns/parallel.ori` (Section 8)
+  - [ ] **Note**: Interpreter has a loud stub for parallel in `can_eval.rs` — replace when Suspend capability is implemented (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
 
 ---
 

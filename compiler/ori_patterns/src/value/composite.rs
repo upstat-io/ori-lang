@@ -126,20 +126,16 @@ impl StructValue {
 pub struct FunctionValue {
     /// Parameter names.
     pub params: Vec<Name>,
-    /// Default value expressions for each parameter (legacy `ExprId`).
-    /// `defaults[i]` is `Some(expr_id)` if parameter `i` has a default value.
-    /// The length matches `params.len()`.
-    pub defaults: Vec<Option<ExprId>>,
-    /// Body expression (legacy `ExprId`).
+    /// Body expression (legacy `ExprId`, used by legacy eval path and Debug/Hash).
     pub body: ExprId,
-    /// Canonical body expression. When set, the evaluator dispatches on `CanExpr`
+    /// Canonical body expression. The evaluator dispatches on `CanExpr`
     /// from the canonical arena instead of `ExprKind` from `ExprArena`.
     pub can_body: CanId,
     /// Captured environment (frozen at creation).
     ///
     /// No `RwLock` needed since captures are immutable after creation.
     captures: Arc<FxHashMap<Name, Value>>,
-    /// Legacy arena for expression resolution.
+    /// Arena for expression resolution (still needed for `create_function_interpreter`).
     arena: SharedArena,
     /// Canonical IR for this function's body.
     ///
@@ -147,9 +143,8 @@ pub struct FunctionValue {
     /// Functions created from canonicalized modules have this; lambdas
     /// inherit it from their enclosing function.
     canon: Option<SharedCanonResult>,
-    /// Canonical default expressions for each parameter.
-    /// `can_defaults[i]` is `Some(can_id)` if parameter `i` has a canonicalized default.
-    /// When set, the evaluator uses `eval_can(can_id)` instead of `eval(defaults[i])`.
+    /// Default expressions for each parameter.
+    /// `can_defaults[i]` is `Some(can_id)` if parameter `i` has a default value.
     can_defaults: Vec<Option<CanId>>,
     /// Required capabilities (from `uses` clause).
     ///
@@ -172,10 +167,8 @@ impl FunctionValue {
         captures: FxHashMap<Name, Value>,
         arena: SharedArena,
     ) -> Self {
-        let len = params.len();
         FunctionValue {
             params,
-            defaults: vec![None; len],
             body,
             can_body: CanId::INVALID,
             captures: Arc::new(captures),
@@ -201,41 +194,8 @@ impl FunctionValue {
         arena: SharedArena,
         capabilities: Vec<Name>,
     ) -> Self {
-        let len = params.len();
         FunctionValue {
             params,
-            defaults: vec![None; len],
-            body,
-            can_body: CanId::INVALID,
-            captures: Arc::new(captures),
-            arena,
-            canon: None,
-            can_defaults: Vec::new(),
-            capabilities,
-        }
-    }
-
-    /// Create a function value with capabilities and default parameter values.
-    ///
-    /// # Arguments
-    /// * `params` - Parameter names
-    /// * `defaults` - Default value expressions for each parameter (same length as params)
-    /// * `body` - Body expression ID
-    /// * `captures` - Captured environment (frozen at creation)
-    /// * `arena` - Arena for expression resolution (required for thread safety)
-    /// * `capabilities` - Required capabilities from `uses` clause
-    pub fn with_defaults(
-        params: Vec<Name>,
-        defaults: Vec<Option<ExprId>>,
-        body: ExprId,
-        captures: FxHashMap<Name, Value>,
-        arena: SharedArena,
-        capabilities: Vec<Name>,
-    ) -> Self {
-        debug_assert_eq!(params.len(), defaults.len());
-        FunctionValue {
-            params,
-            defaults,
             body,
             can_body: CanId::INVALID,
             captures: Arc::new(captures),
@@ -248,7 +208,12 @@ impl FunctionValue {
 
     /// Count the number of required parameters (those without defaults).
     pub fn required_param_count(&self) -> usize {
-        self.defaults.iter().filter(|d| d.is_none()).count()
+        if self.can_defaults.is_empty() {
+            // No defaults set — all parameters are required
+            self.params.len()
+        } else {
+            self.can_defaults.iter().filter(|d| d.is_none()).count()
+        }
     }
 
     /// Create a function value with shared captures.
@@ -270,44 +235,8 @@ impl FunctionValue {
         arena: SharedArena,
         capabilities: Vec<Name>,
     ) -> Self {
-        let len = params.len();
         FunctionValue {
             params,
-            defaults: vec![None; len],
-            body,
-            can_body: CanId::INVALID,
-            captures,
-            arena,
-            canon: None,
-            can_defaults: Vec::new(),
-            capabilities,
-        }
-    }
-
-    /// Create a function value with shared captures and defaults.
-    ///
-    /// Use this when multiple functions should share the same captures
-    /// (e.g., module functions for mutual recursion) and have default parameters.
-    ///
-    /// # Arguments
-    /// * `params` - Parameter names
-    /// * `defaults` - Default value expressions for each parameter
-    /// * `body` - Body expression ID
-    /// * `captures` - Shared captured environment
-    /// * `arena` - Arena for expression resolution (required for thread safety)
-    /// * `capabilities` - Required capabilities from `uses` clause
-    pub fn with_shared_captures_and_defaults(
-        params: Vec<Name>,
-        defaults: Vec<Option<ExprId>>,
-        body: ExprId,
-        captures: Arc<FxHashMap<Name, Value>>,
-        arena: SharedArena,
-        capabilities: Vec<Name>,
-    ) -> Self {
-        debug_assert_eq!(params.len(), defaults.len());
-        FunctionValue {
-            params,
-            defaults,
             body,
             can_body: CanId::INVALID,
             captures,
@@ -338,14 +267,17 @@ impl FunctionValue {
         &self.arena
     }
 
+    /// Get the shared arena reference for O(1) Arc cloning.
+    ///
+    /// Use this instead of `arena().clone()` to avoid deep-cloning the `ExprArena`.
+    /// `SharedArena` is `Arc<ExprArena>`, so `.clone()` is an atomic increment.
+    pub fn shared_arena(&self) -> &SharedArena {
+        &self.arena
+    }
+
     /// Get the canonical IR for this function, if available.
     pub fn canon(&self) -> Option<&SharedCanonResult> {
         self.canon.as_ref()
-    }
-
-    /// Check if this function has canonical IR available.
-    pub fn has_canon(&self) -> bool {
-        self.canon.is_some() && self.can_body.is_valid()
     }
 
     /// Set canonical IR for this function.
@@ -373,11 +305,6 @@ impl FunctionValue {
     /// Get the canonical default expressions for this function's parameters.
     pub fn can_defaults(&self) -> &[Option<CanId>] {
         &self.can_defaults
-    }
-
-    /// Check if this function has canonical defaults available.
-    pub fn has_can_defaults(&self) -> bool {
-        self.can_defaults.iter().any(Option::is_some)
     }
 
     /// Get the required capabilities for this function.

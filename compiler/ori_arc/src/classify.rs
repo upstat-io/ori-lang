@@ -108,7 +108,7 @@ impl<'pool> ArcClassifier<'pool> {
     /// Classify a non-primitive type by its Pool tag.
     fn classify_by_tag(&self, idx: Idx) -> ArcClass {
         match self.pool.tag(idx) {
-            // === Scalars (primitives — caught by fast path, but handle gracefully) ===
+            // Scalars (primitives -- caught by fast path, but handle gracefully)
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -121,21 +121,21 @@ impl<'pool> ArcClassifier<'pool> {
             | Tag::Size
             | Tag::Ordering => ArcClass::Scalar,
 
-            // === DefiniteRef: heap-allocated or closure types ===
+            // DefiniteRef: heap-allocated or closure types
             Tag::Str | Tag::List | Tag::Map | Tag::Set | Tag::Channel | Tag::Function => {
                 ArcClass::DefiniteRef
             }
 
-            // === Transitive: single child ===
+            // Transitive: single child
             Tag::Option => self.classify(self.pool.option_inner(idx)),
             Tag::Range => self.classify(self.pool.range_elem(idx)),
 
-            // === Transitive: two children ===
+            // Transitive: two children
             Tag::Result => {
                 self.classify_children(&[self.pool.result_ok(idx), self.pool.result_err(idx)])
             }
 
-            // === Transitive: variable children ===
+            // Transitive: variable children
             Tag::Tuple => self.classify_children(&self.pool.tuple_elems(idx)),
 
             Tag::Struct => {
@@ -153,7 +153,7 @@ impl<'pool> ArcClassifier<'pool> {
                 self.classify_children(&all_field_types)
             }
 
-            // === Named type resolution ===
+            // Named type resolution
             Tag::Named | Tag::Applied | Tag::Alias => {
                 match self.pool.resolve(idx) {
                     Some(resolved) => self.classify(resolved),
@@ -162,10 +162,10 @@ impl<'pool> ArcClassifier<'pool> {
                 }
             }
 
-            // === Type variables (unresolved — conservative) ===
+            // Type variables (unresolved -- conservative)
             Tag::Var | Tag::BoundVar | Tag::RigidVar => ArcClass::PossibleRef,
 
-            // === Type schemes and special types (conservative) ===
+            // Type schemes and special types (conservative)
             Tag::Scheme | Tag::Projection | Tag::ModuleNs | Tag::Infer | Tag::SelfType => {
                 ArcClass::PossibleRef
             }
