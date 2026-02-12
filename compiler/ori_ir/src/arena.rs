@@ -17,10 +17,21 @@
     reason = "Arc is the implementation of SharedArena"
 )]
 
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
+use super::ast::{
+    ArmRange, CallArg, CallArgRange, Expr, ExprKind, FieldInit, FieldInitRange, GenericParam,
+    GenericParamRange, ListElement, ListElementRange, MapElement, MapElementRange, MapEntry,
+    MapEntryRange, MatchArm, NamedExpr, NamedExprRange, Param, ParamRange, SeqBinding,
+    SeqBindingRange, Stmt, StructLitField, StructLitFieldRange, TemplatePartRange,
+};
 use super::{
     BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, MatchPatternId,
-    MatchPatternRange, ParsedType, ParsedTypeId, ParsedTypeRange, StmtId, StmtRange,
+    MatchPatternRange, ParsedType, ParsedTypeId, ParsedTypeRange, Span, StmtId, StmtRange,
 };
+
 use crate::ast::patterns::{FunctionExp, FunctionSeq};
 use crate::ast::TemplatePart;
 use crate::ast::{BindingPattern, MatchPattern};
@@ -56,15 +67,6 @@ pub(crate) fn to_u16(value: usize, context: &str) -> u16 {
     u16::try_from(value)
         .unwrap_or_else(|_| panic_range_exceeded(value, context, u64::from(u16::MAX)))
 }
-use super::ast::{
-    ArmRange, CallArg, CallArgRange, Expr, ExprKind, FieldInit, FieldInitRange, GenericParam,
-    GenericParamRange, ListElement, ListElementRange, MapElement, MapElementRange, MapEntry,
-    MapEntryRange, MatchArm, NamedExpr, NamedExprRange, Param, ParamRange, SeqBinding,
-    SeqBindingRange, Stmt, StructLitField, StructLitFieldRange, TemplatePartRange,
-};
-use super::Span;
-use std::fmt;
-use std::hash::{Hash, Hasher};
 
 /// Contiguous storage for all expressions in a module.
 ///
@@ -1042,10 +1044,6 @@ impl fmt::Debug for ExprArena {
     }
 }
 
-// SharedArena
-
-use std::sync::Arc;
-
 /// Shared expression arena wrapper for cross-module function references.
 ///
 /// This newtype enforces that all arena sharing goes through this type,
@@ -1063,7 +1061,7 @@ use std::sync::Arc;
 ///
 /// ```text
 /// let arena = SharedArena::new(parse_result.arena);
-/// let func = FunctionValue::new(params, body, captures, arena);
+/// let func = FunctionValue::new(params, captures, arena);
 /// ```
 #[derive(Clone)]
 pub struct SharedArena(Arc<ExprArena>);

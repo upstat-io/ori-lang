@@ -11,38 +11,49 @@ The LLVM backend (`ori_llvm` crate) provides both JIT compilation and AOT (Ahead
 
 ## Architecture
 
-The backend follows patterns from `rustc_codegen_llvm`:
+The backend follows patterns from `rustc_codegen_llvm`, using a two-layer architecture:
 
 ```
-                                        ┌──────────────────────┐
-                                        │   SimpleCx (scx)     │
-                                        │   - LLVM Context     │
-                                        │   - Type cache       │
-                                        │   - Target machine   │
-┌─────────────────┐    ┌────────────────┴──────────────────────┤
-│  Typed AST      │───►│        CodegenCx (cx)                 │
-│  (TypedModule)  │    │   - SimpleCx reference                │
-└─────────────────┘    │   - LLVM Module                       │
-                       │   - String interner                   │
-                       │   - Type mappings                     │
-                       └────────────────┬──────────────────────┘
-                                        │
-                       ┌────────────────▼──────────────────────┐
-                       │         Builder                       │
-                       │   - LLVM IRBuilder                    │
-                       │   - CodegenCx reference               │
-                       │   - Current basic block               │
-                       │   - Expression compilation            │
-                       └───────────────────────────────────────┘
+┌─────────────────┐    ┌──────────────────────────────────────┐
+│  Typed AST      │    │   SimpleCx (scx)                     │
+│  (TypedModule)  │    │   - LLVM Context + Module            │
+│  + Pool         │    │   - Common type constructors         │
+└───────┬─────────┘    └───────────────┬──────────────────────┘
+        │                              │
+        │              ┌───────────────▼──────────────────────┐
+        │              │   TypeInfoStore + TypeLayoutResolver  │
+        │              │   - Idx → TypeInfo (enum) cache       │
+        │              │   - Idx → LLVM type resolution        │
+        │              └───────────────┬──────────────────────┘
+        │                              │
+        └──────────────┬───────────────┘
+                       │
+        ┌──────────────▼──────────────────────────────────────┐
+        │   IrBuilder                                         │
+        │   - ID-based LLVM instruction builder               │
+        │   - ValueId / BlockId / FunctionId handles          │
+        │   - Wraps inkwell builder with opaque IDs           │
+        ├─────────────────────────────────────────────────────┤
+        │   FunctionCompiler                                  │
+        │   - Orchestrates function body compilation          │
+        │   - ABI handling (sret, parameter passing)          │
+        ├─────────────────────────────────────────────────────┤
+        │   ExprLowerer                                       │
+        │   - Expression dispatch (lower_* methods)           │
+        │   - Scope management (persistent-map scoping)       │
+        └─────────────────────────────────────────────────────┘
 ```
 
-### Context Hierarchy
+### Key Types
 
 | Type | Lifetime | Purpose |
 |------|----------|---------|
-| `SimpleCx` | Process-wide | LLVM context, target machine, cached types |
-| `CodegenCx` | Per-module | LLVM module, string interner, function declarations |
-| `Builder` | Per-function | IR building, local variable tracking |
+| `SimpleCx` | Per-compilation | LLVM context, module, common type constructors |
+| `TypeInfoStore` | Per-compilation | Lazily-populated `Idx` to `TypeInfo` cache backed by Pool |
+| `TypeLayoutResolver` | Per-compilation | Resolves `Idx` to LLVM `BasicTypeEnum` via `TypeInfoStore` + `SimpleCx` |
+| `IrBuilder` | Per-module | ID-based instruction builder wrapping inkwell |
+| `FunctionCompiler` | Per-module | Function declaration, ABI, runtime declarations |
+| `ExprLowerer` | Per-function | Expression lowering coordinator with scoped locals |
 
 ## Type Mappings
 
@@ -59,8 +70,8 @@ Ori types map to LLVM types as follows:
 | `Option<T>` | `{ i8, T }` | Tag (0=None, 1=Some) + payload |
 | `Result<T, E>` | `{ i8, payload }` | Tag (0=Ok, 1=Err) + payload |
 | `(A, B, ...)` | `{ A, B, ... }` | Anonymous struct |
-| User structs | Named `{ fields... }` | Registered via `StructLayout` (see [User Types](user-types.md)) |
-| Closures | `i64` | Tagged pointer (see [Closures](closures.md)) |
+| User structs | Named `{ fields... }` | Registered via `TypeInfo::Struct` and `TypeEntry` (see [User Types](user-types.md)) |
+| Closures | `{ ptr, ptr }` | Fat pointer `{ fn_ptr, env_ptr }` (see [Closures](closures.md)) |
 
 ## Compilation Modes
 
@@ -197,7 +208,6 @@ The backend links against runtime functions for operations that require heap all
 | Collections | `ori_list_new`, `ori_list_free`, `ori_list_len` |
 | Memory | `ori_alloc`, `ori_free`, `ori_realloc` |
 | Reference Counting | `ori_rc_new`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_count`, `ori_rc_data` |
-| Closures | `ori_closure_box` |
 | Panic | `ori_panic`, `ori_panic_cstr` |
 | Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str` |
 | Comparison | `ori_compare_int`, `ori_min_int`, `ori_max_int` |
@@ -214,43 +224,31 @@ The backend links against runtime functions for operations that require heap all
 
 | File | Purpose |
 |------|---------|
-| `context.rs` | `SimpleCx`, `CodegenCx`, `StructLayout`, `TypeCache` |
-| `builder.rs` | `Builder` type and IR generation helpers |
-| `declare.rs` | Function declaration phase |
-| `module.rs` | Module-level compilation, struct registration |
-| `evaluator.rs` | JIT evaluation, module loading orchestration |
-| `types.rs` | Ori-to-LLVM type mapping |
+| `context.rs` | `SimpleCx` -- minimal LLVM context (module, common types) |
+| `evaluator.rs` | JIT evaluation, module loading, pipeline orchestration |
+| `runtime.rs` | Runtime library (`libori_rt`) implementation |
 
-### Code Generation
+### Code Generation (`codegen/`)
 
 | File | Purpose |
 |------|---------|
-| `functions/` | Function body compilation |
-| `functions/body.rs` | Function body entry and setup |
-| `functions/expressions.rs` | Expression compilation dispatch |
-| `functions/calls.rs` | Function and method call compilation |
-| `functions/lambdas.rs` | Lambda expression compilation |
-| `functions/sequences.rs` | Sequence expression handling (`run`, `try`, `match`) |
-| `functions/builtins.rs` | Built-in function compilation |
-| `functions/helpers.rs` | Common compilation helpers |
-| `functions/phi.rs` | PHI node construction for control flow |
-| `collections/` | Collection type handling (lists, maps, tuples) |
-| `collections/structs.rs` | Struct literals and field access |
-| `collections/strings.rs` | String operations and concatenation |
-| `collections/lists.rs` | List construction and operations |
-| `collections/maps.rs` | Map construction |
-| `collections/tuples.rs` | Tuple construction and access |
-| `collections/ranges.rs` | Range expression handling |
-| `collections/indexing.rs` | Index access operations |
-| `collections/wrappers.rs` | Option and Result wrapper types |
-| `control_flow.rs` | If/else, loops, match, short-circuit operators |
-| `operators.rs` | Binary and unary operators |
-| `matching.rs` | Pattern matching compilation |
-| `traits.rs` | Trait method resolution |
-| `builtin_methods/` | Built-in type method implementations |
-| `builtin_methods/numeric.rs` | Numeric type methods |
-| `builtin_methods/ordering.rs` | Ordering type methods |
-| `builtin_methods/units.rs` | Duration and Size type methods |
+| `type_info.rs` | `TypeInfo` enum, `TypeInfoStore`, `TypeLayoutResolver` |
+| `ir_builder.rs` | `IrBuilder` -- ID-based LLVM instruction builder |
+| `scope.rs` | Persistent-map variable scoping with O(1) clone |
+| `value_id.rs` | `ValueId`, `BlockId`, `FunctionId`, `LLVMTypeId` opaque handles |
+| `function_compiler.rs` | Function declaration, ABI, body compilation orchestration |
+| `abi.rs` | ABI computation (parameter passing, sret returns) |
+| `runtime_decl.rs` | Runtime function declarations in LLVM module |
+| `type_registration.rs` | `register_user_types()` -- eager type resolution from `TypeEntry` |
+| `expr_lowerer.rs` | `ExprLowerer` -- expression dispatch coordinator |
+| `lower_literals.rs` | Literals, identifiers, constants |
+| `lower_operators.rs` | Binary/unary ops, cast, short-circuit |
+| `lower_control_flow.rs` | If, loop, for, block, break, continue, match |
+| `lower_error_handling.rs` | Ok, Err, Some, None, Try (`?` operator) |
+| `lower_collections.rs` | List, map, tuple, struct, range, field, index |
+| `lower_calls.rs` | Call, MethodCall, Lambda (fat-pointer closures) |
+| `lower_constructs.rs` | FunctionSeq, FunctionExp, SelfRef, Await |
+| `arc_emitter.rs` | ARC IR emission (retain/release/drop) |
 
 ### AOT
 

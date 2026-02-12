@@ -228,7 +228,7 @@ impl TestRunner {
         let parse_result = parsed(&db, file);
         if parse_result.has_errors() {
             for error in &parse_result.errors {
-                summary.add_error(format!("{}: {}", error.span, error.message));
+                summary.add_error(format!("{}: {}", error.span(), error.message()));
             }
             return summary;
         }
@@ -349,7 +349,6 @@ impl TestRunner {
                     .mode(ori_eval::EvalMode::TestRun {
                         only_attached: false,
                     })
-                    .pattern_resolutions(&type_result.typed.pattern_resolutions)
                     .canon(shared_canon.clone())
                     .build();
 

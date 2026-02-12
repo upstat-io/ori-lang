@@ -1,9 +1,17 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-// Tests use approximate float values, import-after-statement for test clarity
-#![allow(clippy::approx_constant, clippy::items_after_statements)]
 //! Formatter Core Tests
 //!
 //! Tests for the formatting engine's inline vs broken decisions.
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "Tests can panic on failure"
+)]
+#![allow(
+    clippy::approx_constant,
+    clippy::items_after_statements,
+    reason = "Test clarity: approximate constants and local imports"
+)]
 
 use crate::context::{FormatContext, MAX_LINE_WIDTH};
 use crate::formatter::format_expr;

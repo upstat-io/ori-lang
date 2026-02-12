@@ -18,7 +18,10 @@ impl Parser<'_> {
     ///   extend str { @reverse... }       - extends str
     pub(crate) fn parse_extend(&mut self) -> ParseOutcome<ExtendDef> {
         if !self.cursor.check(&TokenKind::Extend) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Extend, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Extend,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         self.parse_extend_body()

@@ -154,7 +154,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::clone_on_copy)] // Intentionally testing Clone trait impl
+    #[allow(
+        clippy::clone_on_copy,
+        reason = "Intentionally testing Clone trait impl"
+    )]
     fn test_range_copy_clone() {
         let original = ParamRange::new(5, 10);
         let copied = original; // Copy

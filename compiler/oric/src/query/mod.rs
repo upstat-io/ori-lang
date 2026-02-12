@@ -206,6 +206,20 @@ pub fn typed(db: &dyn Db, file: SourceFile) -> TypeCheckResult {
 #[salsa::tracked]
 pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
     tracing::debug!(path = %file.path(db).display(), "evaluating");
+
+    // Check for lexer errors first — the parser silently skips TokenKind::Error
+    // tokens without emitting parse errors, so a file of pure lexer errors
+    // (e.g., `"unterminated`) would pass parse_result.has_errors() and proceed
+    // to evaluation with an empty module.
+    let lex_errs = lex_errors(db, file);
+    if !lex_errs.is_empty() {
+        return ModuleEvalResult::failure(format!(
+            "{} lexer error{} found",
+            lex_errs.len(),
+            if lex_errs.len() == 1 { "" } else { "s" }
+        ));
+    }
+
     let parse_result = parsed(db, file);
 
     // Check for parse errors
@@ -244,7 +258,6 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult {
 
     // Create evaluator with type information and canonical IR
     let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
-        .pattern_resolutions(&type_result.typed.pattern_resolutions)
         .canon(shared_canon.clone())
         .build();
     evaluator.register_prelude();

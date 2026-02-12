@@ -95,44 +95,53 @@ The `with` pattern provides RAII-style resource management. The `release` functi
 
 ## Pattern Registry
 
-The `PatternRegistry` uses direct enum dispatch with static pattern instances, avoiding HashMap overhead:
+The `PatternRegistry` uses a `Pattern` enum for static dispatch, avoiding both HashMap overhead and trait object indirection:
 
 ```rust
-// Static pattern instances for 'static lifetime references
-static RECURSE: RecursePattern = RecursePattern;
-static PARALLEL: ParallelPattern = ParallelPattern;
-static SPAWN: SpawnPattern = SpawnPattern;
-// ...
+pub enum Pattern {
+    Recurse(RecursePattern),
+    Parallel(ParallelPattern),
+    Spawn(SpawnPattern),
+    Timeout(TimeoutPattern),
+    Cache(CachePattern),
+    With(WithPattern),
+    Print(PrintPattern),
+    Panic(PanicPattern),
+    Catch(CatchPattern),
+    Todo(TodoPattern),
+    Unreachable(UnreachablePattern),
+}
 
 pub struct PatternRegistry {
     _private: (),  // Marker to prevent external construction
 }
 
 impl PatternRegistry {
-    /// Get the pattern definition for a given kind.
-    /// Returns a static reference to avoid borrow issues.
-    pub fn get(&self, kind: FunctionExpKind) -> &'static dyn PatternDefinition {
+    /// Get the pattern for a given kind.
+    /// Returns a concrete Pattern enum value (static dispatch).
+    pub fn get(&self, kind: FunctionExpKind) -> Pattern {
         match kind {
-            FunctionExpKind::Recurse => &RECURSE,
-            FunctionExpKind::Parallel => &PARALLEL,
-            FunctionExpKind::Spawn => &SPAWN,
-            FunctionExpKind::Timeout => &TIMEOUT,
-            FunctionExpKind::Cache => &CACHE,
-            FunctionExpKind::With => &WITH,
-            FunctionExpKind::Print => &PRINT,
-            FunctionExpKind::Panic => &PANIC,
-            FunctionExpKind::Catch => &CATCH,
-            FunctionExpKind::Todo => &TODO,
-            FunctionExpKind::Unreachable => &UNREACHABLE,
+            FunctionExpKind::Recurse => Pattern::Recurse(RecursePattern),
+            FunctionExpKind::Parallel => Pattern::Parallel(ParallelPattern),
+            FunctionExpKind::Spawn => Pattern::Spawn(SpawnPattern),
+            FunctionExpKind::Timeout => Pattern::Timeout(TimeoutPattern),
+            FunctionExpKind::Cache => Pattern::Cache(CachePattern),
+            FunctionExpKind::With => Pattern::With(WithPattern),
+            FunctionExpKind::Print => Pattern::Print(PrintPattern),
+            FunctionExpKind::Panic => Pattern::Panic(PanicPattern),
+            FunctionExpKind::Catch => Pattern::Catch(CatchPattern),
+            FunctionExpKind::Todo => Pattern::Todo(TodoPattern),
+            FunctionExpKind::Unreachable => Pattern::Unreachable(UnreachablePattern),
         }
     }
 }
 ```
 
-All patterns are zero-sized types (ZSTs) with static lifetime, providing:
+The `Pattern` enum implements `PatternDefinition` by delegating to each inner type's implementation. Pattern variants are ZSTs created inline in match arms -- no static instances or heap allocation needed. This provides:
+- Static dispatch (no vtable indirection)
 - Zero heap allocation overhead
 - Direct dispatch (no HashMap lookup)
-- No borrow issues with the registry
+- Exhaustive matching enforced by compiler
 
 ## Pattern Interface
 
@@ -155,8 +164,8 @@ pub trait PatternDefinition: Send + Sync {
     /// Scoped bindings (e.g., `self` in recurse step)
     fn scoped_bindings(&self) -> &'static [ScopedBinding] { &[] }
 
-    /// Type check using TypeCheckContext
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type;
+    /// Whether this pattern allows arbitrary additional properties
+    fn allows_arbitrary_props(&self) -> bool { false }
 
     /// Evaluate using EvalContext and PatternExecutor
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult;
@@ -170,7 +179,26 @@ pub trait PatternDefinition: Send + Sync {
 }
 ```
 
-Note: Uses `TypeCheckContext`/`EvalContext` for property access and `PatternExecutor` for evaluation abstraction, not raw `TypeChecker`/`Evaluator`.
+Note: Type checking is handled by `ori_types`, not by patterns themselves. The `PatternDefinition` trait focuses on metadata (property declarations, scoped bindings) and evaluation. Uses `EvalContext` for property access and `PatternExecutor` for evaluation abstraction, not raw `Evaluator`.
+
+## Pattern Resolution
+
+The `pattern_resolution.rs` module in `ori_ir` defines types for type-checker to evaluator communication:
+
+```rust
+/// Key identifying a match pattern in the AST.
+pub enum PatternKey {
+    Arm(u32),    // Top-level arm pattern
+    Nested(u32), // Nested pattern via MatchPatternId
+}
+
+/// Type-checker resolution of an ambiguous Binding pattern.
+pub enum PatternResolution {
+    UnitVariant { type_name: Name, variant_index: u8 },
+}
+```
+
+These types bridge the type checker and evaluator: the type checker produces `PatternResolution` entries keyed by `PatternKey`, and the evaluator consumes them to disambiguate `Binding` patterns that could be either variable bindings or unit variants. Lives in `ori_ir` because both `ori_types` and `ori_eval` depend on it.
 
 ## Iterable Helpers
 
@@ -292,5 +320,5 @@ Guards (`.match(expr)`) are evaluated after pattern match succeeds but before th
 
 - [Pattern Trait](pattern-trait.md) - PatternDefinition interface
 - [Pattern Registry](pattern-registry.md) - Registration system
-- [Pattern Fusion](pattern-fusion.md) - Fusion optimization (FusionOptimizer)
+- [Pattern Fusion](pattern-fusion.md) - Fusion optimization (FusedPattern enum)
 - [Adding Patterns](adding-patterns.md) - How to add new patterns

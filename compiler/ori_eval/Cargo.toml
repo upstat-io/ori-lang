@@ -9,10 +9,10 @@ repository.workspace = true
 [dependencies]
 ori_ir.workspace = true
 ori_patterns.workspace = true
-ori_types.workspace = true
 parking_lot.workspace = true
 ori_stack.workspace = true
 rustc-hash.workspace = true
+smallvec.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

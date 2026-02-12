@@ -9,103 +9,90 @@ section: "LLVM Backend"
 
 The LLVM backend supports user-defined struct types and impl blocks with associated functions and methods. This document describes the struct layout tracking system, type registration, and method call compilation.
 
-## Struct Layout Tracking
+## Type Information System
 
-User-defined struct types require metadata for field access code generation. The backend tracks this through the `StructLayout` type in `context.rs`:
+User-defined struct types are represented through the `TypeInfo` enum in `codegen/type_info.rs`. Each Ori type category gets a `TypeInfo` variant that encapsulates its LLVM representation, memory layout, and calling convention.
+
+### `TypeInfo::Struct`
+
+Struct types are represented by the `TypeInfo::Struct` variant:
 
 ```rust
-pub struct StructLayout {
-    /// Field names in declaration order (index = LLVM struct field index).
-    pub fields: Vec<Name>,
-    /// Map from field name to index for O(1) lookup.
-    pub field_indices: HashMap<Name, u32>,
+pub enum TypeInfo {
+    // ...
+    /// User-defined struct -> {field1, field2, ...}
+    Struct { fields: Vec<(Name, Idx)> },
+    // ...
 }
 ```
 
-The `TypeCache` maintains a registry of struct layouts:
+Each field carries its `Name` (interned) and `Idx` (type pool index), which allows the `TypeLayoutResolver` to compute the LLVM struct type with native-typed fields.
+
+### `TypeInfoStore`
+
+The `TypeInfoStore` is a lazily-populated `Idx` to `TypeInfo` cache backed by the type checker's `Pool`:
 
 ```rust
-pub struct TypeCache<'ll> {
-    // ... other fields ...
-
-    /// Named struct types for forward references.
-    pub named_structs: HashMap<Name, StructType<'ll>>,
-    /// Struct field layouts for user-defined types.
-    pub struct_layouts: HashMap<Name, StructLayout>,
+pub struct TypeInfoStore<'pool> {
+    pool: &'pool Pool,
+    cache: RefCell<FxHashMap<Idx, TypeInfo>>,
 }
 ```
 
-### Layout Creation
+When a type is first accessed, the store reads the `Pool`'s `Tag` for that `Idx` and constructs the appropriate `TypeInfo` variant. Subsequent accesses return the cached result.
 
-Layouts are created when struct types are registered:
+### `TypeLayoutResolver`
+
+The `TypeLayoutResolver` resolves `Idx` to LLVM `BasicTypeEnum` by combining `TypeInfoStore` with `SimpleCx`:
 
 ```rust
-impl StructLayout {
-    pub fn new(fields: Vec<Name>) -> Self {
-        let field_indices = fields
-            .iter()
-            .enumerate()
-            .map(|(i, &name)| (name, i as u32))
-            .collect();
-        Self { fields, field_indices }
-    }
+pub struct TypeLayoutResolver<'store, 'pool, 'll> {
+    store: &'store TypeInfoStore<'pool>,
+    scx: &'store SimpleCx<'ll>,
+    // ...
 }
 ```
+
+It handles recursive types via named struct forward references and caches resolved LLVM types for performance.
 
 ## Struct Type Registration
 
-Before compiling function bodies, user-defined struct types must be registered with the backend. This happens in `LLVMEvaluator::eval_test`:
+Before compiling function bodies, user-defined struct types must be registered with the backend. This is driven by the type checker's `TypeEntry` output and handled by `register_user_types()` in `codegen/type_registration.rs`.
+
+### Registration Flow
+
+1. The type checker produces a list of `TypeEntry` values (from `ori_types`), each describing a user-defined type with its name, kind, fields, and type pool index.
+2. `LLVMEvaluator` creates a `TypeInfoStore` and `TypeLayoutResolver`.
+3. `register_user_types()` iterates over `TypeEntry` values and eagerly resolves each through the `TypeLayoutResolver`, which creates LLVM named struct types in the module.
 
 ```rust
-// Register user-defined struct types
-for type_decl in &module.types {
-    if let TypeDeclKind::Struct(fields) = &type_decl.kind {
-        let field_names: Vec<Name> = fields.iter().map(|f| f.name).collect();
-        compiler.register_struct(type_decl.name, field_names);
+// In evaluator.rs
+let store = TypeInfoStore::new(self.pool);
+let resolver = TypeLayoutResolver::new(&store, scx_ref);
+type_registration::register_user_types(&resolver, user_types);
+```
+
+### `register_user_types()`
+
+The registration function in `codegen/type_registration.rs`:
+
+```rust
+pub fn register_user_types(resolver: &TypeLayoutResolver<'_, '_, '_>, types: &[TypeEntry]) {
+    for entry in types {
+        // Skip generic types — they're resolved during monomorphization
+        if !entry.type_params.is_empty() {
+            continue;
+        }
+
+        // Eagerly resolve the type to create the LLVM named struct.
+        // The resolver caches the result, so subsequent calls return
+        // the cached type.
+        resolver.resolve(entry.idx);
     }
 }
 ```
 
-The `ModuleCompiler::register_struct` method:
-
-1. Creates LLVM field types (currently all `i64` for simplicity)
-2. Creates or retrieves a named LLVM struct type
-3. Sets the struct body with field types
-4. Records the field layout for later access
-
-```rust
-pub fn register_struct(&self, name: Name, field_names: Vec<Name>) {
-    let field_types: Vec<_> = field_names
-        .iter()
-        .map(|_| self.cx.scx.type_i64().into())
-        .collect();
-
-    self.cx.register_struct(name, field_names, &field_types);
-}
-```
-
-### CodegenCx Registration
-
-The `CodegenCx::register_struct` method handles the actual LLVM type creation:
-
-```rust
-pub fn register_struct(
-    &self,
-    name: Name,
-    field_names: Vec<Name>,
-    field_types: &[BasicTypeEnum<'ll>],
-) {
-    // Create or get the named struct type
-    let struct_ty = self.get_or_create_named_struct(name);
-
-    // Set the struct body with field types
-    self.scx.set_struct_body(struct_ty, field_types, false);
-
-    // Record the field layout for field access
-    let layout = StructLayout::new(field_names);
-    self.type_cache.borrow_mut().struct_layouts.insert(name, layout);
-}
-```
+Generic types (those with non-empty `type_params`) are skipped during registration and resolved later when concrete instances are encountered during monomorphization.
 
 ## Impl Block Compilation
 
@@ -144,141 +131,78 @@ Methods are compiled as functions with their original name. This means method re
 
 ## Method Call Compilation
 
-Method calls (`receiver.method(args)`) are compiled differently based on whether the receiver is a value or a type name.
+Method calls (`receiver.method(args)`) are compiled by `lower_method_call` in `codegen/lower_calls.rs`.
 
-### Instance Methods vs Associated Functions
+### Dispatch Order
 
-The `compile_method_call` and `compile_method_call_named` functions in `functions/calls.rs` handle both cases:
+The `lower_method_call` function uses a four-tier dispatch strategy:
+
+1. **Built-in methods**: Type-specific inline codegen (e.g., `list.len()`, `str.contains()`)
+2. **Type-qualified method lookup**: Resolve receiver type index to a type name, then look up `(type_name, method_name)` in the `method_functions` map
+3. **Bare-name fallback**: Check the `functions` map by method name alone
+4. **LLVM module lookup**: Search for runtime functions by name in the LLVM module
 
 ```rust
-pub(crate) fn compile_method_call(
-    &self,
-    receiver: ExprId,
+pub(crate) fn lower_method_call(
+    &mut self,
+    receiver: CanId,
     method: Name,
-    args: ExprRange,
-    arena: &ExprArena,
-    expr_types: &[TypeId],
-    locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
-    function: FunctionValue<'ll>,
-    loop_ctx: Option<&LoopContext<'ll>>,
-) -> Option<BasicValueEnum<'ll>> {
-    // Try to compile receiver
-    let recv_val = self.compile_expr(receiver, arena, expr_types, locals, function, loop_ctx);
+    args: CanRange,
+) -> Option<ValueId> {
+    let recv_type = self.expr_type(receiver);
+    let recv_val = self.lower(receiver)?;
 
-    // Compile arguments
-    let arg_ids = arena.get_expr_list(args);
+    // 1. Try built-in method dispatch
+    if let Some(result) = self.lower_builtin_method(recv_val, recv_type, &method_str, args) {
+        return Some(result);
+    }
 
-    // If receiver compiled to a value, it's an instance method
-    // If receiver is None (type name for associated function), don't include it
-    let mut compiled_args: Vec<BasicValueEnum<'ll>> = match recv_val {
-        Some(val) => vec![val],  // Instance method: receiver is first arg
-        None => vec![],          // Associated function: no receiver arg
-    };
-
-    for &arg_id in arg_ids {
-        if let Some(arg_val) = self.compile_expr(arg_id, arena, expr_types, locals, function, loop_ctx) {
-            compiled_args.push(arg_val);
+    // 2. Type-qualified method lookup
+    if let Some(&type_name) = self.type_idx_to_name.get(&recv_type) {
+        if let Some((func_id, abi)) = self.method_functions.get(&(type_name, method)) {
+            return self.emit_method_call(func_id, &abi, recv_val, args, "method_call");
         }
     }
 
-    // Look up method function
-    let method_name = self.cx().interner.lookup(method);
-    if let Some(callee) = self.cx().llmod().get_function(method_name) {
-        self.call(callee, &compiled_args, "method_call")
-    } else {
-        None
-    }
+    // 3. Bare-name fallback
+    // 4. LLVM module lookup
+    // ...
 }
 ```
 
-### Receiver Classification
+### Method Call ABI
 
-| Receiver Type | `compile_expr` Result | Argument Handling |
-|--------------|----------------------|-------------------|
-| Value (e.g., `point`) | `Some(value)` | Value passed as first argument |
-| Type name (e.g., `Point`) | `None` | No first argument (associated function) |
-
-This design allows the same code path to handle both:
-- `point.distance()` - instance method, receiver passed as first arg
-- `Point.new(x: 1, y: 2)` - associated function, no receiver arg
+When a method function has ABI information (from `FunctionCompiler`), method calls use `emit_method_call` which handles:
+- Receiver passed as the first argument
+- ABI-aware parameter passing (direct, indirect, reference)
+- Sret returns for large types
 
 ## Field Access
 
-Field access on structs uses the registered layout to determine field indices:
+Field access on structs is handled by ARC lowering (`ori_arc`) before it reaches LLVM codegen. The ARC lowering pass translates high-level field access into explicit `StructGet` instructions that carry the field index directly, removing the need for field name lookups during code generation.
 
-```rust
-pub(crate) fn compile_field_access(
-    &self,
-    receiver: ExprId,
-    field: Name,
-    arena: &ExprArena,
-    expr_types: &[TypeId],
-    locals: &mut HashMap<Name, BasicValueEnum<'ll>>,
-    function: FunctionValue<'ll>,
-    loop_ctx: Option<&LoopContext<'ll>>,
-) -> Option<BasicValueEnum<'ll>>
-```
-
-The current implementation uses heuristics for field index lookup. When proper type tracking is available, it uses `CodegenCx::get_field_index`:
-
-```rust
-pub fn get_field_index(&self, struct_name: Name, field_name: Name) -> Option<u32> {
-    self.type_cache
-        .borrow()
-        .struct_layouts
-        .get(&struct_name)
-        .and_then(|layout| layout.field_index(field_name))
-}
-```
-
-### Defensive Handling
-
-The `compile_field_access` function includes a defensive check for non-struct values:
-
-```rust
-let struct_val = match receiver_val {
-    BasicValueEnum::StructValue(s) => s,
-    _ => {
-        // Not a struct - return placeholder for now
-        return Some(self.cx().scx.type_i64().const_int(0, false).into());
-    }
-};
-```
-
-This handles cases where method compilation falls back to INT types due to missing type information.
+In the LLVM backend, struct field access appears as `extract_value` operations on LLVM struct values, using the field indices computed during ARC lowering.
 
 ## Compilation Order Summary
 
-1. **Runtime Declaration**: `compiler.declare_runtime()` - declare runtime functions
-2. **Type Registration**: Loop over `module.types`, register struct types
-3. **Function Compilation**: Loop over `module.functions`, compile each
-4. **Impl Method Compilation**: Loop over `module.impls`, compile methods
-5. **Test Compilation**: Create and compile test wrapper functions
-
-## Lookup Methods
-
-`CodegenCx` provides several lookup methods for struct information:
-
-| Method | Purpose |
-|--------|---------|
-| `get_struct_type(name)` | Get LLVM struct type by name |
-| `get_field_index(struct_name, field_name)` | Get field index for access |
-| `get_struct_layout(name)` | Get full layout information |
-| `get_or_create_named_struct(name)` | Get or create opaque struct for forward references |
+1. **Type Info Setup**: Create `TypeInfoStore` and `TypeLayoutResolver` from `Pool`
+2. **Type Registration**: `register_user_types()` eagerly resolves `TypeEntry` values via `TypeLayoutResolver`
+3. **Runtime Declaration**: Declare runtime functions in the LLVM module
+4. **Function Compilation**: `FunctionCompiler` declares and defines function bodies
+5. **Expression Lowering**: `ExprLowerer` handles method calls, field access, etc.
 
 ## Source Files
 
 | File | Purpose |
 |------|---------|
-| `context.rs` | `StructLayout`, `TypeCache`, struct registration |
-| `module.rs` | `ModuleCompiler::register_struct` |
-| `evaluator.rs` | Module loading, type registration orchestration |
-| `functions/calls.rs` | Method call compilation, receiver handling |
-| `collections/structs.rs` | Struct literal compilation, field access |
+| `codegen/type_info.rs` | `TypeInfo` enum (including `TypeInfo::Struct`), `TypeInfoStore`, `TypeLayoutResolver` |
+| `codegen/type_registration.rs` | `register_user_types()` -- eager resolution from `TypeEntry` |
+| `codegen/lower_calls.rs` | `lower_method_call` -- method dispatch and calling |
+| `codegen/lower_collections.rs` | Struct literal construction, field access lowering |
+| `evaluator.rs` | Pipeline orchestration, creates `TypeInfoStore` and `TypeLayoutResolver` |
 
 ## Limitations
 
-- All struct fields currently use `i64` type (matching INT fallback)
-- Field access uses heuristics for common field names when type info unavailable
+- Generic struct types are skipped during registration (resolved at monomorphization)
 - Method resolution relies on function name lookup (no overloading)
-- No support for generic struct types yet
+- Enum types use a tag + max-payload representation (not optimized for single-variant enums)

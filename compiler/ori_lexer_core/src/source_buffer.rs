@@ -47,15 +47,17 @@ pub struct SourceBuffer {
 
 /// Encoding issue detected during source buffer construction.
 ///
-/// The `pos` field is the byte position in the original source where the
-/// issue was found. The integration layer converts these to `LexError`
-/// diagnostics with proper spans and messages.
+/// Carries the kind, byte position, and byte length of the problematic
+/// sequence. The integration layer converts these to `LexError` diagnostics
+/// using `Span::new(pos, pos + len)` — no need to hard-code per-kind lengths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EncodingIssue {
     /// What kind of encoding issue was detected.
     pub kind: EncodingIssueKind,
     /// Byte position in the source where the issue was found.
     pub pos: u32,
+    /// Byte length of the problematic sequence.
+    pub len: u32,
 }
 
 /// Kind of encoding issue detected in source buffer.
@@ -165,17 +167,20 @@ fn detect_bom(source: &[u8], issues: &mut Vec<EncodingIssue>) {
         issues.push(EncodingIssue {
             kind: EncodingIssueKind::Utf8Bom,
             pos: 0,
+            len: 3,
         });
     } else if source.len() >= 2 {
         if source[0] == 0xFF && source[1] == 0xFE {
             issues.push(EncodingIssue {
                 kind: EncodingIssueKind::Utf16LeBom,
                 pos: 0,
+                len: 2,
             });
         } else if source[0] == 0xFE && source[1] == 0xFF {
             issues.push(EncodingIssue {
                 kind: EncodingIssueKind::Utf16BeBom,
                 pos: 0,
+                len: 2,
             });
         }
     }
@@ -193,6 +198,7 @@ fn detect_interior_nulls(source: &[u8], issues: &mut Vec<EncodingIssue>) {
             issues.push(EncodingIssue {
                 kind: EncodingIssueKind::InteriorNull,
                 pos: p,
+                len: 1,
             });
         }
         offset = absolute + 1;
@@ -305,6 +311,7 @@ mod tests {
         assert_eq!(buf.encoding_issues().len(), 1);
         assert_eq!(buf.encoding_issues()[0].kind, EncodingIssueKind::Utf8Bom);
         assert_eq!(buf.encoding_issues()[0].pos, 0);
+        assert_eq!(buf.encoding_issues()[0].len, 3);
     }
 
     #[test]
@@ -314,6 +321,7 @@ mod tests {
         let buf = SourceBuffer::new(source);
         assert_eq!(buf.encoding_issues().len(), 1);
         assert_eq!(buf.encoding_issues()[0].kind, EncodingIssueKind::Utf8Bom);
+        assert_eq!(buf.encoding_issues()[0].len, 3);
     }
 
     #[test]
@@ -335,6 +343,7 @@ mod tests {
             .collect();
         assert_eq!(nulls.len(), 1);
         assert_eq!(nulls[0].pos, 2);
+        assert_eq!(nulls[0].len, 1);
     }
 
     #[test]

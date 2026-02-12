@@ -4,7 +4,7 @@
 
 use super::test_interner;
 use crate::eval::Value;
-use ori_eval::dispatch_builtin_method;
+use ori_eval::dispatch_builtin_method_str as dispatch_builtin_method;
 
 #[test]
 fn unwrap_some() {

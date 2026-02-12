@@ -31,10 +31,6 @@ use super::registration::{resolve_parsed_type_simple, resolve_type_with_self};
 use super::ModuleChecker;
 use crate::{check_expr, infer_expr, ContextKind, Expected, ExpectedOrigin, FunctionSig, Idx};
 
-// ============================================================================
-// Pass 2: Function Body Checking
-// ============================================================================
-
 /// Check all function bodies.
 ///
 /// This pass runs after signature collection (Pass 1). Each function body
@@ -153,10 +149,6 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
     checker.pattern_resolutions.extend(pat_resolutions);
 }
 
-// ============================================================================
-// Pass 3: Test Body Checking
-// ============================================================================
-
 /// Check all test bodies.
 ///
 /// Tests are similar to functions but:
@@ -234,10 +226,6 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     // Accumulate pattern resolutions
     checker.pattern_resolutions.extend(pat_resolutions);
 }
-
-// ============================================================================
-// Pass 4: Impl Method Body Checking
-// ============================================================================
 
 /// Check all impl method bodies.
 #[tracing::instrument(level = "debug", skip_all, fields(count = module.impls.len()))]

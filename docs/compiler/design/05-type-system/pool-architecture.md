@@ -54,6 +54,7 @@ pub struct Pool {
     hashes: Vec<u64>,              // Parallel array: for dedup verification
     extra: Vec<u32>,               // Variable-length data (func params, tuple elems)
     intern_map: FxHashMap<u64, Idx>,  // Hash → Idx for deduplication
+    resolutions: FxHashMap<Idx, Idx>, // Named/Applied → concrete Struct/Enum
     var_states: Vec<VarState>,     // Type variable state (separate from items)
     next_var_id: u32,              // Counter for fresh variable generation
 }
@@ -249,18 +250,48 @@ pub fn applied_args(&self, idx: Idx) -> &[u32]
 
 ## Type Variable State
 
-Type variables are managed through a separate `var_states` vector. Each variable has a state:
+Type variables are managed through a separate `var_states: Vec<VarState>` vector, indexed by variable ID (not by `Idx`). This separation keeps type variable bookkeeping out of the main parallel arrays, since variable state changes frequently during unification while the main arrays are append-only after construction.
 
 ```rust
 pub enum VarState {
     Unbound { id: u32, rank: Rank, name: Option<Name> },
-    Link { target: Idx },           // Unified with target (path compression)
-    Rigid { name: Name },           // From annotation, cannot be unified
-    Generalized { id: u32, name: Option<Name> },  // Captured in type scheme
+    Link { target: Idx },
+    Rigid { name: Name },
+    Generalized { id: u32, name: Option<Name> },
 }
 ```
 
-The `Link` variant is the key to the union-find approach — see [Unification](unification.md) for details on how path compression works through these links.
+### VarState Variants
+
+**`Unbound`** — A fresh, unconstrained type variable. Created by `fresh_var()` / `fresh_var_with_rank()`. The `rank` field tracks the scope depth for let-polymorphism (variables at higher ranks can be generalized when exiting their scope). The optional `name` provides better error messages (e.g., `T` from a type annotation vs. an anonymous `?a`).
+
+**`Link`** — The variable has been unified with another type. The `target` field points to the unified type (which may itself be another variable, forming a chain). During `resolve()`, path compression updates intermediate links to point directly to the final target, achieving O(alpha(n)) amortized complexity:
+
+```
+Before: T0 → T1 → T2 → int
+After resolve(T0): T0 → int, T1 → int, T2 → int
+```
+
+**`Rigid`** — A type variable from a user annotation (e.g., `T` in `fn foo<T>(x: T)`). Rigid variables cannot be unified with concrete types or other rigid variables with different names. They represent universally quantified type parameters that must remain abstract.
+
+**`Generalized`** — A variable captured in a type scheme during let-polymorphism generalization. When the scheme is instantiated, each generalized variable is replaced with a fresh `Unbound` variable.
+
+## Named Type Resolutions
+
+The `resolutions: FxHashMap<Idx, Idx>` field bridges parser-level type references to their concrete pool definitions. The parser creates `Named` types (e.g., `Named("Point")`) and `Applied` types (e.g., `Applied("Option", [int])`), but these do not carry field/variant information. During type registration, `set_resolution()` records the mapping from these references to the concrete `Struct`/`Enum` `Idx` values that carry full type data:
+
+```rust
+impl Pool {
+    /// Record a Named/Applied → concrete resolution.
+    pub fn set_resolution(&mut self, named: Idx, concrete: Idx);
+
+    /// Resolve a Named/Applied type to its concrete definition.
+    /// Follows resolution chains up to a bounded depth.
+    pub fn resolve(&self, idx: Idx) -> Option<Idx>;
+}
+```
+
+This mapping allows codegen and later phases to resolve types without accessing `TypeRegistry`.
 
 ## Type Formatting
 

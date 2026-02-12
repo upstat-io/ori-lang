@@ -405,6 +405,13 @@ pub fn is_simple_conditional_body(arena: &ExprArena, body: ExprId) -> bool {
 
 7. **Integrate with formatter**: Update orchestration layer to use the rule.
 
+## Implementation Status
+
+Not all rules are fully integrated into the formatter pipeline:
+
+- **`MethodChainRule`**: Infrastructure defined (`collect_method_chain()`, `is_method_chain()`) but **not yet invoked** by the emitter. Method chains currently fall through to generic expression formatting.
+- **Incremental formatting**: Implemented in `ori_fmt/src/incremental.rs` with declaration-level granularity. Supports LSP format-on-type and large-file partial formatting. Covered by tests in `ori_fmt/tests/incremental_tests.rs`. Current limitation: changes to imports or constants trigger a full reformat.
+
 ## Spec Reference
 
 Rules implement various sections of the formatting spec:

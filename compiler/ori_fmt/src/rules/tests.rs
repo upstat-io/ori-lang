@@ -171,7 +171,3 @@ mod run_rule_tests {
         assert_eq!(nested.depth, 1);
     }
 }
-
-mod loop_rule_tests {
-    // LoopRule tests require an arena, covered in integration tests
-}

@@ -119,27 +119,6 @@ fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
 
 This produces messages like "expected expression, found `}` (while parsing an if expression)" rather than bare "expected expression".
 
-### Coexistence with ParseResult
-
-`ParseOutcome` coexists with the legacy `ParseResult` (two-part progress + result) during migration. `From` conversions bridge between the types:
-
-```rust
-pub struct ParseResult<T> {
-    pub progress: Progress,       // Made | None
-    pub result: Result<T, ParseError>,
-}
-
-// Bidirectional conversion
-impl<T> From<ParseResult<T>> for ParseOutcome<T> { ... }
-impl<T> From<ParseOutcome<T>> for ParseResult<T> { ... }
-```
-
-The `with_outcome` method on `Parser` wraps `Result`-returning functions into `ParseOutcome`:
-
-```rust
-let outcome = self.with_outcome(|p| p.parse_use_inner(visibility));
-```
-
 ## TokenSet: Bitset-Based Recovery Points
 
 Token sets use a `u128` bitfield for O(1) membership testing. Each bit corresponds to a `TokenKind` discriminant index, supporting all 115 token kinds.

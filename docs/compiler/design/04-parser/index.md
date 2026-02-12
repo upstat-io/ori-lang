@@ -17,11 +17,9 @@ compiler/ori_parse/src/
 ├── cursor.rs               # Token cursor abstraction
 ├── context.rs              # ParseContext bitfield for context-sensitive parsing
 ├── outcome.rs              # ParseOutcome (4-way result) + backtracking macros
-├── progress.rs             # Progress (2-way result, legacy — migrating to ParseOutcome)
 ├── recovery.rs             # TokenSet bitset and synchronization
 ├── series.rs               # Series combinator for comma-separated lists
 ├── snapshot.rs             # Parser snapshots for speculative parsing
-├── scratch.rs              # Reusable scratch buffer (infrastructure, not yet integrated)
 ├── error.rs                # ParseError, ErrorContext, ParseWarning
 ├── incremental.rs          # Incremental parsing for IDE reuse
 └── grammar/

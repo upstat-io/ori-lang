@@ -1,7 +1,7 @@
-//! Parser - Re-exports from `ori_parse`
+//! Parser - Selective re-exports from `ori_parse`.
 //!
-//! This module re-exports all types from the `ori_parse` crate.
-//! The `ori_parse` crate is the single source of truth for parser types.
+//! Re-exports only the types downstream consumers actually need.
+//! Internal parser machinery (`Cursor`, `Parser`, `TokenSet`, etc.)
+//! remains accessible via `ori_parse` directly if needed.
 
-// Re-export everything from ori_parse
-pub use ori_parse::*;
+pub use ori_parse::{parse, ParseError, ParseOutput};

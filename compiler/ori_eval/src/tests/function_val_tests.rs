@@ -78,25 +78,25 @@ mod int_conversion {
     fn int_from_float_nan_error() {
         let result = function_val_int(&[Value::Float(f64::NAN)]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("NaN"));
+        assert!(result.unwrap_err().message.contains("NaN"));
     }
 
     #[test]
     fn int_from_float_infinity_error() {
         let result = function_val_int(&[Value::Float(f64::INFINITY)]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("infinity"));
+        assert!(result.unwrap_err().message.contains("infinity"));
 
         let result = function_val_int(&[Value::Float(f64::NEG_INFINITY)]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("infinity"));
+        assert!(result.unwrap_err().message.contains("infinity"));
     }
 
     #[test]
     fn int_from_float_overflow_error() {
         let result = function_val_int(&[Value::Float(1e19)]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("out of range"));
+        assert!(result.unwrap_err().message.contains("out of range"));
     }
 
     #[test]

@@ -48,6 +48,7 @@ mod interner;
 mod metadata;
 mod name;
 mod parsed_type;
+mod pattern_resolution;
 mod span;
 mod token;
 mod traits;
@@ -145,6 +146,7 @@ pub use interner::{InternError, SharedInterner, StringInterner, StringLookup};
 pub use metadata::ModuleExtra;
 pub use name::Name;
 pub use parsed_type::ParsedType;
+pub use pattern_resolution::{PatternKey, PatternResolution};
 pub use span::{Span, SpanError};
 pub use token::{
     DurationUnit, SizeUnit, Token, TokenCapture, TokenFlags, TokenIdx, TokenKind, TokenList,

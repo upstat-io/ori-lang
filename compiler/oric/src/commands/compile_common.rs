@@ -91,11 +91,8 @@ pub fn check_source(
         let source = file.text(db);
         let mut queue = DiagnosticQueue::new();
         for error in &parse_result.errors {
-            queue.add_with_source_and_severity(
-                error.to_diagnostic(),
-                source.as_str(),
-                error.severity,
-            );
+            let (diag, severity) = error.to_queued_diagnostic();
+            queue.add_with_source_and_severity(diag, source.as_str(), severity);
         }
         for diag in queue.flush() {
             emitter.emit(&diag);
@@ -190,8 +187,9 @@ fn build_function_sigs(
 /// Run ARC borrow inference on all non-generic module functions.
 ///
 /// Lowers each function to ARC IR, runs the iterative borrow inference
-/// algorithm, and returns a map from function `Name` → `AnnotatedSig`
-/// with `Ownership::Borrowed`/`Owned` annotations per parameter.
+/// algorithm, and returns both:
+/// - A map from function `Name` → `AnnotatedSig` with ownership annotations
+/// - The lowered `ArcFunction`s (for reuse by downstream passes, avoiding re-lowering)
 ///
 /// Generic functions are skipped (they require monomorphization first).
 /// Functions that fail ARC IR lowering are skipped with a diagnostic.
@@ -202,7 +200,10 @@ fn run_borrow_inference(
     canon: &CanonResult,
     interner: &StringInterner,
     pool: &Pool,
-) -> FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig> {
+) -> (
+    FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>,
+    Vec<ori_arc::ArcFunction>,
+) {
     let classifier = ori_arc::ArcClassifier::new(pool);
     let mut arc_functions = Vec::new();
     let mut arc_problems = Vec::new();
@@ -249,7 +250,8 @@ fn run_borrow_inference(
         emit_codegen_diagnostics(acc);
     }
 
-    ori_arc::infer_borrows(&arc_functions, &classifier)
+    let sigs = ori_arc::infer_borrows(&arc_functions, &classifier);
+    (sigs, arc_functions)
 }
 
 /// Run ARC pipeline with optional caching.
@@ -287,54 +289,18 @@ pub fn run_arc_pipeline_cached(
         }
     }
 
-    // Cache miss — run full pipeline
-    let annotated_sigs = run_borrow_inference(parse_result, function_sigs, canon, interner, pool);
+    // Cache miss — run full pipeline (returns both sigs and lowered functions)
+    let (annotated_sigs, mut arc_functions) =
+        run_borrow_inference(parse_result, function_sigs, canon, interner, pool);
 
-    // Cache the result for next time
+    // Cache the result for next time (reuses already-lowered functions)
     if let (Some(cache), Some(hash)) = (arc_cache, module_hash) {
         let key = ori_llvm::aot::incremental::arc_cache::ArcIrCacheKey {
             function_hash: hash,
         };
 
-        // We need to re-lower to get ArcFunctions for caching
-        // (run_borrow_inference doesn't expose them directly)
-        let classifier = ori_arc::ArcClassifier::new(pool);
-        let mut arc_functions = Vec::new();
-        let mut arc_problems = Vec::new();
-
-        for (func, sig) in parse_result
-            .module
-            .functions
-            .iter()
-            .zip(function_sigs.iter())
-        {
-            if sig.is_generic() {
-                continue;
-            }
-
-            let params: Vec<(ori_ir::Name, Idx)> = sig
-                .param_names
-                .iter()
-                .zip(sig.param_types.iter())
-                .map(|(&n, &t)| (n, t))
-                .collect();
-
-            let body_id = canon.root_for(func.name).unwrap_or(canon.root);
-            let (arc_fn, lambdas) = ori_arc::lower_function_can(
-                func.name,
-                &params,
-                sig.return_type,
-                body_id,
-                canon,
-                interner,
-                pool,
-                &mut arc_problems,
-            );
-            arc_functions.push(arc_fn);
-            arc_functions.extend(lambdas);
-        }
-
         // Apply the full ARC pipeline to get the final IR for caching
+        let classifier = ori_arc::ArcClassifier::new(pool);
         ori_arc::apply_borrows(&mut arc_functions, &annotated_sigs);
         for func in &mut arc_functions {
             let liveness = ori_arc::compute_liveness(func, &classifier);
@@ -420,7 +386,7 @@ pub fn compile_to_llvm<'ctx>(
         // 3. Run ARC borrow inference pipeline
         let function_sigs = build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-        let annotated_sigs =
+        let (annotated_sigs, _arc_functions) =
             run_borrow_inference(parse_result, &function_sigs, canon, interner, pool);
 
         // 4. Two-pass function compilation with borrow annotations

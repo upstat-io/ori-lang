@@ -5,8 +5,9 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
-use super::super::ranges::NamedExprRange;
 use crate::{ExprId, Name, Span, Spanned};
+
+use super::super::ranges::NamedExprRange;
 
 /// Named expression for `function_exp`.
 ///
@@ -116,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::clone_on_copy)] // Intentionally testing Clone trait impl
+    #[expect(clippy::clone_on_copy, reason = "Testing Clone trait impl explicitly")]
     fn test_function_exp_kind_copy_clone() {
         let kind = FunctionExpKind::Timeout;
         let copied = kind; // Copy

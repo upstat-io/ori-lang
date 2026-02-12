@@ -5,10 +5,11 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
+use crate::{Name, ParsedType, Span, Spanned};
+
 use super::super::ranges::GenericParamRange;
 use super::super::Visibility;
 use super::traits::WhereClause;
-use crate::{Name, ParsedType, Span, Spanned};
 
 /// A user-defined type declaration.
 ///
@@ -22,12 +23,12 @@ use crate::{Name, ParsedType, Span, Spanned};
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TypeDecl {
     pub name: Name,
+    /// The kind of type being declared
+    pub kind: TypeDeclKind,
     /// Generic parameters: `<T, U: Bound>`
     pub generics: GenericParamRange,
     /// Where clauses: `where T: Clone, U: Default`
     pub where_clauses: Vec<WhereClause>,
-    /// The kind of type being declared
-    pub kind: TypeDeclKind,
     pub span: Span,
     pub visibility: Visibility,
     /// Derived traits: `#[derive(Eq, Clone)]`

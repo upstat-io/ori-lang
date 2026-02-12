@@ -424,6 +424,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             debug!(?problem, "ARC lowering problem");
         }
 
+        // Step 1.5: Apply borrow inference annotations to ARC IR params.
+        // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
+        // Without this, RC insertion generates unnecessary RcInc/RcDec for
+        // params that borrow inference determined should be Borrowed.
+        if let Some(sigs) = self.annotated_sigs {
+            if let Some(sig) = sigs.get(&name) {
+                for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
+                    param.ownership = annotated.ownership;
+                }
+            }
+        }
+
         // Step 2: Run full ARC pipeline (insert → detect → expand → eliminate)
         let liveness = compute_liveness(&arc_func, classifier);
         insert_rc_ops(&mut arc_func, classifier, &liveness);

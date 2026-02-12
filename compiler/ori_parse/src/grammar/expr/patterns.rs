@@ -434,7 +434,7 @@ impl Parser<'_> {
         if !self.cursor.check(&TokenKind::Underscore) {
             return ParseOutcome::empty_err_expected(
                 &TokenKind::Underscore,
-                self.cursor.position(),
+                self.cursor.current_span().start as usize,
             );
         }
         self.cursor.advance();
@@ -547,7 +547,10 @@ impl Parser<'_> {
                     self.cursor.previous_span(),
                 ))))
             }
-            _ => ParseOutcome::empty_err(PATTERN_LITERAL_TOKENS, self.cursor.position()),
+            _ => ParseOutcome::empty_err(
+                PATTERN_LITERAL_TOKENS,
+                self.cursor.current_span().start as usize,
+            ),
         }
     }
 
@@ -556,7 +559,7 @@ impl Parser<'_> {
         let TokenKind::Ident(name) = *self.cursor.current_kind() else {
             return ParseOutcome::empty_err_expected(
                 &TokenKind::Ident(Name::EMPTY),
-                self.cursor.position(),
+                self.cursor.current_span().start as usize,
             );
         };
 
@@ -604,7 +607,10 @@ impl Parser<'_> {
     /// Parse anonymous struct pattern: `{ x, y }`
     fn parse_pattern_struct(&mut self) -> ParseOutcome<MatchPattern> {
         if !self.cursor.check(&TokenKind::LBrace) {
-            return ParseOutcome::empty_err_expected(&TokenKind::LBrace, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::LBrace,
+                self.cursor.current_span().start as usize,
+            );
         }
         match self.parse_struct_pattern_fields() {
             Ok(pat) => ParseOutcome::consumed_ok(pat),
@@ -615,7 +621,10 @@ impl Parser<'_> {
     /// Parse list pattern: `[a, b, ..rest]`
     fn parse_pattern_list(&mut self) -> ParseOutcome<MatchPattern> {
         if !self.cursor.check(&TokenKind::LBracket) {
-            return ParseOutcome::empty_err_expected(&TokenKind::LBracket, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::LBracket,
+                self.cursor.current_span().start as usize,
+            );
         }
         self.cursor.advance();
         // Pattern elements use a Vec because patterns can recursively
@@ -668,7 +677,12 @@ impl Parser<'_> {
             TokenKind::None => ("None", false),
             TokenKind::Ok => ("Ok", true),
             TokenKind::Err => ("Err", true),
-            _ => return ParseOutcome::empty_err(PATTERN_VARIANT_TOKENS, self.cursor.position()),
+            _ => {
+                return ParseOutcome::empty_err(
+                    PATTERN_VARIANT_TOKENS,
+                    self.cursor.current_span().start as usize,
+                )
+            }
         };
 
         let name = self.cursor.interner().intern(name_str);
@@ -698,7 +712,10 @@ impl Parser<'_> {
         use crate::series::SeriesConfig;
 
         if !self.cursor.check(&TokenKind::LParen) {
-            return ParseOutcome::empty_err_expected(&TokenKind::LParen, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::LParen,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         self.cursor.advance();

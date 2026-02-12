@@ -479,7 +479,6 @@ impl<'a> ImportedModule<'a> {
             let (params, capabilities) = extract_function_metadata(func, imported_arena);
             let mut func_value = FunctionValue::with_capabilities(
                 params,
-                func.body,
                 FxHashMap::default(),
                 imported_arena.clone(),
                 capabilities,
@@ -580,7 +579,6 @@ pub fn register_imports(
 
             let mut func_value = FunctionValue::with_capabilities(
                 params,
-                func.body,
                 captures,
                 imported.arena.clone(),
                 capabilities,
@@ -651,7 +649,6 @@ fn register_module_alias(
             let (params, capabilities) = extract_function_metadata(func, imported.arena);
             let mut func_value = FunctionValue::with_shared_captures(
                 params,
-                func.body,
                 Arc::clone(&shared_captures),
                 imported.arena.clone(),
                 capabilities,

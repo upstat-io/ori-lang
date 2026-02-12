@@ -18,11 +18,14 @@ flowchart TB
     C --> D["Parser"]
     D --> E["Module + ExprArena"]
     E --> F["Type Checker"]
-    F --> G["TypedModule (expr_types)"]
-    G --> H["Evaluator"]
-    H --> I["ModuleEvalResult (Value)"]
-    G --> J["LLVM Codegen"]
-    J --> K["Native Binary"]
+    F --> G["TypedModule (TypeCheckResult)"]
+    G --> H["Canonicalizer"]
+    H --> I["CanonResult (CanArena + DecisionTrees)"]
+    I --> J["Evaluator"]
+    J --> K["ModuleEvalResult (Value)"]
+    G --> L["ARC Analysis"]
+    L --> M["LLVM Codegen"]
+    M --> N["Native Binary"]
 ```
 
 ## Stage 1: Lexing
@@ -163,9 +166,49 @@ ExprArena[ExprId(1)] = Literal(Int(42))
    }
 ```
 
+## Stage 3.5: Canonicalization
+
+**Input**: Module + ExprArena + TypeCheckResult + Pool
+**Output**: CanonResult
+
+```rust
+pub struct CanonResult {
+    arena: CanArena,        // Canonical expressions indexed by CanId
+    decision_trees: Vec<DecisionTree>,  // Compiled pattern match trees
+    constant_pool: ConstantPool,        // Pre-evaluated constants
+    roots: Vec<CanonRoot>,  // Named function/test entry points
+    // ...
+}
+```
+
+Data transformations:
+1. Named calls -> Positional calls (desugaring)
+2. Template literals -> String concatenation
+3. Spread expressions -> Method calls
+4. Match patterns -> Decision trees (Maranget 2008 algorithm)
+5. Compile-time expressions -> Constants (constant folding)
+6. Every CanNode annotated with its resolved type
+
+Example:
+```
+match x {
+  Some(n) if n > 0 -> n
+  Some(n) -> -n
+  None -> 0
+}
+
+-> DecisionTree {
+     // Compiled into efficient test/switch/bind nodes
+     // No redundant checks, optimal ordering
+   }
+```
+
+This phase runs inside `evaluated()`, not as a separate Salsa query. The `CanonResult` is
+wrapped in `SharedCanonResult` (Arc) for sharing across the evaluator and test runner.
+
 ## Stage 4: Evaluation
 
-**Input**: Module + ExprArena + TypedModule
+**Input**: CanonResult (canonical IR, not raw AST)
 **Output**: ModuleEvalResult
 
 ```rust
@@ -191,10 +234,14 @@ pub struct EvalOutput {
 ```
 
 Data transformations:
-1. AST + Types -> Runtime Values
-2. Function calls -> Stack frame creation
-3. Pattern expressions -> Pattern evaluation
-4. Print calls -> Output capture
+1. CanExpr nodes -> Runtime Values (via `eval_can(CanId)`)
+2. Decision trees -> Pattern match evaluation
+3. Function calls -> Stack frame creation
+4. Pattern expressions -> Pattern evaluation
+5. Print calls -> Output capture
+
+The evaluator works on canonical IR (`CanExpr`/`CanId`), not raw `ExprKind`/`ExprId`.
+This means all desugaring is already done and patterns are pre-compiled into decision trees.
 
 Example:
 ```
@@ -270,12 +317,14 @@ flowchart TB
     A["Source Text (owned String)"] --> B["Interned (shared via Interner)"]
     A --> C["TokenList (owns Vec&lt;Token&gt;)"]
     C -->|"tokens consumed by parser"| D["Module + ExprArena (owns AST nodes)"]
-    D -->|"borrowed by type checker"| E["TypedModule (owns Vec&lt;Type&gt;)"]
-    E -->|"all borrowed by evaluator"| F["Value (owns runtime data via Arc)"]
+    D -->|"borrowed by type checker"| E["TypeCheckResult (owns types via Pool)"]
+    E -->|"consumed by canonicalizer"| F["CanonResult (owns CanArena, DecisionTrees)"]
+    F -->|"shared via SharedCanonResult (Arc)"| G["Value (owns runtime data via Arc)"]
 ```
 
 Key points:
 - No data is copied between stages
 - AST is borrowed, not cloned, after parsing
+- CanonResult is wrapped in Arc (SharedCanonResult) for sharing across evaluator and test runner
 - Values use Arc for safe sharing in closures
 - Salsa handles caching and lifetime management

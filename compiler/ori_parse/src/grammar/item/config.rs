@@ -23,7 +23,10 @@ impl Parser<'_> {
     /// Returns `EmptyErr` if no `$` is present.
     pub(crate) fn parse_const(&mut self, visibility: Visibility) -> ParseOutcome<ConstDef> {
         if !self.cursor.check(&TokenKind::Dollar) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Dollar, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Dollar,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         self.parse_const_body(visibility)
@@ -105,7 +108,10 @@ impl Parser<'_> {
                 ExprKind::Size { value, unit }
             }
             _ => {
-                return ParseOutcome::empty_err(CONST_LITERAL_TOKENS, self.cursor.position());
+                return ParseOutcome::empty_err(
+                    CONST_LITERAL_TOKENS,
+                    self.cursor.current_span().start as usize,
+                );
             }
         };
 

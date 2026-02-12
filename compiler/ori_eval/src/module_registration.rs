@@ -17,10 +17,11 @@
     reason = "Arc required for SharedArena API and shared captures"
 )]
 
-use ori_ir::canon::SharedCanonResult;
-use ori_ir::{Module, Name, SharedArena, TypeDeclKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
+
+use ori_ir::canon::SharedCanonResult;
+use ori_ir::{Module, Name, SharedArena, TypeDeclKind};
 
 use crate::{Environment, FunctionValue, Mutability, UserMethod, UserMethodRegistry, Value};
 
@@ -70,7 +71,7 @@ pub fn register_module_functions(
         func_groups.entry(func.name).or_default().push(func);
     }
 
-    let captures = env.capture();
+    let captures = Arc::new(env.capture());
 
     // Build a lookup from function name → CanonRoot for canonical wiring.
     // Carries both body CanId and canonicalized defaults per function.
@@ -85,67 +86,38 @@ pub fn register_module_functions(
         .unwrap_or_default();
 
     for (name, funcs) in func_groups {
-        if funcs.len() == 1 {
-            // Single function - create standard Value::Function
-            let func = funcs[0];
-            let params_slice = arena.get_params(func.params);
-            let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
-            let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
+        // For multi-clause functions, `lower_module()` synthesizes a single
+        // canonical match body. We always use the first clause's parameters.
+        let first_func = funcs[0];
+        let params_slice = arena.get_params(first_func.params);
+        let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
+        let capabilities: Vec<_> = first_func.capabilities.iter().map(|c| c.name).collect();
 
-            let mut func_value = FunctionValue::with_capabilities(
-                params,
-                func.body,
-                captures.clone(),
-                arena.clone(),
-                capabilities,
-            );
+        let mut func_value = FunctionValue::with_shared_captures(
+            params,
+            Arc::clone(&captures),
+            arena.clone(),
+            capabilities,
+        );
 
-            // Attach canonical IR and defaults
-            if let (Some(roots), Some(c)) = (canon_lookup.get(&name), canon) {
-                if let Some(root) = roots.first() {
-                    func_value.set_canon(root.body, c.clone());
-                    if root.defaults.iter().any(Option::is_some) {
-                        func_value.set_can_defaults(root.defaults.clone());
-                    }
+        // Attach canonical IR and defaults
+        if let (Some(roots), Some(c)) = (canon_lookup.get(&name), canon) {
+            if let Some(root) = roots.first() {
+                func_value.set_canon(root.body, c.clone());
+                if root.defaults.iter().any(Option::is_some) {
+                    func_value.set_can_defaults(root.defaults.clone());
                 }
             }
-
-            env.define(name, Value::Function(func_value), Mutability::Immutable);
-        } else {
-            // Multiple functions with same name — dispatch lowered to a single
-            // canonical match body by `lower_module()`. Register using the first
-            // clause's parameters (the match body handles clause selection).
-            let first_func = funcs[0];
-            let params_slice = arena.get_params(first_func.params);
-            let params: Vec<_> = params_slice.iter().map(|p| p.name).collect();
-            let capabilities: Vec<_> = first_func.capabilities.iter().map(|c| c.name).collect();
-
-            let mut func_value = FunctionValue::with_capabilities(
-                params,
-                first_func.body,
-                captures.clone(),
-                arena.clone(),
-                capabilities,
-            );
-
-            // Attach the canonical match body (synthesized by lower_module).
-            if let (Some(roots), Some(c)) = (canon_lookup.get(&name), canon) {
-                if let Some(root) = roots.first() {
-                    func_value.set_canon(root.body, c.clone());
-                    if root.defaults.iter().any(Option::is_some) {
-                        func_value.set_can_defaults(root.defaults.clone());
-                    }
-                }
-            }
-
-            env.define(name, Value::Function(func_value), Mutability::Immutable);
         }
+
+        env.define(name, Value::Function(func_value), Mutability::Immutable);
     }
 }
 
-/// Collect methods from impl blocks into a registry using a config struct.
+/// Collect methods from impl blocks into a registry.
 ///
-/// Prefer this over `collect_impl_methods` for new code.
+/// Registers each method defined in `impl Type { ... }` blocks, including
+/// default trait methods that weren't overridden.
 pub fn collect_impl_methods_with_config(
     config: &MethodCollectionConfig<'_>,
     registry: &mut UserMethodRegistry,
@@ -159,9 +131,9 @@ pub fn collect_impl_methods_with_config(
     );
 }
 
-/// Collect methods from extend blocks into a registry using a config struct.
+/// Collect methods from extend blocks into a registry.
 ///
-/// Prefer this over `collect_extend_methods` for new code.
+/// Registers each method defined in `extend [T] { ... }` blocks.
 pub fn collect_extend_methods_with_config(
     config: &MethodCollectionConfig<'_>,
     registry: &mut UserMethodRegistry,
@@ -186,11 +158,7 @@ pub fn collect_extend_methods_with_config(
 /// * `arena` - Shared arena for expression lookup
 /// * `captures` - Variable captures pre-wrapped in Arc for efficient sharing
 /// * `registry` - Registry to store collected methods
-#[expect(
-    clippy::implicit_hasher,
-    reason = "FxHashMap is used specifically for performance with small keys"
-)]
-pub fn collect_impl_methods(
+fn collect_impl_methods(
     module: &Module,
     arena: &SharedArena,
     captures: &Arc<FxHashMap<Name, Value>>,
@@ -222,8 +190,7 @@ pub fn collect_impl_methods(
             let params = arena.get_param_names(method.params);
 
             // Create user method with Arc-cloned captures (O(1) instead of O(n))
-            let mut user_method =
-                UserMethod::new(params, method.body, Arc::clone(captures), arena.clone());
+            let mut user_method = UserMethod::new(params, Arc::clone(captures), arena.clone());
 
             // Attach canonical IR when available.
             if let Some(cr) = canon {
@@ -245,12 +212,8 @@ pub fn collect_impl_methods(
                             if !overridden_methods.contains(&default_method.name) {
                                 let params = arena.get_param_names(default_method.params);
 
-                                let mut user_method = UserMethod::new(
-                                    params,
-                                    default_method.body,
-                                    Arc::clone(captures),
-                                    arena.clone(),
-                                );
+                                let mut user_method =
+                                    UserMethod::new(params, Arc::clone(captures), arena.clone());
 
                                 if let Some(cr) = canon {
                                     if let Some(can_id) =
@@ -281,11 +244,7 @@ pub fn collect_impl_methods(
 /// * `arena` - Shared arena for expression lookup
 /// * `captures` - Variable captures pre-wrapped in Arc for efficient sharing
 /// * `registry` - Registry to store collected methods
-#[expect(
-    clippy::implicit_hasher,
-    reason = "FxHashMap is used specifically for performance with small keys"
-)]
-pub fn collect_extend_methods(
+fn collect_extend_methods(
     module: &Module,
     arena: &SharedArena,
     captures: &Arc<FxHashMap<Name, Value>>,
@@ -304,8 +263,7 @@ pub fn collect_extend_methods(
             let params = arena.get_param_names(method.params);
 
             // Create user method with Arc-cloned captures (O(1) instead of O(n))
-            let mut user_method =
-                UserMethod::new(params, method.body, Arc::clone(captures), arena.clone());
+            let mut user_method = UserMethod::new(params, Arc::clone(captures), arena.clone());
 
             if let Some(cr) = canon {
                 if let Some(can_id) = cr.method_root_for(type_name, method.name) {
@@ -360,11 +318,7 @@ pub fn register_variant_constructors(module: &Module, env: &mut Environment) {
 /// * `arena` - Shared arena for expression lookup
 /// * `captures` - Variable captures pre-wrapped in Arc for efficient sharing
 /// * `registry` - Registry to store collected methods
-#[expect(
-    clippy::implicit_hasher,
-    reason = "FxHashMap is used specifically for performance with small keys"
-)]
-pub fn collect_def_impl_methods(
+fn collect_def_impl_methods(
     module: &Module,
     arena: &SharedArena,
     captures: &Arc<FxHashMap<Name, Value>>,
@@ -381,8 +335,7 @@ pub fn collect_def_impl_methods(
             let params = arena.get_param_names(method.params);
 
             // Create user method with Arc-cloned captures (O(1) instead of O(n))
-            let mut user_method =
-                UserMethod::new(params, method.body, Arc::clone(captures), arena.clone());
+            let mut user_method = UserMethod::new(params, Arc::clone(captures), arena.clone());
 
             if let Some(cr) = canon {
                 if let Some(can_id) = cr.method_root_for(trait_name, method.name) {
@@ -397,9 +350,10 @@ pub fn collect_def_impl_methods(
     }
 }
 
-/// Collect methods from def impl blocks using a config struct.
+/// Collect methods from def impl blocks into a registry.
 ///
-/// Prefer this over `collect_def_impl_methods` for new code.
+/// Default implementations provide stateless methods for capability traits.
+/// Methods are registered under the trait name for `TraitName.method(...)` calls.
 pub fn collect_def_impl_methods_with_config(
     config: &MethodCollectionConfig<'_>,
     registry: &mut UserMethodRegistry,

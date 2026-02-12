@@ -7,7 +7,7 @@ section: "Evaluator"
 
 # Evaluator Overview
 
-The Ori evaluator is a tree-walking interpreter that executes typed ASTs. It handles expression evaluation, function calls, pattern execution, and module loading.
+The Ori evaluator is a tree-walking interpreter that executes canonical IR. All evaluation goes through `eval_can(CanId)` in `can_eval.rs`, where `CanExpr` is the sole evaluation representation. The evaluator handles expression evaluation, function calls, decision-tree pattern matching, and module loading.
 
 ## Architecture
 
@@ -26,27 +26,36 @@ compiler/ori_eval/src/
 ├── module_registration.rs    # Salsa-free module registration (impl, extend, constructors)
 ├── environment.rs            # Environment, Scope, LocalScope
 ├── errors.rs                 # EvalError factory functions
+├── eval_mode.rs              # EvalMode (Interpret/TestRun/ConstEval), ModeState
+├── diagnostics.rs            # CallStack, CallFrame, EvalBacktrace, EvalCounters
 ├── operators.rs              # Binary operator dispatch
 ├── unary_operators.rs        # Unary operator dispatch
-├── methods.rs                # Built-in method dispatch, EVAL_BUILTIN_METHODS constant
 ├── function_val.rs           # Type conversions (int, float, str, byte)
 ├── user_methods.rs           # UserMethodRegistry for user-defined methods
 ├── print_handler.rs          # Print output capture (stdout/buffer handlers)
 ├── shared.rs                 # SharedRegistry, SharedMutableRegistry
-├── stack.rs                  # Stack safety (stacker integration)
 ├── method_key.rs             # MethodKey newtype
-├── exec/                     # Expression execution
+├── methods/                  # Built-in method dispatch (split by domain)
+│   ├── mod.rs                    # EVAL_BUILTIN_METHODS constant, BuiltinMethodNames
+│   ├── collections.rs            # List, map, set, tuple, range methods
+│   ├── compare.rs                # Comparison and equality methods
+│   ├── helpers.rs                # Shared iterator helpers (map, filter, fold, etc.)
+│   ├── numeric.rs                # Int, float, byte arithmetic and conversion
+│   ├── ordering.rs               # Ordering type methods
+│   ├── units.rs                  # Duration and Size methods
+│   └── variants.rs               # Option, Result, Variant methods
+├── exec/                     # Expression execution utilities
 │   ├── mod.rs                    # Module exports
-│   ├── expr.rs                   # Expression evaluation
-│   ├── call.rs                   # Function call evaluation
-│   ├── control.rs                # Control flow (if, for, loop)
-│   └── pattern.rs                # Pattern matching
+│   ├── expr.rs                   # Identifiers, indexing, field access, ranges
+│   ├── call.rs                   # Function call evaluation, argument binding
+│   ├── control.rs                # Pattern matching, loop actions, assignment
+│   └── decision_tree.rs          # Decision tree evaluation for multi-clause functions
 └── interpreter/              # Core interpreter
-    ├── mod.rs                    # Interpreter struct, main eval dispatch
+    ├── mod.rs                    # Interpreter struct, pre-interned name caches
     ├── builder.rs                # InterpreterBuilder
+    ├── can_eval.rs               # eval_can(CanId) — canonical IR evaluation dispatch
     ├── scope_guard.rs            # RAII scope management
     ├── function_call.rs          # User function calls
-    ├── function_seq.rs           # run/try/match evaluation
     ├── method_dispatch.rs        # Method resolution, iterator helpers
     ├── derived_methods.rs        # Derived trait method evaluation
     └── resolvers/                # Method resolution chain
@@ -84,16 +93,15 @@ compiler/oric/src/eval/
 ```
 TypedModule { Module, ExprArena, expr_types }
     │
-    │ create Evaluator
+    │ canonicalize → CanonResult (CanExpr arena)
     ▼
 Evaluator {
-    env: Environment,          // Variables
-    pattern_registry: ...,     // Pattern handlers
-    type_registry: ...,        // User types
+    interpreter: Interpreter,  // Core eval engine
     output: EvalOutput,        // Captured output
 }
     │
     │ find and call @main (or evaluate top-level)
+    │ all evaluation via eval_can(CanId)
     ▼
 ModuleEvalResult {
     value: Value,              // Final result
@@ -105,30 +113,55 @@ ModuleEvalResult {
 
 ### Interpreter (core, `ori_eval`)
 
-The core tree-walking interpreter, portable and reusable without Salsa:
+The core tree-walking interpreter, portable and reusable without Salsa. All evaluation
+goes through `eval_can(CanId)` in `can_eval.rs`, dispatching on canonical IR (`CanExpr`):
 
 ```rust
 pub struct Interpreter<'a> {
-    /// String interner for name lookup
-    pub interner: &'a StringInterner,
-    /// Expression arena
-    pub arena: &'a ExprArena,
-    /// Current environment
-    pub env: Environment,
-    /// Pattern registry for `function_exp` evaluation
-    pub registry: SharedRegistry<PatternRegistry>,
-    /// User-defined method registry for impl block methods
-    pub user_method_registry: SharedMutableRegistry<UserMethodRegistry>,
-    /// Cached method dispatcher for efficient method resolution
-    pub method_dispatcher: resolvers::MethodDispatcher,
-    /// Arena reference for imported functions
-    pub imported_arena: Option<SharedArena>,
-    /// Whether the prelude has been auto-loaded
-    pub prelude_loaded: bool,
-    /// Print handler for output capture
-    pub print_handler: SharedPrintHandler,
+    /// String interner for name lookup.
+    interner: &'a StringInterner,
+    /// Expression arena.
+    arena: &'a ExprArena,
+    /// Current environment.
+    env: Environment,
+    /// Pre-computed Name for "self" keyword (avoids repeated interning).
+    self_name: Name,
+    /// Pre-interned type names for hot-path method dispatch.
+    type_names: TypeNames,
+    /// Pre-interned print method names for eval_method_call print dispatch.
+    print_names: PrintNames,
+    /// Pre-interned FunctionExp property names for prop dispatch.
+    prop_names: PropNames,
+    /// Pre-interned operator trait method names for user-defined operator dispatch.
+    op_names: OpNames,
+    /// Pre-interned builtin method names for Name-based dispatch.
+    builtin_method_names: BuiltinMethodNames,
+    /// Evaluation mode — determines I/O, recursion, budget policies.
+    mode: EvalMode,
+    /// Per-mode mutable state (budget counters, profiling).
+    mode_state: ModeState,
+    /// Live call stack for recursion tracking and backtrace capture.
+    call_stack: CallStack,
+    /// User-defined method registry for impl block methods.
+    user_method_registry: SharedMutableRegistry<UserMethodRegistry>,
+    /// Cached method dispatcher for efficient method resolution.
+    method_dispatcher: resolvers::MethodDispatcher,
+    /// Shared arena for imported functions and lambda capture.
+    imported_arena: SharedArena,
+    /// Print handler for the Print capability.
+    print_handler: SharedPrintHandler,
+    /// Scope ownership for RAII-style panic-safe scope cleanup.
+    scope_ownership: ScopeOwnership,
+    /// Canonical IR for the current module.
+    canon: Option<SharedCanonResult>,
 }
 ```
+
+Key design features:
+- **Pre-interned names**: `TypeNames`, `PrintNames`, `PropNames`, `OpNames`, and `BuiltinMethodNames` are pre-interned at construction for `u32 == u32` comparison instead of string lookup in hot paths
+- **EvalMode**: Parameterizes behavior for `ori run` (Interpret), `ori test` (TestRun), and compile-time evaluation (ConstEval)
+- **CallStack**: Proper frame tracking replacing the old `call_depth: usize`, with backtrace capture at error sites
+- **ScopeOwnership**: RAII Drop-based scope cleanup for panic safety
 
 ### Evaluator (high-level, `oric`)
 
@@ -173,7 +206,7 @@ impl Evaluator {
         self.register_functions(module)?;
         self.register_types(module)?;
 
-        // Find and call @main
+        // Find and call @main — dispatches through eval_can(CanId)
         if let Some(main_fn) = module.find_function("main") {
             self.call_function(main_fn, vec![])
         } else {
@@ -181,30 +214,11 @@ impl Evaluator {
             self.eval_module_expression(module)
         }
     }
-
-    fn eval_expr(&mut self, id: ExprId) -> Result<Value, EvalError> {
-        let expr = self.arena.get(id);
-
-        match &expr.kind {
-            ExprKind::Literal(lit) => self.eval_literal(lit),
-            ExprKind::Ident(name) => self.eval_ident(*name),
-            ExprKind::Binary { left, op, right } => {
-                self.eval_binary(*left, *op, *right)
-            }
-            ExprKind::Call { func, args } => {
-                self.eval_call(*func, args)
-            }
-            ExprKind::If { cond, then, else_ } => {
-                self.eval_if(*cond, *then, *else_)
-            }
-            ExprKind::Pattern { name, args } => {
-                self.eval_pattern(*name, args)
-            }
-            // ... more cases
-        }
-    }
 }
 ```
+
+All expression evaluation dispatches through `eval_can(CanId)` in `interpreter/can_eval.rs`,
+which reads from the canonical IR (`SharedCanonResult`) rather than the `ExprArena` directly.
 
 ## Key Features
 
@@ -330,35 +344,62 @@ self.with_binding(name, value, Mutability::Immutable, |scoped| scoped.eval(body)
 
 The guards implement `Deref` and `DerefMut` to the underlying interpreter/evaluator, allowing transparent access to all methods. Cleanup is guaranteed even on panic via the `Drop` implementation.
 
-### Pattern Delegation
+### Canonical IR Evaluation
 
-Patterns are evaluated via the registry:
-
-```rust
-fn eval_pattern(&mut self, name: Name, args: &[NamedArg]) -> Result<Value, EvalError> {
-    let pattern = self.pattern_registry.get(name)?;
-    let eval_args = self.eval_pattern_args(args)?;
-    pattern.evaluate(&eval_args, self)
-}
-```
-
-### Module Loading
-
-Imports load and cache modules:
+All evaluation goes through `eval_can(CanId)` in `interpreter/can_eval.rs`. The canonical IR
+(`CanExpr`) is a sugar-free representation — spread operators, template strings, named arguments,
+and other syntactic sugar are desugared during canonicalization. This means `eval_can` only handles
+core expression forms:
 
 ```rust
-fn load_module(&mut self, path: &Path) -> Result<ModuleEvalResult, EvalError> {
-    if let Some(cached) = self.module_cache.get(path) {
-        return Ok(cached.clone());
+impl Interpreter<'_> {
+    /// Entry point for canonical expression evaluation with stack safety.
+    pub fn eval_can(&mut self, can_id: CanId) -> EvalResult {
+        ensure_sufficient_stack(|| self.eval_can_inner(can_id))
     }
-
-    let source = fs::read_to_string(path)?;
-    let result = compile_and_evaluate(&source)?;
-
-    self.module_cache.insert(path.to_path_buf(), result.clone());
-    Ok(result)
 }
 ```
+
+The `CanExpr` type is `Copy` (24 bytes), so the kind is copied out of the arena before dispatching.
+This releases the immutable borrow on `self.canon`, allowing recursive `self.eval_can()` calls.
+
+Pattern matching uses decision tree evaluation via `exec/decision_tree.rs`, operating on canonical IR
+rather than the deleted `exec/pattern.rs`.
+
+### EvalMode
+
+The interpreter's behavior is parameterized by `EvalMode` (defined in `eval_mode.rs`):
+
+| Mode | Purpose | I/O | Recursion Limit | Budget |
+|------|---------|-----|-----------------|--------|
+| **Interpret** | `ori run` | Full | None (native) / 200 (WASM) | None |
+| **TestRun** | `ori test` | Buffered capture | 500 | None |
+| **ConstEval** | Compile-time eval | Forbidden | 64 | Configurable call limit |
+
+`ModeState` tracks per-mode mutable state: call budget for `ConstEval`, optional performance
+counters activated by `--profile`. Counter increments are inlined no-ops when profiling is off.
+
+### CallStack
+
+The `CallStack` (defined in `diagnostics.rs`) replaces the old `call_depth: usize` with proper
+frame tracking:
+
+```rust
+pub struct CallFrame {
+    pub name: Name,                  // Interned function/method name
+    pub call_span: Option<Span>,     // Source location of the call site
+}
+
+pub struct CallStack {
+    frames: Vec<CallFrame>,
+    max_depth: Option<usize>,        // None for unlimited (native Interpret mode)
+}
+```
+
+- **Depth checking**: Integrated into `push()` — returns `Err(StackOverflow)` if limit exceeded
+- **Backtrace capture**: `capture()` snapshots frames into `EvalBacktrace` for error diagnostics
+- **Clone-per-child**: When creating a child interpreter for a function call, the stack is cloned.
+  This is O(N) per call (~24 bytes per frame, ~24 KiB at 1000 depth)
 
 ## Cross-Crate Method Consistency
 
@@ -656,7 +697,12 @@ to these functions:
 
 ```rust
 // In oric/src/eval/evaluator/module_loading.rs
-pub fn load_module(&mut self, parse_result: &ParseResult, file_path: &Path) -> Result<(), String> {
+pub fn load_module(
+    &mut self,
+    parse_result: &ParseOutput,
+    file_path: &Path,
+    canon: Option<&SharedCanonResult>,
+) -> Result<(), String> {
     // ... resolve imports via Salsa ...
 
     let shared_arena = SharedArena::new(parse_result.arena.clone());

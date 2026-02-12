@@ -19,17 +19,20 @@ use ori_ir::canon::{
     CanBindingPattern, CanExpr, CanId, CanMapEntryRange, CanParamRange, CanRange, CanonResult,
 };
 use ori_ir::{BinaryOp, FunctionExpKind, Name, Span, UnaryOp};
-use ori_patterns::{ControlAction, EvalError, EvalResult, Value};
+use ori_patterns::{ControlAction, EvalError, EvalResult, RangeValue, Value};
 use ori_stack::ensure_sufficient_stack;
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 
 use super::Interpreter;
+use crate::errors::{
+    await_not_supported, hash_outside_index, map_key_not_hashable, non_exhaustive_match,
+    parse_error, range_bound_not_int, self_outside_method, unbounded_range_end, undefined_const,
+    undefined_function,
+};
 use crate::exec::expr;
 use crate::{
-    await_not_supported, evaluate_binary, evaluate_unary, hash_outside_index, map_key_not_hashable,
-    non_exhaustive_match, parse_error, range_bound_not_int, self_outside_method,
-    unbounded_range_end, undefined_const, undefined_function, FunctionValue, MemoizedFunctionValue,
-    Mutability, RangeValue, StructValue,
+    evaluate_binary, evaluate_unary, FunctionValue, MemoizedFunctionValue, Mutability, StructValue,
 };
 
 impl Interpreter<'_> {
@@ -65,7 +68,8 @@ impl Interpreter<'_> {
 
     /// Evaluate a list of canonical expressions from a `CanRange`.
     fn eval_can_expr_list(&mut self, range: CanRange) -> Result<Vec<Value>, ControlAction> {
-        let ids: Vec<CanId> = self.canon_ref().arena.get_expr_list(range).to_vec();
+        let ids: SmallVec<[CanId; 8]> =
+            SmallVec::from_slice(self.canon_ref().arena.get_expr_list(range));
         ids.into_iter().map(|id| self.eval_can(id)).collect()
     }
 
@@ -98,25 +102,58 @@ impl Interpreter<'_> {
             }
 
             // References
-            CanExpr::Ident(name) => expr::eval_ident(
-                name,
-                &self.env,
-                self.interner,
-                Some(&self.user_method_registry.read()),
-            ),
-            CanExpr::Const(name) => self
-                .env
-                .lookup(name)
-                .ok_or_else(|| undefined_const(self.interner.lookup(name)).into()),
-            CanExpr::SelfRef => self
-                .env
-                .lookup(self.self_name)
-                .ok_or_else(|| self_outside_method().into()),
-            CanExpr::FunctionRef(name) => self
-                .env
-                .lookup(name)
-                .ok_or_else(|| undefined_function(self.interner.lookup(name)).into()),
-            CanExpr::HashLength => Err(hash_outside_index().into()),
+            CanExpr::Ident(name) => {
+                let span = self.can_span(can_id);
+                expr::eval_ident(name, &self.env, self.interner)
+                    .or_else(|e| {
+                        // FIXME(canonicalization): Type reference resolution should
+                        // happen in ori_canon, not here. This fallback exists because
+                        // cross-module type refs aren't yet resolved during
+                        // canonicalization. Remove once ori_canon handles imported
+                        // type resolution.
+                        if self
+                            .user_method_registry
+                            .read()
+                            .has_any_methods_for_type(name)
+                        {
+                            Ok(Value::TypeRef { type_name: name })
+                        } else {
+                            Err(e)
+                        }
+                    })
+                    .map_err(|e| Self::attach_span(e, span))
+            }
+            CanExpr::TypeRef(name) => {
+                // Type reference resolved at canonicalization time.
+                // Check environment first for variable shadowing.
+                if let Some(val) = self.env.lookup(name) {
+                    Ok(val)
+                } else {
+                    Ok(Value::TypeRef { type_name: name })
+                }
+            }
+            CanExpr::Const(name) => {
+                let span = self.can_span(can_id);
+                self.env.lookup(name).ok_or_else(|| {
+                    Self::attach_span(undefined_const(self.interner.lookup(name)).into(), span)
+                })
+            }
+            CanExpr::SelfRef => {
+                let span = self.can_span(can_id);
+                self.env
+                    .lookup(self.self_name)
+                    .ok_or_else(|| Self::attach_span(self_outside_method().into(), span))
+            }
+            CanExpr::FunctionRef(name) => {
+                let span = self.can_span(can_id);
+                self.env.lookup(name).ok_or_else(|| {
+                    Self::attach_span(undefined_function(self.interner.lookup(name)).into(), span)
+                })
+            }
+            CanExpr::HashLength => {
+                let span = self.can_span(can_id);
+                Err(Self::attach_span(hash_outside_index().into(), span))
+            }
 
             // Operators
             CanExpr::Binary { op, left, right } => self.eval_can_binary(can_id, left, op, right),
@@ -127,14 +164,18 @@ impl Interpreter<'_> {
                 fallible,
             } => {
                 let value = self.eval_can(expr)?;
+                let span = self.can_span(can_id);
                 self.eval_can_cast(value, target, fallible)
+                    .map_err(|e| Self::attach_span(e, span))
             }
 
             // Calls
             CanExpr::Call { func, args } => {
                 let func_val = self.eval_can(func)?;
                 let arg_vals = self.eval_can_expr_list(args)?;
+                let span = self.can_span(can_id);
                 self.eval_call(&func_val, &arg_vals)
+                    .map_err(|e| Self::attach_span(e, span))
             }
             CanExpr::MethodCall {
                 receiver,
@@ -143,7 +184,9 @@ impl Interpreter<'_> {
             } => {
                 let recv = self.eval_can(receiver)?;
                 let arg_vals = self.eval_can_expr_list(args)?;
+                let span = self.can_span(can_id);
                 self.dispatch_method_call(recv, method, arg_vals)
+                    .map_err(|e| Self::attach_span(e, span))
             }
 
             // Access
@@ -182,7 +225,9 @@ impl Interpreter<'_> {
                 arms,
             } => {
                 let value = self.eval_can(scrutinee)?;
+                let span = self.can_span(can_id);
                 self.eval_can_match(&value, decision_tree, arms)
+                    .map_err(|e| Self::attach_span(e, span))
             }
             CanExpr::For {
                 binding,
@@ -192,7 +237,9 @@ impl Interpreter<'_> {
                 is_yield,
             } => {
                 let iter_val = self.eval_can(iter)?;
+                let span = self.can_span(can_id);
                 self.eval_can_for(binding, &iter_val, guard, body, is_yield)
+                    .map_err(|e| Self::attach_span(e, span))
             }
             CanExpr::Loop { body } => self.eval_can_loop(body),
             CanExpr::Break(v) => {
@@ -235,7 +282,11 @@ impl Interpreter<'_> {
             }
 
             // Functions
-            CanExpr::Lambda { params, body } => self.eval_can_lambda(params, body),
+            CanExpr::Lambda { params, body } => {
+                let span = self.can_span(can_id);
+                self.eval_can_lambda(params, body)
+                    .map_err(|e| Self::attach_span(e, span))
+            }
 
             // Collections
             CanExpr::List(range) => Ok(Value::list(self.eval_can_expr_list(range)?)),
@@ -270,7 +321,10 @@ impl Interpreter<'_> {
                 Value::None => Err(ControlAction::Propagate(Value::None)),
                 other => Ok(other),
             },
-            CanExpr::Await(_) => Err(await_not_supported().into()),
+            CanExpr::Await(_) => {
+                let span = self.can_span(can_id);
+                Err(Self::attach_span(await_not_supported().into(), span))
+            }
 
             // Capabilities
             CanExpr::WithCapability {
@@ -285,10 +339,17 @@ impl Interpreter<'_> {
             }
 
             // Special Forms
-            CanExpr::FunctionExp { kind, props } => self.eval_can_function_exp(kind, props),
+            CanExpr::FunctionExp { kind, props } => {
+                let span = self.can_span(can_id);
+                self.eval_can_function_exp(kind, props)
+                    .map_err(|e| Self::attach_span(e, span))
+            }
 
             // Error Recovery
-            CanExpr::Error => Err(parse_error().into()),
+            CanExpr::Error => {
+                let span = self.can_span(can_id);
+                Err(Self::attach_span(parse_error().into(), span))
+            }
         }
     }
 
@@ -364,8 +425,7 @@ impl Interpreter<'_> {
         }
 
         // User-defined types: dispatch through method system
-        if let Some(method_name) = super::binary_op_to_method(op) {
-            let method = self.interner.intern(method_name);
+        if let Some(method) = super::binary_op_to_method(op, self.op_names) {
             return self.eval_method_call(left_val, method, vec![right_val]);
         }
 
@@ -383,8 +443,7 @@ impl Interpreter<'_> {
             return evaluate_unary(value, op).map_err(|e| Self::attach_span(e, span));
         }
 
-        if let Some(method_name) = super::unary_op_to_method(op) {
-            let method = self.interner.intern(method_name);
+        if let Some(method) = super::unary_op_to_method(op, self.op_names) {
             return self.eval_method_call(value, method, vec![]);
         }
 
@@ -395,18 +454,19 @@ impl Interpreter<'_> {
 
     /// Evaluate a canonical type cast using the target type name.
     ///
-    /// In canonical IR, the target is stored as an interned `Name` instead of
-    /// `ParsedTypeId`. We look up the string to dispatch.
+    /// Uses pre-interned `TypeNames` for O(1) `Name` comparison instead of
+    /// deinterning to `&str`. Only falls back to `interner.lookup()` on the
+    /// cold error path for diagnostic messages.
     fn eval_can_cast(&self, value: Value, target: Name, fallible: bool) -> EvalResult {
-        let target_name = self.interner.lookup(target);
-        let result = match (target_name, &value) {
+        let tn = &self.type_names;
+        let result = match &value {
             // int conversions
             #[expect(
                 clippy::cast_precision_loss,
                 reason = "intentional int-to-float conversion"
             )]
-            ("float", Value::Int(n)) => Ok(Value::Float(n.raw() as f64)),
-            ("byte", Value::Int(n)) => {
+            Value::Int(n) if target == tn.float => Ok(Value::Float(n.raw() as f64)),
+            Value::Int(n) if target == tn.byte => {
                 let raw = n.raw();
                 if !(0..=255).contains(&raw) {
                     if fallible {
@@ -424,7 +484,7 @@ impl Interpreter<'_> {
                 )]
                 Ok(Value::Byte(raw as u8))
             }
-            ("char", Value::Int(n)) => {
+            Value::Int(n) if target == tn.char_ => {
                 let raw = n.raw();
                 #[expect(
                     clippy::cast_possible_truncation,
@@ -442,21 +502,21 @@ impl Interpreter<'_> {
                     .into());
                 }
             }
-            ("int", Value::Byte(b)) => Ok(Value::int(i64::from(*b))),
-            ("int", Value::Char(c)) => Ok(Value::int(i64::from(*c as u32))),
+            Value::Byte(b) if target == tn.int => Ok(Value::int(i64::from(*b))),
+            Value::Char(c) if target == tn.int => Ok(Value::int(i64::from(*c as u32))),
             #[expect(
                 clippy::cast_possible_truncation,
                 reason = "intentional float-to-int truncation"
             )]
-            ("int", Value::Float(f)) => Ok(Value::int(*f as i64)),
-            ("int", Value::Str(s)) => match s.parse::<i64>() {
+            Value::Float(f) if target == tn.int => Ok(Value::int(*f as i64)),
+            Value::Str(s) if target == tn.int => match s.parse::<i64>() {
                 Ok(n) => Ok(Value::int(n)),
                 Err(_) if fallible => return Ok(Value::None),
                 Err(_) => {
                     return Err(EvalError::new(format!("cannot parse '{s}' as int")).into());
                 }
             },
-            ("float", Value::Str(s)) => match s.parse::<f64>() {
+            Value::Str(s) if target == tn.float => match s.parse::<f64>() {
                 Ok(n) => Ok(Value::Float(n)),
                 Err(_) if fallible => return Ok(Value::None),
                 Err(_) => {
@@ -464,18 +524,19 @@ impl Interpreter<'_> {
                 }
             },
             // Identity conversions
-            ("int", Value::Int(_))
-            | ("float", Value::Float(_))
-            | ("str", Value::Str(_))
-            | ("bool", Value::Bool(_))
-            | ("byte", Value::Byte(_))
-            | ("char", Value::Char(_)) => Ok(value),
+            Value::Int(_) if target == tn.int => Ok(value),
+            Value::Float(_) if target == tn.float => Ok(value),
+            Value::Str(_) if target == tn.str_ => Ok(value),
+            Value::Bool(_) if target == tn.bool_ => Ok(value),
+            Value::Byte(_) if target == tn.byte => Ok(value),
+            Value::Char(_) if target == tn.char_ => Ok(value),
             // str conversion - anything can become a string
-            ("str", v) => Ok(Value::string(v.to_string())),
+            _ if target == tn.str_ => Ok(Value::string(value.to_string())),
             _ => {
                 if fallible {
                     return Ok(Value::None);
                 }
+                let target_name = self.interner.lookup(target);
                 Err(EvalError::new(format!(
                     "cannot convert {} to {target_name}",
                     value.type_name()
@@ -498,7 +559,8 @@ impl Interpreter<'_> {
 
         // Evaluate each statement. In canonical IR, block statements are just
         // expressions (Let bindings are expressions that return Void).
-        let stmt_ids: Vec<CanId> = scoped.canon_ref().arena.get_expr_list(stmts).to_vec();
+        let stmt_ids: SmallVec<[CanId; 8]> =
+            SmallVec::from_slice(scoped.canon_ref().arena.get_expr_list(stmts));
         for stmt_id in stmt_ids {
             scoped.eval_can(stmt_id)?;
         }
@@ -527,13 +589,11 @@ impl Interpreter<'_> {
             CanBindingPattern::Wildcard => Ok(Value::Void),
             CanBindingPattern::Tuple(range) => {
                 if let Value::Tuple(values) = value {
-                    let pat_ids: Vec<_> = self
-                        .canon_ref()
-                        .arena
-                        .get_binding_pattern_list(*range)
-                        .to_vec();
+                    let pat_ids: SmallVec<[_; 8]> = SmallVec::from_slice(
+                        self.canon_ref().arena.get_binding_pattern_list(*range),
+                    );
                     if pat_ids.len() != values.len() {
-                        return Err(crate::tuple_pattern_mismatch().into());
+                        return Err(crate::errors::tuple_pattern_mismatch().into());
                     }
                     for (pat_id, val) in pat_ids.into_iter().zip(values.iter()) {
                         // Copy the sub-pattern out to avoid borrow conflict
@@ -542,36 +602,34 @@ impl Interpreter<'_> {
                     }
                     Ok(Value::Void)
                 } else {
-                    Err(crate::expected_tuple().into())
+                    Err(crate::errors::expected_tuple().into())
                 }
             }
             CanBindingPattern::Struct { fields } => {
                 if let Value::Struct(s) = value {
-                    let field_bindings: Vec<_> =
-                        self.canon_ref().arena.get_field_bindings(*fields).to_vec();
+                    let field_bindings: SmallVec<[_; 8]> =
+                        SmallVec::from_slice(self.canon_ref().arena.get_field_bindings(*fields));
                     for fb in &field_bindings {
                         if let Some(val) = s.get_field(fb.name) {
                             // Copy the sub-pattern out to avoid borrow conflict
                             let sub_pat = *self.canon_ref().arena.get_binding_pattern(fb.pattern);
                             self.bind_can_pattern(&sub_pat, val.clone(), mutability)?;
                         } else {
-                            return Err(crate::missing_struct_field().into());
+                            return Err(crate::errors::missing_struct_field().into());
                         }
                     }
                     Ok(Value::Void)
                 } else {
-                    Err(crate::expected_struct().into())
+                    Err(crate::errors::expected_struct().into())
                 }
             }
             CanBindingPattern::List { elements, rest } => {
                 if let Value::List(values) = value {
-                    let pat_ids: Vec<_> = self
-                        .canon_ref()
-                        .arena
-                        .get_binding_pattern_list(*elements)
-                        .to_vec();
+                    let pat_ids: SmallVec<[_; 8]> = SmallVec::from_slice(
+                        self.canon_ref().arena.get_binding_pattern_list(*elements),
+                    );
                     if values.len() < pat_ids.len() {
-                        return Err(crate::list_pattern_too_long().into());
+                        return Err(crate::errors::list_pattern_too_long().into());
                     }
                     for (pat_id, val) in pat_ids.iter().zip(values.iter()) {
                         // Copy the sub-pattern out to avoid borrow conflict
@@ -585,7 +643,7 @@ impl Interpreter<'_> {
                     }
                     Ok(Value::Void)
                 } else {
-                    Err(crate::expected_list().into())
+                    Err(crate::errors::expected_list().into())
                 }
             }
         }
@@ -602,15 +660,19 @@ impl Interpreter<'_> {
                 self.env.assign(name, value.clone()).map_err(|e| {
                     let name_str = self.interner.lookup(name);
                     ControlAction::from(match e {
-                        crate::AssignError::Immutable => crate::cannot_assign_immutable(name_str),
-                        crate::AssignError::Undefined => crate::undefined_variable(name_str),
+                        crate::AssignError::Immutable => {
+                            crate::errors::cannot_assign_immutable(name_str)
+                        }
+                        crate::AssignError::Undefined => {
+                            crate::errors::undefined_variable(name_str)
+                        }
                     })
                 })?;
                 Ok(value)
             }
-            CanExpr::Index { .. } => Err(crate::index_assignment_not_implemented().into()),
-            CanExpr::Field { .. } => Err(crate::field_assignment_not_implemented().into()),
-            _ => Err(crate::invalid_assignment_target().into()),
+            CanExpr::Index { .. } => Err(crate::errors::index_assignment_not_implemented().into()),
+            CanExpr::Field { .. } => Err(crate::errors::field_assignment_not_implemented().into()),
+            _ => Err(crate::errors::invalid_assignment_target().into()),
         }
     }
 
@@ -619,7 +681,7 @@ impl Interpreter<'_> {
     /// Evaluate a canonical lambda: create a `FunctionValue` with canonical data.
     fn eval_can_lambda(&mut self, params: CanParamRange, body: CanId) -> EvalResult {
         let canon = self.canon_ref();
-        let can_params: Vec<_> = canon.arena.get_params(params).to_vec();
+        let can_params: SmallVec<[_; 8]> = SmallVec::from_slice(canon.arena.get_params(params));
 
         // Extract param names and defaults
         let names: Vec<Name> = can_params.iter().map(|p| p.name).collect();
@@ -643,15 +705,10 @@ impl Interpreter<'_> {
             );
         };
 
-        // Carry the shared arena (O(1) Arc clone). The imported_arena is always set
-        // for function calls; only the top-level interpreter may lack it, in which
-        // case we create a SharedArena from the borrowed arena.
-        let arena = match &self.imported_arena {
-            Some(a) => a.clone(),
-            None => ori_ir::SharedArena::new(self.arena.clone()),
-        };
+        // Carry the shared arena (O(1) Arc clone).
+        let arena = self.imported_arena.clone();
 
-        let mut func = FunctionValue::new(names, body.to_expr_id(), captures, arena);
+        let mut func = FunctionValue::new(names, captures, arena);
 
         // Set canonical data so function calls dispatch via eval_can
         func.set_canon(body, shared_canon);
@@ -669,7 +726,8 @@ impl Interpreter<'_> {
     /// Evaluate a canonical map literal: `{ k: v, ... }`.
     fn eval_can_map(&mut self, can_id: CanId, entries: CanMapEntryRange) -> EvalResult {
         let span = self.can_span(can_id);
-        let entry_list: Vec<_> = self.canon_ref().arena.get_map_entries(entries).to_vec();
+        let entry_list: SmallVec<[_; 8]> =
+            SmallVec::from_slice(self.canon_ref().arena.get_map_entries(entries));
         let mut map = std::collections::BTreeMap::new();
         for entry in &entry_list {
             let key = self.eval_can(entry.key)?;
@@ -686,7 +744,8 @@ impl Interpreter<'_> {
 
     /// Evaluate a canonical struct literal: `Point { x: 0, y: 0 }`.
     fn eval_can_struct(&mut self, name: Name, fields: ori_ir::canon::CanFieldRange) -> EvalResult {
-        let field_list: Vec<_> = self.canon_ref().arena.get_fields(fields).to_vec();
+        let field_list: SmallVec<[_; 8]> =
+            SmallVec::from_slice(self.canon_ref().arena.get_fields(fields));
         let mut field_values: FxHashMap<Name, Value> = FxHashMap::default();
         field_values.reserve(field_list.len());
         for field in &field_list {
@@ -750,12 +809,16 @@ impl Interpreter<'_> {
         decision_tree_id: ori_ir::canon::DecisionTreeId,
         arms: CanRange,
     ) -> EvalResult {
-        let tree = self
-            .canon_ref()
-            .decision_trees
-            .get(decision_tree_id)
-            .clone();
-        let arm_ids: Vec<CanId> = self.canon_ref().arena.get_expr_list(arms).to_vec();
+        self.mode_state.count_pattern_match();
+        // Single borrow: extract both the decision tree (O(1) Arc clone) and arm IDs
+        // before releasing the borrow on self.canon for the guard callback's &mut self.
+        let (tree, arm_ids) = {
+            let canon = self.canon_ref();
+            let tree = canon.decision_trees.get_shared(decision_tree_id);
+            let arm_ids: SmallVec<[CanId; 8]> =
+                SmallVec::from_slice(canon.arena.get_expr_list(arms));
+            (tree, arm_ids)
+        };
 
         // Walk the decision tree with a guard callback that evaluates via eval_can.
         let result = crate::exec::decision_tree::eval_decision_tree(
@@ -812,19 +875,8 @@ impl Interpreter<'_> {
     ) -> EvalResult {
         use crate::exec::control::{to_loop_action, LoopAction};
 
-        // Build a lazy iterator from the value (no upfront allocation for Range/Str)
-        let iter: Box<dyn Iterator<Item = Value> + '_> = match iter_val {
-            Value::List(items) => Box::new(items.iter().cloned()),
-            Value::Map(map) => Box::new(
-                map.iter()
-                    .map(|(k, v)| Value::tuple(vec![Value::string(k.clone()), v.clone()])),
-            ),
-            Value::Range(range) => Box::new(range.iter().map(Value::int)),
-            Value::Str(s) => Box::new(s.chars().map(Value::Char)),
-            _ => {
-                return Err(crate::for_requires_iterable().into());
-            }
-        };
+        // Build a stack-allocated iterator via enum dispatch (no heap allocation).
+        let iter = ForIterator::from_value(iter_val)?;
 
         if is_yield {
             // for...yield collects results into a list
@@ -955,28 +1007,31 @@ impl Interpreter<'_> {
         }
 
         // Pre-evaluate all props (safe for eager patterns like print, panic, etc.)
-        let named: Vec<_> = self.canon_ref().arena.get_named_exprs(props).to_vec();
+        let named: SmallVec<[_; 8]> =
+            SmallVec::from_slice(self.canon_ref().arena.get_named_exprs(props));
         let mut values: Vec<(Name, Value)> = Vec::with_capacity(named.len());
         for ne in &named {
             let v = self.eval_can(ne.value)?;
             values.push((ne.name, v));
         }
 
+        let pn = self.prop_names;
+
         // Dispatch by kind with pre-evaluated values
         match kind {
             FunctionExpKind::Print => {
-                let msg = find_prop_value(&values, "msg", self.interner)?;
+                let msg = find_prop_value(&values, pn.msg, self.interner)?;
                 self.print_handler.println(&msg.display_value());
                 Ok(Value::Void)
             }
             FunctionExpKind::Panic => {
-                let msg = find_prop_value(&values, "msg", self.interner)?;
+                let msg = find_prop_value(&values, pn.msg, self.interner)?;
                 Err(EvalError::new(msg.display_value()).into())
             }
             FunctionExpKind::Todo => {
                 let msg = values
                     .iter()
-                    .find(|(n, _)| self.interner.lookup(*n) == "msg")
+                    .find(|(n, _)| *n == pn.msg)
                     .map(|(_, v)| v.display_value());
                 let text = match msg {
                     Some(m) => format!("not yet implemented: {m}"),
@@ -997,7 +1052,7 @@ impl Interpreter<'_> {
                 tracing::warn!(
                     "pattern 'cache' is a stub — operation is called without memoization"
                 );
-                let operation = find_prop_value(&values, "operation", self.interner)?;
+                let operation = find_prop_value(&values, pn.operation, self.interner)?;
                 match operation {
                     Value::Function(_) | Value::FunctionVal(_, _) => {
                         self.eval_call(&operation, &[])
@@ -1007,7 +1062,7 @@ impl Interpreter<'_> {
             }
             FunctionExpKind::Parallel => {
                 tracing::warn!("pattern 'parallel' is a stub — tasks are executed sequentially");
-                let tasks = find_prop_value(&values, "tasks", self.interner)?;
+                let tasks = find_prop_value(&values, pn.tasks, self.interner)?;
                 let Value::List(task_list) = tasks else {
                     return Err(EvalError::new("parallel: tasks must be a list".to_string()).into());
                 };
@@ -1026,7 +1081,7 @@ impl Interpreter<'_> {
             }
             FunctionExpKind::Spawn => {
                 tracing::warn!("pattern 'spawn' is a stub — tasks are executed synchronously");
-                let tasks = find_prop_value(&values, "tasks", self.interner)?;
+                let tasks = find_prop_value(&values, pn.tasks, self.interner)?;
                 let Value::List(task_list) = tasks else {
                     return Err(EvalError::new("spawn: tasks must be a list".to_string()).into());
                 };
@@ -1037,18 +1092,18 @@ impl Interpreter<'_> {
             }
             FunctionExpKind::Timeout => {
                 tracing::warn!("pattern 'timeout' is a stub — no timeout enforcement");
-                let operation = find_prop_value(&values, "operation", self.interner)?;
+                let operation = find_prop_value(&values, pn.operation, self.interner)?;
                 Ok(Value::ok(operation))
             }
             FunctionExpKind::With => {
                 tracing::warn!(
                     "pattern 'with' is a stub — resource management without type checker integration"
                 );
-                let resource = find_prop_value(&values, "acquire", self.interner)?;
-                let action_fn = find_prop_value(&values, "action", self.interner)?;
+                let resource = find_prop_value(&values, pn.acquire, self.interner)?;
+                let action_fn = find_prop_value(&values, pn.action, self.interner)?;
                 let result = self.eval_call(&action_fn, std::slice::from_ref(&resource));
                 // Always call release if provided (RAII guarantee)
-                if let Ok(release_fn) = find_prop_value(&values, "release", self.interner) {
+                if let Ok(release_fn) = find_prop_value(&values, pn.release, self.interner) {
                     let _ = self.eval_call(&release_fn, std::slice::from_ref(&resource));
                 }
                 result
@@ -1062,8 +1117,9 @@ impl Interpreter<'_> {
     /// the catch context so that panics during evaluation are captured as
     /// `Err` values rather than propagated.
     fn eval_can_catch(&mut self, props: ori_ir::canon::CanNamedExprRange) -> EvalResult {
-        let named = self.canon_ref().arena.get_named_exprs(props).to_vec();
-        let expr_can_id = find_prop_can_id(&named, "expr", self.interner)?;
+        let named: SmallVec<[_; 8]> =
+            SmallVec::from_slice(self.canon_ref().arena.get_named_exprs(props));
+        let expr_can_id = find_prop_can_id(&named, self.prop_names.expr, self.interner)?;
 
         match self.eval_can(expr_can_id) {
             Ok(v) => Ok(Value::ok(v)),
@@ -1082,16 +1138,18 @@ impl Interpreter<'_> {
     /// This prevents eager evaluation of `step` from causing index-out-of-bounds
     /// or division-by-zero when the base case should have returned.
     fn eval_can_recurse(&mut self, props: ori_ir::canon::CanNamedExprRange) -> EvalResult {
-        let named = self.canon_ref().arena.get_named_exprs(props).to_vec();
+        let named: SmallVec<[_; 8]> =
+            SmallVec::from_slice(self.canon_ref().arena.get_named_exprs(props));
+        let pn = self.prop_names;
 
-        let condition_id = find_prop_can_id(&named, "condition", self.interner)?;
-        let base_id = find_prop_can_id(&named, "base", self.interner)?;
-        let step_id = find_prop_can_id(&named, "step", self.interner)?;
+        let condition_id = find_prop_can_id(&named, pn.condition, self.interner)?;
+        let base_id = find_prop_can_id(&named, pn.base, self.interner)?;
+        let step_id = find_prop_can_id(&named, pn.step, self.interner)?;
 
         // Check optional memo prop
         let memo_id = named
             .iter()
-            .find(|ne| self.interner.lookup(ne.name) == "memo")
+            .find(|ne| ne.name == pn.memo)
             .map(|ne| ne.value);
 
         if let Some(mid) = memo_id {
@@ -1130,6 +1188,131 @@ impl Interpreter<'_> {
     }
 }
 
+// For Loop Iterator
+
+/// Stack-allocated iterator for for-loop dispatch.
+///
+/// Replaces `Box<dyn Iterator<Item = Value>>` with enum dispatch to avoid
+/// a heap allocation + vtable indirection per for-loop. The iterator type
+/// set is closed (List, Map, Range, Str), so enum dispatch is correct.
+///
+/// Each variant stores the borrowed data and a position/cursor for
+/// stateful iteration. List, Map, and Str borrow from the `Value`
+/// being iterated (which outlives the loop body). Range stores its
+/// bounds directly for zero-allocation stepping.
+enum ForIterator<'a> {
+    /// Iterates over list elements by index.
+    List { items: &'a [Value], pos: usize },
+    /// Iterates over map entries as `(key, value)` tuples.
+    Map {
+        iter: std::collections::btree_map::Iter<'a, String, Value>,
+    },
+    /// Iterates over a range of integers (fully owned, no borrowing).
+    Range {
+        current: Option<i64>,
+        end: i64,
+        step: i64,
+        inclusive: bool,
+    },
+    /// Iterates over string characters.
+    Str { chars: std::str::Chars<'a> },
+}
+
+impl<'a> ForIterator<'a> {
+    /// Create a `ForIterator` from a `Value`, or return an error if not iterable.
+    fn from_value(value: &'a Value) -> Result<Self, ControlAction> {
+        match value {
+            Value::List(items) => Ok(ForIterator::List { items, pos: 0 }),
+            Value::Map(map) => Ok(ForIterator::Map { iter: map.iter() }),
+            Value::Range(range) => Ok(ForIterator::Range {
+                current: range_initial(range),
+                end: range.end,
+                step: range.step,
+                inclusive: range.inclusive,
+            }),
+            Value::Str(s) => Ok(ForIterator::Str { chars: s.chars() }),
+            _ => Err(crate::errors::for_requires_iterable().into()),
+        }
+    }
+}
+
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "range bound arithmetic on user-provided i64 values"
+)]
+impl Iterator for ForIterator<'_> {
+    type Item = Value;
+
+    fn next(&mut self) -> Option<Value> {
+        match self {
+            ForIterator::List { items, pos } => {
+                let item = items.get(*pos)?;
+                *pos += 1;
+                Some(item.clone())
+            }
+            ForIterator::Map { iter } => {
+                let (k, v) = iter.next()?;
+                Some(Value::tuple(vec![Value::string(k.clone()), v.clone()]))
+            }
+            ForIterator::Range {
+                current,
+                end,
+                step,
+                inclusive,
+            } => {
+                let val = (*current)?;
+                let s = *step;
+                let e = *end;
+                let incl = *inclusive;
+                // Compute next value
+                let next = val + s;
+                *current = match s.cmp(&0) {
+                    std::cmp::Ordering::Greater => {
+                        if incl {
+                            (next <= e).then_some(next)
+                        } else {
+                            (next < e).then_some(next)
+                        }
+                    }
+                    std::cmp::Ordering::Less => {
+                        if incl {
+                            (next >= e).then_some(next)
+                        } else {
+                            (next > e).then_some(next)
+                        }
+                    }
+                    std::cmp::Ordering::Equal => None,
+                };
+                Some(Value::int(val))
+            }
+            ForIterator::Str { chars } => chars.next().map(Value::Char),
+        }
+    }
+}
+
+/// Compute the initial value for a range iterator.
+///
+/// Returns `None` if the range is empty (e.g., `5..0` with positive step).
+fn range_initial(range: &RangeValue) -> Option<i64> {
+    match range.step.cmp(&0) {
+        std::cmp::Ordering::Greater => {
+            if range.inclusive {
+                (range.start <= range.end).then_some(range.start)
+            } else {
+                (range.start < range.end).then_some(range.start)
+            }
+        }
+        std::cmp::Ordering::Less => {
+            if range.inclusive {
+                (range.start >= range.end).then_some(range.start)
+            } else {
+                (range.start > range.end).then_some(range.start)
+            }
+        }
+        std::cmp::Ordering::Equal => None,
+    }
+}
+
 // Helpers
 
 /// Convert a `ConstValue` from the constant pool to a runtime `Value`.
@@ -1148,28 +1331,43 @@ fn const_to_value(cv: &ori_ir::canon::ConstValue, interner: &ori_ir::StringInter
     }
 }
 
-/// Look up a pre-evaluated prop by name.
+/// Look up a pre-evaluated prop by interned `Name`.
+///
+/// Uses direct `Name` comparison (single `u32 == u32`) instead of
+/// string lookup per prop. Callers pass pre-interned names from `PropNames`.
 fn find_prop_value(
     values: &[(Name, Value)],
-    name: &str,
+    name: Name,
     interner: &ori_ir::StringInterner,
 ) -> Result<Value, ControlAction> {
     values
         .iter()
-        .find(|(n, _)| interner.lookup(*n) == name)
+        .find(|(n, _)| *n == name)
         .map(|(_, v)| v.clone())
-        .ok_or_else(|| EvalError::new(format!("missing required property: {name}")).into())
+        .ok_or_else(|| {
+            EvalError::new(format!(
+                "missing required property: {}",
+                interner.lookup(name)
+            ))
+            .into()
+        })
 }
 
-/// Look up an unevaluated prop's `CanId` by name (for lazy evaluation).
+/// Look up an unevaluated prop's `CanId` by interned `Name` (for lazy evaluation).
 fn find_prop_can_id(
     named: &[ori_ir::canon::CanNamedExpr],
-    name: &str,
+    name: Name,
     interner: &ori_ir::StringInterner,
 ) -> Result<CanId, ControlAction> {
     named
         .iter()
-        .find(|ne| interner.lookup(ne.name) == name)
+        .find(|ne| ne.name == name)
         .map(|ne| ne.value)
-        .ok_or_else(|| EvalError::new(format!("missing required property: {name}")).into())
+        .ok_or_else(|| {
+            EvalError::new(format!(
+                "missing required property: {}",
+                interner.lookup(name)
+            ))
+            .into()
+        })
 }

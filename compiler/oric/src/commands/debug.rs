@@ -37,7 +37,7 @@ pub fn parse_file(path: &str) {
         println!();
         println!("Errors:");
         for error in &parse_result.errors {
-            println!("  {}: {}", error.span, error.message);
+            println!("  {}: {}", error.span(), error.message());
         }
     }
 }

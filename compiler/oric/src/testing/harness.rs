@@ -62,7 +62,6 @@ pub fn eval_source(source: &str) -> EvalResult {
 
     // Create evaluator with canonical IR
     let mut evaluator = Evaluator::builder(interner, &parsed.arena, &db)
-        .pattern_resolutions(&type_result.typed.pattern_resolutions)
         .canon(shared_canon.clone())
         .build();
 

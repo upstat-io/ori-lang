@@ -400,8 +400,8 @@ impl ArcLowerer<'_> {
         let merge_block = self.builder.new_block();
         let result_param = self.builder.add_block_param(merge_block, ty);
 
-        // Read the pre-compiled decision tree.
-        let tree = self.canon.decision_trees.get(tree_id).clone();
+        // O(1) Arc clone instead of deep-cloning the recursive tree structure.
+        let tree = self.canon.decision_trees.get_shared(tree_id);
 
         let mut ctx = crate::decision_tree::emit::EmitContext {
             root_scrutinee: scrut_var,

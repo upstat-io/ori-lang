@@ -40,7 +40,7 @@ use ori_ir::Name;
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
-use crate::{ArcClassification, ArcClassifier};
+use crate::ArcClassification;
 
 /// Infer borrow annotations for a set of (possibly mutually recursive) functions.
 ///
@@ -55,7 +55,7 @@ use crate::{ArcClassification, ArcClassifier};
 /// * `classifier` — type classifier for determining scalar vs ref types.
 pub fn infer_borrows(
     functions: &[ArcFunction],
-    classifier: &ArcClassifier,
+    classifier: &dyn ArcClassification,
 ) -> FxHashMap<Name, AnnotatedSig> {
     let mut sigs = initialize_all_borrowed(functions, classifier);
 
@@ -96,7 +96,7 @@ pub fn apply_borrows<S: std::hash::BuildHasher>(
 /// initialized as `Owned` — borrow inference ignores them entirely.
 fn initialize_all_borrowed(
     functions: &[ArcFunction],
-    classifier: &ArcClassifier,
+    classifier: &dyn ArcClassification,
 ) -> FxHashMap<Name, AnnotatedSig> {
     let mut sigs = FxHashMap::default();
     sigs.reserve(functions.len());
@@ -194,10 +194,9 @@ fn update_ownership(func: &ArcFunction, sigs: &mut FxHashMap<Name, AnnotatedSig>
                     // If a parameter is passed to an owned position in
                     // the callee, it must become owned.
                     if let Some(callee_sig) = sigs.get(callee) {
-                        let callee_params = callee_sig.params.clone();
                         for (i, &arg) in args.iter().enumerate() {
-                            if i < callee_params.len()
-                                && callee_params[i].ownership == Ownership::Owned
+                            if i < callee_sig.params.len()
+                                && callee_sig.params[i].ownership == Ownership::Owned
                             {
                                 changed |= try_mark_param_owned(arg, func, &mut my_sig);
                             }
@@ -289,9 +288,9 @@ fn update_ownership(func: &ArcFunction, sigs: &mut FxHashMap<Name, AnnotatedSig>
             } => {
                 // Same as Apply — check callee param ownership.
                 if let Some(callee_sig) = sigs.get(callee) {
-                    let callee_params = callee_sig.params.clone();
                     for (i, &arg) in args.iter().enumerate() {
-                        if i < callee_params.len() && callee_params[i].ownership == Ownership::Owned
+                        if i < callee_sig.params.len()
+                            && callee_sig.params[i].ownership == Ownership::Owned
                         {
                             changed |= try_mark_param_owned(arg, func, &mut my_sig);
                         }
@@ -341,9 +340,9 @@ fn check_tail_call(
     {
         // Get the callee's param ownership info.
         if let Some(callee_sig) = sigs.get(callee) {
-            let callee_params = callee_sig.params.clone();
             for (i, &arg) in args.iter().enumerate() {
-                if i < callee_params.len() && callee_params[i].ownership == Ownership::Owned {
+                if i < callee_sig.params.len() && callee_sig.params[i].ownership == Ownership::Owned
+                {
                     // If arg is a param that's currently Borrowed, promote it.
                     // This preserves the tail call: no Dec needed after the call.
                     changed |= try_mark_param_owned(arg, func, my_sig);

@@ -57,11 +57,10 @@ mod scope_guard;
 pub use builder::InterpreterBuilder;
 pub use scope_guard::ScopedInterpreter;
 
+use crate::errors::no_member_in_module;
 use crate::eval_mode::{EvalMode, ModeState};
 use crate::print_handler::SharedPrintHandler;
-use crate::{
-    no_member_in_module, Environment, Mutability, SharedMutableRegistry, UserMethodRegistry, Value,
-};
+use crate::{Environment, Mutability, SharedMutableRegistry, UserMethodRegistry, Value};
 use ori_ir::canon::SharedCanonResult;
 use ori_ir::{BinaryOp, ExprArena, ExprId, Name, SharedArena, StringInterner, UnaryOp};
 use ori_patterns::{
@@ -122,6 +121,90 @@ pub(crate) struct TypeNames {
     pub(crate) error: Name,
 }
 
+/// Pre-interned property names for `FunctionExp` prop dispatch.
+///
+/// These names are interned once at Interpreter construction so that
+/// `find_prop_value` and `find_prop_can_id` can compare `Name` values
+/// directly (single `u32 == u32`) instead of string lookup per prop.
+#[derive(Clone, Copy)]
+pub(crate) struct PropNames {
+    pub(crate) msg: Name,
+    pub(crate) operation: Name,
+    pub(crate) tasks: Name,
+    pub(crate) acquire: Name,
+    pub(crate) action: Name,
+    pub(crate) release: Name,
+    pub(crate) expr: Name,
+    pub(crate) condition: Name,
+    pub(crate) base: Name,
+    pub(crate) step: Name,
+    pub(crate) memo: Name,
+}
+
+impl PropNames {
+    /// Pre-intern all `FunctionExp` property names.
+    fn new(interner: &StringInterner) -> Self {
+        Self {
+            msg: interner.intern("msg"),
+            operation: interner.intern("operation"),
+            tasks: interner.intern("tasks"),
+            acquire: interner.intern("acquire"),
+            action: interner.intern("action"),
+            release: interner.intern("release"),
+            expr: interner.intern("expr"),
+            condition: interner.intern("condition"),
+            base: interner.intern("base"),
+            step: interner.intern("step"),
+            memo: interner.intern("memo"),
+        }
+    }
+}
+
+/// Pre-interned operator trait method names for user-defined operator dispatch.
+///
+/// These names are interned once at Interpreter construction so that
+/// `eval_can_binary` and `eval_can_unary` can dispatch user-defined operator
+/// trait methods via `Name` comparison instead of re-interning on every call.
+#[derive(Clone, Copy)]
+pub(crate) struct OpNames {
+    pub(crate) add: Name,
+    pub(crate) subtract: Name,
+    pub(crate) multiply: Name,
+    pub(crate) divide: Name,
+    pub(crate) floor_divide: Name,
+    pub(crate) remainder: Name,
+    pub(crate) bit_and: Name,
+    pub(crate) bit_or: Name,
+    pub(crate) bit_xor: Name,
+    pub(crate) shift_left: Name,
+    pub(crate) shift_right: Name,
+    pub(crate) negate: Name,
+    pub(crate) not: Name,
+    pub(crate) bit_not: Name,
+}
+
+impl OpNames {
+    /// Pre-intern all operator trait method names.
+    fn new(interner: &StringInterner) -> Self {
+        Self {
+            add: interner.intern("add"),
+            subtract: interner.intern("subtract"),
+            multiply: interner.intern("multiply"),
+            divide: interner.intern("divide"),
+            floor_divide: interner.intern("floor_divide"),
+            remainder: interner.intern("remainder"),
+            bit_and: interner.intern("bit_and"),
+            bit_or: interner.intern("bit_or"),
+            bit_xor: interner.intern("bit_xor"),
+            shift_left: interner.intern("shift_left"),
+            shift_right: interner.intern("shift_right"),
+            negate: interner.intern("negate"),
+            not: interner.intern("not"),
+            bit_not: interner.intern("bit_not"),
+        }
+    }
+}
+
 impl TypeNames {
     /// Pre-intern all primitive type names.
     pub(crate) fn new(interner: &StringInterner) -> Self {
@@ -150,6 +233,19 @@ impl TypeNames {
     }
 }
 
+/// Whether this interpreter owns a scoped environment that should be popped on drop.
+///
+/// Replaces a bare `bool` flag for self-documenting intent at construction sites.
+/// - `Borrowed`: No scope cleanup on drop (default for top-level interpreters).
+/// - `Owned`: Pop the environment scope on drop (for function/method call interpreters).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScopeOwnership {
+    /// This interpreter does not own a scope. No cleanup on drop.
+    Borrowed,
+    /// This interpreter owns a pushed scope. Pop it on drop (RAII panic safety).
+    Owned,
+}
+
 /// Tree-walking interpreter for Ori expressions.
 ///
 /// This is the portable interpreter that works in both native and WASM contexts.
@@ -163,11 +259,11 @@ impl TypeNames {
 /// - `TestRun` — captures output, collects test results
 pub struct Interpreter<'a> {
     /// String interner for name lookup.
-    pub interner: &'a StringInterner,
+    pub(crate) interner: &'a StringInterner,
     /// Expression arena.
     pub(crate) arena: &'a ExprArena,
     /// Current environment.
-    pub env: Environment,
+    pub(crate) env: Environment,
     /// Pre-computed Name for "self" keyword (avoids repeated interning).
     pub(crate) self_name: Name,
     /// Pre-interned type names for hot-path method dispatch.
@@ -175,6 +271,13 @@ pub struct Interpreter<'a> {
     pub(crate) type_names: TypeNames,
     /// Pre-interned print method names for `eval_method_call` print dispatch.
     pub(crate) print_names: PrintNames,
+    /// Pre-interned `FunctionExp` property names for prop dispatch.
+    pub(crate) prop_names: PropNames,
+    /// Pre-interned operator trait method names for user-defined operator dispatch.
+    pub(crate) op_names: OpNames,
+    /// Pre-interned builtin method names for `Name`-based dispatch.
+    /// Avoids de-interning in `dispatch_builtin_method` on every call.
+    pub(crate) builtin_method_names: crate::methods::BuiltinMethodNames,
     /// Evaluation mode — determines I/O, recursion, budget policies.
     pub(crate) mode: EvalMode,
     /// Per-mode mutable state (budget counters, profiling).
@@ -199,18 +302,11 @@ pub struct Interpreter<'a> {
     /// and is built once during construction. Because `user_method_registry` uses
     /// interior mutability, the dispatcher sees method registrations made after creation.
     pub(crate) method_dispatcher: resolvers::MethodDispatcher,
-    /// Arena reference for imported functions.
+    /// Shared arena for imported functions and lambda capture.
     ///
-    /// When evaluating an imported function, this holds the imported arena.
-    /// Lambdas created during evaluation will inherit this arena reference.
-    pub(crate) imported_arena: Option<SharedArena>,
-    /// Whether the prelude has been auto-loaded.
-    /// Used by `oric::Evaluator` when module loading is enabled.
-    #[expect(
-        dead_code,
-        reason = "Used by oric::Evaluator for prelude tracking, not exposed via ori_eval"
-    )]
-    pub(crate) prelude_loaded: bool,
+    /// Always set — either provided explicitly via the builder or created from
+    /// the borrowed arena at build time. Lambdas capture this via O(1) Arc clone.
+    pub(crate) imported_arena: SharedArena,
     /// Print handler for the Print capability.
     ///
     /// Determined by evaluation mode:
@@ -218,19 +314,11 @@ pub struct Interpreter<'a> {
     /// - `TestRun`: buffer for capture
     /// - `ConstEval`: silent (discards output)
     pub(crate) print_handler: SharedPrintHandler,
-    /// Whether this interpreter owns a scoped environment that should be popped on drop.
+    /// Scope ownership for RAII-style panic-safe scope cleanup.
     ///
-    /// When an interpreter is created for function/method calls via `create_function_interpreter`,
-    /// the caller pushes a scope before passing the environment. This flag ensures the scope
-    /// is popped when the interpreter is dropped, even if evaluation panics.
-    ///
-    /// This provides RAII-style panic safety for function call evaluation.
-    pub(crate) owns_scoped_env: bool,
-    /// Resolved pattern disambiguations from the type checker.
-    ///
-    /// Used by `try_match` to distinguish `Binding("Pending")` (unit variant)
-    /// from `Binding("x")` (variable). Sorted by `PatternKey` for binary search.
-    pub(crate) pattern_resolutions: &'a [(ori_types::PatternKey, ori_types::PatternResolution)],
+    /// When `Owned`, the interpreter was created for a function/method call
+    /// via `create_function_interpreter` and will pop its environment scope on drop.
+    pub(crate) scope_ownership: ScopeOwnership,
     /// Canonical IR for the current module (optional during migration).
     ///
     /// When present, function calls on `FunctionValue`s with canonical bodies
@@ -241,12 +329,12 @@ pub struct Interpreter<'a> {
 
 /// RAII Drop implementation for panic-safe scope cleanup.
 ///
-/// If `owns_scoped_env` is true, this interpreter was created for a function/method
+/// When `scope_ownership` is `Owned`, this interpreter was created for a function/method
 /// call and owns a scope that must be popped. This ensures scope cleanup even if
 /// evaluation panics during the call.
 impl Drop for Interpreter<'_> {
     fn drop(&mut self) {
-        if self.owns_scoped_env {
+        if self.scope_ownership == ScopeOwnership::Owned {
             self.env.pop_scope();
         }
     }
@@ -258,38 +346,50 @@ impl Drop for Interpreter<'_> {
 /// without needing direct access to the interpreter's internals.
 ///
 /// Note: `eval(ExprId)` is no longer supported — all evaluation goes through
-/// `eval_can(CanId)`. The trait method panics if called. Pattern implementations
-/// that previously called `exec.eval()` are now handled inline in `can_eval.rs`.
+/// `eval_can(CanId)`. The trait method returns an error if called. All
+/// `FunctionExpKind` variants (Print, Panic, Catch, Recurse, Cache, Parallel,
+/// Spawn, Timeout, With) are now dispatched inline in `can_eval.rs`, so the
+/// `ori_patterns` execute functions (`fusion.rs`, `parallel.rs`, `spawn.rs`,
+/// `with_pattern.rs`, `recurse.rs`) are never reached through this Interpreter.
+///
+/// The trait now uses `Name` directly, so the impl is a zero-cost pass-through
+/// with no redundant interning.
 impl PatternExecutor for Interpreter<'_> {
+    /// Dead code path — returns an error unconditionally.
+    ///
+    /// This method is required by the `PatternExecutor` trait but is never called
+    /// in practice. The `ori_eval` Interpreter evaluates all expressions through
+    /// `eval_can(CanId)` (canonical IR), not `eval(ExprId)` (raw AST). All
+    /// `FunctionExpKind` patterns are dispatched inline in `can_eval.rs`.
+    ///
+    /// **Removal:** Once `ori_patterns` consumers migrate to canonical IR,
+    /// `PatternExecutor::eval(ExprId)` can be removed from the trait (cross-crate).
     fn eval(&mut self, _expr_id: ExprId) -> EvalResult {
-        panic!(
-            "legacy PatternExecutor::eval(ExprId) called — \
-             all evaluation must use eval_can(CanId)"
-        );
+        Err(EvalError::new(
+            "legacy PatternExecutor::eval(ExprId) is not supported — use eval_can(CanId)"
+                .to_string(),
+        )
+        .into())
     }
 
     fn call(&mut self, func: &Value, args: Vec<Value>) -> EvalResult {
         self.eval_call(func, &args)
     }
 
-    fn lookup_capability(&self, name: &str) -> Option<Value> {
-        let name_id = self.interner.intern(name);
-        self.env.lookup(name_id)
+    fn lookup_capability(&self, name: Name) -> Option<Value> {
+        self.env.lookup(name)
     }
 
-    fn call_method(&mut self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
-        let method_name = self.interner.intern(method);
-        self.eval_method_call(receiver, method_name, args)
+    fn call_method(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult {
+        self.eval_method_call(receiver, method, args)
     }
 
-    fn lookup_var(&self, name: &str) -> Option<Value> {
-        let name_id = self.interner.intern(name);
-        self.env.lookup(name_id)
+    fn lookup_var(&self, name: Name) -> Option<Value> {
+        self.env.lookup(name)
     }
 
-    fn bind_var(&mut self, name: &str, value: Value) {
-        let name_id = self.interner.intern(name);
-        self.env.define(name_id, value, Mutability::Immutable);
+    fn bind_var(&mut self, name: Name, value: Value) {
+        self.env.define(name, value, Mutability::Immutable);
     }
 }
 
@@ -325,6 +425,12 @@ impl<'a> Interpreter<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Get the string interner.
+    #[inline]
+    pub fn interner(&self) -> &StringInterner {
+        self.interner
     }
 
     /// Get the current evaluation mode.
@@ -418,6 +524,9 @@ impl<'a> Interpreter<'a> {
     /// * `imported_arena` - The callee's shared arena (O(1) Arc clone, not deep copy)
     /// * `call_env` - The environment with parameters bound
     /// * `call_name` - Name for the call stack frame
+    /// * `canon` - Canonical IR for the callee. When `Some`, uses the callee's
+    ///   canon directly instead of cloning the parent's (avoids a wasted Arc clone
+    ///   that would be immediately overwritten).
     ///
     /// # Returns
     /// A new interpreter configured to evaluate the function body.
@@ -428,6 +537,7 @@ impl<'a> Interpreter<'a> {
         imported_arena: &'b SharedArena,
         call_env: Environment,
         call_name: Name,
+        canon: Option<SharedCanonResult>,
     ) -> Interpreter<'b>
     where
         'a: 'b,
@@ -456,17 +566,18 @@ impl<'a> Interpreter<'a> {
             self_name: self.self_name,
             type_names: self.type_names,
             print_names: self.print_names,
-            mode: self.mode.clone(),
-            mode_state: ModeState::new(&self.mode),
+            prop_names: self.prop_names,
+            op_names: self.op_names,
+            builtin_method_names: self.builtin_method_names,
+            mode: self.mode,
+            mode_state: ModeState::child(&self.mode, &self.mode_state),
             call_stack: child_stack,
             user_method_registry: self.user_method_registry.clone(),
             method_dispatcher: self.method_dispatcher.clone(),
-            imported_arena: Some(imported_arena.clone()),
-            prelude_loaded: false,
+            imported_arena: imported_arena.clone(),
             print_handler: self.print_handler.clone(),
-            owns_scoped_env: true,
-            pattern_resolutions: self.pattern_resolutions,
-            canon: self.canon.clone(),
+            scope_ownership: ScopeOwnership::Owned,
+            canon: canon.or_else(|| self.canon.clone()),
         }
     }
 
@@ -556,27 +667,27 @@ fn is_primitive_value(value: &Value) -> bool {
     )
 }
 
-/// Map a binary operator to its trait method name.
+/// Map a binary operator to its pre-interned trait method name.
 ///
-/// Returns `Some(method_name)` for operators that have trait implementations,
+/// Returns `Some(Name)` for operators that have trait implementations,
 /// or `None` for comparison, logical, range, and null-coalescing operators
 /// which use direct evaluation.
-fn binary_op_to_method(op: BinaryOp) -> Option<&'static str> {
+fn binary_op_to_method(op: BinaryOp, names: OpNames) -> Option<Name> {
     match op {
         // Arithmetic operators
-        BinaryOp::Add => Some("add"),
-        BinaryOp::Sub => Some("subtract"),
-        BinaryOp::Mul => Some("multiply"),
+        BinaryOp::Add => Some(names.add),
+        BinaryOp::Sub => Some(names.subtract),
+        BinaryOp::Mul => Some(names.multiply),
         // Note: "divide" not "div" because `div` is a keyword (floor division operator)
-        BinaryOp::Div => Some("divide"),
-        BinaryOp::FloorDiv => Some("floor_divide"),
-        BinaryOp::Mod => Some("remainder"),
+        BinaryOp::Div => Some(names.divide),
+        BinaryOp::FloorDiv => Some(names.floor_divide),
+        BinaryOp::Mod => Some(names.remainder),
         // Bitwise operators
-        BinaryOp::BitAnd => Some("bit_and"),
-        BinaryOp::BitOr => Some("bit_or"),
-        BinaryOp::BitXor => Some("bit_xor"),
-        BinaryOp::Shl => Some("shift_left"),
-        BinaryOp::Shr => Some("shift_right"),
+        BinaryOp::BitAnd => Some(names.bit_and),
+        BinaryOp::BitOr => Some(names.bit_or),
+        BinaryOp::BitXor => Some(names.bit_xor),
+        BinaryOp::Shl => Some(names.shift_left),
+        BinaryOp::Shr => Some(names.shift_right),
         // Comparison, logical, range, and null-coalescing operators
         // use direct evaluation (no trait method)
         BinaryOp::Eq
@@ -593,15 +704,15 @@ fn binary_op_to_method(op: BinaryOp) -> Option<&'static str> {
     }
 }
 
-/// Map a unary operator to its trait method name.
+/// Map a unary operator to its pre-interned trait method name.
 ///
-/// Returns `Some(method_name)` for operators that have trait implementations,
+/// Returns `Some(Name)` for operators that have trait implementations,
 /// or `None` for the Try operator which doesn't have a trait.
-fn unary_op_to_method(op: UnaryOp) -> Option<&'static str> {
+fn unary_op_to_method(op: UnaryOp, names: OpNames) -> Option<Name> {
     match op {
-        UnaryOp::Neg => Some("negate"),
-        UnaryOp::Not => Some("not"),
-        UnaryOp::BitNot => Some("bit_not"),
+        UnaryOp::Neg => Some(names.negate),
+        UnaryOp::Not => Some(names.not),
+        UnaryOp::BitNot => Some(names.bit_not),
         UnaryOp::Try => None, // Try operator doesn't have a trait
     }
 }
@@ -708,11 +819,13 @@ mod tests {
             .print_handler(handler.clone())
             .build();
 
+        let println_name = interner.intern("println");
+
         // Test that call_method routes println to the handler
         let result = <Interpreter as PatternExecutor>::call_method(
             &mut interpreter,
             Value::Void,
-            "println",
+            println_name,
             vec![Value::string("test message")],
         );
 
@@ -730,11 +843,13 @@ mod tests {
             .print_handler(handler.clone())
             .build();
 
+        let print_name = interner.intern("print");
+
         // Test that call_method routes print to the handler
         let result = <Interpreter as PatternExecutor>::call_method(
             &mut interpreter,
             Value::Void,
-            "print",
+            print_name,
             vec![Value::string("no newline")],
         );
 
@@ -752,11 +867,13 @@ mod tests {
             .print_handler(handler.clone())
             .build();
 
+        let builtin_println_name = interner.intern("__builtin_println");
+
         // Test the __builtin_println fallback path
         let result = <Interpreter as PatternExecutor>::call_method(
             &mut interpreter,
             Value::Void,
-            "__builtin_println",
+            builtin_println_name,
             vec![Value::string("builtin test")],
         );
 

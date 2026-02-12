@@ -36,6 +36,12 @@ impl Name {
         Name((shard << 28) | local)
     }
 
+    /// Create from raw u32 value.
+    #[inline]
+    pub const fn from_raw(raw: u32) -> Self {
+        Name(raw)
+    }
+
     /// Extract shard index.
     #[inline]
     pub const fn shard(self) -> usize {
@@ -52,12 +58,6 @@ impl Name {
     #[inline]
     pub const fn raw(self) -> u32 {
         self.0
-    }
-
-    /// Create from raw u32 value.
-    #[inline]
-    pub const fn from_raw(raw: u32) -> Self {
-        Name(raw)
     }
 }
 

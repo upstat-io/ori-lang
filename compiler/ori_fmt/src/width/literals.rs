@@ -44,12 +44,13 @@ pub(super) fn float_width(f: f64) -> usize {
     let _ = write!(cursor, "{f}");
 
     // Safe: cursor position is at most 32, which fits in usize on all platforms
-    #[expect(
+    #[allow(
         clippy::cast_possible_truncation,
         reason = "Buffer is 32 bytes; position cannot exceed usize::MAX"
     )]
-    let len = cursor.position() as usize;
-    len
+    {
+        cursor.position() as usize
+    }
 }
 
 /// Calculate width of a boolean literal.

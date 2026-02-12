@@ -214,64 +214,6 @@ fn suggest_for_missing_capability(cap: Capability, func_span: Span) -> Vec<Sugge
 }
 ```
 
-## Applying Fixes
-
-### Single Suggestion
-
-```rust
-pub fn apply_suggestion(source: &str, suggestion: &Suggestion) -> String {
-    let mut result = source.to_string();
-
-    // Apply substitutions in reverse order to preserve spans
-    let mut subs = suggestion.substitutions.clone();
-    subs.sort_by(|a, b| b.span.start.cmp(&a.span.start));
-
-    for sub in subs {
-        result.replace_range(
-            sub.span.start as usize..sub.span.end as usize,
-            &sub.snippet,
-        );
-    }
-
-    result
-}
-```
-
-### Multiple Suggestions
-
-```rust
-pub fn apply_all_suggestions(source: &str, suggestions: &[Suggestion]) -> String {
-    // Collect all substitutions from machine-applicable suggestions
-    let mut all_subs: Vec<_> = suggestions
-        .iter()
-        .filter(|s| s.applicability.is_machine_applicable())
-        .flat_map(|s| s.substitutions.iter())
-        .cloned()
-        .collect();
-
-    // Sort reverse by position
-    all_subs.sort_by(|a, b| b.span.start.cmp(&a.span.start));
-
-    // Check for overlaps
-    for window in all_subs.windows(2) {
-        if window[0].span.start < window[1].span.end {
-            // Overlapping substitutions - apply one at a time
-            return apply_suggestions_one_by_one(source, suggestions);
-        }
-    }
-
-    // Apply all at once
-    let mut result = source.to_string();
-    for sub in all_subs {
-        result.replace_range(
-            sub.span.start as usize..sub.span.end as usize,
-            &sub.snippet,
-        );
-    }
-    result
-}
-```
-
 ## IDE Integration
 
 Fixes are exposed in LSP `codeAction` responses:

@@ -67,7 +67,7 @@ let result = process(
 
 ## Method Chains
 
-> **Note:** The `MethodChainRule` infrastructure exists in `ori_fmt/src/rules/method_chain.rs` but is not yet invoked by the formatter. The patterns below show the intended behavior.
+> **Note:** The method chain breaking infrastructure exists (`MethodChainRule`, `collect_method_chain()`, `is_method_chain()` in `ori_fmt/src/rules/method_chain.rs`) but is **not yet invoked** by the formatter's emitter or breaking layers. The patterns below show the intended behavior once integration is complete.
 
 ### Inline Format
 

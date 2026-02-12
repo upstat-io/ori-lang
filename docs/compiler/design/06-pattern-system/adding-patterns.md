@@ -15,7 +15,7 @@ Adding a new pattern requires changes across multiple crates:
 
 1. Add enum variant to `FunctionExpKind` in `ori_ir`
 2. Create pattern struct implementing `PatternDefinition` in `ori_patterns`
-3. Add static instance and match arm in registry
+3. Add variant to `Pattern` enum + implement trait delegation + add match arm in registry
 4. Update parser to recognize the pattern name
 5. Add tests and documentation
 
@@ -64,17 +64,9 @@ impl PatternDefinition for TakePattern {
         &["over", "count"]
     }
 
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        // Get property types
-        let over_type = ctx.require_prop_type("over");
-        let count_type = ctx.require_prop_type("count");
-
-        // count must be int
-        ctx.unify(&count_type, &Type::Int);
-
-        // Result has same type as input
-        over_type
-    }
+    // Note: type checking is handled by ori_types, not by patterns.
+    // The type checker uses required_props() and scoped_bindings() metadata
+    // to drive inference for this pattern's properties.
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
         // Evaluate properties
@@ -110,14 +102,29 @@ pub use take::TakePattern;
 Update `compiler/ori_patterns/src/registry.rs`:
 
 ```rust
-// Add static instance
-static TAKE: TakePattern = TakePattern;
+// Add variant to Pattern enum
+pub enum Pattern {
+    // ... existing variants ...
+    Take(TakePattern),
+}
 
+// Add delegation in PatternDefinition impl for Pattern
+impl PatternDefinition for Pattern {
+    fn name(&self) -> &'static str {
+        match self {
+            // ... existing arms ...
+            Pattern::Take(p) => p.name(),
+        }
+    }
+    // ... same for all other trait methods (required_props, evaluate, etc.)
+}
+
+// Add match arm in get()
 impl PatternRegistry {
-    pub fn get(&self, kind: FunctionExpKind) -> &'static dyn PatternDefinition {
+    pub fn get(&self, kind: FunctionExpKind) -> Pattern {
         match kind {
             // ... existing patterns ...
-            FunctionExpKind::Take => &TAKE,
+            FunctionExpKind::Take => Pattern::Take(TakePattern),
         }
     }
 }
@@ -198,7 +205,6 @@ Registered patterns using the `PatternDefinition` trait:
 impl PatternDefinition for MyPattern {
     fn name(&self) -> &'static str { "my_pattern" }
     fn required_props(&self) -> &'static [&'static str] { &["arg1", "arg2"] }
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type { ... }
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult { ... }
 }
 ```
@@ -266,9 +272,9 @@ Before submitting:
 - [ ] Added `FunctionExpKind` variant in `ori_ir`
 - [ ] Created pattern struct in `ori_patterns`
 - [ ] Implemented `PatternDefinition` trait with correct signatures
-- [ ] Added static instance and match arm in registry
+- [ ] Added variant to `Pattern` enum with trait delegation + match arm in registry
 - [ ] Updated parser to recognize pattern name
-- [ ] Type checking validates all properties
+- [ ] Type checking in `ori_types` handles the new pattern's properties
 - [ ] Evaluation handles edge cases
 - [ ] Unit tests cover basic usage
 - [ ] Unit tests cover error cases

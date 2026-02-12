@@ -45,80 +45,20 @@ mod user_methods;
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests;
 
-// Re-export value types from ori_patterns
+// Value types from ori_patterns — the natural API surface for consumers
 pub use ori_patterns::{
-    ControlAction, EvalContext, EvalError, EvalResult, FunctionValFn, FunctionValue, Heap,
-    MemoizedFunctionValue, PatternDefinition, PatternExecutor, PatternRegistry, RangeValue,
-    ScalarInt, StructLayout, StructValue, Value,
-};
-
-// Crate-internal re-exports of error constructors used by interpreter/exec modules.
-// Canonical public path for external consumers is `ori_eval::errors::*`.
-pub(crate) use errors::{
-    // Collection/spread errors
-    all_requires_list,
-    any_requires_list,
-    // Control flow errors
-    await_not_supported,
-    // Index and field access errors
-    cannot_access_field,
-    cannot_assign_immutable,
-    cannot_get_length,
-    cannot_index,
-    collect_requires_range,
-    collection_too_large,
-    // Type conversion/misc errors
-    default_requires_type_context,
-    // Pattern errors
-    expected_list,
-    expected_struct,
-    expected_tuple,
-    field_assignment_not_implemented,
-    filter_entries_not_implemented,
-    filter_entries_requires_map,
-    filter_requires_collection,
-    find_requires_list,
-    fold_requires_collection,
-    for_requires_iterable,
-    hash_outside_index,
-    index_assignment_not_implemented,
-    index_out_of_bounds,
-    invalid_assignment_target,
-    invalid_tuple_field,
-    list_pattern_too_long,
-    map_entries_not_implemented,
-    map_entries_requires_map,
-    map_key_not_hashable,
-    map_requires_collection,
-    missing_struct_field,
-    no_field_on_struct,
-    no_member_in_module,
-    non_exhaustive_match,
-    // Variable and function errors
-    not_callable,
-    parse_error,
-    range_bound_not_int,
-    self_outside_method,
-    tuple_index_out_of_bounds,
-    tuple_pattern_mismatch,
-    unbounded_range_end,
-    undefined_const,
-    undefined_function,
-    undefined_variable,
-    wrong_arg_count,
-    wrong_function_args,
+    ControlAction, EvalError, EvalResult, FunctionValFn, FunctionValue, Heap,
+    MemoizedFunctionValue, RangeValue, ScalarInt, StructLayout, StructValue, Value,
 };
 
 pub use diagnostics::{CallFrame, CallStack, EvalCounters};
 pub use environment::{AssignError, Environment, LocalScope, Mutability, Scope};
 pub use eval_mode::{BudgetExceeded, EvalMode, ModeState};
 pub use method_key::MethodKey;
-pub use methods::{dispatch_builtin_method, EVAL_BUILTIN_METHODS};
+pub use methods::{dispatch_builtin_method_str, EVAL_BUILTIN_METHODS};
 pub use operators::evaluate_binary;
 pub use unary_operators::evaluate_unary;
 pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};
-// Re-export from ori_ir for backward compatibility
-pub use ori_ir::{DerivedMethodInfo, DerivedTrait};
 
 pub use derives::process_derives;
 pub use function_val::{
@@ -135,6 +75,7 @@ pub use shared::{SharedMutableRegistry, SharedRegistry};
 
 // Re-export module registration functions for CLI and Playground
 pub use module_registration::{
-    collect_def_impl_methods, collect_extend_methods, collect_impl_methods,
-    register_module_functions, register_newtype_constructors, register_variant_constructors,
+    collect_def_impl_methods_with_config, collect_extend_methods_with_config,
+    collect_impl_methods_with_config, register_module_functions, register_newtype_constructors,
+    register_variant_constructors, MethodCollectionConfig,
 };

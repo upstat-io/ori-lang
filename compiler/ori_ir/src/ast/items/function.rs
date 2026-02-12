@@ -7,11 +7,12 @@
 
 use std::fmt;
 
+use crate::{ExprId, Name, ParsedType, Span, Spanned};
+
 use super::super::ranges::{GenericParamRange, ParamRange};
 use super::super::Visibility;
 use super::imports::UseDef;
 use super::traits::WhereClause;
-use crate::{ExprId, Name, ParsedType, Span, Spanned};
 
 /// Parameter in a function or lambda.
 ///
@@ -39,10 +40,10 @@ pub struct Param {
     pub ty: Option<ParsedType>,
     /// Default value expression (e.g., `x: int = 42`).
     pub default: Option<ExprId>,
+    pub span: Span,
     /// If true, this is a variadic parameter (`nums: ...int`).
     /// Variadic params receive values as `[T]` inside the function.
     pub is_variadic: bool,
-    pub span: Span,
 }
 
 impl Spanned for Param {
@@ -151,12 +152,12 @@ pub struct TestDef {
     pub span: Span,
     /// If set, this test is skipped with the given reason.
     pub skip_reason: Option<Name>,
-    /// Expected compilation errors (multiple allowed).
-    /// If non-empty, this is a `compile_fail` test.
-    pub expected_errors: Vec<ExpectedError>,
     /// If set, this test expects runtime failure with an error
     /// containing this substring.
     pub fail_expected: Option<Name>,
+    /// Expected compilation errors (multiple allowed).
+    /// If non-empty, this is a `compile_fail` test.
+    pub expected_errors: Vec<ExpectedError>,
 }
 
 impl TestDef {

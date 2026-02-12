@@ -26,7 +26,7 @@
 
 use ori_ir::ast::patterns::MatchPattern;
 use ori_ir::canon::tree::{DecisionTree, FlatPattern, PathInstruction, PatternRow, ScrutineePath};
-use ori_types::PatternKey;
+use ori_ir::PatternKey;
 
 use crate::lower::Lowerer;
 
@@ -102,7 +102,7 @@ fn flatten_arm_pattern(
 ) -> FlatPattern {
     // Check if this Binding pattern was resolved to a unit variant by the type checker.
     if let MatchPattern::Binding(name) = pattern {
-        if let Some(ori_types::PatternResolution::UnitVariant { variant_index, .. }) =
+        if let Some(ori_ir::PatternResolution::UnitVariant { variant_index, .. }) =
             lowerer.typed.resolve_pattern(key)
         {
             return FlatPattern::Variant {
@@ -279,7 +279,7 @@ mod tests {
 
     use crate::lower;
 
-    // ── Helpers ─────────────────────────────────────────────────
+    // Helpers
 
     fn test_type_result(expr_types: Vec<Idx>) -> TypeCheckResult {
         let mut typed = TypedModule::new();
@@ -293,7 +293,7 @@ mod tests {
         SharedInterner::new()
     }
 
-    // ── Tests ───────────────────────────────────────────────────
+    // Tests
 
     #[test]
     fn match_wildcard_produces_leaf() {

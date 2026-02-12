@@ -4,8 +4,9 @@
 //! - Duration literals (100ms, 5s, 30m, 2h)
 //! - Size literals (1024b, 4kb, 10mb, 2gb)
 
-use super::helpers::decimal_digit_count;
 use ori_ir::{DurationUnit, SizeUnit};
+
+use super::helpers::decimal_digit_count;
 
 /// Calculate width of a duration literal.
 ///

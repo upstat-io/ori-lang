@@ -220,11 +220,6 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    /// Check if this is a parser/syntax error (E1xxx range).
-    pub fn is_parser_error(&self) -> bool {
-        self.as_str().starts_with("E1")
-    }
-
     /// Get the numeric code as a string (e.g., "E1001").
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -329,6 +324,11 @@ impl ErrorCode {
             // Warnings
             ErrorCode::W1001 => "W1001",
         }
+    }
+
+    /// Check if this is a parser/syntax error (E1xxx range).
+    pub fn is_parser_error(&self) -> bool {
+        self.as_str().starts_with("E1")
     }
 
     /// Check if this is an ARC analysis error (E4xxx range).

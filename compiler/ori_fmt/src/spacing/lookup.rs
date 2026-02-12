@@ -2,10 +2,12 @@
 //!
 //! Pre-computes a lookup table from token category pairs to spacing actions.
 
-use super::{rules::SpaceRule, SpaceAction, TokenCategory, TokenMatcher};
-use crate::spacing::rules::SPACE_RULES;
 use rustc_hash::FxHashMap;
 use std::sync::OnceLock;
+
+use crate::spacing::rules::SPACE_RULES;
+
+use super::{rules::SpaceRule, SpaceAction, TokenCategory, TokenMatcher};
 
 /// Pre-computed O(1) lookup table for spacing rules.
 ///

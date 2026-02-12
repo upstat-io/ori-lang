@@ -7,11 +7,11 @@ section: "Intermediate Representation"
 
 # Type Representation
 
-This document describes how types are represented in the Ori compiler.
+This document describes how types are represented in the Ori compiler. Note that `ori_ir` only contains `TypeId` (a flat `u32` index with pre-interned primitive constants). All of the types described below (`Type` enum, `StructType`, `EnumType`, `TypeRegistry`, etc.) live in the `ori_types` crate.
 
 ## Type Enum
 
-Types are represented as an enum in `types.rs`:
+Types are represented as an enum in `ori_types`:
 
 ```rust
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -127,13 +127,15 @@ Type::Function {
 
 ## User-Defined Types
 
+All user-defined type representations (`StructType`, `EnumType`, `TypeRegistry`) are in `ori_types`.
+
 ### Named Types
 
 Simple reference to a user-defined type:
 
 ```rust
 // type Point = { x: int, y: int }
-Type::Named(point_name)  // References "Point" in TypeRegistry
+Type::Named(point_name)  // References "Point" in TypeRegistry (ori_types)
 ```
 
 ### Struct Types
@@ -236,7 +238,7 @@ impl Display for Type {
 
 ## Type Registry
 
-User-defined types are stored in `TypeRegistry`:
+User-defined types are stored in `TypeRegistry` (in `ori_types`, not `ori_ir`):
 
 ```rust
 pub struct TypeRegistry {

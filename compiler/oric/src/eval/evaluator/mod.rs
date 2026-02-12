@@ -52,7 +52,7 @@ pub struct ScopedEvaluator<'guard, 'eval> {
 
 impl Drop for ScopedEvaluator<'_, '_> {
     fn drop(&mut self) {
-        self.evaluator.interpreter.env.pop_scope();
+        self.evaluator.interpreter.env_mut().pop_scope();
     }
 }
 
@@ -133,7 +133,7 @@ impl<'a> Evaluator<'a> {
 
     /// Get the string interner.
     pub fn interner(&self) -> &StringInterner {
-        self.interpreter.interner
+        self.interpreter.interner()
     }
 
     /// Get the expression arena.
@@ -199,7 +199,7 @@ impl<'a> Evaluator<'a> {
     /// } // Scope popped here, even on panic
     /// ```
     pub fn scoped(&mut self) -> ScopedEvaluator<'_, 'a> {
-        self.interpreter.env.push_scope();
+        self.interpreter.env_mut().push_scope();
         ScopedEvaluator { evaluator: self }
     }
 

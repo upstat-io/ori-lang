@@ -1,3 +1,8 @@
+//! The `fmt` command: format Ori source files.
+//!
+//! Supports single files, directories, and stdin.
+//! Uses parallel processing for directories when multiple files are found.
+
 // FormatConfig has 4 bool fields which is standard for CLI config structs
 #![allow(clippy::struct_excessive_bools)]
 // CLI string processing justifications:
@@ -15,11 +20,6 @@
     clippy::redundant_closure_for_method_calls,
     clippy::collapsible_else_if
 )]
-
-//! The `fmt` command: format Ori source files.
-//!
-//! Supports single files, directories, and stdin.
-//! Uses parallel processing for directories when multiple files are found.
 
 use ori_diagnostic::{span_utils, ErrorCode};
 use ori_ir::StringInterner;
@@ -600,11 +600,11 @@ fn get_source_line(source: &str, offset: u32) -> Option<(&str, usize)> {
 
 /// Generate a suggestion for common formatting errors.
 fn get_suggestion(error: &ParseError) -> Option<String> {
-    let msg = &error.message;
-    let ctx = error.context.as_deref().unwrap_or("");
+    let msg = error.message();
+    let ctx = error.context().unwrap_or("");
 
     // Suggestions based on error code
-    match error.code {
+    match error.code() {
         ErrorCode::E1003 => {
             // Unclosed delimiter
             Some("check for missing closing bracket, parenthesis, or brace".to_string())
@@ -695,9 +695,10 @@ fn format_parse_error(path: &str, error: &ParseError, source: &str) -> String {
     let mut output = String::new();
 
     // Get line/column information
-    let (line, col) = span_utils::offset_to_line_col(source, error.span.start);
-    let end_col = if error.span.end > error.span.start {
-        let (_, ec) = span_utils::offset_to_line_col(source, error.span.end);
+    let span = error.span();
+    let (line, col) = span_utils::offset_to_line_col(source, span.start);
+    let end_col = if span.end > span.start {
+        let (_, ec) = span_utils::offset_to_line_col(source, span.end);
         ec
     } else {
         col + 1
@@ -711,11 +712,11 @@ fn format_parse_error(path: &str, error: &ParseError, source: &str) -> String {
             colors::ERROR,
             colors::RESET,
             colors::BOLD,
-            format!("[{}]", error.code),
-            error.message
+            format!("[{}]", error.code()),
+            error.message()
         );
     } else {
-        let _ = writeln!(output, "error[{}]: {}", error.code, error.message);
+        let _ = writeln!(output, "error[{}]: {}", error.code(), error.message());
     }
 
     // File location
@@ -734,7 +735,7 @@ fn format_parse_error(path: &str, error: &ParseError, source: &str) -> String {
     }
 
     // Source line with line number
-    if let Some((source_line, _)) = get_source_line(source, error.span.start) {
+    if let Some((source_line, _)) = get_source_line(source, span.start) {
         let line_num_str = line.to_string();
         let padding = " ".repeat(line_num_str.len());
 
@@ -798,7 +799,7 @@ fn format_parse_error(path: &str, error: &ParseError, source: &str) -> String {
     }
 
     // Context (if available)
-    if let Some(ctx) = &error.context {
+    if let Some(ctx) = error.context() {
         if use_color {
             let _ = writeln!(output, "  = {}note{}: {}", colors::NOTE, colors::RESET, ctx);
         } else {

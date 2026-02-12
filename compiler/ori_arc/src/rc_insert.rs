@@ -99,18 +99,24 @@ pub fn insert_rc_ops(
     // dst is defined at the normal successor's entry, like a block param.
     let invoke_defs = crate::graph::collect_invoke_defs(func);
 
+    // Collect per-block borrow sets for reuse by insert_edge_cleanup,
+    // avoiding the redundant recomputation that compute_global_borrows
+    // would perform.
+    let mut per_block_borrows: Vec<FxHashSet<ArcVarId>> = Vec::with_capacity(num_blocks);
+
     for block_idx in 0..num_blocks {
         // Compute the borrows set: variables *derived from* borrowed params
         // (e.g., via Project or Let alias). Does NOT include the borrowed
         // params themselves — those are handled separately with a complete
         // skip of all RC tracking.
         let borrows = compute_borrows(&func.blocks[block_idx], &borrowed_params);
+        per_block_borrows.push(borrows);
 
         let ctx = RcContext {
             func,
             classifier,
             borrowed_params: &borrowed_params,
-            borrows: &borrows,
+            borrows: &per_block_borrows[block_idx],
         };
 
         let live_out = &liveness.live_out[block_idx];
@@ -218,7 +224,20 @@ pub fn insert_rc_ops(
     // After per-block RC insertion, handle "stranded" variables that are
     // live at a predecessor's exit but not needed by a successor.
     // See `insert_edge_cleanup` for details.
-    insert_edge_cleanup(func, classifier, liveness, &borrowed_params);
+    //
+    // Build global borrow set from pre-collected per-block sets (avoids
+    // redundant recomputation via compute_global_borrows).
+    let global_borrows: FxHashSet<ArcVarId> = per_block_borrows
+        .into_iter()
+        .flat_map(FxHashSet::into_iter)
+        .collect();
+    insert_edge_cleanup(
+        func,
+        classifier,
+        liveness,
+        &borrowed_params,
+        &global_borrows,
+    );
 }
 
 /// Process terminator uses for RC insertion.
@@ -297,9 +316,6 @@ fn process_instruction_uses(
     let used = instr.used_vars();
     let mut seen = FxHashSet::default();
 
-    // Determine which positions are "owned" for borrowed-derived vars.
-    let owned_positions = compute_owned_positions(instr);
-
     for (pos, &var) in used.iter().enumerate() {
         if !ctx.classifier.needs_rc(ctx.func.var_type(var)) {
             continue;
@@ -313,7 +329,7 @@ fn process_instruction_uses(
 
         // Borrowed-derived vars: only emit Inc if in an owned position.
         if ctx.borrows.contains(&var) {
-            if owned_positions.contains(&pos) {
+            if instr.is_owned_position(pos) {
                 new_body.push(ArcInstr::RcInc { var, count: 1 });
                 new_spans.push(None);
             }
@@ -337,35 +353,6 @@ fn process_instruction_uses(
         }
         live.insert(var);
     }
-}
-
-/// Compute which argument positions in an instruction are "owned" —
-/// where a borrowed-derived variable would need an `RcInc` to transfer
-/// ownership to the heap.
-///
-/// Returns a set of indices into `instr.used_vars()`.
-fn compute_owned_positions(instr: &ArcInstr) -> FxHashSet<usize> {
-    let mut owned = FxHashSet::default();
-    match instr {
-        // Construct, PartialApply, Apply: all args stored or consumed.
-        ArcInstr::Construct { args, .. }
-        | ArcInstr::PartialApply { args, .. }
-        | ArcInstr::Apply { args, .. } => {
-            for i in 0..args.len() {
-                owned.insert(i);
-            }
-        }
-        // ApplyIndirect: closure + all args are owned (unknown callee).
-        ArcInstr::ApplyIndirect { args, .. } => {
-            // Position 0 is the closure, positions 1..=args.len() are args.
-            for i in 0..=args.len() {
-                owned.insert(i);
-            }
-        }
-        // Project, Let(Var), Let(Literal), Let(PrimOp), etc. — read-only.
-        _ => {}
-    }
-    owned
 }
 
 /// Compute the "borrows" set for a block — variables *derived from*
@@ -447,10 +434,10 @@ fn insert_edge_cleanup(
     classifier: &dyn ArcClassification,
     liveness: &BlockLiveness,
     borrowed_params: &FxHashSet<ArcVarId>,
+    global_borrows: &FxHashSet<ArcVarId>,
 ) {
     let num_blocks = func.blocks.len();
     let predecessors = compute_predecessors(func);
-    let global_borrows = compute_global_borrows(func, borrowed_params);
 
     // Collect edits before applying (to avoid index invalidation).
     // (block_idx, vars_to_dec) for blocks where Decs go at the start.
@@ -559,24 +546,6 @@ fn insert_edge_cleanup(
             "edge cleanup applied"
         );
     }
-}
-
-/// Compute the global set of borrow-derived variables across all blocks.
-///
-/// A variable is borrow-derived if it was created by `Project` or `Let(Var)`
-/// from a borrowed parameter (or transitively from another borrow-derived var)
-/// in any block. These variables must not receive `RcDec` in edge cleanup
-/// because they were never `RcInc`'d.
-fn compute_global_borrows(
-    func: &ArcFunction,
-    borrowed_params: &FxHashSet<ArcVarId>,
-) -> FxHashSet<ArcVarId> {
-    let mut global = FxHashSet::default();
-    for block in &func.blocks {
-        let block_borrows = compute_borrows(block, borrowed_params);
-        global.extend(block_borrows);
-    }
-    global
 }
 
 /// Redirect all edges in a terminator from `old_target` to `new_target`.

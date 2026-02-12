@@ -101,14 +101,14 @@ pub struct ElseIfBranch {
 }
 
 impl IfChain {
-    /// Check if this is a simple if (no else-if, maybe else).
-    pub fn is_simple(&self) -> bool {
-        self.else_ifs.is_empty()
-    }
-
     /// Total number of branches (including initial if).
     pub fn branch_count(&self) -> usize {
         1 + self.else_ifs.len() + usize::from(self.final_else.is_some())
+    }
+
+    /// Check if this is a simple if (no else-if, maybe else).
+    pub fn is_simple(&self) -> bool {
+        self.else_ifs.is_empty()
     }
 }
 

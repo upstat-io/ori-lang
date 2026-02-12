@@ -2,11 +2,12 @@
 //!
 //! Handles list, tuple, map, and struct literals.
 
-use super::{WidthCalculator, ALWAYS_STACKED};
 use ori_ir::{
     ExprId, ExprRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange, Name,
     StringLookup, StructLitFieldRange,
 };
+
+use super::{WidthCalculator, ALWAYS_STACKED};
 
 /// Calculate width of a list literal: `[items]`.
 pub(super) fn list_width<I: StringLookup>(

@@ -31,6 +31,17 @@ An expression has a different type than expected in the given context.
 | E0003 | Invalid Number | Malformed number literal | ✓ |
 | E0004 | Unterminated Char | Character literal not closed | ✓ |
 | E0005 | Invalid Escape | Unknown escape sequence | ✓ |
+| E0006 | Unterminated Template | Template literal not closed | ✓ |
+| E0007 | Semicolon | Cross-language habit: semicolons | ✓ |
+| E0008 | Triple-Equals | Cross-language habit: `===` | ✓ |
+| E0009 | Single-Quote String | Cross-language habit: single-quote strings | ✓ |
+| E0010 | Increment/Decrement | Cross-language habit: `++`/`--` | ✓ |
+| E0011 | Unicode Confusable | Unicode confusable character | ✓ |
+| E0012 | Detached Doc Comment | Doc comment not attached to declaration | |
+| E0013 | Standalone Backslash | Standalone backslash in source | |
+| E0014 | Decimal Not Representable | Decimal duration/size not representable as whole base units | |
+| E0015 | Reserved-Future Keyword | Reserved-future keyword used as identifier | |
+| E0911 | Float Duration/Size | Floating-point duration/size literal not supported | |
 | **Parser (E1xxx)** |
 | E1001 | Unexpected Token | Parser found unexpected token | ✓ |
 | E1002 | Expected Expression | Expression expected but not found | ✓ |
@@ -46,6 +57,7 @@ An expression has a different type than expected in the given context.
 | E1012 | Invalid function_seq | function_seq syntax error | ✓ |
 | E1013 | function_exp Named | function_exp needs named properties | ✓ |
 | E1014 | Reserved Name | Reserved built-in function name | ✓ |
+| E1015 | Unsupported Keyword | Unsupported keyword (e.g., `return` is not valid in Ori) | ✓ |
 | **Type Checker (E2xxx)** |
 | E2001 | Type Mismatch | Types don't match | ✓ |
 | E2002 | Unknown Type | Type not defined | ✓ |
@@ -69,9 +81,50 @@ An expression has a different type than expected in the given context.
 | E3001 | Unknown Pattern | Pattern name not recognized | ✓ |
 | E3002 | Invalid Pattern Args | Pattern arguments invalid | ✓ |
 | E3003 | Pattern Type Error | Pattern type mismatch | ✓ |
+| **ARC Analysis (E4xxx)** |
+| E4001 | Unsupported ARC Expr | Unsupported expression in ARC IR lowering | |
+| E4002 | Unsupported ARC Pattern | Unsupported pattern in ARC IR lowering | |
+| E4003 | ARC Internal Error | ARC internal error (invariant violation) | |
+| **Codegen / LLVM (E5xxx)** |
+| E5001 | LLVM Verification | LLVM module verification failed (ICE) | |
+| E5002 | Optimization Failed | Optimization pipeline failed | |
+| E5003 | Emission Failed | Object/assembly/bitcode emission failed | |
+| E5004 | Target Not Supported | Target not supported / target configuration failed | |
+| E5005 | Runtime Not Found | Runtime library (`libori_rt.a`) not found | |
+| E5006 | Linker Failed | Linker failed | |
+| E5007 | Debug Info Failed | Debug info creation failed | |
+| E5008 | WASM Error | WASM-specific error | |
+| E5009 | Module Target Error | Module target configuration failed | |
+| **Runtime / Eval (E6xxx)** |
+| E6001 | Division By Zero | Division by zero | |
+| E6002 | Modulo By Zero | Modulo by zero | |
+| E6003 | Integer Overflow | Integer overflow | |
+| E6010 | Runtime Type Mismatch | Type mismatch at runtime | |
+| E6011 | Invalid Binary Op | Invalid binary operator for type | |
+| E6012 | Binary Type Mismatch | Binary operand type mismatch | |
+| E6020 | Undefined Variable | Undefined variable | |
+| E6021 | Undefined Function | Undefined function | |
+| E6022 | Undefined Constant | Undefined constant | |
+| E6023 | Undefined Field | Undefined field | |
+| E6024 | Undefined Method | Undefined method | |
+| E6025 | Index Out Of Bounds | Index out of bounds | |
+| E6026 | Key Not Found | Key not found | |
+| E6027 | Immutable Binding | Immutable binding | |
+| E6030 | Arity Mismatch | Arity mismatch | |
+| E6031 | Stack Overflow | Stack overflow (recursion limit) | |
+| E6032 | Not Callable | Value is not callable | |
+| E6040 | Non-Exhaustive Match | Non-exhaustive match | |
+| E6050 | Assertion Failed | Assertion failed | |
+| E6051 | Panic Called | Panic called | |
+| E6060 | Missing Capability | Missing capability at runtime | |
+| E6070 | Const-Eval Budget | Const-eval budget exceeded | |
+| E6080 | Not Implemented | Not implemented feature | |
+| E6099 | Custom Runtime Error | Custom runtime error | |
 | **Internal (E9xxx)** |
 | E9001 | Internal Error | Compiler bug | ✓ |
 | E9002 | Too Many Errors | Error limit reached | ✓ |
+| **Warnings (W1xxx)** |
+| W1001 | Detached Doc Comment | Parser warning: detached doc comment | |
 
 **✓** = Detailed documentation available via `ori --explain`
 
@@ -83,9 +136,13 @@ An expression has a different type than expected in the given context.
 | E1xxx | Parser | Syntax errors |
 | E2xxx | Type Checker | Type errors |
 | E3xxx | Patterns | Pattern errors |
+| E4xxx | ARC Analysis | ARC IR lowering errors |
+| E5xxx | Codegen / LLVM | Code generation and linking errors |
+| E6xxx | Runtime / Eval | Evaluator runtime errors |
 | E9xxx | Internal | Compiler bugs |
+| W1xxx | Warnings | Non-fatal diagnostics |
 
-**Note:** Runtime errors (evaluator) and import errors are reported as type errors (E2xxx) or internal errors (E9xxx) rather than having dedicated ranges.
+**Note:** Import errors are reported as type errors (E2xxx) since they are caught during type checking. Runtime errors now have dedicated E6xxx codes with structured `EvalErrorKind` variants.
 
 ## Lexer Errors (E0xxx)
 
@@ -283,14 +340,117 @@ error[E3003]: unexpected argument `.foo` for pattern `map`
   = help: valid arguments are: .over, .transform
 ```
 
-## Runtime Errors
+## ARC Analysis Errors (E4xxx)
 
-Runtime errors are not currently assigned dedicated error codes. They are reported as panics with descriptive messages:
+### E4001: Unsupported ARC Expression
 
 ```
-[runtime] division by zero
-[runtime] index out of bounds: index 10 is out of range for list of length 3
-[runtime] assertion failed: x > 10
+error[E4001]: unsupported expression in ARC IR lowering
+ --> src/mainsi:5:10
+  |
+5 |     some_unsupported_expr
+  |     ^^^^^^^^^^^^^^^^^^^^^ cannot be lowered to ARC IR
+```
+
+### E4002: Unsupported ARC Pattern
+
+```
+error[E4002]: unsupported pattern in ARC IR lowering
+ --> src/mainsi:3:5
+  |
+3 |     complex_pattern -> ...
+  |     ^^^^^^^^^^^^^^^ cannot be lowered to ARC IR
+```
+
+### E4003: ARC Internal Error
+
+```
+error[E4003]: ARC internal error (invariant violation)
+  |
+  = note: this is a bug in the ARC analysis pass
+```
+
+## Codegen / LLVM Errors (E5xxx)
+
+### E5001: LLVM Module Verification Failed
+
+```
+error[E5001]: LLVM module verification failed
+  |
+  = note: this is an internal compiler error
+```
+
+### E5005: Runtime Library Not Found
+
+```
+error[E5005]: runtime library `libori_rt.a` not found
+  |
+  = help: build the runtime with `cargo bl` or `cargo blr`
+```
+
+### E5006: Linker Failed
+
+```
+error[E5006]: linker failed
+  |
+  = note: cc returned exit code 1
+```
+
+## Runtime / Eval Errors (E6xxx)
+
+Runtime errors have dedicated error codes organized by category:
+
+### Arithmetic (E6001-E6003)
+
+```
+error[E6001]: division by zero
+error[E6002]: modulo by zero
+error[E6003]: integer overflow
+```
+
+### Type Errors (E6010-E6012)
+
+```
+error[E6010]: type mismatch
+error[E6011]: invalid binary operator for type
+error[E6012]: binary operand type mismatch
+```
+
+### Lookup Errors (E6020-E6027)
+
+```
+error[E6020]: undefined variable `foo`
+error[E6021]: undefined function `bar`
+error[E6023]: undefined field `x`
+error[E6024]: undefined method `len`
+error[E6025]: index out of bounds: index 10 is out of range for list of length 3
+error[E6026]: key not found
+error[E6027]: immutable binding
+```
+
+### Call Errors (E6030-E6032)
+
+```
+error[E6030]: arity mismatch
+error[E6031]: stack overflow (recursion limit exceeded)
+error[E6032]: not callable
+```
+
+### Control Flow (E6040-E6051)
+
+```
+error[E6040]: non-exhaustive match
+error[E6050]: assertion failed: x > 10
+error[E6051]: panic called
+```
+
+### Other (E6060-E6099)
+
+```
+error[E6060]: missing capability `Http`
+error[E6070]: const-eval budget exceeded
+error[E6080]: not implemented
+error[E6099]: custom runtime error
 ```
 
 ## Import Errors

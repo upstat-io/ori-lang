@@ -51,11 +51,8 @@ pub fn run_file(path: &str, profile: bool) {
         let source = file.text(&db);
         let mut queue = DiagnosticQueue::new();
         for error in &parse_result.errors {
-            queue.add_with_source_and_severity(
-                error.to_diagnostic(),
-                source.as_str(),
-                error.severity,
-            );
+            let (diag, severity) = error.to_queued_diagnostic();
+            queue.add_with_source_and_severity(diag, source.as_str(), severity);
         }
         for diag in queue.flush() {
             emitter.emit(&diag);
@@ -168,7 +165,6 @@ fn eval_with_profile(
 
     // Create evaluator with profiling enabled
     let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
-        .pattern_resolutions(&type_result.typed.pattern_resolutions)
         .canon(shared_canon.clone())
         .build();
     evaluator.register_prelude();

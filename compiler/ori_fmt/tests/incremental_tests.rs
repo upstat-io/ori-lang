@@ -1,8 +1,16 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-#![allow(clippy::uninlined_format_args)]
 //! Integration tests for incremental formatting.
 
-use ori_fmt::{apply_regions, format_incremental, format_module_with_comments, IncrementalResult};
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "Tests use unwrap/expect for brevity"
+)]
+#![allow(
+    clippy::uninlined_format_args,
+    reason = "Tests use explicit format args for clarity"
+)]
+
+use ori_fmt::{apply_regions, format_incremental, IncrementalResult};
 use ori_ir::StringInterner;
 
 /// Helper to parse and test incremental formatting.
@@ -28,27 +36,6 @@ fn parse_and_test_incremental(
         &interner,
         change_start,
         change_end,
-    )
-}
-
-/// Helper to do full format for comparison.
-#[allow(dead_code)]
-fn full_format(source: &str) -> String {
-    let interner = StringInterner::new();
-    let lex_output = ori_lexer::lex_with_comments(source, &interner);
-    let parse_output = ori_parse::parse(&lex_output.tokens, &interner);
-
-    assert!(
-        !parse_output.has_errors(),
-        "Parse error in test: {:?}",
-        parse_output.errors
-    );
-
-    format_module_with_comments(
-        &parse_output.module,
-        &lex_output.comments,
-        &parse_output.arena,
-        &interner,
     )
 }
 

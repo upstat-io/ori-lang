@@ -7,7 +7,7 @@
 
 use rustc_hash::FxHashMap;
 
-use ori_ir::{ExprArena, ExprId, NamedExpr, SharedInterner};
+use ori_ir::{ExprArena, ExprId, Name, NamedExpr, SharedInterner};
 
 use crate::{EvalContext, EvalError, EvalResult, PatternExecutor, Value};
 
@@ -35,9 +35,9 @@ pub struct MockPatternExecutor {
     /// Values to return for `eval(ExprId)` calls.
     expr_values: FxHashMap<usize, Value>,
     /// Variables accessible via `lookup_var`.
-    variables: FxHashMap<String, Value>,
+    variables: FxHashMap<Name, Value>,
     /// Capabilities accessible via `lookup_capability`.
-    capabilities: FxHashMap<String, Value>,
+    capabilities: FxHashMap<Name, Value>,
     /// Function call results (function is matched by display string).
     call_results: Vec<Value>,
     /// Index for cycling through call results.
@@ -63,14 +63,14 @@ impl MockPatternExecutor {
     }
 
     /// Register a variable accessible via `lookup_var`.
-    pub fn with_var(mut self, name: &str, value: Value) -> Self {
-        self.variables.insert(name.to_string(), value);
+    pub fn with_var(mut self, name: Name, value: Value) -> Self {
+        self.variables.insert(name, value);
         self
     }
 
     /// Register a capability accessible via `lookup_capability`.
-    pub fn with_capability(mut self, name: &str, value: Value) -> Self {
-        self.capabilities.insert(name.to_string(), value);
+    pub fn with_capability(mut self, name: Name, value: Value) -> Self {
+        self.capabilities.insert(name, value);
         self
     }
 
@@ -108,20 +108,20 @@ impl PatternExecutor for MockPatternExecutor {
         Ok(result)
     }
 
-    fn lookup_capability(&self, name: &str) -> Option<Value> {
-        self.capabilities.get(name).cloned()
+    fn lookup_capability(&self, name: Name) -> Option<Value> {
+        self.capabilities.get(&name).cloned()
     }
 
-    fn call_method(&mut self, _receiver: Value, _method: &str, _args: Vec<Value>) -> EvalResult {
+    fn call_method(&mut self, _receiver: Value, _method: Name, _args: Vec<Value>) -> EvalResult {
         Ok(Value::Void)
     }
 
-    fn lookup_var(&self, name: &str) -> Option<Value> {
-        self.variables.get(name).cloned()
+    fn lookup_var(&self, name: Name) -> Option<Value> {
+        self.variables.get(&name).cloned()
     }
 
-    fn bind_var(&mut self, name: &str, value: Value) {
-        self.variables.insert(name.to_string(), value);
+    fn bind_var(&mut self, name: Name, value: Value) {
+        self.variables.insert(name, value);
     }
 }
 
@@ -142,21 +142,30 @@ mod tests {
 
     #[test]
     fn mock_executor_variables() {
-        let exec = MockPatternExecutor::new()
-            .with_var("x", Value::int(10))
-            .with_var("y", Value::Bool(true));
+        let interner = SharedInterner::default();
+        let x = interner.intern("x");
+        let y = interner.intern("y");
+        let z = interner.intern("z");
 
-        assert_eq!(exec.lookup_var("x"), Some(Value::int(10)));
-        assert_eq!(exec.lookup_var("y"), Some(Value::Bool(true)));
-        assert_eq!(exec.lookup_var("z"), None);
+        let exec = MockPatternExecutor::new()
+            .with_var(x, Value::int(10))
+            .with_var(y, Value::Bool(true));
+
+        assert_eq!(exec.lookup_var(x), Some(Value::int(10)));
+        assert_eq!(exec.lookup_var(y), Some(Value::Bool(true)));
+        assert_eq!(exec.lookup_var(z), None);
     }
 
     #[test]
     fn mock_executor_capabilities() {
-        let exec = MockPatternExecutor::new().with_capability("Print", Value::Void);
+        let interner = SharedInterner::default();
+        let print = interner.intern("Print");
+        let http = interner.intern("Http");
 
-        assert_eq!(exec.lookup_capability("Print"), Some(Value::Void));
-        assert_eq!(exec.lookup_capability("Http"), None);
+        let exec = MockPatternExecutor::new().with_capability(print, Value::Void);
+
+        assert_eq!(exec.lookup_capability(print), Some(Value::Void));
+        assert_eq!(exec.lookup_capability(http), None);
     }
 
     #[test]
@@ -172,10 +181,13 @@ mod tests {
 
     #[test]
     fn mock_executor_bind_var() {
-        let mut exec = MockPatternExecutor::new();
-        assert_eq!(exec.lookup_var("x"), None);
+        let interner = SharedInterner::default();
+        let x = interner.intern("x");
 
-        exec.bind_var("x", Value::int(42));
-        assert_eq!(exec.lookup_var("x"), Some(Value::int(42)));
+        let mut exec = MockPatternExecutor::new();
+        assert_eq!(exec.lookup_var(x), None);
+
+        exec.bind_var(x, Value::int(42));
+        assert_eq!(exec.lookup_var(x), Some(Value::int(42)));
     }
 }

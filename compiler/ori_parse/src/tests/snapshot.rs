@@ -28,7 +28,7 @@ fn test_snapshot_captures_position() {
 
     // Position at start
     let snapshot = parser.snapshot();
-    assert_eq!(snapshot.cursor_pos(), 0);
+    assert_eq!(snapshot.cursor_pos, 0);
 
     // Advance and verify position changed
     parser.cursor.advance();
@@ -174,7 +174,7 @@ fn test_try_parse_with_context_change() {
 #[test]
 fn test_snapshot_size() {
     // Verify snapshot is lightweight (documented as ~10 bytes + padding)
-    let size = std::mem::size_of::<crate::ParserSnapshot>();
+    let size = std::mem::size_of::<crate::snapshot::ParserSnapshot>();
     assert!(
         size <= 24,
         "ParserSnapshot should be small, got {size} bytes"

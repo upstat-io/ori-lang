@@ -7,31 +7,33 @@ section: "Evaluator"
 
 # Tree Walking Interpretation
 
-The Ori evaluator uses tree-walking interpretation, where the AST is traversed and evaluated directly without compilation to bytecode.
+The Ori evaluator uses tree-walking interpretation, where the canonical IR is traversed and evaluated directly without compilation to bytecode.
 
 ## How It Works
 
 Tree-walking interpretation:
-1. Receives typed AST
-2. Recursively walks the tree
+1. Receives canonical IR (`CanonResult` containing `CanExpr` nodes)
+2. Recursively walks the tree via `eval_can(CanId)` in `interpreter/can_eval.rs`
 3. Evaluates each node, producing a Value
 4. Returns final value
 
-```rust
-fn eval_expr(&mut self, id: ExprId) -> Result<Value, EvalError> {
-    let expr = self.arena.get(id);
+All evaluation goes through `eval_can(CanId)` as the sole entry point. The canonical IR (`CanExpr`)
+is a sugar-free representation — spread operators, template strings, named arguments, and other
+syntactic sugar are desugared during canonicalization. Pattern matching is handled by decision tree
+evaluation via `exec/decision_tree.rs`.
 
-    match &expr.kind {
-        ExprKind::Literal(lit) => self.eval_literal(lit),
-        ExprKind::Binary { left, op, right } => {
-            let left_val = self.eval_expr(*left)?;
-            let right_val = self.eval_expr(*right)?;
-            self.apply_binary_op(*op, left_val, right_val)
-        }
-        // ... more cases
+```rust
+impl Interpreter<'_> {
+    /// Entry point for canonical expression evaluation with stack safety.
+    pub fn eval_can(&mut self, can_id: CanId) -> EvalResult {
+        ensure_sufficient_stack(|| self.eval_can_inner(can_id))
     }
 }
 ```
+
+The `CanExpr` type is `Copy` (24 bytes), so the kind is copied out of the arena before
+dispatching. This releases the immutable borrow on `self.canon`, allowing recursive
+`self.eval_can()` calls in each arm.
 
 ## Expression Evaluation
 

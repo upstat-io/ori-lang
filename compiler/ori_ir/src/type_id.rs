@@ -30,7 +30,7 @@ use std::hash::{Hash, Hasher};
 pub struct TypeId(u32);
 
 impl TypeId {
-    // === Primitive Types (indices 0-11, matching Idx) ===
+    // Primitive Types (indices 0-11, matching Idx)
 
     pub const INT: TypeId = TypeId(0);
     pub const FLOAT: TypeId = TypeId(1);
@@ -50,7 +50,7 @@ impl TypeId {
     /// Ordering type (Less | Equal | Greater), represented as i8 in LLVM.
     pub const ORDERING: TypeId = TypeId(11);
 
-    // === Special Markers (12-13, NOT stored in type pool) ===
+    // Special Markers (12-13, NOT stored in type pool)
 
     /// Placeholder during type inference. Never appears in final types.
     pub const INFER: TypeId = TypeId(12);

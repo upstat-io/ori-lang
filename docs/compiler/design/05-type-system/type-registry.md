@@ -28,8 +28,12 @@ pub struct TypeRegistry {
     types_by_name: BTreeMap<Name, TypeEntry>,     // Deterministic iteration order
     types_by_idx: FxHashMap<Idx, TypeEntry>,       // Fast lookup by type Idx
     variants_by_name: FxHashMap<Name, (Idx, usize)>,  // Variant → (enum Idx, variant index)
-    next_internal_id: u32,
+    next_internal_id: u32,   // Starts at FIRST_USER_TYPE
 }
+
+/// First internal ID for user-defined types.
+/// Primitives occupy indices 0-63 in the Pool.
+const FIRST_USER_TYPE: u32 = 1000;
 ```
 
 `BTreeMap` is used for `types_by_name` to ensure deterministic iteration order, which matters for error messages and test stability.
@@ -46,6 +50,19 @@ pub struct TypeEntry {
     pub visibility: Visibility,
 }
 ```
+
+### Visibility
+
+```rust
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Visibility {
+    #[default]
+    Public,   // Visible everywhere
+    Private,  // Visible only within the defining module
+}
+```
+
+The default is `Public`. Fields, types, and methods can each carry their own `Visibility`.
 
 ### TypeKind
 
@@ -72,16 +89,18 @@ pub enum VariantFields {
 
 ### Registration
 
-Types are registered during Pass 0 of module checking. Each registration generates a unique `Idx` in the pool:
+Types are registered during Pass 0 of module checking. The caller provides the `Idx` (created in the pool before registration), and the registry stores the entry under both name and index:
 
 ```rust
 impl TypeRegistry {
-    pub fn register_struct(&mut self, name: Name, fields: Vec<FieldDef>,
-                           span: Span, type_params: Vec<Name>) -> Idx;
-    pub fn register_enum(&mut self, name: Name, variants: Vec<VariantDef>,
-                         span: Span, type_params: Vec<Name>) -> Idx;
-    pub fn register_newtype(&mut self, name: Name, underlying: Idx,
-                            span: Span, type_params: Vec<Name>) -> Idx;
+    pub fn register_struct(&mut self, name: Name, idx: Idx, type_params: Vec<Name>,
+                           fields: Vec<FieldDef>, span: Span, visibility: Visibility);
+    pub fn register_enum(&mut self, name: Name, idx: Idx, type_params: Vec<Name>,
+                         variants: Vec<VariantDef>, span: Span, visibility: Visibility);
+    pub fn register_newtype(&mut self, name: Name, idx: Idx, type_params: Vec<Name>,
+                            underlying: Idx, span: Span, visibility: Visibility);
+    pub fn register_alias(&mut self, name: Name, idx: Idx, type_params: Vec<Name>,
+                          target: Idx, span: Span, visibility: Visibility);
 }
 ```
 

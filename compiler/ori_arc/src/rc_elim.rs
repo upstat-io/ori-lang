@@ -379,7 +379,7 @@ fn eliminate_cross_block_pairs(func: &mut ArcFunction) -> usize {
                     other => {
                         // If this instruction uses the variable, the Inc (if any
                         // earlier) can't be eliminated with this Dec.
-                        if other.used_vars().contains(&dec_var) {
+                        if other.uses_var(dec_var) {
                             break;
                         }
                     }

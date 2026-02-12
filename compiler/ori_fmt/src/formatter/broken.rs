@@ -3,8 +3,9 @@
 //! Methods for emitting expressions in broken (multi-line) format.
 //! Used when expressions don't fit on a single line.
 
-use crate::width::ALWAYS_STACKED;
 use ori_ir::{BinaryOp, ExprId, ExprKind, StringLookup};
+
+use crate::width::ALWAYS_STACKED;
 
 use super::{binary_op_str, Formatter};
 

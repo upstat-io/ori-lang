@@ -45,7 +45,7 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// String interner for `Name` → `&str`.
     interner: &'a StringInterner,
     /// Type pool for structural queries (used by future type-dependent emission).
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Reserved for future type-dependent IR emission")]
     pool: &'a Pool,
     /// The LLVM function being compiled.
     current_function: FunctionId,

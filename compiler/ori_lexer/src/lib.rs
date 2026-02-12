@@ -224,13 +224,7 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
     // These provide more specific diagnostics than the raw scanner's generic
     // InvalidByte tokens (e.g., "UTF-8 BOM" vs "invalid byte 0xEF").
     for issue in buf.encoding_issues() {
-        let issue_span = match issue.kind {
-            EncodingIssueKind::Utf8Bom => Span::new(issue.pos, issue.pos + 3),
-            EncodingIssueKind::Utf16LeBom | EncodingIssueKind::Utf16BeBom => {
-                Span::new(issue.pos, issue.pos + 2)
-            }
-            EncodingIssueKind::InteriorNull => Span::new(issue.pos, issue.pos + 1),
-        };
+        let issue_span = Span::new(issue.pos, issue.pos + issue.len);
         output.errors.push(match issue.kind {
             EncodingIssueKind::Utf8Bom => LexError::utf8_bom(issue_span),
             EncodingIssueKind::Utf16LeBom => LexError::utf16_le_bom(issue_span),
@@ -319,6 +313,11 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
                     TokenFlags::from_bits(TokenFlags::NEWLINE_BEFORE | TokenFlags::LINE_START);
                 last_significant_was_newline = true;
             }
+
+            // Interior null bytes: already reported via SourceBuffer
+            // encoding_issues() with a specific diagnostic. Skip the
+            // scanner's token to avoid duplicate errors.
+            RawTag::InteriorNull => {}
 
             // Cook everything else
             _ => {
@@ -1239,6 +1238,55 @@ let x = 1";
             .filter(|e| e.kind == lex_error::LexErrorKind::InvalidNullByte)
             .collect();
         assert_eq!(null_errors.len(), 2, "each null should produce an error");
+    }
+
+    #[test]
+    fn interior_null_no_duplicate_error() {
+        // Interior null bytes should produce exactly ONE error (InvalidNullByte
+        // from SourceBuffer encoding detection), NOT a second InvalidByte { byte: 0 }
+        // from the scanner/cooker path.
+        let interner = StringInterner::new();
+        let source = "let\0x";
+        let output = lex_with_comments(source, &interner);
+        let invalid_byte_zero: Vec<_> = output
+            .errors
+            .iter()
+            .filter(|e| e.kind == lex_error::LexErrorKind::InvalidByte { byte: 0 })
+            .collect();
+        assert!(
+            invalid_byte_zero.is_empty(),
+            "interior null should not produce InvalidByte {{ byte: 0 }} — \
+             the specific InvalidNullByte error already covers it"
+        );
+    }
+
+    #[test]
+    fn interior_null_total_error_count() {
+        // A single interior null should produce exactly 1 error total.
+        let interner = StringInterner::new();
+        let source = "let\0x";
+        let output = lex_with_comments(source, &interner);
+        assert_eq!(
+            output.errors.len(),
+            1,
+            "interior null should produce exactly 1 error, got: {:?}",
+            output.errors.iter().map(|e| &e.kind).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn multiple_interior_nulls_no_duplicates() {
+        // Two interior nulls should produce exactly 2 errors (one per null),
+        // not 4 (which would happen with duplicate reporting).
+        let interner = StringInterner::new();
+        let source = "\0a\0";
+        let output = lex_with_comments(source, &interner);
+        assert_eq!(
+            output.errors.len(),
+            2,
+            "two interior nulls should produce exactly 2 errors, got: {:?}",
+            output.errors.iter().map(|e| &e.kind).collect::<Vec<_>>()
+        );
     }
 
     // === HashBang token tests ===

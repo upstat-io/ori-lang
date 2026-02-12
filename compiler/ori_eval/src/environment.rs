@@ -46,8 +46,6 @@ impl Mutability {
     }
 }
 
-// LocalScope<T> - Newtype wrapper for single-threaded scopes
-
 /// A single-threaded scope wrapper for reference-counted interior mutability.
 ///
 /// This type wraps `Rc<RefCell<T>>` and enforces that all scope allocations
@@ -118,8 +116,6 @@ impl<T> Deref for LocalScope<T> {
         &self.0
     }
 }
-
-// Scope
 
 /// A single scope containing variable bindings.
 #[derive(Clone, Debug)]
@@ -218,6 +214,11 @@ impl Environment {
         }
     }
 
+    /// Get the current scope depth.
+    pub fn depth(&self) -> usize {
+        self.scopes.len()
+    }
+
     /// Push a new scope onto the stack.
     #[inline]
     pub fn push_scope(&mut self) {
@@ -244,7 +245,9 @@ impl Environment {
     /// Define a variable in the current scope.
     #[inline]
     pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
-        self.current_scope()
+        self.scopes
+            .last()
+            .unwrap_or(&self.global)
             .borrow_mut()
             .define(name, value, mutability);
     }
@@ -264,7 +267,11 @@ impl Environment {
     /// Assign to a variable.
     #[inline]
     pub fn assign(&mut self, name: Name, value: Value) -> Result<(), AssignError> {
-        self.current_scope().borrow_mut().assign(name, value)
+        self.scopes
+            .last()
+            .unwrap_or(&self.global)
+            .borrow_mut()
+            .assign(name, value)
     }
 
     /// Define a global variable (immutable).
@@ -272,11 +279,6 @@ impl Environment {
         self.global
             .borrow_mut()
             .define(name, value, Mutability::Immutable);
-    }
-
-    /// Get the current scope depth.
-    pub fn depth(&self) -> usize {
-        self.scopes.len()
     }
 
     /// Create a child environment for function calls.
@@ -291,82 +293,6 @@ impl Environment {
             scopes: vec![global.clone()],
             global,
         }
-    }
-
-    /// Execute a closure within a new scope, automatically popping when done.
-    ///
-    /// This is an RAII-style guard that ensures the scope is popped even if
-    /// the closure returns early or panics.
-    ///
-    /// # Example
-    ///
-    /// ```text
-    /// env.with_scope(|env| {
-    ///     env.define(name, value, Mutability::Immutable);
-    ///     // ... use the binding ...
-    /// }) // scope is automatically popped here
-    /// ```
-    pub fn with_scope<T, F>(&mut self, f: F) -> T
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        self.push_scope();
-        let result = f(self);
-        self.pop_scope();
-        result
-    }
-
-    /// Execute a closure with a single binding in a new scope.
-    ///
-    /// This is a convenience method for common cases like loop variables.
-    ///
-    /// # Example
-    ///
-    /// ```text
-    /// // for x in items do body
-    /// env.with_binding(x_name, item_value, Mutability::Immutable, |env| {
-    ///     eval_body(body, env)
-    /// })
-    /// ```
-    pub fn with_binding<T, F>(
-        &mut self,
-        name: Name,
-        value: Value,
-        mutability: Mutability,
-        f: F,
-    ) -> T
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        self.with_scope(|env| {
-            env.define(name, value, mutability);
-            f(env)
-        })
-    }
-
-    /// Execute a closure with multiple bindings in a new scope.
-    ///
-    /// Each binding is a tuple of (name, value).
-    /// All bindings are immutable (for match bindings).
-    ///
-    /// # Example
-    ///
-    /// ```text
-    /// let bindings = try_match(&pattern, value, arena, interner)?;
-    /// env.with_match_bindings(bindings, |env| {
-    ///     eval_body(body, env)
-    /// })
-    /// ```
-    pub fn with_match_bindings<T, F>(&mut self, bindings: Vec<(Name, Value)>, f: F) -> T
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        self.with_scope(|env| {
-            for (name, value) in bindings {
-                env.define(name, value, Mutability::Immutable);
-            }
-            f(env)
-        })
     }
 
     /// Capture the current scope for closures.
@@ -393,18 +319,6 @@ impl Environment {
 impl Default for Environment {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl Clone for Environment {
-    fn clone(&self) -> Self {
-        // Clone shares the global scope via Rc (cheap O(1) clone)
-        // This preserves all global bindings in the cloned environment
-        let global = self.global.clone();
-        Environment {
-            scopes: vec![global.clone()],
-            global,
-        }
     }
 }
 
@@ -531,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn test_environment_clone_preserves_bindings() {
+    fn test_environment_child_preserves_global_bindings() {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
         let y = interner.intern("y");
@@ -540,11 +454,11 @@ mod tests {
         env.define_global(x, Value::int(42));
         env.define_global(y, Value::string("hello".to_string()));
 
-        // Clone should preserve all global bindings
-        let cloned = env.clone();
+        // child() shares the global scope — all global bindings are visible
+        let child = env.child();
 
-        assert_eq!(cloned.lookup(x), Some(Value::int(42)));
-        assert_eq!(cloned.lookup(y), Some(Value::string("hello".to_string())));
+        assert_eq!(child.lookup(x), Some(Value::int(42)));
+        assert_eq!(child.lookup(y), Some(Value::string("hello".to_string())));
     }
 
     #[test]

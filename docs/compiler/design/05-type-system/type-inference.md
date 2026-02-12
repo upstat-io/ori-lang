@@ -44,6 +44,14 @@ pub struct InferEngine<'pool> {
 
 The engine is created fresh for each function body check, receiving the pool, environment, and registries from `ModuleChecker`.
 
+### Key InferEngine Fields
+
+**`self_type: Option<Idx>`** — Stores the current function's type for recursive call patterns. When checking a function body, this is set to the function's own type so that `recurse` or self-referencing calls can resolve their type without requiring the function to be fully checked first.
+
+**`impl_self_type: Option<Idx>`** — Stores the `Self` type when checking impl method bodies. When encountering `Self` in a type annotation within an `impl Point { ... }` block, this field provides the concrete type (`Point`) to substitute. Set via `set_impl_self_type()` before checking each impl method body.
+
+**`loop_break_types: Vec<Idx>`** — A stack of expected break value types for nested loops. Each `loop()` expression pushes a fresh type variable onto this stack; `break expr` unifies the expression type with the top of the stack. Nested loops each get their own entry, and the stack is popped when exiting each loop scope.
+
 ## Expression Inference
 
 The core inference function dispatches on `ExprKind`:
@@ -187,10 +195,14 @@ Functions declare required capabilities with `uses`:
 @fetch_data (url: str) -> str uses Http = ...
 ```
 
+Capabilities are bound as fresh type variables in the function scope during signature collection. Each capability name from the `uses` clause is registered as a name in the function's type environment, allowing the inference engine to verify capability availability at call sites.
+
 The `InferEngine` tracks capabilities in two sets:
 
 - `current_capabilities` — Capabilities declared by the current function's `uses` clause
 - `provided_capabilities` — Capabilities injected by `with...in` expressions
+
+These are propagated from `ModuleChecker` to `InferEngine` via `set_capabilities()` when creating the engine for each function body.
 
 When a called function requires a capability, the engine verifies it is available:
 

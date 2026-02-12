@@ -43,6 +43,7 @@ dashmap = "6.1"
 parking_lot = "0.12"
 crossbeam = "0.8"
 rustc-hash = "2.1"
+smallvec = { version = "1", features = ["const_generics"] }
 stacker = "0.1"
 proptest = "1.4"
 bitflags = "2.6"

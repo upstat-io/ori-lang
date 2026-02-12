@@ -10,11 +10,13 @@
     reason = "Arc required for SharedInterner thread-safety"
 )]
 
-use super::Name;
-use parking_lot::RwLock;
-use rustc_hash::FxHashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
+use parking_lot::RwLock;
+use rustc_hash::FxHashMap;
+
+use super::Name;
 
 /// Per-shard storage for interned strings.
 struct InternShard {
@@ -98,16 +100,6 @@ impl StringInterner {
         };
         interner.pre_intern_keywords();
         interner
-    }
-
-    /// Compute shard for a string based on its hash.
-    #[inline]
-    fn shard_for(s: &str) -> usize {
-        let mut hash = 0u32;
-        for byte in s.bytes().take(8) {
-            hash = hash.wrapping_mul(31).wrapping_add(u32::from(byte));
-        }
-        (hash as usize) % Name::NUM_SHARDS
     }
 
     /// Try to intern a string, returning its Name or an error on overflow.
@@ -329,6 +321,16 @@ impl StringInterner {
     /// Check if the interner is empty (only has the empty string).
     pub fn is_empty(&self) -> bool {
         self.len() <= 1
+    }
+
+    /// Compute shard for a string based on its hash.
+    #[inline]
+    fn shard_for(s: &str) -> usize {
+        let mut hash = 0u32;
+        for byte in s.bytes().take(8) {
+            hash = hash.wrapping_mul(31).wrapping_add(u32::from(byte));
+        }
+        (hash as usize) % Name::NUM_SHARDS
     }
 }
 

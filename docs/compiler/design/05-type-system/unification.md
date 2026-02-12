@@ -146,6 +146,38 @@ impl Rank {
 }
 ```
 
+### Rank Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `TOP` | 0 | Universally quantified variables (already generalized in a scheme) |
+| `IMPORT` | 1 | Imported type schemes from other modules |
+| `FIRST` | 2 | Top-level definitions within the current module; type checking starts here |
+| `MAX` | `u16::MAX - 1` | Safety bound preventing overflow in deeply nested code |
+
+### Scope Management
+
+The `UnifyEngine` tracks the current rank and provides methods for entering and exiting scopes:
+
+```rust
+impl UnifyEngine {
+    /// Enter a new scope — increases the rank.
+    /// Variables created at higher ranks can be generalized when the scope exits.
+    pub fn enter_scope(&mut self) {
+        self.current_rank = self.current_rank.next();
+    }
+
+    /// Exit current scope — decreases the rank.
+    /// Call generalize() on types BEFORE exiting to capture variables
+    /// that should be quantified.
+    pub fn exit_scope(&mut self) {
+        self.current_rank = self.current_rank.prev().max(Rank::FIRST);
+    }
+}
+```
+
+The `exit_scope()` method clamps the rank at `FIRST` (never below) to prevent underflow. The `InferEngine` wraps these in `enter_scope()` / `exit_scope()` methods that also manage the `TypeEnv` child scope chain.
+
 ### Rank Semantics
 
 Each type variable is created at a specific rank corresponding to its scope depth. When the type checker enters a `let` binding, the rank increases; when it exits, variables at the current rank can be generalized:

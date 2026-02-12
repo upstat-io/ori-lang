@@ -95,7 +95,7 @@ pub enum ParseOutcome<T> {
     EmptyErr {
         /// Set of token kinds that would have been valid here.
         expected: TokenSet,
-        /// Position where the mismatch occurred.
+        /// Byte offset in the source where the mismatch occurred.
         position: usize,
     },
 }
@@ -281,7 +281,7 @@ impl<T> ParseOutcome<T> {
                         )]
                         ParseOutcome::ConsumedErr {
                             error: ParseError::from_expected_tokens(&expected, position),
-                            consumed_span: Span::new(position as u32, 0),
+                            consumed_span: Span::point(position as u32),
                         }
                     }
                 }
@@ -592,7 +592,7 @@ macro_rules! require {
                 )]
                 return $crate::ParseOutcome::ConsumedErr {
                     error,
-                    consumed_span: ori_ir::Span::new(position as u32, 0),
+                    consumed_span: ori_ir::Span::point(position as u32),
                 };
             }
         }

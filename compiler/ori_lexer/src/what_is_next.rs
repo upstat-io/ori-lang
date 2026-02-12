@@ -9,7 +9,7 @@
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum NextContext {
     /// An operator-like sequence (e.g., `===`, `++`).
-    Operator(String),
+    Operator(&'static str),
     /// A single punctuation character.
     Punctuation(char),
     /// A non-ASCII character (with confusable info if available).
@@ -52,15 +52,15 @@ pub(crate) fn what_is_next(source: &[u8], pos: u32) -> NextContext {
         b'=' if matches!(peek(source, pos + 1), Some(b'='))
             && matches!(peek(source, pos + 2), Some(b'=')) =>
         {
-            NextContext::Operator("===".into())
+            NextContext::Operator("===")
         }
         b'!' if matches!(peek(source, pos + 1), Some(b'='))
             && matches!(peek(source, pos + 2), Some(b'=')) =>
         {
-            NextContext::Operator("!==".into())
+            NextContext::Operator("!==")
         }
-        b'+' if matches!(peek(source, pos + 1), Some(b'+')) => NextContext::Operator("++".into()),
-        b'-' if matches!(peek(source, pos + 1), Some(b'-')) => NextContext::Operator("--".into()),
+        b'+' if matches!(peek(source, pos + 1), Some(b'+')) => NextContext::Operator("++"),
+        b'-' if matches!(peek(source, pos + 1), Some(b'-')) => NextContext::Operator("--"),
         // Single punctuation
         b';' | b'(' | b')' | b'{' | b'}' | b'[' | b']' | b',' | b'.' | b':' | b'@' | b'#'
         | b'\\' | b'\'' | b'"' | b'`' | b'?' | b'!' | b'~' | b'^' | b'&' | b'|' | b'+' | b'-'
@@ -82,22 +82,22 @@ mod tests {
 
     #[test]
     fn detects_triple_equals() {
-        assert_eq!(what_is_next(b"===", 0), NextContext::Operator("===".into()));
+        assert_eq!(what_is_next(b"===", 0), NextContext::Operator("==="));
     }
 
     #[test]
     fn detects_not_triple_equals() {
-        assert_eq!(what_is_next(b"!==", 0), NextContext::Operator("!==".into()));
+        assert_eq!(what_is_next(b"!==", 0), NextContext::Operator("!=="));
     }
 
     #[test]
     fn detects_increment() {
-        assert_eq!(what_is_next(b"++", 0), NextContext::Operator("++".into()));
+        assert_eq!(what_is_next(b"++", 0), NextContext::Operator("++"));
     }
 
     #[test]
     fn detects_decrement() {
-        assert_eq!(what_is_next(b"--x", 0), NextContext::Operator("--".into()));
+        assert_eq!(what_is_next(b"--x", 0), NextContext::Operator("--"));
     }
 
     #[test]

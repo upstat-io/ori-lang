@@ -11,9 +11,10 @@
 //! # Salsa Compatibility
 //! All types derive required traits: `Clone`, `Eq`, `PartialEq`, `Hash`, `Debug`
 
-use super::{Comment, CommentKind, CommentList, Span};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+use super::{Comment, CommentKind, CommentList, Span};
 
 /// Non-semantic metadata collected during parsing.
 ///

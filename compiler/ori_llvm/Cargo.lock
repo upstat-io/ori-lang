@@ -325,6 +325,7 @@ dependencies = [
  "ori_types",
  "rustc-hash",
  "serde",
+ "smallvec",
  "tracing",
 ]
 

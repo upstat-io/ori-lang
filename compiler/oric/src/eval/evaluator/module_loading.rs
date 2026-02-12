@@ -11,8 +11,9 @@ use crate::imports;
 use crate::ir::SharedArena;
 use crate::parser::ParseOutput;
 use ori_eval::{
-    collect_def_impl_methods, collect_extend_methods, collect_impl_methods, process_derives,
-    register_module_functions, register_newtype_constructors, register_variant_constructors,
+    collect_def_impl_methods_with_config, collect_extend_methods_with_config,
+    collect_impl_methods_with_config, process_derives, register_module_functions,
+    register_newtype_constructors, register_variant_constructors, MethodCollectionConfig,
     UserMethodRegistry,
 };
 use ori_ir::canon::SharedCanonResult;
@@ -45,7 +46,7 @@ impl Evaluator<'_> {
     ) -> Result<(), String> {
         // Resolve all imports via the unified pipeline (prelude + explicit use statements).
         let resolved = imports::resolve_imports(self.db, parse_result, file_path);
-        let interner = self.interpreter.interner;
+        let interner = self.db.interner();
 
         // Register prelude functions (if not already loaded)
         if !self.prelude_loaded {
@@ -73,9 +74,10 @@ impl Evaluator<'_> {
             }
         }
 
-        // Report import resolution errors
-        if let Some(error) = resolved.errors.first() {
-            return Err(error.message.clone());
+        // Report all import resolution errors (accumulate, don't bail on the first)
+        if !resolved.errors.is_empty() {
+            let messages: Vec<&str> = resolved.errors.iter().map(|e| e.message.as_str()).collect();
+            return Err(messages.join("\n"));
         }
 
         // Register explicitly imported functions.
@@ -103,7 +105,7 @@ impl Evaluator<'_> {
             import::register_imports(
                 imp,
                 &imported_module,
-                &mut self.interpreter.env,
+                self.env_mut(),
                 interner,
                 import_path,
                 file_path,
@@ -127,30 +129,16 @@ impl Evaluator<'_> {
         register_newtype_constructors(&parse_result.module, self.env_mut());
 
         // Build up user method registry from impl and extend blocks
-        // Wrap captures in Arc once for efficient sharing across all collect_* calls
         let mut user_methods = UserMethodRegistry::new();
-        let captures = std::sync::Arc::new(self.env().capture());
-        collect_impl_methods(
-            &parse_result.module,
-            &shared_arena,
-            &captures,
+        let config = MethodCollectionConfig {
+            module: &parse_result.module,
+            arena: &shared_arena,
+            captures: std::sync::Arc::new(self.env().capture()),
             canon,
-            &mut user_methods,
-        );
-        collect_extend_methods(
-            &parse_result.module,
-            &shared_arena,
-            &captures,
-            canon,
-            &mut user_methods,
-        );
-        collect_def_impl_methods(
-            &parse_result.module,
-            &shared_arena,
-            &captures,
-            canon,
-            &mut user_methods,
-        );
+        };
+        collect_impl_methods_with_config(&config, &mut user_methods);
+        collect_extend_methods_with_config(&config, &mut user_methods);
+        collect_def_impl_methods_with_config(&config, &mut user_methods);
 
         // Process derived traits (Eq, Clone, Hashable, Printable, Default)
         process_derives(&parse_result.module, &mut user_methods, self.interner());

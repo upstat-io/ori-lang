@@ -43,11 +43,6 @@ impl StringEmitter {
         }
     }
 
-    /// Get the formatted output.
-    pub fn output(self) -> String {
-        self.buffer
-    }
-
     /// Get the current buffer contents without consuming.
     pub fn as_str(&self) -> &str {
         &self.buffer
@@ -80,6 +75,11 @@ impl StringEmitter {
         while self.buffer.ends_with("\n\n") || self.buffer.ends_with(" \n") {
             self.buffer.pop();
         }
+    }
+
+    /// Get the formatted output.
+    pub fn output(self) -> String {
+        self.buffer
     }
 }
 

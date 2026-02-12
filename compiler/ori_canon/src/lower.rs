@@ -256,6 +256,10 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) name_to_str: Name,
     pub(crate) name_concat: Name,
     pub(crate) name_merge: Name,
+
+    // Pre-interned builtin type names for TypeRef detection.
+    name_duration: Name,
+    name_size: Name,
 }
 
 impl<'a> Lowerer<'a> {
@@ -286,6 +290,8 @@ impl<'a> Lowerer<'a> {
             name_to_str: interner.intern("to_str"),
             name_concat: interner.intern("concat"),
             name_merge: interner.intern("merge"),
+            name_duration: interner.intern("Duration"),
+            name_size: interner.intern("Size"),
         }
     }
 
@@ -315,6 +321,27 @@ impl<'a> Lowerer<'a> {
         self.typed
             .expr_type(id.index())
             .map_or(TypeId::ERROR, |idx| TypeId::from_raw(idx.raw()))
+    }
+
+    /// Check if a name refers to a type with associated functions.
+    ///
+    /// Returns `true` for:
+    /// - User-defined types with type definitions (structs, enums, newtypes)
+    /// - Builtin types with associated functions (Duration, Size)
+    ///
+    /// This enables the canonicalizer to emit `CanExpr::TypeRef` instead of
+    /// `CanExpr::Ident`, so the evaluator can skip the `UserMethodRegistry`
+    /// read lock on the hot path.
+    ///
+    /// The evaluator still checks the environment first for variable shadowing,
+    /// so this classification is safe even if a variable shadows a type name.
+    fn is_type_reference(&self, name: Name) -> bool {
+        // Builtin types with associated functions (pre-interned Name comparison).
+        if name == self.name_duration || name == self.name_size {
+            return true;
+        }
+        // User-defined types known to the type checker.
+        self.typed.type_def(name).is_some()
     }
 
     /// Lower an optional expression (handles `ExprId::INVALID` sentinel).
@@ -355,7 +382,13 @@ impl<'a> Lowerer<'a> {
             ExprKind::Size { value, unit } => self.push(CanExpr::Size { value, unit }, span, ty),
             ExprKind::Unit => self.push(CanExpr::Unit, span, ty),
             ExprKind::None => self.push(CanExpr::None, span, ty),
-            ExprKind::Ident(name) => self.push(CanExpr::Ident(name), span, ty),
+            ExprKind::Ident(name) => {
+                if self.is_type_reference(name) {
+                    self.push(CanExpr::TypeRef(name), span, ty)
+                } else {
+                    self.push(CanExpr::Ident(name), span, ty)
+                }
+            }
             ExprKind::Const(name) => self.push(CanExpr::Const(name), span, ty),
             ExprKind::SelfRef => self.push(CanExpr::SelfRef, span, ty),
             ExprKind::FunctionRef(name) => self.push(CanExpr::FunctionRef(name), span, ty),

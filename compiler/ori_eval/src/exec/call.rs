@@ -5,9 +5,8 @@
 
 use ori_patterns::ControlAction;
 
-use crate::{
-    wrong_function_args, Environment, EvalError, EvalResult, FunctionValue, Mutability, Value,
-};
+use crate::errors::wrong_function_args;
+use crate::{Environment, EvalError, EvalResult, FunctionValue, Mutability, Value};
 
 /// Check if a function has the correct argument count.
 ///
@@ -59,19 +58,31 @@ pub fn bind_parameters_with_defaults(
     Ok(())
 }
 
-/// Bind captured variables to an environment.
-pub fn bind_captures(env: &mut Environment, func: &FunctionValue) {
-    for (name, value) in func.captures() {
+/// Bind captured variables from a name→value iterator.
+///
+/// Both `FunctionValue::captures()` and `UserMethod.captures.iter()` produce
+/// compatible iterators of `(&Name, &Value)`. This shared helper avoids
+/// duplicating the capture binding logic across function and method call paths.
+pub fn bind_captures_iter<'a>(
+    env: &mut Environment,
+    captures: impl Iterator<Item = (&'a ori_ir::Name, &'a Value)>,
+) {
+    for (name, value) in captures {
         env.define(*name, value.clone(), Mutability::Immutable);
     }
 }
 
+/// Bind captured variables from a `FunctionValue` to an environment.
+pub fn bind_captures(env: &mut Environment, func: &FunctionValue) {
+    bind_captures_iter(env, func.captures());
+}
+
 /// Evaluate a call to a `FunctionVal` (built-in function).
 pub fn eval_function_val_call(
-    func: fn(&[Value]) -> Result<Value, String>,
+    func: fn(&[Value]) -> Result<Value, EvalError>,
     args: &[Value],
 ) -> EvalResult {
-    func(args).map_err(|s| EvalError::new(s).into())
+    func(args).map_err(ControlAction::from)
 }
 
 #[cfg(test)]
@@ -82,16 +93,15 @@ pub fn eval_function_val_call(
 )]
 mod tests {
     use super::*;
-    use ori_ir::{ExprId, Name, SharedArena};
+    use ori_ir::{Name, SharedArena};
     use rustc_hash::FxHashMap;
 
     fn make_function_value(param_count: usize) -> FunctionValue {
         use ori_ir::ExprArena;
         let params: Vec<Name> = (0..param_count).map(|i| Name::from_raw(i as u32)).collect();
-        let body = ExprId::new(0);
         let captures = FxHashMap::default();
         let arena = SharedArena::new(ExprArena::default());
-        FunctionValue::new(params, body, captures, arena)
+        FunctionValue::new(params, captures, arena)
     }
 
     mod check_arg_count_tests {
@@ -136,12 +146,11 @@ mod tests {
         #[test]
         fn binds_captured_variables() {
             let params = vec![Name::from_raw(0)];
-            let body = ExprId::new(0);
             let mut captures = FxHashMap::default();
             let capture_name = Name::from_raw(10);
             captures.insert(capture_name, Value::int(100));
             let arena = SharedArena::new(ExprArena::default());
-            let func = FunctionValue::new(params, body, captures, arena);
+            let func = FunctionValue::new(params, captures, arena);
 
             let mut env = Environment::new();
             env.push_scope();
@@ -152,14 +161,13 @@ mod tests {
         #[test]
         fn binds_multiple_captures() {
             let params = vec![];
-            let body = ExprId::new(0);
             let mut captures = FxHashMap::default();
             let name1 = Name::from_raw(10);
             let name2 = Name::from_raw(11);
             captures.insert(name1, Value::int(1));
             captures.insert(name2, Value::int(2));
             let arena = SharedArena::new(ExprArena::default());
-            let func = FunctionValue::new(params, body, captures, arena);
+            let func = FunctionValue::new(params, captures, arena);
 
             let mut env = Environment::new();
             env.push_scope();
@@ -174,11 +182,11 @@ mod tests {
 
         #[test]
         fn successful_call_returns_value() {
-            fn add_one(args: &[Value]) -> Result<Value, String> {
+            fn add_one(args: &[Value]) -> Result<Value, EvalError> {
                 if let Value::Int(n) = &args[0] {
                     Ok(Value::int(n.raw() + 1))
                 } else {
-                    Err("expected int".to_string())
+                    Err(EvalError::new("expected int"))
                 }
             }
             let args = vec![Value::int(41)];
@@ -188,8 +196,8 @@ mod tests {
 
         #[test]
         fn error_is_converted_to_eval_error() {
-            fn fail(_args: &[Value]) -> Result<Value, String> {
-                Err("intentional error".to_string())
+            fn fail(_args: &[Value]) -> Result<Value, EvalError> {
+                Err(EvalError::new("intentional error"))
             }
             let args: Vec<Value> = vec![];
             let result = eval_function_val_call(fail, &args);

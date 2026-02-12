@@ -15,8 +15,6 @@ use ori_ir::{
 };
 use tracing::{debug, trace};
 
-// === Token sets for EmptyErr reporting ===
-//
 // These constants define which tokens each sub-parser expects. When a sub-parser
 // fails without consuming input, it returns EmptyErr with its token set. The
 // `one_of!` macro accumulates these sets across alternatives, producing error
@@ -283,7 +281,7 @@ impl Parser<'_> {
                         .alloc_expr(Expr::new(ExprKind::Size { value, unit }, span)),
                 )
             }
-            _ => ParseOutcome::empty_err(LITERAL_TOKENS, self.cursor.position()),
+            _ => ParseOutcome::empty_err(LITERAL_TOKENS, self.cursor.current_span().start as usize),
         }
     }
 
@@ -335,7 +333,10 @@ impl Parser<'_> {
                     span_start = self.cursor.current_span().start,
                     "parse_ident_primary: unhandled token kind"
                 );
-                return ParseOutcome::empty_err(IDENT_LIKE_TOKENS, self.cursor.position());
+                return ParseOutcome::empty_err(
+                    IDENT_LIKE_TOKENS,
+                    self.cursor.current_span().start as usize,
+                );
             }
         };
 
@@ -400,7 +401,7 @@ impl Parser<'_> {
                         .alloc_expr(Expr::new(ExprKind::Err(inner), span.merge(end_span))),
                 )
             }
-            _ => ParseOutcome::empty_err(VARIANT_TOKENS, self.cursor.position()),
+            _ => ParseOutcome::empty_err(VARIANT_TOKENS, self.cursor.current_span().start as usize),
         }
     }
 
@@ -426,10 +427,16 @@ impl Parser<'_> {
                         self.arena.alloc_expr(Expr::new(ExprKind::HashLength, span)),
                     )
                 } else {
-                    ParseOutcome::empty_err(MISC_PRIMARY_TOKENS, self.cursor.position())
+                    ParseOutcome::empty_err(
+                        MISC_PRIMARY_TOKENS,
+                        self.cursor.current_span().start as usize,
+                    )
                 }
             }
-            _ => ParseOutcome::empty_err(MISC_PRIMARY_TOKENS, self.cursor.position()),
+            _ => ParseOutcome::empty_err(
+                MISC_PRIMARY_TOKENS,
+                self.cursor.current_span().start as usize,
+            ),
         }
     }
 
@@ -531,7 +538,10 @@ impl Parser<'_> {
                     span,
                 )
             }
-            _ => ParseOutcome::empty_err(CONTROL_FLOW_TOKENS, self.cursor.position()),
+            _ => ParseOutcome::empty_err(
+                CONTROL_FLOW_TOKENS,
+                self.cursor.current_span().start as usize,
+            ),
         }
     }
 
@@ -545,7 +555,10 @@ impl Parser<'_> {
     /// Guard: returns `EmptyErr` if not at `(`.
     fn parse_parenthesized(&mut self) -> ParseOutcome<ExprId> {
         if !self.cursor.check(&TokenKind::LParen) {
-            return ParseOutcome::empty_err_expected(&TokenKind::LParen, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::LParen,
+                self.cursor.current_span().start as usize,
+            );
         }
         self.in_error_context(
             crate::ErrorContext::Expression,
@@ -681,7 +694,10 @@ impl Parser<'_> {
     /// Guard: returns `EmptyErr` if not at `[`.
     fn parse_list_literal(&mut self) -> ParseOutcome<ExprId> {
         if !self.cursor.check(&TokenKind::LBracket) {
-            return ParseOutcome::empty_err_expected(&TokenKind::LBracket, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::LBracket,
+                self.cursor.current_span().start as usize,
+            );
         }
         self.in_error_context(
             crate::ErrorContext::ListLiteral,
@@ -762,7 +778,10 @@ impl Parser<'_> {
     /// Guard: returns `EmptyErr` if not at `{`.
     fn parse_map_literal(&mut self) -> ParseOutcome<ExprId> {
         if !self.cursor.check(&TokenKind::LBrace) {
-            return ParseOutcome::empty_err_expected(&TokenKind::LBrace, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::LBrace,
+                self.cursor.current_span().start as usize,
+            );
         }
         self.in_error_context(
             crate::ErrorContext::MapLiteral,
@@ -845,7 +864,10 @@ impl Parser<'_> {
     /// Guard: returns `EmptyErr` if not at `if`.
     fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
         if !self.cursor.check(&TokenKind::If) {
-            return ParseOutcome::empty_err_expected(&TokenKind::If, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::If,
+                self.cursor.current_span().start as usize,
+            );
         }
         self.in_error_context(crate::ErrorContext::IfExpression, Self::parse_if_expr_body)
     }
@@ -905,7 +927,10 @@ impl Parser<'_> {
     /// Guard: returns `EmptyErr` if not at `let`.
     fn parse_let_expr(&mut self) -> ParseOutcome<ExprId> {
         if !self.cursor.check(&TokenKind::Let) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Let, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Let,
+                self.cursor.current_span().start as usize,
+            );
         }
         self.in_error_context(crate::ErrorContext::LetPattern, Self::parse_let_expr_body)
     }
@@ -1130,7 +1155,9 @@ impl Parser<'_> {
                     }
                 }
             }
-            _ => ParseOutcome::empty_err(TEMPLATE_TOKENS, self.cursor.position()),
+            _ => {
+                ParseOutcome::empty_err(TEMPLATE_TOKENS, self.cursor.current_span().start as usize)
+            }
         }
     }
 
@@ -1172,7 +1199,10 @@ impl Parser<'_> {
     /// Guard: returns `EmptyErr` if not at `for`.
     fn parse_for_loop(&mut self) -> ParseOutcome<ExprId> {
         if !self.cursor.check(&TokenKind::For) {
-            return ParseOutcome::empty_err_expected(&TokenKind::For, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::For,
+                self.cursor.current_span().start as usize,
+            );
         }
         self.in_error_context(crate::ErrorContext::ForLoop, Self::parse_for_loop_body)
     }
@@ -1254,7 +1284,10 @@ impl Parser<'_> {
         use crate::context::ParseContext;
 
         if !self.cursor.check(&TokenKind::Loop) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Loop, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Loop,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         let span = self.cursor.current_span();

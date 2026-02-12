@@ -25,6 +25,24 @@ pub enum TokenMatcher {
 }
 
 impl TokenMatcher {
+    /// Match any binary operator.
+    pub const BINARY_OP: TokenMatcher = TokenMatcher::Category(TokenCategory::is_binary_op);
+
+    /// Match any unary operator.
+    pub const UNARY_OP: TokenMatcher = TokenMatcher::Category(TokenCategory::is_unary_op);
+
+    /// Match any opening delimiter.
+    pub const OPEN_DELIM: TokenMatcher = TokenMatcher::Category(TokenCategory::is_open_delim);
+
+    /// Match any closing delimiter.
+    pub const CLOSE_DELIM: TokenMatcher = TokenMatcher::Category(TokenCategory::is_close_delim);
+
+    /// Match any literal.
+    pub const LITERAL: TokenMatcher = TokenMatcher::Category(TokenCategory::is_literal);
+
+    /// Match any keyword.
+    pub const KEYWORD: TokenMatcher = TokenMatcher::Category(TokenCategory::is_keyword);
+
     /// Check if this matcher matches the given token category.
     #[inline]
     pub fn matches(&self, cat: TokenCategory) -> bool {
@@ -50,27 +68,6 @@ impl PartialEq for TokenMatcher {
 }
 
 impl Eq for TokenMatcher {}
-
-// Convenience constructors
-impl TokenMatcher {
-    /// Match any binary operator.
-    pub const BINARY_OP: TokenMatcher = TokenMatcher::Category(TokenCategory::is_binary_op);
-
-    /// Match any unary operator.
-    pub const UNARY_OP: TokenMatcher = TokenMatcher::Category(TokenCategory::is_unary_op);
-
-    /// Match any opening delimiter.
-    pub const OPEN_DELIM: TokenMatcher = TokenMatcher::Category(TokenCategory::is_open_delim);
-
-    /// Match any closing delimiter.
-    pub const CLOSE_DELIM: TokenMatcher = TokenMatcher::Category(TokenCategory::is_close_delim);
-
-    /// Match any literal.
-    pub const LITERAL: TokenMatcher = TokenMatcher::Category(TokenCategory::is_literal);
-
-    /// Match any keyword.
-    pub const KEYWORD: TokenMatcher = TokenMatcher::Category(TokenCategory::is_keyword);
-}
 
 /// Convenience macro for creating `OneOf` matchers.
 #[macro_export]

@@ -63,11 +63,12 @@ impl PatternDefinition for RecursePattern {
             .is_some_and(|v| v.is_truthy());
 
         // If memo is enabled, wrap `self` in a memoized function
+        let self_name = ctx.interner.intern("self");
         if memo_enabled {
-            if let Some(Value::Function(f)) = exec.lookup_var("self") {
+            if let Some(Value::Function(f)) = exec.lookup_var(self_name) {
                 // Create memoized wrapper and rebind `self`
                 let memoized = Value::MemoizedFunction(MemoizedFunctionValue::new(f));
-                exec.bind_var("self", memoized);
+                exec.bind_var(self_name, memoized);
             }
         }
 
