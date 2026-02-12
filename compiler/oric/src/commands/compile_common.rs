@@ -32,8 +32,6 @@ use std::path::Path;
 #[cfg(feature = "llvm")]
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 #[cfg(feature = "llvm")]
-use ori_diagnostic::queue::DiagnosticQueue;
-#[cfg(feature = "llvm")]
 use ori_ir::canon::CanonResult;
 #[cfg(feature = "llvm")]
 use ori_ir::StringInterner;
@@ -44,9 +42,7 @@ use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult};
 #[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
-use oric::query::parsed;
-#[cfg(feature = "llvm")]
-use oric::{typeck, CompilerDb, Db, SourceFile};
+use oric::{CompilerDb, Db, SourceFile};
 #[cfg(feature = "llvm")]
 use rustc_hash::FxHashMap;
 
@@ -67,121 +63,55 @@ pub struct ImportedFunctionInfo {
 /// Prints all errors to stderr and returns `None` if any errors occurred.
 /// This accumulates all errors before reporting, giving users a complete picture.
 ///
-/// Returns the Pool and `CanonResult` alongside parse/type results so callers
-/// can pass them to LLVM codegen. The `CanonResult` contains the canonical IR
-/// that both `ori_arc` and `ori_llvm` backends will consume.
+/// Returns the Pool (as `Arc<Pool>`) and `SharedCanonResult` alongside parse/type
+/// results so callers can pass them to LLVM codegen. The `SharedCanonResult` contains
+/// the canonical IR that both `ori_arc` and `ori_llvm` backends will consume.
+/// It is stored in `CanonCache` for session-scoped reuse.
+///
+/// Uses `typed()` Salsa query so the type check result is cached — subsequent calls
+/// (e.g., from `evaluated()`) reuse the same result.
 #[cfg(feature = "llvm")]
 pub fn check_source(
     db: &CompilerDb,
     file: SourceFile,
     path: &str,
-) -> Option<(ParseOutput, TypeCheckResult, Pool, CanonResult)> {
-    let mut has_errors = false;
-
+) -> Option<(
+    ParseOutput,
+    TypeCheckResult,
+    std::sync::Arc<Pool>,
+    ori_ir::canon::SharedCanonResult,
+)> {
     // Create emitter with source context for rich snippet rendering
     let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
     let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty)
         .with_source(file.text(db).as_str())
         .with_file_path(path);
 
-    // Check for parse errors — route through DiagnosticQueue for
-    // deduplication and soft-error suppression after hard errors
-    let parse_result = parsed(db, file);
-    if parse_result.has_errors() {
-        let source = file.text(db);
-        let mut queue = DiagnosticQueue::new();
-        for error in &parse_result.errors {
-            let (diag, severity) = error.to_queued_diagnostic();
-            queue.add_with_source_and_severity(diag, source.as_str(), severity);
-        }
-        for diag in queue.flush() {
-            emitter.emit(&diag);
-        }
-        has_errors = true;
-    }
+    // Run frontend pipeline: lex → parse → typecheck, reporting all errors.
+    // This catches lex errors (unterminated strings, etc.) that were previously
+    // silent, and uses TypeErrorRenderer for consistent error quality.
+    let frontend = super::report_frontend_errors(db, file, &mut emitter)?;
 
-    // Type check with pool retention — the Pool is needed downstream by
-    // LLVM codegen to resolve compound types (List, Map, Tuple, etc.) for
-    // the sret calling convention.
-    let (type_result, pool) =
-        typeck::type_check_with_imports_and_pool(db, &parse_result, file.path(db));
-    if type_result.has_errors() {
-        for error in type_result.errors() {
-            let diag = ori_diagnostic::Diagnostic::error(error.code())
-                .with_message(error.message())
-                .with_label(error.span(), "here");
-            emitter.emit(&diag);
-        }
-        has_errors = true;
-    }
-
-    if has_errors {
+    if frontend.has_errors() {
         emitter.flush();
-        None
-    } else {
-        // Canonicalize: AST + types → self-contained canonical IR.
-        // This produces a CanonResult that both ori_arc and ori_llvm
-        // backends can consume, dispatching on CanExpr instead of ExprKind.
-        let interner = db.interner();
-        let canon_result = ori_canon::lower_module(
-            &parse_result.module,
-            &parse_result.arena,
-            &type_result,
-            &pool,
-            interner,
-        );
-        Some((parse_result, type_result, pool, canon_result))
+        return None;
     }
-}
 
-/// Build function signatures aligned with module.functions source order.
-///
-/// `typed.functions` is sorted by name (for Salsa determinism), while
-/// `module.functions` is in source order. `FunctionCompiler::declare_all`
-/// zips them, so they must be aligned.
-#[cfg(feature = "llvm")]
-fn build_function_sigs(
-    parse_result: &ParseOutput,
-    type_result: &TypeCheckResult,
-) -> Vec<FunctionSig> {
-    let sig_map: std::collections::HashMap<ori_ir::Name, &FunctionSig> = type_result
-        .typed
-        .functions
-        .iter()
-        .map(|ft| (ft.name, ft))
-        .collect();
-
-    parse_result
-        .module
-        .functions
-        .iter()
-        .map(|func| {
-            sig_map
-                .get(&func.name)
-                .copied()
-                .cloned()
-                .unwrap_or_else(|| {
-                    // Fallback for functions without type info (shouldn't happen
-                    // after successful type checking, but be defensive).
-                    FunctionSig {
-                        name: func.name,
-                        type_params: vec![],
-                        param_names: vec![],
-                        param_types: vec![],
-                        return_type: Idx::UNIT,
-                        capabilities: vec![],
-                        is_public: false,
-                        is_test: false,
-                        is_main: false,
-                        type_param_bounds: vec![],
-                        where_clauses: vec![],
-                        generic_param_mapping: vec![],
-                        required_params: 0,
-                        param_defaults: vec![],
-                    }
-                })
-        })
-        .collect()
+    // Canonicalize: AST + types → self-contained canonical IR.
+    // Uses session-scoped CanonCache for reuse across consumers.
+    let shared_canon = oric::query::canonicalize_cached(
+        db,
+        file,
+        &frontend.parse_result,
+        &frontend.type_result,
+        &frontend.pool,
+    );
+    Some((
+        frontend.parse_result,
+        frontend.type_result,
+        frontend.pool,
+        shared_canon,
+    ))
 }
 
 /// Run ARC borrow inference on all non-generic module functions.
@@ -200,11 +130,11 @@ fn run_borrow_inference(
     canon: &CanonResult,
     interner: &StringInterner,
     pool: &Pool,
+    classifier: &ori_arc::ArcClassifier<'_>,
 ) -> (
     FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>,
     Vec<ori_arc::ArcFunction>,
 ) {
-    let classifier = ori_arc::ArcClassifier::new(pool);
     let mut arc_functions = Vec::new();
     let mut arc_problems = Vec::new();
 
@@ -250,7 +180,7 @@ fn run_borrow_inference(
         emit_codegen_diagnostics(acc);
     }
 
-    let sigs = ori_arc::infer_borrows(&arc_functions, &classifier);
+    let sigs = ori_arc::infer_borrows(&arc_functions, classifier);
     (sigs, arc_functions)
 }
 
@@ -270,6 +200,7 @@ pub fn run_arc_pipeline_cached(
     canon: &CanonResult,
     interner: &ori_ir::StringInterner,
     pool: &Pool,
+    classifier: &ori_arc::ArcClassifier<'_>,
     arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
     module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
 ) -> FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig> {
@@ -282,33 +213,31 @@ pub fn run_arc_pipeline_cached(
         if let Some(cached) = cache.get(&key) {
             if let Ok(arc_functions) = cached.to_arc_functions() {
                 tracing::debug!("ARC IR cache hit — skipping ARC analysis");
-                let classifier = ori_arc::ArcClassifier::new(pool);
-                return ori_arc::infer_borrows(&arc_functions, &classifier);
+                return ori_arc::infer_borrows(&arc_functions, classifier);
             }
             tracing::debug!("ARC IR cache corrupt — re-analyzing");
         }
     }
 
-    // Cache miss — run full pipeline (returns both sigs and lowered functions)
-    let (annotated_sigs, mut arc_functions) =
-        run_borrow_inference(parse_result, function_sigs, canon, interner, pool);
+    // Cache miss — run borrow inference (returns both sigs and lowered functions)
+    let (annotated_sigs, arc_functions) = run_borrow_inference(
+        parse_result,
+        function_sigs,
+        canon,
+        interner,
+        pool,
+        classifier,
+    );
 
-    // Cache the result for next time (reuses already-lowered functions)
+    // Cache the lowered (pre-pipeline) functions for next time.
+    // The cache hit path only needs these for `infer_borrows`, which operates
+    // on the raw lowered IR — it doesn't need post-pipeline RC ops. Running
+    // the full optimization pipeline here would be wasted work since Tier 2
+    // ARC codegen (which would consume the transformed IR) is not yet active.
     if let (Some(cache), Some(hash)) = (arc_cache, module_hash) {
         let key = ori_llvm::aot::incremental::arc_cache::ArcIrCacheKey {
             function_hash: hash,
         };
-
-        // Apply the full ARC pipeline to get the final IR for caching
-        let classifier = ori_arc::ArcClassifier::new(pool);
-        ori_arc::apply_borrows(&mut arc_functions, &annotated_sigs);
-        for func in &mut arc_functions {
-            let liveness = ori_arc::compute_liveness(func, &classifier);
-            ori_arc::insert_rc_ops(func, &classifier, &liveness);
-            ori_arc::detect_reset_reuse(func, &classifier);
-            ori_arc::expand_reset_reuse(func, &classifier);
-            ori_arc::eliminate_rc_ops(func);
-        }
 
         if let Ok(cached) =
             ori_llvm::aot::incremental::arc_cache::CachedArcIr::from_arc_functions(&arc_functions)
@@ -383,11 +312,19 @@ pub fn compile_to_llvm<'ctx>(
         // 2. Register user-defined types
         type_registration::register_user_types(&resolver, &type_result.typed.types);
 
-        // 3. Run ARC borrow inference pipeline
-        let function_sigs = build_function_sigs(parse_result, type_result);
+        // 3. Run ARC borrow inference pipeline (uses same code path as multi-file)
+        let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-        let (annotated_sigs, _arc_functions) =
-            run_borrow_inference(parse_result, &function_sigs, canon, interner, pool);
+        let annotated_sigs = run_arc_pipeline_cached(
+            parse_result,
+            &function_sigs,
+            canon,
+            interner,
+            pool,
+            &classifier,
+            None, // No cache for single-file path
+            None, // No module hash
+        );
 
         // 4. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(
@@ -534,7 +471,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             .collect();
 
         // 4. Run ARC borrow inference pipeline (with optional caching)
-        let function_sigs = build_function_sigs(parse_result, type_result);
+        let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
         let annotated_sigs = run_arc_pipeline_cached(
             parse_result,
@@ -542,6 +479,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             canon,
             interner,
             pool,
+            &classifier,
             arc_cache,
             module_hash,
         );

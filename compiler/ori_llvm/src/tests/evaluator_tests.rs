@@ -85,6 +85,7 @@ fn test_compile_module_with_tests_empty() {
         root: ori_ir::canon::CanId::INVALID,
         roots: vec![],
         method_roots: vec![],
+        problems: vec![],
     };
     let result =
         evaluator.compile_module_with_tests(&module, &[], &canon, &interner, &[], &[], &[], &[]);

@@ -46,11 +46,6 @@ fn digit_count(mut n: u32) -> usize {
     count
 }
 
-/// Extract the text of a source line using a table (returns owned to avoid borrow issues).
-fn extract_line(table: &LineOffsetTable, source: &str, line: u32) -> String {
-    table.line_text(source, line).unwrap_or("").to_string()
-}
-
 /// Compute (`start_col_chars`, `end_col_chars`) for a label on a given line.
 ///
 /// All values are character-based (not byte-based) for correct unicode alignment.
@@ -113,18 +108,22 @@ impl ColorMode {
 /// When source text is provided via `with_source()`, renders rich Rust-style
 /// snippets with source lines, underlines, and labeled spans. Without source
 /// text, falls back to byte-offset output for backward compatibility.
-pub struct TerminalEmitter<W: Write> {
+///
+/// The `'src` lifetime ties to the source text, which is borrowed (not cloned).
+/// The emitter is short-lived (created, used, dropped within a single function),
+/// so this borrow is always valid.
+pub struct TerminalEmitter<'src, W: Write> {
     writer: W,
     colors: bool,
-    /// Source text for rendering snippets.
-    source: Option<String>,
+    /// Source text for rendering snippets (borrowed, not cloned).
+    source: Option<&'src str>,
     /// File path displayed in `-->` location headers.
     file_path: Option<String>,
     /// Pre-computed line offset table for O(log L) lookups.
     line_table: Option<LineOffsetTable>,
 }
 
-impl<W: Write> TerminalEmitter<W> {
+impl<'src, W: Write> TerminalEmitter<'src, W> {
     /// Create a new terminal emitter with explicit color mode.
     ///
     /// # Arguments
@@ -148,7 +147,7 @@ impl<W: Write> TerminalEmitter<W> {
     ///
     /// * `mode` - Color mode selection (`Auto`, `Always`, or `Never`)
     /// * `is_tty` - Whether stdout is a TTY (used for `ColorMode::Auto`)
-    pub fn stdout(mode: ColorMode, is_tty: bool) -> TerminalEmitter<io::Stdout> {
+    pub fn stdout(mode: ColorMode, is_tty: bool) -> TerminalEmitter<'src, io::Stdout> {
         TerminalEmitter {
             writer: io::stdout(),
             colors: mode.should_use_colors(is_tty),
@@ -164,7 +163,7 @@ impl<W: Write> TerminalEmitter<W> {
     ///
     /// * `mode` - Color mode selection (`Auto`, `Always`, or `Never`)
     /// * `is_tty` - Whether stderr is a TTY (used for `ColorMode::Auto`)
-    pub fn stderr(mode: ColorMode, is_tty: bool) -> TerminalEmitter<io::Stderr> {
+    pub fn stderr(mode: ColorMode, is_tty: bool) -> TerminalEmitter<'src, io::Stderr> {
         TerminalEmitter {
             writer: io::stderr(),
             colors: mode.should_use_colors(is_tty),
@@ -178,10 +177,12 @@ impl<W: Write> TerminalEmitter<W> {
     ///
     /// Builds a line offset table for O(log L) lookups where L is the line count.
     /// When source is set, `emit()` renders rich snippets instead of byte offsets.
+    ///
+    /// The source is borrowed, not cloned — eliminating one full source-file
+    /// allocation per compile.
     #[must_use]
-    pub fn with_source(mut self, source: impl Into<String>) -> Self {
-        let source = source.into();
-        self.line_table = Some(LineOffsetTable::build(&source));
+    pub fn with_source(mut self, source: &'src str) -> Self {
+        self.line_table = Some(LineOffsetTable::build(source));
         self.source = Some(source);
         self
     }
@@ -198,6 +199,21 @@ impl<W: Write> TerminalEmitter<W> {
         self.source.is_some() && self.line_table.is_some()
     }
 
+    /// Get the source text reference.
+    ///
+    /// Returns `&'src str` — independent of the `&self` borrow. This is the key
+    /// to eliminating allocations: the returned reference doesn't prevent calling
+    /// `&mut self` methods afterward.
+    ///
+    /// Callers must ensure `has_source()` before calling.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: only called after has_source() check"
+    )]
+    fn source_text(&self) -> &'src str {
+        self.source.expect("source_text called without source")
+    }
+
     /// Get source and line table references (panics if `has_source()` is false).
     ///
     /// Callers must ensure `has_source()` before calling.
@@ -205,16 +221,27 @@ impl<W: Write> TerminalEmitter<W> {
         clippy::expect_used,
         reason = "invariant: only called after has_source() check"
     )]
-    fn source_ctx(&self) -> (&str, &LineOffsetTable) {
-        let source = self
-            .source
-            .as_deref()
-            .expect("source_ctx called without source");
+    fn source_ctx(&self) -> (&'src str, &LineOffsetTable) {
+        let source = self.source.expect("source_ctx called without source");
         let table = self
             .line_table
             .as_ref()
             .expect("source_ctx called without line_table");
         (source, table)
+    }
+
+    /// Get the line offset table (panics if `has_source()` is false).
+    ///
+    /// Used in scoped blocks where `source_ctx()` can't be used because the table
+    /// borrow must end before `&mut self` calls.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: only called after has_source() check"
+    )]
+    fn line_table(&self) -> &LineOffsetTable {
+        self.line_table
+            .as_ref()
+            .expect("line_table called without source")
     }
 
     // Low-level write helpers
@@ -374,38 +401,41 @@ impl<W: Write> TerminalEmitter<W> {
             return;
         }
 
-        let (source, table) = self.source_ctx();
+        let source = self.source_text();
 
-        // Collect unique lines that need rendering, in order
-        // Also collect multi-line labels separately
-        let mut lines_to_render: Vec<(u32, Vec<usize>)> = Vec::new(); // (line, label indices)
-        let mut multiline_indices: Vec<usize> = Vec::new();
+        // Collect unique lines and multiline labels (borrows table in a block)
+        let (mut lines_to_render, multiline_data) = {
+            let table = self.line_table();
+            let mut lines: Vec<(u32, Vec<usize>)> = Vec::new();
+            let mut multiline_indices: Vec<usize> = Vec::new();
 
-        for (i, label) in labels.iter().enumerate() {
-            let (start_line, _) = table.offset_to_line_col(source, label.span.start);
-            let (end_line, _) = table.offset_to_line_col(source, label.span.end);
-
-            if start_line == end_line {
-                if let Some(entry) = lines_to_render.iter_mut().find(|(l, _)| *l == start_line) {
-                    entry.1.push(i);
-                } else {
-                    lines_to_render.push((start_line, vec![i]));
-                }
-            } else {
-                multiline_indices.push(i);
-            }
-        }
-
-        // Pre-compute multiline line ranges before rendering (avoids borrow conflict)
-        let multiline_data: Vec<(usize, u32, u32)> = multiline_indices
-            .iter()
-            .map(|&idx| {
-                let label = labels[idx];
+            for (i, label) in labels.iter().enumerate() {
                 let (start_line, _) = table.offset_to_line_col(source, label.span.start);
                 let (end_line, _) = table.offset_to_line_col(source, label.span.end);
-                (idx, start_line, end_line)
-            })
-            .collect();
+
+                if start_line == end_line {
+                    if let Some(entry) = lines.iter_mut().find(|(l, _)| *l == start_line) {
+                        entry.1.push(i);
+                    } else {
+                        lines.push((start_line, vec![i]));
+                    }
+                } else {
+                    multiline_indices.push(i);
+                }
+            }
+
+            let ml_data: Vec<(usize, u32, u32)> = multiline_indices
+                .iter()
+                .map(|&idx| {
+                    let label = labels[idx];
+                    let (sl, _) = table.offset_to_line_col(source, label.span.start);
+                    let (el, _) = table.offset_to_line_col(source, label.span.end);
+                    (idx, sl, el)
+                })
+                .collect();
+
+            (lines, ml_data)
+        };
 
         // Render multi-line labels first (they emit their own gutter lines)
         for (idx, start_line, end_line) in &multiline_data {
@@ -425,37 +455,40 @@ impl<W: Write> TerminalEmitter<W> {
                 let _ = writeln!(self.writer);
             }
 
-            // Extract line text as owned string (avoids borrow conflict)
-            let (source, table) = self.source_ctx();
-            let line_text = extract_line(table, source, *line_num);
+            // Get line text — borrows from source (independent of self)
+            let line_text = {
+                let table = self.line_table();
+                table.line_text(source, *line_num).unwrap_or("")
+            };
 
             // Emit the source line
             self.write_line_gutter(*line_num, gutter_width);
             let _ = writeln!(self.writer, "{line_text}");
 
-            // Emit underlines for all labels on this line
-            // Collect label data upfront to avoid borrow issues
-            let (source, table) = self.source_ctx();
-            let mut underline_data: Vec<(usize, usize, bool, String)> = Vec::new();
-
-            for &idx in label_indices {
-                let label = labels[idx];
-                if let Some((start_col, end_col)) =
-                    label_columns_on_line(table, source, label, *line_num)
-                {
-                    let underline_len = if end_col > start_col {
-                        end_col - start_col
-                    } else {
-                        1
-                    };
-                    underline_data.push((
-                        start_col,
-                        underline_len,
-                        label.is_primary,
-                        label.message.clone(),
-                    ));
+            // Collect underline data: column positions and label message refs
+            let mut underline_data: Vec<(usize, usize, bool, &str)> = {
+                let table = self.line_table();
+                let mut data = Vec::new();
+                for &idx in label_indices {
+                    let label = labels[idx];
+                    if let Some((start_col, end_col)) =
+                        label_columns_on_line(table, source, label, *line_num)
+                    {
+                        let underline_len = if end_col > start_col {
+                            end_col - start_col
+                        } else {
+                            1
+                        };
+                        data.push((
+                            start_col,
+                            underline_len,
+                            label.is_primary,
+                            label.message.as_str(),
+                        ));
+                    }
                 }
-            }
+                data
+            };
 
             // Sort by column position (leftmost first)
             underline_data.sort_by_key(|(col, _, _, _)| *col);
@@ -491,45 +524,43 @@ impl<W: Write> TerminalEmitter<W> {
         end_line: u32,
         gutter_width: usize,
     ) {
-        let (source, table) = self.source_ctx();
+        let source = self.source_text();
         let line_count = end_line - start_line + 1;
 
-        // Pre-extract all line texts we need
-        let first_text = extract_line(table, source, start_line);
-        let last_text = extract_line(table, source, end_line);
+        // Pre-compute all line texts and underline data (borrows table in block)
+        let (first_text, last_text, underline_len, intermediate_texts) = {
+            let table = self.line_table();
 
-        // Compute underline data for last line
-        let last_line_start = table.line_start_offset(end_line).unwrap_or(0);
-        let span_end_on_line = label.span.end.saturating_sub(last_line_start);
-        let end_col = table.line_text(source, end_line).map_or(1, |t| {
-            let clamped = (span_end_on_line as usize).min(t.len());
-            t[..clamped].chars().count()
-        });
-        let underline_len = end_col.max(1);
+            let first = table.line_text(source, start_line).unwrap_or("");
+            let last = table.line_text(source, end_line).unwrap_or("");
+
+            // Compute underline data for last line
+            let last_line_start = table.line_start_offset(end_line).unwrap_or(0);
+            let span_end_on_line = label.span.end.saturating_sub(last_line_start);
+            let end_col = table.line_text(source, end_line).map_or(1, |t| {
+                let clamped = (span_end_on_line as usize).min(t.len());
+                t[..clamped].chars().count()
+            });
+
+            // Collect intermediate line texts
+            let intermediates: Vec<(u32, &str)> = if line_count <= 4 {
+                ((start_line + 1)..end_line)
+                    .map(|line| (line, table.line_text(source, line).unwrap_or("")))
+                    .collect()
+            } else {
+                let second = start_line + 1;
+                vec![(second, table.line_text(source, second).unwrap_or(""))]
+            };
+
+            (first, last, end_col.max(1), intermediates)
+        };
 
         let (pipe_char, caret, color) = if label.is_primary {
             ("/", "^", colors::ERROR)
         } else {
             ("/", "-", colors::SECONDARY)
         };
-        let message = label.message.clone();
-
-        // Collect intermediate line texts if needed
-        let intermediate_texts: Vec<(u32, String)> = {
-            let (source, table) = self.source_ctx();
-            if line_count <= 4 {
-                ((start_line + 1)..end_line)
-                    .map(|line| {
-                        let text = extract_line(table, source, line);
-                        (line, text)
-                    })
-                    .collect()
-            } else {
-                let second = start_line + 1;
-                let text = extract_line(table, source, second);
-                vec![(second, text)]
-            }
-        };
+        let message = &label.message;
 
         // Now do all the writing (no more borrows of self.source/line_table)
 
@@ -602,9 +633,9 @@ impl<W: Write> TerminalEmitter<W> {
         if !message.is_empty() {
             let _ = write!(self.writer, " ");
             if label.is_primary {
-                self.write_primary(&message);
+                self.write_primary(message);
             } else {
-                self.write_secondary(&message);
+                self.write_secondary(message);
             }
         }
         let _ = writeln!(self.writer);
@@ -616,17 +647,19 @@ impl<W: Write> TerminalEmitter<W> {
             return;
         };
 
-        // Build a temporary line table for the cross-file source
+        // Build a temporary line table for the cross-file source.
+        // Cross-file sources are owned by SourceInfo, so we borrow from there.
         let cross_table = LineOffsetTable::build(&src_info.content);
         let (start_line, start_col) =
             cross_table.offset_to_line_col(&src_info.content, label.span.start);
         let (end_line, _) = cross_table.offset_to_line_col(&src_info.content, label.span.end);
 
-        // Pre-extract data before writing
-        let line_text = extract_line(&cross_table, &src_info.content, start_line);
+        let line_text = cross_table
+            .line_text(&src_info.content, start_line)
+            .unwrap_or("");
         let cross_gutter_width = digit_count(end_line.max(start_line));
-        let path = src_info.path.clone();
-        let message = label.message.clone();
+        let path = &src_info.path;
+        let message = &label.message;
         let is_primary = label.is_primary;
 
         // Compute underline columns
@@ -667,7 +700,7 @@ impl<W: Write> TerminalEmitter<W> {
             start_col_chars,
             underline_len,
             is_primary,
-            &message,
+            message,
         );
     }
 
@@ -742,7 +775,7 @@ impl<W: Write> TerminalEmitter<W> {
     }
 }
 
-impl<W: Write> DiagnosticEmitter for TerminalEmitter<W> {
+impl<W: Write> DiagnosticEmitter for TerminalEmitter<'_, W> {
     fn emit(&mut self, diagnostic: &Diagnostic) {
         // Header: severity[CODE]: message
         self.write_severity(diagnostic.severity);

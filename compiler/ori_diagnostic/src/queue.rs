@@ -7,6 +7,8 @@
 //! - Follow-on error filtering
 //! - `ErrorGuaranteed` proof that errors were emitted
 
+use std::hash::{Hash, Hasher};
+
 use ori_ir::Span;
 
 use crate::{Diagnostic, ErrorCode, ErrorGuaranteed};
@@ -14,17 +16,19 @@ use crate::{Diagnostic, ErrorCode, ErrorGuaranteed};
 /// Number of characters to use for message prefix deduplication.
 const MESSAGE_PREFIX_LEN: usize = 30;
 
-/// Get the `&str` slice of the first N characters of a message.
+/// Hash the first N characters of a message for dedup comparison.
 ///
-/// Returns a borrowed slice rather than allocating a new `String`.
-/// For ASCII messages (the common case), this is a simple byte slice.
+/// Uses a lightweight hash instead of allocating an owned `String` prefix.
+/// Hash collisions only suppress a rare duplicate — acceptable tradeoff.
 #[inline]
-fn message_prefix(msg: &str) -> &str {
+fn message_prefix_hash(msg: &str) -> u64 {
     let byte_end = msg
         .char_indices()
         .nth(MESSAGE_PREFIX_LEN)
         .map_or(msg.len(), |(idx, _)| idx);
-    &msg[..byte_end]
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    msg[..byte_end].hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Case-insensitive substring check without allocation.
@@ -81,20 +85,20 @@ impl DiagnosticConfig {
 
 /// Queued diagnostic with metadata for sorting and deduplication.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct QueuedDiagnostic {
+pub(crate) struct QueuedDiagnostic {
     /// The diagnostic itself.
-    pub diagnostic: Diagnostic,
+    pub(crate) diagnostic: Diagnostic,
     /// Line number (1-based) for sorting.
-    pub line: u32,
+    pub(crate) line: u32,
     /// Column number (1-based) for sorting within a line.
-    pub column: u32,
+    pub(crate) column: u32,
     /// Whether this is a soft error (can be suppressed after hard errors).
-    pub soft: bool,
+    pub(crate) soft: bool,
 }
 
 impl QueuedDiagnostic {
     /// Create a new queued diagnostic.
-    pub fn new(diagnostic: Diagnostic, line: u32, column: u32, soft: bool) -> Self {
+    pub(crate) fn new(diagnostic: Diagnostic, line: u32, column: u32, soft: bool) -> Self {
         QueuedDiagnostic {
             diagnostic,
             line,
@@ -122,8 +126,8 @@ pub struct DiagnosticQueue {
     error_count: usize,
     /// Last line with a syntax error (for dedup).
     last_syntax_line: Option<u32>,
-    /// Last (line, `message_prefix`) for non-syntax error dedup.
-    last_error: Option<(u32, String)>,
+    /// Last (line, `message_prefix_hash`) for non-syntax error dedup.
+    last_error: Option<(u32, u64)>,
     /// Whether we've seen a hard error.
     has_hard_error: bool,
     /// Configuration.
@@ -209,8 +213,7 @@ impl DiagnosticQueue {
             if Self::is_syntax_error(&diag) {
                 self.last_syntax_line = Some(line);
             } else {
-                // Store first ~30 chars of message for dedup
-                self.last_error = Some((line, message_prefix(&diag.message).to_owned()));
+                self.last_error = Some((line, message_prefix_hash(&diag.message)));
             }
         }
 
@@ -361,13 +364,10 @@ impl DiagnosticQueue {
                 }
             }
         } else {
-            // Non-syntax errors: dedupe same line + similar message
-            if let Some((last_line, ref last_prefix)) = self.last_error {
-                if last_line == line {
-                    let prefix = message_prefix(&diag.message);
-                    if prefix == *last_prefix {
-                        return true;
-                    }
+            // Non-syntax errors: dedupe same line + similar message prefix
+            if let Some((last_line, last_hash)) = self.last_error {
+                if last_line == line && message_prefix_hash(&diag.message) == last_hash {
+                    return true;
                 }
             }
         }

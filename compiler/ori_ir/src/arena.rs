@@ -1059,8 +1059,9 @@ impl fmt::Debug for ExprArena {
 ///
 /// # Usage
 ///
+/// `ParseOutput.arena` is already a `SharedArena`, so cloning is O(1):
 /// ```text
-/// let arena = SharedArena::new(parse_result.arena);
+/// let arena = parse_result.arena.clone(); // Arc::clone, not deep copy
 /// let func = FunctionValue::new(params, captures, arena);
 /// ```
 #[derive(Clone)]
@@ -1078,6 +1079,20 @@ impl std::ops::Deref for SharedArena {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl PartialEq for SharedArena {
+    fn eq(&self, other: &Self) -> bool {
+        *self.0 == *other.0
+    }
+}
+
+impl Eq for SharedArena {}
+
+impl std::hash::Hash for SharedArena {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
     }
 }
 

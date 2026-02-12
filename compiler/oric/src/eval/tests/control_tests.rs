@@ -1,7 +1,7 @@
 //! Tests for control flow evaluation (loop actions).
 
 use crate::eval::exec::control::{to_loop_action, LoopAction};
-use crate::eval::{ControlAction, EvalError, Value};
+use ori_patterns::{ControlAction, EvalError, Value};
 
 // Loop Control Tests (using ControlAction enum)
 

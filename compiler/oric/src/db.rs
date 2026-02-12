@@ -33,6 +33,104 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Session-scoped cache for type checking Pools.
+///
+/// The `Pool` cannot be a Salsa query result because it doesn't satisfy
+/// `Clone + Eq + Hash`. This cache stores Pools as a side-channel: the
+/// `typed()` Salsa query caches the Pool after type checking, and callers
+/// that need both the `TypeCheckResult` and Pool retrieve it via `typed_pool()`.
+///
+/// Keyed by file path, since each `SourceFile` has a unique canonical path.
+/// Invalidation is implicit: when `typed()` re-executes (source changed),
+/// it overwrites the cached Pool with the new one.
+#[derive(Clone, Default)]
+pub struct PoolCache(Arc<RwLock<HashMap<PathBuf, Arc<ori_types::Pool>>>>);
+
+/// Session-scoped cache for canonicalized module results.
+///
+/// `SharedCanonResult` doesn't satisfy Salsa's `Eq + Hash` requirements.
+/// This cache avoids re-type-checking and re-canonicalizing the same module
+/// across Evaluator instances (e.g., the prelude is canonicalized once per
+/// session, not once per file in the test runner).
+///
+/// Keyed by `PathBuf` (same as `PoolCache`) for consistent key types across
+/// all three side-caches.
+#[derive(Clone, Default)]
+pub struct CanonCache(Arc<RwLock<HashMap<PathBuf, ori_ir::canon::SharedCanonResult>>>);
+
+/// Session-scoped cache for resolved imports.
+///
+/// `ResolvedImports` is assembled by walking prelude candidates, resolving
+/// `use` statements, and building `ImportedFunctionRef` lists. This cache
+/// avoids repeating that work when multiple consumers (type checker, evaluator,
+/// LLVM backend) need imports for the same file within a single session.
+///
+/// Keyed by `PathBuf` (same as `PoolCache` and `CanonCache`) for consistent
+/// key types across all three side-caches. Invalidation is implicit: each CLI
+/// invocation creates a fresh `CompilerDb` with an empty cache. For future
+/// watch-mode scenarios, the cache should be cleared when `parsed()` is
+/// invalidated.
+#[derive(Clone, Default)]
+pub struct ImportsCache(
+    Arc<RwLock<HashMap<PathBuf, std::sync::Arc<crate::imports::ResolvedImports>>>>,
+);
+
+impl PoolCache {
+    /// Store a Pool for the given file path.
+    pub fn store(&self, path: PathBuf, pool: ori_types::Pool) {
+        self.0.write().insert(path, Arc::new(pool));
+    }
+
+    /// Retrieve the cached Pool for the given file path.
+    pub fn get(&self, path: &Path) -> Option<Arc<ori_types::Pool>> {
+        self.0.read().get(path).cloned()
+    }
+}
+
+impl CanonCache {
+    /// Store a canonicalized module result for the given module path.
+    pub fn store(&self, module_path: PathBuf, canon: ori_ir::canon::SharedCanonResult) {
+        self.0.write().insert(module_path, canon);
+    }
+
+    /// Retrieve the cached canon result for the given module path.
+    pub fn get(&self, module_path: &Path) -> Option<ori_ir::canon::SharedCanonResult> {
+        self.0.read().get(module_path).cloned()
+    }
+
+    /// Remove the cached canon result for the given module path.
+    ///
+    /// Called when Salsa re-executes `typed()` for a file, indicating
+    /// that the source has changed and the cached result is stale.
+    pub fn invalidate(&self, module_path: &Path) {
+        self.0.write().remove(module_path);
+    }
+}
+
+impl ImportsCache {
+    /// Store resolved imports for the given file path.
+    pub fn store(
+        &self,
+        file_path: PathBuf,
+        imports: std::sync::Arc<crate::imports::ResolvedImports>,
+    ) {
+        self.0.write().insert(file_path, imports);
+    }
+
+    /// Retrieve cached resolved imports for the given file path.
+    pub fn get(&self, file_path: &Path) -> Option<std::sync::Arc<crate::imports::ResolvedImports>> {
+        self.0.read().get(file_path).cloned()
+    }
+
+    /// Remove the cached imports for the given file path.
+    ///
+    /// Called when Salsa re-executes `typed()` for a file, indicating
+    /// that the source has changed and the cached result is stale.
+    pub fn invalidate(&self, file_path: &Path) {
+        self.0.write().remove(file_path);
+    }
+}
+
 /// Main database trait that extends Salsa's Database.
 ///
 /// All code that needs database access should use `&dyn Db`.
@@ -49,6 +147,24 @@ pub trait Db: salsa::Database {
     ///
     /// Returns None if the file cannot be read.
     fn load_file(&self, path: &Path) -> Option<SourceFile>;
+
+    /// Access the session-scoped Pool cache.
+    ///
+    /// The Pool is stored as a side-channel during `typed()` execution because
+    /// it can't satisfy Salsa's `Clone + Eq + Hash` requirements. Callers that
+    /// need the Pool alongside the `TypeCheckResult` should use `typed_pool()`.
+    fn pool_cache(&self) -> &PoolCache;
+
+    /// Access the session-scoped canon result cache.
+    ///
+    /// Avoids re-canonicalizing the same module across Evaluator instances.
+    fn canon_cache(&self) -> &CanonCache;
+
+    /// Access the session-scoped imports cache.
+    ///
+    /// Avoids re-resolving imports when multiple consumers (type checker,
+    /// evaluator, LLVM backend) need the same file's imports.
+    fn imports_cache(&self) -> &ImportsCache;
 }
 
 /// Concrete implementation of the compiler database.
@@ -84,6 +200,24 @@ pub struct CompilerDb {
     /// `Clone` works (required by Salsa). This is test-only and doesn't affect
     /// Salsa's incremental computation tracking.
     logs: Arc<Mutex<Option<Vec<String>>>>,
+
+    /// Session-scoped Pool cache.
+    ///
+    /// Stores `Arc<Pool>` by file path, populated by the `typed()` Salsa query.
+    /// See [`PoolCache`] for details.
+    pool_cache: PoolCache,
+
+    /// Session-scoped canon result cache.
+    ///
+    /// Stores `SharedCanonResult` by module path. Avoids re-canonicalizing
+    /// the prelude and imported modules across Evaluator instances.
+    canon_cache: CanonCache,
+
+    /// Session-scoped imports cache.
+    ///
+    /// Stores `Arc<ResolvedImports>` by file path. Avoids re-resolving
+    /// imports when multiple consumers need the same file's imports.
+    imports_cache: ImportsCache,
 }
 
 impl Default for CompilerDb {
@@ -93,6 +227,9 @@ impl Default for CompilerDb {
             interner: SharedInterner::new(),
             file_cache: Arc::default(),
             logs: Arc::default(),
+            pool_cache: PoolCache::default(),
+            canon_cache: CanonCache::default(),
+            imports_cache: ImportsCache::default(),
         }
     }
 }
@@ -113,6 +250,9 @@ impl CompilerDb {
             interner,
             file_cache: Arc::default(),
             logs: Arc::default(),
+            pool_cache: PoolCache::default(),
+            canon_cache: CanonCache::default(),
+            imports_cache: ImportsCache::default(),
         }
     }
 
@@ -147,6 +287,18 @@ impl CompilerDb {
 impl Db for CompilerDb {
     fn interner(&self) -> &StringInterner {
         &self.interner
+    }
+
+    fn pool_cache(&self) -> &PoolCache {
+        &self.pool_cache
+    }
+
+    fn canon_cache(&self) -> &CanonCache {
+        &self.canon_cache
+    }
+
+    fn imports_cache(&self) -> &ImportsCache {
+        &self.imports_cache
     }
 
     fn load_file(&self, path: &Path) -> Option<SourceFile> {

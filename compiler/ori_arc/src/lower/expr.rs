@@ -347,6 +347,7 @@ mod tests {
             root: body,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
         // Reborrow from canon
         (CanArena::with_capacity(0), canon)
@@ -415,6 +416,7 @@ mod tests {
             root: body,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
 
         let func = lower_single_expr(&canon, body, Idx::INT);
@@ -455,6 +457,7 @@ mod tests {
             root: add,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
 
         let func = lower_single_expr(&canon, add, Idx::INT);
@@ -498,6 +501,7 @@ mod tests {
             root: neg,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
 
         let func = lower_single_expr(&canon, neg, Idx::INT);
@@ -537,6 +541,7 @@ mod tests {
             root: await_id,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
 
         let interner = StringInterner::new();
@@ -577,6 +582,7 @@ mod tests {
             root: body,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
 
         let interner = StringInterner::new();

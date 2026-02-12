@@ -59,12 +59,11 @@ The Ori compiler is a Rust-based incremental compiler built on the Salsa framewo
 - **`ori_diagnostic`** - Error reporting system
 - **`ori_lexer_core`** - Low-level lexer primitives (raw scanner, source buffer, token tags)
 - **`ori_lexer`** - Tokenization
-- **`ori_types`** - Type system definitions
+- **`ori_types`** - Type system: Pool, inference engine, unification, registries, checking
 - **`ori_parse`** - Recursive descent parser
-- **`ori_typeck`** - Type checking and inference
 - **`ori_patterns`** - Pattern system, Value types, EvalError (single source of truth)
 - **`ori_canon`** - Canonical IR lowering (desugaring, pattern compilation, constant folding)
-- **`ori_arc`** - ARC analysis (type classification, borrow inference, RC insertion)
+- **`ori_arc`** - ARC analysis (CanExpr → ARC IR lowering, borrow inference, RC insertion/elimination, reset/reuse, FBIP diagnostics)
 - **`ori_eval`** - Core evaluator components (Environment, operators)
 - **`oric`** - CLI orchestrator, Salsa queries, evaluator, reporting
 
@@ -97,8 +96,10 @@ flowchart TB
     A["SourceFile (Salsa input)"] -->|"tokens() query"| B["TokenList"]
     B -->|"parsed() query"| C["ParseResult { Module, ExprArena, errors }"]
     C -->|"typed() query"| D["TypedModule { expr_types, errors }"]
-    D -->|"evaluated() query"| E["ModuleEvalResult { Value, EvalOutput }"]
-    D -->|"LLVM backend"| F["LLVM IR → JIT Execution"]
+    D -->|"canonicalize"| E2["CanonResult { CanArena, DecisionTrees, PatternProblems }"]
+    E2 -->|"evaluated() query"| E["ModuleEvalResult { Value, EvalOutput }"]
+    E2 -->|"ARC pipeline"| F1["ARC IR (borrow, liveness, RC, reuse)"]
+    F1 -->|"LLVM codegen"| F["LLVM IR → Native Binary"]
 ```
 
 Each step is a Salsa query with automatic caching. If the input doesn't change, the cached output is returned immediately.
@@ -181,8 +182,10 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 
 ### LLVM Backend
 
-- [LLVM Backend Overview](10-llvm-backend/index.md) - JIT compilation architecture
+- [LLVM Backend Overview](10-llvm-backend/index.md) - JIT and AOT code generation architecture
+- [AOT Compilation](10-llvm-backend/aot.md) - Native executable and WebAssembly generation
 - [Closures](10-llvm-backend/closures.md) - Closure representation and calling conventions
+- [User-Defined Types](10-llvm-backend/user-types.md) - Struct types, impl blocks, method dispatch
 
 ### Platform Targets
 
@@ -213,11 +216,10 @@ The compiler is organized as a multi-crate workspace:
 | `ori_parse` | `compiler/ori_parse/src/` | Recursive descent parser |
 | `ori_patterns` | `compiler/ori_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
 | `ori_eval` | `compiler/ori_eval/src/` | Environment, OperatorRegistry (core eval components) |
-| `ori_canon` | `compiler/ori_canon/src/` | Canonical IR lowering: desugaring, pattern compilation (decision trees), constant folding, type attachment |
-| `ori_arc` | `compiler/ori_arc/src/` | ARC analysis: type classification (Scalar/DefiniteRef/PossibleRef), borrow inference, RC insertion |
-| `ori_llvm` | `compiler/ori_llvm/src/` | LLVM backend for JIT/AOT compilation (requires Docker) |
+| `ori_canon` | `compiler/ori_canon/src/` | Canonical IR lowering: desugaring, pattern compilation (decision trees), constant folding, exhaustiveness checking |
+| `ori_arc` | `compiler/ori_arc/src/` | ARC analysis: CanExpr → ARC IR, borrow inference, RC insertion/elimination, reset/reuse, FBIP |
+| `ori_llvm` | `compiler/ori_llvm/src/` | LLVM backend for JIT/AOT compilation |
 | `ori_stack` | `compiler/ori_stack/src/` | Stack management (stacker on native, no-op on WASM) |
-| `ori-macros` | `compiler/ori-macros/src/` | Diagnostic derive macros |
 | `oric` | `compiler/oric/src/` | CLI, Salsa queries, eval orchestration, reporting |
 
 **Note:** `oric` modules (`ir`, `parser`, `diagnostic`, `types`) re-export from source crates for DRY.

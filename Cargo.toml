@@ -10,7 +10,6 @@ members = [
     "compiler/ori_patterns",
     "compiler/ori_eval",
     "compiler/ori_fmt",
-    "compiler/ori_macros",
     "compiler/ori_arc",
     "compiler/ori_canon",
     "compiler/ori_stack",
@@ -63,7 +62,6 @@ ori_parse = { path = "compiler/ori_parse" }
 ori_patterns = { path = "compiler/ori_patterns" }
 ori_eval = { path = "compiler/ori_eval" }
 ori_fmt = { path = "compiler/ori_fmt" }
-ori_macros = { path = "compiler/ori_macros" }
 ori_arc = { path = "compiler/ori_arc" }
 ori_canon = { path = "compiler/ori_canon" }
 ori_stack = { path = "compiler/ori_stack" }

@@ -371,6 +371,8 @@ Machine-readable diagnostics with actionable fix suggestions. Enables AI agents 
 
 ### 22.7.5 Upgrade Existing Diagnostics (Step 5)
 
+> **Hygiene note:** `Diagnostic` currently has dual suggestion fields: `suggestions: Vec<String>` (~53 callers of `with_suggestion()`) and `structured_suggestions: Vec<Suggestion>` (~7 callers). Emitters must check both. After migrating all callers below, remove the `suggestions` field and `with_suggestion()` method entirely, leaving `structured_suggestions` as the single path.
+
 - [ ] **Implement**: Convert type error suggestions to structured suggestions
   - [ ] Type conversion: `x as int`, `x as float`
   - [ ] Missing wrapper: `Some(x)`, `Ok(x)`

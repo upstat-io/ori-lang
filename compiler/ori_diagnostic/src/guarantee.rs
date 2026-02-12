@@ -68,20 +68,6 @@ impl ErrorGuaranteed {
             None
         }
     }
-
-    /// Create an `ErrorGuaranteed` for downstream crates that have already
-    /// verified errors exist through other means.
-    ///
-    /// **Warning:** This should only be called when you have evidence that
-    /// errors were emitted. Prefer `from_error_count` when possible.
-    ///
-    /// This exists for cases where the error count isn't directly accessible
-    /// but the calling code has verified errors exist (e.g., by checking
-    /// `!errors.is_empty()` in a separate condition).
-    #[inline]
-    pub fn new_for_downstream() -> Self {
-        ErrorGuaranteed(())
-    }
 }
 
 impl fmt::Display for ErrorGuaranteed {
@@ -93,6 +79,7 @@ impl fmt::Display for ErrorGuaranteed {
 impl std::error::Error for ErrorGuaranteed {}
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test assertions use unwrap for clarity")]
 mod tests {
     use super::*;
 
@@ -109,13 +96,13 @@ mod tests {
 
     #[test]
     fn display_shows_error_message() {
-        let g = ErrorGuaranteed::new_for_downstream();
+        let g = ErrorGuaranteed::from_error_count(1).unwrap();
         assert_eq!(g.to_string(), "error(s) emitted");
     }
 
     #[test]
     fn error_guaranteed_is_copy() {
-        let g1 = ErrorGuaranteed::new_for_downstream();
+        let g1 = ErrorGuaranteed::from_error_count(1).unwrap();
         let g2 = g1; // Copy
         let _ = g1; // Still usable after copy
         let _ = g2;
@@ -123,8 +110,8 @@ mod tests {
 
     #[test]
     fn error_guaranteed_is_eq() {
-        let g1 = ErrorGuaranteed::new_for_downstream();
-        let g2 = ErrorGuaranteed::new_for_downstream();
+        let g1 = ErrorGuaranteed::from_error_count(1).unwrap();
+        let g2 = ErrorGuaranteed::from_error_count(1).unwrap();
         assert_eq!(g1, g2);
     }
 }

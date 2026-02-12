@@ -411,7 +411,7 @@ mod tests {
         ",
         );
 
-        let arena = SharedArena::new(result.arena.clone());
+        let arena = result.arena.clone();
         let mut env = Environment::new();
         register_module_functions(&result.module, &arena, &mut env, None);
 
@@ -480,7 +480,7 @@ mod tests {
         ",
         );
 
-        let arena = SharedArena::new(result.arena.clone());
+        let arena = result.arena.clone();
         let mut registry = UserMethodRegistry::new();
         let captures = Arc::new(FxHashMap::default());
 
@@ -504,7 +504,7 @@ mod tests {
         ",
         );
 
-        let arena = SharedArena::new(result.arena.clone());
+        let arena = result.arena.clone();
         let mut registry = UserMethodRegistry::new();
         let captures = Arc::new(FxHashMap::default());
 
@@ -532,7 +532,7 @@ mod tests {
         ",
         );
 
-        let arena = SharedArena::new(result.arena.clone());
+        let arena = result.arena.clone();
         let mut registry = UserMethodRegistry::new();
         let captures = Arc::new(FxHashMap::default());
 
@@ -554,7 +554,7 @@ mod tests {
         ",
         );
 
-        let arena = SharedArena::new(result.arena.clone());
+        let arena = result.arena.clone();
         let mut registry = UserMethodRegistry::new();
         let captures = Arc::new(FxHashMap::default());
 
@@ -583,7 +583,7 @@ mod tests {
         ",
         );
 
-        let arena = SharedArena::new(result.arena.clone());
+        let arena = result.arena.clone();
         let mut registry = UserMethodRegistry::new();
         let captures = Arc::new(FxHashMap::default());
 
@@ -608,7 +608,7 @@ mod tests {
         ",
         );
 
-        let arena = SharedArena::new(result.arena.clone());
+        let arena = result.arena.clone();
         let mut registry = UserMethodRegistry::new();
         let captures = Arc::new(FxHashMap::default());
 

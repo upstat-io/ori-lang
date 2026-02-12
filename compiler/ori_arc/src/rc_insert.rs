@@ -34,12 +34,12 @@
 //! - Koka: Perceus paper §3.2
 //! - Swift: `lib/SILOptimizer/ARC/`
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::graph::compute_predecessors;
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
+use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use crate::liveness::BlockLiveness;
-use crate::ownership::Ownership;
+use crate::ownership::{DerivedOwnership, Ownership};
 use crate::ArcClassification;
 
 /// Shared context for RC insertion within a single block.
@@ -53,6 +53,14 @@ struct RcContext<'a> {
     borrowed_params: &'a FxHashSet<ArcVarId>,
     /// Variables derived from borrowed params — skip RC except at owned positions.
     borrows: &'a FxHashSet<ArcVarId>,
+    /// Annotated signatures for closure capture analysis (Step 2.4).
+    /// When `Some`, `PartialApply` captures at borrowed callee positions
+    /// can skip `RcInc` for borrowed-derived vars (if the closure doesn't escape).
+    sigs: Option<&'a FxHashMap<ori_ir::Name, crate::ownership::AnnotatedSig>>,
+    /// Live-out set for the current block — used for closure escape checks.
+    /// If a `PartialApply` dst is in `block_live_out`, the closure escapes
+    /// the block and borrowed captures must be Inc'd.
+    block_live_out: Option<&'a FxHashSet<ArcVarId>>,
 }
 
 /// Insert `RcInc`/`RcDec` operations into an ARC IR function.
@@ -66,7 +74,8 @@ struct RcContext<'a> {
 /// * `func` — the ARC IR function to transform (mutated in place).
 /// * `classifier` — type classifier for `needs_rc()` checks.
 /// * `liveness` — precomputed liveness (from [`compute_liveness`](crate::compute_liveness)).
-pub fn insert_rc_ops(
+#[cfg(test)]
+pub(crate) fn insert_rc_ops(
     func: &mut ArcFunction,
     classifier: &dyn ArcClassification,
     liveness: &BlockLiveness,
@@ -105,115 +114,26 @@ pub fn insert_rc_ops(
     let mut per_block_borrows: Vec<FxHashSet<ArcVarId>> = Vec::with_capacity(num_blocks);
 
     for block_idx in 0..num_blocks {
-        // Compute the borrows set: variables *derived from* borrowed params
-        // (e.g., via Project or Let alias). Does NOT include the borrowed
-        // params themselves — those are handled separately with a complete
-        // skip of all RC tracking.
         let borrows = compute_borrows(&func.blocks[block_idx], &borrowed_params);
         per_block_borrows.push(borrows);
 
-        let ctx = RcContext {
-            func,
-            classifier,
-            borrowed_params: &borrowed_params,
-            borrows: &per_block_borrows[block_idx],
-        };
-
-        let live_out = &liveness.live_out[block_idx];
-        let mut live = live_out.clone();
-
-        // We build new_body in reverse order and flip at the end.
-        let mut new_body: Vec<ArcInstr> = Vec::new();
-        // Track spans: None for inserted RC ops, original span for original instrs.
-        let mut new_spans: Vec<Option<ori_ir::Span>> = Vec::new();
-
-        let block = &func.blocks[block_idx];
-        let old_spans = &func.spans[block_idx];
-
-        // Step 1: Process terminator uses
-        //
-        // The terminator's used_vars are "live at exit" of the instruction
-        // stream. If a terminator var is already live (used later in a
-        // successor), it needs an Inc. Otherwise it joins the live set.
-        process_terminator_uses(
-            &block.terminator,
-            &mut live,
-            &mut new_body,
-            &mut new_spans,
-            &ctx,
-        );
-
-        // Step 2: Backward body pass
-        for (instr_idx, instr) in block.body.iter().enumerate().rev() {
-            let span = if instr_idx < old_spans.len() {
-                old_spans[instr_idx]
-            } else {
-                None
+        let (new_body, new_spans) = {
+            let ctx = RcContext {
+                func,
+                classifier,
+                borrowed_params: &borrowed_params,
+                borrows: &per_block_borrows[block_idx],
+                sigs: None,
+                block_live_out: None,
             };
-
-            // Definition: if dst is RC'd, non-borrowed, and not live → dead def, emit Dec.
-            if let Some(dst) = instr.defined_var() {
-                if needs_rc_trackable(dst, &ctx) && !live.remove(&dst) {
-                    // Dead definition — value is created but never used.
-                    new_body.push(ArcInstr::RcDec { var: dst });
-                    new_spans.push(None);
-                }
-            }
-
-            // Push the instruction itself.
-            new_body.push(instr.clone());
-            new_spans.push(span);
-
-            // Uses: for each used var, if it's already live → multi-use, emit Inc.
-            // Use the owned-position-aware logic for borrowed-derived vars.
-            process_instruction_uses(instr, &mut live, &mut new_body, &mut new_spans, &ctx);
-        }
-
-        // Step 3: Block parameters
-        //
-        // Any block param that is RC'd, not borrowed, and not in the live
-        // set at this point was never used in the block body → Dec it.
-        for &(param_var, _ty) in block.params.iter().rev() {
-            if needs_rc_trackable(param_var, &ctx) && !live.remove(&param_var) {
-                new_body.push(ArcInstr::RcDec { var: param_var });
-                new_spans.push(None);
-            }
-        }
-
-        // Step 3.5: Invoke dst definitions
-        //
-        // An Invoke's `dst` is defined at the normal successor's entry,
-        // acting like a block parameter. If the dst is RC'd and not in
-        // the live set, it was never used → Dec it.
-        let block_id = func.blocks[block_idx].id;
-        if let Some(dsts) = invoke_defs.get(&block_id) {
-            for &dst in dsts.iter().rev() {
-                if needs_rc_trackable(dst, &ctx) && !live.remove(&dst) {
-                    new_body.push(ArcInstr::RcDec { var: dst });
-                    new_spans.push(None);
-                }
-            }
-        }
-
-        // Step 4: Entry block function params
-        //
-        // Owned function params that are not in `live` after processing
-        // the entry block body need a Dec (unused param).
-        if block_idx == entry_idx {
-            for param in func.params.iter().rev() {
-                if param.ownership == Ownership::Owned
-                    && classifier.needs_rc(param.ty)
-                    && !live.remove(&param.var)
-                {
-                    new_body.push(ArcInstr::RcDec { var: param.var });
-                    new_spans.push(None);
-                }
-            }
-        }
-
-        // Reverse to get correct order
-        new_body.reverse();
-        new_spans.reverse();
+            process_block_rc(
+                &ctx,
+                block_idx,
+                &liveness.live_out[block_idx],
+                &invoke_defs,
+                block_idx == entry_idx,
+            )
+        };
 
         func.blocks[block_idx].body = new_body;
         func.spans[block_idx] = new_spans;
@@ -238,6 +158,189 @@ pub fn insert_rc_ops(
         &borrowed_params,
         &global_borrows,
     );
+}
+
+/// Insert `RcInc`/`RcDec` operations using global [`DerivedOwnership`] analysis.
+///
+/// Enhanced version of [`insert_rc_ops`] that uses the whole-function
+/// `DerivedOwnership` vector (from [`infer_derived_ownership`](crate::borrow::infer_derived_ownership))
+/// instead of per-block `compute_borrows`. This captures cross-block borrow
+/// propagation that the per-block approach misses.
+///
+/// When a variable derived from a borrowed parameter flows across a block
+/// boundary (e.g., defined in B0 but used in B1), the per-block approach
+/// loses track and treats it as owned in B1 — potentially omitting the
+/// `RcInc` needed at owned positions. The `DerivedOwnership` vector has
+/// global knowledge, ensuring correct RC ops in all blocks.
+///
+/// With `sigs`, also performs closure capture analysis (Step 2.4):
+/// `PartialApply` captures of borrowed-derived vars at `Borrowed` callee
+/// positions skip `RcInc` when the closure doesn't escape the block.
+#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
+pub fn insert_rc_ops_with_ownership(
+    func: &mut ArcFunction,
+    classifier: &dyn ArcClassification,
+    liveness: &BlockLiveness,
+    ownership: &[DerivedOwnership],
+    sigs: &FxHashMap<ori_ir::Name, crate::ownership::AnnotatedSig>,
+) {
+    debug_assert!(
+        !func
+            .blocks
+            .iter()
+            .flat_map(|b| b.body.iter())
+            .any(|i| matches!(i, ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. })),
+        "insert_rc_ops_with_ownership: IR already contains RcInc/RcDec"
+    );
+
+    tracing::debug!(
+        function = func.name.raw(),
+        "inserting RC operations (ownership-enhanced)"
+    );
+
+    let borrowed_params: FxHashSet<ArcVarId> = func
+        .params
+        .iter()
+        .filter(|p| p.ownership == Ownership::Borrowed)
+        .map(|p| p.var)
+        .collect();
+
+    // Global borrow set from DerivedOwnership — covers cross-block propagation.
+    let global_borrows: FxHashSet<ArcVarId> = ownership
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| matches!(o, DerivedOwnership::BorrowedFrom(_)))
+        .map(|(i, _)| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "ARC IR var counts fit in u32"
+            )]
+            ArcVarId::new(i as u32)
+        })
+        .collect();
+
+    let entry_idx = func.entry.index();
+    let num_blocks = func.blocks.len();
+    let invoke_defs = crate::graph::collect_invoke_defs(func);
+
+    for block_idx in 0..num_blocks {
+        let (new_body, new_spans) = {
+            let ctx = RcContext {
+                func,
+                classifier,
+                borrowed_params: &borrowed_params,
+                borrows: &global_borrows,
+                sigs: Some(sigs),
+                block_live_out: Some(&liveness.live_out[block_idx]),
+            };
+            process_block_rc(
+                &ctx,
+                block_idx,
+                &liveness.live_out[block_idx],
+                &invoke_defs,
+                block_idx == entry_idx,
+            )
+        };
+
+        func.blocks[block_idx].body = new_body;
+        func.spans[block_idx] = new_spans;
+    }
+
+    insert_edge_cleanup(
+        func,
+        classifier,
+        liveness,
+        &borrowed_params,
+        &global_borrows,
+    );
+}
+
+/// Process a single block for RC insertion, returning the new body and spans.
+///
+/// Shared inner implementation for [`insert_rc_ops`] and
+/// [`insert_rc_ops_with_ownership`]. Performs the backward walk over
+/// instructions, inserting `RcInc`/`RcDec` based on liveness and borrowing.
+fn process_block_rc(
+    ctx: &RcContext<'_>,
+    block_idx: usize,
+    live_out: &FxHashSet<ArcVarId>,
+    invoke_defs: &FxHashMap<ArcBlockId, Vec<ArcVarId>>,
+    is_entry: bool,
+) -> (Vec<ArcInstr>, Vec<Option<ori_ir::Span>>) {
+    let mut live = live_out.clone();
+    let mut new_body: Vec<ArcInstr> = Vec::new();
+    let mut new_spans: Vec<Option<ori_ir::Span>> = Vec::new();
+
+    let block = &ctx.func.blocks[block_idx];
+    let old_spans = &ctx.func.spans[block_idx];
+
+    // Step 1: Process terminator uses
+    process_terminator_uses(
+        &block.terminator,
+        &mut live,
+        &mut new_body,
+        &mut new_spans,
+        ctx,
+    );
+
+    // Step 2: Backward body pass
+    for (instr_idx, instr) in block.body.iter().enumerate().rev() {
+        let span = if instr_idx < old_spans.len() {
+            old_spans[instr_idx]
+        } else {
+            None
+        };
+
+        // Definition: if dst is RC'd, non-borrowed, and not live → dead def, emit Dec.
+        if let Some(dst) = instr.defined_var() {
+            if needs_rc_trackable(dst, ctx) && !live.remove(&dst) {
+                new_body.push(ArcInstr::RcDec { var: dst });
+                new_spans.push(None);
+            }
+        }
+
+        new_body.push(instr.clone());
+        new_spans.push(span);
+
+        process_instruction_uses(instr, &mut live, &mut new_body, &mut new_spans, ctx);
+    }
+
+    // Step 3: Block parameters
+    for &(param_var, _ty) in block.params.iter().rev() {
+        if needs_rc_trackable(param_var, ctx) && !live.remove(&param_var) {
+            new_body.push(ArcInstr::RcDec { var: param_var });
+            new_spans.push(None);
+        }
+    }
+
+    // Step 3.5: Invoke dst definitions
+    let block_id = ctx.func.blocks[block_idx].id;
+    if let Some(dsts) = invoke_defs.get(&block_id) {
+        for &dst in dsts.iter().rev() {
+            if needs_rc_trackable(dst, ctx) && !live.remove(&dst) {
+                new_body.push(ArcInstr::RcDec { var: dst });
+                new_spans.push(None);
+            }
+        }
+    }
+
+    // Step 4: Entry block function params
+    if is_entry {
+        for param in ctx.func.params.iter().rev() {
+            if param.ownership == Ownership::Owned
+                && ctx.classifier.needs_rc(param.ty)
+                && !live.remove(&param.var)
+            {
+                new_body.push(ArcInstr::RcDec { var: param.var });
+                new_spans.push(None);
+            }
+        }
+    }
+
+    new_body.reverse();
+    new_spans.reverse();
+
+    (new_body, new_spans)
 }
 
 /// Process terminator uses for RC insertion.
@@ -329,7 +432,7 @@ fn process_instruction_uses(
 
         // Borrowed-derived vars: only emit Inc if in an owned position.
         if ctx.borrows.contains(&var) {
-            if instr.is_owned_position(pos) {
+            if instr.is_owned_position(pos) && !is_borrowed_capture(instr, pos, ctx) {
                 new_body.push(ArcInstr::RcInc { var, count: 1 });
                 new_spans.push(None);
             }
@@ -355,6 +458,43 @@ fn process_instruction_uses(
     }
 }
 
+/// Check if a `PartialApply` capture position is a borrowed callee parameter
+/// and the closure doesn't escape the block.
+///
+/// When capturing a borrowed-derived variable into a closure, we normally need
+/// `RcInc` because the closure stores the value. But if:
+/// 1. The callee expects this parameter as `Borrowed` (won't store/escape it)
+/// 2. The closure doesn't escape the current block (consumed locally)
+///
+/// ...then the Inc can be safely skipped. The captured value remains alive
+/// through its borrow root (a function parameter with lifetime spanning the
+/// entire function).
+///
+/// Follows Lean 4's `Borrow.lean` pattern for closure captures.
+#[inline]
+fn is_borrowed_capture(instr: &ArcInstr, pos: usize, ctx: &RcContext<'_>) -> bool {
+    let (Some(sigs), Some(live_out)) = (ctx.sigs, ctx.block_live_out) else {
+        return false;
+    };
+
+    let ArcInstr::PartialApply {
+        dst, func: callee, ..
+    } = instr
+    else {
+        return false;
+    };
+
+    // Closure escapes the block → must Inc for safety.
+    if live_out.contains(dst) {
+        return false;
+    }
+
+    // Callee's parameter at this position is Borrowed → skip Inc.
+    sigs.get(callee)
+        .and_then(|sig| sig.params.get(pos))
+        .is_some_and(|p| p.ownership == Ownership::Borrowed)
+}
+
 /// Compute the "borrows" set for a block — variables *derived from*
 /// borrowed parameters via projections or aliasing.
 ///
@@ -364,7 +504,10 @@ fn process_instruction_uses(
 /// `Let { value: Var(_) }`.
 ///
 /// Follows Lean 4's `LiveVars.borrows` pattern.
+#[cfg(test)]
 fn compute_borrows(block: &ArcBlock, borrowed_params: &FxHashSet<ArcVarId>) -> FxHashSet<ArcVarId> {
+    use crate::ir::ArcValue;
+
     // Start with an empty set — borrowed params are NOT included.
     // We track a "source is borrowed" set that includes both borrowed params
     // and derived vars, but only derived vars go into the output.
@@ -595,60 +738,20 @@ mod tests {
     use ori_ir::Name;
     use ori_types::{Idx, Pool};
 
-    use crate::ir::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
-        CtorKind, LitValue,
-    };
+    use rustc_hash::FxHashMap;
+
+    use crate::borrow::infer_derived_ownership;
+    use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
     use crate::liveness::compute_liveness;
-    use crate::ownership::Ownership;
+    use crate::test_helpers::{
+        b, borrowed_param, count_block_rc_ops as count_rc_ops, count_dec, count_inc, make_func,
+        owned_param, v,
+    };
     use crate::ArcClassifier;
 
-    use super::insert_rc_ops;
+    use super::{insert_rc_ops, insert_rc_ops_with_ownership};
 
     // Helpers
-
-    fn make_func(
-        params: Vec<ArcParam>,
-        return_type: Idx,
-        blocks: Vec<ArcBlock>,
-        var_types: Vec<Idx>,
-    ) -> ArcFunction {
-        let span_vecs: Vec<Vec<Option<ori_ir::Span>>> =
-            blocks.iter().map(|b| vec![None; b.body.len()]).collect();
-        ArcFunction {
-            name: Name::from_raw(1),
-            params,
-            return_type,
-            blocks,
-            entry: ArcBlockId::new(0),
-            var_types,
-            spans: span_vecs,
-        }
-    }
-
-    fn owned_param(var: u32, ty: Idx) -> ArcParam {
-        ArcParam {
-            var: ArcVarId::new(var),
-            ty,
-            ownership: Ownership::Owned,
-        }
-    }
-
-    fn borrowed_param(var: u32, ty: Idx) -> ArcParam {
-        ArcParam {
-            var: ArcVarId::new(var),
-            ty,
-            ownership: Ownership::Borrowed,
-        }
-    }
-
-    fn v(n: u32) -> ArcVarId {
-        ArcVarId::new(n)
-    }
-
-    fn b(n: u32) -> ArcBlockId {
-        ArcBlockId::new(n)
-    }
 
     /// Run RC insertion on a function, returning the transformed function.
     fn run_rc_insert(mut func: ArcFunction) -> ArcFunction {
@@ -657,33 +760,6 @@ mod tests {
         let liveness = compute_liveness(&func, &classifier);
         insert_rc_ops(&mut func, &classifier, &liveness);
         func
-    }
-
-    /// Count occurrences of `RcInc` for a specific var in a block.
-    fn count_inc(func: &ArcFunction, block_idx: usize, var: ArcVarId) -> usize {
-        func.blocks[block_idx]
-            .body
-            .iter()
-            .filter(|i| matches!(i, ArcInstr::RcInc { var: v, .. } if *v == var))
-            .count()
-    }
-
-    /// Count occurrences of `RcDec` for a specific var in a block.
-    fn count_dec(func: &ArcFunction, block_idx: usize, var: ArcVarId) -> usize {
-        func.blocks[block_idx]
-            .body
-            .iter()
-            .filter(|i| matches!(i, ArcInstr::RcDec { var: v } if *v == var))
-            .count()
-    }
-
-    /// Count total RC ops (Inc + Dec) in a block.
-    fn count_rc_ops(func: &ArcFunction, block_idx: usize) -> usize {
-        func.blocks[block_idx]
-            .body
-            .iter()
-            .filter(|i| matches!(i, ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. }))
-            .count()
     }
 
     // Tests
@@ -1903,5 +1979,376 @@ mod tests {
         // No edge cleanup needed — v0 is used in both branches.
         assert_eq!(count_dec(&result, 1, v(0)), 0);
         assert_eq!(count_dec(&result, 2, v(0)), 0);
+    }
+
+    // --- insert_rc_ops_with_ownership tests ---
+
+    /// Run ownership-enhanced RC insertion on a function (empty sigs).
+    fn run_rc_insert_enhanced(mut func: ArcFunction) -> ArcFunction {
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let liveness = compute_liveness(&func, &classifier);
+        let sigs = FxHashMap::default();
+        let ownership = infer_derived_ownership(&func, &sigs);
+        insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, &sigs);
+        func
+    }
+
+    /// Run ownership-enhanced RC insertion with provided signatures.
+    fn run_rc_insert_enhanced_with_sigs(
+        mut func: ArcFunction,
+        sigs: &FxHashMap<Name, crate::ownership::AnnotatedSig>,
+    ) -> ArcFunction {
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let liveness = compute_liveness(&func, &classifier);
+        let ownership = infer_derived_ownership(&func, sigs);
+        insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, sigs);
+        func
+    }
+
+    /// Single-block passthrough: enhanced produces same result as original.
+    #[test]
+    fn enhanced_passthrough_matches_original() {
+        let func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(0) },
+            }],
+            vec![Idx::STR],
+        );
+
+        let result = run_rc_insert_enhanced(func);
+
+        assert_eq!(count_rc_ops(&result, 0), 0);
+    }
+
+    /// Single-block borrowed projection: enhanced matches original behavior.
+    #[test]
+    fn enhanced_borrowed_projection_stored() {
+        let func = make_func(
+            vec![borrowed_param(0, Idx::STR)],
+            Idx::UNIT,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    ArcInstr::Construct {
+                        dst: v(2),
+                        ty: Idx::UNIT,
+                        ctor: CtorKind::Tuple,
+                        args: vec![v(1)],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(2) },
+            }],
+            vec![Idx::STR, Idx::STR, Idx::UNIT],
+        );
+
+        let result = run_rc_insert_enhanced(func);
+
+        // v1 borrowed-derived, stored in Construct (owned position) → Inc.
+        assert_eq!(count_inc(&result, 0, v(1)), 1);
+        // v0 borrowed → no RC ops.
+        assert_eq!(count_inc(&result, 0, v(0)), 0);
+        assert_eq!(count_dec(&result, 0, v(0)), 0);
+    }
+
+    /// Cross-block borrow propagation: borrowed-derived var used in owned
+    /// position in a different block gets the necessary Inc.
+    ///
+    /// ```text
+    /// block_0: v0 = @borrow param(str); v1 = project v0.0 (str);
+    ///          branch → b1, b2
+    /// block_1: apply f(v1) → v1 needs Inc (owned position, cross-block)
+    /// block_2: return v0
+    /// ```
+    ///
+    /// The per-block `compute_borrows` misses v1's borrowed status in B1
+    /// because the Project defining v1 is in B0. `DerivedOwnership` knows
+    /// v1 is `BorrowedFrom(v0)` globally.
+    #[test]
+    fn enhanced_cross_block_borrow_inc() {
+        let func = make_func(
+            vec![borrowed_param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![
+                        ArcInstr::Project {
+                            dst: v(1),
+                            ty: Idx::STR,
+                            value: v(0),
+                            field: 0,
+                        },
+                        ArcInstr::Let {
+                            dst: v(2),
+                            ty: Idx::BOOL,
+                            value: ArcValue::Literal(LitValue::Bool(true)),
+                        },
+                    ],
+                    terminator: ArcTerminator::Branch {
+                        cond: v(2),
+                        then_block: b(1),
+                        else_block: b(2),
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![ArcInstr::Apply {
+                        dst: v(3),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![v(1)],
+                    }],
+                    terminator: ArcTerminator::Return { value: v(3) },
+                },
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+            ],
+            vec![Idx::STR, Idx::STR, Idx::BOOL, Idx::STR],
+        );
+
+        let result = run_rc_insert_enhanced(func);
+
+        // v1 in B1: BorrowedFrom(v0) globally → Apply is owned position → Inc.
+        assert_eq!(
+            count_inc(&result, 1, v(1)),
+            1,
+            "cross-block borrowed-derived v1 needs Inc at owned position in B1"
+        );
+    }
+
+    // --- Closure capture analysis tests (Step 2.4) ---
+
+    /// Closure capturing borrowed-derived var at a Borrowed callee position:
+    /// the Inc is skipped because the closure borrows (not owns) the value,
+    /// and the closure is consumed in the same block (non-escaping).
+    ///
+    /// ```text
+    /// fn outer(@borrow p: str) -> str {
+    ///     let field = p.0              // BorrowedFrom(p)
+    ///     let closure = partial_apply(inner, field)
+    ///     apply(closure)               // consumed immediately
+    /// }
+    /// // inner(@borrow x: str) -> str  ← param is Borrowed
+    /// ```
+    #[test]
+    fn closure_borrowed_capture_no_inc() {
+        use crate::ownership::{AnnotatedParam, AnnotatedSig};
+
+        let inner_name = Name::from_raw(42);
+
+        // inner's signature: @borrow param of str → str
+        let mut sigs = FxHashMap::default();
+        sigs.insert(
+            inner_name,
+            AnnotatedSig {
+                params: vec![AnnotatedParam {
+                    name: Name::from_raw(100),
+                    ty: Idx::STR,
+                    ownership: crate::ownership::Ownership::Borrowed,
+                }],
+                return_type: Idx::STR,
+            },
+        );
+
+        let func = make_func(
+            vec![borrowed_param(0, Idx::STR)],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    // v1 = project v0.0 (str) — BorrowedFrom(v0)
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    // v2 = partial_apply(inner, v1) — capture v1
+                    ArcInstr::PartialApply {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        func: inner_name,
+                        args: vec![v(1)],
+                    },
+                    // v3 = apply(v2) — consume closure immediately
+                    ArcInstr::ApplyIndirect {
+                        dst: v(3),
+                        ty: Idx::STR,
+                        closure: v(2),
+                        args: vec![],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(3) },
+            }],
+            vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        );
+
+        let result = run_rc_insert_enhanced_with_sigs(func, &sigs);
+
+        // v1 is BorrowedFrom(v0), captured at a Borrowed callee position,
+        // and the closure doesn't escape → no Inc needed.
+        assert_eq!(
+            count_inc(&result, 0, v(1)),
+            0,
+            "borrowed capture at Borrowed position should skip Inc"
+        );
+    }
+
+    /// Closure capturing borrowed-derived var at an Owned callee position:
+    /// the Inc is required (callee will consume the value).
+    #[test]
+    fn closure_owned_capture_gets_inc() {
+        use crate::ownership::{AnnotatedParam, AnnotatedSig};
+
+        let inner_name = Name::from_raw(42);
+
+        // inner's signature: owned param of str → str
+        let mut sigs = FxHashMap::default();
+        sigs.insert(
+            inner_name,
+            AnnotatedSig {
+                params: vec![AnnotatedParam {
+                    name: Name::from_raw(100),
+                    ty: Idx::STR,
+                    ownership: crate::ownership::Ownership::Owned,
+                }],
+                return_type: Idx::STR,
+            },
+        );
+
+        let func = make_func(
+            vec![borrowed_param(0, Idx::STR)],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    ArcInstr::PartialApply {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        func: inner_name,
+                        args: vec![v(1)],
+                    },
+                    ArcInstr::ApplyIndirect {
+                        dst: v(3),
+                        ty: Idx::STR,
+                        closure: v(2),
+                        args: vec![],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(3) },
+            }],
+            vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        );
+
+        let result = run_rc_insert_enhanced_with_sigs(func, &sigs);
+
+        // v1 captured at Owned position → Inc required.
+        assert_eq!(
+            count_inc(&result, 0, v(1)),
+            1,
+            "borrowed capture at Owned position needs Inc"
+        );
+    }
+
+    /// Escaping closure: even if callee param is Borrowed, the closure
+    /// escapes the block (used in a later block), so Inc is required.
+    #[test]
+    fn closure_escaping_borrowed_still_inc() {
+        use crate::ownership::{AnnotatedParam, AnnotatedSig};
+
+        let inner_name = Name::from_raw(42);
+
+        let mut sigs = FxHashMap::default();
+        sigs.insert(
+            inner_name,
+            AnnotatedSig {
+                params: vec![AnnotatedParam {
+                    name: Name::from_raw(100),
+                    ty: Idx::STR,
+                    ownership: crate::ownership::Ownership::Borrowed,
+                }],
+                return_type: Idx::STR,
+            },
+        );
+
+        // b0: project v1 from v0, partial_apply → v2, jump to b1
+        // b1: apply_indirect(v2) → closure escapes b0
+        let func = make_func(
+            vec![borrowed_param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![
+                        ArcInstr::Project {
+                            dst: v(1),
+                            ty: Idx::STR,
+                            value: v(0),
+                            field: 0,
+                        },
+                        ArcInstr::PartialApply {
+                            dst: v(2),
+                            ty: Idx::STR,
+                            func: inner_name,
+                            args: vec![v(1)],
+                        },
+                    ],
+                    terminator: ArcTerminator::Jump {
+                        target: b(1),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![ArcInstr::ApplyIndirect {
+                        dst: v(3),
+                        ty: Idx::STR,
+                        closure: v(2),
+                        args: vec![],
+                    }],
+                    terminator: ArcTerminator::Return { value: v(3) },
+                },
+            ],
+            vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+        );
+
+        let result = run_rc_insert_enhanced_with_sigs(func, &sigs);
+
+        // v2 (closure) is live_out of b0 → escapes → must Inc v1.
+        assert_eq!(
+            count_inc(&result, 0, v(1)),
+            1,
+            "escaping closure must Inc borrowed capture even at Borrowed position"
+        );
     }
 }

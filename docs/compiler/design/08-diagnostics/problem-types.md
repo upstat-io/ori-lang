@@ -104,9 +104,43 @@ pub enum SemanticProblem {
         kind: DefinitionKind,
         first_span: Span,
     },
+    NonExhaustiveMatch {
+        span: Span,
+        missing_patterns: Vec<String>,
+    },
+    RedundantPattern {
+        span: Span,
+        covered_by_span: Span,
+    },
     // ...
 }
 ```
+
+### Pattern Problems
+
+Pattern problems originate from the `PatternProblem` type in `ori_ir::canon` (produced by `ori_canon::exhaustiveness`). The `check` command converts them to `SemanticProblem` variants for unified diagnostic emission:
+
+| PatternProblem | SemanticProblem | Severity |
+|---------------|-----------------|----------|
+| `NonExhaustive { match_span, missing }` | `NonExhaustiveMatch { span, missing_patterns }` | Error |
+| `RedundantArm { arm_span, match_span, arm_index }` | `RedundantPattern { span, covered_by_span }` | Error |
+
+Example diagnostics:
+
+```
+error: non-exhaustive match
+ --> main.ori:5:1
+  |
+5 | match b {
+  | ^^^^^ missing: false
+```
+
+```
+error: redundant pattern
+ --> main.ori:8:5
+  |
+8 |     _ -> "other"
+  |     ^ this arm is unreachable
 ```
 
 ## Problem to Diagnostic Conversion

@@ -250,6 +250,8 @@ pub(crate) struct Lowerer<'a> {
     constants: ConstantPool,
     /// Compiled decision trees for match expressions.
     decision_trees: DecisionTreePool,
+    /// Pattern problems accumulated during exhaustiveness checking.
+    pub(crate) problems: Vec<ori_ir::canon::PatternProblem>,
 
     // Pre-interned method names for desugaring.
     // Accessed by: lower.rs, desugar.rs
@@ -287,6 +289,7 @@ impl<'a> Lowerer<'a> {
             arena,
             constants: ConstantPool::new(),
             decision_trees: DecisionTreePool::new(),
+            problems: Vec::new(),
             name_to_str: interner.intern("to_str"),
             name_concat: interner.intern("concat"),
             name_merge: interner.intern("merge"),
@@ -304,6 +307,7 @@ impl<'a> Lowerer<'a> {
             root,
             roots: Vec::new(),
             method_roots: Vec::new(),
+            problems: self.problems,
         }
     }
 
@@ -892,6 +896,21 @@ impl<'a> Lowerer<'a> {
             })
             .collect();
         let tree = crate::patterns::compile_patterns(self, &pattern_data, arms.start, scrutinee_ty);
+
+        // Exhaustiveness check: capture arm spans from the source arms (still
+        // accessible since src_arms borrows the read-only source arena).
+        let arm_spans: Vec<Span> = src_arms.iter().map(|arm| arm.span).collect();
+        let check = crate::exhaustiveness::check_exhaustiveness(
+            &tree,
+            src_arms.len(),
+            span,
+            &arm_spans,
+            scrutinee_ty,
+            self.pool,
+            self.interner,
+        );
+        self.problems.extend(check.problems);
+
         let dt_id = self.decision_trees.push(tree);
 
         // Lower arm bodies BEFORE building the expr list. lower_expr may
@@ -982,6 +1001,20 @@ impl<'a> Lowerer<'a> {
 
         // Compile the multi-column pattern matrix into a decision tree.
         let tree = crate::patterns::compile_multi_clause_patterns(&flat_rows, &guards);
+
+        // Exhaustiveness check: use clause spans as "arm" spans.
+        let clause_spans: Vec<Span> = clauses.iter().map(|c| c.span).collect();
+        let check = crate::exhaustiveness::check_exhaustiveness(
+            &tree,
+            clauses.len(),
+            span,
+            &clause_spans,
+            ori_types::Idx::UNIT,
+            self.pool,
+            self.interner,
+        );
+        self.problems.extend(check.problems);
+
         let dt_id = self.decision_trees.push(tree);
 
         // Lower each clause body.

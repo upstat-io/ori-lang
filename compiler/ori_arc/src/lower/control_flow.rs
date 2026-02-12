@@ -487,6 +487,7 @@ mod tests {
             root: block,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
 
         let mut problems = Vec::new();
@@ -543,6 +544,7 @@ mod tests {
             root: if_expr,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
 
         let mut problems = Vec::new();
@@ -596,6 +598,7 @@ mod tests {
             root: loop_expr,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
 
         let mut problems = Vec::new();

@@ -37,7 +37,9 @@
 use ori_types::Idx;
 use rustc_hash::FxHashSet;
 
-use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
+use crate::graph::DominatorTree;
+use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
+use crate::liveness::RefinedLiveness;
 use crate::ArcClassification;
 
 /// Detect and replace `RcDec`/`Construct` pairs with `Reset`/`Reuse`.
@@ -49,7 +51,7 @@ use crate::ArcClassification;
 ///
 /// * `func` — the ARC IR function to transform (mutated in place).
 /// * `classifier` — type classifier for `needs_rc()` checks.
-pub fn detect_reset_reuse(func: &mut ArcFunction, classifier: &dyn ArcClassification) {
+pub(crate) fn detect_reset_reuse(func: &mut ArcFunction, classifier: &dyn ArcClassification) {
     // Precondition: detection creates Reset/Reuse — none should exist yet.
     debug_assert!(
         !func
@@ -191,56 +193,186 @@ fn detect_in_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn Ar
     }
 }
 
+/// Cross-block reset/reuse detection using dominator tree and refined liveness.
+///
+/// Extends intra-block detection to find reuse opportunities across basic
+/// blocks. The canonical case is linked-list `map`:
+///
+/// ```text
+/// B0: RcDec(node)          ← unpaired after intra-block detection
+/// B1: ...                   ← dominated by B0
+/// B2: new = Construct(Node) ← allocation in dominated block
+/// ```
+///
+/// If `node` is only live-for-drop (not read as operand) in B1, then we can
+/// replace `RcDec(node)` → `Reset(node, token)` in B0 and `Construct` →
+/// `Reuse(token, ...)` in B2.
+///
+/// # Safety
+///
+/// This transformation is valid because:
+/// 1. B0 dominates B2 → the token is always available at B2
+/// 2. `node` is not live-for-use in any block between B0 and B2 → no aliasing
+/// 3. The types match → memory layout is compatible for reuse
+///
+/// # Arguments
+///
+/// * `func` — the ARC IR function (mutated in place).
+/// * `classifier` — type classifier for `needs_rc()` checks.
+/// * `dom_tree` — precomputed dominator tree.
+/// * `refined` — precomputed refined liveness per block.
+pub fn detect_reset_reuse_cfg(
+    func: &mut ArcFunction,
+    classifier: &dyn ArcClassification,
+    dom_tree: &DominatorTree,
+    refined: &[RefinedLiveness],
+) {
+    // Step 1: Run intra-block detection first (fast path).
+    detect_reset_reuse(func, classifier);
+
+    // Step 2: Collect unpaired RcDec instructions.
+    // After intra-block detection, remaining RcDec instructions are candidates
+    // for cross-block pairing.
+    let mut unpaired_decs: Vec<(usize, usize, ArcVarId, Idx)> = Vec::new();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            if let ArcInstr::RcDec { var } = instr {
+                let ty = func.var_type(*var);
+                if classifier.needs_rc(ty) {
+                    unpaired_decs.push((block_idx, instr_idx, *var, ty));
+                }
+            }
+        }
+    }
+
+    if unpaired_decs.is_empty() {
+        return;
+    }
+
+    tracing::debug!(
+        unpaired = unpaired_decs.len(),
+        "cross-block reset/reuse: scanning dominated blocks"
+    );
+
+    // Step 3: For each unpaired RcDec, walk dominated blocks to find a matching Construct.
+    let num_blocks = func.blocks.len();
+    let mut paired_constructs: FxHashSet<(usize, usize)> = FxHashSet::default();
+    let mut matches: Vec<CrossBlockMatch> = Vec::new();
+
+    for &(dec_block_idx, dec_instr_idx, dec_var, dec_ty) in &unpaired_decs {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "ARC IR block counts fit in u32"
+        )]
+        let dec_block_id = ArcBlockId::new(dec_block_idx as u32);
+        let dominated = dom_tree.dominated_preorder(dec_block_id, num_blocks);
+
+        let mut found = false;
+        for &target_block_id in &dominated {
+            let target_idx = target_block_id.index();
+
+            // Skip the dec's own block (intra-block already handled).
+            if target_idx == dec_block_idx {
+                continue;
+            }
+
+            // Check aliasing: if dec_var is live-for-use in this block,
+            // it might be read, so we can't safely reset it.
+            if target_idx < refined.len() && refined[target_idx].live_for_use.contains(&dec_var) {
+                // Variable is read in this subtree — cannot pair.
+                break;
+            }
+
+            // Scan block for an unpaired Construct of matching type.
+            let target_body = &func.blocks[target_idx].body;
+            for (ci, instr) in target_body.iter().enumerate() {
+                if paired_constructs.contains(&(target_idx, ci)) {
+                    continue;
+                }
+                if let ArcInstr::Construct { ty, .. } = instr {
+                    if *ty == dec_ty && !instr.uses_var(dec_var) {
+                        matches.push(CrossBlockMatch {
+                            dec_block: dec_block_idx,
+                            dec_instr: dec_instr_idx,
+                            dec_var,
+                            construct_block: target_idx,
+                            construct_instr: ci,
+                        });
+                        paired_constructs.insert((target_idx, ci));
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            if found {
+                break;
+            }
+        }
+    }
+
+    if matches.is_empty() {
+        return;
+    }
+
+    tracing::debug!(
+        cross_block_pairs = matches.len(),
+        "cross-block reset/reuse: applying transformations"
+    );
+
+    // Step 4: Apply cross-block replacements.
+    for m in matches {
+        let token = func.fresh_var(func.var_type(m.dec_var));
+
+        // Extract Construct details.
+        let (dst, ty, ctor, args) = match &func.blocks[m.construct_block].body[m.construct_instr] {
+            ArcInstr::Construct {
+                dst,
+                ty,
+                ctor,
+                args,
+            } => (*dst, *ty, *ctor, args.clone()),
+            _ => unreachable!("paired construct must be a Construct"),
+        };
+
+        // Replace RcDec → Reset in the dec's block.
+        func.blocks[m.dec_block].body[m.dec_instr] = ArcInstr::Reset {
+            var: m.dec_var,
+            token,
+        };
+
+        // Replace Construct → Reuse in the target block.
+        func.blocks[m.construct_block].body[m.construct_instr] = ArcInstr::Reuse {
+            token,
+            dst,
+            ty,
+            ctor,
+            args,
+        };
+    }
+}
+
+/// A matched cross-block RcDec/Construct pair.
+struct CrossBlockMatch {
+    dec_block: usize,
+    dec_instr: usize,
+    dec_var: ArcVarId,
+    construct_block: usize,
+    construct_instr: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use ori_ir::Name;
     use ori_types::{Idx, Pool};
 
-    use crate::ir::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
-        CtorKind, LitValue,
-    };
-    use crate::ownership::Ownership;
+    use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
+    use crate::test_helpers::{b, make_func, owned_param, v};
     use crate::ArcClassifier;
 
     use super::detect_reset_reuse;
 
     // Helpers
-
-    fn make_func(
-        params: Vec<ArcParam>,
-        return_type: Idx,
-        blocks: Vec<ArcBlock>,
-        var_types: Vec<Idx>,
-    ) -> ArcFunction {
-        let span_vecs: Vec<Vec<Option<ori_ir::Span>>> =
-            blocks.iter().map(|b| vec![None; b.body.len()]).collect();
-        ArcFunction {
-            name: Name::from_raw(1),
-            params,
-            return_type,
-            blocks,
-            entry: ArcBlockId::new(0),
-            var_types,
-            spans: span_vecs,
-        }
-    }
-
-    fn owned_param(var: u32, ty: Idx) -> ArcParam {
-        ArcParam {
-            var: ArcVarId::new(var),
-            ty,
-            ownership: Ownership::Owned,
-        }
-    }
-
-    fn v(n: u32) -> ArcVarId {
-        ArcVarId::new(n)
-    }
-
-    fn b(n: u32) -> ArcBlockId {
-        ArcBlockId::new(n)
-    }
 
     fn run_detect(mut func: ArcFunction) -> ArcFunction {
         let pool = Pool::new();
@@ -568,5 +700,200 @@ mod tests {
             }
             other => panic!("expected Reset, got {other:?}"),
         }
+    }
+
+    // ── Cross-block reset/reuse tests ──────────────────────────
+
+    use crate::graph::DominatorTree;
+    use crate::liveness::compute_refined_liveness;
+
+    use super::detect_reset_reuse_cfg;
+
+    fn run_detect_cfg(mut func: ArcFunction) -> ArcFunction {
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let dom = DominatorTree::build(&func);
+        let (refined, _) = compute_refined_liveness(&func, &classifier);
+        detect_reset_reuse_cfg(&mut func, &classifier, &dom, &refined);
+        func
+    }
+
+    /// Cross-block: `RcDec` in entry, Construct in dominated block.
+    /// The canonical linked-list `map` pattern.
+    #[test]
+    fn cross_block_basic() {
+        // Block 0:
+        //   v1 = apply f(v0)     -- transforms element
+        //   RcDec(v0)            -- decrement original node
+        //   jump b1
+        // Block 1 (dominated by b0):
+        //   v2 = Construct(Struct, [v1])  -- allocate new node
+        //   return v2
+        //
+        // After cross-block detection:
+        //   Block 0: Reset(v0, token), jump b1
+        //   Block 1: Reuse(token, ...), return v2
+        let func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![
+                        ArcInstr::Apply {
+                            dst: v(1),
+                            ty: Idx::STR,
+                            func: Name::from_raw(99),
+                            args: vec![v(0)],
+                        },
+                        ArcInstr::RcDec { var: v(0) },
+                    ],
+                    terminator: ArcTerminator::Jump {
+                        target: b(1),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![ArcInstr::Construct {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Struct(Name::from_raw(10)),
+                        args: vec![v(1)],
+                    }],
+                    terminator: ArcTerminator::Return { value: v(2) },
+                },
+            ],
+            vec![Idx::STR, Idx::STR, Idx::STR],
+        );
+
+        let result = run_detect_cfg(func);
+
+        // Block 0: RcDec should be replaced with Reset.
+        let has_reset = result.blocks[0]
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::Reset { .. }));
+        assert!(
+            has_reset,
+            "block 0 should have Reset after cross-block detection"
+        );
+
+        // Block 1: Construct should be replaced with Reuse.
+        let has_reuse = result.blocks[1]
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::Reuse { .. }));
+        assert!(
+            has_reuse,
+            "block 1 should have Reuse after cross-block detection"
+        );
+
+        // No RcDec should remain (it was replaced by Reset).
+        let has_rc_dec = result.blocks[0]
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::RcDec { .. }));
+        assert!(!has_rc_dec, "block 0 should not have RcDec after pairing");
+    }
+
+    /// Cross-block: aliasing prevents pairing (var is live-for-use in target).
+    #[test]
+    fn cross_block_aliasing_prevents() {
+        // Block 0:
+        //   RcDec(v0)
+        //   jump b1
+        // Block 1:
+        //   v1 = apply f(v0)     -- v0 is read here → live-for-use
+        //   v2 = Construct(Struct, [v1])
+        //   return v2
+        //
+        // v0 is used in b1 → cannot reset in b0.
+        let func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![ArcInstr::RcDec { var: v(0) }],
+                    terminator: ArcTerminator::Jump {
+                        target: b(1),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![
+                        ArcInstr::Apply {
+                            dst: v(1),
+                            ty: Idx::STR,
+                            func: Name::from_raw(99),
+                            args: vec![v(0)],
+                        },
+                        ArcInstr::Construct {
+                            dst: v(2),
+                            ty: Idx::STR,
+                            ctor: CtorKind::Struct(Name::from_raw(10)),
+                            args: vec![v(1)],
+                        },
+                    ],
+                    terminator: ArcTerminator::Return { value: v(2) },
+                },
+            ],
+            vec![Idx::STR, Idx::STR, Idx::STR],
+        );
+
+        let result = run_detect_cfg(func);
+
+        // Pairing should NOT happen — v0 is used in b1.
+        let has_reset = result
+            .blocks
+            .iter()
+            .flat_map(|bl| bl.body.iter())
+            .any(|i| matches!(i, ArcInstr::Reset { .. }));
+        assert!(!has_reset, "should not pair when aliasing exists");
+    }
+
+    /// Cross-block: all existing intra-block tests still pass after cfg detection.
+    #[test]
+    fn cross_block_preserves_intra_block() {
+        // Exact same setup as basic_pair test — intra-block pair should still work.
+        let func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::RcDec { var: v(0) },
+                    ArcInstr::Construct {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Struct(Name::from_raw(10)),
+                        args: vec![],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(1) },
+            }],
+            vec![Idx::STR, Idx::STR],
+        );
+
+        let result = run_detect_cfg(func);
+
+        // Should pair intra-block.
+        let has_reset = result.blocks[0]
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::Reset { .. }));
+        let has_reuse = result.blocks[0]
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::Reuse { .. }));
+        assert!(has_reset, "intra-block Reset should still be detected");
+        assert!(has_reuse, "intra-block Reuse should still be detected");
     }
 }

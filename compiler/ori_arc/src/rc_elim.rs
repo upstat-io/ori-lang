@@ -102,7 +102,7 @@ struct EliminationCandidate {
 /// # Arguments
 ///
 /// * `func` — the ARC IR function to optimize (mutated in place).
-pub fn eliminate_rc_ops(func: &mut ArcFunction) -> usize {
+pub(crate) fn eliminate_rc_ops(func: &mut ArcFunction) -> usize {
     let mut total = 0;
 
     loop {
@@ -284,7 +284,22 @@ fn apply_eliminations(func: &mut ArcFunction, candidates: &[EliminationCandidate
         set.insert(c.dec_pos);
     }
 
-    for (&block_idx, remove_set) in &removals {
+    remove_instructions_by_index(func, &removals);
+
+    candidates.len()
+}
+
+/// Remove instructions at specified indices from each block.
+///
+/// Takes a map from block index → set of instruction indices to remove.
+/// Both body instructions and their corresponding spans are filtered out.
+/// Spans may be shorter than the body (from prior passes); missing span
+/// entries are treated as `None`.
+fn remove_instructions_by_index(
+    func: &mut ArcFunction,
+    removals: &FxHashMap<usize, FxHashSet<usize>>,
+) {
+    for (&block_idx, remove_set) in removals {
         let block = &mut func.blocks[block_idx];
         let spans = &mut func.spans[block_idx];
 
@@ -306,8 +321,6 @@ fn apply_eliminations(func: &mut ArcFunction, candidates: &[EliminationCandidate
         block.body = new_body;
         *spans = new_spans;
     }
-
-    candidates.len()
 }
 
 // Cross-block edge-pair elimination
@@ -404,27 +417,7 @@ fn eliminate_cross_block_pairs(func: &mut ArcFunction) -> usize {
         by_block.entry(*blk).or_default().insert(*pos);
     }
 
-    for (&block_idx, remove_set) in &by_block {
-        let block = &mut func.blocks[block_idx];
-        let spans = &mut func.spans[block_idx];
-
-        let old_body = std::mem::take(&mut block.body);
-        let old_spans = std::mem::take(spans);
-
-        let retained = old_body.len() - remove_set.len();
-        let mut new_body = Vec::with_capacity(retained);
-        let mut new_spans = Vec::with_capacity(retained);
-
-        for (i, instr) in old_body.into_iter().enumerate() {
-            if !remove_set.contains(&i) {
-                new_body.push(instr);
-                new_spans.push(old_spans.get(i).copied().flatten());
-            }
-        }
-
-        block.body = new_body;
-        *spans = new_spans;
-    }
+    remove_instructions_by_index(func, &by_block);
 
     let pairs = removals.len() / 2;
     if pairs > 0 {
@@ -438,6 +431,200 @@ fn eliminate_cross_block_pairs(func: &mut ArcFunction) -> usize {
     pairs
 }
 
+// Full-CFG dataflow RC elimination
+
+/// Enhanced RC elimination using `DerivedOwnership` information.
+///
+/// Extends the existing elimination with ownership-aware analysis:
+///
+/// 1. **Borrowed variable elimination**: If a variable is `BorrowedFrom(x)`,
+///    any `RcInc`/`RcDec` on it is unnecessary as long as `x` is alive.
+///    This captures the common pattern of projecting a field and immediately
+///    incrementing it for a call.
+///
+/// 2. **Fresh variable optimization**: If a variable is `Fresh` (refcount = 1),
+///    the first `RcDec` is guaranteed to deallocate. This information doesn't
+///    eliminate pairs directly, but allows subsequent passes (reset/reuse) to
+///    be more aggressive.
+///
+/// 3. **Multi-predecessor join elimination**: Forward propagation of available
+///    `RcInc` operations using intersection at join points. An `RcInc(x)` is
+///    available at block B only if it's available on ALL incoming edges.
+///
+/// Returns the total number of pairs eliminated (in addition to the base
+/// `eliminate_rc_ops` count).
+///
+/// # Arguments
+///
+/// * `func` — the ARC IR function to optimize (mutated in place).
+/// * `ownership` — per-variable derived ownership from `infer_derived_ownership`.
+pub fn eliminate_rc_ops_dataflow(
+    func: &mut ArcFunction,
+    ownership: &[crate::ownership::DerivedOwnership],
+) -> usize {
+    // Phase 1: Run existing elimination (intra-block + single-predecessor cross-block).
+    let base = eliminate_rc_ops(func);
+
+    // Phase 2: Ownership-aware elimination.
+    // Remove RcInc/RcDec on variables that are BorrowedFrom a still-live source.
+    let mut ownership_eliminated = 0;
+    let mut removals: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            let var = match instr {
+                ArcInstr::RcInc { var, count: 1 } | ArcInstr::RcDec { var } => *var,
+                _ => continue,
+            };
+
+            let var_idx = var.index();
+            if var_idx >= ownership.len() {
+                continue;
+            }
+
+            if let crate::ownership::DerivedOwnership::BorrowedFrom(source) = ownership[var_idx] {
+                // Check if the source is still alive in this block.
+                // Conservative check: the source must not have been decremented
+                // earlier in this same block.
+                let source_decremented = block.body[..instr_idx]
+                    .iter()
+                    .any(|i| matches!(i, ArcInstr::RcDec { var: v } if *v == source));
+
+                if !source_decremented {
+                    removals.entry(block_idx).or_default().insert(instr_idx);
+                    ownership_eliminated += 1;
+                }
+            }
+        }
+    }
+
+    // Apply ownership-based removals.
+    if !removals.is_empty() {
+        remove_instructions_by_index(func, &removals);
+
+        tracing::debug!(
+            function = func.name.raw(),
+            ownership_pairs = ownership_eliminated,
+            "eliminated ownership-redundant RC ops",
+        );
+    }
+
+    // Phase 3: Multi-predecessor join elimination.
+    // Forward dataflow: track which variables have an available RcInc.
+    // At join points, intersect available sets from all predecessors.
+    let join_eliminated = eliminate_join_pairs(func);
+
+    base + ownership_eliminated + join_eliminated
+}
+
+/// Eliminate RcInc/RcDec pairs across multi-predecessor joins.
+///
+/// Uses forward dataflow to propagate "available `RcInc`" sets. An `RcInc(x)`
+/// is available at block B's entry if it's available on ALL incoming edges
+/// (intersection/meet at joins). If we find an `RcDec(x)` at B's entry and
+/// `RcInc(x)` is available from all predecessors, we can eliminate both.
+fn eliminate_join_pairs(func: &mut ArcFunction) -> usize {
+    let preds = compute_predecessors(func);
+    let num_blocks = func.blocks.len();
+
+    // Compute available_out: set of variables with trailing RcInc at block exit.
+    // A variable has an "available" RcInc at block exit if the last RC op on it
+    // in the block is RcInc and the terminator doesn't use it.
+    let mut available_out: Vec<FxHashSet<ArcVarId>> = vec![FxHashSet::default(); num_blocks];
+
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let term_uses: FxHashSet<ArcVarId> = block.terminator.used_vars().into_iter().collect();
+        let mut trailing: FxHashSet<ArcVarId> = FxHashSet::default();
+
+        for instr in block.body.iter().rev() {
+            match instr {
+                ArcInstr::RcInc { var, count: 1 } if !term_uses.contains(var) => {
+                    trailing.insert(*var);
+                }
+                ArcInstr::RcDec { var } => {
+                    trailing.remove(var);
+                }
+                other => {
+                    // Any use invalidates availability.
+                    for used in other.used_vars() {
+                        trailing.remove(&used);
+                    }
+                }
+            }
+        }
+
+        available_out[block_idx] = trailing;
+    }
+
+    // At each block with multiple predecessors, intersect available_out.
+    let mut removals: Vec<(usize, usize)> = Vec::new();
+
+    for (block_idx, block_preds) in preds.iter().enumerate() {
+        if block_preds.len() < 2 {
+            continue;
+        }
+
+        // Intersect available_out from all predecessors.
+        let mut available_at_entry: Option<FxHashSet<ArcVarId>> = None;
+        for &pred_idx in block_preds {
+            match &mut available_at_entry {
+                None => available_at_entry = Some(available_out[pred_idx].clone()),
+                Some(set) => {
+                    set.retain(|v| available_out[pred_idx].contains(v));
+                }
+            }
+        }
+
+        let available = match available_at_entry {
+            Some(a) if !a.is_empty() => a,
+            _ => continue,
+        };
+
+        // Check leading RcDec instructions in this block.
+        let body = &func.blocks[block_idx].body;
+        for (j, instr) in body.iter().enumerate() {
+            if let ArcInstr::RcDec { var } = instr {
+                if available.contains(var) {
+                    // Remove the RcDec here and the trailing RcInc in each predecessor.
+                    removals.push((block_idx, j));
+                    for &pred_idx in block_preds {
+                        // Find and mark the trailing RcInc for this var.
+                        let pred_body = &func.blocks[pred_idx].body;
+                        for (pi, pinstr) in pred_body.iter().enumerate().rev() {
+                            if matches!(pinstr, ArcInstr::RcInc { var: v, count: 1 } if *v == *var)
+                            {
+                                removals.push((pred_idx, pi));
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                break; // Stop at first non-Dec instruction.
+            }
+        }
+    }
+
+    if removals.is_empty() {
+        return 0;
+    }
+
+    // Apply removals.
+    let mut by_block: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    for (blk, pos) in &removals {
+        by_block.entry(*blk).or_default().insert(*pos);
+    }
+
+    remove_instructions_by_index(func, &by_block);
+
+    let pairs = removals.len() / 3; // Each join elimination removes 1 Dec + N Incs
+    if pairs > 0 {
+        tracing::debug!(pairs, "eliminated join-point RC pairs");
+    }
+
+    pairs
+}
+
 // Tests
 
 #[cfg(test)]
@@ -445,77 +632,14 @@ mod tests {
     use ori_ir::Name;
     use ori_types::Idx;
 
-    use crate::ir::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
-        CtorKind, LitValue,
+    use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
+    use crate::test_helpers::{
+        b, count_block_rc_ops as count_rc_ops, count_dec, count_inc, make_func, owned_param, v,
     };
-    use crate::ownership::Ownership;
 
     use super::eliminate_rc_ops;
 
     // Helpers
-
-    fn make_func(
-        params: Vec<ArcParam>,
-        return_type: Idx,
-        blocks: Vec<ArcBlock>,
-        var_types: Vec<Idx>,
-    ) -> ArcFunction {
-        let span_vecs: Vec<Vec<Option<ori_ir::Span>>> =
-            blocks.iter().map(|b| vec![None; b.body.len()]).collect();
-        ArcFunction {
-            name: Name::from_raw(1),
-            params,
-            return_type,
-            blocks,
-            entry: ArcBlockId::new(0),
-            var_types,
-            spans: span_vecs,
-        }
-    }
-
-    fn owned_param(var: u32, ty: Idx) -> ArcParam {
-        ArcParam {
-            var: ArcVarId::new(var),
-            ty,
-            ownership: Ownership::Owned,
-        }
-    }
-
-    fn v(n: u32) -> ArcVarId {
-        ArcVarId::new(n)
-    }
-
-    fn b(n: u32) -> ArcBlockId {
-        ArcBlockId::new(n)
-    }
-
-    /// Count `RcInc` for a specific var in a block.
-    fn count_inc(func: &ArcFunction, block_idx: usize, var: ArcVarId) -> usize {
-        func.blocks[block_idx]
-            .body
-            .iter()
-            .filter(|i| matches!(i, ArcInstr::RcInc { var: v, .. } if *v == var))
-            .count()
-    }
-
-    /// Count `RcDec` for a specific var in a block.
-    fn count_dec(func: &ArcFunction, block_idx: usize, var: ArcVarId) -> usize {
-        func.blocks[block_idx]
-            .body
-            .iter()
-            .filter(|i| matches!(i, ArcInstr::RcDec { var: v } if *v == var))
-            .count()
-    }
-
-    /// Count total RC ops (Inc + Dec) in a block.
-    fn count_rc_ops(func: &ArcFunction, block_idx: usize) -> usize {
-        func.blocks[block_idx]
-            .body
-            .iter()
-            .filter(|i| matches!(i, ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. }))
-            .count()
-    }
 
     /// Total instruction count in a block (including RC ops).
     fn body_len(func: &ArcFunction, block_idx: usize) -> usize {
@@ -1684,5 +1808,151 @@ mod tests {
         // Dec→Inc in same block is NOT safe (Dec might free).
         // Self-loop cross-block is skipped.
         assert_eq!(eliminated, 0);
+    }
+
+    // ── Dataflow-enhanced elimination tests ──────────────────────
+
+    use crate::ownership::DerivedOwnership;
+
+    use super::eliminate_rc_ops_dataflow;
+
+    /// `BorrowedFrom` variable: `RcInc`/`RcDec` are redundant while source is alive.
+    #[test]
+    fn dataflow_borrowed_eliminates_inc() {
+        // Block 0:
+        //   v1 = project(v0, 0)   -- BorrowedFrom(v0)
+        //   RcInc(v1)             -- redundant: v0 is alive
+        //   apply f(v1)
+        //   RcDec(v1)             -- redundant: v0 is alive
+        //   return v0
+        let mut func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    ArcInstr::RcInc {
+                        var: v(1),
+                        count: 1,
+                    },
+                    ArcInstr::Apply {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![v(1)],
+                    },
+                    ArcInstr::RcDec { var: v(1) },
+                ],
+                terminator: ArcTerminator::Return { value: v(0) },
+            }],
+            vec![Idx::STR, Idx::STR, Idx::STR],
+        );
+
+        // v0: Owned, v1: BorrowedFrom(v0), v2: Owned
+        let ownership = vec![
+            DerivedOwnership::Owned,
+            DerivedOwnership::BorrowedFrom(v(0)),
+            DerivedOwnership::Owned,
+        ];
+
+        let eliminated = eliminate_rc_ops_dataflow(&mut func, &ownership);
+        assert!(eliminated > 0, "should eliminate borrowed RC ops");
+
+        // v1's RcInc and RcDec should both be gone.
+        let inc_count = count_inc(&func, 0, v(1));
+        let dec_count = count_dec(&func, 0, v(1));
+        assert_eq!(inc_count, 0, "RcInc(v1) should be eliminated");
+        assert_eq!(dec_count, 0, "RcDec(v1) should be eliminated");
+    }
+
+    /// Diamond pattern: `RcInc` in both branches, `RcDec` at merge.
+    #[test]
+    fn dataflow_diamond_join() {
+        // Block 0: branch on v1
+        // Block 1: RcInc(v0); jump b3
+        // Block 2: RcInc(v0); jump b3
+        // Block 3: RcDec(v0); return v0
+        //
+        // Both branches Inc v0, and the merge Dec's v0 → eliminate.
+        let mut func = make_func(
+            vec![owned_param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(LitValue::Bool(true)),
+                    }],
+                    terminator: ArcTerminator::Branch {
+                        cond: v(1),
+                        then_block: b(1),
+                        else_block: b(2),
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![ArcInstr::RcInc {
+                        var: v(0),
+                        count: 1,
+                    }],
+                    terminator: ArcTerminator::Jump {
+                        target: b(3),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![ArcInstr::RcInc {
+                        var: v(0),
+                        count: 1,
+                    }],
+                    terminator: ArcTerminator::Jump {
+                        target: b(3),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(3),
+                    params: vec![],
+                    body: vec![ArcInstr::RcDec { var: v(0) }],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+            ],
+            vec![Idx::STR, Idx::BOOL],
+        );
+
+        let ownership = vec![DerivedOwnership::Owned, DerivedOwnership::Owned];
+
+        let eliminated = eliminate_rc_ops_dataflow(&mut func, &ownership);
+        assert!(eliminated > 0, "should eliminate diamond join pattern");
+
+        // The RcDec at block 3 and RcInc in blocks 1+2 should be eliminated.
+        assert_eq!(
+            count_inc(&func, 1, v(0)),
+            0,
+            "b1 RcInc should be eliminated"
+        );
+        assert_eq!(
+            count_inc(&func, 2, v(0)),
+            0,
+            "b2 RcInc should be eliminated"
+        );
+        assert_eq!(
+            count_dec(&func, 3, v(0)),
+            0,
+            "b3 RcDec should be eliminated"
+        );
     }
 }

@@ -32,7 +32,26 @@ pub fn eval_expr(source: &str) -> EvalResult {
 
 /// Evaluate a full source file with a main function.
 ///
-/// Goes through the full pipeline: lex → parse → typecheck → canonicalize → eval.
+/// Goes through a standalone pipeline: lex → parse → typecheck → canonicalize → eval.
+///
+/// # Intentional Differences from Production Pipeline
+///
+/// This function deliberately does NOT use the Salsa query pipeline (`evaluated()`).
+/// The differences are intentional for test isolation:
+///
+/// - **No prelude loading**: Tests are self-contained; prelude functions aren't
+///   available unless explicitly defined in the test source.
+/// - **No import resolution**: `use` statements are not resolved. Tests that need
+///   imports should use the Salsa-based test runner instead.
+/// - **No `PoolCache`/`CanonCache`**: Results are not cached in session-scoped caches.
+///   Each call is fully independent.
+/// - **Pattern errors as eval errors**: Exhaustiveness/redundancy problems from
+///   canonicalization are reported as eval errors rather than diagnostics.
+///
+/// If the production pipeline gains new validation passes between type checking
+/// and evaluation, they must be explicitly added here or tests will diverge.
+/// Consider using `evaluated()` via `CompilerDb` for tests that need full pipeline
+/// fidelity, and this function only for unit-level expression evaluation tests.
 pub fn eval_source(source: &str) -> EvalResult {
     let db = CompilerDb::new();
     let interner = db.interner();
@@ -43,13 +62,12 @@ pub fn eval_source(source: &str) -> EvalResult {
         return Err(EvalError::new(format!("parse errors: {:?}", parsed.errors)).into());
     }
 
-    // Type check
-    let (type_result, pool) = ori_types::check_module_with_imports(
-        &parsed.module,
-        &parsed.arena,
-        interner,
-        |_checker| {},
-    );
+    // Type check — register builtins so type conversions (int, float, str),
+    // print, and ordering values are available, matching the production pipeline.
+    let (type_result, pool) =
+        ori_types::check_module_with_imports(&parsed.module, &parsed.arena, interner, |checker| {
+            crate::typeck::register_builtins(interner, checker);
+        });
 
     if type_result.has_errors() {
         return Err(EvalError::new(format!("type errors: {:?}", type_result.errors())).into());
@@ -58,6 +76,23 @@ pub fn eval_source(source: &str) -> EvalResult {
     // Canonicalize
     let canon_result =
         ori_canon::lower_module(&parsed.module, &parsed.arena, &type_result, &pool, interner);
+
+    // Surface pattern exhaustiveness errors as eval failures.
+    if let Some(problem) = canon_result.problems.first() {
+        let msg = match problem {
+            ori_ir::canon::PatternProblem::NonExhaustive { missing, .. } => {
+                format!(
+                    "non-exhaustive match: missing patterns: {}",
+                    missing.join(", ")
+                )
+            }
+            ori_ir::canon::PatternProblem::RedundantArm { arm_index, .. } => {
+                format!("redundant pattern: arm {arm_index} is unreachable")
+            }
+        };
+        return Err(EvalError::new(msg).into());
+    }
+
     let shared_canon = ori_ir::canon::SharedCanonResult::new(canon_result);
 
     // Create evaluator with canonical IR
@@ -96,12 +131,10 @@ pub fn type_check_source(source: &str) -> (ParseOutput, TypeCheckResult, SharedI
     let interner = SharedInterner::default();
     let tokens = ori_lexer::lex(source, &interner);
     let parsed = parser::parse(&tokens, &interner);
-    let (result, _pool) = ori_types::check_module_with_imports(
-        &parsed.module,
-        &parsed.arena,
-        &interner,
-        |_checker| {},
-    );
+    let (result, _pool) =
+        ori_types::check_module_with_imports(&parsed.module, &parsed.arena, &interner, |checker| {
+            crate::typeck::register_builtins(&interner, checker);
+        });
     (parsed, result, interner)
 }
 

@@ -12,8 +12,11 @@
 //!   (borrow inference, RC insertion, RC elimination, constructor reuse)
 //!   operate on.
 //!
-//! - **Ownership annotations** ([`Ownership`], [`AnnotatedParam`], [`AnnotatedSig`]) —
+//! - **Ownership annotations** ([`Ownership`], [`DerivedOwnership`],
+//!   [`AnnotatedParam`], [`AnnotatedSig`]) —
 //!   borrow inference output that drives RC insertion decisions.
+//!   [`DerivedOwnership`] extends ownership tracking to all local variables,
+//!   not just function parameters.
 //!
 //! # Design
 //!
@@ -37,6 +40,7 @@ mod classify;
 pub mod decision_tree;
 pub mod drop;
 pub mod expand_reuse;
+pub mod fbip;
 mod graph;
 pub mod ir;
 pub mod liveness;
@@ -46,9 +50,14 @@ pub mod rc_elim;
 pub mod rc_insert;
 pub mod reset_reuse;
 
-use ori_types::Idx;
+#[cfg(test)]
+pub(crate) mod test_helpers;
 
-pub use borrow::{apply_borrows, infer_borrows};
+use ori_ir::Name;
+use ori_types::Idx;
+use rustc_hash::FxHashMap;
+
+pub use borrow::{apply_borrows, infer_borrows, infer_derived_ownership};
 pub use classify::ArcClassifier;
 pub use decision_tree::{
     DecisionTree, FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestKind,
@@ -58,16 +67,63 @@ pub use drop::{
     collect_drop_infos, compute_closure_env_drop, compute_drop_info, DropInfo, DropKind,
 };
 pub use expand_reuse::expand_reset_reuse;
+pub use graph::DominatorTree;
 pub use ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
     CtorKind, LitValue, PrimOp,
 };
-pub use liveness::{compute_liveness, BlockLiveness, LiveSet};
+pub use liveness::{
+    compute_liveness, compute_refined_liveness, BlockLiveness, LiveSet, RefinedLiveness,
+};
 pub use lower::{lower_function_can, ArcProblem};
-pub use ownership::{AnnotatedParam, AnnotatedSig, Ownership};
-pub use rc_elim::eliminate_rc_ops;
-pub use rc_insert::insert_rc_ops;
-pub use reset_reuse::detect_reset_reuse;
+pub use ownership::{AnnotatedParam, AnnotatedSig, DerivedOwnership, Ownership};
+pub use rc_elim::eliminate_rc_ops_dataflow;
+pub use rc_insert::insert_rc_ops_with_ownership;
+pub use reset_reuse::detect_reset_reuse_cfg;
+
+/// Run the full ARC optimization pipeline on a single function.
+///
+/// Pipeline order: ownership inference → dominator tree → refined liveness
+/// (includes standard liveness) → RC insertion → reset/reuse detection →
+/// expansion → RC elimination.
+///
+/// This is the canonical pass ordering. All consumers should call this function
+/// instead of manually sequencing passes, which avoids duplicating ordering
+/// knowledge across crate boundaries.
+#[expect(clippy::implicit_hasher, reason = "callee functions require FxHashMap")]
+pub fn run_arc_pipeline(
+    func: &mut ArcFunction,
+    classifier: &dyn ArcClassification,
+    sigs: &FxHashMap<Name, AnnotatedSig>,
+) {
+    let ownership = borrow::infer_derived_ownership(func, sigs);
+    let dom_tree = graph::DominatorTree::build(func);
+    let (refined, liveness) = liveness::compute_refined_liveness(func, classifier);
+    rc_insert::insert_rc_ops_with_ownership(func, classifier, &liveness, &ownership, sigs);
+    reset_reuse::detect_reset_reuse_cfg(func, classifier, &dom_tree, &refined);
+    expand_reuse::expand_reset_reuse(func, classifier);
+    rc_elim::eliminate_rc_ops_dataflow(func, &ownership);
+}
+
+/// Run the full ARC pipeline on all functions, including borrow application.
+///
+/// This is the batch entry point for the entire ARC optimization pass:
+/// 1. Apply borrow inference results to function parameters
+/// 2. Run the per-function pipeline on each function
+///
+/// Consumers should call this instead of manually calling [`apply_borrows`]
+/// followed by a per-function loop over [`run_arc_pipeline`].
+#[expect(clippy::implicit_hasher, reason = "callee functions require FxHashMap")]
+pub fn run_arc_pipeline_all(
+    functions: &mut [ArcFunction],
+    classifier: &dyn ArcClassification,
+    sigs: &FxHashMap<Name, AnnotatedSig>,
+) {
+    borrow::apply_borrows(functions, sigs);
+    for func in functions {
+        run_arc_pipeline(func, classifier, sigs);
+    }
+}
 
 /// ARC classification for a type.
 ///
@@ -126,64 +182,24 @@ pub trait ArcClassification {
 
 #[cfg(test)]
 mod pipeline_tests {
-    use ori_ir::Name;
     use ori_types::{Idx, Pool};
 
-    use crate::ir::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, CtorKind,
-    };
+    use ori_ir::Name;
+
+    use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcParam, ArcTerminator, CtorKind};
     use crate::ownership::Ownership;
+    use crate::test_helpers::{b, count_rc_ops, make_func, v};
+    use rustc_hash::FxHashMap;
+
     use crate::{
-        compute_liveness, detect_reset_reuse, eliminate_rc_ops, expand_reset_reuse, insert_rc_ops,
-        ArcClassifier,
+        compute_liveness, compute_refined_liveness, expand_reset_reuse, ArcClassifier,
+        DominatorTree,
     };
 
-    fn v(n: u32) -> ArcVarId {
-        ArcVarId::new(n)
-    }
-
-    fn b(n: u32) -> ArcBlockId {
-        ArcBlockId::new(n)
-    }
-
-    fn make_func(
-        params: Vec<ArcParam>,
-        return_type: Idx,
-        blocks: Vec<ArcBlock>,
-        var_types: Vec<Idx>,
-    ) -> ArcFunction {
-        let span_vecs: Vec<Vec<Option<ori_ir::Span>>> =
-            blocks.iter().map(|bl| vec![None; bl.body.len()]).collect();
-        ArcFunction {
-            name: Name::from_raw(1),
-            params,
-            return_type,
-            blocks,
-            entry: ArcBlockId::new(0),
-            var_types,
-            spans: span_vecs,
-        }
-    }
-
-    fn count_rc_ops(func: &ArcFunction) -> usize {
-        func.blocks
-            .iter()
-            .flat_map(|bl| bl.body.iter())
-            .filter(|i| matches!(i, ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. }))
-            .count()
-    }
-
-    /// Run the full ARC pipeline in the documented correct order:
-    /// insert (07) → detect → expand (09) → eliminate (08).
-    ///
-    /// This matches `rc_elim.rs` documentation: "Execution order: 07 → 09 → 08"
-    /// and Lean 4's pipeline: `explicitRC` → `expandResetReuse`.
+    /// Run the full ARC pipeline via the public orchestration function.
     fn run_full_pipeline(func: &mut ArcFunction, classifier: &dyn crate::ArcClassification) {
-        let liveness = compute_liveness(func, classifier);
-        insert_rc_ops(func, classifier, &liveness);
-        detect_reset_reuse(func, classifier);
-        expand_reset_reuse(func, classifier);
-        eliminate_rc_ops(func);
+        let sigs = FxHashMap::default();
+        crate::run_arc_pipeline(func, classifier, &sigs);
     }
 
     /// Verifies the correct pipeline order: expand BEFORE eliminate.
@@ -257,14 +273,15 @@ mod pipeline_tests {
         let pool = Pool::new();
         let classifier = ArcClassifier::new(&pool);
 
-        // Run pipeline in correct order (skipping detect — IR has pre-placed Reset/Reuse)
+        // Run pipeline in correct order (skipping detect — IR has pre-placed Reset/Reuse).
+        // Uses classic functions directly (pub(crate)) to test ordering invariant.
         let mut func_correct = func.clone();
         {
             let liveness = compute_liveness(&func_correct, &classifier);
-            insert_rc_ops(&mut func_correct, &classifier, &liveness);
+            crate::rc_insert::insert_rc_ops(&mut func_correct, &classifier, &liveness);
             // detect_reset_reuse skipped: IR already contains Reset/Reuse from setup
             expand_reset_reuse(&mut func_correct, &classifier);
-            eliminate_rc_ops(&mut func_correct);
+            crate::rc_elim::eliminate_rc_ops(&mut func_correct);
         }
 
         // No Reset/Reuse should remain after expansion
@@ -291,9 +308,9 @@ mod pipeline_tests {
         // Run pipeline in WRONG order (eliminate before expand) for comparison
         let mut func_wrong = func.clone();
         let liveness = compute_liveness(&func_wrong, &classifier);
-        insert_rc_ops(&mut func_wrong, &classifier, &liveness);
-        eliminate_rc_ops(&mut func_wrong); // wrong: runs too early
-                                           // detect_reset_reuse skipped: IR already contains Reset/Reuse from setup
+        crate::rc_insert::insert_rc_ops(&mut func_wrong, &classifier, &liveness);
+        crate::rc_elim::eliminate_rc_ops(&mut func_wrong); // wrong: runs too early
+                                                           // detect_reset_reuse skipped: IR already contains Reset/Reuse from setup
         expand_reset_reuse(&mut func_wrong, &classifier);
 
         // Wrong order should have MORE remaining RC ops (expand generated
@@ -334,5 +351,98 @@ mod pipeline_tests {
 
         // Should still have exactly 1 block (no expansion needed)
         assert_eq!(func.blocks.len(), 1);
+    }
+
+    /// Full enhanced pipeline on raw IR with reuse pattern.
+    ///
+    /// Exercises the production pipeline infrastructure:
+    /// - `infer_derived_ownership` (per-variable ownership)
+    /// - `DominatorTree` (for cross-block reset/reuse)
+    /// - `compute_refined_liveness` (for aliasing checks)
+    /// - `insert_rc_ops_with_ownership` (ownership-aware RC insertion)
+    /// - `detect_reset_reuse_cfg` (intra + cross-block detection)
+    /// - `eliminate_rc_ops_dataflow` (full-CFG elimination)
+    /// - `analyze_fbip` (FBIP diagnostic report)
+    #[test]
+    fn full_pipeline_on_reuse_pattern() {
+        use crate::fbip::analyze_fbip;
+
+        // Raw IR: Project fields, Apply transform, Construct result.
+        // No pre-placed Reset/Reuse — detection passes discover the pattern.
+        //
+        // fn foo(x: str) -> str
+        //   head = Project(x, 0)
+        //   tail = Project(x, 1)
+        //   new_head = Apply(f, [head])
+        //   result = Construct(Struct, [new_head, tail])
+        //   Return result
+        let func = make_func(
+            vec![ArcParam {
+                var: v(0),
+                ty: Idx::STR,
+                ownership: Ownership::Owned,
+            }],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    ArcInstr::Project {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 1,
+                    },
+                    ArcInstr::Apply {
+                        dst: v(3),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![v(1)],
+                    },
+                    ArcInstr::Construct {
+                        dst: v(4),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Struct(Name::from_raw(10)),
+                        args: vec![v(3), v(2)],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(4) },
+            }],
+            vec![
+                Idx::STR, // v0: param
+                Idx::STR, // v1: head
+                Idx::STR, // v2: tail
+                Idx::STR, // v3: new_head
+                Idx::STR, // v4: result
+            ],
+        );
+
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+
+        let mut func = func;
+        run_full_pipeline(&mut func, &classifier);
+
+        // No unexpanded Reset/Reuse should remain
+        let has_unexpanded = func
+            .blocks
+            .iter()
+            .flat_map(|bl| bl.body.iter())
+            .any(|i| matches!(i, ArcInstr::Reset { .. } | ArcInstr::Reuse { .. }));
+        assert!(
+            !has_unexpanded,
+            "no Reset/Reuse should remain after expansion"
+        );
+
+        // Run FBIP analysis on the result
+        let dom_tree = DominatorTree::build(&func);
+        let (refined, _) = compute_refined_liveness(&func, &classifier);
+        let _fbip_report = analyze_fbip(&func, &classifier, &dom_tree, &refined);
     }
 }

@@ -442,12 +442,15 @@ impl CodegenDiagnostics {
 
 // ── Emit helper ─────────────────────────────────────────────────────
 
-/// Emit a codegen error diagnostic and exit.
+/// Render a codegen error as a diagnostic and emit it to stderr.
 ///
 /// Converts any error type that implements `Into<CodegenProblem>` into a
-/// structured diagnostic, emits it via the terminal emitter, and exits
-/// with code 1.
-pub fn report_codegen_error(problem: impl Into<CodegenProblem>) -> ! {
+/// structured diagnostic and emits it via the terminal emitter.
+///
+/// This function does NOT call `process::exit` — that is the caller's
+/// responsibility. Library code and tests can use this to emit diagnostics
+/// without terminating the process.
+pub fn emit_codegen_error(problem: impl Into<CodegenProblem>) {
     use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 
     let diag = problem.into().into_diagnostic();
@@ -455,6 +458,15 @@ pub fn report_codegen_error(problem: impl Into<CodegenProblem>) -> ! {
     let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty);
     emitter.emit(&diag);
     emitter.flush();
+}
+
+/// Emit a codegen error diagnostic and exit.
+///
+/// CLI convenience wrapper around [`emit_codegen_error`] that also calls
+/// `process::exit(1)`. Use this only in CLI command handlers — library code
+/// should use [`emit_codegen_error`] instead.
+pub fn report_codegen_error(problem: impl Into<CodegenProblem>) -> ! {
+    emit_codegen_error(problem);
     std::process::exit(1);
 }
 

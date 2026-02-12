@@ -316,9 +316,40 @@ Guards (`.match(expr)`) are evaluated after pattern match succeeds but before th
 
 **Exhaustiveness:** Guards are NOT considered for exhaustiveness checking—the compiler cannot statically verify guard conditions.
 
+## Exhaustiveness Checking
+
+After pattern compilation produces a decision tree (during canonicalization), the `ori_canon::exhaustiveness` module walks the tree to detect:
+
+1. **Non-exhaustive matches**: A reachable `Fail` node or a `Switch` missing constructors of a finite type (e.g., bool missing `false`)
+2. **Redundant arms**: Arms that no path through the decision tree ever reaches
+
+This approach reuses the compiled decision tree rather than re-analyzing source patterns, which is sound because the tree faithfully encodes the pattern matrix's coverage.
+
+### What's Checked
+
+| Type | Exhaustive When |
+|------|----------------|
+| `bool` | Both `true` and `false` covered |
+| `int`, `str`, `float` | Wildcard (`_`) present (infinite types) |
+| Ranges, list lengths | Wildcard present |
+| `Option<T>` | Both `None` and `Some(_)` covered |
+| `Result<T, E>` | Both `Ok(_)` and `Err(_)` covered |
+| User-defined enums | All variants covered (root-level switches; queried via Pool) |
+
+Nested enum switches (non-empty scrutinee path) are not yet checked — this requires per-Switch type tracking.
+
+### Guard Handling
+
+Guards (`if` conditions on arms) are **not** considered for exhaustiveness — the compiler cannot statically verify guard conditions. A guarded arm is marked reachable (guard may succeed), and the fallthrough path is also checked (guard may fail).
+
+### Diagnostics
+
+Pattern problems are reported as `SemanticProblem::NonExhaustiveMatch` and `SemanticProblem::RedundantPattern` in the `check` command. See [Pattern Compilation](../06b-canonicalization/pattern-compilation.md) for the full algorithm.
+
 ## Related Documents
 
 - [Pattern Trait](pattern-trait.md) - PatternDefinition interface
 - [Pattern Registry](pattern-registry.md) - Registration system
 - [Pattern Fusion](pattern-fusion.md) - Fusion optimization (FusedPattern enum)
 - [Adding Patterns](adding-patterns.md) - How to add new patterns
+- [Pattern Compilation](../06b-canonicalization/pattern-compilation.md) - Decision tree construction and exhaustiveness

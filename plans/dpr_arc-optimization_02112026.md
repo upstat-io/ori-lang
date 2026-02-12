@@ -1,7 +1,7 @@
 ---
 plan: "dpr_arc-optimization_02112026"
 title: "Design Pattern Review: ARC Optimization"
-status: draft
+status: in-progress
 ---
 
 # Design Pattern Review: ARC Optimization
@@ -241,26 +241,26 @@ fn run_arc_pipeline(func: &mut ArcFunction, classifier: &dyn ArcClassification) 
 
 ## Implementation Roadmap
 
-### Phase 1: Foundation (analysis infrastructure)
+### Phase 1: Foundation (COMPLETED 2026-02-12)
 
-- [ ] Add `DerivedOwnership` enum to `ownership.rs`, alongside existing `Ownership`
-- [ ] Implement `infer_derived_ownership()` in `borrow.rs` -- per-variable ownership propagation using forward dataflow over basic blocks
-- [ ] Add `DominatorTree` to `graph.rs` using Cooper-Harvey-Kennedy algorithm (~60 lines)
-- [ ] Add `RefinedLiveness` to `liveness.rs` -- split `live_in`/`live_out` into use-live and drop-live sets
-- [ ] Add unit tests for each new analysis: derived ownership on simple/branching/loop functions; dominator tree correctness; refined liveness distinguishing use vs drop
+- [x] Add `DerivedOwnership` enum to `ownership.rs`, alongside existing `Ownership` — 3 variants: `Owned`, `BorrowedFrom(ArcVarId)`, `Fresh`
+- [x] Implement `infer_derived_ownership()` in `borrow.rs` -- forward SSA pass over basic blocks with transitive borrowing resolution; handles projections, let aliases, construct, apply, block params
+- [x] Add `DominatorTree` to `graph.rs` using Cooper-Harvey-Kennedy algorithm — `build()`, `dominates()`, `idom_for()` methods
+- [x] Add `RefinedLiveness` to `liveness.rs` -- `compute_refined_liveness()` splits into `live_for_use` and `live_for_drop` sets
+- [x] Add unit tests for each new analysis: 25+ derived ownership tests (simple/branching/loop/mutual recursion/tail calls/projections); dominator tree correctness; refined liveness distinguishing use vs drop
 
 ### Phase 2: Core optimizations
 
-- [ ] Extend `detect_reset_reuse()` to use dominator tree and refined liveness for cross-block pattern detection -- keep intra-block fast path, add inter-block slow path
-- [ ] Extend `eliminate_rc_ops()` with forward/backward dataflow over full CFG -- preserve existing intra-block lattice as inner loop, add iterative fixpoint outer loop with meet at join points
-- [ ] Update `insert_rc_ops()` to use `DerivedOwnership` instead of `compute_borrows()` -- variables with `BorrowedFrom` status skip `RcInc` when passed to borrowed parameters
+- [ ] Extend `detect_reset_reuse()` to use dominator tree and refined liveness for cross-block pattern detection -- keep intra-block fast path, add inter-block slow path (dominator tree exists but not yet integrated; detection is still intra-block only)
+- [ ] Extend `eliminate_rc_ops()` with forward/backward dataflow over full CFG -- preserve existing intra-block lattice as inner loop, add iterative fixpoint outer loop with meet at join points (intra-block lattice exists; no fixpoint loop yet)
+- [ ] Update `insert_rc_ops()` to use `DerivedOwnership` instead of `compute_borrows()` -- variables with `BorrowedFrom` status skip `RcInc` when passed to borrowed parameters (infrastructure ready, not fully wired)
 - [ ] Add closure capture analysis in `PartialApply` handling -- look up callee borrow annotations to determine which captures can remain borrowed
 - [ ] Integration tests verifying cross-block reset/reuse fires on linked-list `map` pattern
 - [ ] Integration tests verifying full-CFG elimination removes retain/release pairs across diamond patterns
 
 ### Phase 3: Polish and diagnostics
 
-- [ ] Implement `FbipReport` analysis pass (read-only, no IR mutation) -- reports achieved and missed reuse opportunities
+- [x] Implement `FbipReport` analysis pass (read-only, no IR mutation) -- `FbipReport`, `ReuseOpportunity`, `MissedReuse`, `MissedReuseReason` types + `analyze_fbip()` entry point in `fbip.rs`
 - [ ] Wire FBIP diagnostics into `ori check --strict` output via `ori_diagnostic`
 - [ ] Add `@fbip` function annotation support in parser and evaluator (optional, for explicit verification)
 - [ ] Benchmark ARC pipeline on standard test suite -- measure RC op count reduction from Phase 2 changes
@@ -273,14 +273,16 @@ fn run_arc_pipeline(func: &mut ArcFunction, classifier: &dyn ArcClassification) 
 - `compiler/ori_arc/src/lib.rs` -- crate entry, pipeline tests, exports
 - `compiler/ori_arc/src/ir.rs` -- ARC IR types (ArcFunction, ArcBlock, ArcInstr, ArcTerminator)
 - `compiler/ori_arc/src/classify.rs` -- ArcClassifier with 3-way classification and caching
-- `compiler/ori_arc/src/borrow.rs` -- iterative fixed-point borrow inference (parameter-level)
-- `compiler/ori_arc/src/liveness.rs` -- backward dataflow liveness analysis
+- `compiler/ori_arc/src/borrow.rs` -- iterative fixed-point borrow inference (parameter-level) + `infer_derived_ownership()` per-variable forward SSA pass (Phase 1)
+- `compiler/ori_arc/src/liveness.rs` -- backward dataflow liveness analysis + `RefinedLiveness` with use/drop split (Phase 1)
 - `compiler/ori_arc/src/rc_insert.rs` -- Perceus-style RC insertion with edge cleanup
-- `compiler/ori_arc/src/reset_reuse.rs` -- intra-block reset/reuse detection
-- `compiler/ori_arc/src/rc_elim.rs` -- bidirectional intra-block + limited cross-block elimination
+- `compiler/ori_arc/src/reset_reuse.rs` -- intra-block reset/reuse detection (cross-block pending Phase 2)
+- `compiler/ori_arc/src/rc_elim.rs` -- bidirectional intra-block + limited cross-block elimination (full-CFG pending Phase 2)
 - `compiler/ori_arc/src/expand_reuse.rs` -- constructor reuse expansion with sub-optimizations
-- `compiler/ori_arc/src/ownership.rs` -- Ownership/AnnotatedParam/AnnotatedSig types
-- `compiler/ori_arc/src/graph.rs` -- shared CFG utilities (predecessors, invoke defs)
+- `compiler/ori_arc/src/ownership.rs` -- Ownership/AnnotatedParam/AnnotatedSig + `DerivedOwnership` enum (Phase 1)
+- `compiler/ori_arc/src/graph.rs` -- shared CFG utilities (predecessors, invoke defs) + `DominatorTree` with CHK algorithm (Phase 1)
+- `compiler/ori_arc/src/fbip.rs` -- `FbipReport`, `ReuseOpportunity`, `MissedReuse` types + `analyze_fbip()` (Phase 3)
+- `compiler/ori_arc/src/test_helpers.rs` -- shared test utilities for ARC unit tests
 - `compiler/ori_llvm/src/codegen/arc_emitter.rs` -- LLVM codegen for ARC operations
 
 ### Reference Compiler Sources

@@ -1,5 +1,0 @@
-error: suggestion attribute requires `code = "..."`
-  --> tests/ui/fail/suggestion_missing_code.rs:10:5
-   |
-10 |     #[suggestion("try this")]
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^

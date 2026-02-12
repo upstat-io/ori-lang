@@ -70,9 +70,7 @@ pub fn snapshot_to_diagnostic(
     source: &str,
     file_path: &str,
 ) -> Diagnostic {
-    // Use E6099 (Custom) since we don't have the structured kind in the snapshot.
-    // The snapshot captures the kind_name for display but not the enum variant.
-    let mut diag = Diagnostic::error(ErrorCode::E6099).with_message(&snapshot.message);
+    let mut diag = Diagnostic::error(snapshot.error_code).with_message(&snapshot.message);
 
     let table = LineOffsetTable::build(source);
 
@@ -104,7 +102,7 @@ pub fn snapshot_to_diagnostic(
 }
 
 /// Map an `EvalErrorKind` to its corresponding `ErrorCode`.
-fn error_code_for_kind(kind: &EvalErrorKind) -> ErrorCode {
+pub(crate) fn error_code_for_kind(kind: &EvalErrorKind) -> ErrorCode {
     match kind {
         // Arithmetic
         EvalErrorKind::DivisionByZero => ErrorCode::E6001,
@@ -381,12 +379,14 @@ mod tests {
         let snapshot = EvalErrorSnapshot {
             message: "division by zero".to_string(),
             kind_name: "DivisionByZero".to_string(),
+            error_code: ErrorCode::E6001,
             span: Some(Span::new(10, 13)),
             backtrace: vec![],
             notes: vec![],
         };
 
         let diag = snapshot_to_diagnostic(&snapshot, source, "main.ori");
+        assert_eq!(diag.code, ErrorCode::E6001);
         assert_eq!(diag.labels.len(), 1);
         assert!(diag.labels[0].message.contains("main.ori:1:11"));
     }
@@ -398,6 +398,7 @@ mod tests {
         let snapshot = EvalErrorSnapshot {
             message: "division by zero".to_string(),
             kind_name: "DivisionByZero".to_string(),
+            error_code: ErrorCode::E6001,
             span: Some(Span::new(20, 23)),
             backtrace: vec![],
             notes: vec![],
@@ -418,6 +419,7 @@ mod tests {
         let snapshot = EvalErrorSnapshot {
             message: "division by zero".to_string(),
             kind_name: "DivisionByZero".to_string(),
+            error_code: ErrorCode::E6001,
             span: Some(Span::new(34, 37)),
             backtrace: vec![
                 ("bar".to_string(), Some(Span::new(34, 37))),
@@ -439,6 +441,7 @@ mod tests {
         let snapshot = EvalErrorSnapshot {
             message: "runtime error".to_string(),
             kind_name: "Custom".to_string(),
+            error_code: ErrorCode::E6099,
             span: None,
             backtrace: vec![],
             notes: vec![],
@@ -453,6 +456,7 @@ mod tests {
         let snapshot = EvalErrorSnapshot {
             message: "error".to_string(),
             kind_name: "Custom".to_string(),
+            error_code: ErrorCode::E6099,
             span: None,
             backtrace: vec![],
             notes: vec!["hint: check input".to_string()],

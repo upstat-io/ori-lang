@@ -1,18 +1,14 @@
 //! The `run` command: parse, type-check, and evaluate an Ori source file.
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
-use ori_diagnostic::queue::DiagnosticQueue;
-use oric::problem::LexProblem;
-use oric::query::{evaluated, lex_errors, parsed};
-use oric::reporting::typeck::TypeErrorRenderer;
-use oric::typeck;
+use oric::query::evaluated;
 use oric::{CompilerDb, Db, SourceFile};
 use std::path::PathBuf;
 
 #[cfg(feature = "llvm")]
 use std::path::Path;
 
-use super::read_file;
+use super::{read_file, report_frontend_errors};
 
 /// Run an Ori source file: parse, type-check, and evaluate it.
 ///
@@ -26,64 +22,33 @@ pub fn run_file(path: &str, profile: bool) {
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);
 
-    let mut has_errors = false;
-
     // Create emitter once with source context for rich snippet rendering
     let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
     let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty)
         .with_source(file.text(&db).as_str())
         .with_file_path(path);
 
-    // Report lexer errors first (unterminated strings, semicolons, confusables, etc.)
-    let lex_errs = lex_errors(&db, file);
-    if !lex_errs.is_empty() {
-        for err in &lex_errs {
-            let diag = LexProblem::Error(err.clone()).into_diagnostic(db.interner());
-            emitter.emit(&diag);
-        }
-        has_errors = true;
-    }
+    // Run frontend pipeline: lex → parse → typecheck, reporting all errors
+    let Some(frontend) = report_frontend_errors(&db, file, &mut emitter) else {
+        std::process::exit(1);
+    };
 
-    // Check for parse errors — route through DiagnosticQueue for
-    // deduplication and soft-error suppression after hard errors
-    let parse_result = parsed(&db, file);
-    if parse_result.has_errors() {
-        let source = file.text(&db);
-        let mut queue = DiagnosticQueue::new();
-        for error in &parse_result.errors {
-            let (diag, severity) = error.to_queued_diagnostic();
-            queue.add_with_source_and_severity(diag, source.as_str(), severity);
-        }
-        for diag in queue.flush() {
-            emitter.emit(&diag);
-        }
-        has_errors = true;
-    }
-
-    // Check for type errors using direct call to get Pool for rich rendering
-    let (type_result, pool) =
-        typeck::type_check_with_imports_and_pool(&db, &parse_result, file.path(&db));
-    if type_result.has_errors() {
-        let renderer = TypeErrorRenderer::new(&pool, db.interner());
-
-        for error in type_result.errors() {
-            emitter.emit(&renderer.render(error));
-        }
-        has_errors = true;
-    }
-
-    if has_errors {
+    if frontend.has_errors() {
         emitter.flush();
-    }
-
-    // Exit if any errors occurred
-    if has_errors {
         std::process::exit(1);
     }
 
     // Evaluate only if no errors
     if profile {
-        eval_with_profile(&db, &parse_result, file, path, &mut emitter);
+        eval_with_profile(
+            &db,
+            file,
+            path,
+            &frontend.parse_result,
+            &frontend.type_result,
+            &frontend.pool,
+            &mut emitter,
+        );
     } else {
         let eval_result = evaluated(&db, file);
         report_eval_result(&eval_result, &db, file, path, &mut emitter);
@@ -110,7 +75,10 @@ fn report_eval_result(
                 .error
                 .as_deref()
                 .unwrap_or("unknown runtime error");
-            eprintln!("error: runtime error in '{path}': {error_msg}");
+            let diag = ori_diagnostic::Diagnostic::error(ori_diagnostic::ErrorCode::E6099)
+                .with_message(format!("runtime error in '{path}': {error_msg}"));
+            emitter.emit(&diag);
+            emitter.flush();
         }
         std::process::exit(1);
     }
@@ -125,87 +93,32 @@ fn report_eval_result(
     }
 }
 
-/// Evaluate with profiling enabled — bypasses Salsa query to access counters.
+/// Evaluate with profiling enabled — bypasses Salsa's `evaluated()` query
+/// to access performance counters. Uses the already-computed frontend results
+/// from `run_file` instead of re-querying.
 fn eval_with_profile(
     db: &oric::CompilerDb,
-    parse_result: &oric::parser::ParseOutput,
     file: oric::SourceFile,
     path: &str,
+    parse_result: &oric::parser::ParseOutput,
+    type_result: &ori_types::TypeCheckResult,
+    pool: &std::sync::Arc<ori_types::Pool>,
     emitter: &mut TerminalEmitter<std::io::Stderr>,
 ) {
-    use oric::eval::{EvalOutput, Evaluator, ModuleEvalResult};
-    use oric::Db;
+    use oric::query::{run_evaluation, EvalRunMode};
 
-    let interner = db.interner();
-    let file_path = file.path(db);
-
-    // Type check (returns result + pool)
-    let (type_result, pool) =
-        oric::typeck::type_check_with_imports_and_pool(db, parse_result, file_path);
-
-    if type_result.has_errors() {
-        let error_count = type_result.errors().len();
-        let result = ModuleEvalResult::failure(format!(
-            "{error_count} type error{} found",
-            if error_count == 1 { "" } else { "s" }
-        ));
-        report_eval_result(&result, db, file, path, emitter);
-        return;
-    }
-
-    // Canonicalize: AST + types → self-contained canonical IR.
-    let canon_result = ori_canon::lower_module(
-        &parse_result.module,
-        &parse_result.arena,
-        &type_result,
-        &pool,
-        interner,
+    // Canonicalize + evaluate with counters via shared helper
+    let (eval_result, counters) = run_evaluation(
+        db,
+        file,
+        parse_result,
+        type_result,
+        pool,
+        EvalRunMode::Profile,
     );
-    let shared_canon = ori_ir::canon::SharedCanonResult::new(canon_result);
-
-    // Create evaluator with profiling enabled
-    let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
-        .canon(shared_canon.clone())
-        .build();
-    evaluator.register_prelude();
-    evaluator.enable_counters();
-
-    if let Err(e) = evaluator.load_module(parse_result, file_path, Some(&shared_canon)) {
-        let result = ModuleEvalResult::failure(format!("module error: {e}"));
-        report_eval_result(&result, db, file, path, emitter);
-        return;
-    }
-
-    // Evaluate main function or first zero-arg function
-    let main_name = interner.intern("main");
-    let eval_result = if let Some(main_func) = evaluator.env().lookup(main_name) {
-        match evaluator.eval_call_value(&main_func, &[]) {
-            Ok(value) => ModuleEvalResult::success(EvalOutput::from_value(&value, interner)),
-            Err(e) => ModuleEvalResult::runtime_error(&e.into_eval_error()),
-        }
-    } else if let Some(func) = parse_result.module.functions.first() {
-        let params = parse_result.arena.get_params(func.params);
-        if params.is_empty() {
-            match shared_canon.root_for(func.name) {
-                Some(can_id) => match evaluator.eval_can(can_id) {
-                    Ok(value) => {
-                        ModuleEvalResult::success(EvalOutput::from_value(&value, interner))
-                    }
-                    Err(e) => ModuleEvalResult::runtime_error(&e.into_eval_error()),
-                },
-                None => ModuleEvalResult::failure(
-                    "internal error: function has no canonical root".to_string(),
-                ),
-            }
-        } else {
-            ModuleEvalResult::success(EvalOutput::Void)
-        }
-    } else {
-        ModuleEvalResult::default()
-    };
 
     // Print counters report to stderr before result
-    if let Some(report) = evaluator.counters_report() {
+    if let Some(report) = counters {
         eprintln!("{report}");
     }
 
@@ -287,7 +200,7 @@ pub fn run_file_compiled(path: &str) {
 
     // Parse and type-check (shared with build_file)
     let db = CompilerDb::new();
-    let file = SourceFile::new(&db, PathBuf::from(path), content.clone());
+    let file = SourceFile::new(&db, PathBuf::from(path), content);
 
     let Some((parse_result, type_result, pool, canon_result)) = check_source(&db, file, path)
     else {

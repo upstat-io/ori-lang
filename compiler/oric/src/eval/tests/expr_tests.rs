@@ -3,8 +3,9 @@
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
 use crate::eval::exec::expr::{eval_index, get_collection_length};
-use crate::eval::{evaluate_binary, Value};
+use crate::eval::Value;
 use crate::ir::BinaryOp;
+use ori_eval::evaluate_binary;
 
 // Binary Value Evaluation Tests (Index Context)
 

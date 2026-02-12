@@ -36,11 +36,6 @@ compiler/
 │       └── fixes/
 │           ├── mod.rs                    # Code fix system
 │           └── registry.rs               # Fix registry
-├── ori-macros/                   # Proc-macro crate for diagnostic derives
-│   └── src/
-│       ├── lib.rs                    # Derive macro exports
-│       ├── diagnostic.rs             # #[derive(Diagnostic)] implementation
-│       └── subdiagnostic.rs          # #[derive(Subdiagnostic)] implementation
 └── oric/src/
     ├── problem/                  # Problem types (specific to compiler phases)
     │   ├── mod.rs                    # Problem enum (Lex, Parse, Semantic variants)
@@ -60,7 +55,7 @@ gets a tailored error message. Adding a new problem type requires adding its
 renderer in the corresponding reporting module.
 ```
 
-The `ori_diagnostic` crate is organized into focused submodules: `error_code.rs` (ErrorCode enum), `diagnostic.rs` (Diagnostic, Label, Severity, Applicability, Suggestion types), and `guarantee.rs` (ErrorGuaranteed). The `lib.rs` re-exports all public types. It depends only on `ori_ir` (for `Span`). The proc-macros in `ori-macros` generate implementations of the `IntoDiagnostic` trait.
+The `ori_diagnostic` crate is organized into focused submodules: `error_code.rs` (ErrorCode enum), `diagnostic.rs` (Diagnostic, Label, Severity, Applicability, Suggestion types), and `guarantee.rs` (ErrorGuaranteed). The `lib.rs` re-exports all public types. It depends only on `ori_ir` (for `Span`).
 
 ## Design Goals
 
@@ -83,7 +78,6 @@ pub struct ErrorGuaranteed(());
 impl ErrorGuaranteed {
     pub(crate) fn new() -> Self;  // Only callable from queue.rs
     pub fn from_error_count(count: usize) -> Option<Self>;  // For downstream
-    pub fn new_for_downstream() -> Self;  // When errors verified elsewhere
 }
 ```
 
@@ -478,48 +472,9 @@ impl Problem {
 
 Each category (LexProblem, ParseProblem, SemanticProblem) is a separate enum with category-specific variants. See [Problem Types](problem-types.md) for details.
 
-## Diagnostic Derive Macros
+## Diagnostic Derive Macros (Planned)
 
-The `ori-macros` crate provides derive macros for declarative diagnostic definitions:
-
-```rust
-#[derive(Diagnostic)]
-#[diag(E2001, "type mismatch: expected `{expected}`, found `{found}`")]
-pub struct TypeMismatch {
-    #[primary_span]
-    #[label("expected `{expected}`")]
-    pub span: Span,
-    pub expected: String,
-    pub found: String,
-    #[suggestion("convert with `int({name})`", code = "int({name})", applicability = "maybe-incorrect")]
-    pub conversion_span: Option<Span>,
-}
-
-// Usage:
-let err = TypeMismatch { span, expected: "int".into(), found: "str".into(), conversion_span: None };
-let diagnostic = err.into_diagnostic();
-```
-
-Supported attributes:
-
-| Attribute | Level | Description |
-|-----------|-------|-------------|
-| `#[diag(CODE, "msg")]` | Struct | Error code and message template |
-| `#[primary_span]` | Field | Main error location |
-| `#[label("msg")]` | Field | Label for a span |
-| `#[note("msg")]` | Field | Additional note |
-| `#[suggestion(...)]` | Field | Structured fix suggestion |
-
-Subdiagnostics can be added via `#[derive(Subdiagnostic)]`:
-
-```rust
-#[derive(Subdiagnostic)]
-#[label("this type was expected")]
-pub struct ExpectedTypeLabel {
-    #[primary_span]
-    pub span: Span,
-}
-```
+Derive macros (`#[derive(Diagnostic)]`, `#[derive(Subdiagnostic)]`) for declarative diagnostic definitions are planned for when the `Diagnostic` API stabilizes and enough repetitive boilerplate emerges (20+ diagnostic structs). Until then, diagnostics are constructed manually via the builder API.
 
 ## Emitters
 

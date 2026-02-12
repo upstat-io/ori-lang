@@ -138,11 +138,6 @@ compiler/
 │           ├── patterns.rs   # Pattern lowering
 │           ├── calls.rs      # Call lowering
 │           └── collections.rs # Collection lowering
-├── ori-macros/               # Proc-macro crate
-│   └── src/
-│       ├── lib.rs            # Diagnostic/Subdiagnostic derives
-│       ├── diagnostic.rs     # #[derive(Diagnostic)] impl
-│       └── subdiagnostic.rs  # #[derive(Subdiagnostic)] impl
 ├── ori_fmt/                  # Source code formatter (5-layer architecture)
 │   └── src/
 │       ├── lib.rs            # Public API, tabs_to_spaces()
@@ -414,7 +409,6 @@ All patterns are zero-sized types (ZSTs) wrapped in a `Pattern` enum, providing:
 | `ori_fmt` | Source code formatter: 5-layer architecture (spacing, packing, shape, rules, orchestration) |
 | `ori_stack` | Stack safety utilities: stacker integration for deep recursion |
 | `ori_rt` | Runtime library: support functions for AOT-compiled binaries |
-| `ori-macros` | Proc-macros (`#[derive(Diagnostic)]`, etc.) |
 | `ori_llvm` | LLVM backend: IrBuilder, SimpleCx, JIT execution, native codegen |
 | `oric` | CLI orchestrator, Salsa queries, high-level Evaluator, patterns |
 

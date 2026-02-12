@@ -131,9 +131,6 @@ main() {
     # oric (workspace member but has its own Cargo.toml)
     update_cargo_version "$ROOT_DIR/compiler/oric/Cargo.toml" "$version" || failed=true
 
-    # ori_macros (standalone)
-    update_cargo_version "$ROOT_DIR/compiler/ori_macros/Cargo.toml" "$version" || failed=true
-
     # ori_llvm (excluded from workspace)
     update_cargo_version "$ROOT_DIR/compiler/ori_llvm/Cargo.toml" "$version" || failed=true
 

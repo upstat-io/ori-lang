@@ -11,6 +11,39 @@
 use ori_ir::Name;
 use ori_types::Idx;
 
+use crate::ir::ArcVarId;
+
+/// Per-variable ownership derived from SSA data flow.
+///
+/// Unlike [`Ownership`] which annotates only function parameters,
+/// `DerivedOwnership` classifies **every** variable in a function body.
+/// This enables RC insertion to skip `RcInc`/`RcDec` for variables that
+/// are provably borrowed from an already-live variable or freshly
+/// constructed with refcount = 1.
+///
+/// Computed by [`infer_derived_ownership()`](crate::borrow::infer_derived_ownership)
+/// in a single forward pass over SSA blocks (no fixed-point needed since
+/// each variable is defined exactly once in SSA form).
+///
+/// Inspired by Lean 4's per-variable borrow tracking (`Lean.Compiler.IR.Borrow`)
+/// and Swift's ownership SSA (`OwnershipKind`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub enum DerivedOwnership {
+    /// The variable holds an owned value: function call results, literals,
+    /// block params (which receive values via jump arguments).
+    Owned,
+
+    /// The variable is a projection or alias of another variable.
+    /// No `RcInc` is needed as long as the source variable is alive.
+    BorrowedFrom(ArcVarId),
+
+    /// The variable was freshly constructed (`Construct` / `PartialApply`)
+    /// and has refcount = 1. This means the first `RcDec` is guaranteed
+    /// to deallocate, enabling more aggressive reset/reuse pairing.
+    Fresh,
+}
+
 /// Ownership classification for a function parameter.
 ///
 /// Inspired by Lean 4's borrow inference: parameters are either borrowed
@@ -61,6 +94,8 @@ mod tests {
     use ori_ir::Name;
     use ori_types::Idx;
 
+    use crate::ir::ArcVarId;
+
     use super::*;
 
     #[test]
@@ -74,6 +109,44 @@ mod tests {
         let o2 = o;
         // Both are valid — Copy semantics.
         assert_eq!(o, o2);
+    }
+
+    // DerivedOwnership tests
+
+    #[test]
+    fn derived_ownership_variants() {
+        let owned = DerivedOwnership::Owned;
+        let borrowed = DerivedOwnership::BorrowedFrom(ArcVarId::new(3));
+        let fresh = DerivedOwnership::Fresh;
+        assert_ne!(owned, borrowed);
+        assert_ne!(owned, fresh);
+        assert_ne!(borrowed, fresh);
+    }
+
+    #[test]
+    fn derived_ownership_is_copy() {
+        let d = DerivedOwnership::BorrowedFrom(ArcVarId::new(7));
+        let d2 = d;
+        assert_eq!(d, d2);
+    }
+
+    #[test]
+    fn derived_borrowed_from_carries_source() {
+        let src = ArcVarId::new(42);
+        let d = DerivedOwnership::BorrowedFrom(src);
+        match d {
+            DerivedOwnership::BorrowedFrom(v) => assert_eq!(v, src),
+            _ => panic!("expected BorrowedFrom"),
+        }
+    }
+
+    #[test]
+    fn derived_ownership_equality_by_source() {
+        let a = DerivedOwnership::BorrowedFrom(ArcVarId::new(1));
+        let b = DerivedOwnership::BorrowedFrom(ArcVarId::new(1));
+        let c = DerivedOwnership::BorrowedFrom(ArcVarId::new(2));
+        assert_eq!(a, b);
+        assert_ne!(a, c);
     }
 
     #[test]

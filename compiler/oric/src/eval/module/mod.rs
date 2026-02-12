@@ -10,4 +10,4 @@
 
 pub mod import;
 
-pub use import::{resolve_import, ImportError, ResolvedImport};
+pub use import::{resolve_import, ImportError, ImportErrorKind, ResolvedImport};

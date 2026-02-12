@@ -39,7 +39,7 @@ use rustc_hash::FxHashMap;
 use ori_ir::Name;
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
-use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
+use crate::ownership::{AnnotatedParam, AnnotatedSig, DerivedOwnership, Ownership};
 use crate::ArcClassification;
 
 /// Infer borrow annotations for a set of (possibly mutually recursive) functions.
@@ -77,10 +77,8 @@ pub fn infer_borrows(
 /// Updates each function's `ArcParam::ownership` in-place based on the
 /// annotated signatures produced by [`infer_borrows`]. This is the bridge
 /// between analysis (Section 06.2) and downstream passes (Section 07).
-pub fn apply_borrows<S: std::hash::BuildHasher>(
-    functions: &mut [ArcFunction],
-    sigs: &std::collections::HashMap<Name, AnnotatedSig, S>,
-) {
+#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
+pub fn apply_borrows(functions: &mut [ArcFunction], sigs: &FxHashMap<Name, AnnotatedSig>) {
     for func in functions {
         if let Some(sig) = sigs.get(&func.name) {
             for (param, annotated) in func.params.iter_mut().zip(&sig.params) {
@@ -354,56 +352,150 @@ fn check_tail_call(
     changed
 }
 
+/// Infer per-variable ownership from SSA data flow.
+///
+/// Unlike [`infer_borrows`] which classifies only function parameters via
+/// fixed-point iteration, this function classifies **every** variable in a
+/// single forward pass (no fixed-point needed — SSA guarantees each variable
+/// is defined exactly once).
+///
+/// The result is a `Vec<DerivedOwnership>` indexed by `ArcVarId::raw()`,
+/// enabling RC insertion to skip `RcInc`/`RcDec` for:
+/// - Variables borrowed from a still-live owner (`BorrowedFrom`)
+/// - Freshly constructed values with refcount = 1 (`Fresh`)
+///
+/// # Arguments
+///
+/// * `func` — the ARC IR function to analyze.
+/// * `sigs` — annotated signatures from borrow inference (for callee param ownership).
+/// * `classifier` — type classifier for determining scalar vs ref types.
+#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
+pub fn infer_derived_ownership(
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, AnnotatedSig>,
+) -> Vec<DerivedOwnership> {
+    let num_vars = func.var_types.len();
+    let mut ownership = vec![DerivedOwnership::Owned; num_vars];
+
+    // Function parameters: inherit from AnnotatedSig.
+    if let Some(sig) = sigs.get(&func.name) {
+        for (i, param) in func.params.iter().enumerate() {
+            let idx = param.var.index();
+            if idx < num_vars {
+                ownership[idx] = match sig.params.get(i).map(|p| p.ownership) {
+                    Some(Ownership::Borrowed) => DerivedOwnership::BorrowedFrom(param.var),
+                    _ => DerivedOwnership::Owned,
+                };
+            }
+        }
+    }
+
+    // Forward pass over all blocks in order.
+    // SSA form: each variable is defined exactly once, so a single forward
+    // pass is sufficient (no iteration needed).
+    for block in &func.blocks {
+        // Block parameters receive values via jump args — they're owned
+        // (the caller transfers ownership through the jump).
+        for &(param_var, _ty) in &block.params {
+            let idx = param_var.index();
+            if idx < num_vars {
+                ownership[idx] = DerivedOwnership::Owned;
+            }
+        }
+
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Project { dst, value, .. } => {
+                    // A projection borrows from the source variable.
+                    let dst_idx = dst.index();
+                    if dst_idx < num_vars {
+                        let source_idx = value.index();
+                        ownership[dst_idx] = if source_idx < num_vars {
+                            // Transitively resolve: if `value` borrows from X,
+                            // the projection also borrows from X.
+                            match ownership[source_idx] {
+                                DerivedOwnership::BorrowedFrom(root) => {
+                                    DerivedOwnership::BorrowedFrom(root)
+                                }
+                                _ => DerivedOwnership::BorrowedFrom(*value),
+                            }
+                        } else {
+                            DerivedOwnership::BorrowedFrom(*value)
+                        };
+                    }
+                }
+
+                ArcInstr::Let { dst, value, .. } => {
+                    let dst_idx = dst.index();
+                    if dst_idx < num_vars {
+                        ownership[dst_idx] = match value {
+                            // Var alias inherits from source.
+                            crate::ir::ArcValue::Var(src) => {
+                                let src_idx = src.index();
+                                if src_idx < num_vars {
+                                    ownership[src_idx]
+                                } else {
+                                    DerivedOwnership::Owned
+                                }
+                            }
+                            // Literals and PrimOps produce owned values.
+                            crate::ir::ArcValue::Literal(_)
+                            | crate::ir::ArcValue::PrimOp { .. } => DerivedOwnership::Owned,
+                        };
+                    }
+                }
+
+                ArcInstr::Construct { dst, .. } => {
+                    // A newly constructed value has refcount = 1.
+                    let dst_idx = dst.index();
+                    if dst_idx < num_vars {
+                        ownership[dst_idx] = DerivedOwnership::Fresh;
+                    }
+                }
+
+                ArcInstr::PartialApply { dst, .. } => {
+                    // A new closure has refcount = 1.
+                    let dst_idx = dst.index();
+                    if dst_idx < num_vars {
+                        ownership[dst_idx] = DerivedOwnership::Fresh;
+                    }
+                }
+
+                ArcInstr::Apply { dst, .. } | ArcInstr::ApplyIndirect { dst, .. } => {
+                    // Call results are owned (callee returns an owned value).
+                    let dst_idx = dst.index();
+                    if dst_idx < num_vars {
+                        ownership[dst_idx] = DerivedOwnership::Owned;
+                    }
+                }
+
+                // RC/reuse ops don't define new variables (or their dst
+                // is a token which is always Owned).
+                ArcInstr::RcInc { .. }
+                | ArcInstr::RcDec { .. }
+                | ArcInstr::IsShared { .. }
+                | ArcInstr::Set { .. }
+                | ArcInstr::SetTag { .. }
+                | ArcInstr::Reset { .. }
+                | ArcInstr::Reuse { .. } => {}
+            }
+        }
+    }
+
+    ownership
+}
+
 #[cfg(test)]
 mod tests {
     use ori_ir::Name;
     use ori_types::{Idx, Pool};
 
-    use crate::ir::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
-        CtorKind, LitValue,
-    };
+    use crate::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
     use crate::ownership::Ownership;
+    use crate::test_helpers::{b, make_func_named as make_func, owned_param as param, v};
     use crate::ArcClassifier;
 
     use super::infer_borrows;
-
-    /// Helper: build a minimal `ArcFunction`.
-    fn make_func(
-        name: Name,
-        params: Vec<ArcParam>,
-        return_type: Idx,
-        blocks: Vec<ArcBlock>,
-        var_types: Vec<Idx>,
-    ) -> ArcFunction {
-        let span_vecs: Vec<Vec<Option<ori_ir::Span>>> =
-            blocks.iter().map(|b| vec![None; b.body.len()]).collect();
-        ArcFunction {
-            name,
-            params,
-            return_type,
-            blocks,
-            entry: ArcBlockId::new(0),
-            var_types,
-            spans: span_vecs,
-        }
-    }
-
-    fn param(var: u32, ty: Idx) -> ArcParam {
-        ArcParam {
-            var: ArcVarId::new(var),
-            ty,
-            ownership: Ownership::Owned, // Default from lowering.
-        }
-    }
-
-    fn v(n: u32) -> ArcVarId {
-        ArcVarId::new(n)
-    }
-
-    fn b(n: u32) -> ArcBlockId {
-        ArcBlockId::new(n)
-    }
 
     // ── Pure function: all params should stay Borrowed ──────
 
@@ -980,5 +1072,295 @@ mod tests {
 
         assert_eq!(funcs[0].params[0].ownership, Ownership::Borrowed); // a: only read
         assert_eq!(funcs[0].params[1].ownership, Ownership::Owned); // b: stored
+    }
+
+    // ── DerivedOwnership tests ──────────────────────────────────
+
+    use super::infer_derived_ownership;
+    use crate::ownership::DerivedOwnership;
+
+    /// Borrowed parameter → BorrowedFrom(self).
+    #[test]
+    fn derived_borrowed_param() {
+        // fn f(x: str) -> int  -- x is borrowed (just read, not stored)
+        //   v1 = prim_op(x)    -- reads x but doesn't take ownership
+        //   return v1
+        let func = make_func(
+            Name::from_raw(1),
+            vec![param(0, Idx::STR)],
+            Idx::INT,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(1),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(42)),
+                }],
+                terminator: ArcTerminator::Return { value: v(1) },
+            }],
+            vec![Idx::STR, Idx::INT],
+        );
+
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let sigs = infer_borrows(std::slice::from_ref(&func), &classifier);
+        let ownership = infer_derived_ownership(&func, &sigs);
+
+        // x is borrowed → BorrowedFrom(v(0))
+        assert_eq!(ownership[0], DerivedOwnership::BorrowedFrom(v(0)));
+        // v1 is a literal → Owned
+        assert_eq!(ownership[1], DerivedOwnership::Owned);
+    }
+
+    /// Projection from Owned var produces `BorrowedFrom`.
+    #[test]
+    fn derived_projection_borrows_from_source() {
+        // fn f() -> str
+        //   v0 = apply g()         -- owned (call result)
+        //   v1 = project(v0, 0)    -- borrows from v0
+        //   return v1
+        let func = make_func(
+            Name::from_raw(1),
+            vec![],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Apply {
+                        dst: v(0),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![],
+                    },
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(1) },
+            }],
+            vec![Idx::STR, Idx::STR],
+        );
+
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let sigs = infer_borrows(std::slice::from_ref(&func), &classifier);
+        let ownership = infer_derived_ownership(&func, &sigs);
+
+        // v0 is owned (call result)
+        assert_eq!(ownership[0], DerivedOwnership::Owned);
+        // v1 = project(v0, 0) → borrows from v0
+        assert_eq!(ownership[1], DerivedOwnership::BorrowedFrom(v(0)));
+    }
+
+    /// Transitive projection chain: project from a projection.
+    #[test]
+    fn derived_projection_chain() {
+        // fn f() -> str
+        //   v0 = apply g()          -- owned (call result)
+        //   v1 = project(v0, 0)     -- borrows from v0
+        //   v2 = project(v1, 0)     -- borrows transitively from v0
+        //   return v2
+        let func = make_func(
+            Name::from_raw(1),
+            vec![],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Apply {
+                        dst: v(0),
+                        ty: Idx::STR,
+                        func: Name::from_raw(99),
+                        args: vec![],
+                    },
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    ArcInstr::Project {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        value: v(1),
+                        field: 0,
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(2) },
+            }],
+            vec![Idx::STR, Idx::STR, Idx::STR],
+        );
+
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let sigs = infer_borrows(std::slice::from_ref(&func), &classifier);
+        let ownership = infer_derived_ownership(&func, &sigs);
+
+        assert_eq!(ownership[0], DerivedOwnership::Owned);
+        // v1 borrows from v0
+        assert_eq!(ownership[1], DerivedOwnership::BorrowedFrom(v(0)));
+        // v2 borrows transitively from v0 (not v1)
+        assert_eq!(ownership[2], DerivedOwnership::BorrowedFrom(v(0)));
+    }
+
+    /// Construct produces Fresh (refcount = 1).
+    #[test]
+    fn derived_construct_is_fresh() {
+        // fn f() -> str
+        //   v0: int = 42
+        //   v1 = Construct(Struct, [v0])
+        //   return v1
+        let func = make_func(
+            Name::from_raw(1),
+            vec![],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(0),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(LitValue::Int(42)),
+                    },
+                    ArcInstr::Construct {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        ctor: CtorKind::Struct(Name::from_raw(10)),
+                        args: vec![v(0)],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(1) },
+            }],
+            vec![Idx::INT, Idx::STR],
+        );
+
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let sigs = infer_borrows(std::slice::from_ref(&func), &classifier);
+        let ownership = infer_derived_ownership(&func, &sigs);
+
+        assert_eq!(ownership[0], DerivedOwnership::Owned); // literal
+        assert_eq!(ownership[1], DerivedOwnership::Fresh); // construct
+    }
+
+    /// Apply result is Owned.
+    #[test]
+    fn derived_apply_result_is_owned() {
+        // fn f(x: str) -> str
+        //   v1 = apply g(x)
+        //   return v1
+        let func = make_func(
+            Name::from_raw(1),
+            vec![param(0, Idx::STR)],
+            Idx::STR,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::Apply {
+                    dst: v(1),
+                    ty: Idx::STR,
+                    func: Name::from_raw(99),
+                    args: vec![v(0)],
+                }],
+                terminator: ArcTerminator::Return { value: v(1) },
+            }],
+            vec![Idx::STR, Idx::STR],
+        );
+
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let sigs = infer_borrows(std::slice::from_ref(&func), &classifier);
+        let ownership = infer_derived_ownership(&func, &sigs);
+
+        assert_eq!(ownership[1], DerivedOwnership::Owned); // call result
+    }
+
+    /// Block params are Owned (receive values via jump args).
+    #[test]
+    fn derived_block_params_are_owned() {
+        // fn f(x: str) -> str
+        //   jump b1(x)
+        // b1(v1: str):
+        //   return v1
+        let func = make_func(
+            Name::from_raw(1),
+            vec![param(0, Idx::STR)],
+            Idx::STR,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Jump {
+                        target: b(1),
+                        args: vec![v(0)],
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![(v(1), Idx::STR)],
+                    body: vec![],
+                    terminator: ArcTerminator::Return { value: v(1) },
+                },
+            ],
+            vec![Idx::STR, Idx::STR],
+        );
+
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let sigs = infer_borrows(std::slice::from_ref(&func), &classifier);
+        let ownership = infer_derived_ownership(&func, &sigs);
+
+        // v1 is a block param → Owned
+        assert_eq!(ownership[1], DerivedOwnership::Owned);
+    }
+
+    /// Let alias inherits from source.
+    #[test]
+    fn derived_let_alias_inherits() {
+        // fn f(x: str) -> int
+        //   v1 = x             -- alias, inherits ownership
+        //   v2 = 42 : int
+        //   return v2
+        let func = make_func(
+            Name::from_raw(1),
+            vec![param(0, Idx::STR)],
+            Idx::INT,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: ArcValue::Var(v(0)),
+                    },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(LitValue::Int(42)),
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(2) },
+            }],
+            vec![Idx::STR, Idx::STR, Idx::INT],
+        );
+
+        let pool = Pool::new();
+        let classifier = ArcClassifier::new(&pool);
+        let sigs = infer_borrows(std::slice::from_ref(&func), &classifier);
+        let ownership = infer_derived_ownership(&func, &sigs);
+
+        // v0 is borrowed → BorrowedFrom(v(0))
+        assert_eq!(ownership[0], DerivedOwnership::BorrowedFrom(v(0)));
+        // v1 = Var(v0) → inherits BorrowedFrom(v(0))
+        assert_eq!(ownership[1], DerivedOwnership::BorrowedFrom(v(0)));
     }
 }

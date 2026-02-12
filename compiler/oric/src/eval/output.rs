@@ -5,6 +5,7 @@
 
 use super::value::Value;
 use crate::ir::{Name, StringInterner};
+use ori_diagnostic::ErrorCode;
 use ori_ir::Span;
 use std::hash::{Hash, Hasher};
 
@@ -55,10 +56,18 @@ pub enum EvalOutput {
         end: i64,
         inclusive: bool,
     },
-    /// Function (not directly representable, stored as description).
-    Function(String),
-    /// Struct (stored as description).
-    Struct(String),
+    /// Function (not directly representable in Salsa; carries structured metadata).
+    Function {
+        description: String,
+        /// Number of parameters, when known.
+        arity: Option<usize>,
+    },
+    /// Struct (not directly representable in Salsa; carries structured metadata).
+    Struct {
+        description: String,
+        /// Number of fields, when known.
+        field_count: Option<usize>,
+    },
     /// User-defined variant.
     Variant {
         type_name: Name,
@@ -107,16 +116,27 @@ impl EvalOutput {
                 inclusive: r.inclusive,
             },
             Value::Function(f) => {
-                EvalOutput::Function(format!("<function with {} params>", f.params.len()))
+                let arity = f.params.len();
+                EvalOutput::Function {
+                    description: format!("<function with {arity} params>"),
+                    arity: Some(arity),
+                }
             }
-            Value::MemoizedFunction(mf) => EvalOutput::Function(format!(
-                "<memoized function with {} params>",
-                mf.func.params.len()
-            )),
-            Value::FunctionVal(_, name) => EvalOutput::Function(format!("<{name}>")),
-            Value::Struct(s) => {
-                EvalOutput::Struct(format!("<struct {}>", interner.lookup(s.name())))
+            Value::MemoizedFunction(mf) => {
+                let arity = mf.func.params.len();
+                EvalOutput::Function {
+                    description: format!("<memoized function with {arity} params>"),
+                    arity: Some(arity),
+                }
             }
+            Value::FunctionVal(_, name) => EvalOutput::Function {
+                description: format!("<{name}>"),
+                arity: None,
+            },
+            Value::Struct(s) => EvalOutput::Struct {
+                description: format!("<struct {}>", interner.lookup(s.name())),
+                field_count: Some(s.fields.len()),
+            },
             Value::Variant {
                 type_name,
                 variant_name,
@@ -136,19 +156,28 @@ impl EvalOutput {
             } => {
                 let type_str = interner.lookup(*type_name);
                 let variant_str = interner.lookup(*variant_name);
-                EvalOutput::Function(format!(
-                    "<{type_str}::{variant_str} constructor ({field_count} fields)>"
-                ))
+                EvalOutput::Function {
+                    description: format!(
+                        "<{type_str}::{variant_str} constructor ({field_count} fields)>"
+                    ),
+                    arity: Some(*field_count),
+                }
             }
             Value::Newtype { type_name, inner } => {
                 // Display newtype by showing the wrapped value
                 let type_str = interner.lookup(*type_name);
                 let inner_output = Self::from_value(inner, interner);
-                EvalOutput::Struct(format!("{type_str}({inner_output:?})"))
+                EvalOutput::Struct {
+                    description: format!("{type_str}({inner_output:?})"),
+                    field_count: Some(1),
+                }
             }
             Value::NewtypeConstructor { type_name } => {
                 let type_str = interner.lookup(*type_name);
-                EvalOutput::Function(format!("<{type_str} constructor>"))
+                EvalOutput::Function {
+                    description: format!("<{type_str} constructor>"),
+                    arity: Some(1),
+                }
             }
             Value::Map(map) => {
                 let entries: Vec<_> = map
@@ -157,13 +186,17 @@ impl EvalOutput {
                     .collect();
                 EvalOutput::Map(entries)
             }
-            Value::ModuleNamespace(ns) => {
-                EvalOutput::Function(format!("<module namespace with {} items>", ns.len()))
-            }
+            Value::ModuleNamespace(ns) => EvalOutput::Function {
+                description: format!("<module namespace with {} items>", ns.len()),
+                arity: None,
+            },
             Value::Error(msg) => EvalOutput::Error(msg.clone()),
             Value::TypeRef { type_name } => {
                 let type_str = interner.lookup(*type_name);
-                EvalOutput::Function(format!("<type {type_str}>"))
+                EvalOutput::Function {
+                    description: format!("<type {type_str}>"),
+                    arity: None,
+                }
             }
         }
     }
@@ -211,7 +244,9 @@ impl EvalOutput {
                     format!("{start}..{end}")
                 }
             }
-            EvalOutput::Function(desc) | EvalOutput::Struct(desc) => desc.clone(),
+            EvalOutput::Function { description, .. } | EvalOutput::Struct { description, .. } => {
+                description.clone()
+            }
             EvalOutput::Variant {
                 type_name,
                 variant_name,
@@ -254,9 +289,27 @@ impl PartialEq for EvalOutput {
             | (EvalOutput::Size(a), EvalOutput::Size(b)) => a == b,
             // String types can be merged
             (EvalOutput::Str(a), EvalOutput::Str(b))
-            | (EvalOutput::Function(a), EvalOutput::Function(b))
-            | (EvalOutput::Struct(a), EvalOutput::Struct(b))
             | (EvalOutput::Error(a), EvalOutput::Error(b)) => a == b,
+            (
+                EvalOutput::Function {
+                    description: a,
+                    arity: ar1,
+                },
+                EvalOutput::Function {
+                    description: b,
+                    arity: ar2,
+                },
+            ) => a == b && ar1 == ar2,
+            (
+                EvalOutput::Struct {
+                    description: a,
+                    field_count: fc1,
+                },
+                EvalOutput::Struct {
+                    description: b,
+                    field_count: fc2,
+                },
+            ) => a == b && fc1 == fc2,
             // Vec<EvalOutput> types can be merged
             (EvalOutput::List(a), EvalOutput::List(b))
             | (EvalOutput::Tuple(a), EvalOutput::Tuple(b)) => a == b,
@@ -316,10 +369,18 @@ impl Hash for EvalOutput {
             // i64 types
             EvalOutput::Duration(ns) => ns.hash(state),
             // String types
-            EvalOutput::Str(s)
-            | EvalOutput::Function(s)
-            | EvalOutput::Struct(s)
-            | EvalOutput::Error(s) => s.hash(state),
+            EvalOutput::Str(s) | EvalOutput::Error(s) => s.hash(state),
+            EvalOutput::Function { description, arity } => {
+                description.hash(state);
+                arity.hash(state);
+            }
+            EvalOutput::Struct {
+                description,
+                field_count,
+            } => {
+                description.hash(state);
+                field_count.hash(state);
+            }
             // Vec<EvalOutput> types
             EvalOutput::List(items) | EvalOutput::Tuple(items) => items.hash(state),
             // Box<EvalOutput> types
@@ -366,6 +427,13 @@ pub struct EvalErrorSnapshot {
     pub message: String,
     /// Structured error kind name (e.g., `DivisionByZero`, `UndefinedVariable`).
     pub kind_name: String,
+    /// The specific error code for this error kind (e.g., `E6001` for division by zero).
+    ///
+    /// Populated from `error_code_for_kind()` at snapshot creation time, ensuring
+    /// the snapshot carries the exact same error code that `eval_error_to_diagnostic()`
+    /// would produce. This avoids the lossy `kind_name` → error code reverse-mapping
+    /// that `snapshot_to_diagnostic()` previously had to do (falling back to `E6099`).
+    pub error_code: ErrorCode,
     /// Source location where the error occurred.
     pub span: Option<Span>,
     /// Call stack frames as `(function_name, optional_span)` pairs.
@@ -402,9 +470,12 @@ impl EvalErrorSnapshot {
             .trim()
             .to_string();
 
+        let error_code = crate::problem::eval::error_code_for_kind(&err.kind);
+
         Self {
             message: err.message.clone(),
             kind_name,
+            error_code,
             span: err.span,
             backtrace,
             notes,
@@ -414,19 +485,34 @@ impl EvalErrorSnapshot {
 
 /// Result of evaluating a module.
 ///
+/// # Error Layering
+///
+/// This type uses a two-tier error design:
+/// - `error` is the universal fallback: set for *any* failure (lex, parse, type,
+///   runtime). Consumers that just need "did it fail?" check this field.
+/// - `eval_error` is the structured runtime-only snapshot: set *only* when the
+///   failure originated from the evaluator at runtime. It carries span, backtrace,
+///   kind, and notes for enriched diagnostic rendering.
+///
+/// The `run` command checks `eval_error` first for rich diagnostics, then falls
+/// back to `error` for pre-runtime failures (lex/parse/type errors).
+///
 /// # Salsa Compatibility
 /// Has all required traits: Clone, Eq, `PartialEq`, Hash, Debug
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModuleEvalResult {
     /// The result value (if evaluation succeeded).
     pub result: Option<EvalOutput>,
-    /// Error message (if evaluation failed).
-    pub error: Option<String>,
-    /// Structured error snapshot (if evaluation failed at runtime).
+    /// Error message for any failure kind (lex, parse, type, or runtime).
     ///
-    /// Preserves span, backtrace, notes, and kind information that the
-    /// plain `error: Option<String>` field discards. Used by the `run`
-    /// command to produce enriched diagnostics with file/line info.
+    /// This is the universal "did it fail?" field. For runtime errors, the same
+    /// message is also available in `eval_error.message` with richer context.
+    pub error: Option<String>,
+    /// Structured error snapshot, populated **only** for runtime eval errors.
+    ///
+    /// Preserves span, backtrace, notes, and kind information that the plain
+    /// `error` field discards. Pre-runtime failures (lex, parse, type errors)
+    /// leave this as `None` and use `error` alone.
     pub eval_error: Option<EvalErrorSnapshot>,
     /// Captured stdout output (if any).
     pub stdout: String,
@@ -601,6 +687,7 @@ mod tests {
         let snapshot = result.eval_error.as_ref().unwrap();
         assert_eq!(snapshot.span, Some(Span::new(10, 20)));
         assert_eq!(snapshot.kind_name, "DivisionByZero");
+        assert_eq!(snapshot.error_code, ErrorCode::E6001);
         assert!(snapshot.message.contains("division by zero"));
     }
 

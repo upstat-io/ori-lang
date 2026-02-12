@@ -326,29 +326,141 @@ impl ErrorCode {
         }
     }
 
+    /// Check if this is a lexer error (E0xxx range).
+    pub fn is_lexer_error(&self) -> bool {
+        matches!(
+            self,
+            ErrorCode::E0001
+                | ErrorCode::E0002
+                | ErrorCode::E0003
+                | ErrorCode::E0004
+                | ErrorCode::E0005
+                | ErrorCode::E0006
+                | ErrorCode::E0007
+                | ErrorCode::E0008
+                | ErrorCode::E0009
+                | ErrorCode::E0010
+                | ErrorCode::E0011
+                | ErrorCode::E0012
+                | ErrorCode::E0013
+                | ErrorCode::E0014
+                | ErrorCode::E0015
+                | ErrorCode::E0911
+        )
+    }
+
     /// Check if this is a parser/syntax error (E1xxx range).
     pub fn is_parser_error(&self) -> bool {
-        self.as_str().starts_with("E1")
+        matches!(
+            self,
+            ErrorCode::E1001
+                | ErrorCode::E1002
+                | ErrorCode::E1003
+                | ErrorCode::E1004
+                | ErrorCode::E1005
+                | ErrorCode::E1006
+                | ErrorCode::E1007
+                | ErrorCode::E1008
+                | ErrorCode::E1009
+                | ErrorCode::E1010
+                | ErrorCode::E1011
+                | ErrorCode::E1012
+                | ErrorCode::E1013
+                | ErrorCode::E1014
+                | ErrorCode::E1015
+        )
+    }
+
+    /// Check if this is a type error (E2xxx range).
+    pub fn is_type_error(&self) -> bool {
+        matches!(
+            self,
+            ErrorCode::E2001
+                | ErrorCode::E2002
+                | ErrorCode::E2003
+                | ErrorCode::E2004
+                | ErrorCode::E2005
+                | ErrorCode::E2006
+                | ErrorCode::E2007
+                | ErrorCode::E2008
+                | ErrorCode::E2009
+                | ErrorCode::E2010
+                | ErrorCode::E2011
+                | ErrorCode::E2012
+                | ErrorCode::E2013
+                | ErrorCode::E2014
+                | ErrorCode::E2015
+                | ErrorCode::E2016
+                | ErrorCode::E2017
+                | ErrorCode::E2018
+        )
+    }
+
+    /// Check if this is a pattern error (E3xxx range).
+    pub fn is_pattern_error(&self) -> bool {
+        matches!(self, ErrorCode::E3001 | ErrorCode::E3002 | ErrorCode::E3003)
     }
 
     /// Check if this is an ARC analysis error (E4xxx range).
     pub fn is_arc_error(&self) -> bool {
-        self.as_str().starts_with("E4")
+        matches!(self, ErrorCode::E4001 | ErrorCode::E4002 | ErrorCode::E4003)
     }
 
     /// Check if this is a codegen/LLVM error (E5xxx range).
     pub fn is_codegen_error(&self) -> bool {
-        self.as_str().starts_with("E5")
+        matches!(
+            self,
+            ErrorCode::E5001
+                | ErrorCode::E5002
+                | ErrorCode::E5003
+                | ErrorCode::E5004
+                | ErrorCode::E5005
+                | ErrorCode::E5006
+                | ErrorCode::E5007
+                | ErrorCode::E5008
+                | ErrorCode::E5009
+        )
     }
 
     /// Check if this is a runtime/eval error (E6xxx range).
     pub fn is_eval_error(&self) -> bool {
-        self.as_str().starts_with("E6")
+        matches!(
+            self,
+            ErrorCode::E6001
+                | ErrorCode::E6002
+                | ErrorCode::E6003
+                | ErrorCode::E6010
+                | ErrorCode::E6011
+                | ErrorCode::E6012
+                | ErrorCode::E6020
+                | ErrorCode::E6021
+                | ErrorCode::E6022
+                | ErrorCode::E6023
+                | ErrorCode::E6024
+                | ErrorCode::E6025
+                | ErrorCode::E6026
+                | ErrorCode::E6027
+                | ErrorCode::E6030
+                | ErrorCode::E6031
+                | ErrorCode::E6032
+                | ErrorCode::E6040
+                | ErrorCode::E6050
+                | ErrorCode::E6051
+                | ErrorCode::E6060
+                | ErrorCode::E6070
+                | ErrorCode::E6080
+                | ErrorCode::E6099
+        )
+    }
+
+    /// Check if this is an internal compiler error (E9xxx range).
+    pub fn is_internal_error(&self) -> bool {
+        matches!(self, ErrorCode::E9001 | ErrorCode::E9002)
     }
 
     /// Check if this is a warning code (Wxxx range).
     pub fn is_warning(&self) -> bool {
-        self.as_str().starts_with('W')
+        matches!(self, ErrorCode::W1001)
     }
 }
 
@@ -431,17 +543,40 @@ mod tests {
 
         for code in &all_codes {
             let flags = [
+                code.is_lexer_error(),
                 code.is_parser_error(),
+                code.is_type_error(),
+                code.is_pattern_error(),
                 code.is_arc_error(),
                 code.is_codegen_error(),
                 code.is_eval_error(),
+                code.is_internal_error(),
                 code.is_warning(),
             ];
-            // At most one predicate should be true for any code
-            assert!(
-                flags.iter().filter(|&&f| f).count() <= 1,
-                "overlapping predicates for {code}"
+            // Exactly one predicate should be true for every code
+            let true_count = flags.iter().filter(|&&f| f).count();
+            assert_eq!(
+                true_count, 1,
+                "expected exactly 1 predicate true for {code}, got {true_count}"
             );
         }
+    }
+
+    #[test]
+    fn test_new_predicates() {
+        assert!(ErrorCode::E0001.is_lexer_error());
+        assert!(ErrorCode::E0911.is_lexer_error());
+        assert!(!ErrorCode::E0001.is_parser_error());
+
+        assert!(ErrorCode::E2001.is_type_error());
+        assert!(ErrorCode::E2018.is_type_error());
+        assert!(!ErrorCode::E2001.is_parser_error());
+
+        assert!(ErrorCode::E3001.is_pattern_error());
+        assert!(!ErrorCode::E3001.is_type_error());
+
+        assert!(ErrorCode::E9001.is_internal_error());
+        assert!(ErrorCode::E9002.is_internal_error());
+        assert!(!ErrorCode::E9001.is_eval_error());
     }
 }

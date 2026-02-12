@@ -1076,7 +1076,6 @@ fn test_problem_from_lex_problem() {
     let problem: oric::problem::Problem = lex_problem.into();
 
     assert!(problem.is_lex());
-    assert!(!problem.is_parse());
     assert!(!problem.is_semantic());
     assert_eq!(problem.span(), ori_ir::Span::new(0, 1));
 }

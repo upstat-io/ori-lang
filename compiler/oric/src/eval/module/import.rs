@@ -32,44 +32,12 @@ use crate::ir::{ImportPath, Name, SharedArena, StringInterner};
 use crate::parser::ParseOutput;
 use ori_ir::canon::SharedCanonResult;
 use rustc_hash::FxHashMap;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Error during import resolution.
-#[derive(Debug, Clone)]
-pub struct ImportError {
-    pub message: String,
-    /// Optional source span where the error occurred.
-    pub span: Option<ori_ir::Span>,
-}
-
-impl ImportError {
-    #[cold]
-    pub fn new(message: impl Into<String>) -> Self {
-        ImportError {
-            message: message.into(),
-            span: None,
-        }
-    }
-
-    /// Create an error with a source span.
-    #[cold]
-    pub fn with_span(message: impl Into<String>, span: ori_ir::Span) -> Self {
-        ImportError {
-            message: message.into(),
-            span: Some(span),
-        }
-    }
-}
-
-impl std::fmt::Display for ImportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for ImportError {}
+/// Re-export `ImportError` and `ImportErrorKind` from the canonical definition in `imports.rs`.
+pub use crate::imports::{ImportError, ImportErrorKind};
 
 /// Extract params and capabilities from a function definition.
 ///
@@ -256,9 +224,10 @@ fn resolve_relative_import_tracked(
         .collect::<Vec<_>>()
         .join(", ");
 
-    Err(ImportError::new(format!(
-        "cannot find import '{path_str}'. Searched: {searched}"
-    )))
+    Err(ImportError::new(
+        ImportErrorKind::ModuleNotFound,
+        format!("cannot find import '{path_str}'. Searched: {searched}"),
+    ))
 }
 
 /// Generate candidate file paths for a relative import.
@@ -303,7 +272,10 @@ fn resolve_module_import_tracked(
     current_file: &Path,
 ) -> Result<ResolvedImport, ImportError> {
     if segments.is_empty() {
-        return Err(ImportError::new("empty module path"));
+        return Err(ImportError::new(
+            ImportErrorKind::EmptyModulePath,
+            "empty module path",
+        ));
     }
 
     let interner = db.interner();
@@ -317,9 +289,10 @@ fn resolve_module_import_tracked(
         }
     }
 
-    Err(ImportError::new(format!(
-        "module '{module_name}' not found. Searched: ORI_STDLIB, ./library/, standard locations"
-    )))
+    Err(ImportError::new(
+        ImportErrorKind::ModuleNotFound,
+        format!("module '{module_name}' not found. Searched: ORI_STDLIB, ./library/, standard locations"),
+    ))
 }
 
 /// Generate candidate file paths for a module import.
@@ -362,67 +335,6 @@ fn generate_module_candidates(components: &[&str], current_file: &Path) -> Vec<P
     }
 
     candidates
-}
-
-/// Context for loading modules with cycle detection.
-///
-/// Tracks which modules are currently being loaded to detect circular imports.
-#[derive(Debug, Default)]
-pub struct LoadingContext {
-    /// Stack of modules currently being loaded (for cycle detection)
-    loading_stack: Vec<PathBuf>,
-    /// Set of modules currently being loaded (for O(1) cycle detection)
-    loading_set: HashSet<PathBuf>,
-    /// Cache of already loaded modules
-    loaded: HashSet<PathBuf>,
-}
-
-impl LoadingContext {
-    /// Create a new loading context.
-    pub fn new() -> Self {
-        LoadingContext {
-            loading_stack: Vec::new(),
-            loading_set: HashSet::new(),
-            loaded: HashSet::new(),
-        }
-    }
-
-    /// Check if loading this path would create a cycle.
-    pub fn would_cycle(&self, path: &Path) -> bool {
-        self.loading_set.contains(path)
-    }
-
-    /// Check if this path has already been loaded.
-    pub fn is_loaded(&self, path: &Path) -> bool {
-        self.loaded.contains(path)
-    }
-
-    /// Start loading a module. Returns error if this would create a cycle.
-    pub fn start_loading(&mut self, path: PathBuf) -> Result<(), ImportError> {
-        if self.would_cycle(&path) {
-            let cycle: Vec<String> = self
-                .loading_stack
-                .iter()
-                .chain(std::iter::once(&path))
-                .map(|p| p.display().to_string())
-                .collect();
-            return Err(ImportError::new(format!(
-                "circular import detected: {}",
-                cycle.join(" -> ")
-            )));
-        }
-        self.loading_set.insert(path.clone());
-        self.loading_stack.push(path);
-        Ok(())
-    }
-
-    /// Finish loading a module.
-    pub fn finish_loading(&mut self, path: PathBuf) {
-        if let Some(popped) = self.loading_stack.pop() {
-            self.loading_set.remove(&popped);
-        }
-        self.loaded.insert(path);
-    }
 }
 
 /// Represents a parsed and loaded module ready for import registration.
@@ -553,6 +465,17 @@ pub fn register_imports(
         .map(|f| (interner.lookup(f.name), f))
         .collect();
 
+    // Build enriched captures once: current environment + all module functions.
+    // Previously this was done per-item inside the loop, cloning the entire
+    // environment N times for N imports. Now we build it once and share via Arc.
+    let shared_captures: Arc<FxHashMap<Name, Value>> = {
+        let mut captures = env.capture();
+        for (name, value) in &imported.functions {
+            captures.insert(*name, value.clone());
+        }
+        Arc::new(captures)
+    };
+
     for item in &import.items {
         let item_name_str = interner.lookup(item.name);
 
@@ -560,26 +483,22 @@ pub fn register_imports(
         if let Some(&func) = func_by_name.get(item_name_str) {
             // Check visibility: private items require :: prefix unless test module
             if !func.visibility.is_public() && !item.is_private && !allow_private_access {
-                return Err(ImportError::new(format!(
-                    "'{}' is private in '{}'. Use '::{}' to import private items.",
-                    item_name_str,
-                    import_path.display(),
-                    item_name_str
-                )));
+                return Err(ImportError::new(
+                    ImportErrorKind::PrivateAccess,
+                    format!(
+                        "'{}' is private in '{}'. Use '::{}' to import private items.",
+                        item_name_str,
+                        import_path.display(),
+                        item_name_str
+                    ),
+                ));
             }
 
             let (params, capabilities) = extract_function_metadata(func, imported.arena);
 
-            // Captures include: current environment + all module functions
-            // Iterate instead of cloning the entire HashMap to avoid intermediate allocation
-            let mut captures = env.capture();
-            for (name, value) in &imported.functions {
-                captures.insert(*name, value.clone());
-            }
-
-            let mut func_value = FunctionValue::with_capabilities(
+            let mut func_value = FunctionValue::with_shared_captures(
                 params,
-                captures,
+                Arc::clone(&shared_captures),
                 imported.arena.clone(),
                 capabilities,
             );
@@ -599,11 +518,14 @@ pub fn register_imports(
                 Mutability::Immutable,
             );
         } else {
-            return Err(ImportError::new(format!(
-                "'{}' not found in '{}'",
-                item_name_str,
-                import_path.display()
-            )));
+            return Err(ImportError::new(
+                ImportErrorKind::ItemNotFound,
+                format!(
+                    "'{}' not found in '{}'",
+                    item_name_str,
+                    import_path.display()
+                ),
+            ));
         }
     }
 
@@ -624,10 +546,13 @@ fn register_module_alias(
 ) -> Result<(), ImportError> {
     // Module alias imports should not have individual items
     if !import.items.is_empty() {
-        return Err(ImportError::new(format!(
-            "module alias import cannot have individual items: '{}'",
-            import_path.display()
-        )));
+        return Err(ImportError::new(
+            ImportErrorKind::ModuleAliasWithItems,
+            format!(
+                "module alias import cannot have individual items: '{}'",
+                import_path.display()
+            ),
+        ));
     }
 
     // Collect all public functions into the namespace
@@ -680,6 +605,61 @@ fn register_module_alias(
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+
+    /// Test-only context for loading modules with cycle detection.
+    ///
+    /// Tracks which modules are currently being loaded to detect circular imports.
+    /// In production, Salsa's query dependency tracking handles cycle detection.
+    #[derive(Debug, Default)]
+    struct LoadingContext {
+        loading_stack: Vec<PathBuf>,
+        loading_set: HashSet<PathBuf>,
+        loaded: HashSet<PathBuf>,
+    }
+
+    impl LoadingContext {
+        fn new() -> Self {
+            LoadingContext {
+                loading_stack: Vec::new(),
+                loading_set: HashSet::new(),
+                loaded: HashSet::new(),
+            }
+        }
+
+        fn would_cycle(&self, path: &Path) -> bool {
+            self.loading_set.contains(path)
+        }
+
+        fn is_loaded(&self, path: &Path) -> bool {
+            self.loaded.contains(path)
+        }
+
+        fn start_loading(&mut self, path: PathBuf) -> Result<(), ImportError> {
+            if self.would_cycle(&path) {
+                let cycle: Vec<String> = self
+                    .loading_stack
+                    .iter()
+                    .chain(std::iter::once(&path))
+                    .map(|p| p.display().to_string())
+                    .collect();
+                return Err(ImportError::new(
+                    ImportErrorKind::CircularImport,
+                    format!("circular import detected: {}", cycle.join(" -> ")),
+                ));
+            }
+            self.loading_set.insert(path.clone());
+            self.loading_stack.push(path);
+            Ok(())
+        }
+
+        fn finish_loading(&mut self, path: PathBuf) {
+            if let Some(popped) = self.loading_stack.pop() {
+                self.loading_set.remove(&popped);
+            }
+            self.loaded.insert(path);
+        }
+    }
     use crate::db::CompilerDb;
     use crate::ir::SharedInterner;
     use std::path::PathBuf;
@@ -761,7 +741,7 @@ mod tests {
 
     #[test]
     fn test_import_error_display() {
-        let err = ImportError::new("test error");
+        let err = ImportError::new(ImportErrorKind::ModuleNotFound, "test error");
         assert_eq!(format!("{err}"), "test error");
     }
 

@@ -957,6 +957,34 @@ pub enum ConstValue {
 
 impl Eq for ConstValue {}
 
+/// A pattern-related problem detected during canonicalization.
+///
+/// These are produced by the exhaustiveness checker after decision tree
+/// compilation. Both variants carry spans for rich diagnostic rendering.
+///
+/// # Salsa Compatibility
+///
+/// Derives `Clone, Eq, PartialEq, Hash, Debug` for Salsa query return types.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub enum PatternProblem {
+    /// A match expression does not cover all possible values.
+    NonExhaustive {
+        /// Span of the `match` keyword / expression.
+        match_span: Span,
+        /// Human-readable descriptions of missing patterns (e.g. `"false"`, `"_"`).
+        missing: Vec<String>,
+    },
+    /// A match arm can never be reached because earlier arms cover all its cases.
+    RedundantArm {
+        /// Span of the unreachable arm.
+        arm_span: Span,
+        /// Span of the enclosing match expression.
+        match_span: Span,
+        /// Zero-based index of the redundant arm.
+        arm_index: usize,
+    },
+}
+
 impl Hash for ConstValue {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
@@ -1499,6 +1527,8 @@ pub struct CanonResult {
     pub roots: Vec<CanonRoot>,
     /// Method roots for `impl`/`extend`/`def_impl` blocks.
     pub method_roots: Vec<MethodRoot>,
+    /// Pattern problems detected during exhaustiveness checking.
+    pub problems: Vec<PatternProblem>,
 }
 
 impl CanonResult {
@@ -1511,6 +1541,7 @@ impl CanonResult {
             root: CanId::INVALID,
             roots: Vec::new(),
             method_roots: Vec::new(),
+            problems: Vec::new(),
         }
     }
 
