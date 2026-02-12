@@ -44,14 +44,8 @@ pub trait PatternDefinition: Send + Sync {
         false
     }
 
-    /// Type check this pattern and return its result type.
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type;
-
     /// Evaluate this pattern.
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult;
-
-    /// Compute the pattern signature for template caching.
-    fn signature(&self, ctx: &TypeCheckContext) -> PatternSignature { ... }
 
     /// Check if this pattern can be fused with the given next pattern.
     fn can_fuse_with(&self, next: &dyn PatternDefinition) -> bool {
@@ -201,6 +195,10 @@ fn scoped_bindings(&self) -> &'static [ScopedBinding] {
 }
 ```
 
+## Note on Type Checking
+
+Type checking for patterns is handled by `ori_types`, not by the patterns themselves. The `PatternDefinition` trait provides metadata (required/optional properties, scoped bindings) that `ori_types` uses to drive type inference, but the trait itself has no `type_check()` method.
+
 ## Example: Recurse Pattern
 
 ```rust
@@ -225,20 +223,6 @@ impl PatternDefinition for RecursePattern {
             for_props: &["step"],
             type_from: ScopedBindingType::EnclosingFunction,
         }]
-    }
-
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        let base_type = ctx.require_prop_type("base");
-        let step_type = ctx.require_prop_type("step");
-
-        // condition must be bool
-        let cond_type = ctx.require_prop_type("condition");
-        ctx.unify(&cond_type, &Type::Bool);
-
-        // step must match base
-        ctx.unify(&step_type, &base_type);
-
-        base_type
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
@@ -267,17 +251,6 @@ impl PatternDefinition for TimeoutPattern {
 
     fn required_props(&self) -> &'static [&'static str] {
         &["op", "after"]
-    }
-
-    fn type_check(&self, ctx: &mut TypeCheckContext) -> Type {
-        let op_type = ctx.require_prop_type("op");
-        let after_type = ctx.require_prop_type("after");
-
-        // after must be Duration
-        ctx.unify(&after_type, &Type::Duration);
-
-        // Result is Result<op_type, TimeoutError>
-        ctx.result_of(op_type, Type::Named("TimeoutError".into()))
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {

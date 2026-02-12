@@ -22,7 +22,6 @@ pub use error::{DetachmentReason, ErrorContext, ParseError, ParseWarning};
 pub use outcome::ParseOutcome;
 pub use recovery::{synchronize, TokenSet, FUNCTION_BOUNDARY, STMT_BOUNDARY};
 pub use series::{SeriesConfig, TrailingSeparator};
-pub use snapshot::ParserSnapshot;
 
 // Re-export backtracking macros at crate root
 // Note: These are defined in outcome.rs and use #[macro_export]
@@ -272,10 +271,11 @@ impl<'a> Parser<'a> {
     #[cold]
     #[allow(dead_code)] // Infrastructure for enhanced error messages
     pub(crate) fn expect_one_of(&mut self, expected: &TokenSet) -> Result<TokenKind, ParseError> {
-        let current = self.cursor.current_kind().clone();
-        if expected.contains(&current) {
+        let current = self.cursor.current_kind();
+        if expected.contains(current) {
+            let matched = current.clone();
             self.cursor.advance();
-            Ok(current)
+            Ok(matched)
         } else {
             Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1001,
@@ -606,11 +606,22 @@ impl<'a> Parser<'a> {
                 errors,
                 Self::recover_to_function,
             );
-        } else if self.cursor.check(&TokenKind::Use) {
-            // Import after declarations - error
+        } else {
+            self.handle_declaration_error(&attrs, errors);
+        }
+    }
+
+    /// Handle error cases in declaration dispatch.
+    ///
+    /// Covers: misplaced imports, lexer error tokens, reserved keywords
+    /// (`return`), foreign keywords (`fn`, `func`, etc.), orphaned attributes,
+    /// and unknown tokens at module level.
+    fn handle_declaration_error(&mut self, attrs: &ParsedAttrs, errors: &mut Vec<ParseError>) {
+        if self.cursor.check(&TokenKind::Use) {
+            // Import after declarations
             errors.push(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
-                "import statements must appear at the beginning of the file".to_string(),
+                "import statements must appear at the beginning of the file",
                 self.cursor.current_span(),
             ));
             // Skip the entire use statement to avoid infinite loop
@@ -662,27 +673,20 @@ impl<'a> Parser<'a> {
                 };
                 errors.push(ParseError::from_kind(&kind, self.cursor.current_span()));
             } else {
-                errors.push(ParseError {
-                    code: ori_diagnostic::ErrorCode::E1006,
-                    message: "attributes must be followed by a function or test definition"
-                        .to_string(),
-                    span: self.cursor.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: ori_diagnostic::queue::DiagnosticSeverity::Hard,
-                });
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes must be followed by a function or test definition",
+                    self.cursor.current_span(),
+                ));
             }
             self.cursor.advance();
         } else if !attrs.is_empty() {
             // Attributes without a following function/test
-            errors.push(ParseError {
-                code: ori_diagnostic::ErrorCode::E1006,
-                message: "attributes must be followed by a function or test definition".to_string(),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: ori_diagnostic::queue::DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ori_diagnostic::ErrorCode::E1006,
+                "attributes must be followed by a function or test definition",
+                self.cursor.current_span(),
+            ));
             self.cursor.advance();
         } else {
             // Unknown token at module level — not a valid declaration start
@@ -849,6 +853,8 @@ impl ParseOutput {
     pub fn has_warnings(&self) -> bool {
         !self.warnings.is_empty()
     }
+
+    // --- Post-parse analysis ---
 
     /// Generate warnings for detached doc comments.
     ///

@@ -34,6 +34,7 @@
 //! - Lean 4: `src/Lean/Compiler/IR/ResetReuse.lean`
 //! - Koka: Perceus paper §4 (reuse analysis)
 
+use ori_types::Idx;
 use rustc_hash::FxHashSet;
 
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
@@ -82,8 +83,11 @@ fn detect_in_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn Ar
     // Track which Construct indices have been paired.
     let mut paired_constructs: FxHashSet<usize> = FxHashSet::default();
 
-    // Collect all (dec_idx, construct_idx) pairs to apply.
-    let mut pairs: Vec<(usize, usize, ArcVarId)> = Vec::new();
+    // Phase 1: Scan — collect matched (dec_idx, construct_idx, dec_ty)
+    // triples. Token allocation is deferred to after the scan to avoid
+    // a borrow conflict (body borrows func.blocks immutably, fresh_var
+    // borrows func mutably).
+    let mut matched: Vec<(usize, usize, Idx)> = Vec::new();
 
     let body = &func.blocks[block_idx].body;
 
@@ -111,9 +115,7 @@ fn detect_in_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn Ar
             }
 
             // Check constraint: no use of dec_var between i and j.
-            if instruction_uses_var(candidate, dec_var)
-                && !matches!(candidate, ArcInstr::Construct { .. })
-            {
+            if candidate.uses_var(dec_var) && !matches!(candidate, ArcInstr::Construct { .. }) {
                 // dec_var is used before we find a Construct → cannot reuse.
                 break;
             }
@@ -122,33 +124,34 @@ fn detect_in_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn Ar
                 ArcInstr::Construct { ty, .. } if *ty == dec_ty => {
                     // Check that dec_var is NOT used in the Construct's args.
                     // (If it is, there's an alias and reuse is unsafe.)
-                    if instruction_uses_var(candidate, dec_var) {
+                    if candidate.uses_var(dec_var) {
                         // dec_var appears in args → skip this Construct.
                         continue;
                     }
 
-                    // Allocate a fresh token variable.
-                    let num_vars = u32::try_from(func.var_types.len())
-                        .unwrap_or_else(|_| panic!("variable count exceeds u32::MAX"));
-                    let token = ArcVarId::new(num_vars);
-                    // Token has the same type as the Dec'd variable (used for
-                    // type-checking the reuse).
-                    func.var_types.push(dec_ty);
-
-                    pairs.push((i, j, token));
+                    matched.push((i, j, dec_ty));
                     paired_decs.insert(i);
                     paired_constructs.insert(j);
                     break;
                 }
                 _ => {
                     // Check if this instruction uses dec_var → constraint violation.
-                    if instruction_uses_var(candidate, dec_var) {
+                    if candidate.uses_var(dec_var) {
                         break;
                     }
                 }
             }
         }
     }
+
+    // Phase 2: Allocate fresh token variables (body borrow is released).
+    let pairs: Vec<(usize, usize, ArcVarId)> = matched
+        .into_iter()
+        .map(|(dec_idx, construct_idx, dec_ty)| {
+            let token = func.fresh_var(dec_ty);
+            (dec_idx, construct_idx, token)
+        })
+        .collect();
 
     // Apply replacements (in reverse order to preserve indices).
     // Since we're replacing in-place at fixed indices, order doesn't matter
@@ -188,11 +191,6 @@ fn detect_in_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn Ar
     }
 }
 
-/// Check whether an instruction uses (reads) a specific variable.
-fn instruction_uses_var(instr: &ArcInstr, var: ArcVarId) -> bool {
-    instr.used_vars().contains(&var)
-}
-
 #[cfg(test)]
 mod tests {
     use ori_ir::Name;
@@ -207,7 +205,7 @@ mod tests {
 
     use super::detect_reset_reuse;
 
-    // ── Helpers ─────────────────────────────────────────────────
+    // Helpers
 
     fn make_func(
         params: Vec<ArcParam>,
@@ -251,7 +249,7 @@ mod tests {
         func
     }
 
-    // ── Tests ───────────────────────────────────────────────────
+    // Tests
 
     /// Test 1: Basic pair — RcDec{x}; Construct{ty==typeof(x)} → Reset/Reuse.
     #[test]

@@ -114,7 +114,9 @@ impl ArcLowerer<'_> {
             CanExpr::Constant(const_id) => self.lower_constant(const_id, ty, span),
 
             // Identifiers
-            CanExpr::Ident(name) | CanExpr::Const(name) => self.lower_ident(name, ty, span),
+            CanExpr::Ident(name) | CanExpr::Const(name) | CanExpr::TypeRef(name) => {
+                self.lower_ident(name, ty, span)
+            }
             CanExpr::SelfRef => {
                 let self_name = self.interner.intern("self");
                 self.lower_ident(self_name, ty, span)

@@ -112,33 +112,60 @@ where
 
 // Path resolution
 
-/// Navigate from a root value to a sub-value following a scrutinee path.
+/// Result of one step of ref-based path resolution.
 ///
-/// Each `PathInstruction` extracts a component: variant payload field,
-/// tuple element, struct field, or list element.
-fn resolve_path(root: &Value, path: &[PathInstruction]) -> Result<Value, EvalError> {
-    let mut current = root.clone();
-    for instruction in path {
-        current = step_path(&current, *instruction)?;
-    }
-    Ok(current)
+/// Most instructions extract a reference to an existing sub-value (`Ref`).
+/// `ListRest` constructs a new list value (`Owned`).
+enum Resolved<'a> {
+    Ref(&'a Value),
+    Owned(Value),
 }
 
-/// Execute one step of path resolution.
-fn step_path(value: &Value, instruction: PathInstruction) -> Result<Value, EvalError> {
+impl Resolved<'_> {
+    fn into_value(self) -> Value {
+        match self {
+            Resolved::Ref(r) => r.clone(),
+            Resolved::Owned(v) => v,
+        }
+    }
+}
+
+/// Navigate from a root value to a sub-value following a scrutinee path.
+///
+/// Navigates by reference where possible, cloning only the final leaf value.
+/// `ListRest` instructions (which construct new lists) fall back to owned
+/// navigation for the remainder of the path.
+fn resolve_path(root: &Value, path: &[PathInstruction]) -> Result<Value, EvalError> {
+    let mut current = Resolved::Ref(root);
+    for instruction in path {
+        current = match current {
+            Resolved::Ref(r) => step_path_ref(r, *instruction)?,
+            Resolved::Owned(o) => Resolved::Owned(step_path(&o, *instruction)?),
+        };
+    }
+    Ok(current.into_value())
+}
+
+/// Execute one step of ref-based path resolution.
+///
+/// Returns `Ref` for instructions that extract existing sub-values (zero-copy),
+/// and `Owned` for `ListRest` which must construct a new list.
+fn step_path_ref(value: &Value, instruction: PathInstruction) -> Result<Resolved<'_>, EvalError> {
     match instruction {
         PathInstruction::TagPayload(field_idx) => {
             let idx = field_idx as usize;
             match value {
-                Value::Variant { fields, .. } => fields.get(idx).cloned().ok_or_else(|| {
-                    EvalError::new(format!(
-                        "variant payload index {idx} out of bounds (variant has {} fields)",
-                        fields.len()
-                    ))
-                }),
-                Value::Some(inner) if idx == 0 => Ok((**inner).clone()),
-                Value::Ok(inner) if idx == 0 => Ok((**inner).clone()),
-                Value::Err(inner) if idx == 0 => Ok((**inner).clone()),
+                Value::Variant { fields, .. } => {
+                    fields.get(idx).map(Resolved::Ref).ok_or_else(|| {
+                        EvalError::new(format!(
+                            "variant payload index {idx} out of bounds (variant has {} fields)",
+                            fields.len()
+                        ))
+                    })
+                }
+                Value::Some(inner) if idx == 0 => Ok(Resolved::Ref(inner)),
+                Value::Ok(inner) if idx == 0 => Ok(Resolved::Ref(inner)),
+                Value::Err(inner) if idx == 0 => Ok(Resolved::Ref(inner)),
                 _ => Err(EvalError::new(format!(
                     "cannot extract tag payload from {value:?}"
                 ))),
@@ -148,7 +175,7 @@ fn step_path(value: &Value, instruction: PathInstruction) -> Result<Value, EvalE
         PathInstruction::TupleIndex(elem_idx) => {
             let idx = elem_idx as usize;
             match value {
-                Value::Tuple(elems) => elems.get(idx).cloned().ok_or_else(|| {
+                Value::Tuple(elems) => elems.get(idx).map(Resolved::Ref).ok_or_else(|| {
                     EvalError::new(format!(
                         "tuple index {idx} out of bounds (tuple has {} elements)",
                         elems.len()
@@ -163,7 +190,7 @@ fn step_path(value: &Value, instruction: PathInstruction) -> Result<Value, EvalE
         PathInstruction::StructField(field_idx) => {
             let idx = field_idx as usize;
             match value {
-                Value::Struct(sv) => sv.fields.get(idx).cloned().ok_or_else(|| {
+                Value::Struct(sv) => sv.fields.get(idx).map(Resolved::Ref).ok_or_else(|| {
                     EvalError::new(format!(
                         "struct field index {idx} out of bounds (struct has {} fields)",
                         sv.fields.len()
@@ -178,7 +205,7 @@ fn step_path(value: &Value, instruction: PathInstruction) -> Result<Value, EvalE
         PathInstruction::ListElement(elem_idx) => {
             let idx = elem_idx as usize;
             match value {
-                Value::List(items) => items.get(idx).cloned().ok_or_else(|| {
+                Value::List(items) => items.get(idx).map(Resolved::Ref).ok_or_else(|| {
                     EvalError::new(format!(
                         "list index {idx} out of bounds (list has {} elements)",
                         items.len()
@@ -190,6 +217,7 @@ fn step_path(value: &Value, instruction: PathInstruction) -> Result<Value, EvalE
             }
         }
 
+        // ListRest constructs a new list — must return Owned.
         PathInstruction::ListRest(start_idx) => {
             let start = start_idx as usize;
             match value {
@@ -199,7 +227,7 @@ fn step_path(value: &Value, instruction: PathInstruction) -> Result<Value, EvalE
                     } else {
                         Vec::new()
                     };
-                    Ok(Value::list(rest))
+                    Ok(Resolved::Owned(Value::list(rest)))
                 }
                 _ => Err(EvalError::new(format!(
                     "cannot extract list rest from {value:?}"
@@ -207,6 +235,13 @@ fn step_path(value: &Value, instruction: PathInstruction) -> Result<Value, EvalE
             }
         }
     }
+}
+
+/// Execute one step of owned path resolution (fallback after `ListRest`).
+///
+/// Thin wrapper over `step_path_ref` that clones any `Ref` result to owned.
+fn step_path(value: &Value, instruction: PathInstruction) -> Result<Value, EvalError> {
+    step_path_ref(value, instruction).map(Resolved::into_value)
 }
 
 /// Resolve all bindings in a leaf/guard node to (Name, Value) pairs.
@@ -318,7 +353,7 @@ mod tests {
         panic!("guard should not be called in this test")
     }
 
-    // ── resolve_path ──────────────────────────────────────────
+    // resolve_path
 
     #[test]
     fn resolve_empty_path() {
@@ -371,7 +406,7 @@ mod tests {
         assert!(resolve_path(&value, &path).is_err());
     }
 
-    // ── eval_decision_tree: Leaf ──────────────────────────────
+    // eval_decision_tree: Leaf
 
     #[test]
     fn leaf_returns_arm_index() {
@@ -402,7 +437,7 @@ mod tests {
         assert_eq!(result.bindings[0].1.as_int(), Some(42));
     }
 
-    // ── eval_decision_tree: Switch ────────────────────────────
+    // eval_decision_tree: Switch
 
     #[test]
     fn switch_bool() {
@@ -534,7 +569,7 @@ mod tests {
         assert_eq!(r2.arm_index, 1);
     }
 
-    // ── eval_decision_tree: Guard ─────────────────────────────
+    // eval_decision_tree: Guard
 
     #[test]
     fn guard_pass() {
@@ -583,7 +618,7 @@ mod tests {
         assert_eq!(r.arm_index, 1);
     }
 
-    // ── eval_decision_tree: Fail ──────────────────────────────
+    // eval_decision_tree: Fail
 
     #[test]
     fn fail_returns_error() {
@@ -593,7 +628,7 @@ mod tests {
         assert!(r.is_err());
     }
 
-    // ── test_tag_by_name ──────────────────────────────────────
+    // test_tag_by_name
 
     #[test]
     fn tag_by_name_matches_variant() {

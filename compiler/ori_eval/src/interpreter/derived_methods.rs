@@ -7,10 +7,9 @@
 //! - `#[derive(Printable)]` -> `to_string` method
 //! - `#[derive(Default)]` -> `default` method
 
-use crate::{
-    default_requires_type_context, wrong_function_args, DerivedMethodInfo, DerivedTrait,
-    EvalResult, Value,
-};
+use crate::errors::{default_requires_type_context, wrong_function_args};
+use crate::{EvalResult, Value};
+use ori_ir::{DerivedMethodInfo, DerivedTrait};
 
 use super::Interpreter;
 

@@ -84,6 +84,15 @@ impl Span {
         Self::try_from_range(range).unwrap_or_else(|e| panic!("{}", e))
     }
 
+    /// Create a point span (zero-length).
+    #[inline]
+    pub const fn point(offset: u32) -> Span {
+        Span {
+            start: offset,
+            end: offset,
+        }
+    }
+
     /// Length of the span in bytes.
     #[inline]
     pub const fn len(&self) -> u32 {
@@ -125,15 +134,6 @@ impl Span {
         Span {
             start: self.start,
             end: self.end.max(end),
-        }
-    }
-
-    /// Create a point span (zero-length).
-    #[inline]
-    pub const fn point(offset: u32) -> Span {
-        Span {
-            start: offset,
-            end: offset,
         }
     }
 

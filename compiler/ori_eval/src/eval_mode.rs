@@ -15,7 +15,7 @@
 /// Enum (not trait) for Salsa compatibility: `Clone, Eq, Hash, Debug` required.
 /// Each variant controls I/O access, recursion limits, test collection, and
 /// const-eval budget through policy methods.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum EvalMode {
     /// Standard mode for `ori run` — full I/O, capabilities enabled.
     #[default]
@@ -129,6 +129,19 @@ impl ModeState {
         }
     }
 
+    /// Create child mode state that inherits profiling enablement from the parent.
+    ///
+    /// Fresh counters (zeroed) are created if the parent has profiling enabled,
+    /// ensuring child calls are tracked. The caller is responsible for merging
+    /// child counters back via `merge_child_counters` after the call returns.
+    pub fn child(mode: &EvalMode, parent: &ModeState) -> Self {
+        let mut state = Self::new(mode);
+        if parent.counters.is_some() {
+            state.counters = Some(crate::diagnostics::EvalCounters::default());
+        }
+        state
+    }
+
     /// Enable performance counters (activated by `--profile` CLI flag).
     pub fn enable_counters(&mut self) {
         self.counters = Some(crate::diagnostics::EvalCounters::default());
@@ -187,6 +200,18 @@ impl ModeState {
     /// Get the counters for reporting (returns `None` when profiling is off).
     pub fn counters(&self) -> Option<&crate::diagnostics::EvalCounters> {
         self.counters.as_ref()
+    }
+
+    /// Merge counters from a child interpreter's `ModeState` into this one.
+    ///
+    /// No-op when profiling is disabled on either side. Called after each
+    /// function/method call returns to accumulate child counters into the parent.
+    pub fn merge_child_counters(&mut self, child: &ModeState) {
+        if let (Some(parent_counters), Some(child_counters)) =
+            (self.counters.as_mut(), child.counters.as_ref())
+        {
+            parent_counters.merge(child_counters);
+        }
     }
 }
 
@@ -309,12 +334,12 @@ mod tests {
     // === EvalMode Salsa compatibility ===
 
     #[test]
-    fn eval_mode_is_clone() {
+    fn eval_mode_is_copy() {
         let mode = EvalMode::TestRun {
             only_attached: true,
         };
-        let cloned = mode.clone();
-        assert_eq!(mode, cloned);
+        let copied = mode;
+        assert_eq!(mode, copied);
     }
 
     #[test]
@@ -401,5 +426,57 @@ mod tests {
         state.count_method_call();
         state.count_pattern_match();
         assert!(state.counters().is_none());
+    }
+
+    // === Child mode state tests ===
+
+    #[test]
+    fn child_inherits_profiling_enablement() {
+        let mode = EvalMode::Interpret;
+        let mut parent = ModeState::new(&mode);
+        parent.enable_counters();
+
+        let child = ModeState::child(&mode, &parent);
+        assert!(child.counters().is_some());
+        assert_eq!(child.counters().unwrap().expressions_evaluated, 0);
+    }
+
+    #[test]
+    fn child_without_profiling_parent() {
+        let mode = EvalMode::Interpret;
+        let parent = ModeState::new(&mode);
+
+        let child = ModeState::child(&mode, &parent);
+        assert!(child.counters().is_none());
+    }
+
+    #[test]
+    fn merge_child_counters_into_parent() {
+        let mode = EvalMode::Interpret;
+        let mut parent = ModeState::new(&mode);
+        parent.enable_counters();
+        parent.count_expression(); // parent: 1 expression
+
+        let mut child = ModeState::child(&mode, &parent);
+        child.count_expression();
+        child.count_expression();
+        child.count_function_call(); // child: 2 expressions, 1 call
+
+        parent.merge_child_counters(&child);
+
+        let c = parent.counters().unwrap();
+        assert_eq!(c.expressions_evaluated, 3); // 1 + 2
+        assert_eq!(c.function_calls, 1); // 0 + 1
+    }
+
+    #[test]
+    fn merge_noop_when_profiling_disabled() {
+        let mode = EvalMode::Interpret;
+        let mut parent = ModeState::new(&mode);
+        let child = ModeState::new(&mode);
+
+        // No panic, no-op
+        parent.merge_child_counters(&child);
+        assert!(parent.counters().is_none());
     }
 }

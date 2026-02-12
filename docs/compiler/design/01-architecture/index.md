@@ -44,45 +44,33 @@ compiler/
 │       │   ├── json.rs       # JSON output
 │       │   └── sarif.rs      # SARIF format (BTreeSet for rule dedup)
 │       └── fixes/            # Code suggestions and fixes
-├── ori_lexer/                # Tokenization (logos-based)
-│   └── src/lib.rs            # lex() function, token processing
-├── ori_types/                # Type system definitions
+├── ori_lexer_core/            # Low-level scanner (raw tokenization)
 │   └── src/
 │       ├── lib.rs            # Module exports
-│       ├── core.rs           # Type enum (external API)
-│       ├── data.rs           # TypeData enum (internal representation)
-│       ├── type_interner.rs  # TypeInterner, SharedTypeInterner
-│       ├── context.rs        # InferenceContext (TypeId-based unification)
-│       ├── env.rs            # TypeEnv for scoping
-│       ├── traverse.rs       # TypeFolder, TypeVisitor
-│       └── error.rs          # TypeError
+│       ├── raw_scanner.rs    # RawScanner, byte-level tokenization
+│       ├── source_buffer.rs  # SourceBuffer, cursor management
+│       ├── cursor.rs         # Cursor utilities
+│       └── tag.rs            # RawTag definitions
+├── ori_lexer/                # Tokenization (logos-based, wraps ori_lexer_core)
+│   └── src/lib.rs            # lex() function, token processing
 ├── ori_parse/                # Recursive descent parser
 │   └── src/
 │       ├── lib.rs            # Parser struct, parse() entry point
 │       ├── error.rs          # Parse error types
 │       ├── stack.rs          # Stack safety (stacker integration)
 │       └── grammar/          # Grammar modules (expr, item, type, etc.)
-├── ori_typeck/               # Type checking
+├── ori_types/                # Type system + type checking (Pool, InferEngine, registries)
 │   └── src/
 │       ├── lib.rs            # Module exports
-│       ├── operators.rs      # Operator type rules
-│       ├── checker/          # TypeChecker core
-│       │   ├── mod.rs        # TypeChecker struct
-│       │   ├── api.rs        # Public API functions
-│       │   ├── orchestration.rs # check_module 4-pass logic
-│       │   ├── builder.rs    # TypeCheckerBuilder
-│       │   ├── components.rs # Component structs
-│       │   └── ...           # Other checker modules
-│       ├── infer/            # Type inference
-│       │   ├── mod.rs        # Inference dispatcher
-│       │   ├── expressions/  # Expression inference (8 modules)
-│       │   ├── free_vars.rs  # Free variable collection
-│       │   └── ...           # Other inference modules
-│       ├── registry/         # Type and trait registries
-│       │   ├── mod.rs        # TypeRegistry
-│       │   ├── trait_registry.rs # TraitRegistry
-│       │   └── ...           # Registry types
-│       └── derives/          # Derive macro support
+│       ├── check/            # Type checker core
+│       │   ├── mod.rs        # Type checker orchestration
+│       │   ├── api.rs        # Public API
+│       │   ├── bodies.rs     # Function body checking
+│       │   ├── signatures.rs # Signature checking
+│       │   ├── registration.rs # Type/trait registration
+│       │   └── integration_tests.rs # Checker tests
+│       ├── output/           # Type checker output types
+│       └── ...               # Pool, InferEngine, registries, unification
 ├── ori_patterns/             # Pattern system, Value types
 │   └── src/
 │       ├── lib.rs            # PatternDefinition, TypeCheckContext
@@ -107,7 +95,7 @@ compiler/
 │       │   ├── expr.rs       # Expression evaluation
 │       │   ├── call.rs       # Function call evaluation
 │       │   ├── control.rs    # Control flow (if, for, loop)
-│       │   └── pattern.rs    # Pattern matching
+│       │   └── decision_tree.rs # Decision tree evaluation (compiled patterns)
 │       └── interpreter/      # Core interpreter
 │           ├── mod.rs        # Interpreter struct
 │           ├── builder.rs    # InterpreterBuilder
@@ -121,6 +109,35 @@ compiler/
 │               ├── user_registry.rs  # User methods
 │               ├── collection.rs     # List/range methods
 │               └── builtin.rs        # Built-in methods
+├── ori_canon/                # Canonical IR lowering (AST → sugar-free IR)
+│   └── src/
+│       ├── lib.rs            # Module exports, public API
+│       ├── lower.rs          # lower_module() entry point, Lowerer
+│       ├── desugar.rs        # Named calls → positional, templates → concat
+│       ├── patterns.rs       # Pattern compilation (Maranget 2008 → decision trees)
+│       ├── const_fold.rs     # Compile-time constant folding
+│       └── validate.rs       # Post-lowering validation
+├── ori_arc/                  # ARC analysis (reference counting optimization)
+│   └── src/
+│       ├── lib.rs            # Module exports
+│       ├── classify.rs       # Type classification (owned vs borrowed)
+│       ├── borrow.rs         # Borrow inference
+│       ├── rc_insert.rs      # Reference count insertion
+│       ├── rc_elim.rs        # Redundant RC elimination
+│       ├── reset_reuse.rs    # Reset/reuse optimization
+│       ├── expand_reuse.rs   # Reuse expansion
+│       ├── liveness.rs       # Liveness analysis
+│       ├── ownership.rs      # Ownership tracking
+│       ├── graph.rs          # Control flow graph
+│       ├── ir.rs             # ARC IR types
+│       ├── drop.rs           # Drop insertion
+│       └── lower/            # ARC lowering passes
+│           ├── mod.rs        # Lowering orchestration
+│           ├── expr.rs       # Expression lowering
+│           ├── control_flow.rs # Control flow lowering
+│           ├── patterns.rs   # Pattern lowering
+│           ├── calls.rs      # Call lowering
+│           └── collections.rs # Collection lowering
 ├── ori-macros/               # Proc-macro crate
 │   └── src/
 │       ├── lib.rs            # Diagnostic/Subdiagnostic derives
@@ -146,39 +163,25 @@ compiler/
 │       └── lib.rs            # Runtime support functions
 ├── ori_llvm/                 # LLVM backend (native code generation)
 │   └── src/
-│       ├── lib.rs            # Module exports, LlvmBackend trait
-│       ├── builder.rs        # CodeBuilder - main codegen orchestrator
-│       ├── context.rs        # CompilationContext - LLVM context wrapper
-│       ├── module.rs         # ModuleBuilder - LLVM module creation
-│       ├── declare.rs        # Function/type declarations
-│       ├── types.rs          # Type mapping (Ori types → LLVM types)
-│       ├── operators.rs      # Binary/unary operator codegen
-│       ├── control_flow.rs   # If/loop/for codegen
-│       ├── matching.rs       # Pattern match codegen
-│       ├── runtime.rs        # Runtime function declarations
+│       ├── lib.rs            # Module exports
+│       ├── context.rs        # SimpleCx - LLVM context wrapper
 │       ├── evaluator.rs      # LlvmEvaluator - JIT execution
-│       ├── traits.rs         # Backend trait definitions
-│       ├── functions/        # Function codegen
-│       │   ├── mod.rs        # Function compilation entry
-│       │   ├── body.rs       # Function body codegen
-│       │   ├── calls.rs      # Function call codegen
-│       │   ├── builtins.rs   # Built-in function codegen
-│       │   ├── lambdas.rs    # Lambda/closure codegen
-│       │   ├── sequences.rs  # run/try/match codegen
-│       │   ├── expressions.rs # Expression codegen
-│       │   ├── helpers.rs    # Codegen utilities
-│       │   └── phi.rs        # PHI node helpers
-│       ├── collections/      # Collection type codegen
-│       │   ├── mod.rs        # Collection utilities
-│       │   ├── lists.rs      # List operations
-│       │   ├── maps.rs       # Map operations
-│       │   ├── strings.rs    # String operations
-│       │   ├── tuples.rs     # Tuple operations
-│       │   ├── structs.rs    # Struct operations
-│       │   ├── ranges.rs     # Range operations
-│       │   ├── wrappers.rs   # Option/Result wrappers
-│       │   └── indexing.rs   # Index operations
-│       └── tests/            # Comprehensive test suite
+│       ├── runtime.rs        # Runtime support
+│       ├── codegen/          # Code generation
+│       │   ├── mod.rs        # Codegen orchestration
+│       │   ├── ir_builder.rs # IrBuilder - main LLVM IR construction
+│       │   ├── function_compiler.rs # Function compilation
+│       │   ├── expr_lowerer.rs # Expression lowering
+│       │   ├── arc_emitter.rs # ARC operation emission
+│       │   ├── type_registration.rs # Type mapping (Ori → LLVM)
+│       │   ├── type_info.rs  # Type layout information
+│       │   ├── runtime_decl.rs # Runtime function declarations
+│       │   ├── lower_*.rs    # Lowering: calls, collections, constructs, control flow, etc.
+│       │   ├── scope.rs      # Scope management
+│       │   ├── abi.rs        # ABI conventions
+│       │   └── value_id.rs   # Value tracking
+│       ├── aot/              # Ahead-of-time compilation (linker, mangling)
+│       └── tests/            # Test suite
 └── oric/                     # CLI orchestrator + Salsa queries
     └── src/
         ├── lib.rs            # Module organization
@@ -193,7 +196,7 @@ compiler/
         │   └── debug.rs      # parse_file(), lex_file()
         ├── db.rs             # Salsa database definition
         ├── query/            # Salsa query definitions
-        ├── typeck/           # Type checking and inference
+        ├── typeck.rs         # Type checking orchestration (delegates to ori_types)
         ├── eval/             # High-level evaluator (wraps ori_eval)
         │   ├── mod.rs        # Re-exports, value module
         │   ├── output.rs     # EvalOutput, ModuleEvalResult
@@ -212,24 +215,32 @@ compiler/
 ```
 ori_ir (base)
     ├── ori_diagnostic
-    ├── ori_lexer
+    ├── ori_lexer_core → ori_lexer
     ├── ori_types
     ├── ori_parse
-    ├── ori_typeck ──→ ori_types, ori_parse
     └── ori_patterns ──→ ori_types
             │
             └── ori_eval ──→ ori_patterns
                     │
+                    └── ori_canon ──→ ori_types, ori_ir, ori_patterns
+                    │
+                    └── ori_arc ──→ ori_ir, ori_types, ori_canon
+                    │
                     └── oric ──→ ALL (orchestrator)
 
 ori_llvm (in workspace)
-    └── depends on: ori_ir, ori_types, ori_parse, ori_patterns, ori_typeck, ori_rt
+    └── depends on: ori_ir, ori_types, ori_parse, ori_patterns, ori_arc, ori_rt
 ```
 
 **Layered architecture:**
-- `ori_ir`: Core IR types (no dependencies)
+- `ori_ir`: Core IR types, canonical IR definitions (no dependencies)
+- `ori_lexer_core`: Low-level byte scanner, raw tokenization
+- `ori_lexer`: Token cooking, string interning (wraps `ori_lexer_core`)
+- `ori_types`: Type system, type checking (Pool, InferEngine, registries)
 - `ori_patterns`: Pattern definitions, Value types, EvalError (single source of truth)
 - `ori_eval`: Core tree-walking interpreter (Interpreter, Environment, exec, method dispatch)
+- `ori_canon`: Canonical IR lowering (desugaring, pattern compilation, constant folding)
+- `ori_arc`: ARC analysis (type classification, borrow inference, RC insertion)
 - `ori_fmt`: Source code formatter (AST pretty-printing)
 - `ori_stack`: Stack safety utilities (stacker integration)
 - `ori_rt`: Runtime library for AOT-compiled binaries
@@ -316,30 +327,45 @@ assert_eq!(name1, name2);  // O(1) comparison
 Patterns and diagnostics use registries for extensibility:
 
 ```rust
+pub enum Pattern {
+    Recurse(RecursePattern),
+    Parallel(ParallelPattern),
+    Spawn(SpawnPattern),
+    // ... one variant per pattern kind
+}
+
+impl PatternDefinition for Pattern {
+    fn name(&self) -> &'static str {
+        match self {
+            Pattern::Recurse(p) => p.name(),
+            Pattern::Parallel(p) => p.name(),
+            // ... delegates to inner pattern
+        }
+    }
+}
+
 pub struct PatternRegistry {
     _private: (),  // Marker to prevent external construction
 }
 
 impl PatternRegistry {
     /// Get the pattern definition for a given kind.
-    /// Returns a static reference to avoid borrow issues.
-    pub fn get(&self, kind: FunctionExpKind) -> &'static dyn PatternDefinition {
+    /// Returns a `Pattern` enum for static dispatch.
+    pub fn get(&self, kind: FunctionExpKind) -> Pattern {
         match kind {
-            FunctionExpKind::Recurse => &RECURSE,
-            FunctionExpKind::Parallel => &PARALLEL,
-            // ... direct enum dispatch
+            FunctionExpKind::Recurse => Pattern::Recurse(RecursePattern),
+            FunctionExpKind::Parallel => Pattern::Parallel(ParallelPattern),
+            // ... direct enum construction
         }
     }
 }
 ```
 
-All patterns are zero-sized types (ZSTs) with static lifetime, providing:
-- Zero heap allocation overhead
+All patterns are zero-sized types (ZSTs) wrapped in a `Pattern` enum, providing:
+- Zero heap allocation overhead (enum is 1 byte)
+- Static dispatch via enum (no trait objects, no `dyn`)
 - Direct dispatch (no HashMap lookup)
-- No borrow issues with the registry
-
-```rust
-```
+- `Copy` + `Send` + `Sync`
 
 ## Key Types
 
@@ -353,7 +379,7 @@ All patterns are zero-sized types (ZSTs) with static lifetime, providing:
 | `ExprArena` | `ori_ir` | Expression storage |
 | `ExprId` | `ori_ir` | Index into ExprArena |
 | `Name` | `ori_ir` | Interned string identifier |
-| `TypeId` | `ori_ir` | Interned type identifier (sharded: 4-bit shard + 28-bit local) |
+| `TypeId` | `ori_ir` | Interned type identifier (flat u32 index) |
 | `Type` | `ori_types` | External type representation (uses Box) |
 | `TypeData` | `ori_types` | Internal type representation (uses TypeId) |
 | `TypeInterner` | `ori_types` | Sharded type interning for O(1) equality |
@@ -361,7 +387,10 @@ All patterns are zero-sized types (ZSTs) with static lifetime, providing:
 | `Interpreter` | `ori_eval` | Core tree-walking interpreter |
 | `Environment` | `ori_eval` | Variable scoping (scope stack) |
 | `Evaluator` | `oric` | High-level evaluator (module loading, prelude) |
-| `CodeBuilder` | `ori_llvm` | LLVM codegen orchestrator |
+| `CanonResult` | `ori_ir` | Canonical IR output (CanArena, DecisionTrees, ConstantPool) |
+| `SharedCanonResult` | `ori_ir` | Arc-wrapped CanonResult for cross-query sharing |
+| `IrBuilder` | `ori_llvm` | LLVM IR construction (codegen orchestrator) |
+| `SimpleCx` | `ori_llvm` | LLVM context wrapper (module, builder, target) |
 | `LlvmEvaluator` | `ori_llvm` | JIT execution via LLVM |
 | `Diagnostic` | `ori_diagnostic` | Rich error with suggestions |
 | `ErrorGuaranteed` | `ori_diagnostic` | Proof that an error was emitted |
@@ -372,19 +401,21 @@ All patterns are zero-sized types (ZSTs) with static lifetime, providing:
 
 | Crate | Purpose |
 |-------|---------|
-| `ori_ir` | Core IR types: tokens, spans, AST, arena, string interning, TypeId |
+| `ori_ir` | Core IR types: tokens, spans, AST, arena, string interning, TypeId, canonical IR (CanonResult) |
 | `ori_diagnostic` | Error reporting (split: error_code, diagnostic, guarantee), DiagnosticQueue, emitters, error docs |
-| `ori_lexer` | Tokenization via logos |
-| `ori_types` | Type system: Type/TypeData, TypeInterner, InferenceContext, TypeIdFolder |
+| `ori_lexer_core` | Low-level scanner: RawScanner, byte-level tokenization, SourceBuffer |
+| `ori_lexer` | Tokenization via logos (wraps ori_lexer_core), token cooking |
+| `ori_types` | Type system + type checking: Pool, InferEngine, registries, unification, check/bodies |
 | `ori_parse` | Recursive descent parser |
-| `ori_typeck` | Type checking: TypeChecker, inference, registries |
 | `ori_patterns` | Pattern definitions, Value types, EvalError (single source of truth) |
 | `ori_eval` | Core tree-walking interpreter: Interpreter, Environment, exec, method dispatch |
+| `ori_canon` | Canonical IR lowering: desugaring, pattern compilation (decision trees), constant folding |
+| `ori_arc` | ARC analysis: type classification, borrow inference, RC insertion/elimination, reset/reuse |
 | `ori_fmt` | Source code formatter: 5-layer architecture (spacing, packing, shape, rules, orchestration) |
 | `ori_stack` | Stack safety utilities: stacker integration for deep recursion |
 | `ori_rt` | Runtime library: support functions for AOT-compiled binaries |
 | `ori-macros` | Proc-macros (`#[derive(Diagnostic)]`, etc.) |
-| `ori_llvm` | LLVM backend: CodeBuilder, JIT execution, native codegen |
+| `ori_llvm` | LLVM backend: IrBuilder, SimpleCx, JIT execution, native codegen |
 | `oric` | CLI orchestrator, Salsa queries, high-level Evaluator, patterns |
 
 ### DRY Re-exports
@@ -422,8 +453,8 @@ When files exceed limits, extract submodules:
 The `ori_llvm` crate provides native code generation via LLVM 17. It is now **part of the main workspace** for unified builds.
 
 **Key components:**
-- `CodeBuilder`: Main codegen orchestrator, walks the typed AST
-- `CompilationContext`: Wraps LLVM context, module, and builder
+- `IrBuilder`: Main LLVM IR construction, codegen orchestrator
+- `SimpleCx`: Wraps LLVM context, module, builder, and target info
 - `LlvmEvaluator`: JIT execution for running compiled code
 
 **Development workflow:**

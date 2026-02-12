@@ -1,15 +1,16 @@
 //! Centralized error constructors for the evaluator.
 //!
 //! This module provides a single import point for all evaluation error constructors.
-//! Centralizing errors here makes future internationalization straightforward -
-//! error messages can be replaced with translation keys in one location.
+//! Shared errors (type mismatches, undefined variables, etc.) are re-exported from
+//! `ori_patterns`. Eval-specific errors (assignment semantics, not-implemented features,
+//! interpreter-only constructs) are defined locally here.
 //!
 //! # Usage
 //!
 //!     use ori_eval::errors::{undefined_variable, division_by_zero};
 
 // Re-export EvalError and EvalResult types
-pub use ori_patterns::{EvalError, EvalResult};
+pub use ori_patterns::{EvalError, EvalErrorKind, EvalResult};
 
 // Binary Operation Errors
 
@@ -29,21 +30,16 @@ pub use ori_patterns::{
 
 pub use ori_patterns::{
     cannot_access_field, cannot_get_length, cannot_index, index_out_of_bounds, invalid_tuple_field,
-    key_not_found, no_field_on_struct, no_member_in_module, tuple_index_out_of_bounds,
+    no_field_on_struct, no_member_in_module, tuple_index_out_of_bounds,
 };
 
 // Type Conversion and Validation Errors
 
-pub use ori_patterns::{
-    map_key_not_hashable, range_bound_not_int, spread_requires_list, spread_requires_map,
-    spread_requires_struct, unbounded_range_end,
-};
+pub use ori_patterns::{map_key_not_hashable, range_bound_not_int, unbounded_range_end};
 
-// Control Flow Errors
+// Control Flow Errors (shared)
 
-pub use ori_patterns::{
-    cannot_assign_immutable, for_requires_iterable, invalid_assignment_target, non_exhaustive_match,
-};
+pub use ori_patterns::{for_requires_iterable, invalid_assignment_target, non_exhaustive_match};
 
 // Pattern Binding Errors
 
@@ -52,12 +48,9 @@ pub use ori_patterns::{
     tuple_pattern_mismatch,
 };
 
-// Miscellaneous Errors
+// Miscellaneous Errors (shared)
 
-pub use ori_patterns::{
-    await_not_supported, hash_outside_index, invalid_literal_pattern, parse_error,
-    self_outside_method,
-};
+pub use ori_patterns::{parse_error, self_outside_method};
 
 // Collection Method Errors
 
@@ -67,19 +60,84 @@ pub use ori_patterns::{
     map_entries_requires_map, map_requires_collection,
 };
 
-// Not Implemented Errors
-
-pub use ori_patterns::{
-    default_requires_type_context, field_assignment_not_implemented,
-    filter_entries_not_implemented, index_assignment_not_implemented, map_entries_not_implemented,
-};
-
 // Index Context Errors
 
-pub use ori_patterns::{
-    collection_too_large, non_integer_in_index, operator_not_supported_in_index,
-};
+pub use ori_patterns::collection_too_large;
 
-// Pattern Errors
+// Eval-specific errors
+//
+// These errors are specific to interpreter evaluation semantics and do not
+// belong in `ori_patterns` (a shared pattern-matching library). New eval-only
+// errors should be added here, not upstream.
 
-pub use ori_patterns::{for_pattern_requires_list, unknown_pattern};
+/// Cannot assign to immutable variable.
+#[cold]
+pub fn cannot_assign_immutable(name: &str) -> EvalError {
+    EvalError::from_kind(EvalErrorKind::ImmutableBinding {
+        name: name.to_string(),
+    })
+}
+
+/// Hash length (`#`) used outside index brackets.
+#[cold]
+pub fn hash_outside_index() -> EvalError {
+    EvalError::new("# can only be used inside index brackets")
+}
+
+/// Await not supported in the tree-walking interpreter.
+#[cold]
+pub fn await_not_supported() -> EvalError {
+    EvalError::new("await not supported in interpreter")
+}
+
+/// Index assignment (`list[i] = x`) not yet implemented.
+#[cold]
+pub fn index_assignment_not_implemented() -> EvalError {
+    EvalError::from_kind(EvalErrorKind::NotImplemented {
+        feature: "index assignment (list[i] = x) is not yet implemented".to_string(),
+        suggestion: "use list.set(index: i, value: x) instead".to_string(),
+    })
+}
+
+/// Field assignment (`obj.field = x`) not yet implemented.
+#[cold]
+pub fn field_assignment_not_implemented() -> EvalError {
+    EvalError::from_kind(EvalErrorKind::NotImplemented {
+        feature: "field assignment (obj.field = x) is not yet implemented".to_string(),
+        suggestion: "use spread syntax: { ...obj, field: x }".to_string(),
+    })
+}
+
+/// `default()` requires type context.
+#[cold]
+pub fn default_requires_type_context() -> EvalError {
+    EvalError::new("default() requires type context; use explicit construction instead")
+}
+
+/// `map_entries()` not yet implemented.
+#[cold]
+pub fn map_entries_not_implemented() -> EvalError {
+    EvalError::from_kind(EvalErrorKind::NotImplemented {
+        feature: "map_entries() is not yet implemented".to_string(),
+        suggestion: "use map() with entry destructuring: map.entries().map((k, v) -> ...)"
+            .to_string(),
+    })
+}
+
+/// `filter_entries()` not yet implemented.
+#[cold]
+pub fn filter_entries_not_implemented() -> EvalError {
+    EvalError::from_kind(EvalErrorKind::NotImplemented {
+        feature: "filter_entries() is not yet implemented".to_string(),
+        suggestion: "use filter() with entry destructuring: map.entries().filter((k, v) -> ...)"
+            .to_string(),
+    })
+}
+
+/// Const-eval budget exceeded.
+#[cold]
+pub fn budget_exceeded(calls: usize, budget: u32) -> EvalError {
+    EvalError::new(format!(
+        "const-eval budget exceeded: {calls} calls (limit: {budget})"
+    ))
+}

@@ -66,7 +66,7 @@ use std::process::{Command, Output};
 
 use crate::aot::target::{TargetConfig, TargetTripleComponents};
 
-// --- Error Types ---
+// Error Types
 
 /// Error type for linker operations.
 #[derive(Debug, Clone)]
@@ -129,7 +129,7 @@ impl fmt::Display for LinkerError {
 
 impl std::error::Error for LinkerError {}
 
-// --- Output Types ---
+// Output Types
 
 /// Type of output to produce from linking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -161,7 +161,7 @@ impl LinkOutput {
     }
 }
 
-// --- Library Types ---
+// Library Types
 
 /// Kind of library to link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -219,7 +219,7 @@ impl LinkLibrary {
     }
 }
 
-// --- Link Input ---
+// Link Input
 
 /// Input configuration for the linker.
 #[derive(Debug, Clone, Default)]
@@ -248,7 +248,7 @@ pub struct LinkInput {
     pub linker: Option<LinkerFlavor>,
 }
 
-// --- Linker Flavor ---
+// Linker Flavor
 
 /// Linker flavor/family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -277,7 +277,7 @@ impl LinkerFlavor {
     }
 }
 
-// --- Linker Implementation Enum ---
+// Linker Implementation Enum
 
 /// Enum-based linker dispatch.
 ///
@@ -334,7 +334,7 @@ impl LinkerImpl {
     impl_linker_forward!(self finalize() -> Command);
 }
 
-// --- Linker Driver ---
+// Linker Driver
 
 /// High-level linker driver that orchestrates the linking process.
 ///
@@ -604,7 +604,7 @@ impl LinkerDriver {
     }
 }
 
-// --- Linker Detection ---
+// Linker Detection
 
 /// Detect available linkers on the system.
 #[derive(Debug, Clone, Default)]

@@ -12,24 +12,28 @@
 use ori_ir::BinaryOp;
 use ori_patterns::{ControlAction, EvalError, Value};
 
-// Import all error factory functions
+// Import shared error factory functions from ori_patterns
 use ori_patterns::{
-    all_requires_list, any_requires_list, await_not_supported, binary_type_mismatch,
-    cannot_access_field, cannot_assign_immutable, cannot_get_length, cannot_index,
-    collect_requires_range, collection_too_large, default_requires_type_context, division_by_zero,
-    expected_list, expected_struct, expected_tuple, field_assignment_not_implemented,
-    filter_entries_not_implemented, filter_entries_requires_map, filter_requires_collection,
-    find_requires_list, fold_requires_collection, for_pattern_requires_list, for_requires_iterable,
-    hash_outside_index, index_assignment_not_implemented, index_out_of_bounds, integer_overflow,
+    all_requires_list, any_requires_list, binary_type_mismatch, cannot_access_field,
+    cannot_get_length, cannot_index, collect_requires_range, collection_too_large,
+    division_by_zero, expected_list, expected_struct, expected_tuple, filter_entries_requires_map,
+    filter_requires_collection, find_requires_list, fold_requires_collection,
+    for_pattern_requires_list, for_requires_iterable, index_out_of_bounds, integer_overflow,
     invalid_assignment_target, invalid_binary_op_for, invalid_literal_pattern, invalid_tuple_field,
-    key_not_found, list_pattern_too_long, map_entries_not_implemented, map_entries_requires_map,
-    map_key_not_hashable, map_requires_collection, missing_struct_field, modulo_by_zero,
-    no_field_on_struct, no_member_in_module, no_such_method, non_exhaustive_match,
-    non_integer_in_index, not_callable, operator_not_supported_in_index, parse_error,
-    propagated_error_message, range_bound_not_int, recursion_limit_exceeded, self_outside_method,
-    tuple_index_out_of_bounds, tuple_pattern_mismatch, unbounded_range_end, undefined_const,
-    undefined_function, undefined_variable, unknown_pattern, wrong_arg_count, wrong_arg_type,
-    wrong_function_args,
+    key_not_found, list_pattern_too_long, map_entries_requires_map, map_key_not_hashable,
+    map_requires_collection, missing_struct_field, modulo_by_zero, no_field_on_struct,
+    no_member_in_module, no_such_method, non_exhaustive_match, non_integer_in_index, not_callable,
+    operator_not_supported_in_index, parse_error, propagated_error_message, range_bound_not_int,
+    recursion_limit_exceeded, self_outside_method, tuple_index_out_of_bounds,
+    tuple_pattern_mismatch, unbounded_range_end, undefined_const, undefined_function,
+    undefined_variable, unknown_pattern, wrong_arg_count, wrong_arg_type, wrong_function_args,
+};
+
+// Import eval-specific error constructors from ori_eval
+use ori_eval::errors::{
+    await_not_supported, cannot_assign_immutable, default_requires_type_context,
+    field_assignment_not_implemented, filter_entries_not_implemented, hash_outside_index,
+    index_assignment_not_implemented, map_entries_not_implemented,
 };
 
 // -- EvalError basic functionality --

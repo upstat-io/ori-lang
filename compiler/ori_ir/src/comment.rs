@@ -4,9 +4,10 @@
 //! Comments are captured separately from tokens to allow the parser to work without
 //! comment awareness while preserving comments for formatting.
 
-use super::{Name, Span};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+use super::{Name, Span};
 
 /// A source comment with its span and content.
 ///

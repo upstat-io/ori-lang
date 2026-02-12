@@ -190,6 +190,10 @@ impl<'src> TokenCooker<'src> {
                     .push(LexError::standalone_backslash(span(offset, len)));
                 TokenKind::Error
             }
+            // Defensive: the raw scanner does not currently emit InvalidEscape
+            // (escape validation is deferred to the cooking layer's unescape_*_v2
+            // functions), but this arm handles the reserved variant for forward
+            // compatibility.
             RawTag::InvalidEscape => {
                 let text = slice_source(self.source, offset, len);
                 let esc_char = text.chars().nth(1).unwrap_or('?');

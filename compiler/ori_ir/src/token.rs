@@ -7,9 +7,10 @@
 //! - Lexical grammar: `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` § LEXICAL GRAMMAR
 //! - Prose: `docs/ori_lang/0.1-alpha/spec/03-lexical-elements.md`
 
-use super::{Name, Span};
 use std::fmt;
 use std::hash::Hash;
+
+use super::{Name, Span};
 
 /// A token with its span in the source.
 ///
@@ -519,14 +520,12 @@ impl TokenTag {
 pub(crate) const TOKEN_KIND_COUNT: usize = 123;
 
 impl TokenKind {
-    // ─────────────────────────────────────────────────────────────────────────
     // Discriminant tag constants for O(1) tag-based dispatch.
     //
     // These are the values returned by `discriminant_index()` and stored in
     // `TokenList::tags`. Use these instead of magic numbers in match arms.
     //
     // All values derive from `TokenTag` — the single source of truth.
-    // ─────────────────────────────────────────────────────────────────────────
 
     // Literals (0-10)
     pub const TAG_IDENT: u8 = TokenTag::Ident as u8;
@@ -2248,8 +2247,6 @@ mod tests {
         assert_eq!(set.len(), 3);
     }
 
-    // ─── Phase 8: Section 04 validation tests ────────────────────────
-
     #[test]
     fn test_token_tag_stability() {
         // Pin key discriminant values that external code may depend on.
@@ -2467,8 +2464,6 @@ mod tests {
         assert!(with_both.has_space_before());
         assert!(with_both.has_newline_before());
     }
-
-    // ─── Position-independent Hash/Eq tests ──────────────────────────
 
     #[test]
     fn position_independent_hash() {

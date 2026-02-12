@@ -20,7 +20,7 @@
 use super::CanId;
 use crate::Name;
 
-// ── Scrutinee Path Tracking ─────────────────────────────────────────
+// Scrutinee Path Tracking
 
 /// A path from the root scrutinee to a sub-value.
 ///
@@ -61,7 +61,7 @@ pub enum PathInstruction {
     ListRest(u32),
 }
 
-// ── Test Kinds ──────────────────────────────────────────────────────
+// Test Kinds
 
 /// What kind of test to perform on a scrutinee.
 ///
@@ -131,7 +131,7 @@ pub enum TestValue {
     },
 }
 
-// ── Decision Tree ───────────────────────────────────────────────────
+// Decision Tree
 
 /// A compiled decision tree for pattern matching.
 ///
@@ -185,7 +185,7 @@ pub enum DecisionTree {
     Fail,
 }
 
-// ── Flat Pattern (for the Maranget algorithm) ───────────────────────
+// Flat Pattern (for the Maranget algorithm)
 
 /// A single pattern in the matrix, flattened for the algorithm.
 ///
@@ -367,8 +367,6 @@ pub struct PatternRow {
 
 /// The pattern matrix: rows of arms, columns of sub-patterns.
 pub type PatternMatrix = Vec<PatternRow>;
-
-// ── Tests ───────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

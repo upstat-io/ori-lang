@@ -8,7 +8,8 @@ use ori_ir::builtin_methods::BUILTIN_METHODS;
 
 /// Collection types that have eval methods but are not yet in the
 /// `ori_ir` builtin method registry. These are tracked as a gap to fix.
-const COLLECTION_TYPES: &[&str] = &["list", "map", "option", "range", "result"];
+/// Proper-cased names match `EVAL_BUILTIN_METHODS` (and `TypeNames`).
+const COLLECTION_TYPES: &[&str] = &["Option", "Result", "list", "map", "range"];
 
 /// IR registry methods that are implemented in the evaluator through method
 /// resolvers (`UserRegistryResolver`, `CollectionMethodResolver`, etc.) rather
@@ -16,15 +17,7 @@ const COLLECTION_TYPES: &[&str] = &["list", "map", "option", "range", "result"];
 ///
 /// These are NOT missing from eval — they work at runtime. They're just
 /// dispatched through a different mechanism than `EVAL_BUILTIN_METHODS`.
-/// TODO: Consolidate all eval methods into `EVAL_BUILTIN_METHODS` for a
-/// single complete list.
 const IR_METHODS_DISPATCHED_VIA_RESOLVERS: &[(&str, &str)] = &[
-    // duration — trait methods dispatched via method resolvers
-    ("duration", "clone"),
-    ("duration", "compare"),
-    ("duration", "equals"),
-    ("duration", "hash"),
-    ("duration", "to_str"),
     // float — numeric methods dispatched via method resolvers
     ("float", "abs"),
     ("float", "ceil"),
@@ -37,30 +30,22 @@ const IR_METHODS_DISPATCHED_VIA_RESOLVERS: &[(&str, &str)] = &[
     ("int", "abs"),
     ("int", "max"),
     ("int", "min"),
-    // ordering — all ordering methods dispatched via method resolvers
-    ("ordering", "clone"),
-    ("ordering", "compare"),
-    ("ordering", "debug"),
-    ("ordering", "equals"),
-    ("ordering", "hash"),
-    ("ordering", "is_equal"),
-    ("ordering", "is_greater"),
-    ("ordering", "is_greater_or_equal"),
-    ("ordering", "is_less"),
-    ("ordering", "is_less_or_equal"),
-    ("ordering", "reverse"),
-    ("ordering", "to_str"),
-    // size — trait methods dispatched via method resolvers
-    ("size", "clone"),
-    ("size", "compare"),
-    ("size", "equals"),
-    ("size", "hash"),
-    ("size", "to_str"),
 ];
 
 /// Eval methods for primitive types that are not yet in the IR builtin
 /// method registry. These need to be added to `ori_ir/src/builtin_methods.rs`.
 const EVAL_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
+    // Duration/Size operator aliases — eval accepts both short and long forms
+    // (e.g., "sub" and "subtract"), but IR only registers the short form.
+    ("Duration", "divide"),
+    ("Duration", "multiply"),
+    ("Duration", "negate"),
+    ("Duration", "remainder"),
+    ("Duration", "subtract"),
+    ("Size", "divide"),
+    ("Size", "multiply"),
+    ("Size", "remainder"),
+    ("Size", "subtract"),
     // Debug trait — implemented in eval, not yet in IR for all types
     ("bool", "debug"),
     ("byte", "debug"),
@@ -76,17 +61,7 @@ const EVAL_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
 fn ir_method_set() -> BTreeSet<(&'static str, &'static str)> {
     BUILTIN_METHODS
         .iter()
-        .map(|m| {
-            // BuiltinType::name() uses canonical display names ("Duration", "Size", etc.)
-            // but eval uses lowercase ("duration", "size", etc.)
-            let type_name = match m.receiver.name() {
-                "Duration" => "duration",
-                "Size" => "size",
-                "Ordering" => "ordering",
-                other => other, // primitives are already lowercase
-            };
-            (type_name, m.name)
-        })
+        .map(|m| (m.receiver.name(), m.name))
         .collect()
 }
 

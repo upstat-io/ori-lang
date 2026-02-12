@@ -133,7 +133,6 @@ pub use ir::{
     Typed,
     UnaryOp,
 };
-pub use ori_patterns::{EvalContext, PatternDefinition, PatternRegistry};
 pub use query::evaluated;
 pub use test::{
     run_test_file, run_tests, TestOutcome, TestResult, TestRunner, TestRunnerConfig, TestSummary,

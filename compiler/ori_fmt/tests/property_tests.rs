@@ -1,12 +1,3 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-// proptest macros generate code using Arc and need format strings with variables
-#![allow(
-    clippy::doc_markdown,
-    clippy::disallowed_types,
-    clippy::uninlined_format_args,
-    clippy::redundant_closure_for_method_calls,
-    clippy::no_effect_replace
-)]
 //! Property-based tests for the Ori formatter.
 //!
 //! These tests use proptest to generate random valid Ori code and verify:
@@ -16,6 +7,16 @@
 //! This complements the idempotence_tests.rs which tests real files,
 //! by generating synthetic code that might exercise edge cases not
 //! present in the test corpus.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, reason = "Tests can panic")]
+#![allow(
+    clippy::doc_markdown,
+    clippy::disallowed_types,
+    clippy::uninlined_format_args,
+    clippy::redundant_closure_for_method_calls,
+    clippy::no_effect_replace,
+    reason = "Proptest macros generate code with these patterns"
+)]
 
 use ori_fmt::{format_module, format_module_with_comments};
 use ori_ir::StringInterner;

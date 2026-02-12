@@ -7,149 +7,128 @@ section: "LLVM Backend"
 
 # Closures
 
-Closures in Ori capture variables from their enclosing scope by value. The LLVM backend uses a tagged pointer representation that optimizes the common case of closures without captures.
+Closures in Ori capture variables from their enclosing scope by value. The LLVM backend uses a fat pointer representation for uniform handling of closures with and without captures.
 
 ## Representation
 
+All closures (with or without captures) use a fat pointer `{ fn_ptr: ptr, env_ptr: ptr }`:
+
+```
+Fat Pointer (LLVM struct { ptr, ptr }):
+┌──────────────────────────────────┬──────────────────────────────┐
+│         fn_ptr (ptr)             │         env_ptr (ptr)        │
+│   Pointer to lambda function     │   Pointer to env struct      │
+│                                  │   (null if no captures)      │
+└──────────────────────────────────┴──────────────────────────────┘
+```
+
 ### Closures Without Captures
 
-Closures that don't capture any variables are represented as plain function pointers stored as `i64`:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Function Pointer (i64)                     │
-│                         (lowest bit = 0)                        │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-The lowest bit is always 0 for aligned function pointers, which serves as a tag indicating "plain function pointer".
+When a closure captures no variables, the `env_ptr` field is null. The lambda function still takes a hidden `ptr %env` first parameter (which it ignores), so the calling convention is uniform.
 
 ### Closures With Captures
 
-Closures that capture variables are heap-allocated ("boxed") and represented as a tagged pointer. The lowest bit is set to 1 to distinguish from plain function pointers:
+When a closure captures variables, a heap-allocated environment struct is created containing the captured values at their native types:
 
 ```
-Tagged Pointer (i64):
-┌─────────────────────────────────────────────────────────────────┐
-│                   Heap Pointer | 1 (tag bit)                    │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-Heap-Allocated Closure Struct:
-┌────────────┬─────────────────┬────────────┬────────────┬───────┐
-│ i8 count   │ i64 fn_ptr      │ i64 cap0   │ i64 cap1   │ ...   │
-│ (captures) │                 │            │            │       │
-└────────────┴─────────────────┴────────────┴────────────┴───────┘
-  offset 0     offset 8          offset 16    offset 24
+env_ptr ───────────────▶ Environment Struct:
+                         ┌────────────────┬────────────────┬───────┐
+                         │ capture0 (T0)  │ capture1 (T1)  │ ...   │
+                         └────────────────┴────────────────┴───────┘
 ```
 
-The struct layout:
-- **Byte 0**: Capture count (i8) - number of captured values
-- **Bytes 8-15**: Function pointer as i64
-- **Bytes 16+**: Captured values, each as i64 (8 bytes per capture)
+Each capture is stored at its native LLVM type (not coerced to i64). The lambda function unpacks captures from the environment struct using `struct_gep` with the correct field types.
 
 ## Compilation
 
-### Lambda Compilation
+### Lambda Compilation (`lower_lambda`)
 
-When compiling a lambda expression:
+The `lower_lambda` function in `codegen/lower_calls.rs` compiles a lambda expression into a fat-pointer closure. The steps are:
 
-1. **Analyze captures**: Walk the lambda body to find free variables (variables used but not bound as parameters)
-2. **Generate lambda function**: Create an LLVM function that takes regular parameters plus captured values as additional parameters
-3. **Build return value**:
-   - No captures: Return function pointer as i64 (tag bit naturally 0)
-   - Has captures: Allocate closure struct via `ori_closure_box`, store function pointer and captures, return tagged pointer (with bit 0 set to 1)
+1. **Capture analysis**: Walk the lambda body to find free variables (variables used but not bound as parameters). Each capture includes the variable's `Name`, current `ValueId`, and type `Idx`.
+2. **Get type info**: Read the lambda's `TypeInfo::Function` to determine actual parameter and return types.
+3. **Generate lambda function**: Create an LLVM function with signature `(ptr %env, T1 %p1, T2 %p2, ...) -> R` where the hidden `ptr %env` is always the first parameter.
+4. **Unpack captures in body**: If captures exist, use `struct_gep` on the env pointer to load each captured value at its native type.
+5. **Compile body**: Lower the lambda body expression with captures and parameters in scope.
+6. **Build fat pointer**: Construct `{ fn_ptr, env_ptr }` where `env_ptr` is null if no captures, or a heap-allocated environment struct otherwise.
 
 ```rust
 // Pseudocode for lambda compilation
-fn compile_lambda(params, body, captures) -> i64 {
-    // Create lambda function with signature:
-    // (param0, param1, ..., capture0, capture1, ...) -> i64
-    let fn_ptr = create_lambda_function(params, captures, body);
+fn lower_lambda(params, body) -> { ptr, ptr } {
+    let captures = find_captures(body, params);
 
-    if captures.is_empty() {
-        // Return plain function pointer
-        return fn_ptr as i64;
+    // Lambda signature: (ptr env, actual params...) -> actual_ret_type
+    let lambda_fn = declare_function("__lambda_N", [ptr, P1, P2, ...], R);
+
+    // In lambda body: unpack captures from env struct via struct_gep
+    if !captures.is_empty() {
+        let env_ptr = get_param(lambda_fn, 0);
+        for (i, capture) in captures {
+            let field_ptr = struct_gep(env_struct_ty, env_ptr, i);
+            let val = load(field_ty, field_ptr);
+            scope.bind(capture.name, val);
+        }
     }
 
-    // Allocate closure struct
-    let size = 1 + 8 + 8 * captures.len();
-    let ptr = ori_closure_box(size);
+    // Compile body, emit return at native type
+    compile_body(body);
 
-    // Store closure data
-    *ptr.offset(0) = captures.len() as i8;
-    *ptr.offset(8) = fn_ptr as i64;
-    for (i, capture) in captures.enumerate() {
-        *ptr.offset(16 + i * 8) = capture as i64;
-    }
+    // Build environment
+    let env_ptr = if captures.is_empty() {
+        null_ptr
+    } else {
+        let env = alloca(env_struct_type);
+        for (i, capture) in captures {
+            let ptr = struct_gep(env_struct_ty, env, i);
+            store(capture.value, ptr);
+        }
+        env
+    };
 
-    // Return tagged pointer
-    return (ptr as i64) | 1;
+    // Return fat pointer
+    return { fn_ptr: lambda_fn, env_ptr };
 }
 ```
 
-### Closure Calling
+### Closure Calling (`lower_closure_call`)
 
-When calling a closure stored in a variable:
+When calling a closure stored in a variable, the calling convention is uniform regardless of whether captures exist:
 
-1. **Check tag bit**: Examine bit 0 of the i64 value
-2. **Plain pointer (bit 0 = 0)**: Cast directly to function pointer and call
-3. **Boxed closure (bit 0 = 1)**: Clear tag bit, dereference to get closure struct, extract function pointer and captures, call with captures appended to arguments
+1. **Extract** `fn_ptr` and `env_ptr` from the fat pointer via `extract_value`
+2. **Prepend** `env_ptr` as the first argument
+3. **Call indirectly** through `fn_ptr` with actual types from `TypeInfo::Function`
 
 ```rust
 // Pseudocode for closure call
-fn call_closure(closure_val: i64, args: &[i64]) -> i64 {
-    if closure_val & 1 == 0 {
-        // Plain function pointer
-        let fn_ptr = closure_val as fn(*args) -> i64;
-        return fn_ptr(args);
-    }
+fn lower_closure_call(closure_val: { ptr, ptr }, args) -> R {
+    let fn_ptr = extract_value(closure_val, 0);  // fn_ptr
+    let env_ptr = extract_value(closure_val, 1);  // env_ptr
 
-    // Boxed closure - clear tag bit
-    let ptr = (closure_val & !1) as *const ClosureStruct;
-    let capture_count = (*ptr).count;
-    let fn_ptr = (*ptr).fn_ptr;
+    // Build args: env_ptr first, then actual arguments
+    let all_args = [env_ptr] ++ lower_each(args);
 
-    // Build args: original args + captured values
-    let mut all_args = args.to_vec();
-    for i in 0..capture_count {
-        all_args.push((*ptr).captures[i]);
-    }
-
-    // Call with extended args
-    return fn_ptr(all_args);
+    // Indirect call through fn_ptr with actual types
+    return call_indirect(ret_type, param_types, fn_ptr, all_args);
 }
 ```
 
-## Runtime Support
-
-### `ori_closure_box`
-
-Allocates heap memory for a closure struct:
-
-```rust
-#[no_mangle]
-pub extern "C" fn ori_closure_box(size: i64) -> *mut u8 {
-    let size = size.max(8) as usize;
-    let layout = Layout::from_size_align(size, 8).unwrap();
-    unsafe { alloc(layout) }
-}
-```
-
-This function is declared in LLVM during module initialization and called during lambda compilation when captures exist.
+No tag-bit checking is needed because the calling convention is uniform: all lambda functions accept `ptr %env` as their first parameter, whether or not they use it.
 
 ## Capture Analysis
 
-The `find_captures` function walks the lambda body recursively to identify free variables:
+The `find_captures` method on `ExprLowerer` walks the lambda body recursively to identify free variables. Each capture includes three pieces of information:
 
 ```rust
-fn find_captures(body, arena, param_names, outer_locals) -> Vec<(Name, Value)> {
+fn find_captures(&mut self, body: CanId, params: CanParamRange) -> Vec<(Name, ValueId, Idx)> {
     // Walk body, collect identifiers that:
     // 1. Are NOT lambda parameters
-    // 2. ARE in outer_locals (captured from enclosing scope)
+    // 2. ARE in the current scope (captured from enclosing scope)
     // 3. Haven't been seen yet (avoid duplicates)
+    // Returns (name, current_value, type_index) triples
 }
 ```
+
+The type index (`Idx`) is needed to build the environment struct with native-typed fields, so each capture is stored at its correct LLVM type rather than being coerced to `i64`.
 
 Supported expression types for capture analysis:
 - Identifiers (primary capture source)
@@ -160,57 +139,26 @@ Supported expression types for capture analysis:
 - Nested lambdas
 - Field access and indexing
 
-## Struct Shorthand
+## IrBuilder API
 
-The LLVM backend supports struct shorthand syntax in closures:
+The `IrBuilder` provides methods for working with closure fat pointers:
 
-```ori
-let x = 10
-let y = 20
-let point = Point { x, y }  // Shorthand for Point { x: x, y: y }
-```
-
-When compiling struct expressions, if a field has no explicit value (`init.value` is `None`), the backend looks up a variable with the same name as the field from the `locals` map:
-
-```rust
-let val = if let Some(value_id) = init.value {
-    // Explicit: Point { x: 10 }
-    compile_expr(value_id, ...)
-} else {
-    // Shorthand: Point { x } - look up variable named 'x'
-    locals.get(&init.name).copied()?
-};
-```
-
-## Builder API
-
-The `Builder::extract_value` method returns `Option<BasicValueEnum>` to handle out-of-range field access gracefully:
-
-```rust
-pub fn extract_value(
-    &self,
-    agg: StructValue<'ll>,
-    index: u32,
-    name: &str,
-) -> Option<BasicValueEnum<'ll>> {
-    self.llbuilder.build_extract_value(agg, index, name).ok()
-}
-```
-
-This is used when extracting captures from boxed closures and fields from struct values.
+- `closure_type()` -- returns the `{ ptr, ptr }` struct type used for all closures
+- `extract_value(agg, index, name)` -- extracts a field from a struct value (used for `fn_ptr` at index 0 and `env_ptr` at index 1)
+- `build_struct(ty, fields, name)` -- constructs a fat pointer from `fn_ptr` and `env_ptr` values
+- `call_indirect(ret_ty, param_types, fn_ptr, args, name)` -- indirect call through a function pointer
 
 ## Limitations
 
-- All captured values are coerced to i64 (type information reconstructed at call site)
-- Capture count stored in i8 field (theoretical 255 limit, though memory would limit earlier)
-- No closure deallocation currently (relies on program termination for cleanup)
+- Captured values are stored at native types (no coercion), but the environment struct layout is ephemeral and not accessible across compilation units
+- No closure deallocation currently (relies on program termination or ARC for cleanup)
+- Closures always use `fastcc` calling convention for the lambda function
 
 ## Source Files
 
 | File | Purpose |
 |------|---------|
-| `functions/lambdas.rs` | Lambda compilation, capture analysis |
-| `functions/calls.rs` | Closure calling conventions |
-| `runtime.rs` | `ori_closure_box` implementation |
-| `builder.rs` | `extract_value` and struct manipulation |
-| `collections/structs.rs` | Struct shorthand handling |
+| `codegen/lower_calls.rs` | `lower_lambda`, `lower_closure_call`, capture analysis |
+| `codegen/ir_builder.rs` | `closure_type()`, `extract_value`, `build_struct`, `call_indirect` |
+| `codegen/arc_emitter.rs` | ARC emission for closure values (retain/release env) |
+| `codegen/lower_literals.rs` | Function-as-value wrapping (non-lambda function references as fat pointers) |

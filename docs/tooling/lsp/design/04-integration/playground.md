@@ -7,6 +7,8 @@ section: "Integration"
 
 # Playground Integration
 
+> **Status: Not Yet Implemented.** The WASM LSP described below is planned. The current playground uses direct WASM bindings for runtime evaluation and formatting without LSP.
+
 Integrating the LSP server with the browser-based Ori Playground.
 
 ## Existing Infrastructure

@@ -116,11 +116,13 @@ impl<'a> RawScanner<'a> {
                 len: 0,
             }
         } else {
-            // Interior null byte — advance past it and emit InvalidByte
+            // Interior null byte — advance past it. The integration layer
+            // skips InteriorNull tokens since SourceBuffer already reported
+            // these via encoding_issues() with more specific diagnostics.
             let start = self.cursor.pos();
             self.cursor.advance();
             RawToken {
-                tag: RawTag::InvalidByte,
+                tag: RawTag::InteriorNull,
                 len: self.cursor.pos() - start,
             }
         }

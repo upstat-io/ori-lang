@@ -85,6 +85,7 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
         | CanExpr::Const(_)
         | CanExpr::SelfRef
         | CanExpr::FunctionRef(_)
+        | CanExpr::TypeRef(_)
         | CanExpr::HashLength
         | CanExpr::None
         | CanExpr::FunctionExp { .. }

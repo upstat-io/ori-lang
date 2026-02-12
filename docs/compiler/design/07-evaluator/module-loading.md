@@ -116,8 +116,9 @@ The `Evaluator::load_module` method orchestrates the full loading process:
 impl Evaluator<'_> {
     pub fn load_module(
         &mut self,
-        parse_result: &ParseResult,
+        parse_result: &ParseOutput,
         file_path: &Path,
+        canon: Option<&SharedCanonResult>,
     ) -> Result<(), String> {
         // 1. Auto-load prelude if not already loaded
         if !self.prelude_loaded {

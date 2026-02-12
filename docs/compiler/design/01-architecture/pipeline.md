@@ -84,9 +84,34 @@ Key characteristics:
 - Pattern type checking
 - Capability checking
 
-### 4. Evaluation (`evaluated` query)
+### 4. Canonicalization (inside `evaluated` query)
 
-**Input**: `SourceFile` (via `typed` query)
+**Input**: `ParseOutput` + `TypeCheckResult` + `Pool`
+**Output**: `CanonResult` (via `SharedCanonResult`)
+
+Canonicalization transforms the typed AST into sugar-free canonical IR:
+
+```rust
+let canon_result = ori_canon::lower_module(
+    &parse_result.module,
+    &parse_result.arena,
+    &type_result,
+    &pool,
+    interner,
+);
+```
+
+Key operations:
+- **Desugaring**: Named calls to positional, template literals to concatenation, spreads to method calls
+- **Pattern compilation**: Match patterns to decision trees (Maranget 2008 algorithm)
+- **Constant folding**: Compile-time expressions pre-evaluated into `ConstantPool`
+- **Type attachment**: Every `CanNode` carries its resolved type
+
+This phase is NOT a separate Salsa query -- it runs inside `evaluated()`.
+
+### 5. Evaluation (`evaluated` query)
+
+**Input**: `SourceFile` (via `typed` query, then canonicalized)
 **Output**: `ModuleEvalResult { value: Value, output: EvalOutput }`
 
 ```rust
@@ -94,17 +119,19 @@ Key characteristics:
 pub fn evaluated(db: &dyn Db, file: SourceFile) -> ModuleEvalResult
 ```
 
-Tree-walking interpretation:
+Tree-walking interpretation over canonical IR:
 
 ```
-typed AST  ->  ModuleEvalResult {
-                 value: Value::Int(42),
-                 output: EvalOutput { stdout, stderr },
-               }
+CanonResult  ->  ModuleEvalResult {
+                   value: Value::Int(42),
+                   output: EvalOutput { stdout, stderr },
+                 }
 ```
 
 Key characteristics:
+- Evaluates `CanExpr` nodes (canonical IR), not raw `ExprKind`
 - Stack-based environment
+- Decision tree evaluation for pattern matching
 - Pattern registry for execution
 - Module caching for imports
 - Parallel test execution
@@ -118,6 +145,8 @@ flowchart TB
     B --> D["typed()"]
     C --> D
     D --> E["evaluated()"]
+    E -->|"internally"| F["canonicalize (lower_module)"]
+    F --> G["eval canonical IR"]
 ```
 
 When `SourceFile` changes:
@@ -133,6 +162,7 @@ When `SourceFile` changes:
 | Lexer | Rare (invalid chars) | Continue | TokenList |
 | Parser | Syntax errors | Skip/recover | Module + errors |
 | Typeck | Type mismatches | Continue | Types + errors |
+| Canon | Lowering errors | Accumulate | CanonResult |
 | Eval | Runtime errors | Stop | Value or error |
 
 ## Error Accumulation
@@ -156,16 +186,22 @@ This provides users with comprehensive diagnostics in one pass.
 
 ## Salsa Event Logging
 
-For debugging, the pipeline logs Salsa events:
+For debugging, the pipeline logs Salsa query events via tracing:
 
 ```
-ORI_DEBUG=salsa cargo run
+ORI_LOG=oric=debug ori check file.ori
 ```
 
 Output shows query execution:
 ```
-[Salsa] will_execute: tokens(file_0)
-[Salsa] did_execute: tokens(file_0) in 1.2ms
-[Salsa] will_execute: parsed(file_0)
-[Salsa] did_execute: parsed(file_0) in 3.4ms
+DEBUG oric: will_execute: tokens(file_0)
+DEBUG oric: did_execute: tokens(file_0) in 1.2ms
+DEBUG oric: will_execute: parsed(file_0)
+DEBUG oric: did_execute: parsed(file_0) in 3.4ms
+```
+
+Other useful tracing targets:
+```
+ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check file.ori  # Type inference tree
+ORI_LOG=ori_eval=debug ori run file.ori                    # Evaluator dispatch
 ```

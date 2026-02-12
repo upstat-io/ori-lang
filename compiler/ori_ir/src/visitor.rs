@@ -38,8 +38,6 @@ use super::ast::{
 };
 use super::{ExprArena, ExprId};
 
-// Visitor Trait
-
 /// AST Visitor trait.
 ///
 /// Override `visit_*` methods to add custom behavior at specific nodes.
@@ -179,9 +177,7 @@ pub trait Visitor<'ast> {
     }
 }
 
-// Walk Functions
-//
-// All walk functions traverse children in depth-first, left-to-right order.
+// Walk functions traverse children in depth-first, left-to-right order.
 // For expressions with multiple children (e.g., binary operations), the left
 // child is visited before the right. For collections (lists, tuples), elements
 // are visited in declaration order.

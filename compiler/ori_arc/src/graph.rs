@@ -7,6 +7,7 @@
 //! depend on each other).
 
 use rustc_hash::{FxHashMap, FxHashSet};
+use smallvec::{smallvec, SmallVec};
 
 use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 
@@ -32,23 +33,29 @@ pub(crate) fn compute_predecessors(func: &ArcFunction) -> Vec<Vec<usize>> {
 }
 
 /// Extract successor block IDs from a terminator.
-fn successor_block_ids(terminator: &ArcTerminator) -> Vec<ArcBlockId> {
+///
+/// Returns `SmallVec<[ArcBlockId; 4]>` to avoid heap allocation for the
+/// common case (max 2 successors except Switch with many cases).
+fn successor_block_ids(terminator: &ArcTerminator) -> SmallVec<[ArcBlockId; 4]> {
     match terminator {
         ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
-            vec![]
+            SmallVec::new()
         }
-        ArcTerminator::Jump { target, .. } => vec![*target],
+        ArcTerminator::Jump { target, .. } => smallvec![*target],
         ArcTerminator::Branch {
             then_block,
             else_block,
             ..
-        } => vec![*then_block, *else_block],
+        } => smallvec![*then_block, *else_block],
         ArcTerminator::Switch { cases, default, .. } => {
-            let mut targets: Vec<ArcBlockId> = cases.iter().map(|&(_, b)| b).collect();
+            let mut targets = SmallVec::with_capacity(cases.len() + 1);
+            for &(_, b) in cases {
+                targets.push(b);
+            }
             targets.push(*default);
             targets
         }
-        ArcTerminator::Invoke { normal, unwind, .. } => vec![*normal, *unwind],
+        ArcTerminator::Invoke { normal, unwind, .. } => smallvec![*normal, *unwind],
     }
 }
 

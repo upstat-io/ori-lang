@@ -41,8 +41,6 @@ pub use tree::{
     TestValue,
 };
 
-// ── CanId ───────────────────────────────────────────────────────────
-
 /// Index into a [`CanArena`]. Distinct from [`ExprId`](crate::ExprId) —
 /// these reference canonical expressions in a separate index space.
 ///
@@ -125,8 +123,6 @@ impl Default for CanId {
     }
 }
 
-// ── CanRange ────────────────────────────────────────────────────────
-
 /// A contiguous range of canonical expression IDs in a [`CanArena`].
 ///
 /// Used for expression lists: function arguments, list elements, block
@@ -174,8 +170,6 @@ impl fmt::Debug for CanRange {
         )
     }
 }
-
-// ── CanMapEntryRange / CanFieldRange ────────────────────────────────
 
 /// Range of map entries in a [`CanArena`]. Each entry is a key-value pair.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Default)]
@@ -252,8 +246,6 @@ impl fmt::Debug for CanFieldRange {
         )
     }
 }
-
-// ── CanBindingPatternId / CanBindingPattern ─────────────────────────
 
 /// Index into a [`CanArena`]'s binding pattern storage.
 ///
@@ -392,8 +384,6 @@ pub struct CanFieldBinding {
     pub pattern: CanBindingPatternId,
 }
 
-// ── CanParam ────────────────────────────────────────────────────────
-
 /// Canonical function parameter — only what evaluation/codegen needs.
 ///
 /// Replaces `Param` (which contains `MatchPattern`, `ParsedType`, `ExprId`)
@@ -444,8 +434,6 @@ impl fmt::Debug for CanParamRange {
     }
 }
 
-// ── CanNamedExpr ────────────────────────────────────────────────────
-
 /// A named expression in canonical form (for `FunctionExp` props).
 ///
 /// Replaces `NamedExpr` which contains `ExprId` (an `ExprArena` reference)
@@ -493,8 +481,6 @@ impl fmt::Debug for CanNamedExprRange {
         )
     }
 }
-
-// ── ConstantId / DecisionTreeId ─────────────────────────────────────
 
 /// Index into a [`ConstantPool`]. References a compile-time-folded value.
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
@@ -552,8 +538,6 @@ impl fmt::Debug for DecisionTreeId {
     }
 }
 
-// ── CanExpr ─────────────────────────────────────────────────────────
-
 /// Canonical expression node — sugar-free, type-annotated, pattern-compiled.
 ///
 /// This is NOT `ExprKind` with variants removed. It is a **distinct type** with
@@ -580,7 +564,7 @@ impl fmt::Debug for DecisionTreeId {
 /// Target: ≤ 24 bytes (same as `ExprKind`). Verified by `static_assert_size!`.
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum CanExpr {
-    // === Literals ===
+    // Literals
     /// Integer literal: `42`, `1_000`
     Int(i64),
     /// Float literal as bits: `3.14`, `2.5e-8`
@@ -598,11 +582,11 @@ pub enum CanExpr {
     /// Unit literal: `()`
     Unit,
 
-    // === Compile-Time Constant ===
+    // Compile-Time Constant
     /// A value folded at compile time. Index into [`ConstantPool`].
     Constant(ConstantId),
 
-    // === References ===
+    // References
     /// Variable reference: `x`
     Ident(Name),
     /// Constant reference: `$name`
@@ -611,10 +595,21 @@ pub enum CanExpr {
     SelfRef,
     /// Function reference: `@name`
     FunctionRef(Name),
+    /// Type reference for associated function calls: `Duration`, `Size`, user types.
+    ///
+    /// Emitted during canonicalization when an identifier resolves to a type name
+    /// (via `TypedModule::type_def` or builtin type check). Eliminates the need for
+    /// the evaluator to perform name resolution (phase bleeding) and acquire a
+    /// `UserMethodRegistry` read lock on every identifier evaluation.
+    ///
+    /// The evaluator checks the environment first (for variable shadowing), then
+    /// produces `Value::TypeRef`. Method dispatch on the resulting `TypeRef` routes
+    /// to associated functions.
+    TypeRef(Name),
     /// Hash in index context (refers to length): `#`
     HashLength,
 
-    // === Operators ===
+    // Operators
     /// Binary operation: `left op right`
     Binary {
         op: BinaryOp,
@@ -634,7 +629,7 @@ pub enum CanExpr {
         fallible: bool,
     },
 
-    // === Calls (always positional — named args already reordered) ===
+    // Calls (always positional — named args already reordered)
     /// Function call with positional arguments.
     Call { func: CanId, args: CanRange },
     /// Method call with positional arguments.
@@ -644,13 +639,13 @@ pub enum CanExpr {
         args: CanRange,
     },
 
-    // === Access ===
+    // Access
     /// Field access: `receiver.field`
     Field { receiver: CanId, field: Name },
     /// Index access: `receiver[index]`
     Index { receiver: CanId, index: CanId },
 
-    // === Control Flow ===
+    // Control Flow
     /// Conditional: `if cond then else`. INVALID `else_branch` = unit block.
     If {
         cond: CanId,
@@ -679,7 +674,7 @@ pub enum CanExpr {
     /// Continue loop (INVALID = no value).
     Continue(CanId),
 
-    // === Bindings ===
+    // Bindings
     /// Block: `{ stmts; result }`. INVALID result = unit block.
     Block { stmts: CanRange, result: CanId },
     /// Let binding: `let pattern = init`.
@@ -693,13 +688,13 @@ pub enum CanExpr {
     /// Assignment: `target = value`
     Assign { target: CanId, value: CanId },
 
-    // === Functions ===
+    // Functions
     /// Lambda: `params -> body`.
     ///
     /// Return type is on `CanNode.ty`; no `ParsedTypeId` needed.
     Lambda { params: CanParamRange, body: CanId },
 
-    // === Collections (no spread variants — already expanded) ===
+    // Collections (no spread variants — already expanded)
     /// List literal: `[a, b, c]`
     List(CanRange),
     /// Tuple literal: `(a, b, c)`
@@ -717,7 +712,7 @@ pub enum CanExpr {
         inclusive: bool,
     },
 
-    // === Algebraic ===
+    // Algebraic
     /// Ok variant: `Ok(value)`. INVALID = `Ok(())`.
     Ok(CanId),
     /// Err variant: `Err(value)`. INVALID = `Err(())`.
@@ -727,13 +722,13 @@ pub enum CanExpr {
     /// None variant.
     None,
 
-    // === Error Handling ===
+    // Error Handling
     /// Error propagation: `expr?`
     Try(CanId),
     /// Await async operation: `await expr`
     Await(CanId),
 
-    // === Capabilities ===
+    // Capabilities
     /// Capability injection: `with Http = provider in body`
     WithCapability {
         capability: Name,
@@ -741,7 +736,7 @@ pub enum CanExpr {
         body: CanId,
     },
 
-    // === Special Forms ===
+    // Special Forms
     /// Named function expression: `print`, `panic`, `todo`, etc.
     ///
     /// Inlined from `FunctionExpId` — the kind and canonical props are
@@ -751,7 +746,7 @@ pub enum CanExpr {
         props: CanNamedExprRange,
     },
 
-    // === Error Recovery ===
+    // Error Recovery
     /// Parse/type error placeholder. Propagates silently through lowering.
     Error,
 }
@@ -776,6 +771,7 @@ impl fmt::Debug for CanExpr {
             CanExpr::Const(n) => write!(f, "Const({n:?})"),
             CanExpr::SelfRef => write!(f, "SelfRef"),
             CanExpr::FunctionRef(n) => write!(f, "FunctionRef({n:?})"),
+            CanExpr::TypeRef(n) => write!(f, "TypeRef({n:?})"),
             CanExpr::HashLength => write!(f, "HashLength"),
             CanExpr::Binary { op, left, right } => {
                 write!(f, "Binary({op:?}, {left:?}, {right:?})")
@@ -879,8 +875,6 @@ impl fmt::Debug for CanExpr {
     }
 }
 
-// ── CanNode ─────────────────────────────────────────────────────────
-
 /// A canonical expression node with source location and resolved type.
 ///
 /// Unlike [`Expr`](crate::Expr) (which has no type information), each `CanNode`
@@ -930,8 +924,6 @@ impl fmt::Debug for CanNode {
     }
 }
 
-// ── Auxiliary Types ─────────────────────────────────────────────────
-
 /// A map entry in canonical form: key-value pair.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct CanMapEntry {
@@ -945,8 +937,6 @@ pub struct CanField {
     pub name: Name,
     pub value: CanId,
 }
-
-// ── ConstValue ──────────────────────────────────────────────────────
 
 /// A compile-time constant value stored in a [`ConstantPool`].
 ///
@@ -988,8 +978,6 @@ impl Hash for ConstValue {
         }
     }
 }
-
-// ── ConstantPool ────────────────────────────────────────────────────
 
 /// Pool of compile-time constant values, indexed by [`ConstantId`].
 ///
@@ -1075,15 +1063,26 @@ impl PartialEq for ConstantPool {
 
 impl Eq for ConstantPool {}
 
-// ── DecisionTreePool ────────────────────────────────────────────────
-
 /// Pool of compiled decision trees, indexed by [`DecisionTreeId`].
 ///
 /// Decision trees are produced during pattern compilation (Section 03)
-/// and consumed by both `ori_eval` and `ori_arc`.
+/// and consumed by both `ori_eval` and `ori_arc`. Trees are wrapped in
+/// `Arc` so consumers can cheaply clone a reference (O(1)) instead of
+/// deep-cloning the recursive tree structure.
+/// Shared decision tree — `Arc<DecisionTree>` for O(1) cloning.
+///
+/// Decision trees are immutable after construction and may be cloned
+/// by both `ori_eval` (to release a borrow on `self`) and `ori_arc`
+/// (same pattern). Arc sharing avoids deep-copying the recursive structure.
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc enables O(1) clone for immutable decision trees shared across eval/codegen"
+)]
+pub type SharedDecisionTree = std::sync::Arc<DecisionTree>;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DecisionTreePool {
-    trees: Vec<DecisionTree>,
+    trees: Vec<SharedDecisionTree>,
 }
 
 impl DecisionTreePool {
@@ -1095,13 +1094,22 @@ impl DecisionTreePool {
     /// Store a decision tree and return its ID.
     pub fn push(&mut self, tree: DecisionTree) -> DecisionTreeId {
         let id = DecisionTreeId::new(to_u32(self.trees.len(), "decision trees"));
-        self.trees.push(tree);
+        self.trees.push(SharedDecisionTree::new(tree));
         id
     }
 
     /// Get a decision tree by ID.
     pub fn get(&self, id: DecisionTreeId) -> &DecisionTree {
         &self.trees[id.index()]
+    }
+
+    /// Get a shared reference to a decision tree for O(1) cloning.
+    ///
+    /// Use this instead of `get().clone()` when you need to own a copy
+    /// of the tree (e.g., to release a borrow on `self`). The Arc clone
+    /// is O(1) vs O(n) for deep-cloning the recursive tree structure.
+    pub fn get_shared(&self, id: DecisionTreeId) -> SharedDecisionTree {
+        SharedDecisionTree::clone(&self.trees[id.index()])
     }
 
     /// Number of stored trees.
@@ -1114,8 +1122,6 @@ impl DecisionTreePool {
         self.trees.is_empty()
     }
 }
-
-// ── CanArena ────────────────────────────────────────────────────────
 
 /// Arena for canonical expressions.
 ///
@@ -1192,8 +1198,6 @@ impl CanArena {
         }
     }
 
-    // ── Node allocation ─────────────────────────────────────────
-
     /// Allocate a canonical node, returning its ID.
     pub fn push(&mut self, node: CanNode) -> CanId {
         let id = CanId::new(to_u32(self.kinds.len(), "canonical expressions"));
@@ -1240,8 +1244,6 @@ impl CanArena {
         self.kinds.is_empty()
     }
 
-    // ── Expression list allocation ──────────────────────────────
-
     /// Allocate a contiguous range of expression IDs (for args, elements, stmts).
     pub fn push_expr_list(&mut self, ids: &[CanId]) -> CanRange {
         if ids.is_empty() {
@@ -1282,8 +1284,6 @@ impl CanArena {
         }
     }
 
-    // ── Map entry allocation ────────────────────────────────────
-
     /// Allocate a contiguous range of map entries.
     pub fn push_map_entries(&mut self, entries: &[CanMapEntry]) -> CanMapEntryRange {
         if entries.is_empty() {
@@ -1304,8 +1304,6 @@ impl CanArena {
         &self.map_entries[start..end]
     }
 
-    // ── Field allocation ────────────────────────────────────────
-
     /// Allocate a contiguous range of struct field initializers.
     pub fn push_fields(&mut self, fields: &[CanField]) -> CanFieldRange {
         if fields.is_empty() {
@@ -1325,8 +1323,6 @@ impl CanArena {
         let end = start + range.len();
         &self.fields[start..end]
     }
-
-    // ── Binding pattern allocation ─────────────────────────────
 
     /// Allocate a canonical binding pattern, returning its ID.
     pub fn push_binding_pattern(&mut self, pattern: CanBindingPattern) -> CanBindingPatternId {
@@ -1386,8 +1382,6 @@ impl CanArena {
         &self.field_bindings[start..end]
     }
 
-    // ── Param allocation ───────────────────────────────────────
-
     /// Allocate a range of canonical parameters.
     pub fn push_params(&mut self, params: &[CanParam]) -> CanParamRange {
         if params.is_empty() {
@@ -1407,8 +1401,6 @@ impl CanArena {
         let end = start + range.len();
         &self.params[start..end]
     }
-
-    // ── Named expression allocation ────────────────────────────
 
     /// Allocate a range of named expressions.
     pub fn push_named_exprs(&mut self, exprs: &[CanNamedExpr]) -> CanNamedExprRange {
@@ -1454,8 +1446,6 @@ impl PartialEq for CanArena {
 }
 
 impl Eq for CanArena {}
-
-// ── CanonResult ─────────────────────────────────────────────────────
 
 /// A canonicalized function root — body + defaults in canonical IR.
 ///
@@ -1573,14 +1563,13 @@ impl std::ops::Deref for SharedCanonResult {
     }
 }
 
-// ── Tests ───────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use std::mem;
 
-    use super::*;
     use crate::Span;
+
+    use super::*;
 
     // ── Size Assertions ─────────────────────────────────────────
 

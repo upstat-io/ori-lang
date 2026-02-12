@@ -819,7 +819,7 @@ mod tests {
             .with_suggestion("use `int(x)` to convert")
     }
 
-    // --- Fallback (no source) tests ---
+    // Fallback (no source) tests
 
     #[test]
     fn test_terminal_emitter_no_color() {
@@ -907,7 +907,7 @@ mod tests {
         assert!(text.contains("3 warnings"));
     }
 
-    // --- ColorMode Tests ---
+    // ColorMode tests
 
     #[test]
     fn test_color_mode_auto_with_tty() {
@@ -984,7 +984,7 @@ mod tests {
         assert!(!text.contains("\x1b["));
     }
 
-    // --- Cross-file Label Tests (fallback) ---
+    // Cross-file label tests (fallback)
 
     #[test]
     fn test_terminal_emitter_cross_file_label() {
@@ -1041,7 +1041,7 @@ mod tests {
         assert!(text.contains("\x1b[1m")); // Bold ANSI code
     }
 
-    // --- Snippet rendering tests ---
+    // Snippet rendering tests
 
     #[test]
     fn test_snippet_single_line() {
@@ -1355,7 +1355,7 @@ mod tests {
         );
     }
 
-    // --- digit_count tests ---
+    // digit_count tests
 
     #[test]
     fn test_digit_count() {

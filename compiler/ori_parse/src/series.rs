@@ -112,36 +112,21 @@ impl SeriesConfig {
 }
 
 impl Parser<'_> {
-    /// Parse a series of items with the given configuration.
+    /// Core series loop: separator/terminator/trailing logic shared between
+    /// `series()` and `series_direct()`.
     ///
-    /// The `parse_item` function should:
-    /// - Return `Ok(Some(item))` when an item was successfully parsed
-    /// - Return `Ok(None)` when no item is present (but no error)
-    /// - Return `Err(e)` when parsing failed with an error
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let args = self.series(
-    ///     SeriesConfig::comma(TokenKind::RParen),
-    ///     |p| {
-    ///         if p.cursor.check(&TokenKind::RParen) {
-    ///             Ok(None)
-    ///         } else {
-    ///             Ok(Some(p.parse_expr()?))
-    ///         }
-    ///     },
-    /// )?;
-    /// ```
-    pub fn series<T, F>(
+    /// The `parse_item` closure returns `Ok(true)` when an item was parsed
+    /// (the caller is responsible for collecting it) or `Ok(false)` when no
+    /// item is present. Returns the number of items parsed.
+    fn series_core<F>(
         &mut self,
         config: &SeriesConfig,
         mut parse_item: F,
-    ) -> Result<Vec<T>, ParseError>
+    ) -> Result<usize, ParseError>
     where
-        F: FnMut(&mut Self) -> Result<Option<T>, ParseError>,
+        F: FnMut(&mut Self) -> Result<bool, ParseError>,
     {
-        let mut items = Vec::new();
+        let mut count = 0;
 
         loop {
             if config.skip_newlines {
@@ -154,12 +139,12 @@ impl Parser<'_> {
             }
 
             // Try to parse item
-            if let Some(item) = parse_item(self)? {
-                items.push(item);
+            if parse_item(self)? {
+                count += 1;
             } else {
-                // No item found - if we already have items, this is an error
+                // No item found — if we already have items, this is an error
                 // (we expected an item after separator)
-                if !items.is_empty() && config.trailing == TrailingSeparator::Forbidden {
+                if count > 0 && config.trailing == TrailingSeparator::Forbidden {
                     return Err(ParseError::expected_item(
                         self.cursor.current_span(),
                         &config.terminator,
@@ -192,36 +177,77 @@ impl Parser<'_> {
                     break;
                 }
             } else if !self.cursor.check(&config.terminator) && !self.cursor.is_at_end() {
-                // No separator and no terminator - error
+                // No separator and no terminator — error
                 return Err(ParseError::expected_separator_or_terminator(
                     self.cursor.current_span(),
                     &config.separator,
                     &config.terminator,
                 ));
             } else {
-                // No separator but we have terminator - end of list
+                // No separator but we have terminator — end of list
                 break;
             }
         }
 
         // Validate count constraints
-        if items.len() < config.min_count {
+        if count < config.min_count {
             return Err(ParseError::too_few_items(
                 self.cursor.current_span(),
                 config.min_count,
-                items.len(),
+                count,
             ));
         }
         if let Some(max) = config.max_count {
-            if items.len() > max {
+            if count > max {
                 return Err(ParseError::too_many_items(
                     self.cursor.current_span(),
                     max,
-                    items.len(),
+                    count,
                 ));
             }
         }
 
+        Ok(count)
+    }
+
+    /// Parse a series of items with the given configuration.
+    ///
+    /// The `parse_item` function should:
+    /// - Return `Ok(Some(item))` when an item was successfully parsed
+    /// - Return `Ok(None)` when no item is present (but no error)
+    /// - Return `Err(e)` when parsing failed with an error
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let args = self.series(
+    ///     SeriesConfig::comma(TokenKind::RParen),
+    ///     |p| {
+    ///         if p.cursor.check(&TokenKind::RParen) {
+    ///             Ok(None)
+    ///         } else {
+    ///             Ok(Some(p.parse_expr()?))
+    ///         }
+    ///     },
+    /// )?;
+    /// ```
+    pub fn series<T, F>(
+        &mut self,
+        config: &SeriesConfig,
+        mut parse_item: F,
+    ) -> Result<Vec<T>, ParseError>
+    where
+        F: FnMut(&mut Self) -> Result<Option<T>, ParseError>,
+    {
+        let mut items = Vec::new();
+        self.series_core(config, |p| {
+            if let Some(item) = parse_item(p)? {
+                items.push(item);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        })?;
         Ok(items)
     }
 
@@ -298,78 +324,7 @@ impl Parser<'_> {
     where
         F: FnMut(&mut Self) -> Result<bool, ParseError>,
     {
-        let mut count = 0;
-
-        loop {
-            if config.skip_newlines {
-                self.cursor.skip_newlines();
-            }
-
-            if self.cursor.check(&config.terminator) || self.cursor.is_at_end() {
-                break;
-            }
-
-            if parse_and_push(self)? {
-                count += 1;
-            } else {
-                if count > 0 && config.trailing == TrailingSeparator::Forbidden {
-                    return Err(ParseError::expected_item(
-                        self.cursor.current_span(),
-                        &config.terminator,
-                    ));
-                }
-                break;
-            }
-
-            if config.skip_newlines {
-                self.cursor.skip_newlines();
-            }
-
-            if self.cursor.check(&config.separator) {
-                self.cursor.advance();
-
-                if config.skip_newlines {
-                    self.cursor.skip_newlines();
-                }
-
-                if self.cursor.check(&config.terminator) {
-                    if config.trailing == TrailingSeparator::Forbidden {
-                        return Err(ParseError::unexpected_trailing_separator(
-                            self.cursor.previous_span(),
-                            &config.separator,
-                        ));
-                    }
-                    break;
-                }
-            } else if !self.cursor.check(&config.terminator) && !self.cursor.is_at_end() {
-                return Err(ParseError::expected_separator_or_terminator(
-                    self.cursor.current_span(),
-                    &config.separator,
-                    &config.terminator,
-                ));
-            } else {
-                break;
-            }
-        }
-
-        if count < config.min_count {
-            return Err(ParseError::too_few_items(
-                self.cursor.current_span(),
-                config.min_count,
-                count,
-            ));
-        }
-        if let Some(max) = config.max_count {
-            if count > max {
-                return Err(ParseError::too_many_items(
-                    self.cursor.current_span(),
-                    max,
-                    count,
-                ));
-            }
-        }
-
-        Ok(count)
+        self.series_core(config, |p| parse_and_push(p))
     }
 
     /// Direct-push series in parentheses: `(item, item, ...)`

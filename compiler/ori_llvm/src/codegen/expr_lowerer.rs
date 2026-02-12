@@ -211,7 +211,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             CanExpr::Duration { value, unit } => Some(self.lower_duration(value, unit)),
             CanExpr::Size { value, unit } => Some(self.lower_size(value, unit)),
             CanExpr::Unit | CanExpr::HashLength => Some(self.lower_unit()),
-            CanExpr::Ident(name) => self.lower_ident(name, id),
+            CanExpr::Ident(name) | CanExpr::TypeRef(name) => self.lower_ident(name, id),
             CanExpr::Const(name) => self.lower_const(name, id),
             CanExpr::FunctionRef(name) => self.lower_function_ref(name),
             CanExpr::Constant(const_id) => self.lower_constant(const_id, id),

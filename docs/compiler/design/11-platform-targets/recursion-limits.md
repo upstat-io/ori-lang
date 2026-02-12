@@ -34,72 +34,146 @@ On native builds, the `stacker` crate dynamically grows the stack, allowing arbi
 
 ## Implementation
 
-### Call Depth Tracking
+### CallStack — Frame-Based Depth Tracking
 
-The `Interpreter` struct tracks the current call depth:
+The interpreter uses a `CallStack` struct (defined in `compiler/ori_eval/src/diagnostics.rs`) that replaces the old `call_depth: usize` with proper frame tracking. Each frame captures the function name and call site span, enabling rich backtrace diagnostics on errors.
+
+```rust
+/// A single frame in the live call stack.
+#[derive(Clone, Debug)]
+pub struct CallFrame {
+    /// Interned function or method name.
+    pub name: Name,
+    /// Source location of the call site (where the call was made, not the definition).
+    pub call_span: Option<Span>,
+}
+
+/// Live call stack for the interpreter.
+///
+/// Each function/method call pushes a frame; return pops it. The depth
+/// check is integrated into `push()` for ergonomic use.
+#[derive(Clone, Debug)]
+pub struct CallStack {
+    frames: Vec<CallFrame>,
+    max_depth: Option<usize>,
+}
+```
+
+The `Interpreter` struct holds a `CallStack` instead of a raw depth counter:
 
 ```rust
 pub struct Interpreter<'a> {
     // ... other fields ...
 
-    /// Current call depth (incremented on each function call)
-    pub(crate) call_depth: usize,
-
-    /// Maximum allowed depth (WASM only)
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) max_call_depth: usize,
+    /// Call stack with frame tracking and depth limit enforcement.
+    pub(crate) call_stack: CallStack,
 }
 ```
 
 ### Depth Check
 
-Before each function/method call, the limit is checked:
+The depth limit is checked inside `CallStack::push()` — no separate check method needed:
 
 ```rust
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn check_recursion_limit(&self) -> Result<(), EvalError> {
-    if self.call_depth >= self.max_call_depth {
-        Err(recursion_limit_exceeded(self.max_call_depth))
-    } else {
+impl CallStack {
+    /// Push a call frame, checking the depth limit.
+    ///
+    /// Returns `Err(EvalError)` with `StackOverflow` kind if the limit
+    /// is exceeded. The frame is NOT pushed on overflow.
+    pub fn push(&mut self, frame: CallFrame) -> Result<(), EvalError> {
+        if let Some(max) = self.max_depth {
+            if self.frames.len() >= max {
+                return Err(ori_patterns::recursion_limit_exceeded(max));
+            }
+        }
+        self.frames.push(frame);
         Ok(())
     }
 }
+```
 
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn check_recursion_limit(&self) -> Result<(), EvalError> {
-    Ok(())  // No-op on native
+### Depth Limit Source of Truth
+
+The `max_depth` is derived from `EvalMode::max_recursion_depth()`, which returns `Option<usize>`:
+
+- **`Interpret`**: `None` on native (stacker grows the stack), `Some(200)` on WASM
+- **`ConstEval`**: `Some(64)` (tight budget prevents runaway)
+- **`TestRun`**: `Some(500)` (generous but bounded)
+
+```rust
+impl EvalMode {
+    pub fn max_recursion_depth(&self) -> Option<usize> {
+        match self {
+            Self::Interpret => {
+                #[cfg(target_arch = "wasm32")]
+                { Some(200) }
+                #[cfg(not(target_arch = "wasm32"))]
+                { None }
+            }
+            Self::ConstEval { .. } => Some(64),
+            Self::TestRun { .. } => Some(500),
+        }
+    }
 }
 ```
 
-### Depth Propagation
+### Clone-per-Child Model
 
-Child interpreters inherit and increment the depth:
+When the interpreter creates a child for a function call, it clones the parent's `CallStack` and calls `push()` on the clone. This is thread-safe (no shared mutable state) and O(N) per call, acceptable at practical depths (~24 bytes per frame, ~24 KiB at 1000 depth).
 
 ```rust
 fn create_function_interpreter(&self, ...) -> Interpreter {
+    let mut child_stack = self.call_stack.clone();
+    child_stack.push(CallFrame { name, call_span: Some(span) })?;
+
     InterpreterBuilder::new(...)
-        .call_depth(self.call_depth.saturating_add(1))
-        .max_call_depth(self.max_call_depth)  // WASM only
+        .call_stack(child_stack)
         .build()
+}
+```
+
+### Backtrace Capture
+
+When an error occurs, the call stack is captured as an `EvalBacktrace` and attached to the error. Frames are converted using the string interner to resolve interned `Name`s to display strings:
+
+```rust
+impl CallStack {
+    /// Capture a snapshot of the current call stack as an `EvalBacktrace`.
+    pub fn capture(&self, interner: &StringInterner) -> EvalBacktrace {
+        let frames = self.frames.iter().rev()  // Most recent call first
+            .map(|f| BacktraceFrame {
+                name: interner.lookup(f.name).to_string(),
+                span: f.call_span,
+            })
+            .collect();
+        EvalBacktrace::new(frames)
+    }
+
+    /// Convenience: capture + attach backtrace to an error.
+    pub fn attach_backtrace(&self, err: EvalError, interner: &StringInterner) -> EvalError {
+        err.with_backtrace(self.capture(interner))
+    }
 }
 ```
 
 ## Configuration
 
-### Default Limit
+### Default Limits
+
+Limits are set per `EvalMode` via `max_recursion_depth()` (see above). The `CallStack` is initialized with the appropriate limit:
 
 ```rust
-#[cfg(target_arch = "wasm32")]
-pub const DEFAULT_MAX_CALL_DEPTH: usize = 200;
+let call_stack = CallStack::new(mode.max_recursion_depth());
 ```
 
 ### Runtime Configuration
 
-The limit can be set when building the interpreter:
+Custom limits can be set by constructing a `CallStack` directly:
 
 ```rust
+let call_stack = CallStack::new(Some(500));  // Higher limit for Node.js WASM
 let interpreter = InterpreterBuilder::new(&interner, &arena)
-    .max_call_depth(500)  // Higher limit for Node.js
+    .call_stack(call_stack)
     .build();
 ```
 
@@ -133,20 +207,21 @@ Rust Call Stack (per Ori function call)
 5.       └───── self.eval_call(&func_val, &arg_vals)   // Dispatch call
                 │
                 │  // Inside eval_call for Value::Function:
-6.              │  check_recursion_limit()?             // WASM limit check
-7.              │  check_arg_count(f, args)?
-8.              │  let mut call_env = self.env.child()
-9.              │  call_env.push_scope()
-10.             │  bind_captures(&mut call_env, f)
-11.             │  bind_parameters(&mut call_env, f, args)
+6.              │  child_stack = self.call_stack.clone()
+7.              │  child_stack.push(CallFrame { name, call_span })?  // Depth check here
+8.              │  check_arg_count(f, args)?
+9.              │  let mut call_env = self.env.child()
+10.             │  call_env.push_scope()
+11.             │  bind_captures(&mut call_env, f)
+12.             │  bind_parameters(&mut call_env, f, args)
                 │
-12.             └─ create_function_interpreter(...)     // Build child
+13.             └─ create_function_interpreter(...)     // Build child
                    │  InterpreterBuilder::new(...)
                    │      .env(call_env)
-                   │      .call_depth(self.call_depth + 1)
+                   │      .call_stack(child_stack)
                    │      .build()
                    │
-13.                └─ call_interpreter.eval(f.body)     // RECURSE
+14.                └─ call_interpreter.eval(f.body)     // RECURSE
 ```
 
 ### Frame Count Analysis
@@ -217,18 +292,19 @@ This allows recursion depths of 100,000+ on native builds.
 
 ## Error Message
 
-The error message clearly indicates this is a WASM limitation:
+The error is produced by `ori_patterns::recursion_limit_exceeded()` with `StackOverflow` kind, and includes a backtrace captured from the `CallStack`:
 
 ```rust
-pub fn recursion_limit_exceeded(limit: usize) -> EvalError {
-    EvalError::new(format!(
-        "maximum recursion depth exceeded (WASM limit: {limit})"
-    ))
+pub fn recursion_limit_exceeded(depth: usize) -> EvalError {
+    EvalError {
+        kind: EvalErrorKind::StackOverflow { depth },
+        message: format!("maximum recursion depth exceeded (limit: {depth})"),
+        ..
+    }
 }
 ```
 
-Users understand:
-- The limit exists
-- It's specific to WASM
-- The exact limit value
-- Native compilation has no such limit
+When the error propagates, the interpreter attaches the call stack backtrace via `call_stack.attach_backtrace(err, interner)`, giving users:
+- The exact depth limit reached
+- A full backtrace showing the call chain that led to overflow
+- The source spans of each call site in the chain

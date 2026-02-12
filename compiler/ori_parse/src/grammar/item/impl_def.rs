@@ -15,7 +15,10 @@ impl Parser<'_> {
     /// Returns `EmptyErr` if no `impl` keyword is present.
     pub(crate) fn parse_impl(&mut self) -> ParseOutcome<ImplDef> {
         if !self.cursor.check(&TokenKind::Impl) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Impl, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Impl,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         self.in_error_context(crate::ErrorContext::ImplBlock, Self::parse_impl_body)
@@ -179,7 +182,10 @@ impl Parser<'_> {
     /// - Methods must not have `self` parameter (stateless)
     pub(crate) fn parse_def_impl(&mut self, visibility: Visibility) -> ParseOutcome<DefImplDef> {
         if !self.cursor.check(&TokenKind::Def) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Def, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Def,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         self.parse_def_impl_body(visibility)

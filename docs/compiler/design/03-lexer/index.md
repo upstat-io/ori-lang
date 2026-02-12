@@ -84,6 +84,7 @@ pub enum RawTag {
     TemplateHead, TemplateMiddle, TemplateTail, TemplateComplete, FormatSpec,
     Plus, Minus, Star, Slash, /* ... operators ... */,
     LParen, RParen, LBrace, RBrace, /* ... delimiters ... */,
+    HashBang,  // #! — compiler directives
     Whitespace, Newline, LineComment,
     InvalidByte, UnterminatedString, UnterminatedTemplate, /* ... errors ... */,
     Eof,
@@ -120,13 +121,28 @@ The driver loop in `lex()` / `lex_with_comments()` orchestrates the scanner and 
 
 ## Entry Points
 
-### Fast Path — `lex()`
+### Token-Only Path — `lex()`
 
 ```rust
 pub fn lex(source: &str, interner: &StringInterner) -> TokenList
 ```
 
-Returns only the token stream. Used by the parser. Skips comment classification, blank line tracking, and `IS_DOC` flag computation.
+Returns only the token stream. Used by the parser. Internally delegates to `lex_with_comments()` (via `lex_full()`), discarding comments, metadata, and errors. Because it delegates rather than using a separate code path, all token flags including `IS_DOC` are computed identically to the full path.
+
+### Token + Errors Path — `lex_full()`
+
+```rust
+pub fn lex_full(source: &str, interner: &StringInterner) -> LexResult
+```
+
+Returns the token stream plus accumulated lexer errors, without formatting metadata. This is the primary output for the parsing pipeline:
+
+```rust
+pub struct LexResult {
+    pub tokens: TokenList,
+    pub errors: Vec<LexError>,
+}
+```
 
 ### Full Path — `lex_with_comments()`
 
@@ -145,6 +161,16 @@ pub struct LexOutput {
     pub errors: Vec<LexError>,
     pub warnings: Vec<DetachedDocWarning>,
 }
+```
+
+### Relationship Between Entry Points
+
+All three entry points share the same driver loop — there is only one lexing implementation:
+
+```
+lex()      → lex_full().tokens        → lex_with_comments() (discards metadata + errors)
+lex_full() → LexResult{tokens, errors} → lex_with_comments() (discards metadata)
+lex_with_comments()                    → full LexOutput
 ```
 
 ## Keyword System
@@ -293,6 +319,25 @@ Decimal sizes follow the same exact-representation rule as durations.
 ```
 
 Overflow is detected and produces an error token with `HAS_ERROR` flag.
+
+## HashBang Token
+
+The lexer recognizes the `#!` sequence as a `HashBang` token, used for compiler directives:
+
+```ori
+#!compiler_version
+```
+
+The raw scanner produces `RawTag::HashBang` for the two-byte `#!` sequence, and the cooker maps it to `TokenKind::HashBang`. The token spans exactly 2 bytes (`#!`); the identifier following it is lexed as a separate `Ident` token.
+
+```
+#!version
+
+HashBang   → #! (span 0..2)
+Ident      → version (span 2..9)
+```
+
+This is distinct from `HashBracket` (`#[`) which introduces attributes.
 
 ## TokenList Structure
 

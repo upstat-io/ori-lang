@@ -154,8 +154,6 @@ pub struct EvalCounters {
     pub function_calls: u64,
     pub method_calls: u64,
     pub pattern_matches: u64,
-    pub scope_pushes: u64,
-    pub const_folded_nodes: u64,
 }
 
 impl EvalCounters {
@@ -183,6 +181,19 @@ impl EvalCounters {
         self.pattern_matches = self.pattern_matches.wrapping_add(1);
     }
 
+    /// Merge counters from a child interpreter into this one.
+    ///
+    /// Used to accumulate profiling data from child interpreters created
+    /// for function/method calls back into the parent's counters.
+    pub fn merge(&mut self, other: &EvalCounters) {
+        self.expressions_evaluated = self
+            .expressions_evaluated
+            .wrapping_add(other.expressions_evaluated);
+        self.function_calls = self.function_calls.wrapping_add(other.function_calls);
+        self.method_calls = self.method_calls.wrapping_add(other.method_calls);
+        self.pattern_matches = self.pattern_matches.wrapping_add(other.pattern_matches);
+    }
+
     /// Format a summary report.
     pub fn report(&self) -> String {
         format!(
@@ -190,15 +201,11 @@ impl EvalCounters {
              Expressions evaluated: {}\n  \
              Function calls:        {}\n  \
              Method calls:          {}\n  \
-             Pattern matches:       {}\n  \
-             Scope pushes:          {}\n  \
-             Const-folded nodes:    {}",
+             Pattern matches:       {}",
             self.expressions_evaluated,
             self.function_calls,
             self.method_calls,
             self.pattern_matches,
-            self.scope_pushes,
-            self.const_folded_nodes,
         )
     }
 }
@@ -400,12 +407,31 @@ mod tests {
             function_calls: 10,
             method_calls: 5,
             pattern_matches: 3,
-            scope_pushes: 20,
-            const_folded_nodes: 8,
         };
         let report = c.report();
         assert!(report.contains("100"));
         assert!(report.contains("10"));
         assert!(report.contains("Evaluation profile"));
+    }
+
+    #[test]
+    fn counters_merge() {
+        let mut parent = EvalCounters {
+            expressions_evaluated: 10,
+            function_calls: 2,
+            method_calls: 1,
+            pattern_matches: 0,
+        };
+        let child = EvalCounters {
+            expressions_evaluated: 5,
+            function_calls: 3,
+            method_calls: 0,
+            pattern_matches: 4,
+        };
+        parent.merge(&child);
+        assert_eq!(parent.expressions_evaluated, 15);
+        assert_eq!(parent.function_calls, 5);
+        assert_eq!(parent.method_calls, 1);
+        assert_eq!(parent.pattern_matches, 4);
     }
 }

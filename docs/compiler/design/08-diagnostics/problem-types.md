@@ -17,11 +17,11 @@ The `Problem` enum uses a **three-tier hierarchy** for organization by compiler 
 /// Unified problem enum for all compilation phases.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Problem {
+    /// Lex-time problems (tokenization errors, confusables, cross-language habits).
+    Lex(LexProblem),
+
     /// Parse-time problems (syntax errors).
     Parse(ParseProblem),
-
-    /// Type checking problems.
-    Type(TypeProblem),
 
     /// Semantic analysis problems.
     Semantic(SemanticProblem),
@@ -30,15 +30,38 @@ pub enum Problem {
 impl Problem {
     pub fn span(&self) -> Span {
         match self {
+            Problem::Lex(p) => p.span(),
             Problem::Parse(p) => p.span(),
-            Problem::Type(p) => p.span(),
             Problem::Semantic(p) => p.span(),
         }
     }
 
+    pub fn is_lex(&self) -> bool { matches!(self, Problem::Lex(_)) }
     pub fn is_parse(&self) -> bool { matches!(self, Problem::Parse(_)) }
-    pub fn is_type(&self) -> bool { matches!(self, Problem::Type(_)) }
     pub fn is_semantic(&self) -> bool { matches!(self, Problem::Semantic(_)) }
+}
+```
+
+**Note:** Type checking errors are **not** part of this enum. They use `TypeCheckError` directly from `ori_types`, allowing the type checker to use its own structured error variants.
+
+### LexProblem (E0xxx)
+
+```rust
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub enum LexProblem {
+    InvalidCharacter {
+        span: Span,
+        ch: char,
+    },
+    UnterminatedString {
+        span: Span,
+    },
+    Confusable {
+        span: Span,
+        found: char,
+        suggested: char,
+    },
+    // ...
 }
 ```
 
@@ -61,63 +84,6 @@ pub enum ParseProblem {
         open_span: Span,
         delimiter: char,
     },
-    // ...
-}
-```
-
-### TypeProblem (E2xxx)
-
-```rust
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub enum TypeProblem {
-    TypeMismatch {
-        span: Span,
-        expected: String,
-        found: String,
-    },
-    ArgCountMismatch {
-        span: Span,
-        expected: usize,
-        found: usize,
-    },
-    InfiniteType { span: Span },
-    CannotInfer { span: Span, context: String },
-    UnknownType { span: Span, name: String },
-    NotCallable { span: Span, found_type: String },
-    NoSuchField {
-        span: Span,
-        type_name: String,
-        field_name: String,
-        available_fields: Vec<String>,
-    },
-    NoSuchMethod {
-        span: Span,
-        type_name: String,
-        method_name: String,
-        available_methods: Vec<String>,
-    },
-    InvalidBinaryOp {
-        span: Span,
-        op: String,
-        left_type: String,
-        right_type: String,
-    },
-    MissingNamedArg { span: Span, arg_name: String },
-    ReturnTypeMismatch {
-        span: Span,
-        expected: String,
-        found: String,
-        func_name: String,
-    },
-    ConditionNotBool { span: Span, found_type: String },
-    MatchArmTypeMismatch {
-        span: Span,
-        first_type: String,
-        this_type: String,
-        first_span: Span,
-    },
-    CyclicType { span: Span, type_name: String },
-    ClosureSelfReference { span: Span },
     // ...
 }
 ```
@@ -145,91 +111,46 @@ pub enum SemanticProblem {
 
 ## Problem to Diagnostic Conversion
 
+Problems are converted to diagnostics via the `Render` trait, which requires a `&StringInterner` parameter to resolve interned `Name` values:
+
 ```rust
-impl Problem {
-    pub fn to_diagnostic(&self, interner: &Interner) -> Diagnostic {
+pub trait Render {
+    fn render(&self, interner: &StringInterner) -> Diagnostic;
+}
+
+impl Render for Problem {
+    fn render(&self, interner: &StringInterner) -> Diagnostic {
         match self {
-            Problem::TypeMismatch { expected, found, span, context } => {
-                Diagnostic {
-                    code: ErrorCode::E2001,
-                    severity: Severity::Error,
-                    message: format!(
-                        "expected `{}`, found `{}`",
-                        expected.display(),
-                        found.display()
-                    ),
-                    span: *span,
-                    labels: vec![
-                        Label::primary(*span, format!("expected `{}`", expected.display())),
-                    ],
-                    fixes: self.suggest_type_conversion(expected, found, *span),
-                    help: context.clone(),
-                    related: vec![],
-                }
-            }
-
-            Problem::UndefinedVariable { name, span, similar } => {
-                let mut diagnostic = Diagnostic {
-                    code: ErrorCode::E2002,
-                    severity: Severity::Error,
-                    message: format!(
-                        "cannot find value `{}` in this scope",
-                        interner.resolve(*name)
-                    ),
-                    span: *span,
-                    labels: vec![
-                        Label::primary(*span, "not found in this scope"),
-                    ],
-                    fixes: vec![],
-                    help: None,
-                    related: vec![],
-                };
-
-                // Add "did you mean?" suggestion
-                if !similar.is_empty() {
-                    let suggestions: Vec<_> = similar
-                        .iter()
-                        .map(|n| interner.resolve(*n))
-                        .collect();
-                    diagnostic.help = Some(format!(
-                        "did you mean: {}?",
-                        suggestions.join(", ")
-                    ));
-                }
-
-                diagnostic
-            }
-
-            // ... more conversions
+            Problem::Lex(p) => p.render(interner),
+            Problem::Parse(p) => p.render(interner),
+            Problem::Semantic(p) => p.render(interner),
         }
     }
 }
 ```
+
+Each problem category has its own `Render` implementation in `oric/src/reporting/`.
 
 ## Error Code Documentation
 
-Each error code has documentation:
+Error codes are documented via the `ErrorDocs` registry, which loads embedded markdown files from `compiler/ori_diagnostic/src/errors/`. There is no `.explanation()` method on `ErrorCode` itself.
 
 ```rust
-impl ErrorCode {
-    pub fn explanation(&self) -> &'static str {
-        match self {
-            ErrorCode::E2001 => r#"
-This error occurs when a value's type doesn't match what was expected.
+pub struct ErrorDocs;
 
-Example:
-```ori
-let x: int = "hello"  // Error: expected int, found str
-```
+impl ErrorDocs {
+    /// Get documentation for an error code.
+    pub fn get(code: ErrorCode) -> Option<&'static str>;
 
-To fix this, ensure the value matches the expected type, or use
-explicit type conversion if appropriate.
-"#,
-            // ...
-        }
-    }
+    /// Get all documented error codes.
+    pub fn all_codes() -> impl Iterator<Item = ErrorCode>;
+
+    /// Check if an error code has documentation.
+    pub fn has_docs(code: ErrorCode) -> bool;
 }
 ```
+
+Each error code has a corresponding markdown file (e.g., `E2001.md`) in `compiler/ori_diagnostic/src/errors/`, accessible via `ori --explain E2001`.
 
 ## Severity Levels
 

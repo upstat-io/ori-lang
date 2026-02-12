@@ -45,11 +45,8 @@ pub fn check_file(path: &str) {
         let source = file.text(&db);
         let mut queue = DiagnosticQueue::new();
         for error in &parse_result.errors {
-            queue.add_with_source_and_severity(
-                error.to_diagnostic(),
-                source.as_str(),
-                error.severity,
-            );
+            let (diag, severity) = error.to_queued_diagnostic();
+            queue.add_with_source_and_severity(diag, source.as_str(), severity);
         }
         for diag in queue.flush() {
             emitter.emit(&diag);

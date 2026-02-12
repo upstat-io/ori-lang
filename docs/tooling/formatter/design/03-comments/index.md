@@ -71,10 +71,11 @@ Doc comments use special markers after `//`. The formatter enforces specific rul
 | Marker | Purpose | Example |
 |--------|---------|---------|
 | `#` | Description | `// #Computes the sum.` |
-| `@param` | Parameter docs | `// @param n Must be positive.` |
-| `@field` | Struct field docs | `// @field x The horizontal coordinate.` |
+| `* name:` | Member docs (params/fields) | `// * n: Must be positive.` |
 | `!` | Warning/panic | `// !Panics if n is negative.` |
 | `>` | Example | `// >add(a: 2, b: 3) -> 5` |
+
+> **Legacy markers**: `@param` and `@field` are still recognized by the lexer and classified as `DocMember`, but `* name:` is the canonical form.
 
 ### Spacing Rules
 
@@ -102,7 +103,7 @@ Doc comments must appear in this order:
 | Order | Marker | Content |
 |-------|--------|---------|
 | 1 | `#` | Description |
-| 2 | `@param` / `@field` | Parameters or fields |
+| 2 | `* name:` | Members (parameters or fields) |
 | 3 | `!` | Warnings and panic conditions |
 | 4 | `>` | Examples |
 
@@ -118,35 +119,33 @@ The formatter **reorders** doc comments if they're out of order:
 // >example()
 ```
 
-### Parameter Order
+### Member Order
 
-`@param` entries must match the order of parameters in the function signature:
+`DocMember` entries (`* name:`) must match the order of parameters in the function signature or fields in the struct:
 
 ```ori
 // Input (wrong order)
-// @param b The second operand.
-// @param a The first operand.
+// * b: The second operand.
+// * a: The first operand.
 @add (a: int, b: int) -> int = a + b
 
 // Output (corrected to match signature)
-// @param a The first operand.
-// @param b The second operand.
+// * a: The first operand.
+// * b: The second operand.
 @add (a: int, b: int) -> int = a + b
 ```
 
-### Field Order
-
-`@field` entries must match the order of fields in the struct:
+### Struct Member Order
 
 ```ori
 // Input (wrong order)
-// @field y The vertical coordinate.
-// @field x The horizontal coordinate.
+// * y: The vertical coordinate.
+// * x: The horizontal coordinate.
 type Point = { x: int, y: int }
 
 // Output (corrected to match struct)
-// @field x The horizontal coordinate.
-// @field y The vertical coordinate.
+// * x: The horizontal coordinate.
+// * y: The vertical coordinate.
 type Point = { x: int, y: int }
 ```
 
@@ -155,7 +154,7 @@ type Point = { x: int, y: int }
 ```ori
 // #Computes the factorial of n.
 // #Returns 1 for n <= 1.
-// @param n The number to compute factorial of. Must be non-negative.
+// * n: The number to compute factorial of. Must be non-negative.
 // !Panics if n is negative.
 // >factorial(n: 5) -> 120
 // >factorial(n: 0) -> 1
@@ -170,8 +169,8 @@ type Point = { x: int, y: int }
 
 ```ori
 // #Represents a 2D point in Cartesian coordinates.
-// @field x The horizontal coordinate.
-// @field y The vertical coordinate.
+// * x: The horizontal coordinate.
+// * y: The vertical coordinate.
 type Point = { x: int, y: int }
 ```
 
@@ -183,8 +182,8 @@ Each continuation line repeats the marker:
 // #Fetches user data from the remote API.
 // #Returns cached data if available and fresh.
 // #Falls back to default user on error.
-// @param id The user ID to fetch.
-// @param use_cache Whether to check cache first.
+// * id: The user ID to fetch.
+// * use_cache: Whether to check cache first.
 @fetch_user (id: int, use_cache: bool) -> User = do_fetch()
 ```
 
@@ -243,5 +242,4 @@ The formatter **only**:
 
 - Normalizes `// ` spacing
 - Reorders doc comment markers to correct order
-- Reorders `@param` to match signature order
-- Reorders `@field` to match struct field order
+- Reorders `DocMember` (`* name:`) entries to match signature/struct field order

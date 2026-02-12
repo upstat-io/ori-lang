@@ -359,7 +359,7 @@ mod tests {
         SharedInterner::new()
     }
 
-    // ── Binary folding ─────────────────────────────────────────
+    // Binary folding
 
     #[test]
     fn fold_int_addition() {
@@ -552,7 +552,7 @@ mod tests {
         }
     }
 
-    // ── Unary folding ──────────────────────────────────────────
+    // Unary folding
 
     #[test]
     fn fold_negation() {
@@ -606,7 +606,7 @@ mod tests {
         }
     }
 
-    // ── Dead branch elimination ────────────────────────────────
+    // Dead branch elimination
 
     #[test]
     fn dead_branch_if_true() {
@@ -665,7 +665,7 @@ mod tests {
         );
     }
 
-    // ── Bitwise folding ────────────────────────────────────────
+    // Bitwise folding
 
     #[test]
     fn fold_bitwise_and() {
@@ -723,7 +723,7 @@ mod tests {
         }
     }
 
-    // ── Runtime expressions not folded ─────────────────────────
+    // Runtime expressions not folded
 
     #[test]
     fn no_fold_runtime_binary() {

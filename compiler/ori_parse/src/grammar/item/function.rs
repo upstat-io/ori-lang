@@ -18,7 +18,10 @@ impl Parser<'_> {
         visibility: Visibility,
     ) -> ParseOutcome<FunctionOrTest> {
         if !self.cursor.check(&TokenKind::At) {
-            return ParseOutcome::empty_err_expected(&TokenKind::At, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::At,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         self.in_error_context(crate::ErrorContext::FunctionDef, |p| {

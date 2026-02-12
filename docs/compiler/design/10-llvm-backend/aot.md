@@ -68,8 +68,10 @@ let target = TargetConfig::from_triple("aarch64-apple-darwin")?
 The mangling scheme ensures unique, linkable names across platforms:
 
 ```
-_ori_<module>$<function>[<suffix>]
+_ori_[<module>$]<function>[<suffix>]
 ```
+
+Module paths are encoded by `encode_module_path`, which replaces `/`, `\`, `.`, and `:` characters with `$` (the module separator). Alphanumeric characters and `_` pass through unchanged; other characters are hex-escaped as `$XX`.
 
 ### Mangling Examples
 
@@ -178,7 +180,6 @@ The `--runtime-path` CLI flag provides explicit override for custom deployments.
 | Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str` |
 | Comparison | `ori_compare_int`, `ori_min_int`, `ori_max_int` |
 | I/O | `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool` |
-| Closures | `ori_closure_box` |
 
 ### Runtime Data Structures
 

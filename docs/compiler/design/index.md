@@ -57,11 +57,14 @@ The Ori compiler is a Rust-based incremental compiler built on the Salsa framewo
 
 - **`ori_ir`** - Core IR types with no dependencies (AST, arena, interning, derives)
 - **`ori_diagnostic`** - Error reporting system
+- **`ori_lexer_core`** - Low-level lexer primitives (raw scanner, source buffer, token tags)
 - **`ori_lexer`** - Tokenization
 - **`ori_types`** - Type system definitions
 - **`ori_parse`** - Recursive descent parser
 - **`ori_typeck`** - Type checking and inference
 - **`ori_patterns`** - Pattern system, Value types, EvalError (single source of truth)
+- **`ori_canon`** - Canonical IR lowering (desugaring, pattern compilation, constant folding)
+- **`ori_arc`** - ARC analysis (type classification, borrow inference, RC insertion)
 - **`ori_eval`** - Core evaluator components (Environment, operators)
 - **`oric`** - CLI orchestrator, Salsa queries, evaluator, reporting
 
@@ -147,6 +150,14 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 - [Pattern Fusion](06-pattern-system/pattern-fusion.md) - Optimization passes
 - [Adding Patterns](06-pattern-system/adding-patterns.md) - How to add new patterns
 
+### Canonicalization
+
+- [Canonicalization Overview](06b-canonicalization/index.md) - Canonical IR lowering architecture
+- [Desugaring](06b-canonicalization/desugaring.md) - Syntactic sugar elimination
+- [Pattern Compilation](06b-canonicalization/pattern-compilation.md) - Decision tree construction
+- [Constant Folding](06b-canonicalization/constant-folding.md) - Compile-time evaluation
+- [ARC Analysis](06b-canonicalization/arc-analysis.md) - Type classification, borrow inference, RC insertion
+
 ### Evaluator
 
 - [Evaluator Overview](07-evaluator/index.md) - Interpretation architecture
@@ -196,11 +207,14 @@ The compiler is organized as a multi-crate workspace:
 |-------|------|---------|
 | `ori_ir` | `compiler/ori_ir/src/` | Core IR types (tokens, spans, AST, arena, interning, derives) |
 | `ori_diagnostic` | `compiler/ori_diagnostic/src/` | DiagnosticQueue, error reporting, suggestions, emitters |
+| `ori_lexer_core` | `compiler/ori_lexer_core/src/` | Low-level lexer primitives: raw scanner, source buffer, token tags |
 | `ori_lexer` | `compiler/ori_lexer/src/` | Tokenization via logos |
 | `ori_types` | `compiler/ori_types/src/` | Pool, Idx, InferEngine, ModuleChecker, registries |
 | `ori_parse` | `compiler/ori_parse/src/` | Recursive descent parser |
 | `ori_patterns` | `compiler/ori_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
 | `ori_eval` | `compiler/ori_eval/src/` | Environment, OperatorRegistry (core eval components) |
+| `ori_canon` | `compiler/ori_canon/src/` | Canonical IR lowering: desugaring, pattern compilation (decision trees), constant folding, type attachment |
+| `ori_arc` | `compiler/ori_arc/src/` | ARC analysis: type classification (Scalar/DefiniteRef/PossibleRef), borrow inference, RC insertion |
 | `ori_llvm` | `compiler/ori_llvm/src/` | LLVM backend for JIT/AOT compilation (requires Docker) |
 | `ori_stack` | `compiler/ori_stack/src/` | Stack management (stacker on native, no-op on WASM) |
 | `ori-macros` | `compiler/ori-macros/src/` | Diagnostic derive macros |

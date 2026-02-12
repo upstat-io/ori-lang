@@ -7,6 +7,8 @@ section: "Integration"
 
 # Editor Integration
 
+> **Status: Not Yet Implemented.** The editor integrations described below are planned but not yet available. No VS Code extension, Neovim plugin, or other editor packages have been published.
+
 Integrating the native LSP server with desktop editors.
 
 ## VS Code Extension

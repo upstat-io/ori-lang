@@ -98,7 +98,10 @@ impl OrderingValue {
 ///
 /// `function_val`: type conversion functions like int(x), str(x), float(x)
 /// that allow positional arguments per the spec.
-pub type FunctionValFn = fn(&[Value]) -> Result<Value, String>;
+///
+/// Uses `EvalError` instead of `String` so that conversion errors preserve
+/// structured error information (kind, span, notes) across the boundary.
+pub type FunctionValFn = fn(&[Value]) -> Result<Value, crate::EvalError>;
 
 /// Runtime value in the Ori interpreter.
 #[derive(Clone)]
@@ -908,9 +911,11 @@ impl PartialEq for Value {
             (Value::Size(a), Value::Size(b)) => a == b,
             (Value::Ordering(a), Value::Ordering(b)) => a == b,
             (Value::FunctionVal(_, name_a), Value::FunctionVal(_, name_b)) => name_a == name_b,
-            // Functions are equal by body identity
-            (Value::Function(a), Value::Function(b)) => a.body == b.body,
-            (Value::MemoizedFunction(a), Value::MemoizedFunction(b)) => a.func.body == b.func.body,
+            // Functions are equal by canonical body identity
+            (Value::Function(a), Value::Function(b)) => a.can_body == b.can_body,
+            (Value::MemoizedFunction(a), Value::MemoizedFunction(b)) => {
+                a.func.can_body == b.func.can_body
+            }
             (Value::Struct(a), Value::Struct(b)) => {
                 a.type_name == b.type_name
                     && a.fields
@@ -1031,12 +1036,12 @@ impl std::hash::Hash for Value {
                 type_name.hash(state);
             }
             Value::Function(f) => {
-                // Hash by function identity (body expression ID)
-                f.body.hash(state);
+                // Hash by function identity (canonical body ID)
+                f.can_body.hash(state);
             }
             Value::MemoizedFunction(mf) => {
                 // Hash by underlying function identity
-                mf.func.body.hash(state);
+                mf.func.can_body.hash(state);
             }
             Value::FunctionVal(_, name) => name.hash(state),
             Value::Range(r) => {
@@ -1170,10 +1175,10 @@ mod tests {
 
     #[test]
     fn test_function_value() {
-        use ori_ir::{ExprArena, ExprId, SharedArena};
+        use ori_ir::{ExprArena, SharedArena};
         use rustc_hash::FxHashMap;
         let arena = SharedArena::new(ExprArena::new());
-        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), arena);
+        let func = FunctionValue::new(vec![], FxHashMap::default(), arena);
         assert!(func.params.is_empty());
         assert!(!func.has_captures());
     }

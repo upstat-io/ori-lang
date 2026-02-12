@@ -7,12 +7,12 @@ section: "Pattern System"
 
 # Pattern Fusion
 
-Pattern fusion is an optimization that combines multiple patterns into a single pass, eliminating intermediate data structures.
+Pattern fusion is an optimization that combines multiple sequential patterns into a single pass, eliminating intermediate data structures.
 
 ## Location
 
 ```
-compiler/oric/src/patterns/fusion.rs (~420 lines)
+compiler/ori_patterns/src/fusion.rs
 ```
 
 ## Motivation
@@ -32,235 +32,182 @@ Execution:
 
 With fusion:
 ```
-map → filter becomes map_filter (single pass)
+map + filter becomes MapFilter (single pass)
 ```
 
 Execution:
 1. Single pass: transform and test each element
 2. One output list: `[12, 14, ...]`
 
-## Fusible Patterns
+## Fusible Combinations
 
-| Pattern | Can Fuse With |
-|---------|---------------|
-| map | map, filter |
-| filter | map, filter |
-| fold | (terminal) |
-| find | (terminal) |
+| Pattern 1 | Pattern 2 | Pattern 3 | Fused Form |
+|-----------|-----------|-----------|------------|
+| map | filter | - | MapFilter |
+| filter | map | - | FilterMap |
+| map | fold | - | MapFold |
+| filter | fold | - | FilterFold |
+| map | filter | fold | MapFilterFold |
+| map | find | - | MapFind |
+| filter | find | - | FilterFind |
 
-## Implementation
+Terminal patterns (`fold`, `find`) can be fused into but do not chain further.
 
-### FusedPattern
+## Data Structures
+
+### FusedPattern Enum
+
+The `FusedPattern` enum represents all supported fusion combinations. Each variant stores the `ExprId`s needed to evaluate the fused pipeline in a single pass:
 
 ```rust
-pub struct FusedPattern {
-    /// Original patterns (in order)
-    patterns: Vec<Arc<dyn PatternDefinition>>,
+pub enum FusedPattern {
+    /// map + filter: transform, then keep if predicate passes
+    MapFilter { input: ExprId, map_fn: ExprId, filter_fn: ExprId },
 
-    /// Combined name for debugging
-    name: String,
-}
+    /// filter + map: keep if predicate passes, then transform
+    FilterMap { input: ExprId, filter_fn: ExprId, map_fn: ExprId },
 
-impl PatternDefinition for FusedPattern {
-    fn name(&self) -> &str {
-        &self.name
-    }
+    /// map + fold: transform each element, accumulate
+    MapFold { input: ExprId, map_fn: ExprId, init: ExprId, fold_fn: ExprId },
 
-    fn type_check(
-        &self,
-        args: &[TypedArg],
-        checker: &mut TypeChecker,
-    ) -> Result<Type, TypeError> {
-        // Type check flows through all patterns
-        let mut current_ty = self.patterns[0].type_check(args, checker)?;
+    /// filter + fold: keep matching elements, accumulate
+    FilterFold { input: ExprId, filter_fn: ExprId, init: ExprId, fold_fn: ExprId },
 
-        for pattern in &self.patterns[1..] {
-            // Synthesize args for intermediate pattern
-            let intermediate_args = self.synthesize_args(&current_ty, pattern);
-            current_ty = pattern.type_check(&intermediate_args, checker)?;
-        }
+    /// map + filter + fold: full three-stage pipeline
+    MapFilterFold { input: ExprId, map_fn: ExprId, filter_fn: ExprId, init: ExprId, fold_fn: ExprId },
 
-        Ok(current_ty)
-    }
+    /// map + find: transform, then return first match
+    MapFind { input: ExprId, map_fn: ExprId, find_fn: ExprId },
 
-    fn evaluate(
-        &self,
-        args: &[EvalArg],
-        evaluator: &mut Evaluator,
-    ) -> Result<Value, EvalError> {
-        // Fused evaluation in single pass
-        let input = args.get("over")?.as_list()?;
-        let transforms = self.collect_transforms(args)?;
-
-        let result: Vec<Value> = input
-            .iter()
-            .filter_map(|item| {
-                self.apply_fused(&transforms, item.clone(), evaluator).ok()
-            })
-            .collect();
-
-        Ok(Value::List(Arc::new(result)))
-    }
+    /// filter + find: combined predicate search
+    FilterFind { input: ExprId, filter_fn: ExprId, find_fn: ExprId },
 }
 ```
 
-### MapFilterFusion
+`FusedPattern` has an `evaluate()` method that uses the `PatternExecutor` trait to execute fused operations in a single loop over the input collection. Each variant's evaluation logic mirrors what the individual patterns would do, but without intermediate allocations.
+
+### PatternChain
+
+A `PatternChain` represents a chain of patterns detected as candidates for fusion, ordered from innermost to outermost:
 
 ```rust
-pub struct MapFilterPattern {
-    map_transform: ExprId,
-    filter_predicate: ExprId,
-}
-
-impl PatternDefinition for MapFilterPattern {
-    fn name(&self) -> &str {
-        "map_filter"
-    }
-
-    fn evaluate(
-        &self,
-        args: &[EvalArg],
-        evaluator: &mut Evaluator,
-    ) -> Result<Value, EvalError> {
-        let input = args.get("over")?.as_list()?;
-        let transform = args.get("transform")?.as_function()?;
-        let predicate = args.get("predicate")?.as_function()?;
-
-        let mut result = Vec::new();
-
-        for item in input.iter() {
-            // Apply transform
-            let transformed = evaluator.call_function(&transform, vec![item.clone()])?;
-
-            // Apply filter
-            let keep = evaluator.call_function(&predicate, vec![transformed.clone()])?;
-
-            if keep.as_bool()? {
-                result.push(transformed);
-            }
-        }
-
-        Ok(Value::List(Arc::new(result)))
-    }
+pub struct PatternChain {
+    /// Patterns from innermost to outermost.
+    pub links: Vec<ChainLink>,
+    /// The original input expression (innermost .over).
+    pub input: ExprId,
+    /// Span covering the entire chain.
+    pub span: Span,
 }
 ```
 
-### FusionOptimizer
+### ChainLink
+
+Each link in a chain records the pattern kind, its named arguments, and source location:
 
 ```rust
-pub struct FusionOptimizer {
-    registry: SharedPatternRegistry,
-}
-
-impl FusionOptimizer {
-    pub fn optimize(&self, expr: &Expr, arena: &ExprArena) -> Option<Expr> {
-        match &expr.kind {
-            ExprKind::Pattern { name, args } => {
-                // Check if any argument is also a pattern
-                for arg in args {
-                    if let ExprKind::Pattern { name: inner_name, .. } = &arena.get(arg.value).kind {
-                        // Try to fuse
-                        if let Some(fused) = self.try_fuse(*inner_name, *name) {
-                            return Some(self.create_fused_expr(fused, args, arena));
-                        }
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-
-    fn try_fuse(&self, inner: Name, outer: Name) -> Option<Box<dyn PatternDefinition>> {
-        let inner_pattern = self.registry.get(inner)?;
-        let outer_pattern = self.registry.get(outer)?;
-
-        if inner_pattern.can_fuse(&*outer_pattern) {
-            inner_pattern.fuse_with(&*outer_pattern)
-        } else {
-            None
-        }
-    }
+pub struct ChainLink {
+    /// The pattern kind.
+    pub kind: FunctionExpKind,
+    /// Named expression IDs for this pattern's arguments.
+    pub props: Vec<(Name, ExprId)>,
+    /// The expression ID of this pattern call.
+    pub expr_id: ExprId,
+    /// Span of this pattern.
+    pub span: Span,
 }
 ```
+
+### FusionHints
+
+`FusionHints` describes the optimization benefit of a fusion, used for diagnostics and decision-making:
+
+```rust
+pub struct FusionHints {
+    /// Estimated number of intermediate allocations avoided.
+    pub allocations_avoided: usize,
+    /// Estimated number of iterations saved.
+    pub iterations_saved: usize,
+    /// Whether this fusion eliminates intermediate lists.
+    pub eliminates_intermediate_lists: bool,
+}
+```
+
+Factory methods `FusionHints::two_pattern()` and `FusionHints::three_pattern()` create hints for common fusion depths.
 
 ## Fusion Rules
 
-### map → map
-
-```ori
-map(over: map(over: xs, transform: f), transform: g)
-// Becomes:
-map(over: xs, transform: x -> g(f(x)))
-```
-
-```rust
-impl MapPattern {
-    fn fuse_map(&self, other: &MapPattern) -> MapMapPattern {
-        MapMapPattern {
-            // Compose transforms: g ∘ f
-            transform: compose(other.transform, self.transform),
-        }
-    }
-}
-```
-
-### map → filter
+### map + filter
 
 ```ori
 filter(over: map(over: xs, transform: f), predicate: p)
-// Becomes:
-map_filter(over: xs, transform: f, predicate: p)
+// Fuses to: MapFilter
+// Single pass: for x in xs, let y = f(x), if p(y) then yield y
 ```
 
-### filter → filter
-
-```ori
-filter(over: filter(over: xs, predicate: p1), predicate: p2)
-// Becomes:
-filter(over: xs, predicate: x -> p1(x) && p2(x))
-```
-
-### filter → map
+### filter + map
 
 ```ori
 map(over: filter(over: xs, predicate: p), transform: f)
-// Becomes:
-filter_map(over: xs, predicate: p, transform: f)
+// Fuses to: FilterMap
+// Single pass: for x in xs, if p(x) then yield f(x)
+```
+
+### map + fold
+
+```ori
+fold(over: map(over: xs, transform: f), init: i, op: g)
+// Fuses to: MapFold
+// Single pass: acc = i; for x in xs, acc = g(acc, f(x)); return acc
+```
+
+### filter + fold
+
+```ori
+fold(over: filter(over: xs, predicate: p), init: i, op: g)
+// Fuses to: FilterFold
+// Single pass: acc = i; for x in xs, if p(x) then acc = g(acc, x); return acc
+```
+
+### map + filter + fold
+
+```ori
+fold(over: filter(over: map(over: xs, transform: f), predicate: p), init: i, op: g)
+// Fuses to: MapFilterFold
+// Single pass: acc = i; for x in xs, let y = f(x), if p(y) then acc = g(acc, y); return acc
+```
+
+### map + find
+
+```ori
+find(over: map(over: xs, transform: f), where: p)
+// Fuses to: MapFind
+// Single pass: for x in xs, let y = f(x), if p(y) then return Some(y); return None
+```
+
+### filter + find
+
+```ori
+find(over: filter(over: xs, predicate: p1), where: p2)
+// Fuses to: FilterFind
+// Single pass: for x in xs, if p1(x) && p2(x) then return Some(x); return None
 ```
 
 ## When Fusion Applies
 
-Fusion is applied during:
-1. **AST optimization pass** (before evaluation)
-2. **Type checking** (verify fused types match)
-
 Conditions:
-- Inner pattern is direct argument to outer
-- Patterns are fusible according to registry
+- Inner pattern's result is the `over` argument to the outer pattern
+- Patterns are in the fusible combinations table above
 - No side effects between patterns
 
 ## Benefits
 
-1. **Memory** - No intermediate allocations
+1. **Memory** - No intermediate allocations (eliminated lists between stages)
 2. **Cache** - Single pass is cache-friendly
-3. **Parallelism** - Fused operations can be parallelized
+3. **Iterations** - Each element is processed once through the entire pipeline
 
 ## Limitations
 
-1. **Side effects** - Can't fuse if inner has side effects
-2. **Debugging** - Fused patterns harder to debug
-3. **Complexity** - Fusion logic adds compiler complexity
-
-## Debug Mode
-
-Disable fusion for debugging:
-
-```bash
-ORI_NO_FUSION=1 ori run file.ori
-```
-
-Or in code:
-```rust
-optimizer.set_fusion_enabled(false);
-```
+1. **Side effects** - Cannot fuse if intermediate results have side effects
+2. **Debugging** - Fused patterns harder to step through
+3. **Complexity** - Fusion detection and application adds compiler complexity

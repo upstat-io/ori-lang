@@ -4,9 +4,11 @@
 //! `UserMethodResolver` and `DerivedMethodResolver` into a single resolver,
 //! reducing the number of resolvers in the chain.
 
-use super::{MethodResolution, MethodResolver, Value};
-use crate::{SharedMutableRegistry, UserMethodRegistry};
 use ori_ir::Name;
+
+use crate::{SharedMutableRegistry, UserMethodRegistry};
+
+use super::{MethodResolution, MethodResolver, Value};
 
 /// Resolver for both user-defined and derived methods.
 ///

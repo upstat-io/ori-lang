@@ -428,8 +428,8 @@ impl EvalError {
     /// Create an error from a structured kind.
     ///
     /// The message is computed from the kind's `Display` impl.
-    /// Used internally by factory functions.
-    fn from_kind(kind: EvalErrorKind) -> Self {
+    /// Used by factory functions here and in downstream crates (e.g., `ori_eval::errors`).
+    pub fn from_kind(kind: EvalErrorKind) -> Self {
         let message = kind.to_string();
         Self {
             kind,

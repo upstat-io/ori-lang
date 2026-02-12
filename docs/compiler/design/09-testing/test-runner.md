@@ -58,12 +58,18 @@ impl Default for TestRunnerConfig {
 
 ## Runner Structure
 
-The runner is minimal — configuration only, no registries:
+The runner holds configuration and a shared string interner. All test files share one `SharedInterner` (Arc-wrapped) so `Name` values are comparable across files:
 
 ```rust
 /// Test runner.
+///
+/// Maintains a shared `StringInterner` used by all files. Each file gets its
+/// own `CompilerDb` for Salsa query storage, but they all share the same
+/// interner via Arc.
 pub struct TestRunner {
     config: TestRunnerConfig,
+    /// Shared interner - all files use the same interner for comparable Name values.
+    interner: SharedInterner,
 }
 
 impl TestRunner {
@@ -71,12 +77,16 @@ impl TestRunner {
     pub fn new() -> Self {
         TestRunner {
             config: TestRunnerConfig::default(),
+            interner: SharedInterner::new(),
         }
     }
 
     /// Create a test runner with custom config.
     pub fn with_config(config: TestRunnerConfig) -> Self {
-        TestRunner { config }
+        TestRunner {
+            config,
+            interner: SharedInterner::new(),
+        }
     }
 }
 ```
@@ -192,13 +202,14 @@ pub struct TestResult {
 }
 
 pub enum TestOutcome {
-    Passed,              // Test passed (including matched compile_fail)
-    Failed(String),      // Test failed (error message)
-    Skipped(String),     // Test skipped (skip reason)
+    Passed,                   // Test passed (including matched compile_fail)
+    Failed(String),           // Test failed (error message)
+    Skipped(String),          // Test skipped (skip reason)
+    LlvmCompileFail(String),  // LLVM compilation failed — tracked separately
 }
 ```
 
-**Note:** Compile-fail tests map to `Passed` when errors match or `Failed` when they don't. The distinction between compile-fail and runtime tests is handled at the runner logic level, not in the outcome enum.
+**Note:** Compile-fail tests map to `Passed` when errors match or `Failed` when they don't. `LlvmCompileFail` is a separate outcome for tests that could not run because LLVM compilation of their file failed — these are tracked separately and do not count as real test failures.
 
 ```rust
 // Compile-fail test handling (simplified)
@@ -321,6 +332,55 @@ fn run_compile_fail_test(
     }
 }
 ```
+
+## Type Error Isolation
+
+Type errors are handled differently depending on whether they occur inside or outside `compile_fail` tests:
+
+- **Errors INSIDE `compile_fail` test spans** are expected and do not block other tests. These are the errors the `compile_fail` test is verifying.
+- **Errors OUTSIDE `compile_fail` test spans** indicate real type problems and block all regular (non-compile_fail) tests in the file.
+
+```rust
+// Collect spans of all compile_fail tests
+let compile_fail_spans: Vec<_> = compile_fail_tests.iter().map(|t| t.span).collect();
+
+// Filter to only errors OUTSIDE compile_fail test bodies
+let non_compile_fail_errors: Vec<_> = type_result
+    .errors()
+    .iter()
+    .filter(|error| {
+        let error_span = error.span();
+        // Keep error if it's NOT contained in any compile_fail test span
+        !compile_fail_spans
+            .iter()
+            .any(|test_span| test_span.contains_span(error_span))
+    })
+    .collect();
+
+if !non_compile_fail_errors.is_empty() {
+    // Block all regular tests — these are real type failures
+    for test in &regular_tests {
+        summary.add_result(TestResult::failed(...));
+    }
+    return summary;
+}
+```
+
+This isolation ensures that a file with both `compile_fail` and regular tests works correctly: the expected errors in `compile_fail` bodies don't prevent regular tests from running.
+
+## Parallel Execution Stack Size
+
+The test runner creates a dedicated rayon thread pool with **32 MiB** stack size per worker thread:
+
+```rust
+rayon::ThreadPoolBuilder::new()
+    .stack_size(32 * 1024 * 1024) // 32 MiB
+    .build_scoped(...)
+```
+
+**Rationale:** 32 MiB accommodates debug builds on Windows/macOS where unoptimized frames are much larger (no inlining, no frame optimization). The Salsa memo verification, tracing spans, and type checking pipeline can exhaust smaller stacks. For comparison, `rustc` itself uses 16 MiB for release builds; debug CI needs more due to unoptimized stack frames.
+
+The pool uses `build_scoped` to ensure cleanup before the function returns, avoiding hangs from rayon's global pool `atexit` handlers.
 
 ## Filtering
 

@@ -5,11 +5,19 @@
 //! - Contextual hints for common mistakes
 //! - Related location tracking for better diagnostics
 //! - `ErrorContext` for Elm-style "while parsing X" messages
+//!
+//! # Error Construction Paths
+//!
+//! Two construction paths coexist:
+//! - **`ParseError::new()`** — 87 call sites; simple (code, message, span) errors.
+//! - **`ParseError::from_kind()`** — 8 call sites; rich structured errors via
+//!   `ParseErrorKind` with title, empathetic message, hint, and educational note.
+//!
+//! New error sites should prefer `from_kind()`. Migration of existing `new()` sites
+//! to `from_kind()` is a future feature task, not a hygiene issue.
 
 use ori_diagnostic::queue::DiagnosticSeverity;
-use ori_diagnostic::{Applicability, Diagnostic, ErrorCode};
-// Re-export SourceInfo from ori_diagnostic for use in cross-file error labels
-pub use ori_diagnostic::SourceInfo;
+use ori_diagnostic::{Applicability, Diagnostic, ErrorCode, SourceInfo};
 use ori_ir::{Span, TokenKind};
 
 /// Context describing what was being parsed when an error occurred.
@@ -868,7 +876,8 @@ impl ParseErrorKind {
     /// let details = kind.details(error_span);
     /// println!("{}", details.text); // "I found an unclosed `(`..."
     /// ```
-    pub fn details(&self, error_span: Span) -> ParseErrorDetails {
+    #[allow(dead_code)] // Used in tests + infrastructure for ParseErrorKind migration
+    pub(crate) fn details(&self, error_span: Span) -> ParseErrorDetails {
         match self {
             Self::UnexpectedToken {
                 found,
@@ -1473,7 +1482,7 @@ fn delimiter_name(open: &TokenKind) -> &'static str {
 /// This will be used for multi-span diagnostics in a future enhancement.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[allow(dead_code)] // Infrastructure for multi-span diagnostics
-pub struct Note {
+pub(crate) struct Note {
     /// The message explaining this location.
     pub message: String,
     /// The related source location, if any.
@@ -1490,7 +1499,8 @@ pub struct Note {
 /// - "type mismatch" → pointing to the expected type declaration
 /// - "duplicate definition" → pointing to the first definition
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ExtraLabel {
+#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
+pub(crate) struct ExtraLabel {
     /// The source location to highlight.
     pub span: Span,
     /// Optional source info if this label is in a different file.
@@ -1499,6 +1509,7 @@ pub struct ExtraLabel {
     pub text: String,
 }
 
+#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
 impl ExtraLabel {
     /// Create a label in the same file.
     pub fn same_file(span: Span, text: impl Into<String>) -> Self {
@@ -1546,7 +1557,8 @@ impl ExtraLabel {
 /// }
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CodeSuggestion {
+#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
+pub(crate) struct CodeSuggestion {
     /// The span to replace (what to remove).
     pub span: Span,
     /// The replacement text (what to insert).
@@ -1557,6 +1569,7 @@ pub struct CodeSuggestion {
     pub applicability: Applicability,
 }
 
+#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
 impl CodeSuggestion {
     /// Create a machine-applicable suggestion (safe to auto-apply).
     pub fn machine_applicable(
@@ -1629,7 +1642,8 @@ impl CodeSuggestion {
 /// something after `count`?
 /// ```
 #[derive(Clone, Debug)]
-pub struct ParseErrorDetails {
+#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
+pub(crate) struct ParseErrorDetails {
     /// Error title (e.g., "UNEXPECTED TOKEN", "UNCLOSED DELIMITER").
     ///
     /// Displayed prominently at the top of the error message.
@@ -1667,6 +1681,7 @@ pub struct ParseErrorDetails {
     pub error_code: ErrorCode,
 }
 
+#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
 impl ParseErrorDetails {
     /// Create new error details with required fields.
     pub fn new(
@@ -1760,23 +1775,57 @@ impl ParseErrorDetails {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ParseError {
     /// Error code for searchability.
-    pub code: ErrorCode,
+    pub(crate) code: ErrorCode,
     /// Human-readable message.
-    pub message: String,
+    pub(crate) message: String,
     /// Location of the error.
-    pub span: Span,
+    pub(crate) span: Span,
     /// Optional context for suggestions.
-    pub context: Option<String>,
+    pub(crate) context: Option<String>,
     /// Optional help messages.
-    pub help: Vec<String>,
+    pub(crate) help: Vec<String>,
     /// Severity level for diagnostic queue suppression.
     ///
     /// `Hard` errors are always reported; `Soft` errors (from `EmptyErr` — the parser
     /// didn't consume any tokens) can be suppressed after a hard error to reduce noise.
-    pub severity: DiagnosticSeverity,
+    pub(crate) severity: DiagnosticSeverity,
 }
 
 impl ParseError {
+    // --- Accessors ---
+
+    /// Error code for searchability.
+    pub fn code(&self) -> ErrorCode {
+        self.code
+    }
+
+    /// Human-readable message.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Location of the error.
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    /// Optional context for suggestions.
+    pub fn context(&self) -> Option<&str> {
+        self.context.as_deref()
+    }
+
+    /// Optional help messages.
+    pub fn help(&self) -> &[String] {
+        &self.help
+    }
+
+    /// Severity level for diagnostic queue suppression.
+    pub fn severity(&self) -> DiagnosticSeverity {
+        self.severity
+    }
+
+    // --- Constructors ---
+
     /// Create a new parse error.
     ///
     /// Defaults to `Hard` severity (always reported).
@@ -1855,7 +1904,8 @@ impl ParseError {
     /// Create a parse error from a set of expected tokens.
     ///
     /// Used by `ParseOutcome::EmptyErr` when converting to `ParseError`.
-    /// The position is converted to a zero-length span at that location.
+    /// The `position` is a **byte offset** in the source, converted to a
+    /// zero-length span at that location.
     ///
     /// Returns a `Soft` error: the parser didn't consume any tokens, so this
     /// is a speculative failure that can be suppressed after a hard error.
@@ -1865,7 +1915,7 @@ impl ParseError {
             clippy::cast_possible_truncation,
             reason = "position fits in u32 for source files"
         )]
-        let span = Span::new(position as u32, 0);
+        let span = Span::point(position as u32);
         let expected_str = expected.format_expected();
         ParseError::new(ErrorCode::E1001, format!("expected {expected_str}"), span).as_soft()
     }
@@ -1884,7 +1934,7 @@ impl ParseError {
             clippy::cast_possible_truncation,
             reason = "position fits in u32 for source files"
         )]
-        let span = Span::new(position as u32, 0);
+        let span = Span::point(position as u32);
         let expected_str = expected.format_expected();
         ParseError::new(ErrorCode::E1002, format!("expected {expected_str}"), span)
             .with_context(format!("while parsing {context}"))
@@ -1922,6 +1972,14 @@ impl ParseError {
         }
 
         diag
+    }
+
+    /// Convert to a Diagnostic bundled with severity for `DiagnosticQueue` routing.
+    ///
+    /// Convenience method that avoids callers needing to separately access
+    /// `to_diagnostic()` and `severity()` when routing through a `DiagnosticQueue`.
+    pub fn to_queued_diagnostic(&self) -> (ori_diagnostic::Diagnostic, DiagnosticSeverity) {
+        (self.to_diagnostic(), self.severity)
     }
 
     /// Create a [`ParseError`] from a structured [`ParseErrorKind`].

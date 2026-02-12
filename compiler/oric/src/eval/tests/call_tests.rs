@@ -7,8 +7,8 @@
 use rustc_hash::FxHashMap;
 
 use crate::eval::exec::call::{bind_captures, check_arg_count, eval_function_val_call};
-use crate::eval::{Environment, FunctionValue, Value};
-use crate::ir::{ExprArena, ExprId, Name, SharedArena, SharedInterner};
+use crate::eval::{Environment, EvalError, FunctionValue, Value};
+use crate::ir::{ExprArena, Name, SharedArena, SharedInterner};
 
 /// Create a dummy arena for tests.
 fn dummy_arena() -> SharedArena {
@@ -16,8 +16,8 @@ fn dummy_arena() -> SharedArena {
 }
 
 /// Create a test function with the given parameters.
-fn test_func(params: Vec<Name>, body: ExprId) -> FunctionValue {
-    FunctionValue::new(params, body, FxHashMap::default(), dummy_arena())
+fn test_func(params: Vec<Name>) -> FunctionValue {
+    FunctionValue::new(params, FxHashMap::default(), dummy_arena())
 }
 
 // Argument Count Validation Tests
@@ -27,7 +27,7 @@ mod arg_count {
 
     #[test]
     fn correct_count_zero() {
-        let func = test_func(vec![], ExprId::new(0));
+        let func = test_func(vec![]);
         let args: Vec<Value> = vec![];
         assert!(check_arg_count(&func, &args).is_ok());
     }
@@ -36,7 +36,7 @@ mod arg_count {
     fn correct_count_one() {
         let interner = SharedInterner::default();
         let x = interner.intern("x");
-        let func = test_func(vec![x], ExprId::new(0));
+        let func = test_func(vec![x]);
         let args = vec![Value::int(1)];
         assert!(check_arg_count(&func, &args).is_ok());
     }
@@ -44,14 +44,11 @@ mod arg_count {
     #[test]
     fn correct_count_many() {
         let interner = SharedInterner::default();
-        let func = test_func(
-            vec![
-                interner.intern("a"),
-                interner.intern("b"),
-                interner.intern("c"),
-            ],
-            ExprId::new(0),
-        );
+        let func = test_func(vec![
+            interner.intern("a"),
+            interner.intern("b"),
+            interner.intern("c"),
+        ]);
         let args = vec![Value::int(1), Value::int(2), Value::int(3)];
         assert!(check_arg_count(&func, &args).is_ok());
     }
@@ -59,10 +56,7 @@ mod arg_count {
     #[test]
     fn too_few_args() {
         let interner = SharedInterner::default();
-        let func = test_func(
-            vec![interner.intern("a"), interner.intern("b")],
-            ExprId::new(0),
-        );
+        let func = test_func(vec![interner.intern("a"), interner.intern("b")]);
         let args = vec![Value::int(1)];
         let result = check_arg_count(&func, &args);
         assert!(result.is_err());
@@ -71,7 +65,7 @@ mod arg_count {
     #[test]
     fn too_many_args() {
         let interner = SharedInterner::default();
-        let func = test_func(vec![interner.intern("x")], ExprId::new(0));
+        let func = test_func(vec![interner.intern("x")]);
         let args = vec![Value::int(1), Value::int(2)];
         let result = check_arg_count(&func, &args);
         assert!(result.is_err());
@@ -79,7 +73,7 @@ mod arg_count {
 
     #[test]
     fn zero_params_with_args() {
-        let func = test_func(vec![], ExprId::new(0));
+        let func = test_func(vec![]);
         let args = vec![Value::int(1)];
         let result = check_arg_count(&func, &args);
         assert!(result.is_err());
@@ -92,7 +86,7 @@ mod capture_binding {
     use super::*;
 
     fn func_with_captures(params: Vec<Name>, captures: FxHashMap<Name, Value>) -> FunctionValue {
-        FunctionValue::new(params, ExprId::new(0), captures, dummy_arena())
+        FunctionValue::new(params, captures, dummy_arena())
     }
 
     #[test]
@@ -187,11 +181,11 @@ mod function_val_call {
 
     #[test]
     fn success() {
-        fn add_one(args: &[Value]) -> Result<Value, String> {
+        fn add_one(args: &[Value]) -> Result<Value, EvalError> {
             if let Value::Int(n) = &args[0] {
                 Ok(Value::int(n.raw() + 1))
             } else {
-                Err("expected int".to_string())
+                Err(EvalError::new("expected int"))
             }
         }
 
@@ -201,8 +195,8 @@ mod function_val_call {
 
     #[test]
     fn error_propagation() {
-        fn always_error(_args: &[Value]) -> Result<Value, String> {
-            Err("always fails".to_string())
+        fn always_error(_args: &[Value]) -> Result<Value, EvalError> {
+            Err(EvalError::new("always fails"))
         }
 
         let result = eval_function_val_call(always_error, &[]);
@@ -216,13 +210,13 @@ mod function_val_call {
 
     #[test]
     fn multiple_args() {
-        fn sum(args: &[Value]) -> Result<Value, String> {
+        fn sum(args: &[Value]) -> Result<Value, EvalError> {
             let mut total = 0;
             for arg in args {
                 if let Value::Int(n) = arg {
                     total += n.raw();
                 } else {
-                    return Err("expected int".to_string());
+                    return Err(EvalError::new("expected int"));
                 }
             }
             Ok(Value::int(total))
@@ -238,7 +232,7 @@ mod function_val_call {
             clippy::unnecessary_wraps,
             reason = "function signature required by eval_function_val_call"
         )]
-        fn constant(_args: &[Value]) -> Result<Value, String> {
+        fn constant(_args: &[Value]) -> Result<Value, EvalError> {
             Ok(Value::int(42))
         }
 
@@ -252,7 +246,7 @@ mod function_val_call {
             clippy::unnecessary_wraps,
             reason = "function signature required by eval_function_val_call"
         )]
-        fn to_string(args: &[Value]) -> Result<Value, String> {
+        fn to_string(args: &[Value]) -> Result<Value, EvalError> {
             Ok(Value::string(format!("{}", args[0])))
         }
 
@@ -262,8 +256,8 @@ mod function_val_call {
 
     #[test]
     fn error_message_preserved() {
-        fn custom_error(_args: &[Value]) -> Result<Value, String> {
-            Err("custom error message".to_string())
+        fn custom_error(_args: &[Value]) -> Result<Value, EvalError> {
+            Err(EvalError::new("custom error message"))
         }
 
         let result = eval_function_val_call(custom_error, &[]);

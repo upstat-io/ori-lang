@@ -6,9 +6,10 @@
 use wasm_bindgen::prelude::*;
 use ori_ir::{SharedArena, SharedInterner};
 use ori_eval::{
-    buffer_handler, collect_extend_methods, collect_impl_methods, process_derives,
-    register_module_functions, register_newtype_constructors, register_variant_constructors,
-    EvalMode, InterpreterBuilder, UserMethodRegistry, Value,
+    buffer_handler, collect_extend_methods_with_config, collect_impl_methods_with_config,
+    process_derives, register_module_functions, register_newtype_constructors,
+    register_variant_constructors, EvalMode, InterpreterBuilder, MethodCollectionConfig,
+    UserMethodRegistry, Value,
 };
 use serde::Serialize;
 
@@ -80,7 +81,7 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
         let errors: Vec<String> = parse_result
             .errors
             .iter()
-            .map(|e| format!("At {}: {}", e.span, e.message))
+            .map(|e| format!("At {}: {}", e.span(), e.message()))
             .collect();
         return RunResult {
             success: false,
@@ -129,7 +130,6 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     let print_handler = buffer_handler();
     let mut interpreter = InterpreterBuilder::new(&interner, &parse_result.arena)
         .print_handler(print_handler.clone())
-        .pattern_resolutions(&type_result.typed.pattern_resolutions)
         .canon(shared_canon.clone())
         .build();
 
@@ -140,11 +140,15 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     let shared_arena = SharedArena::new(parse_result.arena.clone());
 
     // Build user method registry from impl and extend blocks
-    // Wrap captures in Arc once for efficient sharing across all collect_* calls
     let mut user_methods = UserMethodRegistry::new();
-    let captures = std::sync::Arc::new(interpreter.env().capture());
-    collect_impl_methods(&parse_result.module, &shared_arena, &captures, Some(&shared_canon), &mut user_methods);
-    collect_extend_methods(&parse_result.module, &shared_arena, &captures, Some(&shared_canon), &mut user_methods);
+    let config = MethodCollectionConfig {
+        module: &parse_result.module,
+        arena: &shared_arena,
+        captures: std::sync::Arc::new(interpreter.env().capture()),
+        canon: Some(&shared_canon),
+    };
+    collect_impl_methods_with_config(&config, &mut user_methods);
+    collect_extend_methods_with_config(&config, &mut user_methods);
 
     // Process derived traits (Eq, Clone, Hashable, Printable, Default)
     process_derives(
@@ -259,7 +263,7 @@ fn format_ori_internal(source: &str, max_width: Option<usize>) -> FormatResult {
         let errors: Vec<String> = parse_result
             .errors
             .iter()
-            .map(|e| e.message.clone())
+            .map(|e| e.message().to_string())
             .collect();
         return FormatResult {
             success: false,

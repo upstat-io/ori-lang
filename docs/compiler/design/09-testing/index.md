@@ -171,6 +171,19 @@ Results: 40 passed, 1 failed, 1 skipped
 Coverage: 95% of functions tested
 ```
 
+## Test Outcomes
+
+Each test produces one of four outcomes:
+
+| Outcome | Meaning | Counts as failure? |
+|---------|---------|-------------------|
+| `Passed` | Test passed (including matched `compile_fail` expectations) | No |
+| `Failed(String)` | Test failed with error message | Yes |
+| `Skipped(String)` | Test skipped with reason (via `#[skip]`) | No |
+| `LlvmCompileFail(String)` | LLVM compilation of file failed — test could not run | No (tracked separately) |
+
+`LlvmCompileFail` is distinct from `Failed`: it indicates the LLVM backend could not compile the file, not that the test logic is wrong. These are tracked separately in the summary and displayed as LLVM compilation issues rather than test failures.
+
 ## Test Runner Architecture
 
 ### Shared Interner Pattern

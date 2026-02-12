@@ -43,13 +43,14 @@ compiler/
 │       └── subdiagnostic.rs          # #[derive(Subdiagnostic)] implementation
 └── oric/src/
     ├── problem/                  # Problem types (specific to compiler phases)
-    │   ├── mod.rs                    # Problem enum (Parse, Type, Semantic variants)
+    │   ├── mod.rs                    # Problem enum (Lex, Parse, Semantic variants)
+    │   ├── lex.rs                    # LexProblem enum
     │   └── semantic.rs               # SemanticProblem enum, DefinitionKind
     └── reporting/                # Diagnostic rendering (Problem → Diagnostic)
         ├── mod.rs                    # Render trait, render_all, Report type
+        ├── lex.rs                    # LexProblem rendering
         ├── parse.rs                  # ParseProblem rendering
-        ├── semantic.rs               # SemanticProblem rendering
-        └── type_errors.rs            # TypeProblem rendering
+        └── semantic.rs               # SemanticProblem rendering
 
 **Note:** The `problem/` and `reporting/` modules have an intentional 1:1 coupling.
 Each problem variant in `problem/mod.rs` has a corresponding `Render` implementation
@@ -213,15 +214,15 @@ The `Render` trait provides the conversion interface:
 
 ```rust
 pub trait Render {
-    fn render(&self) -> Diagnostic;
+    fn render(&self, interner: &StringInterner) -> Diagnostic;
 }
 
 impl Render for Problem {
-    fn render(&self) -> Diagnostic {
+    fn render(&self, interner: &StringInterner) -> Diagnostic {
         match self {
-            Problem::Parse(p) => p.render(),
-            Problem::Type(p) => p.render(),
-            Problem::Semantic(p) => p.render(),
+            Problem::Lex(p) => p.render(interner),
+            Problem::Parse(p) => p.render(interner),
+            Problem::Semantic(p) => p.render(interner),
         }
     }
 }
@@ -233,6 +234,7 @@ Each problem category has its own rendering module:
 
 | Module | Problem Type | Error Codes |
 |--------|--------------|-------------|
+| `lex.rs` | `LexProblem` | E0xxx (lexer errors) |
 | `parse.rs` | `ParseProblem` | E1xxx (parser errors) |
 | `semantic.rs` | `SemanticProblem` | E2xxx (name resolution, duplicates) |
 
@@ -450,10 +452,13 @@ These utilities are used by `DiagnosticQueue` for position-based deduplication a
 
 ### Problem
 
-The `Problem` enum uses a two-tier hierarchy (type checking errors use `TypeCheckError` directly):
+The `Problem` enum uses a three-tier hierarchy (Lex, Parse, Semantic). Type checking errors use `TypeCheckError` directly from `ori_types`:
 
 ```rust
 pub enum Problem {
+    /// Lex-time problems (tokenization errors, confusables, cross-language habits).
+    Lex(LexProblem),
+
     /// Parse-time problems (syntax errors).
     Parse(ParseProblem),
 
@@ -463,15 +468,15 @@ pub enum Problem {
 
 impl Problem {
     pub fn span(&self) -> Span;
+    pub fn is_lex(&self) -> bool;
     pub fn is_parse(&self) -> bool;
     pub fn is_semantic(&self) -> bool;
 }
 ```
 
-**Note:** Type checking errors use `TypeCheckError` from `ori_typeck` directly, rather than being wrapped in this enum. This allows the type checker to use structured error variants while other phases use this unified type
-```
+**Note:** Type checking errors use `TypeCheckError` from `ori_types` directly, rather than being wrapped in this enum. This allows the type checker to use structured error variants while other phases use this unified type.
 
-Each category (ParseProblem, TypeProblem, SemanticProblem) is a separate enum with category-specific variants. See [Problem Types](problem-types.md) for details.
+Each category (LexProblem, ParseProblem, SemanticProblem) is a separate enum with category-specific variants. See [Problem Types](problem-types.md) for details.
 
 ## Diagnostic Derive Macros
 

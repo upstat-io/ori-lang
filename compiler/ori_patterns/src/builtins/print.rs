@@ -30,17 +30,17 @@ impl PatternDefinition for PrintPattern {
         let msg = ctx.eval_prop("msg", exec)?;
         let msg_str = msg.display_value();
 
+        let print_name = ctx.interner.intern("Print");
+        let println_name = ctx.interner.intern("println");
+
         // Look up Print capability and call its println method
-        if let Some(print_cap) = exec.lookup_capability("Print") {
-            exec.call_method(print_cap, "println", vec![Value::string(msg_str)])?;
+        if let Some(print_cap) = exec.lookup_capability(print_name) {
+            exec.call_method(print_cap, println_name, vec![Value::string(msg_str)])?;
         } else {
             // Fallback: no Print capability, use default output
             // This calls a built-in that the interpreter provides
-            exec.call_method(
-                Value::Void,
-                "__builtin_println",
-                vec![Value::string(msg_str)],
-            )?;
+            let builtin_name = ctx.interner.intern("__builtin_println");
+            exec.call_method(Value::Void, builtin_name, vec![Value::string(msg_str)])?;
         }
 
         Ok(Value::Void)
@@ -86,9 +86,10 @@ mod tests {
         }];
 
         // Mock with Print capability
+        let print_cap_name = interner.intern("Print");
         let mut exec = MockPatternExecutor::new()
             .with_expr(ExprId::new(0), Value::string("test"))
-            .with_capability("Print", Value::Void);
+            .with_capability(print_cap_name, Value::Void);
 
         let ctx = make_ctx(&interner, &arena, &props);
         let result = PrintPattern.evaluate(&ctx, &mut exec);

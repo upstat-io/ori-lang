@@ -6,23 +6,26 @@ order: 0
 
 # Overview
 
+> **Implementation Status**: This document describes the LSP design roadmap. The current implementation is a minimal MVP — see individual feature docs for actual implementation status.
+
 This documentation describes the design and implementation of the Ori Language Server (`ori_lsp`). The language server provides IDE features via the Language Server Protocol (LSP).
 
 ## Implementation Status
 
-The LSP server is **implemented** at `tools/ori-lsp/` using:
+The LSP server is implemented at `tools/ori-lsp/` using:
 - **`tower-lsp`** crate for async LSP protocol implementation
 - **`DashMap`** for concurrent document storage
 - **`tokio`** for async runtime
 
-**Implemented Features:**
-- ✅ Diagnostics (parse errors, type errors)
-- ✅ Hover (type information, function signatures)
-- ✅ Go to Definition
-- ✅ Completions (keywords, patterns, document functions)
-- ✅ Formatting (via `ori_fmt`)
+**Current Features:**
+- ⚠️ Partial — Diagnostics (lex/parse errors only, no type errors yet)
+- ⚠️ Partial — Hover (function signatures and type definitions only)
+- ⚠️ Partial — Completions (keywords and snippets only, no semantic completions)
+- ✅ Formatting (full document formatting via `ori_fmt`)
 
 **Not Yet Implemented:**
+- ⚠ Type checking integration (diagnostics are lex/parse only)
+- ⚠ Go to Definition (semantic resolution)
 - ⚠ WASM compilation for browser playground
 - ⚠ Find References
 - ⚠ Document Symbols

@@ -4,7 +4,7 @@ use super::resolvers::{
     BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, MethodResolverKind,
     UserRegistryResolver,
 };
-use super::{Interpreter, PrintNames, TypeNames};
+use super::{Interpreter, OpNames, PrintNames, PropNames, ScopeOwnership, TypeNames};
 use crate::diagnostics::CallStack;
 use crate::eval_mode::{EvalMode, ModeState};
 use crate::{
@@ -12,7 +12,6 @@ use crate::{
 };
 use ori_ir::canon::SharedCanonResult;
 use ori_ir::{ExprArena, SharedArena, StringInterner};
-use ori_types::{PatternKey, PatternResolution};
 
 /// Builder for creating Interpreter instances with various configurations.
 ///
@@ -29,10 +28,8 @@ pub struct InterpreterBuilder<'a> {
     imported_arena: Option<SharedArena>,
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
     print_handler: Option<SharedPrintHandler>,
-    owns_scoped_env: bool,
+    scope_ownership: ScopeOwnership,
     call_stack: Option<CallStack>,
-    /// Pattern resolutions from type checking.
-    pattern_resolutions: &'a [(PatternKey, PatternResolution)],
     /// Canonical IR for canonical evaluation path.
     canon: Option<SharedCanonResult>,
 }
@@ -48,9 +45,8 @@ impl<'a> InterpreterBuilder<'a> {
             imported_arena: None,
             user_method_registry: None,
             print_handler: None,
-            owns_scoped_env: false,
+            scope_ownership: ScopeOwnership::Borrowed,
             call_stack: None,
-            pattern_resolutions: &[],
             canon: None,
         }
     }
@@ -100,7 +96,7 @@ impl<'a> InterpreterBuilder<'a> {
     /// This is used for function/method call interpreters to ensure RAII panic safety.
     #[must_use]
     pub fn with_scoped_env_ownership(mut self) -> Self {
-        self.owns_scoped_env = true;
+        self.scope_ownership = ScopeOwnership::Owned;
         self
     }
 
@@ -111,19 +107,6 @@ impl<'a> InterpreterBuilder<'a> {
     #[must_use]
     pub fn call_stack(mut self, stack: CallStack) -> Self {
         self.call_stack = Some(stack);
-        self
-    }
-
-    /// Set the pattern resolutions from type checking.
-    ///
-    /// Enables correct disambiguation of `Binding("Pending")` (unit variant)
-    /// vs `Binding("x")` (variable) in match patterns.
-    #[must_use]
-    pub fn pattern_resolutions(
-        mut self,
-        resolutions: &'a [(PatternKey, PatternResolution)],
-    ) -> Self {
-        self.pattern_resolutions = resolutions;
         self
     }
 
@@ -148,7 +131,7 @@ impl<'a> InterpreterBuilder<'a> {
         let method_dispatcher = MethodDispatcher::new(vec![
             MethodResolverKind::UserRegistry(UserRegistryResolver::new(user_meth_reg.clone())),
             MethodResolverKind::Collection(CollectionMethodResolver::new(self.interner)),
-            MethodResolverKind::Builtin(BuiltinMethodResolver::new()),
+            MethodResolverKind::Builtin(BuiltinMethodResolver::new(self.interner)),
         ]);
 
         // Pre-compute the Name for "self" to avoid repeated interning
@@ -159,6 +142,15 @@ impl<'a> InterpreterBuilder<'a> {
 
         // Pre-intern print method names for PatternExecutor print dispatch
         let print_names = PrintNames::new(self.interner);
+
+        // Pre-intern FunctionExp property names for prop dispatch
+        let prop_names = PropNames::new(self.interner);
+
+        // Pre-intern operator trait method names for user-defined operator dispatch
+        let op_names = OpNames::new(self.interner);
+
+        // Pre-intern builtin method names for hot-path dispatch (u32 == u32)
+        let builtin_method_names = crate::methods::BuiltinMethodNames::new(self.interner);
 
         // Default print handler depends on mode if not explicitly set
         let print_handler = self.print_handler.unwrap_or_else(stdout_handler);
@@ -184,16 +176,17 @@ impl<'a> InterpreterBuilder<'a> {
             self_name,
             type_names,
             print_names,
+            prop_names,
+            op_names,
             mode: self.mode,
             mode_state,
             call_stack,
             user_method_registry: user_meth_reg,
             method_dispatcher,
-            imported_arena: Some(imported_arena),
-            prelude_loaded: false,
+            imported_arena,
             print_handler,
-            owns_scoped_env: self.owns_scoped_env,
-            pattern_resolutions: self.pattern_resolutions,
+            scope_ownership: self.scope_ownership,
+            builtin_method_names,
             canon: self.canon,
         }
     }

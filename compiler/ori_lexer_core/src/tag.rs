@@ -15,7 +15,7 @@
 //! | 32-61   | Operators             |
 //! | 80-95   | Delimiters            |
 //! | 112-114 | Trivia                |
-//! | 240-244 | Errors                |
+//! | 240-245 | Errors                |
 //! | 255     | EOF                   |
 
 /// Raw token kind produced by the low-level tokenizer.
@@ -178,17 +178,29 @@ pub enum RawTag {
     /// Line comment (`//` to end of line).
     LineComment = 114,
 
-    // === Errors (240-244) ===
-    /// Invalid byte (non-ASCII, control character, interior null).
+    // === Errors (240-245) ===
+    /// Invalid byte (non-ASCII, control character).
     InvalidByte = 240,
     /// Unterminated string literal (missing closing `"`).
     UnterminatedString = 241,
     /// Unterminated character literal (missing closing `'`).
     UnterminatedChar = 242,
-    /// Invalid escape sequence (deferred — used by cooking layer).
+    /// Invalid escape sequence.
+    ///
+    /// Currently unused by the raw scanner — escape validation is fully deferred
+    /// to the cooking layer's `unescape_*_v2()` functions. Reserved for potential
+    /// future scanner-level escape validation. The cooker has a defensive match
+    /// arm for this variant.
     InvalidEscape = 243,
     /// Unterminated template literal (missing closing `` ` ``).
     UnterminatedTemplate = 244,
+    /// Interior null byte (U+0000) in source content.
+    ///
+    /// Emitted by the scanner when it encounters a `0x00` byte that is NOT the
+    /// sentinel (i.e., `pos < source_len`). The integration layer (`ori_lexer`)
+    /// skips these tokens because `SourceBuffer` already detected interior nulls
+    /// via `encoding_issues()` and reported them with more specific diagnostics.
+    InteriorNull = 245,
 
     // === Control (255) ===
     /// End of file (sentinel reached).
@@ -324,6 +336,7 @@ impl RawTag {
             Self::UnterminatedChar => "unterminated character literal",
             Self::InvalidEscape => "invalid escape",
             Self::UnterminatedTemplate => "unterminated template",
+            Self::InteriorNull => "interior null byte",
             Self::Eof => "end of file",
         }
     }
@@ -393,9 +406,10 @@ mod tests {
         assert_eq!(RawTag::Newline as u8, 113);
         assert_eq!(RawTag::LineComment as u8, 114);
 
-        // Errors: 240-244
+        // Errors: 240-245
         assert_eq!(RawTag::InvalidByte as u8, 240);
         assert_eq!(RawTag::UnterminatedTemplate as u8, 244);
+        assert_eq!(RawTag::InteriorNull as u8, 245);
 
         // Control: 255
         assert_eq!(RawTag::Eof as u8, 255);
@@ -479,6 +493,7 @@ mod tests {
         assert_eq!(RawTag::TemplateComplete.lexeme(), None);
         assert_eq!(RawTag::FormatSpec.lexeme(), None);
         assert_eq!(RawTag::InvalidByte.lexeme(), None);
+        assert_eq!(RawTag::InteriorNull.lexeme(), None);
         assert_eq!(RawTag::Whitespace.lexeme(), None);
         assert_eq!(RawTag::Eof.lexeme(), None);
     }
@@ -503,6 +518,7 @@ mod tests {
         assert_eq!(RawTag::HashBracket.name(), "`#[`");
         assert_eq!(RawTag::Eof.name(), "end of file");
         assert_eq!(RawTag::InvalidByte.name(), "invalid byte");
+        assert_eq!(RawTag::InteriorNull.name(), "interior null byte");
         assert_eq!(RawTag::UnterminatedString.name(), "unterminated string");
     }
 

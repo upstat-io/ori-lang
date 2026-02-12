@@ -33,8 +33,8 @@ pub mod value {
 
 pub use evaluator::{Evaluator, EvaluatorBuilder, ScopedEvaluator};
 pub use ori_eval::{
-    dispatch_builtin_method, evaluate_binary, evaluate_unary, Environment, LocalScope, Mutability,
-    Scope, UserMethod, UserMethodRegistry,
+    dispatch_builtin_method_str, evaluate_binary, evaluate_unary, Environment, LocalScope,
+    Mutability, Scope, UserMethod, UserMethodRegistry,
 };
 pub use ori_patterns::{ControlAction, EvalError, EvalResult};
 pub use output::{EvalErrorSnapshot, EvalOutput, ModuleEvalResult};

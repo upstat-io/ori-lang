@@ -10,53 +10,22 @@
 
 use ori_ir::{Name, StringInterner};
 
-use crate::{
+use crate::errors::{
     cannot_access_field, cannot_get_length, cannot_index, collection_too_large,
     index_out_of_bounds, invalid_tuple_field, no_field_on_struct, no_member_in_module,
-    tuple_index_out_of_bounds, undefined_variable, ControlAction, Environment, EvalError,
-    EvalResult, UserMethodRegistry, Value,
+    tuple_index_out_of_bounds, undefined_variable,
 };
+use crate::{ControlAction, Environment, EvalError, EvalResult, Value};
 
 /// Evaluate an identifier lookup.
 ///
-/// The `user_registry` parameter allows checking if a type name has associated
-/// functions registered via impl blocks. This enables `Type.method()` syntax for
-/// user-defined types with associated functions (methods without `self`).
-pub fn eval_ident(
-    name: Name,
-    env: &Environment,
-    interner: &StringInterner,
-    user_registry: Option<&UserMethodRegistry>,
-) -> EvalResult {
-    // First check local bindings (variables shadow type names)
-    if let Some(val) = env.lookup(name) {
-        return Ok(val);
-    }
-
-    // Check if this is a type name for associated function calls
-    let name_str = interner.lookup(name);
-
-    // Check user-defined types with associated functions (impl blocks)
-    if let Some(registry) = user_registry {
-        if registry.has_any_methods_for_type(name) {
-            return Ok(Value::TypeRef { type_name: name });
-        }
-    }
-
-    // Check built-in types with associated functions (Duration, Size)
-    if is_builtin_type_with_associated_functions(name_str) {
-        return Ok(Value::TypeRef { type_name: name });
-    }
-
-    Err(undefined_variable(name_str).into())
-}
-
-/// Check if a type name is a built-in type with associated functions.
-///
-/// These built-in types have factory methods like `Duration.from_seconds(s:)` that
-/// are implemented in the compiler rather than user code.
-fn is_builtin_type_with_associated_functions(name: &str) -> bool {
-    matches!(name, "Duration" | "Size")
+/// Looks up the name in the current environment. Returns `Err` with
+/// `undefined_variable` if not found. Type reference resolution is
+/// handled by `CanExpr::TypeRef` (emitted during canonicalization),
+/// not here.
+pub fn eval_ident(name: Name, env: &Environment, interner: &StringInterner) -> EvalResult {
+    env.lookup(name)
+        .ok_or_else(|| undefined_variable(interner.lookup(name)).into())
 }
 
 /// Get the length of a collection for `HashLength` resolution.

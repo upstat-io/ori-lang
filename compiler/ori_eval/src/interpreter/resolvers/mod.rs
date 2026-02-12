@@ -26,7 +26,14 @@ pub use builtin::BuiltinMethodResolver;
 pub use collection::CollectionMethodResolver;
 pub use user_registry::UserRegistryResolver;
 
-use crate::{DerivedMethodInfo, UserMethod, Value};
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc for immutable resolver list shared across child interpreters"
+)]
+use std::sync::Arc;
+
+use crate::{UserMethod, Value};
+use ori_ir::DerivedMethodInfo;
 use ori_ir::Name;
 
 /// Result of method resolution - identifies what kind of method was found.
@@ -170,18 +177,33 @@ impl MethodResolverKind {
 ///
 /// Tries resolvers in priority order (lowest priority number first)
 /// until one returns a match or all have been tried.
+///
+/// Uses `Arc<Vec<...>>` internally so that cloning is O(1). The resolver
+/// list is immutable after construction, making shared ownership correct.
 #[derive(Clone)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc for immutable resolver list shared across child interpreters"
+)]
 pub struct MethodDispatcher {
-    resolvers: Vec<MethodResolverKind>,
+    resolvers: Arc<Vec<MethodResolverKind>>,
 }
 
 impl MethodDispatcher {
     /// Create a new dispatcher with the given resolvers.
     ///
-    /// Resolvers are sorted by priority (lowest first).
+    /// Resolvers are sorted by priority (lowest first) and wrapped in `Arc`
+    /// so that child interpreters can share the dispatcher without deep-cloning
+    /// the resolver state (e.g., `BuiltinMethodResolver`'s `FxHashSet`).
+    #[expect(
+        clippy::disallowed_types,
+        reason = "Arc for immutable resolver list shared across child interpreters"
+    )]
     pub fn new(mut resolvers: Vec<MethodResolverKind>) -> Self {
         resolvers.sort_by_key(MethodResolverKind::priority);
-        Self { resolvers }
+        Self {
+            resolvers: Arc::new(resolvers),
+        }
     }
 
     /// Try to resolve a method using the resolver chain.
@@ -193,7 +215,7 @@ impl MethodDispatcher {
         type_name: Name,
         method_name: Name,
     ) -> MethodResolution {
-        for resolver in &self.resolvers {
+        for resolver in self.resolvers.iter() {
             let result = resolver.resolve(receiver, type_name, method_name);
             if !matches!(result, MethodResolution::NotFound) {
                 return result;
@@ -251,7 +273,7 @@ mod tests {
 
         // Create resolvers in wrong order
         let resolvers = vec![
-            MethodResolverKind::Builtin(BuiltinMethodResolver::new()), // priority 2
+            MethodResolverKind::Builtin(BuiltinMethodResolver::new(&interner)), // priority 2
             MethodResolverKind::UserRegistry(UserRegistryResolver::new(registry)), // priority 0
             MethodResolverKind::Collection(CollectionMethodResolver::new(&interner)), // priority 1
         ];
@@ -274,7 +296,7 @@ mod tests {
         let interner = SharedInterner::default();
 
         // Test that MethodResolverKind correctly dispatches to underlying resolvers
-        let builtin = MethodResolverKind::Builtin(BuiltinMethodResolver::new());
+        let builtin = MethodResolverKind::Builtin(BuiltinMethodResolver::new(&interner));
         assert_eq!(builtin.priority(), 2);
         assert_eq!(builtin.name(), "BuiltinMethodResolver");
 

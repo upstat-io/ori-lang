@@ -7,7 +7,6 @@ use ori_eval::{
     Environment, EvalMode, InterpreterBuilder, SharedMutableRegistry, UserMethodRegistry,
 };
 use ori_ir::canon::SharedCanonResult;
-use ori_types::{PatternKey, PatternResolution};
 
 /// Builder for creating Evaluator instances with various configurations.
 ///
@@ -20,8 +19,6 @@ pub struct EvaluatorBuilder<'a> {
     env: Option<Environment>,
     imported_arena: Option<SharedArena>,
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
-    /// Pattern resolutions from type checking for Binding/UnitVariant disambiguation.
-    pattern_resolutions: &'a [(PatternKey, PatternResolution)],
     /// Canonical IR for canonical evaluation dispatch.
     canon: Option<SharedCanonResult>,
 }
@@ -37,7 +34,6 @@ impl<'a> EvaluatorBuilder<'a> {
             env: None,
             imported_arena: None,
             user_method_registry: None,
-            pattern_resolutions: &[],
             canon: None,
         }
     }
@@ -72,19 +68,6 @@ impl<'a> EvaluatorBuilder<'a> {
         self
     }
 
-    /// Set the pattern resolutions from type checking.
-    ///
-    /// Enables correct disambiguation of `Binding("Pending")` (unit variant)
-    /// vs `Binding("x")` (variable) in match patterns.
-    #[must_use]
-    pub fn pattern_resolutions(
-        mut self,
-        resolutions: &'a [(PatternKey, PatternResolution)],
-    ) -> Self {
-        self.pattern_resolutions = resolutions;
-        self
-    }
-
     /// Set the canonical IR for canonical evaluation dispatch.
     ///
     /// When set, the evaluator can dispatch via `eval_can()` for root expressions
@@ -111,11 +94,6 @@ impl<'a> EvaluatorBuilder<'a> {
 
         if let Some(registry) = self.user_method_registry {
             interpreter_builder = interpreter_builder.user_method_registry(registry);
-        }
-
-        // Pass pattern resolutions for Binding/UnitVariant disambiguation in match
-        if !self.pattern_resolutions.is_empty() {
-            interpreter_builder = interpreter_builder.pattern_resolutions(self.pattern_resolutions);
         }
 
         // Pass canonical IR for eval_can dispatch

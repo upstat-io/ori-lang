@@ -11,17 +11,17 @@ This section details the implementation of each LSP feature.
 
 ## Implementation Status
 
-| Feature | Status | LSP Method |
-|---------|--------|------------|
-| Diagnostics | ✅ Implemented | `publishDiagnostics` |
-| Hover | ✅ Implemented | `textDocument/hover` |
-| Go to Definition | ✅ Implemented | `textDocument/definition` |
-| Completions | ✅ Implemented | `textDocument/completion` |
-| Formatting | ✅ Implemented | `textDocument/formatting` |
-| Find References | ⚠ Not Implemented | `textDocument/references` |
-| Document Symbols | ⚠ Not Implemented | `textDocument/documentSymbol` |
-| Code Actions | ⚠ Not Implemented | `textDocument/codeAction` |
-| Semantic Tokens | ⚠ Not Implemented | `textDocument/semanticTokens` |
+| Feature | Status | LSP Method | Notes |
+|---------|--------|------------|-------|
+| Diagnostics | ⚠️ Partial | `publishDiagnostics` | Lex/parse errors only, no type errors |
+| Hover | ⚠️ Partial | `textDocument/hover` | Function signatures and type definitions only |
+| Go to Definition | ⚠️ Partial | `textDocument/definition` | No semantic resolution yet |
+| Completions | ⚠️ Partial | `textDocument/completion` | Keywords and snippets only, no semantic completions |
+| Formatting | ✅ Working | `textDocument/formatting` | Full document formatting via `ori_fmt` |
+| Find References | ❌ Not Implemented | `textDocument/references` | |
+| Document Symbols | ❌ Not Implemented | `textDocument/documentSymbol` | |
+| Code Actions | ❌ Not Implemented | `textDocument/codeAction` | |
+| Semantic Tokens | ❌ Not Implemented | `textDocument/semanticTokens` | |
 
 ## Current Implementation
 
@@ -58,7 +58,7 @@ The following pages describe both the current implementation and planned enhance
 
 | Feature | Current | Planned |
 |---------|---------|---------|
-| [Diagnostics](diagnostics.md) | Parse and type errors | Semantic errors, warnings |
+| [Diagnostics](diagnostics.md) | Lex/parse errors only (no type errors yet) | Type errors, semantic errors, warnings |
 | [Formatting](formatting.md) | Full document format | Selection formatting |
 | [Hover](hover.md) | Function/type signatures | Expression types, doc comments |
 

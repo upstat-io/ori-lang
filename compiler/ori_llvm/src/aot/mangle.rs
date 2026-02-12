@@ -66,7 +66,10 @@ const EXT_MARKER: &str = "$$ext$";
 pub struct Mangler {
     /// Whether to use Windows-style decorated names (no leading underscore on some platforms).
     /// Reserved for future use when Windows-specific mangling is needed.
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "Reserved for future Windows-specific mangling; used in for_windows constructor"
+    )]
     windows_compat: bool,
 }
 

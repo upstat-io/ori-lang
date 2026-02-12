@@ -1063,9 +1063,6 @@ mod metadata_tests {
     }
 }
 
-// =============================================================================
-// Module-Level Declaration Dispatch
-// =============================================================================
 // Tests that dispatch_declaration() correctly handles ALL token kinds at the
 // module top level. Previously, unrecognized tokens were silently eaten by
 // a catch-all `self.advance()`, causing `return 42`, `break`, bare integers,

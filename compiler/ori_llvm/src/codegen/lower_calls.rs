@@ -1131,6 +1131,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             | CanExpr::Error
             | CanExpr::SelfRef
             | CanExpr::FunctionRef(_)
+            | CanExpr::TypeRef(_)
             | CanExpr::Const(_)
             | CanExpr::HashLength
             | CanExpr::Duration { .. }

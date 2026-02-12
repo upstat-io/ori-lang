@@ -7,6 +7,8 @@ section: "Features"
 
 # Diagnostics
 
+> **Current Implementation**: Only lexer and parser errors are reported. Type checking integration, SuggestedFix, and code actions described below are not yet implemented — they represent the planned design.
+
 Publishing parse errors, type errors, and warnings to the client.
 
 ## Reference: Go's Structured Diagnostics
@@ -41,13 +43,13 @@ textDocument/publishDiagnostics
 
 ## Diagnostic Sources
 
-| Source | Severity | Examples | Has Fix? |
-|--------|----------|----------|----------|
-| Lexer | Error | Invalid token, unterminated string | No |
-| Parser | Error | Missing `)`, unexpected token | Sometimes |
-| Type checker | Error | Type mismatch, undefined variable | Sometimes |
-| Type checker | Warning | Unused variable, unreachable code | Often |
-| Linter (future) | Warning/Hint | Style suggestions | Usually |
+| Source | Severity | Examples | Has Fix? | Status |
+|--------|----------|----------|----------|--------|
+| Lexer | Error | Invalid token, unterminated string | No | ✅ Implemented |
+| Parser | Error | Missing `)`, unexpected token | Sometimes | ✅ Implemented |
+| Type checker | Error | Type mismatch, undefined variable | Sometimes | ❌ Not yet connected |
+| Type checker | Warning | Unused variable, unreachable code | Often | ❌ Not yet connected |
+| Linter (future) | Warning/Hint | Style suggestions | Usually | ❌ Not yet connected |
 
 ## SuggestedFix Support (from Go)
 

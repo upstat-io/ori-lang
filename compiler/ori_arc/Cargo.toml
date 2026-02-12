@@ -13,6 +13,7 @@ cache = ["ori_ir/cache", "ori_types/cache", "serde", "bincode"]
 ori_ir.workspace = true
 ori_types.workspace = true
 rustc-hash.workspace = true
+smallvec.workspace = true
 tracing.workspace = true
 
 # Serialization (optional, for incremental compilation cache)

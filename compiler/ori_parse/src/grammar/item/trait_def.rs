@@ -14,7 +14,10 @@ impl Parser<'_> {
     /// Returns `EmptyErr` if no `trait` keyword is present.
     pub(crate) fn parse_trait(&mut self, visibility: Visibility) -> ParseOutcome<TraitDef> {
         if !self.cursor.check(&TokenKind::Trait) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Trait, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Trait,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         self.in_error_context(crate::ErrorContext::TraitDef, |p| {

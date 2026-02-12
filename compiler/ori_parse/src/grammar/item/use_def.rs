@@ -16,7 +16,10 @@ impl Parser<'_> {
     /// The `visibility` parameter tracks whether this is a public re-export (`pub use`).
     pub(crate) fn parse_use(&mut self, visibility: Visibility) -> ParseOutcome<UseDef> {
         if !self.cursor.check(&TokenKind::Use) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Use, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Use,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         self.parse_use_body(visibility)

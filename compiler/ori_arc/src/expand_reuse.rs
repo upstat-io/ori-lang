@@ -157,7 +157,7 @@ fn try_expand_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn A
     let suffix = func.blocks[block_idx].body[pair.reuse_idx + 1..].to_vec();
     let original_terminator = func.blocks[block_idx].terminator.clone();
     let has_suffix = !suffix.is_empty();
-    let terminator_uses_dst = original_terminator.used_vars().contains(&pair.reuse_dst);
+    let terminator_uses_dst = original_terminator.uses_var(pair.reuse_dst);
     let needs_merge = has_suffix || terminator_uses_dst;
 
     // 5. Allocate new block IDs.

@@ -46,7 +46,7 @@ mod parallel_tests;
 #[cfg(test)]
 mod test_helpers;
 
-use ori_ir::{ExprArena, ExprId, NamedExpr, StringInterner};
+use ori_ir::{ExprArena, ExprId, Name, NamedExpr, StringInterner};
 
 pub use errors::{
     BacktraceFrame, ControlAction, EvalBacktrace, EvalError, EvalErrorKind, EvalNote, EvalResult,
@@ -438,22 +438,22 @@ pub trait PatternExecutor {
     /// Look up a capability from the environment.
     ///
     /// Used by patterns that need to access capabilities like Print.
-    fn lookup_capability(&self, name: &str) -> Option<Value>;
+    fn lookup_capability(&self, name: Name) -> Option<Value>;
 
     /// Call a method on a value.
     ///
     /// Used by patterns to invoke capability methods.
-    fn call_method(&mut self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult;
+    fn call_method(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult;
 
     /// Look up a variable in the current scope.
     ///
     /// Returns `None` if the variable is not defined.
-    fn lookup_var(&self, name: &str) -> Option<Value>;
+    fn lookup_var(&self, name: Name) -> Option<Value>;
 
     /// Bind a variable in the current scope.
     ///
     /// Used by patterns to introduce scoped bindings during evaluation.
-    fn bind_var(&mut self, name: &str, value: Value);
+    fn bind_var(&mut self, name: Name, value: Value);
 }
 
 // Focused Pattern Traits (ISP Compliance)

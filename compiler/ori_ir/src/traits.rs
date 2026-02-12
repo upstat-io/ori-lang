@@ -37,8 +37,6 @@ pub trait Typed<T> {
     fn ty(&self) -> &T;
 }
 
-// Implementations for core types
-
 impl Spanned for super::Token {
     fn span(&self) -> Span {
         self.span
@@ -69,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_possible_truncation)] // Test values fit in u32
+    #[expect(clippy::cast_possible_truncation, reason = "Test values fit in u32")]
     fn test_named_trait() {
         let item = MockNamed {
             name: Name::new(1, 42),

@@ -584,6 +584,7 @@ dependencies = [
  "pretty_assertions",
  "rustc-hash",
  "serde",
+ "smallvec",
  "tracing",
 ]
 
@@ -616,10 +617,10 @@ dependencies = [
  "ori_parse",
  "ori_patterns",
  "ori_stack",
- "ori_types",
  "parking_lot",
  "pretty_assertions",
  "rustc-hash",
+ "smallvec",
  "tracing",
 ]
 

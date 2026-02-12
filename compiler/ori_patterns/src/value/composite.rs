@@ -17,7 +17,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock};
 
 use ori_ir::canon::{CanId, SharedCanonResult};
-use ori_ir::{ExprArena, ExprId, Name, SharedArena};
+use ori_ir::{ExprArena, Name, SharedArena};
 
 use super::Value;
 
@@ -116,18 +116,15 @@ impl StructValue {
 /// This eliminates potential race conditions and simplifies reasoning about
 /// closure behavior.
 ///
-/// # Dual-Mode Evaluation (Transition)
+/// # Canonical Evaluation
 ///
-/// During the migration from `ExprArena`-based to `CanonResult`-based evaluation,
-/// functions carry both `body`/`arena` (legacy) and `can_body`/`canon` (canonical).
-/// The evaluator uses `can_body`/`canon` when available, falling back to
-/// `body`/`arena` for legacy paths.
+/// All evaluation goes through `eval_can(CanId)` using `can_body`/`canon`.
+/// The `arena` field is retained for `create_function_interpreter` which
+/// needs it for arena threading during function calls.
 #[derive(Clone)]
 pub struct FunctionValue {
     /// Parameter names.
     pub params: Vec<Name>,
-    /// Body expression (legacy `ExprId`, used by legacy eval path and Debug/Hash).
-    pub body: ExprId,
     /// Canonical body expression. The evaluator dispatches on `CanExpr`
     /// from the canonical arena instead of `ExprKind` from `ExprArena`.
     pub can_body: CanId,
@@ -135,7 +132,7 @@ pub struct FunctionValue {
     ///
     /// No `RwLock` needed since captures are immutable after creation.
     captures: Arc<FxHashMap<Name, Value>>,
-    /// Arena for expression resolution (still needed for `create_function_interpreter`).
+    /// Arena for expression resolution (needed for `create_function_interpreter`).
     arena: SharedArena,
     /// Canonical IR for this function's body.
     ///
@@ -158,18 +155,11 @@ impl FunctionValue {
     ///
     /// # Arguments
     /// * `params` - Parameter names
-    /// * `body` - Body expression ID
     /// * `captures` - Captured environment (frozen at creation)
     /// * `arena` - Arena for expression resolution (required for thread safety)
-    pub fn new(
-        params: Vec<Name>,
-        body: ExprId,
-        captures: FxHashMap<Name, Value>,
-        arena: SharedArena,
-    ) -> Self {
+    pub fn new(params: Vec<Name>, captures: FxHashMap<Name, Value>, arena: SharedArena) -> Self {
         FunctionValue {
             params,
-            body,
             can_body: CanId::INVALID,
             captures: Arc::new(captures),
             arena,
@@ -183,20 +173,17 @@ impl FunctionValue {
     ///
     /// # Arguments
     /// * `params` - Parameter names
-    /// * `body` - Body expression ID
     /// * `captures` - Captured environment (frozen at creation)
     /// * `arena` - Arena for expression resolution (required for thread safety)
     /// * `capabilities` - Required capabilities from `uses` clause
     pub fn with_capabilities(
         params: Vec<Name>,
-        body: ExprId,
         captures: FxHashMap<Name, Value>,
         arena: SharedArena,
         capabilities: Vec<Name>,
     ) -> Self {
         FunctionValue {
             params,
-            body,
             can_body: CanId::INVALID,
             captures: Arc::new(captures),
             arena,
@@ -224,20 +211,17 @@ impl FunctionValue {
     ///
     /// # Arguments
     /// * `params` - Parameter names
-    /// * `body` - Body expression ID
     /// * `captures` - Shared captured environment
     /// * `arena` - Arena for expression resolution (required for thread safety)
     /// * `capabilities` - Required capabilities from `uses` clause
     pub fn with_shared_captures(
         params: Vec<Name>,
-        body: ExprId,
         captures: Arc<FxHashMap<Name, Value>>,
         arena: SharedArena,
         capabilities: Vec<Name>,
     ) -> Self {
         FunctionValue {
             params,
-            body,
             can_body: CanId::INVALID,
             captures,
             arena,
@@ -322,7 +306,7 @@ impl fmt::Debug for FunctionValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionValue")
             .field("params", &self.params)
-            .field("body", &self.body)
+            .field("can_body", &self.can_body)
             .field("captures", &format!("{} bindings", self.captures.len()))
             .finish_non_exhaustive()
     }
@@ -714,7 +698,7 @@ mod tests {
 
     #[test]
     fn test_function_value_new() {
-        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
+        let func = FunctionValue::new(vec![], FxHashMap::default(), dummy_arena());
         assert!(func.params.is_empty());
         assert!(!func.has_captures());
     }
@@ -723,7 +707,7 @@ mod tests {
     fn test_function_value_with_captures() {
         let mut captures = FxHashMap::default();
         captures.insert(Name::new(0, 1), Value::int(42));
-        let func = FunctionValue::new(vec![], ExprId::new(0), captures, dummy_arena());
+        let func = FunctionValue::new(vec![], captures, dummy_arena());
         assert!(func.has_captures());
         assert_eq!(func.get_capture(Name::new(0, 1)), Some(&Value::int(42)));
     }
@@ -776,7 +760,7 @@ mod tests {
     fn test_function_value_get_capture_missing() {
         let mut captures = FxHashMap::default();
         captures.insert(Name::new(0, 1), Value::int(42));
-        let func = FunctionValue::new(vec![], ExprId::new(0), captures, dummy_arena());
+        let func = FunctionValue::new(vec![], captures, dummy_arena());
 
         // Query a capture that doesn't exist
         let missing_name = Name::new(0, 999);
@@ -785,7 +769,7 @@ mod tests {
 
     #[test]
     fn test_memoized_function_get_cached_uncached() {
-        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
+        let func = FunctionValue::new(vec![], FxHashMap::default(), dummy_arena());
         let memoized = MemoizedFunctionValue::new(func);
 
         // Query with args that haven't been cached
@@ -795,7 +779,7 @@ mod tests {
 
     #[test]
     fn test_memoized_function_cache_and_retrieve() {
-        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
+        let func = FunctionValue::new(vec![], FxHashMap::default(), dummy_arena());
         let memoized = MemoizedFunctionValue::new(func);
 
         // Cache a result
@@ -810,7 +794,7 @@ mod tests {
 
     #[test]
     fn test_memoized_function_different_args_not_cached() {
-        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
+        let func = FunctionValue::new(vec![], FxHashMap::default(), dummy_arena());
         let memoized = MemoizedFunctionValue::new(func);
 
         // Cache with one set of args
@@ -826,7 +810,7 @@ mod tests {
     fn test_memoized_function_cache_eviction() {
         use super::MAX_MEMO_CACHE_SIZE;
 
-        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
+        let func = FunctionValue::new(vec![], FxHashMap::default(), dummy_arena());
         let memoized = MemoizedFunctionValue::new(func);
 
         // Fill the cache to capacity
@@ -861,7 +845,7 @@ mod tests {
 
     #[test]
     fn test_memoized_function_cache_update_no_eviction() {
-        let func = FunctionValue::new(vec![], ExprId::new(0), FxHashMap::default(), dummy_arena());
+        let func = FunctionValue::new(vec![], FxHashMap::default(), dummy_arena());
         let memoized = MemoizedFunctionValue::new(func);
 
         // Cache initial value

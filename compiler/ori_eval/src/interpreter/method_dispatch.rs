@@ -2,13 +2,15 @@
 
 use ori_ir::Name;
 
-use crate::{
-    all_requires_list, any_requires_list, collect_requires_range, dispatch_builtin_method,
-    filter_entries_not_implemented, filter_entries_requires_map, filter_requires_collection,
-    find_requires_list, fold_requires_collection, map_entries_not_implemented,
-    map_entries_requires_map, map_requires_collection, wrong_arg_count, wrong_function_args,
-    EvalError, EvalResult, Mutability, UserMethod, Value,
+use crate::errors::{
+    all_requires_list, any_requires_list, collect_requires_range, filter_entries_not_implemented,
+    filter_entries_requires_map, filter_requires_collection, find_requires_list,
+    fold_requires_collection, map_entries_not_implemented, map_entries_requires_map,
+    map_requires_collection, wrong_arg_count, wrong_function_args,
 };
+use crate::exec::call::bind_captures_iter;
+use crate::methods::{dispatch_builtin_method, DispatchCtx};
+use crate::{EvalError, EvalResult, Mutability, UserMethod, Value};
 
 use super::resolvers::{CollectionMethod, MethodResolution};
 use super::Interpreter;
@@ -59,9 +61,11 @@ impl Interpreter<'_> {
             }
 
             // Fall back to built-in associated functions (Duration, Size)
-            let type_name_str = self.interner.lookup(*type_name);
-            let method_str = self.interner.lookup(method);
-            return crate::methods::dispatch_associated_function(type_name_str, method_str, args);
+            let ctx = DispatchCtx {
+                names: &self.builtin_method_names,
+                interner: self.interner,
+            };
+            return crate::methods::dispatch_associated_function(*type_name, method, args, &ctx);
         }
 
         // Handle callable struct fields: if a struct has a field with the method name
@@ -98,15 +102,16 @@ impl Interpreter<'_> {
                 self.eval_collection_method(receiver, collection_method, &args)
             }
             MethodResolution::Builtin => {
-                let method_name = self.interner.lookup(method);
-                dispatch_builtin_method(receiver, method_name, args, self.interner)
+                let ctx = DispatchCtx {
+                    names: &self.builtin_method_names,
+                    interner: self.interner,
+                };
+                dispatch_builtin_method(receiver, method, args, &ctx)
             }
             MethodResolution::NotFound => {
-                // This shouldn't happen as BuiltinResolver always returns Builtin,
-                // but if it does, fall back to dispatch_builtin_method which will
-                // produce an appropriate error
-                let method_name = self.interner.lookup(method);
-                dispatch_builtin_method(receiver, method_name, args, self.interner)
+                let method_str = self.interner.lookup(method);
+                let type_str = self.interner.lookup(type_name);
+                Err(crate::errors::no_such_method(method_str, type_str).into())
             }
         }
     }
@@ -445,40 +450,11 @@ impl Interpreter<'_> {
         args: &[Value],
         method_name: Name,
     ) -> EvalResult {
-        // Check recursion limit before making the call (WASM only)
-        self.check_recursion_limit()?;
-
         // Method params include 'self' as first parameter
         if method.params.len() != args.len() + 1 {
             return Err(wrong_function_args(method.params.len() - 1, args.len()).into());
         }
-
-        // Create new environment with captures
-        let mut call_env = self.env.child();
-        call_env.push_scope();
-
-        // Bind captured variables (dereference Arc to iterate HashMap)
-        for (name, value) in method.captures.iter() {
-            call_env.define(*name, value.clone(), Mutability::Immutable);
-        }
-
-        // Bind 'self' to receiver (first parameter)
-        if let Some(&self_param) = method.params.first() {
-            call_env.define(self_param, receiver, Mutability::Immutable);
-        }
-
-        // Bind remaining parameters
-        for (param, arg) in method.params.iter().skip(1).zip(args.iter()) {
-            call_env.define(*param, arg.clone(), Mutability::Immutable);
-        }
-
-        // Evaluate method body via canonical IR.
-        // The scope is popped automatically via RAII when call_interpreter drops.
-        let mut call_interpreter =
-            self.create_function_interpreter(&method.arena, call_env, method_name);
-
-        call_interpreter.canon.clone_from(&method.canon);
-        call_interpreter.eval_can(method.can_body)
+        self.eval_method_body(Some(receiver), method, args, method_name)
     }
 
     /// Evaluate an associated function (no `self` parameter).
@@ -491,34 +467,58 @@ impl Interpreter<'_> {
         args: &[Value],
         method_name: Name,
     ) -> EvalResult {
-        // Check recursion limit before making the call (WASM only)
-        self.check_recursion_limit()?;
-
         // Associated functions don't have 'self', so params == args
         if method.params.len() != args.len() {
             return Err(wrong_function_args(method.params.len(), args.len()).into());
         }
+        self.eval_method_body(None, method, args, method_name)
+    }
 
-        // Create new environment with captures
+    /// Shared helper for evaluating a method/associated function body.
+    ///
+    /// When `receiver` is `Some`, binds it as `self` (first param) and zips
+    /// remaining params with `args`. When `None`, zips all params with `args`.
+    fn eval_method_body(
+        &mut self,
+        receiver: Option<Value>,
+        method: &UserMethod,
+        args: &[Value],
+        method_name: Name,
+    ) -> EvalResult {
+        self.check_recursion_limit()?;
+
         let mut call_env = self.env.child();
         call_env.push_scope();
 
-        // Bind captured variables
-        for (name, value) in method.captures.iter() {
-            call_env.define(*name, value.clone(), Mutability::Immutable);
-        }
+        bind_captures_iter(&mut call_env, method.captures.iter());
 
-        // Bind all parameters directly to arguments (no self)
-        for (param, arg) in method.params.iter().zip(args.iter()) {
+        // Bind self + remaining params, or all params directly
+        let param_args: &[Name] = if let Some(recv) = receiver {
+            if let Some(&self_param) = method.params.first() {
+                call_env.define(self_param, recv, Mutability::Immutable);
+            }
+            &method.params[1..]
+        } else {
+            &method.params
+        };
+
+        for (param, arg) in param_args.iter().zip(args.iter()) {
             call_env.define(*param, arg.clone(), Mutability::Immutable);
         }
 
-        // Evaluate function body via canonical IR.
-        let mut call_interpreter =
-            self.create_function_interpreter(&method.arena, call_env, method_name);
+        // Evaluate body via canonical IR.
+        // The scope is popped automatically via RAII when call_interpreter drops.
+        let mut call_interpreter = self.create_function_interpreter(
+            &method.arena,
+            call_env,
+            method_name,
+            method.canon.clone(),
+        );
 
-        call_interpreter.canon.clone_from(&method.canon);
-        call_interpreter.eval_can(method.can_body)
+        let result = call_interpreter.eval_can(method.can_body);
+        self.mode_state
+            .merge_child_counters(&call_interpreter.mode_state);
+        result
     }
 }
 

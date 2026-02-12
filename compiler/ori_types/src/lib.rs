@@ -32,9 +32,8 @@ pub use flags::{TypeCategory, TypeFlags};
 pub use idx::Idx;
 pub use infer::{check_expr, infer_expr, resolve_parsed_type, ExprIndex, InferEngine, TypeEnv};
 pub use item::Item;
-pub use output::{
-    FnWhereClause, FunctionSig, PatternKey, PatternResolution, TypeCheckResult, TypedModule,
-};
+pub use ori_ir::{PatternKey, PatternResolution};
+pub use output::{FnWhereClause, FunctionSig, TypeCheckResult, TypedModule};
 pub use pool::{EnumVariant, Pool, VarState, DEFAULT_RANK};
 pub use registry::{
     // Method registry

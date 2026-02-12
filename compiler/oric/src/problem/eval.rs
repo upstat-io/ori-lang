@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn immutable_binding_has_suggestion() {
-        let err = ori_patterns::cannot_assign_immutable("x");
+        let err = ori_eval::errors::cannot_assign_immutable("x");
         let diag = eval_error_to_diagnostic(&err);
         assert!(!diag.suggestions.is_empty());
         assert!(diag.suggestions[0].contains("mut x"));

@@ -66,6 +66,7 @@ The type system is organized into four layers:
 │ ├─ hashes: Vec<u64>        (for deduplication)      │
 │ ├─ extra: Vec<u32>         (variable-length data)   │
 │ ├─ intern_map: FxHashMap   (hash → Idx dedup)       │
+│ ├─ resolutions: FxHashMap  (Named/Applied → concrete)│
 │ └─ var_states: Vec<VarState> (type variable state)  │
 ├─────────────────────────────────────────────────────┤
 │ Registries (Semantic Information)                    │
@@ -109,8 +110,30 @@ TypedModule {
     types: Vec<TypeEntry>,       // Registered types
     errors: Vec<TypeCheckError>, // Accumulated errors
     pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
+    impl_sigs: Vec<(Name, FunctionSig)>,  // Impl method signatures for codegen
 }
 ```
+
+## TypeCheckResult
+
+The top-level result returned by the type checker query wraps `TypedModule` with an `ErrorGuaranteed` token that provides a compile-time proof that error reporting was not forgotten:
+
+```rust
+pub struct TypeCheckResult {
+    pub typed: TypedModule,
+    pub error_guarantee: Option<ErrorGuaranteed>,
+}
+
+impl TypeCheckResult {
+    pub fn ok(typed: TypedModule) -> Self;          // No errors (asserts errors is empty)
+    pub fn err(typed: TypedModule, guarantee: ErrorGuaranteed) -> Self;
+    pub fn from_typed(typed: TypedModule) -> Self;  // Auto-detects presence of errors
+    pub fn has_errors(&self) -> bool;
+    pub fn errors(&self) -> &[TypeCheckError];
+}
+```
+
+`ErrorGuaranteed` is `Some` when at least one error was emitted during type checking. This pattern (from rustc) ensures downstream code cannot accidentally ignore type errors.
 
 ## Core Type Handle: Idx
 

@@ -24,7 +24,10 @@ impl Parser<'_> {
             ParseOutcome::consumed_ok(ty)
         } else {
             // No type found — soft error for callers to handle
-            ParseOutcome::empty_err_expected(&TokenKind::Ident(Name::EMPTY), self.cursor.position())
+            ParseOutcome::empty_err_expected(
+                &TokenKind::Ident(Name::EMPTY),
+                self.cursor.current_span().start as usize,
+            )
         }
     }
 
@@ -41,7 +44,10 @@ impl Parser<'_> {
         use crate::series::SeriesConfig;
 
         if !self.cursor.check(&TokenKind::Lt) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Lt, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Lt,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         // Committed: `<` confirmed, all errors from here are hard errors
@@ -174,7 +180,7 @@ impl Parser<'_> {
         let Ok(first) = self.cursor.expect_ident() else {
             return ParseOutcome::empty_err_expected(
                 &TokenKind::Ident(Name::EMPTY),
-                self.cursor.position(),
+                self.cursor.current_span().start as usize,
             );
         };
 
@@ -239,7 +245,10 @@ impl Parser<'_> {
     /// Returns `EmptyErr` if no `uses` keyword is present.
     pub(crate) fn parse_uses_clause(&mut self) -> ParseOutcome<Vec<CapabilityRef>> {
         if !self.cursor.check(&TokenKind::Uses) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Uses, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Uses,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         // Committed: `uses` keyword confirmed
@@ -270,7 +279,10 @@ impl Parser<'_> {
     /// Returns `EmptyErr` if no `where` keyword is present.
     pub(crate) fn parse_where_clauses(&mut self) -> ParseOutcome<Vec<WhereClause>> {
         if !self.cursor.check(&TokenKind::Where) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Where, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Where,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         // Committed: `where` keyword confirmed

@@ -8,8 +8,9 @@
 //!
 //! Lines 514-564
 
-use crate::packing::Packing;
 use ori_ir::{ExprArena, ExprId, ExprKind, FunctionSeq};
+
+use crate::packing::Packing;
 
 /// Rule for run expression formatting.
 ///

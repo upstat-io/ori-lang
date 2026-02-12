@@ -65,7 +65,7 @@ pub enum TokenCategory {
     // Operators
     Plus, Minus, Star, Slash, ...
 
-    // ... (117 categories total)
+    // ... (see category.rs for full list)
 }
 ```
 
@@ -317,7 +317,7 @@ impl TokenCategory {
 - **Hybrid lookup**: O(1) for exact pairs via hash map, linear scan for pattern rules
 - **No allocation**: Categories are `Copy`, lookup returns `Copy`
 - **Compile-time rules**: Rules are static, map built once at startup
-- **117 categories**: Comprehensive coverage without explosion
+- **110+ categories**: Comprehensive coverage without explosion (count grows as language evolves)
 - **Priority ordering**: Fallback rules sorted by priority for correct precedence
 
 ## Spec Reference

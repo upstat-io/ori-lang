@@ -23,7 +23,10 @@ impl Parser<'_> {
         visibility: Visibility,
     ) -> ParseOutcome<TypeDecl> {
         if !self.cursor.check(&TokenKind::Type) {
-            return ParseOutcome::empty_err_expected(&TokenKind::Type, self.cursor.position());
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Type,
+                self.cursor.current_span().start as usize,
+            );
         }
 
         self.in_error_context(crate::ErrorContext::TypeDef, |p| {

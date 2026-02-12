@@ -17,6 +17,8 @@
 //! Values are named via [`ArcVarId`] (SSA-like). Control flow uses
 //! [`ArcBlockId`] references between blocks.
 
+use smallvec::{smallvec, SmallVec};
+
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, Span, UnaryOp};
 use ori_types::Idx;
 
@@ -310,43 +312,105 @@ impl ArcInstr {
     /// etc. The `dst` of value-producing instructions is NOT included
     /// (it's a definition, not a use).
     ///
+    /// Returns `SmallVec<[ArcVarId; 4]>` to avoid heap allocation for the
+    /// common case (most instructions use 0-3 variables). Called in tight
+    /// inner loops by liveness, RC insertion, RC elimination, and reset/reuse.
+    ///
     /// Used by liveness analysis (Section 07.1) for computing gen sets.
-    pub fn used_vars(&self) -> Vec<ArcVarId> {
+    pub fn used_vars(&self) -> SmallVec<[ArcVarId; 4]> {
         match self {
             ArcInstr::Let { value, .. } => match value {
-                ArcValue::Var(v) => vec![*v],
-                ArcValue::Literal(_) => vec![],
-                ArcValue::PrimOp { args, .. } => args.clone(),
+                ArcValue::Var(v) => smallvec![*v],
+                ArcValue::Literal(_) => SmallVec::new(),
+                ArcValue::PrimOp { args, .. } => SmallVec::from_slice(args),
             },
 
             ArcInstr::Apply { args, .. }
             | ArcInstr::PartialApply { args, .. }
-            | ArcInstr::Construct { args, .. } => args.clone(),
+            | ArcInstr::Construct { args, .. } => SmallVec::from_slice(args),
 
             ArcInstr::ApplyIndirect { closure, args, .. } => {
-                let mut vars = Vec::with_capacity(1 + args.len());
+                let mut vars = SmallVec::with_capacity(1 + args.len());
                 vars.push(*closure);
                 vars.extend_from_slice(args);
                 vars
             }
 
-            ArcInstr::Project { value, .. } => vec![*value],
+            ArcInstr::Project { value, .. } => smallvec![*value],
 
             ArcInstr::RcInc { var, .. }
             | ArcInstr::RcDec { var }
             | ArcInstr::IsShared { var, .. }
-            | ArcInstr::Reset { var, .. } => vec![*var],
+            | ArcInstr::Reset { var, .. } => smallvec![*var],
 
-            ArcInstr::Set { base, value, .. } => vec![*base, *value],
+            ArcInstr::Set { base, value, .. } => smallvec![*base, *value],
 
-            ArcInstr::SetTag { base, .. } => vec![*base],
+            ArcInstr::SetTag { base, .. } => smallvec![*base],
 
             ArcInstr::Reuse { token, args, .. } => {
-                let mut vars = Vec::with_capacity(1 + args.len());
+                let mut vars = SmallVec::with_capacity(1 + args.len());
                 vars.push(*token);
                 vars.extend_from_slice(args);
                 vars
             }
+        }
+    }
+
+    /// Check whether this instruction reads (uses) a specific variable.
+    ///
+    /// Zero-allocation alternative to `used_vars().contains(&var)`. Matches
+    /// directly on instruction fields and short-circuits on the first hit.
+    /// Used by reset/reuse detection (Section 07.6) and RC elimination (08)
+    /// in inner loops where allocation per check is wasteful.
+    pub fn uses_var(&self, target: ArcVarId) -> bool {
+        match self {
+            ArcInstr::Let { value, .. } => match value {
+                ArcValue::Var(v) => *v == target,
+                ArcValue::Literal(_) => false,
+                ArcValue::PrimOp { args, .. } => args.contains(&target),
+            },
+
+            ArcInstr::Apply { args, .. }
+            | ArcInstr::PartialApply { args, .. }
+            | ArcInstr::Construct { args, .. } => args.contains(&target),
+
+            ArcInstr::ApplyIndirect { closure, args, .. } => {
+                *closure == target || args.contains(&target)
+            }
+
+            ArcInstr::Project { value, .. } => *value == target,
+
+            ArcInstr::RcInc { var, .. }
+            | ArcInstr::RcDec { var }
+            | ArcInstr::IsShared { var, .. }
+            | ArcInstr::Reset { var, .. } => *var == target,
+
+            ArcInstr::Set { base, value, .. } => *base == target || *value == target,
+
+            ArcInstr::SetTag { base, .. } => *base == target,
+
+            ArcInstr::Reuse { token, args, .. } => *token == target || args.contains(&target),
+        }
+    }
+
+    /// Check whether an argument position is "owned" — i.e., the value at
+    /// that index in [`used_vars()`](Self::used_vars) will be stored on the
+    /// heap or consumed by the callee.
+    ///
+    /// Borrowed-derived variables flowing into an owned position need an
+    /// `RcInc` to transfer ownership. Positions are indices into `used_vars()`.
+    ///
+    /// Owned positions:
+    /// - `Construct`, `PartialApply`, `Apply`: all args (`0..args.len()`)
+    /// - `ApplyIndirect`: closure + all args (`0..=args.len()`)
+    /// - Everything else: no owned positions (read-only uses)
+    pub fn is_owned_position(&self, pos: usize) -> bool {
+        match self {
+            ArcInstr::Construct { args, .. }
+            | ArcInstr::PartialApply { args, .. }
+            | ArcInstr::Apply { args, .. } => pos < args.len(),
+            ArcInstr::ApplyIndirect { args, .. } => pos <= args.len(),
+            _ => false,
         }
     }
 
@@ -457,13 +521,33 @@ impl ArcTerminator {
     /// - `Invoke` uses its arguments (the `dst` is a definition in the
     ///   normal successor, not a use here).
     /// - `Resume` / `Unreachable` use nothing.
-    pub fn used_vars(&self) -> Vec<ArcVarId> {
+    ///
+    /// Returns `SmallVec<[ArcVarId; 4]>` to avoid heap allocation for the
+    /// common case (max 1-3 variables per terminator, except large Jump/Invoke).
+    pub fn used_vars(&self) -> SmallVec<[ArcVarId; 4]> {
         match self {
-            ArcTerminator::Return { value } => vec![*value],
-            ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => args.clone(),
-            ArcTerminator::Branch { cond, .. } => vec![*cond],
-            ArcTerminator::Switch { scrutinee, .. } => vec![*scrutinee],
-            ArcTerminator::Resume | ArcTerminator::Unreachable => vec![],
+            ArcTerminator::Return { value } => smallvec![*value],
+            ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
+                SmallVec::from_slice(args)
+            }
+            ArcTerminator::Branch { cond, .. } => smallvec![*cond],
+            ArcTerminator::Switch { scrutinee, .. } => smallvec![*scrutinee],
+            ArcTerminator::Resume | ArcTerminator::Unreachable => SmallVec::new(),
+        }
+    }
+
+    /// Check whether this terminator reads (uses) a specific variable.
+    ///
+    /// Zero-allocation alternative to `used_vars().contains(&var)`.
+    pub fn uses_var(&self, target: ArcVarId) -> bool {
+        match self {
+            ArcTerminator::Return { value } => *value == target,
+            ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
+                args.contains(&target)
+            }
+            ArcTerminator::Branch { cond, .. } => *cond == target,
+            ArcTerminator::Switch { scrutinee, .. } => *scrutinee == target,
+            ArcTerminator::Resume | ArcTerminator::Unreachable => false,
         }
     }
 
@@ -1206,7 +1290,7 @@ mod tests {
             ty: Idx::INT,
             value: ArcValue::Var(ArcVarId::new(0)),
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0)]);
+        assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(0)]);
     }
 
     #[test]
@@ -1216,7 +1300,7 @@ mod tests {
             ty: Idx::INT,
             value: ArcValue::Literal(LitValue::Int(42)),
         };
-        assert!(instr.used_vars().is_empty());
+        assert!(instr.used_vars().is_empty(), "expected empty used_vars");
     }
 
     #[test]
@@ -1229,7 +1313,10 @@ mod tests {
                 args: vec![ArcVarId::new(0), ArcVarId::new(1)],
             },
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
+        assert_eq!(
+            instr.used_vars().as_slice(),
+            [ArcVarId::new(0), ArcVarId::new(1)]
+        );
     }
 
     #[test]
@@ -1240,7 +1327,10 @@ mod tests {
             func: Name::from_raw(10),
             args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
+        assert_eq!(
+            instr.used_vars().as_slice(),
+            [ArcVarId::new(0), ArcVarId::new(1)]
+        );
     }
 
     #[test]
@@ -1252,8 +1342,8 @@ mod tests {
             args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         };
         assert_eq!(
-            instr.used_vars(),
-            vec![ArcVarId::new(3), ArcVarId::new(0), ArcVarId::new(1)]
+            instr.used_vars().as_slice(),
+            [ArcVarId::new(3), ArcVarId::new(0), ArcVarId::new(1)]
         );
     }
 
@@ -1266,8 +1356,8 @@ mod tests {
             args: vec![ArcVarId::new(0), ArcVarId::new(1), ArcVarId::new(2)],
         };
         assert_eq!(
-            instr.used_vars(),
-            vec![ArcVarId::new(0), ArcVarId::new(1), ArcVarId::new(2)]
+            instr.used_vars().as_slice(),
+            [ArcVarId::new(0), ArcVarId::new(1), ArcVarId::new(2)]
         );
     }
 
@@ -1279,7 +1369,7 @@ mod tests {
             value: ArcVarId::new(0),
             field: 1,
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0)]);
+        assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(0)]);
     }
 
     #[test]
@@ -1288,7 +1378,7 @@ mod tests {
             var: ArcVarId::new(3),
             count: 2,
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(3)]);
+        assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(3)]);
     }
 
     #[test]
@@ -1296,7 +1386,7 @@ mod tests {
         let instr = ArcInstr::RcDec {
             var: ArcVarId::new(7),
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(7)]);
+        assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(7)]);
     }
 
     #[test]
@@ -1306,7 +1396,10 @@ mod tests {
             field: 1,
             value: ArcVarId::new(2),
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(2)]);
+        assert_eq!(
+            instr.used_vars().as_slice(),
+            [ArcVarId::new(0), ArcVarId::new(2)]
+        );
     }
 
     #[test]
@@ -1315,7 +1408,7 @@ mod tests {
             base: ArcVarId::new(5),
             tag: 3,
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(5)]);
+        assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(5)]);
     }
 
     #[test]
@@ -1324,7 +1417,7 @@ mod tests {
             var: ArcVarId::new(0),
             token: ArcVarId::new(10),
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0)]);
+        assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(0)]);
     }
 
     #[test]
@@ -1337,8 +1430,8 @@ mod tests {
             args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         };
         assert_eq!(
-            instr.used_vars(),
-            vec![ArcVarId::new(10), ArcVarId::new(0), ArcVarId::new(1)]
+            instr.used_vars().as_slice(),
+            [ArcVarId::new(10), ArcVarId::new(0), ArcVarId::new(1)]
         );
     }
 
@@ -1348,7 +1441,7 @@ mod tests {
             dst: ArcVarId::new(9),
             var: ArcVarId::new(1),
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(1)]);
+        assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(1)]);
     }
 
     #[test]
@@ -1359,7 +1452,10 @@ mod tests {
             func: Name::from_raw(20),
             args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         };
-        assert_eq!(instr.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
+        assert_eq!(
+            instr.used_vars().as_slice(),
+            [ArcVarId::new(0), ArcVarId::new(1)]
+        );
     }
 
     // ArcTerminator::used_vars
@@ -1369,7 +1465,7 @@ mod tests {
         let t = ArcTerminator::Return {
             value: ArcVarId::new(5),
         };
-        assert_eq!(t.used_vars(), vec![ArcVarId::new(5)]);
+        assert_eq!(t.used_vars().as_slice(), [ArcVarId::new(5)]);
     }
 
     #[test]
@@ -1378,7 +1474,10 @@ mod tests {
             target: ArcBlockId::new(1),
             args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         };
-        assert_eq!(t.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
+        assert_eq!(
+            t.used_vars().as_slice(),
+            [ArcVarId::new(0), ArcVarId::new(1)]
+        );
     }
 
     #[test]
@@ -1388,7 +1487,7 @@ mod tests {
             then_block: ArcBlockId::new(1),
             else_block: ArcBlockId::new(2),
         };
-        assert_eq!(t.used_vars(), vec![ArcVarId::new(3)]);
+        assert_eq!(t.used_vars().as_slice(), [ArcVarId::new(3)]);
     }
 
     #[test]
@@ -1398,7 +1497,7 @@ mod tests {
             cases: vec![(0, ArcBlockId::new(1)), (1, ArcBlockId::new(2))],
             default: ArcBlockId::new(3),
         };
-        assert_eq!(t.used_vars(), vec![ArcVarId::new(7)]);
+        assert_eq!(t.used_vars().as_slice(), [ArcVarId::new(7)]);
     }
 
     #[test]
@@ -1411,17 +1510,26 @@ mod tests {
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         };
-        assert_eq!(t.used_vars(), vec![ArcVarId::new(0), ArcVarId::new(1)]);
+        assert_eq!(
+            t.used_vars().as_slice(),
+            [ArcVarId::new(0), ArcVarId::new(1)]
+        );
     }
 
     #[test]
     fn terminator_used_vars_resume() {
-        assert!(ArcTerminator::Resume.used_vars().is_empty());
+        assert!(
+            ArcTerminator::Resume.used_vars().is_empty(),
+            "Resume should have no used vars"
+        );
     }
 
     #[test]
     fn terminator_used_vars_unreachable() {
-        assert!(ArcTerminator::Unreachable.used_vars().is_empty());
+        assert!(
+            ArcTerminator::Unreachable.used_vars().is_empty(),
+            "Unreachable should have no used vars"
+        );
     }
 
     // ArcFunction helpers
