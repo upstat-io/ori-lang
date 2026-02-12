@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! typed() query
-//!   └── type_check_with_imports()
+//!   └── type_check_with_imports_and_pool()
 //!       └── resolve_imports()  ← unified import pipeline
 //!           └── ori_types::check_module_with_imports(module, arena, interner, |checker| {
 //!                   register_builtins()
@@ -22,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ori_types::TypeCheckResult;
+use ori_types::{FunctionSig, TypeCheckResult};
 
 use crate::db::Db;
 use crate::imports;
@@ -48,31 +48,12 @@ pub(crate) fn is_prelude_file(file_path: &Path) -> bool {
             && file_path.parent().is_some_and(|p| p.ends_with("std")))
 }
 
-/// Type check a module with import support.
+/// Type check a module with import support, returning both the result and the Pool.
 ///
-/// This is the main entry point called by the `typed()` Salsa query.
-/// It creates a `ModuleChecker`, registers prelude and imported functions,
-/// then runs all type checking passes.
-///
-/// The Pool is discarded — it's not part of the Salsa query result.
-/// For scenarios that need the Pool (e.g., error rendering, evaluation),
-/// use `type_check_with_imports_and_pool()` instead.
-pub fn type_check_with_imports(
-    db: &dyn Db,
-    parse_result: &ParseOutput,
-    current_file: &Path,
-) -> TypeCheckResult {
-    let (result, _pool) = type_check_with_imports_and_pool(db, parse_result, current_file);
-    result
-}
-
-/// Type check a module, returning both the result and the Pool.
-///
-/// Unlike `type_check_with_imports()`, this retains the Pool so callers
-/// can use it for error rendering, evaluation, or other Pool-dependent operations.
-///
-/// Used by `evaluated()` and the test runner where the Pool's type information
-/// may be needed alongside the type checking result.
+/// This is the main entry point called by the `typed()` Salsa query and by
+/// the evaluator's module loading for imported modules. It creates a
+/// `ModuleChecker`, registers prelude and imported functions, then runs
+/// all type checking passes.
 pub fn type_check_with_imports_and_pool(
     db: &dyn Db,
     parse_result: &ParseOutput,
@@ -91,7 +72,7 @@ pub fn type_check_with_imports_and_pool(
         interner,
         |checker| {
             register_builtins(interner, checker);
-            register_resolved_imports(&resolved, checker);
+            register_resolved_imports(&resolved, checker, interner);
         },
     )
 }
@@ -101,7 +82,7 @@ pub fn type_check_with_imports_and_pool(
 /// These functions (type conversions, print, panic, etc.) are not defined in
 /// the prelude `.ori` file but are available in every Ori program. Their type
 /// signatures are registered here so type checking can validate calls.
-fn register_builtins(
+pub(crate) fn register_builtins(
     interner: &ori_ir::StringInterner,
     checker: &mut ori_types::ModuleChecker<'_>,
 ) {
@@ -156,6 +137,7 @@ fn register_builtins(
 fn register_resolved_imports(
     resolved: &imports::ResolvedImports,
     checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &ori_ir::StringInterner,
 ) {
     // 1. Register prelude functions (all public)
     if let Some(ref prelude) = resolved.prelude {
@@ -168,9 +150,10 @@ fn register_resolved_imports(
 
     // 2. Report any import resolution errors
     for error in &resolved.errors {
+        let span = error.span.unwrap_or(ori_ir::Span::DUMMY);
         checker.push_error(ori_types::TypeCheckError::import_error(
             error.message.clone(),
-            error.span,
+            span,
         ));
     }
 
@@ -197,6 +180,15 @@ fn register_resolved_imports(
             .iter()
             .find(|f| f.name == func_ref.original_name)
         else {
+            let func_name = interner.lookup(func_ref.original_name);
+            let module_path = &module.module_path;
+            checker.push_error(ori_types::TypeCheckError::import_error(
+                format!(
+                    "function '{func_name}' not found in module '{}'",
+                    module_path.display()
+                ),
+                ori_ir::Span::DUMMY,
+            ));
             continue;
         };
 
@@ -209,4 +201,71 @@ fn register_resolved_imports(
             checker.register_imported_function(&aliased_func, &imported_parsed.arena);
         }
     }
+}
+
+/// Build function signatures aligned with `module.functions` source order.
+///
+/// `typed.functions` is sorted by name (for Salsa determinism), while
+/// `module.functions` is in source order. `FunctionCompiler::declare_all`
+/// zips them, so they must be aligned.
+#[cfg_attr(
+    not(feature = "llvm"),
+    expect(
+        dead_code,
+        reason = "consumed by #[cfg(feature = \"llvm\")] paths in compile_common and test runner"
+    )
+)]
+pub(crate) fn build_function_sigs(
+    parse_result: &ParseOutput,
+    type_result: &TypeCheckResult,
+) -> Vec<FunctionSig> {
+    use ori_types::Idx;
+
+    let sig_map: std::collections::HashMap<ori_ir::Name, &FunctionSig> = type_result
+        .typed
+        .functions
+        .iter()
+        .map(|ft| (ft.name, ft))
+        .collect();
+
+    parse_result
+        .module
+        .functions
+        .iter()
+        .map(|func| {
+            sig_map
+                .get(&func.name)
+                .copied()
+                .cloned()
+                .unwrap_or_else(|| {
+                    // Should not happen after successful type checking — surface
+                    // the error visibly rather than silently substituting a dummy.
+                    debug_assert!(
+                        false,
+                        "function {:?} has no type-checked signature",
+                        func.name
+                    );
+                    tracing::warn!(
+                        name = ?func.name,
+                        "function missing from type check result — using dummy signature"
+                    );
+                    FunctionSig {
+                        name: func.name,
+                        type_params: vec![],
+                        param_names: vec![],
+                        param_types: vec![],
+                        return_type: Idx::UNIT,
+                        capabilities: vec![],
+                        is_public: false,
+                        is_test: false,
+                        is_main: false,
+                        type_param_bounds: vec![],
+                        where_clauses: vec![],
+                        generic_param_mapping: vec![],
+                        required_params: 0,
+                        param_defaults: vec![],
+                    }
+                })
+        })
+        .collect()
 }

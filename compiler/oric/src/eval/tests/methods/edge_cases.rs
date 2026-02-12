@@ -3,8 +3,9 @@
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
 use super::test_interner;
-use crate::eval::{RangeValue, Value};
+use crate::eval::Value;
 use ori_eval::dispatch_builtin_method_str as dispatch_builtin_method;
+use ori_patterns::RangeValue;
 
 mod errors {
     use super::*;

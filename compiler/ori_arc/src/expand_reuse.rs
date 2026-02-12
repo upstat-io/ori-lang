@@ -545,51 +545,11 @@ mod tests {
     use ori_ir::Name;
     use ori_types::{Idx, Pool};
 
-    use crate::ir::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
-        CtorKind, LitValue,
-    };
-    use crate::ownership::Ownership;
+    use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
+    use crate::test_helpers::{b, make_func, owned_param, v};
     use crate::ArcClassifier;
 
     use super::expand_reset_reuse;
-
-    // Helpers
-
-    fn make_func(
-        params: Vec<ArcParam>,
-        return_type: Idx,
-        blocks: Vec<ArcBlock>,
-        var_types: Vec<Idx>,
-    ) -> ArcFunction {
-        let span_vecs: Vec<Vec<Option<ori_ir::Span>>> =
-            blocks.iter().map(|b| vec![None; b.body.len()]).collect();
-        ArcFunction {
-            name: Name::from_raw(1),
-            params,
-            return_type,
-            blocks,
-            entry: ArcBlockId::new(0),
-            var_types,
-            spans: span_vecs,
-        }
-    }
-
-    fn owned_param(var: u32, ty: Idx) -> ArcParam {
-        ArcParam {
-            var: ArcVarId::new(var),
-            ty,
-            ownership: Ownership::Owned,
-        }
-    }
-
-    fn v(n: u32) -> ArcVarId {
-        ArcVarId::new(n)
-    }
-
-    fn b(n: u32) -> ArcBlockId {
-        ArcBlockId::new(n)
-    }
 
     fn run_expand(mut func: ArcFunction) -> ArcFunction {
         let pool = Pool::new();

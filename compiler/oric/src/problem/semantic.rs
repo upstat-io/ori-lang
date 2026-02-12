@@ -405,6 +405,35 @@ impl SemanticProblem {
     }
 }
 
+/// Convert an [`ori_canon::PatternProblem`] into a [`Diagnostic`] via [`SemanticProblem`].
+///
+/// Pattern problems originate from the canonicalizer's exhaustiveness/redundancy
+/// checker. This function centralizes the mapping so all consumers (check command,
+/// test runner, future commands) use the same conversion.
+pub fn pattern_problem_to_diagnostic(
+    problem: &ori_canon::PatternProblem,
+    interner: &StringInterner,
+) -> Diagnostic {
+    let semantic = match problem {
+        ori_canon::PatternProblem::NonExhaustive {
+            match_span,
+            missing,
+        } => SemanticProblem::NonExhaustiveMatch {
+            span: *match_span,
+            missing_patterns: missing.clone(),
+        },
+        ori_canon::PatternProblem::RedundantArm {
+            arm_span,
+            match_span,
+            ..
+        } => SemanticProblem::RedundantPattern {
+            span: *arm_span,
+            covered_by_span: *match_span,
+        },
+    };
+    semantic.into_diagnostic(interner)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

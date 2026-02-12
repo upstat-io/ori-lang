@@ -14,16 +14,18 @@ The AOT (Ahead-of-Time) compilation system generates native executables and WebA
 The AOT pipeline transforms typed AST to executable binaries:
 
 ```
-┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
-│  Parse  │───▶│  Type   │───▶│  LLVM   │───▶│ Object  │───▶│  Link   │
-│  (AST)  │    │  Check  │    │   IR    │    │  File   │    │         │
-└─────────┘    └─────────┘    └─────────┘    └─────────┘    └────┬────┘
-                                                                  │
-                                              ┌─────────────────▼─────┐
-                                              │  Executable / Library │
-                                              │  .exe / .so / .wasm   │
-                                              └───────────────────────┘
+┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
+│  Parse  │───▶│  Type   │───▶│ Canon-  │───▶│   ARC   │───▶│  LLVM   │───▶│ Object  │───▶│  Link   │
+│  (AST)  │    │  Check  │    │  alize  │    │Pipeline │    │   IR    │    │  File   │    │         │
+└─────────┘    └─────────┘    └─────────┘    └─────────┘    └─────────┘    └─────────┘    └────┬────┘
+                                                                                                │
+                                                                            ┌─────────────────▼─────┐
+                                                                            │  Executable / Library │
+                                                                            │  .exe / .so / .wasm   │
+                                                                            └───────────────────────┘
 ```
+
+The `check_source()` function in `compile_common.rs` returns `Option<(ParseOutput, TypeCheckResult, Pool, CanonResult)>` — canonicalization is part of the front-end pipeline, shared between check and compile paths. Returns `None` if any errors occurred.
 
 ### Key Components
 

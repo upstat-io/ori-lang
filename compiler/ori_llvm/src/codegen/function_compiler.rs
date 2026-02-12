@@ -15,10 +15,7 @@
 
 use std::cell::Cell;
 
-use ori_arc::{
-    compute_liveness, detect_reset_reuse, eliminate_rc_ops, expand_reset_reuse, insert_rc_ops,
-    lower_function_can, AnnotatedSig, ArcClassifier,
-};
+use ori_arc::{lower_function_can, AnnotatedSig, ArcClassifier};
 use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Function, Name, Span, StringInterner, TestDef};
 use ori_types::{FunctionSig, Idx, Pool};
@@ -437,16 +434,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
 
         // Step 2: Run full ARC pipeline (insert → detect → expand → eliminate)
-        let liveness = compute_liveness(&arc_func, classifier);
-        insert_rc_ops(&mut arc_func, classifier, &liveness);
-        detect_reset_reuse(&mut arc_func, classifier);
-        expand_reset_reuse(&mut arc_func, classifier);
-        let eliminated = eliminate_rc_ops(&mut arc_func);
+        let empty_sigs = FxHashMap::default();
+        let sigs = self.annotated_sigs.unwrap_or(&empty_sigs);
+        ori_arc::run_arc_pipeline(&mut arc_func, classifier, sigs);
 
         trace!(
             name = name_str,
             blocks = arc_func.blocks.len(),
-            eliminated,
             "ARC pipeline complete"
         );
 
@@ -1458,6 +1452,7 @@ mod tests {
             root: CanId::INVALID,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
 
         let mut fc = FunctionCompiler::new(

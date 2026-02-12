@@ -7,7 +7,7 @@ section: "LLVM Backend"
 
 # LLVM Backend Overview
 
-The LLVM backend (`ori_llvm` crate) provides both JIT compilation and AOT (Ahead-of-Time) native code generation for Ori programs. It translates the typed AST directly to LLVM IR.
+The LLVM backend (`ori_llvm` crate) provides both JIT compilation and AOT (Ahead-of-Time) native code generation for Ori programs. It consumes canonical IR (`CanonResult`) from `ori_canon`, optionally running the ARC pipeline (`ori_arc`) for memory management, and produces LLVM IR.
 
 ## Architecture
 
@@ -15,9 +15,9 @@ The backend follows patterns from `rustc_codegen_llvm`, using a two-layer archit
 
 ```
 ┌─────────────────┐    ┌──────────────────────────────────────┐
-│  Typed AST      │    │   SimpleCx (scx)                     │
-│  (TypedModule)  │    │   - LLVM Context + Module            │
-│  + Pool         │    │   - Common type constructors         │
+│  CanonResult    │    │   SimpleCx (scx)                     │
+│  + Pool         │    │   - LLVM Context + Module            │
+│  + TypeCheck    │    │   - Common type constructors         │
 └───────┬─────────┘    └───────────────┬──────────────────────┘
         │                              │
         │              ┌───────────────▼──────────────────────┐
@@ -119,12 +119,21 @@ for func in module.functions() {
 
 ### Phase 2: Definition
 
-Each function body is compiled:
+Each function body is compiled. For **Tier 1** (expression lowering without ARC):
 
 1. Create entry basic block
 2. Bind parameters to LLVM values
-3. Compile function body expression
+3. Compile function body expression via `ExprLowerer`
 4. Build return instruction
+
+For **Tier 2** (ARC codegen), the function goes through the full ARC pipeline:
+
+1. Lower canonical IR to ARC IR (`ori_arc::lower`)
+2. Run the unified ARC pipeline via `ori_arc::run_arc_pipeline()`
+   - Borrow inference, liveness, RC insertion, reset/reuse, expansion, elimination
+3. Emit ARC IR instructions as LLVM IR via `ArcEmitter`
+
+The `run_arc_pipeline()` entry point enforces correct pass ordering — consumers never sequence passes manually.
 
 ## Control Flow Compilation
 

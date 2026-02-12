@@ -13,7 +13,8 @@ mod runner;
 
 pub use discovery::{discover_tests, TestFile};
 pub use error_matching::{
-    format_actual, format_expected, match_errors, matches_expected, MatchResult,
+    format_actual, format_expected, format_pattern_problem, match_all_errors, match_errors,
+    matches_expected, matches_pattern_problem, MatchResult,
 };
 pub use result::{CoverageReport, FunctionCoverage, TestOutcome, TestResult, TestSummary};
 pub use runner::{run_test_file, run_tests, Backend, TestRunner, TestRunnerConfig};

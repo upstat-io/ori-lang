@@ -32,13 +32,13 @@ pub mod value {
 }
 
 pub use evaluator::{Evaluator, EvaluatorBuilder, ScopedEvaluator};
-pub use ori_eval::{
-    dispatch_builtin_method_str, evaluate_binary, evaluate_unary, Environment, LocalScope,
-    Mutability, Scope, UserMethod, UserMethodRegistry,
-};
-pub use ori_patterns::{ControlAction, EvalError, EvalResult};
 pub use output::{EvalErrorSnapshot, EvalOutput, ModuleEvalResult};
-pub use value::{FunctionValFn, FunctionValue, Heap, RangeValue, StructLayout, StructValue, Value};
+
+// Crate-internal re-exports: used by sibling modules (testing/, query/) but not
+// part of oric's external API.
+pub(crate) use ori_eval::{Environment, Mutability};
+pub(crate) use ori_patterns::{EvalError, EvalResult};
+pub(crate) use value::{FunctionValue, Value};
 
 #[cfg(test)]
 mod tests;

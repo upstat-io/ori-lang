@@ -23,7 +23,7 @@ flowchart TB
     H --> I["CanonResult (CanArena + DecisionTrees)"]
     I --> J["Evaluator"]
     J --> K["ModuleEvalResult (Value)"]
-    G --> L["ARC Analysis"]
+    I --> L["ARC Analysis"]
     L --> M["LLVM Codegen"]
     M --> N["Native Binary"]
 ```

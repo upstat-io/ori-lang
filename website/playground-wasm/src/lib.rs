@@ -4,7 +4,7 @@
 //! Uses portable crates (ori_eval, ori_parse, etc.) without Salsa dependencies.
 
 use wasm_bindgen::prelude::*;
-use ori_ir::{SharedArena, SharedInterner};
+use ori_ir::SharedInterner;
 use ori_eval::{
     buffer_handler, collect_extend_methods_with_config, collect_impl_methods_with_config,
     process_derives, register_module_functions, register_newtype_constructors,
@@ -136,8 +136,8 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     // Register built-in function_val functions (int, str, float, byte)
     interpreter.register_prelude();
 
-    // Create a shared arena for all methods in this module
-    let shared_arena = SharedArena::new(parse_result.arena.clone());
+    // Clone the shared arena (O(1) Arc::clone) for methods in this module
+    let shared_arena = parse_result.arena.clone();
 
     // Build user method registry from impl and extend blocks
     let mut user_methods = UserMethodRegistry::new();

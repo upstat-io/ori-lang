@@ -33,6 +33,7 @@
 
 mod const_fold;
 mod desugar;
+pub(crate) mod exhaustiveness;
 mod lower;
 mod patterns;
 mod validate;
@@ -44,5 +45,6 @@ pub use ori_ir::canon::{
     CanArena, CanBindingPattern, CanBindingPatternId, CanBindingPatternRange, CanExpr, CanField,
     CanFieldBinding, CanFieldBindingRange, CanFieldRange, CanId, CanMapEntry, CanMapEntryRange,
     CanNamedExpr, CanNamedExprRange, CanNode, CanParam, CanParamRange, CanRange, CanonResult,
-    ConstValue, ConstantId, ConstantPool, DecisionTreeId, DecisionTreePool, SharedCanonResult,
+    ConstValue, ConstantId, ConstantPool, DecisionTreeId, DecisionTreePool, PatternProblem,
+    SharedCanonResult,
 };

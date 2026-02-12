@@ -32,7 +32,6 @@ These files need synchronization via `sync-version.sh`:
 | File | Version Format |
 |------|----------------|
 | `compiler/oric/Cargo.toml` | Full (`0.1.0-alpha.1`) |
-| `compiler/ori_macros/Cargo.toml` | Full (`0.1.0-alpha.1`) |
 | `compiler/ori_llvm/Cargo.toml` | Full (`0.1.0-alpha.1`) |
 | `website/playground-wasm/Cargo.toml` | Full (`0.1.0-alpha.1`) |
 | `website/src/layouts/BaseLayout.astro` | Full (`0.1.0-alpha.1`) |

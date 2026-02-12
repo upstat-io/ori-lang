@@ -11,12 +11,13 @@ use crate::db::{CompilerDb, Db};
 use crate::eval::Evaluator;
 use crate::input::SourceFile;
 use crate::ir::TestDef;
-use crate::query::parsed;
-use crate::typeck;
+use crate::query::{parsed, typed, typed_pool};
 use ori_types::TypeCheckResult;
 
 use super::discovery::{discover_tests_in, TestFile};
-use super::error_matching::{format_actual, format_expected, match_errors_refs};
+use super::error_matching::{
+    format_actual, format_expected, format_pattern_problem, match_all_errors,
+};
 use super::result::TestOutcome;
 use super::result::{CoverageReport, FileSummary, TestResult, TestSummary};
 
@@ -216,13 +217,15 @@ impl TestRunner {
             }
         };
 
-        // Keep a copy of the source for error matching (content is moved into SourceFile)
-        let source = content.clone();
         // Create a fresh CompilerDb with the shared interner.
         // Each file gets its own Salsa query cache, but all share the same interner
         // so Name values are comparable across files.
         let db = CompilerDb::with_interner(interner.clone());
         let file = SourceFile::new(&db, path.to_path_buf(), content);
+        // Retrieve source from SourceFile for error matching (borrows from Salsa).
+        // No clone needed: all subsequent `db` usage is shared borrows, so the
+        // `&String` returned by `file.text(&db)` remains valid.
+        let source = file.text(&db);
 
         // Parse the file
         let parse_result = parsed(&db, file);
@@ -240,10 +243,20 @@ impl TestRunner {
 
         let interner = db.interner();
 
-        // Type check with import resolution.
-        // Pool is used by canonicalization and the LLVM backend for type resolution.
-        let (type_result, pool) =
-            typeck::type_check_with_imports_and_pool(&db, &parse_result, path);
+        // Type check via Salsa query — ensures PoolCache is populated and
+        // Salsa dependency tracking is consistent with the query pipeline.
+        let type_result = typed(&db, file);
+        let Some(pool) = typed_pool(&db, file) else {
+            summary.add_error("internal error: Pool not cached after type checking".to_string());
+            return summary;
+        };
+
+        // Canonicalize once for all tests (compile_fail and regular).
+        // Runs even with type errors — pattern problems are independent.
+        // Skip only if parse errors exist (AST may be malformed).
+        // Store in CanonCache so downstream consumers (evaluator, LLVM) can reuse.
+        let shared_canon =
+            crate::query::canonicalize_cached(&db, file, &parse_result, &type_result, &pool);
 
         // Separate compile_fail tests from regular tests
         // compile_fail tests don't need evaluation - they just check for type errors
@@ -263,7 +276,13 @@ impl TestRunner {
                 }
             }
 
-            let inner_result = Self::run_compile_fail_test(test, &type_result, &source, interner);
+            let inner_result = Self::run_compile_fail_test(
+                test,
+                &type_result,
+                &shared_canon.problems,
+                source,
+                interner,
+            );
 
             let result = if let Some(expected_failure) = test.fail_expected {
                 Self::apply_fail_wrapper(inner_result, expected_failure, interner)
@@ -333,16 +352,6 @@ impl TestRunner {
         // Run regular tests based on backend
         match config.backend {
             Backend::Interpreter => {
-                // Canonicalize: AST + types → self-contained canonical IR.
-                let canon_result = ori_canon::lower_module(
-                    &parse_result.module,
-                    &parse_result.arena,
-                    &type_result,
-                    &pool,
-                    interner,
-                );
-                let shared_canon = ori_ir::canon::SharedCanonResult::new(canon_result);
-
                 // Create evaluator in TestRun mode with type information
                 // TestRun mode: 500-depth recursion limit, test result collection
                 let mut evaluator = Evaluator::builder(interner, &parse_result.arena, &db)
@@ -354,8 +363,11 @@ impl TestRunner {
 
                 evaluator.register_prelude();
 
-                if let Err(e) = evaluator.load_module(&parse_result, path, Some(&shared_canon)) {
-                    summary.add_error(e);
+                if let Err(errors) = evaluator.load_module(&parse_result, path, Some(&shared_canon))
+                {
+                    for error in &errors {
+                        summary.add_error(error.message.clone());
+                    }
                     return summary;
                 }
 
@@ -393,6 +405,7 @@ impl TestRunner {
                     &regular_tests,
                     &type_result,
                     &pool,
+                    &shared_canon,
                     interner,
                     config,
                 );
@@ -426,6 +439,7 @@ impl TestRunner {
         regular_tests: &[&crate::ir::TestDef],
         type_result: &TypeCheckResult,
         pool: &ori_types::Pool,
+        shared_canon: &ori_ir::canon::SharedCanonResult,
         interner: &crate::ir::StringInterner,
         config: &TestRunnerConfig,
     ) {
@@ -467,15 +481,6 @@ impl TestRunner {
         // and interpreter.
         let resolved = crate::imports::resolve_imports(db, parse_result, file_path);
 
-        // Canonicalize the main module — produces CanonResult consumed by codegen.
-        let canon_result = ori_canon::lower_module(
-            &parse_result.module,
-            &parse_result.arena,
-            type_result,
-            pool,
-            interner,
-        );
-
         // Type-check each explicitly imported module to get expr_types + function_sigs.
         // Note: prelude functions are NOT compiled into the JIT module because:
         // 1. Most prelude content is traits (no code to compile)
@@ -484,18 +489,36 @@ impl TestRunner {
         //    V2 codegen doesn't support yet (sum types), causing IR verification failures
         // Prelude functions that are needed for testing (assert, assert_eq) come from
         // std.testing via explicit import, not from the prelude.
+        // Type-check each imported module via Salsa queries (when SourceFile is available).
+        // This ensures results are cached in Salsa's dependency graph and the Pool
+        // is stored in PoolCache, avoiding redundant work when the same module is
+        // imported by multiple test files.
         let mut imported_type_results: Vec<TypeCheckResult> = Vec::new();
-        let mut imported_canon_results: Vec<ori_ir::canon::CanonResult> = Vec::new();
+        let mut imported_canon_results: Vec<ori_ir::canon::SharedCanonResult> = Vec::new();
         for imp_module in &resolved.modules {
-            let imp_path = std::path::PathBuf::from(&imp_module.module_path);
-            let (imp_tc, imp_pool) =
-                typeck::type_check_with_imports_and_pool(db, &imp_module.parse_output, &imp_path);
-            let imp_canon = ori_canon::lower_module(
-                &imp_module.parse_output.module,
-                &imp_module.parse_output.arena,
+            // Type-check via shared helper (Salsa queries when SourceFile is
+            // available, direct type checking otherwise).
+            let Some((imp_tc, imp_pool)) = crate::query::type_check_module(
+                db,
+                &imp_module.parse_output,
+                &imp_module.module_path,
+                imp_module.source_file,
+            ) else {
+                // Pool not cached — internal error. Push empty results to
+                // maintain index alignment with resolved.modules.
+                imported_type_results.push(TypeCheckResult::default());
+                imported_canon_results
+                    .push(ori_ir::canon::SharedCanonResult::new(Default::default()));
+                continue;
+            };
+            // Use cached canonicalization — avoids re-canonicalizing the same
+            // module (e.g., std.testing) when imported by multiple test files.
+            let imp_canon = crate::query::canonicalize_cached_by_path(
+                db,
+                &imp_module.module_path,
+                &imp_module.parse_output,
                 &imp_tc,
                 &imp_pool,
-                interner,
             );
             imported_type_results.push(imp_tc);
             imported_canon_results.push(imp_canon);
@@ -560,48 +583,9 @@ impl TestRunner {
             })
             .collect();
 
-        // Build function signatures aligned with module.functions order.
-        // typed.functions is sorted by name (Salsa determinism), but
-        // module.functions is in source order — FunctionCompiler::declare_all
-        // zips them, so they must be aligned.
-        let sig_map: std::collections::HashMap<ori_ir::Name, &ori_types::FunctionSig> = type_result
-            .typed
-            .functions
-            .iter()
-            .map(|ft| (ft.name, ft))
-            .collect();
-
-        let function_sigs: Vec<ori_types::FunctionSig> = parse_result
-            .module
-            .functions
-            .iter()
-            .map(|func| {
-                sig_map
-                    .get(&func.name)
-                    .copied()
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        // Fallback for functions without type info (shouldn't happen
-                        // after successful type checking, but be defensive).
-                        ori_types::FunctionSig {
-                            name: func.name,
-                            type_params: vec![],
-                            param_names: vec![],
-                            param_types: vec![],
-                            return_type: ori_types::Idx::UNIT,
-                            capabilities: vec![],
-                            is_public: false,
-                            is_test: false,
-                            is_main: false,
-                            type_param_bounds: vec![],
-                            where_clauses: vec![],
-                            generic_param_mapping: vec![],
-                            required_params: 0,
-                            param_defaults: vec![],
-                        }
-                    })
-            })
-            .collect();
+        // Build function signatures aligned with module.functions source order.
+        // Delegates to shared implementation in typeck.
+        let function_sigs = crate::typeck::build_function_sigs(parse_result, type_result);
 
         // Compile module ONCE with all tests.
         // Wrap in catch_unwind to gracefully handle LLVM fatal errors
@@ -610,7 +594,7 @@ impl TestRunner {
             llvm_eval.compile_module_with_tests(
                 &parse_result.module,
                 &filtered_tests,
-                &canon_result,
+                shared_canon,
                 interner,
                 &function_sigs,
                 &type_result.typed.types,
@@ -708,6 +692,8 @@ impl TestRunner {
     /// Run a `compile_fail` test.
     ///
     /// The test passes if all expected errors are matched by actual errors.
+    /// Matches against both type errors and pattern problems (exhaustiveness/
+    /// redundancy from canonicalization).
     ///
     /// Error matching strategy:
     /// 1. First try to match errors within this test's span (isolation for tests
@@ -717,6 +703,7 @@ impl TestRunner {
     fn run_compile_fail_test(
         test: &TestDef,
         type_result: &TypeCheckResult,
+        pattern_problems: &[ori_ir::canon::PatternProblem],
         source: &str,
         interner: &crate::ir::StringInterner,
     ) -> TestResult {
@@ -731,23 +718,46 @@ impl TestRunner {
         // Try span-filtered errors first for better isolation.
         // This helps when multiple compile_fail tests exist in the same file,
         // each should only see errors from their own body.
-        let test_errors: Vec<_> = type_result
+        let test_type_errors: Vec<_> = type_result
             .errors()
             .iter()
             .filter(|e| test.span.contains_span(e.span()))
             .collect();
 
+        // Filter pattern problems by test span too.
+        let test_pattern_problems: Vec<_> = pattern_problems
+            .iter()
+            .filter(|p| {
+                let span = match p {
+                    ori_ir::canon::PatternProblem::NonExhaustive { match_span, .. } => *match_span,
+                    ori_ir::canon::PatternProblem::RedundantArm { arm_span, .. } => *arm_span,
+                };
+                test.span.contains_span(span)
+            })
+            .collect();
+
         // If no errors within test span, use all module errors.
         // This handles tests that check for module-level errors (like missing
         // associated types in impl blocks) where the error is outside the test body.
-        let errors_to_match: Vec<&_> = if test_errors.is_empty() {
-            type_result.errors().iter().collect()
+        let type_errors_to_match: Vec<&_> =
+            if test_type_errors.is_empty() && test_pattern_problems.is_empty() {
+                type_result.errors().iter().collect()
+            } else {
+                test_type_errors
+            };
+
+        let pattern_problems_to_match: Vec<&_> = if type_errors_to_match.len()
+            == type_result.errors().len()
+            && test_pattern_problems.is_empty()
+        {
+            // Fell back to all module errors — also use all pattern problems.
+            pattern_problems.iter().collect()
         } else {
-            test_errors
+            test_pattern_problems
         };
 
         // If no errors were produced but we expected some
-        if errors_to_match.is_empty() {
+        if type_errors_to_match.is_empty() && pattern_problems_to_match.is_empty() {
             let expected_strs: Vec<String> = test
                 .expected_errors
                 .iter()
@@ -770,9 +780,14 @@ impl TestRunner {
             );
         }
 
-        // Match actual errors against expectations
-        let match_result =
-            match_errors_refs(&errors_to_match, &test.expected_errors, source, interner);
+        // Match actual errors (type + pattern) against expectations
+        let match_result = match_all_errors(
+            &type_errors_to_match,
+            &pattern_problems_to_match,
+            &test.expected_errors,
+            source,
+            interner,
+        );
 
         if match_result.all_matched() {
             // All expectations matched - test passes
@@ -785,10 +800,15 @@ impl TestRunner {
                 .map(|&i| format_expected(&test.expected_errors[i], interner))
                 .collect();
 
-            let actual: Vec<String> = errors_to_match
+            let mut actual: Vec<String> = type_errors_to_match
                 .iter()
                 .map(|e| format_actual(e, source))
                 .collect();
+            actual.extend(
+                pattern_problems_to_match
+                    .iter()
+                    .map(|p| format_pattern_problem(p, source)),
+            );
 
             TestResult::failed(
                 test.name,

@@ -34,7 +34,7 @@ use rustc_hash::FxHashSet;
 use ori_types::{Idx, Pool, Tag};
 
 use crate::ir::{ArcFunction, ArcInstr};
-use crate::{ArcClassification, ArcClassifier};
+use crate::ArcClassification;
 
 // Drop descriptor types
 
@@ -127,12 +127,15 @@ pub struct DropInfo {
 /// - Which child fields need `RcDec`
 /// - Whether to iterate elements (for collections)
 /// - Whether to switch on enum tag
-pub fn compute_drop_info(ty: Idx, classifier: &ArcClassifier) -> Option<DropInfo> {
+pub fn compute_drop_info(
+    ty: Idx,
+    classifier: &dyn ArcClassification,
+    pool: &Pool,
+) -> Option<DropInfo> {
     if classifier.is_scalar(ty) {
         return None;
     }
 
-    let pool = classifier.pool();
     let kind = compute_drop_kind(ty, pool, classifier);
 
     Some(DropInfo { ty, kind })
@@ -145,7 +148,10 @@ pub fn compute_drop_info(ty: Idx, classifier: &ArcClassifier) -> Option<DropInfo
 /// index in the env struct.
 ///
 /// Returns [`DropKind::Trivial`] if no captures need RC.
-pub fn compute_closure_env_drop(capture_types: &[Idx], classifier: &ArcClassifier) -> DropKind {
+pub fn compute_closure_env_drop(
+    capture_types: &[Idx],
+    classifier: &dyn ArcClassification,
+) -> DropKind {
     let rc_captures: Vec<(u32, Idx)> = capture_types
         .iter()
         .enumerate()
@@ -178,7 +184,11 @@ pub fn compute_closure_env_drop(capture_types: &[Idx], classifier: &ArcClassifie
 /// **Note:** This collects types from `RcDec` instructions only. For
 /// nested types (e.g., a struct field's type), the codegen layer should
 /// call [`compute_drop_info`] lazily when generating each drop function.
-pub fn collect_drop_infos(functions: &[ArcFunction], classifier: &ArcClassifier) -> Vec<DropInfo> {
+pub fn collect_drop_infos(
+    functions: &[ArcFunction],
+    classifier: &dyn ArcClassification,
+    pool: &Pool,
+) -> Vec<DropInfo> {
     let mut seen = FxHashSet::default();
     let mut infos = Vec::new();
 
@@ -188,7 +198,7 @@ pub fn collect_drop_infos(functions: &[ArcFunction], classifier: &ArcClassifier)
                 if let ArcInstr::RcDec { var } = instr {
                     let ty = func.var_type(*var);
                     if classifier.needs_rc(ty) && seen.insert(ty) {
-                        if let Some(info) = compute_drop_info(ty, classifier) {
+                        if let Some(info) = compute_drop_info(ty, classifier, pool) {
                             infos.push(info);
                         }
                     }
@@ -203,7 +213,7 @@ pub fn collect_drop_infos(functions: &[ArcFunction], classifier: &ArcClassifier)
 // Internal helpers
 
 /// Compute the drop kind for a non-scalar type.
-fn compute_drop_kind(ty: Idx, pool: &Pool, classifier: &ArcClassifier) -> DropKind {
+fn compute_drop_kind(ty: Idx, pool: &Pool, classifier: &dyn ArcClassification) -> DropKind {
     let (resolved_ty, resolved_tag) = resolve_type(ty, pool);
 
     match resolved_tag {
@@ -329,7 +339,7 @@ fn compute_drop_kind(ty: Idx, pool: &Pool, classifier: &ArcClassifier) -> DropKi
 /// if all fields are scalar.
 fn compute_fields_drop(
     field_types: impl Iterator<Item = Idx>,
-    classifier: &ArcClassifier,
+    classifier: &dyn ArcClassification,
 ) -> DropKind {
     let rc_fields: Vec<(u32, Idx)> = field_types
         .enumerate()
@@ -359,7 +369,7 @@ fn compute_fields_drop(
 /// `DropKind::Trivial` if no variant has RC'd fields.
 fn compute_enum_drop(
     variants: impl Iterator<Item = Vec<Idx>>,
-    classifier: &ArcClassifier,
+    classifier: &dyn ArcClassification,
 ) -> DropKind {
     let variant_drops: Vec<Vec<(u32, Idx)>> = variants
         .map(|field_types| {
@@ -432,11 +442,11 @@ mod tests {
         let pool = Pool::new();
         let c = cls(&pool);
 
-        assert!(compute_drop_info(Idx::INT, &c).is_none());
-        assert!(compute_drop_info(Idx::FLOAT, &c).is_none());
-        assert!(compute_drop_info(Idx::BOOL, &c).is_none());
-        assert!(compute_drop_info(Idx::CHAR, &c).is_none());
-        assert!(compute_drop_info(Idx::UNIT, &c).is_none());
+        assert!(compute_drop_info(Idx::INT, &c, &pool).is_none());
+        assert!(compute_drop_info(Idx::FLOAT, &c, &pool).is_none());
+        assert!(compute_drop_info(Idx::BOOL, &c, &pool).is_none());
+        assert!(compute_drop_info(Idx::CHAR, &c, &pool).is_none());
+        assert!(compute_drop_info(Idx::UNIT, &c, &pool).is_none());
     }
 
     #[test]
@@ -445,7 +455,7 @@ mod tests {
         let opt_int = pool.option(Idx::INT);
         let c = cls(&pool);
 
-        assert!(compute_drop_info(opt_int, &c).is_none());
+        assert!(compute_drop_info(opt_int, &c, &pool).is_none());
     }
 
     #[test]
@@ -454,7 +464,7 @@ mod tests {
         let tup = pool.tuple(&[Idx::INT, Idx::FLOAT, Idx::BOOL]);
         let c = cls(&pool);
 
-        assert!(compute_drop_info(tup, &c).is_none());
+        assert!(compute_drop_info(tup, &c, &pool).is_none());
     }
 
     #[test]
@@ -469,7 +479,7 @@ mod tests {
         );
         let c = cls(&pool);
 
-        assert!(compute_drop_info(s, &c).is_none());
+        assert!(compute_drop_info(s, &c, &pool).is_none());
     }
 
     #[test]
@@ -490,7 +500,7 @@ mod tests {
         );
         let c = cls(&pool);
 
-        assert!(compute_drop_info(e, &c).is_none());
+        assert!(compute_drop_info(e, &c, &pool).is_none());
     }
 
     // str -> Trivial
@@ -500,7 +510,7 @@ mod tests {
         let pool = Pool::new();
         let c = cls(&pool);
 
-        let info = compute_drop_info(Idx::STR, &c).unwrap();
+        let info = compute_drop_info(Idx::STR, &c, &pool).unwrap();
         assert_eq!(info.ty, Idx::STR);
         assert_eq!(info.kind, DropKind::Trivial);
     }
@@ -513,7 +523,7 @@ mod tests {
         let list = pool.list(Idx::INT);
         let c = cls(&pool);
 
-        let info = compute_drop_info(list, &c).unwrap();
+        let info = compute_drop_info(list, &c, &pool).unwrap();
         assert_eq!(info.kind, DropKind::Trivial);
     }
 
@@ -523,7 +533,7 @@ mod tests {
         let list = pool.list(Idx::STR);
         let c = cls(&pool);
 
-        let info = compute_drop_info(list, &c).unwrap();
+        let info = compute_drop_info(list, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Collection {
@@ -539,7 +549,7 @@ mod tests {
         let outer = pool.list(inner);
         let c = cls(&pool);
 
-        let info = compute_drop_info(outer, &c).unwrap();
+        let info = compute_drop_info(outer, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Collection {
@@ -556,7 +566,7 @@ mod tests {
         let set = pool.set(Idx::INT);
         let c = cls(&pool);
 
-        let info = compute_drop_info(set, &c).unwrap();
+        let info = compute_drop_info(set, &c, &pool).unwrap();
         assert_eq!(info.kind, DropKind::Trivial);
     }
 
@@ -566,7 +576,7 @@ mod tests {
         let set = pool.set(Idx::STR);
         let c = cls(&pool);
 
-        let info = compute_drop_info(set, &c).unwrap();
+        let info = compute_drop_info(set, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Collection {
@@ -583,7 +593,7 @@ mod tests {
         let map = pool.map(Idx::INT, Idx::FLOAT);
         let c = cls(&pool);
 
-        let info = compute_drop_info(map, &c).unwrap();
+        let info = compute_drop_info(map, &c, &pool).unwrap();
         assert_eq!(info.kind, DropKind::Trivial);
     }
 
@@ -593,7 +603,7 @@ mod tests {
         let map = pool.map(Idx::STR, Idx::INT);
         let c = cls(&pool);
 
-        let info = compute_drop_info(map, &c).unwrap();
+        let info = compute_drop_info(map, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Map {
@@ -611,7 +621,7 @@ mod tests {
         let map = pool.map(Idx::INT, Idx::STR);
         let c = cls(&pool);
 
-        let info = compute_drop_info(map, &c).unwrap();
+        let info = compute_drop_info(map, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Map {
@@ -629,7 +639,7 @@ mod tests {
         let map = pool.map(Idx::STR, Idx::STR);
         let c = cls(&pool);
 
-        let info = compute_drop_info(map, &c).unwrap();
+        let info = compute_drop_info(map, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Map {
@@ -655,7 +665,7 @@ mod tests {
         );
         let c = cls(&pool);
 
-        let info = compute_drop_info(s, &c).unwrap();
+        let info = compute_drop_info(s, &c, &pool).unwrap();
         assert_eq!(info.kind, DropKind::Fields(vec![(1, Idx::STR)]));
     }
 
@@ -673,7 +683,7 @@ mod tests {
         );
         let c = cls(&pool);
 
-        let info = compute_drop_info(s, &c).unwrap();
+        let info = compute_drop_info(s, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Fields(vec![(0, Idx::STR), (2, list_int)])
@@ -688,7 +698,7 @@ mod tests {
         let tup = pool.tuple(&[Idx::INT, Idx::STR]);
         let c = cls(&pool);
 
-        let info = compute_drop_info(tup, &c).unwrap();
+        let info = compute_drop_info(tup, &c, &pool).unwrap();
         assert_eq!(info.kind, DropKind::Fields(vec![(1, Idx::STR)]));
     }
 
@@ -699,7 +709,7 @@ mod tests {
         let tup = pool.tuple(&[Idx::STR, list_int]);
         let c = cls(&pool);
 
-        let info = compute_drop_info(tup, &c).unwrap();
+        let info = compute_drop_info(tup, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Fields(vec![(0, Idx::STR), (1, list_int)])
@@ -726,7 +736,7 @@ mod tests {
         );
         let c = cls(&pool);
 
-        let info = compute_drop_info(e, &c).unwrap();
+        let info = compute_drop_info(e, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Enum(vec![
@@ -759,7 +769,7 @@ mod tests {
         );
         let c = cls(&pool);
 
-        let info = compute_drop_info(e, &c).unwrap();
+        let info = compute_drop_info(e, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Enum(vec![
@@ -789,7 +799,7 @@ mod tests {
         let c = cls(&pool);
 
         // The enum itself is Scalar because all payloads are scalar.
-        assert!(compute_drop_info(e, &c).is_none());
+        assert!(compute_drop_info(e, &c, &pool).is_none());
     }
 
     // Option
@@ -800,7 +810,7 @@ mod tests {
         let opt = pool.option(Idx::STR);
         let c = cls(&pool);
 
-        let info = compute_drop_info(opt, &c).unwrap();
+        let info = compute_drop_info(opt, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Enum(vec![
@@ -818,7 +828,7 @@ mod tests {
         let res = pool.result(Idx::STR, Idx::INT);
         let c = cls(&pool);
 
-        let info = compute_drop_info(res, &c).unwrap();
+        let info = compute_drop_info(res, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Enum(vec![
@@ -834,7 +844,7 @@ mod tests {
         let res = pool.result(Idx::INT, Idx::STR);
         let c = cls(&pool);
 
-        let info = compute_drop_info(res, &c).unwrap();
+        let info = compute_drop_info(res, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Enum(vec![
@@ -850,7 +860,7 @@ mod tests {
         let res = pool.result(Idx::STR, Idx::STR);
         let c = cls(&pool);
 
-        let info = compute_drop_info(res, &c).unwrap();
+        let info = compute_drop_info(res, &c, &pool).unwrap();
         assert_eq!(
             info.kind,
             DropKind::Enum(vec![
@@ -868,7 +878,7 @@ mod tests {
         let chan = pool.channel(Idx::INT);
         let c = cls(&pool);
 
-        let info = compute_drop_info(chan, &c).unwrap();
+        let info = compute_drop_info(chan, &c, &pool).unwrap();
         assert_eq!(info.kind, DropKind::Trivial);
     }
 
@@ -880,7 +890,7 @@ mod tests {
         let func = pool.function(&[Idx::INT], Idx::STR);
         let c = cls(&pool);
 
-        let info = compute_drop_info(func, &c).unwrap();
+        let info = compute_drop_info(func, &c, &pool).unwrap();
         assert_eq!(info.kind, DropKind::Trivial);
     }
 
@@ -901,7 +911,7 @@ mod tests {
         pool.set_resolution(named_idx, struct_idx);
         let c = cls(&pool);
 
-        let info = compute_drop_info(named_idx, &c).unwrap();
+        let info = compute_drop_info(named_idx, &c, &pool).unwrap();
         assert_eq!(info.kind, DropKind::Fields(vec![(0, Idx::STR)]));
     }
 
@@ -945,7 +955,7 @@ mod tests {
         let pool = Pool::new();
         let c = cls(&pool);
 
-        let infos = collect_drop_infos(&[], &c);
+        let infos = collect_drop_infos(&[], &c, &pool);
         assert!(infos.is_empty());
     }
 
@@ -981,7 +991,7 @@ mod tests {
             spans: vec![vec![None, None]],
         };
 
-        let infos = collect_drop_infos(&[func], &c);
+        let infos = collect_drop_infos(&[func], &c, &pool);
         assert_eq!(infos.len(), 1);
         assert_eq!(infos[0].ty, Idx::STR);
         assert_eq!(infos[0].kind, DropKind::Trivial);
@@ -1026,7 +1036,7 @@ mod tests {
             spans: vec![vec![None, None]],
         };
 
-        let infos = collect_drop_infos(&[func], &c);
+        let infos = collect_drop_infos(&[func], &c, &pool);
         assert_eq!(infos.len(), 2);
 
         // First: str (Trivial), Second: [str] (Collection)
@@ -1069,7 +1079,7 @@ mod tests {
             spans: vec![vec![None]],
         };
 
-        let infos = collect_drop_infos(&[func], &c);
+        let infos = collect_drop_infos(&[func], &c, &pool);
         assert!(infos.is_empty());
     }
 
@@ -1088,7 +1098,7 @@ mod tests {
         );
         let c = cls(&pool);
 
-        let info = compute_drop_info(s, &c).unwrap();
+        let info = compute_drop_info(s, &c, &pool).unwrap();
         // Field 1 is option[str] which is DefiniteRef → needs Dec.
         assert_eq!(info.kind, DropKind::Fields(vec![(1, opt_str)]));
     }
@@ -1100,6 +1110,6 @@ mod tests {
         let c = cls(&pool);
 
         // result[int, float] is Scalar → no drop needed.
-        assert!(compute_drop_info(res, &c).is_none());
+        assert!(compute_drop_info(res, &c, &pool).is_none());
     }
 }

@@ -155,6 +155,26 @@ When `SourceFile` changes:
 3. If parsed unchanged, `typed()` uses cached result
 4. If typed unchanged, `evaluated()` uses cached result
 
+### 6. Pattern Checking (inside `check` command)
+
+Canonicalization also runs in the `check` command — independently of `evaluated()` — to detect pattern problems before execution:
+
+```rust
+let canon_result = ori_canon::lower_module(
+    &parse_result.module,
+    &parse_result.arena,
+    &type_result,
+    &pool,
+    interner,
+);
+for problem in &canon_result.problems {
+    let diag = pattern_problem_to_diagnostic(problem, interner);
+    emitter.emit(&diag);
+}
+```
+
+This detects non-exhaustive matches and redundant arms at check time, without running the evaluator.
+
 ## Phase Characteristics
 
 | Phase | Errors | Recovery | Output |
@@ -162,7 +182,7 @@ When `SourceFile` changes:
 | Lexer | Rare (invalid chars) | Continue | TokenList |
 | Parser | Syntax errors | Skip/recover | Module + errors |
 | Typeck | Type mismatches | Continue | Types + errors |
-| Canon | Lowering errors | Accumulate | CanonResult |
+| Canon | Pattern problems | Accumulate | CanonResult + PatternProblems |
 | Eval | Runtime errors | Stop | Value or error |
 
 ## Error Accumulation

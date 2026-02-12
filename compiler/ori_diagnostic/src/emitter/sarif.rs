@@ -19,13 +19,15 @@ use crate::{Diagnostic, Severity};
 use super::{escape_json, trailing_comma, DiagnosticEmitter};
 
 /// SARIF emitter for Static Analysis Results Interchange Format.
-pub struct SarifEmitter<W: Write> {
+///
+/// The `'src` lifetime ties to the source text, which is borrowed (not cloned).
+pub struct SarifEmitter<'src, W: Write> {
     writer: W,
     tool_name: String,
     tool_version: String,
     artifact_uri: Option<String>,
-    /// Source text for column computation (characters vs bytes).
-    source: Option<String>,
+    /// Source text for column computation (borrowed, not cloned).
+    source: Option<&'src str>,
     /// Pre-computed line offset table for O(log L) lookups.
     line_table: Option<LineOffsetTable>,
     results: Vec<SarifResult>,
@@ -51,7 +53,7 @@ struct SarifLocation {
     artifact_uri: Option<String>,
 }
 
-impl<W: Write> SarifEmitter<W> {
+impl<'src, W: Write> SarifEmitter<'src, W> {
     /// Create a new SARIF emitter.
     pub fn new(writer: W, tool_name: impl Into<String>, tool_version: impl Into<String>) -> Self {
         SarifEmitter {
@@ -75,10 +77,10 @@ impl<W: Write> SarifEmitter<W> {
     /// Set the source text for computing line/column from byte offsets.
     ///
     /// Builds a line offset table for O(log L) lookups where L is the line count.
+    /// The source is borrowed, not cloned.
     #[must_use]
-    pub fn with_source(mut self, source: impl Into<String>) -> Self {
-        let source = source.into();
-        self.line_table = Some(LineOffsetTable::build(&source));
+    pub fn with_source(mut self, source: &'src str) -> Self {
+        self.line_table = Some(LineOffsetTable::build(source));
         self.source = Some(source);
         self
     }
@@ -88,7 +90,7 @@ impl<W: Write> SarifEmitter<W> {
     /// Uses pre-computed line offset table for O(log L) lookup.
     /// Without source text, returns (1, 1) as a placeholder.
     fn offset_to_line_col(&self, offset: u32) -> (usize, usize) {
-        let (Some(table), Some(source)) = (&self.line_table, &self.source) else {
+        let (Some(table), Some(source)) = (&self.line_table, self.source) else {
             // Without source/table, we cannot compute accurate positions.
             return (1, 1);
         };
@@ -264,14 +266,26 @@ impl<W: Write> SarifEmitter<W> {
     }
 }
 
-impl<W: Write> DiagnosticEmitter for SarifEmitter<W> {
+impl<W: Write> DiagnosticEmitter for SarifEmitter<'_, W> {
     fn emit(&mut self, diagnostic: &Diagnostic) {
         let mut locations = Vec::new();
         let mut related_locations = Vec::new();
 
         for label in &diagnostic.labels {
-            let (start_line, start_col) = self.offset_to_line_col(label.span.start);
-            let (end_line, end_col) = self.offset_to_line_col(label.span.end);
+            // Cross-file labels have spans relative to SourceInfo.content, not the main file.
+            // Build a temporary LineOffsetTable from the cross-file source for correct positions.
+            let (start_line, start_col, end_line, end_col) = if let Some(ref src_info) =
+                label.source_info
+            {
+                let cross_table = LineOffsetTable::build(&src_info.content);
+                let (sl, sc) = cross_table.offset_to_line_col(&src_info.content, label.span.start);
+                let (el, ec) = cross_table.offset_to_line_col(&src_info.content, label.span.end);
+                (sl as usize, sc as usize, el as usize, ec as usize)
+            } else {
+                let (sl, sc) = self.offset_to_line_col(label.span.start);
+                let (el, ec) = self.offset_to_line_col(label.span.end);
+                (sl, sc, el, ec)
+            };
 
             // For cross-file labels, use the source_info's path as the artifact URI
             let artifact_uri = label.source_info.as_ref().map(|src| src.path.clone());
@@ -330,7 +344,7 @@ impl<W: Write> DiagnosticEmitter for SarifEmitter<W> {
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests {
     use super::*;
-    use crate::ErrorCode;
+    use crate::{ErrorCode, SourceInfo};
     use ori_ir::Span;
 
     /// Test fixture version - intentionally stable for snapshot testing.
@@ -480,5 +494,54 @@ mod tests {
         // Should be properly escaped
         assert!(text.contains("\\\"quotes\\\""));
         assert!(text.contains("\\n"));
+    }
+
+    #[test]
+    fn test_sarif_cross_file_label_positions() {
+        // Main file: single line — "let x: int = get_name()"
+        // Cross-file: three lines — offsets are relative to THIS content, not the main file
+        let main_source = "let x: int = get_name()";
+        let cross_source = "module lib\n\n@get_name () -> str = \"hello\"";
+        //                   ^0         ^11 ^12       ^21
+
+        let mut output = Vec::new();
+        let mut emitter = SarifEmitter::new(&mut output, "oric", TEST_TOOL_VERSION)
+            .with_artifact("src/main.ori")
+            .with_source(main_source);
+
+        // Primary label in main file at "get_name()" (offset 13-23, line 1)
+        // Cross-file label in lib.ori at "@get_name () -> str" (offset 12-31, line 3)
+        let diag = Diagnostic::error(ErrorCode::E2001)
+            .with_message("type mismatch")
+            .with_label(Span::new(13, 23), "expected `int`, found `str`")
+            .with_cross_file_secondary_label(
+                Span::new(12, 31),
+                "return type defined here",
+                SourceInfo::new("src/lib.ori", cross_source),
+            );
+
+        emitter.emit(&diag);
+        emitter.finish();
+
+        let text = String::from_utf8(output).unwrap();
+
+        // Primary label: "get_name()" is at line 1, col 14 in the main file
+        assert!(
+            text.contains("\"startLine\": 1"),
+            "primary label should be on line 1"
+        );
+
+        // Cross-file label: "@get_name () -> str" starts at offset 12 in cross_source,
+        // which is line 3, col 1 (after "module lib\n\n").
+        // If the bug were still present, this would compute positions from main_source
+        // and produce wrong results.
+        assert!(
+            text.contains("\"startLine\": 3"),
+            "cross-file label should be on line 3 of lib.ori, got:\n{text}"
+        );
+        assert!(
+            text.contains("src/lib.ori"),
+            "cross-file label should reference lib.ori"
+        );
     }
 }

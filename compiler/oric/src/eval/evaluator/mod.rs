@@ -76,7 +76,10 @@ impl DerefMut for ScopedEvaluator<'_, '_> {
 /// through the Salsa database.
 pub struct Evaluator<'a> {
     /// The underlying portable interpreter.
-    pub(crate) interpreter: Interpreter<'a>,
+    ///
+    /// Restricted to this module tree — external code should use the
+    /// public `Evaluator` methods which add Salsa integration.
+    pub(super) interpreter: Interpreter<'a>,
     /// Database reference for Salsa-tracked file loading.
     db: &'a dyn Db,
     /// Whether the prelude has been auto-loaded.

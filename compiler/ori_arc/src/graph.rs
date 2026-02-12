@@ -36,7 +36,7 @@ pub(crate) fn compute_predecessors(func: &ArcFunction) -> Vec<Vec<usize>> {
 ///
 /// Returns `SmallVec<[ArcBlockId; 4]>` to avoid heap allocation for the
 /// common case (max 2 successors except Switch with many cases).
-fn successor_block_ids(terminator: &ArcTerminator) -> SmallVec<[ArcBlockId; 4]> {
+pub(crate) fn successor_block_ids(terminator: &ArcTerminator) -> SmallVec<[ArcBlockId; 4]> {
     match terminator {
         ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
             SmallVec::new()
@@ -73,4 +73,455 @@ pub(crate) fn collect_invoke_defs(func: &ArcFunction) -> FxHashMap<ArcBlockId, V
         }
     }
     map
+}
+
+/// Dominator tree for ARC IR functions.
+///
+/// Uses the Cooper-Harvey-Kennedy iterative algorithm, which is simpler than
+/// Lengauer-Tarjan and fast enough for typical function sizes (< 100 blocks).
+/// The algorithm works on reverse postorder and converges in O(n * d) where
+/// d is the loop nesting depth — typically 2-3 iterations.
+///
+/// Used by cross-block reset/reuse detection and FBIP diagnostics to verify
+/// that a token defined in block A can be used in block B (requires A
+/// dominates B).
+///
+/// Reference: Cooper, Harvey, Kennedy — "A Simple, Fast Dominance Algorithm" (2001)
+pub struct DominatorTree {
+    /// Immediate dominator for each block, indexed by block index.
+    /// `idom[entry] == None`, all others have `Some(dominator_index)`.
+    idom: Vec<Option<usize>>,
+}
+
+impl DominatorTree {
+    /// Build the dominator tree for a function.
+    pub fn build(func: &ArcFunction) -> Self {
+        let n = func.blocks.len();
+        if n == 0 {
+            return Self { idom: vec![] };
+        }
+
+        let preds = compute_predecessors(func);
+        let rpo = Self::reverse_postorder(func);
+
+        // Map block index → RPO position for O(1) lookup
+        let mut rpo_pos = vec![0usize; n];
+        for (pos, &block_idx) in rpo.iter().enumerate() {
+            rpo_pos[block_idx] = pos;
+        }
+
+        let entry = func.entry.index();
+        let mut idom: Vec<Option<usize>> = vec![None; n];
+        idom[entry] = Some(entry); // entry dominates itself
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+            // Iterate in RPO (skip entry at position 0)
+            for &block_idx in &rpo[1..] {
+                // Find first processed predecessor
+                let mut new_idom = None;
+                for &pred in &preds[block_idx] {
+                    if idom[pred].is_some() {
+                        new_idom = Some(pred);
+                        break;
+                    }
+                }
+
+                let Some(mut new_idom_val) = new_idom else {
+                    continue;
+                };
+
+                // Intersect with remaining processed predecessors
+                for &pred in &preds[block_idx] {
+                    if pred == new_idom_val {
+                        continue;
+                    }
+                    if idom[pred].is_some() {
+                        new_idom_val = Self::intersect(pred, new_idom_val, &idom, &rpo_pos);
+                    }
+                }
+
+                if idom[block_idx] != Some(new_idom_val) {
+                    idom[block_idx] = Some(new_idom_val);
+                    changed = true;
+                }
+            }
+        }
+
+        Self { idom }
+    }
+
+    /// Does block `a` dominate block `b`?
+    ///
+    /// A block dominates itself. The entry block dominates all blocks.
+    pub fn dominates(&self, a: ArcBlockId, b: ArcBlockId) -> bool {
+        let a_idx = a.index();
+        let mut current = b.index();
+        loop {
+            if current == a_idx {
+                return true;
+            }
+            match self.idom[current] {
+                Some(dom) if dom != current => current = dom,
+                _ => return current == a_idx,
+            }
+        }
+    }
+
+    /// Return dominated blocks of `a` in preorder (for walking the subtree).
+    pub fn dominated_preorder(&self, root: ArcBlockId, num_blocks: usize) -> Vec<ArcBlockId> {
+        // Build children lists from idom
+        let mut children: Vec<Vec<usize>> = vec![vec![]; num_blocks];
+        for (idx, &idom) in self.idom.iter().enumerate() {
+            if let Some(dom) = idom {
+                if dom != idx {
+                    children[dom].push(idx);
+                }
+            }
+        }
+
+        let mut result = Vec::new();
+        let mut stack = vec![root.index()];
+        while let Some(idx) = stack.pop() {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "ARC IR block counts fit in u32"
+            )]
+            result.push(ArcBlockId::new(idx as u32));
+            // Push in reverse order so left children are visited first
+            for &child in children[idx].iter().rev() {
+                stack.push(child);
+            }
+        }
+        result
+    }
+
+    /// Compute reverse postorder traversal of the CFG.
+    fn reverse_postorder(func: &ArcFunction) -> Vec<usize> {
+        let n = func.blocks.len();
+        let mut visited = vec![false; n];
+        let mut postorder = Vec::with_capacity(n);
+
+        Self::dfs_postorder(func, func.entry.index(), &mut visited, &mut postorder);
+
+        postorder.reverse();
+        postorder
+    }
+
+    fn dfs_postorder(
+        func: &ArcFunction,
+        block_idx: usize,
+        visited: &mut [bool],
+        postorder: &mut Vec<usize>,
+    ) {
+        if visited[block_idx] {
+            return;
+        }
+        visited[block_idx] = true;
+
+        for succ in successor_block_ids(&func.blocks[block_idx].terminator) {
+            let succ_idx = succ.index();
+            if succ_idx < func.blocks.len() {
+                Self::dfs_postorder(func, succ_idx, visited, postorder);
+            }
+        }
+
+        postorder.push(block_idx);
+    }
+
+    /// CHK intersect: walk two fingers upward until they meet.
+    ///
+    /// Both `a` and `b` must be reachable from the entry — their idom chain
+    /// always leads to the entry node, so `idom[x]` is always `Some` here.
+    fn intersect(mut a: usize, mut b: usize, idom: &[Option<usize>], rpo_pos: &[usize]) -> usize {
+        while a != b {
+            while rpo_pos[a] > rpo_pos[b] {
+                // Safety: CHK algorithm guarantees convergence — all reachable
+                // nodes have an idom leading to the entry.
+                let Some(next) = idom[a] else {
+                    debug_assert!(false, "intersect: broken idom chain at {a}");
+                    return a;
+                };
+                a = next;
+            }
+            while rpo_pos[b] > rpo_pos[a] {
+                let Some(next) = idom[b] else {
+                    debug_assert!(false, "intersect: broken idom chain at {b}");
+                    return b;
+                };
+                b = next;
+            }
+        }
+        a
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ori_types::Idx;
+
+    use crate::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue};
+    use crate::test_helpers::{b, make_func, owned_param, v};
+
+    use super::*;
+
+    /// Single block: entry dominates itself.
+    #[test]
+    fn single_block_self_dominance() {
+        let func = make_func(
+            vec![owned_param(0, Idx::INT)],
+            Idx::INT,
+            vec![ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(0) },
+            }],
+            vec![Idx::INT],
+        );
+
+        let dom = DominatorTree::build(&func);
+        assert!(dom.dominates(b(0), b(0)));
+    }
+
+    /// Linear chain: B0 → B1 → B2. B0 dominates all.
+    #[test]
+    fn linear_chain() {
+        let func = make_func(
+            vec![owned_param(0, Idx::INT)],
+            Idx::INT,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Jump {
+                        target: b(1),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Jump {
+                        target: b(2),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+            ],
+            vec![Idx::INT],
+        );
+
+        let dom = DominatorTree::build(&func);
+        // Entry dominates everything
+        assert!(dom.dominates(b(0), b(0)));
+        assert!(dom.dominates(b(0), b(1)));
+        assert!(dom.dominates(b(0), b(2)));
+        // B1 dominates B2 but not B0
+        assert!(dom.dominates(b(1), b(2)));
+        assert!(!dom.dominates(b(1), b(0)));
+        // B2 dominates only itself
+        assert!(dom.dominates(b(2), b(2)));
+        assert!(!dom.dominates(b(2), b(0)));
+        assert!(!dom.dominates(b(2), b(1)));
+    }
+
+    /// Diamond: B0 → B1, B0 → B2, B1 → B3, B2 → B3.
+    /// B0 dominates all; B3 not dominated by B1 or B2.
+    #[test]
+    fn diamond() {
+        let func = make_func(
+            vec![owned_param(0, Idx::INT)],
+            Idx::INT,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(crate::ir::LitValue::Bool(true)),
+                    }],
+                    terminator: ArcTerminator::Branch {
+                        cond: v(1),
+                        then_block: b(1),
+                        else_block: b(2),
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Jump {
+                        target: b(3),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Jump {
+                        target: b(3),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(3),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+            ],
+            vec![Idx::INT, Idx::BOOL],
+        );
+
+        let dom = DominatorTree::build(&func);
+        assert!(dom.dominates(b(0), b(1)));
+        assert!(dom.dominates(b(0), b(2)));
+        assert!(dom.dominates(b(0), b(3)));
+        // Neither branch dominates the merge point
+        assert!(!dom.dominates(b(1), b(3)));
+        assert!(!dom.dominates(b(2), b(3)));
+        // Branches don't dominate each other
+        assert!(!dom.dominates(b(1), b(2)));
+        assert!(!dom.dominates(b(2), b(1)));
+    }
+
+    /// Loop: B0 → B1 → B2 → B1 (back edge), B1 → B3.
+    /// B0 dominates all; B1 dominates B2 (and B3).
+    #[test]
+    fn loop_cfg() {
+        let func = make_func(
+            vec![owned_param(0, Idx::INT)],
+            Idx::INT,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Jump {
+                        target: b(1),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(crate::ir::LitValue::Bool(true)),
+                    }],
+                    terminator: ArcTerminator::Branch {
+                        cond: v(1),
+                        then_block: b(2),
+                        else_block: b(3),
+                    },
+                },
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Jump {
+                        target: b(1),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(3),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+            ],
+            vec![Idx::INT, Idx::BOOL],
+        );
+
+        let dom = DominatorTree::build(&func);
+        // B0 → all
+        assert!(dom.dominates(b(0), b(1)));
+        assert!(dom.dominates(b(0), b(2)));
+        assert!(dom.dominates(b(0), b(3)));
+        // Loop header dominates body and exit
+        assert!(dom.dominates(b(1), b(2)));
+        assert!(dom.dominates(b(1), b(3)));
+        // Loop body does NOT dominate header (back edge)
+        assert!(!dom.dominates(b(2), b(1)));
+    }
+
+    /// `dominated_preorder` returns blocks in the correct order.
+    #[test]
+    fn dominated_preorder_diamond() {
+        let func = make_func(
+            vec![owned_param(0, Idx::INT)],
+            Idx::INT,
+            vec![
+                ArcBlock {
+                    id: b(0),
+                    params: vec![],
+                    body: vec![ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(crate::ir::LitValue::Bool(true)),
+                    }],
+                    terminator: ArcTerminator::Branch {
+                        cond: v(1),
+                        then_block: b(1),
+                        else_block: b(2),
+                    },
+                },
+                ArcBlock {
+                    id: b(1),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Jump {
+                        target: b(3),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(2),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Jump {
+                        target: b(3),
+                        args: vec![],
+                    },
+                },
+                ArcBlock {
+                    id: b(3),
+                    params: vec![],
+                    body: vec![],
+                    terminator: ArcTerminator::Return { value: v(0) },
+                },
+            ],
+            vec![Idx::INT, Idx::BOOL],
+        );
+
+        let dom = DominatorTree::build(&func);
+        let subtree = dom.dominated_preorder(b(0), func.blocks.len());
+        // All blocks should be in the subtree rooted at entry
+        assert_eq!(subtree.len(), 4);
+        assert_eq!(subtree[0], b(0)); // root first
+
+        // B1's subtree: just B1 (B3 is not dominated by B1 in a diamond)
+        let b1_subtree = dom.dominated_preorder(b(1), func.blocks.len());
+        assert_eq!(b1_subtree, vec![b(1)]);
+    }
+
+    #[test]
+    fn empty_function() {
+        let func = make_func(vec![], Idx::UNIT, vec![], vec![]);
+        let dom = DominatorTree::build(&func);
+        assert!(dom.idom.is_empty());
+    }
 }

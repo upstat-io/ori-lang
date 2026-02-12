@@ -12,24 +12,14 @@
 //! # Design
 //!
 //! Problems are categorized by compilation phase:
-//! - `ParseProblem`: Syntax errors during parsing
-//! - `TypeProblem`: Type checking errors
-//! - `SemanticProblem`: Semantic analysis errors (name resolution, etc.)
+//! - `LexProblem`: Tokenization errors, confusables, cross-language habits
+//! - `SemanticProblem`: Semantic analysis errors (name resolution, patterns, etc.)
+//!
+//! Parse errors are rendered directly by `ori_parse::ParseError::to_queued_diagnostic()`
+//! and do not flow through this module.
 //!
 //! Each problem type carries all the data needed to render a helpful error
 //! message, including spans, types, and context.
-//!
-//! # Usage
-//!
-//! ```text
-//! use problem::{Problem, ParseProblem};
-//!
-//! let problem = Problem::Parse(ParseProblem::UnexpectedToken {
-//!     span: token.span,
-//!     expected: "expression",
-//!     found: token.kind.to_string(),
-//! });
-//! ```
 
 pub mod eval;
 pub mod lex;
@@ -39,15 +29,13 @@ pub mod semantic;
 #[cfg(feature = "llvm")]
 pub mod codegen;
 #[cfg(feature = "llvm")]
-pub use codegen::{report_codegen_error, CodegenProblem};
+pub use codegen::{emit_codegen_error, report_codegen_error, CodegenProblem};
 
 pub use eval::eval_error_to_diagnostic;
 pub use lex::LexProblem;
-pub use parse::ParseProblem;
 pub use semantic::SemanticProblem;
 
 use crate::ir::Span;
-use ori_ir::StringInterner;
 
 // HasSpan trait and macros for DRY problem implementations
 
@@ -59,15 +47,14 @@ pub trait HasSpan {
 /// Generate `HasSpan` implementation for an enum with span fields.
 ///
 /// Groups variants by their span field name to handle exceptions.
-/// Most variants use `span`, but some (like `UnclosedDelimiter`) use a different field.
+/// Most variants use `span`, but some may use a different field.
 ///
 /// # Example
 ///
 /// ```text
 /// impl_has_span! {
-///     ParseProblem {
-///         found_span: [UnclosedDelimiter],  // Exception case
-///         span: [UnexpectedToken, ExpectedExpression, ...],
+///     SemanticProblem {
+///         span: [UnknownIdentifier, DuplicateDefinition, ...],
 ///     }
 /// }
 /// ```
@@ -115,6 +102,10 @@ pub(crate) use impl_has_span;
 /// # Salsa Compatibility
 /// Has Clone, Eq, `PartialEq`, Hash, Debug for use in query results.
 ///
+/// # Note on Parse Errors
+/// Parse errors use `ori_parse::ParseError::to_queued_diagnostic()` directly
+/// and do not flow through this enum. This avoids a dual rendering path.
+///
 /// # Note on Type Errors
 /// Type checking errors use `TypeCheckError` from `ori_types` directly,
 /// rather than being wrapped in this enum. This allows the type checker
@@ -123,9 +114,6 @@ pub(crate) use impl_has_span;
 pub enum Problem {
     /// Lex-time problems (tokenization errors, confusables, cross-language habits).
     Lex(LexProblem),
-
-    /// Parse-time problems (syntax errors).
-    Parse(ParseProblem),
 
     /// Semantic analysis problems.
     Semantic(SemanticProblem),
@@ -136,18 +124,16 @@ impl Problem {
     pub fn span(&self) -> Span {
         match self {
             Problem::Lex(p) => p.span(),
-            Problem::Parse(p) => p.span(),
             Problem::Semantic(p) => p.span(),
         }
     }
 
     /// Convert this problem into a diagnostic.
     ///
-    /// The interner is required to look up interned `Name` values.
-    pub fn into_diagnostic(&self, interner: &StringInterner) -> crate::diagnostic::Diagnostic {
+    /// Delegates to the sub-type's `into_diagnostic()` method.
+    pub fn into_diagnostic(&self, interner: &ori_ir::StringInterner) -> ori_diagnostic::Diagnostic {
         match self {
             Problem::Lex(p) => p.into_diagnostic(interner),
-            Problem::Parse(p) => p.into_diagnostic(interner),
             Problem::Semantic(p) => p.into_diagnostic(interner),
         }
     }
@@ -156,13 +142,11 @@ impl Problem {
 // Generate type predicates using macro
 impl_problem_predicates!(Problem {
     Lex => is_lex,
-    Parse => is_parse,
     Semantic => is_semantic,
 });
 
 // Generate From implementations using macro
 impl_from_problem!(LexProblem => Problem::Lex);
-impl_from_problem!(ParseProblem => Problem::Parse);
 impl_from_problem!(SemanticProblem => Problem::Semantic);
 
 #[cfg(test)]
@@ -170,18 +154,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_problem_from_parse() {
-        let parse_problem = ParseProblem::UnexpectedToken {
-            span: Span::new(0, 5),
-            expected: "expression".into(),
-            found: "}".into(),
-        };
+    fn test_problem_from_lex() {
+        use ori_lexer::lex_error::{LexError, LexErrorContext, LexErrorKind};
 
-        let problem: Problem = parse_problem.clone().into();
+        let lex_problem = LexProblem::Error(LexError {
+            kind: LexErrorKind::Semicolon,
+            span: Span::new(0, 1),
+            context: LexErrorContext::default(),
+            suggestions: Vec::new(),
+        });
 
-        assert!(problem.is_parse());
+        let problem: Problem = lex_problem.clone().into();
+
+        assert!(problem.is_lex());
         assert!(!problem.is_semantic());
-        assert_eq!(problem.span(), Span::new(0, 5));
+        assert_eq!(problem.span(), Span::new(0, 1));
     }
 
     #[test]
@@ -194,29 +181,29 @@ mod tests {
 
         let problem: Problem = semantic_problem.clone().into();
 
-        assert!(!problem.is_parse());
+        assert!(!problem.is_lex());
         assert!(problem.is_semantic());
         assert_eq!(problem.span(), Span::new(20, 25));
     }
 
     #[test]
     fn test_problem_equality() {
-        let p1 = Problem::Parse(ParseProblem::UnexpectedToken {
+        let p1 = Problem::Semantic(SemanticProblem::UnknownIdentifier {
             span: Span::new(0, 5),
-            expected: "expression".into(),
-            found: "}".into(),
+            name: "foo".into(),
+            similar: None,
         });
 
-        let p2 = Problem::Parse(ParseProblem::UnexpectedToken {
+        let p2 = Problem::Semantic(SemanticProblem::UnknownIdentifier {
             span: Span::new(0, 5),
-            expected: "expression".into(),
-            found: "}".into(),
+            name: "foo".into(),
+            similar: None,
         });
 
-        let p3 = Problem::Parse(ParseProblem::UnexpectedToken {
+        let p3 = Problem::Semantic(SemanticProblem::UnknownIdentifier {
             span: Span::new(0, 5),
-            expected: "statement".into(),
-            found: "}".into(),
+            name: "bar".into(),
+            similar: None,
         });
 
         assert_eq!(p1, p2);
@@ -227,17 +214,16 @@ mod tests {
     fn test_problem_hash() {
         use std::collections::HashSet;
 
-        let p1 = Problem::Parse(ParseProblem::UnexpectedToken {
+        let p1 = Problem::Semantic(SemanticProblem::UnknownIdentifier {
             span: Span::new(0, 5),
-            expected: "expression".into(),
-            found: "}".into(),
+            name: "foo".into(),
+            similar: None,
         });
 
         let p2 = p1.clone();
-        let p3 = Problem::Semantic(SemanticProblem::UnknownIdentifier {
+        let p3 = Problem::Semantic(SemanticProblem::UnusedVariable {
             span: Span::new(10, 15),
-            name: "foo".into(),
-            similar: None,
+            name: "x".into(),
         });
 
         let mut set = HashSet::new();

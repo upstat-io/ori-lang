@@ -1,5 +1,0 @@
-error: Diagnostic derive only supports structs
- --> tests/ui/fail/not_a_struct.rs:5:10
-  |
-5 | #[derive(Diagnostic)]
-  |          ^^^^^^^^^^

@@ -21,7 +21,7 @@ fn test_eval_error() {
 
 #[test]
 fn test_control_action_propagate() {
-    use crate::eval::ControlAction;
+    use ori_patterns::ControlAction;
     let action = ControlAction::Propagate(Value::None);
     assert!(!action.is_error());
     if let ControlAction::Propagate(v) = action {

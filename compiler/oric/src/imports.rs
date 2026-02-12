@@ -20,6 +20,9 @@
 //!   └── LLVM JIT:    compile imported function bodies
 //! ```
 
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use crate::db::Db;
 use crate::eval::module::import::resolve_import;
 use crate::ir::Name;
@@ -27,14 +30,21 @@ use crate::parser::ParseOutput;
 use crate::query::parsed;
 use crate::typeck::{is_prelude_file, prelude_candidates};
 
-use std::path::Path;
-
 /// A resolved imported module: the parsed output and its source path.
 pub struct ResolvedImportedModule {
     /// Full parsed module (functions, types, arena, etc.).
     pub parse_output: ParseOutput,
     /// Resolved file path (e.g., `library/std/testing.ori`).
-    pub module_path: String,
+    ///
+    /// Uses `PathBuf` (not `String`) for consistent key types across all
+    /// three side-caches (`PoolCache`, `CanonCache`, `ImportsCache`).
+    pub module_path: PathBuf,
+    /// The Salsa `SourceFile` input for this module.
+    ///
+    /// Enables consumers to use Salsa queries (`typed()`, `typed_pool()`) instead
+    /// of bypassing the query pipeline. This ensures type check results are cached
+    /// in Salsa's dependency graph and the Pool is stored in `PoolCache`.
+    pub source_file: Option<crate::input::SourceFile>,
     /// Index into the original `parse_result.module.imports` array.
     /// Enables consumers to map back to the source `UseDef` for
     /// visibility checking, alias handling, etc.
@@ -69,11 +79,72 @@ pub struct ResolvedImports {
     pub errors: Vec<ImportError>,
 }
 
-/// An error encountered during import resolution.
-pub struct ImportError {
-    pub message: String,
-    pub span: ori_ir::Span,
+/// Structured error kind for import resolution failures.
+///
+/// Enables programmatic distinction between error cases without parsing
+/// the error message string. Follows the same pattern as `LexErrorKind`
+/// and `TypeErrorKind` elsewhere in the compiler.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportErrorKind {
+    /// Module file could not be found at any candidate path.
+    ModuleNotFound,
+    /// Specific item not found in the imported module.
+    ItemNotFound,
+    /// Attempt to import a private item without `::` prefix.
+    PrivateAccess,
+    /// Circular import detected during resolution.
+    CircularImport,
+    /// Empty module path (e.g., `use {} { ... }`).
+    EmptyModulePath,
+    /// Module alias import combined with individual items.
+    ModuleAliasWithItems,
 }
+
+/// An error encountered during import resolution.
+#[derive(Debug, Clone)]
+pub struct ImportError {
+    /// Structured error kind for programmatic matching.
+    pub kind: ImportErrorKind,
+    /// Human-readable error message with context.
+    pub message: String,
+    /// Source span where the error occurred.
+    /// `None` for errors without a specific location (e.g., module not found).
+    pub span: Option<ori_ir::Span>,
+}
+
+impl ImportError {
+    /// Create an error without a source span.
+    #[cold]
+    pub fn new(kind: ImportErrorKind, message: impl Into<String>) -> Self {
+        ImportError {
+            kind,
+            message: message.into(),
+            span: None,
+        }
+    }
+
+    /// Create an error with a source span.
+    #[cold]
+    pub fn with_span(
+        kind: ImportErrorKind,
+        message: impl Into<String>,
+        span: ori_ir::Span,
+    ) -> Self {
+        ImportError {
+            kind,
+            message: message.into(),
+            span: Some(span),
+        }
+    }
+}
+
+impl std::fmt::Display for ImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for ImportError {}
 
 /// Resolve all imports for a file.
 ///
@@ -95,7 +166,14 @@ pub fn resolve_imports(
     db: &dyn Db,
     parse_result: &ParseOutput,
     file_path: &Path,
-) -> ResolvedImports {
+) -> Arc<ResolvedImports> {
+    // Check session-scoped cache first — avoids re-resolving imports when
+    // multiple consumers (type checker, evaluator, LLVM backend) need the
+    // same file's imports within a single compilation session.
+    if let Some(cached) = db.imports_cache().get(file_path) {
+        return cached;
+    }
+
     let mut prelude = None;
     let mut modules = Vec::new();
     let mut imported_functions = Vec::new();
@@ -111,7 +189,8 @@ pub fn resolve_imports(
             let prelude_parsed = parsed(db, prelude_file);
             prelude = Some(ResolvedImportedModule {
                 parse_output: prelude_parsed,
-                module_path: "std/prelude".to_string(),
+                module_path: PathBuf::from("std/prelude"),
+                source_file: Some(prelude_file),
                 import_index: 0, // Not used for prelude (stored separately)
             });
         }
@@ -122,22 +201,23 @@ pub fn resolve_imports(
         let resolved = match resolve_import(db, &imp.path, file_path) {
             Ok(resolved) => resolved,
             Err(e) => {
-                let span = e.span.unwrap_or(imp.span);
                 errors.push(ImportError {
+                    kind: e.kind,
                     message: e.message,
-                    span,
+                    span: Some(e.span.unwrap_or(imp.span)),
                 });
                 continue;
             }
         };
 
-        let imported_parsed = parsed(db, resolved.file);
-        let module_path = resolved.path.display().to_string();
+        let source_file = resolved.file;
+        let imported_parsed = parsed(db, source_file);
 
         let module_index = modules.len();
         modules.push(ResolvedImportedModule {
             parse_output: imported_parsed,
-            module_path,
+            module_path: resolved.path.clone(),
+            source_file: Some(source_file),
             import_index: imp_idx,
         });
 
@@ -163,10 +243,16 @@ pub fn resolve_imports(
         }
     }
 
-    ResolvedImports {
+    let result = Arc::new(ResolvedImports {
         prelude,
         modules,
         imported_functions,
         errors,
-    }
+    });
+
+    // Cache for subsequent calls (evaluator, LLVM backend, etc.)
+    db.imports_cache()
+        .store(file_path.to_path_buf(), result.clone());
+
+    result
 }

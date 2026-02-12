@@ -28,8 +28,8 @@ pub use series::{SeriesConfig, TrailingSeparator};
 // They're automatically available at crate root via #[macro_export]
 
 use ori_ir::{
-    ExprArena, Function, Module, ModuleExtra, Span, StringInterner, TestDef, TokenKind, TokenList,
-    Visibility,
+    ExprArena, Function, Module, ModuleExtra, SharedArena, Span, StringInterner, TestDef,
+    TokenKind, TokenList, Visibility,
 };
 use tracing::debug;
 
@@ -460,7 +460,7 @@ impl<'a> Parser<'a> {
 
         ParseOutput {
             module,
-            arena: self.arena,
+            arena: SharedArena::new(self.arena),
             errors,
             warnings: Vec::new(),
             // Note: For metadata support, use parse_with_metadata() which
@@ -807,7 +807,7 @@ impl<'a> Parser<'a> {
 
         ParseOutput {
             module,
-            arena: self.arena,
+            arena: SharedArena::new(self.arena),
             errors,
             warnings: Vec::new(),
             // Note: Incremental metadata merging not yet implemented.
@@ -834,7 +834,7 @@ impl<'a> Parser<'a> {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ParseOutput {
     pub module: Module,
-    pub arena: ExprArena,
+    pub arena: SharedArena,
     pub errors: Vec<ParseError>,
     /// Non-fatal warnings (e.g., detached doc comments).
     pub warnings: Vec<ParseWarning>,

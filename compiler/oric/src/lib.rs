@@ -61,7 +61,6 @@ pub mod query;
 
 // Re-export lex function from the ori_lexer crate (single source of truth)
 pub use ori_lexer::lex;
-pub mod context;
 pub mod diagnostic;
 pub mod edit;
 pub mod eval;
@@ -74,13 +73,9 @@ pub mod tracing_setup;
 pub mod typeck;
 
 // Re-exports for convenience
-pub use context::{shared_context, CompilerContext, SharedContext};
-pub use db::{CompilerDb, Db};
+pub use db::{CanonCache, CompilerDb, Db, PoolCache};
 pub use diagnostic::{Diagnostic, ErrorCode, Label, Severity};
-pub use eval::{
-    Environment, EvalError, EvalErrorSnapshot, EvalOutput, EvalResult, Evaluator, FunctionValue,
-    ModuleEvalResult, RangeValue, Value,
-};
+pub use eval::{EvalErrorSnapshot, EvalOutput, Evaluator, ModuleEvalResult};
 pub use input::SourceFile;
 pub use ir::{
     ArmRange,

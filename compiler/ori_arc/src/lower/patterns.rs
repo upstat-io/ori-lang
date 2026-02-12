@@ -184,6 +184,7 @@ mod tests {
             root: block,
             roots: vec![],
             method_roots: vec![],
+            problems: vec![],
         };
 
         let mut problems = Vec::new();

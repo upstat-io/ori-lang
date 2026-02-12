@@ -1,7 +1,7 @@
 ---
 plan: "dpr_pattern-matching_02112026"
 title: "Design Pattern Review: Pattern Matching"
-status: draft
+status: complete
 ---
 
 # Design Pattern Review: Pattern Matching
@@ -372,39 +372,71 @@ impl<'a> ConstructorInfo for PoolConstructorInfo<'a> {
 
 ## Implementation Roadmap
 
-### Phase 1: Foundation
-- [ ] Create `ori_canon/src/exhaustiveness.rs` with `PatternAnalysis`, `ConstructorInfo` trait, and `ConstructorCount` enum
-- [ ] Implement `analyze_exhaustiveness()` tree walker that collects reachable arms and detects `Fail` nodes
-- [ ] Implement `PoolConstructorInfo` for `bool` exhaustiveness (simplest finite type: exactly 2 constructors)
-- [ ] Add `PatternAnalysis` to `CanonResult` (alongside `DecisionTreePool`) for downstream consumption
-- [ ] Wire `analyze_exhaustiveness()` into `compile_patterns()` -- call after `ori_arc::decision_tree::compile::compile()`, before `DecisionTreePool::push()`
+### Phase 1: Foundation (COMPLETED 2026-02-12)
 
-### Phase 2: Core
-- [ ] Extend `PoolConstructorInfo` to handle enum types: query `Pool::enum_variant_count()` for `TestKind::EnumTag`, return `ConstructorCount::Finite(n)` when scrutinee type resolves to `Tag::Enum`
-- [ ] Extend `PoolConstructorInfo::all_constructors()` to enumerate enum variants (name + index) for missing pattern reconstruction
-- [ ] Handle builtin Option/Result: `Tag::Option` has 2 constructors (None, Some), `Tag::Result` has 2 (Ok, Err)
-- [ ] Implement missing pattern reconstruction (`reconstruct_missing_pattern`) producing human-readable strings like "None", "Err(_)", "Running"
-- [ ] Implement redundant arm detection: compare reachable arm bitmap against total arm count, emit `TypeErrorKind::RedundantPattern` (new variant) with source span
-- [ ] Add `TypeErrorKind::RedundantPattern { arm_span: Span }` to `ori_types::type_error::check_error`
-- [ ] Wire diagnostics: emit `NonExhaustiveMatch` and `RedundantPattern` errors through Salsa accumulation in `ori_canon`
-- [ ] Add conformance tests in `tests/spec/` for exhaustive match on bool, Option, Result, and user-defined enums
-- [ ] Add conformance tests for non-exhaustive match error messages
-- [ ] Add conformance tests for redundant arm warnings
+Implementation simplified the DPR's proposed `ConstructorInfo` trait design. Instead of a generic trait abstraction, Phase 1 uses direct `TestKind` matching in a standalone `check_missing_constructors()` function. This is simpler, avoids premature abstraction, and handles the 80% case (bool + infinite types). The trait can be introduced in Phase 2 when enum variant enumeration requires Pool access.
 
-### Phase 3: Polish
-- [ ] Handle guard-aware exhaustiveness: guarded arms do not count as covering their pattern; verify `on_fail` subtree reaches non-guard Leaf
-- [ ] Handle infinite types: int/str/float switches without a default emit `NonExhaustiveMatch` with `missing: ["_"]`
-- [ ] Handle list pattern exhaustiveness: `[_]`, `[_, _]`, `[..]` coverage analysis
-- [ ] Track `scrutinee_types` per Switch node by recording scrutinee type during `compile_patterns` (thread type info through the Maranget algorithm alongside `ScrutineePath`)
-- [ ] Improve missing pattern formatting: nested patterns like "Some(None)" instead of flat "Some, None"
-- [ ] Performance: avoid allocating `path_context` vectors per recursion by using a stack-based accumulator with `SmallVec<[(TestKind, Option<TestValue>); 8]>`
-- [ ] Investigate ARC reuse opportunities: annotate `Leaf` nodes with consumed sub-values so `ori_arc` can emit `reset`/`reuse` instructions for destructured variants
-- [ ] Connect exhaustiveness gaps to test suggestions: when a function has a non-exhaustive match, suggest a test case that exercises the missing pattern
+- [x] Create `ori_canon/src/exhaustiveness.rs` with `CheckResult` struct and `check_exhaustiveness()` tree walker
+- [x] Implement tree walker that collects reachable arms and detects `Fail` nodes + missing constructors
+- [x] Implement `bool` exhaustiveness: checks both `true`/`false` edges present in `BoolEq` switches
+- [x] Implement infinite type detection: `IntEq`/`StrEq`/`FloatEq`/`IntRange`/`ListLen` without default reports `"_"` missing
+- [x] Implement redundant arm detection: arms not in reachable set reported as `RedundantArm`
+- [x] Add `PatternProblem` enum to `ori_ir::canon::mod.rs` (Salsa-compatible: `Clone, Eq, PartialEq, Hash, Debug`)
+- [x] Add `problems: Vec<PatternProblem>` to `CanonResult` for downstream consumption
+- [x] Wire `check_exhaustiveness()` into `Lowerer::lower_match()` and `Lowerer::lower_multi_clause()`
+- [x] Surface diagnostics in `oric check` command via `SemanticProblem::NonExhaustiveMatch` / `RedundantPattern`
+- [x] Surface diagnostics in test harness (`oric/src/testing/harness.rs`) as eval errors
+- [x] 14 unit tests: bool exhaustive/missing, int/str no default, Fail node, guard fallthrough, redundant arm, nested switch
+- [x] Full test suite passes (8,462 tests, 0 failures)
+- [x] Clippy clean across all crates
+
+### Phase 2: Enum Exhaustiveness (COMPLETED 2026-02-12)
+
+Implementation continued Phase 1's pragmatic approach: pass `Pool` and `StringInterner` directly instead of introducing the DPR's proposed `ConstructorInfo` trait. This avoids premature abstraction — the direct approach is ~100 lines shorter and equally testable. Enum checking is limited to root-level switches (empty `ScrutineePath`); nested switches are deferred to Phase 3 which will add per-Switch type tracking.
+
+Key functions added: `check_enum_tag()` dispatches on `Tag::Enum`/`Option`/`Result`, `check_user_enum()` queries `pool.enum_variant_count()` and `pool.enum_variant()`, `check_option()` and `check_result()` handle builtin container types with hardcoded variant indices.
+
+- [x] Thread scrutinee type (`ori_types::Idx`) through to `check_exhaustiveness()` — added as 5th parameter alongside `pool` and `interner`
+- [x] Pass Pool directly to `check_missing_constructors()` — simpler than `ConstructorInfo` trait (trait deferred unless needed)
+- [x] Query `Pool` for enum variant count when `TestKind::EnumTag` via `check_user_enum()` using `pool.enum_variant_count()` + `pool.enum_variant()`
+- [x] Handle builtin Option/Result: `check_option()` (None=0, Some=1) and `check_result()` (Ok=0, Err=1)
+- [x] Implement missing pattern reconstruction: unit variants as `"Blue"`, field variants as `"Rect(_, _)"`, Option as `"None"`/`"Some(_)"`, Result as `"Ok(_)"`/`"Err(_)"`
+- [x] Update `lower_match()` call site to pass `scrutinee_ty`, `self.pool`, `self.interner`
+- [x] Update `lower_multi_clause()` call site with `Idx::UNIT` (multi-param functions don't have a single enum scrutinee)
+- [x] 11 new unit tests: Option (exhaustive, missing None, missing Some), Result (exhaustive, missing Err), user enum (exhaustive, missing one, missing multiple, variant with fields), enum with default, nested enum skip
+- [x] Full test suite passes (8,473 tests, 0 failures)
+- [x] Add conformance tests in `tests/spec/patterns/exhaustiveness.ori` for exhaustive match on Option, Result, user-defined enums (unit + fields), bool, Option with wildcard, int with wildcard (7 tests)
+- [x] Add conformance tests for non-exhaustive match error messages in `tests/spec/patterns/exhaustiveness_fail.ori` using `#compile_fail`: Option missing None/Some, Result missing Err, user enum missing variants, bool missing false, int without wildcard (6 tests)
+- [x] Add conformance tests for redundant arm warnings in `tests/spec/patterns/exhaustiveness_fail.ori` using `#compile_fail`: bool with extra wildcard after full coverage, wildcard then specific (2 tests)
+- [x] Infrastructure: added `matches_pattern_problem()`, `format_pattern_problem()`, `match_all_errors()` to `error_matching.rs`; hoisted canonicalization in `runner.rs` to pass `PatternProblem` to compile_fail path
+
+### Phase 3: Polish (COMPLETED 2026-02-12)
+
+Implementation added per-Switch type tracking by threading a `FxHashMap<ScrutineePath, Idx>` through the tree walker. When entering a Tag edge of an EnumTag switch, the variant's field types are computed (via `variant_field_types()` which dispatches to `pool.option_inner()`, `pool.result_ok()`/`result_err()`, or `pool.enum_variant()`) and recorded for child paths. This enables nested EnumTag switches at non-empty paths to resolve their scrutinee type and check exhaustiveness. The `!path.is_empty()` guard in `check_enum_tag()` was removed; the function now accepts the type directly from the path_types map.
+
+A nesting context (`Vec<String>`) tracks variant wrappers for diagnostic formatting. When entering a Tag edge for a variant with fields, a wrapper like `"Some({})"` is pushed. Missing patterns from nested switches are wrapped using this context, producing messages like `"Some(None)"` or `"Ok(Some(_))"` instead of bare `"None"`.
+
+- [x] Handle guard-aware exhaustiveness refinement: verified current implementation is correct — guards are reachable (may pass) but `on_fail` subtrees are always walked (may fail). Added 3 verification tests: guard chain all fail (non-exhaustive), guard chain ending in Leaf (exhaustive), guard on bool edge (doesn't count as covering).
+- [x] Handle list pattern exhaustiveness: `check_list_len()` analyzes rest patterns (`is_exact: false`) as covering all lengths >= min, exact patterns cover specific lengths, gaps reported as `"[]"`, `"[_]"`, `"[_, _]"` etc. Pure exact-only patterns correctly reported as non-exhaustive (infinite lengths). 8 unit tests + 5 conformance tests (3 exhaustive, 2 non-exhaustive via `#compile_fail`).
+- [x] Track `scrutinee_types` per Switch node: implemented via `FxHashMap<ScrutineePath, Idx>` threaded through `walk()`, populated per-edge with `variant_field_types()` helper. Removed `!path.is_empty()` guard in `check_enum_tag()`.
+- [x] Improve missing pattern formatting: nested patterns now reported as `"Some(None)"`, `"Ok(None)"`, `"Some(Some(None))"` via nesting wrapper context. Single-field variants get `"Variant({})"` wrapper; multi-field variants get `"Variant({}, _)"` approximation.
+- [x] Performance: N/A — the DPR's proposed `path_context` vectors are not used in the actual implementation. The `FxHashMap<ScrutineePath, Idx>` approach used for type tracking is efficient (entries added/removed per-edge, not cloned per-recursion).
+- [~] Investigate ARC reuse opportunities: deferred to ARC optimization phase — annotate `Leaf` nodes with consumed sub-values so `ori_arc` can emit `reset`/`reuse` instructions for destructured variants
+- [~] Connect exhaustiveness gaps to test suggestions: deferred to diagnostics UX phase — when a function has a non-exhaustive match, suggest a test case that exercises the missing pattern
+- [x] 7 new nested enum unit tests: Option<Option<int>> exhaustive/missing-Some/missing-None, Result<Option<int>,str> missing-Ok(None), Option<Option<Option<int>>> exhaustive/missing-innermost, non-enum nested type skipped
+- [x] 8 new list pattern unit tests: rest-covers-all, empty+rest exhaustive, multi-exact+rest exhaustive, gap-missing-empty, gap-missing-single, exact-only non-exhaustive, rest-missing-multiple-gaps, with-default exhaustive
+- [x] 5 new list conformance tests: 3 exhaustive (empty+rest, rest-only, multi-exact+rest) + 2 non-exhaustive via `#compile_fail` (exact-only, missing empty)
+- [x] Full test suite passes (8,520 tests, 0 failures)
+- [x] Clippy clean across all crates
 
 ## References
 
+- `compiler/ori_canon/src/exhaustiveness.rs` -- **Phase 1+2+3 implementation**: `check_exhaustiveness()`, `walk()` (with path_types + nesting context), `variant_field_types()`, `wrap_pattern()`, `check_missing_constructors()`, `check_enum_tag()`, `check_user_enum()`, `check_option()`, `check_result()`, `check_list_len()`, 42 unit tests
+- `compiler/ori_ir/src/canon/mod.rs` -- `PatternProblem` enum, `CanonResult.problems` field, `CanExpr::Match`, `DecisionTreePool`, `DecisionTreeId`
+- `compiler/ori_canon/src/lower.rs` -- `Lowerer.problems` accumulator, wiring in `lower_match()` and `lower_multi_clause()`
+- `compiler/oric/src/commands/check.rs` -- `pattern_problem_to_diagnostic()`, canonicalization step in `check_file()`
+- `compiler/oric/src/testing/harness.rs` -- `PatternProblem` surfacing as eval errors
 - `compiler/ori_ir/src/canon/tree.rs` -- `DecisionTree`, `FlatPattern`, `PatternRow`, `TestKind`, `TestValue`, `PathInstruction`, `ScrutineePath`
-- `compiler/ori_ir/src/canon/mod.rs` -- `CanExpr::Match`, `DecisionTreePool`, `DecisionTreeId`, `CanonResult`
 - `compiler/ori_ir/src/pattern_resolution.rs` -- `PatternKey`, `PatternResolution`
 - `compiler/ori_ir/src/ast/patterns/binding.rs` -- `MatchPattern` AST variants
 - `compiler/ori_canon/src/patterns.rs` -- `compile_patterns()`, `flatten_arm_pattern()`, `try_resolve_unit_variant()`
