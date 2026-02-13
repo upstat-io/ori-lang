@@ -841,6 +841,9 @@ impl ExprArena {
         self.arms.clear();
         self.map_entries.clear();
         self.field_inits.clear();
+        self.struct_lit_fields.clear();
+        self.list_elements.clear();
+        self.map_elements.clear();
         self.seq_bindings.clear();
         self.named_exprs.clear();
         self.call_args.clear();
@@ -989,6 +992,9 @@ impl PartialEq for ExprArena {
             && self.arms == other.arms
             && self.map_entries == other.map_entries
             && self.field_inits == other.field_inits
+            && self.struct_lit_fields == other.struct_lit_fields
+            && self.list_elements == other.list_elements
+            && self.map_elements == other.map_elements
             && self.seq_bindings == other.seq_bindings
             && self.named_exprs == other.named_exprs
             && self.call_args == other.call_args
@@ -1016,6 +1022,9 @@ impl Hash for ExprArena {
         self.arms.hash(state);
         self.map_entries.hash(state);
         self.field_inits.hash(state);
+        self.struct_lit_fields.hash(state);
+        self.list_elements.hash(state);
+        self.map_elements.hash(state);
         self.seq_bindings.hash(state);
         self.named_exprs.hash(state);
         self.call_args.hash(state);

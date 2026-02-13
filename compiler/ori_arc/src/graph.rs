@@ -75,6 +75,58 @@ pub(crate) fn collect_invoke_defs(func: &ArcFunction) -> FxHashMap<ArcBlockId, V
     map
 }
 
+/// Compute a postorder traversal of the CFG starting from the entry block.
+///
+/// Uses an iterative DFS with an explicit stack to avoid recursion depth
+/// issues on deeply nested CFGs. Only visits reachable blocks.
+///
+/// Used by liveness analysis (convergence ordering) and the dominator tree
+/// (reverse postorder). Shared here so both consumers use the same
+/// traversal implementation.
+pub(crate) fn compute_postorder(func: &ArcFunction) -> Vec<usize> {
+    let num_blocks = func.blocks.len();
+    let mut visited = vec![false; num_blocks];
+    let mut postorder = Vec::with_capacity(num_blocks);
+
+    // Stack entries: (block_index, children_processed).
+    // When children_processed is false, we push successors.
+    // When true, we emit the block to postorder.
+    let mut stack: Vec<(usize, bool)> = vec![(func.entry.index(), false)];
+
+    while let Some(&mut (block_idx, ref mut children_done)) = stack.last_mut() {
+        if *children_done {
+            postorder.push(block_idx);
+            stack.pop();
+            continue;
+        }
+
+        *children_done = true;
+
+        if block_idx >= num_blocks {
+            stack.pop();
+            continue;
+        }
+
+        if visited[block_idx] {
+            stack.pop();
+            continue;
+        }
+        visited[block_idx] = true;
+
+        // Push successors (they'll be processed before we come back to
+        // emit this block).
+        let block = &func.blocks[block_idx];
+        for succ_id in successor_block_ids(&block.terminator) {
+            let succ_idx = succ_id.index();
+            if succ_idx < num_blocks && !visited[succ_idx] {
+                stack.push((succ_idx, false));
+            }
+        }
+    }
+
+    postorder
+}
+
 /// Dominator tree for ARC IR functions.
 ///
 /// Uses the Cooper-Harvey-Kennedy iterative algorithm, which is simpler than
@@ -199,35 +251,9 @@ impl DominatorTree {
 
     /// Compute reverse postorder traversal of the CFG.
     fn reverse_postorder(func: &ArcFunction) -> Vec<usize> {
-        let n = func.blocks.len();
-        let mut visited = vec![false; n];
-        let mut postorder = Vec::with_capacity(n);
-
-        Self::dfs_postorder(func, func.entry.index(), &mut visited, &mut postorder);
-
-        postorder.reverse();
-        postorder
-    }
-
-    fn dfs_postorder(
-        func: &ArcFunction,
-        block_idx: usize,
-        visited: &mut [bool],
-        postorder: &mut Vec<usize>,
-    ) {
-        if visited[block_idx] {
-            return;
-        }
-        visited[block_idx] = true;
-
-        for succ in successor_block_ids(&func.blocks[block_idx].terminator) {
-            let succ_idx = succ.index();
-            if succ_idx < func.blocks.len() {
-                Self::dfs_postorder(func, succ_idx, visited, postorder);
-            }
-        }
-
-        postorder.push(block_idx);
+        let mut rpo = compute_postorder(func);
+        rpo.reverse();
+        rpo
     }
 
     /// CHK intersect: walk two fingers upward until they meet.

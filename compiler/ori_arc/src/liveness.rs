@@ -34,7 +34,8 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
+use crate::graph::{compute_postorder, successor_block_ids};
+use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcVarId};
 use crate::ArcClassification;
 
 /// Set of live variables at a program point.
@@ -108,7 +109,7 @@ pub fn compute_liveness(func: &ArcFunction, classifier: &dyn ArcClassification) 
             // `ArcTerminator::used_vars()`), and block params are definitions
             // in the successor (in kill). No explicit substitution needed.
             let mut new_live_out = LiveSet::default();
-            for (succ_id, _) in successor_edges(&func.blocks[block_idx].terminator) {
+            for succ_id in successor_block_ids(&func.blocks[block_idx].terminator) {
                 let succ_idx = succ_id.index();
                 if succ_idx < num_blocks {
                     for &var in &live_in[succ_idx] {
@@ -213,94 +214,6 @@ fn needs_rc_var(var: ArcVarId, func: &ArcFunction, classifier: &dyn ArcClassific
         // Out-of-bounds variable — conservative fallback.
         true
     }
-}
-
-/// Extract successor edges from a terminator.
-///
-/// Returns `(successor_block_id, jump_arguments)` pairs. `Jump` passes
-/// its args to the target. `Branch`, `Switch`, and `Invoke` jump without
-/// block arguments (empty slice). `Return`, `Resume`, and `Unreachable`
-/// have no successors.
-fn successor_edges(terminator: &ArcTerminator) -> Vec<(ArcBlockId, &[ArcVarId])> {
-    match terminator {
-        ArcTerminator::Jump { target, args } => {
-            vec![(*target, args.as_slice())]
-        }
-
-        ArcTerminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => {
-            vec![(*then_block, &[]), (*else_block, &[])]
-        }
-
-        ArcTerminator::Switch { cases, default, .. } => {
-            let mut edges = Vec::with_capacity(cases.len() + 1);
-            for &(_, block) in cases {
-                edges.push((block, &[] as &[ArcVarId]));
-            }
-            edges.push((*default, &[]));
-            edges
-        }
-
-        ArcTerminator::Invoke { normal, unwind, .. } => {
-            // Invoke defines `dst` at the normal successor entry (handled
-            // via `collect_invoke_defs` → kill set). The unwind successor
-            // does NOT receive the `dst` definition.
-            vec![(*normal, &[]), (*unwind, &[])]
-        }
-
-        ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => vec![],
-    }
-}
-
-/// Compute a postorder traversal of the CFG starting from the entry block.
-///
-/// Uses an iterative DFS with an explicit stack to avoid recursion depth
-/// issues. Only visits reachable blocks.
-fn compute_postorder(func: &ArcFunction) -> Vec<usize> {
-    let num_blocks = func.blocks.len();
-    let mut visited = vec![false; num_blocks];
-    let mut postorder = Vec::with_capacity(num_blocks);
-
-    // Stack entries: (block_index, children_processed).
-    // When children_processed is false, we push successors.
-    // When true, we emit the block to postorder.
-    let mut stack: Vec<(usize, bool)> = vec![(func.entry.index(), false)];
-
-    while let Some(&mut (block_idx, ref mut children_done)) = stack.last_mut() {
-        if *children_done {
-            postorder.push(block_idx);
-            stack.pop();
-            continue;
-        }
-
-        *children_done = true;
-
-        if block_idx >= num_blocks {
-            stack.pop();
-            continue;
-        }
-
-        if visited[block_idx] {
-            stack.pop();
-            continue;
-        }
-        visited[block_idx] = true;
-
-        // Push successors (they'll be processed before we come back to
-        // emit this block).
-        let block = &func.blocks[block_idx];
-        for (succ_id, _) in successor_edges(&block.terminator) {
-            let succ_idx = succ_id.index();
-            if succ_idx < num_blocks && !visited[succ_idx] {
-                stack.push((succ_idx, false));
-            }
-        }
-    }
-
-    postorder
 }
 
 /// Refined liveness that distinguishes *why* a variable is live.
@@ -423,7 +336,9 @@ mod tests {
     use crate::test_helpers::{b, make_func, owned_param as param, v};
     use crate::ArcClassifier;
 
-    use super::{compute_liveness, compute_postorder};
+    use crate::graph::compute_postorder;
+
+    use super::compute_liveness;
 
     // Tests
 

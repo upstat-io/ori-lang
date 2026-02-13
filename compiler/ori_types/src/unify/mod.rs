@@ -296,11 +296,13 @@ impl<'pool> UnifyEngine<'pool> {
             }),
 
             VarState::Generalized { id, .. } => {
-                // Generalized variables should be instantiated before unification
-                panic!(
-                    "Attempted to unify generalized variable ${id}. \
-                     Generalized variables must be instantiated before use."
+                // Generalized variables should be instantiated before unification.
+                // This is a compiler invariant violation, not a user error.
+                tracing::error!(
+                    var_id = id,
+                    "attempted to unify generalized variable without instantiation"
                 );
+                Err(UnifyError::UninstantiatedGeneralized { var_id: id })
             }
         }
     }

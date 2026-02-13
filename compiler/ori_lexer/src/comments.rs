@@ -2,6 +2,8 @@
 //!
 //! Classifies comments by their content and normalizes spacing.
 
+use std::borrow::Cow;
+
 use ori_ir::CommentKind;
 
 /// Classify a comment by its content and return the normalized content.
@@ -9,8 +11,10 @@ use ori_ir::CommentKind;
 /// Normalizes spacing: adds a space after `//` if missing, removes extra space
 /// after doc markers.
 ///
-/// Returns (`CommentKind`, `normalized_content`).
-pub(crate) fn classify_and_normalize_comment(content: &str) -> (CommentKind, String) {
+/// Returns (`CommentKind`, `normalized_content`). Uses `Cow` to avoid allocation
+/// when the content is already in the correct format (the common case for
+/// regular comments with a leading space).
+pub(crate) fn classify_and_normalize_comment(content: &str) -> (CommentKind, Cow<'_, str>) {
     // Trim leading whitespace to check for markers
     let trimmed = content.trim_start();
 
@@ -30,9 +34,12 @@ pub(crate) fn classify_and_normalize_comment(content: &str) -> (CommentKind, Str
                     // Valid `* name: description` pattern
                     let desc = after_star[colon_pos + 1..].trim_start();
                     if desc.is_empty() {
-                        return (CommentKind::DocMember, format!(" * {name_part}:"));
+                        return (CommentKind::DocMember, format!(" * {name_part}:").into());
                     }
-                    return (CommentKind::DocMember, format!(" * {name_part}: {desc}"));
+                    return (
+                        CommentKind::DocMember,
+                        format!(" * {name_part}: {desc}").into(),
+                    );
                 }
             }
         }
@@ -41,7 +48,7 @@ pub(crate) fn classify_and_normalize_comment(content: &str) -> (CommentKind, Str
     if let Some(rest) = trimmed.strip_prefix('#') {
         // Description: `// #Text` -> ` #Text`
         let text = rest.trim_start();
-        return (CommentKind::DocDescription, format!(" #{text}"));
+        return (CommentKind::DocDescription, format!(" #{text}").into());
     }
 
     if let Some(rest) = trimmed.strip_prefix("@param") {
@@ -52,7 +59,7 @@ pub(crate) fn classify_and_normalize_comment(content: &str) -> (CommentKind, Str
         } else {
             rest
         };
-        return (CommentKind::DocMember, format!(" @param {text}"));
+        return (CommentKind::DocMember, format!(" @param {text}").into());
     }
 
     if let Some(rest) = trimmed.strip_prefix("@field") {
@@ -63,31 +70,31 @@ pub(crate) fn classify_and_normalize_comment(content: &str) -> (CommentKind, Str
         } else {
             rest
         };
-        return (CommentKind::DocMember, format!(" @field {text}"));
+        return (CommentKind::DocMember, format!(" @field {text}").into());
     }
 
     if let Some(rest) = trimmed.strip_prefix('!') {
         // Warning: `// !Text` -> ` !Text`
         let text = rest.trim_start();
-        return (CommentKind::DocWarning, format!(" !{text}"));
+        return (CommentKind::DocWarning, format!(" !{text}").into());
     }
 
     if let Some(rest) = trimmed.strip_prefix('>') {
         // Example: `// >example()` -> ` >example()`
         // Don't trim after > to preserve example formatting
-        return (CommentKind::DocExample, format!(" >{rest}"));
+        return (CommentKind::DocExample, format!(" >{rest}").into());
     }
 
     // Regular comment - ensure space after //
     if content.is_empty() {
         // Empty comment: just "//"
-        (CommentKind::Regular, String::new())
+        (CommentKind::Regular, Cow::Borrowed(""))
     } else if content.starts_with(' ') {
-        // Already has space: preserve as-is
-        (CommentKind::Regular, content.to_string())
+        // Already has space: preserve as-is (zero-copy fast path)
+        (CommentKind::Regular, Cow::Borrowed(content))
     } else {
         // Missing space: add one
-        (CommentKind::Regular, format!(" {content}"))
+        (CommentKind::Regular, format!(" {content}").into())
     }
 }
 
@@ -205,6 +212,14 @@ mod tests {
         let (kind, content) = classify_and_normalize_comment(" @param x The value");
         assert_eq!(kind, CommentKind::DocMember);
         assert_eq!(content, " @param x The value");
+    }
+
+    #[test]
+    fn test_classify_regular_borrows() {
+        // The common case (regular comment with space) should borrow, not allocate
+        let (kind, content) = classify_and_normalize_comment(" regular text");
+        assert_eq!(kind, CommentKind::Regular);
+        assert!(matches!(content, Cow::Borrowed(_)));
     }
 
     #[test]

@@ -577,9 +577,10 @@ impl TestRunner {
             ) else {
                 // Pool not cached — internal error. Push empty results to
                 // maintain index alignment with resolved.modules.
-                imported_type_results.push(TypeCheckResult::default());
-                imported_canon_results
-                    .push(ori_ir::canon::SharedCanonResult::new(Default::default()));
+                imported_type_results.push(TypeCheckResult::ok(Default::default()));
+                imported_canon_results.push(ori_ir::canon::SharedCanonResult::new(
+                    ori_ir::canon::CanonResult::empty(),
+                ));
                 continue;
             };
             // Use cached canonicalization — avoids re-canonicalizing the same

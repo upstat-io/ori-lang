@@ -93,9 +93,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Look up the LLVM value for an ARC variable.
+    ///
+    /// Returns `ValueId::NONE` and logs a warning if the variable is not yet
+    /// defined — this is an internal invariant violation but should not crash
+    /// the compiler. The malformed IR will be caught by `codegen_error_count`.
     fn var(&self, v: ArcVarId) -> ValueId {
-        self.var_map[v.index()]
-            .unwrap_or_else(|| panic!("ArcIrEmitter: variable v{} not yet defined", v.raw()))
+        if let Some(Some(val)) = self.var_map.get(v.index()) {
+            *val
+        } else {
+            tracing::error!(var = v.raw(), "ArcIrEmitter: variable not yet defined");
+            ValueId::NONE
+        }
     }
 
     /// Bind an ARC variable to an LLVM value.
@@ -489,7 +497,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 ctor,
                 args,
             } => {
-                let val = self.emit_construct(*ty, ctor, args, func);
+                let val = self.emit_construct(*ty, ctor, args);
                 self.def_var(*dst, val);
             }
 
@@ -544,7 +552,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 // After expansion by Section 09, this is the "fast path" —
                 // the token's memory is already allocated.
                 // For the initial scaffold, just construct normally.
-                let val = self.emit_construct(*ty, ctor, args, func);
+                let val = self.emit_construct(*ty, ctor, args);
                 self.def_var(*dst, val);
                 // Token is consumed but not needed for the basic path.
                 let _ = token;
@@ -554,8 +562,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 // In-place field update (only valid when uniquely owned)
                 let base_val = self.var(*base);
                 let new_val = self.var(*value);
-                let base_ty = func.var_type(*base);
-                let _llvm_base_ty = self.resolve_type(base_ty);
 
                 // insert_value for value-typed structs
                 let updated =
@@ -730,13 +736,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     // -----------------------------------------------------------------------
 
     /// Emit a `Construct` instruction.
-    fn emit_construct(
-        &mut self,
-        ty: Idx,
-        ctor: &CtorKind,
-        args: &[ArcVarId],
-        _func: &ArcFunction,
-    ) -> ValueId {
+    fn emit_construct(&mut self, ty: Idx, ctor: &CtorKind, args: &[ArcVarId]) -> ValueId {
         let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
         let llvm_ty = self.resolve_type(ty);
 
