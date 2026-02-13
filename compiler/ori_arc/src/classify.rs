@@ -185,13 +185,16 @@ impl<'pool> ArcClassifier<'pool> {
                 }
             }
 
-            // Type variables (unresolved -- conservative)
-            Tag::Var | Tag::BoundVar | Tag::RigidVar => ArcClass::PossibleRef,
-
-            // Type schemes and special types (conservative)
-            Tag::Scheme | Tag::Projection | Tag::ModuleNs | Tag::Infer | Tag::SelfType => {
-                ArcClass::PossibleRef
-            }
+            // Type variables, borrowed references, schemes, and special types (conservative)
+            Tag::Var
+            | Tag::BoundVar
+            | Tag::RigidVar
+            | Tag::Borrowed
+            | Tag::Scheme
+            | Tag::Projection
+            | Tag::ModuleNs
+            | Tag::Infer
+            | Tag::SelfType => ArcClass::PossibleRef,
         }
     }
 

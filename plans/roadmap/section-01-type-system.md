@@ -1,7 +1,7 @@
 ---
 section: 1
 title: Type System Foundation
-status: in-progress
+status: complete
 tier: 1
 goal: Fix type checking to properly use type annotations
 spec:
@@ -29,13 +29,13 @@ sections:
     status: complete
   - id: "1.5"
     title: Section Completion Checklist
-    status: in-progress
+    status: complete
   - id: "1.6"
     title: Low-Level Future-Proofing (Reserved Slots)
-    status: in-progress
+    status: complete
   - id: "1.7"
     title: Section Completion Checklist (Updated)
-    status: in-progress
+    status: complete
 ---
 
 # Section 1: Type System Foundation
@@ -44,7 +44,7 @@ sections:
 
 > **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: Core (1.1-1.4) verified complete 2026-02-10. 1.1 all LLVM AOT tests complete 2026-02-13 (fixed byte codegen bug). 1.1A fully complete 2026-02-13 (constant folding added). 1.1B fully complete 2026-02-13 — `?` LLVM support fixed (type variable resolution + Result::unwrap coercion); 11 AOT tests added. 1.6 partially started (keywords reserved, type system slots not yet added).
+**Status**: **COMPLETE** ✅ (2026-02-13). Core (1.1-1.4) verified 2026-02-10. 1.1 all LLVM AOT tests 2026-02-13. 1.1A constant folding 2026-02-13. 1.1B `?` LLVM support 2026-02-13. 1.6 type system slots (LifetimeId, ValueCategory, Borrowed tag, StructDef category) + parser `&T` error + keyword rejection verified 2026-02-13.
 
 **Known Bug (RESOLVED)**: `let` bindings directly in `@main` body previously crashed (`type_interner.rs` index out of bounds). Fixed as of 2026-02-13 — `type_interner.rs` was removed during hygiene refactors. 6 regression tests added.
 
@@ -324,35 +324,43 @@ Reserve architectural space in the type system for future low-level features (in
 
 ### Type System Slots
 
-- [ ] **Implement**: Add `LifetimeId` type to `ori_types`
-  - [ ] `LifetimeId(u32)` newtype with `STATIC` constant only — **NOT IMPLEMENTED**
+- [x] **Implement**: Add `LifetimeId` type to `ori_types` ✅ (2026-02-13)
+  - [x] `LifetimeId(u32)` newtype with `STATIC` and `SCOPED` constants in `ori_types/src/lifetime.rs`
+  - [x] 7 unit tests (roundtrip, display, equality, hash, size assertion)
+  - [x] Salsa compatibility assertion in `lib.rs`
 
-- [ ] **Implement**: Add `ValueCategory` enum to `ori_types`
-  - [ ] `Boxed` (default), `Inline` (reserved), `View` (reserved) — **NOT IMPLEMENTED**
+- [x] **Implement**: Add `ValueCategory` enum to `ori_types` ✅ (2026-02-13)
+  - [x] `Boxed` (default), `Inline` (reserved), `View` (reserved) in `ori_types/src/value_category.rs`
+  - [x] 5 unit tests (default, predicates, display, size, hash)
+  - [x] Salsa compatibility assertion in `lib.rs`
 
-- [ ] **Implement**: Add `#[doc(hidden)]` `Borrowed` variant to `Type` enum
-  - [ ] `Borrowed { inner: Box<Type>, lifetime: LifetimeId }` — **NOT IMPLEMENTED**
+- [x] **Implement**: Add `Borrowed` variant to `Tag` enum ✅ (2026-02-13)
+  - [x] `Tag::Borrowed = 34` in two-child containers range, extra layout: `[inner_idx, lifetime_id]`
+  - [x] Updated all exhaustive matches: `tag.rs`, `pool/mod.rs`, `pool/format.rs`, `type_error/diff.rs`, `ori_arc/classify.rs`, `ori_llvm/type_info.rs`
+  - [x] Note: `#[doc(hidden)]` removed per clippy — variant is internal to compiler, fully visible
 
-- [ ] **Implement**: Add `category` field to `TypeData::Struct` variant (if exists)
-  - [ ] Default to `ValueCategory::Boxed` — **NOT IMPLEMENTED**
+- [x] **Implement**: Add `category` field to `StructDef` ✅ (2026-02-13)
+  - [x] `category: ValueCategory` field on `StructDef`, default to `ValueCategory::Boxed`
+  - [x] Updated all 4 construction sites: `registry/types.rs`, `output/mod.rs`, `ori_llvm/type_registration.rs` (×2)
 
 ### Syntax Reservation
 
 - [x] **Implement**: Add `inline` as reserved keyword in lexer ✅ (2026-02-10)
   - [x] Recognized in `ori_lexer/src/keywords.rs` (reserved-future list)
-  - [ ] Does NOT produce helpful error — currently usable as identifier name
+  - [x] Produces E0015 error: "`inline` is reserved for future use" ✅ (verified 2026-02-13)
 
 - [x] **Implement**: Add `view` as reserved keyword in lexer ✅ (2026-02-10)
   - [x] Recognized in `ori_lexer/src/keywords.rs` (reserved-future list)
-  - [ ] Does NOT produce helpful error — currently usable as identifier name
+  - [x] Produces E0015 error: "`view` is reserved for future use" ✅ (verified 2026-02-13)
 
-- [ ] **Implement**: Reserve `&` in type position
-  - [ ] Parser rejects `&T` with generic error ("expected ,, found &"), not helpful message
-  - [ ] **Partially done**: `&` is rejected in type position but error message not user-friendly
+- [x] **Implement**: Reserve `&` in type position ✅ (2026-02-13)
+  - [x] Parser detects `&` in `parse_type()` and produces E1001: "borrowed references (`&T`) are reserved for a future version of Ori"
+  - [x] Recovers by parsing inner type, enabling continued parsing
+  - [x] 3 parser tests: `&int`, `&MyType`, `&` alone
 
-- [ ] **Implement**: Parser rejects reserved keywords with helpful errors
-  - [ ] Keywords recognized but NO helpful error messages produced
-  - [ ] `inline` and `view` are usable as variable names (no rejection)
+- [x] **Implement**: Parser rejects reserved keywords with helpful errors ✅ (verified 2026-02-13)
+  - [x] Lexer cooker produces `LexError::ReservedFutureKeyword` with E0015 for all 5 reserved-future keywords (`asm`, `inline`, `static`, `union`, `view`)
+  - [x] Token still interned as `Ident` for parse recovery; error reported to user
 
 ---
 
@@ -364,10 +372,9 @@ Reserve architectural space in the type system for future low-level features (in
 - [x] 1.2 Parameter type annotations complete ✅ (2026-02-10)
 - [x] 1.3 Lambda type annotations complete ✅ (2026-02-10)
 - [x] 1.4 Let binding types complete ✅ (2026-02-10)
-- [ ] 1.6 Low-level future-proofing — keywords reserved; type system slots NOT implemented
+- [x] 1.6 Low-level future-proofing complete ✅ (2026-02-13) — LifetimeId, ValueCategory, Borrowed tag, StructDef category field, `&T` parser error, keyword rejection verified
 - [x] LLVM AOT tests complete — all 8 primitive types have AOT tests ✅ (2026-02-13); fixed byte codegen bug (i64→i8 store mismatch causing segfault)
 - [x] Loop/break/continue AOT tests — 5 tests verifying Never coercion in loops ✅ (2026-02-13)
 - [x] `@main` let binding bug fixed ✅ (2026-02-13) — `type_interner.rs` removed during hygiene refactors; 6 regression tests added
 
-**Remaining gaps:**
-- 1.6: LifetimeId, ValueCategory, Borrowed variant, helpful keyword rejection errors — not implemented
+**Section 1 complete.** All subsections (1.1–1.4, 1.6) implemented and verified.

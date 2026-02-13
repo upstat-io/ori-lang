@@ -60,7 +60,9 @@ mod tests {
     use crate::context::SimpleCx;
     use inkwell::context::Context;
     use ori_ir::Name;
-    use ori_types::{EnumVariant, Idx, Pool, StructDef, TypeEntry, TypeKind, Visibility};
+    use ori_types::{
+        EnumVariant, Idx, Pool, StructDef, TypeEntry, TypeKind, ValueCategory, Visibility,
+    };
 
     /// Create a pool with a Point struct: { x: int, y: float }
     /// Returns (pool, struct_idx) where struct_idx is the concrete Struct Idx.
@@ -126,7 +128,10 @@ mod tests {
         let entry = make_type_entry(
             Name::from_raw(100),
             struct_idx,
-            TypeKind::Struct(StructDef { fields: vec![] }),
+            TypeKind::Struct(StructDef {
+                fields: vec![],
+                category: ValueCategory::default(),
+            }),
         );
         register_user_types(&resolver, &[entry]);
 
@@ -172,7 +177,10 @@ mod tests {
         let entry = TypeEntry {
             name: Name::from_raw(300),
             idx: Idx::INT, // dummy — won't be resolved
-            kind: TypeKind::Struct(StructDef { fields: vec![] }),
+            kind: TypeKind::Struct(StructDef {
+                fields: vec![],
+                category: ValueCategory::default(),
+            }),
             span: ori_ir::Span::new(0, 0),
             type_params: vec![Name::from_raw(301)], // generic param T
             visibility: Visibility::Public,

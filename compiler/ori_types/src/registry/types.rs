@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use ori_ir::{Name, Span};
 use rustc_hash::FxHashMap;
 
-use crate::Idx;
+use crate::{Idx, ValueCategory};
 
 /// Registry for user-defined types.
 ///
@@ -85,6 +85,12 @@ pub enum TypeKind {
 pub struct StructDef {
     /// The struct fields.
     pub fields: Vec<FieldDef>,
+
+    /// Memory semantics for this struct (always `Boxed` for now).
+    ///
+    /// Reserved for future `inline type` support where structs may be
+    /// stack-allocated and copied on assignment rather than ARC-managed.
+    pub category: ValueCategory,
 }
 
 /// Definition of a struct or record variant field.
@@ -165,7 +171,10 @@ impl TypeRegistry {
         let entry = TypeEntry {
             name,
             idx,
-            kind: TypeKind::Struct(StructDef { fields }),
+            kind: TypeKind::Struct(StructDef {
+                fields,
+                category: ValueCategory::default(),
+            }),
             span,
             type_params,
             visibility,

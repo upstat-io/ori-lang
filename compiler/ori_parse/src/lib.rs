@@ -49,6 +49,10 @@ pub struct Parser<'a> {
     arena: ExprArena,
     /// Current parsing context flags.
     pub(crate) context: ParseContext,
+    /// Errors from sub-parsers that lack `&mut Vec<ParseError>` access
+    /// (e.g., `parse_type()` detecting reserved syntax like `&T`).
+    /// Drained into the main error list in `parse_module()`.
+    pub(crate) deferred_errors: Vec<ParseError>,
 }
 
 impl<'a> Parser<'a> {
@@ -60,6 +64,7 @@ impl<'a> Parser<'a> {
             cursor: Cursor::new(tokens, interner),
             arena: ExprArena::with_capacity(estimated_source_len),
             context: ParseContext::new(),
+            deferred_errors: Vec::new(),
         }
     }
 
@@ -473,6 +478,9 @@ impl<'a> Parser<'a> {
             self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
         }
 
+        // Drain deferred errors from sub-parsers (e.g., parse_type() reserved syntax).
+        errors.append(&mut self.deferred_errors);
+
         ParseOutput {
             module,
             arena: SharedArena::new(self.arena),
@@ -819,6 +827,9 @@ impl<'a> Parser<'a> {
 
             self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
         }
+
+        // Drain deferred errors from sub-parsers (e.g., parse_type() reserved syntax).
+        errors.append(&mut self.deferred_errors);
 
         ParseOutput {
             module,

@@ -82,6 +82,9 @@ impl Pool {
                 buf.push('>');
             }
 
+            // Borrowed (reserved, never constructed)
+            Tag::Borrowed => buf.push_str("<borrowed>"),
+
             // Function
             Tag::Function => {
                 let params = self.function_params(idx);
@@ -398,6 +401,7 @@ impl Pool {
             Tag::Range => "range",
             Tag::Map => "map",
             Tag::Result => "result",
+            Tag::Borrowed => "borrowed reference",
             Tag::Function => "function",
             Tag::Tuple => "tuple",
             Tag::Var | Tag::BoundVar | Tag::RigidVar => "type variable",

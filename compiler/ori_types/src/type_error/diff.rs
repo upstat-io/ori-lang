@@ -306,6 +306,7 @@ fn tag_name(tag: Tag) -> &'static str {
         Tag::Range => "range",
         Tag::Map => "map",
         Tag::Result => "result",
+        Tag::Borrowed => "borrowed reference",
         Tag::Function => "function",
         Tag::Tuple => "tuple",
         Tag::Struct => "struct",
