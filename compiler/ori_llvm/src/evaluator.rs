@@ -312,6 +312,12 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                 fc.compile_impls(&module.impls, impl_sigs, canon, &module.traits);
             }
 
+            // 7b. Compile derived trait methods
+            if module.types.iter().any(|t| !t.derives.is_empty()) {
+                debug!("compiling derived trait methods");
+                fc.compile_derives(module, user_types);
+            }
+
             // 8. Define all function bodies (phase 2)
             debug!("defining function bodies (phase 2)");
             fc.define_all(&module.functions, function_sigs, canon);
