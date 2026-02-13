@@ -54,10 +54,18 @@ pub(crate) fn is_prelude_file(file_path: &Path) -> bool {
 /// the evaluator's module loading for imported modules. It creates a
 /// `ModuleChecker`, registers prelude and imported functions, then runs
 /// all type checking passes.
-pub fn type_check_with_imports_and_pool(
+///
+/// # Cache Safety
+///
+/// Requires a [`CacheGuard`] proving that session-scoped side-caches have
+/// been invalidated (or are not applicable for this module). This prevents
+/// callers from accidentally using stale `PoolCache`/`CanonCache`/`ImportsCache`
+/// entries after re-type-checking.
+pub(crate) fn type_check_with_imports_and_pool(
     db: &dyn Db,
     parse_result: &ParseOutput,
     current_file: &Path,
+    _guard: crate::query::CacheGuard,
 ) -> (TypeCheckResult, ori_types::Pool) {
     let interner = db.interner();
 
@@ -149,11 +157,25 @@ fn register_resolved_imports(
     }
 
     // 2. Report any import resolution errors
+    //
+    // Span is guaranteed present: resolve_imports() always fills in the
+    // use-statement span via `e.span.unwrap_or(imp.span)` (imports.rs:210).
     for error in &resolved.errors {
-        let span = error.span.unwrap_or(ori_ir::Span::DUMMY);
+        debug_assert!(
+            error.span.is_some(),
+            "import errors from resolve_imports should always have spans"
+        );
+        let span = error.span.unwrap_or_else(|| {
+            tracing::error!(
+                message = %error.message,
+                "import error missing span — resolve_imports invariant violated"
+            );
+            ori_ir::Span::DUMMY
+        });
         checker.push_error(ori_types::TypeCheckError::import_error(
             error.message.clone(),
             span,
+            error.kind,
         ));
     }
 
@@ -187,7 +209,8 @@ fn register_resolved_imports(
                     "function '{func_name}' not found in module '{}'",
                     module_path.display()
                 ),
-                ori_ir::Span::DUMMY,
+                func_ref.span,
+                ori_types::ImportErrorKind::ItemNotFound,
             ));
             continue;
         };
@@ -196,9 +219,11 @@ fn register_resolved_imports(
         if func_ref.local_name == func_ref.original_name {
             checker.register_imported_function(func, &imported_parsed.arena);
         } else {
-            let mut aliased_func = func.clone();
-            aliased_func.name = func_ref.local_name;
-            checker.register_imported_function(&aliased_func, &imported_parsed.arena);
+            checker.register_imported_function_as(
+                func,
+                &imported_parsed.arena,
+                func_ref.local_name,
+            );
         }
     }
 }

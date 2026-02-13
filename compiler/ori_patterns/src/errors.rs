@@ -196,6 +196,42 @@ pub enum EvalErrorKind {
     },
 }
 
+impl EvalErrorKind {
+    /// Stable, machine-readable variant name.
+    ///
+    /// Returns a `&'static str` for the variant, independent of `Debug`
+    /// formatting. Used by `EvalErrorSnapshot::from_eval_error` at the
+    /// Salsa boundary to produce a deterministic `kind_name` field.
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            Self::DivisionByZero => "DivisionByZero",
+            Self::ModuloByZero => "ModuloByZero",
+            Self::IntegerOverflow { .. } => "IntegerOverflow",
+            Self::TypeMismatch { .. } => "TypeMismatch",
+            Self::InvalidBinaryOp { .. } => "InvalidBinaryOp",
+            Self::BinaryTypeMismatch { .. } => "BinaryTypeMismatch",
+            Self::UndefinedVariable { .. } => "UndefinedVariable",
+            Self::UndefinedFunction { .. } => "UndefinedFunction",
+            Self::UndefinedConst { .. } => "UndefinedConst",
+            Self::UndefinedField { .. } => "UndefinedField",
+            Self::UndefinedMethod { .. } => "UndefinedMethod",
+            Self::IndexOutOfBounds { .. } => "IndexOutOfBounds",
+            Self::KeyNotFound { .. } => "KeyNotFound",
+            Self::ImmutableBinding { .. } => "ImmutableBinding",
+            Self::ArityMismatch { .. } => "ArityMismatch",
+            Self::StackOverflow { .. } => "StackOverflow",
+            Self::NotCallable { .. } => "NotCallable",
+            Self::NonExhaustiveMatch => "NonExhaustiveMatch",
+            Self::AssertionFailed { .. } => "AssertionFailed",
+            Self::PanicCalled { .. } => "PanicCalled",
+            Self::MissingCapability { .. } => "MissingCapability",
+            Self::ConstEvalBudgetExceeded => "ConstEvalBudgetExceeded",
+            Self::NotImplemented { .. } => "NotImplemented",
+            Self::Custom { .. } => "Custom",
+        }
+    }
+}
+
 impl fmt::Display for EvalErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1124,6 +1160,51 @@ mod tests {
                 err.kind
             );
         }
+    }
+
+    // variant_name()
+
+    #[test]
+    fn variant_name_returns_stable_strings() {
+        assert_eq!(
+            EvalErrorKind::DivisionByZero.variant_name(),
+            "DivisionByZero"
+        );
+        assert_eq!(EvalErrorKind::ModuloByZero.variant_name(), "ModuloByZero");
+        assert_eq!(
+            EvalErrorKind::IntegerOverflow {
+                operation: "add".into()
+            }
+            .variant_name(),
+            "IntegerOverflow"
+        );
+        assert_eq!(
+            EvalErrorKind::TypeMismatch {
+                expected: "int".into(),
+                got: "str".into()
+            }
+            .variant_name(),
+            "TypeMismatch"
+        );
+        assert_eq!(
+            EvalErrorKind::UndefinedVariable { name: "x".into() }.variant_name(),
+            "UndefinedVariable"
+        );
+        assert_eq!(
+            EvalErrorKind::NonExhaustiveMatch.variant_name(),
+            "NonExhaustiveMatch"
+        );
+        assert_eq!(
+            EvalErrorKind::ConstEvalBudgetExceeded.variant_name(),
+            "ConstEvalBudgetExceeded"
+        );
+        assert_eq!(
+            EvalErrorKind::Custom {
+                message: "test".into()
+            }
+            .variant_name(),
+            "Custom"
+        );
     }
 
     // ControlAction tests

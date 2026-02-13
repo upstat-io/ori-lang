@@ -1,24 +1,23 @@
 //! Lex-time problem definitions.
 //!
-//! These problems wrap `LexError` from `ori_lexer` for integration with
-//! the `oric` diagnostic pipeline.
+//! Lex errors (`LexError`) are rendered directly via [`render_lex_error()`].
+//! This module defines `LexProblem` for lex-time warnings (detached doc
+//! comments) that flow through the `oric` diagnostic pipeline.
 
 use crate::diagnostic::{Diagnostic, ErrorCode, Suggestion};
 use crate::ir::Span;
-use ori_ir::StringInterner;
 use ori_lexer::lex_error::{LexError, LexErrorKind};
 
-/// Problems that occur during lexing.
+/// Lex-time warnings detected during tokenization.
 ///
-/// Wraps `ori_lexer::lex_error::LexError` for rendering through the
-/// oric diagnostic pipeline.
+/// Lex *errors* are rendered directly via [`render_lex_error()`] from
+/// `&LexError` references. This enum covers lex-time *warnings* that
+/// need structured representation for the diagnostic pipeline.
 ///
 /// # Salsa Compatibility
 /// Has Clone, Eq, `PartialEq`, Hash, Debug for use in query results.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum LexProblem {
-    /// A lexer error.
-    Error(LexError),
     /// A detached doc comment warning.
     DetachedDocComment {
         span: Span,
@@ -30,19 +29,13 @@ impl LexProblem {
     /// Get the primary span of this problem.
     pub fn span(&self) -> Span {
         match self {
-            LexProblem::Error(err) => err.span,
             LexProblem::DetachedDocComment { span, .. } => *span,
         }
     }
 
     /// Convert this problem into a diagnostic.
-    #[expect(
-        unused_variables,
-        reason = "interner reserved for future Name field conversions"
-    )]
-    pub fn into_diagnostic(&self, interner: &StringInterner) -> Diagnostic {
+    pub fn into_diagnostic(&self) -> Diagnostic {
         match self {
-            LexProblem::Error(err) => render_lex_error(err),
             LexProblem::DetachedDocComment { span, .. } => Diagnostic::warning(ErrorCode::E0012)
                 .with_message("detached doc comment")
                 .with_label(*span, "this doc comment is not attached to any declaration")
@@ -56,7 +49,10 @@ impl LexProblem {
 
 /// Render a `LexError` into a `Diagnostic` with appropriate error code,
 /// message, labels, and suggestions.
-fn render_lex_error(err: &LexError) -> Diagnostic {
+///
+/// Public so that callers can render lex errors directly from `&LexError`
+/// without cloning into a `LexProblem::Error` wrapper.
+pub fn render_lex_error(err: &LexError) -> Diagnostic {
     let span = err.span;
     let mut diag = match &err.kind {
         LexErrorKind::UnterminatedString => Diagnostic::error(ErrorCode::E0001)

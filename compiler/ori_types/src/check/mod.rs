@@ -371,6 +371,33 @@ impl<'a> ModuleChecker<'a> {
         self.signatures.insert(sig.name, sig);
     }
 
+    /// Register an imported function under a different local name.
+    ///
+    /// Like [`register_imported_function`], but overrides the name used for
+    /// binding in the import environment and signature map. Used for aliased
+    /// imports (`use './mod' { foo as bar }`) — avoids cloning the entire
+    /// `Function` AST node just to change its name.
+    pub fn register_imported_function_as(
+        &mut self,
+        func: &ori_ir::Function,
+        foreign_arena: &ExprArena,
+        alias: Name,
+    ) {
+        let (mut sig, var_ids) =
+            signatures::infer_function_signature_from(self, func, foreign_arena);
+        sig.name = alias;
+        let fn_type = self.pool.function(&sig.param_types, sig.return_type);
+
+        let bound_type = if var_ids.is_empty() {
+            fn_type
+        } else {
+            self.pool.scheme(&var_ids, fn_type)
+        };
+
+        self.import_env.bind(alias, bound_type);
+        self.signatures.insert(alias, sig);
+    }
+
     /// Register a built-in function directly by type signature.
     ///
     /// Used for native functions (like `int()`, `str()`, `float()`) that are

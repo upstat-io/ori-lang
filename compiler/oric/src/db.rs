@@ -41,8 +41,8 @@ use std::sync::Arc;
 /// that need both the `TypeCheckResult` and Pool retrieve it via `typed_pool()`.
 ///
 /// Keyed by file path, since each `SourceFile` has a unique canonical path.
-/// Invalidation is implicit: when `typed()` re-executes (source changed),
-/// it overwrites the cached Pool with the new one.
+/// Invalidation is explicit: `invalidate_file_caches()` clears the entry
+/// before `typed()` re-type-checks, then `store()` writes the new Pool.
 #[derive(Clone, Default)]
 pub struct PoolCache(Arc<RwLock<HashMap<PathBuf, Arc<ori_types::Pool>>>>);
 
@@ -71,9 +71,7 @@ pub struct CanonCache(Arc<RwLock<HashMap<PathBuf, ori_ir::canon::SharedCanonResu
 /// watch-mode scenarios, the cache should be cleared when `parsed()` is
 /// invalidated.
 #[derive(Clone, Default)]
-pub struct ImportsCache(
-    Arc<RwLock<HashMap<PathBuf, std::sync::Arc<crate::imports::ResolvedImports>>>>,
-);
+pub struct ImportsCache(Arc<RwLock<HashMap<PathBuf, Arc<crate::imports::ResolvedImports>>>>);
 
 impl PoolCache {
     /// Store a Pool for the given file path.
@@ -84,6 +82,14 @@ impl PoolCache {
     /// Retrieve the cached Pool for the given file path.
     pub fn get(&self, path: &Path) -> Option<Arc<ori_types::Pool>> {
         self.0.read().get(path).cloned()
+    }
+
+    /// Remove the cached Pool for the given file path.
+    ///
+    /// Called when Salsa re-executes `typed()` for a file, indicating
+    /// that the source has changed and the cached Pool is stale.
+    pub fn invalidate(&self, path: &Path) {
+        self.0.write().remove(path);
     }
 }
 
@@ -109,16 +115,12 @@ impl CanonCache {
 
 impl ImportsCache {
     /// Store resolved imports for the given file path.
-    pub fn store(
-        &self,
-        file_path: PathBuf,
-        imports: std::sync::Arc<crate::imports::ResolvedImports>,
-    ) {
+    pub fn store(&self, file_path: PathBuf, imports: Arc<crate::imports::ResolvedImports>) {
         self.0.write().insert(file_path, imports);
     }
 
     /// Retrieve cached resolved imports for the given file path.
-    pub fn get(&self, file_path: &Path) -> Option<std::sync::Arc<crate::imports::ResolvedImports>> {
+    pub fn get(&self, file_path: &Path) -> Option<Arc<crate::imports::ResolvedImports>> {
         self.0.read().get(file_path).cloned()
     }
 

@@ -4,12 +4,12 @@
 //! Shared utilities like `read_file` and `report_frontend_errors` live here
 //! in the module root.
 
-use ori_diagnostic::emitter::{DiagnosticEmitter, TerminalEmitter};
+use ori_diagnostic::emitter::DiagnosticEmitter;
 use ori_diagnostic::queue::DiagnosticQueue;
 use ori_types::{Pool, TypeCheckResult};
 use oric::parser::ParseOutput;
-use oric::problem::LexProblem;
-use oric::query::{lex_errors, parsed, typed, typed_pool};
+use oric::problem::lex::{render_lex_error, LexProblem};
+use oric::query::{lex_errors, parsed, tokens_with_metadata, typed, typed_pool};
 use oric::reporting::typeck::TypeErrorRenderer;
 use oric::{CompilerDb, Db, SourceFile};
 
@@ -75,13 +75,25 @@ impl FrontendResult {
 pub(super) fn report_frontend_errors(
     db: &CompilerDb,
     file: SourceFile,
-    emitter: &mut TerminalEmitter<std::io::Stderr>,
+    emitter: &mut dyn DiagnosticEmitter,
 ) -> Option<FrontendResult> {
     // Report lexer errors first (unterminated strings, semicolons, confusables, etc.)
     let lex_errs = lex_errors(db, file);
     let lex_error_count = lex_errs.len();
     for err in &lex_errs {
-        let diag = LexProblem::Error(err.clone()).into_diagnostic(db.interner());
+        let diag = render_lex_error(err);
+        emitter.emit(&diag);
+    }
+
+    // Emit lex warnings (detached doc comments detected at the token level).
+    // Uses `tokens_with_metadata()` which preserves the full `LexOutput` including warnings.
+    let lex_output = tokens_with_metadata(db, file);
+    for warning in &lex_output.warnings {
+        let diag = LexProblem::DetachedDocComment {
+            span: warning.span,
+            marker: warning.marker,
+        }
+        .into_diagnostic();
         emitter.emit(&diag);
     }
 
@@ -98,6 +110,11 @@ pub(super) fn report_frontend_errors(
         for diag in queue.flush() {
             emitter.emit(&diag);
         }
+    }
+
+    // Emit parse warnings (detached doc comments detected at the syntax level).
+    for warning in &parse_result.warnings {
+        emitter.emit(&warning.to_diagnostic());
     }
 
     // Type check via Salsa query — caches Pool for reuse downstream.

@@ -61,6 +61,9 @@ pub struct ImportedFunctionRef {
     pub module_index: usize,
     /// Whether this is a module alias import (`use std.http as http`).
     pub is_module_alias: bool,
+    /// Source span of the `use` statement this import came from.
+    /// Used for error reporting when the imported item is not found.
+    pub span: ori_ir::Span,
 }
 
 /// All resolved imports for a single file.
@@ -79,26 +82,12 @@ pub struct ResolvedImports {
     pub errors: Vec<ImportError>,
 }
 
-/// Structured error kind for import resolution failures.
+/// Re-export the canonical `ImportErrorKind` from `ori_ir`.
 ///
-/// Enables programmatic distinction between error cases without parsing
-/// the error message string. Follows the same pattern as `LexErrorKind`
-/// and `TypeErrorKind` elsewhere in the compiler.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ImportErrorKind {
-    /// Module file could not be found at any candidate path.
-    ModuleNotFound,
-    /// Specific item not found in the imported module.
-    ItemNotFound,
-    /// Attempt to import a private item without `::` prefix.
-    PrivateAccess,
-    /// Circular import detected during resolution.
-    CircularImport,
-    /// Empty module path (e.g., `use {} { ... }`).
-    EmptyModulePath,
-    /// Module alias import combined with individual items.
-    ModuleAliasWithItems,
-}
+/// Single source of truth shared by both the import resolver and the
+/// type checker, eliminating the lossy mapping that previously collapsed
+/// `EmptyModulePath | ModuleAliasWithItems` into `Other`.
+pub use ori_ir::ImportErrorKind;
 
 /// An error encountered during import resolution.
 #[derive(Debug, Clone)]
@@ -228,6 +217,7 @@ pub fn resolve_imports(
                 original_name: alias,
                 module_index,
                 is_module_alias: true,
+                span: imp.span,
             });
             continue;
         }
@@ -239,6 +229,7 @@ pub fn resolve_imports(
                 original_name: item.name,
                 module_index,
                 is_module_alias: false,
+                span: imp.span,
             });
         }
     }

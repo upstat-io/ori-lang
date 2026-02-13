@@ -363,7 +363,7 @@ impl TypeCheckError {
                     format_type(*concrete)
                 )
             }
-            TypeErrorKind::ImportError { message } => {
+            TypeErrorKind::ImportError { message, .. } => {
                 format!("import error: {message}")
             }
             TypeErrorKind::MissingAssocType {
@@ -498,7 +498,7 @@ impl TypeCheckError {
                     concrete.display_name()
                 )
             }
-            TypeErrorKind::ImportError { message } => {
+            TypeErrorKind::ImportError { message, .. } => {
                 format!("import error: {message}")
             }
             TypeErrorKind::MissingAssocType { .. } => {
@@ -604,11 +604,12 @@ impl TypeCheckError {
     ///
     /// Used when an import path cannot be resolved to a file or when
     /// the imported module has issues.
-    pub fn import_error(message: impl Into<String>, span: Span) -> Self {
+    pub fn import_error(message: impl Into<String>, span: Span, kind: ImportErrorKind) -> Self {
         let msg = message.into();
         Self {
             span,
             kind: TypeErrorKind::ImportError {
+                kind,
                 message: msg.clone(),
             },
             context: ErrorContext::default(),
@@ -913,6 +914,8 @@ pub enum TypeErrorKind {
 
     /// Import resolution error.
     ImportError {
+        /// Structured error kind for programmatic matching.
+        kind: ImportErrorKind,
         /// Error message from import resolution.
         message: String,
     },
@@ -981,6 +984,12 @@ impl ArityMismatchKind {
         }
     }
 }
+
+/// Re-export the canonical `ImportErrorKind` from `ori_ir`.
+///
+/// Single source of truth shared by both the import resolver (`oric::imports`)
+/// and the type checker. All 6 variants are available without lossy mapping.
+pub use ori_ir::ImportErrorKind;
 
 /// Context information for a type error.
 ///

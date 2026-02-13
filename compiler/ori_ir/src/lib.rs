@@ -87,6 +87,7 @@ pub use ast::{
     // Impl types
     ImplDef,
     ImplMethod,
+    ImportErrorKind,
     ImportPath,
     // List with spread types
     ListElement,

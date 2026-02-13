@@ -446,10 +446,11 @@ pub fn register_imports(
     import_path: &Path,
     current_file: &Path,
     canon: Option<&SharedCanonResult>,
-) -> Result<(), ImportError> {
+) -> Result<(), Vec<ImportError>> {
     // Handle module alias: `use path as alias`
     if let Some(alias) = import.module_alias {
-        return register_module_alias(import, imported, env, alias, import_path, canon);
+        return register_module_alias(import, imported, env, alias, import_path, canon)
+            .map_err(|e| vec![e]);
     }
 
     // Check if this is a test module importing from its parent module
@@ -476,6 +477,8 @@ pub fn register_imports(
         Arc::new(captures)
     };
 
+    let mut errors = Vec::new();
+
     for item in &import.items {
         let item_name_str = interner.lookup(item.name);
 
@@ -483,7 +486,7 @@ pub fn register_imports(
         if let Some(&func) = func_by_name.get(item_name_str) {
             // Check visibility: private items require :: prefix unless test module
             if !func.visibility.is_public() && !item.is_private && !allow_private_access {
-                return Err(ImportError::new(
+                errors.push(ImportError::with_span(
                     ImportErrorKind::PrivateAccess,
                     format!(
                         "'{}' is private in '{}'. Use '::{}' to import private items.",
@@ -491,7 +494,9 @@ pub fn register_imports(
                         import_path.display(),
                         item_name_str
                     ),
+                    import.span,
                 ));
+                continue;
             }
 
             let (params, capabilities) = extract_function_metadata(func, imported.arena);
@@ -518,18 +523,23 @@ pub fn register_imports(
                 Mutability::Immutable,
             );
         } else {
-            return Err(ImportError::new(
+            errors.push(ImportError::with_span(
                 ImportErrorKind::ItemNotFound,
                 format!(
                     "'{}' not found in '{}'",
                     item_name_str,
                     import_path.display()
                 ),
+                import.span,
             ));
         }
     }
 
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// Register a module alias import.
@@ -546,12 +556,13 @@ fn register_module_alias(
 ) -> Result<(), ImportError> {
     // Module alias imports should not have individual items
     if !import.items.is_empty() {
-        return Err(ImportError::new(
+        return Err(ImportError::with_span(
             ImportErrorKind::ModuleAliasWithItems,
             format!(
                 "module alias import cannot have individual items: '{}'",
                 import_path.display()
             ),
+            import.span,
         ));
     }
 

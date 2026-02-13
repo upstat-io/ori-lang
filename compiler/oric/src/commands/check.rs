@@ -1,8 +1,7 @@
 //! The `check` command: type-check an Ori source file and verify test coverage.
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
-use oric::problem::semantic::pattern_problem_to_diagnostic;
-use oric::problem::SemanticProblem;
+use oric::problem::semantic::{check_test_coverage, pattern_problem_to_diagnostic};
 use oric::{CompilerDb, Db, SourceFile};
 use std::path::PathBuf;
 
@@ -52,29 +51,10 @@ pub fn check_file(path: &str) {
     }
 
     // Check test coverage: every function (except @main) must have at least one test.
-    // Emit structured diagnostics with source spans pointing to untested functions.
     let interner = db.interner();
-    let main_name = interner.intern("main");
-
-    let mut tested_functions: std::collections::HashSet<oric::Name> =
-        std::collections::HashSet::new();
-    for test in &parse_result.module.tests {
-        for target in &test.targets {
-            tested_functions.insert(*target);
-        }
-    }
-
-    for func in &parse_result.module.functions {
-        if func.name != main_name && !tested_functions.contains(&func.name) {
-            let func_name = interner.lookup(func.name).to_string();
-            let diag = SemanticProblem::MissingTest {
-                span: func.span,
-                func_name,
-            }
-            .into_diagnostic(interner);
-            emitter.emit(&diag);
-            has_errors = true;
-        }
+    for problem in check_test_coverage(&parse_result.module, interner) {
+        emitter.emit(&problem.into_diagnostic(interner));
+        has_errors = true;
     }
 
     // Exit if any errors occurred
