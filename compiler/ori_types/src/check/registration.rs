@@ -122,6 +122,15 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 })
                 .collect();
 
+            // E0920: Never type cannot appear as a struct field.
+            for f in &field_defs {
+                if f.ty == Idx::NEVER {
+                    checker.push_error(TypeCheckError::uninhabited_struct_field(
+                        f.span, decl.name, f.name,
+                    ));
+                }
+            }
+
             // Create Pool struct entry BEFORE moving field_defs to TypeRegistry.
             // Extract (Name, Idx) pairs for the Pool's compact representation.
             let pool_fields: Vec<(ori_ir::Name, Idx)> =
