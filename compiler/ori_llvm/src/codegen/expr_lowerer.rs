@@ -81,8 +81,7 @@ pub struct ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
     pub(crate) canon: &'a CanonResult,
     /// String interner for `Name` → `&str` resolution.
     pub(crate) interner: &'a StringInterner,
-    /// Type pool for structural queries (used by future lowering extensions).
-    #[allow(dead_code)]
+    /// Type pool for structural queries (debug info, type-dependent emission).
     pub(crate) pool: &'a Pool,
     /// The LLVM function currently being compiled.
     pub(crate) current_function: FunctionId,
