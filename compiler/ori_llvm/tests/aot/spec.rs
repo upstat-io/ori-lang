@@ -474,3 +474,130 @@ fn test_aot_fibonacci() {
         "fibonacci",
     );
 }
+
+// Duration and Size Literals
+
+#[test]
+fn test_aot_duration_literals() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let ns_ok = 100ns == 100ns,
+    let us_ok = 1us == 1000ns,
+    let ms_ok = 1ms == 1000us,
+    let s_ok = 1s == 1000ms,
+    let m_ok = 1m == 60s,
+    let h_ok = 1h == 60m,
+    if ns_ok && us_ok && ms_ok && s_ok && m_ok && h_ok then 0 else 1
+)
+"#,
+        "duration_literals",
+    );
+}
+
+#[test]
+fn test_aot_duration_negative() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let neg = -(1s),
+    let neg_ok = neg == -1s,
+    let double_neg = -(-(500ms)),
+    let double_neg_ok = double_neg == 500ms,
+    if neg_ok && double_neg_ok then 0 else 1
+)
+"#,
+        "duration_negative",
+    );
+}
+
+#[test]
+fn test_aot_size_literals() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let b_ok = 100b == 100b,
+    let kb_ok = 1kb == 1000b,
+    let mb_ok = 1mb == 1000kb,
+    let gb_ok = 1gb == 1000mb,
+    let tb_ok = 1tb == 1000gb,
+    if b_ok && kb_ok && mb_ok && gb_ok && tb_ok then 0 else 1
+)
+"#,
+        "size_literals",
+    );
+}
+
+// Duration and Size Arithmetic
+
+#[test]
+fn test_aot_duration_arithmetic() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let add_ok = 1s + 500ms == 1500ms,
+    let sub_ok = 2s - 1s == 1s,
+    let mul_ok = 100ms * 3 == 300ms,
+    let int_mul_ok = 2 * 500ms == 1s,
+    let div_ok = 1s / 2 == 500ms,
+    let mod_ok = 1500ms % 1s == 500ms,
+    if add_ok && sub_ok && mul_ok && int_mul_ok && div_ok && mod_ok then 0 else 1
+)
+"#,
+        "duration_arithmetic",
+    );
+}
+
+#[test]
+fn test_aot_duration_comparison() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let lt = 500ms < 1s,
+    let le = 1s <= 1000ms,
+    let gt = 2s > 1s,
+    let ge = 1s >= 1000ms,
+    let eq = 1s == 1000ms,
+    let ne = 1s != 2s,
+    if lt && le && gt && ge && eq && ne then 0 else 1
+)
+"#,
+        "duration_comparison",
+    );
+}
+
+#[test]
+fn test_aot_size_arithmetic() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let add_ok = 1kb + 500b == 1500b,
+    let sub_ok = 2kb - 1kb == 1kb,
+    let mul_ok = 100b * 3 == 300b,
+    let int_mul_ok = 2 * 500b == 1kb,
+    let div_ok = 1kb / 2 == 500b,
+    let mod_ok = 1500b % 1kb == 500b,
+    if add_ok && sub_ok && mul_ok && int_mul_ok && div_ok && mod_ok then 0 else 1
+)
+"#,
+        "size_arithmetic",
+    );
+}
+
+#[test]
+fn test_aot_size_comparison() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let lt = 500b < 1kb,
+    let le = 1kb <= 1000b,
+    let gt = 2kb > 1kb,
+    let ge = 1kb >= 1000b,
+    let eq = 1kb == 1000b,
+    let ne = 1kb != 2kb,
+    if lt && le && gt && ge && eq && ne then 0 else 1
+)
+"#,
+        "size_comparison",
+    );
+}
