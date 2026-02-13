@@ -17,11 +17,6 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // Numeric / primitive literals
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Int(n)` → i64 constant (or i8 for byte-typed expressions).
-    pub(crate) fn lower_int(&mut self, n: i64) -> ValueId {
-        self.builder.const_i64(n)
-    }
-
     /// Lower an integer literal with type awareness.
     ///
     /// Integer literals can represent both `int` (i64) and `byte` (i8) depending
@@ -110,6 +105,18 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // Identifiers and references
     // -----------------------------------------------------------------------
 
+    /// Wrap a function pointer in a fat-pointer closure `{ fn_ptr, null_env }`.
+    ///
+    /// Ori represents all function values as closures — a pair of function
+    /// pointer and environment pointer. Top-level functions have a null
+    /// environment; lambdas capture their environment.
+    fn wrap_fn_ptr_as_closure(&mut self, fn_ptr_id: ValueId) -> ValueId {
+        let null_env = self.builder.const_null_ptr();
+        let closure_ty = self.builder.closure_type();
+        self.builder
+            .build_struct(closure_ty, &[fn_ptr_id, null_env], "fn_ref")
+    }
+
     /// Lower `CanExpr::Ident(name)` — variable lookup.
     ///
     /// Resolution order:
@@ -142,12 +149,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     let ident_type = self.expr_type(expr_id);
                     let type_info = self.type_info.get(ident_type);
                     if matches!(type_info, super::type_info::TypeInfo::Function { .. }) {
-                        let null_env = self.builder.const_null_ptr();
-                        let closure_ty = self.builder.closure_type();
-                        let fat_ptr =
-                            self.builder
-                                .build_struct(closure_ty, &[fn_ptr_id, null_env], "fn_ref");
-                        Some(fat_ptr)
+                        Some(self.wrap_fn_ptr_as_closure(fn_ptr_id))
                     } else {
                         Some(fn_ptr_id)
                     }
@@ -173,12 +175,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         let ident_type = self.expr_type(expr_id);
         let type_info = self.type_info.get(ident_type);
         if matches!(type_info, super::type_info::TypeInfo::Function { .. }) {
-            let null_env = self.builder.const_null_ptr();
-            let closure_ty = self.builder.closure_type();
-            let fat_ptr = self
-                .builder
-                .build_struct(closure_ty, &[fn_ptr_id, null_env], "fn_ref");
-            Some(fat_ptr)
+            Some(self.wrap_fn_ptr_as_closure(fn_ptr_id))
         } else {
             Some(fn_ptr_id)
         }
@@ -203,12 +200,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             let fn_val = self.builder.get_function_value(func_id);
             let ptr_val = fn_val.as_global_value().as_pointer_value();
             let fn_ptr_id = self.builder.intern_value(ptr_val.into());
-            let null_env = self.builder.const_null_ptr();
-            let closure_ty = self.builder.closure_type();
-            let fat_ptr = self
-                .builder
-                .build_struct(closure_ty, &[fn_ptr_id, null_env], "fn_ref");
-            return Some(fat_ptr);
+            return Some(self.wrap_fn_ptr_as_closure(fn_ptr_id));
         }
 
         // Fall back to LLVM module lookup (runtime functions)
@@ -216,12 +208,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         if let Some(func) = self.builder.scx().llmod.get_function(name_str) {
             let ptr_val = func.as_global_value().as_pointer_value();
             let fn_ptr_id = self.builder.intern_value(ptr_val.into());
-            let null_env = self.builder.const_null_ptr();
-            let closure_ty = self.builder.closure_type();
-            let fat_ptr = self
-                .builder
-                .build_struct(closure_ty, &[fn_ptr_id, null_env], "fn_ref");
-            Some(fat_ptr)
+            Some(self.wrap_fn_ptr_as_closure(fn_ptr_id))
         } else {
             tracing::warn!(name = name_str, "unresolved function reference");
             None
@@ -250,10 +237,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             ConstValue::Str(name) => self.lower_string(*name),
             ConstValue::Char(c) => Some(self.lower_char(*c)),
             ConstValue::Unit => Some(self.lower_unit()),
-            ConstValue::Duration { value, .. } | ConstValue::Size { value, .. } => {
-                // Duration and Size are stored as i64 at the LLVM level
-                Some(self.lower_int(*value as i64))
-            }
+            ConstValue::Duration { value, unit } => Some(self.lower_duration(*value, *unit)),
+            ConstValue::Size { value, unit } => Some(self.lower_size(*value, *unit)),
         }
     }
 }

@@ -203,6 +203,16 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 - [x] **Implement**: Sendable for Duration and Size ✅ (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/types/duration_size_sendable.ori` — 8 tests (all pass)
 
+### Constant Folding
+
+- [ ] **Implement**: Duration/Size constant folding in `ori_canon`
+  - `extract_const_value()` in `ori_canon/src/const_fold.rs` returns `None` for Duration/Size expressions — they cannot participate in compile-time constant propagation
+  - Add `ConstValue::Duration { value, unit }` and `ConstValue::Size { value, unit }` extraction from `CanExpr::Duration`/`CanExpr::Size`
+  - LLVM codegen already handles these correctly via `lower_duration()`/`lower_size()` (fixed in a2fdc25a hygiene review)
+  - [ ] **Rust Tests**: `ori_canon` unit tests — Duration/Size constant extraction
+  - [ ] **Ori Tests**: `tests/spec/types/duration_size_const.ori` — constant Duration/Size in `let` bindings, match arms
+  - [ ] **LLVM Support**: Already handled — `lower_constant()` dispatches to `lower_duration()`/`lower_size()` with unit conversion
+
 ---
 
 ## 1.1B Never Type Semantics
