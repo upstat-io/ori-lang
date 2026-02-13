@@ -18,7 +18,7 @@ use tracing::{debug, trace, warn};
 use super::abi::{compute_function_abi, FunctionAbi, ReturnPassing};
 use super::function_compiler::FunctionCompiler;
 use super::type_info::TypeInfo;
-use super::value_id::{FunctionId, ValueId};
+use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -146,6 +146,10 @@ fn compile_derive_eq<'a>(
     let true_bb = fc.builder_mut().append_block(func_id, "eq.true");
     let false_bb = fc.builder_mut().append_block(func_id, "eq.false");
 
+    // Resolve str type once for string field comparisons
+    let str_ty = fc.resolve_type(Idx::STR);
+    let str_ty_id = fc.builder_mut().register_type(str_ty);
+
     if fields.is_empty() {
         fc.builder_mut().br(true_bb);
     } else {
@@ -164,7 +168,7 @@ fn compile_derive_eq<'a>(
                 break;
             };
 
-            let cmp = emit_field_eq(fc, sf, of, field.ty, &format!("eq.{field_name}"));
+            let cmp = emit_field_eq(fc, sf, of, field.ty, &format!("eq.{field_name}"), str_ty_id);
 
             if i + 1 < fields.len() {
                 let next_bb = fc
@@ -194,6 +198,7 @@ fn emit_field_eq<'a>(
     rhs: ValueId,
     field_type: Idx,
     name: &str,
+    str_ty_id: LLVMTypeId,
 ) -> ValueId {
     let info = fc.type_info().get(field_type);
     match &info {
@@ -207,14 +212,13 @@ fn emit_field_eq<'a>(
 
         TypeInfo::Float => fc.builder_mut().fcmp_oeq(lhs, rhs, name),
 
-        TypeInfo::Str => emit_str_eq_call(fc, lhs, rhs, name),
+        TypeInfo::Str => emit_str_eq_call(fc, lhs, rhs, name, str_ty_id),
 
         TypeInfo::Struct { .. } => {
             let nested_name = fc.type_idx_to_name(field_type);
             let eq_name = fc.intern("eq");
             if let Some(type_name) = nested_name {
                 if let Some((fid, abi)) = fc.get_method_function(type_name, eq_name) {
-                    let abi = abi.clone();
                     return emit_method_call_for_derive(fc, fid, &abi, &[lhs, rhs], name);
                 }
             }
@@ -237,12 +241,10 @@ fn emit_str_eq_call<'a>(
     lhs: ValueId,
     rhs: ValueId,
     name: &str,
+    str_ty_id: LLVMTypeId,
 ) -> ValueId {
     let ptr_ty = fc.builder_mut().ptr_type();
     let bool_ty = fc.builder_mut().bool_type();
-
-    let str_ty = fc.resolve_type(Idx::STR);
-    let str_ty_id = fc.builder_mut().register_type(str_ty);
 
     let lhs_alloca = fc.builder_mut().alloca(str_ty_id, "lhs_str");
     fc.builder_mut().store(lhs, lhs_alloca);
@@ -387,7 +389,6 @@ fn coerce_to_i64<'a>(
             let hash_name = fc.intern("hash");
             if let Some(type_name) = nested_name {
                 if let Some((fid, abi)) = fc.get_method_function(type_name, hash_name) {
-                    let abi = abi.clone();
                     return emit_method_call_for_derive(fc, fid, &abi, &[val], name);
                 }
             }
@@ -433,46 +434,53 @@ fn compile_derive_printable<'a>(
     let (func_id, self_val, _) =
         fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
 
+    // Resolve str type once for all string operations
+    let str_ty = fc.resolve_type(Idx::STR);
+    let str_ty_id = fc.builder_mut().register_type(str_ty);
+
     // Build opening: "TypeName { "
     let prefix = format!("{type_name_str} {{ ");
-    let mut result = emit_str_literal(fc, &prefix, "prefix");
+    let mut result = emit_str_literal(fc, &prefix, "prefix", str_ty_id);
 
     for (i, field) in fields.iter().enumerate() {
         let field_name_str = fc.lookup_name(field.name).to_owned();
 
         let label = format!("{field_name_str}: ");
-        let label_str = emit_str_literal(fc, &label, &format!("label.{i}"));
-        result = emit_str_concat(fc, result, label_str, &format!("cat.label.{i}"));
+        let label_str = emit_str_literal(fc, &label, &format!("label.{i}"), str_ty_id);
+        result = emit_str_concat(fc, result, label_str, &format!("cat.label.{i}"), str_ty_id);
 
         let field_val =
             fc.builder_mut()
                 .extract_value(self_val, i as u32, &format!("ts.{field_name_str}"));
         if let Some(fv) = field_val {
-            let field_str = emit_field_to_string(fc, fv, field.ty, &format!("ts.{field_name_str}"));
-            result = emit_str_concat(fc, result, field_str, &format!("cat.val.{i}"));
+            let field_str =
+                emit_field_to_string(fc, fv, field.ty, &format!("ts.{field_name_str}"), str_ty_id);
+            result = emit_str_concat(fc, result, field_str, &format!("cat.val.{i}"), str_ty_id);
         }
 
         if i + 1 < fields.len() {
-            let sep = emit_str_literal(fc, ", ", &format!("sep.{i}"));
-            result = emit_str_concat(fc, result, sep, &format!("cat.sep.{i}"));
+            let sep = emit_str_literal(fc, ", ", &format!("sep.{i}"), str_ty_id);
+            result = emit_str_concat(fc, result, sep, &format!("cat.sep.{i}"), str_ty_id);
         }
     }
 
-    let suffix = emit_str_literal(fc, " }", "suffix");
-    result = emit_str_concat(fc, result, suffix, "cat.suffix");
+    let suffix = emit_str_literal(fc, " }", "suffix", str_ty_id);
+    result = emit_str_concat(fc, result, suffix, "cat.suffix", str_ty_id);
 
     emit_derive_return(fc, func_id, &abi, Some(result));
 }
 
 /// Emit a string literal as an Ori str value `{i64 len, ptr data}`.
-fn emit_str_literal<'a>(fc: &mut FunctionCompiler<'_, 'a, 'a, '_>, s: &str, name: &str) -> ValueId {
+fn emit_str_literal<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    s: &str,
+    name: &str,
+    str_ty_id: LLVMTypeId,
+) -> ValueId {
     let data_ptr = fc
         .builder_mut()
         .build_global_string_ptr(s, &format!("{name}.data"));
     let len = fc.builder_mut().const_i64(s.len() as i64);
-
-    let str_ty = fc.resolve_type(Idx::STR);
-    let str_ty_id = fc.builder_mut().register_type(str_ty);
     fc.builder_mut()
         .build_struct(str_ty_id, &[len, data_ptr], name)
 }
@@ -483,10 +491,9 @@ fn emit_str_concat<'a>(
     lhs: ValueId,
     rhs: ValueId,
     name: &str,
+    str_ty_id: LLVMTypeId,
 ) -> ValueId {
     let ptr_ty = fc.builder_mut().ptr_type();
-    let str_ty = fc.resolve_type(Idx::STR);
-    let str_ty_id = fc.builder_mut().register_type(str_ty);
 
     let lhs_alloca = fc.builder_mut().alloca(str_ty_id, &format!("{name}.lhs"));
     fc.builder_mut().store(lhs, lhs_alloca);
@@ -498,7 +505,7 @@ fn emit_str_concat<'a>(
             .get_or_declare_function("ori_str_concat", &[ptr_ty, ptr_ty], str_ty_id);
     fc.builder_mut()
         .call(concat_fn, &[lhs_alloca, rhs_alloca], name)
-        .unwrap_or_else(|| emit_str_literal(fc, "", "empty"))
+        .unwrap_or_else(|| emit_str_literal(fc, "", "empty", str_ty_id))
 }
 
 /// Convert a field value to its string representation.
@@ -507,24 +514,21 @@ fn emit_field_to_string<'a>(
     val: ValueId,
     field_type: Idx,
     name: &str,
+    str_ty_id: LLVMTypeId,
 ) -> ValueId {
     let info = fc.type_info().get(field_type);
     match &info {
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
             let i64_ty = fc.builder_mut().i64_type();
-            let str_ty = fc.resolve_type(Idx::STR);
-            let str_ty_id = fc.builder_mut().register_type(str_ty);
             let f =
                 fc.builder_mut()
                     .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
             fc.builder_mut()
                 .call(f, &[val], name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<int>", name))
+                .unwrap_or_else(|| emit_str_literal(fc, "<int>", name, str_ty_id))
         }
         TypeInfo::Float => {
             let f64_ty = fc.builder_mut().f64_type();
-            let str_ty = fc.resolve_type(Idx::STR);
-            let str_ty_id = fc.builder_mut().register_type(str_ty);
             let f = fc.builder_mut().get_or_declare_function(
                 "ori_str_from_float",
                 &[f64_ty],
@@ -532,12 +536,10 @@ fn emit_field_to_string<'a>(
             );
             fc.builder_mut()
                 .call(f, &[val], name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<float>", name))
+                .unwrap_or_else(|| emit_str_literal(fc, "<float>", name, str_ty_id))
         }
         TypeInfo::Bool => {
             let bool_ty = fc.builder_mut().bool_type();
-            let str_ty = fc.resolve_type(Idx::STR);
-            let str_ty_id = fc.builder_mut().register_type(str_ty);
             let f = fc.builder_mut().get_or_declare_function(
                 "ori_str_from_bool",
                 &[bool_ty],
@@ -545,45 +547,40 @@ fn emit_field_to_string<'a>(
             );
             fc.builder_mut()
                 .call(f, &[val], name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<bool>", name))
+                .unwrap_or_else(|| emit_str_literal(fc, "<bool>", name, str_ty_id))
         }
         TypeInfo::Str => val,
         TypeInfo::Char => {
             let i64_ty = fc.builder_mut().i64_type();
             let char_as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
-            let str_ty = fc.resolve_type(Idx::STR);
-            let str_ty_id = fc.builder_mut().register_type(str_ty);
             let f =
                 fc.builder_mut()
                     .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
             fc.builder_mut()
                 .call(f, &[char_as_i64], name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<char>", name))
+                .unwrap_or_else(|| emit_str_literal(fc, "<char>", name, str_ty_id))
         }
         TypeInfo::Byte | TypeInfo::Ordering => {
             let i64_ty = fc.builder_mut().i64_type();
             let as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
-            let str_ty = fc.resolve_type(Idx::STR);
-            let str_ty_id = fc.builder_mut().register_type(str_ty);
             let f =
                 fc.builder_mut()
                     .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
             fc.builder_mut()
                 .call(f, &[as_i64], name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<byte>", name))
+                .unwrap_or_else(|| emit_str_literal(fc, "<byte>", name, str_ty_id))
         }
         TypeInfo::Struct { .. } => {
             let nested_name = fc.type_idx_to_name(field_type);
             let ts_name = fc.intern("to_string");
             if let Some(type_name) = nested_name {
                 if let Some((fid, abi)) = fc.get_method_function(type_name, ts_name) {
-                    let abi = abi.clone();
                     return emit_method_call_for_derive(fc, fid, &abi, &[val], name);
                 }
             }
-            emit_str_literal(fc, "<struct>", name)
+            emit_str_literal(fc, "<struct>", name, str_ty_id)
         }
-        _ => emit_str_literal(fc, "<?>", name),
+        _ => emit_str_literal(fc, "<?>", name, str_ty_id),
     }
 }
 
@@ -598,23 +595,7 @@ fn make_sig(
     param_types: Vec<Idx>,
     return_type: Idx,
 ) -> ori_types::FunctionSig {
-    let required_params = param_types.len();
-    ori_types::FunctionSig {
-        name,
-        type_params: vec![],
-        param_names,
-        param_types,
-        return_type,
-        capabilities: vec![],
-        is_public: false,
-        is_test: false,
-        is_main: false,
-        type_param_bounds: vec![],
-        where_clauses: vec![],
-        generic_param_mapping: vec![],
-        required_params,
-        param_defaults: vec![],
-    }
+    ori_types::FunctionSig::synthetic(name, param_names, param_types, return_type)
 }
 
 /// Emit return instruction respecting ABI (direct, sret, or void).
