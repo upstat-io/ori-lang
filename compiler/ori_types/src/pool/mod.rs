@@ -19,7 +19,7 @@ pub use construct::*;
 
 use rustc_hash::FxHashMap;
 
-use crate::{Idx, Item, Rank, Tag, TypeFlags};
+use crate::{Idx, Item, LifetimeId, Rank, Tag, TypeFlags};
 
 /// The unified type pool - stores all types in the compilation.
 ///
@@ -574,6 +574,28 @@ impl Pool {
         debug_assert_eq!(self.tag(idx), Tag::Result);
         let extra_idx = self.data(idx) as usize;
         Idx::from_raw(self.extra[extra_idx + 1])
+    }
+
+    /// Get the inner type of a borrowed reference.
+    ///
+    /// For `&T`, returns `T`.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not a Borrowed type.
+    pub fn borrowed_inner(&self, idx: Idx) -> Idx {
+        debug_assert_eq!(self.tag(idx), Tag::Borrowed);
+        let extra_idx = self.data(idx) as usize;
+        Idx::from_raw(self.extra[extra_idx])
+    }
+
+    /// Get the lifetime of a borrowed reference.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not a Borrowed type.
+    pub fn borrowed_lifetime(&self, idx: Idx) -> LifetimeId {
+        debug_assert_eq!(self.tag(idx), Tag::Borrowed);
+        let extra_idx = self.data(idx) as usize;
+        LifetimeId::from_raw(self.extra[extra_idx + 1])
     }
 
     /// Get option inner type.

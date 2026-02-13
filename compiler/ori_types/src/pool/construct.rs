@@ -2,7 +2,7 @@
 //!
 //! Provides ergonomic methods for creating compound types.
 
-use crate::{Idx, Pool, Rank, Tag, VarState};
+use crate::{Idx, LifetimeId, Pool, Rank, Tag, VarState};
 
 /// Variant definition for creating enum types in the Pool.
 ///
@@ -57,6 +57,15 @@ impl Pool {
     /// Create a result type `result<ok, err>`.
     pub fn result(&mut self, ok: Idx, err: Idx) -> Idx {
         self.intern_complex(Tag::Result, &[ok.raw(), err.raw()])
+    }
+
+    // === Borrowed Reference Constructor ===
+
+    /// Create a borrowed reference type `&T` with a lifetime.
+    ///
+    /// Extra layout: `[inner_idx, lifetime_id]`.
+    pub fn borrowed(&mut self, inner: Idx, lifetime: LifetimeId) -> Idx {
+        self.intern_complex(Tag::Borrowed, &[inner.raw(), lifetime.raw()])
     }
 
     // === Function Constructor ===
@@ -372,6 +381,37 @@ mod tests {
         assert_eq!(pool.tag(res_ty), Tag::Result);
         assert_eq!(pool.result_ok(res_ty), Idx::INT);
         assert_eq!(pool.result_err(res_ty), Idx::STR);
+    }
+
+    #[test]
+    fn borrowed_construction() {
+        let mut pool = Pool::new();
+        let borrowed_ty = pool.borrowed(Idx::INT, crate::LifetimeId::STATIC);
+
+        assert_eq!(pool.tag(borrowed_ty), Tag::Borrowed);
+        assert_eq!(pool.borrowed_inner(borrowed_ty), Idx::INT);
+        assert_eq!(
+            pool.borrowed_lifetime(borrowed_ty),
+            crate::LifetimeId::STATIC
+        );
+    }
+
+    #[test]
+    fn borrowed_dedup() {
+        let mut pool = Pool::new();
+        let b1 = pool.borrowed(Idx::STR, crate::LifetimeId::STATIC);
+        let b2 = pool.borrowed(Idx::STR, crate::LifetimeId::STATIC);
+
+        assert_eq!(b1, b2);
+    }
+
+    #[test]
+    fn borrowed_different_lifetime() {
+        let mut pool = Pool::new();
+        let b_static = pool.borrowed(Idx::INT, crate::LifetimeId::STATIC);
+        let b_scoped = pool.borrowed(Idx::INT, crate::LifetimeId::SCOPED);
+
+        assert_ne!(b_static, b_scoped);
     }
 
     #[test]

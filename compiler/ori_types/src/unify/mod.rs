@@ -387,6 +387,11 @@ impl<'pool> UnifyEngine<'pool> {
                 self.occurs_inner(var_id, ok) || self.occurs_inner(var_id, err)
             }
 
+            Tag::Borrowed => {
+                let inner = self.pool.borrowed_inner(ty);
+                self.occurs_inner(var_id, inner)
+            }
+
             // Functions
             Tag::Function => {
                 let params = self.pool.function_params(ty);
@@ -474,6 +479,11 @@ impl<'pool> UnifyEngine<'pool> {
                 let err = self.pool.result_err(ty);
                 self.update_ranks_inner(ok, max_rank);
                 self.update_ranks_inner(err, max_rank);
+            }
+
+            Tag::Borrowed => {
+                let inner = self.pool.borrowed_inner(ty);
+                self.update_ranks_inner(inner, max_rank);
             }
 
             Tag::Function => {
@@ -596,6 +606,22 @@ impl<'pool> UnifyEngine<'pool> {
 
                 self.unify_with_context(ok_a, ok_b, UnifyContext::ResultOk)?;
                 self.unify_with_context(err_a, err_b, UnifyContext::ResultErr)
+            }
+
+            Tag::Borrowed => {
+                let inner_a = self.pool.borrowed_inner(a);
+                let inner_b = self.pool.borrowed_inner(b);
+                let lt_a = self.pool.borrowed_lifetime(a);
+                let lt_b = self.pool.borrowed_lifetime(b);
+
+                if lt_a != lt_b {
+                    return Err(UnifyError::Mismatch {
+                        expected: a,
+                        found: b,
+                        context,
+                    });
+                }
+                self.unify_with_context(inner_a, inner_b, UnifyContext::BorrowedInner)
             }
 
             // Functions
@@ -795,6 +821,11 @@ impl<'pool> UnifyEngine<'pool> {
                 self.collect_free_vars_inner(err, min_rank, vars);
             }
 
+            Tag::Borrowed => {
+                let inner = self.pool.borrowed_inner(ty);
+                self.collect_free_vars_inner(inner, min_rank, vars);
+            }
+
             Tag::Function => {
                 let params = self.pool.function_params(ty);
                 let ret = self.pool.function_return(ty);
@@ -969,6 +1000,17 @@ impl<'pool> UnifyEngine<'pool> {
                     ty
                 } else {
                     self.pool.result(new_ok, new_err)
+                }
+            }
+
+            Tag::Borrowed => {
+                let inner = self.pool.borrowed_inner(ty);
+                let lt = self.pool.borrowed_lifetime(ty);
+                let new_inner = self.substitute(inner, subst);
+                if new_inner == inner {
+                    ty
+                } else {
+                    self.pool.borrowed(new_inner, lt)
                 }
             }
 
@@ -1474,5 +1516,110 @@ mod tests {
 
         // They should be independent
         assert_ne!(engine.resolve(param_int), engine.resolve(param_str));
+    }
+
+    // ========================================
+    // Borrowed Reference Tests
+    // ========================================
+
+    #[test]
+    fn unify_identical_borrowed() {
+        let mut pool = Pool::new();
+        let b1 = pool.borrowed(Idx::INT, crate::LifetimeId::STATIC);
+        let b2 = pool.borrowed(Idx::INT, crate::LifetimeId::STATIC);
+
+        let mut engine = UnifyEngine::new(&mut pool);
+        assert!(engine.unify(b1, b2).is_ok());
+    }
+
+    #[test]
+    fn unify_borrowed_with_variable_inner() {
+        let mut pool = Pool::new();
+        let var = pool.fresh_var();
+        let b_var = pool.borrowed(var, crate::LifetimeId::STATIC);
+        let b_int = pool.borrowed(Idx::INT, crate::LifetimeId::STATIC);
+
+        let mut engine = UnifyEngine::new(&mut pool);
+        assert!(engine.unify(b_var, b_int).is_ok());
+        assert_eq!(engine.resolve(var), Idx::INT);
+    }
+
+    #[test]
+    fn unify_borrowed_inner_mismatch() {
+        let mut pool = Pool::new();
+        let b_int = pool.borrowed(Idx::INT, crate::LifetimeId::STATIC);
+        let b_str = pool.borrowed(Idx::STR, crate::LifetimeId::STATIC);
+
+        let mut engine = UnifyEngine::new(&mut pool);
+        let result = engine.unify(b_int, b_str);
+        assert!(matches!(result, Err(UnifyError::Mismatch { .. })));
+    }
+
+    #[test]
+    fn unify_borrowed_lifetime_mismatch() {
+        let mut pool = Pool::new();
+        let b_static = pool.borrowed(Idx::INT, crate::LifetimeId::STATIC);
+        let b_scoped = pool.borrowed(Idx::INT, crate::LifetimeId::SCOPED);
+
+        let mut engine = UnifyEngine::new(&mut pool);
+        let result = engine.unify(b_static, b_scoped);
+        assert!(matches!(result, Err(UnifyError::Mismatch { .. })));
+    }
+
+    #[test]
+    fn occurs_check_finds_var_in_borrowed() {
+        let mut pool = Pool::new();
+        let var = pool.fresh_var();
+        let borrowed_var = pool.borrowed(var, crate::LifetimeId::STATIC);
+
+        let mut engine = UnifyEngine::new(&mut pool);
+        let result = engine.unify(var, borrowed_var);
+        assert!(matches!(result, Err(UnifyError::InfiniteType { .. })));
+    }
+
+    #[test]
+    fn generalize_finds_vars_in_borrowed() {
+        let mut pool = Pool::new();
+        let var = pool.fresh_var_with_rank(Rank::FIRST.next());
+        let borrowed_ty = pool.borrowed(var, crate::LifetimeId::STATIC);
+
+        let mut engine = UnifyEngine::new(&mut pool);
+        engine.enter_scope();
+
+        let scheme = engine.generalize(borrowed_ty);
+
+        assert_eq!(engine.pool().tag(scheme), Tag::Scheme);
+        let vars = engine.pool().scheme_vars(scheme);
+        assert_eq!(vars.len(), 1);
+    }
+
+    #[test]
+    fn substitute_through_borrowed() {
+        let mut pool = Pool::new();
+
+        // Create scheme: ∀a. &a
+        let var = pool.fresh_var_with_rank(Rank::FIRST.next());
+        let var_id = pool.data(var);
+        let borrowed_ty = pool.borrowed(var, crate::LifetimeId::STATIC);
+        let scheme = pool.scheme(&[var_id], borrowed_ty);
+        *pool.var_state_mut(var_id) = VarState::Generalized {
+            id: var_id,
+            name: None,
+        };
+
+        let mut engine = UnifyEngine::new(&mut pool);
+
+        // Instantiate: should replace the inner variable
+        let instance = engine.instantiate(scheme);
+        assert_eq!(engine.pool().tag(instance), Tag::Borrowed);
+
+        // Inner should be a fresh variable, not the original
+        let inner = engine.pool().borrowed_inner(instance);
+        assert_ne!(inner, var);
+        assert_eq!(engine.pool().tag(inner), Tag::Var);
+
+        // Lifetime should be preserved
+        let lt = engine.pool().borrowed_lifetime(instance);
+        assert_eq!(lt, crate::LifetimeId::STATIC);
     }
 }
