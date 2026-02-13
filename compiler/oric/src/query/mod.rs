@@ -213,7 +213,7 @@ pub fn typed(db: &dyn Db, file: SourceFile) -> TypeCheckResult {
         typeck::type_check_with_imports_and_pool(db, &parse_result, file_path, guard);
 
     // Cache the Pool for callers that need it alongside the TypeCheckResult.
-    db.pool_cache().store(file_path.clone(), pool);
+    db.pool_cache().store(file_path, pool);
 
     result
 }
@@ -309,7 +309,7 @@ pub(crate) fn canonicalize_cached_by_path(
         pool,
         db.interner(),
     ));
-    db.canon_cache().store(path.to_path_buf(), canon.clone());
+    db.canon_cache().store(path, canon.clone());
     canon
 }
 
@@ -463,11 +463,15 @@ pub(crate) fn run_evaluation(
     }
 
     if let Err(errors) = evaluator.load_module(parse_result, file_path, Some(&shared_canon)) {
-        let messages: Vec<String> = errors.iter().map(|e| e.message.clone()).collect();
-        return (
-            ModuleEvalResult::failure(format!("module error: {}", messages.join("; "))),
-            None,
-        );
+        use std::fmt::Write;
+        let mut msg = String::from("module error: ");
+        for (i, e) in errors.iter().enumerate() {
+            if i > 0 {
+                msg.push_str("; ");
+            }
+            let _ = write!(msg, "{}", e.message);
+        }
+        return (ModuleEvalResult::failure(msg), None);
     }
 
     // Look for a main function

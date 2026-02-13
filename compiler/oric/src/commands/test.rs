@@ -152,6 +152,13 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
                         continue;
                     }
                 }
+                TestOutcome::SkippedUnchanged => {
+                    if verbose {
+                        format!("  SKIP: {name} (unchanged)")
+                    } else {
+                        continue;
+                    }
+                }
                 TestOutcome::LlvmCompileFail(reason) => {
                     if verbose {
                         format!("  LLVM COMPILE FAIL: {name} - {reason}")
@@ -173,6 +180,9 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
         format!("{} failed", summary.failed),
         format!("{} skipped", summary.skipped),
     ];
+    if summary.skipped_unchanged > 0 {
+        parts.push(format!("{} skipped (unchanged)", summary.skipped_unchanged));
+    }
     if summary.llvm_compile_fail > 0 {
         parts.push(format!("{} llvm compile fail", summary.llvm_compile_fail));
     }
@@ -193,8 +203,7 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
         );
 
         // Show breakdown of unique error reasons
-        let mut error_counts: std::collections::HashMap<&str, usize> =
-            std::collections::HashMap::new();
+        let mut error_counts: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
         for file in &summary.files {
             if file.llvm_compile_error {
                 for error in &file.errors {

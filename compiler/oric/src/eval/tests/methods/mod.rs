@@ -3,7 +3,7 @@
 //! Tests method calls on built-in types including list, string, range,
 //! Option, and Result.
 
-use ori_ir::StringInterner;
+use crate::ir::StringInterner;
 
 mod consistency;
 mod edge_cases;

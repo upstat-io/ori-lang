@@ -57,7 +57,10 @@ pub use arc_cache::ArcIrCache;
 pub use cache::{ArtifactCache, CacheConfig, CacheKey};
 pub use deps::{DependencyGraph, DependencyTracker};
 pub use function_deps::FunctionDependencyGraph;
-pub use function_hash::{compute_module_hash, extract_function_hashes, FunctionContentHash};
+pub use function_hash::{
+    compute_module_hash, extract_function_hashes, extract_function_hashes_with_canon,
+    FunctionContentHash,
+};
 pub use hash::{ContentHash, SourceHasher};
 pub use parallel::{
     execute_parallel, CompilationPlan, CompilationStats, CompileError, CompileResult,

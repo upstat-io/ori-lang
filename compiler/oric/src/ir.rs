@@ -1,23 +1,24 @@
 //! Ori IR - Re-exports from `ori_ir`
 //!
-//! This module re-exports types from the `ori_ir` crate that are used
-//! within `oric`. The `ori_ir` crate is the single source of truth for
-//! IR types; this module provides the subset needed by the compiler driver.
+//! This module re-exports the subset of `ori_ir` types consumed within `oric`.
+//! The `ori_ir` crate is the single source of truth for IR types; only types
+//! actually imported via `crate::ir::` appear here. Types used in fewer than
+//! two modules (or only in tests) may import `ori_ir` directly.
+//!
+//! Canon IR types (`ori_ir::canon::*`) are NOT re-exported here — they form
+//! a separate sub-API consumed directly by modules that need canonicalization.
 
-// AST node types
+// AST node types consumed by oric modules
 pub use ori_ir::{
-    ArmRange, BinaryOp, BindingPattern, CallArg, CallArgRange, DurationUnit, ExpectedError, Expr,
-    ExprKind, FieldInit, FieldInitRange, Function, FunctionExp, FunctionExpKind, FunctionSeq,
-    ImportPath, MapEntry, MapEntryRange, MatchArm, MatchPattern, Module, NamedExpr, NamedExprRange,
-    Param, ParamRange, SeqBinding, SeqBindingRange, SizeUnit, Stmt, StmtKind, TemplatePart,
-    TemplatePartRange, TestDef, Token, TokenKind, TokenList, UnaryOp, UseDef, Visibility,
+    BinaryOp, ExpectedError, ExprKind, Function, ImportPath, Module, TestDef, TokenKind, TokenList,
+    UseDef,
 };
 
-// Arena and ID types
-pub use ori_ir::{ExprArena, ExprId, ExprRange, SharedArena, StmtId, StmtRange, TypeId};
+// Arena types
+pub use ori_ir::{ExprArena, SharedArena};
 
 // Name interning
 pub use ori_ir::{Name, SharedInterner, StringInterner};
 
-// Span and traits
-pub use ori_ir::{Named, Span, Spanned, Typed};
+// Span
+pub use ori_ir::Span;

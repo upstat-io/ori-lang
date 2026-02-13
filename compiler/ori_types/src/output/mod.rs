@@ -269,7 +269,51 @@ impl FunctionSig {
     pub fn has_capabilities(&self) -> bool {
         !self.capabilities.is_empty()
     }
+
+    /// Classify this function's effect level based on its declared capabilities.
+    ///
+    /// Requires the `StringInterner` to resolve capability `Name`s to strings
+    /// for classification against the known capability categories.
+    pub fn effect_class(&self, interner: &ori_ir::StringInterner) -> EffectClass {
+        if self.capabilities.is_empty() {
+            return EffectClass::Pure;
+        }
+
+        for &cap in &self.capabilities {
+            let cap_str = interner.lookup(cap);
+            if !READ_ONLY_CAPABILITIES.contains(&cap_str) {
+                return EffectClass::HasEffects;
+            }
+        }
+
+        EffectClass::ReadsOnly
+    }
 }
+
+/// Classification of a function's effect level based on its capabilities.
+///
+/// Used for incremental test intelligence: pure functions produce deterministic
+/// results, enabling aggressive caching of their test outcomes.
+///
+/// # Ordering
+///
+/// `Pure < ReadsOnly < HasEffects` — more effects means less cacheability.
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
+pub enum EffectClass {
+    /// No capabilities — fully deterministic, safely parallelizable.
+    Pure,
+    /// Only reads external state (Env, Clock, Random) — may vary between runs
+    /// but has no observable side effects.
+    ReadsOnly,
+    /// Performs I/O or mutation (`Http`, `FileSystem`, `Print`, etc.).
+    HasEffects,
+}
+
+/// Capability names that are classified as read-only (no side effects).
+///
+/// These capabilities read external state but don't mutate it.
+/// From the spec: Clock (time), Random (entropy), Env (environment variables).
+const READ_ONLY_CAPABILITIES: &[&str] = &["Env", "Clock", "Random"];
 
 /// Type check result with typed module and error guarantee.
 ///
@@ -434,6 +478,102 @@ mod tests {
         let module = TypedModule::with_capacity(100, 10);
         assert_eq!(module.expr_types.capacity(), 100);
         assert_eq!(module.functions.capacity(), 10);
+    }
+
+    #[test]
+    fn effect_class_pure() {
+        let interner = ori_ir::StringInterner::new();
+        let name = Name::from_raw(1);
+        let sig = FunctionSig::simple(name, vec![Idx::INT], Idx::BOOL);
+
+        assert_eq!(sig.effect_class(&interner), EffectClass::Pure);
+    }
+
+    #[test]
+    fn effect_class_reads_only() {
+        let interner = ori_ir::StringInterner::new();
+        let name = Name::from_raw(1);
+        let clock = interner.intern("Clock");
+        let env = interner.intern("Env");
+
+        let sig = FunctionSig {
+            name,
+            type_params: vec![],
+            param_names: vec![],
+            param_types: vec![],
+            return_type: Idx::STR,
+            capabilities: vec![clock, env],
+            is_public: false,
+            is_test: false,
+            is_main: false,
+            type_param_bounds: vec![],
+            where_clauses: vec![],
+            generic_param_mapping: vec![],
+            required_params: 0,
+            param_defaults: vec![],
+        };
+
+        assert_eq!(sig.effect_class(&interner), EffectClass::ReadsOnly);
+    }
+
+    #[test]
+    fn effect_class_has_effects() {
+        let interner = ori_ir::StringInterner::new();
+        let name = Name::from_raw(1);
+        let http = interner.intern("Http");
+
+        let sig = FunctionSig {
+            name,
+            type_params: vec![],
+            param_names: vec![],
+            param_types: vec![],
+            return_type: Idx::STR,
+            capabilities: vec![http],
+            is_public: false,
+            is_test: false,
+            is_main: false,
+            type_param_bounds: vec![],
+            where_clauses: vec![],
+            generic_param_mapping: vec![],
+            required_params: 0,
+            param_defaults: vec![],
+        };
+
+        assert_eq!(sig.effect_class(&interner), EffectClass::HasEffects);
+    }
+
+    #[test]
+    fn effect_class_mixed_caps_is_has_effects() {
+        let interner = ori_ir::StringInterner::new();
+        let name = Name::from_raw(1);
+        let clock = interner.intern("Clock");
+        let http = interner.intern("Http");
+
+        // One read-only + one effectful → HasEffects
+        let sig = FunctionSig {
+            name,
+            type_params: vec![],
+            param_names: vec![],
+            param_types: vec![],
+            return_type: Idx::UNIT,
+            capabilities: vec![clock, http],
+            is_public: false,
+            is_test: false,
+            is_main: false,
+            type_param_bounds: vec![],
+            where_clauses: vec![],
+            generic_param_mapping: vec![],
+            required_params: 0,
+            param_defaults: vec![],
+        };
+
+        assert_eq!(sig.effect_class(&interner), EffectClass::HasEffects);
+    }
+
+    #[test]
+    fn effect_class_ordering() {
+        assert!(EffectClass::Pure < EffectClass::ReadsOnly);
+        assert!(EffectClass::ReadsOnly < EffectClass::HasEffects);
     }
 
     #[test]

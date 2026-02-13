@@ -399,15 +399,20 @@ pub fn build_file(path: &str, options: &BuildOptions) {
         if options.verbose {
             eprintln!("  Detected imports, using multi-file compilation...");
         }
-        build_file_multi(path, &content, options, start);
+        build_file_multi(path, options, start);
     } else {
-        build_file_single(path, &content, options, start);
+        build_file_single(path, content, options, start);
     }
 }
 
 /// Build a single Ori source file (no imports).
 #[cfg(feature = "llvm")]
-fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: std::time::Instant) {
+fn build_file_single(
+    path: &str,
+    content: String,
+    options: &BuildOptions,
+    start: std::time::Instant,
+) {
     use ori_llvm::aot::ObjectEmitter;
     use ori_llvm::inkwell::context::Context;
     use oric::{CompilerDb, SourceFile};
@@ -422,7 +427,7 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
     }
 
     let db = CompilerDb::new();
-    let file = SourceFile::new(&db, PathBuf::from(path), content.to_string());
+    let file = SourceFile::new(&db, PathBuf::from(path), content);
 
     // Check for parse and type errors
     let Some((parse_result, type_result, pool, canon_result)) = check_source(&db, file, path)
@@ -518,14 +523,14 @@ fn build_file_single(path: &str, content: &str, options: &BuildOptions, start: s
 
     // Step 8: Link into executable
     // Note: temp_dir must stay alive until linking completes (auto-cleaned on drop)
-    link_and_finish(&[obj_path], &output_path, &target, options, start);
+    link_and_finish(vec![obj_path], &output_path, &target, options, start);
 }
 
 /// Build a multi-file Ori program (with imports).
 ///
 /// This builds all dependent modules in topological order and links them together.
 #[cfg(feature = "llvm")]
-fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: std::time::Instant) {
+fn build_file_multi(path: &str, options: &BuildOptions, start: std::time::Instant) {
     use ori_llvm::aot::{build_dependency_graph, Mangler};
     use oric::CompilerDb;
     use tempfile::TempDir;
@@ -657,6 +662,10 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
         }
     }
 
+    // Drop compile_ctx to release borrows on opt_config, target, etc.
+    // before they're reused in the LTO merge step below.
+    drop(compile_ctx);
+
     // Step 4: LTO merge (if enabled) or direct linking
     let is_lto = !matches!(options.lto, LtoMode::Off);
     let final_object_files = if is_lto && object_files.len() > 1 {
@@ -707,8 +716,7 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
             });
         }
 
-        // Run LTO pipeline on merged module
-        let opt_config = build_optimization_config(options);
+        // Run LTO pipeline on merged module (reuses opt_config from line above)
         if let Err(e) =
             ori_llvm::aot::run_lto_pipeline(&merged_module, emitter.machine(), &opt_config)
         {
@@ -736,7 +744,7 @@ fn build_file_multi(path: &str, _content: &str, options: &BuildOptions, start: s
 
     // Note: temp_dir must stay alive until linking completes (auto-cleaned on drop)
     let output_path = determine_output_path(path, options);
-    link_and_finish(&final_object_files, &output_path, &target, options, start);
+    link_and_finish(final_object_files, &output_path, &target, options, start);
 
     // temp_dir automatically cleans up when it goes out of scope
     drop(temp_dir);
@@ -950,7 +958,7 @@ fn compile_single_module(
 /// The mangled name is pre-computed to avoid needing the interner later.
 #[cfg(feature = "llvm")]
 fn extract_public_function_types(
-    parse_result: &ori_parse::ParseOutput,
+    parse_result: &crate::parser::ParseOutput,
     type_result: &ori_types::TypeCheckResult,
     module_name: &str,
     mangler: &ori_llvm::aot::Mangler,
@@ -963,7 +971,7 @@ fn extract_public_function_types(
 
     // Build a name-based lookup map because typed.functions is sorted by name
     // (for Salsa determinism) while module.functions is in source order.
-    let sig_map: std::collections::HashMap<ori_ir::Name, &ori_types::FunctionSig> = type_result
+    let sig_map: rustc_hash::FxHashMap<oric::ir::Name, &ori_types::FunctionSig> = type_result
         .typed
         .functions
         .iter()
@@ -1082,7 +1090,7 @@ fn emit_and_finish(
 /// Link object files and finish.
 #[cfg(feature = "llvm")]
 fn link_and_finish(
-    object_files: &[PathBuf],
+    object_files: Vec<PathBuf>,
     output_path: &Path,
     target: &ori_llvm::aot::TargetConfig,
     options: &BuildOptions,
@@ -1113,7 +1121,7 @@ fn link_and_finish(
     };
 
     let mut link_input = LinkInput {
-        objects: object_files.to_vec(), // Clone required: link_input takes ownership, caller may need objects for cleanup
+        objects: object_files,
         output: output_path.to_path_buf(),
         output_kind,
         lto: matches!(options.lto, LtoMode::Thin | LtoMode::Full),

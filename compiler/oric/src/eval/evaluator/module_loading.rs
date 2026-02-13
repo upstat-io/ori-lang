@@ -38,7 +38,7 @@ impl Evaluator<'_> {
     /// type-checked and canonicalized so that imported functions have canonical
     /// bodies. This ensures the evaluator uses `eval_can(CanId)` for all function
     /// calls, including cross-module ones.
-    pub fn load_module(
+    pub(crate) fn load_module(
         &mut self,
         parse_result: &ParseOutput,
         file_path: &Path,
@@ -90,6 +90,9 @@ impl Evaluator<'_> {
         // Register explicitly imported functions.
         // Each resolved module carries its import_index so we can find
         // the corresponding UseDef for visibility/alias handling.
+        // Accumulate errors across all use statements so the user sees every
+        // problem at once, not just the first failing import.
+        let mut import_errors = Vec::new();
         for imp_module in &resolved.modules {
             let imp = &parse_result.module.imports[imp_module.import_index];
 
@@ -109,7 +112,7 @@ impl Evaluator<'_> {
                 imp_canon.as_ref(),
             );
 
-            import::register_imports(
+            if let Err(errs) = import::register_imports(
                 imp,
                 &imported_module,
                 self.env_mut(),
@@ -117,7 +120,13 @@ impl Evaluator<'_> {
                 &imp_module.module_path,
                 file_path,
                 imp_canon.as_ref(),
-            )?;
+            ) {
+                import_errors.extend(errs);
+            }
+        }
+
+        if !import_errors.is_empty() {
+            return Err(import_errors);
         }
 
         // Clone the shared arena (O(1) Arc::clone) for methods in this module.

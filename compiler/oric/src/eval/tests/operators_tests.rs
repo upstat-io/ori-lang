@@ -6,8 +6,8 @@
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 
 use crate::eval::Value;
+use crate::ir::BinaryOp;
 use ori_eval::evaluate_binary;
-use ori_ir::BinaryOp;
 
 // Integer operations
 

@@ -17,6 +17,7 @@
 //! 3. `callees_hash` — names of called functions (change detection)
 //! 4. `globals_hash` — referenced global constants/variables
 
+use ori_ir::canon::CanonResult;
 use ori_ir::Name;
 use ori_types::{FunctionSig, Idx};
 
@@ -120,14 +121,27 @@ fn hash_body(expr_types: &[Idx], body_expr_id: u32, expr_count: u32) -> ContentH
     }
 }
 
-/// Extract function content hashes from parse and type check results.
+/// Extract function content hashes from type check results and canonical IR.
 ///
 /// Returns a list of `(Name, FunctionContentHash)` for each non-generic
 /// function in the module. Generic functions are skipped (they need
 /// monomorphization before hashing).
+///
+/// When `canon` is provided, body hashes use `hash_canonical_subtree` for
+/// precise per-function change detection. Without it, falls back to
+/// `expr_types`-based hashing (less precise but doesn't require canonicalization).
 pub fn extract_function_hashes(
     function_sigs: &[FunctionSig],
     expr_types: &[Idx],
+) -> Vec<(Name, FunctionContentHash)> {
+    extract_function_hashes_with_canon(function_sigs, expr_types, None)
+}
+
+/// Extract function content hashes with optional canonical IR for precise body hashing.
+pub fn extract_function_hashes_with_canon(
+    function_sigs: &[FunctionSig],
+    expr_types: &[Idx],
+    canon: Option<&CanonResult>,
 ) -> Vec<(Name, FunctionContentHash)> {
     let mut result = Vec::with_capacity(function_sigs.len());
 
@@ -139,14 +153,20 @@ pub fn extract_function_hashes(
 
         let sig_hash = hash_signature(sig);
 
-        // Hash the body using expression types
-        // We use the function name as a proxy for body content since
-        // individual expression IDs aren't directly accessible here.
-        // The real body hash comes from expr_types for the function's range.
-        let body_hash = hash_string(&format!("body:{}", sig.name.raw()));
+        // Hash the body using canonical IR when available (precise, per-function),
+        // falling back to expr_types (module-level granularity).
+        let body_hash = if let Some(canon) = canon {
+            if let Some(body_id) = canon.root_for(sig.name) {
+                let raw = ori_ir::canon::hash::hash_canonical_subtree(&canon.arena, body_id);
+                ContentHash::new(raw)
+            } else {
+                hash_string(&format!("body:{}", sig.name.raw()))
+            }
+        } else {
+            hash_string(&format!("body:{}", sig.name.raw()))
+        };
 
-        // Hash callees — for now use a placeholder since callee extraction
-        // requires deeper AST traversal (deferred to a future pass)
+        // Hash callees — placeholder (callee extraction requires deeper AST traversal)
         let callees_hash = hash_string("callees:none");
 
         // Hash globals — placeholder for same reason
@@ -156,12 +176,10 @@ pub fn extract_function_hashes(
         result.push((sig.name, fch));
     }
 
-    // For module-level hashing, we also want a combined hash of all
-    // expression types, which captures actual body changes
-    if !result.is_empty() && !expr_types.is_empty() {
+    // When canonical IR is not available, fold expr_types into the module hash
+    // as a coarse change detection mechanism.
+    if canon.is_none() && !result.is_empty() && !expr_types.is_empty() {
         let body_hash = hash_body(expr_types, 0, expr_types.len() as u32);
-        // Update the first function's body hash to include expr_types
-        // This provides real change detection at the module level
         if let Some(first) = result.first_mut() {
             first.1 = FunctionContentHash::compute(
                 body_hash,

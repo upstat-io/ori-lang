@@ -15,8 +15,7 @@
 //! - `RedundantPattern` — via `pattern_problem_to_diagnostic()`
 
 use crate::diagnostic::{Diagnostic, ErrorCode};
-use crate::ir::Span;
-use ori_ir::{Name, StringInterner};
+use crate::ir::{Name, Span, StringInterner};
 
 /// Problems that occur during semantic analysis.
 ///
@@ -217,6 +216,7 @@ impl SemanticProblem {
     /// Convert this problem into a diagnostic.
     ///
     /// Uses the interner to resolve interned `Name` fields to display strings.
+    #[cold]
     pub fn into_diagnostic(&self, interner: &StringInterner) -> Diagnostic {
         match self {
             SemanticProblem::UnknownIdentifier {
@@ -449,6 +449,7 @@ impl SemanticProblem {
 /// Pattern problems originate from the canonicalizer's exhaustiveness/redundancy
 /// checker. This function centralizes the mapping so all consumers (check command,
 /// test runner, future commands) use the same conversion.
+#[cold]
 pub fn pattern_problem_to_diagnostic(
     problem: &ori_canon::PatternProblem,
     interner: &StringInterner,
@@ -479,12 +480,12 @@ pub fn pattern_problem_to_diagnostic(
 /// centralizes test coverage analysis so all consumers (check command, test runner,
 /// future `ori lint`) use the same logic.
 pub fn check_test_coverage(
-    module: &ori_ir::ast::Module,
+    module: &crate::ir::Module,
     interner: &StringInterner,
 ) -> Vec<SemanticProblem> {
     let main_name = interner.intern("main");
 
-    let mut tested: std::collections::HashSet<Name> = std::collections::HashSet::new();
+    let mut tested: rustc_hash::FxHashSet<Name> = rustc_hash::FxHashSet::default();
     for test in &module.tests {
         for target in &test.targets {
             tested.insert(*target);

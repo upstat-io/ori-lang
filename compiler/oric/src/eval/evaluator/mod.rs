@@ -130,7 +130,7 @@ impl<'a> Evaluator<'a> {
     ///
     /// Returns the `CanId` for a named root (function or test body) if canonical
     /// IR is available and the name exists in the roots list.
-    pub fn canon_root_for(&self, name: ori_ir::Name) -> Option<ori_ir::canon::CanId> {
+    pub fn canon_root_for(&self, name: Name) -> Option<ori_ir::canon::CanId> {
         self.interpreter.canon_root_for(name)
     }
 

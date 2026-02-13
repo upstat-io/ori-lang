@@ -75,8 +75,8 @@ pub struct ImportsCache(Arc<RwLock<HashMap<PathBuf, Arc<crate::imports::Resolved
 
 impl PoolCache {
     /// Store a Pool for the given file path.
-    pub fn store(&self, path: PathBuf, pool: ori_types::Pool) {
-        self.0.write().insert(path, Arc::new(pool));
+    pub fn store(&self, path: &Path, pool: ori_types::Pool) {
+        self.0.write().insert(path.to_path_buf(), Arc::new(pool));
     }
 
     /// Retrieve the cached Pool for the given file path.
@@ -95,8 +95,8 @@ impl PoolCache {
 
 impl CanonCache {
     /// Store a canonicalized module result for the given module path.
-    pub fn store(&self, module_path: PathBuf, canon: ori_ir::canon::SharedCanonResult) {
-        self.0.write().insert(module_path, canon);
+    pub fn store(&self, module_path: &Path, canon: ori_ir::canon::SharedCanonResult) {
+        self.0.write().insert(module_path.to_path_buf(), canon);
     }
 
     /// Retrieve the cached canon result for the given module path.
@@ -115,12 +115,12 @@ impl CanonCache {
 
 impl ImportsCache {
     /// Store resolved imports for the given file path.
-    pub fn store(&self, file_path: PathBuf, imports: Arc<crate::imports::ResolvedImports>) {
-        self.0.write().insert(file_path, imports);
+    pub(crate) fn store(&self, file_path: &Path, imports: Arc<crate::imports::ResolvedImports>) {
+        self.0.write().insert(file_path.to_path_buf(), imports);
     }
 
     /// Retrieve cached resolved imports for the given file path.
-    pub fn get(&self, file_path: &Path) -> Option<Arc<crate::imports::ResolvedImports>> {
+    pub(crate) fn get(&self, file_path: &Path) -> Option<Arc<crate::imports::ResolvedImports>> {
         self.0.read().get(file_path).cloned()
     }
 
@@ -128,7 +128,7 @@ impl ImportsCache {
     ///
     /// Called when Salsa re-executes `typed()` for a file, indicating
     /// that the source has changed and the cached result is stale.
-    pub fn invalidate(&self, file_path: &Path) {
+    pub(crate) fn invalidate(&self, file_path: &Path) {
         self.0.write().remove(file_path);
     }
 }
@@ -386,9 +386,12 @@ impl salsa::Database for CompilerDb {
 /// marked with `Durability::HIGH` so Salsa can skip revalidating queries that
 /// depend only on stable library code.
 fn is_stdlib_path(path: &Path) -> bool {
-    // Check for library/std/ directory in the path components
-    let path_str = path.to_string_lossy();
-    path_str.contains("/library/std/") || path_str.contains("\\library\\std\\")
+    // Check for consecutive "library" → "std" components in the path.
+    // Using components() is both allocation-free and cross-platform —
+    // Path handles `/` vs `\` transparently.
+    path.components()
+        .zip(path.components().skip(1))
+        .any(|(a, b)| a.as_os_str() == "library" && b.as_os_str() == "std")
 }
 
 #[cfg(test)]
@@ -415,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_is_stdlib_path() {
-        // Unix-style paths
+        // Native-separator paths (these work on the current platform)
         assert!(is_stdlib_path(Path::new(
             "/home/user/ori/library/std/prelude.ori"
         )));
@@ -423,13 +426,16 @@ mod tests {
             "/home/user/ori/library/std/io.ori"
         )));
 
-        // Windows-style paths
-        assert!(is_stdlib_path(Path::new(
-            "C:\\Users\\user\\ori\\library\\std\\prelude.ori"
-        )));
-
         // User files are NOT stdlib
         assert!(!is_stdlib_path(Path::new("/home/user/project/main.ori")));
         assert!(!is_stdlib_path(Path::new("/home/user/project/src/lib.ori")));
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_is_stdlib_path_windows() {
+        assert!(is_stdlib_path(Path::new(
+            "C:\\Users\\user\\ori\\library\\std\\prelude.ori"
+        )));
     }
 }

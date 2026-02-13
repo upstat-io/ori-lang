@@ -13,8 +13,8 @@
 //! Each variant carries all context needed to produce a rich [`Diagnostic`] via
 //! [`CodegenProblem::into_diagnostic`].
 
+use crate::ir::Span;
 use ori_diagnostic::{Diagnostic, ErrorCode};
-use ori_ir::Span;
 
 /// Problem encountered during codegen (ARC analysis or LLVM backend).
 ///
@@ -80,15 +80,20 @@ pub enum CodegenProblem {
 }
 
 impl CodegenProblem {
-    /// Convert this problem into a [`Diagnostic`].
-    pub fn into_diagnostic(&self) -> Diagnostic {
+    /// Convert this problem into a [`Diagnostic`], consuming `self`.
+    ///
+    /// Consumes the problem to avoid cloning owned `String` fields (messages,
+    /// paths, stderr) into the diagnostic. Callers that need to inspect the
+    /// problem after conversion should do so before calling this method.
+    #[cold]
+    pub fn into_diagnostic(self) -> Diagnostic {
         match self {
             // ── ARC (E4xxx) ─────────────────────────────────────
             Self::ArcUnsupportedExpr { kind, span } => Diagnostic::warning(ErrorCode::E4001)
                 .with_message(format!(
                     "expression kind '{kind}' is not yet supported in ARC IR lowering"
                 ))
-                .with_label(*span, "this expression")
+                .with_label(span, "this expression")
                 .with_note(
                     "ARC analysis will skip this expression; RC operations may not be optimized",
                 ),
@@ -97,14 +102,14 @@ impl CodegenProblem {
                 .with_message(format!(
                     "pattern kind '{kind}' is not yet supported in ARC IR lowering"
                 ))
-                .with_label(*span, "this pattern")
+                .with_label(span, "this pattern")
                 .with_note(
                     "ARC analysis will skip this pattern; RC operations may not be optimized",
                 ),
 
             Self::ArcInternalError { message, span } => Diagnostic::error(ErrorCode::E4003)
                 .with_message(format!("ARC internal error: {message}"))
-                .with_label(*span, "while lowering this expression")
+                .with_label(span, "while lowering this expression")
                 .with_note(
                     "this is likely a compiler bug — please report it at \
                          https://github.com/oriproject/ori/issues",
@@ -135,7 +140,7 @@ impl CodegenProblem {
             // ── Target (E5004) ───────────────────────────────────
             Self::TargetNotSupported { triple, message } => Diagnostic::error(ErrorCode::E5004)
                 .with_message(format!("target '{triple}' is not supported"))
-                .with_note(message.clone()),
+                .with_note(message),
 
             // ── Runtime (E5005) ──────────────────────────────────
             Self::RuntimeNotFound { search_paths } => {
@@ -155,7 +160,7 @@ impl CodegenProblem {
             // ── Linker (E5006) ───────────────────────────────────
             Self::LinkerNotFound { linker, message } => Diagnostic::error(ErrorCode::E5006)
                 .with_message(format!("linker '{linker}' not found"))
-                .with_note(message.clone())
+                .with_note(message)
                 .with_suggestion("install a C toolchain (gcc/clang) or specify --linker=<path>"),
 
             Self::LinkFailed {
@@ -356,10 +361,10 @@ impl From<ori_llvm::aot::LinkerError> for CodegenProblem {
                 exit_code: None,
                 stderr: format!("I/O error: {message}"),
             },
-            LinkerError::UnsupportedTarget { triple } => Self::TargetNotSupported {
-                triple: triple.clone(),
-                message: format!("linker does not support target '{triple}'"),
-            },
+            LinkerError::UnsupportedTarget { triple } => {
+                let message = format!("linker does not support target '{triple}'");
+                Self::TargetNotSupported { triple, message }
+            }
         }
     }
 }
@@ -426,10 +431,10 @@ impl CodegenDiagnostics {
         self.problems.iter().any(CodegenProblem::is_error)
     }
 
-    /// Render all accumulated problems as diagnostics.
+    /// Render all accumulated problems as diagnostics, consuming `self`.
     pub fn into_diagnostics(self) -> Vec<Diagnostic> {
         self.problems
-            .iter()
+            .into_iter()
             .map(CodegenProblem::into_diagnostic)
             .collect()
     }
@@ -450,6 +455,7 @@ impl CodegenDiagnostics {
 /// This function does NOT call `process::exit` — that is the caller's
 /// responsibility. Library code and tests can use this to emit diagnostics
 /// without terminating the process.
+#[cold]
 pub fn emit_codegen_error(problem: impl Into<CodegenProblem>) {
     use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 
@@ -465,6 +471,7 @@ pub fn emit_codegen_error(problem: impl Into<CodegenProblem>) {
 /// CLI convenience wrapper around [`emit_codegen_error`] that also calls
 /// `process::exit(1)`. Use this only in CLI command handlers — library code
 /// should use [`emit_codegen_error`] instead.
+#[cold]
 pub fn report_codegen_error(problem: impl Into<CodegenProblem>) -> ! {
     emit_codegen_error(problem);
     std::process::exit(1);
@@ -473,6 +480,7 @@ pub fn report_codegen_error(problem: impl Into<CodegenProblem>) -> ! {
 /// Emit accumulated codegen diagnostics (warnings and errors).
 ///
 /// Returns `true` if any errors were emitted (callers should abort).
+#[cold]
 pub fn emit_codegen_diagnostics(diagnostics: CodegenDiagnostics) -> bool {
     if diagnostics.is_empty() {
         return false;

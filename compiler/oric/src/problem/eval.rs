@@ -29,6 +29,7 @@ use ori_patterns::{EvalError, EvalErrorKind};
 ///
 /// Maps `EvalErrorKind` to an E6xxx error code and constructs a diagnostic
 /// with the error message, primary span label, notes, and backtrace context.
+#[cold]
 pub fn eval_error_to_diagnostic(err: &EvalError) -> Diagnostic {
     let code = error_code_for_kind(&err.kind);
     let mut diag = Diagnostic::error(code).with_message(&err.message);
@@ -65,6 +66,7 @@ pub fn eval_error_to_diagnostic(err: &EvalError) -> Diagnostic {
 /// snapshot and enriches backtrace spans with `file:line:col` using `LineOffsetTable`.
 ///
 /// Falls back to byte offsets if source is unavailable.
+#[cold]
 pub fn snapshot_to_diagnostic(
     snapshot: &EvalErrorSnapshot,
     source: &str,
@@ -205,7 +207,7 @@ fn suggestion_for_kind(kind: &EvalErrorKind) -> Option<String> {
 mod tests {
     use super::*;
     use crate::eval::EvalErrorSnapshot;
-    use ori_ir::Span;
+    use crate::ir::{BinaryOp, Span};
     use ori_patterns::{BacktraceFrame, EvalBacktrace, EvalNote};
 
     #[test]
@@ -304,7 +306,7 @@ mod tests {
             },
             EvalErrorKind::InvalidBinaryOp {
                 type_name: String::new(),
-                op: ori_ir::BinaryOp::Add,
+                op: BinaryOp::Add,
             },
             EvalErrorKind::BinaryTypeMismatch {
                 left: String::new(),

@@ -1,13 +1,10 @@
-//! Module loading and import resolution.
+//! Module loading and import registration for the evaluator.
 //!
 //! This module handles:
-//! - Loading modules and registering their functions
-//! - Resolving import paths (relative and module paths)
-//! - Parsing and validating imported files
-//! - Managing module function captures
+//! - Building `FunctionValue`s from imported module ASTs
+//! - Registering imported items into the evaluator's `Environment`
+//! - Managing module function captures and visibility
 //!
-//! All file access goes through `db.load_file()` for proper Salsa tracking.
+//! Path resolution (finding files on disk) lives in [`crate::imports`].
 
-pub mod import;
-
-pub use import::{resolve_import, ImportError, ImportErrorKind, ResolvedImport};
+pub(crate) mod import;

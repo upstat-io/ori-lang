@@ -22,8 +22,9 @@
 )]
 
 use ori_diagnostic::{span_utils, ErrorCode};
-use ori_ir::StringInterner;
-use ori_parse::ParseError;
+
+use crate::ir::StringInterner;
+use crate::parser::ParseError;
 use rayon::prelude::*;
 use std::fmt::Write as _;
 use std::io::{IsTerminal, Read};
@@ -86,7 +87,7 @@ pub fn format_stdin() -> bool {
     let lex_output = ori_lexer::lex_with_comments(&content, &interner);
 
     // Parse
-    let parse_output = ori_parse::parse(&lex_output.tokens, &interner);
+    let parse_output = crate::parser::parse(&lex_output.tokens, &interner);
     if parse_output.has_errors() {
         let formatted_errors = format_parse_errors("<stdin>", &parse_output.errors, &content);
         eprint!("{formatted_errors}");
@@ -125,7 +126,7 @@ fn format_content(path: &str, content: &str, config: &FormatConfig) -> FormatRes
     let lex_output = ori_lexer::lex_with_comments(&content, &interner);
 
     // Parse
-    let parse_output = ori_parse::parse(&lex_output.tokens, &interner);
+    let parse_output = crate::parser::parse(&lex_output.tokens, &interner);
     if parse_output.has_errors() {
         let formatted_errors = format_parse_errors(path, &parse_output.errors, &content);
         return FormatResult::ParseError(formatted_errors);
@@ -858,7 +859,7 @@ fn format_parse_errors(path: &str, errors: &[ParseError], source: &str) -> Strin
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use ori_ir::Span;
+    use crate::ir::Span;
 
     #[test]
     fn test_get_source_line_single_line() {

@@ -34,6 +34,7 @@ impl LexProblem {
     }
 
     /// Convert this problem into a diagnostic.
+    #[cold]
     pub fn into_diagnostic(&self) -> Diagnostic {
         match self {
             LexProblem::DetachedDocComment { span, .. } => Diagnostic::warning(ErrorCode::E0012)
@@ -52,6 +53,7 @@ impl LexProblem {
 ///
 /// Public so that callers can render lex errors directly from `&LexError`
 /// without cloning into a `LexProblem::Error` wrapper.
+#[cold]
 pub fn render_lex_error(err: &LexError) -> Diagnostic {
     let span = err.span;
     let mut diag = match &err.kind {

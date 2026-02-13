@@ -233,7 +233,7 @@ fn main() {
             // If it looks like a file path, try to run it
             if std::path::Path::new(command)
                 .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("si"))
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("ori"))
             {
                 run_file(command, false);
             } else {

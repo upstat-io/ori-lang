@@ -14,6 +14,7 @@ use crate::ir::TestDef;
 use crate::query::{parsed, typed, typed_pool};
 use ori_types::TypeCheckResult;
 
+use super::change_detection::{FunctionChangeMap, TestRunCache, TestTargetIndex};
 use super::discovery::{discover_tests_in, TestFile};
 use super::error_matching::{
     format_actual, format_expected, format_pattern_problem, match_all_errors,
@@ -33,6 +34,10 @@ pub enum Backend {
 
 /// Configuration for the test runner.
 #[derive(Clone, Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Config struct: each bool controls an independent flag"
+)]
 pub struct TestRunnerConfig {
     /// Filter tests by name pattern (substring match).
     pub filter: Option<String>,
@@ -44,6 +49,8 @@ pub struct TestRunnerConfig {
     pub coverage: bool,
     /// Backend to use for execution.
     pub backend: Backend,
+    /// Enable incremental test execution (skip tests whose targets are unchanged).
+    pub incremental: bool,
 }
 
 impl Default for TestRunnerConfig {
@@ -54,6 +61,7 @@ impl Default for TestRunnerConfig {
             parallel: true,
             coverage: false,
             backend: Backend::Interpreter,
+            incremental: false,
         }
     }
 }
@@ -69,6 +77,8 @@ pub struct TestRunner {
     config: TestRunnerConfig,
     /// Shared interner - all files use the same interner for comparable Name values.
     interner: crate::ir::SharedInterner,
+    /// Cross-run cache for incremental test execution. Thread-safe for parallel runs.
+    cache: parking_lot::Mutex<TestRunCache>,
 }
 
 impl TestRunner {
@@ -77,6 +87,7 @@ impl TestRunner {
         TestRunner {
             config: TestRunnerConfig::default(),
             interner: crate::ir::SharedInterner::new(),
+            cache: parking_lot::Mutex::new(TestRunCache::new()),
         }
     }
 
@@ -85,6 +96,7 @@ impl TestRunner {
         TestRunner {
             config,
             interner: crate::ir::SharedInterner::new(),
+            cache: parking_lot::Mutex::new(TestRunCache::new()),
         }
     }
 
@@ -118,7 +130,7 @@ impl TestRunner {
 
         for file in files {
             let file_summary =
-                Self::run_file_with_interner(&file.path, &self.interner, &self.config);
+                Self::run_file_with_interner(&file.path, &self.interner, &self.config, &self.cache);
             summary.add_file(file_summary);
         }
 
@@ -142,6 +154,7 @@ impl TestRunner {
         // SharedInterner is Arc-wrapped, so this is cheap.
         let interner = self.interner.clone();
         let config = self.config.clone();
+        let cache = &self.cache;
 
         // Use build_scoped to create a thread pool that's cleaned up before returning.
         // This avoids atexit handler hangs that occur with the global rayon pool.
@@ -167,17 +180,17 @@ impl TestRunner {
                         files
                             .par_iter()
                             .map(|file| {
-                                Self::run_file_with_interner(&file.path, &interner, &config)
+                                Self::run_file_with_interner(&file.path, &interner, &config, cache)
                             })
                             .collect::<Vec<_>>()
                     })
                 },
             )
             .unwrap_or_else(|e| {
-                eprintln!("Warning: failed to create thread pool ({e}), running sequentially");
+                tracing::warn!("failed to create thread pool ({e}), running sequentially");
                 files
                     .iter()
-                    .map(|file| Self::run_file_with_interner(&file.path, &interner, &config))
+                    .map(|file| Self::run_file_with_interner(&file.path, &interner, &config, cache))
                     .collect()
             });
 
@@ -192,7 +205,7 @@ impl TestRunner {
 
     /// Run all tests in a single file (instance method for convenience).
     fn run_file(&self, path: &Path) -> FileSummary {
-        Self::run_file_with_interner(path, &self.interner, &self.config)
+        Self::run_file_with_interner(path, &self.interner, &self.config, &self.cache)
     }
 
     /// Run all tests in a single file with a shared interner.
@@ -205,6 +218,7 @@ impl TestRunner {
         path: &Path,
         interner: &crate::ir::SharedInterner,
         config: &TestRunnerConfig,
+        cache: &parking_lot::Mutex<TestRunCache>,
     ) -> FileSummary {
         let mut summary = FileSummary::new(path.to_path_buf());
 
@@ -258,13 +272,59 @@ impl TestRunner {
         let shared_canon =
             crate::query::canonicalize_cached(&db, file, &parse_result, &type_result, &pool);
 
+        // Incremental change detection: compute body hashes and determine skippable tests.
+        let skippable = if config.incremental {
+            let current_map = FunctionChangeMap::from_canon(&shared_canon);
+            let path_buf = path.to_path_buf();
+
+            // Single lock acquisition: extract both `changed` set and whether
+            // a previous snapshot existed. Avoids redundant re-locking.
+            let (changed, had_previous) = {
+                let cache_guard = cache.lock();
+                if let Some(previous) = cache_guard.get(&path_buf) {
+                    (current_map.changed_since(previous), true)
+                } else {
+                    (rustc_hash::FxHashSet::default(), false)
+                }
+            };
+
+            let skippable = if had_previous {
+                // Have a previous snapshot — compute which tests can be skipped
+                // based on which functions changed (may be none, some, or all).
+                let index = TestTargetIndex::from_module(&parse_result.module);
+                let all_tests: Vec<&TestDef> = parse_result.module.tests.iter().collect();
+                index
+                    .skippable_tests(&changed, &all_tests)
+                    .into_iter()
+                    .collect::<rustc_hash::FxHashSet<_>>()
+            } else {
+                // First run, no previous cache — run everything.
+                rustc_hash::FxHashSet::default()
+            };
+
+            // Update cache with current snapshot.
+            cache.lock().insert(path_buf, current_map);
+
+            skippable
+        } else {
+            rustc_hash::FxHashSet::default()
+        };
+
         // Separate compile_fail tests from regular tests
         // compile_fail tests don't need evaluation - they just check for type errors
-        let (compile_fail_tests, regular_tests): (Vec<_>, Vec<_>) = parse_result
+        let (compile_fail_tests, mut regular_tests): (Vec<_>, Vec<_>) = parse_result
             .module
             .tests
             .iter()
             .partition(|t| t.is_compile_fail());
+
+        // Effect-driven prioritization: effectful tests first, pure tests last.
+        // Effectful tests are more likely to detect real regressions because they
+        // exercise I/O paths and external interactions. Pure tests are deterministic
+        // and cacheable, so running them last allows early failure detection.
+        if config.incremental {
+            Self::prioritize_tests(&mut regular_tests, &type_result.typed, interner);
+        }
 
         // Run compile_fail tests first (they don't need load_module)
         for test in &compile_fail_tests {
@@ -381,6 +441,17 @@ impl TestRunner {
                         }
                     }
 
+                    // Incremental: skip tests whose targets are unchanged.
+                    if skippable.contains(&test.name) {
+                        summary.add_result(TestResult {
+                            name: test.name,
+                            targets: test.targets.clone(),
+                            outcome: TestOutcome::SkippedUnchanged,
+                            duration: Duration::ZERO,
+                        });
+                        continue;
+                    }
+
                     let inner_result = Self::run_single_test(&mut evaluator, test, interner);
 
                     // If #[fail] is present, wrap the result
@@ -435,7 +506,7 @@ impl TestRunner {
         summary: &mut FileSummary,
         db: &crate::db::CompilerDb,
         file_path: &Path,
-        parse_result: &ori_parse::ParseOutput,
+        parse_result: &crate::parser::ParseOutput,
         regular_tests: &[&crate::ir::TestDef],
         type_result: &TypeCheckResult,
         pool: &ori_types::Pool,
@@ -838,7 +909,9 @@ impl TestRunner {
         let expected_substr = interner.lookup(expected_failure);
 
         match inner_result.outcome {
-            TestOutcome::Skipped(_) | TestOutcome::LlvmCompileFail(_) => {
+            TestOutcome::Skipped(_)
+            | TestOutcome::SkippedUnchanged
+            | TestOutcome::LlvmCompileFail(_) => {
                 // Skipped and expected-failure tests pass through unchanged
                 inner_result
             }
@@ -873,6 +946,55 @@ impl TestRunner {
                 }
             }
         }
+    }
+
+    /// Sort tests by effect class: effectful first, pure last.
+    ///
+    /// Effectful tests (targets with capabilities like `Http`, `FileSystem`) are more
+    /// likely to catch real regressions because they exercise I/O paths. Pure tests
+    /// (targets with no capabilities) are deterministic and cacheable, so running
+    /// them last allows failures to surface sooner.
+    fn prioritize_tests(
+        tests: &mut [&TestDef],
+        typed: &ori_types::TypedModule,
+        interner: &crate::ir::StringInterner,
+    ) {
+        tests.sort_by(|a, b| {
+            let effect_a = Self::max_target_effect(a, typed, interner);
+            let effect_b = Self::max_target_effect(b, typed, interner);
+            // Reverse: HasEffects (2) > ReadsOnly (1) > Pure (0)
+            // We want HasEffects first, so reverse the comparison.
+            effect_b.cmp(&effect_a)
+        });
+    }
+
+    /// Get the maximum effect class across a test's targets.
+    ///
+    /// If any target has `HasEffects`, the test is effectful.
+    /// If any target has `ReadsOnly` (and none has `HasEffects`), it's read-only.
+    /// Otherwise it's pure.
+    fn max_target_effect(
+        test: &TestDef,
+        typed: &ori_types::TypedModule,
+        interner: &crate::ir::StringInterner,
+    ) -> ori_types::EffectClass {
+        use ori_types::EffectClass;
+
+        let mut max_effect = EffectClass::Pure;
+
+        for &target in &test.targets {
+            if let Some(sig) = typed.function(target) {
+                let effect = sig.effect_class(interner);
+                if effect > max_effect {
+                    max_effect = effect;
+                }
+                if max_effect == EffectClass::HasEffects {
+                    return max_effect; // Short-circuit: can't get higher
+                }
+            }
+        }
+
+        max_effect
     }
 
     /// Run a single test.
@@ -949,8 +1071,8 @@ impl TestRunner {
         let main_name = interner.intern("main");
 
         // Build map of function -> tests that target it
-        let mut test_map: std::collections::HashMap<crate::ir::Name, Vec<crate::ir::Name>> =
-            std::collections::HashMap::new();
+        let mut test_map: rustc_hash::FxHashMap<crate::ir::Name, Vec<crate::ir::Name>> =
+            rustc_hash::FxHashMap::default();
 
         for test in &parse_result.module.tests {
             for target in &test.targets {
