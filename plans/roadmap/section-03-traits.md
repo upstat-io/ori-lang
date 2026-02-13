@@ -85,7 +85,7 @@ sections:
 
 > **SPEC**: `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 39 passing (0 ignored), proposals pending (3.7-3.17). Verified 2026-02-13: ~239 Ori tests + 39 AOT trait tests pass. Remaining LLVM gap: derive codegen (evaluator-only).
+**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 49 passing (39 traits + 10 derives, 0 ignored), proposals pending (3.7-3.17). Verified 2026-02-13: ~239 Ori tests + 49 AOT tests pass. Derive codegen complete (Eq, Clone, Hashable, Printable).
 
 ---
 
@@ -389,26 +389,26 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 - [x] **Implement**: Auto-implement `Eq` — spec/08-declarations.md § Attributes ✅ (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — `test_process_struct_derives`
   - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori` + `tests/spec/traits/derive/eq.ori` — 3+13 tests (all pass)
-  - [ ] **LLVM Support**: LLVM codegen for derived Eq methods — derives handled by type checker, no LLVM-specific test
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Eq derive codegen (test file doesn't exist)
+  - [x] **LLVM Support**: Synthetic LLVM IR for derived Eq — field-by-field `icmp eq` with short-circuit AND ✅ (2026-02-13)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 4 AOT tests (basic, strings, mixed types, single field) ✅ (2026-02-13)
 
 - [x] **Implement**: Auto-implement `Clone` — spec/08-declarations.md § Attributes ✅ (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — `test_process_multiple_derives`
   - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori` — `.clone()` on derived Point (passes)
-  - [ ] **LLVM Support**: LLVM codegen for derived Clone methods — no LLVM-specific test
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Clone derive codegen (test file doesn't exist)
+  - [x] **LLVM Support**: Synthetic LLVM IR for derived Clone — identity return for value types ✅ (2026-02-13)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 2 AOT tests (basic, large struct sret) ✅ (2026-02-13)
 
 - [x] **Implement**: Auto-implement `Hashable` — spec/08-declarations.md § Attributes ✅ (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs`
   - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori` — `.hash()` on derived Point (passes)
-  - [ ] **LLVM Support**: LLVM codegen for derived Hashable methods — no LLVM-specific test
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Hashable derive codegen (test file doesn't exist)
+  - [x] **LLVM Support**: Synthetic LLVM IR for derived Hashable — FNV-1a in pure LLVM IR ✅ (2026-02-13)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 2 AOT tests (equal values, different values) ✅ (2026-02-13)
 
 - [x] **Implement**: Auto-implement `Printable` — spec/08-declarations.md § Attributes ✅ (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs`
   - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori` — `.to_string()` on derived Point (passes)
-  - [ ] **LLVM Support**: LLVM codegen for derived Printable methods — no LLVM-specific test
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Printable derive codegen (test file doesn't exist)
+  - [x] **LLVM Support**: Synthetic LLVM IR for derived Printable — runtime str concat via `ori_str_*` ✅ (2026-02-13)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 1 AOT test (basic non-empty check) ✅ (2026-02-13)
 
 - [ ] **Implement**: Auto-implement `Default` — spec/08-declarations.md § Attributes
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — `create_derived_method_def` handles Default
@@ -435,7 +435,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: `.unwrap_or()` added to LLVM Option dispatch table ✅ (2026-02-13)
   - [x] **Fixed**: Default trait methods compiled in LLVM ✅ (2026-02-13)
   - [x] **Fixed**: Indirect ABI parameter passing — self loaded from pointer for >16B structs ✅ (2026-02-13)
-  - [ ] **Gap**: Derive methods not wired into LLVM codegen (evaluator-only)
+  - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable ✅ (2026-02-13)
 - [ ] Operator traits (3.21): User-defined operator dispatch NOT working (entirely commented out)
 - [ ] Proposals (3.7-3.17): Iterator, Debug, Formattable, Into, etc. — all not started
 

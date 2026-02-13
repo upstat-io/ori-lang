@@ -47,6 +47,7 @@ pub mod value_id;
 
 // -- Function compilation (Section 04) --
 pub mod abi;
+pub mod derive_codegen;
 pub mod function_compiler;
 pub mod runtime_decl;
 pub mod type_registration;

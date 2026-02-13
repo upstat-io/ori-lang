@@ -1081,6 +1081,132 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     }
 
     // -----------------------------------------------------------------------
+    // Derived Trait Methods
+    // -----------------------------------------------------------------------
+
+    /// Compile derived trait methods for types with `#[derive(...)]`.
+    ///
+    /// Generates synthetic LLVM functions for derived traits (Eq, Clone,
+    /// Hashable, Printable) and registers them in `method_functions` for
+    /// normal method dispatch.
+    pub fn compile_derives(
+        &mut self,
+        module: &ori_ir::Module,
+        user_types: &[ori_types::TypeEntry],
+    ) {
+        super::derive_codegen::compile_derives(self, module, user_types);
+    }
+
+    /// Declare a derived method LLVM function, create entry block, bind params.
+    ///
+    /// This method lives on `FunctionCompiler` because it needs simultaneous
+    /// access to `builder` (mutable) and `type_resolver` (shared) for type
+    /// resolution during function declaration — a borrow pattern that free
+    /// functions can't express.
+    ///
+    /// Returns `(func_id, self_value, other_param_values)`.
+    pub(crate) fn declare_and_bind_derive(
+        &mut self,
+        symbol: &str,
+        abi: &FunctionAbi,
+        type_name: Name,
+        method_name: Name,
+        type_idx: Idx,
+    ) -> (FunctionId, ValueId, Vec<ValueId>) {
+        use super::abi::ParamPassing;
+
+        // Declare the LLVM function
+        let mut param_types = Vec::with_capacity(abi.params.len() + 1);
+
+        let return_ty = self.type_resolver.resolve(abi.return_abi.ty);
+        let return_ty_id = self.builder.register_type(return_ty);
+
+        if matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }) {
+            param_types.push(self.builder.ptr_type());
+        }
+
+        for param in &abi.params {
+            match &param.passing {
+                ParamPassing::Direct => {
+                    let ty = self.type_resolver.resolve(param.ty);
+                    param_types.push(self.builder.register_type(ty));
+                }
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    param_types.push(self.builder.ptr_type());
+                }
+                ParamPassing::Void => {}
+            }
+        }
+
+        let func_id = match &abi.return_abi.passing {
+            ReturnPassing::Direct => {
+                self.builder
+                    .declare_function(symbol, &param_types, return_ty_id)
+            }
+            ReturnPassing::Sret { .. } | ReturnPassing::Void => {
+                self.builder.declare_void_function(symbol, &param_types)
+            }
+        };
+
+        if let ReturnPassing::Sret { .. } = &abi.return_abi.passing {
+            self.builder.add_sret_attribute(func_id, 0, return_ty_id);
+            self.builder.add_noalias_attribute(func_id, 0);
+        }
+
+        self.builder.set_fastcc(func_id);
+
+        // Create entry block
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+
+        // Bind parameters
+        let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
+        let param_offset: u32 = u32::from(has_sret);
+
+        let mut self_val = None;
+        let mut other_vals = Vec::new();
+        let mut llvm_idx = param_offset;
+
+        for (i, param) in abi.params.iter().enumerate() {
+            match &param.passing {
+                ParamPassing::Direct => {
+                    let pv = self.builder.get_param(func_id, llvm_idx);
+                    if i == 0 {
+                        self_val = Some(pv);
+                    } else {
+                        other_vals.push(pv);
+                    }
+                    llvm_idx += 1;
+                }
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    let ptr = self.builder.get_param(func_id, llvm_idx);
+                    let ty = self.type_resolver.resolve(param.ty);
+                    let ty_id = self.builder.register_type(ty);
+                    let loaded = self.builder.load(ty_id, ptr, &format!("param.{i}"));
+                    if i == 0 {
+                        self_val = Some(loaded);
+                    } else {
+                        other_vals.push(loaded);
+                    }
+                    llvm_idx += 1;
+                }
+                ParamPassing::Void => {}
+            }
+        }
+
+        let self_value = self_val.unwrap_or_else(|| self.builder.const_i64(0));
+
+        // Register in method_functions and type_idx_to_name
+        self.method_functions
+            .insert((type_name, method_name), (func_id, abi.clone()));
+        self.type_idx_to_name.insert(type_idx, type_name);
+        self.functions.insert(method_name, (func_id, abi.clone()));
+
+        (func_id, self_value, other_vals)
+    }
+
+    // -----------------------------------------------------------------------
     // Accessors
     // -----------------------------------------------------------------------
 
@@ -1102,6 +1228,57 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Borrow the type index → type name mapping.
     pub fn type_idx_to_name_map(&self) -> &FxHashMap<Idx, Name> {
         &self.type_idx_to_name
+    }
+
+    // -----------------------------------------------------------------------
+    // Derive Codegen Accessors (pub(crate))
+    // -----------------------------------------------------------------------
+
+    /// Mutable borrow of the `IrBuilder`.
+    pub(crate) fn builder_mut(&mut self) -> &mut IrBuilder<'scx, 'ctx> {
+        self.builder
+    }
+
+    /// Borrow the type info store.
+    pub(crate) fn type_info(&self) -> &TypeInfoStore<'tcx> {
+        self.type_info
+    }
+
+    /// Resolve a type Idx to its LLVM representation.
+    pub(crate) fn resolve_type(&self, idx: Idx) -> inkwell::types::BasicTypeEnum<'ctx> {
+        self.type_resolver.resolve(idx)
+    }
+
+    /// Look up an interned name.
+    pub(crate) fn lookup_name(&self, name: Name) -> &str {
+        self.interner.lookup(name)
+    }
+
+    /// Intern a string.
+    pub(crate) fn intern(&self, s: &str) -> Name {
+        self.interner.intern(s)
+    }
+
+    /// Generate a mangled method symbol.
+    pub(crate) fn mangle_method(&self, type_name: &str, method_name: &str) -> String {
+        self.mangler
+            .mangle_method(self.module_path, type_name, method_name)
+    }
+
+    /// Look up a type name from a type Idx.
+    pub(crate) fn type_idx_to_name(&self, idx: Idx) -> Option<Name> {
+        self.type_idx_to_name.get(&idx).copied()
+    }
+
+    /// Look up a method function by type and method name.
+    pub(crate) fn get_method_function(
+        &self,
+        type_name: Name,
+        method_name: Name,
+    ) -> Option<(FunctionId, FunctionAbi)> {
+        self.method_functions
+            .get(&(type_name, method_name))
+            .cloned()
     }
 }
 

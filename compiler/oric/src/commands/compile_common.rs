@@ -350,6 +350,16 @@ pub fn compile_to_llvm<'ctx>(
             );
         }
 
+        // 5b. Compile derived trait methods
+        if parse_result
+            .module
+            .types
+            .iter()
+            .any(|t| !t.derives.is_empty())
+        {
+            fc.compile_derives(&parse_result.module, &type_result.typed.types);
+        }
+
         // 6. Define all function bodies
         fc.define_all(&parse_result.module.functions, &function_sigs, canon);
 
@@ -514,6 +524,16 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                 canon,
                 &parse_result.module.traits,
             );
+        }
+
+        // 6b. Compile derived trait methods
+        if parse_result
+            .module
+            .types
+            .iter()
+            .any(|t| !t.derives.is_empty())
+        {
+            fc.compile_derives(&parse_result.module, &type_result.typed.types);
         }
 
         // 7. Define all function bodies
