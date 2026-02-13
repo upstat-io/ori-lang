@@ -346,6 +346,9 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         // Feeding malformed IR to LLVM's verifier or JIT can cause
         // heap corruption (SIGABRT) that kills the entire process.
         if codegen_errors > 0 {
+            // NOTE: scx (ManuallyDrop) is intentionally leaked here.
+            // Dropping an LLVM module with invalid IR (type-mismatched
+            // ret void, etc.) can itself trigger heap corruption.
             return Err(LLVMEvalError::new(format!(
                 "LLVM codegen had {codegen_errors} type-mismatch error(s) — skipping verification/JIT",
             )));
@@ -360,6 +363,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
 
         // 11. Verify IR
         if let Err(msg) = scx.llmod.verify() {
+            // NOTE: scx intentionally leaked — see codegen_errors note above.
             return Err(LLVMEvalError::new(format!(
                 "LLVM IR verification failed: {}",
                 msg.to_string()
@@ -424,6 +428,14 @@ fn add_runtime_mappings_to_engine(
         (
             "ori_assert_eq_bool",
             runtime::ori_assert_eq_bool as *const () as usize,
+        ),
+        (
+            "ori_assert_eq_float",
+            runtime::ori_assert_eq_float as *const () as usize,
+        ),
+        (
+            "ori_list_alloc_data",
+            runtime::ori_list_alloc_data as *const () as usize,
         ),
         ("ori_list_new", runtime::ori_list_new as *const () as usize),
         (

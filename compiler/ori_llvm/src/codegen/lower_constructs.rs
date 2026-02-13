@@ -38,18 +38,22 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             FunctionExpKind::Catch => self.lower_exp_catch(props, expr_id),
             FunctionExpKind::Parallel => {
                 tracing::warn!("parallel expression not yet implemented");
+                self.builder.record_codegen_error();
                 None
             }
             FunctionExpKind::Spawn => {
                 tracing::warn!("spawn expression not yet implemented");
+                self.builder.record_codegen_error();
                 None
             }
             FunctionExpKind::Timeout => {
                 tracing::warn!("timeout expression not yet implemented");
+                self.builder.record_codegen_error();
                 None
             }
             FunctionExpKind::With => {
                 tracing::warn!("with expression not yet implemented");
+                self.builder.record_codegen_error();
                 None
             }
         }
@@ -219,6 +223,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             }
         }
         tracing::warn!("cache expression missing value property");
+        self.builder.record_codegen_error();
         None
     }
 
@@ -233,6 +238,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             }
         }
         tracing::warn!("catch expression missing expr property");
+        self.builder.record_codegen_error();
         None
     }
 

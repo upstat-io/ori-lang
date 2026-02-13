@@ -582,6 +582,22 @@ pub extern "C" fn ori_assert_eq_bool(actual: bool, expected: bool) {
     }
 }
 
+/// Assert that two floats are equal.
+#[no_mangle]
+pub extern "C" fn ori_assert_eq_float(actual: f64, expected: f64) {
+    #[allow(
+        clippy::float_cmp,
+        reason = "assertion intentionally uses exact equality"
+    )]
+    if actual != expected {
+        eprintln!("assertion failed: {actual} != {expected}");
+        PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
+        PANIC_MESSAGE.with(|m| {
+            *m.borrow_mut() = Some(format!("assertion failed: {actual} != {expected}"));
+        });
+    }
+}
+
 /// Assert two strings are equal.
 #[no_mangle]
 pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriStr) {
@@ -607,7 +623,31 @@ pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriS
     }
 }
 
-/// Allocate a new list with given capacity.
+/// Allocate a raw data buffer for a list with given capacity.
+///
+/// Returns a pointer to a contiguous buffer of `capacity * elem_size` bytes,
+/// suitable for storing list elements directly. The caller manages the list
+/// header (`{len, cap, data}`) as a stack struct in LLVM IR.
+///
+/// This is the JIT/codegen allocation path. For AOT code that needs a full
+/// `OriList` struct on the heap, use `ori_list_new`.
+#[no_mangle]
+pub extern "C" fn ori_list_alloc_data(capacity: i64, elem_size: i64) -> *mut u8 {
+    let cap = capacity.max(0) as usize;
+    let size = elem_size.max(1) as usize;
+    if cap > 0 {
+        let layout = std::alloc::Layout::array::<u8>(cap * size)
+            .unwrap_or_else(|_| std::alloc::Layout::new::<u8>());
+        // SAFETY: Layout is non-zero size (cap > 0, size >= 1)
+        unsafe { std::alloc::alloc(layout) }
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+/// Allocate a new list with given capacity (full `OriList` struct on heap).
+///
+/// Used by AOT code. JIT codegen should use `ori_list_alloc_data` instead.
 #[no_mangle]
 pub extern "C" fn ori_list_new(capacity: i64, elem_size: i64) -> *mut OriList {
     let cap = capacity.max(0) as usize;

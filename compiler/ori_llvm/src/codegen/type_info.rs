@@ -432,6 +432,13 @@ impl<'tcx> TypeInfoStore<'tcx> {
 
         let index = idx.raw() as usize;
 
+        // Guard: reject indices beyond the pool — these are unresolved
+        // generic types or stale indices from a different compilation unit.
+        if index >= self.pool.len() {
+            tracing::warn!(idx = ?idx, pool_len = self.pool.len(), "type index out of pool bounds");
+            return TypeInfo::Error;
+        }
+
         // Fast path: already computed
         {
             let entries = self.entries.borrow();
@@ -940,6 +947,9 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     /// `"{fallback}.{raw_index}"` if the name isn't available.
     fn type_name(&self, idx: Idx, fallback: &str) -> String {
         let pool = self.store.pool();
+        if idx.raw() as usize >= pool.len() {
+            return format!("ori.{}.{}", fallback, idx.raw());
+        }
         match pool.tag(idx) {
             Tag::Struct => {
                 let name = pool.struct_name(idx);

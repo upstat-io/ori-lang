@@ -33,12 +33,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         if let CanExpr::Ident(func_name) = func_kind {
             let name_str = self.resolve_name(func_name);
 
-            // Built-in type conversion functions
+            // Built-in type conversion and testing functions
             match name_str {
                 "str" => return self.lower_builtin_str(args),
                 "int" => return self.lower_builtin_int(args),
                 "float" => return self.lower_builtin_float(args),
                 "byte" => return self.lower_builtin_byte(args),
+                "assert_eq" => return self.lower_builtin_assert_eq(args),
                 _ => {}
             }
 
@@ -60,6 +61,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             }
 
             tracing::warn!(name = name_str, "unresolved function in call");
+            self.builder.record_codegen_error();
             return None;
         }
 
@@ -779,6 +781,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             }
             _ => {
                 tracing::warn!(?arg_type, "str() conversion for unsupported type");
+                self.builder.record_codegen_error();
                 None
             }
         }
@@ -853,6 +856,50 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 tracing::warn!(?arg_type, "byte() conversion for unsupported type");
                 Some(val)
             }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Testing builtins
+    // -----------------------------------------------------------------------
+
+    /// Lower `assert_eq(actual, expected)` → typed runtime call.
+    ///
+    /// Generic `assert_eq<T: Eq>` can't be compiled by the LLVM backend (no
+    /// monomorphization). Instead, we dispatch to a concrete runtime function
+    /// based on the argument type: `ori_assert_eq_int`, `ori_assert_eq_bool`,
+    /// `ori_assert_eq_float`, or `ori_assert_eq_str`.
+    fn lower_builtin_assert_eq(&mut self, args: CanRange) -> Option<ValueId> {
+        let arg_ids = self.canon.arena.get_expr_list(args);
+        let actual_id = *arg_ids.first()?;
+        let expected_id = *arg_ids.get(1)?;
+
+        let actual_type = self.expr_type(actual_id);
+        let (func_name, pass_by_ptr) = match actual_type {
+            Idx::INT => ("ori_assert_eq_int", false),
+            Idx::BOOL => ("ori_assert_eq_bool", false),
+            Idx::FLOAT => ("ori_assert_eq_float", false),
+            Idx::STR => ("ori_assert_eq_str", true),
+            _ => {
+                tracing::warn!(?actual_type, "assert_eq: unsupported argument type");
+                self.builder.record_codegen_error();
+                return None;
+            }
+        };
+
+        let actual = self.lower(actual_id)?;
+        let expected = self.lower(expected_id)?;
+
+        let llvm_func = self.builder.scx().llmod.get_function(func_name)?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        if pass_by_ptr {
+            // Strings are {i64, ptr} structs — runtime expects pointers
+            let actual_ptr = self.alloca_and_store(actual, "assert_eq.actual");
+            let expected_ptr = self.alloca_and_store(expected, "assert_eq.expected");
+            self.builder.call(func_id, &[actual_ptr, expected_ptr], "")
+        } else {
+            self.builder.call(func_id, &[actual, expected], "")
         }
     }
 

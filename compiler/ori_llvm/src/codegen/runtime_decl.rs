@@ -57,9 +57,11 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_assert", &[bool_ty], void);
     builder.declare_extern_function("ori_assert_eq_int", &[i64_ty, i64_ty], void);
     builder.declare_extern_function("ori_assert_eq_bool", &[bool_ty, bool_ty], void);
+    builder.declare_extern_function("ori_assert_eq_float", &[f64_ty, f64_ty], void);
     builder.declare_extern_function("ori_assert_eq_str", &[ptr_ty, ptr_ty], void);
 
     // -- List functions --
+    builder.declare_extern_function("ori_list_alloc_data", &[i64_ty, i64_ty], Some(ptr_ty));
     builder.declare_extern_function("ori_list_new", &[i64_ty, i64_ty], Some(ptr_ty));
     builder.declare_extern_function("ori_list_free", &[ptr_ty, i64_ty], void);
     builder.declare_extern_function("ori_list_len", &[ptr_ty], Some(i64_ty));
@@ -172,7 +174,9 @@ mod tests {
             "ori_assert",
             "ori_assert_eq_int",
             "ori_assert_eq_bool",
+            "ori_assert_eq_float",
             "ori_assert_eq_str",
+            "ori_list_alloc_data",
             "ori_list_new",
             "ori_list_free",
             "ori_list_len",

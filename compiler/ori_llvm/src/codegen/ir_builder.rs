@@ -117,6 +117,14 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         self.codegen_errors.get()
     }
 
+    /// Whether any codegen errors have been recorded.
+    ///
+    /// Used by `ExprLowerer::lower()` to bail out early and avoid
+    /// cascading type mismatches that corrupt LLVM's internal state.
+    pub fn has_codegen_errors(&self) -> bool {
+        self.codegen_errors.get() > 0
+    }
+
     // -----------------------------------------------------------------------
     // Constants
     // -----------------------------------------------------------------------
@@ -251,21 +259,39 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     }
 
     /// Build a load from a pointer.
+    ///
+    /// Defensive: if `ptr` is not a pointer value, records a codegen error
+    /// and returns a zero constant instead of panicking.
     pub fn load(&mut self, ty: LLVMTypeId, ptr: ValueId, name: &str) -> ValueId {
         let llvm_ty = self.arena.get_type(ty);
-        let ptr_val = self.arena.get_value(ptr).into_pointer_value();
+        let raw = self.arena.get_value(ptr);
+        if !raw.is_pointer_value() {
+            tracing::error!(val_type = ?raw.get_type(), "load from non-pointer — returning zero");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
-            .build_load(llvm_ty, ptr_val, name)
+            .build_load(llvm_ty, raw.into_pointer_value(), name)
             .expect("load");
         self.arena.push_value(v)
     }
 
     /// Build a store to a pointer.
+    ///
+    /// Defensive: if `ptr` is not a pointer value, records a codegen error
+    /// and skips the store instead of panicking.
     pub fn store(&mut self, val: ValueId, ptr: ValueId) {
         let v = self.arena.get_value(val);
-        let p = self.arena.get_value(ptr).into_pointer_value();
-        self.builder.build_store(p, v).expect("store");
+        let p = self.arena.get_value(ptr);
+        if !p.is_pointer_value() {
+            tracing::error!(val_type = ?p.get_type(), "store to non-pointer — skipping");
+            self.record_codegen_error();
+            return;
+        }
+        self.builder
+            .build_store(p.into_pointer_value(), v)
+            .expect("store");
     }
 
     /// Build a GEP (get element pointer) with arbitrary indices.
@@ -284,15 +310,26 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         name: &str,
     ) -> ValueId {
         let llvm_ty = self.arena.get_type(pointee_ty);
-        let ptr_val = self.arena.get_value(ptr).into_pointer_value();
-        let idx_vals: Vec<IntValue<'ctx>> = indices
-            .iter()
-            .map(|&id| self.arena.get_value(id).into_int_value())
-            .collect();
+        let raw_ptr = self.arena.get_value(ptr);
+        if !raw_ptr.is_pointer_value() {
+            tracing::error!(val_type = ?raw_ptr.get_type(), "gep on non-pointer — returning null");
+            self.record_codegen_error();
+            return self.const_null_ptr();
+        }
+        let mut idx_vals: Vec<IntValue<'ctx>> = Vec::with_capacity(indices.len());
+        for &id in indices {
+            let raw = self.arena.get_value(id);
+            if !raw.is_int_value() {
+                tracing::error!(val_type = ?raw.get_type(), "gep index is not int — returning null");
+                self.record_codegen_error();
+                return self.const_null_ptr();
+            }
+            idx_vals.push(raw.into_int_value());
+        }
         // SAFETY: Caller ensures indices are valid for the pointee type.
         let v = unsafe {
             self.builder
-                .build_in_bounds_gep(llvm_ty, ptr_val, &idx_vals, name)
+                .build_in_bounds_gep(llvm_ty, raw_ptr.into_pointer_value(), &idx_vals, name)
                 .expect("gep")
         };
         self.arena.push_value(v.into())
@@ -336,10 +373,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn add(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "add requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "add on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_int_add(l.into_int_value(), r.into_int_value(), name)
@@ -351,10 +389,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn sub(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "sub requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "sub on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_int_sub(l.into_int_value(), r.into_int_value(), name)
@@ -366,10 +405,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn mul(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "mul requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "mul on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_int_mul(l.into_int_value(), r.into_int_value(), name)
@@ -381,10 +421,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn sdiv(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "sdiv requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "sdiv on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_int_signed_div(l.into_int_value(), r.into_int_value(), name)
@@ -396,10 +437,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn srem(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "srem requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "srem on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_int_signed_rem(l.into_int_value(), r.into_int_value(), name)
@@ -410,7 +452,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// Build integer negation.
     pub fn neg(&mut self, val: ValueId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
-        debug_assert!(v.is_int_value(), "neg requires int operand");
+        if !v.is_int_value() {
+            tracing::error!(val_type = ?v.get_type(), "neg on non-int operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let result = self
             .builder
             .build_int_neg(v.into_int_value(), name)
@@ -426,10 +472,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn udiv(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "udiv requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "udiv on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_int_unsigned_div(l.into_int_value(), r.into_int_value(), name)
@@ -441,10 +488,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn urem(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "urem requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "urem on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_int_unsigned_rem(l.into_int_value(), r.into_int_value(), name)
@@ -456,10 +504,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn lshr(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "lshr requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "lshr on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_right_shift(l.into_int_value(), r.into_int_value(), false, name)
@@ -475,10 +524,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn fadd(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_float_value() && r.is_float_value(),
-            "fadd requires float operands"
-        );
+        if !l.is_float_value() || !r.is_float_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "fadd on non-float operands");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
         let v = self
             .builder
             .build_float_add(l.into_float_value(), r.into_float_value(), name)
@@ -490,10 +540,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn fsub(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_float_value() && r.is_float_value(),
-            "fsub requires float operands"
-        );
+        if !l.is_float_value() || !r.is_float_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "fsub on non-float operands");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
         let v = self
             .builder
             .build_float_sub(l.into_float_value(), r.into_float_value(), name)
@@ -505,10 +556,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn fmul(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_float_value() && r.is_float_value(),
-            "fmul requires float operands"
-        );
+        if !l.is_float_value() || !r.is_float_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "fmul on non-float operands");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
         let v = self
             .builder
             .build_float_mul(l.into_float_value(), r.into_float_value(), name)
@@ -520,10 +572,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn fdiv(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_float_value() && r.is_float_value(),
-            "fdiv requires float operands"
-        );
+        if !l.is_float_value() || !r.is_float_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "fdiv on non-float operands");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
         let v = self
             .builder
             .build_float_div(l.into_float_value(), r.into_float_value(), name)
@@ -535,10 +588,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn frem(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_float_value() && r.is_float_value(),
-            "frem requires float operands"
-        );
+        if !l.is_float_value() || !r.is_float_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "frem on non-float operands");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
         let v = self
             .builder
             .build_float_rem(l.into_float_value(), r.into_float_value(), name)
@@ -549,7 +603,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// Build floating-point negation.
     pub fn fneg(&mut self, val: ValueId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
-        debug_assert!(v.is_float_value(), "fneg requires float operand");
+        if !v.is_float_value() {
+            tracing::error!(val_type = ?v.get_type(), "fneg on non-float operand");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
         let result = self
             .builder
             .build_float_neg(v.into_float_value(), name)
@@ -565,10 +623,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn and(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "and requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "and on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_and(l.into_int_value(), r.into_int_value(), name)
@@ -580,10 +639,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn or(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "or requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "or on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_or(l.into_int_value(), r.into_int_value(), name)
@@ -595,10 +655,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn xor(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "xor requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "xor on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_xor(l.into_int_value(), r.into_int_value(), name)
@@ -609,7 +670,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// Build bitwise NOT (complement).
     pub fn not(&mut self, val: ValueId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
-        debug_assert!(v.is_int_value(), "not requires int operand");
+        if !v.is_int_value() {
+            tracing::error!(val_type = ?v.get_type(), "not on non-int operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let result = self
             .builder
             .build_not(v.into_int_value(), name)
@@ -621,10 +686,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn shl(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "shl requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "shl on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_left_shift(l.into_int_value(), r.into_int_value(), name)
@@ -636,10 +702,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn ashr(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
-        debug_assert!(
-            l.is_int_value() && r.is_int_value(),
-            "ashr requires int operands"
-        );
+        if !l.is_int_value() || !r.is_int_value() {
+            tracing::error!(lhs_type = ?l.get_type(), rhs_type = ?r.get_type(), "ashr on non-int operands");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let v = self
             .builder
             .build_right_shift(l.into_int_value(), r.into_int_value(), true, name)
@@ -823,7 +890,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn trunc(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
         let target = self.arena.get_type(ty).into_int_type();
-        debug_assert!(v.is_int_value(), "trunc requires int operand");
+        if !v.is_int_value() {
+            tracing::error!(val_type = ?v.get_type(), "trunc on non-int operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let result = self
             .builder
             .build_int_truncate(v.into_int_value(), target, name)
@@ -835,7 +906,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn sext(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
         let target = self.arena.get_type(ty).into_int_type();
-        debug_assert!(v.is_int_value(), "sext requires int operand");
+        if !v.is_int_value() {
+            tracing::error!(val_type = ?v.get_type(), "sext on non-int operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let result = self
             .builder
             .build_int_s_extend(v.into_int_value(), target, name)
@@ -847,7 +922,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn zext(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
         let target = self.arena.get_type(ty).into_int_type();
-        debug_assert!(v.is_int_value(), "zext requires int operand");
+        if !v.is_int_value() {
+            tracing::error!(val_type = ?v.get_type(), "zext on non-int operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let result = self
             .builder
             .build_int_z_extend(v.into_int_value(), target, name)
@@ -859,7 +938,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn si_to_fp(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
         let target = self.arena.get_type(ty).into_float_type();
-        debug_assert!(v.is_int_value(), "si_to_fp requires int operand");
+        if !v.is_int_value() {
+            tracing::error!(val_type = ?v.get_type(), "si_to_fp on non-int operand");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
         let result = self
             .builder
             .build_signed_int_to_float(v.into_int_value(), target, name)
@@ -871,7 +954,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn fp_to_si(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
         let target = self.arena.get_type(ty).into_int_type();
-        debug_assert!(v.is_float_value(), "fp_to_si requires float operand");
+        if !v.is_float_value() {
+            tracing::error!(val_type = ?v.get_type(), "fp_to_si on non-float operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let result = self
             .builder
             .build_float_to_signed_int(v.into_float_value(), target, name)
@@ -883,7 +970,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn uitofp(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
         let target = self.arena.get_type(ty).into_float_type();
-        debug_assert!(v.is_int_value(), "uitofp requires int operand");
+        if !v.is_int_value() {
+            tracing::error!(val_type = ?v.get_type(), "uitofp on non-int operand");
+            self.record_codegen_error();
+            return self.const_f64(0.0);
+        }
         let result = self
             .builder
             .build_unsigned_int_to_float(v.into_int_value(), target, name)
@@ -895,7 +986,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     pub fn fptoui(&mut self, val: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
         let target = self.arena.get_type(ty).into_int_type();
-        debug_assert!(v.is_float_value(), "fptoui requires float operand");
+        if !v.is_float_value() {
+            tracing::error!(val_type = ?v.get_type(), "fptoui on non-float operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let result = self
             .builder
             .build_float_to_unsigned_int(v.into_float_value(), target, name)
@@ -905,11 +1000,16 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
 
     /// Build pointer-to-integer conversion.
     pub fn ptr_to_int(&mut self, ptr: ValueId, ty: LLVMTypeId, name: &str) -> ValueId {
-        let p = self.arena.get_value(ptr).into_pointer_value();
+        let p = self.arena.get_value(ptr);
         let target = self.arena.get_type(ty).into_int_type();
+        if !p.is_pointer_value() {
+            tracing::error!(val_type = ?p.get_type(), "ptr_to_int on non-pointer operand");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        }
         let result = self
             .builder
-            .build_ptr_to_int(p, target, name)
+            .build_ptr_to_int(p.into_pointer_value(), target, name)
             .expect("ptr_to_int");
         self.arena.push_value(result.into())
     }
@@ -917,7 +1017,11 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// Build integer-to-pointer conversion.
     pub fn int_to_ptr(&mut self, val: ValueId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
-        debug_assert!(v.is_int_value(), "int_to_ptr requires int operand");
+        if !v.is_int_value() {
+            tracing::error!(val_type = ?v.get_type(), "int_to_ptr on non-int operand");
+            self.record_codegen_error();
+            return self.const_null_ptr();
+        }
         let result = self
             .builder
             .build_int_to_ptr(v.into_int_value(), self.scx.type_ptr(), name)
@@ -938,37 +1042,59 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     }
 
     /// Build a conditional branch.
+    ///
+    /// Defensive: if `cond` is not an i1/int value, falls back to an
+    /// unconditional branch to the else block instead of panicking.
     pub fn cond_br(&mut self, cond: ValueId, then_bb: BlockId, else_bb: BlockId) {
-        let c = self.arena.get_value(cond).into_int_value();
+        let raw = self.arena.get_value(cond);
+        if !raw.is_int_value() {
+            tracing::error!(val_type = ?raw.get_type(), "cond_br on non-int — branching to else");
+            self.record_codegen_error();
+            self.br(else_bb);
+            return;
+        }
         let then_block = self.arena.get_block(then_bb);
         let else_block = self.arena.get_block(else_bb);
         self.builder
-            .build_conditional_branch(c, then_block, else_block)
+            .build_conditional_branch(raw.into_int_value(), then_block, else_block)
             .expect("build_cond_br");
     }
 
     /// Build a switch instruction.
+    ///
+    /// Defensive: if the scrutinee or any case value is not an int, falls
+    /// back to a branch to the default block instead of panicking.
     pub fn switch(&mut self, val: ValueId, default: BlockId, cases: &[(ValueId, BlockId)]) {
-        let v = self.arena.get_value(val).into_int_value();
+        let raw = self.arena.get_value(val);
+        if !raw.is_int_value() {
+            tracing::error!(val_type = ?raw.get_type(), "switch on non-int — branching to default");
+            self.record_codegen_error();
+            self.br(default);
+            return;
+        }
         let default_bb = self.arena.get_block(default);
-        let resolved: Vec<(IntValue<'ctx>, BasicBlock<'ctx>)> = cases
-            .iter()
-            .map(|&(case_val, case_bb)| {
-                (
-                    self.arena.get_value(case_val).into_int_value(),
-                    self.arena.get_block(case_bb),
-                )
-            })
-            .collect();
+        let mut resolved: Vec<(IntValue<'ctx>, BasicBlock<'ctx>)> = Vec::with_capacity(cases.len());
+        for &(case_val, case_bb) in cases {
+            let case_raw = self.arena.get_value(case_val);
+            if !case_raw.is_int_value() {
+                tracing::error!(val_type = ?case_raw.get_type(), "switch case is non-int — branching to default");
+                self.record_codegen_error();
+                self.br(default);
+                return;
+            }
+            resolved.push((case_raw.into_int_value(), self.arena.get_block(case_bb)));
+        }
         let switch = self
             .builder
-            .build_switch(v, default_bb, &resolved)
+            .build_switch(raw.into_int_value(), default_bb, &resolved)
             .expect("build_switch");
-        // `build_switch` returns InstructionValue — nothing to store.
         let _ = switch;
     }
 
     /// Build a select (ternary) instruction.
+    ///
+    /// Defensive: if `cond` is not an i1/int, returns the else value
+    /// instead of panicking.
     pub fn select(
         &mut self,
         cond: ValueId,
@@ -976,10 +1102,18 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         else_val: ValueId,
         name: &str,
     ) -> ValueId {
-        let c = self.arena.get_value(cond).into_int_value();
+        let raw = self.arena.get_value(cond);
+        if !raw.is_int_value() {
+            tracing::error!(val_type = ?raw.get_type(), "select on non-int cond — returning else");
+            self.record_codegen_error();
+            return else_val;
+        }
         let t = self.arena.get_value(then_val);
         let e = self.arena.get_value(else_val);
-        let v = self.builder.build_select(c, t, e, name).expect("select");
+        let v = self
+            .builder
+            .build_select(raw.into_int_value(), t, e, name)
+            .expect("select");
         self.arena.push_value(v)
     }
 
@@ -1055,11 +1189,27 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         let mut result = struct_ty.get_undef();
         for (i, &val_id) in values.iter().enumerate() {
             let v = self.arena.get_value(val_id);
-            result = self
+            let Some(agg) = self
                 .builder
                 .build_insert_value(result, v, i as u32, &format!("{name}.{i}"))
-                .expect("insert_value")
-                .into_struct_value();
+                .ok()
+            else {
+                tracing::error!(
+                    index = i,
+                    num_fields = struct_ty.count_fields(),
+                    "build_struct: insert_value failed (index out of bounds?)"
+                );
+                self.record_codegen_error();
+                return self.arena.push_value(struct_ty.get_undef().into());
+            };
+            match agg {
+                inkwell::values::AggregateValueEnum::StructValue(sv) => result = sv,
+                inkwell::values::AggregateValueEnum::ArrayValue(_) => {
+                    tracing::error!(index = i, "build_struct insert_value returned array");
+                    self.record_codegen_error();
+                    return self.arena.push_value(struct_ty.get_undef().into());
+                }
+            }
         }
         self.arena.push_value(result.into())
     }
@@ -1131,7 +1281,13 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         args: &[ValueId],
         name: &str,
     ) -> Option<ValueId> {
-        let ptr = self.arena.get_value(fn_ptr).into_pointer_value();
+        let raw = self.arena.get_value(fn_ptr);
+        if !raw.is_pointer_value() {
+            tracing::error!(val_type = ?raw.get_type(), "call_indirect on non-pointer");
+            self.record_codegen_error();
+            return None;
+        }
+        let ptr = raw.into_pointer_value();
         let arg_vals: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = args
             .iter()
             .map(|&id| self.arena.get_value(id).into())
@@ -1206,7 +1362,13 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         catch_block: BlockId,
         name: &str,
     ) -> Option<ValueId> {
-        let ptr = self.arena.get_value(fn_ptr).into_pointer_value();
+        let raw = self.arena.get_value(fn_ptr);
+        if !raw.is_pointer_value() {
+            tracing::error!(val_type = ?raw.get_type(), "invoke_indirect on non-pointer");
+            self.record_codegen_error();
+            return None;
+        }
+        let ptr = raw.into_pointer_value();
         let arg_vals: Vec<BasicValueEnum<'ctx>> =
             args.iter().map(|&id| self.arena.get_value(id)).collect();
 
@@ -1491,9 +1653,16 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// hidden sret parameter if present).
     pub fn get_param(&mut self, func: FunctionId, param_index: u32) -> ValueId {
         let func_val = self.arena.get_function(func);
-        let param = func_val
-            .get_nth_param(param_index)
-            .expect("parameter index out of bounds");
+        let Some(param) = func_val.get_nth_param(param_index) else {
+            tracing::error!(
+                func = %func_val.get_name().to_string_lossy(),
+                param_index,
+                param_count = func_val.count_params(),
+                "parameter index out of bounds — returning zero"
+            );
+            self.record_codegen_error();
+            return self.const_i64(0);
+        };
         self.arena.push_value(param)
     }
 

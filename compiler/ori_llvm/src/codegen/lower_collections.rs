@@ -153,6 +153,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 } else {
                     let field_name = self.resolve_name(field);
                     tracing::warn!(field = field_name, "unknown struct field in codegen");
+                    self.builder.record_codegen_error();
                     None
                 }
             }
@@ -163,6 +164,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     self.builder.extract_value(recv_val, idx, "tuple_field")
                 } else {
                     tracing::warn!(field = field_name, "non-numeric tuple field");
+                    self.builder.record_codegen_error();
                     None
                 }
             }
@@ -173,6 +175,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     "len" | "length" => self.builder.extract_value(recv_val, 0, "str.len"),
                     _ => {
                         tracing::warn!(field = field_name, "unknown string field");
+                        self.builder.record_codegen_error();
                         None
                     }
                 }
@@ -184,6 +187,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     "cap" | "capacity" => self.builder.extract_value(recv_val, 1, "list.cap"),
                     _ => {
                         tracing::warn!(field = field_name, "unknown list field");
+                        self.builder.record_codegen_error();
                         None
                     }
                 }
@@ -196,6 +200,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     "inclusive" => self.builder.extract_value(recv_val, 2, "range.inclusive"),
                     _ => {
                         tracing::warn!(field = field_name, "unknown range field");
+                        self.builder.record_codegen_error();
                         None
                     }
                 }
@@ -207,6 +212,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     ?recv_type,
                     "field access on unsupported type"
                 );
+                self.builder.record_codegen_error();
                 None
             }
         }
@@ -222,9 +228,22 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// For tuples: static index extraction.
     pub(crate) fn lower_index(&mut self, receiver: CanId, index: CanId) -> Option<ValueId> {
         let recv_val = self.lower(receiver)?;
-        let idx_val = self.lower(index)?;
         let recv_type = self.expr_type(receiver);
         let type_info = self.type_info.get(recv_type);
+
+        // For list/string receivers, extract length and make it available
+        // for `#` (HashLength) resolution in the index sub-expression.
+        // This mirrors the interpreter's `eval_can_with_hash_length`.
+        let old_hash = self.hash_length.take();
+        if matches!(&type_info, TypeInfo::List { .. } | TypeInfo::Str) {
+            // Both str {len, data} and list {len, cap, data} have length at field 0
+            if let Some(len) = self.builder.extract_value(recv_val, 0, "hash.len") {
+                self.hash_length = Some(len);
+            }
+        }
+
+        let idx_val = self.lower(index)?;
+        self.hash_length = old_hash;
 
         match &type_info {
             TypeInfo::List { element } => {
@@ -234,9 +253,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 // Extract data pointer from list struct: field 2
                 let data_ptr = self.builder.extract_value(recv_val, 2, "list.data")?;
 
-                // Bounds check
+                // Bounds check — use unsigned comparison so negative indices
+                // (e.g., from a buggy `# - N` expression) are caught as OOB
+                // instead of passing a signed `idx < len` check.
                 let len = self.builder.extract_value(recv_val, 0, "list.len")?;
-                let in_bounds = self.builder.icmp_slt(idx_val, len, "idx.inbounds");
+                let in_bounds = self.builder.icmp_ult(idx_val, len, "idx.inbounds");
 
                 let access_bb = self
                     .builder
@@ -288,21 +309,29 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 // Static tuple index — the index must be a compile-time constant
                 // For now, try to extract from the value directly
                 let raw_idx = self.builder.raw_value(idx_val);
+                if !raw_idx.is_int_value() {
+                    tracing::warn!("tuple index is not an int value");
+                    self.builder.record_codegen_error();
+                    return None;
+                }
                 if let Some(const_idx) = raw_idx.into_int_value().get_zero_extended_constant() {
                     let idx = const_idx as u32;
                     if (idx as usize) < elements.len() {
                         self.builder.extract_value(recv_val, idx, "tuple.idx")
                     } else {
                         tracing::warn!(idx, len = elements.len(), "tuple index out of bounds");
+                        self.builder.record_codegen_error();
                         None
                     }
                 } else {
                     tracing::warn!("non-constant tuple index");
+                    self.builder.record_codegen_error();
                     None
                 }
             }
             _ => {
                 tracing::warn!(?recv_type, "index access on unsupported type");
+                self.builder.record_codegen_error();
                 None
             }
         }
@@ -341,16 +370,16 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         let elem_llvm_ty = self.resolve_type(elem_idx);
         let elem_size = self.type_info.get(elem_idx).size().unwrap_or(8);
 
-        // Allocate list: ori_list_new(capacity, elem_size) -> ptr
+        // Allocate raw data buffer: ori_list_alloc_data(capacity, elem_size) -> *mut u8
         let cap = self.builder.const_i64(count as i64);
         let esize = self.builder.const_i64(elem_size as i64);
         let i64_ty = self.builder.i64_type();
         let i64_ty2 = self.builder.i64_type();
         let ptr_ty = self.builder.ptr_type();
-        let list_new =
+        let alloc_data =
             self.builder
-                .get_or_declare_function("ori_list_new", &[i64_ty, i64_ty2], ptr_ty);
-        let data_ptr = self.builder.call(list_new, &[cap, esize], "list.data")?;
+                .get_or_declare_function("ori_list_alloc_data", &[i64_ty, i64_ty2], ptr_ty);
+        let data_ptr = self.builder.call(alloc_data, &[cap, esize], "list.data")?;
 
         // Store each element
         let mut compiled_values = Vec::with_capacity(count);
@@ -402,23 +431,23 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         let key_size = self.type_info.get(key_idx).size().unwrap_or(8);
         let val_size = self.type_info.get(val_idx).size().unwrap_or(8);
 
-        // Allocate key and value arrays
+        // Allocate key and value data buffers
         let cap = self.builder.const_i64(count as i64);
         let i64_ty = self.builder.i64_type();
         let ptr_ty = self.builder.ptr_type();
-        let list_new =
+        let alloc_data =
             self.builder
-                .get_or_declare_function("ori_list_new", &[i64_ty, i64_ty], ptr_ty);
+                .get_or_declare_function("ori_list_alloc_data", &[i64_ty, i64_ty], ptr_ty);
 
         let key_elem_sz = self.builder.const_i64(key_size as i64);
         let keys_buf = self
             .builder
-            .call(list_new, &[cap, key_elem_sz], "map.keys")?;
+            .call(alloc_data, &[cap, key_elem_sz], "map.keys")?;
 
         let val_elem_sz = self.builder.const_i64(val_size as i64);
         let vals_buf = self
             .builder
-            .call(list_new, &[cap, val_elem_sz], "map.vals")?;
+            .call(alloc_data, &[cap, val_elem_sz], "map.vals")?;
 
         // Store each entry
         let mut compiled_keys = Vec::with_capacity(count);

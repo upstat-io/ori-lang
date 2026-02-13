@@ -134,17 +134,19 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let init_span = self.canon.arena.span(init_id);
                 if init_span != Span::DUMMY {
                     if let Some(di_ty) = dc.resolve_debug_type(init_type, self.pool) {
-                        let alloca_ptr = self.builder.raw_value(ptr).into_pointer_value();
-                        let block = self
-                            .builder
-                            .raw_block(self.builder.current_block().unwrap());
-                        dc.emit_declare_for_alloca(
-                            alloca_ptr,
-                            name_str,
-                            di_ty,
-                            init_span.start,
-                            block,
-                        );
+                        let raw = self.builder.raw_value(ptr);
+                        if let (true, Some(cur_bb)) =
+                            (raw.is_pointer_value(), self.builder.current_block())
+                        {
+                            let block = self.builder.raw_block(cur_bb);
+                            dc.emit_declare_for_alloca(
+                                raw.into_pointer_value(),
+                                name_str,
+                                di_ty,
+                                init_span.start,
+                                block,
+                            );
+                        }
                     }
                 }
             }
@@ -321,7 +323,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         iter: CanId,
         guard: CanId,
         body: CanId,
-        _is_yield: bool,
+        is_yield: bool,
         expr_id: CanId,
     ) -> Option<ValueId> {
         let iter_val = self.lower(iter)?;
@@ -330,13 +332,14 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
 
         match type_info {
             super::type_info::TypeInfo::Range => {
-                self.lower_for_range(binding, iter_val, guard, body, expr_id)
+                self.lower_for_range(binding, iter_val, guard, body, is_yield, expr_id)
             }
             super::type_info::TypeInfo::List { .. } => {
-                self.lower_for_list(binding, iter_val, iter_type, guard, body, expr_id)
+                self.lower_for_list(binding, iter_val, iter_type, guard, body, is_yield, expr_id)
             }
             _ => {
                 tracing::warn!(?iter_type, "for-loop over non-range/non-list type");
+                self.builder.record_codegen_error();
                 None
             }
         }
@@ -349,12 +352,20 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         range_val: ValueId,
         guard: CanId,
         body: CanId,
-        _expr_id: CanId,
+        is_yield: bool,
+        expr_id: CanId,
     ) -> Option<ValueId> {
         // Extract range components
         let start = self.builder.extract_value(range_val, 0, "range.start")?;
         let end = self.builder.extract_value(range_val, 1, "range.end")?;
         let inclusive = self.builder.extract_value(range_val, 2, "range.incl")?;
+
+        // Yield setup: allocate list buffer and write index
+        let yield_ctx = if is_yield {
+            Some(self.setup_yield_context(start, end, inclusive, expr_id)?)
+        } else {
+            None
+        };
 
         let entry_bb = self.builder.current_block()?;
         let header_bb = self
@@ -414,7 +425,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         });
 
         // Body
-        self.lower(body);
+        let body_val = self.lower(body);
+
+        // Yield: store body value into the output list
+        if let (Some(ref yc), Some(bv)) = (&yield_ctx, body_val) {
+            self.emit_yield_store(yc, bv);
+        }
+
         if !self.builder.current_block_terminated() {
             self.builder.br(latch_bb);
         }
@@ -433,6 +450,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         // Exit
         self.builder.position_at_end(exit_bb);
 
+        // Yield: build and return the list struct
+        if let Some(yc) = yield_ctx {
+            return self.finish_yield_list(&yc, expr_id);
+        }
+
         if loop_ctx.break_values.is_empty() {
             Some(self.builder.const_i64(0))
         } else {
@@ -450,7 +472,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         list_type: Idx,
         guard: CanId,
         body: CanId,
-        _expr_id: CanId,
+        is_yield: bool,
+        expr_id: CanId,
     ) -> Option<ValueId> {
         // List = {i64 len, i64 cap, ptr data}
         let len = self.builder.extract_value(list_val, 0, "list.len")?;
@@ -462,6 +485,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             _ => Idx::INT,
         };
         let elem_llvm_ty = self.resolve_type(elem_idx);
+
+        // Yield setup: allocate output list using source list length as capacity
+        let yield_ctx = if is_yield {
+            Some(self.setup_yield_context_with_capacity(len, expr_id)?)
+        } else {
+            None
+        };
 
         let entry_bb = self.builder.current_block()?;
         let header_bb = self
@@ -519,7 +549,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             break_values: Vec::new(),
         });
 
-        self.lower(body);
+        let body_val = self.lower(body);
+
+        // Yield: store body value into the output list
+        if let (Some(ref yc), Some(bv)) = (&yield_ctx, body_val) {
+            self.emit_yield_store(yc, bv);
+        }
+
         if !self.builder.current_block_terminated() {
             self.builder.br(latch_bb);
         }
@@ -538,6 +574,12 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
 
         // Exit
         self.builder.position_at_end(exit_bb);
+
+        // Yield: build and return the list struct
+        if let Some(yc) = yield_ctx {
+            return self.finish_yield_list(&yc, expr_id);
+        }
+
         if loop_ctx.break_values.is_empty() {
             Some(self.builder.const_i64(0))
         } else {
@@ -561,11 +603,16 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         };
 
         if let Some(ref mut ctx) = self.loop_ctx {
-            let current_bb = self.builder.current_block().unwrap();
-            ctx.break_values.push((break_val, current_bb));
-            self.builder.br(ctx.exit_block);
+            if let Some(current_bb) = self.builder.current_block() {
+                ctx.break_values.push((break_val, current_bb));
+                self.builder.br(ctx.exit_block);
+            } else {
+                tracing::error!("break: no current block in builder");
+                self.builder.record_codegen_error();
+            }
         } else {
             tracing::warn!("break outside of loop in codegen");
+            self.builder.record_codegen_error();
         }
 
         None // Break terminates the current block
@@ -577,6 +624,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             self.builder.br(ctx.continue_block);
         } else {
             tracing::warn!("continue outside of loop in codegen");
+            self.builder.record_codegen_error();
         }
 
         None // Continue terminates the current block
@@ -741,4 +789,113 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 .phi_from_incoming(result_llvm_ty, &incoming, "match.result")
         }
     }
+
+    // -----------------------------------------------------------------------
+    // For-yield helpers
+    // -----------------------------------------------------------------------
+
+    /// Context for a for-yield loop: the allocated buffer and write index.
+    fn setup_yield_context(
+        &mut self,
+        start: ValueId,
+        end: ValueId,
+        inclusive: ValueId,
+        expr_id: CanId,
+    ) -> Option<YieldContext> {
+        // Compute capacity: end - start + (inclusive ? 1 : 0)
+        // Clamp to 0 if negative (start > end).
+        let diff = self.builder.sub(end, start, "yield.diff");
+        let one = self.builder.const_i64(1);
+        let zero = self.builder.const_i64(0);
+        let incl_extra = self
+            .builder
+            .select(inclusive, one, zero, "yield.incl_extra");
+        let raw_cap = self.builder.add(diff, incl_extra, "yield.raw_cap");
+        let is_neg = self.builder.icmp_slt(raw_cap, zero, "yield.neg");
+        let cap = self.builder.select(is_neg, zero, raw_cap, "yield.cap");
+
+        self.setup_yield_context_with_capacity(cap, expr_id)
+    }
+
+    /// Setup yield context with a pre-computed capacity value.
+    fn setup_yield_context_with_capacity(
+        &mut self,
+        cap: ValueId,
+        expr_id: CanId,
+    ) -> Option<YieldContext> {
+        let result_type = self.expr_type(expr_id);
+        let type_info = self.type_info.get(result_type);
+        let elem_idx = match &type_info {
+            super::type_info::TypeInfo::List { element } => *element,
+            _ => ori_types::Idx::INT,
+        };
+        let elem_llvm_ty = self.resolve_type(elem_idx);
+        let elem_size = self.type_info.get(elem_idx).size().unwrap_or(8);
+
+        // Allocate raw data buffer: ori_list_alloc_data(capacity, elem_size) -> *mut u8
+        let esize = self.builder.const_i64(elem_size as i64);
+        let i64_ty = self.builder.i64_type();
+        let i64_ty2 = self.builder.i64_type();
+        let ptr_ty = self.builder.ptr_type();
+        let alloc_data =
+            self.builder
+                .get_or_declare_function("ori_list_alloc_data", &[i64_ty, i64_ty2], ptr_ty);
+        let data_ptr = self.builder.call(alloc_data, &[cap, esize], "yield.data")?;
+
+        // Write index alloca at function entry (for mem2reg promotion)
+        let i64_llvm = self.builder.i64_type();
+        let write_idx =
+            self.builder
+                .create_entry_alloca(self.current_function, "yield.widx", i64_llvm);
+        let zero = self.builder.const_i64(0);
+        self.builder.store(zero, write_idx);
+
+        Some(YieldContext {
+            data_ptr,
+            write_idx,
+            cap,
+            elem_llvm_ty,
+        })
+    }
+
+    /// Store a body value into the yield output list and increment write index.
+    fn emit_yield_store(&mut self, yc: &YieldContext, body_val: ValueId) {
+        let i64_ty = self.builder.i64_type();
+        let widx = self.builder.load(i64_ty, yc.write_idx, "yield.widx_cur");
+
+        // Store element at data[write_idx]
+        let elem_ptr = self
+            .builder
+            .gep(yc.elem_llvm_ty, yc.data_ptr, &[widx], "yield.elem_ptr");
+        self.builder.store(body_val, elem_ptr);
+
+        // Increment write index
+        let one = self.builder.const_i64(1);
+        let next_widx = self.builder.add(widx, one, "yield.widx_next");
+        self.builder.store(next_widx, yc.write_idx);
+    }
+
+    /// Build the final list struct from yield context after the loop completes.
+    fn finish_yield_list(&mut self, yc: &YieldContext, expr_id: CanId) -> Option<ValueId> {
+        let i64_ty = self.builder.i64_type();
+        let final_len = self.builder.load(i64_ty, yc.write_idx, "yield.final_len");
+        let result_type = self.expr_type(expr_id);
+        let list_ty = self.resolve_type(result_type);
+        Some(
+            self.builder
+                .build_struct(list_ty, &[final_len, yc.cap, yc.data_ptr], "yield.list"),
+        )
+    }
+}
+
+/// Temporary state for for-yield list construction.
+struct YieldContext {
+    /// Pointer to the allocated data buffer.
+    data_ptr: ValueId,
+    /// Alloca holding the current write index (mutable counter).
+    write_idx: ValueId,
+    /// Allocated capacity of the buffer.
+    cap: ValueId,
+    /// LLVM type of each element (for GEP sizing).
+    elem_llvm_ty: super::value_id::LLVMTypeId,
 }

@@ -407,6 +407,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 // Parser emits ExprKind::Try for `?`, not UnaryOp::Try.
                 // This arm should be unreachable.
                 tracing::warn!("UnaryOp::Try reached codegen — should be ExprKind::Try");
+                self.builder.record_codegen_error();
                 None
             }
         }

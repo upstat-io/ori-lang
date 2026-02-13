@@ -97,6 +97,12 @@ pub struct ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
     pub(crate) type_idx_to_name: &'a FxHashMap<Idx, Name>,
     /// Active loop context for break/continue (None outside loops).
     pub(crate) loop_ctx: Option<LoopContext>,
+    /// Resolved `#` (hash length) value for the current index expression.
+    ///
+    /// Set by `lower_index` before lowering the index sub-expression,
+    /// so that `CanExpr::HashLength` resolves to the collection's length
+    /// instead of zero. Mirrors the interpreter's `eval_can_with_hash_length`.
+    pub(crate) hash_length: Option<ValueId>,
     /// Module-wide lambda counter for unique lambda function names.
     ///
     /// Shared via `&Cell<u32>` so that nested lambdas (which create new
@@ -144,6 +150,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             method_functions,
             type_idx_to_name,
             loop_ctx: None,
+            hash_length: None,
             lambda_counter,
             module_path,
             debug_context,
@@ -192,6 +199,15 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             return None;
         }
 
+        // Early bailout: once any codegen error has occurred in this module,
+        // stop building further LLVM instructions. Continuing after a type
+        // mismatch produces values with wrong types (e.g., i64 where a struct
+        // is expected), which cascades into LLVM heap corruption (munmap_chunk).
+        // The module will be rejected at the codegen_errors check anyway.
+        if self.builder.has_codegen_errors() {
+            return None;
+        }
+
         let kind = *self.canon.arena.kind(id);
         let span = self.canon.arena.span(id);
 
@@ -215,7 +231,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             CanExpr::Str(name) => self.lower_string(name),
             CanExpr::Duration { value, unit } => Some(self.lower_duration(value, unit)),
             CanExpr::Size { value, unit } => Some(self.lower_size(value, unit)),
-            CanExpr::Unit | CanExpr::HashLength => Some(self.lower_unit()),
+            CanExpr::Unit => Some(self.lower_unit()),
+            CanExpr::HashLength => {
+                if let Some(len) = self.hash_length {
+                    Some(len)
+                } else {
+                    tracing::warn!("HashLength (#) used outside index expression");
+                    self.builder.record_codegen_error();
+                    None
+                }
+            }
             CanExpr::Ident(name) | CanExpr::TypeRef(name) => self.lower_ident(name, id),
             CanExpr::Const(name) => self.lower_const(name, id),
             CanExpr::FunctionRef(name) => self.lower_function_ref(name),
@@ -302,6 +327,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             // --- Error placeholder (should not reach codegen) ---
             CanExpr::Error => {
                 tracing::warn!("CanExpr::Error reached codegen");
+                self.builder.record_codegen_error();
                 None
             }
         }
