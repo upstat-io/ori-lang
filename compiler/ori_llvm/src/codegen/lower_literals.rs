@@ -6,6 +6,7 @@
 
 use ori_ir::canon::{CanId, ConstantId};
 use ori_ir::{DurationUnit, Name, SizeUnit};
+use ori_types::Idx;
 
 use super::expr_lowerer::ExprLowerer;
 use super::scope::ScopeBinding;
@@ -16,9 +17,23 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // Numeric / primitive literals
     // -----------------------------------------------------------------------
 
-    /// Lower `ExprKind::Int(n)` → i64 constant.
+    /// Lower `ExprKind::Int(n)` → i64 constant (or i8 for byte-typed expressions).
     pub(crate) fn lower_int(&mut self, n: i64) -> ValueId {
         self.builder.const_i64(n)
+    }
+
+    /// Lower an integer literal with type awareness.
+    ///
+    /// Integer literals can represent both `int` (i64) and `byte` (i8) depending
+    /// on their resolved type. Using the wrong width causes store/load mismatches
+    /// that corrupt stack memory.
+    pub(crate) fn lower_int_typed(&mut self, n: i64, id: CanId) -> ValueId {
+        let ty = self.expr_type(id);
+        if ty == Idx::BYTE {
+            self.builder.const_i8(n as i8)
+        } else {
+            self.builder.const_i64(n)
+        }
     }
 
     /// Lower `ExprKind::Float(bits)` → f64 constant.
@@ -224,16 +239,16 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     pub(crate) fn lower_constant(
         &mut self,
         const_id: ConstantId,
-        _expr_id: CanId,
+        expr_id: CanId,
     ) -> Option<ValueId> {
         use ori_ir::canon::ConstValue;
         let val = self.canon.constants.get(const_id);
         match val {
-            ConstValue::Int(n) => Some(self.lower_int(*n)),
+            ConstValue::Int(n) => Some(self.lower_int_typed(*n, expr_id)),
             ConstValue::Float(bits) => Some(self.lower_float(*bits)),
             ConstValue::Bool(b) => Some(self.lower_bool(*b)),
             ConstValue::Str(name) => self.lower_string(*name),
-            ConstValue::Char(c) => Some(self.lower_int(i64::from(u32::from(*c)))),
+            ConstValue::Char(c) => Some(self.lower_char(*c)),
             ConstValue::Unit => Some(self.lower_unit()),
             ConstValue::Duration { value, .. } | ConstValue::Size { value, .. } => {
                 // Duration and Size are stored as i64 at the LLVM level
