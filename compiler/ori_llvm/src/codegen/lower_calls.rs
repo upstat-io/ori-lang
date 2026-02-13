@@ -464,8 +464,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             }
 
             match &param_abi.passing {
-                ParamPassing::Reference => {
-                    // Borrowed: create alloca in caller's entry, store value, pass pointer
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    // Indirect or borrowed: create alloca in caller's entry, store value, pass pointer
                     let param_ty = self.type_resolver.resolve(param_abi.ty);
                     let param_ty_id = self.builder.register_type(param_ty);
                     let alloca =
@@ -475,7 +475,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     result.push(alloca);
                     arg_idx += 1;
                 }
-                ParamPassing::Direct | ParamPassing::Indirect { .. } => {
+                ParamPassing::Direct => {
                     result.push(raw_args[arg_idx]);
                     arg_idx += 1;
                 }
@@ -664,7 +664,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         recv: ValueId,
         method: &str,
-        _args: CanRange,
+        args: CanRange,
     ) -> Option<ValueId> {
         let tag = self.builder.extract_value(recv, 0, "opt.tag")?;
         let zero = self.builder.const_i8(0);
@@ -675,6 +675,17 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             "unwrap" => {
                 // Extract payload (no runtime check in this simplified version)
                 self.builder.extract_value(recv, 1, "opt.unwrap")
+            }
+            "unwrap_or" => {
+                // Some(v) → v, None → default
+                let is_some = self.builder.icmp_ne(tag, zero, "opt.is_some");
+                let payload = self.builder.extract_value(recv, 1, "opt.payload")?;
+                let arg_ids = self.canon.arena.get_expr_list(args);
+                let default_val = self.lower(*arg_ids.first()?)?;
+                Some(
+                    self.builder
+                        .select(is_some, payload, default_val, "opt.unwrap_or"),
+                )
             }
             _ => None,
         }

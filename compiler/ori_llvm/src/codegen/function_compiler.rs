@@ -527,7 +527,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         for param in &abi.params {
             match &param.passing {
-                ParamPassing::Direct | ParamPassing::Indirect { .. } => {
+                ParamPassing::Direct => {
                     let param_val = self.builder.get_param(func_id, llvm_param_idx);
                     let name_str = self.interner.lookup(param.name);
                     self.builder.set_value_name(param_val, name_str);
@@ -541,12 +541,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     llvm_param_idx += 1;
                     dwarf_arg_no += 1;
                 }
-                ParamPassing::Reference => {
-                    // Borrowed parameter: received as pointer, load the value
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    // Indirect or borrowed: received as pointer, load the struct value
                     let param_ptr = self.builder.get_param(func_id, llvm_param_idx);
                     let name_str = self.interner.lookup(param.name);
                     self.builder
-                        .set_value_name(param_ptr, &format!("{name_str}.ref"));
+                        .set_value_name(param_ptr, &format!("{name_str}.ptr"));
 
                     let param_ty = self.type_resolver.resolve(param.ty);
                     let param_ty_id = self.builder.register_type(param_ty);

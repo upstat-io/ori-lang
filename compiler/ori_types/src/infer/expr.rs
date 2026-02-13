@@ -3294,6 +3294,7 @@ fn resolve_builtin_method(
         Tag::Bool => resolve_bool_method(method_name),
         Tag::Byte => resolve_byte_method(method_name),
         Tag::Char => resolve_char_method(method_name),
+        Tag::Ordering => resolve_ordering_method(method_name),
         Tag::Tuple => resolve_tuple_method(engine, receiver_ty, method_name),
         _ => None,
     }
@@ -3412,6 +3413,7 @@ fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx>
             Some(engine.pool_mut().option(Idx::INT))
         }
         "to_float" | "parse_float" => Some(engine.pool_mut().option(Idx::FLOAT)),
+        "compare" => Some(Idx::ORDERING),
         _ => None,
     }
 }
@@ -3423,6 +3425,7 @@ fn resolve_int_method(method: &str) -> Option<Idx> {
         "to_str" => Some(Idx::STR),
         "to_byte" => Some(Idx::BYTE),
         "is_positive" | "is_negative" | "is_zero" | "is_even" | "is_odd" => Some(Idx::BOOL),
+        "compare" => Some(Idx::ORDERING),
         _ => None,
     }
 }
@@ -3437,6 +3440,7 @@ fn resolve_float_method(method: &str) -> Option<Idx> {
         "to_str" => Some(Idx::STR),
         "is_nan" | "is_infinite" | "is_finite" | "is_normal" | "is_positive" | "is_negative"
         | "is_zero" => Some(Idx::BOOL),
+        "compare" => Some(Idx::ORDERING),
         _ => None,
     }
 }
@@ -3455,6 +3459,7 @@ fn resolve_duration_method(method: &str) -> Option<Idx> {
         "nanoseconds" | "microseconds" | "milliseconds" | "seconds" | "minutes" | "hours" => {
             Some(Idx::INT)
         }
+        "compare" => Some(Idx::ORDERING),
         _ => None,
     }
 }
@@ -3470,6 +3475,7 @@ fn resolve_size_method(method: &str) -> Option<Idx> {
         | "from_terabytes" | "from_kb" | "from_mb" | "from_gb" | "from_tb" | "zero" => {
             Some(Idx::SIZE)
         }
+        "compare" => Some(Idx::ORDERING),
         _ => None,
     }
 }
@@ -3530,10 +3536,27 @@ fn resolve_named_type_method(
     }
 }
 
+/// Ordering methods: predicates, reverse, equality, and trait methods.
+fn resolve_ordering_method(method_name: &str) -> Option<Idx> {
+    match method_name {
+        "is_less"
+        | "is_equal"
+        | "is_greater"
+        | "is_less_or_equal"
+        | "is_greater_or_equal"
+        | "equals" => Some(Idx::BOOL),
+        "reverse" | "clone" | "compare" => Some(Idx::ORDERING),
+        "hash" => Some(Idx::INT),
+        "to_str" | "debug" => Some(Idx::STR),
+        _ => None,
+    }
+}
+
 fn resolve_bool_method(method_name: &str) -> Option<Idx> {
     match method_name {
         "to_str" => Some(Idx::STR),
         "to_int" => Some(Idx::INT),
+        "compare" => Some(Idx::ORDERING),
         _ => None,
     }
 }
@@ -3544,6 +3567,7 @@ fn resolve_byte_method(method_name: &str) -> Option<Idx> {
         "to_char" => Some(Idx::CHAR),
         "to_str" => Some(Idx::STR),
         "is_ascii" | "is_ascii_digit" | "is_ascii_alpha" | "is_ascii_whitespace" => Some(Idx::BOOL),
+        "compare" => Some(Idx::ORDERING),
         _ => None,
     }
 }
@@ -3555,6 +3579,7 @@ fn resolve_char_method(method_name: &str) -> Option<Idx> {
         "is_digit" | "is_alpha" | "is_whitespace" | "is_uppercase" | "is_lowercase"
         | "is_ascii" => Some(Idx::BOOL),
         "to_upper" | "to_lower" => Some(Idx::CHAR),
+        "compare" => Some(Idx::ORDERING),
         _ => None,
     }
 }
