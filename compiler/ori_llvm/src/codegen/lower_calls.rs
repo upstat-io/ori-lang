@@ -521,7 +521,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let type_info = self.type_info.get(recv_type);
                 match &type_info {
                     TypeInfo::Option { .. } => self.lower_option_method(recv_val, method, args),
-                    TypeInfo::Result { .. } => self.lower_result_method(recv_val, method, args),
+                    TypeInfo::Result { .. } => {
+                        self.lower_result_method(recv_val, recv_type, method, args)
+                    }
                     TypeInfo::List { .. } => {
                         self.lower_list_method(recv_val, recv_type, method, args)
                     }
@@ -679,9 +681,14 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Built-in Result methods.
+    ///
+    /// For `unwrap()`, the extracted payload is the `max(ok, err)` slot.
+    /// When ok and err have different sizes, the payload must be coerced
+    /// to the actual ok type via alloca reinterpretation.
     fn lower_result_method(
         &mut self,
         recv: ValueId,
+        recv_type: Idx,
         method: &str,
         _args: CanRange,
     ) -> Option<ValueId> {
@@ -691,7 +698,16 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         match method {
             "is_ok" => Some(self.builder.icmp_eq(tag, zero, "res.is_ok")),
             "is_err" => Some(self.builder.icmp_ne(tag, zero, "res.is_err")),
-            "unwrap" => self.builder.extract_value(recv, 1, "res.unwrap"),
+            "unwrap" => {
+                let payload = self.builder.extract_value(recv, 1, "res.unwrap")?;
+                // Coerce payload to ok type (payload may be larger than ok type)
+                let type_info = self.type_info.get(recv_type);
+                if let TypeInfo::Result { ok, .. } = type_info {
+                    Some(self.coerce_payload(payload, ok))
+                } else {
+                    Some(payload)
+                }
+            }
             _ => None,
         }
     }
