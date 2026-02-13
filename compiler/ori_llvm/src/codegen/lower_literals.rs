@@ -155,6 +155,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     }
                 } else {
                     tracing::warn!(name = %name_str, "unresolved identifier in codegen");
+                    self.builder.record_codegen_error();
                     None
                 }
             }
@@ -211,6 +212,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             Some(self.wrap_fn_ptr_as_closure(fn_ptr_id))
         } else {
             tracing::warn!(name = name_str, "unresolved function reference");
+            self.builder.record_codegen_error();
             None
         }
     }

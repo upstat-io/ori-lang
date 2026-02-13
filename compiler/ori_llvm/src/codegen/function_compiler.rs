@@ -291,6 +291,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     name = %self.interner.lookup(func.name),
                     "function not declared — skipping definition"
                 );
+                self.builder.record_codegen_error();
                 continue;
             };
             let abi = abi.clone();
@@ -497,6 +498,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     self.builder.ret(val);
                 } else {
                     warn!(name = name_str, "direct return function produced no value");
+                    self.builder.record_codegen_error();
                     self.builder.ret_void();
                 }
             }

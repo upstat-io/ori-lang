@@ -226,7 +226,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 // Record phi incoming values for the target block's parameters
                 let target_idx = target.index();
                 if !args.is_empty() {
-                    let source_block = self.builder.current_block().expect("no current block");
+                    let Some(source_block) = self.builder.current_block() else {
+                        tracing::error!("ARC jump: no current block — skipping phi incoming");
+                        self.builder.record_codegen_error();
+                        self.builder.br(self.block(*target));
+                        return;
+                    };
                     for (i, &arg) in args.iter().enumerate() {
                         let val = self.var(arg);
                         self.phi_incoming.push((target_idx, i, val, source_block));
@@ -359,6 +364,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 name = callee_name_str,
                 "ArcIrEmitter: unresolved function in apply"
             );
+            self.builder.record_codegen_error();
             None
         };
 
@@ -760,15 +766,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
 
             CtorKind::ListLiteral => {
-                // List construction: allocate and populate
-                // For now, use the runtime list_new helper
+                // List construction: allocate raw data buffer
                 let elem_count = self.builder.const_i64(arg_vals.len() as i64);
                 let elem_size = self.builder.const_i64(8); // sizeof(i64)
-                if let Some(list_new) = self.builder.scx().llmod.get_function("ori_list_new") {
-                    let func_id = self.builder.intern_function(list_new);
-                    if let Some(list) = self.builder.call(func_id, &[elem_count, elem_size], "list")
+                if let Some(alloc_fn) = self.builder.scx().llmod.get_function("ori_list_alloc_data")
+                {
+                    let func_id = self.builder.intern_function(alloc_fn);
+                    if let Some(data) =
+                        self.builder
+                            .call(func_id, &[elem_count, elem_size], "list.data")
                     {
-                        return list;
+                        return data;
                     }
                 }
                 self.builder.const_null_ptr()
