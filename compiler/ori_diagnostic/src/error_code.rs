@@ -51,8 +51,6 @@ pub enum ErrorCode {
     E0015,
     /// Floating-point duration/size literal not supported
     E0911,
-    /// Never type used as struct field (uninhabited struct)
-    E0920,
 
     // Parser Errors (E1xxx)
     /// Unexpected token
@@ -123,6 +121,8 @@ pub enum ErrorCode {
     E2017,
     /// Missing associated type (impl missing required associated type)
     E2018,
+    /// Never type used as struct field (uninhabited struct)
+    E2019,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -248,7 +248,6 @@ impl ErrorCode {
             ErrorCode::E0014 => "E0014",
             ErrorCode::E0015 => "E0015",
             ErrorCode::E0911 => "E0911",
-            ErrorCode::E0920 => "E0920",
             // Parser
             ErrorCode::E1001 => "E1001",
             ErrorCode::E1002 => "E1002",
@@ -284,6 +283,7 @@ impl ErrorCode {
             ErrorCode::E2016 => "E2016",
             ErrorCode::E2017 => "E2017",
             ErrorCode::E2018 => "E2018",
+            ErrorCode::E2019 => "E2019",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -405,7 +405,7 @@ impl ErrorCode {
                 | ErrorCode::E2016
                 | ErrorCode::E2017
                 | ErrorCode::E2018
-                | ErrorCode::E0920
+                | ErrorCode::E2019
         )
     }
 

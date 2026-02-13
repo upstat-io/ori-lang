@@ -268,7 +268,7 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
   - [x] Added `is_variant_uninhabited()` in `ori_canon/src/exhaustiveness.rs`
   - [x] 3 unit tests + 2 Ori spec tests in `tests/spec/patterns/exhaustiveness.ori`
 
-- [x] **Implement**: Error E0920 for Never as struct field type ✅ (2026-02-13)
+- [x] **Implement**: Error E2019 for Never as struct field type ✅ (2026-02-13)
   - [x] Added `UninhabitedStructField` variant to `TypeErrorKind`
   - [x] Check in `registration.rs` during struct type registration
   - [x] Compile-fail test: `tests/compile-fail/never_struct_field.ori`
@@ -359,7 +359,7 @@ Reserve architectural space in the type system for future low-level features (in
 
 - [x] 1.1 Primitive types complete — all 8 types verified in type checker + evaluator + LLVM codegen ✅ (2026-02-10)
 - [x] 1.1A Duration/Size complete — lexer, type system, arithmetic, conversions, all 7 traits ✅ (2026-02-10)
-- [x] 1.1B Never type fully implemented ✅ (2026-02-13) — infinite loop→Never, `?` propagation fix, exhaustiveness for Never variants, E0920, sum variant payloads
+- [x] 1.1B Never type fully implemented ✅ (2026-02-13) — infinite loop→Never, `?` propagation fix, exhaustiveness for Never variants, E2019, sum variant payloads
 - [x] 1.2 Parameter type annotations complete ✅ (2026-02-10)
 - [x] 1.3 Lambda type annotations complete ✅ (2026-02-10)
 - [x] 1.4 Let binding types complete ✅ (2026-02-10)

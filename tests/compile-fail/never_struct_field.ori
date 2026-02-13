@@ -1,4 +1,4 @@
-// Test that Never type cannot be used as a struct field (E0920)
+// Test that Never type cannot be used as a struct field (E2019)
 // Spec: 06-types.md § Never Type § Restrictions
 //
 // Never cannot appear as a struct field type because it would make

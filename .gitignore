@@ -50,6 +50,7 @@ Thumbs.db
 # Test artifacts
 *.profraw
 *.profdata
+/test_cast*
 
 # Generated files
 *.generated.*

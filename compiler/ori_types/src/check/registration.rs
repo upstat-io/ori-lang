@@ -122,7 +122,8 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 })
                 .collect();
 
-            // E0920: Never type cannot appear as a struct field.
+            // E2019: Never type cannot appear as a struct field.
+            // Direct comparison (not resolve_fully) — aliases may not be registered yet.
             for f in &field_defs {
                 if f.ty == Idx::NEVER {
                     checker.push_error(TypeCheckError::uninhabited_struct_field(

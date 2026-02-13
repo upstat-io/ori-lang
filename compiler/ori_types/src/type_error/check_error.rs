@@ -567,8 +567,8 @@ impl TypeCheckError {
             // E2014: Missing capabilities
             TypeErrorKind::MissingCapability { .. } => ErrorCode::E2014,
 
-            // E0920: Never type in struct field
-            TypeErrorKind::UninhabitedStructField { .. } => ErrorCode::E0920,
+            // E2019: Never type in struct field
+            TypeErrorKind::UninhabitedStructField { .. } => ErrorCode::E2019,
         }
     }
 
@@ -704,7 +704,7 @@ impl TypeCheckError {
         }
     }
 
-    /// Create an "uninhabited struct field" error (E0920).
+    /// Create an "uninhabited struct field" error (E2019).
     ///
     /// Emitted when `Never` is used as a struct field type, which would make the
     /// struct unconstructable. `Never` may appear in sum type variant payloads
@@ -986,7 +986,7 @@ pub enum TypeErrorKind {
         field: Name,
     },
 
-    /// Never type used as struct field (uninhabitable struct).
+    /// Never type used as struct field (uninhabited struct).
     UninhabitedStructField {
         /// The struct name.
         struct_name: Name,
