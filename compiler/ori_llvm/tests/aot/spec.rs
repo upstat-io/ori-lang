@@ -601,3 +601,156 @@ fn test_aot_size_comparison() {
         "size_comparison",
     );
 }
+
+// Float Primitives
+
+#[test]
+fn test_aot_float_literals() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = 3.14,
+    let b = 0.5,
+    let c = 1.5e2,
+    let ok1 = a == 3.14,
+    let ok2 = b == 0.5,
+    let ok3 = c == 150.0,
+    if ok1 && ok2 && ok3 then 0 else 1
+)
+"#,
+        "float_literals",
+    );
+}
+
+#[test]
+fn test_aot_float_arithmetic() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let add = 2.5 + 3.5,
+    let sub = 10.0 - 3.75,
+    let mul = 3.0 * 4.0,
+    let quotient = 15.0 / 2.0,
+    if add == 6.0 && sub == 6.25 && mul == 12.0 && quotient == 7.5 then 0 else 1
+)
+"#,
+        "float_arithmetic",
+    );
+}
+
+#[test]
+fn test_aot_float_comparison() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let lt = 1.5 < 2.5,
+    let le = 3.0 <= 3.0,
+    let gt = 5.5 > 4.5,
+    let ge = 7.0 >= 7.0,
+    let eq = 1.0 == 1.0,
+    let ne = 1.0 != 2.0,
+    if lt && le && gt && ge && eq && ne then 0 else 1
+)
+"#,
+        "float_comparison",
+    );
+}
+
+#[test]
+fn test_aot_float_negation() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let neg = -5.0,
+    let double_neg = -(-3.5),
+    if neg == -5.0 && double_neg == 3.5 then 0 else 1
+)
+"#,
+        "float_negation",
+    );
+}
+
+// Char Primitives
+
+#[test]
+fn test_aot_char_literals() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = 'a',
+    let b = 'b',
+    let eq = a == 'a',
+    let ne = a != b,
+    if eq && ne then 0 else 1
+)
+"#,
+        "char_literals",
+    );
+}
+
+#[test]
+fn test_aot_char_comparison() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let lt = 'a' < 'b',
+    let le = 'a' <= 'a',
+    let gt = 'z' > 'a',
+    let ge = 'z' >= 'z',
+    if lt && le && gt && ge then 0 else 1
+)
+"#,
+        "char_comparison",
+    );
+}
+
+// Byte Primitives
+
+#[test]
+fn test_aot_byte_basics() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a: byte = 65,
+    let b: byte = 65,
+    let c: byte = 0,
+    let d: byte = 255,
+    let eq = a == b,
+    let ne = a != c,
+    let bounds = c != d,
+    if eq && ne && bounds then 0 else 1
+)
+"#,
+        "byte_basics",
+    );
+}
+
+// Never Type Coercion
+
+#[test]
+fn test_aot_never_panic_coercion() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let x: int = if true then 42 else panic(msg: "unreachable"),
+    if x == 42 then 0 else 1
+)
+"#,
+        "never_panic_coercion",
+    );
+}
+
+#[test]
+fn test_aot_never_conditional_branches() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a: int = if false then panic(msg: "nope") else 1,
+    let b: str = if true then "hello" else panic(msg: "nope"),
+    let c: bool = if true then true else panic(msg: "nope"),
+    if a == 1 && b == "hello" && c then 0 else 1
+)
+"#,
+        "never_conditional_branches",
+    );
+}

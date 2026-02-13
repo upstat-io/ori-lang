@@ -203,7 +203,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
 
         match kind {
             // --- Literals & identifiers (lower_literals.rs) ---
-            CanExpr::Int(n) => Some(self.lower_int(n)),
+            CanExpr::Int(n) => Some(self.lower_int_typed(n, id)),
             CanExpr::Float(bits) => Some(self.lower_float(bits)),
             CanExpr::Bool(b) => Some(self.lower_bool(b)),
             CanExpr::Char(c) => Some(self.lower_char(c)),

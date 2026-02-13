@@ -44,7 +44,7 @@ sections:
 
 > **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: Core (1.1-1.4) verified complete 2026-02-10. 1.1A mostly complete (LLVM AOT tests missing). 1.1B core Never semantics complete (advanced features pending). 1.6 partially started (keywords reserved, type system slots not yet added).
+**Status**: Core (1.1-1.4) verified complete 2026-02-10. 1.1 all LLVM AOT tests complete 2026-02-13 (fixed byte codegen bug). 1.1A fully complete 2026-02-13. 1.1B core Never semantics complete (advanced features pending). 1.6 partially started (keywords reserved, type system slots not yet added).
 
 **Known Bug**: `let` bindings directly in `@main` body crash (`type_interner.rs` index out of bounds). Workaround: wrap in `run()`. Does NOT affect spec tests or AOT tests which all use `run()`.
 
@@ -62,7 +62,7 @@ sections:
   - [x] **Rust Tests**: Type pool pre-interned at index 1; type checker handles float
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — float literal, negative, scientific, annotated, arithmetic, comparison tests
   - [x] **LLVM Support**: `TypeInfo::Float` → f64 via `storage_type()` + `lower_float()` in `lower_literals.rs`
-  - [ ] **LLVM Rust Tests**: No AOT end-to-end tests for float (implementation exists)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 4 AOT tests (literals, arithmetic, comparison, negation) ✅ (2026-02-13)
 
 - [x] **Implement**: `bool` type — spec/06-types.md § bool ✅ (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 2; type checker handles bool
@@ -80,13 +80,13 @@ sections:
   - [x] **Rust Tests**: Type pool pre-interned at index 4; type checker handles char
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — char literal, equality tests
   - [x] **LLVM Support**: `TypeInfo::Char` → i32 via `storage_type()` + `lower_char()` in `lower_literals.rs`
-  - [ ] **LLVM Rust Tests**: No AOT end-to-end tests for char (implementation exists)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 2 AOT tests (literals, comparison) ✅ (2026-02-13)
 
 - [x] **Implement**: `byte` type — spec/06-types.md § byte ✅ (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 5; type checker handles byte
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — byte conversion, equality tests
   - [x] **LLVM Support**: `TypeInfo::Byte` → i8 via `storage_type()`
-  - [ ] **LLVM Rust Tests**: No AOT end-to-end tests for byte (implementation exists)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 1 AOT test (basics, equality, boundary values); fixed byte codegen bug (i64→i8 store mismatch) ✅ (2026-02-13)
 
 - [x] **Implement**: `void` type — spec/06-types.md § void ✅ (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 6 (Unit); type checker handles void
@@ -98,7 +98,7 @@ sections:
   - [x] **Rust Tests**: Type pool pre-interned at index 7; type checker handles Never
   - [x] **Ori Tests**: `tests/spec/types/never.ori` — 21 tests (all pass)
   - [x] **LLVM Support**: `TypeInfo::Never` → i64 via `storage_type()`
-  - [ ] **LLVM Rust Tests**: No AOT end-to-end tests for Never (implementation exists)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 2 AOT tests (panic coercion, multi-type conditional branches) ✅ (2026-02-13)
 
 **Note**: Also fixed parser bug where type keywords (`int`, `float`, etc.) couldn't be used as builtin conversion function calls.
 
@@ -217,8 +217,8 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 
 - [x] **Implement**: Never coerces to any type T in assignment contexts ✅ (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/types/never.ori` — 21 tests (all pass)
-  - [ ] **LLVM Support**: LLVM codegen for Never coercion — not verified in AOT
-  - [ ] **LLVM Rust Tests**: No AOT end-to-end tests for Never coercion
+  - [x] **LLVM Support**: Never coercion works in AOT — conditional branches with panic() produce correct values ✅ (2026-02-13)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 2 AOT tests (panic coercion, multi-type conditional branches) ✅ (2026-02-13)
 
 - [x] **Implement**: Never coerces in conditional branches ✅ (2026-02-10)
   - [x] **Verified**: `if true then 42 else panic(msg: "unreachable")` returns int correctly
@@ -344,11 +344,10 @@ Reserve architectural space in the type system for future low-level features (in
 - [x] 1.3 Lambda type annotations complete ✅ (2026-02-10)
 - [x] 1.4 Let binding types complete ✅ (2026-02-10)
 - [ ] 1.6 Low-level future-proofing — keywords reserved; type system slots NOT implemented
-- [ ] LLVM AOT tests incomplete — float, char, byte, Never lack end-to-end AOT tests (Duration and Size covered ✅ 2026-02-13)
+- [x] LLVM AOT tests complete — all 8 primitive types have AOT tests ✅ (2026-02-13); fixed byte codegen bug (i64→i8 store mismatch causing segfault)
 - [ ] `@main` let binding bug — `let` directly in `@main` crashes (workaround: use `run()`)
 
 **Remaining gaps:**
-- 1.1A: Duration overflow panic, negative Size panic — not verified
 - 1.1B: ? operator Never, infinite loop Never, exhaustiveness, E0920, sum variant — not verified
 - 1.6: LifetimeId, ValueCategory, Borrowed variant, helpful keyword rejection errors — not implemented
-- LLVM: 5 types lack AOT end-to-end tests (float, char, byte, Duration, Size)
+- `@main` let binding bug — `let` directly in `@main` crashes (workaround: use `run()`)
