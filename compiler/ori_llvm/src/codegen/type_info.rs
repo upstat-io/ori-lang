@@ -640,9 +640,26 @@ impl<'tcx> TypeInfoStore<'tcx> {
                 }
             }
 
-            // Type variables and schemes should NEVER reach codegen.
-            Tag::Var
-            | Tag::BoundVar
+            // Type variables: follow unification link chains to the resolved type.
+            //
+            // Type inference creates fresh variables (e.g., `Ok(42)` gets type
+            // `Result<int, ?E>`). Unification resolves `?E = str` via
+            // `VarState::Link`, but the canonical IR may store the pre-resolution
+            // Idx. Follow the link chain here to find the concrete type.
+            Tag::Var => {
+                let resolved = self.pool.resolve_fully(idx);
+                if resolved != idx {
+                    return self.get(resolved);
+                }
+                tracing::error!(
+                    ?idx,
+                    "unresolved type variable at codegen — type inference bug"
+                );
+                TypeInfo::Error
+            }
+
+            // These tags should genuinely never reach codegen.
+            Tag::BoundVar
             | Tag::RigidVar
             | Tag::Scheme
             | Tag::Projection
@@ -651,7 +668,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
             | Tag::SelfType => {
                 tracing::error!(
                     tag = ?self.pool.tag(idx),
-                    "Unreachable type tag at codegen — type inference bug"
+                    "unreachable type tag at codegen — type inference bug"
                 );
                 TypeInfo::Error
             }

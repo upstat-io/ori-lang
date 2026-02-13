@@ -845,3 +845,210 @@ fn test_aot_loop_break_and_continue_combined() {
         "loop_break_and_continue_combined",
     );
 }
+
+// Result/Option Constructors and ? Operator
+
+#[test]
+fn test_aot_result_ok_unwrap() {
+    assert_aot_success(
+        r#"
+@make_ok () -> Result<int, str> = Ok(42)
+
+@main () -> int = run(
+    let r = make_ok(),
+    if r.is_ok() then run(
+        let v = r.unwrap(),
+        if v == 42 then 0 else 1,
+    ) else 1
+)
+"#,
+        "result_ok_unwrap",
+    );
+}
+
+#[test]
+fn test_aot_result_err_check() {
+    assert_aot_success(
+        r#"
+@make_err () -> Result<int, str> = Err("bad")
+
+@main () -> int = run(
+    let r = make_err(),
+    if r.is_err() then 0 else 1
+)
+"#,
+        "result_err_check",
+    );
+}
+
+#[test]
+fn test_aot_option_some_unwrap() {
+    assert_aot_success(
+        r#"
+@make_some () -> Option<int> = Some(42)
+
+@main () -> int = run(
+    let o = make_some(),
+    if o.is_some() then run(
+        let v = o.unwrap(),
+        if v == 42 then 0 else 1,
+    ) else 1
+)
+"#,
+        "option_some_unwrap",
+    );
+}
+
+#[test]
+fn test_aot_option_none_check() {
+    assert_aot_success(
+        r#"
+@make_none () -> Option<int> = None
+
+@main () -> int = run(
+    let o = make_none(),
+    if o.is_none() then 0 else 1
+)
+"#,
+        "option_none_check",
+    );
+}
+
+#[test]
+fn test_aot_try_result_ok_unwraps() {
+    assert_aot_success(
+        r#"
+@get_value () -> Result<int, str> = Ok(21)
+
+@double_value () -> Result<int, str> = run(
+    let x = get_value()?,
+    Ok(x * 2),
+)
+
+@main () -> int = run(
+    let r = double_value(),
+    if r.is_ok() then run(
+        let v = r.unwrap(),
+        if v == 42 then 0 else 1,
+    ) else 1
+)
+"#,
+        "try_result_ok_unwraps",
+    );
+}
+
+#[test]
+fn test_aot_try_result_err_propagates() {
+    assert_aot_success(
+        r#"
+@fail_early () -> Result<int, str> = Err("oops")
+
+@try_it () -> Result<int, str> = run(
+    let x = fail_early()?,
+    Ok(x * 2),
+)
+
+@main () -> int = run(
+    let r = try_it(),
+    if r.is_err() then 0 else 1
+)
+"#,
+        "try_result_err_propagates",
+    );
+}
+
+#[test]
+fn test_aot_try_option_some_unwraps() {
+    assert_aot_success(
+        r#"
+@find_value () -> Option<int> = Some(42)
+
+@try_find () -> Option<int> = run(
+    let x = find_value()?,
+    Some(x + 1),
+)
+
+@main () -> int = run(
+    let o = try_find(),
+    if o.is_some() then run(
+        let v = o.unwrap(),
+        if v == 43 then 0 else 1,
+    ) else 1
+)
+"#,
+        "try_option_some_unwraps",
+    );
+}
+
+#[test]
+fn test_aot_try_option_none_propagates() {
+    assert_aot_success(
+        r#"
+@find_nothing () -> Option<int> = None
+
+@try_find () -> Option<int> = run(
+    let x = find_nothing()?,
+    Some(x + 1),
+)
+
+@main () -> int = run(
+    let o = try_find(),
+    if o.is_none() then 0 else 1
+)
+"#,
+        "try_option_none_propagates",
+    );
+}
+
+#[test]
+fn test_aot_try_chained_result() {
+    assert_aot_success(
+        r#"
+@step1 (x: int) -> Result<int, str> =
+    if x > 0 then Ok(x * 2) else Err("must be positive")
+
+@step2 (x: int) -> Result<int, str> =
+    if x < 100 then Ok(x + 1) else Err("too large")
+
+@pipeline (x: int) -> Result<int, str> = run(
+    let a = step1(x: x)?,
+    let b = step2(x: a)?,
+    Ok(b),
+)
+
+@main () -> int = run(
+    let r = pipeline(x: 5),
+    if r.is_ok() then run(
+        let v = r.unwrap(),
+        if v == 11 then 0 else 1,
+    ) else 1
+)
+"#,
+        "try_chained_result",
+    );
+}
+
+#[test]
+fn test_aot_try_chained_first_fails() {
+    assert_aot_success(
+        r#"
+@step1 (x: int) -> Result<int, str> =
+    if x > 0 then Ok(x * 2) else Err("must be positive")
+
+@step2 (x: int) -> Result<int, str> =
+    if x < 100 then Ok(x + 1) else Err("too large")
+
+@pipeline (x: int) -> Result<int, str> = run(
+    let a = step1(x: x)?,
+    let b = step2(x: a)?,
+    Ok(b),
+)
+
+@main () -> int = run(
+    let r = pipeline(x: -1),
+    if r.is_err() then 0 else 1
+)
+"#,
+        "try_chained_first_fails",
+    );
+}

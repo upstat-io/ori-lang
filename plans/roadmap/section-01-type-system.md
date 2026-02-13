@@ -17,7 +17,7 @@ sections:
     status: complete
   - id: "1.1B"
     title: Never Type Semantics
-    status: in-progress
+    status: complete
   - id: "1.2"
     title: Parameter Type Annotations
     status: complete
@@ -44,7 +44,7 @@ sections:
 
 > **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: Core (1.1-1.4) verified complete 2026-02-10. 1.1 all LLVM AOT tests complete 2026-02-13 (fixed byte codegen bug). 1.1A fully complete 2026-02-13 (constant folding added). 1.1B Never type fully implemented 2026-02-13 (only blocked: `?` LLVM support, pre-existing Result layout bug). 1.6 partially started (keywords reserved, type system slots not yet added).
+**Status**: Core (1.1-1.4) verified complete 2026-02-10. 1.1 all LLVM AOT tests complete 2026-02-13 (fixed byte codegen bug). 1.1A fully complete 2026-02-13 (constant folding added). 1.1B fully complete 2026-02-13 — `?` LLVM support fixed (type variable resolution + Result::unwrap coercion); 11 AOT tests added. 1.6 partially started (keywords reserved, type system slots not yet added).
 
 **Known Bug (RESOLVED)**: `let` bindings directly in `@main` body previously crashed (`type_interner.rs` index out of bounds). Fixed as of 2026-02-13 — `type_interner.rs` was removed during hygiene refactors. 6 regression tests added.
 
@@ -221,7 +221,7 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 
 Formalize the Never type as the bottom type with coercion rules, type inference behavior, and pattern matching exhaustiveness.
 
-**Status**: All Never type features implemented. Only remaining item: `?` LLVM support blocked on pre-existing Result layout bug (not Never-specific).
+**Status**: All Never type features implemented and verified ✅ (2026-02-13). Result type layout bug fixed — `TypeInfoStore` resolves type variables via `Pool::resolve_fully()`; `Result::unwrap()` coerces payload to ok type.
 
 ### Coercion
 
@@ -256,7 +256,8 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 - [x] **Implement**: Early-return path of ? operator has type Never ✅ (2026-02-13)
   - [x] **Bug Fix**: `ControlAction::Propagate` was not caught at function call boundaries — `?` errors leaked through all call frames instead of becoming the function's return value. Fixed in `function_call.rs` with `catch_propagation()`.
   - [x] **Ori Tests**: `tests/spec/control_flow/never_propagation.ori` — 14 tests (Result and Option propagation, chaining, nested calls, conditional branches, multiple ? in same expression)
-  - [ ] **LLVM Support**: Blocked — LLVM backend has Result type layout bug (`{ i8, i64 }` vs `{ i8, { i64, ptr } }`); not a Never type issue
+  - [x] **LLVM Support**: Fixed — `TypeInfoStore` now follows `Pool::resolve_fully()` for `Tag::Var` type variables; `Result::unwrap()` coerces payload to ok type ✅ (2026-02-13)
+  - [x] **LLVM Rust Tests**: 11 AOT tests in `ori_llvm/tests/aot/spec.rs` — Result/Option constructors, `?` operator (ok unwrap, err propagation, chained), method dispatch (is_ok/is_err/unwrap)
 
 - [x] **Implement**: Infinite loop (no break) has type Never ✅ (2026-02-13)
   - [x] **Fix**: `infer_loop()` returned `Idx::UNIT` for unresolved break type; now returns `Idx::NEVER`. A `break` (even without value) unifies with Unit, so unresolved truly means no break exists.
@@ -359,7 +360,7 @@ Reserve architectural space in the type system for future low-level features (in
 
 - [x] 1.1 Primitive types complete — all 8 types verified in type checker + evaluator + LLVM codegen ✅ (2026-02-10)
 - [x] 1.1A Duration/Size complete — lexer, type system, arithmetic, conversions, all 7 traits ✅ (2026-02-10)
-- [x] 1.1B Never type fully implemented ✅ (2026-02-13) — infinite loop→Never, `?` propagation fix, exhaustiveness for Never variants, E2019, sum variant payloads
+- [x] 1.1B Never type fully implemented ✅ (2026-02-13) — infinite loop→Never, `?` propagation fix, exhaustiveness for Never variants, E2019, sum variant payloads, `?` LLVM support (fixed type variable leak + Result::unwrap coercion)
 - [x] 1.2 Parameter type annotations complete ✅ (2026-02-10)
 - [x] 1.3 Lambda type annotations complete ✅ (2026-02-10)
 - [x] 1.4 Let binding types complete ✅ (2026-02-10)
@@ -369,5 +370,4 @@ Reserve architectural space in the type system for future low-level features (in
 - [x] `@main` let binding bug fixed ✅ (2026-02-13) — `type_interner.rs` removed during hygiene refactors; 6 regression tests added
 
 **Remaining gaps:**
-- 1.1B: Only `?` LLVM support remains — blocked on pre-existing Result layout bug (not Never-specific)
 - 1.6: LifetimeId, ValueCategory, Borrowed variant, helpful keyword rejection errors — not implemented
