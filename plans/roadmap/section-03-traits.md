@@ -85,7 +85,7 @@ sections:
 
 > **SPEC**: `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests added (28 passing, 11 ignored for codegen gaps), proposals pending (3.7-3.17). Verified 2026-02-13: ~239 Ori tests + 28 AOT trait tests pass. Key LLVM gaps: Ordering type resolution, .unwrap_or(), default trait methods, mixed impl block field access, derive codegen.
+**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 39 passing (0 ignored), proposals pending (3.7-3.17). Verified 2026-02-13: ~239 Ori tests + 39 AOT trait tests pass. Remaining LLVM gap: derive codegen (evaluator-only).
 
 ---
 
@@ -171,7 +171,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Rust Tests**: `ori_eval/src/methods.rs` — `option_methods` module
   - [x] **Ori Tests**: `tests/spec/traits/core/option.ori` — 16 tests (all pass)
   - [x] **LLVM Support**: LLVM codegen for Option — tag-based dispatch in `lower_calls.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_some()` (2), `.is_none()` (2), `.unwrap()` (1) pass; `.unwrap_or()` (2) ignored (not in LLVM dispatch table) ✅ (2026-02-13)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_some()` (2), `.is_none()` (2), `.unwrap()` (1), `.unwrap_or()` (2) all pass ✅ (2026-02-13)
 - [x] **Type checking**: `infer_builtin_method()` handles Option methods ✅ (2026-02-10)
 
 ### 3.0.4 Result Methods
@@ -191,7 +191,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Type checking**: All comparable types have `.compare(other:)` returning `Ordering` ✅ (2026-02-10)
   - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/` — numeric.rs, string.rs, list.rs, option.rs, result.rs, units.rs, ordering.rs
   - [x] **LLVM Support**: LLVM codegen for `.compare()` — inline arithmetic/comparison in `lower_calls.rs`
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — 7 tests written but all ignored: `.compare()` return type not resolved as Ordering (`Idx::ERROR`) in codegen
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — 7 tests passing: `.compare()` + Ordering methods (is_less, is_equal, is_greater, reverse, is_less_or_equal, is_greater_or_equal) ✅ (2026-02-13)
 
 ### 3.0.6 Eq Trait
 
@@ -430,11 +430,11 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 - [x] Derive traits (3.5): Eq, Clone, Hashable, Printable complete; Default NOT tested ✅ (2026-02-10)
 - [x] ~239 trait test annotations pass (len: 14, is_empty: 13, option: 16, result: 14, comparable: 58, eq: 23, declaration: 16, self_param: 9, self_type: 7, inheritance: 6, generic_impl: 4, associated_types: 4, default_type_params: 2, default_assoc_types: 4, derive: 16, ordering: 32, method_call: 1) ✅ (2026-02-10)
 - [x] Run full test suite: `./test-all.sh` — 3,068 passed, 0 failed ✅ (2026-02-10)
-- [x] LLVM AOT tests: `ori_llvm/tests/aot/traits.rs` — 28 passing, 11 ignored (codegen gaps: Ordering type, .unwrap_or(), default methods, mixed impl blocks) ✅ (2026-02-13)
-  - [ ] **Gap**: `.compare()` return type not resolved as Ordering in codegen (7 tests ignored)
-  - [ ] **Gap**: `.unwrap_or()` not in Option LLVM dispatch table (2 tests ignored)
-  - [x] **Gap**: Default trait methods compiled in LLVM ✅ (2026-02-13)
-  - [ ] **Gap**: Trait impl self passed as pointer breaks field extraction (1 test ignored)
+- [x] LLVM AOT tests: `ori_llvm/tests/aot/traits.rs` — 39 passing, 0 ignored ✅ (2026-02-13)
+  - [x] **Fixed**: `.compare()` return type resolved as Ordering — added to V2 type checker ✅ (2026-02-13)
+  - [x] **Fixed**: `.unwrap_or()` added to LLVM Option dispatch table ✅ (2026-02-13)
+  - [x] **Fixed**: Default trait methods compiled in LLVM ✅ (2026-02-13)
+  - [x] **Fixed**: Indirect ABI parameter passing — self loaded from pointer for >16B structs ✅ (2026-02-13)
   - [ ] **Gap**: Derive methods not wired into LLVM codegen (evaluator-only)
 - [ ] Operator traits (3.21): User-defined operator dispatch NOT working (entirely commented out)
 - [ ] Proposals (3.7-3.17): Iterator, Debug, Formattable, Into, etc. — all not started

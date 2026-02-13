@@ -217,7 +217,6 @@ fn test_aot_option_unwrap_some() {
 }
 
 #[test]
-#[ignore = "LLVM codegen: .unwrap_or() not in Option method dispatch table"]
 fn test_aot_option_unwrap_or_some() {
     assert_aot_success(
         r#"
@@ -234,7 +233,6 @@ fn test_aot_option_unwrap_or_some() {
 }
 
 #[test]
-#[ignore = "LLVM codegen: .unwrap_or() not in Option method dispatch table"]
 fn test_aot_option_unwrap_or_none() {
     assert_aot_success(
         r#"
@@ -331,7 +329,6 @@ fn test_aot_result_unwrap_ok() {
 // 3.0.5: Comparable Trait — .compare() codegen
 
 #[test]
-#[ignore = "LLVM codegen: .compare() return type not resolved as Ordering (Idx::ERROR)"]
 fn test_aot_int_compare_less() {
     assert_aot_success(
         r#"
@@ -345,7 +342,6 @@ fn test_aot_int_compare_less() {
 }
 
 #[test]
-#[ignore = "LLVM codegen: .compare() return type not resolved as Ordering (Idx::ERROR)"]
 fn test_aot_int_compare_equal() {
     assert_aot_success(
         r#"
@@ -359,7 +355,6 @@ fn test_aot_int_compare_equal() {
 }
 
 #[test]
-#[ignore = "LLVM codegen: .compare() return type not resolved as Ordering (Idx::ERROR)"]
 fn test_aot_int_compare_greater() {
     assert_aot_success(
         r#"
@@ -373,7 +368,6 @@ fn test_aot_int_compare_greater() {
 }
 
 #[test]
-#[ignore = "LLVM codegen: .compare() return type not resolved as Ordering (Idx::ERROR)"]
 fn test_aot_ordering_reverse() {
     assert_aot_success(
         r#"
@@ -388,7 +382,6 @@ fn test_aot_ordering_reverse() {
 }
 
 #[test]
-#[ignore = "LLVM codegen: .compare() return type not resolved as Ordering (Idx::ERROR)"]
 fn test_aot_ordering_predicates() {
     assert_aot_success(
         r#"
@@ -407,7 +400,6 @@ fn test_aot_ordering_predicates() {
 }
 
 #[test]
-#[ignore = "LLVM codegen: .compare() return type not resolved as Ordering (Idx::ERROR)"]
 fn test_aot_ordering_is_less_or_equal() {
     assert_aot_success(
         r#"
@@ -426,7 +418,6 @@ fn test_aot_ordering_is_less_or_equal() {
 }
 
 #[test]
-#[ignore = "LLVM codegen: .compare() return type not resolved as Ordering (Idx::ERROR)"]
 fn test_aot_ordering_is_greater_or_equal() {
     assert_aot_success(
         r#"
@@ -687,7 +678,6 @@ impl Rect {
 // 3.2: Multiple impl blocks on same type
 
 #[test]
-#[ignore = "LLVM codegen: trait impl self passed as pointer, extract_value expects struct"]
 fn test_aot_multiple_impl_blocks() {
     assert_aot_success(
         r#"
