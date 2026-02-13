@@ -240,7 +240,7 @@ match(maybe,
 `Never` cannot appear as a struct field type. A struct with a `Never` field would be unconstructable:
 
 ```ori
-type Bad = { value: Never }  // error E0920
+type Bad = { value: Never }  // error E2019
 ```
 
 ### Sum Type Variants
@@ -329,7 +329,7 @@ warning[W0200]: unreachable code
 ### Never in Invalid Context
 
 ```
-error[E0920]: cannot use `Never` as struct field type
+error[E2019]: cannot use `Never` as struct field type
   --> src/types.ori:2:10
    |
  2 |     field: Never,

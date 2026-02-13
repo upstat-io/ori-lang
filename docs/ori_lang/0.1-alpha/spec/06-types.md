@@ -80,7 +80,7 @@ Option<Never>     // Can only be None
 `Never` cannot appear as a struct field type:
 
 ```ori
-type Bad = { value: Never }  // error E0920: uninhabited struct field
+type Bad = { value: Never }  // error E2019: uninhabited struct field
 ```
 
 `Never` may appear in sum type variant payloads. Such variants are unconstructable:
