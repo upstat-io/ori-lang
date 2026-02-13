@@ -10,6 +10,7 @@ pub mod cross;
 pub mod linking;
 pub mod lto;
 pub mod spec;
+pub mod traits;
 pub mod wasm;
 
 // Re-export test utilities
