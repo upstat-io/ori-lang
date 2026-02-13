@@ -563,9 +563,12 @@ fn resolve_type_with_params(
 }
 
 /// Register implementation blocks.
+///
+/// For trait impls, also registers unoverridden default methods so they're
+/// visible during method resolution in function body checking (Pass 2).
 pub fn register_impls(checker: &mut ModuleChecker<'_>, module: &Module) {
     for impl_def in &module.impls {
-        register_impl(checker, impl_def);
+        register_impl(checker, impl_def, &module.traits);
     }
 }
 
@@ -574,7 +577,11 @@ pub fn register_impls(checker: &mut ModuleChecker<'_>, module: &Module) {
 /// Converts an `ori_ir::ImplDef` to an `ImplEntry` and registers it in the
 /// `TraitRegistry`. Handles both inherent impls (`impl Type { ... }`) and
 /// trait impls (`impl Trait for Type { ... }`).
-fn register_impl(checker: &mut ModuleChecker<'_>, impl_def: &ori_ir::ImplDef) {
+fn register_impl(
+    checker: &mut ModuleChecker<'_>,
+    impl_def: &ori_ir::ImplDef,
+    traits: &[ori_ir::TraitDef],
+) {
     // 1. Collect generic parameters
     let type_params = collect_generic_params(checker, impl_def.generics);
 
@@ -591,11 +598,33 @@ fn register_impl(checker: &mut ModuleChecker<'_>, impl_def: &ori_ir::ImplDef) {
         checker.pool_mut().named(trait_name)
     });
 
-    // 4. Process methods
+    // 4. Process explicitly defined methods
     let mut methods = FxHashMap::default();
     for impl_method in &impl_def.methods {
         let method_def = build_impl_method(checker, impl_method, &type_params, self_type);
         methods.insert(impl_method.name, method_def);
+    }
+
+    // 4b. For trait impls, also register unoverridden default methods
+    if let Some(trait_path) = &impl_def.trait_path {
+        if let Some(&trait_name) = trait_path.last() {
+            if let Some(trait_def) = traits.iter().find(|t| t.name == trait_name) {
+                for item in &trait_def.items {
+                    if let ori_ir::TraitItem::DefaultMethod(default) = item {
+                        methods.entry(default.name).or_insert_with(|| {
+                            let as_impl = ori_ir::ImplMethod {
+                                name: default.name,
+                                params: default.params,
+                                return_ty: default.return_ty.clone(),
+                                body: default.body,
+                                span: default.span,
+                            };
+                            build_impl_method(checker, &as_impl, &type_params, self_type)
+                        });
+                    }
+                }
+            }
+        }
     }
 
     // 5. Process associated type definitions

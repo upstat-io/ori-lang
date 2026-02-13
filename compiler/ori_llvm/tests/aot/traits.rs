@@ -602,7 +602,6 @@ impl Calculator for Num {
 // 3.1: Trait Declarations — Default method codegen
 
 #[test]
-#[ignore = "LLVM codegen: default trait methods not compiled/dispatched"]
 fn test_aot_trait_default_method() {
     assert_aot_success(
         r#"

@@ -24,7 +24,7 @@
 //!         └─ param: n -> int
 //! ```
 
-use ori_ir::{Function, ImplMethod, Module, Name, TestDef};
+use ori_ir::{Function, ImplMethod, Module, Name, TestDef, TraitDef, TraitItem};
 use rustc_hash::FxHashSet;
 
 use super::registration::{resolve_parsed_type_simple, resolve_type_with_self};
@@ -228,15 +228,26 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
 }
 
 /// Check all impl method bodies.
+///
+/// For trait impls, this also checks unoverridden default methods from the trait
+/// definition, registering their signatures for LLVM codegen.
 #[tracing::instrument(level = "debug", skip_all, fields(count = module.impls.len()))]
 pub fn check_impl_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
     for impl_def in &module.impls {
-        check_impl_block(checker, impl_def);
+        check_impl_block(checker, impl_def, &module.traits);
     }
 }
 
 /// Type check methods in an impl block.
-fn check_impl_block(checker: &mut ModuleChecker<'_>, impl_def: &ori_ir::ImplDef) {
+///
+/// Processes explicit methods first, then unoverridden default methods from the
+/// trait definition. Both register signatures via `register_impl_sig` for LLVM
+/// codegen consumption (signatures are consumed positionally by `compile_impls`).
+fn check_impl_block(
+    checker: &mut ModuleChecker<'_>,
+    impl_def: &ori_ir::ImplDef,
+    traits: &[TraitDef],
+) {
     // Resolve the Self type for this impl block
     let self_type = resolve_parsed_type_simple(checker, &impl_def.self_ty);
 
@@ -248,8 +259,34 @@ fn check_impl_block(checker: &mut ModuleChecker<'_>, impl_def: &ori_ir::ImplDef)
         .map(|p| p.name)
         .collect();
 
+    // Check explicitly defined methods
     for method in &impl_def.methods {
         check_impl_method(checker, method, self_type, &generic_params);
+    }
+
+    // For trait impls, also check unoverridden default methods.
+    // This registers their signatures so LLVM codegen can compile them.
+    if let Some(trait_path) = &impl_def.trait_path {
+        if let Some(&trait_name) = trait_path.last() {
+            let overridden: FxHashSet<Name> = impl_def.methods.iter().map(|m| m.name).collect();
+
+            if let Some(trait_def) = traits.iter().find(|t| t.name == trait_name) {
+                for item in &trait_def.items {
+                    if let TraitItem::DefaultMethod(default) = item {
+                        if !overridden.contains(&default.name) {
+                            let as_impl = ImplMethod {
+                                name: default.name,
+                                params: default.params,
+                                return_ty: default.return_ty.clone(),
+                                body: default.body,
+                                span: default.span,
+                            };
+                            check_impl_method(checker, &as_impl, self_type, &generic_params);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

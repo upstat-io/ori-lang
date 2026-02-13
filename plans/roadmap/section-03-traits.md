@@ -225,8 +225,9 @@ The following traits are also recognized in trait bounds:
   - [x] **Write test**: `tests/spec/traits/declaration.ori` (test_default_method: summarize(), is_large())
   - [x] **Run test**: All pass
   - **Note**: Added default trait method dispatch in `module_loading.rs:collect_impl_methods()`
-  - [ ] **LLVM Support**: LLVM codegen for default trait method dispatch — not compiled/dispatched in codegen
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — test written but ignored: default methods not compiled in LLVM
+  - [x] **LLVM Support**: LLVM codegen for default trait method dispatch ✅ (2026-02-13)
+    - Fixed at 3 levels: method registration (register_impl), body type checking (check_impl_block), LLVM codegen (compile_impls)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_trait_default_method` passing ✅ (2026-02-13)
 
 - [x] **Implement**: Associated types — spec/08-declarations.md § Associated Types ✅ (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — associated type parsing
@@ -244,7 +245,8 @@ The following traits are also recognized in trait bounds:
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — trait inheritance
   - [x] **Ori Tests**: `tests/spec/traits/inheritance.ori` — 6 tests including 3-level deep inheritance (all pass)
 
-- [ ] **BUG**: Static methods `Type.method()` not supported — commented out in declaration.ori (Point.new(), Point.origin())
+- [x] **BUG**: Static methods `Type.method()` not supported — commented out in declaration.ori (Point.new(), Point.origin()) ✅ (2026-02-13)
+  - Infrastructure was already working (TypeRef dispatch in method_dispatch.rs). Test file was missing `@new`/`@origin` impl methods + had stale TODO comments. Added methods, uncommented tests, 2 new tests pass.
 
 ---
 
@@ -421,7 +423,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 - [x] Core library traits (3.0): Len, IsEmpty, Option, Result, Comparable, Eq — all complete ✅ (2026-02-10)
   - [ ] **Gap**: Clone/Hashable/Default/Printable methods NOT callable on primitives (only as trait bounds and on #[derive] types)
 - [x] Trait declarations (3.1): Parse, required methods, default methods, self, Self, inheritance — all complete ✅ (2026-02-10)
-  - [ ] **Gap**: Static methods `Type.method()` not supported
+  - [x] **Gap**: Static methods `Type.method()` — FIXED, was stale TODO ✅ (2026-02-13)
 - [x] Trait implementations (3.2): Inherent, trait, generic impls, method resolution, coherence — all complete ✅ (2026-02-10)
 - [x] Trait bounds (3.3): Single, multiple, constraint satisfaction — all complete ✅ (2026-02-10)
 - [x] Associated types (3.4): Declaration, `Self.Item`, where constraints — all complete ✅ (2026-02-10)
@@ -431,7 +433,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 - [x] LLVM AOT tests: `ori_llvm/tests/aot/traits.rs` — 28 passing, 11 ignored (codegen gaps: Ordering type, .unwrap_or(), default methods, mixed impl blocks) ✅ (2026-02-13)
   - [ ] **Gap**: `.compare()` return type not resolved as Ordering in codegen (7 tests ignored)
   - [ ] **Gap**: `.unwrap_or()` not in Option LLVM dispatch table (2 tests ignored)
-  - [ ] **Gap**: Default trait methods not compiled in LLVM (1 test ignored)
+  - [x] **Gap**: Default trait methods compiled in LLVM ✅ (2026-02-13)
   - [ ] **Gap**: Trait impl self passed as pointer breaks field extraction (1 test ignored)
   - [ ] **Gap**: Derive methods not wired into LLVM codegen (evaluator-only)
 - [ ] Operator traits (3.21): User-defined operator dispatch NOT working (entirely commented out)

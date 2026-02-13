@@ -309,7 +309,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             // 7. Compile impl methods (declare + define)
             if !module.impls.is_empty() {
                 debug!("compiling impl methods");
-                fc.compile_impls(&module.impls, impl_sigs, canon);
+                fc.compile_impls(&module.impls, impl_sigs, canon, &module.traits);
             }
 
             // 8. Define all function bodies (phase 2)
