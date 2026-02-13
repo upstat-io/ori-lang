@@ -612,13 +612,7 @@ fn register_impl(
                 for item in &trait_def.items {
                     if let ori_ir::TraitItem::DefaultMethod(default) = item {
                         methods.entry(default.name).or_insert_with(|| {
-                            let as_impl = ori_ir::ImplMethod {
-                                name: default.name,
-                                params: default.params,
-                                return_ty: default.return_ty.clone(),
-                                body: default.body,
-                                span: default.span,
-                            };
+                            let as_impl = ori_ir::ImplMethod::from(default);
                             build_impl_method(checker, &as_impl, &type_params, self_type)
                         });
                     }

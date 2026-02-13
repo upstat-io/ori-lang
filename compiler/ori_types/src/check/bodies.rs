@@ -274,13 +274,7 @@ fn check_impl_block(
                 for item in &trait_def.items {
                     if let TraitItem::DefaultMethod(default) = item {
                         if !overridden.contains(&default.name) {
-                            let as_impl = ImplMethod {
-                                name: default.name,
-                                params: default.params,
-                                return_ty: default.return_ty.clone(),
-                                body: default.body,
-                                span: default.span,
-                            };
+                            let as_impl = ImplMethod::from(default);
                             check_impl_method(checker, &as_impl, self_type, &generic_params);
                         }
                     }
