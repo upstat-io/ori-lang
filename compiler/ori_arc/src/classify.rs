@@ -42,9 +42,32 @@ impl<'pool> ArcClassifier<'pool> {
         }
     }
 
+    /// Create a classifier with a pre-populated cache from a previous run.
+    ///
+    /// Safe because classification is purely a function of `Pool` structure —
+    /// same `Idx` + same `Pool` entry = same `ArcClass`. When the `Pool` is
+    /// identical (e.g., module hash hasn't changed), cached classifications
+    /// are guaranteed correct and skip redundant type walks.
+    pub fn with_cache(pool: &'pool Pool, cache: FxHashMap<Idx, ArcClass>) -> Self {
+        Self {
+            pool,
+            cache: RefCell::new(cache),
+            classifying: RefCell::new(FxHashSet::default()),
+        }
+    }
+
     /// Access the underlying pool.
     pub fn pool(&self) -> &'pool Pool {
         self.pool
+    }
+
+    /// Export the classification cache for persistence across runs.
+    ///
+    /// Returns a snapshot of all classifications computed so far. Feed this
+    /// back into [`with_cache`](Self::with_cache) on the next run to avoid
+    /// redundant type walks for unchanged modules.
+    pub fn export_cache(&self) -> FxHashMap<Idx, ArcClass> {
+        self.cache.borrow().clone()
     }
 
     /// Core classification with caching and cycle detection.
@@ -644,5 +667,69 @@ mod tests {
         let cls = ArcClassifier::new(&pool);
 
         assert_eq!(cls.arc_class(var), ArcClass::PossibleRef);
+    }
+
+    // ── Cache export/import ─────────────────────────────────────────
+
+    #[test]
+    fn export_cache_captures_computed_classifications() {
+        let mut pool = Pool::new();
+        let list = pool.list(Idx::INT);
+        let tup = pool.tuple(&[Idx::INT, Idx::FLOAT]);
+        let cls = ArcClassifier::new(&pool);
+
+        // Classify some types to populate cache.
+        cls.arc_class(list);
+        cls.arc_class(tup);
+
+        let exported = cls.export_cache();
+        assert!(exported.contains_key(&list));
+        assert!(exported.contains_key(&tup));
+        assert_eq!(exported[&list], ArcClass::DefiniteRef);
+        assert_eq!(exported[&tup], ArcClass::Scalar);
+    }
+
+    #[test]
+    fn with_cache_uses_precomputed_classifications() {
+        let mut pool = Pool::new();
+        let list = pool.list(Idx::INT);
+        let tup = pool.tuple(&[Idx::INT, Idx::FLOAT]);
+
+        // First classifier: compute classifications.
+        let cls1 = ArcClassifier::new(&pool);
+        cls1.arc_class(list);
+        cls1.arc_class(tup);
+        let exported = cls1.export_cache();
+
+        // Second classifier: pre-seeded with exported cache.
+        let cls2 = ArcClassifier::with_cache(&pool, exported);
+
+        // Should return correct results from cache (no re-computation).
+        assert_eq!(cls2.arc_class(list), ArcClass::DefiniteRef);
+        assert_eq!(cls2.arc_class(tup), ArcClass::Scalar);
+
+        // Cache should have entries from import.
+        assert!(cls2.cache.borrow().contains_key(&list));
+        assert!(cls2.cache.borrow().contains_key(&tup));
+    }
+
+    #[test]
+    fn with_cache_empty_is_equivalent_to_new() {
+        let pool = Pool::new();
+        let cls = ArcClassifier::with_cache(&pool, FxHashMap::default());
+
+        // Should work identically to new().
+        assert_eq!(cls.arc_class(Idx::INT), ArcClass::Scalar);
+        assert_eq!(cls.arc_class(Idx::STR), ArcClass::DefiniteRef);
+    }
+
+    #[test]
+    fn export_empty_cache_returns_empty_map() {
+        let pool = Pool::new();
+        let cls = ArcClassifier::new(&pool);
+
+        // No classifications performed yet.
+        let exported = cls.export_cache();
+        assert!(exported.is_empty());
     }
 }

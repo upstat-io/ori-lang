@@ -15,20 +15,19 @@
 //! methods on `Value`. See `ori_patterns::value` for details.
 
 mod evaluator;
-pub mod module;
+pub(crate) mod module;
 mod output;
 
-// Re-export exec module from ori_eval
-pub use ori_eval::exec;
+// Re-export exec module from ori_eval (used by eval tests)
+#[cfg(test)]
+pub(crate) use ori_eval::exec;
 
 /// Re-export Value types from `ori_patterns` (single source of truth).
 ///
 /// This module exists for import compatibility - files can continue using
 /// `super::value::Value` instead of changing all imports.
-pub mod value {
-    pub use ori_patterns::{
-        FunctionValFn, FunctionValue, Heap, RangeValue, StructLayout, StructValue, Value,
-    };
+pub(crate) mod value {
+    pub use ori_patterns::{FunctionValue, Value};
 }
 
 pub use evaluator::{Evaluator, EvaluatorBuilder, ScopedEvaluator};

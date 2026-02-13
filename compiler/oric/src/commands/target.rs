@@ -248,7 +248,7 @@ pub fn remove_target(target: &str) {
 
 /// Check for WASI SDK installation and set up sysroot.
 #[cfg(feature = "llvm")]
-fn check_wasi_sdk(sysroot: &PathBuf) {
+fn check_wasi_sdk(sysroot: &std::path::Path) {
     // Get home directory
     let home_wasi_sdk = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))

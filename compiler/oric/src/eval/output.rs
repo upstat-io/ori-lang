@@ -4,9 +4,8 @@
 //! Clone + Eq + `PartialEq` + Hash + Debug traits.
 
 use super::value::Value;
-use crate::ir::{Name, StringInterner};
+use crate::ir::{Name, Span, StringInterner};
 use ori_diagnostic::ErrorCode;
-use ori_ir::Span;
 use std::hash::{Hash, Hasher};
 
 /// Salsa-compatible representation of an evaluated value.
@@ -507,8 +506,6 @@ pub struct ModuleEvalResult {
     /// `error` field discards. Pre-runtime failures (lex, parse, type errors)
     /// leave this as `None` and use `error` alone.
     pub eval_error: Option<EvalErrorSnapshot>,
-    /// Captured stdout output (if any).
-    pub stdout: String,
 }
 
 impl ModuleEvalResult {
@@ -518,7 +515,6 @@ impl ModuleEvalResult {
             result: Some(result),
             error: None,
             eval_error: None,
-            stdout: String::new(),
         }
     }
 
@@ -529,12 +525,12 @@ impl ModuleEvalResult {
     /// that need rich error detail (spans, suggestions, error codes) should use
     /// `report_frontend_errors()` in `commands/mod.rs` instead, which queries
     /// each phase separately for full diagnostic quality.
+    #[cold]
     pub fn failure(error: String) -> Self {
         ModuleEvalResult {
             result: None,
             error: Some(error),
             eval_error: None,
-            stdout: String::new(),
         }
     }
 
@@ -542,12 +538,12 @@ impl ModuleEvalResult {
     ///
     /// Captures the error's span, backtrace, notes, and kind into an
     /// [`EvalErrorSnapshot`] for enriched diagnostic rendering.
+    #[cold]
     pub fn runtime_error(err: &ori_patterns::EvalError) -> Self {
         ModuleEvalResult {
             result: None,
             error: Some(err.message.clone()),
             eval_error: Some(EvalErrorSnapshot::from_eval_error(err)),
-            stdout: String::new(),
         }
     }
 
@@ -568,7 +564,6 @@ impl Default for ModuleEvalResult {
             result: Some(EvalOutput::Void),
             error: None,
             eval_error: None,
-            stdout: String::new(),
         }
     }
 }

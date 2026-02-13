@@ -22,8 +22,9 @@
 //! rather than the `Problem` / `Render` trait chain.
 
 use ori_diagnostic::{Diagnostic, Suggestion};
-use ori_ir::StringInterner;
 use ori_types::{ErrorContext, Idx, Pool, TypeCheckError, TypeErrorKind, TypeProblem};
+
+use crate::ir::{Name, StringInterner};
 
 /// Renders `TypeCheckError` values as rich `Diagnostic` messages.
 ///
@@ -42,6 +43,7 @@ impl<'a> TypeErrorRenderer<'a> {
     }
 
     /// Render a `TypeCheckError` into a rich `Diagnostic`.
+    #[cold]
     pub fn render(&self, error: &TypeCheckError) -> Diagnostic {
         let code = error.code();
         let message = self.format_message(error);
@@ -66,7 +68,7 @@ impl<'a> TypeErrorRenderer<'a> {
     }
 
     /// Look up an interned Name.
-    fn format_name(&self, name: ori_ir::Name) -> String {
+    fn format_name(&self, name: Name) -> String {
         self.interner.lookup(name).to_string()
     }
 
@@ -214,6 +216,7 @@ impl<'a> TypeErrorRenderer<'a> {
 ///
 /// Convenience function that creates a `TypeErrorRenderer` and maps all errors
 /// to diagnostics.
+#[cold]
 pub fn render_type_errors(
     errors: &[TypeCheckError],
     pool: &Pool,
@@ -226,8 +229,8 @@ pub fn render_type_errors(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::{Name, Span};
     use ori_diagnostic::ErrorCode;
-    use ori_ir::{Name, Span};
     use ori_types::{ArityMismatchKind, ContextKind, TypeProblem};
 
     /// Create a test `Pool` and `StringInterner`.

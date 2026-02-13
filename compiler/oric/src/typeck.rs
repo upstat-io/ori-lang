@@ -26,6 +26,7 @@ use ori_types::{FunctionSig, TypeCheckResult};
 
 use crate::db::Db;
 use crate::imports;
+use crate::ir::{Name, Span, StringInterner};
 use crate::parser::ParseOutput;
 
 // Prelude Auto-Loading
@@ -91,7 +92,7 @@ pub(crate) fn type_check_with_imports_and_pool(
 /// the prelude `.ori` file but are available in every Ori program. Their type
 /// signatures are registered here so type checking can validate calls.
 pub(crate) fn register_builtins(
-    interner: &ori_ir::StringInterner,
+    interner: &StringInterner,
     checker: &mut ori_types::ModuleChecker<'_>,
 ) {
     use ori_types::Idx;
@@ -145,7 +146,7 @@ pub(crate) fn register_builtins(
 fn register_resolved_imports(
     resolved: &imports::ResolvedImports,
     checker: &mut ori_types::ModuleChecker<'_>,
-    interner: &ori_ir::StringInterner,
+    interner: &StringInterner,
 ) {
     // 1. Register prelude functions (all public)
     if let Some(ref prelude) = resolved.prelude {
@@ -170,7 +171,7 @@ fn register_resolved_imports(
                 message = %error.message,
                 "import error missing span — resolve_imports invariant violated"
             );
-            ori_ir::Span::DUMMY
+            Span::DUMMY
         });
         checker.push_error(ori_types::TypeCheckError::import_error(
             error.message.clone(),
@@ -202,16 +203,7 @@ fn register_resolved_imports(
             .iter()
             .find(|f| f.name == func_ref.original_name)
         else {
-            let func_name = interner.lookup(func_ref.original_name);
-            let module_path = &module.module_path;
-            checker.push_error(ori_types::TypeCheckError::import_error(
-                format!(
-                    "function '{func_name}' not found in module '{}'",
-                    module_path.display()
-                ),
-                func_ref.span,
-                ori_types::ImportErrorKind::ItemNotFound,
-            ));
+            report_missing_import(checker, interner, func_ref, &module.module_path);
             continue;
         };
 
@@ -226,6 +218,25 @@ fn register_resolved_imports(
             );
         }
     }
+}
+
+/// Report a missing imported function to the type checker.
+#[cold]
+fn report_missing_import(
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+    func_ref: &imports::ImportedFunctionRef,
+    module_path: &std::path::Path,
+) {
+    let func_name = interner.lookup(func_ref.original_name);
+    checker.push_error(ori_types::TypeCheckError::import_error(
+        format!(
+            "function '{func_name}' not found in module '{}'",
+            module_path.display()
+        ),
+        func_ref.span,
+        ori_types::ImportErrorKind::ItemNotFound,
+    ));
 }
 
 /// Build function signatures aligned with `module.functions` source order.
@@ -244,9 +255,7 @@ pub(crate) fn build_function_sigs(
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
 ) -> Vec<FunctionSig> {
-    use ori_types::Idx;
-
-    let sig_map: std::collections::HashMap<ori_ir::Name, &FunctionSig> = type_result
+    let sig_map: rustc_hash::FxHashMap<Name, &FunctionSig> = type_result
         .typed
         .functions
         .iter()
@@ -262,35 +271,38 @@ pub(crate) fn build_function_sigs(
                 .get(&func.name)
                 .copied()
                 .cloned()
-                .unwrap_or_else(|| {
-                    // Should not happen after successful type checking — surface
-                    // the error visibly rather than silently substituting a dummy.
-                    debug_assert!(
-                        false,
-                        "function {:?} has no type-checked signature",
-                        func.name
-                    );
-                    tracing::warn!(
-                        name = ?func.name,
-                        "function missing from type check result — using dummy signature"
-                    );
-                    FunctionSig {
-                        name: func.name,
-                        type_params: vec![],
-                        param_names: vec![],
-                        param_types: vec![],
-                        return_type: Idx::UNIT,
-                        capabilities: vec![],
-                        is_public: false,
-                        is_test: false,
-                        is_main: false,
-                        type_param_bounds: vec![],
-                        where_clauses: vec![],
-                        generic_param_mapping: vec![],
-                        required_params: 0,
-                        param_defaults: vec![],
-                    }
-                })
+                .unwrap_or_else(|| dummy_sig(func.name))
         })
         .collect()
+}
+
+/// Fallback signature for functions missing from the type check result.
+///
+/// Should never be reached after successful type checking — only exists to
+/// prevent panics if the signature map is incomplete.
+#[cold]
+fn dummy_sig(name: Name) -> FunctionSig {
+    use ori_types::Idx;
+
+    debug_assert!(false, "function {name:?} has no type-checked signature");
+    tracing::warn!(
+        name = ?name,
+        "function missing from type check result — using dummy signature"
+    );
+    FunctionSig {
+        name,
+        type_params: vec![],
+        param_names: vec![],
+        param_types: vec![],
+        return_type: Idx::UNIT,
+        capabilities: vec![],
+        is_public: false,
+        is_test: false,
+        is_main: false,
+        type_param_bounds: vec![],
+        where_clauses: vec![],
+        generic_param_mapping: vec![],
+        required_params: 0,
+        param_defaults: vec![],
+    }
 }

@@ -71,62 +71,13 @@ pub mod testing;
 pub mod tracing_setup;
 pub mod typeck;
 
-// Re-exports for convenience
-pub use db::{CanonCache, CompilerDb, Db, PoolCache};
-pub use diagnostic::{Diagnostic, ErrorCode, Label, Severity};
-pub use eval::{EvalErrorSnapshot, EvalOutput, Evaluator, ModuleEvalResult};
+// Re-exports: only types actually consumed by external crates (ori-lsp, benches)
+// and by internal modules via `oric::` paths. IR types are accessed internally
+// via `crate::ir::` — re-exporting them here would expose internal phase types
+// through the crate's public boundary.
+pub use db::{CompilerDb, Db};
+pub use eval::{EvalOutput, ModuleEvalResult};
 pub use input::SourceFile;
-pub use ir::{
-    ArmRange,
-    BinaryOp,
-    BindingPattern,
-    // CallNamed types
-    CallArg,
-    CallArgRange,
-    DurationUnit,
-    Expr,
-    ExprArena,
-    ExprId,
-    ExprKind,
-    ExprRange,
-    FieldInit,
-    FieldInitRange,
-    Function,
-    FunctionExp,
-    FunctionExpKind,
-    FunctionSeq,
-    MapEntry,
-    MapEntryRange,
-    MatchArm,
-    MatchPattern,
-    Module,
-    Name,
-    Named,
-    // function_exp types
-    NamedExpr,
-    NamedExprRange,
-    Param,
-    ParamRange,
-    // function_seq types
-    SeqBinding,
-    SeqBindingRange,
-    SharedInterner,
-    SizeUnit,
-    Span,
-    Spanned,
-    Stmt,
-    StmtId,
-    StmtKind,
-    StmtRange,
-    StringInterner,
-    TestDef,
-    Token,
-    TokenKind,
-    TokenList,
-    TypeId,
-    Typed,
-    UnaryOp,
-};
 pub use query::evaluated;
 pub use test::{
     run_test_file, run_tests, TestOutcome, TestResult, TestRunner, TestRunnerConfig, TestSummary,

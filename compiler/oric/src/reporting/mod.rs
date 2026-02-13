@@ -25,10 +25,9 @@ pub mod typeck;
 mod tests {
     use crate::diagnostic::ErrorCode;
     use crate::diagnostic::Severity;
-    use crate::ir::Span;
+    use crate::ir::{Span, StringInterner};
     use crate::problem::semantic::DefinitionKind;
     use crate::problem::SemanticProblem;
-    use ori_ir::StringInterner;
 
     fn test_interner() -> StringInterner {
         StringInterner::new()

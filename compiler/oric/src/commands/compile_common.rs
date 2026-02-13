@@ -34,11 +34,11 @@ use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 #[cfg(feature = "llvm")]
 use ori_ir::canon::CanonResult;
 #[cfg(feature = "llvm")]
-use ori_ir::StringInterner;
-#[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
 #[cfg(feature = "llvm")]
 use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult};
+#[cfg(feature = "llvm")]
+use oric::ir::{Name, StringInterner};
 #[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
@@ -132,7 +132,7 @@ fn run_borrow_inference(
     pool: &Pool,
     classifier: &ori_arc::ArcClassifier<'_>,
 ) -> (
-    FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>,
+    FxHashMap<Name, ori_arc::AnnotatedSig>,
     Vec<ori_arc::ArcFunction>,
 ) {
     let mut arc_functions = Vec::new();
@@ -149,7 +149,7 @@ fn run_borrow_inference(
             continue;
         }
 
-        let params: Vec<(ori_ir::Name, Idx)> = sig
+        let params: Vec<(Name, Idx)> = sig
             .param_names
             .iter()
             .zip(sig.param_types.iter())
@@ -198,12 +198,12 @@ pub fn run_arc_pipeline_cached(
     parse_result: &ParseOutput,
     function_sigs: &[ori_types::FunctionSig],
     canon: &CanonResult,
-    interner: &ori_ir::StringInterner,
+    interner: &StringInterner,
     pool: &Pool,
     classifier: &ori_arc::ArcClassifier<'_>,
     arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
     module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
-) -> FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig> {
+) -> FxHashMap<Name, ori_arc::AnnotatedSig> {
     // Try cache hit
     if let (Some(cache), Some(hash)) = (arc_cache, module_hash) {
         let key = ori_llvm::aot::incremental::arc_cache::ArcIrCacheKey {
@@ -377,7 +377,7 @@ pub fn compile_to_llvm<'ctx>(
     // Debug IR output
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         eprintln!("=== LLVM IR for {module_name} ===");
-        eprintln!("{}", scx.llmod.print_to_string().to_string());
+        eprintln!("{}", scx.llmod.print_to_string());
         eprintln!("=== END IR ===");
     }
 
@@ -446,7 +446,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         type_registration::register_user_types(&resolver, &type_result.typed.types);
 
         // 3. Declare imported functions as external symbols
-        let import_sigs: Vec<(ori_ir::Name, FunctionSig)> = imported_functions
+        let import_sigs: Vec<(Name, FunctionSig)> = imported_functions
             .iter()
             .map(|info| {
                 let name = interner.intern(&info.mangled_name);
@@ -543,7 +543,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             source_path,
             imported_functions.len()
         );
-        eprintln!("{}", scx.llmod.print_to_string().to_string());
+        eprintln!("{}", scx.llmod.print_to_string());
     }
 
     scx.llmod.clone()

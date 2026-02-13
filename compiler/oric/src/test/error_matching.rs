@@ -11,8 +11,6 @@ use ori_types::TypeCheckError;
 /// Result of matching errors against expectations.
 #[derive(Debug)]
 pub struct MatchResult {
-    /// Expectations that were matched by actual errors.
-    pub matched: Vec<usize>,
     /// Expectations that were not matched.
     pub unmatched_expectations: Vec<usize>,
     /// Actual errors that didn't match any expectation.
@@ -41,38 +39,26 @@ pub fn match_errors(
     source: &str,
     interner: &StringInterner,
 ) -> MatchResult {
-    match_errors_impl(actual.iter(), actual.len(), expected, source, interner)
-}
-
-/// Internal implementation for matching errors against expectations.
-fn match_errors_impl<'a>(
-    actual: impl Iterator<Item = &'a TypeCheckError>,
-    actual_len: usize,
-    expected: &[ExpectedError],
-    source: &str,
-    interner: &StringInterner,
-) -> MatchResult {
-    let actual: Vec<_> = actual.collect();
-    let mut matched = Vec::new();
-    let mut error_matched = vec![false; actual_len];
+    let mut expectation_matched = vec![false; expected.len()];
+    let mut error_matched = vec![false; actual.len()];
 
     // For each expectation, try to find a matching error
     for (exp_idx, exp) in expected.iter().enumerate() {
         for (err_idx, err) in actual.iter().enumerate() {
             if !error_matched[err_idx] && matches_expected(err, exp, source, interner) {
-                matched.push(exp_idx);
+                expectation_matched[exp_idx] = true;
                 error_matched[err_idx] = true;
                 break;
             }
         }
     }
 
-    // Collect unmatched expectations
-    let unmatched_expectations: Vec<usize> = (0..expected.len())
-        .filter(|i| !matched.contains(i))
+    let unmatched_expectations: Vec<usize> = expectation_matched
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &m)| if m { None } else { Some(i) })
         .collect();
 
-    // Collect unmatched errors
     let unmatched_errors: Vec<usize> = error_matched
         .iter()
         .enumerate()
@@ -80,7 +66,6 @@ fn match_errors_impl<'a>(
         .collect();
 
     MatchResult {
-        matched,
         unmatched_expectations,
         unmatched_errors,
     }
@@ -261,8 +246,7 @@ pub fn match_all_errors(
     source: &str,
     interner: &StringInterner,
 ) -> MatchResult {
-    let total_actual = type_errors.len() + pattern_problems.len();
-    let mut matched = Vec::new();
+    let mut expectation_matched = vec![false; expected.len()];
     let mut type_error_matched = vec![false; type_errors.len()];
     let mut pattern_problem_matched = vec![false; pattern_problems.len()];
 
@@ -273,7 +257,7 @@ pub fn match_all_errors(
         // Try type errors
         for (err_idx, err) in type_errors.iter().enumerate() {
             if !type_error_matched[err_idx] && matches_expected(err, exp, source, interner) {
-                matched.push(exp_idx);
+                expectation_matched[exp_idx] = true;
                 type_error_matched[err_idx] = true;
                 found = true;
                 break;
@@ -289,29 +273,33 @@ pub fn match_all_errors(
             if !pattern_problem_matched[pp_idx]
                 && matches_pattern_problem(pp, exp, source, interner)
             {
-                matched.push(exp_idx);
+                expectation_matched[exp_idx] = true;
                 pattern_problem_matched[pp_idx] = true;
                 break;
             }
         }
     }
 
-    let unmatched_expectations: Vec<usize> = (0..expected.len())
-        .filter(|i| !matched.contains(i))
+    let unmatched_expectations: Vec<usize> = expectation_matched
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &m)| if m { None } else { Some(i) })
         .collect();
 
-    let unmatched_errors: Vec<usize> = (0..total_actual)
-        .filter(|i| {
-            if *i < type_errors.len() {
-                !type_error_matched[*i]
-            } else {
-                !pattern_problem_matched[*i - type_errors.len()]
-            }
-        })
+    // Unmatched errors: indices into the combined type_errors ++ pattern_problems.
+    let unmatched_errors: Vec<usize> = type_error_matched
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &m)| if m { None } else { Some(i) })
+        .chain(
+            pattern_problem_matched
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &m)| if m { None } else { Some(i + type_errors.len()) }),
+        )
         .collect();
 
     MatchResult {
-        matched,
         unmatched_expectations,
         unmatched_errors,
     }

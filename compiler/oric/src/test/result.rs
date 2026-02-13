@@ -1,6 +1,6 @@
 //! Test result types.
 
-use ori_ir::{Name, StringInterner};
+use crate::ir::{Name, StringInterner};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -13,6 +13,8 @@ pub enum TestOutcome {
     Failed(String),
     /// Test was skipped with a reason.
     Skipped(String),
+    /// Test skipped because all targets are unchanged since last run.
+    SkippedUnchanged,
     /// Test could not run because LLVM compilation of its file failed.
     /// Not counted as a real failure — tracked separately.
     LlvmCompileFail(String),
@@ -29,6 +31,10 @@ impl TestOutcome {
 
     pub fn is_skipped(&self) -> bool {
         matches!(self, TestOutcome::Skipped(_))
+    }
+
+    pub fn is_skipped_unchanged(&self) -> bool {
+        matches!(self, TestOutcome::SkippedUnchanged)
     }
 
     pub fn is_llvm_compile_fail(&self) -> bool {
@@ -61,6 +67,7 @@ impl TestResult {
     }
 
     /// Create a failed test result.
+    #[cold]
     pub fn failed(name: Name, targets: Vec<Name>, error: String, duration: Duration) -> Self {
         TestResult {
             name,
@@ -71,6 +78,7 @@ impl TestResult {
     }
 
     /// Create a skipped test result.
+    #[cold]
     pub fn skipped(name: Name, targets: Vec<Name>, reason: String) -> Self {
         TestResult {
             name,
@@ -85,9 +93,12 @@ impl TestResult {
         interner.lookup(self.name)
     }
 
-    /// Get the target names as strings.
-    pub fn targets_str<'a>(&self, interner: &'a StringInterner) -> Vec<&'a str> {
-        self.targets.iter().map(|t| interner.lookup(*t)).collect()
+    /// Iterate over target names as strings.
+    pub fn targets_str<'a>(
+        &'a self,
+        interner: &'a StringInterner,
+    ) -> impl Iterator<Item = &'a str> + 'a {
+        self.targets.iter().map(move |t| interner.lookup(*t))
     }
 }
 
@@ -104,6 +115,8 @@ pub struct FileSummary {
     pub failed: usize,
     /// Number of tests that were skipped.
     pub skipped: usize,
+    /// Number of tests skipped because targets unchanged.
+    pub skipped_unchanged: usize,
     /// Number of tests blocked by LLVM compilation failure.
     pub llvm_compile_fail: usize,
     /// Total time to run all tests in file.
@@ -127,6 +140,7 @@ impl FileSummary {
             TestOutcome::Passed => self.passed += 1,
             TestOutcome::Failed(_) => self.failed += 1,
             TestOutcome::Skipped(_) => self.skipped += 1,
+            TestOutcome::SkippedUnchanged => self.skipped_unchanged += 1,
             TestOutcome::LlvmCompileFail(_) => self.llvm_compile_fail += 1,
         }
         self.duration += result.duration;
@@ -158,6 +172,8 @@ pub struct TestSummary {
     pub failed: usize,
     /// Total tests skipped.
     pub skipped: usize,
+    /// Total tests skipped because targets unchanged.
+    pub skipped_unchanged: usize,
     /// Total tests blocked by LLVM compilation failure.
     pub llvm_compile_fail: usize,
     /// Number of files with type/parse errors (real failures).
@@ -177,6 +193,7 @@ impl TestSummary {
         self.passed += summary.passed;
         self.failed += summary.failed;
         self.skipped += summary.skipped;
+        self.skipped_unchanged += summary.skipped_unchanged;
         self.llvm_compile_fail += summary.llvm_compile_fail;
         if !summary.errors.is_empty() {
             if summary.llvm_compile_error {
@@ -286,22 +303,23 @@ impl CoverageReport {
         self.covered == self.total
     }
 
-    /// Get list of untested function names.
-    pub fn untested(&self) -> Vec<Name> {
+    /// Iterate over untested function names.
+    pub fn untested(&self) -> impl Iterator<Item = Name> + '_ {
         self.functions
             .iter()
             .filter(|f| !f.has_tests())
             .map(|f| f.name)
-            .collect()
     }
 
-    /// Get list of untested function names as strings.
-    pub fn untested_str<'a>(&self, interner: &'a StringInterner) -> Vec<&'a str> {
+    /// Iterate over untested function names as strings.
+    pub fn untested_str<'a>(
+        &'a self,
+        interner: &'a StringInterner,
+    ) -> impl Iterator<Item = &'a str> + 'a {
         self.functions
             .iter()
             .filter(|f| !f.has_tests())
-            .map(|f| interner.lookup(f.name))
-            .collect()
+            .map(move |f| interner.lookup(f.name))
     }
 }
 
@@ -427,7 +445,10 @@ mod tests {
         let result = TestResult::passed(name, vec![target], Duration::from_millis(5));
 
         assert_eq!(result.name_str(&interner), "my_test");
-        assert_eq!(result.targets_str(&interner), vec!["my_function"]);
+        assert_eq!(
+            result.targets_str(&interner).collect::<Vec<_>>(),
+            vec!["my_function"]
+        );
     }
 
     #[test]
@@ -445,7 +466,10 @@ mod tests {
         assert_eq!(report.total, 2);
         assert!((report.percentage() - 50.0).abs() < f64::EPSILON);
         assert!(!report.is_complete());
-        assert_eq!(report.untested(), vec![func2]);
-        assert_eq!(report.untested_str(&interner), vec!["func2"]);
+        assert_eq!(report.untested().collect::<Vec<_>>(), vec![func2]);
+        assert_eq!(
+            report.untested_str(&interner).collect::<Vec<_>>(),
+            vec!["func2"]
+        );
     }
 }

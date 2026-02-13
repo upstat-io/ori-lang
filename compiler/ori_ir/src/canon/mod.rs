@@ -28,6 +28,7 @@
 //! - Added `DecisionTreeId` on `Match` — patterns pre-compiled to decision trees
 //! - Uses `CanId` / `CanRange` (not `ExprId` / `ExprRange`) — distinct index space
 
+pub mod hash;
 pub mod tree;
 
 use std::fmt;

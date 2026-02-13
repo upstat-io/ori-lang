@@ -11,7 +11,7 @@
 use ori_ir::Name;
 use ori_types::{ErrorContext, Idx, TypeCheckError};
 use oric::ir::{ExpectedError, SharedInterner, Span};
-use oric::test::{match_errors, matches_expected, MatchResult};
+use oric::test::{match_errors, matches_expected};
 
 /// Create a mismatch error (E2001) at the given offset.
 ///
@@ -137,7 +137,7 @@ fn test_match_errors_all_matched() {
 
     let result = match_errors(&errors, &expectations, source, &interner);
     assert!(result.all_matched());
-    assert_eq!(result.matched.len(), 2);
+    assert!(result.unmatched_expectations.is_empty());
 }
 
 #[test]
