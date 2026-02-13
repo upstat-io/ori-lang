@@ -346,6 +346,7 @@ pub fn compile_to_llvm<'ctx>(
                 &parse_result.module.impls,
                 &type_result.typed.impl_sigs,
                 canon,
+                &parse_result.module.traits,
             );
         }
 
@@ -511,6 +512,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                 &parse_result.module.impls,
                 &type_result.typed.impl_sigs,
                 canon,
+                &parse_result.module.traits,
             );
         }
 

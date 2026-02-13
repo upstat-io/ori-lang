@@ -17,9 +17,9 @@ use std::cell::Cell;
 
 use ori_arc::{lower_function_can, AnnotatedSig, ArcClassifier};
 use ori_ir::canon::{CanId, CanonResult};
-use ori_ir::{Function, Name, Span, StringInterner, TestDef};
+use ori_ir::{Function, Name, Span, StringInterner, TestDef, TraitDef, TraitItem};
 use ori_types::{FunctionSig, Idx, Pool};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::{debug, trace, warn};
 
 use crate::aot::debug::{DebugContext, DebugLevel};
@@ -668,12 +668,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         impls: &[ori_ir::ImplDef],
         impl_sigs: &[(Name, FunctionSig)],
         canon: &CanonResult,
+        traits: &[TraitDef],
     ) {
         // Consume impl_sigs positionally — the type checker pushes sigs in the
-        // same iteration order: `for impl_def { for method { register_impl_sig } }`.
+        // same iteration order: `for impl_def { for method { register_impl_sig } }`,
+        // followed by unoverridden default trait methods.
         // A flat HashMap keyed by method Name would lose entries when two types
         // define same-name methods (e.g., Point.distance vs Line.distance).
         let mut sig_iter = impl_sigs.iter();
+
+        // Build trait map for default method lookup
+        let trait_map: FxHashMap<Name, &TraitDef> = traits.iter().map(|t| (t.name, t)).collect();
 
         for impl_def in impls {
             // Resolve the type name from self_path for mangling
@@ -683,59 +688,107 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 .unwrap_or_default();
 
             for method in &impl_def.methods {
-                let Some((sig_name, sig)) = sig_iter.next() else {
-                    trace!(
-                        name = %self.interner.lookup(method.name),
-                        "no type signature for impl method — exhausted sig iterator"
-                    );
-                    continue;
-                };
-
-                debug_assert_eq!(
-                    *sig_name, method.name,
-                    "impl sig/method name mismatch: sig has {:?}, method has {:?}",
-                    sig_name, method.name
+                self.compile_impl_method_from_sig(
+                    &mut sig_iter,
+                    method.name,
+                    method.span,
+                    type_name_name,
+                    &type_name,
+                    canon,
                 );
+            }
 
-                if sig.is_generic() {
-                    continue;
-                }
+            // For trait impls, compile unoverridden default methods.
+            // The type checker registers their sigs in the same order after
+            // explicit methods, so sig_iter stays aligned.
+            if let Some(trait_path) = &impl_def.trait_path {
+                if let Some(&trait_name) = trait_path.last() {
+                    if let Some(trait_def) = trait_map.get(&trait_name) {
+                        let overridden: FxHashSet<Name> =
+                            impl_def.methods.iter().map(|m| m.name).collect();
 
-                // Use type-qualified mangled name for LLVM symbol
-                let method_str = self.interner.lookup(method.name);
-                let symbol = if type_name.is_empty() {
-                    self.mangler.mangle_function(self.module_path, method_str)
-                } else {
-                    self.mangler
-                        .mangle_method(self.module_path, &type_name, method_str)
-                };
-                self.declare_function_with_symbol(method.name, &symbol, sig, method.span);
-
-                let Some(&(func_id, ref abi)) = self.functions.get(&method.name) else {
-                    continue;
-                };
-                let abi = abi.clone();
-
-                // Populate type-qualified method map for dispatch
-                if let Some(tnn) = type_name_name {
-                    self.method_functions
-                        .insert((tnn, method.name), (func_id, abi.clone()));
-
-                    // Map the self type Idx → type Name for receiver resolution
-                    if let Some(&self_type_idx) = sig.param_types.first() {
-                        self.type_idx_to_name.insert(self_type_idx, tnn);
+                        for item in &trait_def.items {
+                            if let TraitItem::DefaultMethod(default) = item {
+                                if !overridden.contains(&default.name) {
+                                    self.compile_impl_method_from_sig(
+                                        &mut sig_iter,
+                                        default.name,
+                                        default.span,
+                                        type_name_name,
+                                        &type_name,
+                                        canon,
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
-
-                // Look up the canonical body for this impl method
-                let body = type_name_name
-                    .and_then(|tnn| canon.method_root_for(tnn, method.name))
-                    .or_else(|| canon.root_for(method.name))
-                    .unwrap_or(canon.root);
-
-                self.define_function_body(method.name, func_id, &abi, body, canon);
             }
         }
+    }
+
+    /// Compile a single impl method by consuming the next signature from the
+    /// positional sig iterator. Used for both explicit methods and default
+    /// trait methods.
+    fn compile_impl_method_from_sig<'sig>(
+        &mut self,
+        sig_iter: &mut impl Iterator<Item = &'sig (Name, FunctionSig)>,
+        method_name: Name,
+        method_span: Span,
+        type_name_name: Option<Name>,
+        type_name: &str,
+        canon: &CanonResult,
+    ) {
+        let Some((sig_name, sig)) = sig_iter.next() else {
+            trace!(
+                name = %self.interner.lookup(method_name),
+                "no type signature for impl method — exhausted sig iterator"
+            );
+            return;
+        };
+
+        debug_assert_eq!(
+            *sig_name, method_name,
+            "impl sig/method name mismatch: sig has {sig_name:?}, method has {method_name:?}"
+        );
+
+        if sig.is_generic() {
+            return;
+        }
+
+        // Use type-qualified mangled name for LLVM symbol
+        let method_str = self.interner.lookup(method_name);
+        let symbol = if type_name.is_empty() {
+            self.mangler.mangle_function(self.module_path, method_str)
+        } else {
+            self.mangler
+                .mangle_method(self.module_path, type_name, method_str)
+        };
+        self.declare_function_with_symbol(method_name, &symbol, sig, method_span);
+
+        let Some(&(func_id, ref abi)) = self.functions.get(&method_name) else {
+            return;
+        };
+        let abi = abi.clone();
+
+        // Populate type-qualified method map for dispatch
+        if let Some(tnn) = type_name_name {
+            self.method_functions
+                .insert((tnn, method_name), (func_id, abi.clone()));
+
+            // Map the self type Idx → type Name for receiver resolution
+            if let Some(&self_type_idx) = sig.param_types.first() {
+                self.type_idx_to_name.insert(self_type_idx, tnn);
+            }
+        }
+
+        // Look up the canonical body for this impl method
+        let body = type_name_name
+            .and_then(|tnn| canon.method_root_for(tnn, method_name))
+            .or_else(|| canon.root_for(method_name))
+            .unwrap_or(canon.root);
+
+        self.define_function_body(method_name, func_id, &abi, body, canon);
     }
 
     /// Declare external imported functions (for multi-module AOT compilation).
@@ -1475,7 +1528,7 @@ mod tests {
         // Compile Point impl first, then Line impl
         // Note: compile_impls processes all impls; same method name → last one
         // overwrites in bare functions map, but BOTH should be in method_functions
-        fc.compile_impls(&[impl_point, impl_line], &impl_sigs, &canon);
+        fc.compile_impls(&[impl_point, impl_line], &impl_sigs, &canon, &[]);
 
         // The bare functions map has only the LAST one (Line.distance overwrites Point.distance)
         assert!(fc.function_map().contains_key(&distance_name));
