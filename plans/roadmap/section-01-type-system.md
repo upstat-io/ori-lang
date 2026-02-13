@@ -44,7 +44,7 @@ sections:
 
 > **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: Core (1.1-1.4) verified complete 2026-02-10. 1.1 all LLVM AOT tests complete 2026-02-13 (fixed byte codegen bug). 1.1A fully complete 2026-02-13. 1.1B core Never semantics complete (advanced features pending). 1.6 partially started (keywords reserved, type system slots not yet added).
+**Status**: Core (1.1-1.4) verified complete 2026-02-10. 1.1 all LLVM AOT tests complete 2026-02-13 (fixed byte codegen bug). 1.1A fully complete 2026-02-13 (constant folding added). 1.1B core Never semantics complete (advanced features pending). 1.6 partially started (keywords reserved, type system slots not yet added).
 
 **Known Bug**: `let` bindings directly in `@main` body crash (`type_interner.rs` index out of bounds). Workaround: wrap in `run()`. Does NOT affect spec tests or AOT tests which all use `run()`.
 
@@ -205,13 +205,13 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 
 ### Constant Folding
 
-- [ ] **Implement**: Duration/Size constant folding in `ori_canon`
-  - `extract_const_value()` in `ori_canon/src/const_fold.rs` returns `None` for Duration/Size expressions — they cannot participate in compile-time constant propagation
-  - Add `ConstValue::Duration { value, unit }` and `ConstValue::Size { value, unit }` extraction from `CanExpr::Duration`/`CanExpr::Size`
-  - LLVM codegen already handles these correctly via `lower_duration()`/`lower_size()` (fixed in a2fdc25a hygiene review)
-  - [ ] **Rust Tests**: `ori_canon` unit tests — Duration/Size constant extraction
-  - [ ] **Ori Tests**: `tests/spec/types/duration_size_const.ori` — constant Duration/Size in `let` bindings, match arms
-  - [ ] **LLVM Support**: Already handled — `lower_constant()` dispatches to `lower_duration()`/`lower_size()` with unit conversion
+- [x] **Implement**: Duration/Size constant folding in `ori_canon` ✅ (2026-02-13)
+  - Added `extract_const_value()` arms for `CanExpr::Duration`/`CanExpr::Size` → `ConstValue`
+  - Added `fold_binary()` rules: Duration±Duration, Size±Size, Duration*int, Size*int, Duration/int, Size/int, mod, all comparisons
+  - Added `fold_unary()` rule: Duration negation (Size negation correctly rejected)
+  - [x] **Rust Tests**: 14 unit tests in `ori_canon/src/const_fold.rs` — addition, subtraction, comparison, cross-unit equality, negation, mul/div with int, overflow/negative rejection
+  - [x] **Ori Tests**: `tests/spec/types/duration_size_const.ori` — 18 tests covering constant Duration/Size in let bindings, cross-unit arithmetic, comparisons, mixed int operations
+  - [x] **LLVM Support**: Already handled — `lower_constant()` dispatches to `lower_duration()`/`lower_size()` with unit conversion
 
 ---
 
