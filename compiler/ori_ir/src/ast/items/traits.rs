@@ -252,6 +252,18 @@ pub struct ImplMethod {
     pub span: Span,
 }
 
+impl From<&TraitDefaultMethod> for ImplMethod {
+    fn from(default: &TraitDefaultMethod) -> Self {
+        Self {
+            name: default.name,
+            params: default.params,
+            return_ty: default.return_ty.clone(),
+            body: default.body,
+            span: default.span,
+        }
+    }
+}
+
 /// Associated type definition in an impl block.
 ///
 /// ```ori
