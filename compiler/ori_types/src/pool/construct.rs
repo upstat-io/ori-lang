@@ -62,7 +62,10 @@ impl Pool {
     // === Function Constructor ===
 
     /// Create a function type `(params...) -> ret`.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "param count fits u32 — pool layout uses u32 words"
+    )]
     pub fn function(&mut self, params: &[Idx], ret: Idx) -> Idx {
         // Layout: [param_count, param0, param1, ..., return_type]
         let mut extra = Vec::with_capacity(params.len() + 2);
@@ -95,7 +98,10 @@ impl Pool {
     /// Create a tuple type `(elems...)`.
     ///
     /// Empty tuples return `Idx::UNIT`.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "element count fits u32 — pool layout uses u32 words"
+    )]
     pub fn tuple(&mut self, elems: &[Idx]) -> Idx {
         if elems.is_empty() {
             return Idx::UNIT;
@@ -126,7 +132,10 @@ impl Pool {
     /// Create a type scheme (quantified type).
     ///
     /// Returns the body unchanged if no variables to quantify.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "var count fits u32 — pool layout uses u32 words"
+    )]
     pub fn scheme(&mut self, vars: &[u32], body: Idx) -> Idx {
         if vars.is_empty() {
             return body; // Monomorphic, no scheme needed
@@ -196,7 +205,10 @@ impl Pool {
     // === Applied Type Constructor ===
 
     /// Create an applied generic type `T<args...>`.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "Name bits and arg count fit u32 — pool layout uses u32 words"
+    )]
     pub fn applied(&mut self, name: ori_ir::Name, args: &[Idx]) -> Idx {
         // Layout: [name_u64_lo, name_u64_hi, arg_count, arg0, arg1, ...]
         let name_bits = u64::from(name.raw());
@@ -212,7 +224,10 @@ impl Pool {
     }
 
     /// Create a named type reference.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "Name u64 split into two u32 halves for pool storage"
+    )]
     pub fn named(&mut self, name: ori_ir::Name) -> Idx {
         // Layout: [name_u64_lo, name_u64_hi]
         let name_bits = u64::from(name.raw());
@@ -231,7 +246,10 @@ impl Pool {
     /// The type name is included in the hash to ensure nominal typing —
     /// two structs with the same field layout but different names produce
     /// different `Idx` values.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "name bits and field count fit u32 — pool layout uses u32 words"
+    )]
     pub fn struct_type(&mut self, name: ori_ir::Name, fields: &[(ori_ir::Name, Idx)]) -> Idx {
         let name_bits = u64::from(name.raw());
         let mut extra = Vec::with_capacity(3 + fields.len() * 2);
@@ -254,7 +272,10 @@ impl Pool {
     ///
     /// Each variant stores its name and field types (no field names — codegen
     /// doesn't need them per `EnumVariantInfo`).
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "name bits and variant count fit u32 — pool layout uses u32 words"
+    )]
     pub fn enum_type(&mut self, name: ori_ir::Name, variants: &[EnumVariant]) -> Idx {
         let name_bits = u64::from(name.raw());
         // Pre-compute capacity: 3 (header) + sum(2 + field_count per variant)

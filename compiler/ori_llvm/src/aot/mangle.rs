@@ -277,7 +277,10 @@ impl Mangler {
     /// Encode a module path, replacing path separators.
     // Takes &self for API consistency and future extensibility (e.g., windows_compat
     // platform-specific encoding using self.windows_compat).
-    #[allow(clippy::unused_self)]
+    #[allow(
+        clippy::unused_self,
+        reason = "API consistency with other encode methods; future platform-specific encoding"
+    )]
     fn encode_module_path(&self, out: &mut String, path: &str) {
         for c in path.chars() {
             match c {
@@ -291,7 +294,10 @@ impl Mangler {
     /// Encode an identifier (function/type name).
     // Takes &self for API consistency and future extensibility (e.g., windows_compat
     // platform-specific encoding using self.windows_compat).
-    #[allow(clippy::unused_self)]
+    #[allow(
+        clippy::unused_self,
+        reason = "API consistency with other encode methods; future platform-specific encoding"
+    )]
     fn encode_identifier(&self, out: &mut String, name: &str) {
         for c in name.chars() {
             match c {
@@ -314,7 +320,10 @@ impl Mangler {
     /// Encode a type name with special handling for compound types.
     // Takes &self for API consistency and future extensibility (e.g., windows_compat
     // platform-specific encoding using self.windows_compat).
-    #[allow(clippy::unused_self)]
+    #[allow(
+        clippy::unused_self,
+        reason = "API consistency with other encode methods; future platform-specific encoding"
+    )]
     fn encode_type_name(&self, out: &mut String, type_name: &str) {
         // Primitive types are passed through unchanged for readability
         match type_name {

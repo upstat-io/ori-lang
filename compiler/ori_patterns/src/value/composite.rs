@@ -666,8 +666,10 @@ impl RangeValue {
 }
 
 #[cfg(test)]
-// cast_possible_wrap: Tests use small literal values (0-10) that fit in i64 without wrapping
-#[allow(clippy::cast_possible_wrap)]
+#[allow(
+    clippy::cast_possible_wrap,
+    reason = "tests use small literal values (0-10) that fit in i64 without wrapping"
+)]
 mod tests {
     use super::*;
     use ori_ir::ExprArena;

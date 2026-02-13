@@ -1,6 +1,9 @@
 //! Type formatting for debugging and error messages.
 
-#![allow(clippy::format_push_string)] // Debug formatting prioritizes clarity over allocation
+#![allow(
+    clippy::format_push_string,
+    reason = "debug formatting prioritizes clarity over allocation"
+)]
 
 use crate::{Idx, Pool, Tag, VarState};
 use ori_ir::StringInterner;

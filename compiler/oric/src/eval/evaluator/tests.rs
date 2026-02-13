@@ -5,7 +5,8 @@
     clippy::semicolon_if_nothing_returned,
     clippy::items_after_statements,
     clippy::unnecessary_wraps,
-    clippy::manual_assert
+    clippy::manual_assert,
+    reason = "test ergonomics — relaxed style for clarity and brevity"
 )]
 
 use super::Evaluator;

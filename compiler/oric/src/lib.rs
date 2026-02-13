@@ -20,10 +20,14 @@
 //!
 //! Each arrow is a Salsa query with automatic caching and invalidation.
 
-// EvalError is a fundamental error type - boxing would add complexity across the crate
-#![allow(clippy::result_large_err)]
-// Arc is needed for sharing captures across closures in the evaluator
-#![allow(clippy::disallowed_types)]
+#![allow(
+    clippy::result_large_err,
+    reason = "EvalError is fundamental — boxing adds complexity across the crate"
+)]
+#![allow(
+    clippy::disallowed_types,
+    reason = "Arc needed for sharing captures across closures in evaluator"
+)]
 
 // Allow modules to use `oric::` paths for consistency with external consumers
 extern crate self as oric;

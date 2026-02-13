@@ -48,8 +48,10 @@ impl PatternDefinition for CachePattern {
 }
 
 #[cfg(test)]
-// Tests use unwrap() to panic on unexpected state, making failures immediately visible
-#[allow(clippy::unwrap_used)]
+#[allow(
+    clippy::unwrap_used,
+    reason = "tests use unwrap to panic on unexpected state"
+)]
 mod tests {
     use super::*;
     use ori_ir::{ExprArena, ExprId, NamedExpr, SharedInterner, Span};

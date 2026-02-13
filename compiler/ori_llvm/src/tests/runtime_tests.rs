@@ -1,5 +1,12 @@
 //! Additional tests for runtime functions.
 
+#![allow(
+    clippy::items_after_statements,
+    clippy::cast_ptr_alignment,
+    clippy::ptr_cast_constness,
+    reason = "FFI test code requires inline drop functions and raw pointer operations"
+)]
+
 use crate::runtime::{self, OriStr};
 
 fn make_ori_str(s: &[u8]) -> OriStr {
@@ -157,7 +164,10 @@ fn test_ori_assert_eq_str_fails() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[allow(
+    unsafe_code,
+    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
+)]
 fn test_ori_str_from_int() {
     let result = runtime::ori_str_from_int(42);
     assert!(result.len > 0);
@@ -169,7 +179,10 @@ fn test_ori_str_from_int() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[allow(
+    unsafe_code,
+    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
+)]
 fn test_ori_str_from_int_negative() {
     let result = runtime::ori_str_from_int(-123);
     let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
@@ -178,7 +191,10 @@ fn test_ori_str_from_int_negative() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[allow(
+    unsafe_code,
+    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
+)]
 fn test_ori_str_from_bool_true() {
     let result = runtime::ori_str_from_bool(true);
     let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
@@ -187,7 +203,10 @@ fn test_ori_str_from_bool_true() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[allow(
+    unsafe_code,
+    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
+)]
 fn test_ori_str_from_bool_false() {
     let result = runtime::ori_str_from_bool(false);
     let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
@@ -196,7 +215,10 @@ fn test_ori_str_from_bool_false() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[allow(
+    unsafe_code,
+    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
+)]
 fn test_ori_str_from_float() {
     // Use 2.5 instead of 3.14 to avoid clippy::approx_constant warning
     let result = runtime::ori_str_from_float(2.5);
@@ -209,7 +231,10 @@ fn test_ori_str_from_float() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[allow(
+    unsafe_code,
+    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
+)]
 fn test_ori_str_concat() {
     let s1 = make_ori_str(b"hello");
     let s2 = make_ori_str(b"world");
@@ -223,7 +248,10 @@ fn test_ori_str_concat() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[allow(
+    unsafe_code,
+    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
+)]
 fn test_ori_str_concat_empty() {
     let s1 = make_ori_str(b"");
     let s2 = make_ori_str(b"test");
@@ -237,7 +265,10 @@ fn test_ori_str_concat_empty() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[allow(
+    unsafe_code,
+    reason = "tests ARC runtime via raw pointer allocation and deallocation"
+)]
 fn test_rc_alloc_and_data_pointer() {
     // V2: ori_rc_alloc returns data pointer directly (no separate ori_rc_data)
     let data = runtime::ori_rc_alloc(24, 8); // env with 3 × i64 captures
@@ -265,7 +296,10 @@ fn test_rc_alloc_and_data_pointer() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[allow(
+    unsafe_code,
+    reason = "tests ARC runtime via raw pointer allocation and deallocation"
+)]
 fn test_rc_inc_dec_lifecycle() {
     let data = runtime::ori_rc_alloc(8, 8);
     assert!(!data.is_null());
@@ -330,7 +364,10 @@ fn test_ori_args_from_argv_no_user_args() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[allow(
+    unsafe_code,
+    reason = "tests argv FFI which requires constructing raw C string pointers"
+)]
 fn test_ori_args_from_argv_with_args() {
     let prog = b"./my_prog\0";
     let arg1 = b"hello\0";

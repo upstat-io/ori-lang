@@ -62,7 +62,7 @@ pub fn parse_err(source: &str, expected_error: &str) {
     let has_expected = output
         .errors
         .iter()
-        .any(|e| format!("{e:?}").contains(expected_error));
+        .any(|e| e.message().contains(expected_error));
 
     assert!(
         has_expected,
@@ -86,13 +86,6 @@ fn format_parse_errors(errors: &[ParseError], source: &str) -> String {
         let _ = writeln!(result, "{:4} | {line}", line_num + 1);
     }
     result
-}
-
-/// Create a string interner for use in tests.
-///
-/// Each test should create its own interner to ensure isolation.
-pub fn test_interner() -> StringInterner {
-    StringInterner::new()
 }
 
 #[cfg(test)]

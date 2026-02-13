@@ -370,7 +370,10 @@ fn test_lex_char_literals() {
     clippy::approx_constant,
     reason = "testing float literal parsing, not using PI"
 )]
-#[allow(clippy::float_cmp)] // Exact bit-level comparison for lexer output
+#[allow(
+    clippy::float_cmp,
+    reason = "exact bit-level comparison of lexer float output"
+)]
 fn test_lex_float_literals() {
     let interner = test_interner();
     let tokens = lex("3.14 2.5e10 1_000.5", &interner);

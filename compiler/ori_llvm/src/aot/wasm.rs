@@ -239,7 +239,10 @@ impl WasmStackConfig {
 /// as each flag is independent and this pattern is standard for
 /// compiler/linker feature configuration.
 #[derive(Debug, Clone, Default)]
-#[allow(clippy::struct_excessive_bools)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent WASM feature flags; each is a genuine on/off toggle"
+)]
 pub struct WasmFeatures {
     /// Enable bulk memory operations (faster memcpy/memset).
     pub bulk_memory: bool,
@@ -576,7 +579,10 @@ impl WasiVersion {
 /// as each capability is independent and this pattern is standard for
 /// WASI configuration.
 #[derive(Debug, Clone)]
-#[allow(clippy::struct_excessive_bools)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent WASI capability flags; each is a genuine on/off toggle"
+)]
 pub struct WasiConfig {
     /// WASI version to target.
     pub version: WasiVersion,

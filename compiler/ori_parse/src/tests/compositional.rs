@@ -4,9 +4,15 @@
 //! work correctly in all valid positions. This catches edge cases that individual
 //! tests might miss.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-// Tests use format strings with loop variables for constructing test code
-#![allow(clippy::uninlined_format_args)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions use unwrap/expect for clarity"
+)]
+#![allow(
+    clippy::uninlined_format_args,
+    reason = "format strings use loop variables for constructing test code"
+)]
 
 use crate::{parse, ParseOutput};
 use ori_ir::StringInterner;

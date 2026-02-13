@@ -285,7 +285,10 @@ impl FlatPattern {
     /// Collect variable bindings from this pattern at a given path, appending
     /// to an existing Vec. Useful for accumulating bindings across multiple
     /// patterns in a row (avoiding per-pattern allocation).
-    #[allow(clippy::cast_possible_truncation)] // field indices are always < u32::MAX
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "Field indices are always < u32::MAX"
+    )]
     pub fn collect_bindings(&self, path: &ScrutineePath, out: &mut Vec<(Name, ScrutineePath)>) {
         match self {
             FlatPattern::Binding(name) => {

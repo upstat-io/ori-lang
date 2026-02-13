@@ -994,6 +994,13 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_lossless,
+    clippy::uninlined_format_args,
+    clippy::doc_markdown,
+    reason = "benchmark/test code — precision loss acceptable for display, style relaxed"
+)]
 mod tests {
     use super::*;
     use inkwell::context::Context;

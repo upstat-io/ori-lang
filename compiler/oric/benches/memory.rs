@@ -5,10 +5,18 @@
 //! Unlike throughput benchmarks, these run single iterations with detailed
 //! allocation tracking to understand memory characteristics.
 
-// Benchmark-specific lints
-#![allow(unsafe_code)] // Required for GlobalAlloc
-#![allow(clippy::cast_precision_loss)] // Acceptable for KB display
-#![allow(clippy::uninlined_format_args)] // Clearer in benchmarks
+#![allow(
+    unsafe_code,
+    reason = "required for custom GlobalAlloc tracking allocator"
+)]
+#![allow(
+    clippy::cast_precision_loss,
+    reason = "acceptable precision loss for KB display values"
+)]
+#![allow(
+    clippy::uninlined_format_args,
+    reason = "clearer formatting in benchmark output"
+)]
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};

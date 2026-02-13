@@ -11,8 +11,10 @@
 //! - Debug information presence
 //! - Symbol table correctness
 
-// Allow similar names in tests (mangler -> mangled pattern is intentional)
-#![allow(clippy::similar_names)]
+#![allow(
+    clippy::similar_names,
+    reason = "mangler/mangled naming pattern is intentional"
+)]
 
 use ori_llvm::aot::debug::{DebugFormat, DebugInfoConfig, DebugLevel};
 use ori_llvm::aot::mangle::{demangle, is_ori_symbol, Mangler, MANGLE_PREFIX};

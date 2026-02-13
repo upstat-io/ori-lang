@@ -146,7 +146,10 @@ pub struct WasmMemoryInfo {
 
 // These boolean fields represent distinct WASM feature flags that are independent
 // and cannot be meaningfully combined into a state machine or two-variant enums.
-#[allow(clippy::struct_excessive_bools)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent WASM feature flags; each is a genuine on/off toggle"
+)]
 #[derive(Debug, Default, Clone)]
 pub struct WasmFeatures {
     pub bulk_memory: bool,

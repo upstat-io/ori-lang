@@ -272,7 +272,10 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     ///
     /// # Safety
     /// Caller must ensure indices are valid for the pointee type.
-    #[allow(unsafe_code)]
+    #[allow(
+        unsafe_code,
+        reason = "LLVM C API requires unsafe for build_in_bounds_gep"
+    )]
     pub fn gep(
         &mut self,
         pointee_ty: LLVMTypeId,
@@ -1856,16 +1859,21 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(
+    clippy::approx_constant,
+    clippy::doc_markdown,
+    reason = "test code — approximate constants are intentional, doc style relaxed"
+)]
 mod tests {
     use super::*;
     use inkwell::context::Context;
 
-    /// Helper: create a SimpleCx for testing.
+    /// Helper: create a `SimpleCx` for testing.
     fn test_scx(ctx: &Context) -> SimpleCx<'_> {
         SimpleCx::new(ctx, "ir_builder_test")
     }
 
-    /// Helper: set up an IrBuilder with a function and entry block.
+    /// Helper: set up an `IrBuilder` with a function and entry block.
     fn setup_builder(irb: &mut IrBuilder<'_, '_>) {
         let i64_ty = irb.i64_type();
         let func = irb.declare_function("test_fn", &[], i64_ty);

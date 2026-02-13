@@ -758,6 +758,12 @@ where
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::disallowed_types,
+    clippy::redundant_closure_for_method_calls,
+    clippy::items_after_statements,
+    reason = "test code — Arc needed for cross-thread sharing, closures for readability, inline imports for locality"
+)]
 mod tests {
     use super::*;
 
@@ -881,7 +887,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
+    #[allow(
+        deprecated,
+        reason = "tests compile_parallel which is deprecated in favor of execute_parallel"
+    )]
     fn test_compile_parallel_single() {
         let mut plan = CompilationPlan::new();
         plan.add_item(WorkItem::new(p("test.ori"), h(1)));
@@ -896,7 +905,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
+    #[allow(
+        deprecated,
+        reason = "tests compile_parallel which is deprecated in favor of execute_parallel"
+    )]
     fn test_compile_parallel_multiple() {
         let mut plan = CompilationPlan::new();
         for i in 0..10 {

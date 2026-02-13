@@ -21,7 +21,10 @@ mod tests {
         TargetConfig::from_components(components)
     }
 
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "test helper for Windows GNU target, not used on all platforms"
+    )]
     fn test_target_windows_gnu() -> TargetConfig {
         let components = TargetTripleComponents::parse("x86_64-pc-windows-gnu").unwrap();
         TargetConfig::from_components(components)

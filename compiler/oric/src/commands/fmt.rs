@@ -3,22 +3,18 @@
 //! Supports single files, directories, and stdin.
 //! Uses parallel processing for directories when multiple files are found.
 
-// FormatConfig has 4 bool fields which is standard for CLI config structs
-#![allow(clippy::struct_excessive_bools)]
-// CLI string processing justifications:
-// - single_char_pattern: intentional for readability (e.g., pattern.contains('*'))
-// - uninlined_format_args: matches style in rest of codebase
-// - format_in_format_args: needed for conditional color formatting
-// - manual_let_else: some patterns clearer with explicit match
-// - redundant_closure_for_method_calls: explicit closures clearer in callbacks
-// - collapsible_else_if: kept separate for readability in suggestion logic
+#![allow(
+    clippy::struct_excessive_bools,
+    reason = "FormatConfig has standard CLI config bool fields"
+)]
 #![allow(
     clippy::single_char_pattern,
     clippy::uninlined_format_args,
     clippy::format_in_format_args,
     clippy::manual_let_else,
     clippy::redundant_closure_for_method_calls,
-    clippy::collapsible_else_if
+    clippy::collapsible_else_if,
+    reason = "CLI string processing — readability over micro-optimization in formatter"
 )]
 
 use ori_diagnostic::{span_utils, ErrorCode};
@@ -855,8 +851,11 @@ fn format_parse_errors(path: &str, errors: &[ParseError], source: &str) -> Strin
 }
 
 #[cfg(test)]
-// Tests use unwrap/expect to panic on unexpected state, making failures immediately visible
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "tests panic on unexpected state for clear failure messages"
+)]
 mod tests {
     use super::*;
     use crate::ir::Span;

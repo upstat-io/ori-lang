@@ -803,7 +803,7 @@ impl MethodRegistry {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, reason = "test helpers use expect for clarity")]
 mod tests {
     use super::*;
 

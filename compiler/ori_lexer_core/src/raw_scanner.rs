@@ -938,7 +938,10 @@ impl Iterator for RawScanner<'_> {
 /// `true` for a-z, A-Z, 0-9, and underscore.
 /// Table lookup replaces the multi-range `matches!` with a single indexed read.
 /// The sentinel byte (0x00) maps to `false`, naturally terminating loops.
-#[allow(clippy::cast_possible_truncation)] // i is always 0..=255, fits in u8
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "loop counter i is 0..=255, always fits in u8"
+)]
 static IS_IDENT_CONTINUE_TABLE: [bool; 256] = {
     let mut table = [false; 256];
     let mut i = 0u16;
@@ -977,7 +980,11 @@ pub fn tokenize(source: &str) -> Vec<RawToken> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions use unwrap/expect for clarity"
+)]
 mod tests {
     use super::*;
     use crate::SourceBuffer;

@@ -10,8 +10,10 @@
 //! atomic counters, and the AOT compiler uses `tempfile::TempDir` for
 //! intermediate object files.
 
-// Allow raw string hashes for readability in test program literals
-#![allow(clippy::needless_raw_string_hashes)]
+#![allow(
+    clippy::needless_raw_string_hashes,
+    reason = "readability in test program literals"
+)]
 
 use std::fs;
 use std::path::{Path, PathBuf};

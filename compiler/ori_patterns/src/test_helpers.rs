@@ -3,7 +3,14 @@
 //! Provides `MockPatternExecutor` for testing patterns in isolation without
 //! the full evaluator infrastructure.
 
-#![allow(clippy::unwrap_used, clippy::arithmetic_side_effects)]
+#![allow(
+    clippy::unwrap_used,
+    reason = "test helper module — unwrap is idiomatic for test assertions"
+)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    reason = "mock executor index cycling is bounded by call_results length"
+)]
 
 use rustc_hash::FxHashMap;
 

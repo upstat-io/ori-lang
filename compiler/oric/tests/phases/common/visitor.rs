@@ -9,8 +9,8 @@
 //! - Optional children handling
 
 use ori_ir::ast::{
-    BinaryOp, BindingPattern, Expr, ExprKind, Function, GenericParamRange, MatchArm, MatchPattern,
-    Module, Param, ParamRange, Visibility,
+    BinaryOp, Expr, ExprKind, Function, GenericParamRange, MatchArm, MatchPattern, Module, Param,
+    ParamRange, Visibility,
 };
 use ori_ir::visitor::{walk_expr, Visitor};
 use ori_ir::{ExprArena, ExprId, Name, Span};

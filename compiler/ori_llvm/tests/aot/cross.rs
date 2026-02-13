@@ -11,8 +11,10 @@
 //! - Data layout configuration
 //! - Platform-specific behavior
 
-// Allow similar names in tests (wasm vs wasi pattern is intentional)
-#![allow(clippy::similar_names)]
+#![allow(
+    clippy::similar_names,
+    reason = "wasm vs wasi naming pattern is intentional"
+)]
 
 use ori_llvm::aot::target::{
     get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, TargetConfig,

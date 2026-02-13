@@ -8,8 +8,10 @@
 //!
 //! These tests require the `ori` binary to be built with the LLVM feature.
 
-// Allow raw string hashes for readability in test program literals
-#![allow(clippy::needless_raw_string_hashes)]
+#![allow(
+    clippy::needless_raw_string_hashes,
+    reason = "readability in test program literals"
+)]
 
 use std::fs;
 use std::path::{Path, PathBuf};

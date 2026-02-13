@@ -46,7 +46,7 @@ sections:
 
 **Status**: Core (1.1-1.4) verified complete 2026-02-10. 1.1 all LLVM AOT tests complete 2026-02-13 (fixed byte codegen bug). 1.1A fully complete 2026-02-13 (constant folding added). 1.1B Never type fully implemented 2026-02-13 (only blocked: `?` LLVM support, pre-existing Result layout bug). 1.6 partially started (keywords reserved, type system slots not yet added).
 
-**Known Bug**: `let` bindings directly in `@main` body crash (`type_interner.rs` index out of bounds). Workaround: wrap in `run()`. Does NOT affect spec tests or AOT tests which all use `run()`.
+**Known Bug (RESOLVED)**: `let` bindings directly in `@main` body previously crashed (`type_interner.rs` index out of bounds). Fixed as of 2026-02-13 — `type_interner.rs` was removed during hygiene refactors. 6 regression tests added.
 
 ---
 
@@ -311,7 +311,7 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 
 - [x] **Implement**: Type annotation in `let x: int = ...` ✅ (2026-02-10)
   - [x] **Verified**: `let x: int = 42`, `let x: float = 3.14` work correctly (inside `run()`)
-  - [ ] **Bug**: `let x: int = 42` directly in `@main` body crashes (type_interner index OOB) — must use `run()` wrapper
+  - [x] **Bug fixed**: `let x: int = 42` directly in `@main` body no longer crashes ✅ (2026-02-13) — `type_interner.rs` removed during hygiene refactors; 6 regression tests added in `oric/tests/phases/common/typecheck.rs`
 
 ---
 
@@ -366,9 +366,8 @@ Reserve architectural space in the type system for future low-level features (in
 - [ ] 1.6 Low-level future-proofing — keywords reserved; type system slots NOT implemented
 - [x] LLVM AOT tests complete — all 8 primitive types have AOT tests ✅ (2026-02-13); fixed byte codegen bug (i64→i8 store mismatch causing segfault)
 - [x] Loop/break/continue AOT tests — 5 tests verifying Never coercion in loops ✅ (2026-02-13)
-- [ ] `@main` let binding bug — `let` directly in `@main` crashes (workaround: use `run()`)
+- [x] `@main` let binding bug fixed ✅ (2026-02-13) — `type_interner.rs` removed during hygiene refactors; 6 regression tests added
 
 **Remaining gaps:**
 - 1.1B: Only `?` LLVM support remains — blocked on pre-existing Result layout bug (not Never-specific)
 - 1.6: LifetimeId, ValueCategory, Borrowed variant, helpful keyword rejection errors — not implemented
-- `@main` let binding bug — `let` directly in `@main` crashes (workaround: use `run()`)

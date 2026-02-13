@@ -6,8 +6,11 @@
 //! - Error factory functions for all error categories
 //! - Error message content and distinctness
 
-// Tests use single-char patterns for concise assertions and inline format args for brevity
-#![allow(clippy::single_char_pattern, clippy::uninlined_format_args)]
+#![allow(
+    clippy::single_char_pattern,
+    clippy::uninlined_format_args,
+    reason = "test assertions — concise patterns and inline format args for brevity"
+)]
 
 use ori_ir::BinaryOp;
 use ori_patterns::{ControlAction, EvalError, Value};

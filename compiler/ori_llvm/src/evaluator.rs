@@ -121,7 +121,10 @@ impl CompiledTestModule<'_> {
     /// # Safety
     ///
     /// The test function must exist in the compiled module and have signature `() -> void`.
-    #[allow(unsafe_code)]
+    #[allow(
+        unsafe_code,
+        reason = "JIT execution requires unsafe FFI: get_function, setjmp, and call"
+    )]
     pub fn run_test(&self, test_name: Name) -> LLVMEvalResult {
         // Reset panic state before running
         runtime::reset_panic_state();
