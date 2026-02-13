@@ -1,0 +1,184 @@
+// Spec: 06-types.md § Duration — "Arithmetic panics on overflow."
+// Spec: 20-errors-and-panics.md § Integer Overflow
+
+use std.testing { assert_eq }
+
+// Duration is stored as i64 nanoseconds.
+// i64::MAX = 9223372036854775807
+// i64::MIN = -9223372036854775808
+
+// =============================================================================
+// Addition Overflow
+// =============================================================================
+
+// MAX + 1ns panics
+#fail("integer overflow in duration addition")
+@test_duration_add_overflow tests @_dur_add () -> void = run(
+    let max_dur = Duration.from_nanoseconds(ns: 9223372036854775807),
+    let _ = max_dur + 1ns,
+    (),
+)
+
+@_dur_add () -> bool = true
+
+// Near boundary: (MAX - 1ns) + 1ns does NOT panic
+@test_duration_add_near_boundary tests @_dur_add_ok () -> void = run(
+    let near_max = Duration.from_nanoseconds(ns: 9223372036854775806),
+    assert_eq(
+        actual: near_max + 1ns,
+        expected: Duration.from_nanoseconds(ns: 9223372036854775807),
+    ),
+)
+
+@_dur_add_ok () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775806) + 1ns
+
+// =============================================================================
+// Subtraction Overflow
+// =============================================================================
+
+// MIN - 1ns panics
+#fail("integer overflow in duration subtraction")
+@test_duration_sub_overflow tests @_dur_sub () -> void = run(
+    let min_dur = Duration.from_nanoseconds(ns: -9223372036854775808),
+    let _ = min_dur - 1ns,
+    (),
+)
+
+@_dur_sub () -> bool = true
+
+// Near boundary: (MIN + 1ns) - 1ns does NOT panic
+@test_duration_sub_near_boundary tests @_dur_sub_ok () -> void = run(
+    let near_min = Duration.from_nanoseconds(ns: -9223372036854775807),
+    assert_eq(
+        actual: near_min - 1ns,
+        expected: Duration.from_nanoseconds(ns: -9223372036854775808),
+    ),
+)
+
+@_dur_sub_ok () -> Duration = Duration.from_nanoseconds(ns: -9223372036854775807) - 1ns
+
+// =============================================================================
+// Multiplication Overflow
+// =============================================================================
+
+// MAX_DURATION * 2 panics
+#fail("integer overflow in duration multiplication")
+@test_duration_mul_overflow tests @_dur_mul () -> void = run(
+    let max_dur = Duration.from_nanoseconds(ns: 9223372036854775807),
+    let _ = max_dur * 2,
+    (),
+)
+
+@_dur_mul () -> bool = true
+
+// int * MAX_DURATION also panics
+#fail("integer overflow in duration multiplication")
+@test_duration_int_mul_overflow tests @_dur_int_mul () -> void = run(
+    let max_dur = Duration.from_nanoseconds(ns: 9223372036854775807),
+    let _ = 2 * max_dur,
+    (),
+)
+
+@_dur_int_mul () -> bool = true
+
+// =============================================================================
+// Division Overflow
+// =============================================================================
+
+// MIN / -1 panics (|MIN| > MAX)
+#fail("integer overflow in duration division")
+@test_duration_div_overflow tests @_dur_div () -> void = run(
+    let min_dur = Duration.from_nanoseconds(ns: -9223372036854775808),
+    let _ = min_dur / -1,
+    (),
+)
+
+@_dur_div () -> bool = true
+
+// Division by zero panics
+#fail("division by zero")
+@test_duration_div_zero tests @_dur_divz () -> void = run(
+    let _ = 1s / 0,
+    (),
+)
+
+@_dur_divz () -> bool = true
+
+// =============================================================================
+// Modulo Panics
+// =============================================================================
+
+// Duration modulo by zero
+#fail("modulo by zero")
+@test_duration_mod_zero tests @_dur_modz () -> void = run(
+    let _ = 1s % 0ns,
+    (),
+)
+
+@_dur_modz () -> bool = true
+
+// =============================================================================
+// Negation Overflow
+// =============================================================================
+
+// -(MIN_DURATION) panics
+#fail("integer overflow in duration negation")
+@test_duration_neg_overflow tests @_dur_neg () -> void = run(
+    let min_dur = Duration.from_nanoseconds(ns: -9223372036854775808),
+    let _ = -min_dur,
+    (),
+)
+
+@_dur_neg () -> bool = true
+
+// Negating MAX is fine (-(MAX) = -MAX = MIN + 1)
+@test_duration_neg_max_ok tests @_dur_neg_ok () -> void = run(
+    let max_dur = Duration.from_nanoseconds(ns: 9223372036854775807),
+    assert_eq(
+        actual: -max_dur,
+        expected: Duration.from_nanoseconds(ns: -9223372036854775807),
+    ),
+)
+
+@_dur_neg_ok () -> Duration = -(Duration.from_nanoseconds(ns: 9223372036854775807))
+
+// =============================================================================
+// Factory Method Overflow
+// =============================================================================
+
+// from_hours with huge value overflows during ns conversion
+#fail("duration overflow")
+@test_duration_factory_overflow tests @_dur_factory () -> void = run(
+    let _ = Duration.from_hours(h: 9223372036854775807),
+    (),
+)
+
+@_dur_factory () -> bool = true
+
+// =============================================================================
+// Valid Boundary Operations (must NOT panic)
+// =============================================================================
+
+// MAX + 0ns = MAX
+@test_duration_max_add_zero tests @_dur_max_zero () -> void = run(
+    let max_dur = Duration.from_nanoseconds(ns: 9223372036854775807),
+    assert_eq(actual: max_dur + 0ns, expected: max_dur),
+)
+
+@_dur_max_zero () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775807)
+
+// MAX * 1 = MAX
+@test_duration_max_mul_one tests @_dur_max_one () -> void = run(
+    let max_dur = Duration.from_nanoseconds(ns: 9223372036854775807),
+    assert_eq(actual: max_dur * 1, expected: max_dur),
+)
+
+@_dur_max_one () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775807)
+
+// MAX / 1 = MAX
+@test_duration_max_div_one tests @_dur_max_div1 () -> void = run(
+    let max_dur = Duration.from_nanoseconds(ns: 9223372036854775807),
+    assert_eq(actual: max_dur / 1, expected: max_dur),
+)
+
+@_dur_max_div1 () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775807)

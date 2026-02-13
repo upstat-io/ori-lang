@@ -14,7 +14,7 @@ sections:
     status: complete
   - id: "1.1A"
     title: Duration and Size Types
-    status: in-progress
+    status: complete
   - id: "1.1B"
     title: Never Type Semantics
     status: in-progress
@@ -116,13 +116,13 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — 10+ duration tests (units, decimal, many digits)
   - [x] **Ori Tests**: `tests/spec/lexical/duration_literals.ori` — 70+ tests
   - [x] **LLVM Support**: `lower_duration()` in `lower_literals.rs` — Duration → i64 (nanosecond precision)
-  - [ ] **LLVM Rust Tests**: No AOT end-to-end tests for Duration (implementation exists)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 4 AOT tests (literals, negative, arithmetic, comparison) ✅ (2026-02-13)
 
 - [x] **Implement**: Size literal tokenization with all units (b, kb, mb, gb, tb) ✅ (2026-02-10)
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — 5+ size tests
   - [x] **Ori Tests**: `tests/spec/lexical/size_literals.ori` — 70+ tests
   - [x] **LLVM Support**: `lower_size()` in `lower_literals.rs` — Size → i64 (bytes)
-  - [ ] **LLVM Rust Tests**: No AOT end-to-end tests for Size (implementation exists)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 3 AOT tests (literals, arithmetic, comparison) ✅ (2026-02-13)
 
 - [x] **Implement**: Error for floating-point prefix on duration/size literals ✅ (2026-02-10)
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — float_duration/size error token tests
@@ -144,22 +144,24 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Duration arithmetic tests
   - [x] **Verified**: `1s + 500ms == 1500ms`, `2s * 3 == 6s`, `-(1s) == -1s` (via `ori parse`/`cargo st`)
   - [x] **LLVM Support**: Duration codegen exists (i64 arithmetic on nanosecond values)
-  - [ ] **LLVM Rust Tests**: No AOT end-to-end tests for Duration arithmetic
+  - [x] **LLVM Rust Tests**: Covered by `test_aot_duration_arithmetic` in `spec.rs` ✅ (2026-02-13)
 
 - [x] **Implement**: Size arithmetic (+, -, *, /, %) ✅ (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Size arithmetic tests
   - [x] **Verified**: `1kb + 500b == 1500b`, `2kb * 3 == 6kb` (via `cargo st`)
   - [x] **LLVM Support**: Size codegen exists (i64 arithmetic on byte values)
-  - [ ] **LLVM Rust Tests**: No AOT end-to-end tests for Size arithmetic
+  - [x] **LLVM Rust Tests**: Covered by `test_aot_size_arithmetic` in `spec.rs` ✅ (2026-02-13)
 
 - [x] **Implement**: Compile error for unary negation on Size ✅ (2026-02-10)
   - [x] **Verified**: `-(1kb)` → E2001 "cannot negate `Size`: Size values must be non-negative"
 
-- [ ] **Implement**: Runtime panic for Duration overflow
-  - [ ] **Ori Tests**: Built into checked arithmetic (panics on overflow) — not verified
+- [x] **Implement**: Runtime panic for Duration overflow ✅ (2026-02-13)
+  - [x] **Ori Tests**: `tests/spec/types/duration_overflow.ori` — 15 tests (8 #fail overflow/panic, 7 boundary/identity)
+  - [x] **Verified**: Checked arithmetic in evaluator panics on add/sub/mul/div/mod/neg overflow, div-by-zero, mod-by-zero
 
-- [ ] **Implement**: Runtime panic for negative Size result
-  - [ ] **Ori Tests**: Built into Size subtraction (panics on negative) — not verified
+- [x] **Implement**: Runtime panic for negative Size result ✅ (2026-02-13)
+  - [x] **Ori Tests**: `tests/spec/types/size_overflow.ori` — 15 tests (9 #fail overflow/panic, 6 boundary/identity)
+  - [x] **Verified**: Checked arithmetic panics on sub→negative, add overflow, mul overflow, mul/div by negative, div/mod by zero
 
 ### Conversion Methods
 
@@ -342,7 +344,7 @@ Reserve architectural space in the type system for future low-level features (in
 - [x] 1.3 Lambda type annotations complete ✅ (2026-02-10)
 - [x] 1.4 Let binding types complete ✅ (2026-02-10)
 - [ ] 1.6 Low-level future-proofing — keywords reserved; type system slots NOT implemented
-- [ ] LLVM AOT tests incomplete — float, char, byte, Duration, Size, Never lack end-to-end AOT tests
+- [ ] LLVM AOT tests incomplete — float, char, byte, Never lack end-to-end AOT tests (Duration and Size covered ✅ 2026-02-13)
 - [ ] `@main` let binding bug — `let` directly in `@main` crashes (workaround: use `run()`)
 
 **Remaining gaps:**
