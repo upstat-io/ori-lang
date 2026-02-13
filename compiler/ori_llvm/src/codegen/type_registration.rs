@@ -49,6 +49,11 @@ pub fn register_user_types(resolver: &TypeLayoutResolver<'_, '_, '_>, types: &[T
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::uninlined_format_args,
+    clippy::doc_markdown,
+    reason = "test code — style relaxed for clarity"
+)]
 mod tests {
     use super::*;
     use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};

@@ -46,7 +46,7 @@ const LIST_OPERATIONS: &str = r"
 ";
 
 /// Nested let bindings
-#[allow(dead_code)]
+#[allow(dead_code, reason = "prepared helper for future let-chain benchmarks")]
 fn generate_let_chain(n: usize) -> String {
     let lets: Vec<String> = (0..n).map(|i| format!("let x{i}: int = {i}")).collect();
     let final_expr = format!("x{}", n - 1);

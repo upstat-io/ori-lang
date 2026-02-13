@@ -349,8 +349,8 @@ mod tests {
         // The store borrows the pool, and we return both together.
         // This is safe because both live for the duration of the test.
         let store = unsafe {
-            let pool_ref: &Pool = &*(&pool as *const Pool);
-            TypeInfoStore::new(pool_ref)
+            let pool_ptr = &raw const pool;
+            TypeInfoStore::new(&*pool_ptr)
         };
         (pool, store)
     }

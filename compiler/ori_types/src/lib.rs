@@ -83,7 +83,10 @@ pub use unify::{ArityKind, Rank, UnifyContext, UnifyEngine, UnifyError};
 ///
 /// Evaluates to 0 if the bounds are satisfied. Produces a compile error otherwise.
 /// The type parameter is intentionally unused in the body — only the bounds matter.
-#[allow(clippy::extra_unused_type_parameters)]
+#[allow(
+    clippy::extra_unused_type_parameters,
+    reason = "type param exists only for trait bound checking"
+)]
 const fn assert_salsa_compatible<T: Clone + Eq + std::hash::Hash + std::fmt::Debug>() -> usize {
     0
 }

@@ -86,7 +86,7 @@ pub fn typecheck_err(source: &str, expected_error: &str) {
         let has_expected = parsed
             .errors
             .iter()
-            .any(|e| format!("{e:?}").contains(expected_error));
+            .any(|e| e.message().contains(expected_error));
         if has_expected {
             return;
         }
@@ -153,5 +153,38 @@ mod tests {
     #[test]
     fn test_typecheck_err_catches_mismatch() {
         typecheck_err("@main () -> int = \"hello\"", "mismatch");
+    }
+
+    // Regression: let bindings directly in function body (no run() wrapper)
+    // Previously crashed with type_interner index out of bounds.
+
+    #[test]
+    fn test_let_binding_in_main_body() {
+        typecheck_ok("@main () -> void = let x: int = 42");
+    }
+
+    #[test]
+    fn test_let_binding_str_in_main_body() {
+        typecheck_ok("@main () -> void = let x: str = \"hello\"");
+    }
+
+    #[test]
+    fn test_let_binding_inferred_in_main_body() {
+        typecheck_ok("@main () -> void = let x = 42");
+    }
+
+    #[test]
+    fn test_let_binding_float_in_main_body() {
+        typecheck_ok("@main () -> void = let x: float = 3.14");
+    }
+
+    #[test]
+    fn test_let_binding_bool_in_main_body() {
+        typecheck_ok("@main () -> void = let x: bool = true");
+    }
+
+    #[test]
+    fn test_let_binding_in_regular_function_body() {
+        typecheck_ok("@f () -> void = let x: int = 42");
     }
 }

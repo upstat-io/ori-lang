@@ -721,7 +721,10 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     /// * `align_bits` - Alignment in bits
     // Single-element vec with range is intentional here for LLVM's debug info API
     // which requires a slice of subscript ranges even for 1D arrays.
-    #[allow(clippy::single_range_in_vec_init)]
+    #[allow(
+        clippy::single_range_in_vec_init,
+        reason = "LLVM debug API requires a slice of subscript ranges even for 1D arrays"
+    )]
     pub fn create_array_type(
         &self,
         element_type: DIType<'ctx>,
@@ -1600,6 +1603,7 @@ impl<'ctx> DebugContext<'ctx> {
 }
 
 #[cfg(test)]
+#[allow(clippy::doc_markdown, reason = "test code — doc style relaxed")]
 mod tests {
     use super::*;
 

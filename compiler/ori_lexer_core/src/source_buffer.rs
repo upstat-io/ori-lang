@@ -209,7 +209,7 @@ fn detect_interior_nulls(source: &[u8], issues: &mut Vec<EncodingIssue>) {
 ///
 /// Warms up L1 cache for the scanner's initial reads. On platforms without
 /// prefetch support, this is a no-op.
-#[allow(unsafe_code)]
+#[allow(unsafe_code, reason = "x86_64 prefetch intrinsics require unsafe")]
 fn prefetch_buffer(buf: &[u8]) {
     #[cfg(target_arch = "x86_64")]
     {

@@ -45,7 +45,10 @@ impl TokenSet {
 
     /// Create a token set containing a single token kind.
     #[inline]
-    #[allow(clippy::needless_pass_by_value)] // const fn builder for static initialization
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "const fn builder API; by-value required for static init"
+    )]
     pub const fn single(kind: TokenKind) -> Self {
         Self(1u128 << kind.discriminant_index())
     }
@@ -53,7 +56,10 @@ impl TokenSet {
     /// Add a token kind to this set (builder pattern for const contexts).
     #[inline]
     #[must_use]
-    #[allow(clippy::needless_pass_by_value)] // const fn builder for static initialization
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "const fn builder API; by-value required for static init"
+    )]
     pub const fn with(self, kind: TokenKind) -> Self {
         Self(self.0 | (1u128 << kind.discriminant_index()))
     }

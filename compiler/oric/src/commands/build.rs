@@ -17,8 +17,10 @@ use super::read_file;
 /// output, etc.). These are not state machine candidates as they are
 /// independent orthogonal settings.
 #[derive(Debug, Clone)]
-// Many independent orthogonal flags (see doc comment above) - not a state machine
-#[allow(clippy::struct_excessive_bools)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent orthogonal CLI flags, not a state machine"
+)]
 pub struct BuildOptions {
     /// Build with optimizations (--release)
     pub release: bool,
@@ -773,7 +775,7 @@ struct CompiledModuleInfo {
     /// Path to the source file.
     path: PathBuf,
     /// Module name for mangling.
-    #[allow(dead_code)] // Kept for debugging and potential future use
+    #[allow(dead_code, reason = "kept for debugging and potential future use")]
     module_name: String,
     /// Public function signatures (`mangled_name`, `param_types`, `return_type`).
     /// These are the actual types from type checking, not defaults.

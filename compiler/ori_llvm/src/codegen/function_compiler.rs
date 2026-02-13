@@ -1055,6 +1055,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(
+    clippy::doc_markdown,
+    clippy::default_trait_access,
+    reason = "test code — style relaxed for clarity"
+)]
 mod tests {
     use super::*;
     use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};

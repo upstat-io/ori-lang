@@ -1,5 +1,13 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-#![allow(clippy::uninlined_format_args, clippy::manual_assert)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "Tests use unwrap/expect for brevity"
+)]
+#![allow(
+    clippy::uninlined_format_args,
+    clippy::manual_assert,
+    reason = "Test harness code prioritizes readability over pedantic style"
+)]
 //! Comprehensive idempotence verification tests.
 //!
 //! These tests verify that:

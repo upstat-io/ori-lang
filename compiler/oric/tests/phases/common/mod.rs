@@ -3,9 +3,6 @@
 //! This module provides helper functions for setting up and running tests
 //! at each compiler phase. Each submodule provides utilities for a specific phase.
 
-// Allow unused until tests are migrated
-#![allow(unused)]
-
 mod parse;
 mod typecheck;
 
@@ -23,6 +20,10 @@ mod error_matching;
 // mod codegen;  // TODO: Enable when codegen tests are added (requires llvm feature)
 
 pub use parse::*;
+#[allow(
+    unused_imports,
+    reason = "re-exported for future test modules (see README.md)"
+)]
 pub use typecheck::*;
 // pub use eval::*;
 // pub use codegen::*;

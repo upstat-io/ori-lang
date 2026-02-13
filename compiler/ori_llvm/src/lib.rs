@@ -21,23 +21,38 @@
 //! - [`TypeInfoStore`](codegen::TypeInfoStore): Type information cache
 //! - [`LLVMEvaluator`](evaluator::LLVMEvaluator): JIT evaluation
 
-// Crate-level lint configuration for codegen-specific patterns
+#![warn(clippy::allow_attributes_without_reason)]
 #![allow(
-    // LLVM uses u32 for struct/array indices, we use usize in Rust
     clippy::cast_possible_truncation,
-    // Ori uses i64 for integers, conversions to usize are intentional
     clippy::cast_sign_loss,
-    // usize to i64 is safe on 64-bit (our target), acceptable wrap on 32-bit
     clippy::cast_possible_wrap,
-    // Codegen functions thread through context, arena, types, locals, etc.
-    clippy::too_many_arguments,
-    // Internal functions - panics are invariant violations
-    clippy::missing_panics_doc,
-    // Most Result returns are for LLVM builder operations
-    clippy::missing_errors_doc,
-    // Compile functions return Option to propagate compilation failures
-    clippy::unnecessary_wraps,
+    reason = "LLVM uses u32 indices and Ori uses i64 — casts between usize/u32/i64 are intentional"
 )]
+#![allow(
+    clippy::too_many_arguments,
+    reason = "codegen functions thread through context, arena, types, locals, etc."
+)]
+#![allow(
+    clippy::missing_panics_doc,
+    clippy::missing_errors_doc,
+    clippy::unnecessary_wraps,
+    reason = "internal codegen functions — panics are invariant violations, Results wrap LLVM ops"
+)]
+// Match workspace-level allows (ori_llvm is excluded from workspace)
+#![allow(
+    clippy::similar_names,
+    reason = "workspace equivalent — codegen uses similar names intentionally"
+)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "workspace equivalent — codegen dispatch functions are long"
+)]
+#![allow(
+    clippy::cognitive_complexity,
+    reason = "workspace equivalent — codegen match arms are complex"
+)]
+#![allow(clippy::module_name_repetitions, reason = "workspace equivalent")]
+#![allow(clippy::must_use_candidate, reason = "workspace equivalent")]
 
 // -- V2 codegen pipeline --
 pub mod codegen;

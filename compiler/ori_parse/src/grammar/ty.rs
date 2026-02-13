@@ -142,7 +142,10 @@ impl Parser<'_> {
     ///
     /// This is a convenience method for cases where the parsed type
     /// needs to be stored as an ID (e.g., in lists, maps, functions).
-    #[allow(dead_code)] // Future use - useful helper for parsing nested types
+    #[allow(
+        dead_code,
+        reason = "helper reserved for parsing nested types in future grammar rules"
+    )]
     pub(crate) fn parse_type_id(&mut self) -> Option<ParsedTypeId> {
         let ty = self.parse_type()?;
         Some(self.arena.alloc_parsed_type(ty))

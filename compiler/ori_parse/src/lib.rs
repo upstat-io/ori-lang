@@ -86,7 +86,7 @@ impl<'a> Parser<'a> {
 
     /// Get the current parsing context.
     #[inline]
-    #[allow(dead_code)] // Used in tests and future parser extensions
+    #[allow(dead_code, reason = "API for tests and future parser extensions")]
     pub(crate) fn context(&self) -> ParseContext {
         self.context
     }
@@ -124,7 +124,7 @@ impl<'a> Parser<'a> {
     /// })?;
     /// ```
     #[inline]
-    #[allow(dead_code)] // Used in tests and future parser extensions
+    #[allow(dead_code, reason = "API for tests and future parser extensions")]
     pub(crate) fn without_context<T, F>(&mut self, remove: ParseContext, f: F) -> T
     where
         F: FnOnce(&mut Self) -> T,
@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
 
     /// Check if a context flag is set.
     #[inline]
-    #[allow(dead_code)] // Used in tests and future parser extensions
+    #[allow(dead_code, reason = "API for tests and future parser extensions")]
     pub(crate) fn has_context(&self, flag: ParseContext) -> bool {
         self.context.has(flag)
     }
@@ -213,7 +213,10 @@ impl<'a> Parser<'a> {
     /// let (expr, capture) = parser.with_capture(|p| p.parse_expr())?;
     /// ```
     #[inline]
-    #[allow(dead_code)] // Infrastructure for formatters and future macros
+    #[allow(
+        dead_code,
+        reason = "infrastructure for formatters and macro expansion"
+    )]
     pub(crate) fn with_capture<T, F>(&mut self, f: F) -> (T, ori_ir::TokenCapture)
     where
         F: FnOnce(&mut Self) -> T,
@@ -236,7 +239,10 @@ impl<'a> Parser<'a> {
     /// let (expr, capture) = parser.capture_if(needs_tokens, |p| p.parse_expr())?;
     /// ```
     #[inline]
-    #[allow(dead_code)] // Infrastructure for formatters and future macros
+    #[allow(
+        dead_code,
+        reason = "infrastructure for conditional token capture in formatters"
+    )]
     pub(crate) fn capture_if<T, F>(
         &mut self,
         needs_capture: bool,
@@ -257,7 +263,7 @@ impl<'a> Parser<'a> {
     /// Unlike `cursor.check()`, this tests against multiple token kinds at once.
     /// Returns `true` if any match is found.
     #[inline]
-    #[allow(dead_code)] // Infrastructure for enhanced error messages
+    #[allow(dead_code, reason = "infrastructure for multi-token error recovery")]
     pub(crate) fn check_one_of(&self, expected: &TokenSet) -> bool {
         expected.contains(self.cursor.current_kind())
     }
@@ -269,7 +275,10 @@ impl<'a> Parser<'a> {
     ///
     /// Returns the matched token kind on success.
     #[cold]
-    #[allow(dead_code)] // Infrastructure for enhanced error messages
+    #[allow(
+        dead_code,
+        reason = "infrastructure for multi-token expect with rich errors"
+    )]
     pub(crate) fn expect_one_of(&mut self, expected: &TokenSet) -> Result<TokenKind, ParseError> {
         let current = self.cursor.current_kind();
         if expected.contains(current) {
@@ -352,7 +361,10 @@ impl<'a> Parser<'a> {
     /// Ok(TypeOrExpr::Expr(expr))
     /// ```
     #[inline]
-    #[allow(dead_code)] // Will be used for disambiguation in future work
+    #[allow(
+        dead_code,
+        reason = "reserved for grammar disambiguation with backtracking"
+    )]
     pub(crate) fn try_parse<T, F>(&mut self, f: F) -> Option<T>
     where
         F: FnOnce(&mut Self) -> Result<T, ParseError>,
@@ -387,7 +399,10 @@ impl<'a> Parser<'a> {
     /// }
     /// ```
     #[inline]
-    #[allow(dead_code)] // Will be used for disambiguation in future work
+    #[allow(
+        dead_code,
+        reason = "reserved for non-consuming lookahead in grammar disambiguation"
+    )]
     pub(crate) fn look_ahead<T, F>(&mut self, f: F) -> T
     where
         F: FnOnce(&mut Self) -> T,

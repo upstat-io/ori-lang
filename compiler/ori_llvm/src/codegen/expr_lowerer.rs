@@ -111,7 +111,10 @@ pub struct ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
     /// Create a new expression lowerer.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "lowerer needs all compiler contexts; grouping would add indirection"
+    )]
     pub fn new(
         builder: &'a mut IrBuilder<'scx, 'ctx>,
         type_info: &'a TypeInfoStore<'tcx>,
@@ -180,7 +183,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// Every `CanExpr` variant is listed explicitly — no catch-all — so
     /// adding a new variant to the canonical IR causes a compile error here.
-    #[allow(clippy::too_many_lines)] // Exhaustive dispatch over all CanExpr variants
+    #[allow(
+        clippy::too_many_lines,
+        reason = "exhaustive match over all CanExpr variants; splitting would obscure dispatch"
+    )]
     pub fn lower(&mut self, id: CanId) -> Option<ValueId> {
         if !id.is_valid() {
             return None;

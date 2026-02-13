@@ -876,7 +876,10 @@ impl ParseErrorKind {
     /// let details = kind.details(error_span);
     /// println!("{}", details.text); // "I found an unclosed `(`..."
     /// ```
-    #[allow(dead_code)] // Used in tests + infrastructure for ParseErrorKind migration
+    #[allow(
+        dead_code,
+        reason = "infrastructure for ParseErrorKind rich diagnostic migration"
+    )]
     pub(crate) fn details(&self, error_span: Span) -> ParseErrorDetails {
         match self {
             Self::UnexpectedToken {
@@ -1481,7 +1484,7 @@ fn delimiter_name(open: &TokenKind) -> &'static str {
 /// Used to point to related code, like where a delimiter was opened.
 /// This will be used for multi-span diagnostics in a future enhancement.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[allow(dead_code)] // Infrastructure for multi-span diagnostics
+#[allow(dead_code, reason = "infrastructure for multi-span diagnostics")]
 pub(crate) struct Note {
     /// The message explaining this location.
     pub message: String,
@@ -1499,7 +1502,10 @@ pub(crate) struct Note {
 /// - "type mismatch" → pointing to the expected type declaration
 /// - "duplicate definition" → pointing to the first definition
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
+#[allow(
+    dead_code,
+    reason = "infrastructure for ParseErrorKind rich diagnostic system"
+)]
 pub(crate) struct ExtraLabel {
     /// The source location to highlight.
     pub span: Span,
@@ -1509,7 +1515,10 @@ pub(crate) struct ExtraLabel {
     pub text: String,
 }
 
-#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
+#[allow(
+    dead_code,
+    reason = "infrastructure for ParseErrorKind rich diagnostic system"
+)]
 impl ExtraLabel {
     /// Create a label in the same file.
     pub fn same_file(span: Span, text: impl Into<String>) -> Self {
@@ -1557,7 +1566,10 @@ impl ExtraLabel {
 /// }
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
+#[allow(
+    dead_code,
+    reason = "infrastructure for ParseErrorKind rich diagnostic system"
+)]
 pub(crate) struct CodeSuggestion {
     /// The span to replace (what to remove).
     pub span: Span,
@@ -1569,7 +1581,10 @@ pub(crate) struct CodeSuggestion {
     pub applicability: Applicability,
 }
 
-#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
+#[allow(
+    dead_code,
+    reason = "infrastructure for ParseErrorKind rich diagnostic system"
+)]
 impl CodeSuggestion {
     /// Create a machine-applicable suggestion (safe to auto-apply).
     pub fn machine_applicable(
@@ -1642,7 +1657,10 @@ impl CodeSuggestion {
 /// something after `count`?
 /// ```
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
+#[allow(
+    dead_code,
+    reason = "infrastructure for ParseErrorKind rich diagnostic system"
+)]
 pub(crate) struct ParseErrorDetails {
     /// Error title (e.g., "UNEXPECTED TOKEN", "UNCLOSED DELIMITER").
     ///
@@ -1681,7 +1699,10 @@ pub(crate) struct ParseErrorDetails {
     pub error_code: ErrorCode,
 }
 
-#[allow(dead_code)] // Infrastructure for ParseErrorKind rich diagnostic system
+#[allow(
+    dead_code,
+    reason = "infrastructure for ParseErrorKind rich diagnostic system"
+)]
 impl ParseErrorDetails {
     /// Create new error details with required fields.
     pub fn new(

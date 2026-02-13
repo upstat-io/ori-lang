@@ -1,10 +1,15 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "Tests use unwrap/expect for brevity"
+)]
 #![allow(
     clippy::uninlined_format_args,
     clippy::redundant_closure_for_method_calls,
     clippy::unnecessary_map_or,
     clippy::unnecessary_debug_formatting,
-    clippy::manual_assert
+    clippy::manual_assert,
+    reason = "Test harness code prioritizes readability over pedantic style"
 )]
 //! Golden tests for the Ori formatter.
 //!

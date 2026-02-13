@@ -1,11 +1,16 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "Tests use unwrap/expect for brevity"
+)]
 #![allow(
     clippy::uninlined_format_args,
     clippy::single_char_pattern,
     clippy::manual_is_multiple_of,
     clippy::redundant_closure_for_method_calls,
     clippy::if_not_else,
-    clippy::manual_assert
+    clippy::manual_assert,
+    reason = "Test harness code prioritizes readability over pedantic style"
 )]
 //! Width-parameterized tests for the Ori formatter.
 //!

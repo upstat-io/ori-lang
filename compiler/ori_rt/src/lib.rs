@@ -24,19 +24,32 @@
 //! guarantees valid pointers. They're not marked `unsafe` because they're
 //! extern "C" FFI entry points, not Rust API functions.
 
-#![allow(unsafe_code)]
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
-// FFI code uses i64 for ABI compatibility - casts are intentional and safe
-#![allow(clippy::cast_possible_truncation)]
-#![allow(clippy::cast_sign_loss)]
-#![allow(clippy::cast_possible_wrap)]
-#![allow(clippy::cast_ptr_alignment)]
-// Prefer explicit match over let-else for clarity in FFI error handling
-#![allow(clippy::manual_let_else)]
-// Tests use &var to get pointers - this is intentional
-#![allow(clippy::borrow_as_ptr)]
-#![allow(clippy::ptr_cast_constness)]
-#![allow(clippy::cast_slice_from_raw_parts)]
+#![warn(clippy::allow_attributes_without_reason)]
+#![allow(
+    unsafe_code,
+    reason = "C-ABI runtime functions require unsafe for raw pointer operations"
+)]
+#![allow(
+    clippy::not_unsafe_ptr_arg_deref,
+    reason = "FFI entry points receive pointers from LLVM-generated code which guarantees validity"
+)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_ptr_alignment,
+    reason = "FFI code uses i64 for ABI compatibility — casts are intentional and safe"
+)]
+#![allow(
+    clippy::manual_let_else,
+    reason = "explicit match preferred for clarity in FFI error handling"
+)]
+#![allow(
+    clippy::borrow_as_ptr,
+    clippy::ptr_cast_constness,
+    clippy::cast_slice_from_raw_parts,
+    reason = "tests use &var to get pointers — intentional for FFI testing"
+)]
 
 use std::cell::{Cell, RefCell};
 use std::ffi::CStr;
@@ -193,7 +206,7 @@ pub fn leave_jit_mode() {
 
 /// Check if we're currently in JIT mode.
 fn is_jit_mode() -> bool {
-    JIT_MODE.with(|m| m.get())
+    JIT_MODE.with(std::cell::Cell::get)
 }
 
 /// Call `setjmp` on a `JmpBuf`. Returns 0 on direct call, non-zero on `longjmp`.
@@ -320,7 +333,7 @@ pub extern "C" fn ori_realloc(
 ///
 /// Layout: `[strong_count: i64 | data bytes ...]`
 ///          ^                    ^
-///          base (ptr - 8)       returned data_ptr
+///          base (ptr - 8)       returned `data_ptr`
 ///
 /// Returns null on allocation failure.
 #[no_mangle]
@@ -484,7 +497,7 @@ pub extern "C" fn ori_panic(s: *const OriStr) {
 
     // In JIT mode, longjmp back to the test runner instead of terminating
     if is_jit_mode() {
-        let buf = JIT_RECOVERY_BUF.with(|b| b.get());
+        let buf = JIT_RECOVERY_BUF.with(std::cell::Cell::get);
         if !buf.is_null() {
             // SAFETY: buf is valid — set by enter_jit_mode, stack-allocated in run_test
             unsafe { longjmp(buf, 1) };
@@ -519,7 +532,7 @@ pub extern "C" fn ori_panic_cstr(s: *const i8) {
 
     // In JIT mode, longjmp back to the test runner instead of terminating
     if is_jit_mode() {
-        let buf = JIT_RECOVERY_BUF.with(|b| b.get());
+        let buf = JIT_RECOVERY_BUF.with(std::cell::Cell::get);
         if !buf.is_null() {
             // SAFETY: buf is valid — set by enter_jit_mode, stack-allocated in run_test
             unsafe { longjmp(buf, 1) };
@@ -756,6 +769,10 @@ pub extern "C" fn ori_max_int(a: i64, b: i64) -> i64 {
 /// String data is copied to owned allocations so the caller doesn't depend
 /// on the lifetime of the original `argv` strings.
 #[no_mangle]
+#[allow(
+    clippy::similar_names,
+    reason = "argc/argv are standard C parameter names"
+)]
 pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriList {
     // Empty list if no user args or null argv
     if argc <= 1 || argv.is_null() {
@@ -862,7 +879,7 @@ fn call_panic_trampoline(msg: &str) {
     };
 
     // Re-entrancy guard: if @panic handler panics, skip it
-    let already_in_handler = IN_PANIC_HANDLER.with(|h| h.get());
+    let already_in_handler = IN_PANIC_HANDLER.with(std::cell::Cell::get);
     if already_in_handler {
         return;
     }
@@ -872,7 +889,7 @@ fn call_panic_trampoline(msg: &str) {
     let msg_ptr = msg.as_ptr();
     let msg_len = msg.len() as i64;
     // Empty file/location — populated when debug info infrastructure arrives (Section 13)
-    let empty_ptr = b"\0".as_ptr();
+    let empty_ptr = c"".as_ptr().cast::<u8>();
     trampoline(msg_ptr, msg_len, empty_ptr, 0, 0, 0);
 
     IN_PANIC_HANDLER.with(|h| h.set(false));

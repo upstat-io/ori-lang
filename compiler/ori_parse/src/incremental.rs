@@ -258,7 +258,10 @@ pub struct IncrementalStats {
 
 impl IncrementalStats {
     /// Calculate reuse rate as a percentage.
-    #[allow(clippy::cast_precision_loss)] // Acceptable for percentage display - counts won't approach 2^52
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "counts won't approach 2^52; precision loss irrelevant for display"
+    )]
     pub fn reuse_rate(&self) -> f64 {
         let total = self.reused_count + self.reparsed_count;
         if total == 0 {
@@ -576,8 +579,10 @@ impl<'old> AstCopier<'old> {
             new_stmts.push(self.copy_stmt(stmt, new_arena));
         }
         // Allocate statements sequentially
-        #[allow(clippy::cast_possible_truncation)]
-        // Statement indices won't exceed u32::MAX in practice
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "statement indices won't exceed u32::MAX in practice"
+        )]
         let start_id = if new_stmts.is_empty() {
             0
         } else {
@@ -970,7 +975,10 @@ impl<'old> AstCopier<'old> {
     }
 
     /// Copy a binding pattern.
-    #[allow(clippy::self_only_used_in_recursion)] // Recursive copy pattern requires &self for consistency
+    #[allow(
+        clippy::self_only_used_in_recursion,
+        reason = "recursive copy pattern requires &self for method consistency"
+    )]
     fn copy_binding_pattern(&self, pattern: &BindingPattern) -> BindingPattern {
         match pattern {
             BindingPattern::Name(name) => BindingPattern::Name(*name),
@@ -1768,7 +1776,10 @@ mod tests {
     #[test]
     fn test_incremental_stats() {
         let mut stats = IncrementalStats::default();
-        #[allow(clippy::float_cmp)] // Exact zero comparison is intentional
+        #[allow(
+            clippy::float_cmp,
+            reason = "exact zero comparison is intentional for default state"
+        )]
         {
             assert_eq!(stats.reuse_rate(), 0.0);
         }

@@ -117,7 +117,10 @@ impl Pool {
     }
 
     /// Pre-intern all primitive types at their fixed indices.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "primitive count is a small constant, always fits u32"
+    )]
     fn intern_primitives(&mut self) {
         // Primitives must be interned in exact order to match Idx constants
         self.intern_primitive_at(Tag::Int, Idx::INT);
@@ -144,7 +147,10 @@ impl Pool {
     }
 
     /// Intern a primitive type at a specific index.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "items.len() always fits u32 — pool indices are u32"
+    )]
     fn intern_primitive_at(&mut self, tag: Tag, expected_idx: Idx) {
         let idx = Idx::from_raw(self.items.len() as u32);
         debug_assert_eq!(idx, expected_idx, "Primitive index mismatch for {tag:?}");
@@ -247,7 +253,10 @@ impl Pool {
     /// Intern a simple type (no extra data).
     ///
     /// Returns the canonical index for this type.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "items.len() always fits u32 — pool indices are u32"
+    )]
     pub fn intern(&mut self, tag: Tag, data: u32) -> Idx {
         let hash = Self::compute_hash(tag, data, &[]);
 
@@ -273,7 +282,10 @@ impl Pool {
     ///
     /// The `extra_data` slice is copied into the extra array.
     /// Returns the canonical index for this type.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "items.len() and extra.len() always fit u32 — pool storage is u32-indexed"
+    )]
     pub fn intern_complex(&mut self, tag: Tag, extra_data: &[u32]) -> Idx {
         let hash = Self::compute_hash(tag, 0, extra_data);
 

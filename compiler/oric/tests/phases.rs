@@ -1,5 +1,8 @@
-// Test code uses unwrap/expect for clarity - panics provide good test failure messages
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test code — panics provide clear failure messages"
+)]
 
 //! Phase-based compiler tests.
 //!

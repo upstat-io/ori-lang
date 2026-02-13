@@ -67,7 +67,10 @@ pub struct ParsedAttrs {
 
 /// Representation attribute values.
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // Fields will be used when codegen is implemented
+#[allow(
+    dead_code,
+    reason = "variants used when codegen consumes repr attributes"
+)]
 pub enum ReprAttr {
     /// `#repr("c")` - C-compatible layout
     C,
@@ -81,7 +84,10 @@ pub enum ReprAttr {
 
 /// Target conditional compilation attribute.
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)] // Fields will be used when conditional compilation is implemented
+#[allow(
+    dead_code,
+    reason = "fields used when conditional compilation is implemented"
+)]
 pub struct TargetAttr {
     pub os: Option<Name>,
     pub arch: Option<Name>,
@@ -92,7 +98,10 @@ pub struct TargetAttr {
 
 /// Config conditional compilation attribute.
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)] // Fields will be used when conditional compilation is implemented
+#[allow(
+    dead_code,
+    reason = "fields used when conditional compilation is implemented"
+)]
 pub struct CfgAttr {
     pub debug: bool,
     pub release: bool,
@@ -119,7 +128,7 @@ impl ParsedAttrs {
     }
 
     /// Returns true if any tokens were captured for attributes.
-    #[allow(dead_code)] // Infrastructure for formatters and IDE features
+    #[allow(dead_code, reason = "API for formatters and IDE integration")]
     pub fn has_tokens(&self) -> bool {
         !self.token_range.is_empty()
     }

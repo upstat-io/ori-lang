@@ -1,5 +1,13 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-#![allow(clippy::manual_assert, clippy::uninlined_format_args)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "benchmarks — panics on setup failure are acceptable"
+)]
+#![allow(
+    clippy::manual_assert,
+    clippy::uninlined_format_args,
+    reason = "benchmark ergonomics — relaxed style for clarity"
+)]
 //! Formatter benchmarks for Ori.
 //!
 //! Measures formatting performance across different input sizes.

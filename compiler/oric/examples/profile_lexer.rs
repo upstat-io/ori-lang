@@ -17,7 +17,10 @@ fn generate_n_functions(n: usize) -> String {
         .join("\n")
 }
 
-#[allow(clippy::cast_precision_loss)] // total bytes fits comfortably in f64
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "total bytes fits comfortably in f64 for throughput display"
+)]
 fn main() {
     let source = generate_n_functions(1500); // ~50KB
     let interner = ori_ir::StringInterner::new();

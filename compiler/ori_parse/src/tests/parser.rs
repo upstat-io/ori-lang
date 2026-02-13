@@ -3,7 +3,11 @@
 //! Tests for basic parsing functionality including literals, expressions,
 //! operators, capabilities, and context management.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test assertions use unwrap/expect for clarity"
+)]
 
 use crate::{parse, ParseContext, ParseOutput, Parser};
 use ori_ir::{BinaryOp, BindingPattern, ExprKind, FunctionExpKind, FunctionSeq, StringInterner};

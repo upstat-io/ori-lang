@@ -43,8 +43,17 @@ fn scalar_count_whitespace(buf: &[u8]) -> usize {
 /// The sentinel byte (`0x00`) is neither space nor tab, so scanning terminates
 /// naturally at EOF without explicit bounds checking beyond the `i + 8 <= len`
 /// guard for the SWAR loop.
-#[cfg_attr(not(test), allow(dead_code))]
-#[allow(unsafe_code)]
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "reference impl kept for property testing against scalar version"
+    )
+)]
+#[allow(
+    unsafe_code,
+    reason = "unaligned u64 reads required for SWAR byte-parallel processing"
+)]
 fn swar_count_whitespace(buf: &[u8]) -> usize {
     /// Detects which bytes in a `u64` are zero, returning a mask with the high
     /// bit (`0x80`) set in each zero byte lane.
@@ -231,7 +240,10 @@ impl<'a> Cursor<'a> {
     /// and on valid UTF-8 character boundaries. This is guaranteed when
     /// `start` and `end` come from the scanner's token boundary tracking,
     /// since the source was originally valid UTF-8 (`&str`).
-    #[allow(unsafe_code)]
+    #[allow(
+        unsafe_code,
+        reason = "from_utf8_unchecked on source originally validated as &str"
+    )]
     pub fn slice(&self, start: u32, end: u32) -> &'a str {
         debug_assert!(
             end <= self.source_len,
@@ -303,7 +315,10 @@ impl<'a> Cursor<'a> {
     /// Used by the comment scanner to skip comment bodies.
     /// Scans only within source content (not into sentinel/padding).
     /// If no newline found, positions cursor at EOF sentinel.
-    #[allow(clippy::cast_possible_truncation)] // remaining.len() <= source_len (u32)
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "remaining.len() <= source_len which fits in u32"
+    )]
     pub fn eat_until_newline_or_eof(&mut self) {
         let remaining = &self.buf[self.pos as usize..self.source_len as usize];
         if let Some(offset) = memchr::memchr(b'\n', remaining) {
@@ -319,7 +334,10 @@ impl<'a> Cursor<'a> {
     /// "Interesting" bytes for strings: `"`, `\`, `\n`, `\r`.
     /// Uses memchr3 for SIMD-accelerated search of the 3 most common
     /// delimiters (`"`, `\`, `\n`), with a secondary check for `\r`.
-    #[allow(clippy::cast_possible_truncation)] // remaining.len() <= source_len (u32)
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "remaining.len() <= source_len which fits in u32"
+    )]
     pub fn skip_to_string_delim(&mut self) -> u8 {
         let remaining = &self.buf[self.pos as usize..self.source_len as usize];
         // Find nearest of ", \, or \n (the 3 most common string terminators)
@@ -345,7 +363,10 @@ impl<'a> Cursor<'a> {
     /// Template delimiters: `` ` ``, `{`, `}`, `\`, `\n`, `\r`.
     /// Uses memchr3 for the 3 most common (`` ` ``, `{`, `\`),
     /// with secondary search for `}`, `\n`, `\r`.
-    #[allow(clippy::cast_possible_truncation)] // remaining.len() <= source_len (u32)
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "remaining.len() <= source_len which fits in u32"
+    )]
     pub fn skip_to_template_delim(&mut self) -> u8 {
         let remaining = &self.buf[self.pos as usize..self.source_len as usize];
         // Primary: find backtick, open brace, or backslash
@@ -1022,7 +1043,10 @@ mod tests {
         let buf = SourceBuffer::new(source);
         let mut cursor = buf.cursor();
         cursor.eat_whitespace();
-        #[allow(clippy::cast_possible_truncation)] // test string is tiny
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "test string is under 30 bytes"
+        )]
         let expected = source.len() as u32 - 1; // everything except 'x'
         assert_eq!(cursor.pos(), expected);
         assert_eq!(cursor.current(), b'x');
@@ -1063,7 +1087,10 @@ mod tests {
 
     // === Property tests ===
 
-    #[allow(clippy::disallowed_types)] // proptest macros internally use Arc
+    #[allow(
+        clippy::disallowed_types,
+        reason = "proptest macros internally use Arc"
+    )]
     mod proptest_swar {
         use super::super::{scalar_count_whitespace, swar_count_whitespace};
         use proptest::prelude::*;

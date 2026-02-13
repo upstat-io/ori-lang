@@ -68,9 +68,10 @@ impl SpaceRule {
 
 // Helper constants for rule definitions
 
-// Allow wildcard import for TokenCategory - the 70+ spacing rules below
-// become much more readable with short names like `LParen` vs `TokenCategory::LParen`
-#[allow(clippy::enum_glob_use)]
+#[allow(
+    clippy::enum_glob_use,
+    reason = "70+ spacing rules are much more readable with short names"
+)]
 use TokenCategory::*;
 use TokenMatcher::{Any, Category, Exact};
 

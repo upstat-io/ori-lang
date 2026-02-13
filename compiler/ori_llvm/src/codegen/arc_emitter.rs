@@ -62,7 +62,10 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Create a new ARC IR emitter.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "ARC emitter needs all codegen contexts; grouping would add indirection"
+    )]
     pub fn new(
         builder: &'a mut IrBuilder<'scx, 'ctx>,
         type_info: &'a TypeInfoStore<'tcx>,

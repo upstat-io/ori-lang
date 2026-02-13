@@ -1,4 +1,8 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test harness — panics provide clear failure messages"
+)]
 //! Test harness utilities for compiler testing.
 //!
 //! This module provides utilities for testing the compiler components,

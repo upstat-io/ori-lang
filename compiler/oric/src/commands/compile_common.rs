@@ -263,7 +263,7 @@ pub fn run_arc_pipeline_cached(
 ///
 /// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
 #[cfg(feature = "llvm")]
-#[allow(unsafe_code)]
+#[allow(unsafe_code, reason = "LLVM C API requires unsafe FFI calls")]
 pub fn compile_to_llvm<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,
@@ -402,7 +402,11 @@ pub fn compile_to_llvm<'ctx>(
 /// The Pool is required for proper compound type resolution during codegen.
 /// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
 #[cfg(feature = "llvm")]
-#[allow(unsafe_code, clippy::too_many_arguments)]
+#[allow(
+    unsafe_code,
+    clippy::too_many_arguments,
+    reason = "LLVM FFI requires unsafe; multi-module compilation needs all parameters"
+)]
 pub fn compile_to_llvm_with_imports<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,

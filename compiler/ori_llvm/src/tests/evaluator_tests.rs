@@ -1,5 +1,12 @@
 //! Tests for `OwnedLLVMEvaluator` and evaluator types.
 
+#![allow(
+    clippy::manual_assert,
+    clippy::uninlined_format_args,
+    clippy::default_trait_access,
+    reason = "test ergonomics — relaxed style for clarity"
+)]
+
 use ori_ir::StringInterner;
 use ori_types::Pool;
 

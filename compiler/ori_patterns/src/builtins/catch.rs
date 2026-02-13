@@ -27,8 +27,10 @@ impl PatternDefinition for CatchPattern {
 }
 
 #[cfg(test)]
-// Tests use unwrap() to panic on unexpected state, making failures immediately visible
-#[allow(clippy::unwrap_used)]
+#[allow(
+    clippy::unwrap_used,
+    reason = "tests use unwrap to panic on unexpected state"
+)]
 mod tests {
     use super::*;
     use crate::test_helpers::{make_ctx, MockPatternExecutor};

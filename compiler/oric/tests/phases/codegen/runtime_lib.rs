@@ -7,7 +7,6 @@
 //! - List operations (`new`, `free`, `len`)
 //! - Panic/assertion handling
 
-// FFI tests require unsafe code and implicit borrow-to-pointer conversions
 #![allow(
     unsafe_code,
     clippy::borrow_as_ptr,
@@ -15,7 +14,8 @@
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::from_raw_with_void_ptr,
-    clippy::cast_slice_from_raw_parts
+    clippy::cast_slice_from_raw_parts,
+    reason = "FFI tests require unsafe code and raw pointer/cast operations"
 )]
 
 use ori_rt::{

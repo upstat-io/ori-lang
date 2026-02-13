@@ -232,8 +232,10 @@ mod incremental_benches {
 
             // Find the position of the change
             // "x + 0" starts at position 27 in "@func0 (x: int) -> int = x + 0"
-            // Safe: benchmark source is always small (< 10KB), so position fits in u32
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "benchmark source is <10KB, fits in u32"
+            )]
             let change_start = source.find("x + 0").unwrap_or(27) as u32 + 4; // position of "0"
             let change = TextChange::new(change_start, change_start + 1, 3); // "0" (1 char) -> "999" (3 chars)
 
@@ -291,8 +293,10 @@ mod incremental_benches {
         // Test edits at different positions
         for (edit_name, func_idx) in [("start", 0), ("middle", 10), ("end", 19)] {
             let (func_start, _) = func_positions[func_idx];
-            // Safe: benchmark source is always small (< 10KB), so position fits in u32
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "benchmark source is <10KB, fits in u32"
+            )]
             let change_pos = func_start as u32 + 10; // Edit somewhere in the function
 
             let change = TextChange::new(change_pos, change_pos + 1, 2);
@@ -324,8 +328,10 @@ mod incremental_benches {
                 });
             });
 
-            // Log reuse rate (not part of benchmark, just info)
-            #[allow(clippy::cast_precision_loss)]
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "acceptable for percentage display in diagnostic output"
+            )]
             let reuse_pct = (f64::from(reusable) / total_decls as f64) * 100.0;
             eprintln!(
                 "Edit at {edit_name} (func {func_idx}): {reusable}/{total_decls} reusable ({reuse_pct:.1}%)"
