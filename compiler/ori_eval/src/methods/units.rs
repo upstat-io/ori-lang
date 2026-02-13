@@ -6,8 +6,8 @@ use std::hash::{Hash, Hasher};
 use ori_ir::builtin_constants::{duration, size};
 use ori_ir::Name;
 use ori_patterns::{
-    division_by_zero, integer_overflow, modulo_by_zero, no_such_method, EvalError, EvalResult,
-    Value,
+    division_by_zero, integer_overflow, modulo_by_zero, no_such_method, size_negative_divide,
+    size_negative_multiply, size_would_be_negative, EvalError, EvalResult, Value,
 };
 
 use super::compare::ordering_to_value;
@@ -23,7 +23,7 @@ fn duration_from_int(method: &str, args: &[Value], multiplier: i64) -> EvalResul
     let val = require_int_arg(method, args, 0)?;
     val.checked_mul(multiplier)
         .map(Value::Duration)
-        .ok_or_else(|| EvalError::new("duration overflow").into())
+        .ok_or_else(|| integer_overflow("duration factory conversion").into())
 }
 
 /// Create a Size value from an integer with a multiplier.
@@ -41,7 +41,7 @@ fn size_from_int(method: &str, args: &[Value], multiplier: u64) -> EvalResult {
     (val as u64)
         .checked_mul(multiplier)
         .map(Value::Size)
-        .ok_or_else(|| EvalError::new("size overflow").into())
+        .ok_or_else(|| integer_overflow("size factory conversion").into())
 }
 
 /// Dispatch Duration associated functions (factory methods).
@@ -270,12 +270,12 @@ pub fn dispatch_size_method(
         bytes
             .checked_sub(other)
             .map(Value::Size)
-            .ok_or_else(|| EvalError::new("size subtraction would result in negative value").into())
+            .ok_or_else(|| size_would_be_negative().into())
     } else if method == n.mul || method == n.multiply {
         require_args("mul", 1, args.len())?;
         let scalar = require_int_arg("mul", &args, 0)?;
         if scalar < 0 {
-            return Err(EvalError::new("cannot multiply Size by negative integer").into());
+            return Err(size_negative_multiply().into());
         }
         #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
         bytes
@@ -289,7 +289,7 @@ pub fn dispatch_size_method(
             return Err(division_by_zero().into());
         }
         if scalar < 0 {
-            return Err(EvalError::new("cannot divide Size by negative integer").into());
+            return Err(size_negative_divide().into());
         }
         #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
         bytes

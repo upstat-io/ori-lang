@@ -165,6 +165,12 @@ pub enum ErrorCode {
     E6002,
     /// Integer overflow
     E6003,
+    /// Size subtraction would be negative
+    E6004,
+    /// Size multiply by negative
+    E6005,
+    /// Size divide by negative
+    E6006,
     /// Type mismatch
     E6010,
     /// Invalid binary operator for type
@@ -297,6 +303,9 @@ impl ErrorCode {
             ErrorCode::E6001 => "E6001",
             ErrorCode::E6002 => "E6002",
             ErrorCode::E6003 => "E6003",
+            ErrorCode::E6004 => "E6004",
+            ErrorCode::E6005 => "E6005",
+            ErrorCode::E6006 => "E6006",
             ErrorCode::E6010 => "E6010",
             ErrorCode::E6011 => "E6011",
             ErrorCode::E6012 => "E6012",
@@ -429,6 +438,9 @@ impl ErrorCode {
             ErrorCode::E6001
                 | ErrorCode::E6002
                 | ErrorCode::E6003
+                | ErrorCode::E6004
+                | ErrorCode::E6005
+                | ErrorCode::E6006
                 | ErrorCode::E6010
                 | ErrorCode::E6011
                 | ErrorCode::E6012

@@ -110,6 +110,9 @@ pub(crate) fn error_code_for_kind(kind: &EvalErrorKind) -> ErrorCode {
         EvalErrorKind::DivisionByZero => ErrorCode::E6001,
         EvalErrorKind::ModuloByZero => ErrorCode::E6002,
         EvalErrorKind::IntegerOverflow { .. } => ErrorCode::E6003,
+        EvalErrorKind::SizeWouldBeNegative => ErrorCode::E6004,
+        EvalErrorKind::SizeNegativeMultiply => ErrorCode::E6005,
+        EvalErrorKind::SizeNegativeDivide => ErrorCode::E6006,
 
         // Type/Operator
         EvalErrorKind::TypeMismatch { .. } => ErrorCode::E6010,
@@ -158,6 +161,10 @@ fn label_for_kind(kind: &EvalErrorKind) -> &'static str {
         EvalErrorKind::DivisionByZero => "division by zero here",
         EvalErrorKind::ModuloByZero => "modulo by zero here",
         EvalErrorKind::IntegerOverflow { .. } => "overflow occurred here",
+        EvalErrorKind::SizeWouldBeNegative => "result would be negative",
+        EvalErrorKind::SizeNegativeMultiply | EvalErrorKind::SizeNegativeDivide => {
+            "negative operand"
+        }
         EvalErrorKind::TypeMismatch { .. } => "type mismatch",
         EvalErrorKind::InvalidBinaryOp { .. } => "operator not supported",
         EvalErrorKind::BinaryTypeMismatch { .. } => "mismatched types",
@@ -300,6 +307,9 @@ mod tests {
             EvalErrorKind::IntegerOverflow {
                 operation: String::new(),
             },
+            EvalErrorKind::SizeWouldBeNegative,
+            EvalErrorKind::SizeNegativeMultiply,
+            EvalErrorKind::SizeNegativeDivide,
             EvalErrorKind::TypeMismatch {
                 expected: String::new(),
                 got: String::new(),
