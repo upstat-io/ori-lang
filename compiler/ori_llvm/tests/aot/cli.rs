@@ -14,36 +14,12 @@
 )]
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use tempfile::TempDir;
 
-/// Get the path to the `ori` binary.
-/// Assumes the binary is built in the workspace target directory.
-fn ori_binary() -> PathBuf {
-    // Find workspace root by looking for Cargo.toml with [workspace]
-    // Start from CARGO_MANIFEST_DIR and walk up
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace_root = manifest_dir
-        .ancestors()
-        .find(|p| p.join("Cargo.toml").exists() && p.join("compiler").exists())
-        .map_or_else(|| PathBuf::from("/workspace"), Path::to_path_buf); // Docker fallback
-
-    // Try release first (faster tests), then debug
-    let release_path = workspace_root.join("target/release/ori");
-    if release_path.exists() {
-        return release_path;
-    }
-
-    let debug_path = workspace_root.join("target/debug/ori");
-    if debug_path.exists() {
-        return debug_path;
-    }
-
-    // Fall back to just "ori" in PATH
-    PathBuf::from("ori")
-}
+use crate::util::ori_binary;
 
 /// Create a simple Ori source file for testing.
 fn create_test_source(dir: &TempDir, name: &str, content: &str) -> PathBuf {
