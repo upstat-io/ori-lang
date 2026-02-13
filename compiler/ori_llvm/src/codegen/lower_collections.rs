@@ -242,8 +242,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             }
         }
 
-        let idx_val = self.lower(index)?;
+        let idx_result = self.lower(index);
         self.hash_length = old_hash;
+        let idx_val = idx_result?;
 
         match &type_info {
             TypeInfo::List { element } => {
@@ -356,7 +357,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
 
     /// Lower `CanExpr::List(range)` — `[a, b, c]`.
     ///
-    /// Allocates a list via `ori_list_new`, then stores each element.
+    /// Allocates a data buffer via `ori_list_alloc_data`, stores each element,
+    /// and builds a `{len, cap, data}` struct.
     pub(crate) fn lower_list(&mut self, range: CanRange, expr_id: CanId) -> Option<ValueId> {
         let expr_ids = self.canon.arena.get_expr_list(range);
         let count = expr_ids.len();

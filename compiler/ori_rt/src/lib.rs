@@ -636,8 +636,9 @@ pub extern "C" fn ori_list_alloc_data(capacity: i64, elem_size: i64) -> *mut u8 
     let cap = capacity.max(0) as usize;
     let size = elem_size.max(1) as usize;
     if cap > 0 {
-        let layout = std::alloc::Layout::array::<u8>(cap * size)
-            .unwrap_or_else(|_| std::alloc::Layout::new::<u8>());
+        let Ok(layout) = std::alloc::Layout::array::<u8>(cap * size) else {
+            return std::ptr::null_mut();
+        };
         // SAFETY: Layout is non-zero size (cap > 0, size >= 1)
         unsafe { std::alloc::alloc(layout) }
     } else {
@@ -657,9 +658,10 @@ pub extern "C" fn ori_list_new(capacity: i64, elem_size: i64) -> *mut OriList {
         len: 0,
         cap: cap as i64,
         data: if cap > 0 {
-            let layout = std::alloc::Layout::array::<u8>(cap * size)
-                .unwrap_or_else(|_| std::alloc::Layout::new::<u8>());
-            // SAFETY: Layout is valid
+            let Ok(layout) = std::alloc::Layout::array::<u8>(cap * size) else {
+                return std::ptr::null_mut();
+            };
+            // SAFETY: Layout is non-zero size (cap > 0, size >= 1)
             unsafe { std::alloc::alloc(layout) }
         } else {
             std::ptr::null_mut()
@@ -669,7 +671,7 @@ pub extern "C" fn ori_list_new(capacity: i64, elem_size: i64) -> *mut OriList {
     Box::into_raw(list)
 }
 
-/// Free a list.
+/// Free a heap-allocated `OriList` (from `ori_list_new`).
 #[no_mangle]
 pub extern "C" fn ori_list_free(list: *mut OriList, elem_size: i64) {
     if list.is_null() {
@@ -681,10 +683,28 @@ pub extern "C" fn ori_list_free(list: *mut OriList, elem_size: i64) {
         let list = Box::from_raw(list);
         if !list.data.is_null() && list.cap > 0 {
             let size = elem_size.max(1) as usize;
-            let layout = std::alloc::Layout::array::<u8>(list.cap as usize * size)
-                .unwrap_or_else(|_| std::alloc::Layout::new::<u8>());
-            std::alloc::dealloc(list.data, layout);
+            if let Ok(layout) = std::alloc::Layout::array::<u8>(list.cap as usize * size) {
+                std::alloc::dealloc(list.data, layout);
+            }
         }
+    }
+}
+
+/// Free a raw data buffer allocated by `ori_list_alloc_data`.
+///
+/// For stack-struct lists (`{len, cap, data}`) where only the data buffer
+/// is heap-allocated. The list header lives on the stack and doesn't need
+/// freeing. Used by ARC cleanup when decrementing list refcounts.
+#[no_mangle]
+pub extern "C" fn ori_list_free_data(data: *mut u8, capacity: i64, elem_size: i64) {
+    if data.is_null() || capacity <= 0 {
+        return;
+    }
+    let cap = capacity as usize;
+    let size = elem_size.max(1) as usize;
+    if let Ok(layout) = std::alloc::Layout::array::<u8>(cap * size) {
+        // SAFETY: data was allocated by ori_list_alloc_data with same layout
+        unsafe { std::alloc::dealloc(data, layout) };
     }
 }
 
