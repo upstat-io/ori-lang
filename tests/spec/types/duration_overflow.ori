@@ -147,7 +147,7 @@ use std.testing { assert_eq }
 // =============================================================================
 
 // from_hours with huge value overflows during ns conversion
-#fail("duration overflow")
+#fail("integer overflow in duration factory conversion")
 @test_duration_factory_overflow tests @_dur_factory () -> void = run(
     let _ = Duration.from_hours(h: 9223372036854775807),
     (),

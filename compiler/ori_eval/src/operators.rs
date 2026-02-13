@@ -7,7 +7,8 @@
 use ori_ir::BinaryOp;
 use ori_patterns::{
     binary_type_mismatch, division_by_zero, integer_overflow, invalid_binary_op_for,
-    modulo_by_zero, EvalError, EvalResult, Heap, RangeValue, ScalarInt, Value,
+    modulo_by_zero, size_negative_divide, size_negative_multiply, size_would_be_negative,
+    EvalError, EvalResult, Heap, RangeValue, ScalarInt, Value,
 };
 
 // Helper functions for repetitive checked arithmetic patterns
@@ -411,24 +412,6 @@ fn eval_int_size_binary(a: ScalarInt, b: u64, op: BinaryOp) -> EvalResult {
 #[cold]
 fn shift_out_of_range(amount: i64) -> EvalError {
     EvalError::new(format!("shift amount {amount} out of range (0-63)"))
-}
-
-/// Size subtraction would produce a negative result.
-#[cold]
-fn size_would_be_negative() -> EvalError {
-    EvalError::new("size subtraction would result in negative value")
-}
-
-/// Cannot multiply or divide Size by a negative integer.
-#[cold]
-fn size_negative_multiply() -> EvalError {
-    EvalError::new("cannot multiply Size by negative integer")
-}
-
-/// Cannot divide Size by a negative integer.
-#[cold]
-fn size_negative_divide() -> EvalError {
-    EvalError::new("cannot divide Size by negative integer")
 }
 
 /// Binary operations on struct values.

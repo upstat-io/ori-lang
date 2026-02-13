@@ -106,6 +106,9 @@ pub enum EvalErrorKind {
     IntegerOverflow {
         operation: String,
     },
+    SizeWouldBeNegative,
+    SizeNegativeMultiply,
+    SizeNegativeDivide,
 
     // Type/Operator
     TypeMismatch {
@@ -207,6 +210,9 @@ impl EvalErrorKind {
             Self::DivisionByZero => "DivisionByZero",
             Self::ModuloByZero => "ModuloByZero",
             Self::IntegerOverflow { .. } => "IntegerOverflow",
+            Self::SizeWouldBeNegative => "SizeWouldBeNegative",
+            Self::SizeNegativeMultiply => "SizeNegativeMultiply",
+            Self::SizeNegativeDivide => "SizeNegativeDivide",
             Self::TypeMismatch { .. } => "TypeMismatch",
             Self::InvalidBinaryOp { .. } => "InvalidBinaryOp",
             Self::BinaryTypeMismatch { .. } => "BinaryTypeMismatch",
@@ -240,6 +246,15 @@ impl fmt::Display for EvalErrorKind {
             Self::ModuloByZero => write!(f, "modulo by zero"),
             Self::IntegerOverflow { operation } => {
                 write!(f, "integer overflow in {operation}")
+            }
+            Self::SizeWouldBeNegative => {
+                write!(f, "size subtraction would result in negative value")
+            }
+            Self::SizeNegativeMultiply => {
+                write!(f, "cannot multiply Size by negative integer")
+            }
+            Self::SizeNegativeDivide => {
+                write!(f, "cannot divide Size by negative integer")
             }
 
             // Type/Operator
@@ -536,6 +551,24 @@ pub fn integer_overflow(operation: &str) -> EvalError {
     EvalError::from_kind(EvalErrorKind::IntegerOverflow {
         operation: operation.to_string(),
     })
+}
+
+/// Size subtraction would produce a negative result.
+#[cold]
+pub fn size_would_be_negative() -> EvalError {
+    EvalError::from_kind(EvalErrorKind::SizeWouldBeNegative)
+}
+
+/// Cannot multiply Size by a negative integer.
+#[cold]
+pub fn size_negative_multiply() -> EvalError {
+    EvalError::from_kind(EvalErrorKind::SizeNegativeMultiply)
+}
+
+/// Cannot divide Size by a negative integer.
+#[cold]
+pub fn size_negative_divide() -> EvalError {
+    EvalError::from_kind(EvalErrorKind::SizeNegativeDivide)
 }
 
 /// Maximum recursion depth exceeded error.

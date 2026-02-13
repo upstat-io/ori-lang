@@ -136,7 +136,7 @@ use std.testing { assert_eq }
 // =============================================================================
 
 // from_terabytes with huge value overflows u64 during byte conversion
-#fail("size overflow")
+#fail("integer overflow in size factory conversion")
 @test_size_factory_overflow tests @_size_factory () -> void = run(
     let _ = Size.from_terabytes(tb: 9223372036854775807),
     (),
