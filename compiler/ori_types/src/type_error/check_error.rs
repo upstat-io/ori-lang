@@ -403,6 +403,13 @@ impl TypeCheckError {
                     format_name(*struct_name)
                 )
             }
+            TypeErrorKind::UninhabitedStructField { struct_name, field } => {
+                format!(
+                    "cannot use `Never` as struct field type: field `{}` in `{}`",
+                    format_name(*field),
+                    format_name(*struct_name)
+                )
+            }
         }
     }
 
@@ -512,6 +519,9 @@ impl TypeCheckError {
                 format!("missing {count} required field{s} in struct literal")
             }
             TypeErrorKind::DuplicateField { .. } => "duplicate field in struct literal".to_string(),
+            TypeErrorKind::UninhabitedStructField { .. } => {
+                "cannot use `Never` as struct field type".to_string()
+            }
         }
     }
 
@@ -556,6 +566,9 @@ impl TypeCheckError {
 
             // E2014: Missing capabilities
             TypeErrorKind::MissingCapability { .. } => ErrorCode::E2014,
+
+            // E0920: Never type in struct field
+            TypeErrorKind::UninhabitedStructField { .. } => ErrorCode::E0920,
         }
     }
 
@@ -688,6 +701,23 @@ impl TypeCheckError {
             kind: TypeErrorKind::DuplicateField { struct_name, field },
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text("remove the duplicate field", 0)],
+        }
+    }
+
+    /// Create an "uninhabited struct field" error (E0920).
+    ///
+    /// Emitted when `Never` is used as a struct field type, which would make the
+    /// struct unconstructable. `Never` may appear in sum type variant payloads
+    /// (making the variant uninhabited) but not in struct fields.
+    pub fn uninhabited_struct_field(span: Span, struct_name: Name, field: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UninhabitedStructField { struct_name, field },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "use `Never` in sum type variants instead, or use `Option<T>` for optional fields",
+                0,
+            )],
         }
     }
 
@@ -953,6 +983,14 @@ pub enum TypeErrorKind {
         /// The struct name.
         struct_name: Name,
         /// The duplicated field name.
+        field: Name,
+    },
+
+    /// Never type used as struct field (uninhabitable struct).
+    UninhabitedStructField {
+        /// The struct name.
+        struct_name: Name,
+        /// The field with Never type.
         field: Name,
     },
 }

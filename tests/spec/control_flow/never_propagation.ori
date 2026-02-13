@@ -1,0 +1,165 @@
+// Never Type for ? Operator (Error Propagation)
+
+use std.testing { assert, assert_eq }
+// Spec: 06-types.md § Never Type
+// Spec: operator-rules.md § Postfix ? (Error Propagation)
+//
+// The ? operator's early-return path has type Never. When applied to
+// Result<T,E> or Option<T>, the success path yields T and the error/none
+// path propagates out of the enclosing function (type Never — does not return).
+
+// =============================================================================
+// Result<T,E> Propagation
+// =============================================================================
+
+@succeed (x: int) -> Result<int, str> = Ok(x)
+@fail_it (msg: str) -> Result<int, str> = Err(msg)
+
+// ? on Ok(v) unwraps to v
+@try_ok (n: int) -> Result<int, str> = run(
+    let x = succeed(x: n)?,
+    Ok(x * 2),
+)
+
+@test_try_ok tests @try_ok () -> void = run(
+    let r = try_ok(n: 5),
+    assert(cond: is_ok(r: r)),
+)
+
+// ? on Err(e) propagates — remaining code is unreachable (Never)
+@try_err () -> Result<int, str> = run(
+    let x = fail_it(msg: "oops")?,
+    // This line is unreachable — x has type int because ? unwrapped,
+    // but the Err path returned Never and exited the function
+    Ok(x * 2),
+)
+
+@test_try_err tests @try_err () -> void = run(
+    let r = try_err(),
+    assert(cond: is_err(r: r)),
+)
+
+// Chained ? — first error propagates, skipping the rest
+@try_chain (a: int, b: int) -> Result<int, str> = run(
+    let x = (if a == 0 then Err("a is zero") else Ok(a))?,
+    let y = (if b == 0 then Err("b is zero") else Ok(b))?,
+    Ok(x + y),
+)
+
+@test_try_chain_both_ok tests @try_chain () -> void = run(
+    let r = try_chain(a: 3, b: 4),
+    assert(cond: is_ok(r: r)),
+)
+
+@test_try_chain_first_err tests @try_chain_first_err () -> void = run(
+    let r = try_chain(a: 0, b: 4),
+    assert(cond: is_err(r: r)),
+)
+
+@try_chain_first_err () -> Result<int, str> = try_chain(a: 0, b: 4)
+
+@test_try_chain_second_err tests @try_chain_second_err () -> void = run(
+    let r = try_chain(a: 3, b: 0),
+    assert(cond: is_err(r: r)),
+)
+
+@try_chain_second_err () -> Result<int, str> = try_chain(a: 3, b: 0)
+
+// =============================================================================
+// Option<T> Propagation
+// =============================================================================
+
+@find (key: str) -> Option<int> =
+    if key == "a" then Some(42) else None
+
+// ? on Some(v) unwraps to v
+@try_some (key: str) -> Option<int> = run(
+    let x = find(key: key)?,
+    Some(x * 2),
+)
+
+@test_try_some tests @try_some () -> void = run(
+    let r = try_some(key: "a"),
+    assert(cond: is_some(opt: r)),
+)
+
+// ? on None propagates
+@test_try_none tests @try_none () -> void = run(
+    let r = try_none(),
+    assert(cond: is_none(opt: r)),
+)
+
+@try_none () -> Option<int> = try_some(key: "missing")
+
+// =============================================================================
+// ? in Conditional Branches (Never Coercion)
+// =============================================================================
+
+// ? in else branch — Never coerces to match then branch type
+@try_in_else (r: Result<int, str>) -> Result<int, str> = run(
+    let x = r?,
+    Ok(if x > 0 then x else 0),
+)
+
+@test_try_in_else_ok tests @try_in_else () -> void = run(
+    let r = try_in_else(r: Ok(42)),
+    assert(cond: is_ok(r: r)),
+)
+
+@test_try_in_else_err tests @try_in_else_err () -> void = run(
+    let r = try_in_else(r: Err("bad")),
+    assert(cond: is_err(r: r)),
+)
+
+@try_in_else_err () -> Result<int, str> = try_in_else(r: Err("bad"))
+
+// =============================================================================
+// Nested Function Calls with ?
+// =============================================================================
+
+@inner (x: int) -> Result<int, str> =
+    if x > 0 then Ok(x) else Err("must be positive")
+
+@outer (x: int) -> Result<int, str> = run(
+    let v = inner(x: x)?,
+    Ok(v * 2),
+)
+
+@test_nested_try_ok tests @outer () -> void = run(
+    let r = outer(x: 5),
+    assert(cond: is_ok(r: r)),
+)
+
+@test_nested_try_err tests @nested_try_err () -> void = run(
+    let r = outer(x: -1),
+    assert(cond: is_err(r: r)),
+)
+
+@nested_try_err () -> Result<int, str> = outer(x: -1)
+
+// =============================================================================
+// Multiple ? in Same Expression
+// =============================================================================
+
+@add_results (a: Result<int, str>, b: Result<int, str>) -> Result<int, str> = run(
+    Ok(a? + b?),
+)
+
+@test_multi_try_both_ok tests @add_results () -> void = run(
+    let r = add_results(a: Ok(3), b: Ok(4)),
+    assert(cond: is_ok(r: r)),
+)
+
+@test_multi_try_first_err tests @multi_try_first_err () -> void = run(
+    let r = add_results(a: Err("a"), b: Ok(4)),
+    assert(cond: is_err(r: r)),
+)
+
+@multi_try_first_err () -> Result<int, str> = add_results(a: Err("a"), b: Ok(4))
+
+@test_multi_try_second_err tests @multi_try_second_err () -> void = run(
+    let r = add_results(a: Ok(3), b: Err("b")),
+    assert(cond: is_err(r: r)),
+)
+
+@multi_try_second_err () -> Result<int, str> = add_results(a: Ok(3), b: Err("b"))

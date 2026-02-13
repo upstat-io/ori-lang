@@ -754,3 +754,92 @@ fn test_aot_never_conditional_branches() {
         "never_conditional_branches",
     );
 }
+
+// Loop, Break, Continue — Never Type Coercion
+
+#[test]
+fn test_aot_loop_break_value() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let result = loop(break 42),
+    if result == 42 then 0 else 1
+)
+"#,
+        "loop_break_value",
+    );
+}
+
+#[test]
+fn test_aot_loop_conditional_break() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let mut count = 0,
+    loop(run(
+        count = count + 1,
+        if count >= 5 then break,
+    )),
+    if count == 5 then 0 else 1
+)
+"#,
+        "loop_conditional_break",
+    );
+}
+
+#[test]
+fn test_aot_loop_break_never_coercion() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let mut count = 0,
+    let result = loop(run(
+        count = count + 1,
+        if count > 5 then break count else count,
+    )),
+    if result == 6 then 0 else 1
+)
+"#,
+        "loop_break_never_coercion",
+    );
+}
+
+#[test]
+fn test_aot_loop_continue_never_coercion() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let mut count = 0,
+    let mut sum = 0,
+    loop(run(
+        count = count + 1,
+        if count > 10 then break,
+        if count % 2 == 0 then continue,
+        sum = sum + count,
+    )),
+    if sum == 25 then 0 else 1
+)
+"#,
+        "loop_continue_never_coercion",
+    );
+}
+
+#[test]
+fn test_aot_loop_break_and_continue_combined() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let mut i = 0,
+    let mut total = 0,
+    loop(run(
+        i = i + 1,
+        if i > 20 then break,
+        if i % 3 == 0 then continue,
+        total = total + i,
+    )),
+    if total == 147 then 0 else 1
+)
+"#,
+        "loop_break_and_continue_combined",
+    );
+}

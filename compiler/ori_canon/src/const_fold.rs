@@ -41,7 +41,10 @@ fn classify(arena: &CanArena, id: CanId) -> Constness {
     }
 
     match arena.kind(id) {
-        // Literals, already-folded constants, and $-bindings are compile-time.
+        // Literals and already-folded constants are compile-time.
+        // Note: `CanExpr::Const(_)` (named `$` constants like `$PI`) is NOT
+        // included — their values aren't resolved at the canon level, so
+        // `extract_const_value()` can't extract them. They stay Runtime.
         CanExpr::Int(_)
         | CanExpr::Float(_)
         | CanExpr::Bool(_)
@@ -50,8 +53,7 @@ fn classify(arena: &CanArena, id: CanId) -> Constness {
         | CanExpr::Unit
         | CanExpr::Duration { .. }
         | CanExpr::Size { .. }
-        | CanExpr::Constant(_)
-        | CanExpr::Const(_) => Constness::Const,
+        | CanExpr::Constant(_) => Constness::Const,
 
         // Binary: const if both children const AND operator is pure.
         CanExpr::Binary { op, left, right } => {
@@ -327,6 +329,10 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
         }
 
         // Duration arithmetic (normalized to nanoseconds).
+        // Signed i64 results are stored as u64 via `cast_unsigned()`. The
+        // round-trip is safe: readers call `to_nanos()` on the stored value,
+        // which is a no-op (multiplier = 1 for Nanoseconds), then
+        // `cast_signed()` to recover the original i64.
         (
             BinaryOp::Add,
             ConstValue::Duration { value: a, unit: au },

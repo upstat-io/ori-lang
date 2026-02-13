@@ -362,10 +362,21 @@ fn check_enum_tag(
     }
 }
 
+/// Check whether a variant is uninhabited (can never be constructed).
+///
+/// A variant is uninhabited if any of its fields has type `Never`,
+/// since a `Never` value can never be produced.
+fn is_variant_uninhabited(fields: &[ori_types::Idx], pool: &ori_types::Pool) -> bool {
+    fields
+        .iter()
+        .any(|&f| pool.tag(pool.resolve_fully(f)) == ori_types::Tag::Never)
+}
+
 /// Check coverage for a user-defined enum type.
 ///
 /// Queries the type pool for all variants and reports any that are not
-/// covered by the switch edges.
+/// covered by the switch edges. Variants with `Never`-typed fields are
+/// skipped because they are uninhabited (can never be constructed).
 fn check_user_enum(
     pool: &ori_types::Pool,
     interner: &StringInterner,
@@ -384,6 +395,10 @@ fn check_user_enum(
         let idx = i as u32;
         if !covered.contains(&idx) {
             let (vname, fields) = pool.enum_variant(enum_idx, i);
+            // Skip uninhabited variants — they can never be constructed
+            if is_variant_uninhabited(&fields, pool) {
+                continue;
+            }
             let name = interner.lookup(vname);
             let pattern = if fields.is_empty() {
                 name.to_string()
@@ -2014,6 +2029,165 @@ mod tests {
                 panic!("expected NonExhaustive, got: {other:?}")
             }
         }
+    }
+
+    // ── Never variant exhaustiveness ─────────────────────────────
+
+    #[test]
+    fn user_enum_never_variant_omittable() {
+        // type MaybeNever = Value(int) | Impossible(Never)
+        // match m { Value(v) -> ... }
+        // Impossible has a Never field → uninhabited → not required in match
+        let interner = SharedInterner::new();
+        let name_value = interner.intern("Value");
+        let name_impossible = interner.intern("Impossible");
+        let name_type = interner.intern("MaybeNever");
+
+        let mut pool = ori_types::Pool::new();
+        let enum_ty = pool.enum_type(
+            name_type,
+            &[
+                ori_types::EnumVariant {
+                    name: name_value,
+                    field_types: vec![ori_types::Idx::INT],
+                },
+                ori_types::EnumVariant {
+                    name: name_impossible,
+                    field_types: vec![ori_types::Idx::NEVER],
+                },
+            ],
+        );
+
+        let tree = DecisionTree::Switch {
+            path: vec![],
+            test_kind: TestKind::EnumTag,
+            edges: vec![(
+                TestValue::Tag {
+                    variant_index: 0,
+                    variant_name: name_value,
+                },
+                DecisionTree::Leaf {
+                    arm_index: 0,
+                    bindings: vec![],
+                },
+            )],
+            default: None,
+        };
+        let result =
+            check_exhaustiveness(&tree, 1, span(), &arm_spans(1), enum_ty, &pool, &interner);
+        assert!(
+            result.problems.is_empty(),
+            "Never variant should be omittable, got: {:?}",
+            result.problems
+        );
+    }
+
+    #[test]
+    fn user_enum_never_variant_still_matchable() {
+        // type MaybeNever = Value(int) | Impossible(Never)
+        // match m { Value(v) -> ..., Impossible(_) -> ... }
+        // Matching the Never variant is allowed (arm is redundant but accepted)
+        let interner = SharedInterner::new();
+        let name_value = interner.intern("Value");
+        let name_impossible = interner.intern("Impossible");
+        let name_type = interner.intern("MaybeNever");
+
+        let mut pool = ori_types::Pool::new();
+        let enum_ty = pool.enum_type(
+            name_type,
+            &[
+                ori_types::EnumVariant {
+                    name: name_value,
+                    field_types: vec![ori_types::Idx::INT],
+                },
+                ori_types::EnumVariant {
+                    name: name_impossible,
+                    field_types: vec![ori_types::Idx::NEVER],
+                },
+            ],
+        );
+
+        let tree = DecisionTree::Switch {
+            path: vec![],
+            test_kind: TestKind::EnumTag,
+            edges: vec![
+                (
+                    TestValue::Tag {
+                        variant_index: 0,
+                        variant_name: name_value,
+                    },
+                    DecisionTree::Leaf {
+                        arm_index: 0,
+                        bindings: vec![],
+                    },
+                ),
+                (
+                    TestValue::Tag {
+                        variant_index: 1,
+                        variant_name: name_impossible,
+                    },
+                    DecisionTree::Leaf {
+                        arm_index: 1,
+                        bindings: vec![],
+                    },
+                ),
+            ],
+            default: None,
+        };
+        let result =
+            check_exhaustiveness(&tree, 2, span(), &arm_spans(2), enum_ty, &pool, &interner);
+        // No non-exhaustive error — both variants explicitly covered
+        let non_exhaustive: Vec<_> = result
+            .problems
+            .iter()
+            .filter(|p| matches!(p, PatternProblem::NonExhaustive { .. }))
+            .collect();
+        assert!(
+            non_exhaustive.is_empty(),
+            "expected no non-exhaustive problem, got: {non_exhaustive:?}",
+        );
+    }
+
+    #[test]
+    fn user_enum_all_never_variants_exhaustive() {
+        // type AllNever = A(Never) | B(Never)
+        // match m { } — empty match should be exhaustive (all variants uninhabited)
+        // However the tree would be a Fail in practice. For this test,
+        // we verify that check_user_enum skips all Never variants.
+        let interner = SharedInterner::new();
+        let name_a = interner.intern("A");
+        let name_b = interner.intern("B");
+        let name_type = interner.intern("AllNever");
+
+        let mut pool = ori_types::Pool::new();
+        let enum_ty = pool.enum_type(
+            name_type,
+            &[
+                ori_types::EnumVariant {
+                    name: name_a,
+                    field_types: vec![ori_types::Idx::NEVER],
+                },
+                ori_types::EnumVariant {
+                    name: name_b,
+                    field_types: vec![ori_types::Idx::NEVER],
+                },
+            ],
+        );
+
+        // Switch with no edges (nothing matched)
+        let tree = DecisionTree::Switch {
+            path: vec![],
+            test_kind: TestKind::EnumTag,
+            edges: vec![],
+            default: None,
+        };
+        let result =
+            check_exhaustiveness(&tree, 0, span(), &arm_spans(0), enum_ty, &pool, &interner);
+        assert!(
+            result.problems.is_empty(),
+            "all-Never enum should need no arms, got: {:?}",
+            result.problems
+        );
     }
 
     // ── Phase 3: List pattern exhaustiveness ─────────────────────

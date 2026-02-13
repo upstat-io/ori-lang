@@ -154,3 +154,28 @@ type Shape = Circle(radius: int) | Rectangle(width: int, height: int)
     [_] -> "one",
     [_, _, ..] -> "many",
 )
+
+// =============================================================================
+// Never variant omitted from exhaustiveness (uninhabited variant)
+// =============================================================================
+
+type MaybeNever = Value(v: int) | Impossible(n: Never)
+
+@test_never_variant_omittable tests @never_variant_omittable () -> void = run(
+    assert_eq(actual: never_variant_omittable(Value(v: 42)), expected: 42),
+)
+
+// Impossible(n: Never) can never be constructed, so omitting it is fine
+@never_variant_omittable (m: MaybeNever) -> int = match(m,
+    Value(v) -> v,
+)
+
+// Never variant can still be matched explicitly (not redundant)
+@test_never_variant_explicit tests @never_variant_explicit () -> void = run(
+    assert_eq(actual: never_variant_explicit(Value(v: 10)), expected: 10),
+)
+
+@never_variant_explicit (m: MaybeNever) -> int = match(m,
+    Value(v) -> v,
+    Impossible(_) -> 0,
+)

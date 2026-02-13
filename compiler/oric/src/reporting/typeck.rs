@@ -140,6 +140,9 @@ impl<'a> TypeErrorRenderer<'a> {
             TypeErrorKind::DuplicateField { field, .. } => {
                 format!("duplicate `{}`", self.format_name(*field))
             }
+            TypeErrorKind::UninhabitedStructField { field, .. } => {
+                format!("`{}`: uninhabited type", self.format_name(*field))
+            }
         }
     }
 

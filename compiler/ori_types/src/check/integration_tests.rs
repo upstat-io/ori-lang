@@ -1319,3 +1319,43 @@ impl Point {
         "Passing self (Point) where str expected should error"
     );
 }
+
+// ============================================================================
+// Never Type in Struct Fields (E0920)
+// ============================================================================
+
+#[test]
+fn never_struct_field_rejected() {
+    let source = r"
+type Bad = { value: int, impossible: Never }
+@use_it () -> int = 0
+@test_use_it tests @use_it () -> void = ()
+";
+    let result = check_source(source);
+    assert!(result.has_errors(), "Never struct field should be an error");
+    assert!(
+        result
+            .error_kinds()
+            .iter()
+            .any(|k| matches!(k, TypeErrorKind::UninhabitedStructField { .. })),
+        "Expected UninhabitedStructField error, got: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn never_in_sum_variant_allowed() {
+    let source = r"
+type MaybeNever = Value(v: int) | Impossible(n: Never)
+@use_it (m: MaybeNever) -> int = match(m, Value(v) -> v)
+@test_use_it tests @use_it () -> void = ()
+";
+    let result = check_source(source);
+    assert!(
+        !result
+            .error_kinds()
+            .iter()
+            .any(|k| matches!(k, TypeErrorKind::UninhabitedStructField { .. })),
+        "Never in sum variant should NOT produce UninhabitedStructField error"
+    );
+}

@@ -6,6 +6,21 @@ use crate::exec::call::{
     bind_captures, bind_parameters_with_defaults, check_arg_count, eval_function_val_call,
 };
 use crate::{Environment, EvalResult, FunctionValue, Mutability, Value};
+use ori_patterns::ControlAction;
+
+/// Catch `ControlAction::Propagate` at function call boundaries.
+///
+/// The `?` operator emits `Propagate(Value::Err(e))` or `Propagate(Value::None)` to signal
+/// early return from the enclosing function. At the function call boundary, this signal must
+/// be converted back to a normal return value — the function "returns" the error/none value.
+/// This mirrors Rust's `?` semantics: `fn foo() -> Result<T,E>` returns `Err(e)` on `?`.
+#[inline]
+fn catch_propagation(result: EvalResult) -> EvalResult {
+    match result {
+        Err(ControlAction::Propagate(v)) => Ok(v),
+        other => other,
+    }
+}
 
 impl Interpreter<'_> {
     /// Evaluate a function call.
@@ -39,7 +54,7 @@ impl Interpreter<'_> {
                 let result = call_interpreter.eval_can(f.can_body);
                 self.mode_state
                     .merge_child_counters(&call_interpreter.mode_state);
-                result
+                catch_propagation(result)
             }
             Value::MemoizedFunction(mf) => {
                 // Check cache first
@@ -67,6 +82,7 @@ impl Interpreter<'_> {
                 let result = call_interpreter.eval_can(f.can_body);
                 self.mode_state
                     .merge_child_counters(&call_interpreter.mode_state);
+                let result = catch_propagation(result);
 
                 // Cache the result before returning
                 if let Ok(ref value) = result {

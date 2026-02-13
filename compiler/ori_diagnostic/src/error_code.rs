@@ -51,6 +51,8 @@ pub enum ErrorCode {
     E0015,
     /// Floating-point duration/size literal not supported
     E0911,
+    /// Never type used as struct field (uninhabited struct)
+    E0920,
 
     // Parser Errors (E1xxx)
     /// Unexpected token
@@ -246,6 +248,7 @@ impl ErrorCode {
             ErrorCode::E0014 => "E0014",
             ErrorCode::E0015 => "E0015",
             ErrorCode::E0911 => "E0911",
+            ErrorCode::E0920 => "E0920",
             // Parser
             ErrorCode::E1001 => "E1001",
             ErrorCode::E1002 => "E1002",
@@ -402,6 +405,7 @@ impl ErrorCode {
                 | ErrorCode::E2016
                 | ErrorCode::E2017
                 | ErrorCode::E2018
+                | ErrorCode::E0920
         )
     }
 

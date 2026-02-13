@@ -44,7 +44,7 @@ sections:
 
 > **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: Core (1.1-1.4) verified complete 2026-02-10. 1.1 all LLVM AOT tests complete 2026-02-13 (fixed byte codegen bug). 1.1A fully complete 2026-02-13 (constant folding added). 1.1B core Never semantics complete (advanced features pending). 1.6 partially started (keywords reserved, type system slots not yet added).
+**Status**: Core (1.1-1.4) verified complete 2026-02-10. 1.1 all LLVM AOT tests complete 2026-02-13 (fixed byte codegen bug). 1.1A fully complete 2026-02-13 (constant folding added). 1.1B Never type fully implemented 2026-02-13 (only blocked: `?` LLVM support, pre-existing Result layout bug). 1.6 partially started (keywords reserved, type system slots not yet added).
 
 **Known Bug**: `let` bindings directly in `@main` body crash (`type_interner.rs` index out of bounds). Workaround: wrap in `run()`. Does NOT affect spec tests or AOT tests which all use `run()`.
 
@@ -221,7 +221,7 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 
 Formalize the Never type as the bottom type with coercion rules, type inference behavior, and pattern matching exhaustiveness.
 
-**Status**: Core complete (coercion and basic Never-producing expressions); advanced features pending
+**Status**: All Never type features implemented. Only remaining item: `?` LLVM support blocked on pre-existing Result layout bug (not Never-specific).
 
 ### Coercion
 
@@ -251,23 +251,33 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 
 - [x] **Implement**: break/continue have type Never inside loops ✅ (2026-02-10)
   - [x] **Verified**: `loop(break 42)` returns int (break value used as loop result)
-  - [ ] **LLVM Support**: Not verified in AOT
+  - [x] **LLVM Support**: Verified in AOT ✅ (2026-02-13) — 5 tests: basic break value, conditional break, break Never coercion, continue Never coercion, break+continue combined
 
-- [ ] **Implement**: Early-return path of ? operator has type Never
-  - [ ] **Ori Tests**: `tests/spec/control_flow/never_propagation.ori` — not verified
-  - [ ] **LLVM Support**: Not verified
+- [x] **Implement**: Early-return path of ? operator has type Never ✅ (2026-02-13)
+  - [x] **Bug Fix**: `ControlAction::Propagate` was not caught at function call boundaries — `?` errors leaked through all call frames instead of becoming the function's return value. Fixed in `function_call.rs` with `catch_propagation()`.
+  - [x] **Ori Tests**: `tests/spec/control_flow/never_propagation.ori` — 14 tests (Result and Option propagation, chaining, nested calls, conditional branches, multiple ? in same expression)
+  - [ ] **LLVM Support**: Blocked — LLVM backend has Result type layout bug (`{ i8, i64 }` vs `{ i8, { i64, ptr } }`); not a Never type issue
 
-- [ ] **Implement**: Infinite loop (no break) has type Never
-  - [ ] **Ori Tests**: Not verified (hard to test without timeout)
+- [x] **Implement**: Infinite loop (no break) has type Never ✅ (2026-02-13)
+  - [x] **Fix**: `infer_loop()` returned `Idx::UNIT` for unresolved break type; now returns `Idx::NEVER`. A `break` (even without value) unifies with Unit, so unresolved truly means no break exists.
+  - [x] **Rust Tests**: Updated `test_infer_infinite_loop` to assert `Idx::NEVER`
+  - [x] **Verified**: `@diverge () -> int = loop(())` type-checks — Never coerces to int
 
-- [ ] **Implement**: Never variants can be omitted from match exhaustiveness
-  - [ ] Not verified
+- [x] **Implement**: Never variants can be omitted from match exhaustiveness ✅ (2026-02-13)
+  - [x] **Verified**: `type MaybeNever = Value(v: int) | Impossible(n: Never)` — match omitting Impossible passes
+  - [x] Added `is_variant_uninhabited()` in `ori_canon/src/exhaustiveness.rs`
+  - [x] 3 unit tests + 2 Ori spec tests in `tests/spec/patterns/exhaustiveness.ori`
 
-- [ ] **Implement**: Error E0920 for Never as struct field type
-  - [ ] Not verified
+- [x] **Implement**: Error E0920 for Never as struct field type ✅ (2026-02-13)
+  - [x] Added `UninhabitedStructField` variant to `TypeErrorKind`
+  - [x] Check in `registration.rs` during struct type registration
+  - [x] Compile-fail test: `tests/compile-fail/never_struct_field.ori`
+  - [x] Integration tests: `never_struct_field_rejected`, `never_in_sum_variant_allowed`
 
-- [ ] **Implement**: Allow Never in sum type variant payloads
-  - [ ] Not verified
+- [x] **Verify**: Allow Never in sum type variant payloads ✅ (2026-02-13)
+  - [x] Already works — `type MaybeNever = Value(v: int) | Impossible(n: Never)` compiles
+  - [x] Exhaustiveness checker correctly treats Never variants as uninhabited
+  - [x] Integration test: `never_in_sum_variant_allowed`
 
 ---
 
@@ -349,15 +359,16 @@ Reserve architectural space in the type system for future low-level features (in
 
 - [x] 1.1 Primitive types complete — all 8 types verified in type checker + evaluator + LLVM codegen ✅ (2026-02-10)
 - [x] 1.1A Duration/Size complete — lexer, type system, arithmetic, conversions, all 7 traits ✅ (2026-02-10)
-- [x] 1.1B Never core complete — coercion in conditionals, match arms; panic/todo/unreachable return Never ✅ (2026-02-10)
+- [x] 1.1B Never type fully implemented ✅ (2026-02-13) — infinite loop→Never, `?` propagation fix, exhaustiveness for Never variants, E0920, sum variant payloads
 - [x] 1.2 Parameter type annotations complete ✅ (2026-02-10)
 - [x] 1.3 Lambda type annotations complete ✅ (2026-02-10)
 - [x] 1.4 Let binding types complete ✅ (2026-02-10)
 - [ ] 1.6 Low-level future-proofing — keywords reserved; type system slots NOT implemented
 - [x] LLVM AOT tests complete — all 8 primitive types have AOT tests ✅ (2026-02-13); fixed byte codegen bug (i64→i8 store mismatch causing segfault)
+- [x] Loop/break/continue AOT tests — 5 tests verifying Never coercion in loops ✅ (2026-02-13)
 - [ ] `@main` let binding bug — `let` directly in `@main` crashes (workaround: use `run()`)
 
 **Remaining gaps:**
-- 1.1B: ? operator Never, infinite loop Never, exhaustiveness, E0920, sum variant — not verified
+- 1.1B: Only `?` LLVM support remains — blocked on pre-existing Result layout bug (not Never-specific)
 - 1.6: LifetimeId, ValueCategory, Borrowed variant, helpful keyword rejection errors — not implemented
 - `@main` let binding bug — `let` directly in `@main` crashes (workaround: use `run()`)

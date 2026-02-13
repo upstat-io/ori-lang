@@ -1551,9 +1551,10 @@ fn infer_loop(engine: &mut InferEngine<'_>, arena: &ExprArena, body: ExprId, _sp
     // it unifies to their value type.
     let resolved = engine.resolve(break_ty);
     if engine.pool().tag(resolved) == Tag::Var {
-        // No break was encountered — this is an infinite loop (returns Never)
-        // or a loop that only uses `break` without a value (returns unit)
-        Idx::UNIT
+        // No break was encountered — this is an infinite loop (returns Never).
+        // Note: `break` without a value unifies break_ty with Unit, so
+        // Tag::Var here means truly no break exists in the loop body.
+        Idx::NEVER
     } else {
         resolved
     }
@@ -5819,8 +5820,8 @@ mod tests {
 
         let ty = infer_expr(&mut engine, &arena, loop_expr);
 
-        // Currently returns UNIT (break value tracking not yet implemented)
-        assert_eq!(ty, Idx::UNIT);
+        // Infinite loop (no break) returns Never — it never terminates
+        assert_eq!(ty, Idx::NEVER);
         assert!(!engine.has_errors());
     }
 

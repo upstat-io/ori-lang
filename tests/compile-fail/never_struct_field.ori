@@ -1,0 +1,10 @@
+// Test that Never type cannot be used as a struct field (E0920)
+// Spec: 06-types.md § Never Type § Restrictions
+//
+// Never cannot appear as a struct field type because it would make
+// the struct unconstructable. Use sum type variants with Never payloads instead.
+
+type BadStruct = { value: int, impossible: Never }
+
+#[compile_fail("cannot use `Never` as struct field type")]
+@test_never_struct_field () -> void = ()
