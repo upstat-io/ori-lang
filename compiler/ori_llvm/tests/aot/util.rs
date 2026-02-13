@@ -1,12 +1,18 @@
 //! Test Utilities for AOT Integration Tests
 //!
 //! Provides shared helpers for:
+//! - Compiling and running Ori programs through the AOT pipeline
 //! - Creating test fixtures (WASM modules, object files)
 //! - Binary format verification
 //! - Target configuration helpers
 //! - Command execution utilities
 
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use tempfile::TempDir;
 
 use ori_llvm::aot::{
     TargetConfig, TargetTripleComponents, WasmConfig, WasmMemoryConfig, WasmStackConfig,
@@ -414,6 +420,114 @@ pub fn llvm_objdump_available() -> bool {
 /// Check if wasm-opt is available.
 pub fn wasm_opt_available() -> bool {
     tool_available("wasm-opt")
+}
+
+// AOT compile-and-run helpers
+
+/// Get the path to the `ori` binary.
+pub fn ori_binary() -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .ancestors()
+        .find(|p| p.join("Cargo.toml").exists() && p.join("compiler").exists())
+        .map_or_else(|| PathBuf::from("/workspace"), Path::to_path_buf);
+
+    let release_path = workspace_root.join("target/release/ori");
+    if release_path.exists() {
+        return release_path;
+    }
+
+    let debug_path = workspace_root.join("target/debug/ori");
+    if debug_path.exists() {
+        return debug_path;
+    }
+
+    PathBuf::from("ori")
+}
+
+/// Compile and run an Ori program, returning the exit code.
+///
+/// Returns 0 on success, non-zero on failure, -1 if compilation fails.
+pub fn compile_and_run(source: &str) -> i32 {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_{id}.ori"));
+    let binary_path = temp_dir.path().join(format!("test_{id}"));
+
+    fs::write(&source_path, source).expect("Failed to write source");
+
+    let compile_result = Command::new(ori_binary())
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute ori build");
+
+    if !compile_result.status.success() {
+        eprintln!(
+            "Compilation failed:\n{}",
+            String::from_utf8_lossy(&compile_result.stderr)
+        );
+        return -1;
+    }
+
+    let run_result = Command::new(&binary_path)
+        .output()
+        .expect("Failed to execute binary");
+
+    run_result.status.code().unwrap_or(-1)
+}
+
+/// Assert that a program compiles and runs with exit code 0.
+pub fn assert_aot_success(source: &str, test_name: &str) {
+    let exit_code = compile_and_run(source);
+    assert_eq!(
+        exit_code, 0,
+        "{test_name} failed with exit code {exit_code}"
+    );
+}
+
+/// Compile and run an Ori program, capturing stdout output.
+///
+/// Returns `(exit_code, stdout, stderr)`.
+pub fn compile_and_run_capture(source: &str) -> (i32, String, String) {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_{id}.ori"));
+    let binary_path = temp_dir.path().join(format!("test_{id}"));
+
+    fs::write(&source_path, source).expect("Failed to write source");
+
+    let compile_result = Command::new(ori_binary())
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute ori build");
+
+    if !compile_result.status.success() {
+        let stderr = String::from_utf8_lossy(&compile_result.stderr).to_string();
+        return (-1, String::new(), stderr);
+    }
+
+    let run_result = Command::new(&binary_path)
+        .output()
+        .expect("Failed to execute binary");
+
+    let exit_code = run_result.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&run_result.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&run_result.stderr).to_string();
+    (exit_code, stdout, stderr)
 }
 
 /// Create a minimal valid WASM module for testing.

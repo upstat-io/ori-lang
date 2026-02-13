@@ -85,7 +85,7 @@ sections:
 
 > **SPEC**: `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM partial (built-in methods ✅, user impl dispatch ✅, operator traits ❌), proposals pending (3.7-3.17). Verified 2026-02-10: ~239 Ori tests + 3,068 full suite pass. Key gap: primitive trait methods (.clone()/.hash()/.to_str() on int/str/etc.) not callable — only work on #[derive] types and Ordering.
+**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests added (28 passing, 11 ignored for codegen gaps), proposals pending (3.7-3.17). Verified 2026-02-13: ~239 Ori tests + 28 AOT trait tests pass. Key LLVM gaps: Ordering type resolution, .unwrap_or(), default trait methods, mixed impl block field access, derive codegen.
 
 ---
 
@@ -153,7 +153,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Implemented**: `.len()` method works on all collection types ✅ (2026-02-10)
   - [x] **Tests**: `ori_eval/src/methods.rs` — list/string/range method tests
   - [x] **LLVM Support**: LLVM codegen for `.len()` — inline IR via field extraction in `lower_calls.rs`
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — `.len()` codegen (test file doesn't exist)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.len()` on lists (3 tests) and strings (2 tests) ✅ (2026-02-13)
 
 ### 3.0.2 IsEmpty Trait
 
@@ -163,7 +163,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Implemented**: `.is_empty()` method works on all collection types ✅ (2026-02-10)
   - [x] **Tests**: `ori_eval/src/methods.rs` — list/string method tests
   - [x] **LLVM Support**: LLVM codegen for `.is_empty()` — inline IR in `lower_calls.rs`
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — `.is_empty()` codegen (test file doesn't exist)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_empty()` on lists (2 tests) and strings (2 tests) ✅ (2026-02-13)
 
 ### 3.0.3 Option Methods
 
@@ -171,7 +171,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Rust Tests**: `ori_eval/src/methods.rs` — `option_methods` module
   - [x] **Ori Tests**: `tests/spec/traits/core/option.ori` — 16 tests (all pass)
   - [x] **LLVM Support**: LLVM codegen for Option — tag-based dispatch in `lower_calls.rs`
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Option methods codegen (test file doesn't exist)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_some()` (2), `.is_none()` (2), `.unwrap()` (1) pass; `.unwrap_or()` (2) ignored (not in LLVM dispatch table) ✅ (2026-02-13)
 - [x] **Type checking**: `infer_builtin_method()` handles Option methods ✅ (2026-02-10)
 
 ### 3.0.4 Result Methods
@@ -180,7 +180,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Rust Tests**: `ori_eval/src/methods.rs` — `result_methods` module
   - [x] **Ori Tests**: `tests/spec/traits/core/result.ori` — 14 tests (all pass)
   - [x] **LLVM Support**: LLVM codegen for Result — tag-based dispatch in `lower_calls.rs`
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Result methods codegen (test file doesn't exist)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_ok()` (2), `.is_err()` (2), `.unwrap()` (1) all pass ✅ (2026-02-13)
 - [x] **Type checking**: `infer_builtin_method()` handles Result methods ✅ (2026-02-10)
 
 ### 3.0.5 Comparable Trait
@@ -191,7 +191,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Type checking**: All comparable types have `.compare(other:)` returning `Ordering` ✅ (2026-02-10)
   - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/` — numeric.rs, string.rs, list.rs, option.rs, result.rs, units.rs, ordering.rs
   - [x] **LLVM Support**: LLVM codegen for `.compare()` — inline arithmetic/comparison in `lower_calls.rs`
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — `.compare()` codegen (test file doesn't exist)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — 7 tests written but all ignored: `.compare()` return type not resolved as Ordering (`Idx::ERROR`) in codegen
 
 ### 3.0.6 Eq Trait
 
@@ -199,7 +199,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_eq_bound_satisfied_by_*`
   - [x] **Ori Tests**: `tests/spec/traits/core/eq.ori` — 23 tests (all pass)
   - [x] **LLVM Support**: LLVM codegen for `==`/`!=` on all primitives ✅
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Eq codegen (test file doesn't exist)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `==`/`!=` for int, bool, str (3 tests) ✅ (2026-02-13)
 
 ### Additional Traits
 
@@ -225,8 +225,8 @@ The following traits are also recognized in trait bounds:
   - [x] **Write test**: `tests/spec/traits/declaration.ori` (test_default_method: summarize(), is_large())
   - [x] **Run test**: All pass
   - **Note**: Added default trait method dispatch in `module_loading.rs:collect_impl_methods()`
-  - [ ] **LLVM Support**: LLVM codegen for default trait method dispatch — user impl methods work, but no dedicated test
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_tests.rs` — default method codegen (test file doesn't exist)
+  - [ ] **LLVM Support**: LLVM codegen for default trait method dispatch — not compiled/dispatched in codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — test written but ignored: default methods not compiled in LLVM
 
 - [x] **Implement**: Associated types — spec/08-declarations.md § Associated Types ✅ (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — associated type parsing
@@ -254,21 +254,21 @@ The following traits are also recognized in trait bounds:
   - [x] **Write test**: `tests/spec/traits/declaration.ori` (Widget.get_name(), Widget.get_value(), Point.distance_from_origin())
   - [x] **Run test**: All pass
   - [x] **LLVM Support**: LLVM codegen — type-qualified method dispatch (`_ori_Type$method` mangling)
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_tests.rs` — inherent impl codegen (test file doesn't exist)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — inherent impl (3 tests: method, params, field access), impl_method_field_access (1 test) ✅ (2026-02-13)
 
 - [x] **Implement**: Trait impl `impl Trait for Type { ... }` — spec/08-declarations.md § Trait Implementations ✅ (2026-02-10)
   - [x] **Write test**: `tests/spec/traits/declaration.ori` (Widget.greet(), Widget.describe(), Widget.summarize())
   - [x] **Run test**: All pass
   - [x] **LLVM Support**: LLVM codegen — trait method dispatch (`_ori_Type$$Trait$method` mangling)
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_tests.rs` — trait impl codegen (test file doesn't exist)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — trait impl (2 tests: single method, multiple methods) ✅ (2026-02-13)
 
 - [x] **Implement**: Generic impl `impl<T: Bound> Trait for Container<T>` — spec/08-declarations.md § Generic Implementations ✅ (2026-02-10)
   - [x] **Rust Tests**: Parser tests in `ori_parse/src/grammar/item.rs`
   - [x] **Ori Tests**: `tests/spec/traits/generic_impl.ori` — 4 tests (inherent + trait impls on generic types, all pass)
   - **Note**: Added `parse_impl_type()` to handle `Box<T>` syntax in impl blocks. Also added
     `Type::Applied` for tracking instantiated generic types with their type arguments.
-  - [ ] **LLVM Support**: LLVM codegen for generic impl method dispatch — not explicitly tested
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_tests.rs` — generic impl codegen (test file doesn't exist)
+  - [ ] **LLVM Support**: LLVM codegen for generic impl method dispatch — not explicitly tested (no monomorphization)
+  - [ ] **LLVM Rust Tests**: Skipped — generic functions are skipped in AOT codegen (no monomorphization pipeline)
 
 - [x] **Implement**: Where clauses — spec/08-declarations.md § Where Clauses ✅ (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — where clause parsing
@@ -280,7 +280,7 @@ The following traits are also recognized in trait bounds:
   - [x] **Rust Tests**: Covered by existing tests in `typeck/infer/call.rs`
   - [x] **Ori Tests**: `tests/spec/traits/declaration.ori`, `tests/spec/traits/generic_impl.ori`, `tests/spec/traits/method_call_test.ori`
   - [x] **LLVM Support**: 4-tier dispatch: built-in → type-qualified → bare-name → LLVM module lookup
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_tests.rs` — method resolution codegen (test file doesn't exist)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — method resolution (1 test: inherent takes priority over trait impl) ✅ (2026-02-13)
 
 - [x] **Implement**: User-defined impl method dispatch in evaluator ✅ (2026-02-10)
   - Created `UserMethodRegistry` to store impl method definitions
@@ -290,7 +290,7 @@ The following traits are also recognized in trait bounds:
   - [x] **Write test**: Rust unit tests in `eval/evaluator.rs` (4 tests covering dispatch, self access, args, fallback)
   - [x] **Run test**: All pass
   - [x] **LLVM Support**: LLVM codegen for user-defined impl method dispatch — `compile_impls()` in `function_compiler.rs`
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_tests.rs` — user method dispatch codegen (test file doesn't exist)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — user method dispatch covered by inherent impl and trait impl tests ✅ (2026-02-13)
 
 - [x] **Implement**: Coherence checking — spec/08-declarations.md § Coherence ✅ (2026-02-10)
   - `register_impl` returns `Result<(), CoherenceError>` and checks for conflicts
@@ -428,7 +428,12 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 - [x] Derive traits (3.5): Eq, Clone, Hashable, Printable complete; Default NOT tested ✅ (2026-02-10)
 - [x] ~239 trait test annotations pass (len: 14, is_empty: 13, option: 16, result: 14, comparable: 58, eq: 23, declaration: 16, self_param: 9, self_type: 7, inheritance: 6, generic_impl: 4, associated_types: 4, default_type_params: 2, default_assoc_types: 4, derive: 16, ordering: 32, method_call: 1) ✅ (2026-02-10)
 - [x] Run full test suite: `./test-all.sh` — 3,068 passed, 0 failed ✅ (2026-02-10)
-- [ ] LLVM test files missing: `ori_llvm/tests/trait_method_tests.rs`, `ori_llvm/tests/trait_tests.rs`, `ori_llvm/tests/derive_tests.rs` don't exist
+- [x] LLVM AOT tests: `ori_llvm/tests/aot/traits.rs` — 28 passing, 11 ignored (codegen gaps: Ordering type, .unwrap_or(), default methods, mixed impl blocks) ✅ (2026-02-13)
+  - [ ] **Gap**: `.compare()` return type not resolved as Ordering in codegen (7 tests ignored)
+  - [ ] **Gap**: `.unwrap_or()` not in Option LLVM dispatch table (2 tests ignored)
+  - [ ] **Gap**: Default trait methods not compiled in LLVM (1 test ignored)
+  - [ ] **Gap**: Trait impl self passed as pointer breaks field extraction (1 test ignored)
+  - [ ] **Gap**: Derive methods not wired into LLVM codegen (evaluator-only)
 - [ ] Operator traits (3.21): User-defined operator dispatch NOT working (entirely commented out)
 - [ ] Proposals (3.7-3.17): Iterator, Debug, Formattable, Into, etc. — all not started
 
