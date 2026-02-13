@@ -27,7 +27,7 @@ mod tests {
     use crate::diagnostic::Severity;
     use crate::ir::Span;
     use crate::problem::semantic::DefinitionKind;
-    use crate::problem::{Problem, SemanticProblem};
+    use crate::problem::SemanticProblem;
     use ori_ir::StringInterner;
 
     fn test_interner() -> StringInterner {
@@ -37,9 +37,10 @@ mod tests {
     #[test]
     fn test_semantic_error_diagnostic() {
         let interner = test_interner();
+        let name = interner.intern("unknown_var");
         let problem = SemanticProblem::UnknownIdentifier {
             span: Span::new(10, 15),
-            name: "unknown_var".into(),
+            name,
             similar: None,
         };
 
@@ -53,10 +54,12 @@ mod tests {
     #[test]
     fn test_unknown_identifier_with_suggestion() {
         let interner = test_interner();
+        let foo = interner.intern("foo");
+        let for_kw = interner.intern("for");
         let problem = SemanticProblem::UnknownIdentifier {
             span: Span::new(20, 25),
-            name: "foo".into(),
-            similar: Some("for".into()),
+            name: foo,
+            similar: Some(for_kw),
         };
 
         let diag = problem.into_diagnostic(&interner);
@@ -69,9 +72,10 @@ mod tests {
     #[test]
     fn test_duplicate_definition_diagnostic() {
         let interner = test_interner();
+        let bar = interner.intern("bar");
         let problem = SemanticProblem::DuplicateDefinition {
             span: Span::new(100, 110),
-            name: "bar".into(),
+            name: bar,
             kind: DefinitionKind::Function,
             first_span: Span::new(10, 20),
         };
@@ -87,9 +91,10 @@ mod tests {
     #[test]
     fn test_warning_diagnostic() {
         let interner = test_interner();
+        let x = interner.intern("x");
         let problem = SemanticProblem::UnusedVariable {
             span: Span::new(5, 10),
-            name: "x".into(),
+            name: x,
         };
 
         let diag = problem.into_diagnostic(&interner);
@@ -99,27 +104,25 @@ mod tests {
     }
 
     #[test]
-    fn test_problem_into_diagnostic() {
+    fn test_semantic_problems_into_diagnostics() {
         let interner = test_interner();
-        let problems = [
-            Problem::Semantic(SemanticProblem::UnknownIdentifier {
-                span: Span::new(10, 15),
-                name: "foo".into(),
-                similar: None,
-            }),
-            Problem::Semantic(SemanticProblem::MissingTest {
-                span: Span::new(20, 30),
-                func_name: "my_func".into(),
-            }),
-        ];
+        let foo = interner.intern("foo");
+        let my_func = interner.intern("my_func");
 
-        let diagnostics: Vec<_> = problems
-            .iter()
-            .map(|p| p.into_diagnostic(&interner))
-            .collect();
+        let diag1 = SemanticProblem::UnknownIdentifier {
+            span: Span::new(10, 15),
+            name: foo,
+            similar: None,
+        }
+        .into_diagnostic(&interner);
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].code, ErrorCode::E2003);
-        assert_eq!(diagnostics[1].code, ErrorCode::E3001);
+        let diag2 = SemanticProblem::MissingTest {
+            span: Span::new(20, 30),
+            func_name: my_func,
+        }
+        .into_diagnostic(&interner);
+
+        assert_eq!(diag1.code, ErrorCode::E2003);
+        assert_eq!(diag2.code, ErrorCode::E3001);
     }
 }

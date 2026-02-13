@@ -461,14 +461,7 @@ impl EvalErrorSnapshot {
 
         let notes = err.notes.iter().map(|n| n.message.clone()).collect();
 
-        // Use Debug format of the kind variant for a stable, machine-readable name
-        let kind_name = format!("{:?}", err.kind);
-        // Truncate at first '{' or '(' to get just the variant name
-        let kind_name = kind_name
-            .find(['{', '('])
-            .map_or(kind_name.as_str(), |pos| &kind_name[..pos])
-            .trim()
-            .to_string();
+        let kind_name = err.kind.variant_name().to_string();
 
         let error_code = crate::problem::eval::error_code_for_kind(&err.kind);
 
@@ -530,6 +523,12 @@ impl ModuleEvalResult {
     }
 
     /// Create an error result from a plain message (no structured error info).
+    ///
+    /// Used by [`crate::query::evaluated()`] to gate on upstream failures (lex,
+    /// parse, type errors) without carrying structured diagnostics. Consumers
+    /// that need rich error detail (spans, suggestions, error codes) should use
+    /// `report_frontend_errors()` in `commands/mod.rs` instead, which queries
+    /// each phase separately for full diagnostic quality.
     pub fn failure(error: String) -> Self {
         ModuleEvalResult {
             result: None,

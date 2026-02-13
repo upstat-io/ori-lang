@@ -66,7 +66,6 @@ pub mod edit;
 pub mod eval;
 pub mod problem;
 pub mod reporting;
-pub mod suggest;
 pub mod test;
 pub mod testing;
 pub mod tracing_setup;

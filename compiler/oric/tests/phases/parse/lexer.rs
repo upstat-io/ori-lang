@@ -990,17 +990,14 @@ fn test_error_has_suggestions() {
     }
 }
 
-// ── LexProblem → Diagnostic rendering ─────────────────────────────────────
+// ── render_lex_error → Diagnostic rendering ───────────────────────────────
 
 #[test]
-fn test_lex_problem_renders_semicolon_diagnostic() {
+fn test_render_lex_error_semicolon_diagnostic() {
     use ori_lexer::lex_error::LexError;
 
-    let interner = test_interner();
     let err = LexError::semicolon(ori_ir::Span::new(10, 11));
-
-    let problem = oric::problem::LexProblem::Error(err);
-    let diag = problem.into_diagnostic(&interner);
+    let diag = oric::problem::lex::render_lex_error(&err);
 
     assert!(diag.is_error());
     assert_eq!(diag.code, ori_diagnostic::ErrorCode::E0007);
@@ -1012,19 +1009,16 @@ fn test_lex_problem_renders_semicolon_diagnostic() {
 }
 
 #[test]
-fn test_lex_problem_renders_confusable_diagnostic() {
+fn test_render_lex_error_confusable_diagnostic() {
     use ori_lexer::lex_error::LexError;
 
-    let interner = test_interner();
     let err = LexError::unicode_confusable(
         ori_ir::Span::new(0, 3),
         '\u{201C}',
         '"',
         "Left Double Quotation Mark",
     );
-
-    let problem = oric::problem::LexProblem::Error(err);
-    let diag = problem.into_diagnostic(&interner);
+    let diag = oric::problem::lex::render_lex_error(&err);
 
     assert!(diag.is_error());
     assert_eq!(diag.code, ori_diagnostic::ErrorCode::E0011);
@@ -1036,14 +1030,11 @@ fn test_lex_problem_renders_confusable_diagnostic() {
 }
 
 #[test]
-fn test_lex_problem_renders_unterminated_string() {
+fn test_render_lex_error_unterminated_string() {
     use ori_lexer::lex_error::LexError;
 
-    let interner = test_interner();
     let err = LexError::unterminated_string(ori_ir::Span::new(0, 10));
-
-    let problem = oric::problem::LexProblem::Error(err);
-    let diag = problem.into_diagnostic(&interner);
+    let diag = oric::problem::lex::render_lex_error(&err);
 
     assert!(diag.is_error());
     assert_eq!(diag.code, ori_diagnostic::ErrorCode::E0001);
@@ -1051,33 +1042,15 @@ fn test_lex_problem_renders_unterminated_string() {
 }
 
 #[test]
-fn test_lex_problem_renders_invalid_escape() {
+fn test_render_lex_error_invalid_escape() {
     use ori_lexer::lex_error::LexError;
 
-    let interner = test_interner();
     let err = LexError::invalid_string_escape(ori_ir::Span::new(5, 7), 'z');
-
-    let problem = oric::problem::LexProblem::Error(err);
-    let diag = problem.into_diagnostic(&interner);
+    let diag = oric::problem::lex::render_lex_error(&err);
 
     assert!(diag.is_error());
     assert_eq!(diag.code, ori_diagnostic::ErrorCode::E0005);
     assert!(diag.message.contains("\\z"));
-}
-
-// ── Problem enum integration ──────────────────────────────────────────────
-
-#[test]
-fn test_problem_from_lex_problem() {
-    use ori_lexer::lex_error::LexError;
-
-    let err = LexError::semicolon(ori_ir::Span::new(0, 1));
-    let lex_problem = oric::problem::LexProblem::Error(err);
-    let problem: oric::problem::Problem = lex_problem.into();
-
-    assert!(problem.is_lex());
-    assert!(!problem.is_semantic());
-    assert_eq!(problem.span(), ori_ir::Span::new(0, 1));
 }
 
 // ── Detached doc comment warnings ─────────────────────────────────────────

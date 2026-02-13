@@ -65,8 +65,8 @@ pub use registry::{
 pub use tag::Tag;
 pub use type_error::{
     diff_types, edit_distance, find_closest_field, suggest_field_typo, ArityMismatchKind,
-    ContextKind, ErrorContext, Expected, ExpectedOrigin, SequenceKind, Severity, TypeCheckError,
-    TypeErrorKind, TypeProblem,
+    ContextKind, ErrorContext, Expected, ExpectedOrigin, ImportErrorKind, SequenceKind, Severity,
+    TypeCheckError, TypeErrorKind, TypeProblem,
 };
 pub use unify::{ArityKind, Rank, UnifyContext, UnifyEngine, UnifyError};
 

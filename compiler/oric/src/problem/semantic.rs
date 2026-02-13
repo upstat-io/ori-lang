@@ -2,11 +2,21 @@
 //!
 //! These problems occur during semantic analysis (name resolution,
 //! duplicate definitions, visibility, etc.).
+//!
+//! # Active vs Reserved Variants
+//!
+//! Most variants are **reserved for a future dedicated semantic analysis pass**
+//! and have no production producer yet. Their `into_diagnostic()` rendering is
+//! implemented and tested so diagnostics are ready when the pass lands.
+//!
+//! Currently produced in production code:
+//! - `MissingTest` — `commands/check.rs` (test coverage analysis)
+//! - `NonExhaustiveMatch` — via `pattern_problem_to_diagnostic()`
+//! - `RedundantPattern` — via `pattern_problem_to_diagnostic()`
 
-use super::impl_has_span;
 use crate::diagnostic::{Diagnostic, ErrorCode};
 use crate::ir::Span;
-use ori_ir::StringInterner;
+use ori_ir::{Name, StringInterner};
 
 /// Problems that occur during semantic analysis.
 ///
@@ -17,30 +27,30 @@ pub enum SemanticProblem {
     /// Unknown identifier (not in scope).
     UnknownIdentifier {
         span: Span,
-        name: String,
+        name: Name,
         /// Similar name if found (for "did you mean?").
-        similar: Option<String>,
+        similar: Option<Name>,
     },
 
     /// Unknown function reference.
     UnknownFunction {
         span: Span,
-        name: String,
-        similar: Option<String>,
+        name: Name,
+        similar: Option<Name>,
     },
 
     /// Unknown config variable.
     UnknownConfig {
         span: Span,
-        name: String,
+        name: Name,
         /// Similar config name if found (for "did you mean?").
-        similar: Option<String>,
+        similar: Option<Name>,
     },
 
     /// Duplicate definition.
     DuplicateDefinition {
         span: Span,
-        name: String,
+        name: Name,
         kind: DefinitionKind,
         first_span: Span,
     },
@@ -48,38 +58,43 @@ pub enum SemanticProblem {
     /// Accessing private item.
     PrivateAccess {
         span: Span,
-        name: String,
+        name: Name,
         kind: DefinitionKind,
     },
 
     /// Import not found.
-    ImportNotFound { span: Span, path: String },
+    ImportNotFound {
+        span: Span,
+        /// File path — not an identifier, stays as `String`.
+        path: String,
+    },
 
     /// Imported item not found in module.
     ImportedItemNotFound {
         span: Span,
-        item: String,
+        item: Name,
+        /// Module path — not an identifier, stays as `String`.
         module: String,
     },
 
     /// Mutating immutable binding.
     ImmutableMutation {
         span: Span,
-        name: String,
+        name: Name,
         binding_span: Span,
     },
 
     /// Using uninitialized variable.
-    UseBeforeInit { span: Span, name: String },
+    UseBeforeInit { span: Span, name: Name },
 
     /// Function missing required test.
-    MissingTest { span: Span, func_name: String },
+    MissingTest { span: Span, func_name: Name },
 
     /// Test targets unknown function.
     TestTargetNotFound {
         span: Span,
-        test_name: String,
-        target_name: String,
+        test_name: Name,
+        target_name: Name,
     },
 
     /// Break outside loop.
@@ -92,13 +107,13 @@ pub enum SemanticProblem {
     SelfOutsideMethod { span: Span },
 
     /// Recursive function without base case.
-    InfiniteRecursion { span: Span, func_name: String },
+    InfiniteRecursion { span: Span, func_name: Name },
 
     /// Unused variable warning.
-    UnusedVariable { span: Span, name: String },
+    UnusedVariable { span: Span, name: Name },
 
     /// Unused function warning.
-    UnusedFunction { span: Span, name: String },
+    UnusedFunction { span: Span, name: Name },
 
     /// Unreachable code warning.
     UnreachableCode { span: Span },
@@ -106,6 +121,7 @@ pub enum SemanticProblem {
     /// Pattern matching is not exhaustive.
     NonExhaustiveMatch {
         span: Span,
+        /// Pattern descriptions — not identifiers, stays as `Vec<String>`.
         missing_patterns: Vec<String>,
     },
 
@@ -113,12 +129,12 @@ pub enum SemanticProblem {
     RedundantPattern { span: Span, covered_by_span: Span },
 
     /// Capability not provided.
-    MissingCapability { span: Span, capability: String },
+    MissingCapability { span: Span, capability: Name },
 
     /// Capability already provided.
     DuplicateCapability {
         span: Span,
-        capability: String,
+        capability: Name,
         first_span: Span,
     },
 }
@@ -153,41 +169,35 @@ impl std::fmt::Display for DefinitionKind {
     }
 }
 
-// Generate HasSpan implementation using macro.
-// All variants use the standard `span` field.
-impl_has_span! {
-    SemanticProblem {
-        span: [
-            UnknownIdentifier,
-            UnknownFunction,
-            UnknownConfig,
-            DuplicateDefinition,
-            PrivateAccess,
-            ImportNotFound,
-            ImportedItemNotFound,
-            ImmutableMutation,
-            UseBeforeInit,
-            MissingTest,
-            TestTargetNotFound,
-            BreakOutsideLoop,
-            ContinueOutsideLoop,
-            SelfOutsideMethod,
-            InfiniteRecursion,
-            UnusedVariable,
-            UnusedFunction,
-            UnreachableCode,
-            NonExhaustiveMatch,
-            RedundantPattern,
-            MissingCapability,
-            DuplicateCapability,
-        ],
-    }
-}
-
 impl SemanticProblem {
     /// Get the primary span of this problem.
+    ///
+    /// All variants carry a `span` field as their primary source location.
     pub fn span(&self) -> Span {
-        <Self as super::HasSpan>::span(self)
+        match self {
+            SemanticProblem::UnknownIdentifier { span, .. }
+            | SemanticProblem::UnknownFunction { span, .. }
+            | SemanticProblem::UnknownConfig { span, .. }
+            | SemanticProblem::DuplicateDefinition { span, .. }
+            | SemanticProblem::PrivateAccess { span, .. }
+            | SemanticProblem::ImportNotFound { span, .. }
+            | SemanticProblem::ImportedItemNotFound { span, .. }
+            | SemanticProblem::ImmutableMutation { span, .. }
+            | SemanticProblem::UseBeforeInit { span, .. }
+            | SemanticProblem::MissingTest { span, .. }
+            | SemanticProblem::TestTargetNotFound { span, .. }
+            | SemanticProblem::BreakOutsideLoop { span }
+            | SemanticProblem::ContinueOutsideLoop { span }
+            | SemanticProblem::SelfOutsideMethod { span }
+            | SemanticProblem::InfiniteRecursion { span, .. }
+            | SemanticProblem::UnusedVariable { span, .. }
+            | SemanticProblem::UnusedFunction { span, .. }
+            | SemanticProblem::UnreachableCode { span }
+            | SemanticProblem::NonExhaustiveMatch { span, .. }
+            | SemanticProblem::RedundantPattern { span, .. }
+            | SemanticProblem::MissingCapability { span, .. }
+            | SemanticProblem::DuplicateCapability { span, .. } => *span,
+        }
     }
 
     /// Check if this is a warning (vs error).
@@ -206,11 +216,7 @@ impl SemanticProblem {
 
     /// Convert this problem into a diagnostic.
     ///
-    /// The interner parameter is reserved for future Name field lookups.
-    #[expect(
-        unused_variables,
-        reason = "interner reserved for future Name field conversions"
-    )]
+    /// Uses the interner to resolve interned `Name` fields to display strings.
     pub fn into_diagnostic(&self, interner: &StringInterner) -> Diagnostic {
         match self {
             SemanticProblem::UnknownIdentifier {
@@ -218,11 +224,13 @@ impl SemanticProblem {
                 name,
                 similar,
             } => {
+                let name = interner.lookup(*name);
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("unknown identifier `{name}`"))
                     .with_label(*span, "not found in this scope");
-                if let Some(suggestion) = similar {
-                    diag = diag.with_suggestion(format!("try using `{suggestion}`"));
+                if let Some(s) = similar {
+                    let s = interner.lookup(*s);
+                    diag = diag.with_suggestion(format!("try using `{s}`"));
                 }
                 diag
             }
@@ -232,11 +240,13 @@ impl SemanticProblem {
                 name,
                 similar,
             } => {
+                let name = interner.lookup(*name);
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("unknown function `@{name}`"))
                     .with_label(*span, "function not found");
-                if let Some(suggestion) = similar {
-                    diag = diag.with_suggestion(format!("try using `@{suggestion}`"));
+                if let Some(s) = similar {
+                    let s = interner.lookup(*s);
+                    diag = diag.with_suggestion(format!("try using `@{s}`"));
                 }
                 diag
             }
@@ -246,11 +256,13 @@ impl SemanticProblem {
                 name,
                 similar,
             } => {
+                let name = interner.lookup(*name);
                 let mut diag = Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("unknown config `${name}`"))
                     .with_label(*span, "config not found");
-                if let Some(suggestion) = similar {
-                    diag = diag.with_suggestion(format!("try using `${suggestion}`"));
+                if let Some(s) = similar {
+                    let s = interner.lookup(*s);
+                    diag = diag.with_suggestion(format!("try using `${s}`"));
                 }
                 diag
             }
@@ -260,12 +272,16 @@ impl SemanticProblem {
                 name,
                 kind,
                 first_span,
-            } => Diagnostic::error(ErrorCode::E2006)
-                .with_message(format!("duplicate {kind} definition `{name}`"))
-                .with_label(*span, "duplicate definition")
-                .with_secondary_label(*first_span, "first definition here"),
+            } => {
+                let name = interner.lookup(*name);
+                Diagnostic::error(ErrorCode::E2006)
+                    .with_message(format!("duplicate {kind} definition `{name}`"))
+                    .with_label(*span, "duplicate definition")
+                    .with_secondary_label(*first_span, "first definition here")
+            }
 
             SemanticProblem::PrivateAccess { span, name, kind } => {
+                let name = interner.lookup(*name);
                 Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("{kind} `{name}` is private"))
                     .with_label(*span, "private, cannot access")
@@ -280,6 +296,7 @@ impl SemanticProblem {
                 .with_note("check that the file path is correct and the file exists"),
 
             SemanticProblem::ImportedItemNotFound { span, item, module } => {
+                let item = interner.lookup(*item);
                 Diagnostic::error(ErrorCode::E2003)
                     .with_message(format!("cannot find `{item}` in module `{module}`"))
                     .with_label(*span, "not found in module")
@@ -290,32 +307,45 @@ impl SemanticProblem {
                 span,
                 name,
                 binding_span,
-            } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("cannot mutate immutable binding `{name}`"))
-                .with_label(*span, "cannot mutate")
-                .with_secondary_label(*binding_span, "defined as immutable here")
-                .with_suggestion("use `let mut` for mutable bindings"),
+            } => {
+                let name = interner.lookup(*name);
+                Diagnostic::error(ErrorCode::E2003)
+                    .with_message(format!("cannot mutate immutable binding `{name}`"))
+                    .with_label(*span, "cannot mutate")
+                    .with_secondary_label(*binding_span, "defined as immutable here")
+                    .with_suggestion("use `let mut` for mutable bindings")
+            }
 
-            SemanticProblem::UseBeforeInit { span, name } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("use of possibly uninitialized `{name}`"))
-                .with_label(*span, "used before initialization")
-                .with_suggestion("initialize the variable before using it"),
+            SemanticProblem::UseBeforeInit { span, name } => {
+                let name = interner.lookup(*name);
+                Diagnostic::error(ErrorCode::E2003)
+                    .with_message(format!("use of possibly uninitialized `{name}`"))
+                    .with_label(*span, "used before initialization")
+                    .with_suggestion("initialize the variable before using it")
+            }
 
-            SemanticProblem::MissingTest { span, func_name } => Diagnostic::error(ErrorCode::E3001)
-                .with_message(format!("function `@{func_name}` has no tests"))
-                .with_label(*span, "missing test")
-                .with_note("every function requires at least one test"),
+            SemanticProblem::MissingTest { span, func_name } => {
+                let func_name = interner.lookup(*func_name);
+                Diagnostic::error(ErrorCode::E3001)
+                    .with_message(format!("function `@{func_name}` has no tests"))
+                    .with_label(*span, "missing test")
+                    .with_note("every function requires at least one test")
+            }
 
             SemanticProblem::TestTargetNotFound {
                 span,
                 test_name,
                 target_name,
-            } => Diagnostic::error(ErrorCode::E3001)
-                .with_message(format!(
-                    "test `@{test_name}` targets unknown function `@{target_name}`"
-                ))
-                .with_label(*span, "function not found")
-                .with_note("check the function name in `tests @target_name`"),
+            } => {
+                let test_name = interner.lookup(*test_name);
+                let target_name = interner.lookup(*target_name);
+                Diagnostic::error(ErrorCode::E3001)
+                    .with_message(format!(
+                        "test `@{test_name}` targets unknown function `@{target_name}`"
+                    ))
+                    .with_label(*span, "function not found")
+                    .with_note("check the function name in `tests @target_name`")
+            }
 
             SemanticProblem::BreakOutsideLoop { span } => Diagnostic::error(ErrorCode::E3002)
                 .with_message("`break` outside of loop")
@@ -339,6 +369,7 @@ impl SemanticProblem {
                 .with_suggestion("define this function inside an `impl` block"),
 
             SemanticProblem::InfiniteRecursion { span, func_name } => {
+                let func_name = interner.lookup(*func_name);
                 Diagnostic::warning(ErrorCode::E3003)
                     .with_message(format!("function `@{func_name}` may recurse infinitely"))
                     .with_label(*span, "unconditional recursion")
@@ -346,6 +377,7 @@ impl SemanticProblem {
             }
 
             SemanticProblem::UnusedVariable { span, name } => {
+                let name = interner.lookup(*name);
                 let mut diag = Diagnostic::warning(ErrorCode::E3003)
                     .with_message(format!("unused variable `{name}`"))
                     .with_label(*span, "never used");
@@ -355,10 +387,13 @@ impl SemanticProblem {
                 diag
             }
 
-            SemanticProblem::UnusedFunction { span, name } => Diagnostic::warning(ErrorCode::E3003)
-                .with_message(format!("unused function `@{name}`"))
-                .with_label(*span, "never called")
-                .with_suggestion("remove the function or add a call to it"),
+            SemanticProblem::UnusedFunction { span, name } => {
+                let name = interner.lookup(*name);
+                Diagnostic::warning(ErrorCode::E3003)
+                    .with_message(format!("unused function `@{name}`"))
+                    .with_label(*span, "never called")
+                    .with_suggestion("remove the function or add a call to it")
+            }
 
             SemanticProblem::UnreachableCode { span } => Diagnostic::warning(ErrorCode::E3003)
                 .with_message("unreachable code")
@@ -385,6 +420,7 @@ impl SemanticProblem {
                 .with_secondary_label(*covered_by_span, "already covered by this pattern"),
 
             SemanticProblem::MissingCapability { span, capability } => {
+                let capability = interner.lookup(*capability);
                 Diagnostic::error(ErrorCode::E3002)
                     .with_message(format!("missing capability `{capability}`"))
                     .with_label(*span, "capability not provided")
@@ -397,10 +433,13 @@ impl SemanticProblem {
                 span,
                 capability,
                 first_span,
-            } => Diagnostic::error(ErrorCode::E2006)
-                .with_message(format!("duplicate capability `{capability}`"))
-                .with_label(*span, "duplicate")
-                .with_secondary_label(*first_span, "first provided here"),
+            } => {
+                let capability = interner.lookup(*capability);
+                Diagnostic::error(ErrorCode::E2006)
+                    .with_message(format!("duplicate capability `{capability}`"))
+                    .with_label(*span, "duplicate")
+                    .with_secondary_label(*first_span, "first provided here")
+            }
         }
     }
 }
@@ -434,6 +473,35 @@ pub fn pattern_problem_to_diagnostic(
     semantic.into_diagnostic(interner)
 }
 
+/// Check that every function (except `@main`) has at least one test targeting it.
+///
+/// Returns a `SemanticProblem::MissingTest` for each untested function. This
+/// centralizes test coverage analysis so all consumers (check command, test runner,
+/// future `ori lint`) use the same logic.
+pub fn check_test_coverage(
+    module: &ori_ir::ast::Module,
+    interner: &StringInterner,
+) -> Vec<SemanticProblem> {
+    let main_name = interner.intern("main");
+
+    let mut tested: std::collections::HashSet<Name> = std::collections::HashSet::new();
+    for test in &module.tests {
+        for target in &test.targets {
+            tested.insert(*target);
+        }
+    }
+
+    module
+        .functions
+        .iter()
+        .filter(|f| f.name != main_name && !tested.contains(&f.name))
+        .map(|f| SemanticProblem::MissingTest {
+            span: f.span,
+            func_name: f.name,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,8 +510,8 @@ mod tests {
     fn test_unknown_identifier() {
         let problem = SemanticProblem::UnknownIdentifier {
             span: Span::new(20, 25),
-            name: "foo".into(),
-            similar: Some("for".into()),
+            name: Name::from_raw(1),
+            similar: Some(Name::from_raw(2)),
         };
 
         assert_eq!(problem.span(), Span::new(20, 25));
@@ -454,7 +522,7 @@ mod tests {
     fn test_duplicate_definition() {
         let problem = SemanticProblem::DuplicateDefinition {
             span: Span::new(100, 110),
-            name: "bar".into(),
+            name: Name::from_raw(1),
             kind: DefinitionKind::Function,
             first_span: Span::new(10, 20),
         };
@@ -467,7 +535,7 @@ mod tests {
     fn test_unused_variable() {
         let problem = SemanticProblem::UnusedVariable {
             span: Span::new(5, 10),
-            name: "x".into(),
+            name: Name::from_raw(1),
         };
 
         assert_eq!(problem.span(), Span::new(5, 10));
@@ -497,19 +565,19 @@ mod tests {
     fn test_problem_equality() {
         let p1 = SemanticProblem::UnknownIdentifier {
             span: Span::new(20, 25),
-            name: "foo".into(),
-            similar: Some("for".into()),
+            name: Name::from_raw(1),
+            similar: Some(Name::from_raw(2)),
         };
 
         let p2 = SemanticProblem::UnknownIdentifier {
             span: Span::new(20, 25),
-            name: "foo".into(),
-            similar: Some("for".into()),
+            name: Name::from_raw(1),
+            similar: Some(Name::from_raw(2)),
         };
 
         let p3 = SemanticProblem::UnknownIdentifier {
             span: Span::new(20, 25),
-            name: "bar".into(),
+            name: Name::from_raw(3),
             similar: None,
         };
 
@@ -523,14 +591,14 @@ mod tests {
 
         let p1 = SemanticProblem::UnknownIdentifier {
             span: Span::new(20, 25),
-            name: "foo".into(),
-            similar: Some("for".into()),
+            name: Name::from_raw(1),
+            similar: Some(Name::from_raw(2)),
         };
 
         let p2 = p1.clone();
         let p3 = SemanticProblem::UnusedVariable {
             span: Span::new(5, 10),
-            name: "x".into(),
+            name: Name::from_raw(4),
         };
 
         let mut set = HashSet::new();

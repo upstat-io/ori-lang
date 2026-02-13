@@ -117,8 +117,7 @@ impl Evaluator<'_> {
                 &imp_module.module_path,
                 file_path,
                 imp_canon.as_ref(),
-            )
-            .map_err(|e| vec![e])?;
+            )?;
         }
 
         // Clone the shared arena (O(1) Arc::clone) for methods in this module.

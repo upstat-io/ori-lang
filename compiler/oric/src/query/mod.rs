@@ -30,6 +30,15 @@
 //! boundary is at `typed()`: function content hashes are computed from the
 //! `TypeCheckResult` and used as cache keys for ARC IR and object artifacts.
 //! See `commands/compile_common.rs` for the back-end caching strategy.
+//!
+//! # Side-Cache Invariant
+//!
+//! Three session-scoped caches (`PoolCache`, `CanonCache`, `ImportsCache`) live
+//! **outside** Salsa's dependency graph because their values can't satisfy
+//! `Clone + Eq + Hash`. The `typed()` query calls [`invalidate_file_caches()`]
+//! before re-type-checking to clear stale entries. Any future code path that
+//! triggers re-type-checking MUST also call `invalidate_file_caches()` — failing
+//! to do so will cause silent correctness bugs from stale cache reads.
 
 use crate::db::Db;
 use crate::eval::{EvalOutput, Evaluator, ModuleEvalResult};
@@ -39,37 +48,22 @@ use crate::parser::{self, ParseOutput};
 use crate::typeck;
 use ori_ir::canon::SharedCanonResult;
 use ori_types::TypeCheckResult;
-use std::path::Path;
 
 #[cfg(test)]
 mod tests;
 
-/// Parse a file by path, loading it through the Salsa input system.
-///
-/// This is the proper way to parse imported files - it creates a `SourceFile`
-/// input if needed, ensuring that changes to the file are tracked by Salsa.
-///
-/// Returns None if the file cannot be read or has parse errors.
-pub fn parsed_path(db: &dyn Db, path: &Path) -> Option<ParseOutput> {
-    let file = db.load_file(path)?;
-    let result = parsed(db, file);
-    if result.has_errors() {
-        None
-    } else {
-        Some(result)
-    }
-}
-
 /// Lex a source file into tokens and errors.
 ///
-/// This is the foundational lexing query. Both [`tokens()`] and [`lex_errors()`]
-/// derive from this result, ensuring the lexer runs at most once per file version.
+/// Derives from [`tokens_with_metadata()`], projecting out just the tokens
+/// and errors. This ensures the lexer runs **at most once** per file version,
+/// even when both `lex_result()` and `tokens_with_metadata()` are queried
+/// (which happens in every `report_frontend_errors()` call).
 ///
 /// # Caching Behavior
 ///
-/// - First call: executes the lexer, caches result
+/// - First call: triggers `tokens_with_metadata()`, projects result
 /// - Subsequent calls (same input): returns cached `LexResult`
-/// - After `file.set_text()`: re-lexes on next call
+/// - After `file.set_text()`: re-derives on next call
 ///
 /// # Early Cutoff
 ///
@@ -77,9 +71,11 @@ pub fn parsed_path(db: &dyn Db, path: &Path) -> Option<ParseOutput> {
 /// identical (same hash), downstream queries won't recompute.
 #[salsa::tracked]
 pub fn lex_result(db: &dyn Db, file: SourceFile) -> ori_lexer::LexResult {
-    tracing::debug!(path = %file.path(db).display(), "lexing");
-    let text = file.text(db);
-    ori_lexer::lex_full(text, db.interner())
+    let output = tokens_with_metadata(db, file);
+    ori_lexer::LexResult {
+        tokens: output.tokens,
+        errors: output.errors,
+    }
 }
 
 /// Tokenize a source file.
@@ -145,6 +141,38 @@ pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseOutput {
     parser::parse(&toks, db.interner())
 }
 
+/// Proof that side-caches have been invalidated or are not applicable.
+///
+/// `type_check_with_imports_and_pool()` requires this token to prevent callers
+/// from accidentally skipping `invalidate_file_caches()`. The token can only
+/// be created by:
+/// - [`invalidate_file_caches()`] — for Salsa-tracked files
+/// - [`CacheGuard::untracked()`] — for synthetic/imported modules not in Salsa
+pub(crate) struct CacheGuard(());
+
+impl CacheGuard {
+    /// For modules not tracked by Salsa (no cache entries to invalidate).
+    ///
+    /// These modules are type-checked directly without going through `typed()`,
+    /// so they have no entries in `PoolCache`/`CanonCache`/`ImportsCache`.
+    pub(crate) fn untracked() -> Self {
+        CacheGuard(())
+    }
+}
+
+/// Invalidate all session-scoped side-caches for a file.
+///
+/// Must be called whenever a file is (re-)type-checked, since these caches
+/// are not tracked by Salsa's automatic dependency system.
+///
+/// Returns a [`CacheGuard`] token proving invalidation was performed.
+fn invalidate_file_caches(db: &dyn Db, path: &std::path::Path) -> CacheGuard {
+    db.pool_cache().invalidate(path);
+    db.canon_cache().invalidate(path);
+    db.imports_cache().invalidate(path);
+    CacheGuard(())
+}
+
 /// Type check a source file.
 ///
 /// This query performs type inference and checking on a parsed module
@@ -177,13 +205,12 @@ pub fn typed(db: &dyn Db, file: SourceFile) -> TypeCheckResult {
     let parse_result = parsed(db, file);
     let file_path = file.path(db);
 
-    // Invalidate session-scoped side-caches for this file. When Salsa
-    // re-executes typed(), the source has changed, so prior canon and
-    // import resolution results are stale.
-    db.canon_cache().invalidate(file_path);
-    db.imports_cache().invalidate(file_path);
+    // Invalidate side-caches before re-type-checking. The returned CacheGuard
+    // proves to type_check_with_imports_and_pool() that invalidation was performed.
+    let guard = invalidate_file_caches(db, file_path);
 
-    let (result, pool) = typeck::type_check_with_imports_and_pool(db, &parse_result, file_path);
+    let (result, pool) =
+        typeck::type_check_with_imports_and_pool(db, &parse_result, file_path, guard);
 
     // Cache the Pool for callers that need it alongside the TypeCheckResult.
     db.pool_cache().store(file_path.clone(), pool);
@@ -230,8 +257,11 @@ pub(crate) fn type_check_module(
         };
         Some((tc, pool))
     } else {
+        // No SourceFile → imported module not tracked by Salsa. No cache
+        // entries exist to invalidate, so CacheGuard::untracked() is correct.
+        let guard = CacheGuard::untracked();
         let (tc, pool) =
-            crate::typeck::type_check_with_imports_and_pool(db, parse_output, module_path);
+            crate::typeck::type_check_with_imports_and_pool(db, parse_output, module_path, guard);
         Some((tc, std::sync::Arc::new(pool)))
     }
 }

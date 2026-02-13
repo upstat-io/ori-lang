@@ -47,3 +47,27 @@ pub struct UseItem {
     /// Whether this is a private import (`::name`)
     pub is_private: bool,
 }
+
+/// Structured error kind for import resolution failures.
+///
+/// The canonical definition for import errors, used by both the import
+/// resolver (`oric::imports`) and the type checker (`ori_types`). Having
+/// a single enum eliminates lossy mapping between duplicate definitions.
+///
+/// # Salsa Compatibility
+/// Derives `Copy, Clone, Eq, PartialEq, Hash, Debug` for Salsa query results.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum ImportErrorKind {
+    /// Module file could not be found at any candidate path.
+    ModuleNotFound,
+    /// Specific item not found in the imported module.
+    ItemNotFound,
+    /// Attempt to import a private item without `::` prefix.
+    PrivateAccess,
+    /// Circular import detected during resolution.
+    CircularImport,
+    /// Empty module path (e.g., `use {} { ... }`).
+    EmptyModulePath,
+    /// Module alias import combined with individual items.
+    ModuleAliasWithItems,
+}
