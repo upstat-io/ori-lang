@@ -521,8 +521,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let type_info = self.type_info.get(recv_type);
                 match &type_info {
                     TypeInfo::Option { .. } => self.lower_option_method(recv_val, method, args),
-                    TypeInfo::Result { .. } => {
-                        self.lower_result_method(recv_val, recv_type, method, args)
+                    TypeInfo::Result { ok, .. } => {
+                        self.lower_result_method(recv_val, *ok, method, args)
                     }
                     TypeInfo::List { .. } => {
                         self.lower_list_method(recv_val, recv_type, method, args)
@@ -685,10 +685,14 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// For `unwrap()`, the extracted payload is the `max(ok, err)` slot.
     /// When ok and err have different sizes, the payload must be coerced
     /// to the actual ok type via alloca reinterpretation.
+    ///
+    /// `ok_type` is passed from the dispatch site (`lower_builtin_method`)
+    /// which already destructured `TypeInfo::Result { ok, .. }`, avoiding
+    /// a redundant `TypeInfoStore::get` call.
     fn lower_result_method(
         &mut self,
         recv: ValueId,
-        recv_type: Idx,
+        ok_type: Idx,
         method: &str,
         _args: CanRange,
     ) -> Option<ValueId> {
@@ -700,13 +704,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             "is_err" => Some(self.builder.icmp_ne(tag, zero, "res.is_err")),
             "unwrap" => {
                 let payload = self.builder.extract_value(recv, 1, "res.unwrap")?;
-                // Coerce payload to ok type (payload may be larger than ok type)
-                let type_info = self.type_info.get(recv_type);
-                if let TypeInfo::Result { ok, .. } = type_info {
-                    Some(self.coerce_payload(payload, ok))
-                } else {
-                    Some(payload)
-                }
+                // Coerce payload to ok type (payload slot may be larger than ok type
+                // due to Result's max(ok, err) layout)
+                Some(self.coerce_payload(payload, ok_type))
             }
             _ => None,
         }
