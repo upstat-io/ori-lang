@@ -449,38 +449,11 @@ pub fn ori_binary() -> PathBuf {
 ///
 /// Returns 0 on success, non-zero on failure, -1 if compilation fails.
 pub fn compile_and_run(source: &str) -> i32 {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let source_path = temp_dir.path().join(format!("test_{id}.ori"));
-    let binary_path = temp_dir.path().join(format!("test_{id}"));
-
-    fs::write(&source_path, source).expect("Failed to write source");
-
-    let compile_result = Command::new(ori_binary())
-        .args([
-            "build",
-            source_path.to_str().unwrap(),
-            "-o",
-            binary_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute ori build");
-
-    if !compile_result.status.success() {
-        eprintln!(
-            "Compilation failed:\n{}",
-            String::from_utf8_lossy(&compile_result.stderr)
-        );
-        return -1;
+    let (exit_code, _, stderr) = compile_and_run_capture(source);
+    if exit_code < 0 && !stderr.is_empty() {
+        eprintln!("Compilation failed:\n{stderr}");
     }
-
-    let run_result = Command::new(&binary_path)
-        .output()
-        .expect("Failed to execute binary");
-
-    run_result.status.code().unwrap_or(-1)
+    exit_code
 }
 
 /// Assert that a program compiles and runs with exit code 0.
