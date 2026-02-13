@@ -21,6 +21,7 @@
 
 use ori_ir::canon::{CanArena, CanExpr, CanId, CanNode, ConstValue, ConstantPool};
 use ori_ir::{BinaryOp, UnaryOp};
+use ori_ir::{DurationUnit, SizeUnit};
 
 // Constness Classification
 
@@ -206,6 +207,14 @@ fn extract_const_value(
         CanExpr::Str(name) => Some(ConstValue::Str(*name)),
         CanExpr::Char(c) => Some(ConstValue::Char(*c)),
         CanExpr::Unit => Some(ConstValue::Unit),
+        CanExpr::Duration { value, unit } => Some(ConstValue::Duration {
+            value: *value,
+            unit: *unit,
+        }),
+        CanExpr::Size { value, unit } => Some(ConstValue::Size {
+            value: *value,
+            unit: *unit,
+        }),
         CanExpr::Constant(cid) => Some(constants.get(*cid).clone()),
         _ => None,
     }
@@ -317,6 +326,192 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
             Some(ConstValue::Int(a >> shift))
         }
 
+        // Duration arithmetic (normalized to nanoseconds).
+        (
+            BinaryOp::Add,
+            ConstValue::Duration { value: a, unit: au },
+            ConstValue::Duration { value: b, unit: bu },
+        ) => {
+            let (a_ns, b_ns) = (au.to_nanos(*a), bu.to_nanos(*b));
+            a_ns.checked_add(b_ns).map(|r| ConstValue::Duration {
+                value: r.cast_unsigned(),
+                unit: DurationUnit::Nanoseconds,
+            })
+        }
+        (
+            BinaryOp::Sub,
+            ConstValue::Duration { value: a, unit: au },
+            ConstValue::Duration { value: b, unit: bu },
+        ) => {
+            let (a_ns, b_ns) = (au.to_nanos(*a), bu.to_nanos(*b));
+            a_ns.checked_sub(b_ns).map(|r| ConstValue::Duration {
+                value: r.cast_unsigned(),
+                unit: DurationUnit::Nanoseconds,
+            })
+        }
+        (
+            BinaryOp::Mod,
+            ConstValue::Duration { value: a, unit: au },
+            ConstValue::Duration { value: b, unit: bu },
+        ) => {
+            let (a_ns, b_ns) = (au.to_nanos(*a), bu.to_nanos(*b));
+            a_ns.checked_rem(b_ns).map(|r| ConstValue::Duration {
+                value: r.cast_unsigned(),
+                unit: DurationUnit::Nanoseconds,
+            })
+        }
+
+        // Duration comparisons.
+        (
+            BinaryOp::Eq,
+            ConstValue::Duration { value: a, unit: au },
+            ConstValue::Duration { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_nanos(*a) == bu.to_nanos(*b))),
+        (
+            BinaryOp::NotEq,
+            ConstValue::Duration { value: a, unit: au },
+            ConstValue::Duration { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_nanos(*a) != bu.to_nanos(*b))),
+        (
+            BinaryOp::Lt,
+            ConstValue::Duration { value: a, unit: au },
+            ConstValue::Duration { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_nanos(*a) < bu.to_nanos(*b))),
+        (
+            BinaryOp::LtEq,
+            ConstValue::Duration { value: a, unit: au },
+            ConstValue::Duration { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_nanos(*a) <= bu.to_nanos(*b))),
+        (
+            BinaryOp::Gt,
+            ConstValue::Duration { value: a, unit: au },
+            ConstValue::Duration { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_nanos(*a) > bu.to_nanos(*b))),
+        (
+            BinaryOp::GtEq,
+            ConstValue::Duration { value: a, unit: au },
+            ConstValue::Duration { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_nanos(*a) >= bu.to_nanos(*b))),
+
+        // Duration * int, int * Duration, Duration / int.
+        (BinaryOp::Mul, ConstValue::Duration { value: a, unit: au }, ConstValue::Int(b)) => au
+            .to_nanos(*a)
+            .checked_mul(*b)
+            .map(|r| ConstValue::Duration {
+                value: r.cast_unsigned(),
+                unit: DurationUnit::Nanoseconds,
+            }),
+        (BinaryOp::Mul, ConstValue::Int(a), ConstValue::Duration { value: b, unit: bu }) => a
+            .checked_mul(bu.to_nanos(*b))
+            .map(|r| ConstValue::Duration {
+                value: r.cast_unsigned(),
+                unit: DurationUnit::Nanoseconds,
+            }),
+        (BinaryOp::Div, ConstValue::Duration { value: a, unit: au }, ConstValue::Int(b)) => au
+            .to_nanos(*a)
+            .checked_div(*b)
+            .map(|r| ConstValue::Duration {
+                value: r.cast_unsigned(),
+                unit: DurationUnit::Nanoseconds,
+            }),
+
+        // Size arithmetic (normalized to bytes).
+        (
+            BinaryOp::Add,
+            ConstValue::Size { value: a, unit: au },
+            ConstValue::Size { value: b, unit: bu },
+        ) => au
+            .to_bytes(*a)
+            .checked_add(bu.to_bytes(*b))
+            .map(|r| ConstValue::Size {
+                value: r,
+                unit: SizeUnit::Bytes,
+            }),
+        (
+            BinaryOp::Sub,
+            ConstValue::Size { value: a, unit: au },
+            ConstValue::Size { value: b, unit: bu },
+        ) => au
+            .to_bytes(*a)
+            .checked_sub(bu.to_bytes(*b))
+            .map(|r| ConstValue::Size {
+                value: r,
+                unit: SizeUnit::Bytes,
+            }),
+        (
+            BinaryOp::Mod,
+            ConstValue::Size { value: a, unit: au },
+            ConstValue::Size { value: b, unit: bu },
+        ) => {
+            let (a_b, b_b) = (au.to_bytes(*a), bu.to_bytes(*b));
+            a_b.checked_rem(b_b).map(|r| ConstValue::Size {
+                value: r,
+                unit: SizeUnit::Bytes,
+            })
+        }
+
+        // Size comparisons.
+        (
+            BinaryOp::Eq,
+            ConstValue::Size { value: a, unit: au },
+            ConstValue::Size { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_bytes(*a) == bu.to_bytes(*b))),
+        (
+            BinaryOp::NotEq,
+            ConstValue::Size { value: a, unit: au },
+            ConstValue::Size { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_bytes(*a) != bu.to_bytes(*b))),
+        (
+            BinaryOp::Lt,
+            ConstValue::Size { value: a, unit: au },
+            ConstValue::Size { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_bytes(*a) < bu.to_bytes(*b))),
+        (
+            BinaryOp::LtEq,
+            ConstValue::Size { value: a, unit: au },
+            ConstValue::Size { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_bytes(*a) <= bu.to_bytes(*b))),
+        (
+            BinaryOp::Gt,
+            ConstValue::Size { value: a, unit: au },
+            ConstValue::Size { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_bytes(*a) > bu.to_bytes(*b))),
+        (
+            BinaryOp::GtEq,
+            ConstValue::Size { value: a, unit: au },
+            ConstValue::Size { value: b, unit: bu },
+        ) => Some(ConstValue::Bool(au.to_bytes(*a) >= bu.to_bytes(*b))),
+
+        // Size * int, int * Size, Size / int (reject negative int).
+        (BinaryOp::Mul, ConstValue::Size { value: a, unit: au }, ConstValue::Int(b)) if *b >= 0 => {
+            au.to_bytes(*a)
+                .checked_mul(b.cast_unsigned())
+                .map(|r| ConstValue::Size {
+                    value: r,
+                    unit: SizeUnit::Bytes,
+                })
+        }
+        (BinaryOp::Mul, ConstValue::Int(a), ConstValue::Size { value: b, unit: bu }) if *a >= 0 => {
+            a.cast_unsigned()
+                .checked_mul(bu.to_bytes(*b))
+                .map(|r| ConstValue::Size {
+                    value: r,
+                    unit: SizeUnit::Bytes,
+                })
+        }
+        (BinaryOp::Div, ConstValue::Size { value: a, unit: au }, ConstValue::Int(b)) => {
+            if *b <= 0 {
+                None // Negative or zero divisor for Size — defer to runtime.
+            } else {
+                au.to_bytes(*a)
+                    .checked_div(b.cast_unsigned())
+                    .map(|r| ConstValue::Size {
+                        value: r,
+                        unit: SizeUnit::Bytes,
+                    })
+            }
+        }
+
         // Unmatched type combinations — can't fold.
         _ => None,
     }
@@ -332,6 +527,13 @@ fn fold_unary(op: UnaryOp, val: &ConstValue) -> Option<ConstValue> {
         (UnaryOp::Neg, ConstValue::Float(bits)) => {
             Some(ConstValue::Float((-f64::from_bits(*bits)).to_bits()))
         }
+        (UnaryOp::Neg, ConstValue::Duration { value, unit }) => {
+            let nanos = unit.to_nanos(*value);
+            nanos.checked_neg().map(|r| ConstValue::Duration {
+                value: r.cast_unsigned(),
+                unit: DurationUnit::Nanoseconds,
+            })
+        }
         (UnaryOp::Not, ConstValue::Bool(v)) => Some(ConstValue::Bool(!v)),
         (UnaryOp::BitNot, ConstValue::Int(v)) => Some(ConstValue::Int(!v)),
         _ => None,
@@ -342,7 +544,9 @@ fn fold_unary(op: UnaryOp, val: &ConstValue) -> Option<ConstValue> {
 mod tests {
     use ori_ir::ast::Expr;
     use ori_ir::canon::{CanExpr, ConstValue};
-    use ori_ir::{BinaryOp, ExprArena, ExprKind, SharedInterner, Span, UnaryOp};
+    use ori_ir::{
+        BinaryOp, DurationUnit, ExprArena, ExprKind, SharedInterner, SizeUnit, Span, UnaryOp,
+    };
     use ori_types::{Idx, TypeCheckResult, TypedModule};
 
     use crate::lower;
@@ -751,5 +955,653 @@ mod tests {
             matches!(result.arena.kind(result.root), CanExpr::Binary { .. }),
             "runtime binary should not be folded"
         );
+    }
+
+    // Duration constant folding
+
+    #[test]
+    fn fold_duration_addition() {
+        // 1s + 500ms → Constant(1_500_000_000ns)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 1,
+                unit: DurationUnit::Seconds,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 500,
+                unit: DurationUnit::Milliseconds,
+            },
+            Span::DUMMY,
+        ));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Add,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::DURATION, Idx::DURATION, Idx::DURATION]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(
+                    *result.constants.get(*cid),
+                    ConstValue::Duration {
+                        value: 1_500_000_000,
+                        unit: DurationUnit::Nanoseconds
+                    }
+                );
+            }
+            other => panic!("expected Constant(1500000000ns), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_duration_subtraction() {
+        // 2s - 500ms → Constant(1_500_000_000ns)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 2,
+                unit: DurationUnit::Seconds,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 500,
+                unit: DurationUnit::Milliseconds,
+            },
+            Span::DUMMY,
+        ));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Sub,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::DURATION, Idx::DURATION, Idx::DURATION]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(
+                    *result.constants.get(*cid),
+                    ConstValue::Duration {
+                        value: 1_500_000_000,
+                        unit: DurationUnit::Nanoseconds
+                    }
+                );
+            }
+            other => panic!("expected Constant(1500000000ns), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_duration_comparison() {
+        // 1s > 500ms → Constant(true)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 1,
+                unit: DurationUnit::Seconds,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 500,
+                unit: DurationUnit::Milliseconds,
+            },
+            Span::DUMMY,
+        ));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Gt,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::DURATION, Idx::DURATION, Idx::BOOL]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(*result.constants.get(*cid), ConstValue::Bool(true));
+            }
+            other => panic!("expected Constant(true), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_duration_equality_across_units() {
+        // 1000ms == 1s → Constant(true)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 1000,
+                unit: DurationUnit::Milliseconds,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 1,
+                unit: DurationUnit::Seconds,
+            },
+            Span::DUMMY,
+        ));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Eq,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::DURATION, Idx::DURATION, Idx::BOOL]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(*result.constants.get(*cid), ConstValue::Bool(true));
+            }
+            other => panic!("expected Constant(true), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_duration_negation() {
+        // -(1s) → Constant(-1_000_000_000ns)
+        let mut arena = ExprArena::new();
+        let operand = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 1,
+                unit: DurationUnit::Seconds,
+            },
+            Span::DUMMY,
+        ));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Unary {
+                op: UnaryOp::Neg,
+                operand,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::DURATION, Idx::DURATION]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(
+                    *result.constants.get(*cid),
+                    ConstValue::Duration {
+                        value: (-1_000_000_000_i64).cast_unsigned(),
+                        unit: DurationUnit::Nanoseconds,
+                    }
+                );
+            }
+            other => panic!("expected Constant(-1000000000ns), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_duration_mul_int() {
+        // 500ms * 3 → Constant(1_500_000_000ns)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 500,
+                unit: DurationUnit::Milliseconds,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(ExprKind::Int(3), Span::DUMMY));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Mul,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::DURATION, Idx::INT, Idx::DURATION]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(
+                    *result.constants.get(*cid),
+                    ConstValue::Duration {
+                        value: 1_500_000_000,
+                        unit: DurationUnit::Nanoseconds
+                    }
+                );
+            }
+            other => panic!("expected Constant(1500000000ns), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_int_mul_duration() {
+        // 2 * 1s → Constant(2_000_000_000ns)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(ExprKind::Int(2), Span::DUMMY));
+        let right = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 1,
+                unit: DurationUnit::Seconds,
+            },
+            Span::DUMMY,
+        ));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Mul,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::INT, Idx::DURATION, Idx::DURATION]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(
+                    *result.constants.get(*cid),
+                    ConstValue::Duration {
+                        value: 2_000_000_000,
+                        unit: DurationUnit::Nanoseconds
+                    }
+                );
+            }
+            other => panic!("expected Constant(2000000000ns), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_duration_div_int() {
+        // 1s / 4 → Constant(250_000_000ns)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 1,
+                unit: DurationUnit::Seconds,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(ExprKind::Int(4), Span::DUMMY));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Div,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::DURATION, Idx::INT, Idx::DURATION]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(
+                    *result.constants.get(*cid),
+                    ConstValue::Duration {
+                        value: 250_000_000,
+                        unit: DurationUnit::Nanoseconds
+                    }
+                );
+            }
+            other => panic!("expected Constant(250000000ns), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_fold_duration_div_zero() {
+        // 1s / 0 should NOT be folded.
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Duration {
+                value: 1,
+                unit: DurationUnit::Seconds,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(ExprKind::Int(0), Span::DUMMY));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Div,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::DURATION, Idx::INT, Idx::DURATION]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        assert!(
+            matches!(result.arena.kind(result.root), CanExpr::Binary { .. }),
+            "duration div by zero should not be folded"
+        );
+    }
+
+    // Size constant folding
+
+    #[test]
+    fn fold_size_addition() {
+        // 1kb + 500b → Constant(1500b)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 1,
+                unit: SizeUnit::Kilobytes,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 500,
+                unit: SizeUnit::Bytes,
+            },
+            Span::DUMMY,
+        ));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Add,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::SIZE, Idx::SIZE, Idx::SIZE]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(
+                    *result.constants.get(*cid),
+                    ConstValue::Size {
+                        value: 1500,
+                        unit: SizeUnit::Bytes
+                    }
+                );
+            }
+            other => panic!("expected Constant(1500b), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_size_subtraction() {
+        // 1kb - 500b → Constant(500b)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 1,
+                unit: SizeUnit::Kilobytes,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 500,
+                unit: SizeUnit::Bytes,
+            },
+            Span::DUMMY,
+        ));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Sub,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::SIZE, Idx::SIZE, Idx::SIZE]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(
+                    *result.constants.get(*cid),
+                    ConstValue::Size {
+                        value: 500,
+                        unit: SizeUnit::Bytes
+                    }
+                );
+            }
+            other => panic!("expected Constant(500b), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_fold_size_negative_result() {
+        // 500b - 1kb → NOT folded (result would be negative).
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 500,
+                unit: SizeUnit::Bytes,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 1,
+                unit: SizeUnit::Kilobytes,
+            },
+            Span::DUMMY,
+        ));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Sub,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::SIZE, Idx::SIZE, Idx::SIZE]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        assert!(
+            matches!(result.arena.kind(result.root), CanExpr::Binary { .. }),
+            "size subtraction yielding negative should not be folded"
+        );
+    }
+
+    #[test]
+    fn fold_size_comparison() {
+        // 1mb > 1kb → Constant(true)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 1,
+                unit: SizeUnit::Megabytes,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 1,
+                unit: SizeUnit::Kilobytes,
+            },
+            Span::DUMMY,
+        ));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Gt,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::SIZE, Idx::SIZE, Idx::BOOL]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(*result.constants.get(*cid), ConstValue::Bool(true));
+            }
+            other => panic!("expected Constant(true), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_size_mul_int() {
+        // 500b * 3 → Constant(1500b)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 500,
+                unit: SizeUnit::Bytes,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(ExprKind::Int(3), Span::DUMMY));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Mul,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::SIZE, Idx::INT, Idx::SIZE]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(
+                    *result.constants.get(*cid),
+                    ConstValue::Size {
+                        value: 1500,
+                        unit: SizeUnit::Bytes
+                    }
+                );
+            }
+            other => panic!("expected Constant(1500b), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_fold_size_mul_negative_int() {
+        // 500b * -1 → NOT folded (negative multiplier for Size).
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 500,
+                unit: SizeUnit::Bytes,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(ExprKind::Int(-1), Span::DUMMY));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Mul,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::SIZE, Idx::INT, Idx::SIZE]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        assert!(
+            matches!(result.arena.kind(result.root), CanExpr::Binary { .. }),
+            "size * negative int should not be folded"
+        );
+    }
+
+    #[test]
+    fn fold_size_div_int() {
+        // 1kb / 4 → Constant(250b)
+        let mut arena = ExprArena::new();
+        let left = arena.alloc_expr(Expr::new(
+            ExprKind::Size {
+                value: 1,
+                unit: SizeUnit::Kilobytes,
+            },
+            Span::DUMMY,
+        ));
+        let right = arena.alloc_expr(Expr::new(ExprKind::Int(4), Span::DUMMY));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op: BinaryOp::Div,
+                left,
+                right,
+            },
+            Span::DUMMY,
+        ));
+
+        let type_result = test_type_result(vec![Idx::SIZE, Idx::INT, Idx::SIZE]);
+        let pool = ori_types::Pool::new();
+        let interner = test_interner();
+
+        let result = lower(&arena, &type_result, &pool, root, &interner);
+        match result.arena.kind(result.root) {
+            CanExpr::Constant(cid) => {
+                assert_eq!(
+                    *result.constants.get(*cid),
+                    ConstValue::Size {
+                        value: 250,
+                        unit: SizeUnit::Bytes
+                    }
+                );
+            }
+            other => panic!("expected Constant(250b), got {other:?}"),
+        }
     }
 }
