@@ -248,6 +248,36 @@ impl FunctionSig {
         }
     }
 
+    /// Create a synthetic function signature for compiler-generated methods.
+    ///
+    /// Like [`simple`](Self::simple) but includes parameter names, which are
+    /// needed for ABI computation in derived trait methods. All other fields
+    /// (generics, capabilities, flags) default to empty/false.
+    pub fn synthetic(
+        name: Name,
+        param_names: Vec<Name>,
+        param_types: Vec<Idx>,
+        return_type: Idx,
+    ) -> Self {
+        let required_params = param_types.len();
+        Self {
+            name,
+            type_params: Vec::new(),
+            param_names,
+            param_types,
+            return_type,
+            capabilities: Vec::new(),
+            is_public: false,
+            is_test: false,
+            is_main: false,
+            type_param_bounds: Vec::new(),
+            where_clauses: Vec::new(),
+            generic_param_mapping: Vec::new(),
+            required_params,
+            param_defaults: Vec::new(),
+        }
+    }
+
     /// Get the function type as an `Idx`.
     ///
     /// Requires a mutable pool to create the function type.
