@@ -135,6 +135,9 @@ pub enum UnifyContext {
         index: usize,
     },
 
+    /// In a borrowed reference inner type.
+    BorrowedInner,
+
     /// In a range element type.
     RangeElement,
 
@@ -173,6 +176,7 @@ impl UnifyContext {
             Self::ResultErr => "result error type",
             Self::TupleElement { .. } => "tuple element",
             Self::TypeArg { .. } => "type argument",
+            Self::BorrowedInner => "borrowed reference inner type",
             Self::RangeElement => "range element type",
             Self::ChannelElement => "channel element type",
         }
