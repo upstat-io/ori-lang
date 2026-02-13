@@ -766,20 +766,42 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
 
             CtorKind::ListLiteral => {
-                // List construction: allocate raw data buffer
-                let elem_count = self.builder.const_i64(arg_vals.len() as i64);
-                let elem_size = self.builder.const_i64(8); // sizeof(i64)
-                if let Some(alloc_fn) = self.builder.scx().llmod.get_function("ori_list_alloc_data")
+                // List construction: allocate data, store elements, build struct
+                let count = arg_vals.len();
+                let type_info = self.type_info.get(ty);
+                let elem_idx = match &type_info {
+                    super::type_info::TypeInfo::List { element } => *element,
+                    _ => ori_types::Idx::INT,
+                };
+                let elem_llvm_ty = self.resolve_type(elem_idx);
+                let elem_size = self.type_info.get(elem_idx).size().unwrap_or(8);
+
+                let cap_val = self.builder.const_i64(count as i64);
+                let esize_val = self.builder.const_i64(elem_size as i64);
+
+                let data_ptr = if let Some(alloc_fn) =
+                    self.builder.scx().llmod.get_function("ori_list_alloc_data")
                 {
                     let func_id = self.builder.intern_function(alloc_fn);
-                    if let Some(data) =
+                    self.builder
+                        .call(func_id, &[cap_val, esize_val], "list.data")
+                        .unwrap_or_else(|| self.builder.const_null_ptr())
+                } else {
+                    self.builder.const_null_ptr()
+                };
+
+                // Store each element into the data buffer
+                for (i, &val) in arg_vals.iter().enumerate() {
+                    let idx = self.builder.const_i64(i as i64);
+                    let elem_ptr =
                         self.builder
-                            .call(func_id, &[elem_count, elem_size], "list.data")
-                    {
-                        return data;
-                    }
+                            .gep(elem_llvm_ty, data_ptr, &[idx], "list.elem_ptr");
+                    self.builder.store(val, elem_ptr);
                 }
-                self.builder.const_null_ptr()
+
+                // Build list struct: {i64 len, i64 cap, ptr data}
+                self.builder
+                    .build_struct(llvm_ty, &[cap_val, cap_val, data_ptr], "list")
             }
 
             CtorKind::MapLiteral | CtorKind::SetLiteral => {

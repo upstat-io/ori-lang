@@ -437,6 +437,10 @@ fn add_runtime_mappings_to_engine(
             "ori_list_alloc_data",
             runtime::ori_list_alloc_data as *const () as usize,
         ),
+        (
+            "ori_list_free_data",
+            runtime::ori_list_free_data as *const () as usize,
+        ),
         ("ori_list_new", runtime::ori_list_new as *const () as usize),
         (
             "ori_list_free",
