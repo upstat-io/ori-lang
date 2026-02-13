@@ -9,11 +9,13 @@
 //! functions, associated types), child types are allocated first and referenced
 //! by ID. This enables flat storage without Box<ParsedType>.
 
+use ori_diagnostic::ErrorCode;
 use ori_ir::{ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind, TypeId};
 
 // Tag constants for type keyword dispatch (avoids cloning TokenKind).
 use ori_ir::TokenKind as TK;
 
+use crate::error::ParseError;
 use crate::Parser;
 
 impl Parser<'_> {
@@ -133,6 +135,18 @@ impl Parser<'_> {
         } else if self.cursor.check(&TokenKind::LParen) {
             // (T, U) tuple or () unit or (T) -> U function type
             self.parse_paren_type()
+        } else if self.cursor.check(&TokenKind::Amp) {
+            // &T — borrowed references are reserved for future use.
+            // Consume & and try to parse the inner type for recovery.
+            let amp_span = self.cursor.current().span;
+            self.cursor.advance(); // consume &
+            self.deferred_errors.push(ParseError::new(
+                ErrorCode::E1001,
+                "borrowed references (`&T`) are reserved for a future version of Ori",
+                amp_span,
+            ));
+            // Try to parse the inner type so parsing can recover
+            self.parse_type().or(Some(ParsedType::Infer))
         } else {
             None
         }
@@ -622,5 +636,55 @@ mod tests {
             }
             _ => panic!("expected Named"),
         }
+    }
+
+    /// Parse a type from source, returning the type, arena, and any deferred errors.
+    fn parse_type_with_errors(source: &str) -> (Option<ParsedType>, ExprArena, Vec<String>) {
+        let interner = StringInterner::new();
+        let full_source = format!("@test () -> {source} = 0");
+        let tokens = ori_lexer::lex(&full_source, &interner);
+        let mut parser = Parser::new(&tokens, &interner);
+
+        // Skip to return type: @test () ->
+        parser.cursor.advance(); // @
+        parser.cursor.advance(); // test
+        parser.cursor.advance(); // (
+        parser.cursor.advance(); // )
+        parser.cursor.advance(); // ->
+
+        let ty = parser.parse_type();
+        let errors: Vec<String> = parser
+            .deferred_errors
+            .iter()
+            .map(|e| e.message.clone())
+            .collect();
+        let arena = parser.take_arena();
+        (ty, arena, errors)
+    }
+
+    #[test]
+    fn test_ampersand_type_produces_error() {
+        let (ty, _, errors) = parse_type_with_errors("&int");
+        // Recovers by parsing the inner type
+        assert_eq!(ty, Some(ParsedType::primitive(TypeId::INT)));
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("borrowed references"));
+    }
+
+    #[test]
+    fn test_ampersand_named_type_produces_error() {
+        let (ty, _, errors) = parse_type_with_errors("&MyType");
+        // Recovers by parsing the inner named type
+        assert!(matches!(ty, Some(ParsedType::Named { .. })));
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("reserved for a future version"));
+    }
+
+    #[test]
+    fn test_ampersand_alone_recovers_to_infer() {
+        // &= (& followed by =, not a type) should recover to Infer
+        let (ty, _, errors) = parse_type_with_errors("&");
+        assert_eq!(ty, Some(ParsedType::Infer));
+        assert_eq!(errors.len(), 1);
     }
 }

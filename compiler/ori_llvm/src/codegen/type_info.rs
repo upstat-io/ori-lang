@@ -661,6 +661,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
             // These tags should genuinely never reach codegen.
             Tag::BoundVar
             | Tag::RigidVar
+            | Tag::Borrowed
             | Tag::Scheme
             | Tag::Projection
             | Tag::ModuleNs

@@ -362,6 +362,12 @@ impl Pool {
                     | TypeFlags::propagate_from(child2_flags)
             }
 
+            // Borrowed reference (reserved, never constructed)
+            Tag::Borrowed => {
+                let inner_flags = self.flags[extra[0] as usize];
+                TypeFlags::IS_CONTAINER | TypeFlags::propagate_from(inner_flags)
+            }
+
             // Variables
             Tag::Var => TypeFlags::HAS_VAR | TypeFlags::NEEDS_SUBST,
             Tag::BoundVar => TypeFlags::HAS_BOUND_VAR | TypeFlags::NEEDS_SUBST,

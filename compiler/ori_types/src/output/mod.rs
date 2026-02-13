@@ -600,6 +600,7 @@ mod tests {
     #[test]
     fn type_def_export() {
         use crate::registry::{FieldDef, StructDef, TypeKind, Visibility};
+        use crate::ValueCategory;
 
         let mut module = TypedModule::new();
         let point_name = Name::from_raw(10);
@@ -624,6 +625,7 @@ mod tests {
                         visibility: Visibility::Public,
                     },
                 ],
+                category: ValueCategory::default(),
             }),
             span: Span::DUMMY,
             type_params: vec![],

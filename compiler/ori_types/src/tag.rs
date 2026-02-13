@@ -74,7 +74,13 @@ pub enum Tag {
     /// Result type `result<T, E>`.
     Result = 33,
 
-    // Reserved: 34-47 for future two-child types
+    /// Borrowed reference type with lifetime (future: `&T`, `Slice<T>`).
+    ///
+    /// Reserved for future use — not yet constructed. Extra layout: `[inner_idx, lifetime_id]`.
+    /// See `proposals/approved/low-level-future-proofing-proposal.md`.
+    Borrowed = 34,
+
+    // Reserved: 35-47 for future two-child types
 
     // === Complex Types (48-79) ===
     // data: index into extra[] with length prefix
@@ -136,7 +142,7 @@ impl Tag {
         matches!(
             self,
             // Two-child containers
-            Self::Map | Self::Result |
+            Self::Map | Self::Result | Self::Borrowed |
             // Complex types
             Self::Function | Self::Tuple | Self::Struct | Self::Enum |
             // Named types
@@ -190,6 +196,7 @@ impl Tag {
             Self::Range => "range",
             Self::Map => "map",
             Self::Result => "result",
+            Self::Borrowed => "borrowed",
             Self::Function => "function",
             Self::Tuple => "tuple",
             Self::Struct => "struct",
@@ -241,6 +248,7 @@ mod tests {
         // Two-child containers: 32-47
         assert!((32..48).contains(&(Tag::Map as u8)));
         assert!((32..48).contains(&(Tag::Result as u8)));
+        assert!((32..48).contains(&(Tag::Borrowed as u8)));
 
         // Complex types: 48-79
         assert!((48..80).contains(&(Tag::Function as u8)));
@@ -271,6 +279,7 @@ mod tests {
         // Two-child containers use extra
         assert!(Tag::Map.uses_extra());
         assert!(Tag::Result.uses_extra());
+        assert!(Tag::Borrowed.uses_extra());
 
         // Complex types use extra
         assert!(Tag::Function.uses_extra());
