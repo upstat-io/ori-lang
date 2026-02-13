@@ -58,6 +58,15 @@ pub enum UnifyError {
         /// What kind of thing has wrong arity.
         kind: ArityKind,
     },
+
+    /// Generalized variable used without instantiation.
+    ///
+    /// This indicates a compiler bug: a type scheme's bound variable
+    /// reached unification without being instantiated first.
+    UninstantiatedGeneralized {
+        /// The generalized variable's ID.
+        var_id: u32,
+    },
 }
 
 /// What kind of construct has an arity mismatch.
@@ -201,6 +210,12 @@ impl std::fmt::Display for UnifyError {
                 write!(
                     f,
                     "arity mismatch: expected {expected} {kind_str}, found {found}"
+                )
+            }
+            Self::UninstantiatedGeneralized { var_id } => {
+                write!(
+                    f,
+                    "internal error: generalized variable ${var_id} used without instantiation"
                 )
             }
         }

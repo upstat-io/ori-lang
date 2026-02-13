@@ -650,11 +650,10 @@ pub fn run_optimization_passes(
         pipeline.push_str(extra);
     }
 
-    let pipeline_cstr =
-        CString::new(pipeline.clone()).map_err(|_| OptimizationError::InvalidPipeline {
-            pipeline: pipeline.clone(),
-            message: "pipeline contains null bytes".to_string(),
-        })?;
+    let pipeline_cstr = CString::new(pipeline).map_err(|e| OptimizationError::InvalidPipeline {
+        pipeline: String::from_utf8_lossy(&e.into_vec()).into_owned(),
+        message: "pipeline contains null bytes".to_string(),
+    })?;
 
     // Get raw pointers for LLVM C API
     let module_ref = module.as_mut_ptr();

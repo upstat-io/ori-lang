@@ -31,15 +31,7 @@ pub struct TypeRegistry {
     /// Variant name -> (containing type Idx, variant index).
     /// Enables O(1) lookup of enum variant constructors.
     variants_by_name: FxHashMap<Name, (Idx, usize)>,
-
-    /// Counter for generating unique internal type IDs.
-    /// Starts at `FIRST_USER_TYPE` to avoid collision with primitives.
-    next_internal_id: u32,
 }
-
-/// First internal ID for user-defined types.
-/// Primitives occupy indices 0-63 in the Pool.
-const FIRST_USER_TYPE: u32 = 1000;
 
 /// A registered type definition.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -155,7 +147,6 @@ impl TypeRegistry {
             types_by_name: BTreeMap::new(),
             types_by_idx: FxHashMap::default(),
             variants_by_name: FxHashMap::default(),
-            next_internal_id: FIRST_USER_TYPE,
         }
     }
 
@@ -263,7 +254,6 @@ impl TypeRegistry {
         let idx = entry.idx;
         self.types_by_name.insert(name, entry.clone());
         self.types_by_idx.insert(idx, entry);
-        self.next_internal_id += 1;
     }
 
     // === Lookup Methods ===

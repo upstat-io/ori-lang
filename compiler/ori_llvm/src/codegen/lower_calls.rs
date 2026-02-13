@@ -324,16 +324,29 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
 
     /// Ensure the personality function is set on the current LLVM function.
     ///
-    /// Looks up `__gxx_personality_v0` from the LLVM module, interns it,
+    /// Looks up `rust_eh_personality` from the LLVM module, interns it,
     /// and sets it as the personality function on the current function.
     /// Idempotent — calling multiple times on the same function is safe.
+    ///
+    /// If `rust_eh_personality` is not found (meaning `declare_runtime()` was
+    /// not called), declares it inline as a fallback so codegen can proceed
+    /// without crashing.
     fn ensure_personality(&mut self) -> FunctionId {
-        let personality_fn = self
-            .builder
-            .scx()
-            .llmod
-            .get_function("rust_eh_personality")
-            .expect("rust_eh_personality not declared — call declare_runtime() first");
+        let scx = self.builder.scx();
+        let personality_fn = if let Some(f) = scx.llmod.get_function("rust_eh_personality") {
+            f
+        } else {
+            tracing::error!(
+                "rust_eh_personality not declared — declare_runtime() should be called first"
+            );
+            // Declare inline as fallback so codegen can proceed.
+            let i32_ty = scx.type_i32();
+            scx.llmod.add_function(
+                "rust_eh_personality",
+                i32_ty.fn_type(&[i32_ty.into()], false),
+                Some(inkwell::module::Linkage::External),
+            )
+        };
         let personality_id = self.builder.intern_function(personality_fn);
         self.builder
             .set_personality(self.current_function, personality_id);

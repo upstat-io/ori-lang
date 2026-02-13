@@ -201,11 +201,11 @@ impl<'src> TokenCooker<'src> {
                     .push(LexError::invalid_string_escape(span(offset, len), esc_char));
                 TokenKind::Error
             }
-            // Trivia (should not reach cook — handled by driver)
-            RawTag::Whitespace | RawTag::Newline | RawTag::LineComment => {
+            // Trivia and interior nulls (should not reach cook — handled by driver)
+            RawTag::Whitespace | RawTag::Newline | RawTag::LineComment | RawTag::InteriorNull => {
                 debug_assert!(
                     false,
-                    "Trivia tags should be handled by the driver loop, not cook()"
+                    "Trivia/InteriorNull tags should be handled by the driver loop, not cook()"
                 );
                 TokenKind::Error
             }
@@ -229,6 +229,7 @@ impl<'src> TokenCooker<'src> {
     /// Cook an invalid byte, detecting Unicode confusables and cross-language
     /// patterns. This replaces the simple `InvalidByte` handling with
     /// context-aware diagnostics.
+    #[cold]
     fn cook_invalid_byte(&mut self, offset: u32, len: u32) -> TokenKind {
         let byte = self.source[offset as usize];
         let err_span = span(offset, len);
@@ -371,7 +372,7 @@ impl<'src> TokenCooker<'src> {
                     .push(LexError::decimal_not_representable(span(offset, len)));
                 TokenKind::Error
             }
-        } else if let Ok(value) = num_part.parse::<u64>() {
+        } else if let Some(value) = parse_int_skip_underscores(num_part, 10) {
             TokenKind::Duration(value, unit)
         } else {
             self.errors.push(LexError::int_overflow(span(offset, len)));
@@ -399,7 +400,7 @@ impl<'src> TokenCooker<'src> {
                     .push(LexError::decimal_not_representable(span(offset, len)));
                 TokenKind::Error
             }
-        } else if let Ok(value) = num_part.parse::<u64>() {
+        } else if let Some(value) = parse_int_skip_underscores(num_part, 10) {
             TokenKind::Size(value, unit)
         } else {
             self.errors.push(LexError::int_overflow(span(offset, len)));
