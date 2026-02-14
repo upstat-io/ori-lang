@@ -66,11 +66,13 @@ impl<I: StringLookup> Formatter<'_, I> {
     pub(super) fn emit_function_seq(&mut self, seq: &ori_ir::FunctionSeq) {
         match seq {
             ori_ir::FunctionSeq::Run {
+                pre_checks,
                 bindings,
                 result,
+                post_checks,
                 span: _,
             } => {
-                self.emit_seq_with_bindings("run", *bindings, *result);
+                self.emit_run_with_checks(*pre_checks, *bindings, *result, *post_checks);
             }
 
             ori_ir::FunctionSeq::Try {
@@ -165,6 +167,70 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
         self.ctx.dedent();
         self.ctx.emit_indent();
+        self.ctx.emit(")");
+    }
+
+    /// Emit a run pattern with optional pre/post checks.
+    ///
+    /// Format:
+    /// ```text
+    /// run(
+    ///     pre_check: cond | "message",
+    ///     binding1,
+    ///     result,
+    ///     post_check: r -> cond | "message",
+    /// )
+    /// ```
+    fn emit_run_with_checks(
+        &mut self,
+        pre_checks: ori_ir::CheckRange,
+        bindings: SeqBindingRange,
+        result: ExprId,
+        post_checks: ori_ir::CheckRange,
+    ) {
+        self.ctx.emit("run");
+        self.ctx.emit("(");
+        self.ctx.emit_newline();
+        self.ctx.indent();
+
+        for check in self.arena.get_checks(pre_checks) {
+            self.ctx.emit_indent();
+            self.ctx.emit("pre_check: ");
+            self.format(check.expr);
+            if let Some(msg) = check.message {
+                self.ctx.emit(" | ");
+                self.format(msg);
+            }
+            self.ctx.emit(",");
+            self.ctx.emit_newline();
+        }
+
+        let bindings_list = self.arena.get_seq_bindings(bindings);
+        for binding in bindings_list {
+            self.ctx.emit_indent();
+            self.emit_seq_binding(binding);
+            self.ctx.emit(",");
+            self.ctx.emit_newline();
+        }
+
+        self.ctx.emit_indent();
+        self.format(result);
+        self.ctx.emit(",");
+
+        for check in self.arena.get_checks(post_checks) {
+            self.ctx.emit_newline();
+            self.ctx.emit_indent();
+            self.ctx.emit("post_check: ");
+            self.format(check.expr);
+            if let Some(msg) = check.message {
+                self.ctx.emit(" | ");
+                self.format(msg);
+            }
+            self.ctx.emit(",");
+        }
+
+        self.ctx.dedent();
+        self.ctx.emit_newline_indent();
         self.ctx.emit(")");
     }
 

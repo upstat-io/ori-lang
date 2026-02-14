@@ -131,11 +131,95 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 // =============================================================================
-// Pre-Check Conditions
+// Pre-Check and Post-Check Parse Tests (parsing works, enforcement pending)
 // =============================================================================
 
-// NOTE: pre_check and post_check may not be fully implemented.
-// These tests are designed to expose missing features.
+// Pre/post checks PARSE correctly (2026-02-14) but are NOT ENFORCED yet.
+// The type checker and evaluator skip check expressions (tracked in Section 23.8.5).
+// These tests verify the happy path (checks satisfied) since enforcement is a no-op.
+
+@test_pre_check_basic tests @pre_check_basic () -> void = run(
+    let result = pre_check_basic(x: 5),
+    assert_eq(actual: result, expected: 10),
+)
+
+@pre_check_basic (x: int) -> int = run(
+    pre_check: x > 0,
+    x * 2,
+)
+
+@test_pre_check_with_msg tests @pre_check_with_msg () -> void = run(
+    let result = pre_check_with_msg(x: 5),
+    assert_eq(actual: result, expected: 25),
+)
+
+@pre_check_with_msg (x: int) -> int = run(
+    pre_check: x > 0 | "x must be positive",
+    x * x,
+)
+
+@test_multiple_pre_checks tests @multiple_pre_checks () -> void = run(
+    let result = multiple_pre_checks(a: 5, b: 10),
+    assert_eq(actual: result, expected: 15),
+)
+
+@multiple_pre_checks (a: int, b: int) -> int = run(
+    pre_check: a >= 0 | "a must be non-negative",
+    pre_check: b >= 0 | "b must be non-negative",
+    pre_check: a < 100 | "a must be less than 100",
+    a + b,
+)
+
+@test_post_check_basic tests @post_check_basic () -> void = run(
+    let result = post_check_basic(n: -5),
+    assert_eq(actual: result, expected: 5),
+)
+
+@post_check_basic (n: int) -> int = run(
+    if n < 0 then -n else n,
+    post_check: r -> r >= 0,
+)
+
+@test_post_check_with_msg tests @post_check_with_msg () -> void = run(
+    let result = post_check_with_msg(n: -3),
+    assert_eq(actual: result, expected: 3),
+)
+
+@post_check_with_msg (n: int) -> int = run(
+    if n < 0 then -n else n,
+    post_check: r -> r >= 0 | "result must be non-negative",
+)
+
+@test_pre_and_post tests @pre_and_post () -> void = run(
+    let result = pre_and_post(a: 20, b: 4),
+    assert_eq(actual: result, expected: 5),
+)
+
+@pre_and_post (a: int, b: int) -> int = run(
+    pre_check: b != 0 | "divisor cannot be zero",
+    a div b,
+    post_check: r -> r >= 0 | "result must be non-negative",
+)
+
+@test_full_form tests @full_form () -> void = run(
+    let result = full_form(x: 3),
+    assert_eq(actual: result, expected: 9),
+)
+
+@full_form (x: int) -> int = run(
+    pre_check: x > 0,
+    let doubled = x * 2,
+    let result = doubled + x,
+    result,
+    post_check: r -> r > 0 | "result must be positive",
+)
+
+// =============================================================================
+// Pre-Check Conditions (enforcement tests — commented until Section 23.8.5)
+// =============================================================================
+
+// NOTE: These tests require pre/post check ENFORCEMENT (panic on failure).
+// Parsing works but enforcement is not yet implemented. Tracked in Section 23.8.5.
 
 // @test_pre_check_passes tests @pre_check_passes () -> void = run(
 //     let result = divide_safe(a: 10, b: 2),

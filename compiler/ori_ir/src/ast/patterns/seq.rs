@@ -5,7 +5,7 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
-use super::super::ranges::{ArmRange, SeqBindingRange};
+use super::super::ranges::{ArmRange, CheckRange, SeqBindingRange};
 use super::binding::MatchArm;
 use crate::{BindingPatternId, ExprId, ParsedTypeId, Span, Spanned};
 
@@ -35,16 +35,37 @@ impl Spanned for SeqBinding {
     }
 }
 
+/// Check condition with optional custom panic message.
+///
+/// Used in `run()` pre/post checks: `pre_check: condition | "message"`.
+/// Post-checks use a lambda as the expression: `post_check: r -> r > 0 | "msg"`.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct CheckExpr {
+    /// Condition expression (`pre_check`) or lambda (`post_check`).
+    pub expr: ExprId,
+    /// Optional custom panic message (string literal after `|`).
+    pub message: Option<ExprId>,
+    pub span: Span,
+}
+
+impl Spanned for CheckExpr {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Sequential expression construct (`function_seq`).
 ///
 /// Contains a sequence of expressions where order matters.
 /// NOT a function call - fundamentally different structure.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum FunctionSeq {
-    /// run(let x = a, let y = b, result)
+    /// `run(pre_check: cond, let x = a, let y = b, result, post_check: r -> r > 0)`
     Run {
+        pre_checks: CheckRange,
         bindings: SeqBindingRange,
         result: ExprId,
+        post_checks: CheckRange,
         span: Span,
     },
 
@@ -107,8 +128,10 @@ mod tests {
     fn test_function_seq_name_all_variants() {
         // Verify all 4 FunctionSeq variants return correct names
         let run = FunctionSeq::Run {
+            pre_checks: CheckRange::EMPTY,
             bindings: SeqBindingRange::EMPTY,
             result: ExprId::new(0),
+            post_checks: CheckRange::EMPTY,
             span: Span::new(0, 10),
         };
         assert_eq!(run.name(), "run");
@@ -146,8 +169,10 @@ mod tests {
     fn test_function_seq_span_all_variants() {
         let run_span = Span::new(0, 10);
         let run = FunctionSeq::Run {
+            pre_checks: CheckRange::EMPTY,
             bindings: SeqBindingRange::EMPTY,
             result: ExprId::new(0),
+            post_checks: CheckRange::EMPTY,
             span: run_span,
         };
         assert_eq!(run.span(), run_span);
@@ -189,8 +214,10 @@ mod tests {
         use crate::Spanned;
 
         let run = FunctionSeq::Run {
+            pre_checks: CheckRange::EMPTY,
             bindings: SeqBindingRange::EMPTY,
             result: ExprId::new(0),
+            post_checks: CheckRange::EMPTY,
             span: Span::new(100, 200),
         };
 

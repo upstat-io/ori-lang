@@ -58,6 +58,7 @@ define_range!(
     FieldInitRange,
     StructLitFieldRange,
     SeqBindingRange,
+    CheckRange,
     NamedExprRange,
     CallArgRange,
     ListElementRange,
@@ -85,6 +86,7 @@ mod tests {
         assert!(FieldInitRange::EMPTY.is_empty());
         assert!(StructLitFieldRange::EMPTY.is_empty());
         assert!(SeqBindingRange::EMPTY.is_empty());
+        assert!(CheckRange::EMPTY.is_empty());
         assert!(NamedExprRange::EMPTY.is_empty());
         assert!(CallArgRange::EMPTY.is_empty());
     }

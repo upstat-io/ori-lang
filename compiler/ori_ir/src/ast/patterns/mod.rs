@@ -8,4 +8,4 @@ mod seq;
 
 pub use binding::{BindingPattern, MatchArm, MatchPattern};
 pub use exp::{FunctionExp, FunctionExpKind, NamedExpr};
-pub use seq::{FunctionSeq, SeqBinding};
+pub use seq::{CheckExpr, FunctionSeq, SeqBinding};
