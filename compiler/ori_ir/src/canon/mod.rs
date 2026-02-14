@@ -1305,6 +1305,18 @@ impl CanArena {
         self.expr_lists.push(id);
     }
 
+    /// Append all items from an existing expression list into the list being built.
+    ///
+    /// Use between `start_expr_list()` and `finish_expr_list()` to splice in
+    /// items from an existing range without an intermediate `Vec` allocation.
+    pub fn extend_expr_list(&mut self, src: CanRange) {
+        if src.is_empty() {
+            return;
+        }
+        let start = src.start as usize;
+        self.expr_lists.extend_from_within(start..start + src.len());
+    }
+
     /// Finish building an expression list.
     pub fn finish_expr_list(&self, start: u32) -> CanRange {
         let len = to_u16(self.expr_lists.len() - start as usize, "expression list");

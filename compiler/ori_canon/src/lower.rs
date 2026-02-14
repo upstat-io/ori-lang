@@ -269,6 +269,8 @@ pub(crate) struct Lowerer<'a> {
     // Pre-interned names for check desugaring.
     name_msg: Name,
     name_check_result: Name,
+    name_pre_check_failed: Name,
+    name_post_check_failed: Name,
 }
 
 impl<'a> Lowerer<'a> {
@@ -304,6 +306,8 @@ impl<'a> Lowerer<'a> {
             name_size: interner.intern("Size"),
             name_msg: interner.intern("msg"),
             name_check_result: interner.intern("__check_result"),
+            name_pre_check_failed: interner.intern("pre_check failed"),
+            name_post_check_failed: interner.intern("post_check failed"),
         }
     }
 
@@ -1398,7 +1402,7 @@ impl<'a> Lowerer<'a> {
         // Phase 1: Lower all pre-check assertions
         let pre_stmts: Vec<CanId> = pre_check_list
             .iter()
-            .map(|check| self.lower_check_assertion(check, "pre_check failed", span))
+            .map(|check| self.lower_check_assertion(check, self.name_pre_check_failed, span))
             .collect();
 
         // Phase 2: Lower bindings
@@ -1434,17 +1438,12 @@ impl<'a> Lowerer<'a> {
             // Final result: reference to the bound result
             let final_result = self.push(CanExpr::Ident(result_name), span, ty);
 
-            // Collect binding IDs before mutating arena
-            let binding_ids: Vec<CanId> = self.arena.get_expr_list(binding_stmts).to_vec();
-
             // Assemble block: [pre_stmts, bindings, let_result, post_stmts]
             let start = self.arena.start_expr_list();
             for &s in &pre_stmts {
                 self.arena.push_expr_list_item(s);
             }
-            for id in binding_ids {
-                self.arena.push_expr_list_item(id);
-            }
+            self.arena.extend_expr_list(binding_stmts);
             self.arena.push_expr_list_item(let_result);
             for &s in &post_stmts {
                 self.arena.push_expr_list_item(s);
@@ -1474,14 +1473,11 @@ impl<'a> Lowerer<'a> {
         } else {
             // Pre-checks only, no post-checks
             let result = self.lower_expr(result);
-            let binding_ids: Vec<CanId> = self.arena.get_expr_list(binding_stmts).to_vec();
             let start = self.arena.start_expr_list();
             for &s in &pre_stmts {
                 self.arena.push_expr_list_item(s);
             }
-            for id in binding_ids {
-                self.arena.push_expr_list_item(id);
-            }
+            self.arena.extend_expr_list(binding_stmts);
             let stmts = self.arena.finish_expr_list(start);
             self.push(CanExpr::Block { stmts, result }, span, ty)
         }
@@ -1491,7 +1487,7 @@ impl<'a> Lowerer<'a> {
     fn lower_check_assertion(
         &mut self,
         check: &ori_ir::CheckExpr,
-        default_msg: &str,
+        default_msg: Name,
         span: Span,
     ) -> CanId {
         let cond = self.lower_expr(check.expr);
@@ -1547,7 +1543,7 @@ impl<'a> Lowerer<'a> {
             TypeId::BOOL,
         );
 
-        let panic_node = self.lower_check_panic(check, "post_check failed", span);
+        let panic_node = self.lower_check_panic(check, self.name_post_check_failed, span);
         let unit = self.push(CanExpr::Unit, span, TypeId::UNIT);
 
         self.push(
@@ -1565,15 +1561,14 @@ impl<'a> Lowerer<'a> {
     fn lower_check_panic(
         &mut self,
         check: &ori_ir::CheckExpr,
-        default_msg: &str,
+        default_msg: Name,
         span: Span,
     ) -> CanId {
-        // Use custom message if provided, otherwise use default
+        // Use custom message if provided, otherwise use pre-interned default
         let msg_id = if let Some(msg_expr) = check.message {
             self.lower_expr(msg_expr)
         } else {
-            let msg_name = self.interner.intern(default_msg);
-            self.push(CanExpr::Str(msg_name), span, TypeId::STR)
+            self.push(CanExpr::Str(default_msg), span, TypeId::STR)
         };
 
         let props = self.arena.push_named_exprs(&[CanNamedExpr {

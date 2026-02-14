@@ -447,7 +447,7 @@ impl ContextKind {
             // Special
             Self::CapabilityRequirement { .. } => "capability requires this",
             Self::PreCheck => "pre-conditions must be bool",
-            Self::PostCheck => "post-conditions must be bool",
+            Self::PostCheck => "post-conditions must be a predicate on the result",
             Self::TestBody => "test body must return void",
             Self::TestAssertion => "assertions must be bool",
             Self::Assignment => "assigned value must match variable type",
