@@ -72,8 +72,9 @@ pub fn flatten_pattern(
             FlatPattern::Tuple(elements)
         }
 
-        MatchPattern::Struct { fields } => {
-            let flat_fields: Vec<(Name, FlatPattern)> = fields
+        MatchPattern::Struct { fields, rest } => {
+            // Build flat patterns for explicitly named fields
+            let mut flat_fields: Vec<(Name, FlatPattern)> = fields
                 .iter()
                 .map(|(field_name, sub_pat)| {
                     let field_ty = resolve_struct_field_ty(pool, scrutinee_ty, *field_name);
@@ -87,6 +88,22 @@ pub fn flatten_pattern(
                     (*field_name, flat)
                 })
                 .collect();
+
+            // When rest (`..`) is present, pad missing struct fields with wildcards.
+            // The decision tree requires uniform column counts across all matrix rows.
+            if *rest {
+                let all_fields = resolve_all_struct_fields(pool, scrutinee_ty);
+                for (fname, _fty) in &all_fields {
+                    if !flat_fields.iter().any(|(n, _)| n == fname) {
+                        flat_fields.push((*fname, FlatPattern::Wildcard));
+                    }
+                }
+            }
+
+            // Sort by Name to match StructValue's layout order.
+            // StructValue::new sorts field names, so StructField(i) indices
+            // must correspond to sorted-by-Name positions.
+            flat_fields.sort_by_key(|(name, _)| *name);
 
             FlatPattern::Struct {
                 fields: flat_fields,
@@ -291,6 +308,21 @@ fn resolve_tuple_elem_ty(
         }
     }
     ori_types::Idx::UNIT
+}
+
+/// Get all fields of a struct type as `(name, type)` pairs.
+fn resolve_all_struct_fields(
+    pool: &ori_types::Pool,
+    struct_ty: ori_types::Idx,
+) -> Vec<(Name, ori_types::Idx)> {
+    use ori_types::Tag;
+    let resolved = pool.resolve_fully(struct_ty);
+    if pool.tag(resolved) == Tag::Struct {
+        let count = pool.struct_field_count(resolved);
+        (0..count).map(|i| pool.struct_field(resolved, i)).collect()
+    } else {
+        Vec::new()
+    }
 }
 
 /// Get the type of a struct field.

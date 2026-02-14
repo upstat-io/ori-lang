@@ -788,7 +788,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Struct patterns — grammar.ebnf § struct_pattern (partial) ✅ (2026-02-10)
   - [x] `{ x, y }` — parses correctly in match arms (verified via `ori parse`)
   - [x] `{ x: px, y: py }` — parses correctly ✅ (2026-02-13)
-  - [ ] With rest: `{ x, .. }` — **BROKEN**: parser rejects `..` in struct pattern ("expected identifier, found ..")
+  - [x] With rest: `{ x, .. }` — parses and evaluates correctly ✅ (2026-02-14)
 
 - [x] **Audit**: Tuple patterns — grammar.ebnf § tuple_pattern ✅ (2026-02-10)
   - [x] `(a, b)`, `(x, y, z)` — parse correctly in match arms (verified via `ori parse`)
@@ -864,7 +864,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [ ] All declaration items audited and tested (0.3) — partial: typed constants broken; const generics NOW WORK ✅ (2026-02-13); floating tests NOW WORK ✅ (2026-02-14); clause params, guard clauses, variadic params NOW WORK
 - [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK; bounded trait objects NOW WORK ✅ (2026-02-14)
 - [x] All expression items audited and tested (0.5) ✅ (2026-02-14) — length placeholder `#` now works; labeled break/continue/for/loop NOW WORK ✅ (2026-02-14)
-- [ ] All pattern items audited and tested (0.6) — partial: channels, struct rest `..`, with RAII, immutable bindings, char patterns broken; run pre/post checks NOW PARSE ✅ (2026-02-14); try `?` NOW WORKS
+- [ ] All pattern items audited and tested (0.6) — partial: channels, with RAII, immutable bindings broken; struct rest `..` NOW WORKS ✅ (2026-02-14); char patterns NOW WORK ✅ (2026-02-14); run pre/post checks NOW PARSE ✅ (2026-02-14); try `?` NOW WORKS
 - [x] All constant expression items audited and tested (0.7) ✅ (2026-02-14) — computed constants now work (arithmetic, comparison, logical, grouped)
 - [ ] Run `cargo t -p ori_parse` — all parser tests pass
 - [ ] Run `cargo t -p ori_lexer` — all lexer tests pass
@@ -880,7 +880,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - ~~Floating tests (`tests _`)~~ — FIXED ✅ (2026-02-14)
 - ~~Typed constants (`let $X: int`)~~ — FIXED ✅ (2026-02-14)
 - Channel generic syntax (`channel<int>`) — `<` misinterpreted
-- Struct rest pattern (`{ x, .. }`) — `..` rejected
+- ~~Struct rest pattern (`{ x, .. }`)~~ — FIXED ✅ (2026-02-14)
 - `.match()` method syntax — `match` is keyword
 - `with()` RAII pattern (`acquire:/use:/release:`) — rejects certain named args
 - ~~Run pre/post checks~~ — FIXED ✅ (2026-02-14)
@@ -888,8 +888,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - ~~Labeled continue (`continue:outer`)~~ — FIXED ✅ (2026-02-14)
 - ~~Char patterns in match (`'a'`, `'a'..='z'`)~~ — FIXED ✅ (2026-02-14)
 
-**Fixed since 2026-02-10** (19 items):
-File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`), computed constants (`let $D = $A + 1`)
+**Fixed since 2026-02-10** (20 items):
+File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`), computed constants (`let $D = $A + 1`), struct rest pattern (`{ x, .. }`)
 
 ---
 
@@ -926,8 +926,8 @@ These features fail at the parse phase — the parser does not recognize the syn
 - [ ] **Implement**: Channel generic syntax
   - [ ] **Syntax**: `channel<int>(buffer: 10)` — **BROKEN**: `<` misinterpreted as less-than
 
-- [ ] **Implement**: Struct rest pattern in match
-  - [ ] **Syntax**: `{ x, .. }` — **BROKEN**: "expected identifier, found .."
+- [x] **Implement**: Struct rest pattern in match ✅ (2026-02-14)
+  - [x] **Syntax**: `{ x, .. }` — parses and evaluates correctly ✅ (2026-02-14)
 
 - [ ] **Implement**: `.match()` method syntax
   - [ ] **Syntax**: `42.match(...)` — **BROKEN**: `match` is keyword, can't be method name

@@ -935,7 +935,7 @@ impl<'old> AstCopier<'old> {
                     inner: new_inner,
                 }
             }
-            MatchPattern::Struct { fields } => {
+            MatchPattern::Struct { fields, rest } => {
                 let new_fields: Vec<_> = fields
                     .iter()
                     .map(|(name, opt_pattern)| {
@@ -944,7 +944,10 @@ impl<'old> AstCopier<'old> {
                         (*name, new_opt)
                     })
                     .collect();
-                MatchPattern::Struct { fields: new_fields }
+                MatchPattern::Struct {
+                    fields: new_fields,
+                    rest: *rest,
+                }
             }
             MatchPattern::Tuple(patterns) => {
                 let new_patterns = self.copy_match_pattern_range(*patterns, new_arena);

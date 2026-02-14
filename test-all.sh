@@ -71,11 +71,7 @@ run_rust_workspace() {
 
 run_rust_llvm() {
     echo "=== Running Rust unit tests (LLVM crates) ==="
-    # AOT integration tests (spec.rs, cli.rs) invoke the `ori` binary as a
-    # subprocess. They need an LLVM-enabled build at target/release/ori.
-    # Without this, parallel workspace tests may overwrite target/debug/ori
-    # with a non-LLVM build, causing all AOT tests to fail.
-    cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null || true
+    # Assumes LLVM release build (target/release/ori) was done in a prior phase.
     if cargo test --manifest-path compiler/ori_llvm/Cargo.toml 2>&1 > "$RUST_LLVM_OUTPUT"; then
         echo "  ✓ Rust LLVM tests passed"
         return 0
@@ -103,8 +99,9 @@ run_wasm_build() {
 
 run_ori_interpreter() {
     echo "=== Running Ori language tests (interpreter) ==="
-    # Always run Ori tests in verbose mode to show skip reasons
-    if cargo run -p oric --bin ori -- test --verbose tests/ 2>&1 > "$ORI_INTERP_OUTPUT"; then
+    # Use pre-built binary directly to avoid cargo lock contention.
+    # target/debug/ori exists after workspace tests compile oric.
+    if ./target/debug/ori test --verbose tests/ 2>&1 > "$ORI_INTERP_OUTPUT"; then
         grep -E "[0-9]+ passed, [0-9]+ failed" "$ORI_INTERP_OUTPUT" | tail -1 | sed 's/^/  /'
         return 0
     else
@@ -115,9 +112,7 @@ run_ori_interpreter() {
 
 run_ori_llvm() {
     echo "=== Running Ori language tests (LLVM backend) ==="
-    # Build compiler with LLVM feature AND runtime library
-    cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null || true
-    # Always run Ori tests in verbose mode to show skip reasons
+    # Assumes LLVM release build (target/release/ori + libori_rt.a) was done in a prior phase.
     # Capture both stdout and stderr
     ./target/release/ori test --verbose --backend=llvm tests/ > "$ORI_LLVM_OUTPUT" 2>&1
     local exit_code=$?
@@ -190,27 +185,29 @@ if [[ $PARALLEL -eq 1 ]]; then
     echo -e "${BOLD}Running tests in parallel...${NC}"
     echo ""
 
-    # Phase 1: Non-LLVM tests + LLVM build (in parallel)
-    # Start LLVM build early — Phase 2 tests depend on it
-    cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null &
-    LLVM_BUILD_PID=$!
-
+    # Phase 1: Workspace tests + WASM build (different target dirs, no lock contention)
+    # WASM uses website/playground-wasm/target/ (its own [workspace])
     run_rust_workspace &
     RUST_PID=$!
 
     run_wasm_build &
     WASM_PID=$!
 
-    # Wait for phase 1
     wait $RUST_PID || RUST_EXIT=1
     wait $WASM_PID || WASM_EXIT=1
 
     echo ""
 
-    # Phase 2: LLVM-dependent tests + interpreter (in parallel)
-    # Wait for LLVM build — AOT integration tests need target/release/ori
-    wait $LLVM_BUILD_PID 2>/dev/null || true
+    # Phase 2: LLVM release build (sequential — shares target/ with workspace)
+    echo "=== Building LLVM release binary ==="
+    cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null || true
 
+    echo ""
+
+    # Phase 3: All remaining tests in parallel (no cargo lock contention)
+    # - run_rust_llvm: uses --manifest-path (ori_llvm's own target resolution)
+    # - run_ori_interpreter: direct binary (./target/debug/ori), no cargo
+    # - run_ori_llvm: direct binary (./target/release/ori), no cargo
     run_rust_llvm &
     RUST_LLVM_PID=$!
 
@@ -220,7 +217,6 @@ if [[ $PARALLEL -eq 1 ]]; then
     run_ori_llvm &
     ORI_LLVM_PID=$!
 
-    # Wait for phase 2
     wait $RUST_LLVM_PID || RUST_LLVM_EXIT=1
     ORI_INTERP_EXIT=0
     wait $ORI_INTERP_PID || ORI_INTERP_EXIT=$?
@@ -233,6 +229,9 @@ else
     echo ""
 
     run_rust_workspace || RUST_EXIT=1
+    echo ""
+    echo "=== Building LLVM release binary ==="
+    cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null || true
     echo ""
     run_rust_llvm || RUST_LLVM_EXIT=1
     echo ""
