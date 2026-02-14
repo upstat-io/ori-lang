@@ -8,8 +8,9 @@ impl Parser<'_> {
     /// Parse a function or test definition.
     ///
     /// Function: @name (params) -> Type = body
-    /// Targeted test: @name tests @target1 tests @target2 (params) -> Type = body
-    /// Free-floating test: @`test_name` (params) -> void = body
+    /// Attached test: @name tests @target1 tests @target2 (params) -> Type = body
+    /// Floating test: @name tests _ (params) -> void = body
+    /// Floating test (legacy): @`test_name` (params) -> void = body
     ///
     /// Returns `EmptyErr` if no `@` is present.
     pub(crate) fn parse_function_or_test(
@@ -42,16 +43,32 @@ impl Parser<'_> {
         // name
         let name = committed!(self.cursor.expect_ident());
 
-        // Check if this is a targeted test (has `tests` keyword)
+        // Check if this is a test (has `tests` keyword)
+        // Grammar: test = "@" identifier "tests" test_targets "()" "->" "void" "=" expression
+        //          test_targets = "_" | test_target { "tests" test_target }
+        //          test_target  = "@" identifier
         if self.cursor.check(&TokenKind::Tests) {
-            // Parse test targets: tests @target1 tests @target2 ...
-            let mut targets = Vec::new();
-            while self.cursor.check(&TokenKind::Tests) {
-                self.cursor.advance(); // consume `tests`
+            self.cursor.advance(); // consume initial `tests`
+
+            // Parse test_targets: either `_` (floating) or `@target { tests @target }` (attached)
+            let targets = if self.cursor.check(&TokenKind::Underscore) {
+                self.cursor.advance(); // consume `_`
+                Vec::new() // floating test — no targets
+            } else {
+                let mut targets = Vec::new();
+                // First target (required)
                 committed!(self.cursor.expect(&TokenKind::At));
                 let target = committed!(self.cursor.expect_ident());
                 targets.push(target);
-            }
+                // Additional targets: `tests @target`
+                while self.cursor.check(&TokenKind::Tests) {
+                    self.cursor.advance(); // consume `tests`
+                    committed!(self.cursor.expect(&TokenKind::At));
+                    let target = committed!(self.cursor.expect_ident());
+                    targets.push(target);
+                }
+                targets
+            };
 
             // (params)
             committed!(self.cursor.expect(&TokenKind::LParen));
@@ -343,5 +360,89 @@ impl Parser<'_> {
         })?;
 
         Ok(self.arena.finish_params(start))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ori_ir::StringInterner;
+
+    /// Parse source and return the module.
+    fn parse_module(source: &str) -> crate::ParseOutput {
+        let interner = StringInterner::new();
+        let tokens = ori_lexer::lex(source, &interner);
+        let parser = crate::Parser::new(&tokens, &interner);
+        parser.parse_module()
+    }
+
+    #[test]
+    fn test_attached_single_target() {
+        // Regression guard: @t tests @add () -> void = ()
+        let output = parse_module("@t tests @add () -> void = ()");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.tests.len(), 1);
+        assert_eq!(output.module.tests[0].targets.len(), 1);
+    }
+
+    #[test]
+    fn test_attached_multi_target() {
+        // Multi-target: @t tests @a tests @b () -> void = ()
+        let output = parse_module("@t tests @a tests @b () -> void = ()");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.tests.len(), 1);
+        assert_eq!(output.module.tests[0].targets.len(), 2);
+    }
+
+    #[test]
+    fn test_floating_with_underscore() {
+        // Floating test: @t tests _ () -> void = ()
+        let output = parse_module("@t tests _ () -> void = ()");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.tests.len(), 1);
+        assert!(
+            output.module.tests[0].targets.is_empty(),
+            "Floating test should have empty targets"
+        );
+    }
+
+    #[test]
+    fn test_floating_by_name_prefix() {
+        // Regression guard: test_ prefix detection without `tests` keyword
+        let output = parse_module("@test_something () -> void = ()");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.tests.len(), 1);
+        assert!(
+            output.module.tests[0].targets.is_empty(),
+            "test_ prefix test should have empty targets"
+        );
+    }
+
+    #[test]
+    fn test_regular_function_not_test() {
+        // Regression guard: regular function is not a test
+        let output = parse_module("@add (a: int, b: int) -> int = a + b");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.functions.len(), 1);
+        assert_eq!(output.module.tests.len(), 0);
     }
 }

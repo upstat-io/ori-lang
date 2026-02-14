@@ -426,18 +426,19 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.3.7 Tests
 
-- [x] **Audit**: Test declarations — grammar.ebnf § test (partial) ✅ (2026-02-10)
+- [x] **Audit**: Test declarations — grammar.ebnf § test ✅ (2026-02-14)
   - [x] Attached: `@t tests @target () -> void = ...` — parses correctly (used in 3068 tests)
-  - [ ] Floating: `@t tests _ () -> void = ...` — **BROKEN**: parser rejects `_` as test target
-  - [ ] Multi-target: `@t tests @a tests @b () -> void = ...` — not verified
-  - [x] **Note**: `tests _` syntax fails but `tests _ () -> void =` without `@t` prefix parses
+  - [x] Floating: `@t tests _ () -> void = ...` — parses correctly ✅ (2026-02-14)
+  - [x] Multi-target: `@t tests @a tests @b () -> void = ...` — parses correctly ✅ (2026-02-14)
+  - [x] **Ori Tests**: `tests/spec/free_floating_test.ori` — 3 tests (2 floating with `tests _`, 1 legacy `test_` prefix)
+  - [x] **Rust Tests**: `ori_parse::grammar::item::function::tests` — 5 tests
 
 ### 0.3.8 Constants
 
 - [x] **Audit**: Module-level constants — grammar.ebnf § constant_decl (partial) ✅ (2026-02-10)
   - [x] `let $PI = 3.14159` — parses correctly (verified via `ori parse`)
   - [x] Computed: `let $X = 2 + 3` — parses correctly
-  - [ ] Typed: `let $MAX_SIZE: int = 1000` — **BROKEN**: parser rejects `:` after constant name
+  - [x] Typed: `let $MAX_SIZE: int = 1000` — parses correctly ✅ (2026-02-14)
   - [x] **Ori Tests**: `tests/spec/declarations/constants.ori` — exists but all commented out
 
 ---
@@ -859,7 +860,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 - [x] All lexical grammar items audited and tested (0.1) ✅ (2026-02-10)
 - [x] All source structure items audited and tested (0.2) ✅ (2026-02-13) — file attributes, extern `as`, C variadics all work now
-- [ ] All declaration items audited and tested (0.3) — partial: floating tests broken; const generics NOW WORK ✅ (2026-02-13); clause params, guard clauses, variadic params NOW WORK
+- [ ] All declaration items audited and tested (0.3) — partial: typed constants broken; const generics NOW WORK ✅ (2026-02-13); floating tests NOW WORK ✅ (2026-02-14); clause params, guard clauses, variadic params NOW WORK
 - [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK
 - [x] All expression items audited and tested (0.5) ✅ (2026-02-13) — length placeholder `#` now works; labeled continue broken
 - [ ] All pattern items audited and tested (0.6) — partial: run pre/post checks, channels, struct rest `..`, with RAII, immutable bindings, char patterns broken; try `?` NOW WORKS
@@ -875,8 +876,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - Computed constants (`let $D = $A + 1`) — literal-only enforcement
 - impl Trait in type position — rejected  <!-- blocked-by:19 -->
 - Associated type constraints (`where I.Item == int`) — `==` rejected  <!-- blocked-by:3 -->
-- Floating tests (`tests _`) — `_` rejected as target  <!-- blocked-by:14 -->
-- Typed constants (`let $X: int`) — `:` after const name rejected
+- ~~Floating tests (`tests _`)~~ — FIXED ✅ (2026-02-14)
+- ~~Typed constants (`let $X: int`)~~ — FIXED ✅ (2026-02-14)
 - Channel generic syntax (`channel<int>`) — `<` misinterpreted
 - Struct rest pattern (`{ x, .. }`) — `..` rejected
 - `.match()` method syntax — `match` is keyword
@@ -934,11 +935,11 @@ These features fail at the parse phase — the parser does not recognize the syn
   - [ ] **Syntax**: `let $x = 42` inside function — **BROKEN**: "expected binding pattern, found $"
   - [ ] **Note**: Works at module scope for constants, broken in expression context
 
-- [ ] **Implement**: Floating tests with `_` target  <!-- blocked-by:14 -->
-  - [ ] **Syntax**: `@t tests _ () -> void = ...` — **BROKEN**: parser rejects `_` as target
+- [x] **Implement**: Floating tests with `_` target ✅ (2026-02-14)
+  - [x] **Syntax**: `@t tests _ () -> void = ...` — parses correctly ✅ (2026-02-14)
 
-- [ ] **Implement**: Typed constants
-  - [ ] **Syntax**: `let $MAX_SIZE: int = 1000` — **BROKEN**: parser rejects `:` after const name
+- [x] **Implement**: Typed constants ✅ (2026-02-14)
+  - [x] **Syntax**: `let $MAX_SIZE: int = 1000` — parses correctly ✅ (2026-02-14)
 
 - [ ] **Implement**: Run pre/post checks
   - [ ] **Syntax**: `run(pre_check: cond, body)` — **BROKEN**: parser rejects `pre_check:` named arg
@@ -1020,8 +1021,8 @@ Systematic `ori parse` verification of every grammar production against actual p
 15. File attributes (`#!target(...)`) — `!` rejected
 16. Extern `as` alias — rejected
 17. C variadics (`...` in params) — rejected
-18. Floating tests (`tests _`) — `_` rejected as target
-19. Typed constants (`let $X: int = 1000`) — `:` rejected
+18. ~~Floating tests (`tests _`)~~ — FIXED ✅ (2026-02-14)
+19. ~~Typed constants (`let $X: int = 1000`)~~ — FIXED ✅ (2026-02-14)
 20. Try `?` inside `try()` — rejected
 21. Run pre/post checks (`pre_check:`) — named arg rejected
 22. Length placeholder (`#`) — attribute marker conflict
