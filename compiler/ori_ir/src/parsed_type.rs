@@ -70,6 +70,10 @@ pub enum ParsedType {
         /// The type name (interned).
         name: Name,
         /// Generic type arguments (range into arena), empty if non-generic.
+        ///
+        /// May contain both type arguments (`ParsedType::Named`, `Primitive`, etc.)
+        /// and const arguments (`ParsedType::ConstExpr`) — consumers discriminate
+        /// by variant. Example: `Array<int, $N>` has `[Named("int"), ConstExpr($N)]`.
         type_args: ParsedTypeRange,
     },
 

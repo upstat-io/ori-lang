@@ -179,7 +179,7 @@ pub(super) fn calculate_type_width<I: StringLookup>(
 }
 
 /// Format a const expression (used in type positions like `$N`, `42`, `$N + 1`).
-fn format_const_expr<I: StringLookup, E: Emitter>(
+pub(crate) fn format_const_expr<I: StringLookup, E: Emitter>(
     expr_id: ExprId,
     arena: &ExprArena,
     interner: &I,

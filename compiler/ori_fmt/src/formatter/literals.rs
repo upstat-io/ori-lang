@@ -5,6 +5,7 @@
 use ori_ir::{ParsedType, StringLookup};
 
 use super::Formatter;
+use crate::declarations::format_const_expr;
 
 impl<I: StringLookup> Formatter<'_, I> {
     pub(super) fn emit_int(&mut self, n: i64) {
@@ -115,7 +116,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 let elem_ty = self.arena.get_parsed_type(*elem);
                 self.emit_type(elem_ty);
                 self.ctx.emit(", max ");
-                self.emit_const_expr(*capacity);
+                format_const_expr(*capacity, self.arena, self.interner, &mut self.ctx);
                 self.ctx.emit("]");
             }
             ParsedType::Map { key, value } => {
@@ -162,29 +163,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit(self.interner.lookup(*assoc_name));
             }
             ParsedType::ConstExpr(expr_id) => {
-                self.emit_const_expr(*expr_id);
+                format_const_expr(*expr_id, self.arena, self.interner, &mut self.ctx);
             }
-        }
-    }
-
-    /// Emit a const expression (used in type positions like `$N`, `42`, `$N + 1`).
-    fn emit_const_expr(&mut self, expr_id: ori_ir::ExprId) {
-        let expr = self.arena.get_expr(expr_id);
-        match &expr.kind {
-            ori_ir::ExprKind::Int(n) => self.ctx.emit(&n.to_string()),
-            ori_ir::ExprKind::Const(name) => {
-                self.ctx.emit("$");
-                self.ctx.emit(self.interner.lookup(*name));
-            }
-            ori_ir::ExprKind::Ident(name) => self.ctx.emit(self.interner.lookup(*name)),
-            ori_ir::ExprKind::Binary { op, left, right } => {
-                self.emit_const_expr(*left);
-                self.ctx.emit(" ");
-                self.ctx.emit(op.as_symbol());
-                self.ctx.emit(" ");
-                self.emit_const_expr(*right);
-            }
-            _ => self.ctx.emit("<const>"),
         }
     }
 }

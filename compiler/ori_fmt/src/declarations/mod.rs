@@ -34,6 +34,8 @@ mod tests_fmt;
 mod traits;
 mod types;
 
+pub(crate) use parsed_types::format_const_expr;
+
 use crate::comments::CommentIndex;
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;

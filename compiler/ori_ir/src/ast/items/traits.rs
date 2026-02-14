@@ -13,6 +13,14 @@ use crate::{ExprId, Name, ParsedType, ParsedTypeRange, Span, Spanned};
 ///
 /// Default type parameters allow trait definitions like `trait Add<Rhs = Self>`.
 /// Const generics allow compile-time values: `@f<$N: int>`, `@f<$B: bool = true>`.
+///
+/// # Future Refactor
+///
+/// This struct uses `is_const` as a discriminator with optional fields for each
+/// variant. A proper enum (`GenericParamKind::Type { .. } | Const { .. }`) would
+/// provide compile-time exhaustiveness checking, preventing bugs where consumers
+/// forget to check `is_const`. Deferred because it touches parser, type checker,
+/// formatter, and incremental compilation.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct GenericParam {
     pub name: Name,
@@ -98,6 +106,22 @@ impl WhereClause {
     /// Check if this is a const bound.
     pub fn is_const_bound(&self) -> bool {
         matches!(self, WhereClause::ConstBound { .. })
+    }
+
+    /// Extract type bound fields, returning `None` for const bounds.
+    ///
+    /// This is the primary accessor for consumers that process type bounds
+    /// and skip const bounds (which are not yet evaluated).
+    pub fn as_type_bound(&self) -> Option<(Name, Option<Name>, &[TraitBound], Span)> {
+        match self {
+            WhereClause::TypeBound {
+                param,
+                projection,
+                bounds,
+                span,
+            } => Some((*param, *projection, bounds, *span)),
+            WhereClause::ConstBound { .. } => None,
+        }
     }
 }
 

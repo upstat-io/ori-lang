@@ -128,9 +128,13 @@ fn infer_function_signature_with_arena(
     func: &Function,
     arena: &ExprArena,
 ) -> (FunctionSig, Vec<u32>) {
-    // Collect generic parameter names
+    // Collect generic parameter names (filter out const params — they are values, not types)
     let generic_params = arena.get_generic_params(func.generics);
-    let type_params: Vec<Name> = generic_params.iter().map(|p| p.name).collect();
+    let type_params: Vec<Name> = generic_params
+        .iter()
+        .filter(|p| !p.is_const)
+        .map(|p| p.name)
+        .collect();
 
     // Create a mapping from generic param names to fresh type variables
     let type_param_vars: FxHashMap<Name, Idx> = type_params
@@ -176,9 +180,10 @@ fn infer_function_signature_with_arena(
     // Extract capabilities
     let capabilities: Vec<Name> = func.capabilities.iter().map(|c| c.name).collect();
 
-    // Collect trait bounds for each generic type parameter
+    // Collect trait bounds for each generic type parameter (matching type_params order)
     let type_param_bounds: Vec<Vec<Name>> = generic_params
         .iter()
+        .filter(|p| !p.is_const)
         .map(|p| p.bounds.iter().map(ori_ir::TraitBound::name).collect())
         .collect();
 
@@ -186,19 +191,14 @@ fn infer_function_signature_with_arena(
     let where_clauses: Vec<FnWhereClause> = func
         .where_clauses
         .iter()
-        .filter_map(|wc| match wc {
-            ori_ir::WhereClause::TypeBound {
+        .filter_map(|wc| {
+            let (param, projection, bounds, span) = wc.as_type_bound()?;
+            Some(FnWhereClause {
                 param,
                 projection,
-                bounds,
-                span,
-            } => Some(FnWhereClause {
-                param: *param,
-                projection: *projection,
                 bounds: bounds.iter().map(ori_ir::TraitBound::name).collect(),
-                span: *span,
-            }),
-            ori_ir::WhereClause::ConstBound { .. } => None,
+                span,
+            })
         })
         .collect();
 
