@@ -32,7 +32,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit(")");
                 }
             }
-            MatchPattern::Struct { fields } => {
+            MatchPattern::Struct { fields, rest } => {
                 self.ctx.emit("{ ");
                 for (i, (field_name, pat_opt)) in fields.iter().enumerate() {
                     if i > 0 {
@@ -44,6 +44,12 @@ impl<I: StringLookup> Formatter<'_, I> {
                         let pat = self.arena.get_match_pattern(*pat_id);
                         self.emit_match_pattern(pat);
                     }
+                }
+                if *rest {
+                    if !fields.is_empty() {
+                        self.ctx.emit(", ");
+                    }
+                    self.ctx.emit("..");
                 }
                 self.ctx.emit(" }");
             }

@@ -1269,7 +1269,7 @@ fn check_match_pattern(
         }
 
         // Struct pattern: check field types against registry
-        MatchPattern::Struct { fields } => {
+        MatchPattern::Struct { fields, .. } => {
             let resolved = engine.resolve(expected_ty);
             let field_type_map = match engine.pool().tag(resolved) {
                 Tag::Named => {

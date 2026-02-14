@@ -65,12 +65,15 @@ pub enum MatchPattern {
         name: Name,
         inner: MatchPatternRange,
     },
-    /// Struct: { x, y }
+    /// Struct: `{ x, y }` or `{ x, .. }` (with rest).
     ///
     /// Uses `Vec` for fields because each field is a tuple `(Name, Option<MatchPatternId>)`,
     /// and flattening this would lose the name-pattern association.
+    /// When `rest` is true, the pattern matches structs with additional fields
+    /// beyond those explicitly listed (the `..` syntax).
     Struct {
         fields: Vec<(Name, Option<MatchPatternId>)>,
+        rest: bool,
     },
     /// Tuple: (a, b)
     Tuple(MatchPatternRange),

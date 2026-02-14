@@ -213,6 +213,58 @@ type Person = { name: str, age: int }
 )
 
 // =============================================================================
+// Struct Rest Patterns ({ x, .. })
+// =============================================================================
+
+type Rect = { x: int, y: int, width: int, height: int }
+
+@test_struct_rest tests @struct_rest () -> void = run(
+    assert_eq(actual: struct_rest(Point { x: 42, y: 99 }), expected: 42),
+    assert_eq(actual: struct_rest(Point { x: 0, y: 5 }), expected: 0),
+)
+
+@struct_rest (p: Point) -> int = match(p,
+    { x, .. } -> x,
+)
+
+@test_struct_rest_multi tests @struct_rest_multi () -> void = run(
+    assert_eq(actual: struct_rest_multi(Rect { x: 1, y: 2, width: 10, height: 20 }), expected: 200),
+)
+
+@struct_rest_multi (r: Rect) -> int = match(r,
+    { width, height, .. } -> width * height,
+)
+
+@test_struct_rest_with_literal tests @struct_rest_with_literal () -> void = run(
+    assert_eq(actual: struct_rest_with_literal(Point { x: 0, y: 5 }), expected: true),
+    assert_eq(actual: struct_rest_with_literal(Point { x: 3, y: 5 }), expected: false),
+)
+
+@struct_rest_with_literal (p: Point) -> bool = match(p,
+    { x: 0, .. } -> true,
+    _ -> false,
+)
+
+@test_struct_rest_empty tests @struct_rest_empty () -> void = run(
+    assert_eq(actual: struct_rest_empty(Point { x: 1, y: 2 }), expected: "matched"),
+)
+
+@struct_rest_empty (p: Point) -> str = match(p,
+    { .. } -> "matched",
+)
+
+@test_struct_rest_mixed tests @struct_rest_mixed () -> void = run(
+    assert_eq(actual: struct_rest_mixed(Point { x: 0, y: 0 }), expected: "origin"),
+    assert_eq(actual: struct_rest_mixed(Point { x: 5, y: 0 }), expected: "x=5"),
+    assert_eq(actual: struct_rest_mixed(Point { x: 3, y: 4 }), expected: "x=3"),
+)
+
+@struct_rest_mixed (p: Point) -> str = match(p,
+    { x: 0, y: 0 } -> "origin",
+    { x, .. } -> "x=" + str(x),
+)
+
+// =============================================================================
 // Tuple Patterns
 // =============================================================================
 

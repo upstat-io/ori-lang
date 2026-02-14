@@ -954,12 +954,22 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse struct pattern fields: `{ x, y: pattern, ... }`
+    /// Parse struct pattern fields: `{ x, y: pattern }` or `{ x, .. }`.
     fn parse_struct_pattern_fields(&mut self) -> Result<MatchPattern, ParseError> {
         self.cursor.advance(); // consume {
 
-        let fields: Vec<(ori_ir::Name, Option<MatchPatternId>)> = self.brace_series(|p| {
+        let mut fields: Vec<(ori_ir::Name, Option<MatchPatternId>)> = Vec::new();
+        let mut rest = false;
+
+        self.brace_series(|p| {
             if p.cursor.check(&TokenKind::RBrace) {
+                return Ok(None);
+            }
+
+            // Check for `..` rest pattern
+            if p.cursor.check(&TokenKind::DotDot) {
+                p.cursor.advance();
+                rest = true;
                 return Ok(None);
             }
 
@@ -974,10 +984,11 @@ impl Parser<'_> {
                 None // Shorthand: field name is also the binding
             };
 
-            Ok(Some((field_name, pattern_id)))
+            fields.push((field_name, pattern_id));
+            Ok(Some(()))
         })?;
 
-        Ok(MatchPattern::Struct { fields })
+        Ok(MatchPattern::Struct { fields, rest })
     }
 
     /// Check if current token can start a range bound (integer, char, or minus).
