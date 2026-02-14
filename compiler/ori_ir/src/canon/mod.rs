@@ -361,10 +361,14 @@ impl fmt::Debug for CanFieldBindingRange {
 ///
 /// Mirrors `BindingPattern` from `ori_ir::ast` but stores sub-patterns
 /// in `CanArena` via `CanBindingPatternId` instead of `Vec<BindingPattern>`.
+///
+/// Per-binding mutability is preserved on the `Name` variant so that
+/// destructuring patterns like `let ($x, y) = ...` can enforce immutability
+/// per binding rather than inheriting a single flag from `CanExpr::Let.mutable`.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum CanBindingPattern {
-    /// Simple name binding: `let x = ...`
-    Name(Name),
+    /// Simple name binding: `let x = ...` (mutable) or `let $x = ...` (immutable).
+    Name { name: Name, mutable: bool },
     /// Tuple destructuring: `let (a, b) = ...`
     Tuple(CanBindingPatternRange),
     /// Struct destructuring: `let { x, y } = ...`

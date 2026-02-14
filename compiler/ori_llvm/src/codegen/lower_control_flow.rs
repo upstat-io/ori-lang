@@ -180,6 +180,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Bind a canonical binding pattern to a value, adding entries to scope.
+    #[expect(
+        clippy::only_used_in_recursion,
+        reason = "mutable is forwarded to sub-patterns; will be consumed directly once list rest patterns are implemented"
+    )]
     fn bind_pattern(
         &mut self,
         pattern: &CanBindingPattern,
@@ -188,8 +192,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         init_id: CanId,
     ) {
         match pattern {
-            CanBindingPattern::Name(name) => {
-                if mutable {
+            CanBindingPattern::Name {
+                name,
+                mutable: pat_mutable,
+            } => {
+                // Per-binding mutability: use the flag from the pattern itself
+                // to support `let ($x, y) = ...` with mixed mutability.
+                if *pat_mutable {
                     let init_type = self.expr_type(init_id);
                     let llvm_ty = self.resolve_type(init_type);
                     let name_str = self.resolve_name(*name).to_owned();

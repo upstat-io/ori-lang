@@ -583,8 +583,16 @@ impl Interpreter<'_> {
         mutability: Mutability,
     ) -> EvalResult {
         match pattern {
-            CanBindingPattern::Name(name) => {
-                self.env.define(*name, value, mutability);
+            CanBindingPattern::Name { name, mutable } => {
+                // Per-binding mutability: use the flag from the pattern itself,
+                // not the inherited top-level mutability. This enables `let ($x, y) = ...`
+                // where `x` is immutable and `y` is mutable.
+                let binding_mutability = if *mutable {
+                    Mutability::Mutable
+                } else {
+                    Mutability::Immutable
+                };
+                self.env.define(*name, value, binding_mutability);
                 Ok(Value::Void)
             }
             CanBindingPattern::Wildcard => Ok(Value::Void),

@@ -310,7 +310,10 @@ fn hash_binding_pattern(arena: &CanArena, id: super::CanBindingPatternId, state:
     mem::discriminant(pattern).hash(state);
 
     match *pattern {
-        CanBindingPattern::Name(name) => name.raw().hash(state),
+        CanBindingPattern::Name { name, mutable } => {
+            name.raw().hash(state);
+            mutable.hash(state);
+        }
         CanBindingPattern::Tuple(range) => hash_binding_pattern_range(arena, range, state),
         CanBindingPattern::Struct { fields } => hash_field_bindings(arena, fields, state),
         CanBindingPattern::List { elements, rest } => {

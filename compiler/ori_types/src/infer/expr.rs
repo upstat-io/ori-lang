@@ -1643,6 +1643,10 @@ fn infer_let(
     pattern: &ori_ir::BindingPattern,
     ty_annotation: Option<&ori_ir::ParsedType>,
     init: ExprId,
+    // Mutability is an effect, not a type property in Ori's HM inference system.
+    // Enforcement happens in the evaluator (`bind_can_pattern`) and codegen backends,
+    // not here. Kept as a parameter for future "cannot assign to immutable binding"
+    // diagnostics (like Rust's type checker emits).
     _mutable: bool,
     span: Span,
 ) -> Idx {

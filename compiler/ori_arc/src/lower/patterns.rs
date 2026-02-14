@@ -32,8 +32,13 @@ impl ArcLowerer<'_> {
         init_id: CanId,
     ) {
         match pattern {
-            CanBindingPattern::Name(name) => {
-                if mutable {
+            CanBindingPattern::Name {
+                name,
+                mutable: pat_mutable,
+            } => {
+                // Per-binding mutability: use the flag from the pattern itself
+                // to support `let ($x, y) = ...` with mixed mutability.
+                if *pat_mutable {
                     self.scope.bind_mutable(*name, value);
                 } else {
                     self.scope.bind(*name, value);
@@ -145,7 +150,10 @@ mod tests {
         let mut arena = CanArena::with_capacity(200);
 
         let x_name = Name::from_raw(100);
-        let pat = arena.push_binding_pattern(CanBindingPattern::Name(x_name));
+        let pat = arena.push_binding_pattern(CanBindingPattern::Name {
+            name: x_name,
+            mutable: false,
+        });
         let init = arena.push(CanNode::new(
             CanExpr::Int(42),
             Span::new(10, 12),
