@@ -386,8 +386,18 @@ pub(super) fn resolve_parsed_type_simple(
         ParsedType::Infer
         | ParsedType::SelfType
         | ParsedType::AssociatedType { .. }
-        | ParsedType::ConstExpr(_)
-        | ParsedType::TraitBounds(_) => Idx::ERROR,
+        | ParsedType::ConstExpr(_) => Idx::ERROR,
+
+        // Bounded trait object: resolve first bound as primary type
+        ParsedType::TraitBounds(bounds) => {
+            let bound_ids: Vec<_> = checker.arena().get_parsed_type_list(*bounds).to_vec();
+            if let Some(&first_id) = bound_ids.first() {
+                let first = checker.arena().get_parsed_type(first_id).clone();
+                resolve_parsed_type_simple(checker, &first)
+            } else {
+                Idx::ERROR
+            }
+        }
     }
 }
 
@@ -829,6 +839,16 @@ pub(super) fn resolve_type_with_self(
             let ret_parsed = checker.arena().get_parsed_type(*ret).clone();
             let ret_ty = resolve_type_with_self(checker, &ret_parsed, type_params, self_type);
             checker.pool_mut().function(&param_types, ret_ty)
+        }
+        // Bounded trait object: resolve first bound with self-substitution
+        ParsedType::TraitBounds(bounds) => {
+            let bound_ids: Vec<_> = checker.arena().get_parsed_type_list(*bounds).to_vec();
+            if let Some(&first_id) = bound_ids.first() {
+                let first = checker.arena().get_parsed_type(first_id).clone();
+                resolve_type_with_self(checker, &first, type_params, self_type)
+            } else {
+                Idx::ERROR
+            }
         }
         _ => resolve_parsed_type_simple(checker, parsed),
     }

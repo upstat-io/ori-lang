@@ -325,28 +325,28 @@ fn resolve_type_with_vars(
 
         // List type: [T]
         ParsedType::List(elem_id) => {
-            let elem = arena.get_parsed_type(*elem_id).clone();
-            let elem_ty = resolve_type_with_vars(checker, &elem, type_param_vars, arena);
+            let elem = arena.get_parsed_type(*elem_id);
+            let elem_ty = resolve_type_with_vars(checker, elem, type_param_vars, arena);
             checker.pool_mut().list(elem_ty)
         }
 
         // Map type: {K: V}
         ParsedType::Map { key, value } => {
-            let key_parsed = arena.get_parsed_type(*key).clone();
-            let value_parsed = arena.get_parsed_type(*value).clone();
-            let key_ty = resolve_type_with_vars(checker, &key_parsed, type_param_vars, arena);
-            let value_ty = resolve_type_with_vars(checker, &value_parsed, type_param_vars, arena);
+            let key_parsed = arena.get_parsed_type(*key);
+            let value_parsed = arena.get_parsed_type(*value);
+            let key_ty = resolve_type_with_vars(checker, key_parsed, type_param_vars, arena);
+            let value_ty = resolve_type_with_vars(checker, value_parsed, type_param_vars, arena);
             checker.pool_mut().map(key_ty, value_ty)
         }
 
         // Tuple type: (T, U, V)
         ParsedType::Tuple(elems) => {
-            let elem_ids: Vec<_> = arena.get_parsed_type_list(*elems).to_vec();
+            let elem_ids = arena.get_parsed_type_list(*elems);
             let elem_types: Vec<Idx> = elem_ids
-                .into_iter()
-                .map(|elem_id| {
-                    let elem = arena.get_parsed_type(elem_id).clone();
-                    resolve_type_with_vars(checker, &elem, type_param_vars, arena)
+                .iter()
+                .map(|&elem_id| {
+                    let elem = arena.get_parsed_type(elem_id);
+                    resolve_type_with_vars(checker, elem, type_param_vars, arena)
                 })
                 .collect();
             checker.pool_mut().tuple(&elem_types)
@@ -354,16 +354,16 @@ fn resolve_type_with_vars(
 
         // Function type: fn(T) -> U
         ParsedType::Function { params, ret } => {
-            let param_ids: Vec<_> = arena.get_parsed_type_list(*params).to_vec();
+            let param_ids = arena.get_parsed_type_list(*params);
             let param_types: Vec<Idx> = param_ids
-                .into_iter()
-                .map(|param_id| {
-                    let param = arena.get_parsed_type(param_id).clone();
-                    resolve_type_with_vars(checker, &param, type_param_vars, arena)
+                .iter()
+                .map(|&param_id| {
+                    let param = arena.get_parsed_type(param_id);
+                    resolve_type_with_vars(checker, param, type_param_vars, arena)
                 })
                 .collect();
-            let ret_parsed = arena.get_parsed_type(*ret).clone();
-            let ret_ty = resolve_type_with_vars(checker, &ret_parsed, type_param_vars, arena);
+            let ret_parsed = arena.get_parsed_type(*ret);
+            let ret_ty = resolve_type_with_vars(checker, ret_parsed, type_param_vars, arena);
             checker.pool_mut().function(&param_types, ret_ty)
         }
 
@@ -376,12 +376,12 @@ fn resolve_type_with_vars(
             }
 
             // Resolve type arguments if present
-            let type_arg_ids: Vec<_> = arena.get_parsed_type_list(*type_args).to_vec();
+            let type_arg_ids = arena.get_parsed_type_list(*type_args);
             let resolved_args: Vec<Idx> = type_arg_ids
-                .into_iter()
-                .map(|arg_id| {
-                    let arg = arena.get_parsed_type(arg_id).clone();
-                    resolve_type_with_vars(checker, &arg, type_param_vars, arena)
+                .iter()
+                .map(|&arg_id| {
+                    let arg = arena.get_parsed_type(arg_id);
+                    resolve_type_with_vars(checker, arg, type_param_vars, arena)
                 })
                 .collect();
 
@@ -433,8 +433,8 @@ fn resolve_type_with_vars(
 
         // Fixed-size list: treat as regular list for now
         ParsedType::FixedList { elem, capacity: _ } => {
-            let elem_parsed = arena.get_parsed_type(*elem).clone();
-            let elem_ty = resolve_type_with_vars(checker, &elem_parsed, type_param_vars, arena);
+            let elem_parsed = arena.get_parsed_type(*elem);
+            let elem_ty = resolve_type_with_vars(checker, elem_parsed, type_param_vars, arena);
             checker.pool_mut().list(elem_ty)
         }
 
@@ -455,13 +455,12 @@ fn resolve_type_with_vars(
             Idx::ERROR
         }
 
-        // Bounded trait object: Printable + Hashable
-        // Resolve the first bound as the primary type for now
+        // Bounded trait object: resolve first bound as primary type
         ParsedType::TraitBounds(bounds) => {
-            let bound_ids: Vec<_> = arena.get_parsed_type_list(*bounds).to_vec();
+            let bound_ids = arena.get_parsed_type_list(*bounds);
             if let Some(&first_id) = bound_ids.first() {
-                let first = arena.get_parsed_type(first_id).clone();
-                resolve_type_with_vars(checker, &first, type_param_vars, arena)
+                let first = arena.get_parsed_type(first_id);
+                resolve_type_with_vars(checker, first, type_param_vars, arena)
             } else {
                 Idx::ERROR
             }
