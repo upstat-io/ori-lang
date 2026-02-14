@@ -1642,6 +1642,10 @@ impl<'old> AstCopier<'old> {
     pub fn copy_const(&self, const_def: &ConstDef, new_arena: &mut ExprArena) -> ConstDef {
         ConstDef {
             name: const_def.name,
+            ty: const_def
+                .ty
+                .as_ref()
+                .map(|t| self.copy_parsed_type(t, new_arena)),
             value: self.copy_expr(const_def.value, new_arena),
             span: self.adjust_span(const_def.span),
             visibility: const_def.visibility,
@@ -1804,6 +1808,7 @@ mod tests {
         // Add consts, functions in non-sorted order
         module.consts.push(ConstDef {
             name: ori_ir::Name::EMPTY,
+            ty: None,
             value: ExprId::INVALID,
             span: Span::new(100, 150),
             visibility: ori_ir::Visibility::Private,

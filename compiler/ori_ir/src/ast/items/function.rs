@@ -204,6 +204,8 @@ impl Spanned for TestDef {
 pub struct ConstDef {
     /// The interned name of the constant (without the `$` prefix).
     pub name: Name,
+    /// Optional explicit type annotation (`let $NAME: int = ...`).
+    pub ty: Option<ParsedType>,
     /// The initializer expression (must be a literal).
     /// At parse time, this points to an `ExprKind::Int`, `ExprKind::Float`,
     /// `ExprKind::String`, `ExprKind::Bool`, or similar literal node.

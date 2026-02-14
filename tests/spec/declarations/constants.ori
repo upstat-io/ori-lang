@@ -4,9 +4,12 @@
 //
 // TODO: Type checker needs various features
 // - Module-level constant registration and lookup
-// - Typed constant syntax (let $NAME: Type = value)
 // - Computed constant expressions
 // - Const function syntax ($name (params) -> T = expr)
+//
+// Parser support:
+// - [x] Untyped constants: let $PI = 3.14 (working)
+// - [x] Typed constants: let $NAME: int = 42 (fixed 2026-02-14)
 //
 // Uncomment when type checker supports these features.
 
@@ -49,16 +52,12 @@
 // // Typed Constants
 // // =============================================================================
 // //
-// // STATUS: Lexer [OK], Parser [BROKEN] - typed constant syntax not supported
-// // Parser does not recognize `let $NAME: Type = value` - expects `=` after name.
+// // STATUS: Lexer [OK], Parser [OK] - typed constant syntax working (fixed 2026-02-14)
+// // Evaluator [BROKEN] - module-level config vars not registered
 //
-// // SKIP: Typed constant syntax not implemented
-// // let $TYPED_INT: int = 42
-// // let $TYPED_STR: str = "hello"
-// // let $TYPED_BOOL: bool = true
-// let $TYPED_INT = 42
-// let $TYPED_STR = "hello"
-// let $TYPED_BOOL = true
+// let $TYPED_INT: int = 42
+// let $TYPED_STR: str = "hello"
+// let $TYPED_BOOL: bool = true
 //
 // #skip("typed constant syntax (let $NAME: Type = value) not implemented")
 // @test_typed_int tests @_use_typed_int () -> void = run(

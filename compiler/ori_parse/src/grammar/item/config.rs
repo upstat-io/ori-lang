@@ -18,7 +18,8 @@ const CONST_LITERAL_TOKENS: TokenSet = TokenSet::new()
 impl Parser<'_> {
     /// Parse a constant declaration.
     ///
-    /// Syntax: `[pub] let $name = literal`
+    /// Grammar: `constant_decl = "let" "$" identifier [ ":" type ] "=" expression`
+    /// Syntax: `[pub] let $name = literal` or `[pub] let $name: type = literal`
     ///
     /// Returns `EmptyErr` if no `$` is present.
     pub(crate) fn parse_const(&mut self, visibility: Visibility) -> ParseOutcome<ConstDef> {
@@ -41,6 +42,14 @@ impl Parser<'_> {
         // name
         let name = committed!(self.cursor.expect_ident());
 
+        // Optional type annotation: `: type`
+        let ty = if self.cursor.check(&TokenKind::Colon) {
+            self.cursor.advance();
+            self.parse_type()
+        } else {
+            None
+        };
+
         // =
         committed!(self.cursor.expect(&TokenKind::Eq));
 
@@ -51,6 +60,7 @@ impl Parser<'_> {
 
         ParseOutcome::consumed_ok(ConstDef {
             name,
+            ty,
             value,
             span,
             visibility,
@@ -116,5 +126,82 @@ impl Parser<'_> {
         };
 
         ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(kind, span)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ori_ir::StringInterner;
+
+    fn parse_module(source: &str) -> crate::ParseOutput {
+        let interner = StringInterner::new();
+        let tokens = ori_lexer::lex(source, &interner);
+        let parser = crate::Parser::new(&tokens, &interner);
+        parser.parse_module()
+    }
+
+    #[test]
+    fn test_const_without_type() {
+        // Regression guard: let $PI = 3.14 (no type annotation)
+        let output = parse_module("let $PI = 3.14");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 1);
+        assert!(output.module.consts[0].ty.is_none());
+    }
+
+    #[test]
+    fn test_const_with_type_int() {
+        // Typed constant: let $MAX_SIZE: int = 1000
+        let output = parse_module("let $MAX_SIZE: int = 1000");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 1);
+        assert!(output.module.consts[0].ty.is_some());
+    }
+
+    #[test]
+    fn test_const_with_type_str() {
+        // Typed string constant: let $NAME: str = "ori"
+        let output = parse_module(r#"let $NAME: str = "ori""#);
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 1);
+        assert!(output.module.consts[0].ty.is_some());
+    }
+
+    #[test]
+    fn test_const_with_type_bool() {
+        // Typed bool constant: let $DEBUG: bool = false
+        let output = parse_module("let $DEBUG: bool = false");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 1);
+        assert!(output.module.consts[0].ty.is_some());
+    }
+
+    #[test]
+    fn test_pub_const_with_type() {
+        // Pub typed constant: pub let $MAX: int = 100
+        let output = parse_module("pub let $MAX: int = 100");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 1);
+        assert!(output.module.consts[0].ty.is_some());
     }
 }
