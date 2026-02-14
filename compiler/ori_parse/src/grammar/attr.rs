@@ -34,7 +34,7 @@
 use crate::{ParseError, Parser};
 use ori_diagnostic::queue::DiagnosticSeverity;
 use ori_diagnostic::ErrorCode;
-use ori_ir::{ExpectedError, Name, TokenCapture, TokenKind};
+use ori_ir::{ExpectedError, FileAttr, Name, TokenCapture, TokenKind};
 
 /// Parsed attributes for a function or test.
 ///
@@ -1002,6 +1002,71 @@ impl Parser<'_> {
         }
     }
 
+    /// Parse an optional file-level attribute: `#!target(...)` or `#!cfg(...)`.
+    ///
+    /// Grammar: `file_attribute = "#!" identifier "(" [ attribute_arg { "," attribute_arg } ] ")" .`
+    ///
+    /// Returns `None` if no `#!` token is present at the current position.
+    pub(crate) fn parse_file_attribute(
+        &mut self,
+        errors: &mut Vec<ParseError>,
+    ) -> Option<FileAttr> {
+        self.cursor.skip_newlines();
+
+        if !self.cursor.check(&TokenKind::HashBang) {
+            return None;
+        }
+        self.cursor.advance(); // consume #!
+
+        // Parse attribute name identifier
+        let attr_kind = self.parse_attr_name(errors);
+
+        match attr_kind {
+            AttrKind::Target => {
+                let mut attrs = ParsedAttrs::default();
+                self.parse_target_attr(&mut attrs, errors, false);
+                attrs.target.map(|t| FileAttr::Target {
+                    os: t.os,
+                    arch: t.arch,
+                    family: t.family,
+                    not_os: t.not_os,
+                })
+            }
+            AttrKind::Cfg => {
+                let mut attrs = ParsedAttrs::default();
+                self.parse_cfg_attr(&mut attrs, errors, false);
+                attrs.cfg.map(|c| FileAttr::Cfg {
+                    debug: c.debug,
+                    release: c.release,
+                    not_debug: c.not_debug,
+                    feature: c.feature,
+                    not_feature: c.not_feature,
+                })
+            }
+            AttrKind::Unknown => {
+                // Error already reported by parse_attr_name
+                self.skip_to_rparen_or_newline();
+                None
+            }
+            other => {
+                errors.push(ParseError {
+                    code: ErrorCode::E1006,
+                    message: format!(
+                        "'{}' is not valid as a file-level attribute; \
+                         only 'target' and 'cfg' are allowed",
+                        other.as_str()
+                    ),
+                    span: self.cursor.previous_span(),
+                    context: None,
+                    help: Vec::new(),
+                    severity: DiagnosticSeverity::Hard,
+                });
+                self.skip_to_rparen_or_newline();
+                None
+            }
+        }
+    }
+
     /// Skip tokens until we find a `]`.
     fn skip_to_rbracket(&mut self) {
         while !self.cursor.check(&TokenKind::RBracket) && !self.cursor.is_at_end() {
@@ -1273,5 +1338,48 @@ type Point = { x: int, y: int }
         let test = &result.module.tests[0];
         assert!(test.is_compile_fail());
         assert_eq!(test.expected_errors.len(), 1);
+    }
+
+    // File-level attribute tests
+
+    #[test]
+    fn test_file_attr_target_parses() {
+        let (result, _) = parse_with_errors("#!target(os: \"linux\")\n@main () -> void = ()");
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert!(result.module.file_attr.is_some());
+    }
+
+    #[test]
+    fn test_file_attr_cfg_parses() {
+        let (result, _) = parse_with_errors("#!cfg(debug)\n@main () -> void = ()");
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert!(result.module.file_attr.is_some());
+    }
+
+    #[test]
+    fn test_file_attr_none_when_absent() {
+        let (result, _) = parse_with_errors("@main () -> void = ()");
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert!(result.module.file_attr.is_none());
+    }
+
+    #[test]
+    fn test_file_attr_does_not_consume_item_attr() {
+        let (result, _) = parse_with_errors("#skip(\"reason\")\n@test_foo () -> void = ()");
+        assert!(!result.has_errors(), "errors: {:?}", result.errors);
+        assert!(
+            result.module.file_attr.is_none(),
+            "item-level #skip should not be consumed as file attribute"
+        );
+    }
+
+    #[test]
+    fn test_file_attr_invalid_kind_reports_error() {
+        let (result, _) = parse_with_errors("#!derive(Eq)\n@main () -> void = ()");
+        assert!(result.has_errors());
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("not valid as a file-level attribute")));
     }
 }

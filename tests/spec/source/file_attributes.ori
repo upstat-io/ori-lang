@@ -1,0 +1,20 @@
+// Spec: 08-declarations.md § File-Level Attributes
+// Tests for file-level attribute parsing (grammar.ebnf § file_attribute)
+//
+// File-level attributes use #! prefix and must appear before imports/declarations.
+// Only 'target' and 'cfg' are valid at file level.
+//
+// Note: These tests verify PARSING only. Conditional compilation semantics
+// (actually skipping files based on target/cfg) are not yet implemented (Section 13).
+// We test that the parser accepts the syntax without errors.
+
+// This file does NOT have a file-level attribute — it tests that normal files
+// still work correctly when the feature exists.
+
+use std.testing { assert_eq }
+
+@identity (x: int) -> int = x
+
+@test_no_file_attr tests @identity () -> void = run(
+    assert_eq(actual: identity(x: 42), expected: 42),
+)

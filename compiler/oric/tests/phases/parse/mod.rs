@@ -11,5 +11,6 @@
 //!
 //! - `lexer` - Token recognition, escape sequences, comment handling
 
+mod file_attr;
 mod function;
 mod lexer;

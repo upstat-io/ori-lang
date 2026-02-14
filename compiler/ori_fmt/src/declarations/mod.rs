@@ -38,7 +38,7 @@ use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
 use crate::width::WidthCalculator;
 use ori_ir::ast::items::Module;
-use ori_ir::{CommentList, ExprArena, StringLookup};
+use ori_ir::{CommentList, ExprArena, FileAttr, StringLookup};
 
 /// Format a complete module to a string with default config.
 pub fn format_module<I: StringLookup>(module: &Module, arena: &ExprArena, interner: &I) -> String {
@@ -169,9 +169,85 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         self.ctx.finalize()
     }
 
+    /// Emit a file-level attribute (`#!target(...)` or `#!cfg(...)`).
+    fn format_file_attr(&mut self, attr: &FileAttr) {
+        match attr {
+            FileAttr::Target {
+                os,
+                arch,
+                family,
+                not_os,
+            } => {
+                self.ctx.emit("#!target(");
+                let mut first = true;
+                for (key, val) in [
+                    ("os", os),
+                    ("arch", arch),
+                    ("family", family),
+                    ("not_os", not_os),
+                ] {
+                    if let Some(name) = val {
+                        if !first {
+                            self.ctx.emit(", ");
+                        }
+                        self.ctx.emit(key);
+                        self.ctx.emit(": \"");
+                        self.ctx.emit(self.interner.lookup(*name));
+                        self.ctx.emit("\"");
+                        first = false;
+                    }
+                }
+                self.ctx.emit(")");
+            }
+            FileAttr::Cfg {
+                debug,
+                release,
+                not_debug,
+                feature,
+                not_feature,
+            } => {
+                self.ctx.emit("#!cfg(");
+                let mut first = true;
+                for (flag, set) in [
+                    ("debug", debug),
+                    ("release", release),
+                    ("not_debug", not_debug),
+                ] {
+                    if *set {
+                        if !first {
+                            self.ctx.emit(", ");
+                        }
+                        self.ctx.emit(flag);
+                        first = false;
+                    }
+                }
+                for (key, val) in [("feature", feature), ("not_feature", not_feature)] {
+                    if let Some(name) = val {
+                        if !first {
+                            self.ctx.emit(", ");
+                        }
+                        self.ctx.emit(key);
+                        self.ctx.emit(": \"");
+                        self.ctx.emit(self.interner.lookup(*name));
+                        self.ctx.emit("\"");
+                        first = false;
+                    }
+                }
+                self.ctx.emit(")");
+            }
+        }
+        self.ctx.emit_newline();
+    }
+
     /// Format a complete module.
     pub fn format_module(&mut self, module: &Module) {
         let mut first_item = true;
+
+        // File-level attribute
+        if let Some(attr) = &module.file_attr {
+            self.format_file_attr(attr);
+            first_item = false;
+        }
 
         // Imports first
         if !module.imports.is_empty() {
@@ -247,6 +323,12 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         comment_index: &mut CommentIndex,
     ) {
         let mut first_item = true;
+
+        // File-level attribute
+        if let Some(attr) = &module.file_attr {
+            self.format_file_attr(attr);
+            first_item = false;
+        }
 
         // Imports first
         if !module.imports.is_empty() {

@@ -1,0 +1,15 @@
+#!cfg(debug)
+// Spec: 08-declarations.md § File-Level Attributes
+// Tests that #!cfg(...) parses correctly as a file-level attribute.
+//
+// Note: Conditional compilation is not yet implemented (Section 13).
+// This file tests PARSING only — the attribute is parsed and stored but
+// does not affect compilation behavior yet.
+
+use std.testing { assert_eq }
+
+@debug_only () -> int = 42
+
+@test_cfg_attr tests @debug_only () -> void = run(
+    assert_eq(actual: debug_only(), expected: 42),
+)
