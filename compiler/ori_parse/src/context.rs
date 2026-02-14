@@ -47,6 +47,10 @@ impl ParseContext {
     /// Makes `#` valid as the length symbol.
     pub const IN_INDEX: Self = Self(1 << 7);
 
+    /// `|` is a separator (not bitwise OR).
+    /// Used in `pre_check:` / `post_check:` where `|` introduces a message string.
+    pub const PIPE_IS_SEPARATOR: Self = Self(1 << 8);
+
     /// Create a new context with no flags set.
     #[inline]
     pub const fn new() -> Self {

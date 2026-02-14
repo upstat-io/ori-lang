@@ -3977,8 +3977,12 @@ fn infer_function_seq(
 
     match func_seq {
         FunctionSeq::Run {
-            bindings, result, ..
-        } => infer_run_seq(engine, arena, *bindings, *result),
+            pre_checks,
+            bindings,
+            result,
+            post_checks,
+            ..
+        } => infer_run_seq(engine, arena, *pre_checks, *bindings, *result, *post_checks),
 
         FunctionSeq::Try {
             bindings, result, ..
@@ -4003,17 +4007,23 @@ fn infer_function_seq(
     }
 }
 
-/// Infer type for `run(let x = a, let y = b, result)`.
+/// Infer type for `run(pre_check: ..., let x = a, result, post_check: ...)`.
 ///
-/// Creates a new scope, processes bindings sequentially, and returns the result type.
+/// Creates a new scope, validates pre-checks, processes bindings sequentially,
+/// infers the result type, then validates post-checks against the result type.
 fn infer_run_seq(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
+    pre_checks: ori_ir::CheckRange,
     bindings: ori_ir::SeqBindingRange,
     result: ExprId,
+    post_checks: ori_ir::CheckRange,
 ) -> Idx {
-    // Enter a new scope for the run block
     engine.enter_scope();
+
+    // Pre-checks: each condition must be bool, each message must be str.
+    // Pre-checks execute before any bindings, so they only see the enclosing scope.
+    infer_pre_checks(engine, arena, pre_checks);
 
     // Process each binding in sequence
     let seq_bindings = arena.get_seq_bindings(bindings);
@@ -4024,10 +4034,77 @@ fn infer_run_seq(
     // Infer the result expression
     let result_ty = infer_expr(engine, arena, result);
 
-    // Exit scope
+    // Post-checks: each must be a lambda `(result_type) -> bool`, message must be str.
+    // Post-checks can see bindings from the run body.
+    infer_post_checks(engine, arena, post_checks, result_ty);
+
     engine.exit_scope();
 
     result_ty
+}
+
+/// Type-check pre-check expressions in a `run()` block.
+///
+/// Each `pre_check: condition` must have type `bool`.
+/// Each optional message (`| "msg"`) must have type `str`.
+fn infer_pre_checks(engine: &mut InferEngine<'_>, arena: &ExprArena, checks: ori_ir::CheckRange) {
+    let checks = arena.get_checks(checks);
+    for check in checks {
+        // Condition must be bool
+        let cond_ty = infer_expr(engine, arena, check.expr);
+        engine.push_context(ContextKind::PreCheck);
+        let expected = Expected {
+            ty: Idx::BOOL,
+            origin: ExpectedOrigin::NoExpectation,
+        };
+        let _ = engine.check_type(cond_ty, &expected, arena.get_expr(check.expr).span);
+        engine.pop_context();
+
+        // Message must be str (if present)
+        if let Some(msg) = check.message {
+            let msg_ty = infer_expr(engine, arena, msg);
+            let expected = Expected {
+                ty: Idx::STR,
+                origin: ExpectedOrigin::NoExpectation,
+            };
+            let _ = engine.check_type(msg_ty, &expected, arena.get_expr(msg).span);
+        }
+    }
+}
+
+/// Type-check post-check expressions in a `run()` block.
+///
+/// Each `post_check: r -> condition` must be a lambda from `result_type` to `bool`.
+/// Each optional message (`| "msg"`) must have type `str`.
+fn infer_post_checks(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    checks: ori_ir::CheckRange,
+    result_ty: Idx,
+) {
+    let checks = arena.get_checks(checks);
+    for check in checks {
+        // Post-check expression must be fn(result_ty) -> bool
+        let check_ty = infer_expr(engine, arena, check.expr);
+        engine.push_context(ContextKind::PostCheck);
+        let expected_fn = engine.pool_mut().function1(result_ty, Idx::BOOL);
+        let expected = Expected {
+            ty: expected_fn,
+            origin: ExpectedOrigin::NoExpectation,
+        };
+        let _ = engine.check_type(check_ty, &expected, arena.get_expr(check.expr).span);
+        engine.pop_context();
+
+        // Message must be str (if present)
+        if let Some(msg) = check.message {
+            let msg_ty = infer_expr(engine, arena, msg);
+            let expected = Expected {
+                ty: Idx::STR,
+                origin: ExpectedOrigin::NoExpectation,
+            };
+            let _ = engine.check_type(msg_ty, &expected, arena.get_expr(msg).span);
+        }
+    }
 }
 
 /// Infer type for `try(let x = fallible()?, result)`.
