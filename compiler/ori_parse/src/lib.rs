@@ -458,6 +458,10 @@ impl<'a> Parser<'a> {
         let mut module = Module::with_capacity_hint(self.estimated_source_len());
         let mut errors = Vec::new();
 
+        // File-level attribute must appear before imports and declarations.
+        // Grammar: source_file = [ file_attribute ] { import } { declaration } .
+        module.file_attr = self.parse_file_attribute(&mut errors);
+
         self.parse_imports(&mut module.imports, &mut errors);
 
         // Parse declarations (functions, tests, traits, impls, types, etc.)

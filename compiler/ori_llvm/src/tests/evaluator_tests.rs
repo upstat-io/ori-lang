@@ -74,6 +74,7 @@ fn test_compile_module_with_tests_empty() {
     let interner = StringInterner::new();
 
     let module = ori_ir::ast::Module {
+        file_attr: None,
         imports: vec![],
         consts: vec![],
         functions: vec![],

@@ -76,6 +76,8 @@ pub use ast::{
     ExtendDef,
     FieldInit,
     FieldInitRange,
+    // File-level attribute
+    FileAttr,
     Function,
     FunctionExp,
     FunctionExpKind,

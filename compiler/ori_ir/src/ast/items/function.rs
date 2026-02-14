@@ -220,9 +220,37 @@ impl Spanned for ConstDef {
     }
 }
 
+/// A file-level attribute applied to the entire module.
+///
+/// Grammar: `file_attribute = "#!" identifier "(" [ attribute_arg { "," attribute_arg } ] ")" .`
+///
+/// File-level attributes use the `#!` prefix (vs `#` for item-level) and must
+/// appear before any imports or declarations. Only `target` and `cfg` are valid
+/// at the file level.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub enum FileAttr {
+    /// `#!target(os: "linux")` — target conditional compilation.
+    Target {
+        os: Option<Name>,
+        arch: Option<Name>,
+        family: Option<Name>,
+        not_os: Option<Name>,
+    },
+    /// `#!cfg(debug)` — config conditional compilation.
+    Cfg {
+        debug: bool,
+        release: bool,
+        not_debug: bool,
+        feature: Option<Name>,
+        not_feature: Option<Name>,
+    },
+}
+
 /// A parsed module (collection of items).
 #[derive(Clone, Eq, PartialEq, Hash, Default)]
 pub struct Module {
+    /// File-level attribute (`#!target(...)`, `#!cfg(...)`)
+    pub file_attr: Option<FileAttr>,
     /// Import statements
     pub imports: Vec<UseDef>,
     /// Constant definitions
@@ -246,6 +274,7 @@ pub struct Module {
 impl Module {
     pub fn new() -> Self {
         Module {
+            file_attr: None,
             imports: Vec::new(),
             consts: Vec::new(),
             functions: Vec::new(),
@@ -272,6 +301,7 @@ impl Module {
         let type_estimate = (func_estimate / 8).max(2);
 
         Module {
+            file_attr: None,
             imports: Vec::with_capacity(4),
             consts: Vec::with_capacity(2),
             functions: Vec::with_capacity(func_estimate),
@@ -287,9 +317,14 @@ impl Module {
 
 impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(attr) = &self.file_attr {
+            write!(f, "Module {{ file_attr: {attr:?}, ")?;
+        } else {
+            write!(f, "Module {{ ")?;
+        }
         write!(
             f,
-            "Module {{ {} consts, {} functions, {} tests, {} types, {} traits, {} impls, {} def_impls, {} extends }}",
+            "{} consts, {} functions, {} tests, {} types, {} traits, {} impls, {} def_impls, {} extends }}",
             self.consts.len(),
             self.functions.len(),
             self.tests.len(),

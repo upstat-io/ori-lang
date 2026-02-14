@@ -243,10 +243,10 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] **Rust Tests**: implicit through full-file parsing
   - [x] **Ori Tests**: `tests/spec/source/file_structure.ori` — 6 tests
 
-- [ ] **Audit**: File-level attributes — grammar.ebnf § file_attribute
-  - [ ] `#!target(os: "linux")`, `#!cfg(debug)` — **BROKEN**: parser rejects `!` in `#!`
-  - [ ] **Rust Tests**: none
-  - [ ] **Ori Tests**: none
+- [x] **Audit**: File-level attributes — grammar.ebnf § file_attribute ✅ (2026-02-13)
+  - [x] `#!target(os: "linux")`, `#!cfg(debug)` — parses correctly, stored in `Module.file_attr`
+  - [x] **Rust Tests**: `oric/tests/phases/parse/file_attr.rs` — 16 tests, `ori_parse::grammar::attr` — 5 tests
+  - [x] **Ori Tests**: `tests/spec/source/file_attr_target.ori`, `file_attr_cfg.ori`, `file_attributes.ori`
 
 ### 0.2.2 Imports
 
