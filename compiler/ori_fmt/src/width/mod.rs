@@ -197,8 +197,9 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 guard,
                 body,
                 is_yield,
+                ..
             } => for_width(self, *binding, *iter, *guard, *body, *is_yield),
-            ExprKind::Loop { body } => loop_width(self, *body),
+            ExprKind::Loop { body, .. } => loop_width(self, *body),
             ExprKind::Block { stmts, result } => block_width(self, *stmts, *result),
 
             // Let binding - complex, kept inline
@@ -277,8 +278,8 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             ExprKind::None => 4, // "None"
 
             // Control flow jumps - delegated to control module
-            ExprKind::Break(val) => break_width(self, *val),
-            ExprKind::Continue(val) => continue_width(self, *val),
+            ExprKind::Break { value, .. } => break_width(self, *value),
+            ExprKind::Continue { value, .. } => continue_width(self, *value),
 
             // Postfix operators - delegated to wrappers module
             ExprKind::Await(inner) => await_width(self, *inner),

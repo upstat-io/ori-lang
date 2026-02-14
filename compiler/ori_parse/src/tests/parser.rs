@@ -1282,3 +1282,184 @@ fn test_semicolons_at_module_level_produce_errors() {
         "Semicolons at module level should produce errors"
     );
 }
+
+// Labels: break:label, continue:label, for:label, loop:label
+
+/// Parse source and return both output and interner (needed for label name lookups).
+fn parse_source_with_interner(source: &str) -> (ParseOutput, StringInterner) {
+    let interner = StringInterner::new();
+    let tokens = ori_lexer::lex(source, &interner);
+    let output = parse(&tokens, &interner);
+    (output, interner)
+}
+
+#[test]
+fn test_labeled_break() {
+    let (result, interner) =
+        parse_source_with_interner("@f () -> int = loop:outer(break:outer 42)");
+    assert!(
+        !result.has_errors(),
+        "labeled break should parse: {result:?}"
+    );
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::Loop { label, body } = &body.kind {
+        assert_eq!(
+            interner.lookup(*label),
+            "outer",
+            "loop label should be 'outer'"
+        );
+        let break_expr = result.arena.get_expr(*body);
+        if let ExprKind::Break { label, value } = &break_expr.kind {
+            assert_eq!(
+                interner.lookup(*label),
+                "outer",
+                "break label should be 'outer'"
+            );
+            assert!(value.is_present(), "break should have a value");
+        } else {
+            panic!("expected Break, got {break_expr:?}");
+        }
+    } else {
+        panic!("expected Loop, got {body:?}");
+    }
+}
+
+#[test]
+fn test_labeled_continue() {
+    let (result, interner) =
+        parse_source_with_interner("@f () -> void = for:outer x in [1] do continue:outer");
+    assert!(
+        !result.has_errors(),
+        "labeled continue should parse: {result:?}"
+    );
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::For { label, body, .. } = &body.kind {
+        assert_eq!(
+            interner.lookup(*label),
+            "outer",
+            "for label should be 'outer'"
+        );
+        let cont = result.arena.get_expr(*body);
+        if let ExprKind::Continue { label, .. } = &cont.kind {
+            assert_eq!(
+                interner.lookup(*label),
+                "outer",
+                "continue label should be 'outer'"
+            );
+        } else {
+            panic!("expected Continue, got {cont:?}");
+        }
+    } else {
+        panic!("expected For, got {body:?}");
+    }
+}
+
+#[test]
+fn test_unlabeled_break_still_works() {
+    let result = parse_source("@f () -> int = loop(break 42)");
+    assert!(!result.has_errors(), "unlabeled break should still parse");
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::Loop { label, body } = &body.kind {
+        assert_eq!(*label, ori_ir::Name::EMPTY, "loop should have no label");
+        let break_expr = result.arena.get_expr(*body);
+        if let ExprKind::Break { label, value } = &break_expr.kind {
+            assert_eq!(*label, ori_ir::Name::EMPTY, "break should have no label");
+            assert!(value.is_present(), "break should have a value");
+        } else {
+            panic!("expected Break, got {break_expr:?}");
+        }
+    } else {
+        panic!("expected Loop, got {body:?}");
+    }
+}
+
+#[test]
+fn test_unlabeled_continue_still_works() {
+    let result = parse_source("@f () -> void = for x in [1] do continue");
+    assert!(
+        !result.has_errors(),
+        "unlabeled continue should still parse"
+    );
+}
+
+#[test]
+fn test_labeled_for_loop() {
+    let (result, interner) =
+        parse_source_with_interner("@f () -> void = for:items x in [1, 2, 3] do break");
+    assert!(!result.has_errors(), "labeled for should parse: {result:?}");
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::For { label, .. } = &body.kind {
+        assert_eq!(
+            interner.lookup(*label),
+            "items",
+            "for label should be 'items'"
+        );
+    } else {
+        panic!("expected For, got {body:?}");
+    }
+}
+
+#[test]
+fn test_labeled_loop() {
+    let (result, interner) = parse_source_with_interner("@f () -> int = loop:main(break 0)");
+    assert!(
+        !result.has_errors(),
+        "labeled loop should parse: {result:?}"
+    );
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::Loop { label, .. } = &body.kind {
+        assert_eq!(
+            interner.lookup(*label),
+            "main",
+            "loop label should be 'main'"
+        );
+    } else {
+        panic!("expected Loop, got {body:?}");
+    }
+}
+
+#[test]
+fn test_labeled_continue_with_value() {
+    let result = parse_source(
+        "@f () -> [int] = for:lp x in [1, 2, 3] yield run(\
+            if x == 2 then continue:lp 0, x)",
+    );
+    assert!(
+        !result.has_errors(),
+        "labeled continue with value should parse: {result:?}"
+    );
+}
+
+#[test]
+fn test_nested_labels() {
+    let result = parse_source(
+        "@f () -> void = for:outer x in [1] do for:inner y in [2] do run(\
+            if y == 2 then continue:outer,\
+            if x == 1 then break:inner)",
+    );
+    assert!(
+        !result.has_errors(),
+        "nested labels should parse: {result:?}"
+    );
+}
+
+#[test]
+fn test_label_with_space_is_not_label() {
+    // `break :outer` with a space should NOT parse as a label.
+    // The `:outer` is treated as a value expression which is invalid.
+    let result = parse_source("@f () -> void = for x in [1] do break :outer");
+    assert!(
+        result.has_errors(),
+        "space before colon should prevent label parsing"
+    );
+}

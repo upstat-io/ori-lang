@@ -3,7 +3,7 @@
 //! Methods for emitting expressions in broken (multi-line) format.
 //! Used when expressions don't fit on a single line.
 
-use ori_ir::{BinaryOp, ExprId, ExprKind, StringLookup};
+use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup};
 
 use crate::width::ALWAYS_STACKED;
 
@@ -285,13 +285,19 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             // For - body on new line if needed
             ExprKind::For {
+                label,
                 binding,
                 iter,
                 guard,
                 body,
                 is_yield,
             } => {
-                self.ctx.emit("for ");
+                self.ctx.emit("for");
+                if *label != Name::EMPTY {
+                    self.ctx.emit(":");
+                    self.ctx.emit(self.interner.lookup(*label));
+                }
+                self.ctx.emit(" ");
                 self.ctx.emit(self.interner.lookup(*binding));
                 self.ctx.emit(" in ");
                 self.format_iter(*iter);

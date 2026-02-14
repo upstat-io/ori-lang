@@ -423,12 +423,12 @@ impl<'a> Lowerer<'a> {
                 let inner = self.lower_expr(inner);
                 self.push(CanExpr::Some(inner), span, ty)
             }
-            ExprKind::Break(val) => {
-                let val = self.lower_optional(val);
+            ExprKind::Break { value, .. } => {
+                let val = self.lower_optional(value);
                 self.push(CanExpr::Break(val), span, ty)
             }
-            ExprKind::Continue(val) => {
-                let val = self.lower_optional(val);
+            ExprKind::Continue { value, .. } => {
+                let val = self.lower_optional(value);
                 self.push(CanExpr::Continue(val), span, ty)
             }
             ExprKind::Await(inner) => {
@@ -439,7 +439,7 @@ impl<'a> Lowerer<'a> {
                 let inner = self.lower_expr(inner);
                 self.push(CanExpr::Try(inner), span, ty)
             }
-            ExprKind::Loop { body } => {
+            ExprKind::Loop { body, .. } => {
                 let body = self.lower_expr(body);
                 self.push(CanExpr::Loop { body }, span, ty)
             }
@@ -521,6 +521,7 @@ impl<'a> Lowerer<'a> {
                 guard,
                 body,
                 is_yield,
+                ..
             } => {
                 let iter = self.lower_expr(iter);
                 let guard = self.lower_optional(guard);
@@ -1550,7 +1551,13 @@ mod tests {
     #[test]
     fn lower_break_no_value() {
         let mut arena = ExprArena::new();
-        let root = arena.alloc_expr(Expr::new(ExprKind::Break(ExprId::INVALID), Span::DUMMY));
+        let root = arena.alloc_expr(Expr::new(
+            ExprKind::Break {
+                label: Name::EMPTY,
+                value: ExprId::INVALID,
+            },
+            Span::DUMMY,
+        ));
 
         let type_result = test_type_result(vec![Idx::NEVER]);
         let interner = test_interner();

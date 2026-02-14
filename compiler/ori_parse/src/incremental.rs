@@ -429,12 +429,14 @@ impl<'old> AstCopier<'old> {
                 self.copy_match_kind(*scrutinee, *arms, new_arena)
             }
             ExprKind::For {
+                label,
                 binding,
                 iter,
                 guard,
                 body,
                 is_yield,
             } => ExprKind::For {
+                label: *label,
                 binding: *binding,
                 iter: self.copy_expr(*iter, new_arena),
                 guard: if guard.is_present() {
@@ -445,7 +447,8 @@ impl<'old> AstCopier<'old> {
                 body: self.copy_expr(*body, new_arena),
                 is_yield: *is_yield,
             },
-            ExprKind::Loop { body } => ExprKind::Loop {
+            ExprKind::Loop { label, body } => ExprKind::Loop {
+                label: *label,
                 body: self.copy_expr(*body, new_arena),
             },
             ExprKind::Block { stmts, result } => self.copy_block_kind(*stmts, *result, new_arena),
@@ -534,16 +537,22 @@ impl<'old> AstCopier<'old> {
             ExprKind::Some(inner) => ExprKind::Some(self.copy_expr(*inner, new_arena)),
 
             // Control
-            ExprKind::Break(val) => ExprKind::Break(if val.is_present() {
-                self.copy_expr(*val, new_arena)
-            } else {
-                ExprId::INVALID
-            }),
-            ExprKind::Continue(val) => ExprKind::Continue(if val.is_present() {
-                self.copy_expr(*val, new_arena)
-            } else {
-                ExprId::INVALID
-            }),
+            ExprKind::Break { label, value } => ExprKind::Break {
+                label: *label,
+                value: if value.is_present() {
+                    self.copy_expr(*value, new_arena)
+                } else {
+                    ExprId::INVALID
+                },
+            },
+            ExprKind::Continue { label, value } => ExprKind::Continue {
+                label: *label,
+                value: if value.is_present() {
+                    self.copy_expr(*value, new_arena)
+                } else {
+                    ExprId::INVALID
+                },
+            },
             ExprKind::Await(inner) => ExprKind::Await(self.copy_expr(*inner, new_arena)),
             ExprKind::Try(inner) => ExprKind::Try(self.copy_expr(*inner, new_arena)),
             ExprKind::Cast { expr, ty, fallible } => ExprKind::Cast {

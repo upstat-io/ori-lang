@@ -440,6 +440,22 @@ impl Parser<'_> {
         }
     }
 
+    /// Parse optional label: `:identifier` (no space around colon).
+    ///
+    /// Called immediately after consuming the keyword (`break`, `continue`, `for`, `loop`).
+    /// Returns `Name::EMPTY` if no label is present.
+    fn parse_optional_label(&mut self) -> Name {
+        if self.cursor.check(&TokenKind::Colon) && self.cursor.current_flags().is_adjacent() {
+            self.cursor.advance(); // consume ':'
+            match self.cursor.expect_ident() {
+                Ok(name) => name,
+                Err(_) => Name::EMPTY,
+            }
+        } else {
+            Name::EMPTY
+        }
+    }
+
     /// Parse control flow primaries: `break`, `continue`, `return`.
     ///
     /// Returns `EmptyErr` if the current token is not a control flow keyword.
@@ -459,6 +475,7 @@ impl Parser<'_> {
                     );
                 }
                 self.cursor.advance();
+                let label = self.parse_optional_label();
                 let value = if !self.cursor.check(&TokenKind::Comma)
                     && !self.cursor.check(&TokenKind::RParen)
                     && !self.cursor.check(&TokenKind::RBrace)
@@ -479,10 +496,10 @@ impl Parser<'_> {
                 } else {
                     span
                 };
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Break(value), span.merge(end_span))),
-                )
+                ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
+                    ExprKind::Break { label, value },
+                    span.merge(end_span),
+                )))
             }
             TokenKind::Continue => {
                 if !self.context.in_loop() {
@@ -497,6 +514,7 @@ impl Parser<'_> {
                     );
                 }
                 self.cursor.advance();
+                let label = self.parse_optional_label();
                 let value = if !self.cursor.check(&TokenKind::Comma)
                     && !self.cursor.check(&TokenKind::RParen)
                     && !self.cursor.check(&TokenKind::RBrace)
@@ -517,10 +535,10 @@ impl Parser<'_> {
                 } else {
                     span
                 };
-                ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Continue(value), span.merge(end_span))),
-                )
+                ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
+                    ExprKind::Continue { label, value },
+                    span.merge(end_span),
+                )))
             }
             TokenKind::Return => {
                 self.cursor.advance();
@@ -1213,6 +1231,9 @@ impl Parser<'_> {
         let span = self.cursor.current_span();
         committed!(self.cursor.expect(&TokenKind::For));
 
+        // Parse optional label: for:label
+        let label = self.parse_optional_label();
+
         // Parse binding name or wildcard (_)
         let binding = if self.cursor.check(&TokenKind::Underscore) {
             self.cursor.advance();
@@ -1265,6 +1286,7 @@ impl Parser<'_> {
         let end_span = self.arena.get_expr(body).span;
         ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
             ExprKind::For {
+                label,
                 binding,
                 iter,
                 guard,
@@ -1275,7 +1297,7 @@ impl Parser<'_> {
         )))
     }
 
-    /// Parse loop expression: `loop(body)`
+    /// Parse loop expression: `loop(body)` or `loop:label(body)`
     ///
     /// The body is evaluated repeatedly until a `break` is encountered.
     ///
@@ -1292,6 +1314,10 @@ impl Parser<'_> {
 
         let span = self.cursor.current_span();
         committed!(self.cursor.expect(&TokenKind::Loop));
+
+        // Parse optional label: loop:label
+        let label = self.parse_optional_label();
+
         committed!(self.cursor.expect(&TokenKind::LParen));
         self.cursor.skip_newlines();
 
@@ -1306,10 +1332,10 @@ impl Parser<'_> {
         let end_span = self.cursor.current_span();
         committed!(self.cursor.expect(&TokenKind::RParen));
 
-        ParseOutcome::consumed_ok(
-            self.arena
-                .alloc_expr(Expr::new(ExprKind::Loop { body }, span.merge(end_span))),
-        )
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::Loop { label, body },
+            span.merge(end_span),
+        )))
     }
 
     /// Check if typed lambda params.
