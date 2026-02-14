@@ -161,14 +161,15 @@ impl<I: StringLookup> Formatter<'_, I> {
             return;
         }
 
-        let items: Vec<_> = self.arena.get_expr_list(list).to_vec();
+        let items = self.arena.get_expr_list(list);
+        let items_len = items.len();
         self.ctx.emit_newline();
         self.ctx.indent();
-        for (i, item) in items.iter().enumerate() {
+        for (i, &item) in items.iter().enumerate() {
             self.ctx.emit_indent();
-            self.format(*item);
+            self.format(item);
             self.ctx.emit(",");
-            if i < items.len() - 1 {
+            if i < items_len - 1 {
                 self.ctx.emit_newline();
             }
         }

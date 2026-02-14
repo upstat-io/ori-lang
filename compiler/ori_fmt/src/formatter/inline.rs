@@ -281,16 +281,17 @@ impl<I: StringLookup> Formatter<'_, I> {
                 }
             }
             ExprKind::Tuple(items) => {
-                let items_vec: Vec<_> = self.arena.get_expr_list(*items).to_vec();
+                let items_slice = self.arena.get_expr_list(*items);
+                let items_len = items_slice.len();
                 self.ctx.emit("(");
-                for (i, item) in items_vec.iter().enumerate() {
+                for (i, &item) in items_slice.iter().enumerate() {
                     if i > 0 {
                         self.ctx.emit(", ");
                     }
-                    self.emit_inline(*item);
+                    self.emit_inline(item);
                 }
                 // Single-element tuples need trailing comma: (42,) vs (42)
-                if items_vec.len() == 1 {
+                if items_len == 1 {
                     self.ctx.emit(",");
                 }
                 self.ctx.emit(")");
