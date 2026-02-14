@@ -5,7 +5,7 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
-use crate::{ExprId, Name, Span, Spanned};
+use crate::{ExprId, Name, ParsedTypeRange, Span, Spanned};
 
 use super::super::ranges::NamedExprRange;
 
@@ -42,6 +42,11 @@ pub enum FunctionExpKind {
     // Developer convenience (diverge with diagnostics)
     Todo,
     Unreachable,
+    // Channel constructors (parsed from identifier, not lexer keywords)
+    Channel,
+    ChannelIn,
+    ChannelOut,
+    ChannelAll,
 }
 
 impl FunctionExpKind {
@@ -58,6 +63,10 @@ impl FunctionExpKind {
             FunctionExpKind::Catch => "catch",
             FunctionExpKind::Todo => "todo",
             FunctionExpKind::Unreachable => "unreachable",
+            FunctionExpKind::Channel => "channel",
+            FunctionExpKind::ChannelIn => "channel_in",
+            FunctionExpKind::ChannelOut => "channel_out",
+            FunctionExpKind::ChannelAll => "channel_all",
         }
     }
 }
@@ -70,6 +79,9 @@ impl FunctionExpKind {
 pub struct FunctionExp {
     pub kind: FunctionExpKind,
     pub props: NamedExprRange,
+    /// Optional generic type arguments (e.g., `channel<int>(...)`).
+    /// `ParsedTypeRange::EMPTY` when no type args are present.
+    pub type_args: ParsedTypeRange,
     pub span: Span,
 }
 
@@ -85,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_function_exp_kind_name_all_variants() {
-        // Verify all 11 FunctionExpKind variants return correct names
+        // Verify all 15 FunctionExpKind variants return correct names
         assert_eq!(FunctionExpKind::Recurse.name(), "recurse");
         assert_eq!(FunctionExpKind::Parallel.name(), "parallel");
         assert_eq!(FunctionExpKind::Spawn.name(), "spawn");
@@ -97,6 +109,10 @@ mod tests {
         assert_eq!(FunctionExpKind::Catch.name(), "catch");
         assert_eq!(FunctionExpKind::Todo.name(), "todo");
         assert_eq!(FunctionExpKind::Unreachable.name(), "unreachable");
+        assert_eq!(FunctionExpKind::Channel.name(), "channel");
+        assert_eq!(FunctionExpKind::ChannelIn.name(), "channel_in");
+        assert_eq!(FunctionExpKind::ChannelOut.name(), "channel_out");
+        assert_eq!(FunctionExpKind::ChannelAll.name(), "channel_all");
     }
 
     #[test]

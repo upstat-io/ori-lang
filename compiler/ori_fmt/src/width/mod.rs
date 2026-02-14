@@ -322,7 +322,11 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                     | FunctionExpKind::Print
                     | FunctionExpKind::Panic
                     | FunctionExpKind::Todo
-                    | FunctionExpKind::Unreachable => {
+                    | FunctionExpKind::Unreachable
+                    | FunctionExpKind::Channel
+                    | FunctionExpKind::ChannelIn
+                    | FunctionExpKind::ChannelOut
+                    | FunctionExpKind::ChannelAll => {
                         let props = self.arena.get_named_exprs(exp.props);
                         let props_w = self.width_of_named_exprs(props);
                         if props_w == ALWAYS_STACKED {

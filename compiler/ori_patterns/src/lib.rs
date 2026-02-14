@@ -36,6 +36,7 @@ mod value;
 // Pattern implementations
 mod builtins;
 mod cache;
+mod channel;
 mod parallel;
 mod recurse;
 mod spawn;

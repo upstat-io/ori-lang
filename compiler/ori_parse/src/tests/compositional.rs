@@ -1551,6 +1551,36 @@ mod mixed_types {
     }
 
     #[test]
+    fn test_channel_generic_syntax() {
+        let sources = &[
+            // Basic generic channel
+            "@test () -> void = channel<int>(buffer: 10)",
+            // Channel with string type arg
+            "@test () -> void = channel_in<str>(buffer: 5)",
+            // Channel out
+            "@test () -> void = channel_out<bool>(buffer: 1)",
+            // Cloneable channel
+            "@test () -> void = channel_all<float>(buffer: 20)",
+            // Channel with nested generic type arg
+            "@test () -> void = channel<Result<int, str>>(buffer: 100)",
+            // Channel without generics still works
+            "@test () -> void = channel(buffer: 10)",
+            // Channel in let binding
+            "@test () -> void = let pair = channel<int>(buffer: 5)",
+        ];
+
+        for source in sources {
+            let result = parse_source(source);
+            assert!(
+                !result.has_errors(),
+                "Channel generic syntax failed:\n{}\nErrors: {:?}",
+                source,
+                result.errors
+            );
+        }
+    }
+
+    #[test]
     fn test_never_type() {
         let sources = &[
             // Never in Result (always Err)

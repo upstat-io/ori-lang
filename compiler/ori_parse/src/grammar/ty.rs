@@ -191,7 +191,7 @@ impl Parser<'_> {
 
     /// Parse optional generic arguments: `<T, U, ...>`
     /// Returns a range into the arena's type list storage.
-    fn parse_optional_generic_args_range(&mut self) -> ParsedTypeRange {
+    pub(crate) fn parse_optional_generic_args_range(&mut self) -> ParsedTypeRange {
         use crate::series::SeriesConfig;
 
         if !self.cursor.check(&TokenKind::Lt) {

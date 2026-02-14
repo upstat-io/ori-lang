@@ -51,7 +51,7 @@ sections:
 
 > **SPEC**: `spec/grammar.ebnf` (authoritative), `spec/02-source-code.md`, `spec/03-lexical-elements.md`
 
-**Status**: In Progress — Re-verified 2026-02-14. ~13 parser bugs remain (down from ~24). 17 items previously broken now parse correctly. Remaining gaps: const functions, channels, computed constants, some pattern forms. See § 0.8 for full bug list.
+**Status**: In Progress — Re-verified 2026-02-14. ~3 parser bugs remain (down from ~24). 23 items previously broken now parse correctly. Remaining gaps: const functions, `.match()` method syntax. See § 0.8 for full bug list.
 
 ---
 
@@ -747,10 +747,10 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Cache pattern — grammar.ebnf § function_exp ✅ (2026-02-10)
   - [x] `cache(key: k, op: 42, ttl: 1h)` — parses correctly (verified via `ori parse`)
 
-- [ ] **Audit**: With pattern (RAII) — grammar.ebnf § function_exp
+- [x] **Audit**: With pattern (RAII) — grammar.ebnf § function_exp ✅ (2026-02-14)
   - [x] `with(resource: expr, body: f -> ...)` — parses correctly with named args (verified via `ori parse`)
-  - [ ] `with(acquire: open_file(), use: f -> ..., release: close)` — **BROKEN**: `with` rejects `acquire:`/`use:`/`release:` syntax ("requires named properties")
-  - [ ] **Note**: `with` keyword conflicts between capability provision (`with X = Y in expr`) and RAII pattern
+  - [x] `with(acquire: expr, action: f -> ..., release: f -> ...)` — parses correctly ✅ (2026-02-14). Spec uses `action:` not `use:` (because `use` is a reserved keyword)
+  - [x] **Note**: `with` keyword disambiguated correctly: `with Ident =` → capability provision, `with(` → RAII pattern
 
 ### 0.6.3 Type Conversion Patterns
 
@@ -760,11 +760,11 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.6.4 Channel Constructors
 
-- [ ] **Audit**: Channel creation — grammar.ebnf § channel_expr
-  - [ ] `channel<int>(buffer: 10)` — **BROKEN**: parser confused by `<int>` generic syntax (error: "expected ,, found integer")
-  - [ ] `channel_in<T>(buffer: 5)`, `channel_out<T>(buffer: 5)` — likely same issue
-  - [ ] `channel_all<T>(buffer: 5)` — likely same issue
-  - [ ] **Note**: The `<` after `channel` is misinterpreted as a less-than operator instead of generic argument
+- [x] **Audit**: Channel creation — grammar.ebnf § channel_expr ✅ (2026-02-14)
+  - [x] `channel<int>(buffer: 10)` — FIXED ✅ (2026-02-14): Added FunctionExpKind::Channel variants + parse_channel_expr with generic type args
+  - [x] `channel_in<T>(buffer: 5)`, `channel_out<T>(buffer: 5)` — FIXED ✅ (2026-02-14)
+  - [x] `channel_all<T>(buffer: 5)` — FIXED ✅ (2026-02-14)
+  - [x] `channel(buffer: 10)` — still works (no generics)
 
 ### 0.6.5 Match Patterns
 
@@ -856,14 +856,14 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.8 Section Completion Checklist
 
-> **STATUS**: In Progress — Re-verified 2026-02-14. Major progress: 19 items previously BROKEN now parse correctly. Remaining gaps: const functions, channels, some pattern forms.
+> **STATUS**: In Progress — Re-verified 2026-02-14. Major progress: 20 items previously BROKEN now parse correctly. Remaining gaps: const functions, some pattern forms.
 
 - [x] All lexical grammar items audited and tested (0.1) ✅ (2026-02-10)
 - [x] All source structure items audited and tested (0.2) ✅ (2026-02-13) — file attributes, extern `as`, C variadics all work now
 - [ ] All declaration items audited and tested (0.3) — partial: typed constants broken; const generics NOW WORK ✅ (2026-02-13); floating tests NOW WORK ✅ (2026-02-14); clause params, guard clauses, variadic params NOW WORK
 - [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK; bounded trait objects NOW WORK ✅ (2026-02-14)
 - [x] All expression items audited and tested (0.5) ✅ (2026-02-14) — length placeholder `#` now works; labeled break/continue/for/loop NOW WORK ✅ (2026-02-14)
-- [ ] All pattern items audited and tested (0.6) — partial: channels, with RAII broken; immutable bindings NOW WORK ✅ (2026-02-14); struct rest `..` NOW WORKS ✅ (2026-02-14); char patterns NOW WORK ✅ (2026-02-14); run pre/post checks NOW PARSE ✅ (2026-02-14); try `?` NOW WORKS
+- [ ] All pattern items audited and tested (0.6) — partial: with RAII NOW WORKS ✅ (2026-02-14) (spec uses `action:` not `use:`); immutable bindings NOW WORK ✅ (2026-02-14); struct rest `..` NOW WORKS ✅ (2026-02-14); char patterns NOW WORK ✅ (2026-02-14); run pre/post checks NOW PARSE ✅ (2026-02-14); try `?` NOW WORKS; channels NOW PARSE ✅ (2026-02-14)
 - [x] All constant expression items audited and tested (0.7) ✅ (2026-02-14) — computed constants now work (arithmetic, comparison, logical, grouped)
 - [ ] Run `cargo t -p ori_parse` — all parser tests pass
 - [ ] Run `cargo t -p ori_lexer` — all lexer tests pass
@@ -878,17 +878,17 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - Associated type constraints (`where I.Item == int`) — `==` rejected  <!-- blocked-by:3 -->
 - ~~Floating tests (`tests _`)~~ — FIXED ✅ (2026-02-14)
 - ~~Typed constants (`let $X: int`)~~ — FIXED ✅ (2026-02-14)
-- Channel generic syntax (`channel<int>`) — `<` misinterpreted
+- ~~Channel generic syntax (`channel<int>`)~~ — FIXED ✅ (2026-02-14)
 - ~~Struct rest pattern (`{ x, .. }`)~~ — FIXED ✅ (2026-02-14)
 - `.match()` method syntax — `match` is keyword
-- `with()` RAII pattern (`acquire:/use:/release:`) — rejects certain named args
+- ~~`with()` RAII pattern (`acquire:/action:/release:`)~~ — FIXED ✅ (2026-02-14) — was doc error: spec uses `action:` not `use:` (`use` is reserved keyword)
 - ~~Run pre/post checks~~ — FIXED ✅ (2026-02-14)
 - ~~Immutable binding in function body (`let $x = 42`)~~ — FIXED ✅ (2026-02-14)
 - ~~Labeled continue (`continue:outer`)~~ — FIXED ✅ (2026-02-14)
 - ~~Char patterns in match (`'a'`, `'a'..='z'`)~~ — FIXED ✅ (2026-02-14)
 
-**Fixed since 2026-02-10** (21 items):
-File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`), computed constants (`let $D = $A + 1`), struct rest pattern (`{ x, .. }`), immutable bindings in function bodies (`let $x`, `let ($a, $b)`, `let { $x }`, `let [$h, ..]`)
+**Fixed since 2026-02-10** (22 items):
+File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`), computed constants (`let $D = $A + 1`), struct rest pattern (`{ x, .. }`), immutable bindings in function bodies (`let $x`, `let ($a, $b)`, `let { $x }`, `let [$h, ..]`), `with()` RAII pattern (`acquire:/action:/release:` — was doc error, spec uses `action:` not `use:`)
 
 ---
 
@@ -922,8 +922,8 @@ These features fail at the parse phase — the parser does not recognize the syn
 - [ ] **Implement**: `impl Trait` in type position  <!-- blocked-by:19 -->
   - [ ] **Syntax**: `@f () -> impl Iterator` — **BROKEN**: parser rejects `impl` in type
 
-- [ ] **Implement**: Channel generic syntax
-  - [ ] **Syntax**: `channel<int>(buffer: 10)` — **BROKEN**: `<` misinterpreted as less-than
+- [x] **Implement**: Channel generic syntax ✅ (2026-02-14)
+  - [x] **Syntax**: `channel<int>(buffer: 10)` — FIXED: detect channel identifiers in parse_primary, parse_channel_expr with generic type args
 
 - [x] **Implement**: Struct rest pattern in match ✅ (2026-02-14)
   - [x] **Syntax**: `{ x, .. }` — parses and evaluates correctly ✅ (2026-02-14)
@@ -949,8 +949,8 @@ These features fail at the parse phase — the parser does not recognize the syn
   - [x] **Syntax**: `run(pre_check: c | "msg", body, post_check: r -> c | "msg")` — parses correctly ✅ (2026-02-14)
   - [ ] **Enforcement**: Runtime check execution tracked in Section 23  <!-- blocked-by:23 -->
 
-- [ ] **Implement**: `with(acquire:, use:, release:)` RAII pattern
-  - [ ] **Syntax**: `with(acquire: open_file(), use: f -> ..., release: close)` — **BROKEN**: rejects `acquire:`/`use:`/`release:` syntax
+- [x] **Implement**: `with(acquire:, action:, release:)` RAII pattern ✅ (2026-02-14)
+  - [x] **Syntax**: `with(acquire: expr, action: f -> ..., release: f -> ...)` — parses correctly. Spec uses `action:` not `use:` (`use` is reserved keyword)
 
 - [x] **Implement**: Labeled continue ✅ (2026-02-14)
   - [x] **Syntax**: `continue:outer` — parses correctly ✅ (2026-02-14)
@@ -1019,7 +1019,7 @@ Systematic `ori parse` verification of every grammar production against actual p
 8. ~~Computed constants (`let $D = $A + 1`)~~ — FIXED ✅ (2026-02-14)
 9. Fixed-capacity lists (`[T, max N]`) — comma rejected in type
 10. `impl Trait` in type position — parser rejects
-11. Channel generics (`channel<int>`) — `<` misinterpreted
+11. ~~Channel generics (`channel<int>`)~~ — FIXED ✅ (2026-02-14)
 12. Struct rest pattern (`{ x, .. }`) — `..` rejected
 13. `.match()` method syntax — keyword conflict
 14. `with()` RAII pattern (`acquire:/use:/release:`) — named arg rejection

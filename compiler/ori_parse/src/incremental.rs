@@ -1316,6 +1316,7 @@ impl<'old> AstCopier<'old> {
         FunctionExp {
             kind: exp.kind,
             props: new_arena.alloc_named_exprs(new_props),
+            type_args: exp.type_args,
             span: self.adjust_span(exp.span),
         }
     }

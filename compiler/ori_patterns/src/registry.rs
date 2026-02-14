@@ -4,6 +4,7 @@ use ori_ir::FunctionExpKind;
 
 use crate::builtins::{CatchPattern, PanicPattern, PrintPattern, TodoPattern, UnreachablePattern};
 use crate::cache::CachePattern;
+use crate::channel::ChannelPattern;
 use crate::parallel::ParallelPattern;
 use crate::recurse::RecursePattern;
 use crate::spawn::SpawnPattern;
@@ -36,6 +37,7 @@ pub enum Pattern {
     Catch(CatchPattern),
     Todo(TodoPattern),
     Unreachable(UnreachablePattern),
+    Channel(ChannelPattern),
 }
 
 impl PatternDefinition for Pattern {
@@ -52,6 +54,7 @@ impl PatternDefinition for Pattern {
             Pattern::Catch(p) => p.name(),
             Pattern::Todo(p) => p.name(),
             Pattern::Unreachable(p) => p.name(),
+            Pattern::Channel(p) => p.name(),
         }
     }
 
@@ -68,6 +71,7 @@ impl PatternDefinition for Pattern {
             Pattern::Catch(p) => p.required_props(),
             Pattern::Todo(p) => p.required_props(),
             Pattern::Unreachable(p) => p.required_props(),
+            Pattern::Channel(p) => p.required_props(),
         }
     }
 
@@ -84,6 +88,7 @@ impl PatternDefinition for Pattern {
             Pattern::Catch(p) => p.optional_props(),
             Pattern::Todo(p) => p.optional_props(),
             Pattern::Unreachable(p) => p.optional_props(),
+            Pattern::Channel(p) => p.optional_props(),
         }
     }
 
@@ -100,6 +105,7 @@ impl PatternDefinition for Pattern {
             Pattern::Catch(p) => p.optional_args(),
             Pattern::Todo(p) => p.optional_args(),
             Pattern::Unreachable(p) => p.optional_args(),
+            Pattern::Channel(p) => p.optional_args(),
         }
     }
 
@@ -116,6 +122,7 @@ impl PatternDefinition for Pattern {
             Pattern::Catch(p) => p.scoped_bindings(),
             Pattern::Todo(p) => p.scoped_bindings(),
             Pattern::Unreachable(p) => p.scoped_bindings(),
+            Pattern::Channel(p) => p.scoped_bindings(),
         }
     }
 
@@ -132,6 +139,7 @@ impl PatternDefinition for Pattern {
             Pattern::Catch(p) => p.allows_arbitrary_props(),
             Pattern::Todo(p) => p.allows_arbitrary_props(),
             Pattern::Unreachable(p) => p.allows_arbitrary_props(),
+            Pattern::Channel(p) => p.allows_arbitrary_props(),
         }
     }
 
@@ -148,6 +156,7 @@ impl PatternDefinition for Pattern {
             Pattern::Catch(p) => p.evaluate(ctx, exec),
             Pattern::Todo(p) => p.evaluate(ctx, exec),
             Pattern::Unreachable(p) => p.evaluate(ctx, exec),
+            Pattern::Channel(p) => p.evaluate(ctx, exec),
         }
     }
 
@@ -164,6 +173,7 @@ impl PatternDefinition for Pattern {
             Pattern::Catch(p) => p.can_fuse_with(next),
             Pattern::Todo(p) => p.can_fuse_with(next),
             Pattern::Unreachable(p) => p.can_fuse_with(next),
+            Pattern::Channel(p) => p.can_fuse_with(next),
         }
     }
 
@@ -185,6 +195,7 @@ impl PatternDefinition for Pattern {
             Pattern::Catch(p) => p.fuse_with(next, self_ctx, next_ctx),
             Pattern::Todo(p) => p.fuse_with(next, self_ctx, next_ctx),
             Pattern::Unreachable(p) => p.fuse_with(next, self_ctx, next_ctx),
+            Pattern::Channel(p) => p.fuse_with(next, self_ctx, next_ctx),
         }
     }
 }
@@ -224,6 +235,10 @@ impl PatternRegistry {
             FunctionExpKind::Catch => Pattern::Catch(CatchPattern),
             FunctionExpKind::Todo => Pattern::Todo(TodoPattern),
             FunctionExpKind::Unreachable => Pattern::Unreachable(UnreachablePattern),
+            FunctionExpKind::Channel
+            | FunctionExpKind::ChannelIn
+            | FunctionExpKind::ChannelOut
+            | FunctionExpKind::ChannelAll => Pattern::Channel(ChannelPattern),
         }
     }
 
@@ -241,13 +256,17 @@ impl PatternRegistry {
             FunctionExpKind::Catch,
             FunctionExpKind::Todo,
             FunctionExpKind::Unreachable,
+            FunctionExpKind::Channel,
+            FunctionExpKind::ChannelIn,
+            FunctionExpKind::ChannelOut,
+            FunctionExpKind::ChannelAll,
         ]
         .into_iter()
     }
 
     /// Get the number of registered patterns.
     pub fn len(&self) -> usize {
-        11
+        15
     }
 
     /// Check if the registry is empty.
@@ -269,7 +288,7 @@ mod tests {
     #[test]
     fn test_registry_has_all_patterns() {
         let registry = PatternRegistry::new();
-        assert_eq!(registry.len(), 11);
+        assert_eq!(registry.len(), 15);
 
         // Verify each pattern is accessible (all FunctionExpKind variants are covered)
         let _ = registry.get(FunctionExpKind::Recurse);
@@ -283,6 +302,10 @@ mod tests {
         let _ = registry.get(FunctionExpKind::Catch);
         let _ = registry.get(FunctionExpKind::Todo);
         let _ = registry.get(FunctionExpKind::Unreachable);
+        let _ = registry.get(FunctionExpKind::Channel);
+        let _ = registry.get(FunctionExpKind::ChannelIn);
+        let _ = registry.get(FunctionExpKind::ChannelOut);
+        let _ = registry.get(FunctionExpKind::ChannelAll);
     }
 
     #[test]
@@ -299,6 +322,7 @@ mod tests {
             registry.get(FunctionExpKind::Unreachable).name(),
             "unreachable"
         );
+        assert_eq!(registry.get(FunctionExpKind::Channel).name(), "channel");
     }
 
     #[test]
@@ -318,13 +342,17 @@ mod tests {
 
         let unreachable = registry.get(FunctionExpKind::Unreachable);
         assert!(unreachable.required_props().is_empty());
+
+        // channel requires buffer
+        let channel = registry.get(FunctionExpKind::Channel);
+        assert!(channel.required_props().contains(&"buffer"));
     }
 
     #[test]
     fn test_kinds_iterator() {
         let registry = PatternRegistry::new();
         let kinds: Vec<_> = registry.kinds().collect();
-        assert_eq!(kinds.len(), 11);
+        assert_eq!(kinds.len(), 15);
         assert!(kinds.contains(&FunctionExpKind::Recurse));
         assert!(kinds.contains(&FunctionExpKind::Parallel));
         assert!(kinds.contains(&FunctionExpKind::Spawn));
@@ -336,6 +364,10 @@ mod tests {
         assert!(kinds.contains(&FunctionExpKind::Catch));
         assert!(kinds.contains(&FunctionExpKind::Todo));
         assert!(kinds.contains(&FunctionExpKind::Unreachable));
+        assert!(kinds.contains(&FunctionExpKind::Channel));
+        assert!(kinds.contains(&FunctionExpKind::ChannelIn));
+        assert!(kinds.contains(&FunctionExpKind::ChannelOut));
+        assert!(kinds.contains(&FunctionExpKind::ChannelAll));
     }
 
     #[test]

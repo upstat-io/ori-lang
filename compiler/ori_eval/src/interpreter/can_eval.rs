@@ -1117,6 +1117,16 @@ impl Interpreter<'_> {
                 }
                 result
             }
+            FunctionExpKind::Channel
+            | FunctionExpKind::ChannelIn
+            | FunctionExpKind::ChannelOut
+            | FunctionExpKind::ChannelAll => {
+                tracing::warn!(
+                    "pattern '{}' is a stub — channels are not yet implemented",
+                    kind.name()
+                );
+                Ok(Value::Void)
+            }
         }
     }
 
