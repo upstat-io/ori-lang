@@ -297,13 +297,19 @@ fn test_matches(
 
         TestValue::Bool(expected) => value.as_bool().is_some_and(|v| v == *expected),
 
+        TestValue::Char(expected) => value.as_char().is_some_and(|v| v == *expected),
+
         TestValue::Float(expected_bits) => value
             .as_float()
             .is_some_and(|v| v.to_bits() == *expected_bits),
 
-        TestValue::IntRange { lo, hi, inclusive } => value
-            .as_int()
-            .is_some_and(|v| v >= *lo && if *inclusive { v <= *hi } else { v < *hi }),
+        TestValue::IntRange { lo, hi, inclusive } => {
+            // Support both int and char ranges (chars compared as code points)
+            let v = value
+                .as_int()
+                .or_else(|| value.as_char().map(|c| i64::from(u32::from(c))));
+            v.is_some_and(|v| v >= *lo && if *inclusive { v <= *hi } else { v < *hi })
+        }
 
         TestValue::ListLen { len, is_exact } => match value.as_list() {
             Some(items) => {

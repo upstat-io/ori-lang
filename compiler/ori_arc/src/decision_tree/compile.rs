@@ -425,7 +425,7 @@ fn test_values_from_pattern(pat: &FlatPattern) -> Vec<TestValue> {
         FlatPattern::LitFloat(v) => vec![TestValue::Float(*v)],
         FlatPattern::LitBool(v) => vec![TestValue::Bool(*v)],
         FlatPattern::LitStr(v) => vec![TestValue::Str(*v)],
-        FlatPattern::LitChar(v) => vec![TestValue::Int(*v as i64)],
+        FlatPattern::LitChar(v) => vec![TestValue::Char(*v)],
         FlatPattern::Variant {
             variant_index,
             variant_name,
@@ -495,6 +495,7 @@ fn infer_test_kind(values: &[TestValue]) -> TestKind {
         Some(TestValue::Str(_)) => TestKind::StrEq,
         Some(TestValue::Bool(_)) => TestKind::BoolEq,
         Some(TestValue::Float(_)) => TestKind::FloatEq,
+        Some(TestValue::Char(_)) => TestKind::CharEq,
         Some(TestValue::IntRange { .. }) => TestKind::IntRange,
         Some(TestValue::ListLen { .. }) => TestKind::ListLen,
         Some(TestValue::Tag { .. }) | None => TestKind::EnumTag,
@@ -579,6 +580,7 @@ fn infer_sub_pattern_count(matrix: &PatternMatrix, col: usize, tv: &TestValue) -
         | TestValue::Str(_)
         | TestValue::Bool(_)
         | TestValue::Float(_)
+        | TestValue::Char(_)
         | TestValue::IntRange { .. } => 0,
         TestValue::ListLen { len, .. } => *len as usize,
     }
@@ -723,8 +725,8 @@ fn specialize_pattern(pat: &FlatPattern, tv: &TestValue, expected_sub_count: usi
                 SpecResult::NoMatch
             }
         }
-        (FlatPattern::LitChar(v), TestValue::Int(tv)) => {
-            if *v as i64 == *tv {
+        (FlatPattern::LitChar(v), TestValue::Char(tv)) => {
+            if v == tv {
                 SpecResult::Match(vec![])
             } else {
                 SpecResult::NoMatch

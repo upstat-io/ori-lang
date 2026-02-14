@@ -58,18 +58,17 @@ use std.testing { assert, assert_eq }
     false -> "no",
 )
 
-// NOTE: Char literal patterns not yet supported in match
-// @test_literal_char tests @literal_char () -> void = run(
-//     assert_eq(actual: literal_char('a'), expected: "letter a"),
-//     assert_eq(actual: literal_char('b'), expected: "letter b"),
-//     assert_eq(actual: literal_char('x'), expected: "other"),
-// )
+@test_literal_char tests @literal_char () -> void = run(
+    assert_eq(actual: literal_char('a'), expected: "letter a"),
+    assert_eq(actual: literal_char('b'), expected: "letter b"),
+    assert_eq(actual: literal_char('x'), expected: "other"),
+)
 
-// @literal_char (c: char) -> str = match(c,
-//     'a' -> "letter a",
-//     'b' -> "letter b",
-//     _ -> "other",
-// )
+@literal_char (c: char) -> str = match(c,
+    'a' -> "letter a",
+    'b' -> "letter b",
+    _ -> "other",
+)
 
 // =============================================================================
 // Identifier Patterns (Binding)

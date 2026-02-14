@@ -509,6 +509,14 @@ impl Value {
         }
     }
 
+    /// Try to convert to a char.
+    pub fn as_char(&self) -> Option<char> {
+        match self {
+            Value::Char(c) => Some(*c),
+            _ => None,
+        }
+    }
+
     /// Try to convert to a list.
     pub fn as_list(&self) -> Option<&[Value]> {
         match self {
