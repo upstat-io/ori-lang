@@ -18,7 +18,7 @@ sections:
     status: complete
   - id: "0.2"
     title: Source Structure
-    status: in-progress
+    status: complete
   - id: "0.3"
     title: Declarations
     status: in-progress
@@ -285,17 +285,25 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.2.5 FFI
 
-- [x] **Audit**: Extern blocks — grammar.ebnf § extern_block ✅ (2026-02-10)
+- [x] **Audit**: Extern blocks — grammar.ebnf § extern_block ✅ (2026-02-13)
   - [x] C: `extern "c" from "lib" { ... }` — parses correctly (verified via `ori parse`)
   - [x] JS: `extern "js" { ... }` — parses correctly
-  - [x] **Note**: Extern functions require body (`= expr`), not declaration-only syntax
+  - [x] `pub extern` visibility — parses correctly
+  - [x] `from "path"` library clause — parses correctly
+  - [x] Empty extern blocks — parses correctly
+  - [x] **Note**: Extern blocks are now proper AST nodes (`ExternBlock`, `ExternItem`, `ExternParam`)
 
-- [ ] **Audit**: Extern items — grammar.ebnf § extern_item
-  - [ ] `@_sin (x: float) -> float as "sin"` — **BROKEN**: parser rejects `as` alias syntax
-  - [ ] **Note**: Extern functions without `as` alias parse with body; `as` alias syntax fails
+- [x] **Audit**: Extern items — grammar.ebnf § extern_item ✅ (2026-02-13)
+  - [x] `@_sin (x: float) -> float as "sin"` — parses correctly (as alias)
+  - [x] `@sin (x: float) -> float` — parses correctly (no alias)
+  - [x] Mixed alias/no-alias items in same block — parses correctly
 
-- [ ] **Audit**: C variadics — grammar.ebnf § c_variadic
-  - [ ] `@printf (fmt: CPtr, ...) -> c_int` — **BROKEN**: parser rejects `...` in params
+- [x] **Audit**: C variadics — grammar.ebnf § c_variadic ✅ (2026-02-13)
+  - [x] `@printf (fmt: CPtr, ...) -> c_int` — parses correctly
+  - [x] `(...) -> void` — parses correctly (no named params)
+
+- [x] **Rust Tests**: `oric/tests/phases/parse/extern_def.rs` — 20 tests (2026-02-13)
+- [x] **Formatter**: round-trips correctly (2026-02-13)
 
 ---
 

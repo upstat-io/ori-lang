@@ -12,6 +12,7 @@
 //! - `lexer` - Token recognition, escape sequences, comment handling
 
 mod extensions;
+mod extern_def;
 mod file_attr;
 mod function;
 mod imports;

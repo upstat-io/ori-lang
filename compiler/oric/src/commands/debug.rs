@@ -16,6 +16,10 @@ pub fn parse_file(path: &str) {
 
     println!("Parse result for '{path}':");
     println!("  Functions: {}", parse_result.module.functions.len());
+    println!(
+        "  Extern blocks: {}",
+        parse_result.module.extern_blocks.len()
+    );
     println!("  Expressions: {}", parse_result.arena.expr_count());
     println!("  Errors: {}", parse_result.errors.len());
 
@@ -30,6 +34,34 @@ pub fn parse_file(path: &str) {
                 .map(|p| db.interner().lookup(p.name))
                 .collect();
             println!("  @{} ({})", name, param_names.join(", "));
+        }
+    }
+
+    if !parse_result.module.extern_blocks.is_empty() {
+        println!();
+        println!("Extern blocks:");
+        for block in &parse_result.module.extern_blocks {
+            let conv = db.interner().lookup(block.convention);
+            let lib = block
+                .library
+                .map(|l| format!(" from \"{}\"", db.interner().lookup(l)))
+                .unwrap_or_default();
+            println!("  extern \"{conv}\"{lib} {{");
+            for item in &block.items {
+                let name = db.interner().lookup(item.name);
+                let param_names: Vec<_> = item
+                    .params
+                    .iter()
+                    .map(|p| db.interner().lookup(p.name))
+                    .collect();
+                let variadic = if item.is_c_variadic { ", ..." } else { "" };
+                let alias = item
+                    .alias
+                    .map(|a| format!(" as \"{}\"", db.interner().lookup(a)))
+                    .unwrap_or_default();
+                println!("    @{name} ({}{variadic}){alias}", param_names.join(", "));
+            }
+            println!("  }}");
         }
     }
 

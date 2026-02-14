@@ -655,6 +655,14 @@ impl<'a> Parser<'a> {
                 errors,
                 Self::recover_to_function,
             );
+        } else if self.cursor.check(&TokenKind::Extern) {
+            let outcome = self.parse_extern_block(visibility);
+            self.handle_outcome(
+                outcome,
+                &mut module.extern_blocks,
+                errors,
+                Self::recover_to_function,
+            );
         } else {
             self.handle_declaration_error(&attrs, errors);
         }
@@ -834,6 +842,11 @@ impl<'a> Parser<'a> {
                             let old_ext = &state.cursor.module().extension_imports[decl_ref.index];
                             let new_ext = copier.copy_extension_import(old_ext);
                             module.extension_imports.push(new_ext);
+                        }
+                        DeclKind::ExternBlock => {
+                            // Extern blocks have no ExprIds — safe to clone directly.
+                            let old_block = &state.cursor.module().extern_blocks[decl_ref.index];
+                            module.extern_blocks.push(old_block.clone());
                         }
                         DeclKind::Import => {
                             unreachable!("imports should not appear in declaration list");

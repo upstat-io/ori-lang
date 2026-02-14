@@ -48,6 +48,8 @@ pub enum ErrorContext {
     ImplBlock,
     /// Parsing a use/import statement.
     UseStatement,
+    /// Parsing an extern block.
+    ExternBlock,
 
     // === Expressions ===
     /// Parsing an expression (generic).
@@ -121,6 +123,7 @@ impl ErrorContext {
             Self::TraitDef => "a trait definition",
             Self::ImplBlock => "an impl block",
             Self::UseStatement => "a use statement",
+            Self::ExternBlock => "an extern block",
 
             // Expressions
             Self::Expression => "an expression",
@@ -169,6 +172,7 @@ impl ErrorContext {
             Self::TraitDef => "trait definition",
             Self::ImplBlock => "impl block",
             Self::UseStatement => "use statement",
+            Self::ExternBlock => "extern block",
 
             // Expressions
             Self::Expression => "expression",
@@ -2644,6 +2648,7 @@ mod tests {
             ErrorContext::TraitDef,
             ErrorContext::ImplBlock,
             ErrorContext::UseStatement,
+            ErrorContext::ExternBlock,
             ErrorContext::Expression,
             ErrorContext::IfExpression,
             ErrorContext::MatchExpression,

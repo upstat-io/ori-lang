@@ -41,6 +41,7 @@ pub enum DeclKind {
     Impl,
     DefImpl,
     Extend,
+    ExternBlock,
 }
 
 /// Reference to a declaration with its source span.
@@ -132,6 +133,14 @@ pub fn collect_declarations(module: &Module) -> Vec<DeclRef> {
             kind: DeclKind::Extend,
             index: i,
             span: extend.span,
+        });
+    }
+
+    for (i, extern_block) in module.extern_blocks.iter().enumerate() {
+        decls.push(DeclRef {
+            kind: DeclKind::ExternBlock,
+            index: i,
+            span: extern_block.span,
         });
     }
 
