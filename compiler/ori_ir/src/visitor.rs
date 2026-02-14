@@ -296,12 +296,12 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         ExprKind::Cast { expr, .. } => {
             visitor.visit_expr_id(*expr, arena);
         }
-        ExprKind::Loop { body } => {
+        ExprKind::Loop { body, .. } => {
             visitor.visit_expr_id(*body, arena);
         }
-        ExprKind::Break(val) | ExprKind::Continue(val) => {
-            if val.is_present() {
-                visitor.visit_expr_id(*val, arena);
+        ExprKind::Break { value, .. } | ExprKind::Continue { value, .. } => {
+            if value.is_present() {
+                visitor.visit_expr_id(*value, arena);
             }
         }
         ExprKind::Ok(inner) | ExprKind::Err(inner) => {

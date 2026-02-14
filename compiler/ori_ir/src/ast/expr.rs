@@ -178,8 +178,10 @@ pub enum ExprKind {
     /// Match expression (statement form): match value { arms }
     Match { scrutinee: ExprId, arms: ArmRange },
 
-    /// For loop: for x in iter do/yield body
+    /// For loop: `for x in iter do body` or `for:label x in iter do body`
     For {
+        /// `Name::EMPTY` = no label.
+        label: Name,
         binding: Name,
         iter: ExprId,
         /// `ExprId::INVALID` = no guard.
@@ -188,8 +190,12 @@ pub enum ExprKind {
         is_yield: bool,
     },
 
-    /// Loop: loop(body)
-    Loop { body: ExprId },
+    /// Loop: `loop(body)` or `loop:label(body)`
+    Loop {
+        /// `Name::EMPTY` = no label.
+        label: Name,
+        body: ExprId,
+    },
 
     /// Block: { stmts; result }
     Block {
@@ -276,13 +282,15 @@ pub enum ExprKind {
     /// None
     None,
 
-    /// Break from loop — `ExprId::INVALID` = no value.
-    Break(ExprId),
+    /// Break from loop: `break`, `break value`, `break:label`, `break:label value`.
+    /// `Name::EMPTY` = no label, `ExprId::INVALID` = no value.
+    Break { label: Name, value: ExprId },
 
-    /// Continue loop — `ExprId::INVALID` = no value.
+    /// Continue loop: `continue`, `continue value`, `continue:label`, `continue:label value`.
+    /// `Name::EMPTY` = no label, `ExprId::INVALID` = no value.
     /// Value is only valid in `for...yield` context (substitutes the element).
     /// Error E0861 if value provided in `loop()` context.
-    Continue(ExprId),
+    Continue { label: Name, value: ExprId },
 
     /// Await async operation
     Await(ExprId),
@@ -397,6 +405,7 @@ impl fmt::Debug for ExprKind {
                 write!(f, "Match({scrutinee:?}, {arms:?})")
             }
             ExprKind::For {
+                label,
                 binding,
                 iter,
                 guard,
@@ -405,10 +414,10 @@ impl fmt::Debug for ExprKind {
             } => {
                 write!(
                     f,
-                    "For({binding:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})"
+                    "For({label:?}, {binding:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})"
                 )
             }
-            ExprKind::Loop { body } => write!(f, "Loop({body:?})"),
+            ExprKind::Loop { label, body } => write!(f, "Loop({label:?}, {body:?})"),
             ExprKind::Block { stmts, result } => write!(f, "Block({stmts:?}, {result:?})"),
             ExprKind::Let {
                 pattern,
@@ -449,8 +458,10 @@ impl fmt::Debug for ExprKind {
             ExprKind::Err(inner) => write!(f, "Err({inner:?})"),
             ExprKind::Some(inner) => write!(f, "Some({inner:?})"),
             ExprKind::None => write!(f, "None"),
-            ExprKind::Break(val) => write!(f, "Break({val:?})"),
-            ExprKind::Continue(val) => write!(f, "Continue({val:?})"),
+            ExprKind::Break { label, value } => write!(f, "Break({label:?}, {value:?})"),
+            ExprKind::Continue { label, value } => {
+                write!(f, "Continue({label:?}, {value:?})")
+            }
             ExprKind::Await(inner) => write!(f, "Await({inner:?})"),
             ExprKind::Try(inner) => write!(f, "Try({inner:?})"),
             ExprKind::Cast { expr, ty, fallible } => {

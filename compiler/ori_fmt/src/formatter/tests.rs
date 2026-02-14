@@ -17,7 +17,7 @@ use crate::context::{FormatContext, MAX_LINE_WIDTH};
 use crate::formatter::format_expr;
 use ori_ir::{
     ast::{Expr, ExprKind},
-    BinaryOp, ExprArena, ExprId, Span, StringInterner, UnaryOp,
+    BinaryOp, ExprArena, ExprId, Name, Span, StringInterner, UnaryOp,
 };
 
 /// Helper to create a test expression in the arena.
@@ -340,7 +340,13 @@ fn format_self_ref() {
 fn format_break_void() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
-    let expr = make_expr(&mut arena, ExprKind::Break(ExprId::INVALID));
+    let expr = make_expr(
+        &mut arena,
+        ExprKind::Break {
+            label: Name::EMPTY,
+            value: ExprId::INVALID,
+        },
+    );
     assert_eq!(format_to_string(&arena, &interner, expr), "break\n");
 }
 
@@ -348,7 +354,13 @@ fn format_break_void() {
 fn format_continue() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
-    let expr = make_expr(&mut arena, ExprKind::Continue(ExprId::INVALID));
+    let expr = make_expr(
+        &mut arena,
+        ExprKind::Continue {
+            label: Name::EMPTY,
+            value: ExprId::INVALID,
+        },
+    );
     assert_eq!(format_to_string(&arena, &interner, expr), "continue\n");
 }
 

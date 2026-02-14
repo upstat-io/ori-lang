@@ -115,10 +115,11 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
             guard,
             body,
             is_yield,
+            ..
         } => infer_for(
             engine, arena, *binding, *iter, *guard, *body, *is_yield, span,
         ),
-        ExprKind::Loop { body } => infer_loop(engine, arena, *body, span),
+        ExprKind::Loop { body, .. } => infer_loop(engine, arena, *body, span),
 
         // === Blocks and Bindings ===
         ExprKind::Block { stmts, result } => infer_block(engine, arena, *stmts, *result, span),
@@ -177,8 +178,8 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         ExprKind::None => infer_none(engine),
 
         // === Control Flow Expressions ===
-        ExprKind::Break(value) => infer_break(engine, arena, *value, span),
-        ExprKind::Continue(value) => infer_continue(engine, arena, *value, span),
+        ExprKind::Break { value, .. } => infer_break(engine, arena, *value, span),
+        ExprKind::Continue { value, .. } => infer_continue(engine, arena, *value, span),
         ExprKind::Try(inner) => infer_try(engine, arena, *inner, span),
         ExprKind::Await(inner) => infer_await(engine, arena, *inner, span),
 
@@ -5735,6 +5736,7 @@ mod tests {
         let for_expr = alloc(
             &mut arena,
             ExprKind::For {
+                label: Name::EMPTY,
                 binding: name(2), // 'x'
                 iter,
                 guard: ExprId::INVALID,
@@ -5766,6 +5768,7 @@ mod tests {
         let for_expr = alloc(
             &mut arena,
             ExprKind::For {
+                label: Name::EMPTY,
                 binding: name(2), // 'x'
                 iter,
                 guard: ExprId::INVALID,
@@ -5803,6 +5806,7 @@ mod tests {
         let for_expr = alloc(
             &mut arena,
             ExprKind::For {
+                label: Name::EMPTY,
                 binding: name(2),
                 iter,
                 guard,
@@ -5833,6 +5837,7 @@ mod tests {
         let for_expr = alloc(
             &mut arena,
             ExprKind::For {
+                label: Name::EMPTY,
                 binding: name(2),
                 iter,
                 guard,
@@ -5857,7 +5862,13 @@ mod tests {
         let mut arena = ExprArena::new();
 
         let body = alloc(&mut arena, ExprKind::Unit);
-        let loop_expr = alloc(&mut arena, ExprKind::Loop { body });
+        let loop_expr = alloc(
+            &mut arena,
+            ExprKind::Loop {
+                label: Name::EMPTY,
+                body,
+            },
+        );
 
         let ty = infer_expr(&mut engine, &arena, loop_expr);
 
@@ -6435,7 +6446,13 @@ mod tests {
         let mut engine = InferEngine::new(&mut pool);
         let mut arena = ExprArena::new();
 
-        let break_expr = alloc(&mut arena, ExprKind::Break(ExprId::INVALID));
+        let break_expr = alloc(
+            &mut arena,
+            ExprKind::Break {
+                label: Name::EMPTY,
+                value: ExprId::INVALID,
+            },
+        );
         let ty = infer_expr(&mut engine, &arena, break_expr);
 
         assert_eq!(ty, Idx::NEVER, "Break returns never type");
@@ -6448,7 +6465,13 @@ mod tests {
         let mut engine = InferEngine::new(&mut pool);
         let mut arena = ExprArena::new();
 
-        let continue_expr = alloc(&mut arena, ExprKind::Continue(ExprId::INVALID));
+        let continue_expr = alloc(
+            &mut arena,
+            ExprKind::Continue {
+                label: Name::EMPTY,
+                value: ExprId::INVALID,
+            },
+        );
         let ty = infer_expr(&mut engine, &arena, continue_expr);
 
         assert_eq!(ty, Idx::NEVER, "Continue returns never type");

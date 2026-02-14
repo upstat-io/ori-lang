@@ -30,7 +30,7 @@ sections:
     status: complete
   - id: "0.5"
     title: Expressions
-    status: in-progress
+    status: complete
   - id: "0.6"
     title: Patterns
     status: in-progress
@@ -652,18 +652,18 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] Do: `for x in items do action` — parses correctly
   - [x] Yield: `for x in items yield x * 2` — parses correctly (verified via `ori parse`)
   - [x] Filter: `for x in items if x > 0 yield x` — parses correctly (verified via `ori parse`)
-  - [x] Labeled: `for:outer x in items do ...` — parses correctly (verified via `ori parse`)
+  - [x] Labeled: `for:outer x in items do ...` — parses correctly ✅ (2026-02-14)
 
 ### 0.5.13 Loop Expression
 
-- [x] **Audit**: Loop expressions — grammar.ebnf § loop_expr ✅ (2026-02-10)
+- [x] **Audit**: Loop expressions — grammar.ebnf § loop_expr ✅ (2026-02-14)
   - [x] Basic: `loop(body)` — parses correctly (verified via `ori parse`)
-  - [x] Labeled: `loop:name(body)` — parses correctly (verified via `ori parse`)
+  - [x] Labeled: `loop:name(body)` — parses correctly ✅ (2026-02-14)
 
 ### 0.5.14 Labels
 
-- [x] **Audit**: Loop labels — grammar.ebnf § label ✅ (2026-02-10)
-  - [x] `:name` (no space around colon) — parses correctly (verified via labeled for/loop)
+- [x] **Audit**: Loop labels — grammar.ebnf § label ✅ (2026-02-14)
+  - [x] `:name` (no space around colon) — parses correctly (verified via labeled for/loop/break/continue)
 
 ### 0.5.15 Lambda
 
@@ -678,15 +678,15 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.5.16 Control Flow
 
-- [x] **Audit**: Break expression — grammar.ebnf § break_expr ✅ (2026-02-10)
+- [x] **Audit**: Break expression — grammar.ebnf § break_expr ✅ (2026-02-14)
   - [x] Simple: `break` — parses correctly
   - [x] With value: `break result` — parses correctly (verified via loop test)
-  - [x] Labeled: `break:outer`, `break:outer result` — parses correctly (verified via `ori parse`)
+  - [x] Labeled: `break:outer`, `break:outer result` — parses correctly ✅ (2026-02-14)
 
-- [x] **Audit**: Continue expression — grammar.ebnf § continue_expr ✅ (2026-02-10)
+- [x] **Audit**: Continue expression — grammar.ebnf § continue_expr ✅ (2026-02-14)
   - [x] Simple: `continue` — parses correctly (verified via `ori parse`)
   - [x] With value: `continue replacement` — parses correctly ✅ (2026-02-13)
-  - [ ] Labeled: `continue:outer` — **BROKEN**: parser rejects `:` after `continue` (works for `break:label` and `for:label`)
+  - [x] Labeled: `continue:outer` — parses correctly ✅ (2026-02-14)
 
 ---
 
@@ -862,7 +862,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] All source structure items audited and tested (0.2) ✅ (2026-02-13) — file attributes, extern `as`, C variadics all work now
 - [ ] All declaration items audited and tested (0.3) — partial: typed constants broken; const generics NOW WORK ✅ (2026-02-13); floating tests NOW WORK ✅ (2026-02-14); clause params, guard clauses, variadic params NOW WORK
 - [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK; bounded trait objects NOW WORK ✅ (2026-02-14)
-- [x] All expression items audited and tested (0.5) ✅ (2026-02-13) — length placeholder `#` now works; labeled continue broken
+- [x] All expression items audited and tested (0.5) ✅ (2026-02-14) — length placeholder `#` now works; labeled break/continue/for/loop NOW WORK ✅ (2026-02-14)
 - [ ] All pattern items audited and tested (0.6) — partial: run pre/post checks, channels, struct rest `..`, with RAII, immutable bindings, char patterns broken; try `?` NOW WORKS
 - [ ] All constant expression items audited and tested (0.7) — only literals work; computed constants broken
 - [ ] Run `cargo t -p ori_parse` — all parser tests pass
@@ -884,11 +884,11 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - `with()` RAII pattern (`acquire:/use:/release:`) — rejects certain named args
 - Run pre/post checks — named args rejected
 - Immutable binding in function body (`let $x = 42`) — `$` rejected
-- Labeled continue (`continue:outer`) — `:` rejected
+- ~~Labeled continue (`continue:outer`)~~ — FIXED ✅ (2026-02-14)
 - Char patterns in match (`'a'`, `'a'..='z'`) — char literals not accepted
 
-**Fixed since 2026-02-10** (16 items):
-File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`)
+**Fixed since 2026-02-10** (17 items):
+File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`)
 
 ---
 
@@ -947,8 +947,8 @@ These features fail at the parse phase — the parser does not recognize the syn
 - [ ] **Implement**: `with(acquire:, use:, release:)` RAII pattern
   - [ ] **Syntax**: `with(acquire: open_file(), use: f -> ..., release: close)` — **BROKEN**: rejects `acquire:`/`use:`/`release:` syntax
 
-- [ ] **Implement**: Labeled continue
-  - [ ] **Syntax**: `continue:outer` — **BROKEN**: parser rejects `:` after `continue` (works for `break:label`)
+- [x] **Implement**: Labeled continue ✅ (2026-02-14)
+  - [x] **Syntax**: `continue:outer` — parses correctly ✅ (2026-02-14)
 
 - [ ] **Implement**: Char patterns in match
   - [ ] **Syntax**: `'a'` in match arm — **BROKEN**: char literals not in expected pattern tokens

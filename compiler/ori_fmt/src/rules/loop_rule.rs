@@ -80,7 +80,7 @@ pub fn is_loop(arena: &ExprArena, expr_id: ExprId) -> bool {
 pub fn get_loop_body(arena: &ExprArena, expr_id: ExprId) -> Option<ExprId> {
     let expr = arena.get_expr(expr_id);
 
-    if let ExprKind::Loop { body } = &expr.kind {
+    if let ExprKind::Loop { body, .. } = &expr.kind {
         Some(*body)
     } else {
         None
@@ -103,12 +103,18 @@ pub fn is_simple_conditional_body(arena: &ExprArena, body: ExprId) -> bool {
     {
         // Check if then branch is break/continue
         let then_expr = arena.get_expr(*then_branch);
-        let then_simple = matches!(then_expr.kind, ExprKind::Break(_) | ExprKind::Continue(_));
+        let then_simple = matches!(
+            then_expr.kind,
+            ExprKind::Break { .. } | ExprKind::Continue { .. }
+        );
 
         // Check if else branch is break/continue (if present)
         let else_simple = if else_branch.is_present() {
             let else_expr = arena.get_expr(*else_branch);
-            matches!(else_expr.kind, ExprKind::Break(_) | ExprKind::Continue(_))
+            matches!(
+                else_expr.kind,
+                ExprKind::Break { .. } | ExprKind::Continue { .. }
+            )
         } else {
             true
         };

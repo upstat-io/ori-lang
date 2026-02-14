@@ -76,7 +76,9 @@ pub fn is_short_body(arena: &ExprArena, expr_id: ExprId) -> bool {
         | ExprKind::Unit
         | ExprKind::SelfRef
         | ExprKind::Const(_) => true,
-        ExprKind::Continue(val) | ExprKind::Break(val) if !val.is_present() => true,
+        ExprKind::Continue { value, .. } | ExprKind::Break { value, .. } if !value.is_present() => {
+            true
+        }
 
         // For other expressions, we'd need width calculation
         // which is done at the orchestration layer

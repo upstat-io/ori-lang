@@ -117,6 +117,7 @@ pub fn collect_for_chain(arena: &ExprArena, expr_id: ExprId) -> Option<ForChain>
             guard,
             body,
             is_yield,
+            ..
         } = &expr.kind
         {
             levels.push(ForLevel {

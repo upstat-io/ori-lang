@@ -6,7 +6,7 @@ use literals::{bool_width, char_width, float_width, int_width, string_width};
 use operators::{binary_op_width, unary_op_width};
 use ori_ir::{
     ast::{Expr, ExprKind, Stmt, StmtKind},
-    BinaryOp, DurationUnit, ExprArena, SizeUnit, Span, StmtRange, StringInterner, UnaryOp,
+    BinaryOp, DurationUnit, ExprArena, Name, SizeUnit, Span, StmtRange, StringInterner, UnaryOp,
 };
 use patterns::binding_pattern_width;
 
@@ -475,7 +475,13 @@ fn test_width_break() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
 
-    let brk = make_expr(&mut arena, ExprKind::Break(ExprId::INVALID));
+    let brk = make_expr(
+        &mut arena,
+        ExprKind::Break {
+            label: Name::EMPTY,
+            value: ExprId::INVALID,
+        },
+    );
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(brk), 5); // "break"
@@ -487,7 +493,13 @@ fn test_width_break_value() {
     let interner = StringInterner::new();
 
     let value = make_expr(&mut arena, ExprKind::Int(42));
-    let brk = make_expr(&mut arena, ExprKind::Break(value));
+    let brk = make_expr(
+        &mut arena,
+        ExprKind::Break {
+            label: Name::EMPTY,
+            value,
+        },
+    );
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(brk), 8); // "break 42"
@@ -498,7 +510,13 @@ fn test_width_continue() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
 
-    let cont = make_expr(&mut arena, ExprKind::Continue(ExprId::INVALID));
+    let cont = make_expr(
+        &mut arena,
+        ExprKind::Continue {
+            label: Name::EMPTY,
+            value: ExprId::INVALID,
+        },
+    );
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     assert_eq!(calc.width(cont), 8); // "continue"
@@ -613,7 +631,13 @@ fn test_width_loop() {
     let interner = StringInterner::new();
 
     let body = make_expr(&mut arena, ExprKind::Int(42));
-    let loop_expr = make_expr(&mut arena, ExprKind::Loop { body });
+    let loop_expr = make_expr(
+        &mut arena,
+        ExprKind::Loop {
+            label: Name::EMPTY,
+            body,
+        },
+    );
     let mut calc = WidthCalculator::new(&arena, &interner);
 
     // "loop(42)" = 5 + 2 + 1 = 8
