@@ -10,7 +10,8 @@ use crate::recovery::TokenSet;
 use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern,
-    MatchPatternId, MatchPatternRange, Name, NamedExpr, ParsedTypeId, SeqBinding, TokenKind,
+    MatchPatternId, MatchPatternRange, Name, NamedExpr, ParsedTypeId, ParsedTypeRange, SeqBinding,
+    TokenKind,
 };
 
 /// Kind of `function_seq` expression.
@@ -918,6 +919,64 @@ impl Parser<'_> {
         let func_exp = FunctionExp {
             kind,
             props: props_range,
+            type_args: ParsedTypeRange::EMPTY,
+            span: start_span.merge(end_span),
+        };
+
+        let func_exp_id = self.arena.alloc_function_exp(func_exp);
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::FunctionExp(func_exp_id),
+            start_span.merge(end_span),
+        )))
+    }
+
+    /// Parse a channel expression: `channel<int>(buffer: 10)` or `channel(buffer: 10)`.
+    ///
+    /// Called after the channel identifier has been consumed by `parse_primary`.
+    /// Parses optional generic type arguments, then named properties in parens.
+    pub(crate) fn parse_channel_expr(&mut self, kind: FunctionExpKind) -> ParseOutcome<ExprId> {
+        let start_span = self.cursor.previous_span();
+
+        // Parse optional generic type arguments: <int>, <str>, <Result<int, str>>
+        let type_args = self.parse_optional_generic_args_range();
+
+        committed!(self.cursor.expect(&TokenKind::LParen));
+        self.cursor.skip_newlines();
+
+        let mut props: Vec<NamedExpr> = Vec::new();
+        committed!(self.paren_series_direct(|p| {
+            if p.cursor.check(&TokenKind::RParen) {
+                return Ok(false);
+            }
+
+            if !p.cursor.is_named_arg_start() {
+                return Err(crate::ParseError::new(
+                    ori_diagnostic::ErrorCode::E1013,
+                    format!("`{}` requires named properties (name: value)", kind.name()),
+                    p.cursor.current_span(),
+                ));
+            }
+
+            let name = p.cursor.expect_ident_or_keyword()?;
+            let prop_span = p.cursor.previous_span();
+            p.cursor.expect(&TokenKind::Colon)?;
+            let value = p.parse_expr().into_result()?;
+            let end_span = p.arena.get_expr(value).span;
+
+            props.push(NamedExpr {
+                name,
+                value,
+                span: prop_span.merge(end_span),
+            });
+            Ok(true)
+        }));
+        let end_span = self.cursor.previous_span();
+
+        let props_range = self.arena.alloc_named_exprs(props);
+        let func_exp = FunctionExp {
+            kind,
+            props: props_range,
+            type_args,
             span: start_span.merge(end_span),
         };
 

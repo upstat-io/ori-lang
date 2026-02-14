@@ -56,6 +56,14 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 self.builder.record_codegen_error();
                 None
             }
+            FunctionExpKind::Channel
+            | FunctionExpKind::ChannelIn
+            | FunctionExpKind::ChannelOut
+            | FunctionExpKind::ChannelAll => {
+                tracing::warn!("{} expression not yet implemented", kind.name());
+                self.builder.record_codegen_error();
+                None
+            }
         }
     }
 

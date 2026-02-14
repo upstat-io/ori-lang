@@ -4559,6 +4559,17 @@ fn infer_function_exp(
             // Resource management pattern
             infer_with(engine, arena, props)
         }
+
+        // Channel constructors — stub: infer props, return fresh type var
+        FunctionExpKind::Channel
+        | FunctionExpKind::ChannelIn
+        | FunctionExpKind::ChannelOut
+        | FunctionExpKind::ChannelAll => {
+            for prop in props {
+                infer_expr(engine, arena, prop.value);
+            }
+            engine.fresh_var()
+        }
     }
 }
 
@@ -6745,6 +6756,7 @@ mod tests {
         let func_exp = ori_ir::FunctionExp {
             kind: ori_ir::FunctionExpKind::Print,
             props,
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
             span: Span::DUMMY,
         };
         let exp_id = arena.alloc_function_exp(func_exp);
@@ -6773,6 +6785,7 @@ mod tests {
         let func_exp = ori_ir::FunctionExp {
             kind: ori_ir::FunctionExpKind::Panic,
             props,
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
             span: Span::DUMMY,
         };
         let exp_id = arena.alloc_function_exp(func_exp);
@@ -6796,6 +6809,7 @@ mod tests {
         let func_exp = ori_ir::FunctionExp {
             kind: ori_ir::FunctionExpKind::Todo,
             props,
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
             span: Span::DUMMY,
         };
         let exp_id = arena.alloc_function_exp(func_exp);
@@ -6819,6 +6833,7 @@ mod tests {
         let func_exp = ori_ir::FunctionExp {
             kind: ori_ir::FunctionExpKind::Unreachable,
             props,
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
             span: Span::DUMMY,
         };
         let exp_id = arena.alloc_function_exp(func_exp);
@@ -6856,6 +6871,7 @@ mod tests {
         let func_exp = ori_ir::FunctionExp {
             kind: ori_ir::FunctionExpKind::Catch,
             props,
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
             span: Span::DUMMY,
         };
         let exp_id = arena.alloc_function_exp(func_exp);
@@ -6893,6 +6909,7 @@ mod tests {
         let func_exp = ori_ir::FunctionExp {
             kind: ori_ir::FunctionExpKind::Timeout,
             props,
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
             span: Span::DUMMY,
         };
         let exp_id = arena.alloc_function_exp(func_exp);

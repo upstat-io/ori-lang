@@ -10,8 +10,8 @@
 use crate::recovery::TokenSet;
 use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
-    BindingPattern, DurationUnit, Expr, ExprId, ExprKind, ExprRange, FieldBinding, Name, Param,
-    ParamRange, ParsedTypeId, SizeUnit, TemplatePart, TokenKind,
+    BindingPattern, DurationUnit, Expr, ExprId, ExprKind, ExprRange, FieldBinding, FunctionExpKind,
+    Name, Param, ParamRange, ParsedTypeId, SizeUnit, TemplatePart, TokenKind,
 };
 use tracing::{debug, trace};
 
@@ -119,6 +119,18 @@ impl Parser<'_> {
         }
         if self.cursor.check(&TokenKind::With) && self.cursor.is_with_capability_syntax() {
             return self.parse_with_capability();
+        }
+        // Channel constructors are context-sensitive identifiers (not lexer keywords).
+        // Detect `channel(`, `channel<`, `channel_in(`, etc. and parse as function_exp
+        // with optional generic type arguments.
+        if let TokenKind::Ident(name) = *self.cursor.current_kind() {
+            if let Some(channel_kind) = self.match_channel_kind(name) {
+                let next = self.cursor.peek_next_kind();
+                if matches!(next, TokenKind::LParen | TokenKind::Lt) {
+                    self.cursor.advance();
+                    return self.parse_channel_expr(channel_kind);
+                }
+            }
         }
         if let Some(kind) = self.match_function_exp_kind() {
             self.cursor.advance();
@@ -1427,5 +1439,17 @@ impl Parser<'_> {
             }
         }
         Ok(self.arena.alloc_params(params))
+    }
+
+    /// Check if an identifier name maps to a channel constructor kind.
+    fn match_channel_kind(&self, name: Name) -> Option<FunctionExpKind> {
+        let s = self.cursor.interner().lookup(name);
+        match s {
+            "channel" => Some(FunctionExpKind::Channel),
+            "channel_in" => Some(FunctionExpKind::ChannelIn),
+            "channel_out" => Some(FunctionExpKind::ChannelOut),
+            "channel_all" => Some(FunctionExpKind::ChannelAll),
+            _ => None,
+        }
     }
 }
