@@ -1314,6 +1314,7 @@ mod tests {
         FunctionSig {
             name,
             type_params: vec![],
+            const_params: vec![],
             param_names,
             param_types,
             return_type,
@@ -1494,6 +1495,7 @@ mod tests {
         let sig = FunctionSig {
             name: func_name,
             type_params: vec![t_name],
+            const_params: vec![],
             param_names: vec![],
             param_types: vec![],
             return_type: Idx::UNIT,

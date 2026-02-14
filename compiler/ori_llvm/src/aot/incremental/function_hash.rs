@@ -218,6 +218,7 @@ mod tests {
         FunctionSig {
             name: Name::from_raw(name),
             type_params: vec![],
+            const_params: vec![],
             param_names: vec![],
             param_types,
             return_type,
@@ -278,6 +279,7 @@ mod tests {
             FunctionSig {
                 name: Name::from_raw(2),
                 type_params: vec![Name::from_raw(100)], // Generic!
+                const_params: vec![],
                 param_names: vec![],
                 param_types: vec![],
                 return_type: Idx::UNIT,

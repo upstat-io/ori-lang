@@ -468,6 +468,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                 let sig = FunctionSig {
                     name,
                     type_params: vec![],
+                    const_params: vec![],
                     param_names: vec![],
                     param_types: info.param_types.clone(),
                     return_type: info.return_type,

@@ -1,31 +1,41 @@
-// Spec: const generics parser support
-// Tests that const generic syntax parses without errors.
+// Spec: const generics type checker support
+// Tests that const generic parameters are tracked and validated by the type checker.
 //
-// STATUS: Parser [OK] - const expressions in type positions supported
-// Const evaluation is not yet implemented (type checker stubs).
+// STATUS: Parser [OK], Type Checker [OK for body-level const params]
+// Const evaluation and call-site validation not yet implemented.
 
 // =============================================================================
 // Const Generic Parameters in Function Declarations
 // =============================================================================
 
 // Function with const generic parameter
-#skip("const generics: type checker not yet implemented")
 @const_param<$N: int> () -> int = N
 
 // Function with const generic parameter and default value
-#skip("const generics: type checker not yet implemented")
 @const_param_default<$N: int = 10> () -> int = N
+
+// Multiple const params
+@multi_const<$A: int, $B: int> () -> int = A + B
+
+// Mixed type and const params
+@mixed_params<T, $N: int> (x: T) -> T = x
+
+// Bool const param
+@bool_param<$F: bool> () -> bool = F
+
+// Const param in arithmetic expression
+@add_one<$N: int> () -> int = N + 1
 
 // =============================================================================
 // Const Expressions in Type Arguments
 // =============================================================================
 
 // Integer literal in type argument position
-#skip("const generics: type checker not yet implemented")
+#skip("const generics: Array type not yet implemented")
 @int_type_arg () -> Array<int, 10> = []
 
 // Const param reference in type argument position
-#skip("const generics: type checker not yet implemented")
+#skip("const generics: Array type not yet implemented")
 @const_type_arg<$N: int> () -> Array<int, $N> = []
 
 // =============================================================================
@@ -33,11 +43,11 @@
 // =============================================================================
 
 // Fixed list with integer literal capacity (existing syntax)
-#skip("const generics: type checker not yet implemented")
+#skip("const generics: fixed-capacity lists not yet implemented (Section 18.2)")
 @fixed_list_literal () -> [int, max 10] = []
 
 // Fixed list with const param capacity (new syntax)
-#skip("const generics: type checker not yet implemented")
+#skip("const generics: fixed-capacity lists not yet implemented (Section 18.2)")
 @fixed_list_const<$N: int> () -> [int, max $N] = []
 
 // =============================================================================
@@ -45,9 +55,9 @@
 // =============================================================================
 
 // Const bound in where clause
-#skip("const generics: type checker not yet implemented")
+#skip("const generics: const bounds not yet implemented (Section 18.5)")
 @const_bound<$N: int> () -> int where N > 0 = N
 
 // Mixed type and const bounds
-#skip("const generics: type checker not yet implemented")
+#skip("const generics: const bounds not yet implemented (Section 18.5)")
 @mixed_bounds<T, $N: int> (x: T) -> T where T: Clone, N > 0 = x

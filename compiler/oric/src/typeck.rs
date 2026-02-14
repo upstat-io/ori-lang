@@ -292,6 +292,7 @@ fn dummy_sig(name: Name) -> FunctionSig {
     FunctionSig {
         name,
         type_params: vec![],
+        const_params: vec![],
         param_names: vec![],
         param_types: vec![],
         return_type: Idx::UNIT,

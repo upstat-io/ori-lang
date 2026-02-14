@@ -23,7 +23,7 @@ use ori_ir::{ExprArena, Function, Module, Name, ParsedType, TestDef, Visibility 
 use rustc_hash::FxHashMap;
 
 use super::ModuleChecker;
-use crate::{FnWhereClause, FunctionSig, Idx};
+use crate::{ConstParamInfo, FnWhereClause, FunctionSig, Idx};
 
 // ============================================================================
 // Pass 1: Signature Collection
@@ -136,6 +136,20 @@ fn infer_function_signature_with_arena(
         .map(|p| p.name)
         .collect();
 
+    // Collect const generic parameters (e.g., `$N: int`)
+    let const_params: Vec<ConstParamInfo> = generic_params
+        .iter()
+        .filter(|p| p.is_const)
+        .map(|p| {
+            let const_type = resolve_const_param_type(checker, p);
+            ConstParamInfo {
+                name: p.name,
+                const_type,
+                default_value: p.default_value,
+            }
+        })
+        .collect();
+
     // Create a mapping from generic param names to fresh type variables
     let type_param_vars: FxHashMap<Name, Idx> = type_params
         .iter()
@@ -222,6 +236,7 @@ fn infer_function_signature_with_arena(
     let sig = FunctionSig {
         name: func.name,
         type_params,
+        const_params,
         param_names,
         param_types,
         return_type,
@@ -276,6 +291,7 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
     FunctionSig {
         name: test.name,
         type_params,
+        const_params: Vec::new(),
         param_names,
         param_types,
         return_type,
@@ -294,6 +310,29 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
 // ============================================================================
 // Type Resolution with Generic Parameters
 // ============================================================================
+
+/// Resolve a const param's declared type to a Pool `Idx`.
+///
+/// Handles both `Primitive` (parser recognized the keyword) and `Named`
+/// (parser treated it as a named type) representations of `int`/`bool`.
+fn resolve_const_param_type(checker: &ModuleChecker<'_>, param: &ori_ir::GenericParam) -> Idx {
+    match &param.const_type {
+        Some(ParsedType::Primitive(tid)) => match tid.raw() & 0x0FFF_FFFF {
+            0 => Idx::INT,
+            2 => Idx::BOOL,
+            _ => Idx::ERROR,
+        },
+        Some(ParsedType::Named { name, .. }) => {
+            let name_str = checker.interner().lookup(*name);
+            match name_str {
+                "int" => Idx::INT,
+                "bool" => Idx::BOOL,
+                _ => Idx::ERROR,
+            }
+        }
+        _ => Idx::ERROR,
+    }
+}
 
 /// Resolve a parsed type with generic parameter variables in scope.
 ///
@@ -449,10 +488,17 @@ fn resolve_type_with_vars(
         }
 
         // Associated type: T::Item
-        ParsedType::AssociatedType { .. } | ParsedType::ConstExpr(_) => {
-            // Associated types require trait resolution; const expressions require const evaluation.
-            // For now, return error - will be implemented with trait/const support
+        ParsedType::AssociatedType { .. } => {
+            // Associated types require trait resolution.
             Idx::ERROR
+        }
+
+        // Const expression in type position (e.g., `$N` in `Array<int, $N>`)
+        ParsedType::ConstExpr(_) => {
+            // Const expressions in type positions produce their value type.
+            // For now, all const expressions are int (the only supported const type).
+            // Full const expression evaluation deferred to Section 18.4.
+            Idx::INT
         }
 
         // Bounded trait object: resolve first bound as primary type
@@ -484,5 +530,85 @@ mod tests {
 
         // Base env should be frozen even with empty module
         assert!(checker.base_env().is_some());
+    }
+
+    #[test]
+    fn resolve_const_param_type_primitive_int() {
+        let arena = ExprArena::new();
+        let interner = StringInterner::new();
+        let checker = ModuleChecker::new(&arena, &interner);
+
+        let param = ori_ir::GenericParam {
+            name: Name::from_raw(1),
+            bounds: vec![],
+            default_type: None,
+            is_const: true,
+            const_type: Some(ParsedType::Primitive(ori_ir::TypeId::INT)),
+            default_value: None,
+            span: ori_ir::Span::DUMMY,
+        };
+
+        assert_eq!(resolve_const_param_type(&checker, &param), Idx::INT);
+    }
+
+    #[test]
+    fn resolve_const_param_type_primitive_bool() {
+        let arena = ExprArena::new();
+        let interner = StringInterner::new();
+        let checker = ModuleChecker::new(&arena, &interner);
+
+        let param = ori_ir::GenericParam {
+            name: Name::from_raw(1),
+            bounds: vec![],
+            default_type: None,
+            is_const: true,
+            const_type: Some(ParsedType::Primitive(ori_ir::TypeId::BOOL)),
+            default_value: None,
+            span: ori_ir::Span::DUMMY,
+        };
+
+        assert_eq!(resolve_const_param_type(&checker, &param), Idx::BOOL);
+    }
+
+    #[test]
+    fn resolve_const_param_type_named_int() {
+        let arena = ExprArena::new();
+        let interner = StringInterner::new();
+        let checker = ModuleChecker::new(&arena, &interner);
+
+        let int_name = interner.intern("int");
+        let param = ori_ir::GenericParam {
+            name: Name::from_raw(1),
+            bounds: vec![],
+            default_type: None,
+            is_const: true,
+            const_type: Some(ParsedType::Named {
+                name: int_name,
+                type_args: ori_ir::ParsedTypeRange::EMPTY,
+            }),
+            default_value: None,
+            span: ori_ir::Span::DUMMY,
+        };
+
+        assert_eq!(resolve_const_param_type(&checker, &param), Idx::INT);
+    }
+
+    #[test]
+    fn resolve_const_param_type_none_returns_error() {
+        let arena = ExprArena::new();
+        let interner = StringInterner::new();
+        let checker = ModuleChecker::new(&arena, &interner);
+
+        let param = ori_ir::GenericParam {
+            name: Name::from_raw(1),
+            bounds: vec![],
+            default_type: None,
+            is_const: true,
+            const_type: None,
+            default_value: None,
+            span: ori_ir::Span::DUMMY,
+        };
+
+        assert_eq!(resolve_const_param_type(&checker, &param), Idx::ERROR);
     }
 }

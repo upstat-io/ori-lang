@@ -63,6 +63,12 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         param_env.bind(*name, *ty);
     }
 
+    // Bind const generic parameters as their declared type.
+    // E.g., for `@f<$N: int>`, bind N -> int so the body can reference N.
+    for cp in &sig.const_params {
+        param_env.bind(cp.name, cp.const_type);
+    }
+
     // Bind capability names as fresh type variables so the body can
     // reference them (e.g., `@f () -> int uses Value = Value`).
     // The concrete type is provided by the caller via `with...in`.
@@ -370,6 +376,7 @@ fn check_impl_method(
     let sig = FunctionSig {
         name: method.name,
         type_params: type_params.to_vec(),
+        const_params: vec![],
         param_names,
         param_types,
         return_type,
