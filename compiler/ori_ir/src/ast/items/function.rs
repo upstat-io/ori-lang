@@ -220,6 +220,49 @@ impl Spanned for ConstDef {
     }
 }
 
+/// Target conditional compilation attribute.
+///
+/// Used in both item-level (`#target(...)`) and file-level (`#!target(...)`) attributes.
+/// Contains the parsed target conditions — OS, architecture, family, and negation.
+///
+/// # Examples
+///
+/// ```ori
+/// #!target(os: "linux")
+/// #!target(os: "linux", arch: "x86_64")
+/// #target(not_os: "windows")
+/// ```
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
+pub struct TargetAttr {
+    pub os: Option<Name>,
+    pub arch: Option<Name>,
+    pub family: Option<Name>,
+    pub any_os: Vec<Name>,
+    pub not_os: Option<Name>,
+}
+
+/// Config conditional compilation attribute.
+///
+/// Used in both item-level (`#cfg(...)`) and file-level (`#!cfg(...)`) attributes.
+/// Contains parsed config flags — debug/release mode, feature flags, and negation.
+///
+/// # Examples
+///
+/// ```ori
+/// #!cfg(debug)
+/// #!cfg(feature: "logging")
+/// #cfg(release, not_debug)
+/// ```
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
+pub struct CfgAttr {
+    pub debug: bool,
+    pub release: bool,
+    pub not_debug: bool,
+    pub feature: Option<Name>,
+    pub any_feature: Vec<Name>,
+    pub not_feature: Option<Name>,
+}
+
 /// A file-level attribute applied to the entire module.
 ///
 /// Grammar: `file_attribute = "#!" identifier "(" [ attribute_arg { "," attribute_arg } ] ")" .`
@@ -227,23 +270,23 @@ impl Spanned for ConstDef {
 /// File-level attributes use the `#!` prefix (vs `#` for item-level) and must
 /// appear before any imports or declarations. Only `target` and `cfg` are valid
 /// at the file level.
+///
+/// Wraps the shared `TargetAttr`/`CfgAttr` types with a source span covering
+/// the entire attribute from `#!` through the closing `)`.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum FileAttr {
     /// `#!target(os: "linux")` — target conditional compilation.
-    Target {
-        os: Option<Name>,
-        arch: Option<Name>,
-        family: Option<Name>,
-        not_os: Option<Name>,
-    },
+    Target { attr: TargetAttr, span: Span },
     /// `#!cfg(debug)` — config conditional compilation.
-    Cfg {
-        debug: bool,
-        release: bool,
-        not_debug: bool,
-        feature: Option<Name>,
-        not_feature: Option<Name>,
-    },
+    Cfg { attr: CfgAttr, span: Span },
+}
+
+impl Spanned for FileAttr {
+    fn span(&self) -> Span {
+        match self {
+            FileAttr::Target { span, .. } | FileAttr::Cfg { span, .. } => *span,
+        }
+    }
 }
 
 /// A parsed module (collection of items).

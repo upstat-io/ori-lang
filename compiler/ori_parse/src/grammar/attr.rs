@@ -34,7 +34,7 @@
 use crate::{ParseError, Parser};
 use ori_diagnostic::queue::DiagnosticSeverity;
 use ori_diagnostic::ErrorCode;
-use ori_ir::{ExpectedError, FileAttr, Name, TokenCapture, TokenKind};
+use ori_ir::{CfgAttr, ExpectedError, FileAttr, Name, TargetAttr, TokenCapture, TokenKind};
 
 /// Parsed attributes for a function or test.
 ///
@@ -82,34 +82,7 @@ pub enum ReprAttr {
     Aligned(u64),
 }
 
-/// Target conditional compilation attribute.
-#[derive(Clone, Debug, Default)]
-#[allow(
-    dead_code,
-    reason = "fields used when conditional compilation is implemented"
-)]
-pub struct TargetAttr {
-    pub os: Option<Name>,
-    pub arch: Option<Name>,
-    pub family: Option<Name>,
-    pub any_os: Vec<Name>,
-    pub not_os: Option<Name>,
-}
-
-/// Config conditional compilation attribute.
-#[derive(Clone, Debug, Default)]
-#[allow(
-    dead_code,
-    reason = "fields used when conditional compilation is implemented"
-)]
-pub struct CfgAttr {
-    pub debug: bool,
-    pub release: bool,
-    pub not_debug: bool,
-    pub feature: Option<Name>,
-    pub any_feature: Vec<Name>,
-    pub not_feature: Option<Name>,
-}
+// TargetAttr and CfgAttr are defined in ori_ir and imported above.
 
 impl ParsedAttrs {
     /// Returns true if no attributes are set.
@@ -746,13 +719,15 @@ impl Parser<'_> {
         self.finish_attr_paren(uses_brackets, errors);
     }
 
-    /// Parse a `target` attribute like `#target(os: "linux")`.
-    fn parse_target_attr(
+    /// Parse a `target` attribute body like `(os: "linux")`, returning the `TargetAttr` directly.
+    ///
+    /// Expects the cursor to be positioned at the `(` token.
+    /// Handles the opening `(`, named arguments, closing `)`, and optional `]`.
+    fn parse_target_attr_body(
         &mut self,
-        attrs: &mut ParsedAttrs,
         errors: &mut Vec<ParseError>,
         uses_brackets: bool,
-    ) {
+    ) -> Option<TargetAttr> {
         // Expect (
         if !self.cursor.check(&TokenKind::LParen) {
             errors.push(ParseError {
@@ -768,7 +743,7 @@ impl Parser<'_> {
             } else {
                 self.skip_to_rparen_or_newline();
             }
-            return;
+            return None;
         }
         self.cursor.advance(); // consume (
 
@@ -794,7 +769,7 @@ impl Parser<'_> {
                 } else {
                     self.skip_to_rparen_or_newline();
                 }
-                return;
+                return None;
             };
 
             // Expect :
@@ -812,7 +787,7 @@ impl Parser<'_> {
                 } else {
                     self.skip_to_rparen_or_newline();
                 }
-                return;
+                return None;
             }
             self.cursor.advance();
 
@@ -862,17 +837,29 @@ impl Parser<'_> {
             }
         }
 
-        attrs.target = Some(target);
         self.finish_attr_paren(uses_brackets, errors);
+        Some(target)
     }
 
-    /// Parse a `cfg` attribute like `#cfg(debug)` or `#cfg(feature: "name")`.
-    fn parse_cfg_attr(
+    /// Parse a `target` attribute like `#target(os: "linux")` into `ParsedAttrs`.
+    fn parse_target_attr(
         &mut self,
         attrs: &mut ParsedAttrs,
         errors: &mut Vec<ParseError>,
         uses_brackets: bool,
     ) {
+        attrs.target = self.parse_target_attr_body(errors, uses_brackets);
+    }
+
+    /// Parse a `cfg` attribute body like `(debug)` or `(feature: "name")`, returning `CfgAttr` directly.
+    ///
+    /// Expects the cursor to be positioned at the `(` token.
+    /// Handles the opening `(`, arguments, closing `)`, and optional `]`.
+    fn parse_cfg_attr_body(
+        &mut self,
+        errors: &mut Vec<ParseError>,
+        uses_brackets: bool,
+    ) -> Option<CfgAttr> {
         // Expect (
         if !self.cursor.check(&TokenKind::LParen) {
             errors.push(ParseError {
@@ -888,7 +875,7 @@ impl Parser<'_> {
             } else {
                 self.skip_to_rparen_or_newline();
             }
-            return;
+            return None;
         }
         self.cursor.advance(); // consume (
 
@@ -965,8 +952,18 @@ impl Parser<'_> {
             }
         }
 
-        attrs.cfg = Some(cfg);
         self.finish_attr_paren(uses_brackets, errors);
+        Some(cfg)
+    }
+
+    /// Parse a `cfg` attribute like `#cfg(debug)` or `#cfg(feature: "name")` into `ParsedAttrs`.
+    fn parse_cfg_attr(
+        &mut self,
+        attrs: &mut ParsedAttrs,
+        errors: &mut Vec<ParseError>,
+        uses_brackets: bool,
+    ) {
+        attrs.cfg = self.parse_cfg_attr_body(errors, uses_brackets);
     }
 
     /// Helper to finish parsing attribute parentheses and brackets.
@@ -1007,6 +1004,7 @@ impl Parser<'_> {
     /// Grammar: `file_attribute = "#!" identifier "(" [ attribute_arg { "," attribute_arg } ] ")" .`
     ///
     /// Returns `None` if no `#!` token is present at the current position.
+    /// Captures a span from the `#!` token start through the closing `)`.
     pub(crate) fn parse_file_attribute(
         &mut self,
         errors: &mut Vec<ParseError>,
@@ -1016,6 +1014,7 @@ impl Parser<'_> {
         if !self.cursor.check(&TokenKind::HashBang) {
             return None;
         }
+        let start_span = self.cursor.current_span();
         self.cursor.advance(); // consume #!
 
         // Parse attribute name identifier
@@ -1023,25 +1022,14 @@ impl Parser<'_> {
 
         match attr_kind {
             AttrKind::Target => {
-                let mut attrs = ParsedAttrs::default();
-                self.parse_target_attr(&mut attrs, errors, false);
-                attrs.target.map(|t| FileAttr::Target {
-                    os: t.os,
-                    arch: t.arch,
-                    family: t.family,
-                    not_os: t.not_os,
-                })
+                let attr = self.parse_target_attr_body(errors, false)?;
+                let span = start_span.merge(self.cursor.previous_span());
+                Some(FileAttr::Target { attr, span })
             }
             AttrKind::Cfg => {
-                let mut attrs = ParsedAttrs::default();
-                self.parse_cfg_attr(&mut attrs, errors, false);
-                attrs.cfg.map(|c| FileAttr::Cfg {
-                    debug: c.debug,
-                    release: c.release,
-                    not_debug: c.not_debug,
-                    feature: c.feature,
-                    not_feature: c.not_feature,
-                })
+                let attr = self.parse_cfg_attr_body(errors, false)?;
+                let span = start_span.merge(self.cursor.previous_span());
+                Some(FileAttr::Cfg { attr, span })
             }
             AttrKind::Unknown => {
                 // Error already reported by parse_attr_name

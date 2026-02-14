@@ -8,7 +8,8 @@ mod traits;
 mod types;
 
 pub use function::{
-    CapabilityRef, ConstDef, ExpectedError, FileAttr, Function, Module, Param, TestDef,
+    CapabilityRef, CfgAttr, ConstDef, ExpectedError, FileAttr, Function, Module, Param, TargetAttr,
+    TestDef,
 };
 pub use imports::{ImportErrorKind, ImportPath, UseDef, UseItem};
 pub use traits::{

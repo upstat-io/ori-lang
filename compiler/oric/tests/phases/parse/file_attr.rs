@@ -16,9 +16,10 @@ fn test_file_attr_target_os() {
     assert!(output.module.file_attr.is_some());
     let attr = output.module.file_attr.unwrap();
     match attr {
-        FileAttr::Target { os, arch, .. } => {
-            assert!(os.is_some(), "os should be set");
-            assert!(arch.is_none(), "arch should not be set");
+        FileAttr::Target { attr: target, span } => {
+            assert!(target.os.is_some(), "os should be set");
+            assert!(target.arch.is_none(), "arch should not be set");
+            assert!(span.start < span.end, "span should be non-empty");
         }
         FileAttr::Cfg { .. } => panic!("expected Target file attribute"),
     }
@@ -28,9 +29,9 @@ fn test_file_attr_target_os() {
 fn test_file_attr_target_arch() {
     let output = parse_ok("#!target(arch: \"x86_64\")\n@main () -> void = ()");
     match output.module.file_attr.unwrap() {
-        FileAttr::Target { os, arch, .. } => {
-            assert!(os.is_none());
-            assert!(arch.is_some());
+        FileAttr::Target { attr: target, .. } => {
+            assert!(target.os.is_none());
+            assert!(target.arch.is_some());
         }
         FileAttr::Cfg { .. } => panic!("expected Target"),
     }
@@ -40,9 +41,9 @@ fn test_file_attr_target_arch() {
 fn test_file_attr_target_multiple_params() {
     let output = parse_ok("#!target(os: \"linux\", arch: \"x86_64\")\n@main () -> void = ()");
     match output.module.file_attr.unwrap() {
-        FileAttr::Target { os, arch, .. } => {
-            assert!(os.is_some());
-            assert!(arch.is_some());
+        FileAttr::Target { attr: target, .. } => {
+            assert!(target.os.is_some());
+            assert!(target.arch.is_some());
         }
         FileAttr::Cfg { .. } => panic!("expected Target"),
     }
@@ -52,8 +53,8 @@ fn test_file_attr_target_multiple_params() {
 fn test_file_attr_target_family() {
     let output = parse_ok("#!target(family: \"unix\")\n@main () -> void = ()");
     match output.module.file_attr.unwrap() {
-        FileAttr::Target { family, .. } => {
-            assert!(family.is_some());
+        FileAttr::Target { attr: target, .. } => {
+            assert!(target.family.is_some());
         }
         FileAttr::Cfg { .. } => panic!("expected Target"),
     }
@@ -63,8 +64,8 @@ fn test_file_attr_target_family() {
 fn test_file_attr_target_not_os() {
     let output = parse_ok("#!target(not_os: \"windows\")\n@main () -> void = ()");
     match output.module.file_attr.unwrap() {
-        FileAttr::Target { not_os, .. } => {
-            assert!(not_os.is_some());
+        FileAttr::Target { attr: target, .. } => {
+            assert!(target.not_os.is_some());
         }
         FileAttr::Cfg { .. } => panic!("expected Target"),
     }
@@ -76,9 +77,9 @@ fn test_file_attr_target_not_os() {
 fn test_file_attr_cfg_debug() {
     let output = parse_ok("#!cfg(debug)\n@main () -> void = ()");
     match output.module.file_attr.unwrap() {
-        FileAttr::Cfg { debug, release, .. } => {
-            assert!(debug, "debug should be true");
-            assert!(!release, "release should be false");
+        FileAttr::Cfg { attr: cfg, .. } => {
+            assert!(cfg.debug, "debug should be true");
+            assert!(!cfg.release, "release should be false");
         }
         FileAttr::Target { .. } => panic!("expected Cfg"),
     }
@@ -88,9 +89,9 @@ fn test_file_attr_cfg_debug() {
 fn test_file_attr_cfg_release() {
     let output = parse_ok("#!cfg(release)\n@main () -> void = ()");
     match output.module.file_attr.unwrap() {
-        FileAttr::Cfg { debug, release, .. } => {
-            assert!(!debug);
-            assert!(release);
+        FileAttr::Cfg { attr: cfg, .. } => {
+            assert!(!cfg.debug);
+            assert!(cfg.release);
         }
         FileAttr::Target { .. } => panic!("expected Cfg"),
     }
@@ -100,8 +101,8 @@ fn test_file_attr_cfg_release() {
 fn test_file_attr_cfg_feature() {
     let output = parse_ok("#!cfg(feature: \"logging\")\n@main () -> void = ()");
     match output.module.file_attr.unwrap() {
-        FileAttr::Cfg { feature, .. } => {
-            assert!(feature.is_some());
+        FileAttr::Cfg { attr: cfg, .. } => {
+            assert!(cfg.feature.is_some());
         }
         FileAttr::Target { .. } => panic!("expected Cfg"),
     }
@@ -111,8 +112,8 @@ fn test_file_attr_cfg_feature() {
 fn test_file_attr_cfg_not_debug() {
     let output = parse_ok("#!cfg(not_debug)\n@main () -> void = ()");
     match output.module.file_attr.unwrap() {
-        FileAttr::Cfg { not_debug, .. } => {
-            assert!(not_debug);
+        FileAttr::Cfg { attr: cfg, .. } => {
+            assert!(cfg.not_debug);
         }
         FileAttr::Target { .. } => panic!("expected Cfg"),
     }

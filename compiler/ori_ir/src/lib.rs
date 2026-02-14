@@ -65,6 +65,8 @@ pub use ast::{
     CallArgRange,
     // Capability types
     CapabilityRef,
+    // Conditional compilation attribute types
+    CfgAttr,
     // Constant definition
     ConstDef,
     // Default implementation types
@@ -115,6 +117,8 @@ pub use ast::{
     StructField,
     StructLitField,
     StructLitFieldRange,
+    // Target conditional compilation
+    TargetAttr,
     TemplatePart,
     TemplatePartRange,
     TestDef,
