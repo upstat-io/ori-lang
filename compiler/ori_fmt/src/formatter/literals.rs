@@ -165,6 +165,16 @@ impl<I: StringLookup> Formatter<'_, I> {
             ParsedType::ConstExpr(expr_id) => {
                 format_const_expr(*expr_id, self.arena, self.interner, &mut self.ctx);
             }
+            ParsedType::TraitBounds(bounds) => {
+                let bound_ids = self.arena.get_parsed_type_list(*bounds);
+                for (i, bound_id) in bound_ids.iter().enumerate() {
+                    if i > 0 {
+                        self.ctx.emit(" + ");
+                    }
+                    let bound = self.arena.get_parsed_type(*bound_id);
+                    self.emit_type(bound);
+                }
+            }
         }
     }
 }

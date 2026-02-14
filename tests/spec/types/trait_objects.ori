@@ -50,12 +50,16 @@ use std.testing { assert, assert_eq }
 // Multiple Trait Bounds (Printable + Hashable)
 // =============================================================================
 
-// Bounded trait objects use + syntax
+// Bounded trait objects use + syntax: `Printable + Hashable` as a type.
+// Parser now accepts this syntax; evaluator dispatch is pending.
+
 // @test_multi_bound_param tests @multi_bound_param () -> void = run(
 //     let result = format_hashable(item: 42),
 //     assert(cond: result.len() > 0),
 // )
 
+// NOTE: This function definition parses correctly (bounded trait object type).
+// Tests are commented out because trait object dispatch is not yet implemented.
 // @format_hashable (item: Printable + Hashable) -> str = item.to_str()
 
 // @multi_bound_param () -> str = format_hashable(item: 42)

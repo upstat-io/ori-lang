@@ -144,3 +144,25 @@ type Container<T> = { value: T }
 @test_result_type tests @result_type () -> void = run(
     assert_eq(actual: result_type(), expected: 100),
 )
+
+// =============================================================================
+// Bounded Trait Object Types (Printable + Hashable)
+// =============================================================================
+
+// Two bounds as parameter type
+@bounded_two<T: Printable + Hashable> (item: T) -> str = item.to_str()
+
+@test_bounded_two tests @bounded_two_call () -> void = run(
+    assert_eq(actual: bounded_two_call(), expected: "42"),
+)
+
+@bounded_two_call () -> str = bounded_two(item: 42)
+
+// Three bounds as parameter type
+@bounded_three<T: Printable + Hashable + Clone> (item: T) -> str = item.to_str()
+
+@test_bounded_three tests @bounded_three_call () -> void = run(
+    assert_eq(actual: bounded_three_call(), expected: "hello"),
+)
+
+@bounded_three_call () -> str = bounded_three(item: "hello")
