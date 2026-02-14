@@ -2,7 +2,9 @@
 
 use crate::context::ParseContext;
 use crate::{committed, require, FunctionOrTest, ParseError, ParseOutcome, ParsedAttrs, Parser};
-use ori_ir::{Function, GenericParamRange, Param, ParamRange, TestDef, TokenKind, Visibility};
+use ori_ir::{
+    Function, GenericParamRange, Name, Param, ParamRange, Span, TestDef, TokenKind, Visibility,
+};
 
 impl Parser<'_> {
     /// Parse a function or test definition.
@@ -70,72 +72,10 @@ impl Parser<'_> {
                 targets
             };
 
-            // (params)
-            committed!(self.cursor.expect(&TokenKind::LParen));
-            let params = committed!(self.parse_params());
-            committed!(self.cursor.expect(&TokenKind::RParen));
-
-            // -> Type (required)
-            committed!(self.cursor.expect(&TokenKind::Arrow));
-            let return_ty = Some(committed!(self.parse_type_required().into_result()));
-
-            // = body
-            committed!(self.cursor.expect(&TokenKind::Eq));
-            self.cursor.skip_newlines();
-            let body = require!(
-                self,
-                self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr),
-                "function body"
-            );
-
-            let end_span = self.arena.get_expr(body).span;
-            let span = start_span.merge(end_span);
-
-            ParseOutcome::consumed_ok(FunctionOrTest::Test(TestDef {
-                name,
-                targets,
-                params,
-                return_ty,
-                body,
-                span,
-                skip_reason: attrs.skip_reason,
-                expected_errors: attrs.expected_errors,
-                fail_expected: attrs.fail_expected,
-            }))
+            self.parse_test_body(name, targets, attrs, start_span)
         } else if self.cursor.interner().lookup(name).starts_with("test_") {
             // Free-floating test (name starts with test_ but no targets)
-            // (params)
-            committed!(self.cursor.expect(&TokenKind::LParen));
-            let params = committed!(self.parse_params());
-            committed!(self.cursor.expect(&TokenKind::RParen));
-
-            // -> Type (required)
-            committed!(self.cursor.expect(&TokenKind::Arrow));
-            let return_ty = Some(committed!(self.parse_type_required().into_result()));
-
-            // = body
-            committed!(self.cursor.expect(&TokenKind::Eq));
-            self.cursor.skip_newlines();
-            let body = require!(
-                self,
-                self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr),
-                "function body"
-            );
-
-            let end_span = self.arena.get_expr(body).span;
-            let span = start_span.merge(end_span);
-
-            ParseOutcome::consumed_ok(FunctionOrTest::Test(TestDef {
-                name,
-                targets: Vec::new(), // No targets for free-floating tests
-                params,
-                return_ty,
-                body,
-                span,
-                skip_reason: attrs.skip_reason,
-                expected_errors: attrs.expected_errors,
-                fail_expected: attrs.fail_expected,
-            }))
+            self.parse_test_body(name, Vec::new(), attrs, start_span)
         } else {
             // Regular function
             // Optional generic parameters: <T, U: Bound>
@@ -207,6 +147,50 @@ impl Parser<'_> {
                 visibility,
             }))
         }
+    }
+
+    /// Parse the body of a test definition: `(params) -> Type = body`.
+    ///
+    /// Shared by both `tests _`/`tests @target` syntax and `test_` prefix detection.
+    fn parse_test_body(
+        &mut self,
+        name: Name,
+        targets: Vec<Name>,
+        attrs: ParsedAttrs,
+        start_span: Span,
+    ) -> ParseOutcome<FunctionOrTest> {
+        // (params)
+        committed!(self.cursor.expect(&TokenKind::LParen));
+        let params = committed!(self.parse_params());
+        committed!(self.cursor.expect(&TokenKind::RParen));
+
+        // -> Type (required)
+        committed!(self.cursor.expect(&TokenKind::Arrow));
+        let return_ty = Some(committed!(self.parse_type_required().into_result()));
+
+        // = body
+        committed!(self.cursor.expect(&TokenKind::Eq));
+        self.cursor.skip_newlines();
+        let body = require!(
+            self,
+            self.with_context(ParseContext::IN_FUNCTION, Self::parse_expr),
+            "function body"
+        );
+
+        let end_span = self.arena.get_expr(body).span;
+        let span = start_span.merge(end_span);
+
+        ParseOutcome::consumed_ok(FunctionOrTest::Test(TestDef {
+            name,
+            targets,
+            params,
+            return_ty,
+            body,
+            span,
+            skip_reason: attrs.skip_reason,
+            expected_errors: attrs.expected_errors,
+            fail_expected: attrs.fail_expected,
+        }))
     }
 
     /// Parse parameter list with support for clause parameters.

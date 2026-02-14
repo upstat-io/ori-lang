@@ -21,12 +21,12 @@
 use ori_ir::incremental::ChangeMarker;
 use ori_ir::{
     ast::{BindingPattern, FunctionExp, FunctionSeq, MatchArm, MatchPattern, SeqBinding},
-    CallArg, ConstDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef, ExternBlock,
-    ExternItem, ExternParam, FieldInit, Function, GenericParam, ImplAssocType, ImplDef, ImplMethod,
-    MapEntry, MatchPatternId, MatchPatternRange, Module, Name, NamedExpr, Param, ParsedType,
-    ParsedTypeId, ParsedTypeRange, Span, Stmt, StmtKind, TemplatePart, TemplatePartRange, TestDef,
-    TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl, UseDef,
-    WhereClause,
+    CallArg, CapabilityRef, ConstDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef,
+    ExternBlock, ExternItem, ExternParam, FieldInit, Function, GenericParam, ImplAssocType,
+    ImplDef, ImplMethod, MapEntry, MatchPatternId, MatchPatternRange, Module, Name, NamedExpr,
+    Param, ParsedType, ParsedTypeId, ParsedTypeRange, Span, Stmt, StmtKind, TemplatePart,
+    TemplatePartRange, TestDef, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
+    TraitMethodSig, TypeDecl, UseDef, WhereClause,
 };
 
 /// Kind of top-level declaration.
@@ -1056,7 +1056,10 @@ impl<'old> AstCopier<'old> {
     fn copy_param(&self, param: &Param, new_arena: &mut ExprArena) -> Param {
         Param {
             name: param.name,
-            pattern: param.pattern.clone(), // TODO: deep copy patterns if needed
+            pattern: param
+                .pattern
+                .as_ref()
+                .map(|p| self.copy_match_pattern(p, new_arena)),
             ty: param
                 .ty
                 .as_ref()
@@ -1314,7 +1317,14 @@ impl<'old> AstCopier<'old> {
                 .return_ty
                 .as_ref()
                 .map(|t| self.copy_parsed_type(t, new_arena)),
-            capabilities: func.capabilities.clone(),
+            capabilities: func
+                .capabilities
+                .iter()
+                .map(|c| CapabilityRef {
+                    name: c.name,
+                    span: self.adjust_span(c.span),
+                })
+                .collect(),
             where_clauses: new_where_clauses,
             guard: func.guard.map(|g| self.copy_expr(g, new_arena)),
             body: self.copy_expr(func.body, new_arena),
