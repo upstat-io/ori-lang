@@ -7,7 +7,7 @@ use crate::width::ALWAYS_STACKED;
 use ori_ir::ast::items::{Function, Param, TraitBound, WhereClause};
 use ori_ir::{ExprId, StringLookup, Visibility};
 
-use super::parsed_types::{calculate_type_width, format_parsed_type};
+use super::parsed_types::{calculate_type_width, format_const_expr, format_parsed_type};
 use super::ModuleFormatter;
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
@@ -302,15 +302,29 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             if i > 0 {
                 self.ctx.emit(", ");
             }
-            self.ctx.emit(self.interner.lookup(param.name));
-            if !param.bounds.is_empty() {
-                self.ctx.emit(": ");
-                self.format_trait_bounds(&param.bounds);
-            }
-            // Default type parameter: `T = DefaultType`
-            if let Some(ref default_ty) = param.default_type {
-                self.ctx.emit(" = ");
-                format_parsed_type(default_ty, self.arena, self.interner, &mut self.ctx);
+            if param.is_const {
+                // Const generic parameter: `$N: int`, `$N: int = 10`
+                self.ctx.emit("$");
+                self.ctx.emit(self.interner.lookup(param.name));
+                if let Some(ref ct) = param.const_type {
+                    self.ctx.emit(": ");
+                    format_parsed_type(ct, self.arena, self.interner, &mut self.ctx);
+                }
+                if let Some(dv) = param.default_value {
+                    self.ctx.emit(" = ");
+                    format_const_expr(dv, self.arena, self.interner, &mut self.ctx);
+                }
+            } else {
+                // Type generic parameter: `T`, `T: Bound`, `T = DefaultType`
+                self.ctx.emit(self.interner.lookup(param.name));
+                if !param.bounds.is_empty() {
+                    self.ctx.emit(": ");
+                    self.format_trait_bounds(&param.bounds);
+                }
+                if let Some(ref default_ty) = param.default_type {
+                    self.ctx.emit(" = ");
+                    format_parsed_type(default_ty, self.arena, self.interner, &mut self.ctx);
+                }
             }
         }
         self.ctx.emit(">");
@@ -359,29 +373,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                     self.format_trait_bounds(bounds);
                 }
                 WhereClause::ConstBound { expr, .. } => {
-                    self.emit_const_expr_inline(*expr);
+                    format_const_expr(*expr, self.arena, self.interner, &mut self.ctx);
                 }
             }
-        }
-    }
-
-    fn emit_const_expr_inline(&mut self, expr_id: ori_ir::ExprId) {
-        let expr = self.arena.get_expr(expr_id);
-        match &expr.kind {
-            ori_ir::ExprKind::Int(n) => self.ctx.emit(&n.to_string()),
-            ori_ir::ExprKind::Const(name) => {
-                self.ctx.emit("$");
-                self.ctx.emit(self.interner.lookup(*name));
-            }
-            ori_ir::ExprKind::Ident(name) => self.ctx.emit(self.interner.lookup(*name)),
-            ori_ir::ExprKind::Binary { op, left, right } => {
-                self.emit_const_expr_inline(*left);
-                self.ctx.emit(" ");
-                self.ctx.emit(op.as_symbol());
-                self.ctx.emit(" ");
-                self.emit_const_expr_inline(*right);
-            }
-            _ => self.ctx.emit("<const>"),
         }
     }
 }

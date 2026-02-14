@@ -228,7 +228,10 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
     }
 }
 
-/// Collect generic parameter names from a generic param range.
+/// Collect type generic parameter names from a generic param range.
+///
+/// Const generic parameters (`$N: int`) are filtered out — they are values,
+/// not types, and should not be bound as type variables.
 fn collect_generic_params(
     checker: &ModuleChecker<'_>,
     generics: ori_ir::GenericParamRange,
@@ -237,6 +240,7 @@ fn collect_generic_params(
         .arena()
         .get_generic_params(generics)
         .iter()
+        .filter(|param| !param.is_const)
         .map(|param| param.name)
         .collect()
 }
@@ -375,7 +379,10 @@ pub(super) fn resolve_parsed_type_simple(
             checker.pool_mut().list(elem_ty)
         }
 
-        // These types need special handling during inference
+        // These types need special handling during inference.
+        // ConstExpr uses ERROR here (not fresh_var) because registration needs
+        // deterministic types for Pool interning. Inference (infer/expr.rs) uses
+        // fresh_var instead to allow optimistic deferral.
         ParsedType::Infer
         | ParsedType::SelfType
         | ParsedType::AssociatedType { .. }
@@ -738,11 +745,7 @@ fn build_where_constraint(
     type_params: &[Name],
     self_type: Idx,
 ) -> Option<WhereConstraint> {
-    let (param, bounds) = match wc {
-        ori_ir::WhereClause::TypeBound { param, bounds, .. } => (*param, bounds),
-        // Const bounds are not yet evaluated
-        ori_ir::WhereClause::ConstBound { .. } => return None,
-    };
+    let (param, _projection, bounds, _span) = wc.as_type_bound()?;
 
     // Resolve the constrained type parameter
     let ty = if type_params.contains(&param) {

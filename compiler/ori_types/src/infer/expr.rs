@@ -4790,7 +4790,9 @@ pub fn resolve_parsed_type(
         }
 
         // === Inference Markers ===
-        // Infer and ConstExpr both produce fresh variables (const eval not yet implemented)
+        // Infer and ConstExpr both produce fresh variables (const eval not yet implemented).
+        // Note: registration (check/registration.rs) uses Idx::ERROR for ConstExpr because
+        // registration needs deterministic types. Inference can defer via fresh vars.
         ParsedType::Infer | ParsedType::ConstExpr(_) => engine.fresh_var(),
 
         ParsedType::SelfType => engine
