@@ -267,16 +267,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
                 init,
                 mutable,
             } => self.lower_let(pattern, init, mutable),
-            CanExpr::Loop { body } => self.lower_loop(body, id),
+            CanExpr::Loop { body, .. } => self.lower_loop(body, id),
             CanExpr::For {
                 binding,
                 iter,
                 guard,
                 body,
                 is_yield,
+                ..
             } => self.lower_for(binding, iter, guard, body, is_yield, id),
-            CanExpr::Break(value) => self.lower_break(value),
-            CanExpr::Continue(value) => self.lower_continue(value),
+            CanExpr::Break { value, .. } => self.lower_break(value),
+            CanExpr::Continue { value, .. } => self.lower_continue(value),
             CanExpr::Assign { target, value } => self.lower_assign(target, value),
             CanExpr::Match {
                 scrutinee,

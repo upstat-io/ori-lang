@@ -581,12 +581,18 @@ mod tests {
             TypeId::from_raw(Idx::INT.raw()),
         ));
         let break_expr = arena.push(CanNode::new(
-            CanExpr::Break(lit42),
+            CanExpr::Break {
+                label: Name::EMPTY,
+                value: lit42,
+            },
             Span::new(8, 16),
             TypeId::from_raw(Idx::UNIT.raw()),
         ));
         let loop_expr = arena.push(CanNode::new(
-            CanExpr::Loop { body: break_expr },
+            CanExpr::Loop {
+                label: Name::EMPTY,
+                body: break_expr,
+            },
             Span::new(0, 18),
             TypeId::from_raw(Idx::INT.raw()),
         ));

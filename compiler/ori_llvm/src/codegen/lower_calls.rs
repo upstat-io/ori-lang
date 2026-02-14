@@ -1124,7 +1124,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 }
                 self.collect_free_vars(result, params, captures, seen);
             }
-            CanExpr::Lambda { body, .. } | CanExpr::Loop { body } => {
+            CanExpr::Lambda { body, .. } | CanExpr::Loop { body, .. } => {
                 self.collect_free_vars(body, params, captures, seen);
             }
             CanExpr::Field { receiver, .. } => {
@@ -1154,8 +1154,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             | CanExpr::Some(e)
             | CanExpr::Try(e)
             | CanExpr::Await(e)
-            | CanExpr::Break(e)
-            | CanExpr::Continue(e) => {
+            | CanExpr::Break { value: e, .. }
+            | CanExpr::Continue { value: e, .. } => {
                 self.collect_free_vars(e, params, captures, seen);
             }
             CanExpr::Assign { target, value } => {

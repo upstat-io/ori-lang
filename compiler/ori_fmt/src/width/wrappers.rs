@@ -85,17 +85,23 @@ pub(super) fn await_width<I: StringLookup>(
     inner_w + 6
 }
 
-/// Calculate width of `loop(body)`.
+/// Calculate width of `loop[:label](body)`.
 pub(super) fn loop_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
+    label: ori_ir::Name,
     body: ExprId,
 ) -> usize {
     let body_w = calc.width(body);
     if body_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
-    // "loop(" + body + ")"
-    5 + body_w + 1
+    let lw = if label == ori_ir::Name::EMPTY {
+        0
+    } else {
+        1 + calc.interner.lookup(label).len()
+    };
+    // "loop" + label + "(" + body + ")"
+    4 + lw + 1 + body_w + 1
 }
 
 /// Calculate width of `expr as type` or `expr as? type`.

@@ -959,3 +959,95 @@ fn test_deeply_nested_binary() {
     // 10 x "1" = 10, 9 x " + " = 27, total = 37
     assert_eq!(calc.width(expr), 37);
 }
+
+#[test]
+fn test_width_break_labeled() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let label = interner.intern("outer");
+    let brk = make_expr(
+        &mut arena,
+        ExprKind::Break {
+            label,
+            value: ExprId::INVALID,
+        },
+    );
+    let mut calc = WidthCalculator::new(&arena, &interner);
+
+    // "break:outer" = 5 + 1 + 5 = 11
+    assert_eq!(calc.width(brk), 11);
+}
+
+#[test]
+fn test_width_break_labeled_with_value() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let label = interner.intern("outer");
+    let value = make_expr(&mut arena, ExprKind::Int(42));
+    let brk = make_expr(&mut arena, ExprKind::Break { label, value });
+    let mut calc = WidthCalculator::new(&arena, &interner);
+
+    // "break:outer 42" = 5 + 1 + 5 + 1 + 2 = 14
+    assert_eq!(calc.width(brk), 14);
+}
+
+#[test]
+fn test_width_continue_labeled() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let label = interner.intern("inner");
+    let cont = make_expr(
+        &mut arena,
+        ExprKind::Continue {
+            label,
+            value: ExprId::INVALID,
+        },
+    );
+    let mut calc = WidthCalculator::new(&arena, &interner);
+
+    // "continue:inner" = 8 + 1 + 5 = 14
+    assert_eq!(calc.width(cont), 14);
+}
+
+#[test]
+fn test_width_loop_labeled() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let label = interner.intern("main");
+    let body = make_expr(&mut arena, ExprKind::Int(42));
+    let loop_expr = make_expr(&mut arena, ExprKind::Loop { label, body });
+    let mut calc = WidthCalculator::new(&arena, &interner);
+
+    // "loop:main(42)" = 4 + 1 + 4 + 1 + 2 + 1 = 13
+    assert_eq!(calc.width(loop_expr), 13);
+}
+
+#[test]
+fn test_width_for_labeled() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let label = interner.intern("row");
+    let binding = interner.intern("x");
+    let iter = make_expr(&mut arena, ExprKind::Ident(interner.intern("items")));
+    let body = make_expr(&mut arena, ExprKind::Ident(interner.intern("x")));
+    let for_expr = make_expr(
+        &mut arena,
+        ExprKind::For {
+            label,
+            binding,
+            iter,
+            guard: ExprId::INVALID,
+            body,
+            is_yield: false,
+        },
+    );
+    let mut calc = WidthCalculator::new(&arena, &interner);
+
+    // "for:row x in items do x" = 3 + 1 + 3 + 1 + 1 + 4 + 5 + 4 + 1 = 23
+    assert_eq!(calc.width(for_expr), 23);
+}

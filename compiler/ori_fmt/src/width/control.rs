@@ -23,37 +23,52 @@ fn receiver_needs_parens<I: StringLookup>(calc: &WidthCalculator<'_, I>, receive
     )
 }
 
-/// Calculate width of `break` or `break value`.
-pub(super) fn break_width<I: StringLookup>(
-    calc: &mut WidthCalculator<'_, I>,
-    value: ExprId,
-) -> usize {
-    if value.is_present() {
-        let val_w = calc.width(value);
-        if val_w == ALWAYS_STACKED {
-            return ALWAYS_STACKED;
-        }
-        // "break " + val
-        6 + val_w
+/// Width of a label suffix: `:label_name`.
+/// Returns 0 when label is `Name::EMPTY`.
+fn label_width<I: StringLookup>(calc: &WidthCalculator<'_, I>, label: Name) -> usize {
+    if label == Name::EMPTY {
+        0
     } else {
-        5 // "break"
+        // ":" + label_name
+        1 + calc.interner.lookup(label).len()
     }
 }
 
-/// Calculate width of `continue` or `continue value`.
-pub(super) fn continue_width<I: StringLookup>(
+/// Calculate width of `break`, `break:label`, `break value`, or `break:label value`.
+pub(super) fn break_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
+    label: Name,
     value: ExprId,
 ) -> usize {
+    let lw = label_width(calc, label);
     if value.is_present() {
         let val_w = calc.width(value);
         if val_w == ALWAYS_STACKED {
             return ALWAYS_STACKED;
         }
-        // "continue " + val
-        9 + val_w
+        // "break" + label + " " + val
+        5 + lw + 1 + val_w
     } else {
-        8 // "continue"
+        5 + lw // "break" + label
+    }
+}
+
+/// Calculate width of `continue`, `continue:label`, `continue value`, or `continue:label value`.
+pub(super) fn continue_width<I: StringLookup>(
+    calc: &mut WidthCalculator<'_, I>,
+    label: Name,
+    value: ExprId,
+) -> usize {
+    let lw = label_width(calc, label);
+    if value.is_present() {
+        let val_w = calc.width(value);
+        if val_w == ALWAYS_STACKED {
+            return ALWAYS_STACKED;
+        }
+        // "continue" + label + " " + val
+        8 + lw + 1 + val_w
+    } else {
+        8 + lw // "continue" + label
     }
 }
 
@@ -85,15 +100,17 @@ pub(super) fn if_width<I: StringLookup>(
     total
 }
 
-/// Calculate width of `for binding in iter [if guard] do/yield body`.
+/// Calculate width of `for[:label] binding in iter [if guard] do/yield body`.
 pub(super) fn for_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
+    label: Name,
     binding: Name,
     iter: ExprId,
     guard: ExprId,
     body: ExprId,
     is_yield: bool,
 ) -> usize {
+    let lw = label_width(calc, label);
     let binding_w = calc.interner.lookup(binding).len();
     let iter_w = calc.width(iter);
     let body_w = calc.width(body);
@@ -101,8 +118,8 @@ pub(super) fn for_width<I: StringLookup>(
         return ALWAYS_STACKED;
     }
 
-    // "for " + binding + " in " + iter
-    let mut total = 4 + binding_w + 4 + iter_w;
+    // "for" + label + " " + binding + " in " + iter
+    let mut total = 3 + lw + 1 + binding_w + 4 + iter_w;
 
     if guard.is_present() {
         let guard_w = calc.width(guard);

@@ -659,21 +659,22 @@ pub enum CanExpr {
         decision_tree: DecisionTreeId,
         arms: CanRange,
     },
-    /// For loop/comprehension: `for binding in iter [if guard] do/yield body`.
-    /// INVALID guard = no guard.
+    /// For loop/comprehension: `for[:label] binding in iter [if guard] do/yield body`.
+    /// INVALID guard = no guard. `Name::EMPTY` label = no label.
     For {
+        label: Name,
         binding: Name,
         iter: CanId,
         guard: CanId,
         body: CanId,
         is_yield: bool,
     },
-    /// Infinite loop: `loop { body }`
-    Loop { body: CanId },
-    /// Break from loop (INVALID = no value).
-    Break(CanId),
-    /// Continue loop (INVALID = no value).
-    Continue(CanId),
+    /// Infinite loop: `loop[:label] { body }`. `Name::EMPTY` label = no label.
+    Loop { label: Name, body: CanId },
+    /// Break from loop (INVALID = no value). `Name::EMPTY` label = no label.
+    Break { label: Name, value: CanId },
+    /// Continue loop (INVALID = no value). `Name::EMPTY` label = no label.
+    Continue { label: Name, value: CanId },
 
     // Bindings
     /// Block: `{ stmts; result }`. INVALID result = unit block.
@@ -814,6 +815,7 @@ impl fmt::Debug for CanExpr {
                 write!(f, "Match({scrutinee:?}, {decision_tree:?}, {arms:?})")
             }
             CanExpr::For {
+                label,
                 binding,
                 iter,
                 guard,
@@ -822,12 +824,12 @@ impl fmt::Debug for CanExpr {
             } => {
                 write!(
                     f,
-                    "For({binding:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})"
+                    "For({label:?}, {binding:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})"
                 )
             }
-            CanExpr::Loop { body } => write!(f, "Loop({body:?})"),
-            CanExpr::Break(v) => write!(f, "Break({v:?})"),
-            CanExpr::Continue(v) => write!(f, "Continue({v:?})"),
+            CanExpr::Loop { label, body } => write!(f, "Loop({label:?}, {body:?})"),
+            CanExpr::Break { label, value } => write!(f, "Break({label:?}, {value:?})"),
+            CanExpr::Continue { label, value } => write!(f, "Continue({label:?}, {value:?})"),
             CanExpr::Block { stmts, result } => write!(f, "Block({stmts:?}, {result:?})"),
             CanExpr::Let {
                 pattern,
