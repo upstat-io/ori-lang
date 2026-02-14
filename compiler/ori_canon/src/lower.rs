@@ -1070,7 +1070,10 @@ impl<'a> Lowerer<'a> {
     /// Lower a `BindingPattern` value to canonical form.
     fn lower_binding_pattern_value(&mut self, bp: &ori_ir::BindingPattern) -> CanBindingPatternId {
         let can_bp = match bp {
-            ori_ir::BindingPattern::Name { name, .. } => CanBindingPattern::Name(*name),
+            ori_ir::BindingPattern::Name { name, mutable } => CanBindingPattern::Name {
+                name: *name,
+                mutable: *mutable,
+            },
             ori_ir::BindingPattern::Wildcard => CanBindingPattern::Wildcard,
             ori_ir::BindingPattern::Tuple(children) => {
                 let child_ids: Vec<_> = children
@@ -1086,10 +1089,11 @@ impl<'a> Lowerer<'a> {
                     .map(|field| {
                         let sub = match &field.pattern {
                             Some(p) => self.lower_binding_pattern_value(p),
-                            // Field shorthand: `{ x }` → bind name directly
-                            None => self
-                                .arena
-                                .push_binding_pattern(CanBindingPattern::Name(field.name)),
+                            // Field shorthand: `{ x }` or `{ $x }` → bind name directly
+                            None => self.arena.push_binding_pattern(CanBindingPattern::Name {
+                                name: field.name,
+                                mutable: field.mutable,
+                            }),
                         };
                         CanFieldBinding {
                             name: field.name,
@@ -1413,9 +1417,10 @@ impl<'a> Lowerer<'a> {
             // Bind result to a temporary, run post-check assertions, return temporary.
             let result_id = self.lower_expr(result);
             let result_name = self.name_check_result;
-            let pattern = self
-                .arena
-                .push_binding_pattern(CanBindingPattern::Name(result_name));
+            let pattern = self.arena.push_binding_pattern(CanBindingPattern::Name {
+                name: result_name,
+                mutable: false,
+            });
             let let_result = self.push(
                 CanExpr::Let {
                     pattern,

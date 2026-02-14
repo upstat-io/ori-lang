@@ -441,7 +441,10 @@ mod tests {
             TypeId::from_raw(Idx::INT.raw()),
         ));
         let x_name = Name::from_raw(100);
-        let pat = arena.push_binding_pattern(CanBindingPattern::Name(x_name));
+        let pat = arena.push_binding_pattern(CanBindingPattern::Name {
+            name: x_name,
+            mutable: false,
+        });
 
         let let_expr = arena.push(CanNode::new(
             CanExpr::Let {
