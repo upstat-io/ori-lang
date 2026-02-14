@@ -25,6 +25,7 @@
 
 mod comments;
 mod configs;
+mod extern_def;
 mod functions;
 mod impls;
 mod imports;
@@ -138,6 +139,9 @@ fn collect_module_positions(module: &Module) -> Vec<u32> {
     }
     for test in &module.tests {
         positions.push(test.span.start);
+    }
+    for extern_block in &module.extern_blocks {
+        positions.push(extern_block.span.start);
     }
 
     positions.sort_unstable();
@@ -329,6 +333,16 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             first_item = false;
         }
 
+        // Extern blocks
+        for extern_block in &module.extern_blocks {
+            if !first_item {
+                self.ctx.emit_newline();
+            }
+            self.format_extern_block(extern_block);
+            self.ctx.emit_newline();
+            first_item = false;
+        }
+
         // Functions
         for func in &module.functions {
             if !first_item {
@@ -419,6 +433,17 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             }
             self.emit_comments_before(impl_def.span.start, comments, comment_index);
             self.format_impl_with_comments(impl_def, comments, comment_index);
+            self.ctx.emit_newline();
+            first_item = false;
+        }
+
+        // Extern blocks
+        for extern_block in &module.extern_blocks {
+            if !first_item {
+                self.ctx.emit_newline();
+            }
+            self.emit_comments_before(extern_block.span.start, comments, comment_index);
+            self.format_extern_block(extern_block);
             self.ctx.emit_newline();
             first_item = false;
         }

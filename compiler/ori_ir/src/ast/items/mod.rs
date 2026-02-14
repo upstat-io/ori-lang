@@ -1,12 +1,14 @@
 //! Module-Level Items
 //!
-//! Top-level declarations: Module, Function, `TestDef`, `TypeDecl`.
+//! Top-level declarations: Module, Function, `TestDef`, `TypeDecl`, `ExternBlock`.
 
+mod extern_def;
 mod function;
 mod imports;
 mod traits;
 mod types;
 
+pub use extern_def::{ExternBlock, ExternItem, ExternParam};
 pub use function::{
     CapabilityRef, CfgAttr, ConstDef, ExpectedError, FileAttr, Function, Module, Param, TargetAttr,
     TestDef,

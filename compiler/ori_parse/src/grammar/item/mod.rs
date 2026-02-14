@@ -19,6 +19,7 @@
 mod config;
 mod extend;
 mod extension_import;
+mod extern_def;
 mod function;
 mod generics;
 mod impl_def;

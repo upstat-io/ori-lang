@@ -78,6 +78,10 @@ pub use ast::{
     ExtendDef,
     ExtensionImport,
     ExtensionImportItem,
+    // Extern (FFI) types
+    ExternBlock,
+    ExternItem,
+    ExternParam,
     FieldInit,
     FieldInitRange,
     // File-level attribute

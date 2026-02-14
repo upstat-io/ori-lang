@@ -32,9 +32,10 @@
 //! ```
 
 use super::ast::{
-    BindingPattern, CallArg, ConstDef, Expr, ExprKind, ExtensionImport, FieldInit, FileAttr,
-    Function, FunctionExp, FunctionSeq, ListElement, MapElement, MapEntry, MatchArm, MatchPattern,
-    Module, NamedExpr, Param, SeqBinding, Stmt, StmtKind, StructLitField, TestDef, UseDef,
+    BindingPattern, CallArg, ConstDef, Expr, ExprKind, ExtensionImport, ExternBlock, FieldInit,
+    FileAttr, Function, FunctionExp, FunctionSeq, ListElement, MapElement, MapEntry, MatchArm,
+    MatchPattern, Module, NamedExpr, Param, SeqBinding, Stmt, StmtKind, StructLitField, TestDef,
+    UseDef,
 };
 use super::{ExprArena, ExprId};
 
@@ -81,6 +82,11 @@ pub trait Visitor<'ast> {
     ) {
         // Extension imports have no child expressions to walk
         let _ = ext_import;
+    }
+
+    /// Visit an extern block declaration.
+    fn visit_extern_block(&mut self, _extern_block: &'ast ExternBlock, _arena: &'ast ExprArena) {
+        // Extern blocks have no child expressions to walk
     }
 
     /// Visit a constant definition.
@@ -221,6 +227,9 @@ pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(
     }
     for test in &module.tests {
         visitor.visit_test(test, arena);
+    }
+    for extern_block in &module.extern_blocks {
+        visitor.visit_extern_block(extern_block, arena);
     }
 }
 
