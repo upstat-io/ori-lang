@@ -100,7 +100,7 @@ fn emit_switch(
         TestKind::IntEq | TestKind::BoolEq | TestKind::ListLen => {
             emit_int_switch(lowerer, scrutinee, edges, default, ctx);
         }
-        TestKind::StrEq | TestKind::FloatEq => {
+        TestKind::StrEq | TestKind::FloatEq | TestKind::CharEq => {
             emit_str_chain(lowerer, scrutinee, edges, default, ctx);
         }
         TestKind::IntRange => emit_range_chain(lowerer, scrutinee, edges, default, ctx),

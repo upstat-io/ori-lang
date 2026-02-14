@@ -197,6 +197,12 @@ mod pattern_matrix {
         "true",
         "false",
         r#""hello""#,
+        // Char literal patterns
+        "'a'",
+        "'\\n'",
+        // Char range patterns
+        "'a'..='z'",
+        "'a'..'z'",
         // Variant patterns
         "Some(x)",
         "None",

@@ -170,13 +170,18 @@ fn flatten_literal(arena: &ExprArena, expr_id: ExprId) -> FlatPattern {
 }
 
 /// Extract an i64 from a literal expression (for range patterns).
+///
+/// Handles both integer and char literals — chars are converted to their
+/// Unicode code point for numeric range comparison.
 fn extract_int_literal(arena: &ExprArena, expr_id: ExprId) -> i64 {
     let expr = arena.get_expr(expr_id);
-    if let ExprKind::Int(v) = &expr.kind {
-        *v
-    } else {
-        tracing::debug!(?expr_id, "non-int literal in range pattern");
-        0
+    match &expr.kind {
+        ExprKind::Int(v) => *v,
+        ExprKind::Char(c) => i64::from(u32::from(*c)),
+        _ => {
+            tracing::debug!(?expr_id, "non-int/char literal in range pattern");
+            0
+        }
     }
 }
 

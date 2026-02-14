@@ -303,7 +303,11 @@ fn check_missing_constructors(
         // Infinite types: int, str, float, int ranges — cannot enumerate
         // all values. Without a default (wildcard), the match is necessarily
         // non-exhaustive.
-        TestKind::IntEq | TestKind::StrEq | TestKind::FloatEq | TestKind::IntRange => {
+        TestKind::IntEq
+        | TestKind::StrEq
+        | TestKind::FloatEq
+        | TestKind::CharEq
+        | TestKind::IntRange => {
             missing.push(wrap_pattern(nesting, "_"));
         }
         // List lengths are quasi-finite: a rest pattern ([x, ..rest]) covers

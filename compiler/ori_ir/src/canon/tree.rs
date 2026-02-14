@@ -91,6 +91,9 @@ pub enum TestKind {
     ///
     /// Forward-looking: may not be in 0.1-alpha spec.
     IntRange,
+    /// Compare a char value (equality).
+    /// Edges are `TestValue::Char` variants.
+    CharEq,
     /// Check the length of a list (for list patterns).
     /// Edges are `TestValue::ListLen` variants.
     ListLen,
@@ -114,6 +117,8 @@ pub enum TestValue {
     Bool(bool),
     /// Float literal match (exact bit equality via `u64` bits).
     Float(u64),
+    /// Char literal match.
+    Char(char),
     /// Integer range match.
     IntRange {
         lo: i64,

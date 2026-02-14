@@ -711,8 +711,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Match pattern — grammar.ebnf § match_expr ✅ (2026-02-10)
   - [x] `match(expr, Some(x) -> x, None -> default)` — parses correctly (verified via `ori parse`)
 
-- [ ] **Audit**: Guard syntax — grammar.ebnf § guard
-  - [ ] `.match(...)` syntax — not verified
+- [x] **Audit**: Guard syntax — grammar.ebnf § guard ✅ (2026-02-14)
+  - [x] `.match(...)` syntax — verified: `x.match(x > 0) -> "positive"` parses and evaluates correctly
 
 - [x] **Audit**: For pattern — grammar.ebnf § for_pattern ✅ (2026-02-10)
   - [x] Basic form: `for(over: items, match: x -> x, default: 0)` — parses correctly (verified via `ori parse`)
@@ -772,7 +772,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] Int: `42`, `-1` — parses correctly in match arms
   - [x] String: `"hello"` — parses correctly in match arms
   - [x] Bool: `true`, `false` — parses correctly in match arms
-  - [ ] Char: `'a'` — **BROKEN**: char literals not accepted in match patterns
+  - [x] Char: `'a'` — parses and evaluates correctly ✅ (2026-02-14)
   - [x] **Verified**: `match(42, 42 -> 1, _ -> 0)` parses correctly (via `ori parse`)
 
 - [x] **Audit**: Identifier pattern — grammar.ebnf § identifier_pattern ✅ (2026-02-10)
@@ -800,7 +800,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 - [x] **Audit**: Range patterns — grammar.ebnf § range_pattern ✅ (2026-02-10)
   - [x] `1..10` — parses correctly in match arms (verified via `ori parse`)
-  - [ ] `'a'..='z'` — **BROKEN**: char literals not accepted in match patterns
+  - [x] `'a'..='z'` — char range patterns parse and evaluate correctly ✅ (2026-02-14)
 
 - [x] **Audit**: Or patterns — grammar.ebnf § or_pattern ✅ (2026-02-10)
   - [x] `1 | 2` — parses correctly in match arms (verified via `ori parse`)
@@ -889,7 +889,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - ~~Run pre/post checks~~ — FIXED ✅ (2026-02-14)
 - Immutable binding in function body (`let $x = 42`) — `$` rejected
 - ~~Labeled continue (`continue:outer`)~~ — FIXED ✅ (2026-02-14)
-- Char patterns in match (`'a'`, `'a'..='z'`) — char literals not accepted
+- ~~Char patterns in match (`'a'`, `'a'..='z'`)~~ — FIXED ✅ (2026-02-14)
 
 **Fixed since 2026-02-10** (18 items):
 File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`)
@@ -957,9 +957,9 @@ These features fail at the parse phase — the parser does not recognize the syn
 - [x] **Implement**: Labeled continue ✅ (2026-02-14)
   - [x] **Syntax**: `continue:outer` — parses correctly ✅ (2026-02-14)
 
-- [ ] **Implement**: Char patterns in match
-  - [ ] **Syntax**: `'a'` in match arm — **BROKEN**: char literals not in expected pattern tokens
-  - [ ] **Syntax**: `'a'..='z'` range — **BROKEN**: same issue
+- [x] **Implement**: Char patterns in match ✅ (2026-02-14)
+  - [x] **Syntax**: `'a'` in match arm — parses and evaluates correctly
+  - [x] **Syntax**: `'a'..='z'` range — parses and evaluates correctly
 
 ### 0.9.2 Previously Fixed Bugs — VERIFIED WORKING
 

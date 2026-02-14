@@ -28,7 +28,8 @@ const PATTERN_LITERAL_TOKENS: TokenSet = TokenSet::new()
     .with(TokenKind::Int(0))
     .with(TokenKind::True)
     .with(TokenKind::False)
-    .with(TokenKind::String(Name::EMPTY));
+    .with(TokenKind::String(Name::EMPTY))
+    .with(TokenKind::Char('\0'));
 
 /// Tokens that start a builtin variant pattern.
 const PATTERN_VARIANT_TOKENS: TokenSet = TokenSet::new()
@@ -644,6 +645,42 @@ impl Parser<'_> {
                     self.cursor.previous_span(),
                 ))))
             }
+            TokenKind::Char(c) => {
+                let pat_span = self.cursor.current_span();
+                self.cursor.advance();
+
+                // Check for range pattern: 'a'..'z' or 'a'..='z'
+                if self.cursor.check(&TokenKind::DotDot) || self.cursor.check(&TokenKind::DotDotEq)
+                {
+                    let inclusive = self.cursor.check(&TokenKind::DotDotEq);
+                    self.cursor.advance();
+                    let start_expr = self
+                        .arena
+                        .alloc_expr(Expr::new(ExprKind::Char(c), pat_span));
+
+                    let end = if self.is_range_bound_start() {
+                        match self.parse_range_bound() {
+                            Ok(e) => Some(e),
+                            Err(err) => {
+                                return ParseOutcome::consumed_err(err, pat_span);
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    return ParseOutcome::consumed_ok(MatchPattern::Range {
+                        start: Some(start_expr),
+                        end,
+                        inclusive,
+                    });
+                }
+
+                ParseOutcome::consumed_ok(MatchPattern::Literal(
+                    self.arena
+                        .alloc_expr(Expr::new(ExprKind::Char(c), self.cursor.previous_span())),
+                ))
+            }
             _ => ParseOutcome::empty_err(
                 PATTERN_LITERAL_TOKENS,
                 self.cursor.current_span().start as usize,
@@ -943,11 +980,11 @@ impl Parser<'_> {
         Ok(MatchPattern::Struct { fields })
     }
 
-    /// Check if current token can start a range bound (integer or minus).
+    /// Check if current token can start a range bound (integer, char, or minus).
     fn is_range_bound_start(&self) -> bool {
         matches!(
             self.cursor.current_kind(),
-            TokenKind::Int(_) | TokenKind::Minus
+            TokenKind::Int(_) | TokenKind::Char(_) | TokenKind::Minus
         )
     }
 
@@ -1034,10 +1071,15 @@ impl Parser<'_> {
             Ok(self
                 .arena
                 .alloc_expr(Expr::new(ExprKind::Int(value), self.cursor.previous_span())))
+        } else if let TokenKind::Char(c) = *self.cursor.current_kind() {
+            self.cursor.advance();
+            Ok(self
+                .arena
+                .alloc_expr(Expr::new(ExprKind::Char(c), self.cursor.previous_span())))
         } else {
             Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
-                "expected integer in range pattern".to_string(),
+                "expected integer or char literal in range pattern".to_string(),
                 self.cursor.current_span(),
             ))
         }
