@@ -144,6 +144,17 @@ impl TypedModule {
     }
 }
 
+/// Info about a const generic parameter (e.g., `$N: int`).
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ConstParamInfo {
+    /// Parameter name (e.g., `N`).
+    pub name: Name,
+    /// The type of this const param (INT or BOOL).
+    pub const_type: Idx,
+    /// Optional default value expression.
+    pub default_value: Option<ori_ir::ExprId>,
+}
+
 /// Function signature.
 ///
 /// Contains all information needed to type-check calls to this function
@@ -161,6 +172,10 @@ pub struct FunctionSig {
 
     /// Generic type parameter names (e.g., `T`, `U` in `fn foo<T, U>`).
     pub type_params: Vec<Name>,
+
+    /// Const generic parameters (e.g., `$N: int` in `@f<$N: int>`).
+    /// Empty for non-const-generic functions.
+    pub const_params: Vec<ConstParamInfo>,
 
     /// Parameter names.
     pub param_names: Vec<Name>,
@@ -233,6 +248,7 @@ impl FunctionSig {
         Self {
             name,
             type_params: Vec::new(),
+            const_params: Vec::new(),
             param_names: Vec::new(),
             param_types,
             return_type,
@@ -263,6 +279,7 @@ impl FunctionSig {
         Self {
             name,
             type_params: Vec::new(),
+            const_params: Vec::new(),
             param_names,
             param_types,
             return_type,
@@ -292,7 +309,7 @@ impl FunctionSig {
 
     /// Check if this function is generic.
     pub fn is_generic(&self) -> bool {
-        !self.type_params.is_empty()
+        !self.type_params.is_empty() || !self.const_params.is_empty()
     }
 
     /// Check if this function uses capabilities.
@@ -457,6 +474,7 @@ mod tests {
         let sig = FunctionSig {
             name,
             type_params: vec![t_param],
+            const_params: vec![],
             param_names: vec![Name::from_raw(3)],
             param_types: vec![Idx::INT],
             return_type: Idx::INT,
@@ -529,6 +547,7 @@ mod tests {
         let sig = FunctionSig {
             name,
             type_params: vec![],
+            const_params: vec![],
             param_names: vec![],
             param_types: vec![],
             return_type: Idx::STR,
@@ -555,6 +574,7 @@ mod tests {
         let sig = FunctionSig {
             name,
             type_params: vec![],
+            const_params: vec![],
             param_names: vec![],
             param_types: vec![],
             return_type: Idx::STR,
@@ -583,6 +603,7 @@ mod tests {
         let sig = FunctionSig {
             name,
             type_params: vec![],
+            const_params: vec![],
             param_names: vec![],
             param_types: vec![],
             return_type: Idx::UNIT,

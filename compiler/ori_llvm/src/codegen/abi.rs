@@ -550,6 +550,7 @@ mod tests {
         let sig = FunctionSig {
             name: Name::from_raw(1),
             type_params: vec![],
+            const_params: vec![],
             param_names: vec![Name::from_raw(2), Name::from_raw(3)],
             param_types: vec![Idx::INT, Idx::INT],
             return_type: Idx::INT,
@@ -581,6 +582,7 @@ mod tests {
         let sig = FunctionSig {
             name: Name::from_raw(1),
             type_params: vec![],
+            const_params: vec![],
             param_names: vec![],
             param_types: vec![],
             return_type: Idx::UNIT,
@@ -609,6 +611,7 @@ mod tests {
         let sig = FunctionSig {
             name: Name::from_raw(1),
             type_params: vec![],
+            const_params: vec![],
             param_names: vec![],
             param_types: vec![],
             return_type: Idx::UNIT,
@@ -771,6 +774,7 @@ mod tests {
         let sig = FunctionSig {
             name: Name::from_raw(1),
             type_params: vec![],
+            const_params: vec![],
             param_names: vec![Name::from_raw(2), Name::from_raw(3)],
             param_types: vec![Idx::STR, Idx::INT],
             return_type: Idx::INT,
@@ -819,6 +823,7 @@ mod tests {
         let sig = FunctionSig {
             name: Name::from_raw(1),
             type_params: vec![],
+            const_params: vec![],
             param_names: vec![Name::from_raw(2)],
             param_types: vec![Idx::STR],
             return_type: Idx::STR,

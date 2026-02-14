@@ -192,17 +192,17 @@ ConstType     = 'int' | 'bool' ;
   - [ ] **LLVM Support**: LLVM codegen for parsed const parameters
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter parsing codegen
 
-- [ ] **Type checker**: Const parameter validation
-  - [ ] Track const vs type parameters
-  - [ ] Validate const type (int, bool)
-  - [ ] Unification with const values
+- [x] **Type checker**: Const parameter validation (body-level)
+  - [x] Track const vs type parameters ✅ (2026-02-14)
+  - [x] Validate const type (int, bool) ✅ (2026-02-14)
+  - [ ] Unification with const values (call-site deferred)
   - [ ] **LLVM Support**: LLVM codegen for const parameter validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter validation codegen
 
-- [ ] **Test**: `tests/spec/types/const_generics.ori`
-  - [x] Basic const parameter — parser test exists (all `#skip`, type checker pending) ✅ (2026-02-13)
-  - [ ] Multiple const parameters
-  - [x] Mixed type and const — parser test exists ✅ (2026-02-13)
+- [x] **Test**: `tests/spec/types/const_generics.ori` (body-level)
+  - [x] Basic const parameter ✅ (2026-02-14)
+  - [x] Multiple const parameters ✅ (2026-02-14)
+  - [x] Mixed type and const ✅ (2026-02-14)
   - [ ] **LLVM Support**: LLVM codegen for const generic tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const generic tests codegen
 
