@@ -124,6 +124,9 @@ pub struct InferEngine<'pool> {
     /// Records `Binding` patterns that were resolved to unit variants.
     /// Extracted via `take_pattern_resolutions()` after checking.
     pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
+
+    /// Module-level constant types for `$name` reference resolution.
+    const_types: Option<&'pool FxHashMap<Name, Idx>>,
 }
 
 impl<'pool> InferEngine<'pool> {
@@ -145,6 +148,7 @@ impl<'pool> InferEngine<'pool> {
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
             pattern_resolutions: Vec::new(),
+            const_types: None,
         }
     }
 
@@ -168,6 +172,7 @@ impl<'pool> InferEngine<'pool> {
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
             pattern_resolutions: Vec::new(),
+            const_types: None,
         }
     }
 
@@ -189,6 +194,16 @@ impl<'pool> InferEngine<'pool> {
     /// Set the type registry for struct/enum/newtype lookup.
     pub fn set_type_registry(&mut self, registry: &'pool TypeRegistry) {
         self.type_registry = Some(registry);
+    }
+
+    /// Set module-level constant types for `$name` reference resolution.
+    pub fn set_const_types(&mut self, consts: &'pool FxHashMap<Name, Idx>) {
+        self.const_types = Some(consts);
+    }
+
+    /// Look up a constant's type by name.
+    pub fn const_type(&self, name: Name) -> Option<Idx> {
+        self.const_types.and_then(|m| m.get(&name).copied())
     }
 
     /// Set the current function type for `self` references.

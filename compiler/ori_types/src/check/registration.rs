@@ -9,8 +9,7 @@
 //! - Module checker design: `plans/types_v2/section-08b-module-checker.md`
 
 use ori_ir::{
-    DerivedTrait, ExprId, ExprKind, Module, Name, ParsedType, Span, TraitItem,
-    Visibility as IrVisibility,
+    DerivedTrait, ExprId, Module, Name, ParsedType, Span, TraitItem, Visibility as IrVisibility,
 };
 use rustc_hash::FxHashMap;
 
@@ -978,25 +977,19 @@ fn register_const(checker: &mut ModuleChecker<'_>, const_def: &ori_ir::ConstDef)
 }
 
 /// Infer the type of a constant value expression.
+///
+/// Uses full expression inference so that computed constant expressions
+/// (arithmetic, comparison, logical, references to other constants) are
+/// handled correctly — not just literals.
 fn infer_const_type(checker: &mut ModuleChecker<'_>, value_id: ori_ir::ExprId) -> Idx {
-    let expr_kind = checker.arena().get_expr(value_id).kind;
-
-    // Constant values must be literals, so we can infer directly
-    match expr_kind {
-        ExprKind::Int(_) => Idx::INT,
-        ExprKind::Float(_) => Idx::FLOAT,
-        ExprKind::Bool(_) => Idx::BOOL,
-        ExprKind::String(_) | ExprKind::TemplateFull(_) => Idx::STR,
-        ExprKind::Char(_) => Idx::CHAR,
-        ExprKind::Duration { .. } => Idx::DURATION,
-        ExprKind::Size { .. } => Idx::SIZE,
-        _ => {
-            // For more complex expressions, we'd use full inference
-            // For now, just return ERROR since configs should only have literals
-            // TODO: Implement full inference when needed
-            Idx::ERROR
-        }
+    let arena = checker.arena();
+    let mut engine = checker.create_engine();
+    let ty = crate::infer_expr(&mut engine, arena, value_id);
+    let errors = engine.take_errors();
+    for err in errors {
+        checker.push_error(err);
     }
+    ty
 }
 
 #[cfg(test)]

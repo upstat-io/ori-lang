@@ -189,15 +189,15 @@ impl Spanned for TestDef {
 
 /// Constant definition.
 ///
-/// Syntax: `[pub] let $name = literal`
+/// Syntax: `[pub] let $name = expr`
 ///
-/// Constants are compile-time immutable bindings. The type is inferred from the literal.
-/// They can be imported via `use "./module" { $const_name }`.
+/// Constants are compile-time immutable bindings. The type is inferred from the
+/// initializer expression. They can be imported via `use "./module" { $const_name }`.
 ///
 /// # Fields
 ///
 /// - `name`: The interned name of the constant (without the `$` prefix).
-/// - `value`: The initializer expression ID (must resolve to a literal).
+/// - `value`: The initializer expression ID.
 /// - `span`: The source span covering the entire definition.
 /// - `visibility`: The visibility of this constant.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -206,9 +206,9 @@ pub struct ConstDef {
     pub name: Name,
     /// Optional explicit type annotation (`let $NAME: int = ...`).
     pub ty: Option<ParsedType>,
-    /// The initializer expression (must be a literal).
-    /// At parse time, this points to an `ExprKind::Int`, `ExprKind::Float`,
-    /// `ExprKind::String`, `ExprKind::Bool`, or similar literal node.
+    /// The initializer expression. May be a literal or a computed constant
+    /// expression (arithmetic, comparison, logical, conditional, or references
+    /// to other constants). Constness validation happens in later phases.
     pub value: ExprId,
     /// Source span covering the entire constant definition (`let $name = value`).
     pub span: Span,
