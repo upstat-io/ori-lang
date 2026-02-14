@@ -76,6 +76,8 @@ pub use ast::{
     ExprKind,
     // Extension types
     ExtendDef,
+    ExtensionImport,
+    ExtensionImportItem,
     FieldInit,
     FieldInitRange,
     // File-level attribute

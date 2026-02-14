@@ -312,6 +312,8 @@ pub struct Module {
     pub def_impls: Vec<super::traits::DefImplDef>,
     /// Extension method blocks
     pub extends: Vec<super::traits::ExtendDef>,
+    /// Extension imports (`extension path { Type.method }`)
+    pub extension_imports: Vec<super::imports::ExtensionImport>,
 }
 
 impl Module {
@@ -327,6 +329,7 @@ impl Module {
             impls: Vec::new(),
             def_impls: Vec::new(),
             extends: Vec::new(),
+            extension_imports: Vec::new(),
         }
     }
 
@@ -354,6 +357,7 @@ impl Module {
             impls: Vec::with_capacity(type_estimate),
             def_impls: Vec::with_capacity(2),
             extends: Vec::with_capacity(2),
+            extension_imports: Vec::new(),
         }
     }
 }
@@ -367,7 +371,7 @@ impl fmt::Debug for Module {
         }
         write!(
             f,
-            "{} consts, {} functions, {} tests, {} types, {} traits, {} impls, {} def_impls, {} extends }}",
+            "{} consts, {} functions, {} tests, {} types, {} traits, {} impls, {} def_impls, {} extends, {} ext_imports }}",
             self.consts.len(),
             self.functions.len(),
             self.tests.len(),
@@ -375,7 +379,8 @@ impl fmt::Debug for Module {
             self.traits.len(),
             self.impls.len(),
             self.def_impls.len(),
-            self.extends.len()
+            self.extends.len(),
+            self.extension_imports.len()
         )
     }
 }

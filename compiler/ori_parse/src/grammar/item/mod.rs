@@ -13,10 +13,12 @@
 //! - `impl_def.rs`: Impl block parsing
 //! - `type_decl.rs`: Type declaration parsing (struct, enum, newtype)
 //! - `extend.rs`: Extend block parsing
+//! - `extension_import.rs`: Extension import parsing
 //! - `generics.rs`: Generic parameters, bounds, where clauses
 
 mod config;
 mod extend;
+mod extension_import;
 mod function;
 mod generics;
 mod impl_def;

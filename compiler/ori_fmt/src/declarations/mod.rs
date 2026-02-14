@@ -281,6 +281,12 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             first_item = false;
         }
 
+        // Extension imports (after regular imports)
+        if !module.extension_imports.is_empty() {
+            self.format_extension_imports(&module.extension_imports);
+            first_item = false;
+        }
+
         // Constants
         if !module.consts.is_empty() {
             if !first_item {
@@ -359,6 +365,12 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         // Imports first
         if !module.imports.is_empty() {
             self.format_imports_with_comments(&module.imports, comments, comment_index);
+            first_item = false;
+        }
+
+        // Extension imports (after regular imports)
+        if !module.extension_imports.is_empty() {
+            self.format_extension_imports(&module.extension_imports);
             first_item = false;
         }
 

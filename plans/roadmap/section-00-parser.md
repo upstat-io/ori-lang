@@ -258,9 +258,10 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 - [x] **Audit**: Import items — grammar.ebnf § import_item ✅ (2026-02-10)
   - [x] Basic: `{ name }`, aliased: `{ name as alias }` — parses correctly
-  - [ ] Private: `{ ::internal }`, constants: `{ $CONST }` — not verified (no tests)
-  - [ ] Without default impl: `{ Trait without def }` — not verified (no tests)
-  - [x] **Ori Tests**: `tests/spec/source/imports.ori`, `tests/spec/modules/use_imports.ori`
+  - [x] Private: `{ ::internal }` — parses correctly (2026-02-13), constants: `{ $CONST }` — parses correctly (parser + formatter, evaluator pending)
+  - [x] Without default impl: `{ Trait without def }` — parses correctly (2026-02-13, trait resolution pending)
+  - [x] **Rust Tests**: `oric/tests/phases/parse/imports.rs` — 12 tests (all import_item forms)
+  - [x] **Ori Tests**: `tests/spec/source/imports.ori`, `tests/spec/modules/use_imports.ori`, `tests/spec/modules/_test/use_constants.test.ori`
 
 ### 0.2.3 Re-exports
 
@@ -272,11 +273,15 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 - [x] **Audit**: Extension definitions — grammar.ebnf § extension_def ✅ (2026-02-10)
   - [x] `extend Type { methods }` — parses correctly (verified via `ori parse`)
-  - [ ] `extend Type where T: Bound { methods }` — not verified (no dedicated test)
+  - [x] `extend Type where T: Bound { methods }` — parses correctly (2026-02-13), including multiple bounds
   - [x] **Ori Tests**: `tests/spec/source/extensions.ori` — 3 tests
 
-- [ ] **Audit**: Extension imports — grammar.ebnf § extension_import
-  - [ ] `extension std.iter.extensions { Iterator.count }` — not verified (no tests)
+- [x] **Audit**: Extension imports — grammar.ebnf § extension_import ✅ (2026-02-13)
+  - [x] `extension std.iter.extensions { Iterator.count }` — parses correctly (2026-02-13)
+  - [x] `pub extension path { Type.method }` — parses correctly (public re-export)
+  - [x] `extension "./path" { Type.method }` — parses correctly (relative paths)
+  - [x] **Rust Tests**: `oric/tests/phases/parse/extensions.rs` — 8 extension import tests
+  - [x] **Formatter**: round-trips correctly
 
 ### 0.2.5 FFI
 

@@ -38,6 +38,9 @@ pub enum ImportPath {
 }
 
 /// A single imported item.
+///
+/// Represents one entry in `use path { item1, item2, ... }`.
+/// Grammar: `import_item = [ "::" ] identifier [ "without" "def" ] [ "as" identifier ] | "$" identifier .`
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct UseItem {
     /// Name of the item being imported
@@ -46,6 +49,42 @@ pub struct UseItem {
     pub alias: Option<Name>,
     /// Whether this is a private import (`::name`)
     pub is_private: bool,
+    /// Whether this imports a trait without its default implementation (`Trait without def`)
+    pub without_def: bool,
+    /// Whether this is a constant/config import (`$NAME`)
+    pub is_constant: bool,
+}
+
+/// An extension import statement.
+///
+/// Syntax: `[pub] extension path { Type.method, Type.method }`
+/// Grammar: `extension_import = "extension" import_path "{" extension_item { "," extension_item } "}" .`
+///
+/// Extension imports bring specific extension methods into scope with
+/// method-level granularity. Wildcards are prohibited.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ExtensionImport {
+    /// Module path containing the extension definitions
+    pub path: ImportPath,
+    /// Extension methods being imported (`Type.method` pairs)
+    pub items: Vec<ExtensionImportItem>,
+    /// Visibility (public for re-export)
+    pub visibility: Visibility,
+    /// Source span
+    pub span: Span,
+}
+
+/// A single extension import item: `Type.method`.
+///
+/// Grammar: `extension_item = identifier "." identifier .`
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ExtensionImportItem {
+    /// The type being extended (e.g., `Iterator`)
+    pub type_name: Name,
+    /// The method being imported (e.g., `count`)
+    pub method_name: Name,
+    /// Source span of this item
+    pub span: Span,
 }
 
 /// Structured error kind for import resolution failures.

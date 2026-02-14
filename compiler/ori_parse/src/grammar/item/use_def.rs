@@ -72,6 +72,19 @@ impl Parser<'_> {
                 return Ok(None);
             }
 
+            // Constant import: `$NAME`
+            if p.cursor.check(&TokenKind::Dollar) {
+                p.cursor.advance();
+                let name = p.cursor.expect_ident()?;
+                return Ok(Some(UseItem {
+                    name,
+                    alias: None,
+                    is_private: false,
+                    without_def: false,
+                    is_constant: true,
+                }));
+            }
+
             // Check for private import prefix ::
             let is_private = if p.cursor.check(&TokenKind::DoubleColon) {
                 p.cursor.advance();
@@ -82,6 +95,19 @@ impl Parser<'_> {
 
             // Item name
             let name = p.cursor.expect_ident()?;
+
+            // Optional `without def` modifier for traits
+            let without_def = if let TokenKind::Ident(n) = *p.cursor.current_kind() {
+                if p.cursor.interner().lookup(n) == "without" {
+                    p.cursor.advance();
+                    p.cursor.expect(&TokenKind::Def)?;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
 
             // Optional alias: `as alias`
             let alias = if p.cursor.check(&TokenKind::As) {
@@ -95,6 +121,8 @@ impl Parser<'_> {
                 name,
                 alias,
                 is_private,
+                without_def,
+                is_constant: false,
             }))
         }));
 

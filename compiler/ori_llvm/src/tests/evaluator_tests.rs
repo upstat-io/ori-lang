@@ -84,6 +84,7 @@ fn test_compile_module_with_tests_empty() {
         impls: vec![],
         extends: vec![],
         def_impls: vec![],
+        extension_imports: vec![],
     };
 
     let canon = ori_ir::canon::CanonResult {

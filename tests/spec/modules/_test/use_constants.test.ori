@@ -1,0 +1,21 @@
+// Spec: 12-modules.md § Imports
+// Grammar: import_item = ... | "$" identifier .
+//
+// Tests for importing constant/config values using $ prefix.
+// Parser handles $CONST syntax (verified by Rust tests in
+// oric/tests/phases/parse/imports.rs) but import resolution for
+// constants is not yet implemented in the evaluator.
+
+use std.testing { assert_eq }
+
+// NOTE: When constant import resolution is implemented, uncomment
+// the import below and remove the #skip attributes.
+// use "../use_imports" { $default_timeout }
+
+#skip("constant import resolution not yet implemented")
+@test_const_import tests @dummy () -> void = run(
+    // When working: assert_eq(actual: default_timeout, expected: 30)
+    assert_eq(actual: 30, expected: 30)
+)
+
+@dummy () -> void = ()
