@@ -30,8 +30,8 @@ pub(super) fn call_width<I: StringLookup>(
         return ALWAYS_STACKED;
     }
 
-    let args_vec: Vec<_> = calc.arena.get_expr_list(args).to_vec();
-    let args_w = calc.width_of_expr_list(&args_vec);
+    let args_slice = calc.arena.get_expr_list(args);
+    let args_w = calc.width_of_expr_list(args_slice);
     if args_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
@@ -81,8 +81,8 @@ pub(super) fn method_call_width<I: StringLookup>(
     };
 
     let method_w = calc.interner.lookup(method).len();
-    let args_vec: Vec<_> = calc.arena.get_expr_list(args).to_vec();
-    let args_w = calc.width_of_expr_list(&args_vec);
+    let args_slice = calc.arena.get_expr_list(args);
+    let args_w = calc.width_of_expr_list(args_slice);
     if args_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }

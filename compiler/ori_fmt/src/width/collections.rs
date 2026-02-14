@@ -18,8 +18,8 @@ pub(super) fn list_width<I: StringLookup>(
         return 2; // "[]"
     }
 
-    let items_vec: Vec<_> = calc.arena.get_expr_list(items).to_vec();
-    let items_w = calc.width_of_expr_list(&items_vec);
+    let items_slice = calc.arena.get_expr_list(items);
+    let items_w = calc.width_of_expr_list(items_slice);
     if items_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
@@ -57,14 +57,14 @@ pub(super) fn tuple_width<I: StringLookup>(
         return 2; // "()"
     }
 
-    let items_vec: Vec<_> = calc.arena.get_expr_list(items).to_vec();
-    let items_w = calc.width_of_expr_list(&items_vec);
+    let items_slice = calc.arena.get_expr_list(items);
+    let items_w = calc.width_of_expr_list(items_slice);
     if items_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
 
     // "(" + items + ")" + optional trailing comma for single element
-    let trailing_comma = usize::from(items_vec.len() == 1);
+    let trailing_comma = usize::from(items_slice.len() == 1);
     1 + items_w + trailing_comma + 1
 }
 
