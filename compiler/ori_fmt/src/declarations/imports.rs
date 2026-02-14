@@ -145,6 +145,20 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         }
     }
 
+    /// Format extension import declarations with comment preservation.
+    pub(super) fn format_extension_imports_with_comments(
+        &mut self,
+        ext_imports: &[ExtensionImport],
+        comments: &CommentList,
+        comment_index: &mut CommentIndex,
+    ) {
+        for ext_import in ext_imports {
+            self.emit_comments_before_import(ext_import.span.start, comments, comment_index);
+            self.format_extension_import(ext_import);
+            self.ctx.emit_newline();
+        }
+    }
+
     fn format_extension_import(&mut self, ext: &ExtensionImport) {
         if ext.visibility == Visibility::Public {
             self.ctx.emit("pub ");

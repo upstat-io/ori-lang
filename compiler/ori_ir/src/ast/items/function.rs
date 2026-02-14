@@ -357,7 +357,7 @@ impl Module {
             impls: Vec::with_capacity(type_estimate),
             def_impls: Vec::with_capacity(2),
             extends: Vec::with_capacity(2),
-            extension_imports: Vec::new(),
+            extension_imports: Vec::with_capacity(2),
         }
     }
 }

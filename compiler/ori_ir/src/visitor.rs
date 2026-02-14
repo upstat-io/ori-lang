@@ -32,9 +32,9 @@
 //! ```
 
 use super::ast::{
-    BindingPattern, CallArg, ConstDef, Expr, ExprKind, FieldInit, FileAttr, Function, FunctionExp,
-    FunctionSeq, ListElement, MapElement, MapEntry, MatchArm, MatchPattern, Module, NamedExpr,
-    Param, SeqBinding, Stmt, StmtKind, StructLitField, TestDef, UseDef,
+    BindingPattern, CallArg, ConstDef, Expr, ExprKind, ExtensionImport, FieldInit, FileAttr,
+    Function, FunctionExp, FunctionSeq, ListElement, MapElement, MapEntry, MatchArm, MatchPattern,
+    Module, NamedExpr, Param, SeqBinding, Stmt, StmtKind, StructLitField, TestDef, UseDef,
 };
 use super::{ExprArena, ExprId};
 
@@ -71,6 +71,16 @@ pub trait Visitor<'ast> {
     fn visit_use(&mut self, use_def: &'ast UseDef, _arena: &'ast ExprArena) {
         // Use statements have no child expressions to walk
         let _ = use_def;
+    }
+
+    /// Visit an extension import statement.
+    fn visit_extension_import(
+        &mut self,
+        ext_import: &'ast ExtensionImport,
+        _arena: &'ast ExprArena,
+    ) {
+        // Extension imports have no child expressions to walk
+        let _ = ext_import;
     }
 
     /// Visit a constant definition.
@@ -199,6 +209,9 @@ pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(
     }
     for use_def in &module.imports {
         visitor.visit_use(use_def, arena);
+    }
+    for ext_import in &module.extension_imports {
+        visitor.visit_extension_import(ext_import, arena);
     }
     for const_def in &module.consts {
         visitor.visit_const(const_def, arena);

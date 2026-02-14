@@ -666,14 +666,14 @@ impl<'a> Parser<'a> {
     /// (`return`), foreign keywords (`fn`, `func`, etc.), orphaned attributes,
     /// and unknown tokens at module level.
     fn handle_declaration_error(&mut self, attrs: &ParsedAttrs, errors: &mut Vec<ParseError>) {
-        if self.cursor.check(&TokenKind::Use) {
-            // Import after declarations
+        if self.cursor.check(&TokenKind::Use) || self.cursor.check(&TokenKind::Extension) {
+            // Import or extension import after declarations
             errors.push(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
                 "import statements must appear at the beginning of the file",
                 self.cursor.current_span(),
             ));
-            // Skip the entire use statement to avoid infinite loop
+            // Skip the entire import statement to avoid infinite loop
             self.cursor.advance();
             while !self.cursor.is_at_end()
                 && !self.cursor.check(&TokenKind::At)
@@ -681,6 +681,7 @@ impl<'a> Parser<'a> {
                 && !self.cursor.check(&TokenKind::Impl)
                 && !self.cursor.check(&TokenKind::Type)
                 && !self.cursor.check(&TokenKind::Use)
+                && !self.cursor.check(&TokenKind::Extension)
             {
                 self.cursor.advance();
             }
@@ -829,6 +830,11 @@ impl<'a> Parser<'a> {
                             let new_const = copier.copy_const(old_const, &mut self.arena);
                             module.consts.push(new_const);
                         }
+                        DeclKind::ExtensionImport => {
+                            let old_ext = &state.cursor.module().extension_imports[decl_ref.index];
+                            let new_ext = copier.copy_extension_import(old_ext);
+                            module.extension_imports.push(new_ext);
+                        }
                         DeclKind::Import => {
                             unreachable!("imports should not appear in declaration list");
                         }
@@ -930,6 +936,9 @@ impl ParseOutput {
         }
         for impl_def in &self.module.impls {
             decl_starts.push(impl_def.span.start);
+        }
+        for ext_import in &self.module.extension_imports {
+            decl_starts.push(ext_import.span.start);
         }
 
         // Sort for binary search efficiency (though unattached_doc_comments does linear scan)
