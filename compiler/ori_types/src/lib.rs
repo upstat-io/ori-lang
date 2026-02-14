@@ -110,6 +110,7 @@ const _: usize = assert_salsa_compatible::<TypeCheckResult>();
 const _: usize = assert_salsa_compatible::<TypedModule>();
 const _: usize = assert_salsa_compatible::<FunctionSig>();
 const _: usize = assert_salsa_compatible::<FnWhereClause>();
+const _: usize = assert_salsa_compatible::<ConstParamInfo>();
 const _: usize = assert_salsa_compatible::<TypeEntry>();
 
 // Error types (embedded in query results)
