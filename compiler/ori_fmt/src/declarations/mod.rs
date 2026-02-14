@@ -195,6 +195,23 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                         first = false;
                     }
                 }
+                if !target.any_os.is_empty() {
+                    if !first {
+                        self.ctx.emit(", ");
+                    }
+                    self.ctx.emit("any_os: [");
+                    for (i, name) in target.any_os.iter().enumerate() {
+                        if i > 0 {
+                            self.ctx.emit(", ");
+                        }
+                        self.ctx.emit("\"");
+                        self.ctx.emit(self.interner.lookup(*name));
+                        self.ctx.emit("\"");
+                    }
+                    self.ctx.emit("]");
+                    first = false;
+                }
+                let _ = first;
                 self.ctx.emit(")");
             }
             FileAttr::Cfg { attr: cfg, .. } => {
@@ -225,6 +242,23 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                         first = false;
                     }
                 }
+                if !cfg.any_feature.is_empty() {
+                    if !first {
+                        self.ctx.emit(", ");
+                    }
+                    self.ctx.emit("any_feature: [");
+                    for (i, name) in cfg.any_feature.iter().enumerate() {
+                        if i > 0 {
+                            self.ctx.emit(", ");
+                        }
+                        self.ctx.emit("\"");
+                        self.ctx.emit(self.interner.lookup(*name));
+                        self.ctx.emit("\"");
+                    }
+                    self.ctx.emit("]");
+                    first = false;
+                }
+                let _ = first;
                 self.ctx.emit(")");
             }
         }

@@ -32,7 +32,6 @@
 //! ```
 
 use crate::{ParseError, Parser};
-use ori_diagnostic::queue::DiagnosticSeverity;
 use ori_diagnostic::ErrorCode;
 use ori_ir::{CfgAttr, ExpectedError, FileAttr, Name, TargetAttr, TokenCapture, TokenKind};
 
@@ -246,14 +245,11 @@ impl Parser<'_> {
 
         // Expect (
         if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: format!("expected '(' after attribute name '{attr_name_str}'"),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                format!("expected '(' after attribute name '{attr_name_str}'"),
+                self.cursor.current_span(),
+            ));
             if uses_brackets {
                 self.skip_to_rbracket();
             }
@@ -266,14 +262,11 @@ impl Parser<'_> {
             self.cursor.advance();
             Some(string_name)
         } else {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: format!("attribute '{attr_name_str}' requires a string argument"),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                format!("attribute '{attr_name_str}' requires a string argument"),
+                self.cursor.current_span(),
+            ));
             None
         };
 
@@ -281,14 +274,11 @@ impl Parser<'_> {
         if self.cursor.check(&TokenKind::RParen) {
             self.cursor.advance();
         } else {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected ')' after attribute value".to_string(),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected ')' after attribute value",
+                self.cursor.current_span(),
+            ));
         }
 
         // Expect ] only if old bracket syntax was used
@@ -296,14 +286,11 @@ impl Parser<'_> {
             if self.cursor.check(&TokenKind::RBracket) {
                 self.cursor.advance();
             } else {
-                errors.push(ParseError {
-                    code: ErrorCode::E1006,
-                    message: "expected ']' to close attribute".to_string(),
-                    span: self.cursor.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: DiagnosticSeverity::Hard,
-                });
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    "expected ']' to close attribute",
+                    self.cursor.current_span(),
+                ));
             }
         }
 
@@ -337,14 +324,11 @@ impl Parser<'_> {
     ) {
         // Expect (
         if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected '(' after 'compile_fail'".to_string(),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected '(' after 'compile_fail'",
+                self.cursor.current_span(),
+            ));
             if uses_brackets {
                 self.skip_to_rbracket();
             } else {
@@ -366,14 +350,11 @@ impl Parser<'_> {
             if self.cursor.check(&TokenKind::RParen) {
                 self.cursor.advance();
             } else {
-                errors.push(ParseError {
-                    code: ErrorCode::E1006,
-                    message: "expected ')' after compile_fail value".to_string(),
-                    span: self.cursor.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: DiagnosticSeverity::Hard,
-                });
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    "expected ')' after compile_fail value",
+                    self.cursor.current_span(),
+                ));
             }
         } else {
             // Extended format: #[compile_fail(name: value, ...)]
@@ -382,18 +363,14 @@ impl Parser<'_> {
             while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
                 // Parse name: value
                 let param_name = if let TokenKind::Ident(name) = *self.cursor.current_kind() {
-                    let s = self.cursor.interner().lookup(name).to_owned();
                     self.cursor.advance();
-                    s
+                    name
                 } else {
-                    errors.push(ParseError {
-                        code: ErrorCode::E1006,
-                        message: "expected parameter name in compile_fail".to_string(),
-                        span: self.cursor.current_span(),
-                        context: None,
-                        help: Vec::new(),
-                        severity: DiagnosticSeverity::Hard,
-                    });
+                    errors.push(ParseError::new(
+                        ErrorCode::E1006,
+                        "expected parameter name in compile_fail",
+                        self.cursor.current_span(),
+                    ));
                     if uses_brackets {
                         self.skip_to_rbracket();
                     } else {
@@ -404,14 +381,12 @@ impl Parser<'_> {
 
                 // Expect :
                 if !self.cursor.check(&TokenKind::Colon) {
-                    errors.push(ParseError {
-                        code: ErrorCode::E1006,
-                        message: format!("expected ':' after '{param_name}'"),
-                        span: self.cursor.current_span(),
-                        context: None,
-                        help: Vec::new(),
-                        severity: DiagnosticSeverity::Hard,
-                    });
+                    let name_str = self.cursor.interner().lookup(param_name);
+                    errors.push(ParseError::new(
+                        ErrorCode::E1006,
+                        format!("expected ':' after '{name_str}'"),
+                        self.cursor.current_span(),
+                    ));
                     if uses_brackets {
                         self.skip_to_rbracket();
                     } else {
@@ -422,20 +397,18 @@ impl Parser<'_> {
                 self.cursor.advance();
 
                 // Parse value based on parameter name
-                match param_name.as_str() {
+                let param_str = self.cursor.interner().lookup(param_name);
+                match param_str {
                     "message" | "msg" => {
                         if let TokenKind::String(s) = *self.cursor.current_kind() {
                             expected.message = Some(s);
                             self.cursor.advance();
                         } else {
-                            errors.push(ParseError {
-                                code: ErrorCode::E1006,
-                                message: "expected string for 'message'".to_string(),
-                                span: self.cursor.current_span(),
-                                context: None,
-                                help: Vec::new(),
-                                severity: DiagnosticSeverity::Hard,
-                            });
+                            errors.push(ParseError::new(
+                                ErrorCode::E1006,
+                                "expected string for 'message'",
+                                self.cursor.current_span(),
+                            ));
                         }
                     }
                     "code" => {
@@ -443,14 +416,11 @@ impl Parser<'_> {
                             expected.code = Some(s);
                             self.cursor.advance();
                         } else {
-                            errors.push(ParseError {
-                                code: ErrorCode::E1006,
-                                message: "expected string for 'code'".to_string(),
-                                span: self.cursor.current_span(),
-                                context: None,
-                                help: Vec::new(),
-                                severity: DiagnosticSeverity::Hard,
-                            });
+                            errors.push(ParseError::new(
+                                ErrorCode::E1006,
+                                "expected string for 'code'",
+                                self.cursor.current_span(),
+                            ));
                         }
                     }
                     "line" => {
@@ -458,14 +428,11 @@ impl Parser<'_> {
                             expected.line = u32::try_from(n).ok();
                             self.cursor.advance();
                         } else {
-                            errors.push(ParseError {
-                                code: ErrorCode::E1006,
-                                message: "expected integer for 'line'".to_string(),
-                                span: self.cursor.current_span(),
-                                context: None,
-                                help: Vec::new(),
-                                severity: DiagnosticSeverity::Hard,
-                            });
+                            errors.push(ParseError::new(
+                                ErrorCode::E1006,
+                                "expected integer for 'line'",
+                                self.cursor.current_span(),
+                            ));
                         }
                     }
                     "column" | "col" => {
@@ -473,25 +440,19 @@ impl Parser<'_> {
                             expected.column = u32::try_from(n).ok();
                             self.cursor.advance();
                         } else {
-                            errors.push(ParseError {
-                                code: ErrorCode::E1006,
-                                message: "expected integer for 'column'".to_string(),
-                                span: self.cursor.current_span(),
-                                context: None,
-                                help: Vec::new(),
-                                severity: DiagnosticSeverity::Hard,
-                            });
+                            errors.push(ParseError::new(
+                                ErrorCode::E1006,
+                                "expected integer for 'column'",
+                                self.cursor.current_span(),
+                            ));
                         }
                     }
                     _ => {
-                        errors.push(ParseError {
-                            code: ErrorCode::E1006,
-                            message: format!("unknown compile_fail parameter '{param_name}'"),
-                            span: self.cursor.previous_span(),
-                            context: None,
-                            help: Vec::new(),
-                            severity: DiagnosticSeverity::Hard,
-                        });
+                        errors.push(ParseError::new(
+                            ErrorCode::E1006,
+                            format!("unknown compile_fail parameter '{param_str}'"),
+                            self.cursor.previous_span(),
+                        ));
                     }
                 }
 
@@ -512,14 +473,11 @@ impl Parser<'_> {
             if self.cursor.check(&TokenKind::RParen) {
                 self.cursor.advance();
             } else {
-                errors.push(ParseError {
-                    code: ErrorCode::E1006,
-                    message: "expected ')' after compile_fail parameters".to_string(),
-                    span: self.cursor.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: DiagnosticSeverity::Hard,
-                });
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    "expected ')' after compile_fail parameters",
+                    self.cursor.current_span(),
+                ));
             }
         }
 
@@ -528,14 +486,11 @@ impl Parser<'_> {
             if self.cursor.check(&TokenKind::RBracket) {
                 self.cursor.advance();
             } else {
-                errors.push(ParseError {
-                    code: ErrorCode::E1006,
-                    message: "expected ']' to close attribute".to_string(),
-                    span: self.cursor.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: DiagnosticSeverity::Hard,
-                });
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    "expected ']' to close attribute",
+                    self.cursor.current_span(),
+                ));
             }
         }
     }
@@ -549,14 +504,11 @@ impl Parser<'_> {
     ) {
         // Expect (
         if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected '(' after 'derive'".to_string(),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected '(' after 'derive'",
+                self.cursor.current_span(),
+            ));
             if uses_brackets {
                 self.skip_to_rbracket();
             } else {
@@ -595,14 +547,11 @@ impl Parser<'_> {
         if self.cursor.check(&TokenKind::RParen) {
             self.cursor.advance();
         } else {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected ')' after derive trait list".to_string(),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected ')' after derive trait list",
+                self.cursor.current_span(),
+            ));
         }
 
         // Expect ] only if old bracket syntax was used
@@ -610,14 +559,11 @@ impl Parser<'_> {
             if self.cursor.check(&TokenKind::RBracket) {
                 self.cursor.advance();
             } else {
-                errors.push(ParseError {
-                    code: ErrorCode::E1006,
-                    message: "expected ']' to close attribute".to_string(),
-                    span: self.cursor.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: DiagnosticSeverity::Hard,
-                });
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    "expected ']' to close attribute",
+                    self.cursor.current_span(),
+                ));
             }
         }
     }
@@ -631,14 +577,11 @@ impl Parser<'_> {
     ) {
         // Expect (
         if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected '(' after 'repr'".to_string(),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected '(' after 'repr'",
+                self.cursor.current_span(),
+            ));
             if uses_brackets {
                 self.skip_to_rbracket();
             } else {
@@ -664,37 +607,28 @@ impl Parser<'_> {
                             self.cursor.advance();
                             Some(ReprAttr::Aligned(n))
                         } else {
-                            errors.push(ParseError {
-                                code: ErrorCode::E1006,
-                                message: "expected alignment value after 'aligned'".to_string(),
-                                span: self.cursor.current_span(),
-                                context: None,
-                                help: Vec::new(),
-                                severity: DiagnosticSeverity::Hard,
-                            });
+                            errors.push(ParseError::new(
+                                ErrorCode::E1006,
+                                "expected alignment value after 'aligned'",
+                                self.cursor.current_span(),
+                            ));
                             None
                         }
                     } else {
-                        errors.push(ParseError {
-                            code: ErrorCode::E1006,
-                            message: "expected ',' after 'aligned'".to_string(),
-                            span: self.cursor.current_span(),
-                            context: None,
-                            help: Vec::new(),
-                            severity: DiagnosticSeverity::Hard,
-                        });
+                        errors.push(ParseError::new(
+                            ErrorCode::E1006,
+                            "expected ',' after 'aligned'",
+                            self.cursor.current_span(),
+                        ));
                         None
                     }
                 }
                 s => {
-                    errors.push(ParseError {
-                        code: ErrorCode::E1006,
-                        message: format!("unknown repr value '{s}'"),
-                        span: self.cursor.previous_span(),
-                        context: None,
-                        help: Vec::new(),
-                        severity: DiagnosticSeverity::Hard,
-                    });
+                    errors.push(ParseError::new(
+                        ErrorCode::E1006,
+                        format!("unknown repr value '{s}'"),
+                        self.cursor.previous_span(),
+                    ));
                     None
                 }
             };
@@ -706,14 +640,11 @@ impl Parser<'_> {
 
             attrs.repr = repr;
         } else {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected repr value string".to_string(),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected repr value string",
+                self.cursor.current_span(),
+            ));
         }
 
         self.finish_attr_paren(uses_brackets, errors);
@@ -730,14 +661,11 @@ impl Parser<'_> {
     ) -> Option<TargetAttr> {
         // Expect (
         if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected '(' after 'target'".to_string(),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected '(' after 'target'",
+                self.cursor.current_span(),
+            ));
             if uses_brackets {
                 self.skip_to_rbracket();
             } else {
@@ -752,18 +680,14 @@ impl Parser<'_> {
         // Parse named arguments
         while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
             let param_name = if let TokenKind::Ident(name) = *self.cursor.current_kind() {
-                let s = self.cursor.interner().lookup(name).to_owned();
                 self.cursor.advance();
-                s
+                name
             } else {
-                errors.push(ParseError {
-                    code: ErrorCode::E1006,
-                    message: "expected parameter name in target".to_string(),
-                    span: self.cursor.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: DiagnosticSeverity::Hard,
-                });
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    "expected parameter name in target",
+                    self.cursor.current_span(),
+                ));
                 if uses_brackets {
                     self.skip_to_rbracket();
                 } else {
@@ -774,14 +698,12 @@ impl Parser<'_> {
 
             // Expect :
             if !self.cursor.check(&TokenKind::Colon) {
-                errors.push(ParseError {
-                    code: ErrorCode::E1006,
-                    message: format!("expected ':' after '{param_name}'"),
-                    span: self.cursor.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: DiagnosticSeverity::Hard,
-                });
+                let name_str = self.cursor.interner().lookup(param_name);
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    format!("expected ':' after '{name_str}'"),
+                    self.cursor.current_span(),
+                ));
                 if uses_brackets {
                     self.skip_to_rbracket();
                 } else {
@@ -792,7 +714,8 @@ impl Parser<'_> {
             self.cursor.advance();
 
             // Parse value
-            match param_name.as_str() {
+            let param_str = self.cursor.interner().lookup(param_name);
+            match param_str {
                 "os" => {
                     if let TokenKind::String(s) = *self.cursor.current_kind() {
                         target.os = Some(s);
@@ -818,14 +741,11 @@ impl Parser<'_> {
                     }
                 }
                 _ => {
-                    errors.push(ParseError {
-                        code: ErrorCode::E1006,
-                        message: format!("unknown target parameter '{param_name}'"),
-                        span: self.cursor.previous_span(),
-                        context: None,
-                        help: Vec::new(),
-                        severity: DiagnosticSeverity::Hard,
-                    });
+                    errors.push(ParseError::new(
+                        ErrorCode::E1006,
+                        format!("unknown target parameter '{param_str}'"),
+                        self.cursor.previous_span(),
+                    ));
                 }
             }
 
@@ -862,14 +782,11 @@ impl Parser<'_> {
     ) -> Option<CfgAttr> {
         // Expect (
         if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected '(' after 'cfg'".to_string(),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected '(' after 'cfg'",
+                self.cursor.current_span(),
+            ));
             if uses_brackets {
                 self.skip_to_rbracket();
             } else {
@@ -884,13 +801,13 @@ impl Parser<'_> {
         // Parse arguments - can be bare identifiers or name: value
         while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
             if let TokenKind::Ident(name) = *self.cursor.current_kind() {
-                let param_name = self.cursor.interner().lookup(name).to_owned();
                 self.cursor.advance();
 
                 if self.cursor.check(&TokenKind::Colon) {
                     // Named parameter
                     self.cursor.advance();
-                    match param_name.as_str() {
+                    let param_str = self.cursor.interner().lookup(name);
+                    match param_str {
                         "feature" => {
                             if let TokenKind::String(s) = *self.cursor.current_kind() {
                                 cfg.feature = Some(s);
@@ -904,43 +821,35 @@ impl Parser<'_> {
                             }
                         }
                         _ => {
-                            errors.push(ParseError {
-                                code: ErrorCode::E1006,
-                                message: format!("unknown cfg parameter '{param_name}'"),
-                                span: self.cursor.previous_span(),
-                                context: None,
-                                help: Vec::new(),
-                                severity: DiagnosticSeverity::Hard,
-                            });
+                            errors.push(ParseError::new(
+                                ErrorCode::E1006,
+                                format!("unknown cfg parameter '{param_str}'"),
+                                self.cursor.previous_span(),
+                            ));
                         }
                     }
                 } else {
                     // Bare identifier
-                    match param_name.as_str() {
+                    let param_str = self.cursor.interner().lookup(name);
+                    match param_str {
                         "debug" => cfg.debug = true,
                         "release" => cfg.release = true,
                         "not_debug" => cfg.not_debug = true,
                         _ => {
-                            errors.push(ParseError {
-                                code: ErrorCode::E1006,
-                                message: format!("unknown cfg flag '{param_name}'"),
-                                span: self.cursor.previous_span(),
-                                context: None,
-                                help: Vec::new(),
-                                severity: DiagnosticSeverity::Hard,
-                            });
+                            errors.push(ParseError::new(
+                                ErrorCode::E1006,
+                                format!("unknown cfg flag '{param_str}'"),
+                                self.cursor.previous_span(),
+                            ));
                         }
                     }
                 }
             } else {
-                errors.push(ParseError {
-                    code: ErrorCode::E1006,
-                    message: "expected cfg parameter".to_string(),
-                    span: self.cursor.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: DiagnosticSeverity::Hard,
-                });
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    "expected cfg parameter",
+                    self.cursor.current_span(),
+                ));
                 break;
             }
 
@@ -972,14 +881,11 @@ impl Parser<'_> {
         if self.cursor.check(&TokenKind::RParen) {
             self.cursor.advance();
         } else {
-            errors.push(ParseError {
-                code: ErrorCode::E1006,
-                message: "expected ')' to close attribute".to_string(),
-                span: self.cursor.current_span(),
-                context: None,
-                help: Vec::new(),
-                severity: DiagnosticSeverity::Hard,
-            });
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected ')' to close attribute",
+                self.cursor.current_span(),
+            ));
         }
 
         // Expect ] only if old bracket syntax was used
@@ -987,14 +893,11 @@ impl Parser<'_> {
             if self.cursor.check(&TokenKind::RBracket) {
                 self.cursor.advance();
             } else {
-                errors.push(ParseError {
-                    code: ErrorCode::E1006,
-                    message: "expected ']' to close attribute".to_string(),
-                    span: self.cursor.current_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: DiagnosticSeverity::Hard,
-                });
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    "expected ']' to close attribute",
+                    self.cursor.current_span(),
+                ));
             }
         }
     }
@@ -1037,18 +940,15 @@ impl Parser<'_> {
                 None
             }
             other => {
-                errors.push(ParseError {
-                    code: ErrorCode::E1006,
-                    message: format!(
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    format!(
                         "'{}' is not valid as a file-level attribute; \
                          only 'target' and 'cfg' are allowed",
                         other.as_str()
                     ),
-                    span: self.cursor.previous_span(),
-                    context: None,
-                    help: Vec::new(),
-                    severity: DiagnosticSeverity::Hard,
-                });
+                    self.cursor.previous_span(),
+                ));
                 self.skip_to_rparen_or_newline();
                 None
             }
