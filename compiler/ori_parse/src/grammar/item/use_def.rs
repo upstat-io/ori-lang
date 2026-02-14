@@ -4,6 +4,31 @@ use crate::{committed, ParseOutcome, Parser};
 use ori_ir::{ImportPath, TokenKind, UseDef, UseItem, Visibility};
 
 impl Parser<'_> {
+    /// Parse an import path: either a relative string or dot-separated module path.
+    ///
+    /// Used by both `use` and `extension` import statements.
+    ///
+    /// Grammar: `import_path = STRING | identifier { "." identifier } .`
+    pub(crate) fn parse_import_path(&mut self) -> ParseOutcome<ImportPath> {
+        if let TokenKind::String(s) = *self.cursor.current_kind() {
+            self.cursor.advance();
+            ParseOutcome::consumed_ok(ImportPath::Relative(s))
+        } else {
+            let mut segments = Vec::new();
+            loop {
+                let name = committed!(self.cursor.expect_ident());
+                segments.push(name);
+
+                if self.cursor.check(&TokenKind::Dot) {
+                    self.cursor.advance();
+                } else {
+                    break;
+                }
+            }
+            ParseOutcome::consumed_ok(ImportPath::Module(segments))
+        }
+    }
+
     /// Parse a use/import statement.
     ///
     /// Syntax variants:
@@ -29,26 +54,7 @@ impl Parser<'_> {
         let start_span = self.cursor.current_span();
         committed!(self.cursor.expect(&TokenKind::Use));
 
-        // Parse import path
-        let path = if let TokenKind::String(s) = *self.cursor.current_kind() {
-            // Relative path: './math', '../utils'
-            self.cursor.advance();
-            ImportPath::Relative(s)
-        } else {
-            // Module path: std.math, std.collections
-            let mut segments = Vec::new();
-            loop {
-                let name = committed!(self.cursor.expect_ident());
-                segments.push(name);
-
-                if self.cursor.check(&TokenKind::Dot) {
-                    self.cursor.advance();
-                } else {
-                    break;
-                }
-            }
-            ImportPath::Module(segments)
-        };
+        let path = committed!(self.parse_import_path().into_result());
 
         // Check for module alias: `use path as alias`
         if self.cursor.check(&TokenKind::As) {

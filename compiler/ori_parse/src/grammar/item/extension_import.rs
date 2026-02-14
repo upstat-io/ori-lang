@@ -4,7 +4,7 @@
 //! Grammar: `extension_item = identifier "." identifier .`
 
 use crate::{committed, ParseOutcome, Parser};
-use ori_ir::{ExtensionImport, ExtensionImportItem, ImportPath, TokenKind, Visibility};
+use ori_ir::{ExtensionImport, ExtensionImportItem, TokenKind, Visibility};
 
 impl Parser<'_> {
     /// Parse an extension import statement.
@@ -26,24 +26,7 @@ impl Parser<'_> {
         let start_span = self.cursor.current_span();
         committed!(self.cursor.expect(&TokenKind::Extension));
 
-        // Parse import path (same as regular imports)
-        let path = if let TokenKind::String(s) = *self.cursor.current_kind() {
-            self.cursor.advance();
-            ImportPath::Relative(s)
-        } else {
-            let mut segments = Vec::new();
-            loop {
-                let name = committed!(self.cursor.expect_ident());
-                segments.push(name);
-
-                if self.cursor.check(&TokenKind::Dot) {
-                    self.cursor.advance();
-                } else {
-                    break;
-                }
-            }
-            ImportPath::Module(segments)
-        };
+        let path = committed!(self.parse_import_path().into_result());
 
         // Parse extension items: { Type.method, Type.method }
         committed!(self.cursor.expect(&TokenKind::LBrace));

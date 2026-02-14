@@ -107,6 +107,9 @@ fn collect_module_positions(module: &Module) -> Vec<u32> {
     for import in &module.imports {
         positions.push(import.span.start);
     }
+    for ext_import in &module.extension_imports {
+        positions.push(ext_import.span.start);
+    }
     for const_def in &module.consts {
         positions.push(const_def.span.start);
     }
@@ -370,7 +373,11 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
 
         // Extension imports (after regular imports)
         if !module.extension_imports.is_empty() {
-            self.format_extension_imports(&module.extension_imports);
+            self.format_extension_imports_with_comments(
+                &module.extension_imports,
+                comments,
+                comment_index,
+            );
             first_item = false;
         }
 

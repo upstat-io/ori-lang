@@ -32,6 +32,7 @@ use ori_ir::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeclKind {
     Import,
+    ExtensionImport,
     Const,
     Function,
     Test,
@@ -59,6 +60,14 @@ pub fn collect_declarations(module: &Module) -> Vec<DeclRef> {
             kind: DeclKind::Import,
             index: i,
             span: import.span,
+        });
+    }
+
+    for (i, ext_import) in module.extension_imports.iter().enumerate() {
+        decls.push(DeclRef {
+            kind: DeclKind::ExtensionImport,
+            index: i,
+            span: ext_import.span,
         });
     }
 
@@ -1621,6 +1630,30 @@ impl<'old> AstCopier<'old> {
             value: self.copy_expr(const_def.value, new_arena),
             span: self.adjust_span(const_def.span),
             visibility: const_def.visibility,
+        }
+    }
+
+    /// Copy an extension import definition.
+    ///
+    /// Extension imports are pure data (no `ExprId` children), so only spans
+    /// need adjustment; the rest is cloned directly.
+    pub fn copy_extension_import(
+        &self,
+        ext_import: &ori_ir::ExtensionImport,
+    ) -> ori_ir::ExtensionImport {
+        ori_ir::ExtensionImport {
+            path: ext_import.path.clone(),
+            items: ext_import
+                .items
+                .iter()
+                .map(|item| ori_ir::ExtensionImportItem {
+                    type_name: item.type_name,
+                    method_name: item.method_name,
+                    span: self.adjust_span(item.span),
+                })
+                .collect(),
+            visibility: ext_import.visibility,
+            span: self.adjust_span(ext_import.span),
         }
     }
 
