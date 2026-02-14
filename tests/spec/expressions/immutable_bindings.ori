@@ -1,0 +1,88 @@
+// Spec: 05-variables.md § Destructuring, grammar.ebnf § binding_pattern
+// Tests for $ (immutable) prefix in destructuring binding patterns.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Simple immutable binding (should already work)
+// =============================================================================
+
+@test_simple_immutable tests @simple_immutable () -> void = run(
+    assert_eq(actual: simple_immutable(), expected: 42),
+)
+
+@simple_immutable () -> int = run(
+    let $x = 42,
+    x,
+)
+
+// =============================================================================
+// Tuple destructuring with $ prefix
+// =============================================================================
+
+@test_tuple_immutable tests @tuple_immutable () -> void = run(
+    assert_eq(actual: tuple_immutable(), expected: 3),
+)
+
+@tuple_immutable () -> int = run(
+    let ($a, $b) = (1, 2),
+    a + b,
+)
+
+// =============================================================================
+// Struct destructuring with $ prefix
+// =============================================================================
+
+type Point = { x: int, y: int }
+
+@test_struct_immutable tests @struct_immutable () -> void = run(
+    assert_eq(actual: struct_immutable(), expected: 30),
+)
+
+@struct_immutable () -> int = run(
+    let p = Point { x: 10, y: 20 },
+    let { $x, $y } = p,
+    x + y,
+)
+
+// =============================================================================
+// Struct destructuring with mixed mutability
+// =============================================================================
+
+@test_struct_mixed tests @struct_mixed () -> void = run(
+    assert_eq(actual: struct_mixed(), expected: 30),
+)
+
+@struct_mixed () -> int = run(
+    let p = Point { x: 10, y: 20 },
+    let { $x, y } = p,
+    x + y,
+)
+
+// =============================================================================
+// List destructuring with $ prefix
+// =============================================================================
+
+@test_list_immutable tests @list_immutable () -> void = run(
+    assert_eq(actual: list_immutable(), expected: 3),
+)
+
+@list_immutable () -> int = run(
+    let items = [1, 2, 3],
+    let [$first, $second, ..rest] = items,
+    first + second,
+)
+
+// =============================================================================
+// Struct destructuring with rename and $ prefix
+// =============================================================================
+
+@test_struct_rename_immutable tests @struct_rename_immutable () -> void = run(
+    assert_eq(actual: struct_rename_immutable(), expected: 30),
+)
+
+@struct_rename_immutable () -> int = run(
+    let p = Point { x: 10, y: 20 },
+    let { x: $px, y: $py } = p,
+    px + py,
+)

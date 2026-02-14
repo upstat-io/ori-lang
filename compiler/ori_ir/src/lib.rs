@@ -85,6 +85,7 @@ pub use ast::{
     ExternBlock,
     ExternItem,
     ExternParam,
+    FieldBinding,
     FieldInit,
     FieldInitRange,
     // File-level attribute

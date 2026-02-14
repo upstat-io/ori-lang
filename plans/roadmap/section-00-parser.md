@@ -812,24 +812,23 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.6.6 Binding Patterns
 
-- [x] **Audit**: Identifier bindings — grammar.ebnf § binding_pattern (partial) ✅ (2026-02-10)
+- [x] **Audit**: Identifier bindings — grammar.ebnf § binding_pattern ✅ (2026-02-14)
   - [x] Mutable: `let x = 42` — parses correctly (verified via `ori parse`)
-  - [ ] Immutable: `let $x = 42` in function body — **BROKEN**: parser rejects `$` as "expected binding pattern"
+  - [x] Immutable: `let $x = 42` in function body — parses and evaluates correctly ✅ (2026-02-14)
   - [x] Wildcard: `_` — parses correctly (verified in for loops and match arms)
-  - [ ] **Note**: `$` works at module scope (`let $X = 42` for constants) but not in function-body let bindings
 
-- [x] **Audit**: Struct destructure — grammar.ebnf § binding_pattern ✅ (2026-02-10)
+- [x] **Audit**: Struct destructure — grammar.ebnf § binding_pattern ✅ (2026-02-14)
   - [x] `let { x, y } = Point { ... }` — parses correctly (verified via `ori parse`)
   - [x] `let { x: px, y: py } = ...` — parses correctly ✅ (2026-02-13)
-  - [ ] Immutable: `let { $x, $y } = ...` — likely broken (same `$` issue)
+  - [x] Immutable: `let { $x, $y } = ...` — parses and evaluates correctly ✅ (2026-02-14)
 
-- [x] **Audit**: Tuple destructure — grammar.ebnf § binding_pattern ✅ (2026-02-10)
+- [x] **Audit**: Tuple destructure — grammar.ebnf § binding_pattern ✅ (2026-02-14)
   - [x] `let (a, b) = (1, 2)` — parses correctly (verified via `ori parse`)
-  - [ ] `let ($a, $b) = ...` — likely broken (same `$` issue)
+  - [x] `let ($a, $b) = ...` — parses and evaluates correctly ✅ (2026-02-14)
 
-- [x] **Audit**: List destructure — grammar.ebnf § binding_pattern ✅ (2026-02-10)
+- [x] **Audit**: List destructure — grammar.ebnf § binding_pattern ✅ (2026-02-14)
   - [x] `let [head, ..tail] = [1, 2, 3]` — parses correctly (verified via `ori parse`)
-  - [ ] `let [$first, $second, ..rest] = ...` — likely broken (same `$` issue)
+  - [x] `let [$first, $second, ..rest] = ...` — parses and evaluates correctly ✅ (2026-02-14)
 
 ---
 
@@ -864,7 +863,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [ ] All declaration items audited and tested (0.3) — partial: typed constants broken; const generics NOW WORK ✅ (2026-02-13); floating tests NOW WORK ✅ (2026-02-14); clause params, guard clauses, variadic params NOW WORK
 - [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK; bounded trait objects NOW WORK ✅ (2026-02-14)
 - [x] All expression items audited and tested (0.5) ✅ (2026-02-14) — length placeholder `#` now works; labeled break/continue/for/loop NOW WORK ✅ (2026-02-14)
-- [ ] All pattern items audited and tested (0.6) — partial: channels, with RAII, immutable bindings broken; struct rest `..` NOW WORKS ✅ (2026-02-14); char patterns NOW WORK ✅ (2026-02-14); run pre/post checks NOW PARSE ✅ (2026-02-14); try `?` NOW WORKS
+- [ ] All pattern items audited and tested (0.6) — partial: channels, with RAII broken; immutable bindings NOW WORK ✅ (2026-02-14); struct rest `..` NOW WORKS ✅ (2026-02-14); char patterns NOW WORK ✅ (2026-02-14); run pre/post checks NOW PARSE ✅ (2026-02-14); try `?` NOW WORKS
 - [x] All constant expression items audited and tested (0.7) ✅ (2026-02-14) — computed constants now work (arithmetic, comparison, logical, grouped)
 - [ ] Run `cargo t -p ori_parse` — all parser tests pass
 - [ ] Run `cargo t -p ori_lexer` — all lexer tests pass
@@ -884,12 +883,12 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - `.match()` method syntax — `match` is keyword
 - `with()` RAII pattern (`acquire:/use:/release:`) — rejects certain named args
 - ~~Run pre/post checks~~ — FIXED ✅ (2026-02-14)
-- Immutable binding in function body (`let $x = 42`) — `$` rejected
+- ~~Immutable binding in function body (`let $x = 42`)~~ — FIXED ✅ (2026-02-14)
 - ~~Labeled continue (`continue:outer`)~~ — FIXED ✅ (2026-02-14)
 - ~~Char patterns in match (`'a'`, `'a'..='z'`)~~ — FIXED ✅ (2026-02-14)
 
-**Fixed since 2026-02-10** (20 items):
-File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`), computed constants (`let $D = $A + 1`), struct rest pattern (`{ x, .. }`)
+**Fixed since 2026-02-10** (21 items):
+File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`), computed constants (`let $D = $A + 1`), struct rest pattern (`{ x, .. }`), immutable bindings in function bodies (`let $x`, `let ($a, $b)`, `let { $x }`, `let [$h, ..]`)
 
 ---
 
@@ -932,9 +931,11 @@ These features fail at the parse phase — the parser does not recognize the syn
 - [ ] **Implement**: `.match()` method syntax
   - [ ] **Syntax**: `42.match(...)` — **BROKEN**: `match` is keyword, can't be method name
 
-- [ ] **Implement**: Immutable bindings in function bodies
-  - [ ] **Syntax**: `let $x = 42` inside function — **BROKEN**: "expected binding pattern, found $"
-  - [ ] **Note**: Works at module scope for constants, broken in expression context
+- [x] **Implement**: Immutable bindings in function bodies ✅ (2026-02-14)
+  - [x] **Syntax**: `let $x = 42` inside function — parses and evaluates correctly ✅ (2026-02-14)
+  - [x] **Syntax**: `let ($a, $b) = ...` — tuple destructuring with `$` ✅ (2026-02-14)
+  - [x] **Syntax**: `let { $x, $y } = ...` — struct destructuring with `$` ✅ (2026-02-14)
+  - [x] **Syntax**: `let [$first, ..rest] = ...` — list destructuring with `$` ✅ (2026-02-14)
 
 - [x] **Implement**: Floating tests with `_` target ✅ (2026-02-14)
   - [x] **Syntax**: `@t tests _ () -> void = ...` — parses correctly ✅ (2026-02-14)
@@ -1007,7 +1008,7 @@ Systematic `ori parse` verification of every grammar production against actual p
 7. `as`/`as?` type conversion operators
 8. Wildcard in for loops (`for _ in range`)
 
-**Verified Parser Bugs — 24 items originally, 18 fixed, ~6 remain:**
+**Verified Parser Bugs — 24 items originally, 19 fixed, ~5 remain:**
 1. Guard clauses (`if` before `=`) — ~~parser rejects~~ FIXED ✅
 2. List/pattern params (`@fib (0: int)`) — ~~parser rejects~~ FIXED ✅
 3. Const generics (`$` in generics) — ~~parser rejects~~ FIXED ✅ (2026-02-13)
@@ -1030,7 +1031,7 @@ Systematic `ori parse` verification of every grammar production against actual p
 20. Try `?` inside `try()` — rejected
 21. ~~Run pre/post checks (`pre_check:`)~~ — FIXED ✅ (2026-02-14)
 22. Length placeholder (`#`) — attribute marker conflict
-23. Immutable binding in function body (`let $x = 42`) — `$` rejected
+23. ~~Immutable binding in function body (`let $x = 42`)~~ — FIXED ✅ (2026-02-14)
 24. `.match()` guard method syntax — keyword conflict
 
 **Known Limitations (Parser works, but semantics incomplete — tracked in Section 23):**

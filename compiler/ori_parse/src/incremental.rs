@@ -1012,7 +1012,10 @@ impl<'old> AstCopier<'old> {
     )]
     fn copy_binding_pattern(&self, pattern: &BindingPattern) -> BindingPattern {
         match pattern {
-            BindingPattern::Name(name) => BindingPattern::Name(*name),
+            BindingPattern::Name { name, mutable } => BindingPattern::Name {
+                name: *name,
+                mutable: *mutable,
+            },
             BindingPattern::Wildcard => BindingPattern::Wildcard,
             BindingPattern::Tuple(patterns) => {
                 let new_patterns: Vec<_> = patterns
@@ -1024,11 +1027,10 @@ impl<'old> AstCopier<'old> {
             BindingPattern::Struct { fields } => {
                 let new_fields: Vec<_> = fields
                     .iter()
-                    .map(|(name, opt_pat)| {
-                        (
-                            *name,
-                            opt_pat.as_ref().map(|p| self.copy_binding_pattern(p)),
-                        )
+                    .map(|field| ori_ir::FieldBinding {
+                        name: field.name,
+                        mutable: field.mutable,
+                        pattern: field.pattern.as_ref().map(|p| self.copy_binding_pattern(p)),
                     })
                     .collect();
                 BindingPattern::Struct { fields: new_fields }

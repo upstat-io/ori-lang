@@ -16,23 +16,41 @@
 use crate::{ExprId, MatchPatternId, MatchPatternRange, Name, Span, Spanned};
 
 /// Binding pattern for let expressions.
+///
+/// Per spec (§05-variables.md): `$` prefix marks individual bindings as immutable.
+/// `mutable` defaults to `true`; `$` sets it to `false`.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum BindingPattern {
-    /// Simple name binding: let x = ...
-    Name(Name),
-    /// Tuple destructuring: let (a, b) = ...
+    /// Simple name binding: `let x = ...` (mutable) or `let $x = ...` (immutable).
+    Name { name: Name, mutable: bool },
+    /// Tuple destructuring: `let (a, b) = ...`
     Tuple(Vec<BindingPattern>),
-    /// Struct destructuring: let { x, y } = ...
-    Struct {
-        fields: Vec<(Name, Option<BindingPattern>)>,
-    },
-    /// List destructuring: let [head, ..tail] = ...
+    /// Struct destructuring: `let { x, y } = ...`
+    Struct { fields: Vec<FieldBinding> },
+    /// List destructuring: `let [head, ..tail] = ...`
     List {
         elements: Vec<BindingPattern>,
         rest: Option<Name>,
     },
-    /// Wildcard: let _ = ...
+    /// Wildcard: `let _ = ...`
     Wildcard,
+}
+
+/// A single field binding in a struct destructuring pattern.
+///
+/// Handles both shorthand `{ x }` / `{ $x }` and explicit `{ x: px }` / `{ x: $px }`.
+/// Per grammar: `field_binding = [ "$" ] identifier [ ":" binding_pattern ]`.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct FieldBinding {
+    /// The struct field name being destructured.
+    pub name: Name,
+    /// Whether the shorthand binding is mutable (`true` = no `$`, `false` = `$` prefix).
+    /// Only meaningful when `pattern` is `None` (shorthand form).
+    /// When `pattern` is `Some(...)`, mutability is tracked on the sub-pattern.
+    pub mutable: bool,
+    /// Optional explicit binding pattern. `None` means shorthand: `{ x }` binds field `x`
+    /// to variable `x`.
+    pub pattern: Option<BindingPattern>,
 }
 
 /// Match pattern for match expressions.
