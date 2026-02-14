@@ -1,25 +1,16 @@
 //! Constant parsing.
 
-use crate::recovery::TokenSet;
-use crate::{committed, require, ParseError, ParseOutcome, Parser};
-use ori_ir::{ConstDef, DurationUnit, Expr, ExprKind, Name, SizeUnit, TokenKind, Visibility};
-
-/// Tokens valid as constant literal values.
-const CONST_LITERAL_TOKENS: TokenSet = TokenSet::new()
-    .with(TokenKind::Int(0))
-    .with(TokenKind::Float(0))
-    .with(TokenKind::String(Name::EMPTY))
-    .with(TokenKind::True)
-    .with(TokenKind::False)
-    .with(TokenKind::Char('\0'))
-    .with(TokenKind::Duration(0, DurationUnit::Nanoseconds))
-    .with(TokenKind::Size(0, SizeUnit::Bytes));
+use crate::{committed, require, ParseOutcome, Parser};
+use ori_ir::{ConstDef, TokenKind, Visibility};
 
 impl Parser<'_> {
     /// Parse a constant declaration.
     ///
-    /// Grammar: `constant_decl = "let" "$" identifier [ ":" type ] "=" expression`
-    /// Syntax: `[pub] let $name = literal` or `[pub] let $name: type = literal`
+    /// Grammar: `constant_decl = "let" "$" identifier [ ":" type ] "=" const_expr`
+    /// Syntax: `[pub] let $name = expr` or `[pub] let $name: type = expr`
+    ///
+    /// The initializer is parsed as a general expression. Constness validation
+    /// (ensuring only const-compatible constructs) happens in later phases.
     ///
     /// Returns `EmptyErr` if no `$` is present.
     pub(crate) fn parse_const(&mut self, visibility: Visibility) -> ParseOutcome<ConstDef> {
@@ -53,8 +44,8 @@ impl Parser<'_> {
         // =
         committed!(self.cursor.expect(&TokenKind::Eq));
 
-        // literal value
-        let value = require!(self, self.parse_literal_expr(), "literal value");
+        // constant expression (parsed as general expression; constness validated later)
+        let value = require!(self, self.parse_expr(), "constant expression");
 
         let span = start_span.merge(self.cursor.previous_span());
 
@@ -65,67 +56,6 @@ impl Parser<'_> {
             span,
             visibility,
         })
-    }
-
-    /// Parse a literal expression for constant values.
-    ///
-    /// Returns `EmptyErr` if the current token is not a valid literal.
-    fn parse_literal_expr(&mut self) -> ParseOutcome<ori_ir::ExprId> {
-        let span = self.cursor.current_span();
-        let kind = match *self.cursor.current_kind() {
-            TokenKind::Int(n) => {
-                self.cursor.advance();
-                let Ok(value) = i64::try_from(n) else {
-                    return ParseOutcome::consumed_err(
-                        ParseError::new(
-                            ori_diagnostic::ErrorCode::E1002,
-                            "integer literal too large".to_string(),
-                            span,
-                        ),
-                        span,
-                    );
-                };
-                ExprKind::Int(value)
-            }
-            TokenKind::Float(bits) => {
-                self.cursor.advance();
-                ExprKind::Float(bits)
-            }
-            TokenKind::String(s) => {
-                self.cursor.advance();
-                ExprKind::String(s)
-            }
-            TokenKind::True => {
-                self.cursor.advance();
-                ExprKind::Bool(true)
-            }
-            TokenKind::False => {
-                self.cursor.advance();
-                ExprKind::Bool(false)
-            }
-            TokenKind::Char(c) => {
-                self.cursor.advance();
-                ExprKind::Char(c)
-            }
-            // Duration literals (e.g., 100ms, 30s)
-            TokenKind::Duration(value, unit) => {
-                self.cursor.advance();
-                ExprKind::Duration { value, unit }
-            }
-            // Size literals (e.g., 4kb, 10mb)
-            TokenKind::Size(value, unit) => {
-                self.cursor.advance();
-                ExprKind::Size { value, unit }
-            }
-            _ => {
-                return ParseOutcome::empty_err(
-                    CONST_LITERAL_TOKENS,
-                    self.cursor.current_span().start as usize,
-                );
-            }
-        };
-
-        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(kind, span)))
     }
 }
 
@@ -203,5 +133,149 @@ mod tests {
         );
         assert_eq!(output.module.consts.len(), 1);
         assert!(output.module.consts[0].ty.is_some());
+    }
+
+    // ─── Computed constant expression tests ───
+
+    #[test]
+    fn test_const_arithmetic_add() {
+        // Spec: const_expr = const_expr arith_op const_expr
+        let output = parse_module("let $A = 10\nlet $D = $A + 1");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_arithmetic_multiply() {
+        let output = parse_module("let $A = 10\nlet $E = $A * 2");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_comparison() {
+        // Spec: const_expr = const_expr comp_op const_expr
+        let output = parse_module("let $A = 10\nlet $F = $A > 0");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_logical() {
+        // Spec: const_expr = const_expr logic_op const_expr
+        let output = parse_module("let $A = true\nlet $B = false\nlet $G = $A && $B");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 3);
+    }
+
+    #[test]
+    fn test_const_grouped() {
+        // Spec: const_expr = "(" const_expr ")"
+        let output = parse_module("let $A = 10\nlet $H = ($A + 1) * 2");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_unary_negation() {
+        // Spec: const_expr = unary_op const_expr
+        let output = parse_module("let $A = 10\nlet $NEG = -$A");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_reference_only() {
+        // Simple reference to another constant
+        let output = parse_module("let $A = 42\nlet $B = $A");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_string_concat() {
+        // Spec: string concatenation with +
+        let output = parse_module("let $PREFIX = \"hello\"\nlet $FULL = $PREFIX + \"_world\"");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_conditional() {
+        // Spec: if/then/else in constant context
+        let output = parse_module("let $DEBUG = true\nlet $TIMEOUT = if $DEBUG then 60 else 30");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 2);
+    }
+
+    // Regression guards: existing literal constants must keep working
+
+    #[test]
+    fn test_const_duration_literal() {
+        let output = parse_module("let $TIMEOUT = 30s");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 1);
+    }
+
+    #[test]
+    fn test_const_size_literal() {
+        let output = parse_module("let $BUFFER = 4kb");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 1);
+    }
+
+    #[test]
+    fn test_const_char_literal() {
+        let output = parse_module("let $NEWLINE = '\\n'");
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        assert_eq!(output.module.consts.len(), 1);
     }
 }

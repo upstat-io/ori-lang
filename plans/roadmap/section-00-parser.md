@@ -36,7 +36,7 @@ sections:
     status: in-progress
   - id: "0.7"
     title: Constant Expressions
-    status: in-progress
+    status: complete
   - id: "0.8"
     title: Section Completion Checklist
     status: in-progress
@@ -840,27 +840,24 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Literal const expressions — grammar.ebnf § const_expr ✅ (2026-02-10)
   - [x] `let $A = 42`, `let $B = true`, `let $C = "hello"` — all parse correctly (verified via `ori parse`)
 
-- [ ] **Audit**: Arithmetic const expressions — grammar.ebnf § const_expr
-  - [ ] `let $D = $A + 1`, `let $E = $A * 2` — **BROKEN**: "config variable must be initialized with a literal value"
-  - [ ] **Note**: Parser enforces literal-only initialization for constants; computed expressions from other constants rejected
+- [x] **Audit**: Arithmetic const expressions — grammar.ebnf § const_expr ✅ (2026-02-14)
+  - [x] `let $D = $A + 1`, `let $E = $A * 2` — parses correctly (verified via `ori parse`)
+  - [x] **Fix**: Replaced `parse_literal_expr()` with `parse_expr()` in constant initializer parsing
 
-- [ ] **Audit**: Comparison const expressions — grammar.ebnf § const_expr
-  - [ ] `let $F = $A > 0` — **BROKEN**: same "literal value" restriction
-  - [ ] **Note**: Blocked by computed constant support
+- [x] **Audit**: Comparison const expressions — grammar.ebnf § const_expr ✅ (2026-02-14)
+  - [x] `let $F = $A > 0` — parses correctly (verified via `ori parse`)
 
-- [ ] **Audit**: Logical const expressions — grammar.ebnf § const_expr
-  - [ ] `let $G = $A && $B` — **BROKEN**: same "literal value" restriction
-  - [ ] **Note**: Blocked by computed constant support
+- [x] **Audit**: Logical const expressions — grammar.ebnf § const_expr ✅ (2026-02-14)
+  - [x] `let $G = $A && $B` — parses correctly (verified via `ori parse`)
 
-- [ ] **Audit**: Grouped const expressions — grammar.ebnf § const_expr
-  - [ ] `let $H = ($A + 1) * 2` — **BROKEN**: same "literal value" restriction
-  - [ ] **Note**: Blocked by computed constant support
+- [x] **Audit**: Grouped const expressions — grammar.ebnf § const_expr ✅ (2026-02-14)
+  - [x] `let $H = ($A + 1) * 2` — parses correctly (verified via `ori parse`)
 
 ---
 
 ## 0.8 Section Completion Checklist
 
-> **STATUS**: In Progress — Re-verified 2026-02-13. Major progress: 16 items previously BROKEN now parse correctly. Remaining gaps: const functions, channels, computed constants, some pattern forms.
+> **STATUS**: In Progress — Re-verified 2026-02-14. Major progress: 19 items previously BROKEN now parse correctly. Remaining gaps: const functions, channels, some pattern forms.
 
 - [x] All lexical grammar items audited and tested (0.1) ✅ (2026-02-10)
 - [x] All source structure items audited and tested (0.2) ✅ (2026-02-13) — file attributes, extern `as`, C variadics all work now
@@ -868,7 +865,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK; bounded trait objects NOW WORK ✅ (2026-02-14)
 - [x] All expression items audited and tested (0.5) ✅ (2026-02-14) — length placeholder `#` now works; labeled break/continue/for/loop NOW WORK ✅ (2026-02-14)
 - [ ] All pattern items audited and tested (0.6) — partial: channels, struct rest `..`, with RAII, immutable bindings, char patterns broken; run pre/post checks NOW PARSE ✅ (2026-02-14); try `?` NOW WORKS
-- [ ] All constant expression items audited and tested (0.7) — only literals work; computed constants broken
+- [x] All constant expression items audited and tested (0.7) ✅ (2026-02-14) — computed constants now work (arithmetic, comparison, logical, grouped)
 - [ ] Run `cargo t -p ori_parse` — all parser tests pass
 - [ ] Run `cargo t -p ori_lexer` — all lexer tests pass
 - [ ] Run `cargo st tests/` — verify current test counts
@@ -877,7 +874,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 **Remaining Parser Bugs (verified 2026-02-13):**
 - Const functions (`$name (params)`) — rejected  <!-- blocked-by:18 -->
-- Computed constants (`let $D = $A + 1`) — literal-only enforcement
+- ~~Computed constants (`let $D = $A + 1`)~~ — FIXED ✅ (2026-02-14)
 - impl Trait in type position — rejected  <!-- blocked-by:19 -->
 - Associated type constraints (`where I.Item == int`) — `==` rejected  <!-- blocked-by:3 -->
 - ~~Floating tests (`tests _`)~~ — FIXED ✅ (2026-02-14)
@@ -891,8 +888,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - ~~Labeled continue (`continue:outer`)~~ — FIXED ✅ (2026-02-14)
 - ~~Char patterns in match (`'a'`, `'a'..='z'`)~~ — FIXED ✅ (2026-02-14)
 
-**Fixed since 2026-02-10** (18 items):
-File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`)
+**Fixed since 2026-02-10** (19 items):
+File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`), computed constants (`let $D = $A + 1`)
 
 ---
 
@@ -920,8 +917,8 @@ These features fail at the parse phase — the parser does not recognize the syn
 - [ ] **Implement**: Const functions  <!-- blocked-by:18 -->
   - [ ] **Syntax**: `$add (a: int, b: int) = a + b` — **BROKEN**: parser error
 
-- [ ] **Implement**: Computed constants
-  - [ ] **Syntax**: `let $D = $A + 1` — **BROKEN**: "config variable must be initialized with a literal value"
+- [x] **Implement**: Computed constants ✅ (2026-02-14)
+  - [x] **Syntax**: `let $D = $A + 1` — parses correctly (constant initializer now uses general expression parser)
 
 - [ ] **Implement**: `impl Trait` in type position  <!-- blocked-by:19 -->
   - [ ] **Syntax**: `@f () -> impl Iterator` — **BROKEN**: parser rejects `impl` in type
@@ -1010,7 +1007,7 @@ Systematic `ori parse` verification of every grammar production against actual p
 7. `as`/`as?` type conversion operators
 8. Wildcard in for loops (`for _ in range`)
 
-**Verified Parser Bugs — 24 items originally, 17 fixed, ~7 remain:**
+**Verified Parser Bugs — 24 items originally, 18 fixed, ~6 remain:**
 1. Guard clauses (`if` before `=`) — ~~parser rejects~~ FIXED ✅
 2. List/pattern params (`@fib (0: int)`) — ~~parser rejects~~ FIXED ✅
 3. Const generics (`$` in generics) — ~~parser rejects~~ FIXED ✅ (2026-02-13)
@@ -1018,7 +1015,7 @@ Systematic `ori parse` verification of every grammar production against actual p
 5. `#repr`/`#target`/`#cfg` attributes — unknown attribute error
 6. Associated type constraints (`where I.Item == int`) — `==` rejected
 7. Const functions (`$name (params)`) — parser error
-8. Computed constants (`let $D = $A + 1`) — literal-only enforcement
+8. ~~Computed constants (`let $D = $A + 1`)~~ — FIXED ✅ (2026-02-14)
 9. Fixed-capacity lists (`[T, max N]`) — comma rejected in type
 10. `impl Trait` in type position — parser rejects
 11. Channel generics (`channel<int>`) — `<` misinterpreted
