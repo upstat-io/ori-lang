@@ -38,7 +38,7 @@ use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
 use crate::width::WidthCalculator;
 use ori_ir::ast::items::Module;
-use ori_ir::{CommentList, ExprArena, FileAttr, StringLookup};
+use ori_ir::{CommentList, ExprArena, FileAttr, Spanned, StringLookup};
 
 /// Format a complete module to a string with default config.
 pub fn format_module<I: StringLookup>(module: &Module, arena: &ExprArena, interner: &I) -> String {
@@ -101,6 +101,9 @@ pub fn format_module_with_comments_and_config<I: StringLookup>(
 fn collect_module_positions(module: &Module) -> Vec<u32> {
     let mut positions = Vec::new();
 
+    if let Some(attr) = &module.file_attr {
+        positions.push(attr.span().start);
+    }
     for import in &module.imports {
         positions.push(import.span.start);
     }
@@ -172,19 +175,14 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
     /// Emit a file-level attribute (`#!target(...)` or `#!cfg(...)`).
     fn format_file_attr(&mut self, attr: &FileAttr) {
         match attr {
-            FileAttr::Target {
-                os,
-                arch,
-                family,
-                not_os,
-            } => {
+            FileAttr::Target { attr: target, .. } => {
                 self.ctx.emit("#!target(");
                 let mut first = true;
                 for (key, val) in [
-                    ("os", os),
-                    ("arch", arch),
-                    ("family", family),
-                    ("not_os", not_os),
+                    ("os", &target.os),
+                    ("arch", &target.arch),
+                    ("family", &target.family),
+                    ("not_os", &target.not_os),
                 ] {
                     if let Some(name) = val {
                         if !first {
@@ -199,19 +197,13 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 }
                 self.ctx.emit(")");
             }
-            FileAttr::Cfg {
-                debug,
-                release,
-                not_debug,
-                feature,
-                not_feature,
-            } => {
+            FileAttr::Cfg { attr: cfg, .. } => {
                 self.ctx.emit("#!cfg(");
                 let mut first = true;
                 for (flag, set) in [
-                    ("debug", debug),
-                    ("release", release),
-                    ("not_debug", not_debug),
+                    ("debug", &cfg.debug),
+                    ("release", &cfg.release),
+                    ("not_debug", &cfg.not_debug),
                 ] {
                     if *set {
                         if !first {
@@ -221,7 +213,7 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                         first = false;
                     }
                 }
-                for (key, val) in [("feature", feature), ("not_feature", not_feature)] {
+                for (key, val) in [("feature", &cfg.feature), ("not_feature", &cfg.not_feature)] {
                     if let Some(name) = val {
                         if !first {
                             self.ctx.emit(", ");

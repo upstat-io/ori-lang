@@ -32,7 +32,7 @@
 //! ```
 
 use super::ast::{
-    BindingPattern, CallArg, ConstDef, Expr, ExprKind, FieldInit, Function, FunctionExp,
+    BindingPattern, CallArg, ConstDef, Expr, ExprKind, FieldInit, FileAttr, Function, FunctionExp,
     FunctionSeq, ListElement, MapElement, MapEntry, MatchArm, MatchPattern, Module, NamedExpr,
     Param, SeqBinding, Stmt, StmtKind, StructLitField, TestDef, UseDef,
 };
@@ -50,6 +50,12 @@ pub trait Visitor<'ast> {
     fn visit_module(&mut self, module: &'ast Module, arena: &'ast ExprArena) {
         walk_module(self, module, arena);
     }
+
+    /// Visit a file-level attribute (`#!target(...)` or `#!cfg(...)`).
+    ///
+    /// Default implementation is a no-op. Override to inspect `Name` values
+    /// in file-level attributes (e.g., for symbol resolution or dead code analysis).
+    fn visit_file_attr(&mut self, _attr: &'ast FileAttr, _arena: &'ast ExprArena) {}
 
     /// Visit a function definition.
     fn visit_function(&mut self, function: &'ast Function, arena: &'ast ExprArena) {
@@ -182,12 +188,15 @@ pub trait Visitor<'ast> {
 // child is visited before the right. For collections (lists, tuples), elements
 // are visited in declaration order.
 
-/// Walk a module's children (imports, consts, functions, tests in order).
+/// Walk a module's children (file attr, imports, consts, functions, tests in order).
 pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
     module: &'ast Module,
     arena: &'ast ExprArena,
 ) {
+    if let Some(attr) = &module.file_attr {
+        visitor.visit_file_attr(attr, arena);
+    }
     for use_def in &module.imports {
         visitor.visit_use(use_def, arena);
     }
