@@ -97,10 +97,10 @@ fn emit_switch(
 
     match test_kind {
         TestKind::EnumTag => emit_tag_switch(lowerer, scrutinee, edges, default, ctx),
-        TestKind::IntEq | TestKind::BoolEq | TestKind::ListLen => {
+        TestKind::IntEq | TestKind::BoolEq | TestKind::CharEq | TestKind::ListLen => {
             emit_int_switch(lowerer, scrutinee, edges, default, ctx);
         }
-        TestKind::StrEq | TestKind::FloatEq | TestKind::CharEq => {
+        TestKind::StrEq | TestKind::FloatEq => {
             emit_str_chain(lowerer, scrutinee, edges, default, ctx);
         }
         TestKind::IntRange => emit_range_chain(lowerer, scrutinee, edges, default, ctx),
@@ -174,6 +174,7 @@ fn emit_int_switch(
         let case_val = match tv {
             TestValue::Int(v) => (*v).cast_unsigned(),
             TestValue::Bool(v) => u64::from(*v),
+            TestValue::Char(c) => u64::from(u32::from(*c)),
             TestValue::ListLen { len, .. } => u64::from(*len),
             _ => 0,
         };
@@ -444,9 +445,20 @@ fn emit_test_value_literal(
             ArcValue::Literal(LitValue::Int((*bits).cast_signed())),
             Some(span),
         ),
-        // Int, Bool, Tag, IntRange, ListLen shouldn't reach here (handled by Switch).
-        _ => lowerer
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), Some(span)),
+        TestValue::Char(c) => lowerer.builder.emit_let(
+            Idx::INT,
+            ArcValue::Literal(LitValue::Int(i64::from(u32::from(*c)))),
+            Some(span),
+        ),
+        // Int, Bool, Tag, IntRange, ListLen use emit_int_switch/emit_tag_switch, not this chain.
+        _ => {
+            tracing::warn!(
+                ?tv,
+                "unexpected TestValue in emit_test_value_literal; emitting 0"
+            );
+            lowerer
+                .builder
+                .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), Some(span))
+        }
     }
 }
