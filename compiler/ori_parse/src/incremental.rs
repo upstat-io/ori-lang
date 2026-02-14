@@ -1176,18 +1176,42 @@ impl<'old> AstCopier<'old> {
         new_arena.alloc_parsed_type_list(new_ids)
     }
 
+    /// Copy a check range (pre/post checks for `run()`).
+    fn copy_check_range(
+        &self,
+        range: ori_ir::CheckRange,
+        new_arena: &mut ExprArena,
+    ) -> ori_ir::CheckRange {
+        let old_checks = self.old_arena.get_checks(range);
+        let new_checks: Vec<_> = old_checks
+            .iter()
+            .map(|c| ori_ir::CheckExpr {
+                expr: self.copy_expr(c.expr, new_arena),
+                message: c.message.map(|m| self.copy_expr(m, new_arena)),
+                span: self.adjust_span(c.span),
+            })
+            .collect();
+        new_arena.alloc_checks(new_checks)
+    }
+
     /// Copy a `FunctionSeq`.
     fn copy_function_seq(&self, seq: &FunctionSeq, new_arena: &mut ExprArena) -> FunctionSeq {
         match seq {
             FunctionSeq::Run {
+                pre_checks,
                 bindings,
                 result,
+                post_checks,
                 span,
             } => {
+                let new_pre = self.copy_check_range(*pre_checks, new_arena);
                 let new_bindings = self.copy_seq_binding_range(*bindings, new_arena);
+                let new_post = self.copy_check_range(*post_checks, new_arena);
                 FunctionSeq::Run {
+                    pre_checks: new_pre,
                     bindings: new_bindings,
                     result: self.copy_expr(*result, new_arena),
+                    post_checks: new_post,
                     span: self.adjust_span(*span),
                 }
             }

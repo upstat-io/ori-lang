@@ -6560,8 +6560,10 @@ mod tests {
         );
 
         let func_seq = ori_ir::FunctionSeq::Run {
+            pre_checks: ori_ir::CheckRange::EMPTY,
             bindings,
             result,
+            post_checks: ori_ir::CheckRange::EMPTY,
             span: Span::DUMMY,
         };
         let seq_id = arena.alloc_function_seq(func_seq);
@@ -6605,8 +6607,10 @@ mod tests {
         let y_ref = alloc(&mut arena, ExprKind::Ident(name(2)));
 
         let func_seq = ori_ir::FunctionSeq::Run {
+            pre_checks: ori_ir::CheckRange::EMPTY,
             bindings,
             result: y_ref,
+            post_checks: ori_ir::CheckRange::EMPTY,
             span: Span::DUMMY,
         };
         let seq_id = arena.alloc_function_seq(func_seq);

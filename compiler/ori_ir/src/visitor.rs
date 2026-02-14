@@ -608,9 +608,30 @@ pub fn walk_function_seq<'ast, V: Visitor<'ast> + ?Sized>(
 ) {
     match seq {
         FunctionSeq::Run {
-            bindings, result, ..
+            pre_checks,
+            bindings,
+            result,
+            post_checks,
+            ..
+        } => {
+            for check in arena.get_checks(*pre_checks) {
+                visitor.visit_expr_id(check.expr, arena);
+                if let Some(msg) = check.message {
+                    visitor.visit_expr_id(msg, arena);
+                }
+            }
+            for binding in arena.get_seq_bindings(*bindings) {
+                visitor.visit_seq_binding(binding, arena);
+            }
+            visitor.visit_expr_id(*result, arena);
+            for check in arena.get_checks(*post_checks) {
+                visitor.visit_expr_id(check.expr, arena);
+                if let Some(msg) = check.message {
+                    visitor.visit_expr_id(msg, arena);
+                }
+            }
         }
-        | FunctionSeq::Try {
+        FunctionSeq::Try {
             bindings, result, ..
         } => {
             for binding in arena.get_seq_bindings(*bindings) {

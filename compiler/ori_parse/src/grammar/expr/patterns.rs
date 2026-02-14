@@ -52,17 +52,49 @@ impl Parser<'_> {
     }
 
     /// Internal implementation for parsing run/try expressions.
+    ///
+    /// For `run()`, supports `pre_check:` and `post_check:` named properties:
+    /// ```text
+    /// run(
+    ///     pre_check: condition | "message",
+    ///     let x = value,
+    ///     result,
+    ///     post_check: r -> r > 0 | "message",
+    /// )
+    /// ```
     fn parse_function_seq_internal(&mut self, kind: FunctionSeqKind) -> ParseOutcome<ExprId> {
         let is_try = matches!(kind, FunctionSeqKind::Try);
+        let is_run = !is_try;
         let start_span = self.cursor.previous_span();
         committed!(self.cursor.expect(&TokenKind::LParen));
         self.cursor.skip_newlines();
 
+        let mut pre_checks = Vec::new();
         let mut bindings = Vec::new();
         let mut result_expr = None;
+        let mut post_checks = Vec::new();
 
+        // Phase 1: Parse pre_checks (only for run, not try)
+        if is_run {
+            while self.is_check_start("pre_check") {
+                let check = committed!(self.parse_named_check("pre_check"));
+                pre_checks.push(check);
+                self.cursor.skip_newlines();
+                if !self.cursor.check(&TokenKind::RParen) {
+                    committed!(self.cursor.expect(&TokenKind::Comma));
+                    self.cursor.skip_newlines();
+                }
+            }
+        }
+
+        // Phase 2: Parse bindings and result expression
         while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
             self.cursor.skip_newlines();
+
+            // Check for post_check (only for run) — switches to phase 3
+            if is_run && self.is_check_start("post_check") {
+                break;
+            }
 
             if self.cursor.check(&TokenKind::Let) {
                 let binding_span = self.cursor.current_span();
@@ -114,6 +146,9 @@ impl Parser<'_> {
 
                     if self.cursor.check(&TokenKind::RParen) {
                         result_expr = Some(expr);
+                    } else if is_run && self.is_check_start("post_check") {
+                        // Result followed by post_check
+                        result_expr = Some(expr);
                     } else {
                         bindings.push(SeqBinding::Stmt {
                             expr,
@@ -130,6 +165,19 @@ impl Parser<'_> {
             if !self.cursor.check(&TokenKind::RParen) {
                 committed!(self.cursor.expect(&TokenKind::Comma));
                 self.cursor.skip_newlines();
+            }
+        }
+
+        // Phase 3: Parse post_checks (only for run, not try)
+        if is_run {
+            while self.is_check_start("post_check") {
+                let check = committed!(self.parse_named_check("post_check"));
+                post_checks.push(check);
+                self.cursor.skip_newlines();
+                if !self.cursor.check(&TokenKind::RParen) {
+                    committed!(self.cursor.expect(&TokenKind::Comma));
+                    self.cursor.skip_newlines();
+                }
             }
         }
 
@@ -160,9 +208,13 @@ impl Parser<'_> {
                 span,
             }
         } else {
+            let pre_range = self.arena.alloc_checks(pre_checks);
+            let post_range = self.arena.alloc_checks(post_checks);
             FunctionSeq::Run {
+                pre_checks: pre_range,
                 bindings: bindings_range,
                 result,
+                post_checks: post_range,
                 span,
             }
         };
@@ -172,6 +224,46 @@ impl Parser<'_> {
             self.arena
                 .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq_id), span)),
         )
+    }
+
+    /// Check if the current position starts a check property (`pre_check:` or `post_check:`).
+    fn is_check_start(&self, name: &str) -> bool {
+        if let TokenKind::Ident(n) = self.cursor.current_kind() {
+            self.cursor.interner().lookup(*n) == name && self.cursor.next_is_colon()
+        } else {
+            false
+        }
+    }
+
+    /// Parse a named check (`pre_check: expr | "msg"` or `post_check: expr | "msg"`).
+    ///
+    /// Assumes the cursor is at the check name identifier. Consumes the name, colon,
+    /// expression, and optional `| "message"`.
+    fn parse_named_check(&mut self, _check_name: &str) -> Result<ori_ir::CheckExpr, ParseError> {
+        let check_span = self.cursor.current_span();
+        self.cursor.advance(); // consume check name
+        self.cursor.expect(&TokenKind::Colon)?;
+
+        let expr = self.parse_expr().into_result()?;
+
+        // Optional custom message: `| "message"`
+        let message = if self.cursor.check(&TokenKind::Pipe) {
+            self.cursor.advance();
+            Some(self.parse_expr().into_result()?)
+        } else {
+            None
+        };
+
+        let end = message.map_or_else(
+            || self.arena.get_expr(expr).span,
+            |m| self.arena.get_expr(m).span,
+        );
+
+        Ok(ori_ir::CheckExpr {
+            expr,
+            message,
+            span: check_span.merge(end),
+        })
     }
 
     /// Parse match as `function_seq`: match(scrutinee, Pattern -> expr, ...)

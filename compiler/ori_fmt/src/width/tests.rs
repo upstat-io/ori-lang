@@ -760,8 +760,10 @@ fn test_always_stacked_run() {
     let result = make_expr(&mut arena, ExprKind::Int(1));
     let bindings = arena.alloc_seq_bindings([]);
     let seq_id = arena.alloc_function_seq(FunctionSeq::Run {
+        pre_checks: ori_ir::CheckRange::EMPTY,
         bindings,
         result,
+        post_checks: ori_ir::CheckRange::EMPTY,
         span: Span::new(0, 1),
     });
     let run = make_expr(&mut arena, ExprKind::FunctionSeq(seq_id));

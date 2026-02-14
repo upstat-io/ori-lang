@@ -51,7 +51,7 @@ sections:
 
 > **SPEC**: `spec/grammar.ebnf` (authoritative), `spec/02-source-code.md`, `spec/03-lexical-elements.md`
 
-**Status**: In Progress — Re-verified 2026-02-13. ~14 parser bugs remain (down from ~24). 16 items previously broken now parse correctly. Remaining gaps: const functions, channels, computed constants, some pattern forms. See § 0.8 for full bug list.
+**Status**: In Progress — Re-verified 2026-02-14. ~13 parser bugs remain (down from ~24). 17 items previously broken now parse correctly. Remaining gaps: const functions, channels, computed constants, some pattern forms. See § 0.8 for full bug list.
 
 ---
 
@@ -696,10 +696,14 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.6.1 Sequential Patterns
 
-- [x] **Audit**: Run pattern — grammar.ebnf § run_expr (partial) ✅ (2026-02-10)
+- [x] **Audit**: Run pattern — grammar.ebnf § run_expr ✅ (2026-02-14)
   - [x] Basic: `run(let x = a, result)` — parses correctly (verified via `ori parse`)
-  - [ ] Pre-check: `run(pre_check: cond, body)` — **BROKEN**: parser rejects `pre_check:` named arg
-  - [ ] Post-check: `run(body, post_check: r -> cond)` — **BROKEN**: same issue
+  - [x] Pre-check: `run(pre_check: cond, body)` — parses correctly ✅ (2026-02-14)
+  - [x] Post-check: `run(body, post_check: r -> cond)` — parses correctly ✅ (2026-02-14)
+  - [x] Pre-check with message: `run(pre_check: cond | "msg", body)` — parses correctly ✅ (2026-02-14)
+  - [x] Post-check with message: `run(body, post_check: r -> cond | "msg")` — parses correctly ✅ (2026-02-14)
+  - [x] Multiple pre-checks: `run(pre_check: a, pre_check: b, body)` — parses correctly ✅ (2026-02-14)
+  - [ ] **Enforcement**: pre/post checks not yet enforced at runtime  <!-- blocked-by:23 -->
 
 - [x] **Audit**: Try pattern — grammar.ebnf § try_expr ✅ (2026-02-13)
   - [x] `try(let x = f()?, Ok(x))` — parses correctly (verified via `ori parse`)
@@ -863,7 +867,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [ ] All declaration items audited and tested (0.3) — partial: typed constants broken; const generics NOW WORK ✅ (2026-02-13); floating tests NOW WORK ✅ (2026-02-14); clause params, guard clauses, variadic params NOW WORK
 - [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK; bounded trait objects NOW WORK ✅ (2026-02-14)
 - [x] All expression items audited and tested (0.5) ✅ (2026-02-14) — length placeholder `#` now works; labeled break/continue/for/loop NOW WORK ✅ (2026-02-14)
-- [ ] All pattern items audited and tested (0.6) — partial: run pre/post checks, channels, struct rest `..`, with RAII, immutable bindings, char patterns broken; try `?` NOW WORKS
+- [ ] All pattern items audited and tested (0.6) — partial: channels, struct rest `..`, with RAII, immutable bindings, char patterns broken; run pre/post checks NOW PARSE ✅ (2026-02-14); try `?` NOW WORKS
 - [ ] All constant expression items audited and tested (0.7) — only literals work; computed constants broken
 - [ ] Run `cargo t -p ori_parse` — all parser tests pass
 - [ ] Run `cargo t -p ori_lexer` — all lexer tests pass
@@ -882,13 +886,13 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - Struct rest pattern (`{ x, .. }`) — `..` rejected
 - `.match()` method syntax — `match` is keyword
 - `with()` RAII pattern (`acquire:/use:/release:`) — rejects certain named args
-- Run pre/post checks — named args rejected
+- ~~Run pre/post checks~~ — FIXED ✅ (2026-02-14)
 - Immutable binding in function body (`let $x = 42`) — `$` rejected
 - ~~Labeled continue (`continue:outer`)~~ — FIXED ✅ (2026-02-14)
 - Char patterns in match (`'a'`, `'a'..='z'`) — char literals not accepted
 
-**Fixed since 2026-02-10** (17 items):
-File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`)
+**Fixed since 2026-02-10** (18 items):
+File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`)
 
 ---
 
@@ -941,8 +945,11 @@ These features fail at the parse phase — the parser does not recognize the syn
 - [x] **Implement**: Typed constants ✅ (2026-02-14)
   - [x] **Syntax**: `let $MAX_SIZE: int = 1000` — parses correctly ✅ (2026-02-14)
 
-- [ ] **Implement**: Run pre/post checks
-  - [ ] **Syntax**: `run(pre_check: cond, body)` — **BROKEN**: parser rejects `pre_check:` named arg
+- [x] **Implement**: Run pre/post checks ✅ (2026-02-14)
+  - [x] **Syntax**: `run(pre_check: cond, body)` — parses correctly ✅ (2026-02-14)
+  - [x] **Syntax**: `run(body, post_check: r -> cond)` — parses correctly ✅ (2026-02-14)
+  - [x] **Syntax**: `run(pre_check: c | "msg", body, post_check: r -> c | "msg")` — parses correctly ✅ (2026-02-14)
+  - [ ] **Enforcement**: Runtime check execution tracked in Section 23  <!-- blocked-by:23 -->
 
 - [ ] **Implement**: `with(acquire:, use:, release:)` RAII pattern
   - [ ] **Syntax**: `with(acquire: open_file(), use: f -> ..., release: close)` — **BROKEN**: rejects `acquire:`/`use:`/`release:` syntax
@@ -1003,7 +1010,7 @@ Systematic `ori parse` verification of every grammar production against actual p
 7. `as`/`as?` type conversion operators
 8. Wildcard in for loops (`for _ in range`)
 
-**Verified Parser Bugs — 24 items originally, 16 fixed, ~8 remain:**
+**Verified Parser Bugs — 24 items originally, 17 fixed, ~7 remain:**
 1. Guard clauses (`if` before `=`) — ~~parser rejects~~ FIXED ✅
 2. List/pattern params (`@fib (0: int)`) — ~~parser rejects~~ FIXED ✅
 3. Const generics (`$` in generics) — ~~parser rejects~~ FIXED ✅ (2026-02-13)
@@ -1024,7 +1031,7 @@ Systematic `ori parse` verification of every grammar production against actual p
 18. ~~Floating tests (`tests _`)~~ — FIXED ✅ (2026-02-14)
 19. ~~Typed constants (`let $X: int = 1000`)~~ — FIXED ✅ (2026-02-14)
 20. Try `?` inside `try()` — rejected
-21. Run pre/post checks (`pre_check:`) — named arg rejected
+21. ~~Run pre/post checks (`pre_check:`)~~ — FIXED ✅ (2026-02-14)
 22. Length placeholder (`#`) — attribute marker conflict
 23. Immutable binding in function body (`let $x = 42`) — `$` rejected
 24. `.match()` guard method syntax — keyword conflict
