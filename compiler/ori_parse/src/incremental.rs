@@ -21,11 +21,12 @@
 use ori_ir::incremental::ChangeMarker;
 use ori_ir::{
     ast::{BindingPattern, FunctionExp, FunctionSeq, MatchArm, MatchPattern, SeqBinding},
-    CallArg, ConstDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef, FieldInit,
-    Function, GenericParam, ImplAssocType, ImplDef, ImplMethod, MapEntry, MatchPatternId,
-    MatchPatternRange, Module, Name, NamedExpr, Param, ParsedType, ParsedTypeId, ParsedTypeRange,
-    Span, Stmt, StmtKind, TemplatePart, TemplatePartRange, TestDef, TraitAssocType, TraitDef,
-    TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl, UseDef, WhereClause,
+    CallArg, ConstDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef, ExternBlock,
+    ExternItem, ExternParam, FieldInit, Function, GenericParam, ImplAssocType, ImplDef, ImplMethod,
+    MapEntry, MatchPatternId, MatchPatternRange, Module, Name, NamedExpr, Param, ParsedType,
+    ParsedTypeId, ParsedTypeRange, Span, Stmt, StmtKind, TemplatePart, TemplatePartRange, TestDef,
+    TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl, UseDef,
+    WhereClause,
 };
 
 /// Kind of top-level declaration.
@@ -1663,6 +1664,51 @@ impl<'old> AstCopier<'old> {
                 .collect(),
             visibility: ext_import.visibility,
             span: self.adjust_span(ext_import.span),
+        }
+    }
+
+    /// Copy an extern block, adjusting spans and deep-copying parsed types.
+    ///
+    /// Extern blocks have no `ExprId` children but do contain `ParsedType`
+    /// fields that reference arena-allocated compound types (e.g., `[float]`,
+    /// `Option<CPtr>`). These must be deep-copied to avoid dangling references
+    /// in the new arena.
+    pub fn copy_extern_block(&self, block: &ExternBlock, new_arena: &mut ExprArena) -> ExternBlock {
+        ExternBlock {
+            convention: block.convention,
+            library: block.library,
+            items: block
+                .items
+                .iter()
+                .map(|item| self.copy_extern_item(item, new_arena))
+                .collect(),
+            visibility: block.visibility,
+            span: self.adjust_span(block.span),
+        }
+    }
+
+    /// Copy an extern item (function declaration), adjusting spans and types.
+    fn copy_extern_item(&self, item: &ExternItem, new_arena: &mut ExprArena) -> ExternItem {
+        ExternItem {
+            name: item.name,
+            params: item
+                .params
+                .iter()
+                .map(|p| self.copy_extern_param(p, new_arena))
+                .collect(),
+            return_ty: self.copy_parsed_type(&item.return_ty, new_arena),
+            alias: item.alias,
+            is_c_variadic: item.is_c_variadic,
+            span: self.adjust_span(item.span),
+        }
+    }
+
+    /// Copy an extern parameter, adjusting span and deep-copying its type.
+    fn copy_extern_param(&self, param: &ExternParam, new_arena: &mut ExprArena) -> ExternParam {
+        ExternParam {
+            name: param.name,
+            ty: self.copy_parsed_type(&param.ty, new_arena),
+            span: self.adjust_span(param.span),
         }
     }
 

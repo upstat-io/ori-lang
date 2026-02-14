@@ -225,6 +225,8 @@ pub enum ErrorCode {
     // Parser Warnings (W1xxx)
     /// Detached doc comment
     W1001,
+    /// Unknown calling convention in extern block
+    W1002,
 }
 
 impl ErrorCode {
@@ -335,6 +337,7 @@ impl ErrorCode {
             ErrorCode::E9002 => "E9002",
             // Warnings
             ErrorCode::W1001 => "W1001",
+            ErrorCode::W1002 => "W1002",
         }
     }
 
@@ -476,7 +479,7 @@ impl ErrorCode {
 
     /// Check if this is a warning code (Wxxx range).
     pub fn is_warning(&self) -> bool {
-        matches!(self, ErrorCode::W1001)
+        matches!(self, ErrorCode::W1001 | ErrorCode::W1002)
     }
 }
 
@@ -555,6 +558,7 @@ mod tests {
             ErrorCode::E6001,
             ErrorCode::E9001,
             ErrorCode::W1001,
+            ErrorCode::W1002,
         ];
 
         for code in &all_codes {

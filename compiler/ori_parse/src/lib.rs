@@ -53,6 +53,9 @@ pub struct Parser<'a> {
     /// (e.g., `parse_type()` detecting reserved syntax like `&T`).
     /// Drained into the main error list in `parse_module()`.
     pub(crate) deferred_errors: Vec<ParseError>,
+    /// Warnings from sub-parsers (e.g., unknown calling conventions).
+    /// Drained into `ParseOutput.warnings` alongside post-parse warnings.
+    pub(crate) deferred_warnings: Vec<ParseWarning>,
 }
 
 impl<'a> Parser<'a> {
@@ -65,6 +68,7 @@ impl<'a> Parser<'a> {
             arena: ExprArena::with_capacity(estimated_source_len),
             context: ParseContext::new(),
             deferred_errors: Vec::new(),
+            deferred_warnings: Vec::new(),
         }
     }
 
@@ -482,14 +486,15 @@ impl<'a> Parser<'a> {
             self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
         }
 
-        // Drain deferred errors from sub-parsers (e.g., parse_type() reserved syntax).
+        // Drain deferred errors/warnings from sub-parsers.
         errors.append(&mut self.deferred_errors);
+        let warnings = self.deferred_warnings;
 
         ParseOutput {
             module,
             arena: SharedArena::new(self.arena),
             errors,
-            warnings: Vec::new(),
+            warnings,
             // Note: For metadata support, use parse_with_metadata() which
             // overwrites this with lexer-captured metadata
             metadata: ModuleExtra::new(),
@@ -844,9 +849,9 @@ impl<'a> Parser<'a> {
                             module.extension_imports.push(new_ext);
                         }
                         DeclKind::ExternBlock => {
-                            // Extern blocks have no ExprIds — safe to clone directly.
                             let old_block = &state.cursor.module().extern_blocks[decl_ref.index];
-                            module.extern_blocks.push(old_block.clone());
+                            let new_block = copier.copy_extern_block(old_block, &mut self.arena);
+                            module.extern_blocks.push(new_block);
                         }
                         DeclKind::Import => {
                             unreachable!("imports should not appear in declaration list");
@@ -873,14 +878,15 @@ impl<'a> Parser<'a> {
             self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
         }
 
-        // Drain deferred errors from sub-parsers (e.g., parse_type() reserved syntax).
+        // Drain deferred errors/warnings from sub-parsers.
         errors.append(&mut self.deferred_errors);
+        let warnings = self.deferred_warnings;
 
         ParseOutput {
             module,
             arena: SharedArena::new(self.arena),
             errors,
-            warnings: Vec::new(),
+            warnings,
             // Note: Incremental metadata merging not yet implemented.
             // For now, caller should re-lex with lex_with_comments() and
             // pass to parse_with_metadata() for full metadata support.

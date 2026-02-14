@@ -993,6 +993,9 @@ mod metadata_tests {
             crate::ParseWarning::DetachedDocComment { reason, .. } => {
                 assert_eq!(*reason, crate::DetachmentReason::BlankLine);
             }
+            other @ crate::ParseWarning::UnknownCallingConvention { .. } => {
+                panic!("expected DetachedDocComment, got {other:?}")
+            }
         }
     }
 
@@ -1012,6 +1015,9 @@ mod metadata_tests {
         match &output.warnings[0] {
             crate::ParseWarning::DetachedDocComment { reason, .. } => {
                 assert_eq!(*reason, crate::DetachmentReason::NoFollowingDeclaration);
+            }
+            other @ crate::ParseWarning::UnknownCallingConvention { .. } => {
+                panic!("expected DetachedDocComment, got {other:?}")
             }
         }
     }
