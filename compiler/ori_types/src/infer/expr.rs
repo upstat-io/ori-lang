@@ -522,10 +522,14 @@ fn infer_self_ref(engine: &mut InferEngine<'_>, span: Span) -> Idx {
     Idx::ERROR
 }
 
-/// Infer the type of a constant reference ($name).
+/// Infer the type of a constant reference (`$name`).
+///
+/// Looks up the constant's registered type from the module-level `const_types` map.
+/// If not found, emits an "undefined constant" error.
 fn infer_const(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
-    // Constants should be tracked in scope context
-    // For now, report an error
+    if let Some(ty) = engine.const_type(name) {
+        return ty;
+    }
     engine.push_error(TypeCheckError::undefined_const(name, span));
     Idx::ERROR
 }
