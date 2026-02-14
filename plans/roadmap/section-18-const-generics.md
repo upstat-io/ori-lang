@@ -140,6 +140,10 @@ Specifies termination guarantees and limits for compile-time constant evaluation
 ---
 
 ## 18.1 Const Type Parameters
+<!-- unblocks:0.3.2 -->
+<!-- unblocks:0.3.3 -->
+<!-- unblocks:0.4.4 -->
+<!-- unblocks:0.9.1 -->
 
 **Proposal**: `proposals/approved/const-generics-proposal.md`
 

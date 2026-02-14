@@ -69,6 +69,8 @@ sections:
 ---
 
 ## 19.1 Return Position impl Trait
+<!-- unblocks:0.4.2 -->
+<!-- unblocks:0.9.1 -->
 
 **Spec section**: `spec/06-types.md § Existential Types`
 

@@ -101,7 +101,7 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for multiple test targets
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — multiple targets codegen
 
-- [ ] **Implement**: Explicit free-floating tests `tests _` — proposals/approved/incremental-test-execution-proposal.md
+- [ ] **Implement**: Explicit free-floating tests `tests _` — proposals/approved/incremental-test-execution-proposal.md  <!-- unblocks:0.9.1 -->
   - [ ] Parser accepts `_` as target in `tests _`
   - [ ] AST distinguishes `Targeted(Vec<Name>)` vs `FreeFloating`
   - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — free-floating test parsing

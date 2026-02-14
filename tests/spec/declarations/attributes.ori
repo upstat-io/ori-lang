@@ -201,8 +201,7 @@ type DerivedOption = DSome(value: int) | DNone
 // =============================================================================
 // Per spec: "Controls memory representation"
 //
-// STATUS: Lexer [OK], Parser [BROKEN] - unknown attribute 'repr'
-// Parser does not recognize #repr as a valid attribute.
+// STATUS: Lexer [OK], Parser [OK] - parses correctly (2026-02-13)
 
 #repr("c")
 type CStruct = { x: int, y: int }
@@ -219,8 +218,9 @@ type CStruct = { x: int, y: int }
 // =============================================================================
 // Per spec: "Conditional compilation based on platform"
 //
-// STATUS: Lexer [OK], Parser [BROKEN] - unknown attribute 'target'
-// Parser does not recognize #target as a valid attribute.
+// STATUS: Lexer [OK], Parser [OK] - parses correctly (2026-02-13)
+// Note: Conditional compilation not yet evaluated — all functions are compiled
+// regardless of target. This section verifies the parser accepts #target syntax.
 
 #target(os: "linux")
 @linux_function () -> str = "linux"
@@ -231,21 +231,26 @@ type CStruct = { x: int, y: int }
 #target(os: "windows")
 @windows_function () -> str = "windows"
 
-// Platform-agnostic test that will work on current platform
-@test_target_current tests @_platform_test () -> void = run(
-    // Just verify we can compile platform-specific code
-    assert(cond: true),
+@test_target_linux tests @linux_function () -> void = run(
+    assert_eq(actual: linux_function(), expected: "linux"),
 )
 
-@_platform_test () -> bool = true
+@test_target_macos tests @macos_function () -> void = run(
+    assert_eq(actual: macos_function(), expected: "macos"),
+)
+
+@test_target_windows tests @windows_function () -> void = run(
+    assert_eq(actual: windows_function(), expected: "windows"),
+)
 
 // =============================================================================
 // #cfg Attribute
 // =============================================================================
 // Per spec: "Conditional compilation based on build configuration"
 //
-// STATUS: Lexer [OK], Parser [BROKEN] - unknown attribute 'cfg'
-// Parser does not recognize #cfg as a valid attribute.
+// STATUS: Lexer [OK], Parser [OK] - parses correctly (2026-02-13)
+// Note: Conditional compilation not yet evaluated — all functions are compiled
+// regardless of cfg flags. This section verifies the parser accepts #cfg syntax.
 
 #cfg(debug)
 @debug_only_fn () -> str = "debug mode"
@@ -253,38 +258,34 @@ type CStruct = { x: int, y: int }
 #cfg(release)
 @release_only_fn () -> str = "release mode"
 
-// Test that debug/release code compiles
-@test_cfg_debug tests @_cfg_test () -> void = run(
-    assert(cond: true),
+@test_cfg_debug tests @debug_only_fn () -> void = run(
+    assert_eq(actual: debug_only_fn(), expected: "debug mode"),
 )
 
-@_cfg_test () -> bool = true
+@test_cfg_release tests @release_only_fn () -> void = run(
+    assert_eq(actual: release_only_fn(), expected: "release mode"),
+)
 
 // Feature flags
 #cfg(feature: "experimental")
 @experimental_feature () -> str = "experimental"
 
-@test_cfg_feature tests @_feature_test () -> void = run(
-    assert(cond: true),
+@test_cfg_feature tests @experimental_feature () -> void = run(
+    assert_eq(actual: experimental_feature(), expected: "experimental"),
 )
-
-@_feature_test () -> bool = true
 
 // =============================================================================
 // #cfg(not_debug)
 // =============================================================================
 //
-// STATUS: Lexer [OK], Parser [BROKEN] - unknown attribute 'cfg'
-// Parser does not recognize #cfg as a valid attribute.
+// STATUS: Lexer [OK], Parser [OK] - parses correctly (2026-02-13)
 
 #cfg(not_debug)
 @not_debug_fn () -> str = "not debug"
 
-@test_cfg_not_debug tests @_not_debug_test () -> void = run(
-    assert(cond: true),
+@test_cfg_not_debug tests @not_debug_fn () -> void = run(
+    assert_eq(actual: not_debug_fn(), expected: "not debug"),
 )
-
-@_not_debug_test () -> bool = true
 
 // =============================================================================
 // Attribute on Trait Impl

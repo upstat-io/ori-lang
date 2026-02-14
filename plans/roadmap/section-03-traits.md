@@ -755,7 +755,7 @@ Specifies rules for resolving trait implementation conflicts: diamond problem, c
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — extension conflict tests
   - [ ] **Ori Tests**: `tests/compile-fail/extension_conflict.ori`
 
-- [ ] **Implement**: Associated type disambiguation with `Type::Trait::AssocType` syntax
+- [ ] **Implement**: Associated type disambiguation with `Type::Trait::AssocType` syntax  <!-- unblocks:0.9.1 -->
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — associated type disambiguation
   - [ ] **Ori Tests**: `tests/spec/traits/resolution/assoc_type_disambiguation.ori`
 
