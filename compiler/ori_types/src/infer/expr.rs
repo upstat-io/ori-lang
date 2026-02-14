@@ -1701,9 +1701,9 @@ fn infer_let(
 /// Get the first name from a binding pattern (for error messages).
 fn pattern_first_name(pattern: &ori_ir::BindingPattern) -> Option<Name> {
     match pattern {
-        ori_ir::BindingPattern::Name(name) => Some(*name),
+        ori_ir::BindingPattern::Name { name, .. } => Some(*name),
         ori_ir::BindingPattern::Tuple(pats) => pats.first().and_then(pattern_first_name),
-        ori_ir::BindingPattern::Struct { fields } => fields.first().map(|(name, _)| *name),
+        ori_ir::BindingPattern::Struct { fields } => fields.first().map(|field| field.name),
         ori_ir::BindingPattern::List { elements, .. } => {
             elements.first().and_then(pattern_first_name)
         }
@@ -4378,7 +4378,7 @@ fn bind_pattern(
     use ori_ir::BindingPattern;
 
     match pattern {
-        BindingPattern::Name(name) => {
+        BindingPattern::Name { name, .. } => {
             engine.env_mut().bind(*name, ty);
         }
 
@@ -4413,16 +4413,16 @@ fn bind_pattern(
                 _ => None,
             };
 
-            for (name, sub_pattern) in fields {
+            for field in fields {
                 let field_ty = field_type_map
                     .as_ref()
-                    .and_then(|m| m.get(name).copied())
+                    .and_then(|m| m.get(&field.name).copied())
                     .unwrap_or_else(|| engine.fresh_var());
-                if let Some(sub_pat) = sub_pattern {
+                if let Some(sub_pat) = &field.pattern {
                     bind_pattern(engine, arena, sub_pat, field_ty);
                 } else {
                     // Shorthand: { x } means { x: x }
-                    engine.env_mut().bind(*name, field_ty);
+                    engine.env_mut().bind(field.name, field_ty);
                 }
             }
         }
@@ -6214,7 +6214,10 @@ mod tests {
 
         // { let x = 42; x }
         let init = alloc(&mut arena, ExprKind::Int(42));
-        let pattern = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+            name: name(1),
+            mutable: true,
+        });
         let _stmt = arena.alloc_stmt(Stmt {
             kind: StmtKind::Let {
                 pattern,
@@ -6249,7 +6252,10 @@ mod tests {
 
         // { let x: int = 42; x }
         let init = alloc(&mut arena, ExprKind::Int(42));
-        let pattern = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+            name: name(1),
+            mutable: true,
+        });
         let int_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
         let _stmt = arena.alloc_stmt(Stmt {
             kind: StmtKind::Let {
@@ -6298,7 +6304,10 @@ mod tests {
         let int_type_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
         let list_annotation = ParsedType::List(int_type_id);
 
-        let pattern = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+            name: name(1),
+            mutable: true,
+        });
         let list_ty = arena.alloc_parsed_type(list_annotation);
         let _stmt = arena.alloc_stmt(Stmt {
             kind: StmtKind::Let {
@@ -6338,7 +6347,10 @@ mod tests {
         // { let x: str = 42; x }
         // Type mismatch: annotated str but init is int
         let init = alloc(&mut arena, ExprKind::Int(42));
-        let pattern = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+            name: name(1),
+            mutable: true,
+        });
         let str_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::STR));
         let _stmt = arena.alloc_stmt(Stmt {
             kind: StmtKind::Let {
@@ -6619,7 +6631,10 @@ mod tests {
 
         // run(let x = 42, x + 1)
         let init = alloc(&mut arena, ExprKind::Int(42));
-        let pattern = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+            name: name(1),
+            mutable: true,
+        });
         let bindings = arena.alloc_seq_bindings([ori_ir::SeqBinding::Let {
             pattern,
             ty: ori_ir::ParsedTypeId::INVALID,
@@ -6666,8 +6681,14 @@ mod tests {
         let x_init = alloc(&mut arena, ExprKind::Int(1));
         let y_init = alloc(&mut arena, ExprKind::String(ori_ir::Name::from_raw(100)));
 
-        let pattern1 = arena.alloc_binding_pattern(BindingPattern::Name(name(1)));
-        let pattern2 = arena.alloc_binding_pattern(BindingPattern::Name(name(2)));
+        let pattern1 = arena.alloc_binding_pattern(BindingPattern::Name {
+            name: name(1),
+            mutable: true,
+        });
+        let pattern2 = arena.alloc_binding_pattern(BindingPattern::Name {
+            name: name(2),
+            mutable: true,
+        });
         let bindings = arena.alloc_seq_bindings([
             ori_ir::SeqBinding::Let {
                 pattern: pattern1,

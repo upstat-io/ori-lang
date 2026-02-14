@@ -138,7 +138,7 @@ fn test_parse_let_expression() {
     } = &body.kind
     {
         let pattern = result.arena.get_binding_pattern(*pattern_id);
-        assert!(matches!(pattern, BindingPattern::Name(_)));
+        assert!(matches!(pattern, BindingPattern::Name { .. }));
         assert!(!ty.is_valid());
         // Per spec: let x = v is mutable by default
         assert!(mutable);

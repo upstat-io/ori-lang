@@ -903,7 +903,10 @@ fn test_with_capacity() {
 fn test_binding_pattern_name() {
     let interner = StringInterner::new();
     let name = interner.intern("foo");
-    let pattern = ori_ir::BindingPattern::Name(name);
+    let pattern = ori_ir::BindingPattern::Name {
+        name,
+        mutable: true,
+    };
 
     assert_eq!(binding_pattern_width(&pattern, &interner), 3); // "foo"
 }
@@ -922,8 +925,14 @@ fn test_binding_pattern_tuple() {
     let a = interner.intern("a");
     let b = interner.intern("b");
     let pattern = ori_ir::BindingPattern::Tuple(vec![
-        ori_ir::BindingPattern::Name(a),
-        ori_ir::BindingPattern::Name(b),
+        ori_ir::BindingPattern::Name {
+            name: a,
+            mutable: true,
+        },
+        ori_ir::BindingPattern::Name {
+            name: b,
+            mutable: true,
+        },
     ]);
 
     // "(a, b)" = 1 + 1 + 2 + 1 + 1 = 6

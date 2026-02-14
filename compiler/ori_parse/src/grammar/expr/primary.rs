@@ -10,8 +10,8 @@
 use crate::recovery::TokenSet;
 use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
-    BindingPattern, DurationUnit, Expr, ExprId, ExprKind, ExprRange, Name, Param, ParamRange,
-    ParsedTypeId, SizeUnit, TemplatePart, TokenKind,
+    BindingPattern, DurationUnit, Expr, ExprId, ExprKind, ExprRange, FieldBinding, Name, Param,
+    ParamRange, ParsedTypeId, SizeUnit, TemplatePart, TokenKind,
 };
 use tracing::{debug, trace};
 
@@ -1002,17 +1002,54 @@ impl Parser<'_> {
     }
 
     /// Parse a binding pattern.
+    ///
+    /// Per grammar: `binding_pattern = [ "$" ] identifier | "_" | "{" ... "}" | ...`
+    /// The `$` prefix marks the binding as immutable.
     pub(crate) fn parse_binding_pattern(&mut self) -> Result<BindingPattern, ParseError> {
+        // Handle $ prefix for immutable bindings: $x, $name, etc.
+        if self.cursor.check(&TokenKind::Dollar) {
+            self.cursor.advance();
+            if let Some(name_str) = self.cursor.soft_keyword_to_name() {
+                let name = self.cursor.interner().intern(name_str);
+                self.cursor.advance();
+                return Ok(BindingPattern::Name {
+                    name,
+                    mutable: false,
+                });
+            }
+            if let TokenKind::Ident(name) = *self.cursor.current_kind() {
+                self.cursor.advance();
+                return Ok(BindingPattern::Name {
+                    name,
+                    mutable: false,
+                });
+            }
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                format!(
+                    "expected identifier after $, found {}",
+                    self.cursor.current_kind().display_name()
+                ),
+                self.cursor.current_span(),
+            ));
+        }
+
         if let Some(name_str) = self.cursor.soft_keyword_to_name() {
             let name = self.cursor.interner().intern(name_str);
             self.cursor.advance();
-            return Ok(BindingPattern::Name(name));
+            return Ok(BindingPattern::Name {
+                name,
+                mutable: true,
+            });
         }
 
         match *self.cursor.current_kind() {
             TokenKind::Ident(name) => {
                 self.cursor.advance();
-                Ok(BindingPattern::Name(name))
+                Ok(BindingPattern::Name {
+                    name,
+                    mutable: true,
+                })
             }
             TokenKind::Underscore => {
                 self.cursor.advance();
@@ -1035,22 +1072,34 @@ impl Parser<'_> {
             TokenKind::LBrace => {
                 use crate::series::SeriesConfig;
                 self.cursor.advance();
-                let fields: Vec<(Name, Option<BindingPattern>)> =
+                let fields: Vec<FieldBinding> =
                     self.series(&SeriesConfig::comma(TokenKind::RBrace).no_newlines(), |p| {
                         if p.cursor.check(&TokenKind::RBrace) {
                             return Ok(None);
                         }
 
+                        // Per grammar: field_binding = [ "$" ] identifier [ ":" binding_pattern ]
+                        let mutable = if p.cursor.check(&TokenKind::Dollar) {
+                            p.cursor.advance();
+                            false
+                        } else {
+                            true
+                        };
+
                         let field_name = p.cursor.expect_ident()?;
 
-                        let binding = if p.cursor.check(&TokenKind::Colon) {
+                        let pattern = if p.cursor.check(&TokenKind::Colon) {
                             p.cursor.advance();
                             Some(p.parse_binding_pattern()?)
                         } else {
                             None // Shorthand: { x } binds field x to variable x
                         };
 
-                        Ok(Some((field_name, binding)))
+                        Ok(Some(FieldBinding {
+                            name: field_name,
+                            mutable,
+                            pattern,
+                        }))
                     })?;
                 self.cursor.expect(&TokenKind::RBrace)?;
                 Ok(BindingPattern::Struct { fields })

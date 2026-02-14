@@ -561,15 +561,15 @@ pub fn walk_binding_pattern<'ast, V: Visitor<'ast> + ?Sized>(
     pattern: &'ast BindingPattern,
 ) {
     match pattern {
-        BindingPattern::Name(_) | BindingPattern::Wildcard => {}
+        BindingPattern::Name { .. } | BindingPattern::Wildcard => {}
         BindingPattern::Tuple(patterns) => {
             for p in patterns {
                 visitor.visit_binding_pattern(p);
             }
         }
         BindingPattern::Struct { fields, .. } => {
-            for (_, sub_pattern) in fields {
-                if let Some(p) = sub_pattern {
+            for field in fields {
+                if let Some(p) = &field.pattern {
                     visitor.visit_binding_pattern(p);
                 }
             }

@@ -1070,7 +1070,7 @@ impl<'a> Lowerer<'a> {
     /// Lower a `BindingPattern` value to canonical form.
     fn lower_binding_pattern_value(&mut self, bp: &ori_ir::BindingPattern) -> CanBindingPatternId {
         let can_bp = match bp {
-            ori_ir::BindingPattern::Name(name) => CanBindingPattern::Name(*name),
+            ori_ir::BindingPattern::Name { name, .. } => CanBindingPattern::Name(*name),
             ori_ir::BindingPattern::Wildcard => CanBindingPattern::Wildcard,
             ori_ir::BindingPattern::Tuple(children) => {
                 let child_ids: Vec<_> = children
@@ -1083,16 +1083,16 @@ impl<'a> Lowerer<'a> {
             ori_ir::BindingPattern::Struct { fields } => {
                 let field_bindings: Vec<_> = fields
                     .iter()
-                    .map(|(name, sub_pat)| {
-                        let sub = match sub_pat {
+                    .map(|field| {
+                        let sub = match &field.pattern {
                             Some(p) => self.lower_binding_pattern_value(p),
                             // Field shorthand: `{ x }` → bind name directly
                             None => self
                                 .arena
-                                .push_binding_pattern(CanBindingPattern::Name(*name)),
+                                .push_binding_pattern(CanBindingPattern::Name(field.name)),
                         };
                         CanFieldBinding {
-                            name: *name,
+                            name: field.name,
                             pattern: sub,
                         }
                     })
