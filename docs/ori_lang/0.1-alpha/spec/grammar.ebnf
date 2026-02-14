@@ -151,7 +151,7 @@ size_unit    = "b" | "kb" | "mb" | "gb" | "tb" .
 // See: 02-source-code.md, 12-modules.md
 // ============================================================================
 
-source_file = [ file_attribute ] { import } { declaration } .
+source_file = [ file_attribute ] { import | extension_import } { declaration } .
 
 // File-level attribute (conditional compilation)
 // See: 24-conditional-compilation.md § File-Level Conditions

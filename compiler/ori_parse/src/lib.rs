@@ -462,7 +462,7 @@ impl<'a> Parser<'a> {
         // Grammar: source_file = [ file_attribute ] { import } { declaration } .
         module.file_attr = self.parse_file_attribute(&mut errors);
 
-        self.parse_imports(&mut module.imports, &mut errors);
+        self.parse_imports(&mut module, &mut errors);
 
         // Parse declarations (functions, tests, traits, impls, types, etc.)
         while !self.cursor.is_at_end() {
@@ -499,8 +499,8 @@ impl<'a> Parser<'a> {
     /// Parse the import block at the top of a module.
     ///
     /// Imports must appear at the beginning of the file per spec.
-    /// Parses both `use ...` and `pub use ...` (re-export) statements.
-    fn parse_imports(&mut self, imports: &mut Vec<ori_ir::UseDef>, errors: &mut Vec<ParseError>) {
+    /// Parses `use`, `pub use`, `extension`, and `pub extension` statements.
+    fn parse_imports(&mut self, module: &mut Module, errors: &mut Vec<ParseError>) {
         while !self.cursor.is_at_end() {
             self.cursor.skip_newlines();
             if self.cursor.is_at_end() {
@@ -510,6 +510,9 @@ impl<'a> Parser<'a> {
             let is_pub_use = self.cursor.check(&TokenKind::Pub)
                 && matches!(self.cursor.peek_next_kind(), TokenKind::Use);
 
+            let is_pub_extension = self.cursor.check(&TokenKind::Pub)
+                && matches!(self.cursor.peek_next_kind(), TokenKind::Extension);
+
             if self.cursor.check(&TokenKind::Use) || is_pub_use {
                 let visibility = if is_pub_use {
                     self.cursor.advance();
@@ -518,7 +521,26 @@ impl<'a> Parser<'a> {
                     Visibility::Private
                 };
                 let outcome = self.parse_use(visibility);
-                self.handle_outcome(outcome, imports, errors, Self::recover_to_next_statement);
+                self.handle_outcome(
+                    outcome,
+                    &mut module.imports,
+                    errors,
+                    Self::recover_to_next_statement,
+                );
+            } else if self.cursor.check(&TokenKind::Extension) || is_pub_extension {
+                let visibility = if is_pub_extension {
+                    self.cursor.advance();
+                    Visibility::Public
+                } else {
+                    Visibility::Private
+                };
+                let outcome = self.parse_extension_import(visibility);
+                self.handle_outcome(
+                    outcome,
+                    &mut module.extension_imports,
+                    errors,
+                    Self::recover_to_next_statement,
+                );
             } else {
                 break;
             }
@@ -749,7 +771,7 @@ impl<'a> Parser<'a> {
         let mut errors = Vec::new();
 
         // Imports always get re-parsed since they affect resolution
-        self.parse_imports(&mut module.imports, &mut errors);
+        self.parse_imports(&mut module, &mut errors);
 
         // Parse remaining declarations with potential reuse
         while !self.cursor.is_at_end() {

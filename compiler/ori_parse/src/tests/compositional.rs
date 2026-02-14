@@ -1819,13 +1819,12 @@ mod mixed_imports {
     }
 
     #[test]
-    #[ignore = "extension import parsing not yet implemented (grammar §Extensions)"]
     fn test_extension_imports() {
         let sources = &[
             // Basic extension import
             "extension std.iter.extensions { Iterator.count }",
             // Multiple extension methods
-            "extension std.str.extensions { str.trim, str.split, str.join }",
+            "extension std.text.extensions { Text.trim, Text.split, Text.join }",
             // Public extension import
             "pub extension std.collections.extensions { Vec.sort, Vec.reverse }",
         ];

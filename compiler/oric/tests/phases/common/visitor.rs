@@ -217,6 +217,7 @@ fn test_visit_module() {
         impls: vec![],
         extends: vec![],
         def_impls: vec![],
+        extension_imports: vec![],
     };
 
     let mut counter = ExprCounter { count: 0 };
@@ -260,6 +261,7 @@ fn test_visit_empty_module() {
         impls: vec![],
         extends: vec![],
         def_impls: vec![],
+        extension_imports: vec![],
     };
 
     let mut counter = ExprCounter { count: 0 };

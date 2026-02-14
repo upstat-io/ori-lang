@@ -3,7 +3,7 @@
 //! Formatting for use/import declarations.
 
 use crate::comments::{format_comment, CommentIndex};
-use ori_ir::ast::items::{UseDef, UseItem};
+use ori_ir::ast::items::{ExtensionImport, UseDef, UseItem};
 use ori_ir::{CommentList, StringLookup, Visibility};
 
 use super::ModuleFormatter;
@@ -121,14 +121,66 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             if i > 0 {
                 self.ctx.emit(", ");
             }
-            if item.is_private {
+            if item.is_constant {
+                self.ctx.emit("$");
+            } else if item.is_private {
                 self.ctx.emit("::");
             }
             self.ctx.emit(self.interner.lookup(item.name));
+            if item.without_def {
+                self.ctx.emit(" without def");
+            }
             if let Some(alias) = item.alias {
                 self.ctx.emit(" as ");
                 self.ctx.emit(self.interner.lookup(alias));
             }
+        }
+    }
+
+    /// Format extension import declarations.
+    pub(super) fn format_extension_imports(&mut self, ext_imports: &[ExtensionImport]) {
+        for ext_import in ext_imports {
+            self.format_extension_import(ext_import);
+            self.ctx.emit_newline();
+        }
+    }
+
+    fn format_extension_import(&mut self, ext: &ExtensionImport) {
+        if ext.visibility == Visibility::Public {
+            self.ctx.emit("pub ");
+        }
+
+        self.ctx.emit("extension ");
+
+        // Path
+        match &ext.path {
+            ori_ir::ast::items::ImportPath::Relative(name) => {
+                self.ctx.emit("\"");
+                self.ctx.emit(self.interner.lookup(*name));
+                self.ctx.emit("\"");
+            }
+            ori_ir::ast::items::ImportPath::Module(segments) => {
+                for (i, seg) in segments.iter().enumerate() {
+                    if i > 0 {
+                        self.ctx.emit(".");
+                    }
+                    self.ctx.emit(self.interner.lookup(*seg));
+                }
+            }
+        }
+
+        // Extension items: { Type.method, Type.method }
+        if !ext.items.is_empty() {
+            self.ctx.emit(" { ");
+            for (i, item) in ext.items.iter().enumerate() {
+                if i > 0 {
+                    self.ctx.emit(", ");
+                }
+                self.ctx.emit(self.interner.lookup(item.type_name));
+                self.ctx.emit(".");
+                self.ctx.emit(self.interner.lookup(item.method_name));
+            }
+            self.ctx.emit(" }");
         }
     }
 }

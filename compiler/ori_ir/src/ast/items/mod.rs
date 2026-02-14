@@ -11,7 +11,9 @@ pub use function::{
     CapabilityRef, CfgAttr, ConstDef, ExpectedError, FileAttr, Function, Module, Param, TargetAttr,
     TestDef,
 };
-pub use imports::{ImportErrorKind, ImportPath, UseDef, UseItem};
+pub use imports::{
+    ExtensionImport, ExtensionImportItem, ImportErrorKind, ImportPath, UseDef, UseItem,
+};
 pub use traits::{
     DefImplDef, ExtendDef, GenericParam, ImplAssocType, ImplDef, ImplMethod, TraitAssocType,
     TraitBound, TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, WhereClause,
