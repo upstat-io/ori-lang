@@ -1084,9 +1084,10 @@ impl<'old> AstCopier<'old> {
             }
             ParsedType::FixedList { elem, capacity } => {
                 let new_elem = self.copy_parsed_type_id(*elem, new_arena);
+                let new_capacity = self.copy_expr(*capacity, new_arena);
                 ParsedType::FixedList {
                     elem: new_elem,
-                    capacity: *capacity,
+                    capacity: new_capacity,
                 }
             }
             ParsedType::Tuple(elems) => {
@@ -1117,6 +1118,10 @@ impl<'old> AstCopier<'old> {
                     base: new_base,
                     assoc_name: *assoc_name,
                 }
+            }
+            ParsedType::ConstExpr(expr_id) => {
+                let new_expr = self.copy_expr(*expr_id, new_arena);
+                ParsedType::ConstExpr(new_expr)
             }
         }
     }
@@ -1298,7 +1303,7 @@ impl<'old> AstCopier<'old> {
         let new_where_clauses: Vec<_> = func
             .where_clauses
             .iter()
-            .map(|w| self.copy_where_clause(w))
+            .map(|w| self.copy_where_clause(w, new_arena))
             .collect();
 
         Function {
@@ -1353,7 +1358,7 @@ impl<'old> AstCopier<'old> {
         let new_where_clauses: Vec<_> = decl
             .where_clauses
             .iter()
-            .map(|w| self.copy_where_clause(w))
+            .map(|w| self.copy_where_clause(w, new_arena))
             .collect();
 
         TypeDecl {
@@ -1529,7 +1534,7 @@ impl<'old> AstCopier<'old> {
         let new_where_clauses: Vec<_> = impl_def
             .where_clauses
             .iter()
-            .map(|w| self.copy_where_clause(w))
+            .map(|w| self.copy_where_clause(w, new_arena))
             .collect();
 
         let new_methods: Vec<_> = impl_def
@@ -1614,7 +1619,7 @@ impl<'old> AstCopier<'old> {
         let new_where_clauses: Vec<_> = extend
             .where_clauses
             .iter()
-            .map(|w| self.copy_where_clause(w))
+            .map(|w| self.copy_where_clause(w, new_arena))
             .collect();
 
         let new_methods: Vec<_> = extend
@@ -1749,16 +1754,23 @@ impl<'old> AstCopier<'old> {
     }
 
     /// Copy a where clause.
-    fn copy_where_clause(&self, clause: &WhereClause) -> WhereClause {
-        WhereClause {
-            param: clause.param,
-            projection: clause.projection,
-            bounds: clause
-                .bounds
-                .iter()
-                .map(|b| self.copy_trait_bound(b))
-                .collect(),
-            span: self.adjust_span(clause.span),
+    fn copy_where_clause(&self, clause: &WhereClause, new_arena: &mut ExprArena) -> WhereClause {
+        match clause {
+            WhereClause::TypeBound {
+                param,
+                projection,
+                bounds,
+                span,
+            } => WhereClause::TypeBound {
+                param: *param,
+                projection: *projection,
+                bounds: bounds.iter().map(|b| self.copy_trait_bound(b)).collect(),
+                span: self.adjust_span(*span),
+            },
+            WhereClause::ConstBound { expr, span } => WhereClause::ConstBound {
+                expr: self.copy_expr(*expr, new_arena),
+                span: self.adjust_span(*span),
+            },
         }
     }
 

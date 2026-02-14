@@ -274,9 +274,16 @@ impl Parser<'_> {
         ParseOutcome::consumed_ok(capabilities)
     }
 
-    /// Parse where clauses: `where T: Clone, U: Default, T.Item: Eq`
+    /// Parse where clauses: `where T: Clone, U: Default, T.Item: Eq, N > 0`
     ///
     /// Returns `EmptyErr` if no `where` keyword is present.
+    ///
+    /// Supports two kinds of clauses:
+    /// - Type bounds: `T: Clone`, `T.Item: Eq`
+    /// - Const bounds: `N > 0`, `N + M == 10`
+    ///
+    /// Disambiguation: if we see `ident :` or `ident . ident :`, it's a type bound.
+    /// Otherwise, the entire clause is parsed as a const expression.
     pub(crate) fn parse_where_clauses(&mut self) -> ParseOutcome<Vec<WhereClause>> {
         if !self.cursor.check(&TokenKind::Where) {
             return ParseOutcome::empty_err_expected(
@@ -291,25 +298,42 @@ impl Parser<'_> {
         let mut clauses = Vec::new();
         loop {
             let clause_span = self.cursor.current_span();
-            let param = committed!(self.cursor.expect_ident());
 
-            // Check for associated type projection: T.Item
-            let projection = if self.cursor.check(&TokenKind::Dot) {
-                self.cursor.advance();
-                Some(committed!(self.cursor.expect_ident()))
-            } else {
-                None
+            // Disambiguation: check if this looks like a type bound (ident + : or ident.ident + :)
+            let is_type_bound = self.cursor.check_ident() && {
+                let next = self.cursor.peek_next_kind();
+                matches!(next, TokenKind::Colon | TokenKind::Dot)
             };
 
-            committed!(self.cursor.expect(&TokenKind::Colon));
-            let bounds = require!(self, self.parse_bounds(), "trait bounds in where clause");
+            if is_type_bound {
+                let param = committed!(self.cursor.expect_ident());
 
-            clauses.push(WhereClause {
-                param,
-                projection,
-                bounds,
-                span: clause_span.merge(self.cursor.previous_span()),
-            });
+                // Check for associated type projection: T.Item
+                let projection = if self.cursor.check(&TokenKind::Dot) {
+                    self.cursor.advance();
+                    Some(committed!(self.cursor.expect_ident()))
+                } else {
+                    None
+                };
+
+                committed!(self.cursor.expect(&TokenKind::Colon));
+                let bounds = require!(self, self.parse_bounds(), "trait bounds in where clause");
+
+                clauses.push(WhereClause::TypeBound {
+                    param,
+                    projection,
+                    bounds,
+                    span: clause_span.merge(self.cursor.previous_span()),
+                });
+            } else {
+                // Const bound: parse as expression without assignment (N > 0, N + M == 10).
+                // Use parse_non_assign_expr because `=` delimits the function body.
+                let expr = committed!(self.parse_non_assign_expr().into_result());
+                clauses.push(WhereClause::ConstBound {
+                    expr,
+                    span: clause_span.merge(self.cursor.previous_span()),
+                });
+            }
 
             if self.cursor.check(&TokenKind::Comma) {
                 self.cursor.advance();
@@ -319,5 +343,66 @@ impl Parser<'_> {
         }
 
         ParseOutcome::consumed_ok(clauses)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ori_ir::{StringInterner, WhereClause};
+
+    /// Parse a source string and return the where clauses from the first function.
+    fn parse_where_clauses(source: &str) -> Vec<WhereClause> {
+        let interner = StringInterner::new();
+        let tokens = ori_lexer::lex(source, &interner);
+        let parser = crate::Parser::new(&tokens, &interner);
+        let output = parser.parse_module();
+        assert!(
+            output.errors.is_empty(),
+            "Parse errors: {:?}",
+            output.errors
+        );
+        output.module.functions[0].where_clauses.clone()
+    }
+
+    #[test]
+    fn test_where_type_bound() {
+        // Regression: T: Clone still parses as TypeBound
+        let clauses = parse_where_clauses("@f<T> () -> void where T: Clone = ()");
+        assert_eq!(clauses.len(), 1);
+        assert!(clauses[0].is_type_bound());
+    }
+
+    #[test]
+    fn test_where_type_bound_with_projection() {
+        // T.Item: Eq — associated type constraint
+        let clauses = parse_where_clauses("@f<T> () -> void where T.Item: Eq = ()");
+        assert_eq!(clauses.len(), 1);
+        assert!(clauses[0].is_type_bound());
+    }
+
+    #[test]
+    fn test_where_multiple_type_bounds() {
+        // Multiple type bounds: T: Clone, U: Default
+        let clauses = parse_where_clauses("@f<T, U> () -> void where T: Clone, U: Default = ()");
+        assert_eq!(clauses.len(), 2);
+        assert!(clauses[0].is_type_bound());
+        assert!(clauses[1].is_type_bound());
+    }
+
+    #[test]
+    fn test_where_const_bound() {
+        // N > 0 — const bound expression
+        let clauses = parse_where_clauses("@f<$N: int> () -> void where N > 0 = ()");
+        assert_eq!(clauses.len(), 1);
+        assert!(clauses[0].is_const_bound());
+    }
+
+    #[test]
+    fn test_where_mixed_type_and_const_bounds() {
+        // T: Clone, N > 0 — mixed type bound + const bound
+        let clauses = parse_where_clauses("@f<T, $N: int> () -> void where T: Clone, N > 0 = ()");
+        assert_eq!(clauses.len(), 2);
+        assert!(clauses[0].is_type_bound());
+        assert!(clauses[1].is_const_bound());
     }
 }

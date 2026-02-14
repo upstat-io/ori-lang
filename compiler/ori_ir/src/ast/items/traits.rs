@@ -61,17 +61,44 @@ impl TraitBound {
     }
 }
 
-/// Where clause constraint: `T: Clone`, `U: Default`, or `T.Item: Eq`.
+/// Where clause constraint: type bounds (`T: Clone`) or const bounds (`N > 0`).
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct WhereClause {
-    /// The type parameter being constrained (e.g., `T` in `T: Clone` or `T.Item: Eq`).
-    pub param: Name,
-    /// Optional associated type projection (e.g., `Item` in `T.Item: Eq`).
-    /// If `Some`, this is a constraint on an associated type: `param.projection: bounds`.
-    pub projection: Option<Name>,
-    /// The trait bounds that must be satisfied.
-    pub bounds: Vec<TraitBound>,
-    pub span: Span,
+pub enum WhereClause {
+    /// Type bound: `T: Clone`, `U: Default`, or `T.Item: Eq`.
+    TypeBound {
+        /// The type parameter being constrained (e.g., `T` in `T: Clone`).
+        param: Name,
+        /// Optional associated type projection (e.g., `Item` in `T.Item: Eq`).
+        projection: Option<Name>,
+        /// The trait bounds that must be satisfied.
+        bounds: Vec<TraitBound>,
+        span: Span,
+    },
+    /// Const bound: `N > 0`, `N + M == 10`.
+    ConstBound {
+        /// The const expression that must hold.
+        expr: ExprId,
+        span: Span,
+    },
+}
+
+impl WhereClause {
+    /// Get the span of this where clause.
+    pub fn span(&self) -> Span {
+        match self {
+            WhereClause::TypeBound { span, .. } | WhereClause::ConstBound { span, .. } => *span,
+        }
+    }
+
+    /// Check if this is a type bound.
+    pub fn is_type_bound(&self) -> bool {
+        matches!(self, WhereClause::TypeBound { .. })
+    }
+
+    /// Check if this is a const bound.
+    pub fn is_const_bound(&self) -> bool {
+        matches!(self, WhereClause::ConstBound { .. })
+    }
 }
 
 /// Trait definition.

@@ -1,0 +1,53 @@
+// Spec: const generics parser support
+// Tests that const generic syntax parses without errors.
+//
+// STATUS: Parser [OK] - const expressions in type positions supported
+// Const evaluation is not yet implemented (type checker stubs).
+
+// =============================================================================
+// Const Generic Parameters in Function Declarations
+// =============================================================================
+
+// Function with const generic parameter
+#skip("const generics: type checker not yet implemented")
+@const_param<$N: int> () -> int = N
+
+// Function with const generic parameter and default value
+#skip("const generics: type checker not yet implemented")
+@const_param_default<$N: int = 10> () -> int = N
+
+// =============================================================================
+// Const Expressions in Type Arguments
+// =============================================================================
+
+// Integer literal in type argument position
+#skip("const generics: type checker not yet implemented")
+@int_type_arg () -> Array<int, 10> = []
+
+// Const param reference in type argument position
+#skip("const generics: type checker not yet implemented")
+@const_type_arg<$N: int> () -> Array<int, $N> = []
+
+// =============================================================================
+// Fixed-Capacity Lists with Const Expressions
+// =============================================================================
+
+// Fixed list with integer literal capacity (existing syntax)
+#skip("const generics: type checker not yet implemented")
+@fixed_list_literal () -> [int, max 10] = []
+
+// Fixed list with const param capacity (new syntax)
+#skip("const generics: type checker not yet implemented")
+@fixed_list_const<$N: int> () -> [int, max $N] = []
+
+// =============================================================================
+// Where Clause Const Bounds
+// =============================================================================
+
+// Const bound in where clause
+#skip("const generics: type checker not yet implemented")
+@const_bound<$N: int> () -> int where N > 0 = N
+
+// Mixed type and const bounds
+#skip("const generics: type checker not yet implemented")
+@mixed_bounds<T, $N: int> (x: T) -> T where T: Clone, N > 0 = x

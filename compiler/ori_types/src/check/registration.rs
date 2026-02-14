@@ -376,7 +376,10 @@ pub(super) fn resolve_parsed_type_simple(
         }
 
         // These types need special handling during inference
-        ParsedType::Infer | ParsedType::SelfType | ParsedType::AssociatedType { .. } => Idx::ERROR,
+        ParsedType::Infer
+        | ParsedType::SelfType
+        | ParsedType::AssociatedType { .. }
+        | ParsedType::ConstExpr(_) => Idx::ERROR,
     }
 }
 
@@ -631,11 +634,11 @@ fn register_impl(
         assoc_types.insert(impl_assoc.name, ty);
     }
 
-    // 6. Process where clauses
+    // 6. Process where clauses (const bounds filtered out — not yet evaluated)
     let where_clause = impl_def
         .where_clauses
         .iter()
-        .map(|wc| build_where_constraint(checker, wc, &type_params, self_type))
+        .filter_map(|wc| build_where_constraint(checker, wc, &type_params, self_type))
         .collect();
 
     // 6b. Validate all required associated types are defined
@@ -727,29 +730,34 @@ fn build_impl_method(
 }
 
 /// Build a `WhereConstraint` from a where clause.
+///
+/// Returns `None` for const bounds (not yet evaluated).
 fn build_where_constraint(
     checker: &mut ModuleChecker<'_>,
     wc: &ori_ir::WhereClause,
     type_params: &[Name],
     self_type: Idx,
-) -> WhereConstraint {
+) -> Option<WhereConstraint> {
+    let (param, bounds) = match wc {
+        ori_ir::WhereClause::TypeBound { param, bounds, .. } => (*param, bounds),
+        // Const bounds are not yet evaluated
+        ori_ir::WhereClause::ConstBound { .. } => return None,
+    };
+
     // Resolve the constrained type parameter
-    // WhereClause.param is the type parameter name (e.g., `T` in `T: Clone`)
-    // If there's a projection, it's an associated type constraint (e.g., `T.Item: Eq`)
-    let ty = if type_params.contains(&wc.param) {
-        checker.pool_mut().named(wc.param)
-    } else if wc.param == checker.interner().intern("Self") {
+    let ty = if type_params.contains(&param) {
+        checker.pool_mut().named(param)
+    } else if param == checker.interner().intern("Self") {
         self_type
     } else {
         // Fallback to named type
-        checker.pool_mut().named(wc.param)
+        checker.pool_mut().named(param)
     };
 
     // Resolve the trait bounds
     // TraitBound has `first` and `rest` fields for path segments
     // Use the `name()` method to get the last segment (the actual trait name)
-    let bounds: Vec<Idx> = wc
-        .bounds
+    let resolved_bounds: Vec<Idx> = bounds
         .iter()
         .map(|bound| {
             // Use the name() method which returns the last segment (or first if rest is empty)
@@ -757,7 +765,10 @@ fn build_where_constraint(
         })
         .collect();
 
-    WhereConstraint { ty, bounds }
+    Some(WhereConstraint {
+        ty,
+        bounds: resolved_bounds,
+    })
 }
 
 /// Resolve a parsed type with Self substitution.

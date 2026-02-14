@@ -4790,7 +4790,8 @@ pub fn resolve_parsed_type(
         }
 
         // === Inference Markers ===
-        ParsedType::Infer => engine.fresh_var(),
+        // Infer and ConstExpr both produce fresh variables (const eval not yet implemented)
+        ParsedType::Infer | ParsedType::ConstExpr(_) => engine.fresh_var(),
 
         ParsedType::SelfType => engine
             .impl_self_type()

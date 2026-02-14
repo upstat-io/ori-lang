@@ -51,7 +51,7 @@ sections:
 
 > **SPEC**: `spec/grammar.ebnf` (authoritative), `spec/02-source-code.md`, `spec/03-lexical-elements.md`
 
-**Status**: In Progress — Re-verified 2026-02-13. ~15 parser bugs remain (down from ~24). 13 items previously broken now parse correctly. Remaining gaps: const generics, channels, computed constants, some pattern forms. See § 0.8 for full bug list.
+**Status**: In Progress — Re-verified 2026-02-13. ~14 parser bugs remain (down from ~24). 16 items previously broken now parse correctly. Remaining gaps: const functions, channels, computed constants, some pattern forms. See § 0.8 for full bug list.
 
 ---
 
@@ -337,7 +337,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] Type params: `@f<T> (x: T) -> T` — parses correctly (verified via `ori parse`)
   - [x] Bounded: `@f<T: Eq> (x: T) -> bool` — parses correctly
   - [x] Multiple bounds: `@f<T: Eq + Clone> (x: T) -> T` — parses correctly
-  - [ ] Const params: `@f<$N: int> () -> [int, max N]` — **BROKEN**: parser rejects `$` in generics  <!-- blocked-by:18 -->
+  - [x] Const params: `@f<$N: int> () -> [int, max $N]` — parses correctly ✅ (2026-02-13)
   - [x] Default params: `@f<T = int> (x: T) -> T` — parses correctly
   - [x] **Ori Tests**: `tests/spec/declarations/generics.ori` — exists but tests commented out (type checker deps)
 
@@ -356,16 +356,16 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Where clause — grammar.ebnf § where_clause ✅ (2026-02-10)
   - [x] Type constraint: `where T: Clone` — parses correctly (verified via `ori parse`)
   - [x] Multiple: `where T: Clone, U: Default` — parses correctly
-  - [ ] Const constraint: `where N > 0` — **BROKEN**: parser only handles type bounds `:`, not const expressions  <!-- blocked-by:18 -->
+  - [x] Const constraint: `where N > 0` — parses correctly ✅ (2026-02-13)
   - [x] **Ori Tests**: `tests/spec/declarations/where_clause.ori` — exists but tests commented out
 
 ### 0.3.3 Const Bound Expressions
 
-- [ ] **Audit**: Const bound expressions — grammar.ebnf § const_bound_expr  <!-- blocked-by:18 -->
-  - [ ] Comparison: `N > 0`, `N == M`, `N >= 1` — blocked
-  - [ ] Logical: `N > 0 && N < 100`, `A || B`, `!C` — blocked
-  - [ ] Grouped: `(N > 0 && N < 10) || N == 100` — blocked
-  - [ ] **Note**: Blocked by const generics parser support (`$` in generics broken)
+- [x] **Audit**: Const bound expressions — grammar.ebnf § const_bound_expr ✅ (2026-02-13)
+  - [x] Comparison: `N > 0`, `N == M`, `N >= 1` — parses correctly
+  - [x] Logical: `N > 0 && N < 100`, `A || B`, `!C` — parses correctly
+  - [x] Grouped: `(N > 0 && N < 10) || N == 100` — parses correctly
+  - [x] **Rust Tests**: `ori_parse/src/grammar/item/generics.rs` — 5 where clause tests
 
 ### 0.3.4 Type Definitions
 
@@ -455,7 +455,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] **Audit**: Generic type arguments — grammar.ebnf § type_args ✅ (2026-02-10)
   - [x] `Option<int>`, `Result<T, E>`, `Map<str, int>` — parses correctly
   - [x] With const: `[int, max 10]` — parses correctly ✅ (2026-02-13)
-  - [ ] `Array<int, $N>` — **BROKEN**: `$` in generics  <!-- blocked-by:18 -->
+  - [x] `Array<int, $N>` — parses correctly ✅ (2026-02-13)
 
 ### 0.4.2 Existential Types
 
@@ -483,10 +483,11 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.4.4 Const Expressions in Types
 
-- [ ] **Audit**: Const expressions — grammar.ebnf § const_expr  <!-- blocked-by:18 -->
-  - [ ] Literal: `10`, `true` — not verified in type position
-  - [ ] Parameter: `$N` — **BROKEN**: parser rejects `$` in generics
-  - [ ] Arithmetic: `$N + 1`, `$N * 2` — blocked by above
+- [x] **Audit**: Const expressions — grammar.ebnf § const_expr ✅ (2026-02-13)
+  - [x] Literal: `10` in type argument position (e.g., `Array<int, 10>`) — parses correctly
+  - [x] Parameter: `$N` in type argument position — parses correctly
+  - [x] Arithmetic: `$N + 1`, `$N * 2` in type argument position — parses correctly
+  - [x] **Rust Tests**: `ori_parse/src/grammar/ty.rs` — 4 const expression type arg tests
 
 ### 0.4.5 Trait Objects
 
@@ -854,12 +855,12 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.8 Section Completion Checklist
 
-> **STATUS**: In Progress — Re-verified 2026-02-13. Major progress: 13 items previously BROKEN now parse correctly. Remaining gaps: const generics, channels, computed constants, some pattern forms.
+> **STATUS**: In Progress — Re-verified 2026-02-13. Major progress: 16 items previously BROKEN now parse correctly. Remaining gaps: const functions, channels, computed constants, some pattern forms.
 
 - [x] All lexical grammar items audited and tested (0.1) ✅ (2026-02-10)
 - [x] All source structure items audited and tested (0.2) ✅ (2026-02-13) — file attributes, extern `as`, C variadics all work now
-- [ ] All declaration items audited and tested (0.3) — partial: const generics (`$N`), floating tests broken; clause params, guard clauses, variadic params NOW WORK
-- [ ] All type items audited and tested (0.4) — partial: impl Trait, const-in-types broken; fixed-capacity lists NOW WORK
+- [ ] All declaration items audited and tested (0.3) — partial: floating tests broken; const generics NOW WORK ✅ (2026-02-13); clause params, guard clauses, variadic params NOW WORK
+- [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK
 - [x] All expression items audited and tested (0.5) ✅ (2026-02-13) — length placeholder `#` now works; labeled continue broken
 - [ ] All pattern items audited and tested (0.6) — partial: run pre/post checks, channels, struct rest `..`, with RAII, immutable bindings, char patterns broken; try `?` NOW WORKS
 - [ ] All constant expression items audited and tested (0.7) — only literals work; computed constants broken
@@ -870,7 +871,6 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 **Exit Criteria**: Every grammar production in `grammar.ebnf` has verified parser support with tests.
 
 **Remaining Parser Bugs (verified 2026-02-13):**
-- Const generics (`$` in generics) — rejected  <!-- blocked-by:18 -->
 - Const functions (`$name (params)`) — rejected  <!-- blocked-by:18 -->
 - Computed constants (`let $D = $A + 1`) — literal-only enforcement
 - impl Trait in type position — rejected  <!-- blocked-by:19 -->
@@ -886,8 +886,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - Labeled continue (`continue:outer`) — `:` rejected
 - Char patterns in match (`'a'`, `'a'..='z'`) — char literals not accepted
 
-**Fixed since 2026-02-10** (13 items):
-File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try()
+**Fixed since 2026-02-10** (16 items):
+File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`)
 
 ---
 
@@ -903,9 +903,11 @@ This section documents **parser-only** bugs discovered by the comprehensive test
 
 These features fail at the parse phase — the parser does not recognize the syntax.
 
-- [ ] **Implement**: Const generics  <!-- blocked-by:18 -->
-  - [ ] **Parser**: Handle `$` prefix in generic parameters
-  - [ ] **Syntax**: `@f<$N: int>` — **BROKEN**: parser rejects `$` in generics
+- [x] **Implement**: Const generics parser support ✅ (2026-02-13)
+  - [x] **Parser**: `$N: int` in generic parameters — was already working
+  - [x] **Syntax**: `Array<int, $N>` — const expressions in type arguments (NEW)
+  - [x] **Syntax**: `[int, max $N]` — const expressions in fixed-list capacity (NEW)
+  - [x] **Syntax**: `where N > 0` — const bounds in where clauses (NEW)
 
 - [ ] **Implement**: Associated type constraints in where clauses  <!-- blocked-by:3 -->
   - [ ] **Syntax**: `where I.Item == int` — **BROKEN**: parser expects `:`, finds `==`
@@ -1000,11 +1002,11 @@ Systematic `ori parse` verification of every grammar production against actual p
 7. `as`/`as?` type conversion operators
 8. Wildcard in for loops (`for _ in range`)
 
-**Verified Parser Bugs — 24 items still broken:**
-1. Guard clauses (`if` before `=`) — parser rejects
-2. List/pattern params (`@fib (0: int)`) — parser rejects
-3. Const generics (`$` in generics) — parser rejects
-4. Variadic params (`...int`) — parser rejects
+**Verified Parser Bugs — 24 items originally, 16 fixed, ~8 remain:**
+1. Guard clauses (`if` before `=`) — ~~parser rejects~~ FIXED ✅
+2. List/pattern params (`@fib (0: int)`) — ~~parser rejects~~ FIXED ✅
+3. Const generics (`$` in generics) — ~~parser rejects~~ FIXED ✅ (2026-02-13)
+4. Variadic params (`...int`) — ~~parser rejects~~ FIXED ✅
 5. `#repr`/`#target`/`#cfg` attributes — unknown attribute error
 6. Associated type constraints (`where I.Item == int`) — `==` rejected
 7. Const functions (`$name (params)`) — parser error
