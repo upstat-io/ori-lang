@@ -182,15 +182,23 @@ fn infer_function_signature_with_arena(
         .map(|p| p.bounds.iter().map(ori_ir::TraitBound::name).collect())
         .collect();
 
-    // Collect where-clauses
+    // Collect where-clauses (only type bounds; const bounds are deferred)
     let where_clauses: Vec<FnWhereClause> = func
         .where_clauses
         .iter()
-        .map(|wc| FnWhereClause {
-            param: wc.param,
-            projection: wc.projection,
-            bounds: wc.bounds.iter().map(ori_ir::TraitBound::name).collect(),
-            span: wc.span,
+        .filter_map(|wc| match wc {
+            ori_ir::WhereClause::TypeBound {
+                param,
+                projection,
+                bounds,
+                span,
+            } => Some(FnWhereClause {
+                param: *param,
+                projection: *projection,
+                bounds: bounds.iter().map(ori_ir::TraitBound::name).collect(),
+                span: *span,
+            }),
+            ori_ir::WhereClause::ConstBound { .. } => None,
         })
         .collect();
 
@@ -441,9 +449,9 @@ fn resolve_type_with_vars(
         }
 
         // Associated type: T::Item
-        ParsedType::AssociatedType { .. } => {
-            // Associated types require trait resolution
-            // For now, return error - will be implemented with trait support
+        ParsedType::AssociatedType { .. } | ParsedType::ConstExpr(_) => {
+            // Associated types require trait resolution; const expressions require const evaluation.
+            // For now, return error - will be implemented with trait/const support
             Idx::ERROR
         }
     }

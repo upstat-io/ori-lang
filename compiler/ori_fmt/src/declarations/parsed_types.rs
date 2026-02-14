@@ -3,7 +3,7 @@
 //! Formatting for type expressions (`ParsedType`) used in function signatures,
 //! type declarations, and other contexts.
 
-use ori_ir::{ExprArena, ParsedType, StringLookup, TypeId};
+use ori_ir::{ExprArena, ExprId, ExprKind, ParsedType, StringLookup, TypeId};
 
 use crate::context::FormatContext;
 use crate::emitter::Emitter;
@@ -45,7 +45,7 @@ pub(super) fn format_parsed_type<I: StringLookup, E: Emitter>(
             let elem_ty = arena.get_parsed_type(*elem);
             format_parsed_type(elem_ty, arena, interner, ctx);
             ctx.emit(", max ");
-            ctx.emit(&capacity.to_string());
+            format_const_expr(*capacity, arena, interner, ctx);
             ctx.emit("]");
         }
         ParsedType::Tuple(elems) => {
@@ -95,6 +95,9 @@ pub(super) fn format_parsed_type<I: StringLookup, E: Emitter>(
             ctx.emit(".");
             ctx.emit(interner.lookup(*assoc_name));
         }
+        ParsedType::ConstExpr(expr_id) => {
+            format_const_expr(*expr_id, arena, interner, ctx);
+        }
     }
 }
 
@@ -125,10 +128,10 @@ pub(super) fn calculate_type_width<I: StringLookup>(
             let elem_ty = arena.get_parsed_type(*elem);
             2 + calculate_type_width(elem_ty, arena, interner) // "[]"
         }
-        ParsedType::FixedList { elem, capacity } => {
+        ParsedType::FixedList { elem, .. } => {
             let elem_ty = arena.get_parsed_type(*elem);
-            // "[" + elem + ", max " + digits + "]"
-            2 + calculate_type_width(elem_ty, arena, interner) + 6 + digit_count(*capacity)
+            // "[" + elem + ", max " + expr + "]" — estimate expr width as 10
+            2 + calculate_type_width(elem_ty, arena, interner) + 6 + 10
         }
         ParsedType::Tuple(elems) => {
             let elem_list = arena.get_parsed_type_list(*elems);
@@ -171,20 +174,34 @@ pub(super) fn calculate_type_width<I: StringLookup>(
             let base_ty = arena.get_parsed_type(*base);
             calculate_type_width(base_ty, arena, interner) + 1 + interner.lookup(*assoc_name).len()
         }
+        ParsedType::ConstExpr(_) => 10, // Estimate for const expressions
     }
 }
 
-/// Count the number of digits in a u64 value.
-fn digit_count(mut n: u64) -> usize {
-    if n == 0 {
-        return 1;
+/// Format a const expression (used in type positions like `$N`, `42`, `$N + 1`).
+fn format_const_expr<I: StringLookup, E: Emitter>(
+    expr_id: ExprId,
+    arena: &ExprArena,
+    interner: &I,
+    ctx: &mut FormatContext<E>,
+) {
+    let expr = arena.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::Int(n) => ctx.emit(&n.to_string()),
+        ExprKind::Const(name) => {
+            ctx.emit("$");
+            ctx.emit(interner.lookup(*name));
+        }
+        ExprKind::Ident(name) => ctx.emit(interner.lookup(*name)),
+        ExprKind::Binary { op, left, right } => {
+            format_const_expr(*left, arena, interner, ctx);
+            ctx.emit(" ");
+            ctx.emit(op.as_symbol());
+            ctx.emit(" ");
+            format_const_expr(*right, arena, interner, ctx);
+        }
+        _ => ctx.emit("<const>"),
     }
-    let mut count = 0;
-    while n > 0 {
-        count += 1;
-        n /= 10;
-    }
-    count
 }
 
 /// Convert a [`TypeId`] to its string representation.

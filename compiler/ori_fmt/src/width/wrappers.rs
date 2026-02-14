@@ -134,8 +134,8 @@ fn estimate_type_width<I: StringLookup>(ty: &ParsedType, interner: &I) -> usize 
         }
         ParsedType::FixedList { .. } => 14, // "[int, max 100]" estimate
         ParsedType::Map { .. } => 12,       // "{str: int}" estimate
-        // Tuples and associated types have similar estimated widths
-        ParsedType::Tuple(_) | ParsedType::AssociatedType { .. } => 10,
+        // Tuples, associated types, and const expressions have similar estimated widths
+        ParsedType::Tuple(_) | ParsedType::AssociatedType { .. } | ParsedType::ConstExpr(_) => 10,
         ParsedType::Function { .. } => 15, // "(int) -> str" estimate
         ParsedType::Infer => 1,            // "_"
         ParsedType::SelfType => 4,         // "Self"

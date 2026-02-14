@@ -343,13 +343,45 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             if i > 0 {
                 self.ctx.emit(", ");
             }
-            self.ctx.emit(self.interner.lookup(clause.param));
-            if let Some(proj) = clause.projection {
-                self.ctx.emit(".");
-                self.ctx.emit(self.interner.lookup(proj));
+            match clause {
+                WhereClause::TypeBound {
+                    param,
+                    projection,
+                    bounds,
+                    ..
+                } => {
+                    self.ctx.emit(self.interner.lookup(*param));
+                    if let Some(proj) = projection {
+                        self.ctx.emit(".");
+                        self.ctx.emit(self.interner.lookup(*proj));
+                    }
+                    self.ctx.emit(": ");
+                    self.format_trait_bounds(bounds);
+                }
+                WhereClause::ConstBound { expr, .. } => {
+                    self.emit_const_expr_inline(*expr);
+                }
             }
-            self.ctx.emit(": ");
-            self.format_trait_bounds(&clause.bounds);
+        }
+    }
+
+    fn emit_const_expr_inline(&mut self, expr_id: ori_ir::ExprId) {
+        let expr = self.arena.get_expr(expr_id);
+        match &expr.kind {
+            ori_ir::ExprKind::Int(n) => self.ctx.emit(&n.to_string()),
+            ori_ir::ExprKind::Const(name) => {
+                self.ctx.emit("$");
+                self.ctx.emit(self.interner.lookup(*name));
+            }
+            ori_ir::ExprKind::Ident(name) => self.ctx.emit(self.interner.lookup(*name)),
+            ori_ir::ExprKind::Binary { op, left, right } => {
+                self.emit_const_expr_inline(*left);
+                self.ctx.emit(" ");
+                self.ctx.emit(op.as_symbol());
+                self.ctx.emit(" ");
+                self.emit_const_expr_inline(*right);
+            }
+            _ => self.ctx.emit("<const>"),
         }
     }
 }

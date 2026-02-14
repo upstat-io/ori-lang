@@ -1,9 +1,8 @@
 // Spec: 06-types.md § Compound Types - Fixed-Capacity List
 // Tests for [T, max N] fixed-capacity lists
 //
-// STATUS: Lexer [OK], Parser [BROKEN] - expected '=', found ','
-// Parser does not recognize [T, max N] fixed-capacity list type syntax.
-// The comma inside the type annotation is being misinterpreted.
+// STATUS: Lexer [OK], Parser [OK] - fixed-capacity list type syntax supported
+// Parser now recognizes [T, max N] and [T, max $N] fixed-capacity list types.
 
 use std.testing { assert, assert_eq }
 

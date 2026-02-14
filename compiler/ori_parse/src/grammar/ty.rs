@@ -104,14 +104,13 @@ impl Parser<'_> {
                 if let TokenKind::Ident(name) = self.cursor.current_kind() {
                     if self.cursor.interner().lookup(*name) == "max" {
                         self.cursor.advance(); // max
-                                               // Parse capacity (integer literal)
-                        if let TokenKind::Int(capacity) = *self.cursor.current_kind() {
-                            self.cursor.advance(); // capacity
+                                               // Parse capacity as const expression ($N, 42, $N + 1)
+                        if let Ok(capacity_expr) = self.parse_non_comparison_expr().into_result() {
                             if self.cursor.check(&TokenKind::RBracket) {
                                 self.cursor.advance(); // ]
                             }
                             let elem_id = self.arena.alloc_parsed_type(inner);
-                            return Some(ParsedType::fixed_list(elem_id, capacity));
+                            return Some(ParsedType::fixed_list(elem_id, capacity_expr));
                         }
                     }
                 }
@@ -182,7 +181,13 @@ impl Parser<'_> {
             if p.cursor.check(&TokenKind::Gt) {
                 return Ok(false);
             }
-            if let Some(ty) = p.parse_type() {
+            let tag = p.cursor.current_tag();
+            if tag == TK::TAG_DOLLAR || tag == TK::TAG_INT {
+                // Const expression in type argument position: $N, $N + 1, 42
+                let expr_id = p.parse_non_comparison_expr().into_result()?;
+                type_args.push(p.arena.alloc_parsed_type(ParsedType::const_expr(expr_id)));
+                Ok(true)
+            } else if let Some(ty) = p.parse_type() {
                 type_args.push(p.arena.alloc_parsed_type(ty));
                 Ok(true)
             } else {
@@ -686,5 +691,140 @@ mod tests {
         let (ty, _, errors) = parse_type_with_errors("&");
         assert_eq!(ty, Some(ParsedType::Infer));
         assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_fixed_list_integer_literal() {
+        // [int, max 42] — regression test: integer literal capacity
+        let (ty, arena) = parse_type_with_arena("[int, max 42]");
+        match ty {
+            Some(ParsedType::FixedList { elem, capacity }) => {
+                assert_eq!(
+                    *arena.get_parsed_type(elem),
+                    ParsedType::primitive(TypeId::INT)
+                );
+                let expr = arena.get_expr(capacity);
+                assert!(
+                    matches!(expr.kind, ori_ir::ExprKind::Int(42)),
+                    "expected Int(42), got {:?}",
+                    expr.kind
+                );
+            }
+            _ => panic!("expected FixedList, got {ty:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_fixed_list_const_param() {
+        // [int, max $N] — const generic capacity
+        let interner = StringInterner::new();
+        let full_source = "@test () -> [int, max $N] = 0";
+        let tokens = ori_lexer::lex(full_source, &interner);
+        let mut parser = Parser::new(&tokens, &interner);
+
+        // Skip to return type
+        parser.cursor.advance(); // @
+        parser.cursor.advance(); // test
+        parser.cursor.advance(); // (
+        parser.cursor.advance(); // )
+        parser.cursor.advance(); // ->
+
+        let ty = parser.parse_type();
+        let arena = parser.take_arena();
+
+        match ty {
+            Some(ParsedType::FixedList { elem, capacity }) => {
+                assert_eq!(
+                    *arena.get_parsed_type(elem),
+                    ParsedType::primitive(TypeId::INT)
+                );
+                let expr = arena.get_expr(capacity);
+                assert!(
+                    matches!(expr.kind, ori_ir::ExprKind::Const(_)),
+                    "expected Const, got {:?}",
+                    expr.kind
+                );
+            }
+            _ => panic!("expected FixedList, got {ty:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_generic_with_const_expr() {
+        // Array<int, $N> — const expression in type argument
+        let interner = StringInterner::new();
+        let full_source = "@test () -> Array<int, $N> = 0";
+        let tokens = ori_lexer::lex(full_source, &interner);
+        let mut parser = Parser::new(&tokens, &interner);
+
+        // Skip to return type
+        parser.cursor.advance(); // @
+        parser.cursor.advance(); // test
+        parser.cursor.advance(); // (
+        parser.cursor.advance(); // )
+        parser.cursor.advance(); // ->
+
+        let ty = parser.parse_type();
+        let arena = parser.take_arena();
+
+        match ty {
+            Some(ParsedType::Named { type_args, .. }) => {
+                assert_eq!(type_args.len(), 2, "Expected 2 type args");
+                let args = arena.get_parsed_type_list(type_args);
+                // First arg should be int
+                assert_eq!(
+                    *arena.get_parsed_type(args[0]),
+                    ParsedType::primitive(TypeId::INT)
+                );
+                // Second arg should be ConstExpr
+                assert!(
+                    arena.get_parsed_type(args[1]).is_const_expr(),
+                    "Expected ConstExpr, got {:?}",
+                    arena.get_parsed_type(args[1])
+                );
+            }
+            _ => panic!("expected Named, got {ty:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_generic_with_integer_literal() {
+        // Array<int, 10> — integer literal in type argument
+        let interner = StringInterner::new();
+        let full_source = "@test () -> Array<int, 10> = 0";
+        let tokens = ori_lexer::lex(full_source, &interner);
+        let mut parser = Parser::new(&tokens, &interner);
+
+        parser.cursor.advance(); // @
+        parser.cursor.advance(); // test
+        parser.cursor.advance(); // (
+        parser.cursor.advance(); // )
+        parser.cursor.advance(); // ->
+
+        let ty = parser.parse_type();
+        let arena = parser.take_arena();
+
+        match ty {
+            Some(ParsedType::Named { type_args, .. }) => {
+                assert_eq!(type_args.len(), 2, "Expected 2 type args");
+                let args = arena.get_parsed_type_list(type_args);
+                assert_eq!(
+                    *arena.get_parsed_type(args[0]),
+                    ParsedType::primitive(TypeId::INT)
+                );
+                match arena.get_parsed_type(args[1]) {
+                    ParsedType::ConstExpr(expr_id) => {
+                        let expr = arena.get_expr(*expr_id);
+                        assert!(
+                            matches!(expr.kind, ori_ir::ExprKind::Int(10)),
+                            "expected Int(10), got {:?}",
+                            expr.kind
+                        );
+                    }
+                    other => panic!("expected ConstExpr, got {other:?}"),
+                }
+            }
+            _ => panic!("expected Named, got {ty:?}"),
+        }
     }
 }

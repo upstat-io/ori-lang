@@ -33,7 +33,7 @@
 //!
 //! All types derive Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
-use crate::{Name, ParsedTypeId, ParsedTypeRange, TypeId};
+use crate::{ExprId, Name, ParsedTypeId, ParsedTypeRange, TypeId};
 
 /// A parsed type expression, preserving full structure.
 ///
@@ -80,8 +80,8 @@ pub enum ParsedType {
     FixedList {
         /// Element type ID.
         elem: ParsedTypeId,
-        /// Maximum capacity as a parsed integer literal.
-        capacity: u64,
+        /// Maximum capacity as a const expression (literal `42` or generic `$N`).
+        capacity: ExprId,
     },
 
     /// A tuple type: `(T, U)` or unit `()`
@@ -117,6 +117,10 @@ pub enum ParsedType {
         /// The associated type name (e.g., `Item`).
         assoc_name: Name,
     },
+
+    /// A const expression in a type position: `$N`, `$N + 1`, `42`.
+    /// Used in generic type arguments: `Array<int, $N>`, `Buffer<T, $N + 1>`.
+    ConstExpr(ExprId),
 }
 
 impl ParsedType {
@@ -147,9 +151,9 @@ impl ParsedType {
         ParsedType::List(elem)
     }
 
-    /// Create a fixed-capacity list type with element type ID and capacity.
+    /// Create a fixed-capacity list type with element type ID and capacity expression.
     #[inline]
-    pub fn fixed_list(elem: ParsedTypeId, capacity: u64) -> Self {
+    pub fn fixed_list(elem: ParsedTypeId, capacity: ExprId) -> Self {
         ParsedType::FixedList { elem, capacity }
     }
 
@@ -183,6 +187,12 @@ impl ParsedType {
         ParsedType::AssociatedType { base, assoc_name }
     }
 
+    /// Create a const expression in a type position.
+    #[inline]
+    pub fn const_expr(expr: ExprId) -> Self {
+        ParsedType::ConstExpr(expr)
+    }
+
     /// Check if this is the Infer marker.
     #[inline]
     pub fn is_infer(&self) -> bool {
@@ -199,6 +209,12 @@ impl ParsedType {
     #[inline]
     pub fn is_function(&self) -> bool {
         matches!(self, ParsedType::Function { .. })
+    }
+
+    /// Check if this is a const expression in a type position.
+    #[inline]
+    pub fn is_const_expr(&self) -> bool {
+        matches!(self, ParsedType::ConstExpr(_))
     }
 }
 
