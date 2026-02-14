@@ -1008,6 +1008,16 @@ impl ExprArena {
         finish_template_parts,
         "template part list"
     );
+
+    define_direct_append!(
+        checks,
+        CheckExpr,
+        CheckRange,
+        start_checks,
+        push_check,
+        finish_checks,
+        "check expression list"
+    );
 }
 
 impl PartialEq for ExprArena {

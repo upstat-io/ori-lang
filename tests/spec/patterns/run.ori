@@ -131,12 +131,12 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 // =============================================================================
-// Pre-Check and Post-Check Parse Tests (parsing works, enforcement pending)
+// Pre-Check and Post-Check Tests
 // =============================================================================
 
-// Pre/post checks PARSE correctly (2026-02-14) but are NOT ENFORCED yet.
-// The type checker and evaluator skip check expressions (tracked in Section 23.8.5).
-// These tests verify the happy path (checks satisfied) since enforcement is a no-op.
+// Pre/post checks are type-checked and enforced at runtime.
+// Pre-checks: condition must be bool, panics on failure.
+// Post-checks: lambda (result_type) -> bool, panics on failure.
 
 @test_pre_check_basic tests @pre_check_basic () -> void = run(
     let result = pre_check_basic(x: 5),
@@ -215,35 +215,32 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 // =============================================================================
-// Pre-Check Conditions (enforcement tests — commented until Section 23.8.5)
+// Pre-Check Conditions (enforcement tests)
 // =============================================================================
 
-// NOTE: These tests require pre/post check ENFORCEMENT (panic on failure).
-// Parsing works but enforcement is not yet implemented. Tracked in Section 23.8.5.
+@test_pre_check_passes tests @pre_check_passes () -> void = run(
+    let result = divide_safe(a: 10, b: 2),
+    assert_eq(actual: result, expected: 5),
+)
 
-// @test_pre_check_passes tests @pre_check_passes () -> void = run(
-//     let result = divide_safe(a: 10, b: 2),
-//     assert_eq(actual: result, expected: 5),
-// )
+@divide_safe (a: int, b: int) -> int = run(
+    pre_check: b != 0,
+    a div b,
+)
 
-// @divide_safe (a: int, b: int) -> int = run(
-//     pre_check: b != 0,
-//     a div b,
-// )
+@pre_check_passes () -> int = divide_safe(a: 10, b: 2)
 
-// @pre_check_passes () -> int = divide_safe(a: 10, b: 2)
+@test_pre_check_with_message tests @pre_check_with_message () -> void = run(
+    let result = positive_only(n: 5),
+    assert_eq(actual: result, expected: 25),
+)
 
-// @test_pre_check_with_message tests @pre_check_with_message () -> void = run(
-//     let result = positive_only(n: 5),
-//     assert_eq(actual: result, expected: 25),
-// )
+@positive_only (n: int) -> int = run(
+    pre_check: n > 0 | "n must be positive",
+    n * n,
+)
 
-// @positive_only (n: int) -> int = run(
-//     pre_check: n > 0 | "n must be positive",
-//     n * n,
-// )
-
-// @pre_check_with_message () -> int = positive_only(n: 5)
+@pre_check_with_message () -> int = positive_only(n: 5)
 
 // @test_multiple_pre_checks tests @multiple_pre_checks () -> void = run(
 //     let result = bounded_add(a: 5, b: 10),
@@ -264,17 +261,17 @@ use std.testing { assert, assert_eq, assert_ne }
 // Post-Check Conditions
 // =============================================================================
 
-// @test_post_check_passes tests @post_check_passes () -> void = run(
-//     let result = abs_value(n: -5),
-//     assert_eq(actual: result, expected: 5),
-// )
+@test_post_check_passes tests @post_check_passes () -> void = run(
+    let result = abs_value(n: -5),
+    assert_eq(actual: result, expected: 5),
+)
 
-// @abs_value (n: int) -> int = run(
-//     if n < 0 then -n else n,
-//     post_check: r -> r >= 0,
-// )
+@abs_value (n: int) -> int = run(
+    if n < 0 then -n else n,
+    post_check: r -> r >= 0,
+)
 
-// @post_check_passes () -> int = abs_value(n: -5)
+@post_check_passes () -> int = abs_value(n: -5)
 
 // @test_post_check_with_message tests @post_check_with_message () -> void = run(
 //     let result = safe_sqrt_int(n: 16),
@@ -295,18 +292,18 @@ use std.testing { assert, assert_eq, assert_ne }
 // Combined Pre and Post Checks
 // =============================================================================
 
-// @test_pre_and_post_check tests @pre_and_post_check () -> void = run(
-//     let result = safe_divide(a: 20, b: 4),
-//     assert_eq(actual: result, expected: 5),
-// )
+@test_pre_and_post_check tests @pre_and_post_check () -> void = run(
+    let result = safe_divide(a: 20, b: 4),
+    assert_eq(actual: result, expected: 5),
+)
 
-// @safe_divide (a: int, b: int) -> int = run(
-//     pre_check: b != 0 | "divisor cannot be zero",
-//     a div b,
-//     post_check: r -> r * b <= a | "result times divisor must not exceed dividend",
-// )
+@safe_divide (a: int, b: int) -> int = run(
+    pre_check: b != 0 | "divisor cannot be zero",
+    a div b,
+    post_check: r -> r * b <= a | "result times divisor must not exceed dividend",
+)
 
-// @pre_and_post_check () -> int = safe_divide(a: 20, b: 4)
+@pre_and_post_check () -> int = safe_divide(a: 20, b: 4)
 
 // =============================================================================
 // Post-Check with Multiple Return Bindings

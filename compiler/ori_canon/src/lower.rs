@@ -13,7 +13,10 @@ use ori_ir::canon::{
     CanMapEntry, CanNamedExpr, CanNode, CanParam, CanRange, CanonResult, CanonRoot, ConstantPool,
     DecisionTreePool, MethodRoot,
 };
-use ori_ir::{ExprArena, ExprId, ExprKind, ExprRange, Name, Span, StringInterner, TypeId};
+use ori_ir::{
+    ExprArena, ExprId, ExprKind, ExprRange, FunctionExpKind, Name, Span, StringInterner, TypeId,
+    UnaryOp,
+};
 use ori_types::{TypeCheckResult, TypedModule};
 
 /// Lower a type-checked AST to canonical form.
@@ -262,6 +265,10 @@ pub(crate) struct Lowerer<'a> {
     // Pre-interned builtin type names for TypeRef detection.
     name_duration: Name,
     name_size: Name,
+
+    // Pre-interned names for check desugaring.
+    name_msg: Name,
+    name_check_result: Name,
 }
 
 impl<'a> Lowerer<'a> {
@@ -295,6 +302,8 @@ impl<'a> Lowerer<'a> {
             name_merge: interner.intern("merge"),
             name_duration: interner.intern("Duration"),
             name_size: interner.intern("Size"),
+            name_msg: interner.intern("msg"),
+            name_check_result: interner.intern("__check_result"),
         }
     }
 
@@ -1207,12 +1216,12 @@ impl<'a> Lowerer<'a> {
         let seq = self.src.get_function_seq(seq_id).clone();
         match seq {
             ori_ir::FunctionSeq::Run {
-                bindings, result, ..
-            } => {
-                let stmts = self.lower_seq_bindings(bindings);
-                let result = self.lower_expr(result);
-                self.push(CanExpr::Block { stmts, result }, span, ty)
-            }
+                pre_checks,
+                bindings,
+                result,
+                post_checks,
+                ..
+            } => self.lower_run_seq(pre_checks, bindings, result, post_checks, span, ty),
             ori_ir::FunctionSeq::Try {
                 bindings, result, ..
             } => {
@@ -1364,6 +1373,222 @@ impl<'a> Lowerer<'a> {
             self.arena.push_expr_list_item(can_id);
         }
         self.arena.finish_expr_list(start)
+    }
+
+    // Pre/Post Check Desugaring
+
+    /// Lower a `Run` sequence with pre/post checks.
+    ///
+    /// Desugars per the checks proposal:
+    /// - Pre-checks → `if !cond then panic(msg: "...") else ()`
+    /// - Post-checks → bind result, assert via lambda call, return result
+    fn lower_run_seq(
+        &mut self,
+        pre_checks: ori_ir::CheckRange,
+        bindings: ori_ir::SeqBindingRange,
+        result: ExprId,
+        post_checks: ori_ir::CheckRange,
+        span: Span,
+        ty: TypeId,
+    ) -> CanId {
+        let pre_check_list = self.src.get_checks(pre_checks).to_vec();
+        let post_check_list = self.src.get_checks(post_checks).to_vec();
+        let has_post_checks = !post_check_list.is_empty();
+
+        // Phase 1: Lower all pre-check assertions
+        let pre_stmts: Vec<CanId> = pre_check_list
+            .iter()
+            .map(|check| self.lower_check_assertion(check, "pre_check failed", span))
+            .collect();
+
+        // Phase 2: Lower bindings
+        let binding_stmts = self.lower_seq_bindings(bindings);
+
+        // Phase 3: Lower result and post-checks
+        if has_post_checks {
+            // Bind result to a temporary, run post-check assertions, return temporary.
+            let result_id = self.lower_expr(result);
+            let result_name = self.name_check_result;
+            let pattern = self
+                .arena
+                .push_binding_pattern(CanBindingPattern::Name(result_name));
+            let let_result = self.push(
+                CanExpr::Let {
+                    pattern,
+                    init: result_id,
+                    mutable: false,
+                },
+                span,
+                TypeId::UNIT,
+            );
+
+            // Reference to the bound result
+            let result_ref = self.push(CanExpr::Ident(result_name), span, ty);
+
+            // Lower post-check assertions: if !lambda(result) then panic(msg: "...")
+            let post_stmts: Vec<CanId> = post_check_list
+                .iter()
+                .map(|check| self.lower_post_check_assertion(check, result_ref, span, ty))
+                .collect();
+
+            // Final result: reference to the bound result
+            let final_result = self.push(CanExpr::Ident(result_name), span, ty);
+
+            // Collect binding IDs before mutating arena
+            let binding_ids: Vec<CanId> = self.arena.get_expr_list(binding_stmts).to_vec();
+
+            // Assemble block: [pre_stmts, bindings, let_result, post_stmts]
+            let start = self.arena.start_expr_list();
+            for &s in &pre_stmts {
+                self.arena.push_expr_list_item(s);
+            }
+            for id in binding_ids {
+                self.arena.push_expr_list_item(id);
+            }
+            self.arena.push_expr_list_item(let_result);
+            for &s in &post_stmts {
+                self.arena.push_expr_list_item(s);
+            }
+            let stmts = self.arena.finish_expr_list(start);
+
+            self.push(
+                CanExpr::Block {
+                    stmts,
+                    result: final_result,
+                },
+                span,
+                ty,
+            )
+        } else if pre_stmts.is_empty() {
+            // No checks at all — original fast path
+            let binding_range = binding_stmts;
+            let result = self.lower_expr(result);
+            self.push(
+                CanExpr::Block {
+                    stmts: binding_range,
+                    result,
+                },
+                span,
+                ty,
+            )
+        } else {
+            // Pre-checks only, no post-checks
+            let result = self.lower_expr(result);
+            let binding_ids: Vec<CanId> = self.arena.get_expr_list(binding_stmts).to_vec();
+            let start = self.arena.start_expr_list();
+            for &s in &pre_stmts {
+                self.arena.push_expr_list_item(s);
+            }
+            for id in binding_ids {
+                self.arena.push_expr_list_item(id);
+            }
+            let stmts = self.arena.finish_expr_list(start);
+            self.push(CanExpr::Block { stmts, result }, span, ty)
+        }
+    }
+
+    /// Lower a pre-check into `if !condition then panic(msg: "...") else ()`.
+    fn lower_check_assertion(
+        &mut self,
+        check: &ori_ir::CheckExpr,
+        default_msg: &str,
+        span: Span,
+    ) -> CanId {
+        let cond = self.lower_expr(check.expr);
+        let negated = self.push(
+            CanExpr::Unary {
+                op: UnaryOp::Not,
+                operand: cond,
+            },
+            check.span,
+            TypeId::BOOL,
+        );
+
+        let panic_node = self.lower_check_panic(check, default_msg, span);
+        let unit = self.push(CanExpr::Unit, span, TypeId::UNIT);
+
+        self.push(
+            CanExpr::If {
+                cond: negated,
+                then_branch: panic_node,
+                else_branch: unit,
+            },
+            check.span,
+            TypeId::UNIT,
+        )
+    }
+
+    /// Lower a post-check into `if !lambda(result) then panic(msg: "...") else ()`.
+    fn lower_post_check_assertion(
+        &mut self,
+        check: &ori_ir::CheckExpr,
+        result_ref: CanId,
+        span: Span,
+        _result_ty: TypeId,
+    ) -> CanId {
+        // Lower the lambda expression
+        let lambda = self.lower_expr(check.expr);
+
+        // Call the lambda with the result: lambda(result)
+        let args = self.arena.push_expr_list(&[result_ref]);
+        let call = self.push(
+            CanExpr::Call { func: lambda, args },
+            check.span,
+            TypeId::BOOL,
+        );
+
+        // Negate: !lambda(result)
+        let negated = self.push(
+            CanExpr::Unary {
+                op: UnaryOp::Not,
+                operand: call,
+            },
+            check.span,
+            TypeId::BOOL,
+        );
+
+        let panic_node = self.lower_check_panic(check, "post_check failed", span);
+        let unit = self.push(CanExpr::Unit, span, TypeId::UNIT);
+
+        self.push(
+            CanExpr::If {
+                cond: negated,
+                then_branch: panic_node,
+                else_branch: unit,
+            },
+            check.span,
+            TypeId::UNIT,
+        )
+    }
+
+    /// Construct a `panic(msg: "...")` node for check failure.
+    fn lower_check_panic(
+        &mut self,
+        check: &ori_ir::CheckExpr,
+        default_msg: &str,
+        span: Span,
+    ) -> CanId {
+        // Use custom message if provided, otherwise use default
+        let msg_id = if let Some(msg_expr) = check.message {
+            self.lower_expr(msg_expr)
+        } else {
+            let msg_name = self.interner.intern(default_msg);
+            self.push(CanExpr::Str(msg_name), span, TypeId::STR)
+        };
+
+        let props = self.arena.push_named_exprs(&[CanNamedExpr {
+            name: self.name_msg,
+            value: msg_id,
+        }]);
+
+        self.push(
+            CanExpr::FunctionExp {
+                kind: FunctionExpKind::Panic,
+                props,
+            },
+            span,
+            TypeId::NEVER,
+        )
     }
 }
 

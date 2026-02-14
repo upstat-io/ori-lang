@@ -5,6 +5,7 @@
 //! Match pattern parsing uses `one_of!` for automatic backtracking across
 //! pattern alternatives (wildcard, literal, ident, struct, list, variant, tuple).
 
+use crate::context::ParseContext;
 use crate::recovery::TokenSet;
 use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
@@ -69,16 +70,15 @@ impl Parser<'_> {
         committed!(self.cursor.expect(&TokenKind::LParen));
         self.cursor.skip_newlines();
 
-        let mut pre_checks = Vec::new();
+        let pre_check_start = self.arena.start_checks();
         let mut bindings = Vec::new();
         let mut result_expr = None;
-        let mut post_checks = Vec::new();
 
         // Phase 1: Parse pre_checks (only for run, not try)
         if is_run {
             while self.is_check_start("pre_check") {
                 let check = committed!(self.parse_named_check("pre_check"));
-                pre_checks.push(check);
+                self.arena.push_check(check);
                 self.cursor.skip_newlines();
                 if !self.cursor.check(&TokenKind::RParen) {
                     committed!(self.cursor.expect(&TokenKind::Comma));
@@ -86,6 +86,7 @@ impl Parser<'_> {
                 }
             }
         }
+        let pre_check_range = self.arena.finish_checks(pre_check_start);
 
         // Phase 2: Parse bindings and result expression
         while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
@@ -169,10 +170,11 @@ impl Parser<'_> {
         }
 
         // Phase 3: Parse post_checks (only for run, not try)
+        let post_check_start = self.arena.start_checks();
         if is_run {
             while self.is_check_start("post_check") {
                 let check = committed!(self.parse_named_check("post_check"));
-                post_checks.push(check);
+                self.arena.push_check(check);
                 self.cursor.skip_newlines();
                 if !self.cursor.check(&TokenKind::RParen) {
                     committed!(self.cursor.expect(&TokenKind::Comma));
@@ -180,6 +182,7 @@ impl Parser<'_> {
                 }
             }
         }
+        let post_check_range = self.arena.finish_checks(post_check_start);
 
         self.cursor.skip_newlines();
         committed!(self.cursor.expect(&TokenKind::RParen));
@@ -208,13 +211,11 @@ impl Parser<'_> {
                 span,
             }
         } else {
-            let pre_range = self.arena.alloc_checks(pre_checks);
-            let post_range = self.arena.alloc_checks(post_checks);
             FunctionSeq::Run {
-                pre_checks: pre_range,
+                pre_checks: pre_check_range,
                 bindings: bindings_range,
                 result,
-                post_checks: post_range,
+                post_checks: post_check_range,
                 span,
             }
         };
@@ -244,7 +245,11 @@ impl Parser<'_> {
         self.cursor.advance(); // consume check name
         self.cursor.expect(&TokenKind::Colon)?;
 
-        let expr = self.parse_expr().into_result()?;
+        // Parse condition with `|` as separator (not bitwise OR).
+        // In check context, `x > 0 | "msg"` means condition `x > 0` with message `"msg"`.
+        let expr = self
+            .with_context(ParseContext::PIPE_IS_SEPARATOR, Self::parse_expr)
+            .into_result()?;
 
         // Optional custom message: `| "message"`
         let message = if self.cursor.check(&TokenKind::Pipe) {

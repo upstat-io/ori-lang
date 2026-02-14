@@ -21,6 +21,7 @@
 //! - `>` followed by `=` (no whitespace) → `>=` (greater-equal)
 
 use super::bp;
+use crate::context::ParseContext;
 use crate::Parser;
 use ori_ir::{BinaryOp, FunctionExpKind, TokenKind, UnaryOp};
 
@@ -133,6 +134,11 @@ impl Parser<'_> {
 
         // Fast path: tags >= 128 are never operators (we only have 116 token kinds)
         if tag >= 128 {
+            return None;
+        }
+
+        // In check expressions, `|` is a message separator, not bitwise OR.
+        if tag == TokenKind::TAG_PIPE && self.context.has(ParseContext::PIPE_IS_SEPARATOR) {
             return None;
         }
 
