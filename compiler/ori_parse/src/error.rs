@@ -2137,6 +2137,13 @@ pub enum ParseWarning {
         /// Why the comment is considered detached.
         reason: DetachmentReason,
     },
+    /// An unknown calling convention string in an `extern` block.
+    UnknownCallingConvention {
+        /// Location of the convention string literal.
+        span: Span,
+        /// The convention string that was used.
+        convention: String,
+    },
 }
 
 impl ParseWarning {
@@ -2148,7 +2155,8 @@ impl ParseWarning {
     /// Get the span of the warning.
     pub fn span(&self) -> Span {
         match self {
-            ParseWarning::DetachedDocComment { span, .. } => *span,
+            ParseWarning::DetachedDocComment { span, .. }
+            | ParseWarning::UnknownCallingConvention { span, .. } => *span,
         }
     }
 
@@ -2156,6 +2164,7 @@ impl ParseWarning {
     pub fn title(&self) -> &'static str {
         match self {
             ParseWarning::DetachedDocComment { .. } => "DETACHED DOC COMMENT",
+            ParseWarning::UnknownCallingConvention { .. } => "UNKNOWN CALLING CONVENTION",
         }
     }
 
@@ -2168,14 +2177,24 @@ impl ParseWarning {
                     reason.hint()
                 )
             }
+            ParseWarning::UnknownCallingConvention { convention, .. } => {
+                format!("unknown calling convention \"{convention}\"; expected \"c\" or \"js\"")
+            }
         }
     }
 
     /// Convert to a diagnostic for display.
     pub fn to_diagnostic(&self) -> Diagnostic {
-        Diagnostic::warning(ErrorCode::W1001)
-            .with_message(self.message())
-            .with_label(self.span(), "detached doc comment")
+        match self {
+            ParseWarning::DetachedDocComment { .. } => Diagnostic::warning(ErrorCode::W1001)
+                .with_message(self.message())
+                .with_label(self.span(), "detached doc comment"),
+            ParseWarning::UnknownCallingConvention { convention, .. } => {
+                Diagnostic::warning(ErrorCode::W1002)
+                    .with_message(self.message())
+                    .with_label(self.span(), format!("unknown convention \"{convention}\""))
+            }
+        }
     }
 }
 

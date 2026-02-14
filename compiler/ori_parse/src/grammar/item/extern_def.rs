@@ -9,7 +9,7 @@
 //! c_variadic    = "," "..." .
 //! ```
 
-use crate::{committed, ParseError, ParseOutcome, Parser};
+use crate::{committed, ParseError, ParseOutcome, ParseWarning, Parser};
 use ori_ir::{ExternBlock, ExternItem, ExternParam, TokenKind, Visibility};
 
 impl Parser<'_> {
@@ -43,7 +43,19 @@ impl Parser<'_> {
 
         // Convention string: "c" or "js"
         let convention = if let TokenKind::String(name) = *self.cursor.current_kind() {
+            let conv_span = self.cursor.current_span();
             self.cursor.advance();
+
+            // Validate known conventions
+            let conv_str = self.cursor.interner().lookup(name);
+            if conv_str != "c" && conv_str != "js" {
+                self.deferred_warnings
+                    .push(ParseWarning::UnknownCallingConvention {
+                        span: conv_span,
+                        convention: conv_str.to_owned(),
+                    });
+            }
+
             name
         } else {
             let span = self.cursor.current_span();
