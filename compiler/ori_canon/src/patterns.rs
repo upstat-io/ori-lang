@@ -124,13 +124,12 @@ fn flatten_arm_pattern(
         }
     }
 
-    ori_arc::decision_tree::flatten::flatten_pattern(
-        pattern,
+    let ctx = ori_arc::decision_tree::flatten::FlattenCtx::new(
         lowerer.src,
-        scrutinee_ty,
         lowerer.pool,
         lowerer.interner,
-    )
+    );
+    ctx.flatten(pattern, scrutinee_ty)
 }
 
 /// Compile multi-clause function parameter patterns into a decision tree.
