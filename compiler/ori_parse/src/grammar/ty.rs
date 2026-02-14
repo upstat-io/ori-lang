@@ -74,23 +74,48 @@ impl Parser<'_> {
             let base_type = ParsedType::Named { name, type_args };
 
             // Check for associated type access: T.Item
-            if self.cursor.check(&TokenKind::Dot) {
+            let result = if self.cursor.check(&TokenKind::Dot) {
                 self.cursor.advance(); // consume .
-                if self.cursor.check_ident() {
-                    let assoc_name = if let TokenKind::Ident(n) = &self.cursor.current().kind {
-                        *n
-                    } else {
-                        return Some(base_type);
-                    };
+                if let TokenKind::Ident(n) = self.cursor.current_kind() {
+                    let assoc_name = *n;
                     self.cursor.advance();
-                    // Allocate base type in arena for associated type
                     let base_id = self.arena.alloc_parsed_type(base_type);
-                    Some(ParsedType::associated_type(base_id, assoc_name))
+                    ParsedType::associated_type(base_id, assoc_name)
                 } else {
-                    Some(base_type)
+                    base_type
                 }
             } else {
-                Some(base_type)
+                base_type
+            };
+
+            // Check for bounded trait object: Trait1 + Trait2 [+ Trait3 ...]
+            if self.cursor.check(&TokenKind::Plus) {
+                let first_id = self.arena.alloc_parsed_type(result);
+                let mut bound_ids = vec![first_id];
+                while self.cursor.check(&TokenKind::Plus) {
+                    self.cursor.advance(); // consume +
+                                           // Parse next bound as a named type (ident + optional generics)
+                    if self.cursor.check_ident() {
+                        let bound_name = if let TokenKind::Ident(n) = &self.cursor.current().kind {
+                            *n
+                        } else {
+                            break;
+                        };
+                        self.cursor.advance();
+                        let bound_args = self.parse_optional_generic_args_range();
+                        let bound_type = ParsedType::Named {
+                            name: bound_name,
+                            type_args: bound_args,
+                        };
+                        bound_ids.push(self.arena.alloc_parsed_type(bound_type));
+                    } else {
+                        break;
+                    }
+                }
+                let bounds = self.arena.alloc_parsed_type_list(bound_ids);
+                Some(ParsedType::trait_bounds(bounds))
+            } else {
+                Some(result)
             }
         } else if self.cursor.check(&TokenKind::LBracket) {
             // [T] list type or [T, max N] fixed-capacity list type
@@ -825,6 +850,116 @@ mod tests {
                 }
             }
             _ => panic!("expected Named, got {ty:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_trait_bounds_two() {
+        // Printable + Hashable — two bounded trait object
+        let (ty, arena) = parse_type_with_arena("Printable + Hashable");
+        match ty {
+            Some(ParsedType::TraitBounds(bounds)) => {
+                assert_eq!(bounds.len(), 2, "Expected 2 trait bounds");
+                let ids = arena.get_parsed_type_list(bounds);
+                // Both should be Named types
+                assert!(
+                    matches!(arena.get_parsed_type(ids[0]), ParsedType::Named { .. }),
+                    "expected Named, got {:?}",
+                    arena.get_parsed_type(ids[0])
+                );
+                assert!(
+                    matches!(arena.get_parsed_type(ids[1]), ParsedType::Named { .. }),
+                    "expected Named, got {:?}",
+                    arena.get_parsed_type(ids[1])
+                );
+            }
+            _ => panic!("expected TraitBounds, got {ty:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_trait_bounds_three() {
+        // Printable + Hashable + Clone — three bounded trait object
+        let (ty, arena) = parse_type_with_arena("Printable + Hashable + Clone");
+        match ty {
+            Some(ParsedType::TraitBounds(bounds)) => {
+                assert_eq!(bounds.len(), 3, "Expected 3 trait bounds");
+                let ids = arena.get_parsed_type_list(bounds);
+                for (i, id) in ids.iter().enumerate() {
+                    assert!(
+                        matches!(arena.get_parsed_type(*id), ParsedType::Named { .. }),
+                        "bound {i} expected Named, got {:?}",
+                        arena.get_parsed_type(*id)
+                    );
+                }
+            }
+            _ => panic!("expected TraitBounds, got {ty:?}"),
+        }
+    }
+
+    #[test]
+    fn test_single_trait_not_bounds() {
+        // Single trait name should be Named, not TraitBounds
+        let (ty, _) = parse_type_with_arena("Printable");
+        assert!(
+            matches!(ty, Some(ParsedType::Named { .. })),
+            "single trait should be Named, got {ty:?}"
+        );
+    }
+
+    #[test]
+    fn test_trait_bounds_in_list() {
+        // [Printable + Hashable] — bounded trait object inside list type
+        let (ty, arena) = parse_type_with_arena("[Printable + Hashable]");
+        match ty {
+            Some(ParsedType::List(inner_id)) => {
+                let inner = arena.get_parsed_type(inner_id);
+                assert!(
+                    matches!(inner, ParsedType::TraitBounds(_)),
+                    "expected TraitBounds inside list, got {inner:?}"
+                );
+            }
+            _ => panic!("expected List, got {ty:?}"),
+        }
+    }
+
+    #[test]
+    fn test_trait_bounds_preserves_names() {
+        // Verify the actual trait names are correct
+        let interner = StringInterner::new();
+        let full_source = "@test () -> Printable + Hashable = 0";
+        let tokens = ori_lexer::lex(full_source, &interner);
+        let mut parser = Parser::new(&tokens, &interner);
+
+        parser.cursor.advance(); // @
+        parser.cursor.advance(); // test
+        parser.cursor.advance(); // (
+        parser.cursor.advance(); // )
+        parser.cursor.advance(); // ->
+
+        let ty = parser.parse_type();
+        let arena = parser.take_arena();
+
+        match ty {
+            Some(ParsedType::TraitBounds(bounds)) => {
+                assert_eq!(bounds.len(), 2);
+                let ids = arena.get_parsed_type_list(bounds);
+                match arena.get_parsed_type(ids[0]) {
+                    ParsedType::Named { name, type_args } => {
+                        assert_eq!(interner.lookup(*name), "Printable");
+                        assert!(type_args.is_empty());
+                    }
+                    other => panic!("expected Named, got {other:?}"),
+                }
+                match arena.get_parsed_type(ids[1]) {
+                    ParsedType::Named { name, type_args } => {
+                        assert_eq!(interner.lookup(*name), "Hashable");
+                        assert!(type_args.is_empty());
+                    }
+                    other => panic!("expected Named, got {other:?}"),
+                }
+            }
+            _ => panic!("expected TraitBounds, got {ty:?}"),
         }
     }
 }

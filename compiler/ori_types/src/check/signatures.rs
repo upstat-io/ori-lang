@@ -454,6 +454,18 @@ fn resolve_type_with_vars(
             // For now, return error - will be implemented with trait/const support
             Idx::ERROR
         }
+
+        // Bounded trait object: Printable + Hashable
+        // Resolve the first bound as the primary type for now
+        ParsedType::TraitBounds(bounds) => {
+            let bound_ids: Vec<_> = arena.get_parsed_type_list(*bounds).to_vec();
+            if let Some(&first_id) = bound_ids.first() {
+                let first = arena.get_parsed_type(first_id).clone();
+                resolve_type_with_vars(checker, &first, type_param_vars, arena)
+            } else {
+                Idx::ERROR
+            }
+        }
     }
 }
 

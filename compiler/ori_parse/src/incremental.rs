@@ -1126,6 +1126,10 @@ impl<'old> AstCopier<'old> {
                 let new_expr = self.copy_expr(*expr_id, new_arena);
                 ParsedType::ConstExpr(new_expr)
             }
+            ParsedType::TraitBounds(bounds) => {
+                let new_bounds = self.copy_parsed_type_range(*bounds, new_arena);
+                ParsedType::TraitBounds(new_bounds)
+            }
         }
     }
 

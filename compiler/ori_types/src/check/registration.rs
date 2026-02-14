@@ -386,7 +386,8 @@ pub(super) fn resolve_parsed_type_simple(
         ParsedType::Infer
         | ParsedType::SelfType
         | ParsedType::AssociatedType { .. }
-        | ParsedType::ConstExpr(_) => Idx::ERROR,
+        | ParsedType::ConstExpr(_)
+        | ParsedType::TraitBounds(_) => Idx::ERROR,
     }
 }
 

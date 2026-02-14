@@ -125,6 +125,11 @@ pub enum ParsedType {
     /// A const expression in a type position: `$N`, `$N + 1`, `42`.
     /// Used in generic type arguments: `Array<int, $N>`, `Buffer<T, $N + 1>`.
     ConstExpr(ExprId),
+
+    /// Bounded trait object: `Printable + Hashable`.
+    /// Each element in the range is a trait type (typically `Named`).
+    /// Requires at least two bounds (single bound is just a `Named` type).
+    TraitBounds(ParsedTypeRange),
 }
 
 impl ParsedType {
@@ -219,6 +224,18 @@ impl ParsedType {
     #[inline]
     pub fn is_const_expr(&self) -> bool {
         matches!(self, ParsedType::ConstExpr(_))
+    }
+
+    /// Create a bounded trait object type with bounds (already allocated in arena).
+    #[inline]
+    pub fn trait_bounds(bounds: ParsedTypeRange) -> Self {
+        ParsedType::TraitBounds(bounds)
+    }
+
+    /// Check if this is a bounded trait object.
+    #[inline]
+    pub fn is_trait_bounds(&self) -> bool {
+        matches!(self, ParsedType::TraitBounds(_))
     }
 }
 

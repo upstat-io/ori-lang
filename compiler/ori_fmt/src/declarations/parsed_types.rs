@@ -98,6 +98,16 @@ pub(super) fn format_parsed_type<I: StringLookup, E: Emitter>(
         ParsedType::ConstExpr(expr_id) => {
             format_const_expr(*expr_id, arena, interner, ctx);
         }
+        ParsedType::TraitBounds(bounds) => {
+            let bound_ids = arena.get_parsed_type_list(*bounds);
+            for (i, bound_id) in bound_ids.iter().enumerate() {
+                if i > 0 {
+                    ctx.emit(" + ");
+                }
+                let bound = arena.get_parsed_type(*bound_id);
+                format_parsed_type(bound, arena, interner, ctx);
+            }
+        }
     }
 }
 
@@ -175,6 +185,18 @@ pub(super) fn calculate_type_width<I: StringLookup>(
             calculate_type_width(base_ty, arena, interner) + 1 + interner.lookup(*assoc_name).len()
         }
         ParsedType::ConstExpr(_) => 10, // Estimate for const expressions
+        ParsedType::TraitBounds(bounds) => {
+            let bound_ids = arena.get_parsed_type_list(*bounds);
+            let mut width = 0;
+            for (i, bound_id) in bound_ids.iter().enumerate() {
+                if i > 0 {
+                    width += 3; // " + "
+                }
+                let bound = arena.get_parsed_type(*bound_id);
+                width += calculate_type_width(bound, arena, interner);
+            }
+            width
+        }
     }
 }
 

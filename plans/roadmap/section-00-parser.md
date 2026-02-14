@@ -27,7 +27,7 @@ sections:
     status: in-progress
   - id: "0.4.5"
     title: Trait Objects
-    status: in-progress
+    status: complete
   - id: "0.5"
     title: Expressions
     status: in-progress
@@ -499,10 +499,10 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] In collections: `[Printable]`, `{str: Printable}` — parses correctly ✅ (2026-02-13)
   - [x] **Ori Tests**: `tests/spec/types/trait_objects.ori` — tests exist
 
-- [ ] **Audit**: Bounded trait objects — spec/06-types.md § Bounded Trait Objects
-  - [ ] Multiple bounds: `Printable + Hashable` — not verified
-  - [ ] As parameter type: `@store (item: Printable + Hashable) -> void` — not verified
-  - [ ] **Grammar Fix Required**: Add `bounds` as standalone type alternative
+- [x] **Audit**: Bounded trait objects — spec/06-types.md § Bounded Trait Objects ✅ (2026-02-14)
+  - [x] Multiple bounds: `Printable + Hashable` — parses correctly as `TraitBounds` variant ✅ (2026-02-14)
+  - [x] As parameter type: `@store (item: Printable + Hashable) -> void` — parses correctly ✅ (2026-02-14)
+  - [x] **Grammar**: `trait_object_bounds` already in grammar.ebnf; parser now implements it ✅ (2026-02-14)
 
 ---
 
@@ -861,7 +861,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] All lexical grammar items audited and tested (0.1) ✅ (2026-02-10)
 - [x] All source structure items audited and tested (0.2) ✅ (2026-02-13) — file attributes, extern `as`, C variadics all work now
 - [ ] All declaration items audited and tested (0.3) — partial: typed constants broken; const generics NOW WORK ✅ (2026-02-13); floating tests NOW WORK ✅ (2026-02-14); clause params, guard clauses, variadic params NOW WORK
-- [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK
+- [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK; bounded trait objects NOW WORK ✅ (2026-02-14)
 - [x] All expression items audited and tested (0.5) ✅ (2026-02-13) — length placeholder `#` now works; labeled continue broken
 - [ ] All pattern items audited and tested (0.6) — partial: run pre/post checks, channels, struct rest `..`, with RAII, immutable bindings, char patterns broken; try `?` NOW WORKS
 - [ ] All constant expression items audited and tested (0.7) — only literals work; computed constants broken

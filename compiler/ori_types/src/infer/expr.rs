@@ -4816,6 +4816,19 @@ pub fn resolve_parsed_type(
             // Not found — return fresh variable for deferred resolution
             engine.fresh_var()
         }
+
+        ParsedType::TraitBounds(bounds) => {
+            // Bounded trait object: Printable + Hashable
+            // Resolve the first bound as the primary type for now;
+            // full trait object dispatch will refine this later.
+            let bound_ids = arena.get_parsed_type_list(*bounds);
+            if let Some(&first_id) = bound_ids.first() {
+                let first = arena.get_parsed_type(first_id);
+                resolve_parsed_type(engine, arena, first)
+            } else {
+                engine.fresh_var()
+            }
+        }
     }
 }
 
