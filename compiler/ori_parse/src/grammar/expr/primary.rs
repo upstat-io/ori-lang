@@ -449,7 +449,11 @@ impl Parser<'_> {
             self.cursor.advance(); // consume ':'
             match self.cursor.expect_ident() {
                 Ok(name) => name,
-                Err(_) => Name::EMPTY,
+                Err(err) => {
+                    self.deferred_errors
+                        .push(err.with_context("expected label identifier after `:`"));
+                    Name::EMPTY
+                }
             }
         } else {
             Name::EMPTY

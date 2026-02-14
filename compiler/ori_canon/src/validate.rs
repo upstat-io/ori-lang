@@ -109,9 +109,9 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
         | CanExpr::Some(child)
         | CanExpr::Ok(child)
         | CanExpr::Err(child)
-        | CanExpr::Loop { body: child }
-        | CanExpr::Break(child)
-        | CanExpr::Continue(child) => {
+        | CanExpr::Loop { body: child, .. }
+        | CanExpr::Break { value: child, .. }
+        | CanExpr::Continue { value: child, .. } => {
             // INVALID is allowed for Ok(()), Err(()), Break, Continue with no value.
             if child.is_valid() {
                 validate_can_id(arena, id, *child, "child");

@@ -423,13 +423,13 @@ impl<'a> Lowerer<'a> {
                 let inner = self.lower_expr(inner);
                 self.push(CanExpr::Some(inner), span, ty)
             }
-            ExprKind::Break { value, .. } => {
+            ExprKind::Break { label, value } => {
                 let val = self.lower_optional(value);
-                self.push(CanExpr::Break(val), span, ty)
+                self.push(CanExpr::Break { label, value: val }, span, ty)
             }
-            ExprKind::Continue { value, .. } => {
+            ExprKind::Continue { label, value } => {
                 let val = self.lower_optional(value);
-                self.push(CanExpr::Continue(val), span, ty)
+                self.push(CanExpr::Continue { label, value: val }, span, ty)
             }
             ExprKind::Await(inner) => {
                 let inner = self.lower_expr(inner);
@@ -439,9 +439,9 @@ impl<'a> Lowerer<'a> {
                 let inner = self.lower_expr(inner);
                 self.push(CanExpr::Try(inner), span, ty)
             }
-            ExprKind::Loop { body, .. } => {
+            ExprKind::Loop { label, body } => {
                 let body = self.lower_expr(body);
-                self.push(CanExpr::Loop { body }, span, ty)
+                self.push(CanExpr::Loop { label, body }, span, ty)
             }
 
             // Binary nodes — lower both children
@@ -516,18 +516,19 @@ impl<'a> Lowerer<'a> {
                 }
             }
             ExprKind::For {
+                label,
                 binding,
                 iter,
                 guard,
                 body,
                 is_yield,
-                ..
             } => {
                 let iter = self.lower_expr(iter);
                 let guard = self.lower_optional(guard);
                 let body = self.lower_expr(body);
                 self.push(
                     CanExpr::For {
+                        label,
                         binding,
                         iter,
                         guard,
@@ -1260,6 +1261,7 @@ impl<'a> Lowerer<'a> {
 
                 self.push(
                     CanExpr::For {
+                        label: Name::EMPTY,
                         binding,
                         iter,
                         guard,
@@ -1565,7 +1567,7 @@ mod tests {
         let pool = ori_types::Pool::new();
         let result = lower(&arena, &type_result, &pool, root, &interner);
         match result.arena.kind(result.root) {
-            CanExpr::Break(val) => assert!(!val.is_valid()),
+            CanExpr::Break { value: val, .. } => assert!(!val.is_valid()),
             other => panic!("expected Break, got {other:?}"),
         }
     }

@@ -235,14 +235,15 @@ impl Interpreter<'_> {
                 guard,
                 body,
                 is_yield,
+                ..
             } => {
                 let iter_val = self.eval_can(iter)?;
                 let span = self.can_span(can_id);
                 self.eval_can_for(binding, &iter_val, guard, body, is_yield)
                     .map_err(|e| Self::attach_span(e, span))
             }
-            CanExpr::Loop { body } => self.eval_can_loop(body),
-            CanExpr::Break(v) => {
+            CanExpr::Loop { body, .. } => self.eval_can_loop(body),
+            CanExpr::Break { value: v, .. } => {
                 let val = if v.is_valid() {
                     self.eval_can(v)?
                 } else {
@@ -250,7 +251,7 @@ impl Interpreter<'_> {
                 };
                 Err(ControlAction::Break(val))
             }
-            CanExpr::Continue(v) => {
+            CanExpr::Continue { value: v, .. } => {
                 let val = if v.is_valid() {
                     self.eval_can(v)?
                 } else {

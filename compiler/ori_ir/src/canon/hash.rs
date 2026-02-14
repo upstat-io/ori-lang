@@ -163,23 +163,29 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             hash_range(arena, arms, state);
         }
         CanExpr::For {
+            label,
             binding,
             iter,
             guard,
             body,
             is_yield,
         } => {
+            label.raw().hash(state);
             binding.raw().hash(state);
             is_yield.hash(state);
             hash_node(arena, iter, state);
             hash_node(arena, guard, state);
             hash_node(arena, body, state);
         }
-        CanExpr::Loop { body } => hash_node(arena, body, state),
-        CanExpr::Break(child)
-        | CanExpr::Continue(child)
-        | CanExpr::Try(child)
-        | CanExpr::Await(child) => hash_node(arena, child, state),
+        CanExpr::Loop { label, body } => {
+            label.raw().hash(state);
+            hash_node(arena, body, state);
+        }
+        CanExpr::Break { label, value } | CanExpr::Continue { label, value } => {
+            label.raw().hash(state);
+            hash_node(arena, value, state);
+        }
+        CanExpr::Try(child) | CanExpr::Await(child) => hash_node(arena, child, state),
 
         // Bindings
         CanExpr::Block { stmts, result } => {
