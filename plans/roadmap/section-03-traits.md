@@ -1456,8 +1456,8 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
   - [x] **Files**: `ori_eval/src/interpreter/mod.rs` — `eval_binary()`, `binary_op_to_method()`
   - [x] **Files**: `ori_eval/src/methods.rs` — operator methods for primitives
   - [x] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori` — 16 tests (Add, Sub, Neg, Mul, Div, Rem, FloorDiv, BitAnd, BitOr, BitXor, Shl, Shr, BitNot, Not, chaining, double negation)
-  - [ ] **LLVM Support**: LLVM codegen for operator trait dispatch — NOT implemented for user types
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/operator_trait_tests.rs` — test file doesn't exist
+  - [x] **LLVM Support**: LLVM codegen for operator trait dispatch — Tier 1 (`lower_operators.rs`) and Tier 2 (`arc_emitter.rs`) ✅ (2026-02-15)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — 7 AOT tests (add, sub, neg, mul_mixed, chained, bitwise, not) ✅ (2026-02-15)
 
 - [x] **Implement**: Built-in operator implementations for primitives (NOT trait-based, direct evaluator dispatch) ✅ (2026-02-10)
   - [x] `int`: Add, Sub, Mul, Div, FloorDiv, Rem, Neg, BitAnd, BitOr, BitXor, Shl, Shr, BitNot

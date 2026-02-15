@@ -7,6 +7,7 @@
 //! - 3.0: Core library traits (Len, `IsEmpty`, Option, Result, Comparable, Eq)
 //! - 3.1: Trait declarations (default methods)
 //! - 3.2: Trait implementations (inherent impl, trait impl, method resolution)
+//! - 3.21: Operator traits (user-defined +, -, *, /, %, //, &, |, ^, <<, >>)
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -703,5 +704,190 @@ impl Printable for Color {
 )
 "#,
         "multiple_impl_blocks",
+    );
+}
+
+// -----------------------------------------------------------------------
+// 3.21: Operator Traits — user-defined operator dispatch
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_aot_operator_trait_add() {
+    assert_aot_success(
+        r#"
+type Point = { x: int, y: int }
+
+impl Add for Point {
+    type Output = Point
+    @add (self, rhs: Point) -> Point = Point {
+        x: self.x + rhs.x,
+        y: self.y + rhs.y,
+    }
+}
+
+@main () -> int = run(
+    let a = Point { x: 1, y: 2 },
+    let b = Point { x: 3, y: 4 },
+    let c = a + b,
+    if c.x == 4 && c.y == 6 then 0 else 1
+)
+"#,
+        "operator_trait_add",
+    );
+}
+
+#[test]
+fn test_aot_operator_trait_sub() {
+    assert_aot_success(
+        r#"
+type Point = { x: int, y: int }
+
+impl Sub for Point {
+    type Output = Point
+    @subtract (self, rhs: Point) -> Point = Point {
+        x: self.x - rhs.x,
+        y: self.y - rhs.y,
+    }
+}
+
+@main () -> int = run(
+    let a = Point { x: 5, y: 8 },
+    let b = Point { x: 2, y: 3 },
+    let c = a - b,
+    if c.x == 3 && c.y == 5 then 0 else 1
+)
+"#,
+        "operator_trait_sub",
+    );
+}
+
+#[test]
+fn test_aot_operator_trait_neg() {
+    assert_aot_success(
+        r#"
+type Point = { x: int, y: int }
+
+impl Neg for Point {
+    type Output = Point
+    @negate (self) -> Point = Point {
+        x: -self.x,
+        y: -self.y,
+    }
+}
+
+@main () -> int = run(
+    let a = Point { x: 3, y: -7 },
+    let b = -a,
+    if b.x == -3 && b.y == 7 then 0 else 1
+)
+"#,
+        "operator_trait_neg",
+    );
+}
+
+#[test]
+fn test_aot_operator_trait_mul_mixed() {
+    assert_aot_success(
+        r#"
+type Vec2 = { x: int, y: int }
+
+impl Mul<int> for Vec2 {
+    type Output = Vec2
+    @multiply (self, rhs: int) -> Vec2 = Vec2 {
+        x: self.x * rhs,
+        y: self.y * rhs,
+    }
+}
+
+@main () -> int = run(
+    let v = Vec2 { x: 2, y: 3 },
+    let scaled = v * 5,
+    if scaled.x == 10 && scaled.y == 15 then 0 else 1
+)
+"#,
+        "operator_trait_mul_mixed",
+    );
+}
+
+#[test]
+fn test_aot_operator_trait_chained() {
+    assert_aot_success(
+        r#"
+type Point = { x: int, y: int }
+
+impl Add for Point {
+    type Output = Point
+    @add (self, rhs: Point) -> Point = Point {
+        x: self.x + rhs.x,
+        y: self.y + rhs.y,
+    }
+}
+
+impl Sub for Point {
+    type Output = Point
+    @subtract (self, rhs: Point) -> Point = Point {
+        x: self.x - rhs.x,
+        y: self.y - rhs.y,
+    }
+}
+
+@main () -> int = run(
+    let a = Point { x: 1, y: 2 },
+    let b = Point { x: 3, y: 4 },
+    let c = Point { x: 10, y: 10 },
+    let result = c - (a + b),
+    if result.x == 6 && result.y == 4 then 0 else 1
+)
+"#,
+        "operator_trait_chained",
+    );
+}
+
+#[test]
+fn test_aot_operator_trait_bitwise() {
+    assert_aot_success(
+        r#"
+type Mask = { bits: int }
+
+impl BitAnd for Mask {
+    type Output = Mask
+    @bit_and (self, rhs: Mask) -> Mask = Mask { bits: self.bits & rhs.bits }
+}
+
+impl BitOr for Mask {
+    type Output = Mask
+    @bit_or (self, rhs: Mask) -> Mask = Mask { bits: self.bits | rhs.bits }
+}
+
+@main () -> int = run(
+    let a = Mask { bits: 0b1100 },
+    let b = Mask { bits: 0b1010 },
+    let and_result = a & b,
+    let or_result = a | b,
+    if and_result.bits == 0b1000 && or_result.bits == 0b1110 then 0 else 1
+)
+"#,
+        "operator_trait_bitwise",
+    );
+}
+
+#[test]
+fn test_aot_operator_trait_not() {
+    assert_aot_success(
+        r#"
+type Toggle = { on: bool }
+
+impl Not for Toggle {
+    type Output = Toggle
+    @not (self) -> Toggle = Toggle { on: !self.on }
+}
+
+@main () -> int = run(
+    let t = Toggle { on: true },
+    let f = !t,
+    if f.on == false then 0 else 1
+)
+"#,
+        "operator_trait_not",
     );
 }

@@ -433,7 +433,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ///
     /// The cleanup landingpad currently re-raises immediately. RC cleanup
     /// will be inserted here once cross-block liveness analysis is wired.
-    fn invoke_user_function(
+    pub(crate) fn invoke_user_function(
         &mut self,
         func_id: FunctionId,
         args: &[ValueId],
@@ -468,7 +468,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// Like [`invoke_user_function`] but for functions returning via hidden
     /// sret pointer. The sret alloca is in the entry block, the invoke
     /// branches to normal/unwind, and the load happens in the normal block.
-    fn invoke_user_function_sret(
+    pub(crate) fn invoke_user_function_sret(
         &mut self,
         func_id: FunctionId,
         args: &[ValueId],
@@ -521,7 +521,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ///
     /// For `Direct`/`Indirect`: passes through as-is.
     /// For `Void`: skips the parameter.
-    fn apply_param_passing(
+    pub(crate) fn apply_param_passing(
         &mut self,
         raw_args: &[ValueId],
         param_abis: &[super::abi::ParamAbi],

@@ -51,6 +51,10 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     current_function: FunctionId,
     /// Declared functions: `Name` → (`FunctionId`, ABI).
     functions: &'a FxHashMap<Name, (FunctionId, FunctionAbi)>,
+    /// Type-qualified method lookup: `(type_name, method_name)` → (`FunctionId`, ABI).
+    method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
+    /// Maps receiver type `Idx` → type `Name` for operator trait dispatch.
+    type_idx_to_name: &'a FxHashMap<Idx, Name>,
     /// ARC variable → LLVM value mapping.
     var_map: Vec<Option<ValueId>>,
     /// ARC block → LLVM block mapping.
@@ -74,6 +78,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         pool: &'a Pool,
         current_function: FunctionId,
         functions: &'a FxHashMap<Name, (FunctionId, FunctionAbi)>,
+        method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
+        type_idx_to_name: &'a FxHashMap<Idx, Name>,
     ) -> Self {
         Self {
             builder,
@@ -83,6 +89,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             pool,
             current_function,
             functions,
+            method_functions,
+            type_idx_to_name,
             var_map: Vec::new(),
             block_map: Vec::new(),
             phi_incoming: Vec::new(),
@@ -672,7 +680,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Emit a binary operation.
+    ///
+    /// For primitive types, emits direct LLVM instructions. For non-primitive
+    /// types, dispatches to the corresponding operator trait method
+    /// (e.g., `+` → `Add.add()`).
     fn emit_binary_op(&mut self, op: BinaryOp, lhs: ValueId, rhs: ValueId, lhs_ty: Idx) -> ValueId {
+        // Trait dispatch for non-primitive types (user-defined operator impls)
+        if !lhs_ty.is_primitive() {
+            if let Some(result) = self.emit_binary_op_via_trait(op, lhs, rhs, lhs_ty) {
+                return result;
+            }
+        }
+
         let is_float = matches!(
             self.type_info.get(lhs_ty),
             super::type_info::TypeInfo::Float
@@ -718,7 +737,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Emit a unary operation.
+    ///
+    /// For primitive types, emits direct LLVM instructions. For non-primitive
+    /// types, dispatches to the corresponding operator trait method
+    /// (e.g., `-` → `Negate.negate()`).
     fn emit_unary_op(&mut self, op: UnaryOp, operand: ValueId, operand_ty: Idx) -> ValueId {
+        // Trait dispatch for non-primitive types (user-defined operator impls)
+        if !operand_ty.is_primitive() {
+            if let Some(result) = self.emit_unary_op_via_trait(op, operand, operand_ty) {
+                return result;
+            }
+        }
+
         let is_float = matches!(
             self.type_info.get(operand_ty),
             super::type_info::TypeInfo::Float
@@ -736,6 +766,78 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 // Try is desugared before reaching ARC IR
                 tracing::warn!("ArcIrEmitter: try op in unary expression");
                 self.builder.const_i64(0)
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Operator trait dispatch
+    // -----------------------------------------------------------------------
+
+    /// Dispatch a binary operator to a trait method for non-primitive types.
+    ///
+    /// Maps the operator to its trait method name (e.g., `+` → `"add"`),
+    /// looks up the compiled method function, and emits a method call.
+    fn emit_binary_op_via_trait(
+        &mut self,
+        op: BinaryOp,
+        lhs: ValueId,
+        rhs: ValueId,
+        lhs_ty: Idx,
+    ) -> Option<ValueId> {
+        let method_name = super::lower_operators::binary_op_to_method_name(op)?;
+        let type_name = *self.type_idx_to_name.get(&lhs_ty)?;
+        let interned_method = self.interner.intern(method_name);
+        let (func_id, abi) = self.method_functions.get(&(type_name, interned_method))?;
+        let func_id = *func_id;
+        let abi = abi.clone();
+
+        let raw_args = [lhs, rhs];
+        let passed_args = self.apply_param_passing(&raw_args, &abi.params);
+
+        match &abi.return_abi.passing {
+            ReturnPassing::Sret { .. } => {
+                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                self.call_with_sret(func_id, &passed_args, ret_ty, "op_trait")
+            }
+            ReturnPassing::Direct | ReturnPassing::Void => {
+                self.builder.call(func_id, &passed_args, "op_trait")
+            }
+        }
+    }
+
+    /// Dispatch a unary operator to a trait method for non-primitive types.
+    ///
+    /// Maps the operator to its trait method name (e.g., `-` → `"negate"`),
+    /// looks up the compiled method function, and emits a method call.
+    fn emit_unary_op_via_trait(
+        &mut self,
+        op: UnaryOp,
+        operand: ValueId,
+        operand_ty: Idx,
+    ) -> Option<ValueId> {
+        let method_name = match op {
+            UnaryOp::Neg => "negate",
+            UnaryOp::Not => "not",
+            UnaryOp::BitNot => "bit_not",
+            UnaryOp::Try => return None,
+        };
+        let type_name = *self.type_idx_to_name.get(&operand_ty)?;
+        let interned_method = self.interner.intern(method_name);
+        let (func_id, abi) = self.method_functions.get(&(type_name, interned_method))?;
+        let func_id = *func_id;
+        let abi = abi.clone();
+
+        let raw_args = [operand];
+        let passed_args = self.apply_param_passing(&raw_args, &abi.params);
+
+        match &abi.return_abi.passing {
+            ReturnPassing::Sret { .. } => {
+                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                self.call_with_sret(func_id, &passed_args, ret_ty, "op_trait")
+            }
+            ReturnPassing::Direct | ReturnPassing::Void => {
+                self.builder.call(func_id, &passed_args, "op_trait")
             }
         }
     }
