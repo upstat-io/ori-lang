@@ -1,5 +1,6 @@
 use super::*;
 use ori_ir::ast::{BinaryOp, Expr};
+use ori_ir::{ExprKind, StringInterner};
 use ori_types::Idx;
 
 /// Create a minimal `TypeCheckResult` for testing.
