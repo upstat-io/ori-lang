@@ -32,13 +32,37 @@ use crate::parser::ParseOutput;
 // Prelude Auto-Loading
 
 /// Generate candidate paths for the prelude by walking up from the current file.
+///
+/// Search order:
+/// 1. `$ORI_STDLIB/std/prelude.ori` (if env var set)
+/// 2. Walk up from `current_file` looking for `<ancestor>/library/std/prelude.ori`
+/// 3. User-local install: `~/.local/share/ori/library/std/prelude.ori`
+/// 4. System locations: `/usr/local/lib/ori/stdlib/std/prelude.ori`
 pub(crate) fn prelude_candidates(current_file: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+
+    // 1. ORI_STDLIB override
+    if let Ok(stdlib) = std::env::var("ORI_STDLIB") {
+        candidates.push(PathBuf::from(&stdlib).join("std").join("prelude.ori"));
+    }
+
+    // 2. Walk up directory tree
     let mut dir = current_file.parent();
     while let Some(d) = dir {
         candidates.push(d.join("library").join("std").join("prelude.ori"));
         dir = d.parent();
     }
+
+    // 3. User-local install (XDG-compliant)
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.push(PathBuf::from(&home).join(".local/share/ori/library/std/prelude.ori"));
+    }
+
+    // 4. System locations
+    for base in ["/usr/local/lib/ori/stdlib", "/usr/lib/ori/stdlib"] {
+        candidates.push(PathBuf::from(base).join("std").join("prelude.ori"));
+    }
+
     candidates
 }
 

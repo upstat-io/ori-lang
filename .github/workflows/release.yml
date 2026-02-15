@@ -112,9 +112,12 @@ jobs:
 
       - name: Package
         run: |
-          cd target/release
-          tar -czvf ../../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori
-          cd ../..
+          mkdir -p staging
+          cp target/release/ori staging/
+          cp -r library staging/library
+          cd staging
+          tar -czvf ../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori library/
+          cd ..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -164,10 +167,13 @@ jobs:
 
       - name: Package
         run: |
-          cd target/${{ matrix.target }}/release
-          strip ori
-          tar -czvf ../../../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori
-          cd ../../..
+          mkdir -p staging
+          cp target/${{ matrix.target }}/release/ori staging/
+          strip staging/ori
+          cp -r library staging/library
+          cd staging
+          tar -czvf ../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori library/
+          cd ..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -220,9 +226,12 @@ jobs:
 
       - name: Package
         run: |
-          cd target/x86_64-pc-windows-msvc/release
-          7z a ../../../ori-${{ github.ref_name }}-windows-x86_64.zip ori.exe
-          cd ../../..
+          mkdir staging
+          Copy-Item target/x86_64-pc-windows-msvc/release/ori.exe staging/
+          Copy-Item -Recurse library staging/library
+          cd staging
+          7z a ../ori-${{ github.ref_name }}-windows-x86_64.zip ori.exe library/
+          cd ..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -307,7 +316,7 @@ jobs:
 
           **Quick install (Linux/macOS):**
           ```bash
-          curl -fsSL https://raw.githubusercontent.com/upstat-io/ori-lang/master/install.sh | sh
+          curl -fsSL https://ori-lang.com/install.sh | sh
           ```
 
           **Manual download:** See assets below for your platform.
@@ -324,7 +333,7 @@ jobs:
 
           **Quick install (Linux/macOS):**
           ```bash
-          curl -fsSL https://raw.githubusercontent.com/upstat-io/ori-lang/master/install.sh | sh
+          curl -fsSL https://ori-lang.com/install.sh | sh
           ```
 
           **Manual download:** See assets below for your platform.
