@@ -1,6 +1,6 @@
 use std::mem;
 
-use crate::Span;
+use crate::{Name, Span, TypeId};
 
 use super::*;
 
