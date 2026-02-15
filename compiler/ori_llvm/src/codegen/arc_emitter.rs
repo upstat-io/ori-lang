@@ -778,6 +778,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// Maps the operator to its trait method name (e.g., `+` → `"add"`),
     /// looks up the compiled method function, and emits a method call.
+    // SYNC: also update ExprLowerer::lower_binary_op_via_trait in lower_operators.rs
     fn emit_binary_op_via_trait(
         &mut self,
         op: BinaryOp,
@@ -785,19 +786,27 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         rhs: ValueId,
         lhs_ty: Idx,
     ) -> Option<ValueId> {
-        let method_name = super::lower_operators::binary_op_to_method_name(op)?;
+        let method_name = op.trait_method_name()?;
         let type_name = *self.type_idx_to_name.get(&lhs_ty)?;
         let interned_method = self.interner.intern(method_name);
-        let (func_id, abi) = self.method_functions.get(&(type_name, interned_method))?;
-        let func_id = *func_id;
-        let abi = abi.clone();
+        // Scope the immutable borrow of method_functions: extract only what
+        // we need so we can call &mut self methods below.
+        let (func_id, params, ret_passing, ret_ty_idx) = {
+            let (fid, abi) = self.method_functions.get(&(type_name, interned_method))?;
+            (
+                *fid,
+                abi.params.clone(),
+                abi.return_abi.passing.clone(),
+                abi.return_abi.ty,
+            )
+        };
 
         let raw_args = [lhs, rhs];
-        let passed_args = self.apply_param_passing(&raw_args, &abi.params);
+        let passed_args = self.apply_param_passing(&raw_args, &params);
 
-        match &abi.return_abi.passing {
+        match &ret_passing {
             ReturnPassing::Sret { .. } => {
-                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                let ret_ty = self.resolve_type(ret_ty_idx);
                 self.call_with_sret(func_id, &passed_args, ret_ty, "op_trait")
             }
             ReturnPassing::Direct | ReturnPassing::Void => {
@@ -810,30 +819,32 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// Maps the operator to its trait method name (e.g., `-` → `"negate"`),
     /// looks up the compiled method function, and emits a method call.
+    // SYNC: also update ExprLowerer::lower_unary_op_via_trait in lower_operators.rs
     fn emit_unary_op_via_trait(
         &mut self,
         op: UnaryOp,
         operand: ValueId,
         operand_ty: Idx,
     ) -> Option<ValueId> {
-        let method_name = match op {
-            UnaryOp::Neg => "negate",
-            UnaryOp::Not => "not",
-            UnaryOp::BitNot => "bit_not",
-            UnaryOp::Try => return None,
-        };
+        let method_name = op.trait_method_name()?;
         let type_name = *self.type_idx_to_name.get(&operand_ty)?;
         let interned_method = self.interner.intern(method_name);
-        let (func_id, abi) = self.method_functions.get(&(type_name, interned_method))?;
-        let func_id = *func_id;
-        let abi = abi.clone();
+        let (func_id, params, ret_passing, ret_ty_idx) = {
+            let (fid, abi) = self.method_functions.get(&(type_name, interned_method))?;
+            (
+                *fid,
+                abi.params.clone(),
+                abi.return_abi.passing.clone(),
+                abi.return_abi.ty,
+            )
+        };
 
         let raw_args = [operand];
-        let passed_args = self.apply_param_passing(&raw_args, &abi.params);
+        let passed_args = self.apply_param_passing(&raw_args, &params);
 
-        match &abi.return_abi.passing {
+        match &ret_passing {
             ReturnPassing::Sret { .. } => {
-                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                let ret_ty = self.resolve_type(ret_ty_idx);
                 self.call_with_sret(func_id, &passed_args, ret_ty, "op_trait")
             }
             ReturnPassing::Direct | ReturnPassing::Void => {
@@ -947,23 +958,54 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     // -----------------------------------------------------------------------
 
     /// Apply parameter passing modes to argument values.
+    ///
+    /// Mirrors `ExprLowerer::apply_param_passing` — handles all `ParamPassing`
+    /// variants: `Indirect`/`Reference` (alloca+store+pass ptr), `Direct`
+    /// (pass through), `Void` (skip).
+    ///
+    // SYNC: also update ExprLowerer::apply_param_passing in lower_calls.rs
     fn apply_param_passing(
         &mut self,
         args: &[ValueId],
         params: &[super::abi::ParamAbi],
     ) -> Vec<ValueId> {
-        args.iter()
-            .zip(params.iter())
-            .map(|(&val, param)| match &param.passing {
-                super::abi::ParamPassing::Reference => {
-                    let ty = self.resolve_type(param.ty);
-                    let alloca = self.builder.alloca(ty, "ref.tmp");
-                    self.builder.store(val, alloca);
-                    alloca
+        let mut result = Vec::with_capacity(args.len());
+        let mut arg_idx = 0;
+
+        for param_abi in params {
+            if arg_idx >= args.len() {
+                break;
+            }
+
+            match &param_abi.passing {
+                super::abi::ParamPassing::Indirect { .. } | super::abi::ParamPassing::Reference => {
+                    let param_ty = self.resolve_type(param_abi.ty);
+                    let alloca = self.builder.create_entry_alloca(
+                        self.current_function,
+                        "ref_arg",
+                        param_ty,
+                    );
+                    self.builder.store(args[arg_idx], alloca);
+                    result.push(alloca);
+                    arg_idx += 1;
                 }
-                _ => val,
-            })
-            .collect()
+                super::abi::ParamPassing::Direct => {
+                    result.push(args[arg_idx]);
+                    arg_idx += 1;
+                }
+                super::abi::ParamPassing::Void => {
+                    // Void params are not physically passed — skip
+                }
+            }
+        }
+
+        // Pass remaining args directly (shouldn't happen in well-typed code)
+        while arg_idx < args.len() {
+            result.push(args[arg_idx]);
+            arg_idx += 1;
+        }
+
+        result
     }
 
     /// Call a function with sret (struct return via hidden pointer).
