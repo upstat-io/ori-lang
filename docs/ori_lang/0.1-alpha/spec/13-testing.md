@@ -410,21 +410,7 @@ All assertions panic on failure with a descriptive message including the source 
 
 ## Test Organization
 
-### Inline Tests
-
-Tests may be defined in the same file as the functions they test:
-
-```ori
-@add (a: int, b: int) -> int = a + b
-
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
-)
-```
-
-### Separate Test Files
-
-Tests may be organized in a `_test/` subdirectory with `.test.ori` suffix:
+All tests must be placed in a `_test/` subdirectory with `.test.ori` suffix. It is a compile-time error to define a test function outside of a `_test/` directory.
 
 ```
 src/
@@ -433,7 +419,23 @@ src/
     └── math.test.ori
 ```
 
-Test files may import private items using the `::` prefix:
+```
+error[E0501]: test defined outside _test/ directory
+  --> src/math.ori:5:1
+   |
+ 5 | @test_add tests @add () -> void = ...
+   | ^^^^^^^^^ tests must be in a _test/ directory
+   |
+   = help: move this test to src/_test/math.test.ori
+```
+
+This convention cleanly separates test code from production code. Test files are excluded from compiled output by directory path alone — no conditional compilation flags or build-time stripping required.
+
+### Test File Naming
+
+Test files use the `.test.ori` suffix. By convention, each source file `foo.ori` has a corresponding `_test/foo.test.ori`, though a single test file may test functions from multiple source files.
+
+### Example
 
 ```ori
 // src/_test/math.test.ori
@@ -447,6 +449,8 @@ use "../math" { add, ::internal_helper }
     assert_eq(actual: internal_helper(x: 5), expected: 10),
 )
 ```
+
+Private items may be imported using the `::` prefix (see [Modules § Private Access](12-modules.md#private-access)).
 
 ## Testing Capabilities
 
