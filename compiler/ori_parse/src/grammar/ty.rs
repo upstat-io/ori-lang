@@ -127,7 +127,7 @@ impl Parser<'_> {
                 self.cursor.advance(); // ,
                                        // Expect `max` identifier
                 if let TokenKind::Ident(name) = self.cursor.current_kind() {
-                    if self.cursor.interner().lookup(*name) == "max" {
+                    if *name == self.known.max {
                         self.cursor.advance(); // max
                                                // Parse capacity as const expression ($N, 42, $N + 1)
                         if let Ok(capacity_expr) = self.parse_non_comparison_expr().into_result() {

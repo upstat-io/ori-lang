@@ -55,6 +55,35 @@ pub(crate) struct LoopContext {
 }
 
 // ---------------------------------------------------------------------------
+// PropNames
+// ---------------------------------------------------------------------------
+
+/// Pre-interned `FunctionExp` property names for O(1) lookup.
+///
+/// Interned once per `ExprLowerer` so that property dispatch in
+/// `lower_constructs.rs` compares `Name` values directly (`u32 == u32`)
+/// instead of deinterning to `&str` on every named expression.
+#[derive(Clone, Copy)]
+pub(crate) struct PropNames {
+    pub(crate) msg: Name,
+    pub(crate) message: Name,
+    pub(crate) value: Name,
+    pub(crate) expr: Name,
+}
+
+impl PropNames {
+    /// Pre-intern all property names used by construct lowering.
+    fn new(interner: &StringInterner) -> Self {
+        Self {
+            msg: interner.intern("msg"),
+            message: interner.intern("message"),
+            value: interner.intern("value"),
+            expr: interner.intern("expr"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ExprLowerer
 // ---------------------------------------------------------------------------
 
@@ -113,6 +142,8 @@ pub struct ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
     pub(crate) module_path: &'a str,
     /// Debug info context (None for JIT, Some for AOT with debug info enabled).
     pub(crate) debug_context: Option<&'a DebugContext<'ctx>>,
+    /// Pre-interned property names for `FunctionExp` dispatch (`u32 == u32`).
+    pub(crate) prop_names: PropNames,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
@@ -137,6 +168,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
         module_path: &'a str,
         debug_context: Option<&'a DebugContext<'ctx>>,
     ) -> Self {
+        let prop_names = PropNames::new(interner);
         Self {
             builder,
             type_info,
@@ -154,6 +186,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             lambda_counter,
             module_path,
             debug_context,
+            prop_names,
         }
     }
 

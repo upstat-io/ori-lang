@@ -28,7 +28,7 @@ pub use series::{SeriesConfig, TrailingSeparator};
 // They're automatically available at crate root via #[macro_export]
 
 use ori_ir::{
-    ExprArena, Function, Module, ModuleExtra, SharedArena, Span, StringInterner, TestDef,
+    ExprArena, Function, Module, ModuleExtra, Name, SharedArena, Span, StringInterner, TestDef,
     TokenKind, TokenList, Visibility,
 };
 use tracing::debug;
@@ -43,12 +43,55 @@ enum FunctionOrTest {
 // Re-export ParsedAttrs from grammar module.
 pub(crate) use grammar::ParsedAttrs;
 
+/// Pre-interned `Name` values for contextual keywords used in identifier comparisons.
+///
+/// Avoids acquiring interner read-locks during parsing by comparing `Name` values
+/// (u32 equality) instead of looking up strings via `interner().lookup()`.
+pub(crate) struct KnownNames {
+    // Channel constructors
+    pub channel: Name,
+    pub channel_in: Name,
+    pub channel_out: Name,
+    pub channel_all: Name,
+    // Check properties
+    pub pre_check: Name,
+    pub post_check: Name,
+    // For-pattern properties
+    pub over: Name,
+    pub map: Name,
+    pub match_: Name,
+    pub default: Name,
+    // Type syntax
+    pub max: Name,
+}
+
+impl KnownNames {
+    /// Intern all known contextual keywords once.
+    fn new(interner: &StringInterner) -> Self {
+        Self {
+            channel: interner.intern("channel"),
+            channel_in: interner.intern("channel_in"),
+            channel_out: interner.intern("channel_out"),
+            channel_all: interner.intern("channel_all"),
+            pre_check: interner.intern("pre_check"),
+            post_check: interner.intern("post_check"),
+            over: interner.intern("over"),
+            map: interner.intern("map"),
+            match_: interner.intern("match"),
+            default: interner.intern("default"),
+            max: interner.intern("max"),
+        }
+    }
+}
+
 /// Parser state.
 pub struct Parser<'a> {
     pub(crate) cursor: Cursor<'a>,
     arena: ExprArena,
     /// Current parsing context flags.
     pub(crate) context: ParseContext,
+    /// Pre-interned names for contextual keyword comparisons.
+    pub(crate) known: KnownNames,
     /// Errors from sub-parsers that lack `&mut Vec<ParseError>` access
     /// (e.g., `parse_type()` detecting reserved syntax like `&T`).
     /// Drained into the main error list in `parse_module()`.
@@ -67,6 +110,7 @@ impl<'a> Parser<'a> {
             cursor: Cursor::new(tokens, interner),
             arena: ExprArena::with_capacity(estimated_source_len),
             context: ParseContext::new(),
+            known: KnownNames::new(interner),
             deferred_errors: Vec::new(),
             deferred_warnings: Vec::new(),
         }
