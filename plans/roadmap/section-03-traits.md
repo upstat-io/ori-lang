@@ -307,18 +307,18 @@ The following traits are also recognized in trait bounds:
 
 ## 3.3 Trait Bounds
 
-**Complete Implementation:**
-- [ ] Parser supports generic parameters with bounds `<T: Trait>`, `<T: A + B>`
-- [ ] Parser supports where clauses `where T: Clone, U: Default`
-- [ ] `Function` AST node stores `generics: GenericParamRange` and `where_clauses: Vec<WhereClause>`
-- [ ] `FunctionType` in type checker stores `generics: Vec<GenericBound>` with bounds and type vars
-- [ ] `Param` AST node stores `type_name: Option<Name>` to preserve type annotation names
-- [ ] `parse_type_with_name()` captures identifier names during parameter type parsing
-- [ ] `infer_function_signature` creates fresh type vars for generics and maps params correctly
-- [ ] `function_sigs: HashMap<Name, FunctionType>` stores signatures for call-time lookup
-- [ ] `check_generic_bounds()` verifies resolved types satisfy trait bounds at call sites
-- [ ] E2009 error code for missing trait bound violations
-- [ ] Unit tests verify end-to-end (10 tests in `typeck::checker::tests`)
+**Complete Implementation:** ✅ (verified 2026-02-14)
+- [x] Parser supports generic parameters with bounds `<T: Trait>`, `<T: A + B>` — `parse_generics()` + `parse_bounds()` in `ori_parse/src/grammar/item/generics/mod.rs`
+- [x] Parser supports where clauses `where T: Clone, U: Default` — `parse_where_clauses()` in `ori_parse/src/grammar/item/generics/mod.rs`
+- [x] `Function` AST node stores `generics: GenericParamRange` and `where_clauses: Vec<WhereClause>` — `ori_ir/src/ast/items/function.rs`
+- [x] `FunctionSig` in type checker stores `type_param_bounds: Vec<Vec<Name>>` with bounds — `ori_types/src/output/mod.rs`
+- [x] `Param` AST stores type annotation as `ty: Option<ParsedType>` — `ori_ir/src/ast/items/function.rs`
+- [x] Type parsing captures identifier names implicitly in `ParsedType` nodes — `ori_parse/src/grammar/ty/mod.rs`
+- [x] `infer_function_signature_with_arena()` creates fresh type vars for generics and maps params — `ori_types/src/check/signatures/mod.rs`
+- [x] `signatures: FxHashMap<Name, FunctionSig>` stores signatures for call-time lookup — `ori_types/src/check/mod.rs`
+- [x] Bound checking at call sites via inline checks + `type_satisfies_trait()` — `ori_types/src/infer/expr/calls.rs`
+- [x] E2009 error code for missing trait bound violations — `ori_diagnostic/src/error_code/mod.rs`
+- [x] Unit tests verify end-to-end — `ori_parse/src/grammar/item/generics/tests.rs` (5 where-clause tests), `ori_parse/src/grammar/ty/tests.rs` (trait bound tests), `ori_types/src/infer/expr/tests.rs`
 
 **What Works Now:**
 - Parsing generic functions: `@compare<T: Comparable> (a: T, b: T) -> Ordering`
@@ -328,12 +328,12 @@ The following traits are also recognized in trait bounds:
 - Error messages when types don't satisfy required bounds
 
 **Implementation Details:**
-- `Param.type_name` preserves the original type annotation name (e.g., `T` in `: T`)
-- `GenericBound.type_var` stores the fresh type variable for each generic parameter
-- `infer_function_signature` builds a `generic_type_vars: HashMap<Name, Type>` mapping
-- When a param's `type_name` matches a generic, the type var is used instead of inferring
-- `check_generic_bounds` in `call.rs` resolves type vars after unification and checks bounds
-- `type_satisfies_bound` uses `TraitRegistry` to verify trait implementations
+- `Param.ty` stores type annotations as `ParsedType`; generic parameter names resolved via `FunctionSig.type_params`
+- `FunctionSig.type_param_bounds` stores bounds per generic parameter as `Vec<Vec<Name>>`
+- `infer_function_signature_with_arena()` creates fresh type vars and builds `generic_param_mapping`
+- When a param's type matches a generic, the type var is used instead of inferring
+- Bound checking in `calls.rs` resolves type vars after unification and verifies trait impls
+- `type_satisfies_trait()` uses trait registry to verify implementations
 
 - [x] **Implement**: Single bound `<T: Trait>` — spec/08-declarations.md § Generic Declarations ✅ (2026-02-10)
   - [x] **Write test**: Rust unit tests in `typeck/checker.rs::tests` (10 tests pass)
@@ -374,7 +374,7 @@ Infrastructure implemented:
 
 - [x] **Implement**: Impl validation (require all associated types defined) ✅ (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/trait_registration.rs` — `validate_associated_types`
-  - [ ] **Ori Tests**: `tests/compile-fail/impl_missing_assoc_type.ori` — test file not yet created
+  - [x] **Ori Tests**: `tests/compile-fail/impl_missing_assoc_type.ori` — test exists and passes ✅ (verified 2026-02-14)
   - **Note**: Added validation in `register_impls()` that checks all required associated types are defined.
 
 ---
@@ -410,10 +410,10 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **LLVM Support**: Synthetic LLVM IR for derived Printable — runtime str concat via `ori_str_*` ✅ (2026-02-13)
   - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 1 AOT test (basic non-empty check) ✅ (2026-02-13)
 
-- [ ] **Implement**: Auto-implement `Default` — spec/08-declarations.md § Attributes
+- [x] **Implement**: Auto-implement `Default` — spec/08-declarations.md § Attributes ✅ (2026-02-14)
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — `create_derived_method_def` handles Default
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/default.ori` — test file not yet created
-  - [ ] **LLVM Support**: LLVM codegen for derived Default methods
+  - [x] **Ori Tests**: `tests/spec/traits/derive/default.ori` — 6 tests (basic, multi-type, single field, float, eq integration, nested) ✅ (2026-02-14)
+  - [x] **LLVM Support**: LLVM codegen for derived Default — `const_zero` produces correct zero-init structs ✅ (2026-02-14)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Default derive codegen (test file doesn't exist)
 
 ---
