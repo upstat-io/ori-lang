@@ -21,7 +21,7 @@ sections:
     status: complete
   - id: "0.3"
     title: Declarations
-    status: in-progress
+    status: complete
   - id: "0.4"
     title: Types
     status: in-progress
@@ -856,18 +856,18 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.8 Section Completion Checklist
 
-> **STATUS**: In Progress — Re-verified 2026-02-14. Major progress: 20 items previously BROKEN now parse correctly. Remaining gaps: const functions, some pattern forms.
+> **STATUS**: In Progress — Re-verified 2026-02-14. 7/10 checklist items complete. Remaining: 0.4 (impl Trait blocked-by:19), 0.6 (enforcement blocked-by:23). All tests pass.
 
 - [x] All lexical grammar items audited and tested (0.1) ✅ (2026-02-10)
 - [x] All source structure items audited and tested (0.2) ✅ (2026-02-13) — file attributes, extern `as`, C variadics all work now
-- [ ] All declaration items audited and tested (0.3) — partial: typed constants broken; const generics NOW WORK ✅ (2026-02-13); floating tests NOW WORK ✅ (2026-02-14); clause params, guard clauses, variadic params NOW WORK
+- [x] All declaration items audited and tested (0.3) ✅ (2026-02-14) — 92/92 checkboxes complete; typed constants, const generics, floating tests, clause params, guard clauses, variadic params all work
 - [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK; bounded trait objects NOW WORK ✅ (2026-02-14)
 - [x] All expression items audited and tested (0.5) ✅ (2026-02-14) — length placeholder `#` now works; labeled break/continue/for/loop NOW WORK ✅ (2026-02-14)
 - [ ] All pattern items audited and tested (0.6) — partial: with RAII NOW WORKS ✅ (2026-02-14) (spec uses `action:` not `use:`); immutable bindings NOW WORK ✅ (2026-02-14); struct rest `..` NOW WORKS ✅ (2026-02-14); char patterns NOW WORK ✅ (2026-02-14); run pre/post checks NOW PARSE ✅ (2026-02-14); try `?` NOW WORKS; channels NOW PARSE ✅ (2026-02-14)
 - [x] All constant expression items audited and tested (0.7) ✅ (2026-02-14) — computed constants now work (arithmetic, comparison, logical, grouped)
-- [ ] Run `cargo t -p ori_parse` — all parser tests pass
-- [ ] Run `cargo t -p ori_lexer` — all lexer tests pass
-- [ ] Run `cargo st tests/` — verify current test counts
+- [x] Run `cargo t -p ori_parse` — all parser tests pass ✅ (2026-02-14)
+- [x] Run `cargo t -p ori_lexer` — all lexer tests pass ✅ (2026-02-14)
+- [x] Run `cargo st tests/` — 3176 passed, 0 failed, 59 skipped ✅ (2026-02-14)
 
 **Exit Criteria**: Every grammar production in `grammar.ebnf` has verified parser support with tests.
 
