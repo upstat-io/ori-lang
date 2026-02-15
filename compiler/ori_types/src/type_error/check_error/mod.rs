@@ -410,6 +410,12 @@ impl TypeCheckError {
                     format_name(*struct_name)
                 )
             }
+            TypeErrorKind::UnsupportedOperator { ty, op, trait_name } => {
+                let type_name = format_type(*ty);
+                format!(
+                    "cannot apply operator `{op}` to type `{type_name}`; implement `{trait_name}` trait"
+                )
+            }
         }
     }
 
@@ -522,6 +528,12 @@ impl TypeCheckError {
             TypeErrorKind::UninhabitedStructField { .. } => {
                 "cannot use `Never` as struct field type".to_string()
             }
+            TypeErrorKind::UnsupportedOperator { ty, op, trait_name } => {
+                format!(
+                    "cannot apply operator `{op}` to type `{}`; implement `{trait_name}` trait",
+                    ty.display_name()
+                )
+            }
         }
     }
 
@@ -569,6 +581,9 @@ impl TypeCheckError {
 
             // E2019: Never type in struct field
             TypeErrorKind::UninhabitedStructField { .. } => ErrorCode::E2019,
+
+            // E2020: Unsupported operator (missing trait implementation)
+            TypeErrorKind::UnsupportedOperator { .. } => ErrorCode::E2020,
         }
     }
 
@@ -716,6 +731,27 @@ impl TypeCheckError {
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
                 "use `Never` in sum type variants instead, or use `Option<T>` for optional fields",
+                0,
+            )],
+        }
+    }
+
+    /// Create an "unsupported operator" error (E2020).
+    ///
+    /// Emitted when an operator is used on a type that doesn't implement the
+    /// corresponding operator trait.
+    pub fn unsupported_operator(
+        span: Span,
+        ty: Idx,
+        op: &'static str,
+        trait_name: &'static str,
+    ) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UnsupportedOperator { ty, op, trait_name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                format!("implement `{trait_name}` for this type"),
                 0,
             )],
         }
@@ -992,6 +1028,16 @@ pub enum TypeErrorKind {
         struct_name: Name,
         /// The field with Never type.
         field: Name,
+    },
+
+    /// Operator not supported for type (no trait implementation).
+    UnsupportedOperator {
+        /// The type that doesn't support the operator.
+        ty: Idx,
+        /// The operator symbol (e.g., "+", "-", "~").
+        op: &'static str,
+        /// The trait name that would need to be implemented.
+        trait_name: &'static str,
     },
 }
 

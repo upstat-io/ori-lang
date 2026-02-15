@@ -143,6 +143,9 @@ impl<'a> TypeErrorRenderer<'a> {
             TypeErrorKind::UninhabitedStructField { field, .. } => {
                 format!("`{}`: uninhabited type", self.format_name(*field))
             }
+            TypeErrorKind::UnsupportedOperator { op, trait_name, .. } => {
+                format!("no `{trait_name}` implementation for `{op}`")
+            }
         }
     }
 

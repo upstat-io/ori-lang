@@ -1426,7 +1426,7 @@ Allow associated types in traits to have default values, enabling `type Output =
 
 ## 3.21 Operator Traits
 
-**STATUS: Partial — Interpreter complete, LLVM pending**
+**STATUS: Core complete — Type checker desugaring + evaluator dispatch working. LLVM + derive pending.**
 
 **Proposal**: `proposals/approved/operator-traits-proposal.md`
 
@@ -1439,21 +1439,23 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
 
 ### Implementation
 
-- [ ] **Implement**: Define operator traits in prelude (via trait registry lookup)
-  - [ ] `Add<Rhs = Self>`, `Sub<Rhs = Self>`, `Mul<Rhs = Self>`, `Div<Rhs = Self>`, `FloorDiv<Rhs = Self>`, `Rem<Rhs = Self>`
-  - [ ] `Neg`, `Not`, `BitNot`
-  - [ ] `BitAnd<Rhs = Self>`, `BitOr<Rhs = Self>`, `BitXor<Rhs = Self>`, `Shl<Rhs = int>`, `Shr<Rhs = int>`
-  - [ ] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori` — **ENTIRELY COMMENTED OUT** (type checker doesn't support operator trait dispatch yet)
+- [x] **Implement**: Define operator traits in prelude (via trait registry lookup) ✅ (2026-02-15)
+  - [x] `Add<Rhs = Self>`, `Sub<Rhs = Self>`, `Mul<Rhs = Self>`, `Div<Rhs = Self>`, `FloorDiv<Rhs = Self>`, `Rem<Rhs = Self>`
+  - [x] `Neg`, `Not`, `BitNot`
+  - [x] `BitAnd<Rhs = Self>`, `BitOr<Rhs = Self>`, `BitXor<Rhs = Self>`, `Shl<Rhs = int>`, `Shr<Rhs = int>`
+  - [x] **Files**: `library/std/prelude.ori` — all operator traits defined with associated `Output` type
+  - [x] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori` — 16 tests covering all operators
 
-- [ ] **Implement**: Operator desugaring in type checker
-  - [ ] `a + b` → `a.add(rhs: b)` (etc. for all operators)
-  - [ ] **Files**: `ori_typeck/src/infer/expressions/operators.rs` — `check_operator_trait()`
-  - **NOTE**: Not yet implemented. User-defined operators are NOT desugared to trait calls.
+- [x] **Implement**: Operator desugaring in type checker ✅ (2026-02-15)
+  - [x] `a + b` → `a.add(rhs: b)` (etc. for all binary operators)
+  - [x] `-a` → `a.negate()`, `!a` → `a.not()`, `~a` → `a.bit_not()` (unary operators)
+  - [x] **Files**: `ori_types/src/infer/expr/operators.rs` — `resolve_binary_op_via_trait()`, `resolve_unary_op_via_trait()`
+  - [x] **Files**: `ori_types/src/infer/mod.rs` — `intern_name()` helper on InferEngine
 
-- [x] **Implement**: Operator dispatch in evaluator via trait impls — PARTIAL (built-in primitives only) ✅ (2026-02-10)
+- [x] **Implement**: Operator dispatch in evaluator via trait impls ✅ (2026-02-15)
   - [x] **Files**: `ori_eval/src/interpreter/mod.rs` — `eval_binary()`, `binary_op_to_method()`
   - [x] **Files**: `ori_eval/src/methods.rs` — operator methods for primitives
-  - [ ] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori` — entirely commented out, no working tests
+  - [x] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori` — 16 tests (Add, Sub, Neg, Mul, Div, Rem, FloorDiv, BitAnd, BitOr, BitXor, Shl, Shr, BitNot, Not, chaining, double negation)
   - [ ] **LLVM Support**: LLVM codegen for operator trait dispatch — NOT implemented for user types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/operator_trait_tests.rs` — test file doesn't exist
 
@@ -1467,19 +1469,22 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
   - [x] `Size`: Add, Sub, Mul (with int), Div (with int), Rem
   - [x] **Files**: `ori_eval/src/methods.rs` — `dispatch_int_method()`, `dispatch_float_method()`, etc.
 
-- [ ] **Implement**: User-defined operator implementations — NOT WORKING
-  - [ ] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori` — entirely commented out with TODO
-  - **NOTE**: `impl Add for Point { ... }` + `a + b` does NOT desugar to trait call
+- [x] **Implement**: User-defined operator implementations ✅ (2026-02-15)
+  - [x] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori` — 16 tests all passing
+  - [x] Type checker desugars `a + b` to `a.add(rhs: b)` via TraitRegistry lookup
+  - [x] Evaluator dispatches to impl methods for non-primitive types
 
 - [x] **Implement**: Mixed-type operations with explicit both-direction impls ✅ (2026-02-10)
   - [x] Example: `Duration * int` and `int * Duration`
   - [x] **Files**: `ori_eval/src/interpreter/mod.rs` — `is_mixed_primitive_op()`
 
-- [ ] **Implement**: Error messages for missing operator trait implementations
-  - [ ] E2020: Type does not implement operator trait
-  - [ ] E2021: Cannot apply operator to types
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — error message tests
-  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/operator_trait_missing.ori`
+- [x] **Implement**: Error messages for missing operator trait implementations ✅ (2026-02-15)
+  - [x] E2020: Type does not implement operator trait (for user-defined types)
+  - [x] Primitives keep original error messages (e.g., "cannot apply `-` to `str`")
+  - [x] **Files**: `ori_types/src/type_error/check_error/mod.rs` — `UnsupportedOperator` variant
+  - [x] **Files**: `ori_diagnostic/src/error_code/mod.rs` — E2020 error code
+  - [x] **Files**: `ori_diagnostic/src/errors/E2020.md` — error documentation
+  - [x] **Ori Compile-Fail Tests**: `tests/compile-fail/operator_trait_missing.ori` — 5 tests (Add, Neg, Not, BitNot, BitAnd)
 
 - [ ] **Implement**: Derive support for operator traits on newtypes (OPTIONAL)
   - [ ] `#derive(Add, Sub, Mul, Div)` generates field-wise operations

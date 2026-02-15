@@ -315,6 +315,11 @@ impl<'pool> InferEngine<'pool> {
         self.interner.map(|i| i.lookup(name))
     }
 
+    /// Intern a string into a `Name`, if the interner is available.
+    pub fn intern_name(&self, s: &str) -> Option<Name> {
+        self.interner.map(|i| i.intern(s))
+    }
+
     // ========================================
     // Pool Access
     // ========================================

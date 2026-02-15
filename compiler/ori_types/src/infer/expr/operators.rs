@@ -51,6 +51,14 @@ pub(crate) fn infer_binary(
                 | (Tag::Int, Tag::Size, BinaryOp::Mul) => Some(Idx::SIZE),
                 // String concatenation
                 (Tag::Str, Tag::Str, BinaryOp::Add) => Some(Idx::STR),
+                // List concatenation: [T] + [T] = [T]
+                (Tag::List, Tag::List, BinaryOp::Add) => {
+                    // Unify element types and return the left list type
+                    let left_elem = engine.pool().list_elem(resolved_left);
+                    let right_elem = engine.pool().list_elem(resolved_right);
+                    let _ = engine.unify_types(left_elem, right_elem);
+                    Some(engine.resolve(left_ty))
+                }
                 // Never propagation: right operand diverges
                 (_, Tag::Never, _) => Some(Idx::NEVER),
                 // Error propagation
@@ -62,7 +70,32 @@ pub(crate) fn infer_binary(
                 return result;
             }
 
-            // Default: unify left and right operands
+            // Try trait dispatch for non-primitive, non-variable types
+            if !left_tag.is_primitive() && !left_tag.is_type_variable() {
+                if let Some(ret) = resolve_binary_op_via_trait(
+                    engine,
+                    arena,
+                    resolved_left,
+                    right_ty,
+                    right,
+                    op,
+                    span,
+                ) {
+                    return ret;
+                }
+                // No trait impl found — emit error
+                if let Some(trait_name) = binary_op_to_trait_name(op) {
+                    engine.push_error(TypeCheckError::unsupported_operator(
+                        span,
+                        resolved_left,
+                        op_str,
+                        trait_name,
+                    ));
+                    return Idx::ERROR;
+                }
+            }
+
+            // Default for primitives/type variables: unify left and right operands
             engine.push_context(ContextKind::BinaryOpRight { op: op_str });
             let left_span = arena.get_expr(left).span;
             let expected = Expected {
@@ -169,6 +202,29 @@ pub(crate) fn infer_binary(
                 Tag::Error => return Idx::ERROR,
                 Tag::Never => return Idx::NEVER,
                 _ => {
+                    // Try trait dispatch for user-defined types
+                    if !left_tag.is_primitive() && !left_tag.is_type_variable() {
+                        if let Some(ret) = resolve_binary_op_via_trait(
+                            engine,
+                            arena,
+                            resolved_left,
+                            right_ty,
+                            right,
+                            op,
+                            span,
+                        ) {
+                            return ret;
+                        }
+                        if let Some(trait_name) = binary_op_to_trait_name(op) {
+                            engine.push_error(TypeCheckError::unsupported_operator(
+                                span,
+                                resolved_left,
+                                op_str,
+                                trait_name,
+                            ));
+                            return Idx::ERROR;
+                        }
+                    }
                     engine.push_error(TypeCheckError::bad_binary_operand(
                         left_span,
                         "bitwise",
@@ -267,14 +323,24 @@ pub(crate) fn infer_unary(
             let tag = engine.pool().tag(resolved);
             match tag {
                 Tag::Int | Tag::Float | Tag::Duration => resolved,
-                // Propagate errors and defer type variables
                 Tag::Error => Idx::ERROR,
                 Tag::Var => {
-                    // Type variable not yet resolved — unify with int as default
                     let _ = engine.unify_types(operand_ty, Idx::INT);
                     engine.resolve(operand_ty)
                 }
                 _ => {
+                    if !tag.is_primitive() && !tag.is_type_variable() {
+                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, "negate") {
+                            return ret;
+                        }
+                        engine.push_error(TypeCheckError::unsupported_operator(
+                            operand_span,
+                            resolved,
+                            "-",
+                            "Neg",
+                        ));
+                        return Idx::ERROR;
+                    }
                     engine.push_error(TypeCheckError::bad_unary_operand(
                         operand_span,
                         "-",
@@ -291,13 +357,24 @@ pub(crate) fn infer_unary(
             let tag = engine.pool().tag(resolved);
             match tag {
                 Tag::Bool => Idx::BOOL,
-                // Propagate errors and defer type variables
                 Tag::Error => Idx::ERROR,
                 Tag::Var => {
                     let _ = engine.unify_types(operand_ty, Idx::BOOL);
                     Idx::BOOL
                 }
                 _ => {
+                    if !tag.is_primitive() && !tag.is_type_variable() {
+                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, "not") {
+                            return ret;
+                        }
+                        engine.push_error(TypeCheckError::unsupported_operator(
+                            operand_span,
+                            resolved,
+                            "!",
+                            "Not",
+                        ));
+                        return Idx::ERROR;
+                    }
                     engine.push_error(TypeCheckError::bad_unary_operand(
                         operand_span,
                         "!",
@@ -310,14 +387,44 @@ pub(crate) fn infer_unary(
 
         // Bitwise not: int -> int
         UnaryOp::BitNot => {
-            engine.push_context(ContextKind::UnaryOpOperand { op: "~" });
-            let expected = Expected {
-                ty: Idx::INT,
-                origin: ExpectedOrigin::NoExpectation,
-            };
-            let _ = engine.check_type(operand_ty, &expected, operand_span);
-            engine.pop_context();
-            Idx::INT
+            let resolved = engine.resolve(operand_ty);
+            let tag = engine.pool().tag(resolved);
+            match tag {
+                Tag::Int | Tag::Var => {
+                    engine.push_context(ContextKind::UnaryOpOperand { op: "~" });
+                    let expected = Expected {
+                        ty: Idx::INT,
+                        origin: ExpectedOrigin::NoExpectation,
+                    };
+                    let _ = engine.check_type(operand_ty, &expected, operand_span);
+                    engine.pop_context();
+                    Idx::INT
+                }
+                Tag::Error => Idx::ERROR,
+                Tag::Never => Idx::NEVER,
+                _ => {
+                    if !tag.is_primitive() && !tag.is_type_variable() {
+                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, "bit_not") {
+                            return ret;
+                        }
+                        engine.push_error(TypeCheckError::unsupported_operator(
+                            operand_span,
+                            resolved,
+                            "~",
+                            "BitNot",
+                        ));
+                        return Idx::ERROR;
+                    }
+                    engine.push_context(ContextKind::UnaryOpOperand { op: "~" });
+                    let expected = Expected {
+                        ty: Idx::INT,
+                        origin: ExpectedOrigin::NoExpectation,
+                    };
+                    let _ = engine.check_type(operand_ty, &expected, operand_span);
+                    engine.pop_context();
+                    Idx::INT
+                }
+            }
         }
 
         // Try operator: Option<T> -> T or Result<T, E> -> T
@@ -361,6 +468,122 @@ pub(crate) fn infer_cast(
     } else {
         target_ty
     }
+}
+
+/// Map a binary operator to its trait method name.
+fn binary_op_to_method_name(op: BinaryOp) -> Option<&'static str> {
+    match op {
+        BinaryOp::Add => Some("add"),
+        BinaryOp::Sub => Some("subtract"),
+        BinaryOp::Mul => Some("multiply"),
+        BinaryOp::Div => Some("divide"),
+        BinaryOp::FloorDiv => Some("floor_divide"),
+        BinaryOp::Mod => Some("remainder"),
+        BinaryOp::BitAnd => Some("bit_and"),
+        BinaryOp::BitOr => Some("bit_or"),
+        BinaryOp::BitXor => Some("bit_xor"),
+        BinaryOp::Shl => Some("shift_left"),
+        BinaryOp::Shr => Some("shift_right"),
+        _ => None,
+    }
+}
+
+/// Map a binary operator to its trait name (for error messages).
+fn binary_op_to_trait_name(op: BinaryOp) -> Option<&'static str> {
+    match op {
+        BinaryOp::Add => Some("Add"),
+        BinaryOp::Sub => Some("Sub"),
+        BinaryOp::Mul => Some("Mul"),
+        BinaryOp::Div => Some("Div"),
+        BinaryOp::FloorDiv => Some("FloorDiv"),
+        BinaryOp::Mod => Some("Rem"),
+        BinaryOp::BitAnd => Some("BitAnd"),
+        BinaryOp::BitOr => Some("BitOr"),
+        BinaryOp::BitXor => Some("BitXor"),
+        BinaryOp::Shl => Some("Shl"),
+        BinaryOp::Shr => Some("Shr"),
+        _ => None,
+    }
+}
+
+/// Try to resolve a binary operator via trait dispatch.
+///
+/// Looks up the operator's method name in the `TraitRegistry` for the left
+/// operand's type. If found, checks the right operand against the method's
+/// parameter type and returns the method's return type.
+fn resolve_binary_op_via_trait(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    receiver_ty: Idx,
+    right_ty: Idx,
+    right: ExprId,
+    op: BinaryOp,
+    span: Span,
+) -> Option<Idx> {
+    let method_name = binary_op_to_method_name(op)?;
+    let op_str = op.as_symbol();
+    let name = engine.intern_name(method_name)?;
+
+    // Scoped borrow: extract signature and self-ness, then release the registry borrow.
+    let (sig_ty, has_self) = {
+        let trait_registry = engine.trait_registry()?;
+        let lookup = trait_registry.lookup_method(receiver_ty, name)?;
+        (lookup.method().signature, lookup.method().has_self)
+    };
+
+    let resolved_sig = engine.resolve(sig_ty);
+    if engine.pool().tag(resolved_sig) != Tag::Function {
+        return Some(Idx::ERROR);
+    }
+
+    let params = engine.pool().function_params(resolved_sig);
+    let ret = engine.pool().function_return(resolved_sig);
+
+    // Skip `self` parameter for instance methods
+    let skip = usize::from(has_self);
+    let method_params = &params[skip..];
+
+    // Binary operators expect exactly one non-self parameter
+    if method_params.len() != 1 {
+        return Some(Idx::ERROR);
+    }
+
+    // Check right operand against the method's parameter type
+    let expected = Expected {
+        ty: method_params[0],
+        origin: ExpectedOrigin::Context {
+            span,
+            kind: ContextKind::BinaryOpRight { op: op_str },
+        },
+    };
+    let _ = engine.check_type(right_ty, &expected, arena.get_expr(right).span);
+
+    Some(ret)
+}
+
+/// Try to resolve a unary operator via trait dispatch.
+///
+/// Looks up the operator's method name in the `TraitRegistry` for the
+/// operand's type. If found, returns the method's return type.
+fn resolve_unary_op_via_trait(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method_name: &str,
+) -> Option<Idx> {
+    let name = engine.intern_name(method_name)?;
+
+    let sig_ty = {
+        let trait_registry = engine.trait_registry()?;
+        let lookup = trait_registry.lookup_method(receiver_ty, name)?;
+        lookup.method().signature
+    };
+
+    let resolved_sig = engine.resolve(sig_ty);
+    if engine.pool().tag(resolved_sig) != Tag::Function {
+        return Some(Idx::ERROR);
+    }
+
+    Some(engine.pool().function_return(resolved_sig))
 }
 
 /// Infer the type of an assignment expression.
