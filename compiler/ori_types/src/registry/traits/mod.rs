@@ -21,13 +21,20 @@ use crate::Idx;
 ///
 /// Provides efficient lookup of trait definitions and implementations
 /// for method resolution.
+///
+/// Traits are stored in a single `Vec<TraitEntry>`, with lookup maps
+/// holding `usize` indices (same pattern as `impls`). This avoids
+/// cloning `TraitEntry` on registration.
 #[derive(Clone, Debug, Default)]
 pub struct TraitRegistry {
-    /// Traits indexed by name (`BTreeMap` for deterministic iteration).
-    traits_by_name: BTreeMap<Name, TraitEntry>,
+    /// All registered trait definitions.
+    traits: Vec<TraitEntry>,
 
-    /// Traits indexed by pool Idx.
-    traits_by_idx: FxHashMap<Idx, TraitEntry>,
+    /// Name → trait index (`BTreeMap` for deterministic iteration).
+    traits_by_name: BTreeMap<Name, usize>,
+
+    /// Pool `Idx` → trait index.
+    traits_by_idx: FxHashMap<Idx, usize>,
 
     /// All implementations.
     impls: Vec<ImplEntry>,
@@ -185,8 +192,10 @@ impl TraitRegistry {
     pub fn register_trait(&mut self, entry: TraitEntry) {
         let name = entry.name;
         let idx = entry.idx;
-        self.traits_by_name.insert(name, entry.clone());
-        self.traits_by_idx.insert(idx, entry);
+        let trait_idx = self.traits.len();
+        self.traits_by_name.insert(name, trait_idx);
+        self.traits_by_idx.insert(idx, trait_idx);
+        self.traits.push(entry);
     }
 
     /// Register a trait implementation.
@@ -218,13 +227,17 @@ impl TraitRegistry {
     /// Look up a trait by name.
     #[inline]
     pub fn get_trait_by_name(&self, name: Name) -> Option<&TraitEntry> {
-        self.traits_by_name.get(&name)
+        self.traits_by_name
+            .get(&name)
+            .and_then(|&i| self.traits.get(i))
     }
 
     /// Look up a trait by pool index.
     #[inline]
     pub fn get_trait_by_idx(&self, idx: Idx) -> Option<&TraitEntry> {
-        self.traits_by_idx.get(&idx)
+        self.traits_by_idx
+            .get(&idx)
+            .and_then(|&i| self.traits.get(i))
     }
 
     /// Check if a trait with the given name exists.
@@ -571,7 +584,9 @@ impl TraitRegistry {
 
     /// Iterate over all registered traits in name order.
     pub fn iter_traits(&self) -> impl Iterator<Item = &TraitEntry> {
-        self.traits_by_name.values()
+        self.traits_by_name
+            .values()
+            .filter_map(|&i| self.traits.get(i))
     }
 
     /// Iterate over all implementations.
@@ -582,7 +597,7 @@ impl TraitRegistry {
     /// Get the number of registered traits.
     #[inline]
     pub fn trait_count(&self) -> usize {
-        self.traits_by_name.len()
+        self.traits.len()
     }
 
     /// Get the number of registered implementations.
