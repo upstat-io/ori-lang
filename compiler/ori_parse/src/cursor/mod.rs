@@ -459,6 +459,34 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    /// Expect and consume a member name (after `.`), returning its interned name.
+    ///
+    /// Accepts identifiers, soft keywords, and reserved keywords. Keywords are
+    /// valid in member position because the `.` prefix provides unambiguous
+    /// context (e.g., `ordering.then(other: Less)`).
+    ///
+    /// See grammar.ebnf § `member_name`.
+    #[inline]
+    pub fn expect_member_name(&mut self) -> Result<Name, ParseError> {
+        // Accept regular identifiers
+        if let TokenKind::Ident(name) = *self.current_kind() {
+            self.advance();
+            Ok(name)
+        // Accept soft keywords
+        } else if let Some(name_str) = self.soft_keyword_to_name() {
+            let name = self.interner.intern(name_str);
+            self.advance();
+            Ok(name)
+        // Accept any keyword (then, if, for, type, etc.)
+        } else if let Some(kw_str) = self.current_kind().keyword_str() {
+            let name = self.interner.intern(kw_str);
+            self.advance();
+            Ok(name)
+        } else {
+            Err(self.make_expect_ident_error())
+        }
+    }
+
     /// Build the error for a failed `expect_ident()` call.
     #[cold]
     #[inline(never)]

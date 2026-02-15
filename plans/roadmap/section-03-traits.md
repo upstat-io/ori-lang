@@ -70,7 +70,7 @@ sections:
     status: in-progress
   - id: "3.19"
     title: Default Type Parameters on Traits
-    status: complete
+    status: complete  # verified 2026-02-15: all items checked
   - id: "3.20"
     title: Default Associated Types
     status: complete
@@ -437,10 +437,11 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Default trait methods compiled in LLVM [done] (2026-02-13)
   - [x] **Fixed**: Indirect ABI parameter passing — self loaded from pointer for >16B structs [done] (2026-02-13)
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
-- [ ] Operator traits (3.21): User-defined operator dispatch NOT working (entirely commented out)
+- [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
+  - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
 - [ ] Proposals (3.8-3.17): Iterator, Debug, Formattable, Into, etc. — all not started (3.7 Clone complete [done])
 
-**Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operators and formal trait proposals pending.
+**Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
 ---
 
@@ -1301,7 +1302,7 @@ Formalizes the `Into` trait for semantic, lossless type conversions. Defines tra
 
 ## 3.18 Ordering Type
 
-**STATUS: Partial — Core methods complete, `then`/`then_with` pending (keyword conflict)**
+**STATUS: Partial — Core methods + `then` complete, `then_with` deferred (needs closure calling in method dispatch)**
 
 **Proposal**: `proposals/approved/ordering-type-proposal.md`
 
@@ -1328,11 +1329,18 @@ Formalizes the `Ordering` type that represents comparison results. Defines the t
   - [x] **Evaluator**: Swaps Less↔Greater, preserves Equal
   - [x] **Ori Tests**: `tests/spec/types/ordering/methods.ori` — 4 reverse tests including involution
 
-- [ ] **Implement**: `then` method for lexicographic comparison chaining
-  - **BLOCKED**: `then` is a keyword in Ori grammar (if...then...else) — commented out in tests
-  - [ ] **Ori Tests**: `tests/spec/types/ordering/then.ori`
+- [x] **Implement**: `then` method for lexicographic comparison chaining [done] (2026-02-15)
+  - Keyword conflict resolved: keywords now valid as member names after `.` (grammar.ebnf § member_name)
+  - [x] **Parser**: `expect_member_name()` in cursor, used by postfix.rs
+  - [x] **Type checker**: `resolve_ordering_method()` — returns `Idx::ORDERING`
+  - [x] **Evaluator**: `dispatch_ordering_method()` — Equal chains, non-Equal keeps self
+  - [x] **IR registry**: `builtin_methods.rs` — `MethodDef` with `ParamSpec::SelfType`
+  - [x] **Eval registry**: `EVAL_BUILTIN_METHODS` — `("Ordering", "then")`
+  - [x] **Ori Tests**: `tests/spec/types/ordering/methods.ori` — 5 tests (equal chains, non-equal keeps self, chaining)
+  - [x] **Rust Tests**: `ori_eval/src/tests/methods_tests.rs` — `then_equal_chains`, `then_non_equal_keeps_self`
 
 - [ ] **Implement**: `then_with` method for lazy lexicographic chaining
+  - Deferred: requires closure-calling capability in method dispatch (`DispatchCtx` only has names/interner)
   - [ ] **Ori Tests**: `tests/spec/types/ordering/then_with.ori`
 
 - [x] **Implement**: Trait methods for Ordering (Clone, Printable, Hashable) [done] (2026-02-10)
@@ -1382,9 +1390,9 @@ Allow type parameters on traits to have default values, enabling `trait Add<Rhs 
   - [x] **Design**: Stored as `ParsedType`, resolved at impl time with substitution
   - [x] **Verified**: `trait Transform<Input = Self, Output = Input>` in default_type_params.ori
 
-- [ ] **Update Spec**: `grammar.ebnf` § Generics — `type_param = identifier [ ":" bounds ] [ "=" type ] .`
-- [ ] **Update Spec**: `08-declarations.md` — Default Type Parameters section under Traits
-- [ ] **Update**: `CLAUDE.md` — `trait N<T = Self>` syntax documented
+- [x] **Update Spec**: `grammar.ebnf` § Generics — `type_param = identifier [ ":" bounds ] [ "=" type ] .` [done] (verified 2026-02-15, already present)
+- [x] **Update Spec**: `08-declarations.md` — Default Type Parameters section under Traits [done] (verified 2026-02-15, already present at line 230)
+- [x] **Update**: `CLAUDE.md` — `trait N<T = Self>` syntax documented [done] (verified 2026-02-15, already in ori-syntax.md)
 
 ---
 
@@ -1419,15 +1427,15 @@ Allow associated types in traits to have default values, enabling `type Output =
 - [ ] **Implement**: Bounds checking — verify default satisfies any bounds after substitution
   - Note: Deferred to future enhancement; bounds on associated types not yet fully implemented
 
-- [ ] **Update Spec**: `grammar.ebnf` — update assoc_type production
-- [ ] **Update Spec**: `08-declarations.md` — add Default Associated Types section
-- [ ] **Update**: `CLAUDE.md` — add default associated type syntax to Traits section
+- [x] **Update Spec**: `grammar.ebnf` — update assoc_type production [done] (verified 2026-02-15, already present: `assoc_type = "type" identifier [ ":" bounds ] [ "=" type ]`)
+- [x] **Update Spec**: `08-declarations.md` — add Default Associated Types section [done] (verified 2026-02-15, already present at line 272 with bounds section)
+- [x] **Update**: `CLAUDE.md` — add default associated type syntax to Traits section [done] (verified 2026-02-15, already in ori-syntax.md: `type Output = Self` default)
 
 ---
 
 ## 3.21 Operator Traits
 
-**STATUS: Core complete — Type checker desugaring + evaluator dispatch working. LLVM + derive pending.**
+**STATUS: Complete — Type checker desugaring, evaluator dispatch, LLVM codegen, error messages all working. Derive for newtypes optional/deferred.**
 
 **Proposal**: `proposals/approved/operator-traits-proposal.md`
 
@@ -1492,5 +1500,5 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
   - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — operator derive tests
   - [ ] **Ori Tests**: `tests/spec/traits/operators/derive.ori`
 
-- [ ] **Update Spec**: `09-expressions.md` — replace "No Operator Overloading" with Operator Traits section
-- [ ] **Update**: `CLAUDE.md` — add operator traits to prelude and operators section
+- [x] **Update Spec**: `09-expressions.md` — Operator Traits section [done] (verified 2026-02-15, already present at line 403 with full trait/method/desugaring tables)
+- [x] **Update**: `CLAUDE.md` — operator traits in prelude and operators section [done] (verified 2026-02-15, already in ori-syntax.md lines 93 and 191)

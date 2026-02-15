@@ -538,6 +538,87 @@ impl TokenKind {
         )
     }
 
+    /// If this token is a keyword, return its string representation.
+    ///
+    /// Returns `None` for non-keyword tokens (identifiers, literals,
+    /// operators, delimiters). Used to allow keywords as member names
+    /// after `.` (e.g., `ordering.then(other: Less)`).
+    pub fn keyword_str(&self) -> Option<&'static str> {
+        match self {
+            // Reserved keywords
+            TokenKind::Async => Some("async"),
+            TokenKind::Break => Some("break"),
+            TokenKind::Continue => Some("continue"),
+            TokenKind::Return => Some("return"),
+            TokenKind::Def => Some("def"),
+            TokenKind::Do => Some("do"),
+            TokenKind::Else => Some("else"),
+            TokenKind::False => Some("false"),
+            TokenKind::For => Some("for"),
+            TokenKind::If => Some("if"),
+            TokenKind::Impl => Some("impl"),
+            TokenKind::In => Some("in"),
+            TokenKind::Let => Some("let"),
+            TokenKind::Loop => Some("loop"),
+            TokenKind::Match => Some("match"),
+            TokenKind::Mut => Some("mut"),
+            TokenKind::Pub => Some("pub"),
+            TokenKind::SelfLower => Some("self"),
+            TokenKind::SelfUpper => Some("Self"),
+            TokenKind::Then => Some("then"),
+            TokenKind::Trait => Some("trait"),
+            TokenKind::True => Some("true"),
+            TokenKind::Type => Some("type"),
+            TokenKind::Use => Some("use"),
+            TokenKind::Uses => Some("uses"),
+            TokenKind::Void => Some("void"),
+            TokenKind::Where => Some("where"),
+            TokenKind::With => Some("with"),
+            TokenKind::Yield => Some("yield"),
+            TokenKind::Suspend => Some("suspend"),
+            TokenKind::Unsafe => Some("unsafe"),
+            TokenKind::Tests => Some("tests"),
+            TokenKind::As => Some("as"),
+            TokenKind::Dyn => Some("dyn"),
+            TokenKind::Extend => Some("extend"),
+            TokenKind::Extension => Some("extension"),
+            TokenKind::Skip => Some("skip"),
+            TokenKind::Extern => Some("extern"),
+            // Type keywords
+            TokenKind::IntType => Some("int"),
+            TokenKind::FloatType => Some("float"),
+            TokenKind::BoolType => Some("bool"),
+            TokenKind::StrType => Some("str"),
+            TokenKind::CharType => Some("char"),
+            TokenKind::ByteType => Some("byte"),
+            TokenKind::NeverType => Some("Never"),
+            // Built-in variant names
+            TokenKind::Ok => Some("Ok"),
+            TokenKind::Err => Some("Err"),
+            TokenKind::Some => Some("Some"),
+            TokenKind::None => Some("None"),
+            // Context-sensitive keywords
+            TokenKind::Cache => Some("cache"),
+            TokenKind::Catch => Some("catch"),
+            TokenKind::Parallel => Some("parallel"),
+            TokenKind::Spawn => Some("spawn"),
+            TokenKind::Recurse => Some("recurse"),
+            TokenKind::Run => Some("run"),
+            TokenKind::Timeout => Some("timeout"),
+            TokenKind::Try => Some("try"),
+            TokenKind::By => Some("by"),
+            // Built-in functions
+            TokenKind::Print => Some("print"),
+            TokenKind::Panic => Some("panic"),
+            TokenKind::Todo => Some("todo"),
+            TokenKind::Unreachable => Some("unreachable"),
+            // Operators: `div` is also a keyword
+            TokenKind::Div => Some("div"),
+            // Not keywords
+            _ => Option::None,
+        }
+    }
+
     /// Get a display name for the token.
     ///
     /// # Performance

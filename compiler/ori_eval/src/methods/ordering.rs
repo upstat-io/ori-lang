@@ -69,6 +69,18 @@ pub fn dispatch_ordering_method(
             OrderingValue::Greater => 1i64,
         };
         Ok(Value::Int(hash_val.into()))
+    // then: lexicographic comparison chaining
+    } else if method == n.then {
+        require_args("then", 1, args.len())?;
+        let Some(other_ord) = extract_ordering(&args[0]) else {
+            return Err(EvalError::new("then requires Ordering value").into());
+        };
+        // If self is Equal, use other; otherwise keep self
+        let result = match ord {
+            OrderingValue::Equal => other_ord,
+            _ => ord,
+        };
+        Ok(Value::Ordering(result))
     // Eq trait
     } else if method == n.equals {
         require_args("equals", 1, args.len())?;
