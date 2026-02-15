@@ -807,6 +807,34 @@ mod mixed_expressions {
     }
 
     #[test]
+    fn test_method_style_match() {
+        let sources = &[
+            // Basic method-style match
+            "@test () -> int = x.match(0 -> 1, _ -> 2)",
+            // With guards
+            "@test () -> str = n.match(x.match(x > 0) -> \"pos\", _ -> \"neg\")",
+            // Nested method-style match
+            "@test () -> str = x.match(0 -> y.match(0 -> \"a\", _ -> \"b\"), _ -> \"c\")",
+            // Expression as receiver
+            "@test () -> int = (a + b).match(0 -> 1, _ -> 2)",
+            // Chained with postfix ops
+            "@test () -> int = x.match(0 -> [1], _ -> [2]).len()",
+            // Method-style equivalent of match(x, ...)
+            "@test () -> int = val.match(Some(n) -> n, None -> 0)",
+        ];
+
+        for source in sources {
+            let result = parse_source(source);
+            assert!(
+                !result.has_errors(),
+                "Method-style match failed:\n{}\nErrors: {:?}",
+                source,
+                result.errors
+            );
+        }
+    }
+
+    #[test]
     fn test_with_capability_expressions() {
         let sources = &[
             // Basic with

@@ -110,8 +110,19 @@ impl Parser<'_> {
                     ));
                 }
             } else if self.cursor.check(&TokenKind::Dot) {
-                // Field access or method call
+                // Field access, method call, or method-style match
                 self.cursor.advance();
+
+                // Method-style match: expr.match(pattern -> body, ...)
+                // Desugars to match(expr, pattern -> body, ...)
+                if self.cursor.check(&TokenKind::Match) {
+                    let start_span = self.arena.get_expr(expr).span;
+                    self.cursor.advance();
+                    self.cursor.expect(&TokenKind::LParen)?;
+                    expr = self.parse_match_arms_with_scrutinee(expr, start_span)?;
+                    continue;
+                }
+
                 let field = self.cursor.expect_ident()?;
 
                 if self.cursor.check(&TokenKind::LParen) {

@@ -292,12 +292,27 @@ impl Parser<'_> {
 
         self.cursor.skip_newlines();
         committed!(self.cursor.expect(&TokenKind::Comma));
+
+        let result = committed!(self.parse_match_arms_with_scrutinee(scrutinee, start_span));
+        ParseOutcome::consumed_ok(result)
+    }
+
+    /// Parse match arms with a known scrutinee and construct a Match expression.
+    ///
+    /// Expects `(` has already been consumed. Parses comma-separated match arms
+    /// and the closing `)`. Used by both `match(scrutinee, arms...)` and
+    /// `scrutinee.match(arms...)` method-style syntax.
+    pub(crate) fn parse_match_arms_with_scrutinee(
+        &mut self,
+        scrutinee: ExprId,
+        start_span: ori_ir::Span,
+    ) -> Result<ExprId, ParseError> {
         self.cursor.skip_newlines();
 
         // Match arms use a Vec because nested match expressions share
         // the same `arms` buffer, causing same-buffer nesting conflicts.
         let mut arms: Vec<MatchArm> = Vec::new();
-        committed!(self.paren_series_direct(|p| {
+        self.paren_series_direct(|p| {
             if p.cursor.check(&TokenKind::RParen) {
                 return Ok(false);
             }
@@ -319,18 +334,15 @@ impl Parser<'_> {
                 span: arm_span.merge(end_span),
             });
             Ok(true)
-        }));
+        })?;
         let end_span = self.cursor.previous_span();
 
         if arms.is_empty() {
-            return ParseOutcome::consumed_err(
-                ParseError::new(
-                    ori_diagnostic::ErrorCode::E1002,
-                    "match requires at least one arm",
-                    end_span,
-                ),
-                start_span,
-            );
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "match requires at least one arm",
+                end_span,
+            ));
         }
 
         let arms_range = self.arena.alloc_arms(arms);
@@ -342,10 +354,9 @@ impl Parser<'_> {
         };
 
         let func_seq_id = self.arena.alloc_function_seq(func_seq);
-        ParseOutcome::consumed_ok(
-            self.arena
-                .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq_id), span)),
-        )
+        Ok(self
+            .arena
+            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq_id), span)))
     }
 
     /// Parse for pattern: for(over: items, [map: transform,] match: Pattern -> expr, default: value)
