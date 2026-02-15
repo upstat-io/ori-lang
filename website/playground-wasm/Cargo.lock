@@ -89,7 +89,7 @@ checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "ori-playground-wasm"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "ori_canon",
  "ori_eval",
@@ -105,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "ori_arc"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "ori_ir",
  "ori_types",
@@ -116,7 +116,7 @@ dependencies = [
 
 [[package]]
 name = "ori_canon"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "ori_arc",
  "ori_ir",
@@ -127,14 +127,14 @@ dependencies = [
 
 [[package]]
 name = "ori_diagnostic"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "ori_ir",
 ]
 
 [[package]]
 name = "ori_eval"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "ori_ir",
  "ori_patterns",
@@ -147,7 +147,7 @@ dependencies = [
 
 [[package]]
 name = "ori_fmt"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "ori_ir",
  "rustc-hash",
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "ori_ir"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "parking_lot",
  "rustc-hash",
@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "ori_lexer"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "ori_ir",
  "ori_lexer_core",
@@ -178,7 +178,7 @@ dependencies = [
 
 [[package]]
 name = "ori_parse"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
@@ -188,7 +188,7 @@ dependencies = [
 
 [[package]]
 name = "ori_patterns"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "ori_ir",
  "rustc-hash",
@@ -197,14 +197,14 @@ dependencies = [
 
 [[package]]
 name = "ori_stack"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "stacker",
 ]
 
 [[package]]
 name = "ori_types"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "bitflags",
  "ori_diagnostic",
