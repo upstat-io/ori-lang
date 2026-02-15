@@ -31,7 +31,7 @@ pub(crate) fn resolve_builtin_method(
         Tag::Byte => resolve_byte_method(method_name),
         Tag::Char => resolve_char_method(method_name),
         Tag::Ordering => resolve_ordering_method(method_name),
-        Tag::Tuple => resolve_tuple_method(engine, receiver_ty, method_name),
+        Tag::Tuple => resolve_tuple_method(receiver_ty, method_name),
         _ => None,
     }
 }
@@ -325,24 +325,10 @@ fn resolve_char_method(method_name: &str) -> Option<Idx> {
     }
 }
 
-fn resolve_tuple_method(
-    engine: &mut InferEngine<'_>,
-    receiver_ty: Idx,
-    method_name: &str,
-) -> Option<Idx> {
+fn resolve_tuple_method(receiver_ty: Idx, method_name: &str) -> Option<Idx> {
     match method_name {
         "len" => Some(Idx::INT),
         "clone" => Some(receiver_ty),
-        "to_list" => {
-            // Only works if all elements are the same type
-            let count = engine.pool().tuple_elem_count(receiver_ty);
-            if count > 0 {
-                let first = engine.pool().tuple_elem(receiver_ty, 0);
-                Some(engine.pool_mut().list(first))
-            } else {
-                Some(engine.pool_mut().list(Idx::UNIT))
-            }
-        }
         _ => None,
     }
 }
