@@ -267,6 +267,12 @@ fn dispatch_tuple_method(
     if method == n.clone_ {
         helpers::require_args("clone", 0, args.len())?;
         Ok(receiver)
+    } else if method == n.len {
+        helpers::require_args("len", 0, args.len())?;
+        let Value::Tuple(elems) = &receiver else {
+            unreachable!("dispatch_tuple_method called with non-tuple receiver")
+        };
+        helpers::len_to_value(elems.len(), "tuple")
     } else {
         let method_str = ctx.interner.lookup(method);
         Err(no_such_method(method_str, "tuple").into())

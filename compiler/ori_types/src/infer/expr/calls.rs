@@ -473,9 +473,9 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
 /// Tuple, Set, and Range — types that aren't simple Idx constants but can be
 /// identified by their Pool tag.
 pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bool {
-    const COLLECTION_TRAITS: &[&str] = &["Clone", "Eq", "Len", "IsEmpty"];
-    const WRAPPER_TRAITS: &[&str] = &["Clone", "Eq", "Default"];
-    const RESULT_TRAITS: &[&str] = &["Clone", "Eq"];
+    const COLLECTION_TRAITS: &[&str] = &["Clone", "Len", "IsEmpty"];
+    const WRAPPER_TRAITS: &[&str] = &["Clone", "Default"];
+    const RESULT_TRAITS: &[&str] = &["Clone"];
 
     // First check primitives (no pool access needed)
     if primitive_satisfies_trait(ty, trait_name) {

@@ -601,8 +601,16 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     TypeInfo::List { .. } => {
                         self.lower_list_method(recv_val, recv_type, method, args)
                     }
+                    // Map/Set are ARC-managed {len, cap, ptr} — clone is identity
+                    TypeInfo::Map { .. } | TypeInfo::Set { .. } if method == "clone" => {
+                        Some(recv_val)
+                    }
                     // Tuple is a value type {A, B, ...} — clone is identity
                     TypeInfo::Tuple { .. } if method == "clone" => Some(recv_val),
+                    // Tuple.len() is a compile-time constant
+                    TypeInfo::Tuple { elements } if method == "len" => {
+                        Some(self.builder.const_i64(elements.len() as i64))
+                    }
                     _ => None,
                 }
             }

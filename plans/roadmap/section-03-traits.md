@@ -490,6 +490,14 @@ Formalizes the `Clone` trait that enables explicit value duplication. The trait 
   - [x] **Fixed LEAK**: Type checker speculatively accepted `hash`/`equals` on collections (list, map, set), wrappers (Option, Result), and tuples — **reverted**. Evaluator and LLVM codegen have no handlers for these methods. Type checker now only accepts `clone` on compound types. `hash`/`equals` on compound types tracked under 3.14.
   - [x] **Deferred WASTE**: `abi.clone()` in `lower_calls.rs` (4 sites) — pre-existing borrow-conflict workaround, cheap clone. Not worth refactoring risk now.
   - [x] **Deferred WASTE**: `method_str` String allocation per method call — pre-existing, requires `Name`-based API change across many call sites.
+  - [x] **Hygiene review pass 2** (2026-02-15): Phase boundary audit of commit da22ae17
+    - [x] **Fixed LEAK**: `type_satisfies_trait()` claimed compound types satisfy `Eq` (`COLLECTION_TRAITS`, `WRAPPER_TRAITS`, `RESULT_TRAITS` all contained `"Eq"`) — but no `.equals()` method exists in any downstream phase. Removed `"Eq"` from all 3 arrays. Re-add under 3.14 when `equals()` is implemented.
+    - [x] **Fixed LEAK**: `resolve_tuple_method()` accepted `to_list` — dubious semantics (only works if all elements same type), no evaluator/LLVM handler. Removed; simplified function signature (dropped unused `engine` param).
+    - [x] **Fixed LEAK**: `dispatch_map_method()` in evaluator had no `clone` handler — fell through to `no_such_method("clone", "map")`. Added clone handler (Arc identity, same as list).
+    - [x] **Fixed LEAK**: `dispatch_tuple_method()` in evaluator had no `len` handler — fell through to `no_such_method("len", "tuple")`. Added len handler extracting `Value::Tuple(elems).len()`.
+    - [x] **Fixed LEAK**: `lower_builtin_method()` in LLVM codegen had no Map/Set clone handling — fell through to `None` → "unresolved method call". Added `Map | Set` identity pattern (Arc-managed structs).
+    - [x] **Fixed LEAK**: `lower_builtin_method()` in LLVM codegen had no Tuple.len() handling. Added compile-time constant from `TypeInfo::Tuple { elements }` count.
+    - [x] **Added Tests**: 6 unit tests verifying compound types do NOT satisfy Eq (`test_eq_not_satisfied_by_{list,map,set,option,result,tuple}`).
 
 ---
 
@@ -1081,6 +1089,7 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [ ] Evaluator: `dispatch_tuple_method` — element-wise equality
   - [ ] LLVM codegen: `lower_builtin_method` — inline equals for all compound types
   - [ ] Type checker: `resolve_*_method` — add `equals` back (LAST, after eval+LLVM)
+  - [ ] Type checker: `type_satisfies_trait()` — re-add `"Eq"` to `COLLECTION_TRAITS`, `WRAPPER_TRAITS`, `RESULT_TRAITS` (removed in 3.7 hygiene pass 2)
   - [ ] **Ori Tests**: `tests/spec/traits/eq/compound_types.ori`
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — compound equals codegen
 

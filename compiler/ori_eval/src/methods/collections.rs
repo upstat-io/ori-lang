@@ -181,7 +181,7 @@ pub fn dispatch_map_method(
     args: Vec<Value>,
     ctx: &DispatchCtx<'_>,
 ) -> EvalResult {
-    let Value::Map(map) = receiver else {
+    let Value::Map(ref map) = receiver else {
         unreachable!("dispatch_map_method called with non-map receiver")
     };
 
@@ -203,6 +203,9 @@ pub fn dispatch_map_method(
         // Clone values for return list. Cheap: Value uses Arc for heap types.
         let values: Vec<Value> = map.values().cloned().collect();
         Ok(Value::list(values))
+    } else if method == n.clone_ {
+        require_args("clone", 0, args.len())?;
+        Ok(receiver)
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "map").into())
     }
