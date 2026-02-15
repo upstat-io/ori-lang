@@ -9,7 +9,7 @@ use ori_ir::builtin_methods::BUILTIN_METHODS;
 /// Collection types that have eval methods but are not yet in the
 /// `ori_ir` builtin method registry. These are tracked as a gap to fix.
 /// Proper-cased names match `EVAL_BUILTIN_METHODS` (and `TypeNames`).
-const COLLECTION_TYPES: &[&str] = &["Option", "Result", "list", "map", "range"];
+const COLLECTION_TYPES: &[&str] = &["Option", "Result", "list", "map", "range", "tuple"];
 
 /// IR registry methods that are implemented in the evaluator through method
 /// resolvers (`UserRegistryResolver`, `CollectionMethodResolver`, etc.) rather

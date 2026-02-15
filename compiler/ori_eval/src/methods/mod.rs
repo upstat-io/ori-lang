@@ -252,6 +252,27 @@ pub(crate) fn dispatch_associated_function(
     }
 }
 
+/// Dispatch methods on tuple values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature with other dispatch functions"
+)]
+fn dispatch_tuple_method(
+    receiver: Value,
+    method: Name,
+    args: Vec<Value>,
+    ctx: &DispatchCtx<'_>,
+) -> EvalResult {
+    let n = ctx.names;
+    if method == n.clone_ {
+        helpers::require_args("clone", 0, args.len())?;
+        Ok(receiver)
+    } else {
+        let method_str = ctx.interner.lookup(method);
+        Err(no_such_method(method_str, "tuple").into())
+    }
+}
+
 /// Dispatch a built-in method call using pre-interned `Name` comparison.
 ///
 /// This is the production entry point for built-in method calls. Uses
@@ -286,6 +307,7 @@ pub(crate) fn dispatch_builtin_method(
         Value::Duration(_) => units::dispatch_duration_method(receiver, method, args, ctx),
         Value::Size(_) => units::dispatch_size_method(receiver, method, args, ctx),
         Value::Ordering(_) => ordering::dispatch_ordering_method(receiver, method, args, ctx),
+        Value::Tuple(_) => dispatch_tuple_method(receiver, method, args, ctx),
         _ => {
             let method_str = ctx.interner.lookup(method);
             Err(no_such_method(method_str, receiver.type_name()).into())

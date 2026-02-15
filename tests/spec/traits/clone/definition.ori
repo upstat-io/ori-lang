@@ -1,0 +1,110 @@
+// Spec: 06-types.md § Clone Trait
+// Tests for Clone trait formal definition — trait recognition, derive, method signature
+
+use std.testing { assert, assert_eq }
+
+// Clone trait is derivable for user-defined types with all-Clone fields
+
+#[derive(Clone, Eq)]
+type Point = { x: int, y: int }
+
+// Basic: derived clone produces equal value
+@test_clone_derived_basic tests @clone_derived_basic () -> void = run(
+    let p = Point { x: 10, y: 20 },
+    let p2 = p.clone(),
+    assert_eq(actual: p2.x, expected: 10),
+    assert_eq(actual: p2.y, expected: 20),
+)
+
+@clone_derived_basic () -> bool = run(
+    let p = Point { x: 10, y: 20 },
+    let p2 = p.clone(),
+    p2.x == 10 && p2.y == 20,
+)
+
+// Clone + Eq integration: clone equals original
+@test_clone_equals_original tests @clone_eq () -> void = run(
+    let p = Point { x: 5, y: 15 },
+    let p2 = p.clone(),
+    assert(cond: p.eq(other: p2)),
+)
+
+@clone_eq () -> bool = run(
+    let p = Point { x: 5, y: 15 },
+    let p2 = p.clone(),
+    p.eq(other: p2),
+)
+
+// Clone independence: modifying derived values doesn't affect clone
+@test_clone_independence tests @clone_indep () -> void = run(
+    let p = Point { x: 1, y: 2 },
+    let p2 = p.clone(),
+    let p3 = Point { x: p.x + 10, y: p.y + 20 },
+    // p2 unchanged
+    assert_eq(actual: p2.x, expected: 1),
+    assert_eq(actual: p2.y, expected: 2),
+    // p3 is different
+    assert_eq(actual: p3.x, expected: 11),
+    assert_eq(actual: p3.y, expected: 22),
+)
+
+@clone_indep () -> bool = run(
+    let p = Point { x: 1, y: 2 },
+    let p2 = p.clone(),
+    p2.x == 1 && p2.y == 2,
+)
+
+// Multi-field struct with mixed types
+#[derive(Clone, Eq)]
+type Config = { name: str, count: int, enabled: bool }
+
+@test_clone_mixed_fields tests @clone_mixed () -> void = run(
+    let c = Config { name: "test", count: 42, enabled: true },
+    let c2 = c.clone(),
+    assert_eq(actual: c2.name, expected: "test"),
+    assert_eq(actual: c2.count, expected: 42),
+    assert_eq(actual: c2.enabled, expected: true),
+)
+
+@clone_mixed () -> bool = run(
+    let c = Config { name: "test", count: 42, enabled: true },
+    let c2 = c.clone(),
+    c2.name == "test" && c2.count == 42 && c2.enabled == true,
+)
+
+// Single-field struct
+#[derive(Clone, Eq)]
+type Wrapper = { value: int }
+
+@test_clone_single_field tests @clone_single () -> void = run(
+    let w = Wrapper { value: 99 },
+    let w2 = w.clone(),
+    assert_eq(actual: w2.value, expected: 99),
+)
+
+@clone_single () -> bool = run(
+    let w = Wrapper { value: 99 },
+    let w2 = w.clone(),
+    w2.value == 99,
+)
+
+// Float fields
+#[derive(Clone, Eq)]
+type Vec2 = { x: float, y: float }
+
+@test_clone_float_fields tests @clone_float () -> void = run(
+    let v = Vec2 { x: 3.14, y: 2.72 },
+    let v2 = v.clone(),
+    assert_eq(actual: v2.x, expected: 3.14),
+    assert_eq(actual: v2.y, expected: 2.72),
+)
+
+@clone_float () -> bool = run(
+    let v = Vec2 { x: 3.14, y: 2.72 },
+    let v2 = v.clone(),
+    v2.x == 3.14 && v2.y == 2.72,
+)
+
+@main () -> void = run(
+    print(msg: "Clone definition tests passed"),
+)
