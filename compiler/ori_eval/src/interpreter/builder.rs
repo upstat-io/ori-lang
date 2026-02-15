@@ -27,6 +27,7 @@ pub struct InterpreterBuilder<'a> {
     mode: EvalMode,
     imported_arena: Option<SharedArena>,
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
+    default_field_types: Option<SharedMutableRegistry<crate::DefaultFieldTypeRegistry>>,
     print_handler: Option<SharedPrintHandler>,
     scope_ownership: ScopeOwnership,
     call_stack: Option<CallStack>,
@@ -44,6 +45,7 @@ impl<'a> InterpreterBuilder<'a> {
             mode: EvalMode::default(),
             imported_arena: None,
             user_method_registry: None,
+            default_field_types: None,
             print_handler: None,
             scope_ownership: ScopeOwnership::Borrowed,
             call_stack: None,
@@ -78,6 +80,16 @@ impl<'a> InterpreterBuilder<'a> {
     #[must_use]
     pub fn user_method_registry(mut self, r: SharedMutableRegistry<UserMethodRegistry>) -> Self {
         self.user_method_registry = Some(r);
+        self
+    }
+
+    /// Set the default field type registry for `#[derive(Default)]`.
+    #[must_use]
+    pub fn default_field_types(
+        mut self,
+        r: SharedMutableRegistry<crate::DefaultFieldTypeRegistry>,
+    ) -> Self {
+        self.default_field_types = Some(r);
         self
     }
 
@@ -125,6 +137,10 @@ impl<'a> InterpreterBuilder<'a> {
         let user_meth_reg = self
             .user_method_registry
             .unwrap_or_else(|| SharedMutableRegistry::new(UserMethodRegistry::new()));
+
+        let default_field_types = self
+            .default_field_types
+            .unwrap_or_else(|| SharedMutableRegistry::new(crate::DefaultFieldTypeRegistry::new()));
 
         // Build method dispatcher once. Because user_method_registry uses interior
         // mutability (RwLock), the dispatcher will see methods registered later.
@@ -182,6 +198,7 @@ impl<'a> InterpreterBuilder<'a> {
             mode_state,
             call_stack,
             user_method_registry: user_meth_reg,
+            default_field_types,
             method_dispatcher,
             imported_arena,
             print_handler,

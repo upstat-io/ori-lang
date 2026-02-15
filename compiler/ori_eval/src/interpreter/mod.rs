@@ -296,6 +296,11 @@ pub struct Interpreter<'a> {
     /// Uses `SharedMutableRegistry` to allow method registration after the
     /// evaluator (and its cached dispatcher) is created.
     pub(crate) user_method_registry: SharedMutableRegistry<UserMethodRegistry>,
+    /// Default field type registry for `#[derive(Default)]`.
+    ///
+    /// Stored separately from `DerivedMethodInfo` because default field types
+    /// are evaluator-specific — LLVM codegen uses `const_zero` instead.
+    pub(crate) default_field_types: SharedMutableRegistry<crate::DefaultFieldTypeRegistry>,
     /// Cached method dispatcher for efficient method resolution.
     ///
     /// The dispatcher chains all method resolvers (user, derived, collection, builtin)
@@ -496,6 +501,11 @@ impl<'a> Interpreter<'a> {
         &self.user_method_registry
     }
 
+    /// Get the default field type registry.
+    pub fn default_field_types(&self) -> &SharedMutableRegistry<crate::DefaultFieldTypeRegistry> {
+        &self.default_field_types
+    }
+
     /// Get a reference to the environment.
     pub fn env(&self) -> &Environment {
         &self.env
@@ -573,6 +583,7 @@ impl<'a> Interpreter<'a> {
             mode_state: ModeState::child(&self.mode, &self.mode_state),
             call_stack: child_stack,
             user_method_registry: self.user_method_registry.clone(),
+            default_field_types: self.default_field_types.clone(),
             method_dispatcher: self.method_dispatcher.clone(),
             imported_arena: imported_arena.clone(),
             print_handler: self.print_handler.clone(),
