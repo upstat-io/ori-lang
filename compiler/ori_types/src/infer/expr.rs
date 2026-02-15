@@ -282,19 +282,19 @@ fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
     }
 
     // 2. Resolve name to string for constructor/builtin matching
-    let name_str = engine.lookup_name(name).map(String::from);
+    let name_str = engine.lookup_name(name);
 
     // 2a. Special case for "self" - if not in env, check for recursive self_type
     // This handles `self()` calls inside recursive patterns like `recurse`.
-    if name_str.as_deref() == Some("self") {
+    if name_str == Some("self") {
         if let Some(self_ty) = engine.self_type() {
             return self_ty;
         }
     }
 
-    if let Some(ref s) = name_str {
+    if let Some(s) = name_str {
         // 3. Built-in variant constructors (Option/Result are primitive types)
-        match s.as_str() {
+        match s {
             "Some" => {
                 let t = engine.pool_mut().fresh_var();
                 let opt_t = engine.pool_mut().option(t);
@@ -320,7 +320,7 @@ fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
         }
 
         // 4. Built-in conversion functions
-        let conversion_target = match s.as_str() {
+        let conversion_target = match s {
             "int" => Some(Idx::INT),
             "float" => Some(Idx::FLOAT),
             "str" => Some(Idx::STR),
@@ -336,7 +336,7 @@ fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
 
         // 5. Type names used as expression-level receivers for associated functions
         //    e.g., Duration.from_seconds(s: 5), Size.from_bytes(b: 100)
-        match s.as_str() {
+        match s {
             "Duration" | "duration" => return Idx::DURATION,
             "Size" | "size" => return Idx::SIZE,
             "Ordering" | "ordering" => return Idx::ORDERING,
@@ -970,7 +970,7 @@ fn infer_match(
         engine.push_context(ContextKind::MatchArmPattern { arm_index: i });
         #[expect(clippy::cast_possible_truncation, reason = "arm index fits in u32")]
         let arm_key = PatternKey::Arm(arms.start + i as u32);
-        check_match_pattern(engine, arena, &arm.pattern, scrutinee_ty, arm_key);
+        check_match_pattern(engine, arena, &arm.pattern, scrutinee_ty, arm_key, arm.span);
         engine.pop_context();
 
         // Check guard is bool (if present)
@@ -1046,6 +1046,7 @@ fn check_match_pattern(
     pattern: &ori_ir::MatchPattern,
     expected_ty: Idx,
     pattern_key: PatternKey,
+    span: Span,
 ) {
     use ori_ir::MatchPattern;
 
@@ -1192,7 +1193,7 @@ fn check_match_pattern(
             for (inner_id, inner_ty) in inner_ids.iter().zip(inner_types.iter()) {
                 let inner_pattern = arena.get_match_pattern(*inner_id);
                 let nested_key = PatternKey::Nested(inner_id.raw());
-                check_match_pattern(engine, arena, inner_pattern, *inner_ty, nested_key);
+                check_match_pattern(engine, arena, inner_pattern, *inner_ty, nested_key, span);
             }
         }
 
@@ -1207,7 +1208,7 @@ fn check_match_pattern(
                 // Check arity
                 if inner_ids.len() != elem_types.len() {
                     engine.push_error(TypeCheckError::arity_mismatch(
-                        Span::DUMMY,
+                        span,
                         elem_types.len(),
                         inner_ids.len(),
                         crate::ArityMismatchKind::Pattern,
@@ -1219,12 +1220,12 @@ fn check_match_pattern(
                 for (inner_id, elem_ty) in inner_ids.iter().zip(elem_types.iter()) {
                     let inner_pattern = arena.get_match_pattern(*inner_id);
                     let nested_key = PatternKey::Nested(inner_id.raw());
-                    check_match_pattern(engine, arena, inner_pattern, *elem_ty, nested_key);
+                    check_match_pattern(engine, arena, inner_pattern, *elem_ty, nested_key, span);
                 }
             } else if resolved != Idx::ERROR {
                 // Not a tuple type
                 engine.push_error(TypeCheckError::mismatch(
-                    Span::DUMMY,
+                    span,
                     expected_ty,
                     resolved,
                     vec![],
@@ -1247,7 +1248,7 @@ fn check_match_pattern(
                 for inner_id in elem_ids {
                     let inner_pattern = arena.get_match_pattern(*inner_id);
                     let nested_key = PatternKey::Nested(inner_id.raw());
-                    check_match_pattern(engine, arena, inner_pattern, elem_ty, nested_key);
+                    check_match_pattern(engine, arena, inner_pattern, elem_ty, nested_key, span);
                 }
 
                 // Bind rest pattern to list type
@@ -1257,7 +1258,7 @@ fn check_match_pattern(
             } else if resolved != Idx::ERROR {
                 // Not a list type
                 engine.push_error(TypeCheckError::mismatch(
-                    Span::DUMMY,
+                    span,
                     expected_ty,
                     resolved,
                     vec![],
@@ -1292,7 +1293,7 @@ fn check_match_pattern(
                 if let Some(inner_id) = inner_pattern {
                     let inner = arena.get_match_pattern(*inner_id);
                     let nested_key = PatternKey::Nested(inner_id.raw());
-                    check_match_pattern(engine, arena, inner, field_ty, nested_key);
+                    check_match_pattern(engine, arena, inner, field_ty, nested_key, span);
                 } else {
                     // Shorthand: `{ x }` binds x to the field value
                     engine.env_mut().bind(*name, field_ty);
@@ -1318,7 +1319,7 @@ fn check_match_pattern(
             for alt_id in alt_ids {
                 let alt_pattern = arena.get_match_pattern(*alt_id);
                 let nested_key = PatternKey::Nested(alt_id.raw());
-                check_match_pattern(engine, arena, alt_pattern, expected_ty, nested_key);
+                check_match_pattern(engine, arena, alt_pattern, expected_ty, nested_key, span);
             }
         }
 
@@ -1330,7 +1331,7 @@ fn check_match_pattern(
             engine.env_mut().bind(*name, expected_ty);
             let inner_pattern = arena.get_match_pattern(*inner_id);
             let nested_key = PatternKey::Nested(inner_id.raw());
-            check_match_pattern(engine, arena, inner_pattern, expected_ty, nested_key);
+            check_match_pattern(engine, arena, inner_pattern, expected_ty, nested_key, span);
         }
     }
 }
@@ -2089,8 +2090,10 @@ fn infer_struct(
         return Idx::ERROR;
     };
 
-    // Step 2: Verify it's a struct
-    let TypeKind::Struct(struct_def) = &entry.kind else {
+    // Step 2: Verify it's a struct — move struct_def out of the already-owned entry
+    let entry_idx = entry.idx;
+    let type_params = entry.type_params;
+    let TypeKind::Struct(struct_def) = entry.kind else {
         engine.push_error(TypeCheckError::not_a_struct(span, name));
         let field_inits = arena.get_field_inits(fields);
         for init in field_inits {
@@ -2100,11 +2103,9 @@ fn infer_struct(
         }
         return Idx::ERROR;
     };
-    let struct_def = struct_def.clone();
 
     // Step 3: Create fresh type variables for generic params
-    let type_param_subst: FxHashMap<Name, Idx> = entry
-        .type_params
+    let type_param_subst: FxHashMap<Name, Idx> = type_params
         .iter()
         .map(|&param_name| (param_name, engine.fresh_var()))
         .collect();
@@ -2150,7 +2151,7 @@ fn infer_struct(
             // Unknown field — report error, still infer value
             let available: Vec<Name> = expected_fields.iter().map(|(n, _)| *n).collect();
             engine.push_error(TypeCheckError::undefined_field(
-                init.span, entry.idx, init.name, available,
+                init.span, entry_idx, init.name, available,
             ));
             if let Some(value_id) = init.value {
                 infer_expr(engine, arena, value_id);
@@ -2173,8 +2174,7 @@ fn infer_struct(
     if type_param_subst.is_empty() {
         engine.pool_mut().named(name)
     } else {
-        let type_args: Vec<Idx> = entry
-            .type_params
+        let type_args: Vec<Idx> = type_params
             .iter()
             .map(|param_name| type_param_subst[param_name])
             .collect();
@@ -2228,7 +2228,10 @@ fn infer_struct_spread(
         return Idx::ERROR;
     };
 
-    let TypeKind::Struct(struct_def) = &entry.kind else {
+    // Extract scalar fields before moving kind out of the owned entry
+    let entry_idx = entry.idx;
+    let type_params = entry.type_params;
+    let TypeKind::Struct(struct_def) = entry.kind else {
         engine.push_error(TypeCheckError::not_a_struct(span, name));
         for field in struct_lit_fields {
             match field {
@@ -2244,11 +2247,9 @@ fn infer_struct_spread(
         }
         return Idx::ERROR;
     };
-    let struct_def = struct_def.clone();
 
     // Step 2: Create fresh type variables for generic params
-    let type_param_subst: FxHashMap<Name, Idx> = entry
-        .type_params
+    let type_param_subst: FxHashMap<Name, Idx> = type_params
         .iter()
         .map(|&param_name| (param_name, engine.fresh_var()))
         .collect();
@@ -2273,8 +2274,7 @@ fn infer_struct_spread(
     let target_type = if type_param_subst.is_empty() {
         engine.pool_mut().named(name)
     } else {
-        let type_args: Vec<Idx> = entry
-            .type_params
+        let type_args: Vec<Idx> = type_params
             .iter()
             .map(|param_name| type_param_subst[param_name])
             .collect();
@@ -2304,7 +2304,7 @@ fn infer_struct_spread(
                 } else {
                     let available: Vec<Name> = expected_fields.iter().map(|(n, _)| *n).collect();
                     engine.push_error(TypeCheckError::undefined_field(
-                        init.span, entry.idx, init.name, available,
+                        init.span, entry_idx, init.name, available,
                     ));
                     if let Some(value_id) = init.value {
                         infer_expr(engine, arena, value_id);
@@ -2352,7 +2352,7 @@ fn substitute_named_types(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>
         }
 
         Tag::List => {
-            let elem = Idx::from_raw(pool.data(ty));
+            let elem = pool.list_elem(ty);
             let new_elem = substitute_named_types(pool, elem, subst);
             if new_elem == elem {
                 ty
@@ -2362,7 +2362,7 @@ fn substitute_named_types(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>
         }
 
         Tag::Option => {
-            let elem = Idx::from_raw(pool.data(ty));
+            let elem = pool.option_inner(ty);
             let new_elem = substitute_named_types(pool, elem, subst);
             if new_elem == elem {
                 ty
@@ -2372,7 +2372,7 @@ fn substitute_named_types(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>
         }
 
         Tag::Set => {
-            let elem = Idx::from_raw(pool.data(ty));
+            let elem = pool.set_elem(ty);
             let new_elem = substitute_named_types(pool, elem, subst);
             if new_elem == elem {
                 ty
@@ -2382,7 +2382,7 @@ fn substitute_named_types(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>
         }
 
         Tag::Channel => {
-            let elem = Idx::from_raw(pool.data(ty));
+            let elem = pool.channel_elem(ty);
             let new_elem = substitute_named_types(pool, elem, subst);
             if new_elem == elem {
                 ty
@@ -2392,7 +2392,7 @@ fn substitute_named_types(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>
         }
 
         Tag::Range => {
-            let elem = Idx::from_raw(pool.data(ty));
+            let elem = pool.range_elem(ty);
             let new_elem = substitute_named_types(pool, elem, subst);
             if new_elem == elem {
                 ty
@@ -2684,7 +2684,7 @@ fn infer_call(
     let params = engine.pool().function_params(resolved);
     let ret = engine.pool().function_return(resolved);
 
-    let arg_ids: Vec<_> = arena.get_expr_list(args).to_vec();
+    let arg_ids = arena.get_expr_list(args);
 
     // Extract function name for signature lookup
     let func_name_id = match &arena.get_expr(func).kind {
@@ -2758,7 +2758,6 @@ fn infer_call_named(
         ExprKind::FunctionRef(name) | ExprKind::Ident(name) => Some(*name),
         _ => None,
     };
-    let func_name = func_name_id.and_then(|n| engine.lookup_name(n).map(String::from));
 
     // Look up required_params from function signature if available
     let required_params = func_name_id
@@ -2767,10 +2766,12 @@ fn infer_call_named(
 
     // Check arity: allow fewer args if defaults fill the gap
     if call_args.len() < required_params || call_args.len() > params.len() {
-        if let Some(name) = &func_name {
+        // Allocate func name string only on the error path
+        let func_name = func_name_id.and_then(|n| engine.lookup_name(n).map(String::from));
+        if let Some(name) = func_name {
             engine.push_error(TypeCheckError::arity_mismatch_named(
                 span,
-                name.clone(),
+                name,
                 params.len(),
                 call_args.len(),
             ));
@@ -2795,13 +2796,7 @@ fn infer_call_named(
             origin: ExpectedOrigin::Context {
                 span: arena.get_expr(func).span,
                 kind: ContextKind::FunctionArgument {
-                    func_name: func_name.as_deref().and_then(|_| {
-                        // Use the Name from the expression for context tracking
-                        match &arena.get_expr(func).kind {
-                            ExprKind::FunctionRef(n) | ExprKind::Ident(n) => Some(*n),
-                            _ => None,
-                        }
-                    }),
+                    func_name: func_name_id,
                     arg_index: i,
                     param_name: arg.name,
                 },
@@ -2834,19 +2829,23 @@ fn check_call_capabilities(engine: &mut InferEngine<'_>, func_name: Option<Name>
         return;
     };
 
-    // Clone capabilities to avoid borrow conflict with push_error
-    let required_caps: Vec<Name> = sig.capabilities.clone();
-    if required_caps.is_empty() {
+    // Collect missing capabilities during immutable borrow
+    let missing: Vec<Name> = sig
+        .capabilities
+        .iter()
+        .copied()
+        .filter(|&cap| !engine.has_capability(cap))
+        .collect();
+
+    if missing.is_empty() {
         return;
     }
 
+    // Push errors in a separate mutable pass
     let available = engine.available_capabilities();
-
-    for &cap in &required_caps {
-        if !engine.has_capability(cap) {
-            tracing::debug!(?cap, "missing capability at call site");
-            engine.push_error(TypeCheckError::missing_capability(span, cap, &available));
-        }
+    for cap in missing {
+        tracing::debug!(?cap, "missing capability at call site");
+        engine.push_error(TypeCheckError::missing_capability(span, cap, &available));
     }
 }
 
@@ -2879,21 +2878,26 @@ fn check_where_clauses(
     let Some(sig) = engine.get_signature(func_name) else {
         return;
     };
-    let sig = sig.clone();
 
     if sig.where_clauses.is_empty() {
         return;
     }
 
+    // Extract only the fields we need, avoiding a full FunctionSig clone
+    let where_clauses = sig.where_clauses.clone();
+    let type_params = sig.type_params.clone();
+    let type_param_bounds = sig.type_param_bounds.clone();
+    let generic_param_mapping = sig.generic_param_mapping.clone();
+
     // Phase 1 (mutable): Resolve concrete types and create named Idx entries
 
     let mut prepared = Vec::new();
 
-    for wc in &sig.where_clauses {
-        let Some(tp_idx) = sig.type_params.iter().position(|&n| n == wc.param) else {
+    for wc in &where_clauses {
+        let Some(tp_idx) = type_params.iter().position(|&n| n == wc.param) else {
             continue;
         };
-        let Some(Some(param_idx)) = sig.generic_param_mapping.get(tp_idx) else {
+        let Some(Some(param_idx)) = generic_param_mapping.get(tp_idx) else {
             continue;
         };
         let Some(&instantiated_param) = params.get(*param_idx) else {
@@ -2912,12 +2916,8 @@ fn check_where_clauses(
             .collect();
 
         // Pre-create named Idx for type param bounds (for projection lookup)
-        let type_param_bounds = sig
-            .type_param_bounds
-            .get(tp_idx)
-            .cloned()
-            .unwrap_or_default();
-        let trait_bound_entries: Vec<Idx> = type_param_bounds
+        let tp_bounds = type_param_bounds.get(tp_idx).cloned().unwrap_or_default();
+        let trait_bound_entries: Vec<Idx> = tp_bounds
             .iter()
             .map(|&name| engine.pool_mut().named(name))
             .collect();
@@ -3188,7 +3188,9 @@ fn infer_method_call(
         return engine.pool_mut().fresh_var();
     }
 
-    // Resolve method name to string for built-in lookup
+    // Resolve method name to an owned string for built-in lookup.
+    // String::from is needed to end the immutable engine borrow before the
+    // mutable resolve_builtin_method call.
     let method_str = engine.lookup_name(method).map(String::from);
 
     // 1. Try built-in method resolution
@@ -3251,7 +3253,9 @@ fn infer_method_call_named(
         return engine.pool_mut().fresh_var();
     }
 
-    // Resolve method name to string for built-in lookup
+    // Resolve method name to an owned string for built-in lookup.
+    // String::from is needed to end the immutable engine borrow before the
+    // mutable resolve_builtin_method call.
     let method_str = engine.lookup_name(method).map(String::from);
 
     // 1. Try built-in method resolution
@@ -3314,7 +3318,7 @@ fn resolve_list_method(
     receiver_ty: Idx,
     method: &str,
 ) -> Option<Idx> {
-    let elem = Idx::from_raw(engine.pool().data(receiver_ty));
+    let elem = engine.pool().list_elem(receiver_ty);
     match method {
         "len" | "count" => Some(Idx::INT),
         "is_empty" | "contains" => Some(Idx::BOOL),
@@ -3350,7 +3354,7 @@ fn resolve_option_method(
     receiver_ty: Idx,
     method: &str,
 ) -> Option<Idx> {
-    let inner = Idx::from_raw(engine.pool().data(receiver_ty));
+    let inner = engine.pool().option_inner(receiver_ty);
     match method {
         "is_some" | "is_none" => Some(Idx::BOOL),
         "unwrap" | "expect" | "unwrap_or" => Some(inner),
@@ -3399,7 +3403,7 @@ fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
 }
 
 fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &str) -> Option<Idx> {
-    let elem = Idx::from_raw(engine.pool().data(receiver_ty));
+    let elem = engine.pool().set_elem(receiver_ty);
     match method {
         "len" => Some(Idx::INT),
         "is_empty" | "contains" => Some(Idx::BOOL),
@@ -3494,7 +3498,7 @@ fn resolve_channel_method(
     receiver_ty: Idx,
     method: &str,
 ) -> Option<Idx> {
-    let elem = Idx::from_raw(engine.pool().data(receiver_ty));
+    let elem = engine.pool().channel_elem(receiver_ty);
     match method {
         "send" | "close" => Some(Idx::UNIT),
         "recv" | "receive" | "try_recv" | "try_receive" => Some(engine.pool_mut().option(elem)),
@@ -3509,7 +3513,7 @@ fn resolve_range_method(
     receiver_ty: Idx,
     method: &str,
 ) -> Option<Idx> {
-    let elem = Idx::from_raw(engine.pool().data(receiver_ty));
+    let elem = engine.pool().range_elem(receiver_ty);
     match method {
         "len" | "count" => Some(Idx::INT),
         "is_empty" | "contains" => Some(Idx::BOOL),
@@ -3647,9 +3651,9 @@ fn resolve_impl_method(
     // For instance methods (has_self), skip the first `self` param.
     // For associated functions, use all params.
     let skip = usize::from(has_self);
-    let method_params: Vec<Idx> = params[skip..].to_vec();
+    let method_params = &params[skip..];
 
-    let arg_ids: Vec<_> = arena.get_expr_list(args).to_vec();
+    let arg_ids = arena.get_expr_list(args);
 
     // Check arity
     if arg_ids.len() != method_params.len() {
@@ -3711,7 +3715,7 @@ fn resolve_impl_method_named(
     // For instance methods (has_self), skip the first `self` param.
     // For associated functions, use all params.
     let skip = usize::from(has_self);
-    let method_params: Vec<Idx> = params[skip..].to_vec();
+    let method_params = &params[skip..];
 
     let call_args = arena.get_call_args(args);
 
@@ -4230,6 +4234,7 @@ fn infer_for_pattern(
         &arm.pattern,
         scrutinee_ty,
         PatternKey::Arm(u32::MAX),
+        arm.span,
     );
 
     // Check guard if present
@@ -4517,8 +4522,7 @@ fn infer_function_exp(
 
         // === Error handling ===
         FunctionExpKind::Catch => {
-            // catch(try: expr, catch: expr) → T
-            // Both try and catch must produce the same type
+            // catch(expr: expression) → Result<T, str>
             infer_catch(engine, arena, props)
         }
 
@@ -4549,14 +4553,12 @@ fn infer_function_exp(
         }
 
         FunctionExpKind::Cache => {
-            // cache(key: expr, compute: expr) → T
-            // Returns cached or computed value
+            // cache(key: expr, op: expr, ttl: Duration) → T
             infer_cache(engine, arena, props)
         }
 
         FunctionExpKind::With => {
-            // with(resource: expr, body: expr) → T
-            // Resource management pattern
+            // with(acquire: expr, action: expr, release: expr) → T
             infer_with(engine, arena, props)
         }
 
@@ -4573,36 +4575,25 @@ fn infer_function_exp(
     }
 }
 
-/// Infer type for `catch(try: expr, catch: expr)`.
+/// Infer type for `catch(expr: expression)`.
+///
+/// Returns `Result<T, str>` where `T` is the type of the `expr` property.
 fn infer_catch(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     props: &[ori_ir::NamedExpr],
 ) -> Idx {
-    let mut try_ty = None;
-    let mut catch_ty = None;
+    let mut expr_ty = None;
 
     for prop in props {
         let ty = infer_expr(engine, arena, prop.value);
-        // Note: We're comparing raw name indices. In real code, we'd intern "try" and "catch"
-        // For now, assume: try = first prop, catch = second prop
-        let _ = prop.name; // Will be used for proper property dispatch later
-        if try_ty.is_none() {
-            try_ty = Some(ty);
-        } else if catch_ty.is_none() {
-            catch_ty = Some(ty);
+        if engine.lookup_name(prop.name) == Some("expr") {
+            expr_ty = Some(ty);
         }
     }
 
-    match (try_ty, catch_ty) {
-        (Some(t), Some(c)) => {
-            // Both must produce same type
-            let _ = engine.unify_types(t, c);
-            t
-        }
-        (Some(t), None) => t,
-        _ => engine.fresh_var(),
-    }
+    let inner = expr_ty.unwrap_or_else(|| engine.fresh_var());
+    engine.pool_mut().result(inner, Idx::STR)
 }
 
 /// Infer type for `recurse(condition: expr, base: expr, step: expr)`.
@@ -4707,40 +4698,40 @@ fn infer_timeout(
     engine.pool_mut().option(inner)
 }
 
-/// Infer type for `cache(key: expr, compute: expr)`.
+/// Infer type for `cache(key: expr, op: expr, ttl: Duration)`.
 fn infer_cache(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     props: &[ori_ir::NamedExpr],
 ) -> Idx {
-    // Returns the compute expression's type
-    let mut compute_ty = None;
+    // Returns the `op` expression's type.
+    // Match on prop names to avoid positional fragility.
+    let mut op_ty = None;
 
     for prop in props {
         let ty = infer_expr(engine, arena, prop.value);
-        // Second property is typically the compute function
-        if compute_ty.is_some() {
-            compute_ty = Some(ty);
-        } else {
-            // Skip key
-            compute_ty = Some(ty);
+        if engine.lookup_name(prop.name) == Some("op") {
+            op_ty = Some(ty);
         }
     }
 
-    compute_ty.unwrap_or_else(|| engine.fresh_var())
+    op_ty.unwrap_or_else(|| engine.fresh_var())
 }
 
-/// Infer type for `with(resource: expr, body: expr)`.
+/// Infer type for `with(acquire: expr, action: expr, release: expr)`.
+///
+/// Returns the `action` expression's type.
 fn infer_with(engine: &mut InferEngine<'_>, arena: &ExprArena, props: &[ori_ir::NamedExpr]) -> Idx {
-    // Returns the body expression's type
-    let mut body_ty = None;
+    let mut action_ty = None;
 
     for prop in props {
         let ty = infer_expr(engine, arena, prop.value);
-        body_ty = Some(ty);
+        if engine.lookup_name(prop.name) == Some("action") {
+            action_ty = Some(ty);
+        }
     }
 
-    body_ty.unwrap_or_else(|| engine.fresh_var())
+    action_ty.unwrap_or_else(|| engine.fresh_var())
 }
 
 // =============================================================================
@@ -6847,26 +6838,22 @@ mod tests {
 
     #[test]
     fn test_infer_function_exp_catch() {
+        let interner = ori_ir::StringInterner::new();
+        let expr_name = interner.intern("expr");
+
         let mut pool = Pool::new();
         let mut engine = InferEngine::new(&mut pool);
+        engine.set_interner(&interner);
         let mut arena = ExprArena::new();
 
-        // catch(try: 42, catch: 0)
-        let try_expr = alloc(&mut arena, ExprKind::Int(42));
-        let catch_expr = alloc(&mut arena, ExprKind::Int(0));
+        // catch(expr: 42) → Result<int, str>
+        let inner_expr = alloc(&mut arena, ExprKind::Int(42));
 
-        let props = arena.alloc_named_exprs([
-            ori_ir::NamedExpr {
-                name: name(1), // "try"
-                value: try_expr,
-                span: Span::DUMMY,
-            },
-            ori_ir::NamedExpr {
-                name: name(2), // "catch"
-                value: catch_expr,
-                span: Span::DUMMY,
-            },
-        ]);
+        let props = arena.alloc_named_exprs([ori_ir::NamedExpr {
+            name: expr_name,
+            value: inner_expr,
+            span: Span::DUMMY,
+        }]);
 
         let func_exp = ori_ir::FunctionExp {
             kind: ori_ir::FunctionExpKind::Catch,
@@ -6879,7 +6866,23 @@ mod tests {
 
         let ty = infer_expr(&mut engine, &arena, expr_id);
 
-        assert_eq!(ty, Idx::INT, "catch should return int (unified type)");
+        // catch returns Result<T, str> where T is the expr type
+        let resolved = engine.resolve(ty);
+        assert_eq!(
+            engine.pool().tag(resolved),
+            Tag::Result,
+            "catch should return Result type"
+        );
+        assert_eq!(
+            engine.pool().result_ok(resolved),
+            Idx::INT,
+            "catch Result ok type should be int"
+        );
+        assert_eq!(
+            engine.pool().result_err(resolved),
+            Idx::STR,
+            "catch Result err type should be str"
+        );
         assert!(!engine.has_errors());
     }
 

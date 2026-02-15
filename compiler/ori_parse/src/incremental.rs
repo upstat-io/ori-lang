@@ -749,7 +749,7 @@ impl<'old> AstCopier<'old> {
             }
             ori_ir::StructLitField::Spread { expr, span } => ori_ir::StructLitField::Spread {
                 expr: self.copy_expr(*expr, new_arena),
-                span: *span,
+                span: self.adjust_span(*span),
             },
         }
     }
@@ -777,11 +777,11 @@ impl<'old> AstCopier<'old> {
         match element {
             ori_ir::ListElement::Expr { expr, span } => ori_ir::ListElement::Expr {
                 expr: self.copy_expr(*expr, new_arena),
-                span: *span,
+                span: self.adjust_span(*span),
             },
             ori_ir::ListElement::Spread { expr, span } => ori_ir::ListElement::Spread {
                 expr: self.copy_expr(*expr, new_arena),
-                span: *span,
+                span: self.adjust_span(*span),
             },
         }
     }
@@ -812,7 +812,7 @@ impl<'old> AstCopier<'old> {
             }
             ori_ir::MapElement::Spread { expr, span } => ori_ir::MapElement::Spread {
                 expr: self.copy_expr(*expr, new_arena),
-                span: *span,
+                span: self.adjust_span(*span),
             },
         }
     }
@@ -1316,7 +1316,7 @@ impl<'old> AstCopier<'old> {
         FunctionExp {
             kind: exp.kind,
             props: new_arena.alloc_named_exprs(new_props),
-            type_args: exp.type_args,
+            type_args: self.copy_parsed_type_range(exp.type_args, new_arena),
             span: self.adjust_span(exp.span),
         }
     }

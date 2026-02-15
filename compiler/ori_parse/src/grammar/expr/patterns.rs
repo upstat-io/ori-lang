@@ -78,7 +78,7 @@ impl Parser<'_> {
 
         // Phase 1: Parse pre_checks (only for run, not try)
         if is_run {
-            while self.is_check_start("pre_check") {
+            while self.is_check_start(self.known.pre_check) {
                 let check = committed!(self.parse_named_check("pre_check"));
                 self.arena.push_check(check);
                 self.cursor.skip_newlines();
@@ -95,7 +95,7 @@ impl Parser<'_> {
             self.cursor.skip_newlines();
 
             // Check for post_check (only for run) — switches to phase 3
-            if is_run && self.is_check_start("post_check") {
+            if is_run && self.is_check_start(self.known.post_check) {
                 break;
             }
 
@@ -149,7 +149,7 @@ impl Parser<'_> {
 
                     if self.cursor.check(&TokenKind::RParen) {
                         result_expr = Some(expr);
-                    } else if is_run && self.is_check_start("post_check") {
+                    } else if is_run && self.is_check_start(self.known.post_check) {
                         // Result followed by post_check
                         result_expr = Some(expr);
                     } else {
@@ -174,7 +174,7 @@ impl Parser<'_> {
         // Phase 3: Parse post_checks (only for run, not try)
         let post_check_start = self.arena.start_checks();
         if is_run {
-            while self.is_check_start("post_check") {
+            while self.is_check_start(self.known.post_check) {
                 let check = committed!(self.parse_named_check("post_check"));
                 self.arena.push_check(check);
                 self.cursor.skip_newlines();
@@ -230,9 +230,9 @@ impl Parser<'_> {
     }
 
     /// Check if the current position starts a check property (`pre_check:` or `post_check:`).
-    fn is_check_start(&self, name: &str) -> bool {
+    fn is_check_start(&self, expected: Name) -> bool {
         if let TokenKind::Ident(n) = self.cursor.current_kind() {
-            self.cursor.interner().lookup(*n) == name && self.cursor.next_is_colon()
+            *n == expected && self.cursor.next_is_colon()
         } else {
             false
         }
@@ -326,7 +326,7 @@ impl Parser<'_> {
             return ParseOutcome::consumed_err(
                 ParseError::new(
                     ori_diagnostic::ErrorCode::E1002,
-                    "match requires at least one arm".to_string(),
+                    "match requires at least one arm",
                     end_span,
                 ),
                 start_span,
@@ -368,64 +368,57 @@ impl Parser<'_> {
                 return ParseOutcome::consumed_err(
                     ParseError::new(
                         ori_diagnostic::ErrorCode::E1013,
-                        "`for` pattern requires named properties (over:, match:, default:)"
-                            .to_string(),
+                        "`for` pattern requires named properties (over:, match:, default:)",
                         self.cursor.current_span(),
                     ),
                     start_span,
                 );
             }
 
-            let name = committed!(self.cursor.expect_ident_or_keyword());
+            let prop = committed!(self.cursor.expect_ident_or_keyword());
             committed!(self.cursor.expect(&TokenKind::Colon));
-            let name_str = self.cursor.interner().lookup(name);
 
-            match name_str {
-                "over" => {
-                    over = Some(require!(
-                        self,
-                        self.parse_expr(),
-                        "`over:` expression in for pattern"
-                    ));
-                }
-                "map" => {
-                    map = Some(require!(
-                        self,
-                        self.parse_expr(),
-                        "`map:` expression in for pattern"
-                    ));
-                }
-                "match" => {
-                    let arm_span = self.cursor.current_span();
-                    let pattern = committed!(self.parse_match_pattern());
-                    let guard = committed!(self.parse_pattern_guard());
-                    committed!(self.cursor.expect(&TokenKind::Arrow));
-                    let body = require!(self, self.parse_expr(), "match body in for pattern");
-                    let end_span = self.arena.get_expr(body).span;
-                    match_arm = Some(MatchArm {
-                        pattern,
-                        guard,
-                        body,
-                        span: arm_span.merge(end_span),
-                    });
-                }
-                "default" => {
-                    default = Some(require!(
-                        self,
-                        self.parse_expr(),
-                        "`default:` expression in for pattern"
-                    ));
-                }
-                unknown => {
-                    return ParseOutcome::consumed_err(
-                        ParseError::new(
-                            ori_diagnostic::ErrorCode::E1013,
-                            format!("`for` pattern does not accept property `{unknown}`"),
-                            self.cursor.previous_span(),
-                        ),
-                        start_span,
-                    );
-                }
+            if prop == self.known.over {
+                over = Some(require!(
+                    self,
+                    self.parse_expr(),
+                    "`over:` expression in for pattern"
+                ));
+            } else if prop == self.known.map {
+                map = Some(require!(
+                    self,
+                    self.parse_expr(),
+                    "`map:` expression in for pattern"
+                ));
+            } else if prop == self.known.match_ {
+                let arm_span = self.cursor.current_span();
+                let pattern = committed!(self.parse_match_pattern());
+                let guard = committed!(self.parse_pattern_guard());
+                committed!(self.cursor.expect(&TokenKind::Arrow));
+                let body = require!(self, self.parse_expr(), "match body in for pattern");
+                let end_span = self.arena.get_expr(body).span;
+                match_arm = Some(MatchArm {
+                    pattern,
+                    guard,
+                    body,
+                    span: arm_span.merge(end_span),
+                });
+            } else if prop == self.known.default {
+                default = Some(require!(
+                    self,
+                    self.parse_expr(),
+                    "`default:` expression in for pattern"
+                ));
+            } else {
+                let unknown = self.cursor.interner().lookup(prop);
+                return ParseOutcome::consumed_err(
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1013,
+                        format!("`for` pattern does not accept property `{unknown}`"),
+                        self.cursor.previous_span(),
+                    ),
+                    start_span,
+                );
             }
 
             self.cursor.skip_newlines();
@@ -444,7 +437,7 @@ impl Parser<'_> {
             return ParseOutcome::consumed_err(
                 ParseError::new(
                     ori_diagnostic::ErrorCode::E1013,
-                    "`for` pattern requires `over:` property".to_string(),
+                    "`for` pattern requires `over:` property",
                     span,
                 ),
                 start_span,
@@ -454,7 +447,7 @@ impl Parser<'_> {
             return ParseOutcome::consumed_err(
                 ParseError::new(
                     ori_diagnostic::ErrorCode::E1013,
-                    "`for` pattern requires `match:` property".to_string(),
+                    "`for` pattern requires `match:` property",
                     span,
                 ),
                 start_span,
@@ -464,7 +457,7 @@ impl Parser<'_> {
             return ParseOutcome::consumed_err(
                 ParseError::new(
                     ori_diagnostic::ErrorCode::E1013,
-                    "`for` pattern requires `default:` property".to_string(),
+                    "`for` pattern requires `default:` property",
                     span,
                 ),
                 start_span,
@@ -554,7 +547,7 @@ impl Parser<'_> {
                         return ParseOutcome::consumed_err(
                             ParseError::new(
                                 ori_diagnostic::ErrorCode::E1002,
-                                "integer literal too large".to_string(),
+                                "integer literal too large",
                                 start_span,
                             ),
                             start_span,
@@ -569,7 +562,7 @@ impl Parser<'_> {
                     ParseOutcome::consumed_err(
                         ParseError::new(
                             ori_diagnostic::ErrorCode::E1002,
-                            "expected integer after `-` in pattern".to_string(),
+                            "expected integer after `-` in pattern",
                             self.cursor.current_span(),
                         ),
                         start_span,
@@ -585,7 +578,7 @@ impl Parser<'_> {
                     return ParseOutcome::consumed_err(
                         ParseError::new(
                             ori_diagnostic::ErrorCode::E1002,
-                            "integer literal too large".to_string(),
+                            "integer literal too large",
                             pat_span,
                         ),
                         pat_span,
@@ -1080,7 +1073,7 @@ impl Parser<'_> {
             // Not a guard, could be a field access (but that's not valid here)
             return Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
-                "expected `match` after `.` in pattern guard".to_string(),
+                "expected `match` after `.` in pattern guard",
                 self.cursor.current_span(),
             ));
         }
@@ -1114,7 +1107,7 @@ impl Parser<'_> {
                 let value = i64::try_from(n).map_err(|_| {
                     ParseError::new(
                         ori_diagnostic::ErrorCode::E1002,
-                        "integer literal too large".to_string(),
+                        "integer literal too large",
                         start_span,
                     )
                 })?;
@@ -1125,7 +1118,7 @@ impl Parser<'_> {
             } else {
                 Err(ParseError::new(
                     ori_diagnostic::ErrorCode::E1002,
-                    "expected integer after `-` in range pattern".to_string(),
+                    "expected integer after `-` in range pattern",
                     self.cursor.current_span(),
                 ))
             }
@@ -1134,7 +1127,7 @@ impl Parser<'_> {
             let value = i64::try_from(n).map_err(|_| {
                 ParseError::new(
                     ori_diagnostic::ErrorCode::E1002,
-                    "integer literal too large".to_string(),
+                    "integer literal too large",
                     start_span,
                 )
             })?;
@@ -1149,7 +1142,7 @@ impl Parser<'_> {
         } else {
             Err(ParseError::new(
                 ori_diagnostic::ErrorCode::E1002,
-                "expected integer or char literal in range pattern".to_string(),
+                "expected integer or char literal in range pattern",
                 self.cursor.current_span(),
             ))
         }

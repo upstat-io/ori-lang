@@ -266,7 +266,7 @@ impl PatternRegistry {
 
     /// Get the number of registered patterns.
     pub fn len(&self) -> usize {
-        15
+        self.kinds().count()
     }
 
     /// Check if the registry is empty.

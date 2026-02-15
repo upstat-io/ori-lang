@@ -238,7 +238,7 @@ impl Parser<'_> {
                     return ParseOutcome::consumed_err(
                         ParseError::new(
                             ori_diagnostic::ErrorCode::E1002,
-                            "integer literal too large".to_string(),
+                            "integer literal too large",
                             span,
                         ),
                         span,
@@ -1332,7 +1332,7 @@ impl Parser<'_> {
             return ParseOutcome::consumed_err(
                 ParseError::new(
                     ori_diagnostic::ErrorCode::E1002,
-                    "expected `do` or `yield` after for loop iterator".to_string(),
+                    "expected `do` or `yield` after for loop iterator",
                     self.cursor.current_span(),
                 ),
                 span,
@@ -1432,7 +1432,7 @@ impl Parser<'_> {
                 _ => {
                     return Err(ParseError::new(
                         ori_diagnostic::ErrorCode::E1002,
-                        "expected identifier for lambda parameter".to_string(),
+                        "expected identifier for lambda parameter",
                         expr.span,
                     ));
                 }
@@ -1443,13 +1443,16 @@ impl Parser<'_> {
 
     /// Check if an identifier name maps to a channel constructor kind.
     fn match_channel_kind(&self, name: Name) -> Option<FunctionExpKind> {
-        let s = self.cursor.interner().lookup(name);
-        match s {
-            "channel" => Some(FunctionExpKind::Channel),
-            "channel_in" => Some(FunctionExpKind::ChannelIn),
-            "channel_out" => Some(FunctionExpKind::ChannelOut),
-            "channel_all" => Some(FunctionExpKind::ChannelAll),
-            _ => None,
+        if name == self.known.channel {
+            Some(FunctionExpKind::Channel)
+        } else if name == self.known.channel_in {
+            Some(FunctionExpKind::ChannelIn)
+        } else if name == self.known.channel_out {
+            Some(FunctionExpKind::ChannelOut)
+        } else if name == self.known.channel_all {
+            Some(FunctionExpKind::ChannelAll)
+        } else {
+            None
         }
     }
 }
