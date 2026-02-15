@@ -132,6 +132,32 @@ impl BinaryOp {
     }
 }
 
+impl BinaryOp {
+    /// Map this operator to its trait method name for operator overloading.
+    ///
+    /// Only operators with corresponding trait methods are mapped; comparison,
+    /// logical, range, and coalesce operators return `None`.
+    ///
+    /// This is the **single source of truth** — `ori_types` (type checker) and
+    /// `ori_llvm` (codegen) both call this instead of maintaining parallel mappings.
+    pub const fn trait_method_name(self) -> Option<&'static str> {
+        match self {
+            Self::Add => Some("add"),
+            Self::Sub => Some("subtract"),
+            Self::Mul => Some("multiply"),
+            Self::Div => Some("divide"),
+            Self::FloorDiv => Some("floor_divide"),
+            Self::Mod => Some("remainder"),
+            Self::BitAnd => Some("bit_and"),
+            Self::BitOr => Some("bit_or"),
+            Self::BitXor => Some("bit_xor"),
+            Self::Shl => Some("shift_left"),
+            Self::Shr => Some("shift_right"),
+            _ => None,
+        }
+    }
+}
+
 /// Unary operators.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
@@ -140,4 +166,21 @@ pub enum UnaryOp {
     Not,
     BitNot,
     Try,
+}
+
+impl UnaryOp {
+    /// Map this operator to its trait method name for operator overloading.
+    ///
+    /// `Try` is desugared before codegen and has no trait method.
+    ///
+    /// This is the **single source of truth** — `ori_types` (type checker) and
+    /// `ori_llvm` (codegen) both call this instead of maintaining parallel mappings.
+    pub const fn trait_method_name(self) -> Option<&'static str> {
+        match self {
+            Self::Neg => Some("negate"),
+            Self::Not => Some("not"),
+            Self::BitNot => Some("bit_not"),
+            Self::Try => None,
+        }
+    }
 }

@@ -330,7 +330,7 @@ pub(crate) fn infer_unary(
                 }
                 _ => {
                     if !tag.is_primitive() && !tag.is_type_variable() {
-                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, "negate") {
+                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
                             return ret;
                         }
                         engine.push_error(TypeCheckError::unsupported_operator(
@@ -364,7 +364,7 @@ pub(crate) fn infer_unary(
                 }
                 _ => {
                     if !tag.is_primitive() && !tag.is_type_variable() {
-                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, "not") {
+                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
                             return ret;
                         }
                         engine.push_error(TypeCheckError::unsupported_operator(
@@ -404,7 +404,7 @@ pub(crate) fn infer_unary(
                 Tag::Never => Idx::NEVER,
                 _ => {
                     if !tag.is_primitive() && !tag.is_type_variable() {
-                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, "bit_not") {
+                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
                             return ret;
                         }
                         engine.push_error(TypeCheckError::unsupported_operator(
@@ -471,21 +471,10 @@ pub(crate) fn infer_cast(
 }
 
 /// Map a binary operator to its trait method name.
+///
+/// Delegates to `BinaryOp::trait_method_name()` — the single source of truth in `ori_ir`.
 fn binary_op_to_method_name(op: BinaryOp) -> Option<&'static str> {
-    match op {
-        BinaryOp::Add => Some("add"),
-        BinaryOp::Sub => Some("subtract"),
-        BinaryOp::Mul => Some("multiply"),
-        BinaryOp::Div => Some("divide"),
-        BinaryOp::FloorDiv => Some("floor_divide"),
-        BinaryOp::Mod => Some("remainder"),
-        BinaryOp::BitAnd => Some("bit_and"),
-        BinaryOp::BitOr => Some("bit_or"),
-        BinaryOp::BitXor => Some("bit_xor"),
-        BinaryOp::Shl => Some("shift_left"),
-        BinaryOp::Shr => Some("shift_right"),
-        _ => None,
-    }
+    op.trait_method_name()
 }
 
 /// Map a binary operator to its trait name (for error messages).
@@ -565,11 +554,15 @@ fn resolve_binary_op_via_trait(
 ///
 /// Looks up the operator's method name in the `TraitRegistry` for the
 /// operand's type. If found, returns the method's return type.
+///
+/// Uses `UnaryOp::trait_method_name()` as the single source of truth for
+/// the operator→method mapping.
 fn resolve_unary_op_via_trait(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
-    method_name: &str,
+    op: UnaryOp,
 ) -> Option<Idx> {
+    let method_name = op.trait_method_name()?;
     let name = engine.intern_name(method_name)?;
 
     let sig_ty = {
