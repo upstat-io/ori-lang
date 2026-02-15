@@ -123,6 +123,8 @@ pub enum ErrorCode {
     E2018,
     /// Never type used as struct field (uninhabited struct)
     E2019,
+    /// Unsupported operator (type does not implement operator trait)
+    E2020,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -286,6 +288,7 @@ impl ErrorCode {
             ErrorCode::E2017 => "E2017",
             ErrorCode::E2018 => "E2018",
             ErrorCode::E2019 => "E2019",
+            ErrorCode::E2020 => "E2020",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -409,6 +412,7 @@ impl ErrorCode {
                 | ErrorCode::E2017
                 | ErrorCode::E2018
                 | ErrorCode::E2019
+                | ErrorCode::E2020
         )
     }
 
