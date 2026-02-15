@@ -454,6 +454,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.pool,
             func_id,
             &self.functions,
+            &self.method_functions,
+            &self.type_idx_to_name,
         );
         emitter.emit_function(&arc_func, abi);
 

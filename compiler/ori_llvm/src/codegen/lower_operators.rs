@@ -1,6 +1,7 @@
 //! Binary and unary operator lowering for V2 codegen.
 //!
 //! Uses TypeInfo-driven dispatch to select integer vs float operations.
+//! For non-primitive types, dispatches to trait methods (e.g., `+` → `add()`).
 //! Short-circuit operators (`&&`, `||`, `??`) use conditional branching
 //! with phi nodes — they do NOT eagerly evaluate both operands.
 
@@ -8,6 +9,7 @@ use ori_ir::canon::CanId;
 use ori_ir::{BinaryOp, UnaryOp};
 use ori_types::Idx;
 
+use super::abi::ReturnPassing;
 use super::expr_lowerer::ExprLowerer;
 use super::value_id::ValueId;
 
@@ -41,6 +43,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit the actual binary operation given evaluated operands.
+    ///
+    /// For primitive types (int, float, str), emits direct LLVM instructions.
+    /// For non-primitive types (user-defined structs), dispatches to the
+    /// operator trait method (e.g., `+` → `self.add(rhs)`).
     fn lower_binary_op(
         &mut self,
         op: BinaryOp,
@@ -48,6 +54,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         rhs: ValueId,
         left_type: Idx,
     ) -> Option<ValueId> {
+        // Trait dispatch for non-primitive types (user-defined operator impls)
+        if !left_type.is_primitive() {
+            if let Some(result) = self.lower_binary_op_via_trait(op, lhs, rhs, left_type) {
+                return Some(result);
+            }
+        }
+
         let is_float = left_type == Idx::FLOAT;
         let is_str = left_type == Idx::STR;
 
@@ -378,6 +391,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // -----------------------------------------------------------------------
 
     /// Lower `ExprKind::Unary { op, operand }`.
+    ///
+    /// For primitive types, emits direct LLVM instructions.
+    /// For non-primitive types, dispatches to the operator trait method
+    /// (e.g., `-x` → `x.negate()`).
     pub(crate) fn lower_unary(
         &mut self,
         op: UnaryOp,
@@ -386,6 +403,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let val = self.lower(operand)?;
         let operand_type = self.expr_type(operand);
+
+        // Trait dispatch for non-primitive types
+        if !operand_type.is_primitive() {
+            if let Some(result) = self.lower_unary_op_via_trait(op, val, operand_type) {
+                return Some(result);
+            }
+        }
 
         match op {
             UnaryOp::Neg => {
@@ -523,6 +547,83 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             .build_struct(range_llvm, &[start, end, incl_val], "range")
     }
 
+    // -----------------------------------------------------------------------
+    // Operator trait dispatch (user-defined types)
+    // -----------------------------------------------------------------------
+
+    /// Dispatch a binary operator to a trait method for non-primitive types.
+    ///
+    /// Maps the operator to its trait method name (e.g., `+` → `"add"`),
+    /// looks up the compiled method function in `method_functions`, and
+    /// emits a method call via `invoke_user_function`.
+    fn lower_binary_op_via_trait(
+        &mut self,
+        op: BinaryOp,
+        lhs: ValueId,
+        rhs: ValueId,
+        left_type: Idx,
+    ) -> Option<ValueId> {
+        let method_name = binary_op_to_method_name(op)?;
+        let type_name = *self.type_idx_to_name.get(&left_type)?;
+        let interned_method = self.interner.intern(method_name);
+        let (func_id, abi) = self.method_functions.get(&(type_name, interned_method))?;
+        let func_id = *func_id;
+        let abi = abi.clone();
+
+        let raw_args = [lhs, rhs];
+        let all_args = self.apply_param_passing(&raw_args, &abi.params);
+
+        match &abi.return_abi.passing {
+            ReturnPassing::Sret { .. } => {
+                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                self.invoke_user_function_sret(func_id, &all_args, ret_ty, "op_trait")
+            }
+            ReturnPassing::Direct | ReturnPassing::Void => {
+                self.invoke_user_function(func_id, &all_args, "op_trait")
+            }
+        }
+    }
+
+    /// Dispatch a unary operator to a trait method for non-primitive types.
+    ///
+    /// Maps the operator to its trait method name (e.g., `-` → `"negate"`),
+    /// looks up the compiled method function, and emits a method call.
+    fn lower_unary_op_via_trait(
+        &mut self,
+        op: UnaryOp,
+        val: ValueId,
+        operand_type: Idx,
+    ) -> Option<ValueId> {
+        let method_name = match op {
+            UnaryOp::Neg => "negate",
+            UnaryOp::Not => "not",
+            UnaryOp::BitNot => "bit_not",
+            UnaryOp::Try => return None,
+        };
+        let type_name = *self.type_idx_to_name.get(&operand_type)?;
+        let interned_method = self.interner.intern(method_name);
+        let (func_id, abi) = self.method_functions.get(&(type_name, interned_method))?;
+        let func_id = *func_id;
+        let abi = abi.clone();
+
+        let raw_args = [val];
+        let all_args = self.apply_param_passing(&raw_args, &abi.params);
+
+        match &abi.return_abi.passing {
+            ReturnPassing::Sret { .. } => {
+                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                self.invoke_user_function_sret(func_id, &all_args, ret_ty, "op_trait")
+            }
+            ReturnPassing::Direct | ReturnPassing::Void => {
+                self.invoke_user_function(func_id, &all_args, "op_trait")
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
     /// Alloca a value on the stack and store it, returning the pointer.
     ///
     /// Used for passing struct values to runtime functions that expect
@@ -556,5 +657,31 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             // INT, DURATION, SIZE, UNIT, NEVER — already i64
             _ => val,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Operator → trait method name mapping
+// ---------------------------------------------------------------------------
+
+/// Map a binary operator to its trait method name.
+///
+/// Mirrors the mapping in `ori_types::infer::expr::operators::binary_op_to_method_name`.
+/// Only operators that have corresponding trait methods are mapped; comparison
+/// and logical operators return `None`.
+pub(crate) fn binary_op_to_method_name(op: BinaryOp) -> Option<&'static str> {
+    match op {
+        BinaryOp::Add => Some("add"),
+        BinaryOp::Sub => Some("subtract"),
+        BinaryOp::Mul => Some("multiply"),
+        BinaryOp::Div => Some("divide"),
+        BinaryOp::FloorDiv => Some("floor_divide"),
+        BinaryOp::Mod => Some("remainder"),
+        BinaryOp::BitAnd => Some("bit_and"),
+        BinaryOp::BitOr => Some("bit_or"),
+        BinaryOp::BitXor => Some("bit_xor"),
+        BinaryOp::Shl => Some("shift_left"),
+        BinaryOp::Shr => Some("shift_right"),
+        _ => None,
     }
 }
