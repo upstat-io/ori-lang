@@ -880,15 +880,15 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - ~~Typed constants (`let $X: int`)~~ — FIXED ✅ (2026-02-14)
 - ~~Channel generic syntax (`channel<int>`)~~ — FIXED ✅ (2026-02-14)
 - ~~Struct rest pattern (`{ x, .. }`)~~ — FIXED ✅ (2026-02-14)
-- `.match()` method syntax — `match` is keyword
+- ~~`.match()` method syntax~~ — FIXED ✅ (2026-02-14) — desugars `expr.match(arms)` to `match(expr, arms)` at parser level
 - ~~`with()` RAII pattern (`acquire:/action:/release:`)~~ — FIXED ✅ (2026-02-14) — was doc error: spec uses `action:` not `use:` (`use` is reserved keyword)
 - ~~Run pre/post checks~~ — FIXED ✅ (2026-02-14)
 - ~~Immutable binding in function body (`let $x = 42`)~~ — FIXED ✅ (2026-02-14)
 - ~~Labeled continue (`continue:outer`)~~ — FIXED ✅ (2026-02-14)
 - ~~Char patterns in match (`'a'`, `'a'..='z'`)~~ — FIXED ✅ (2026-02-14)
 
-**Fixed since 2026-02-10** (22 items):
-File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`), computed constants (`let $D = $A + 1`), struct rest pattern (`{ x, .. }`), immutable bindings in function bodies (`let $x`, `let ($a, $b)`, `let { $x }`, `let [$h, ..]`), `with()` RAII pattern (`acquire:/action:/release:` — was doc error, spec uses `action:` not `use:`)
+**Fixed since 2026-02-10** (23 items):
+File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`), computed constants (`let $D = $A + 1`), struct rest pattern (`{ x, .. }`), immutable bindings in function bodies (`let $x`, `let ($a, $b)`, `let { $x }`, `let [$h, ..]`), `with()` RAII pattern (`acquire:/action:/release:` — was doc error, spec uses `action:` not `use:`), `.match()` method syntax (`expr.match(arms)` desugars to `match(expr, arms)`)
 
 ---
 
@@ -928,8 +928,8 @@ These features fail at the parse phase — the parser does not recognize the syn
 - [x] **Implement**: Struct rest pattern in match ✅ (2026-02-14)
   - [x] **Syntax**: `{ x, .. }` — parses and evaluates correctly ✅ (2026-02-14)
 
-- [ ] **Implement**: `.match()` method syntax
-  - [ ] **Syntax**: `42.match(...)` — **BROKEN**: `match` is keyword, can't be method name
+- [x] **Implement**: `.match()` method syntax ✅ (2026-02-14)
+  - [x] **Syntax**: `42.match(...)` — method-style match desugars to `match(42, ...)` at parse level ✅ (2026-02-14)
 
 - [x] **Implement**: Immutable bindings in function bodies ✅ (2026-02-14)
   - [x] **Syntax**: `let $x = 42` inside function — parses and evaluates correctly ✅ (2026-02-14)

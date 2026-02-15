@@ -899,3 +899,57 @@ type Point = { x: int, y: int }
     _ -> "unknown",
 )
 
+// =============================================================================
+// Method-style match: expr.match(arms...)
+// =============================================================================
+
+@test_method_match tests @method_match () -> void = run(
+    assert_eq(actual: method_match(x: 0), expected: "zero"),
+    assert_eq(actual: method_match(x: 42), expected: "answer"),
+    assert_eq(actual: method_match(x: 99), expected: "other"),
+)
+
+@method_match (x: int) -> str = x.match(
+    0 -> "zero",
+    42 -> "answer",
+    _ -> "other",
+)
+
+@test_method_match_nested tests @method_match_nested () -> void = run(
+    assert_eq(actual: method_match_nested(x: 0, y: 0), expected: "both zero"),
+    assert_eq(actual: method_match_nested(x: 0, y: 5), expected: "x zero"),
+    assert_eq(actual: method_match_nested(x: 1, y: 0), expected: "x nonzero"),
+)
+
+@method_match_nested (x: int, y: int) -> str = x.match(
+    0 -> y.match(
+        0 -> "both zero",
+        _ -> "x zero",
+    ),
+    _ -> "x nonzero",
+)
+
+@test_method_match_with_guard tests @method_match_with_guard () -> void = run(
+    assert_eq(actual: method_match_with_guard(n: 20), expected: "large"),
+    assert_eq(actual: method_match_with_guard(n: 5), expected: "small"),
+    assert_eq(actual: method_match_with_guard(n: -3), expected: "non-positive"),
+)
+
+@method_match_with_guard (n: int) -> str = n.match(
+    x.match(x > 10) -> "large",
+    x.match(x > 0) -> "small",
+    _ -> "non-positive",
+)
+
+@test_method_match_on_expr tests @method_match_on_expr () -> void = run(
+    assert_eq(actual: method_match_on_expr(x: -1), expected: "zero"),
+    assert_eq(actual: method_match_on_expr(x: 0), expected: "one"),
+    assert_eq(actual: method_match_on_expr(x: 5), expected: "other"),
+)
+
+@method_match_on_expr (x: int) -> str = (x + 1).match(
+    0 -> "zero",
+    1 -> "one",
+    _ -> "other",
+)
+

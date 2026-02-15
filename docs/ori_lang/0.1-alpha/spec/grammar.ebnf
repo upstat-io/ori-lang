@@ -361,11 +361,13 @@ field_init      = identifier [ ":" expression ] .
 
 postfix_expr   = primary { postfix_op } .
 postfix_op     = "." identifier [ call_args ]        /* field/method access */
+               | "." match_method                    /* method-style match */
                | "[" expression "]"                  /* index access */
                | call_args                           /* function call */
                | "?"                                 /* error propagation */
                | "as" type                           /* infallible type conversion */
                | "as?" type .                        /* fallible type conversion */
+match_method   = "match" "(" match_arm { "," match_arm } ")" .
 call_args      = "(" [ call_arg { "," call_arg } ] ")" .
 call_arg       = named_arg | positional_arg | spread_arg .
 named_arg      = identifier ":" expression .
