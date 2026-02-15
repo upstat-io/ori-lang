@@ -1,3 +1,8 @@
+use ori_diagnostic::queue::DiagnosticSeverity;
+use ori_diagnostic::{Applicability, ErrorCode};
+use ori_ir::{Span, TokenKind};
+
+use super::details::{CodeSuggestion, ExtraLabel, ParseErrorDetails};
 use super::*;
 
 #[test]
