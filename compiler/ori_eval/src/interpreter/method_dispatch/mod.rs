@@ -60,6 +60,22 @@ impl Interpreter<'_> {
                 return self.eval_associated_function(method_def, &args, method);
             }
 
+            // Check derived methods (e.g., Default.default() is a static method)
+            let derived_info = self
+                .user_method_registry
+                .read()
+                .lookup_derived(*type_name, method)
+                .cloned();
+            if let Some(ref info) = derived_info {
+                return self.eval_derived_method(
+                    Value::TypeRef {
+                        type_name: *type_name,
+                    },
+                    info,
+                    &args,
+                );
+            }
+
             // Fall back to built-in associated functions (Duration, Size)
             let ctx = DispatchCtx {
                 names: &self.builtin_method_names,

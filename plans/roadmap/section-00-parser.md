@@ -856,14 +856,14 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.8 Section Completion Checklist
 
-> **STATUS**: In Progress — Re-verified 2026-02-14. 7/10 checklist items complete. Remaining: 0.4 (impl Trait blocked-by:19), 0.6 (enforcement blocked-by:23). All tests pass.
+> **STATUS**: In Progress — Re-verified 2026-02-14. 8/10 checklist items complete, 2 blocked. Remaining: 0.4 audit (blocked-by:19, only impl Trait), 0.6 audit (blocked-by:23, only runtime enforcement). All unblocked parser work is complete. 3176 Ori tests pass, 1443 Rust tests pass.
 
 - [x] All lexical grammar items audited and tested (0.1) ✅ (2026-02-10)
 - [x] All source structure items audited and tested (0.2) ✅ (2026-02-13) — file attributes, extern `as`, C variadics all work now
 - [x] All declaration items audited and tested (0.3) ✅ (2026-02-14) — 92/92 checkboxes complete; typed constants, const generics, floating tests, clause params, guard clauses, variadic params all work
-- [ ] All type items audited and tested (0.4) — partial: impl Trait broken; const-in-types NOW WORK ✅ (2026-02-13); fixed-capacity lists NOW WORK; bounded trait objects NOW WORK ✅ (2026-02-14)
+- [ ] All type items audited and tested (0.4) — 30/34 complete; only impl Trait remains (0.4.2, 4 items)  <!-- blocked-by:19 -->
 - [x] All expression items audited and tested (0.5) ✅ (2026-02-14) — length placeholder `#` now works; labeled break/continue/for/loop NOW WORK ✅ (2026-02-14)
-- [ ] All pattern items audited and tested (0.6) — partial: with RAII NOW WORKS ✅ (2026-02-14) (spec uses `action:` not `use:`); immutable bindings NOW WORK ✅ (2026-02-14); struct rest `..` NOW WORKS ✅ (2026-02-14); char patterns NOW WORK ✅ (2026-02-14); run pre/post checks NOW PARSE ✅ (2026-02-14); try `?` NOW WORKS; channels NOW PARSE ✅ (2026-02-14)
+- [ ] All pattern items audited and tested (0.6) — 93/94 complete; only runtime pre/post check enforcement remains (0.6.1, 1 item)  <!-- blocked-by:23 -->
 - [x] All constant expression items audited and tested (0.7) ✅ (2026-02-14) — computed constants now work (arithmetic, comparison, logical, grouped)
 - [x] Run `cargo t -p ori_parse` — all parser tests pass ✅ (2026-02-14)
 - [x] Run `cargo t -p ori_lexer` — all lexer tests pass ✅ (2026-02-14)

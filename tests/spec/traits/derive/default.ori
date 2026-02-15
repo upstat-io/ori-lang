@@ -1,0 +1,95 @@
+// Derive Default tests
+
+use std.testing { assert_eq, assert }
+
+// Basic: all int fields default to 0
+#[derive(Default, Eq)]
+type Point = { x: int, y: int }
+
+@test_basic_default tests @basic_default () -> void = run(
+    let p = Point.default(),
+    assert_eq(actual: p.x, expected: 0),
+    assert_eq(actual: p.y, expected: 0),
+)
+
+@basic_default () -> bool = run(
+    let p = Point.default(),
+    p.x == 0 && p.y == 0,
+)
+
+// Multiple field types
+#[derive(Default, Eq)]
+type Config = { name: str, count: int, enabled: bool }
+
+@test_multi_type_default tests @multi_type_default () -> void = run(
+    let c = Config.default(),
+    assert_eq(actual: c.name, expected: ""),
+    assert_eq(actual: c.count, expected: 0),
+    assert_eq(actual: c.enabled, expected: false),
+)
+
+@multi_type_default () -> bool = run(
+    let c = Config.default(),
+    c.name == "" && c.count == 0 && c.enabled == false,
+)
+
+// Single field
+#[derive(Default, Eq)]
+type Id = { value: int }
+
+@test_single_field_default tests @single_field_default () -> void = run(
+    let id = Id.default(),
+    assert_eq(actual: id.value, expected: 0),
+)
+
+@single_field_default () -> bool = run(
+    let id = Id.default(),
+    id.value == 0,
+)
+
+// Float fields
+#[derive(Default, Eq)]
+type Vec2 = { x: float, y: float }
+
+@test_float_default tests @float_default () -> void = run(
+    let v = Vec2.default(),
+    assert_eq(actual: v.x, expected: 0.0),
+    assert_eq(actual: v.y, expected: 0.0),
+)
+
+@float_default () -> bool = run(
+    let v = Vec2.default(),
+    v.x == 0.0 && v.y == 0.0,
+)
+
+// Eq integration: default == default
+@test_eq_integration tests @eq_integration () -> void = run(
+    let p1 = Point.default(),
+    let p2 = Point.default(),
+    assert(cond: p1.eq(other: p2)),
+)
+
+@eq_integration () -> bool = run(
+    let p1 = Point.default(),
+    let p2 = Point.default(),
+    p1.eq(other: p2),
+)
+
+// Nested: struct field that also derives Default
+#[derive(Default, Eq)]
+type Wrapper = { inner: Point }
+
+@test_nested_default tests @nested_default () -> void = run(
+    let w = Wrapper.default(),
+    assert_eq(actual: w.inner.x, expected: 0),
+    assert_eq(actual: w.inner.y, expected: 0),
+)
+
+@nested_default () -> bool = run(
+    let w = Wrapper.default(),
+    w.inner.x == 0 && w.inner.y == 0,
+)
+
+@main () -> void = run(
+    print(msg: "All derive Default tests passed"),
+)

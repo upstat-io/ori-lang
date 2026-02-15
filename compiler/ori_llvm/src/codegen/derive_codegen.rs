@@ -99,10 +99,7 @@ pub fn compile_derives<'a>(
                     compile_derive_printable(fc, type_name, type_idx, &type_name_str, fields);
                 }
                 DerivedTrait::Default => {
-                    trace!(
-                        derive = "Default",
-                        "Default derive not yet supported in LLVM codegen"
-                    );
+                    compile_derive_default(fc, type_name, type_idx, &type_name_str, fields);
                 }
             }
         }
@@ -582,6 +579,44 @@ fn emit_field_to_string<'a>(
         }
         _ => emit_str_literal(fc, "<?>", name, str_ty_id),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Default: zero-initialized struct construction
+// ---------------------------------------------------------------------------
+
+/// Generate `default() -> Self` (static method, no self parameter).
+///
+/// Constructs a zero-initialized struct by building each field's default
+/// value and assembling them via `build_struct`. Uses `const_zero` for the
+/// struct's LLVM type, which recursively zero-inits all fields — producing
+/// correct defaults for int(0), float(0.0), bool(false), and str({0, null}).
+fn compile_derive_default<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    type_name: Name,
+    type_idx: Idx,
+    type_name_str: &str,
+    _fields: &[FieldDef],
+) {
+    let method_name_str = "default";
+    let method_name = fc.intern(method_name_str);
+
+    // No parameters — default() is a static method
+    let sig = make_sig(method_name, vec![], vec![], type_idx);
+
+    let abi = compute_function_abi(&sig, fc.type_info());
+    let symbol = fc.mangle_method(type_name_str, method_name_str);
+
+    let (func_id, _, _) =
+        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
+
+    // Build a zero-initialized struct value.
+    // `const_zero` on a struct type recursively zeros all fields:
+    // int → 0, float → 0.0, bool → false, ptr → null, str → {0, null}
+    let struct_llvm_ty = fc.resolve_type(type_idx);
+    let result = fc.builder_mut().const_zero(struct_llvm_ty);
+
+    emit_derive_return(fc, func_id, &abi, Some(result));
 }
 
 // ---------------------------------------------------------------------------
