@@ -379,14 +379,14 @@ impl MethodRegistry {
         });
 
         self.register_builtin(BuiltinMethod {
-            name: static_name("to_upper"),
+            name: static_name("to_uppercase"),
             receiver_tag: Tag::Str,
             doc: "Returns uppercase version",
             kind: BuiltinMethodKind::Fixed(Idx::STR),
         });
 
         self.register_builtin(BuiltinMethod {
-            name: static_name("to_lower"),
+            name: static_name("to_lowercase"),
             receiver_tag: Tag::Str,
             doc: "Returns lowercase version",
             kind: BuiltinMethodKind::Fixed(Idx::STR),

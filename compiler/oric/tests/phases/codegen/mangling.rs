@@ -54,8 +54,8 @@ fn test_mangle_extension() {
         "_ori_$LBint$RB$$ext$sum"
     );
     assert_eq!(
-        mangler.mangle_extension("str", "to_upper", "string_utils"),
-        "_ori_str$$ext$string_utils$to_upper"
+        mangler.mangle_extension("str", "to_uppercase", "string_utils"),
+        "_ori_str$$ext$string_utils$to_uppercase"
     );
 }
 

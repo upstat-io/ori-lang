@@ -507,6 +507,10 @@ impl<'a> Cursor<'a> {
         if let TokenKind::Ident(name) = *self.current_kind() {
             self.advance();
             Ok(name)
+        } else if let Some(name_str) = self.soft_keyword_to_name() {
+            let name = self.interner.intern(name_str);
+            self.advance();
+            Ok(name)
         } else if let Some(name_str) = self.keyword_as_name() {
             let name = self.interner.intern(name_str);
             self.advance();
