@@ -56,6 +56,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Ordering", "is_less"),
     ("Ordering", "is_less_or_equal"),
     ("Ordering", "reverse"),
+    ("Ordering", "then"),
     ("Ordering", "to_str"),
     // Result - methods and traits
     ("Result", "clone"),

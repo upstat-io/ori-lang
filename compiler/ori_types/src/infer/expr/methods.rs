@@ -282,7 +282,7 @@ fn resolve_ordering_method(method_name: &str) -> Option<Idx> {
         | "is_less_or_equal"
         | "is_greater_or_equal"
         | "equals" => Some(Idx::BOOL),
-        "reverse" | "clone" | "compare" => Some(Idx::ORDERING),
+        "reverse" | "clone" | "compare" | "then" => Some(Idx::ORDERING),
         "hash" => Some(Idx::INT),
         "to_str" | "debug" => Some(Idx::STR),
         _ => None,

@@ -646,6 +646,13 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         ReturnSpec::SelfType,
         None,
     ),
+    MethodDef::new(
+        BuiltinType::Ordering,
+        "then",
+        &[ParamSpec::SelfType],
+        ReturnSpec::SelfType,
+        None,
+    ),
 ];
 
 /// Find a method definition by receiver type and method name.

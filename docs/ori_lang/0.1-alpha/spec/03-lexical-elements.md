@@ -54,7 +54,9 @@ Identifiers are case-sensitive. Must not start with digit or be a reserved keywo
 
 ### Reserved
 
-Reserved keywords must not be used as identifiers. See grammar for complete list (34 keywords).
+Reserved keywords must not be used as identifiers in most positions. See grammar for complete list (34 keywords).
+
+**Exception:** In _member position_ (after `.`), any keyword may be used as a field or method name. The `.` prefix provides unambiguous context, so `x.then(y)` is a method call, not an `if`/`then` expression. See [grammar.ebnf](grammar.ebnf) § `member_name`.
 
 ### Reserved (Future)
 

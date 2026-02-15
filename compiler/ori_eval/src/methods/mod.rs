@@ -99,6 +99,7 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) is_less_or_equal: Name,
     pub(crate) is_greater_or_equal: Name,
     pub(crate) reverse: Name,
+    pub(crate) then: Name,
 
     // Type names for associated function dispatch
     pub(crate) duration: Name,
@@ -186,6 +187,7 @@ impl BuiltinMethodNames {
             is_less_or_equal: interner.intern("is_less_or_equal"),
             is_greater_or_equal: interner.intern("is_greater_or_equal"),
             reverse: interner.intern("reverse"),
+            then: interner.intern("then"),
             // Type names
             duration: interner.intern("Duration"),
             size: interner.intern("Size"),

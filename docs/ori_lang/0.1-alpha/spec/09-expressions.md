@@ -15,9 +15,18 @@ Expressions compute values.
 
 ### Field and Method Access
 
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § `postfix_op`, `member_name`
+
 ```ori
 point.x
 list.len()
+```
+
+The member name after `.` may be an identifier or a reserved keyword. Keywords are valid in member position because the `.` prefix provides unambiguous context:
+
+```ori
+ordering.then(other: Less)    // method call — `then` keyword allowed after `.`
+point.type                    // field access — `type` keyword allowed after `.`
 ```
 
 ### Index Access
