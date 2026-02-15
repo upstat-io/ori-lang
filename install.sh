@@ -16,6 +16,7 @@ set -e
 
 REPO="upstat-io/ori-lang"
 INSTALL_DIR="${ORI_INSTALL_DIR:-$HOME/.local/bin}"
+STDLIB_DIR="${ORI_STDLIB_DIR:-$HOME/.local/share/ori/library}"
 BINARY_NAME="ori"
 
 # Colors for output
@@ -58,7 +59,8 @@ Options:
   --help          Show this help message
 
 Environment:
-  ORI_INSTALL_DIR   Installation directory (default: ~/.local/bin)
+  ORI_INSTALL_DIR   Binary installation directory (default: ~/.local/bin)
+  ORI_STDLIB_DIR    Standard library directory (default: ~/.local/share/ori/library)
 
 Examples:
   # Install latest nightly (default)
@@ -256,6 +258,14 @@ Check available releases at:
     chmod +x "$INSTALLED_PATH"
 
     success "Installed ori to $INSTALLED_PATH"
+
+    # Install standard library
+    if [ -d "${TMP_DIR}/library" ]; then
+        mkdir -p "$STDLIB_DIR"
+        rm -rf "$STDLIB_DIR"
+        cp -r "${TMP_DIR}/library" "$STDLIB_DIR"
+        success "Installed standard library to $STDLIB_DIR"
+    fi
 
     # Check if install directory is in PATH
     case ":$PATH:" in

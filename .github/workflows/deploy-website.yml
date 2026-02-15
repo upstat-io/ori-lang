@@ -101,6 +101,9 @@ jobs:
         run: bun install
         working-directory: website
 
+      - name: Copy install script to website
+        run: cp install.sh website/public/install.sh
+
       - name: Copy WASM to website
         run: bash scripts/copy-wasm.sh
         working-directory: website

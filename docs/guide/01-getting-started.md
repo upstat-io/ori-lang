@@ -238,6 +238,8 @@ This is Ori's **mandatory testing** at work. Every function needs at least one t
 Add a test for `greet`:
 
 ```ori
+use std.testing { assert_eq }
+
 @greet (name: str) -> str = `Hello, {name}!`
 
 @test_greet tests @greet () -> void = run(
@@ -337,6 +339,8 @@ The `@main` function is where execution starts. There are four valid signatures:
 
 ### Working with Command-Line Arguments
 
+> **Coming Soon:** The `args` parameter for `@main` is planned but not yet implemented. The examples below show the intended syntax.
+
 ```ori
 @main (args: [str]) -> void = run(
     if is_empty(collection: args) then
@@ -358,7 +362,7 @@ Note: `args` contains only the arguments, not the program name.
 
 ### Exit Codes
 
-Return an integer to indicate success or failure:
+> **Coming Soon:** Exit code support via `@main () -> int` is planned but not yet implemented. The examples below show the intended syntax.
 
 ```ori
 @main (args: [str]) -> int = run(
@@ -377,6 +381,8 @@ Return an integer to indicate success or failure:
 Here's everything we've covered in one program:
 
 ```ori
+use std.testing { assert_eq }
+
 // A function that creates a greeting
 @greet (name: str) -> str = `Hello, {name}!`
 

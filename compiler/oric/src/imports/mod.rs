@@ -398,7 +398,8 @@ fn resolve_module_import_tracked(
 /// 1. `$ORI_STDLIB/<module>.ori` (if override provided)
 /// 2. `<ancestor>/library/<module>.ori` (walking up from current file)
 /// 3. `<ancestor>/library/<module>/mod.ori` (directory module pattern)
-/// 4. Standard system locations
+/// 4. User-local install: `~/.local/share/ori/library/<module>.ori`
+/// 5. Standard system locations
 ///
 /// This function is pure — all external state (env vars) is passed in
 /// as parameters. IO is the caller's responsibility.
@@ -432,7 +433,24 @@ fn generate_module_candidates(
         dir = d.parent();
     }
 
-    // 3. Try standard system locations
+    // 3. User-local install (XDG-compliant: ~/.local/share/ori/library/)
+    if let Ok(home) = std::env::var("HOME") {
+        let user_lib = PathBuf::from(&home).join(".local/share/ori/library");
+        let mut base = user_lib;
+        for component in components {
+            base.push(component);
+        }
+        candidates.push(base.with_extension("ori"));
+        // Also try directory module pattern
+        let mut dir_base = PathBuf::from(&home).join(".local/share/ori/library");
+        for component in components {
+            dir_base.push(component);
+        }
+        dir_base.push("mod.ori");
+        candidates.push(dir_base);
+    }
+
+    // 4. Standard system locations
     for base in ["/usr/local/lib/ori/stdlib", "/usr/lib/ori/stdlib"] {
         candidates.push(build_module_path(PathBuf::from(base), components));
     }
