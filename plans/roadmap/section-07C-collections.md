@@ -48,13 +48,13 @@ sections:
 > The free function forms are deprecated in favor of `.len()` and `.is_empty()` methods.
 > Keep backward compatibility during transition, then remove free functions.
 
-- [x] **Implement**: `len(x)` — spec/11-built-in-functions.md § len (deprecated, use `.len()`) ✅ (2026-02-10)
+- [x] **Implement**: `len(x)` — spec/11-built-in-functions.md § len (deprecated, use `.len()`) [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator builtin — len function tests
   - [x] **Ori Tests**: Used extensively in test suite via `.len()` method
   - [ ] **LLVM Support**: LLVM codegen for len function
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — len function codegen
 
-- [x] **Implement**: `is_empty(x)` — spec/11-built-in-functions.md § is_empty (deprecated, use `.is_empty()`) ✅ (2026-02-10)
+- [x] **Implement**: `is_empty(x)` — spec/11-built-in-functions.md § is_empty (deprecated, use `.is_empty()`) [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator builtin — is_empty function tests
   - [x] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — 15+ tests
   - [ ] **LLVM Support**: LLVM codegen for is_empty function
@@ -66,19 +66,19 @@ sections:
 
 > **Design Principle**: Lean core, rich libraries. Data transformation is stdlib, not compiler patterns.
 
-- [x] **Implement**: `[T].map(f: T -> U) -> [U]` — modules/prelude.md § List ✅ (2026-02-10)
+- [x] **Implement**: `[T].map(f: T -> U) -> [U]` — modules/prelude.md § List [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — list map tests
   - [x] **Ori Tests**: Used in `tests/spec/types/primitives.ori`, `tests/spec/lexical/keywords.ori`
   - [ ] **LLVM Support**: LLVM codegen for list map
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list map codegen
 
-- [x] **Implement**: `[T].filter(f: T -> bool) -> [T]` — modules/prelude.md § List ✅ (2026-02-10)
+- [x] **Implement**: `[T].filter(f: T -> bool) -> [T]` — modules/prelude.md § List [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — list filter tests
   - [x] **Ori Tests**: `tests/spec/lexical/operators.ori` — `list.filter(predicate: x -> x % 2 == 0)`
   - [ ] **LLVM Support**: LLVM codegen for list filter
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list filter codegen
 
-- [x] **Implement**: `[T].fold(initial: U, f: (U, T) -> U) -> U` — modules/prelude.md § List ✅ (2026-02-10)
+- [x] **Implement**: `[T].fold(initial: U, f: (U, T) -> U) -> U` — modules/prelude.md § List [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — list fold tests
   - [x] **Ori Tests**: `tests/spec/lexical/keywords.ori` — `[1,2,3].fold(initial: 0, combine: (a,b) -> a + b)`
   - [ ] **LLVM Support**: LLVM codegen for list fold
@@ -196,19 +196,19 @@ sections:
 
 > Move from free functions to methods on collections.
 
-- [x] **Implement**: `[T].len() -> int` — modules/prelude.md § List ✅ (2026-02-10)
+- [x] **Implement**: `[T].len() -> int` — modules/prelude.md § List [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — list len tests
   - [x] **Ori Tests**: `tests/spec/expressions/field_access.ori`, `tests/spec/lexical/delimiters.ori`
   - [ ] **LLVM Support**: LLVM codegen for list len method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list len method codegen
 
-- [x] **Implement**: `[T].is_empty() -> bool` — modules/prelude.md § List ✅ (2026-02-10)
+- [x] **Implement**: `[T].is_empty() -> bool` — modules/prelude.md § List [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — list is_empty tests
   - [x] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — 15+ tests
   - [ ] **LLVM Support**: LLVM codegen for list is_empty method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list is_empty method codegen
 
-- [x] **Implement**: `{K: V}.len() -> int` — modules/prelude.md § Map ✅ (2026-02-10)
+- [x] **Implement**: `{K: V}.len() -> int` — modules/prelude.md § Map [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — map len tests
   - [x] **Ori Tests**: `tests/spec/lexical/delimiters.ori` — `map.len()` tests
   - [ ] **LLVM Support**: LLVM codegen for map len method
@@ -220,13 +220,13 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for map is_empty method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — map is_empty method codegen
 
-- [x] **Implement**: `str.len() -> int` — modules/prelude.md § str ✅ (2026-02-10)
+- [x] **Implement**: `str.len() -> int` — modules/prelude.md § str [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — str len tests
   - [x] **Ori Tests**: `tests/spec/expressions/field_access.ori` — `"hello".len()`
   - [ ] **LLVM Support**: LLVM codegen for str len method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/string_tests.rs` — str len method codegen
 
-- [x] **Implement**: `str.is_empty() -> bool` — modules/prelude.md § str ✅ (2026-02-10)
+- [x] **Implement**: `str.is_empty() -> bool` — modules/prelude.md § str [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — str is_empty tests
   - [x] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — `"".is_empty()`, `!"hello".is_empty()`
   - [ ] **LLVM Support**: LLVM codegen for str is_empty method
@@ -262,7 +262,7 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for max method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` — max method codegen
 
-- [x] **Implement**: `T.compare(other: T) -> Ordering` where `T: Comparable` — modules/prelude.md § Comparable ✅ (2026-02-10)
+- [x] **Implement**: `T.compare(other: T) -> Ordering` where `T: Comparable` — modules/prelude.md § Comparable [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — compare method tests
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — 133 test occurrences
   - [ ] **LLVM Support**: LLVM codegen for compare method

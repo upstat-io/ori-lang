@@ -1,0 +1,28 @@
+// Spec: 08-declarations.md § Trait Resolution — Ambiguous Method Call (E2023)
+// Tests that calling a method provided by multiple traits is an error.
+
+trait Renderer {
+    @draw (self) -> str
+}
+
+trait Painter {
+    @draw (self) -> str
+}
+
+type Canvas = { name: str }
+
+impl Renderer for Canvas {
+    @draw (self) -> str = "rendering " + self.name
+}
+
+impl Painter for Canvas {
+    @draw (self) -> str = "painting " + self.name
+}
+
+// Calling draw() is ambiguous — Renderer.draw or Painter.draw?
+#[compile_fail("ambiguous method")]
+@test_ambiguous_method () -> void = run(
+    let c = Canvas { name: "test" },
+    let _ = c.draw(),
+    ()
+)

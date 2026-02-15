@@ -1,0 +1,24 @@
+// Test that duplicate trait implementations produce an error (E2010)
+// Spec: 08-declarations.md § Trait Implementations
+
+trait Describable {
+    @describe (self) -> str
+}
+
+type Point = { x: int, y: int }
+
+impl Describable for Point {
+    @describe (self) -> str = "first"
+}
+
+// Duplicate impl — should produce E2010 error
+impl Describable for Point {
+    @describe (self) -> str = "second"
+}
+
+#[compile_fail("duplicate trait implementation")]
+@test_duplicate_impl () -> void = run(
+    let p = Point { x: 1, y: 2 },
+    let _ = p.describe(),
+    ()
+)

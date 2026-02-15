@@ -186,23 +186,23 @@ ConstType     = 'int' | 'bool' ;
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter syntax codegen
 
 - [ ] **Parser**: Parse const parameters
-  - [x] `$` sigil in generics — parses `$N: int` ✅ (2026-02-13)
-  - [x] Type annotation required — enforced by parser ✅ (2026-02-13)
-  - [x] Position (can mix with type params) — `<T, $N: int>` works ✅ (2026-02-13)
+  - [x] `$` sigil in generics — parses `$N: int` [done] (2026-02-13)
+  - [x] Type annotation required — enforced by parser [done] (2026-02-13)
+  - [x] Position (can mix with type params) — `<T, $N: int>` works [done] (2026-02-13)
   - [ ] **LLVM Support**: LLVM codegen for parsed const parameters
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter parsing codegen
 
 - [x] **Type checker**: Const parameter validation (body-level)
-  - [x] Track const vs type parameters ✅ (2026-02-14)
-  - [x] Validate const type (int, bool) ✅ (2026-02-14)
+  - [x] Track const vs type parameters [done] (2026-02-14)
+  - [x] Validate const type (int, bool) [done] (2026-02-14)
   - [ ] Unification with const values (call-site deferred)
   - [ ] **LLVM Support**: LLVM codegen for const parameter validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter validation codegen
 
 - [x] **Test**: `tests/spec/types/const_generics.ori` (body-level)
-  - [x] Basic const parameter ✅ (2026-02-14)
-  - [x] Multiple const parameters ✅ (2026-02-14)
-  - [x] Mixed type and const ✅ (2026-02-14)
+  - [x] Basic const parameter [done] (2026-02-14)
+  - [x] Multiple const parameters [done] (2026-02-14)
+  - [x] Mixed type and const [done] (2026-02-14)
   - [ ] **LLVM Support**: LLVM codegen for const generic tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const generic tests codegen
 
@@ -473,12 +473,12 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
   - [ ] **Rust Tests**: `ori_parser/tests/const_bound_grammar.rs`
 
 - [ ] **Parser**: Parse const bounds
-  - [x] In where clauses (compound expressions with `&&`, `||`, `!`) ✅ (2026-02-13)
-  - [x] Comparison expressions (`>`, `<`, `>=`, `<=`, `==`, `!=`) ✅ (2026-02-13)
-  - [x] Arithmetic in bounds (`+`, `-`, `*`, `/`, `%`) ✅ (2026-02-13)
-  - [x] Bitwise in bounds (`&`, `|`, `^`, `<<`, `>>`) ✅ (2026-02-13)
-  - [x] Multiple where clauses (implicitly AND-combined) ✅ (2026-02-13)
-  - [x] **Rust Tests**: `ori_parse/src/grammar/item/generics.rs` — 5 where clause tests ✅ (2026-02-13)
+  - [x] In where clauses (compound expressions with `&&`, `||`, `!`) [done] (2026-02-13)
+  - [x] Comparison expressions (`>`, `<`, `>=`, `<=`, `==`, `!=`) [done] (2026-02-13)
+  - [x] Arithmetic in bounds (`+`, `-`, `*`, `/`, `%`) [done] (2026-02-13)
+  - [x] Bitwise in bounds (`&`, `|`, `^`, `<<`, `>>`) [done] (2026-02-13)
+  - [x] Multiple where clauses (implicitly AND-combined) [done] (2026-02-13)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/item/generics.rs` — 5 where clause tests [done] (2026-02-13)
   - [ ] **LLVM Support**: LLVM codegen for parsed const bounds
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds parsing codegen
 

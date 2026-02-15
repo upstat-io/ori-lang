@@ -31,8 +31,8 @@ pub use types::{
 
 // Trait registry exports
 pub use traits::{
-    ImplEntry, ImplMethodDef, MethodLookup, TraitAssocTypeDef, TraitEntry, TraitMethodDef,
-    TraitRegistry, WhereConstraint,
+    ImplEntry, ImplMethodDef, ImplSpecificity, MethodLookup, MethodLookupResult, TraitAssocTypeDef,
+    TraitEntry, TraitMethodDef, TraitRegistry, WhereConstraint,
 };
 
 // Method registry exports

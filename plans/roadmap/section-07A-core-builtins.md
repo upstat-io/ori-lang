@@ -119,17 +119,17 @@ sections:
 
 ## 7A.2 Assertions
 
-- [x] **Implement**: `assert(cond:)` ✅ (2026-02-10)
+- [x] **Implement**: `assert(cond:)` [done] (2026-02-10)
   - [x] **Ori Tests**: Used in hundreds of tests across test suite (`assert(cond: ...)`)
   - [ ] **LLVM Support**: LLVM codegen for assert
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
 
-- [x] **Implement**: `assert_eq(actual:, expected:)` ✅ (2026-02-10)
+- [x] **Implement**: `assert_eq(actual:, expected:)` [done] (2026-02-10)
   - [x] **Ori Tests**: Used in hundreds of tests across test suite
   - [ ] **LLVM Support**: LLVM codegen for assert_eq
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
 
-- [x] **Implement**: `assert_ne(actual:, expected:)` ✅ (2026-02-10)
+- [x] **Implement**: `assert_ne(actual:, expected:)` [done] (2026-02-10)
   - [x] **Ori Tests**: Used in module tests (`tests/spec/modules/`)
   - [ ] **LLVM Support**: LLVM codegen for assert_ne
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
@@ -154,22 +154,22 @@ sections:
 
 ## 7A.3 I/O and Other
 
-- [x] **Implement**: `print(x)` ✅ (2026-02-10)
+- [x] **Implement**: `print(x)` [done] (2026-02-10)
   - [x] **Ori Tests**: Used in test suite; LLVM has `_ori_print` runtime function
   - [x] **LLVM Support**: LLVM codegen for print — `_ori_print` in runtime
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/io_tests.rs` (file does not exist)
 
-- [x] **Implement**: `compare(a, b)` ✅ (2026-02-10)
+- [x] **Implement**: `compare(a, b)` [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — 58 tests for `.compare(other:)`
   - [x] **LLVM Support**: LLVM codegen for compare — inline IR in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` (file does not exist)
 
-- [x] **Implement**: `min(a, b)`, `max(a, b)` ✅ (2026-02-10)
+- [x] **Implement**: `min(a, b)`, `max(a, b)` [done] (2026-02-10)
   - [x] **Ori Tests**: Prelude functions available, verified in Section 4.6
   - [ ] **LLVM Support**: LLVM codegen for min/max
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` (file does not exist)
 
-- [x] **Implement**: `panic(msg)` ✅ (2026-02-10)
+- [x] **Implement**: `panic(msg)` [done] (2026-02-10)
   - [x] **Ori Tests**: Used in `#fail` test attributes (division by zero, index out of bounds)
   - [x] **LLVM Support**: LLVM codegen for panic — `_ori_panic` in runtime
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` (file does not exist)

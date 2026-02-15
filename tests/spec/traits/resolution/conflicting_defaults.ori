@@ -1,0 +1,63 @@
+// Spec: 08-declarations.md § Trait Resolution — Conflicting Defaults Resolved
+// Tests that an explicit override resolves conflicting default methods
+// from multiple super-traits. Verified by compilation succeeding (no E2022).
+
+use std.testing { assert_eq }
+
+trait Source {
+    @tag (self) -> str = "from Source"
+}
+
+trait Sink {
+    @tag (self) -> str = "from Sink"
+}
+
+trait Pipeline: Source + Sink {
+    @run (self) -> str
+}
+
+type Stream = { id: int }
+
+impl Source for Stream {}
+impl Sink for Stream {}
+
+// Explicit override resolves the conflict between Source.tag and Sink.tag
+impl Pipeline for Stream {
+    @tag (self) -> str = "overridden"
+    @run (self) -> str = "running:" + str(self.id)
+}
+
+// Verify that the impl compiles (no E2022) and non-conflicting methods work
+@test_override_resolves_conflict tests @run () -> void = run(
+    let s = Stream { id: 42 },
+    assert_eq(actual: s.run(), expected: "running:42"),
+)
+
+// Non-conflicting defaults: only one super-trait has the default method
+trait Alpha {
+    @info (self) -> str = "alpha info"
+}
+
+trait Beta {
+    @process (self) -> str
+}
+
+trait Gamma: Alpha + Beta {
+    @label (self) -> str
+}
+
+type Widget = { name: str }
+
+impl Alpha for Widget {}
+impl Beta for Widget {
+    @process (self) -> str = "processed:" + self.name
+}
+
+impl Gamma for Widget {
+    @label (self) -> str = "widget:" + self.name
+}
+
+@test_non_conflicting_default tests @info () -> void = run(
+    let w = Widget { name: "btn" },
+    assert_eq(actual: w.info(), expected: "alpha info"),
+)

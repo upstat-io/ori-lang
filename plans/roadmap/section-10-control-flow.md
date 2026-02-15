@@ -55,25 +55,25 @@ sections:
 
 **Proposal**: `proposals/approved/if-expression-proposal.md`
 
-- [x] **Implement**: Parse `if cond then expr else expr` — spec/09-expressions.md § Conditional ✅ (2026-02-10)
+- [x] **Implement**: Parse `if cond then expr else expr` — spec/09-expressions.md § Conditional [done] (2026-02-10)
   - [x] **Rust Tests**: Parser and evaluator — if expression
   - [x] **Ori Tests**: `tests/spec/expressions/conditionals.ori` — 19 tests
   - [ ] **LLVM Support**: LLVM codegen for if expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — if expression codegen
 
-- [x] **Implement**: Else-if chains (grammar convenience) — spec/09-expressions.md § Conditional ✅ (2026-02-10)
+- [x] **Implement**: Else-if chains (grammar convenience) — spec/09-expressions.md § Conditional [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — chained if parsing
   - [x] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
   - [ ] **LLVM Support**: LLVM codegen for chained conditions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — chained conditions codegen
 
-- [x] **Implement**: Condition must be `bool` — spec/09-expressions.md § Conditional ✅ (2026-02-10)
+- [x] **Implement**: Condition must be `bool` — spec/09-expressions.md § Conditional [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — condition type checking
   - [x] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
   - [ ] **LLVM Support**: N/A (compile-time check)
   - [ ] **LLVM Rust Tests**: N/A
 
-- [x] **Implement**: Branch type unification — spec/09-expressions.md § Conditional ✅ (2026-02-10)
+- [x] **Implement**: Branch type unification — spec/09-expressions.md § Conditional [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — branch type unification
   - [x] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
   - [ ] **LLVM Support**: LLVM codegen for branch type unification
@@ -106,25 +106,25 @@ sections:
 
 **Imperative form (do):**
 
-- [x] **Implement**: Parse `for x in items do expr` — spec/09-expressions.md § For Expressions ✅ (2026-02-10)
+- [x] **Implement**: Parse `for x in items do expr` — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — for-do parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — 29 tests
   - [ ] **LLVM Support**: LLVM codegen for for-do expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — for-do codegen
 
-- [x] **Implement**: Bind loop variable — spec/09-expressions.md § For Expressions ✅ (2026-02-10)
+- [x] **Implement**: Bind loop variable — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — loop variable binding
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for loop variable binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — loop variable binding codegen
 
-- [x] **Implement**: Execute body for side effects — spec/09-expressions.md § For Expressions ✅ (2026-02-10)
+- [x] **Implement**: Execute body for side effects — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — body execution
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for loop body execution
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — loop body execution codegen
 
-- [x] **Implement**: Result type `void` — spec/09-expressions.md § For Expressions ✅ (2026-02-10)
+- [x] **Implement**: Result type `void` — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — for-do type
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for for-do void type
@@ -132,19 +132,19 @@ sections:
 
 **Collection building (yield):**
 
-- [x] **Implement**: Parse `for x in items yield expr` — spec/09-expressions.md § For Expressions ✅ (2026-02-10)
+- [x] **Implement**: Parse `for x in items yield expr` — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — for-yield parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for for-yield expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — for-yield codegen
 
-- [x] **Implement**: Collect results into list — spec/09-expressions.md § For Expressions ✅ (2026-02-10)
+- [x] **Implement**: Collect results into list — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — yield collection
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for yield collection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — yield collection codegen
 
-- [x] **Implement**: Result type `[T]` — spec/09-expressions.md § For Expressions ✅ (2026-02-10)
+- [x] **Implement**: Result type `[T]` — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — for-yield type
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for for-yield list type
@@ -152,13 +152,13 @@ sections:
 
 **With guards:**
 
-- [x] **Implement**: Parse `for x in items if guard yield expr` — spec/09-expressions.md § For Expressions ✅ (2026-02-10)
+- [x] **Implement**: Parse `for x in items if guard yield expr` — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — for-guard parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — for_do_with_guard, for_yield_with_guard tests
   - [ ] **LLVM Support**: LLVM codegen for for-guard expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — for-guard codegen
 
-- [x] **Implement**: Only yield when guard true — spec/09-expressions.md § For Expressions ✅ (2026-02-10)
+- [x] **Implement**: Only yield when guard true — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — guard filtering
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — guard_all_filtered, guard_transform tests
   - [ ] **LLVM Support**: LLVM codegen for guard filtering
@@ -208,31 +208,31 @@ sections:
 
 **Proposal**: `proposals/approved/loop-expression-proposal.md`
 
-- [x] **Implement**: Parse `loop(body)` — spec/09-expressions.md § Loop Expressions ✅ (2026-02-10)
+- [x] **Implement**: Parse `loop(body)` — spec/09-expressions.md § Loop Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — loop parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_with_break, loop_break_value, loop_int tests
   - [ ] **LLVM Support**: LLVM codegen for loop expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — loop expression codegen
 
-- [x] **Implement**: Loop until `break` — spec/19-control-flow.md § Break ✅ (2026-02-10)
+- [x] **Implement**: Loop until `break` — spec/19-control-flow.md § Break [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — break handling
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_with_break test
   - [ ] **LLVM Support**: LLVM codegen for break handling
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break handling codegen
 
-- [x] **Implement**: Body is single expression; use `run(...)` for sequences — proposals/approved/loop-expression-proposal.md § Body ✅ (2026-02-10)
+- [x] **Implement**: Body is single expression; use `run(...)` for sequences — proposals/approved/loop-expression-proposal.md § Body [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — loop body parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — all loop tests use `loop(run(...))`
   - [ ] **LLVM Support**: LLVM codegen for loop body
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — loop body codegen
 
-- [x] **Implement**: Parse `break` with optional value — spec/19-control-flow.md § Break ✅ (2026-02-10)
+- [x] **Implement**: Parse `break` with optional value — spec/19-control-flow.md § Break [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — break parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_break_value, loop_conditional_break tests
   - [ ] **LLVM Support**: LLVM codegen for break with value
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break with value codegen
 
-- [x] **Implement**: Parse `continue` — spec/19-control-flow.md § Continue ✅ (2026-02-10)
+- [x] **Implement**: Parse `continue` — spec/19-control-flow.md § Continue [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — continue parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_continue test
   - [ ] **LLVM Support**: LLVM codegen for continue
@@ -246,13 +246,13 @@ sections:
   - [ ] **LLVM Support**: N/A (compile-time check)
   - [ ] **LLVM Rust Tests**: N/A
 
-- [x] **Implement**: Result type from `break` value — proposals/approved/loop-expression-proposal.md § Loop Type ✅ (2026-02-10)
+- [x] **Implement**: Result type from `break` value — proposals/approved/loop-expression-proposal.md § Loop Type [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — break type inference
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_break_value, loop_int tests
   - [ ] **LLVM Support**: LLVM codegen for break type inference
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break type inference codegen
 
-- [x] **Implement**: Type `void` for break without value — proposals/approved/loop-expression-proposal.md § Break Without Value ✅ (2026-02-10)
+- [x] **Implement**: Type `void` for break without value — proposals/approved/loop-expression-proposal.md § Break Without Value [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — void loop type
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_with_break (void function)
   - [ ] **LLVM Support**: LLVM codegen for void loop
@@ -425,37 +425,37 @@ sections:
 
 ## 10.5 Let Bindings
 
-- [x] **Implement**: Parse `let x = expr` — spec/09-expressions.md § Let Bindings ✅ (2026-02-10)
+- [x] **Implement**: Parse `let x = expr` — spec/09-expressions.md § Let Bindings [done] (2026-02-10)
   - [x] **Rust Tests**: Parser and evaluator — let binding
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — 17 tests (let_inferred, let_string, etc.)
   - [ ] **LLVM Support**: LLVM codegen for let binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — let binding codegen
 
-- [x] **Implement**: Parse `let mut x = expr` — spec/09-expressions.md § Mutable Bindings ✅ (2026-02-10)
+- [x] **Implement**: Parse `let mut x = expr` — spec/09-expressions.md § Mutable Bindings [done] (2026-02-10)
   - [x] **Rust Tests**: Parser and evaluator — mutable binding
   - [x] **Ori Tests**: `tests/spec/expressions/mutation.ori` — 15 tests (mutable_basic, mutable_loop, etc.)
   - [ ] **LLVM Support**: LLVM codegen for mutable binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — mutable binding codegen
 
-- [x] **Implement**: Parse `let x: Type = expr` — spec/09-expressions.md § Let Bindings ✅ (2026-02-10)
+- [x] **Implement**: Parse `let x: Type = expr` — spec/09-expressions.md § Let Bindings [done] (2026-02-10)
   - [x] **Rust Tests**: Parser and type checker — typed binding
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — let_annotated_int, let_annotated_str, etc.
   - [ ] **LLVM Support**: LLVM codegen for typed binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — typed binding codegen
 
-- [x] **Implement**: Parse struct destructuring `let { x, y } = val` — spec/09-expressions.md § Destructuring ✅ (2026-02-10)
+- [x] **Implement**: Parse struct destructuring `let { x, y } = val` — spec/09-expressions.md § Destructuring [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — struct destructure parsing
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — struct_destructure_shorthand, struct_destructure_rename
   - [ ] **LLVM Support**: LLVM codegen for struct destructuring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — struct destructuring codegen
 
-- [x] **Implement**: Parse tuple destructuring `let (a, b) = val` — spec/09-expressions.md § Destructuring ✅ (2026-02-10)
+- [x] **Implement**: Parse tuple destructuring `let (a, b) = val` — spec/09-expressions.md § Destructuring [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — tuple destructure parsing
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — tuple_destructure test
   - [ ] **LLVM Support**: LLVM codegen for tuple destructuring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — tuple destructuring codegen
 
-- [x] **Implement**: Parse list destructuring `let [head, ..tail] = val` — spec/09-expressions.md § Destructuring ✅ (2026-02-10)
+- [x] **Implement**: Parse list destructuring `let [head, ..tail] = val` — spec/09-expressions.md § Destructuring [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — list destructure parsing
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — list_destructure_basic, list_destructure_head, list_destructure_with_rest
   - [ ] **LLVM Support**: LLVM codegen for list destructuring
@@ -465,25 +465,25 @@ sections:
 
 ## 10.6 Scoping
 
-- [x] **Implement**: Lexical scoping — spec/17-blocks-and-scope.md § Lexical Scoping ✅ (2026-02-10)
+- [x] **Implement**: Lexical scoping — spec/17-blocks-and-scope.md § Lexical Scoping [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — lexical scope tests
   - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori` — 3 tests (let_bindings_in_run, nested_run_shadowing, run_returns_last_expression)
   - [ ] **LLVM Support**: LLVM codegen for lexical scoping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — lexical scoping codegen
 
-- [x] **Implement**: No hoisting — spec/17-blocks-and-scope.md § No Hoisting ✅ (2026-02-10)
+- [x] **Implement**: No hoisting — spec/17-blocks-and-scope.md § No Hoisting [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — no hoisting tests
   - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori` — sequential binding verified
   - [ ] **LLVM Support**: LLVM codegen for no hoisting
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — no hoisting codegen
 
-- [x] **Implement**: Shadowing — spec/17-blocks-and-scope.md § Shadowing ✅ (2026-02-10)
+- [x] **Implement**: Shadowing — spec/17-blocks-and-scope.md § Shadowing [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — shadowing tests
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — let_shadow, let_shadow_different_type; `mutation.ori` — shadow_mutability
   - [ ] **LLVM Support**: LLVM codegen for shadowing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — shadowing codegen
 
-- [x] **Implement**: Lambda capture by value — spec/17-blocks-and-scope.md § Lambda Capture ✅ (2026-02-10)
+- [x] **Implement**: Lambda capture by value — spec/17-blocks-and-scope.md § Lambda Capture [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — capture tests
   - [x] **Ori Tests**: `tests/spec/expressions/lambdas.ori` — 29 tests (closure_capture, closure_capture_multiple, closure_nested)
   - [ ] **LLVM Support**: LLVM codegen for lambda capture by value
@@ -499,7 +499,7 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for implicit panics
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — implicit panics codegen
 
-- [x] **Implement**: `panic(message)` function — spec/20-errors-and-panics.md § Explicit Panic ✅ (2026-02-10)
+- [x] **Implement**: `panic(message)` function — spec/20-errors-and-panics.md § Explicit Panic [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — panic function
   - [x] **Ori Tests**: `tests/spec/expressions/coalesce.ori` — panic in short-circuit tests; `operators_bitwise.ori` — assert_panics tests
   - [ ] **LLVM Support**: LLVM codegen for panic function
@@ -519,9 +519,9 @@ sections:
 
 ---
 
-## 10.8 Index Expressions — 🟡 Interpreter Complete
+## 10.8 Index Expressions — [partial] Interpreter Complete
 
-- [x] **Implement**: `#` length symbol in index brackets (`list[# - 1]`) — spec/09-expressions.md § Index Access ✅ (2026-02-10)
+- [x] **Implement**: `#` length symbol in index brackets (`list[# - 1]`) — spec/09-expressions.md § Index Access [done] (2026-02-10)
   - [x] **Parser**: Parse `#` as `ExprKind::HashLength` inside `[...]` — `ori_parse/src/grammar/expr/postfix.rs`
   - [x] **Type Checker**: Resolve `HashLength` to receiver's length type (`int`) — `ori_typeck/src/infer/mod.rs`
   - [x] **Evaluator**: Evaluate `HashLength` as `len(receiver)` in index context — `ori_eval/src/interpreter/mod.rs`
