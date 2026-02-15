@@ -102,11 +102,13 @@ pub $timeout = 30s
 
 Parent modules cannot access child private items. Child modules cannot access parent private items. Sibling modules cannot access each other's private items.
 
-The `::` prefix allows importing private items for testing:
+The `::` prefix allows any module to explicitly import private items from another module:
 
 ```ori
 use "./internal" { ::private_helper }  // Explicit private access
 ```
+
+The `::` prefix makes the boundary crossing visible at the import site. The compiler does not restrict where `::` imports may appear.
 
 ## Re-exports
 

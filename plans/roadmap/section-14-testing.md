@@ -168,23 +168,34 @@ sections:
 
 ## 14.6 Test Organization
 
-- [ ] **Implement**: Inline tests — spec/13-testing.md § Test Organization
-  - [ ] **Rust Tests**: `oric/src/eval/testing.rs` — inline test discovery
-  - [ ] **Ori Tests**: `tests/spec/testing/inline.ori`
-  - [ ] **LLVM Support**: LLVM codegen for inline tests
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — inline tests codegen
+- [ ] **Implement**: Mandatory `_test/` directory — spec/13-testing.md § Test Organization
+  - [ ] Compiler error (E0501) when test functions are defined outside `_test/` directories
+  - [ ] Error message: "tests must be in a _test/ directory" with help suggesting correct path
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/test_organization.rs` — _test/ enforcement
+  - [ ] **Ori Tests**: `tests/spec/testing/test_organization.ori`
+  - [ ] **LLVM Support**: LLVM codegen for _test/ enforcement
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test organization codegen
 
-- [ ] **Implement**: Test files `_test/` — spec/13-testing.md § Test Files, design/11-testing/index.md
+- [ ] **Implement**: Test file discovery in `_test/` — spec/13-testing.md § Test Organization
+  - [ ] Discover `.test.ori` files in `_test/` subdirectories
+  - [ ] Wire test targets to source functions across directory boundary
   - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — _test/ directory handling
   - [ ] **Ori Tests**: `tests/spec/testing/test_files.ori`
-  - [ ] **LLVM Support**: LLVM codegen for test files
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test files codegen
+  - [ ] **LLVM Support**: LLVM codegen for test file discovery
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test file discovery codegen
 
-- [ ] **Implement**: Testing private items — spec/13-testing.md § Private Items
-  - [ ] **Rust Tests**: `oric/src/eval/module/visibility.rs` — test private access
+- [ ] **Implement**: Testing private items via `::` prefix — spec/13-testing.md § Private Items, spec/12-modules.md § Private Access
+  - [ ] `::` imports work from any module (not restricted to test files)
+  - [ ] **Rust Tests**: `oric/src/eval/module/visibility.rs` — private access via ::
   - [ ] **Ori Tests**: `tests/spec/testing/private.ori`
-  - [ ] **LLVM Support**: LLVM codegen for testing private items
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — private items codegen
+  - [ ] **LLVM Support**: LLVM codegen for private item imports
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — private item imports codegen
+
+- [ ] **Migration**: Move existing Ori spec tests to `_test/` directories
+  - [ ] Audit `tests/spec/` for any tests defined alongside source
+  - [ ] Move tests to corresponding `_test/` subdirectories
+  - [ ] Update imports to use relative paths from `_test/`
+  - [ ] Verify all tests still pass after migration
 
 ---
 
