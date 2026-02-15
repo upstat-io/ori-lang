@@ -142,8 +142,8 @@ fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx>
     match method {
         "len" | "byte_len" | "hash" => Some(Idx::INT),
         "is_empty" | "starts_with" | "ends_with" | "contains" | "equals" => Some(Idx::BOOL),
-        "to_upper" | "to_lower" | "trim" | "trim_start" | "trim_end" | "replace" | "repeat"
-        | "pad_start" | "pad_end" | "slice" | "substring" | "clone" => Some(Idx::STR),
+        "to_uppercase" | "to_lowercase" | "trim" | "trim_start" | "trim_end" | "replace"
+        | "repeat" | "pad_start" | "pad_end" | "slice" | "substring" | "clone" => Some(Idx::STR),
         "chars" => Some(engine.pool_mut().list(Idx::CHAR)),
         "bytes" => Some(engine.pool_mut().list(Idx::BYTE)),
         "split" | "lines" => Some(engine.pool_mut().list(Idx::STR)),
@@ -319,7 +319,7 @@ fn resolve_char_method(method_name: &str) -> Option<Idx> {
         "to_int" | "to_byte" | "hash" => Some(Idx::INT),
         "is_digit" | "is_alpha" | "is_whitespace" | "is_uppercase" | "is_lowercase"
         | "is_ascii" | "equals" => Some(Idx::BOOL),
-        "to_upper" | "to_lower" | "clone" => Some(Idx::CHAR),
+        "to_uppercase" | "to_lowercase" | "clone" => Some(Idx::CHAR),
         "compare" => Some(Idx::ORDERING),
         _ => None,
     }

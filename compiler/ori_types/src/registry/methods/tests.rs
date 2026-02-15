@@ -19,7 +19,7 @@ fn builtin_methods_registered() {
     // Check string methods
     assert!(registry.has_builtin(Tag::Str, test_name("len")));
     assert!(registry.has_builtin(Tag::Str, test_name("trim")));
-    assert!(registry.has_builtin(Tag::Str, test_name("to_upper")));
+    assert!(registry.has_builtin(Tag::Str, test_name("to_uppercase")));
 
     // Check int methods
     assert!(registry.has_builtin(Tag::Int, test_name("abs")));
