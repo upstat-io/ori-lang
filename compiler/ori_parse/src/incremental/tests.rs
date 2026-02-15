@@ -1,5 +1,6 @@
 use super::*;
-use ori_ir::incremental::TextChange;
+use ori_ir::incremental::{ChangeMarker, TextChange};
+use ori_ir::{ConstDef, ExprArena, ExprId, Function, Module, Name, Span};
 
 #[test]
 fn test_collect_declarations_empty() {
