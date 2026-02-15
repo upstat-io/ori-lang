@@ -75,7 +75,7 @@ impl Parser<'_> {
             if self.cursor.check(&TokenKind::LParen) {
                 // Function call
                 self.cursor.advance();
-                let (call_args, _has_positional, has_named) = self.parse_call_args()?;
+                let (call_args, has_named) = self.parse_call_args()?;
                 self.cursor.expect(&TokenKind::RParen)?;
 
                 let call_span = self
@@ -127,7 +127,7 @@ impl Parser<'_> {
 
                 if self.cursor.check(&TokenKind::LParen) {
                     self.cursor.advance();
-                    let (call_args, _has_positional, has_named) = self.parse_call_args()?;
+                    let (call_args, has_named) = self.parse_call_args()?;
                     self.cursor.expect(&TokenKind::RParen)?;
 
                     let span = self
@@ -371,7 +371,7 @@ impl Parser<'_> {
     }
 
     /// Parse call arguments, supporting both positional and named args.
-    pub(crate) fn parse_call_args(&mut self) -> Result<(Vec<CallArg>, bool, bool), ParseError> {
+    pub(crate) fn parse_call_args(&mut self) -> Result<(Vec<CallArg>, bool), ParseError> {
         use crate::series::SeriesConfig;
 
         let args: Vec<CallArg> = self.series(&SeriesConfig::comma(TokenKind::RParen), |p| {
@@ -407,10 +407,9 @@ impl Parser<'_> {
             }))
         })?;
 
-        let has_positional = args.iter().any(|a| a.name.is_none());
         let has_named = args.iter().any(|a| a.name.is_some());
 
-        Ok((args, has_positional, has_named))
+        Ok((args, has_named))
     }
 
     /// Parse an index expression, where `#` represents the length of the receiver.
