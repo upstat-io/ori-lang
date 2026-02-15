@@ -588,6 +588,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             Idx::BOOL => self.lower_bool_method(recv_val, method, args),
             Idx::ORDERING => self.lower_ordering_method(recv_val, method),
             Idx::STR => self.lower_str_method(recv_val, method, args),
+            // Scalar value types: clone is identity (bitwise copy)
+            Idx::BYTE | Idx::CHAR if method == "clone" => Some(recv_val),
             _ => {
                 // Check for option/result methods
                 let type_info = self.type_info.get(recv_type);
@@ -599,6 +601,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     TypeInfo::List { .. } => {
                         self.lower_list_method(recv_val, recv_type, method, args)
                     }
+                    // Tuple is a value type {A, B, ...} — clone is identity
+                    TypeInfo::Tuple { .. } if method == "clone" => Some(recv_val),
                     _ => None,
                 }
             }
@@ -767,6 +771,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                         .select(is_some, payload, default_val, "opt.unwrap_or"),
                 )
             }
+            // Option is a value type {i8, T} — clone is identity (bitwise copy)
+            "clone" => Some(recv),
             _ => None,
         }
     }
@@ -799,6 +805,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 // due to Result's max(ok, err) layout)
                 Some(self.coerce_payload(payload, ok_type))
             }
+            // Result is a value type {i8, max(T, E)} — clone is identity (bitwise copy)
+            "clone" => Some(recv),
             _ => None,
         }
     }
@@ -818,6 +826,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let zero = self.builder.const_i64(0);
                 Some(self.builder.icmp_eq(len, zero, "list.is_empty"))
             }
+            // List is {len, cap, ptr} — clone is identity (ARC shares data)
+            "clone" => Some(recv),
             _ => None,
         }
     }

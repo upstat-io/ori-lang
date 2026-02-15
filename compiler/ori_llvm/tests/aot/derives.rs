@@ -287,6 +287,130 @@ fn test_aot_clone_str() {
     );
 }
 
+// 3.7: Clone on collections
+
+#[test]
+fn test_aot_clone_list_int() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let items = [1, 2, 3],
+    let items2 = items.clone(),
+    if items2.len() == 3 then 0 else 1
+)
+"#,
+        "clone_list_int",
+    );
+}
+
+#[test]
+fn test_aot_clone_list_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let items: [int] = [],
+    let items2 = items.clone(),
+    if items2.len() == 0 then 0 else 1
+)
+"#,
+        "clone_list_empty",
+    );
+}
+
+// 3.7: Clone on Option
+
+#[test]
+fn test_aot_clone_option_some() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let opt = Some(42),
+    let opt2 = opt.clone(),
+    if (opt2 ?? 0) == 42 then 0 else 1
+)
+"#,
+        "clone_option_some",
+    );
+}
+
+#[test]
+fn test_aot_clone_option_none() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let opt: Option<int> = None,
+    let opt2 = opt.clone(),
+    if (opt2 ?? -1) == -1 then 0 else 1
+)
+"#,
+        "clone_option_none",
+    );
+}
+
+// 3.7: Clone on Result
+
+#[test]
+fn test_aot_clone_result_ok() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let r: Result<int, str> = Ok(42),
+    let r2 = r.clone(),
+    if r2.is_ok() then 0 else 1
+)
+"#,
+        "clone_result_ok",
+    );
+}
+
+#[test]
+fn test_aot_clone_result_err() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let r: Result<int, str> = Err("fail"),
+    let r2 = r.clone(),
+    if r2.is_err() then 0 else 1
+)
+"#,
+        "clone_result_err",
+    );
+}
+
+// 3.7: Clone on tuples
+
+#[test]
+fn test_aot_clone_tuple_pair() {
+    // Tuple destructuring not yet implemented in AOT codegen,
+    // so we verify clone compiles and the value is usable.
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let t = (42, 99),
+    let _t2 = t.clone(),
+    0
+)
+"#,
+        "clone_tuple_pair",
+    );
+}
+
+#[test]
+fn test_aot_clone_tuple_triple() {
+    // Tuple destructuring not yet implemented in AOT codegen,
+    // so we verify clone compiles and the value is usable.
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let t = (1, 2, 3),
+    let _t2 = t.clone(),
+    0
+)
+"#,
+        "clone_tuple_triple",
+    );
+}
+
 // 3.5.6: Multiple derives on one type
 
 #[test]
