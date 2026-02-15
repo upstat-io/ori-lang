@@ -224,6 +224,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// Lower `CanExpr::MethodCall { receiver, method, args }`.
     ///
     /// Dispatch order:
+    /// 0. Static method calls (`Type.method()`) — receiver is a type, not a value
     /// 1. Built-in methods (type-specific, inline codegen)
     /// 2. Type-qualified method lookup via `method_functions[(type_name, method)]`
     /// 3. Bare-name function map fallback (`functions[method]`)
@@ -234,6 +235,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         method: Name,
         args: CanRange,
     ) -> Option<ValueId> {
+        // 0. Static method calls: receiver is a TypeRef (e.g., `Point.default()`)
+        //    These have no `self` parameter — call without prepending receiver.
+        let recv_kind = *self.canon.arena.kind(receiver);
+        if let CanExpr::TypeRef(_) = recv_kind {
+            return self.lower_static_method_call(receiver, method, args);
+        }
+
         let recv_type = self.expr_type(receiver);
         let recv_val = self.lower(receiver)?;
 
@@ -283,9 +291,71 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         None
     }
 
+    /// Lower a static method call (`Type.method(args)`).
+    ///
+    /// Static methods have no `self` parameter — the receiver is a type
+    /// reference, not a value. Used for factory methods like `Type.default()`.
+    fn lower_static_method_call(
+        &mut self,
+        receiver: CanId,
+        method: Name,
+        args: CanRange,
+    ) -> Option<ValueId> {
+        let recv_type = self.expr_type(receiver);
+
+        // Look up method in method_functions using the type name
+        if let Some(&type_name) = self.type_idx_to_name.get(&recv_type) {
+            if let Some((func_id, abi)) = self.method_functions.get(&(type_name, method)) {
+                let func_id = *func_id;
+                let abi = abi.clone();
+                return self.emit_static_call(func_id, &abi, args, "static_method");
+            }
+        }
+
+        let method_str = self.resolve_name(method);
+        tracing::warn!(
+            method = %method_str,
+            ?recv_type,
+            "unresolved static method call"
+        );
+        self.builder.record_codegen_error();
+        None
+    }
+
     // -----------------------------------------------------------------------
     // Method call emission helper
     // -----------------------------------------------------------------------
+
+    /// Emit a static method call (no receiver/self), handling sret + borrow passing.
+    ///
+    /// Used for factory methods like `Type.default()` where the receiver is a
+    /// type reference, not a value to pass as the first argument.
+    fn emit_static_call(
+        &mut self,
+        func_id: FunctionId,
+        abi: &super::abi::FunctionAbi,
+        args: CanRange,
+        name: &str,
+    ) -> Option<ValueId> {
+        let arg_ids = self.canon.arena.get_expr_list(args);
+        let mut raw_args = Vec::with_capacity(arg_ids.len());
+        for &arg_id in arg_ids {
+            raw_args.push(self.lower(arg_id)?);
+        }
+
+        // Apply param passing modes (Reference → alloca + store + pass ptr)
+        let all_args = self.apply_param_passing(&raw_args, &abi.params);
+
+        match &abi.return_abi.passing {
+            ReturnPassing::Sret { .. } => {
+                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                self.invoke_user_function_sret(func_id, &all_args, ret_ty, name)
+            }
+            ReturnPassing::Direct | ReturnPassing::Void => {
+                self.invoke_user_function(func_id, &all_args, name)
+            }
+        }
+    }
 
     /// Emit a method call with positional args, handling sret + borrow passing.
     ///
@@ -558,6 +628,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let negated = self.builder.neg(recv, "abs.negated");
                 Some(self.builder.select(is_neg, negated, recv, "abs"))
             }
+            // Value types: clone/hash are identity operations
+            "clone" | "hash" => Some(recv),
             _ => None,
         }
     }
@@ -587,6 +659,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let negated = self.builder.fneg(recv, "fabs.negated");
                 Some(self.builder.select(is_neg, negated, recv, "fabs"))
             }
+            // Value type: clone is identity
+            "clone" => Some(recv),
             _ => None,
         }
     }
@@ -615,6 +689,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let gt_or_eq = self.builder.select(gt, two, one, "bcmp.gt_or_eq");
                 Some(self.builder.select(lt, zero, gt_or_eq, "bcmp.result"))
             }
+            // Value type: clone is identity
+            "clone" => Some(recv),
             _ => None,
         }
     }
@@ -657,6 +733,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let zero = self.builder.const_i64(0);
                 Some(self.builder.icmp_eq(len, zero, "str.is_empty"))
             }
+            // Strings are immutable {len, ptr} — clone is identity (ARC shares data)
+            "clone" => Some(recv),
             _ => None,
         }
     }

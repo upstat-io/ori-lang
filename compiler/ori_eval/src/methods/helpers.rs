@@ -37,6 +37,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Duration", "subtract"),
     ("Duration", "to_str"),
     // Option - methods and traits
+    ("Option", "clone"),
     ("Option", "compare"),
     ("Option", "is_none"),
     ("Option", "is_some"),
@@ -57,6 +58,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Ordering", "reverse"),
     ("Ordering", "to_str"),
     // Result - methods and traits
+    ("Result", "clone"),
     ("Result", "compare"),
     ("Result", "is_err"),
     ("Result", "is_ok"),
@@ -172,6 +174,8 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "to_str"),
     ("str", "to_uppercase"),
     ("str", "trim"),
+    // tuple - traits
+    ("tuple", "clone"),
 ];
 
 /// Validate expected argument count.

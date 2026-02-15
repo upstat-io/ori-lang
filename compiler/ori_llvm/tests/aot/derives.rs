@@ -178,7 +178,116 @@ type Point = { x: int, y: int }
     );
 }
 
-// 3.5.5: Multiple derives on one type
+// 3.5.5: Derive Default
+
+#[test]
+fn test_aot_derive_default_basic() {
+    assert_aot_success(
+        r#"
+#[derive(Default)]
+type Point = { x: int, y: int }
+
+@main () -> int = run(
+    let p = Point.default(),
+    if p.x == 0 && p.y == 0 then 0 else 1
+)
+"#,
+        "derive_default_basic",
+    );
+}
+
+#[test]
+fn test_aot_derive_default_mixed_types() {
+    assert_aot_success(
+        r#"
+#[derive(Default)]
+type Config = { count: int, enabled: bool, score: float }
+
+@main () -> int = run(
+    let c = Config.default(),
+    if c.count == 0 && c.enabled == false && c.score == 0.0 then 0 else 1
+)
+"#,
+        "derive_default_mixed_types",
+    );
+}
+
+#[test]
+fn test_aot_derive_default_eq_integration() {
+    assert_aot_success(
+        r#"
+#[derive(Default, Eq)]
+type Point = { x: int, y: int }
+
+@main () -> int = run(
+    let a = Point.default(),
+    let b = Point.default(),
+    if a.eq(other: b) then 0 else 1
+)
+"#,
+        "derive_default_eq_integration",
+    );
+}
+
+// 3.7: Clone trait on primitives (built-in identity clone)
+
+#[test]
+fn test_aot_clone_int() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let x = 42,
+    let y = x.clone(),
+    if y == 42 then 0 else 1
+)
+"#,
+        "clone_int",
+    );
+}
+
+#[test]
+fn test_aot_clone_float() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let x = 3.14,
+    let y = x.clone(),
+    if y == 3.14 then 0 else 1
+)
+"#,
+        "clone_float",
+    );
+}
+
+#[test]
+fn test_aot_clone_bool() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = true.clone(),
+    let b = false.clone(),
+    if a && !b then 0 else 1
+)
+"#,
+        "clone_bool",
+    );
+}
+
+#[test]
+fn test_aot_clone_str() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let s = "hello",
+    let s2 = s.clone(),
+    if s2 == "hello" then 0 else 1
+)
+"#,
+        "clone_str",
+    );
+}
+
+// 3.5.6: Multiple derives on one type
 
 #[test]
 fn test_aot_derive_multiple_traits() {

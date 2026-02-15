@@ -172,10 +172,6 @@ pub fn dispatch_newtype_method(
 }
 
 /// Dispatch methods on Option values.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
-)]
 pub fn dispatch_option_method(
     receiver: Value,
     method: Name,
@@ -217,6 +213,10 @@ pub fn dispatch_option_method(
         require_args("compare", 1, args.len())?;
         let ord = compare_option_values(&receiver, &args[0], ctx.interner)?;
         Ok(ordering_to_value(ord))
+    // Clone trait
+    } else if method == n.clone_ {
+        require_args("clone", 0, args.len())?;
+        Ok(receiver)
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Option").into())
     }
@@ -250,6 +250,10 @@ pub fn dispatch_result_method(
         let other = &args[0];
         let ord = compare_result_values(&receiver, other, ctx.interner)?;
         Ok(ordering_to_value(ord))
+    // Clone trait
+    } else if method == n.clone_ {
+        require_args("clone", 0, args.len())?;
+        Ok(receiver)
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Result").into())
     }
