@@ -296,6 +296,30 @@ Machine-readable diagnostics with actionable fix suggestions. Enables AI agents 
 
 **Existing Infrastructure:** Core types (`Applicability`, `Suggestion`, `Substitution`) already exist in `ori_diagnostic/src/diagnostic.rs`. This section enhances the JSON emitter and adds CLI flags for auto-fix.
 
+### 22.7.0 Error Code Registry Centralization (Step 0)
+
+Currently `ErrorCode` has three manually-synchronized representations: the enum definition, `as_str()`, and `parse_error_code()` in `oric`. Adding a new error code requires updating all three plus the `DOCS` array — and forgetting one (as happened with E2019) silently breaks `ori explain`.
+
+- [ ] **Implement**: `ErrorCode::from_str()` in `ori_diagnostic/src/error_code/mod.rs`
+  - [ ] Reverse lookup from string (e.g., `"E2019"`) to `ErrorCode` variant
+  - [ ] Case-insensitive matching (e.g., `"e2019"` works)
+  - [ ] Returns `Option<ErrorCode>`
+  - [ ] **Rust Tests**: `ori_diagnostic/src/error_code/tests.rs` — round-trip with `as_str()` for every variant
+
+- [ ] **Implement**: `ErrorCode::all()` iterator in `ori_diagnostic/src/error_code/mod.rs`
+  - [ ] Returns all variants for exhaustive tooling (e.g., `ori explain --list`)
+  - [ ] **Rust Tests**: `ori_diagnostic/src/error_code/tests.rs` — count matches enum variant count
+
+- [ ] **Refactor**: Remove `parse_error_code()` from `oric/src/commands/explain.rs`
+  - [ ] Replace with `ErrorCode::from_str()` call
+  - [ ] Eliminates the manual match that drifts out of sync
+  - [ ] **Rust Tests**: `oric/tests/phases/` — `ori explain E2019` integration test
+
+- [ ] **Implement**: Compile-time completeness check for `ErrorDocs`
+  - [ ] Test that iterates `ErrorCode::all()` and warns on missing docs
+  - [ ] Explicit opt-out list for codes without docs yet (E4xxx, E5xxx, E6xxx)
+  - [ ] **Rust Tests**: `ori_diagnostic/src/errors/tests.rs` — completeness check
+
 ### 22.7.1 SourceLoc Type (Step 1)
 
 - [ ] **Implement**: `SourceLoc` struct with line/column from byte span
