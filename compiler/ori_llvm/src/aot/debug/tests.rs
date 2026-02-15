@@ -1,3 +1,7 @@
+use inkwell::context::Context;
+use inkwell::debug_info::{AsDIScope, DWARFEmissionKind};
+use inkwell::module::Module;
+
 use super::*;
 
 /// Test that `to_emission_kind` correctly maps `DebugLevel` variants.
