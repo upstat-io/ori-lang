@@ -43,8 +43,8 @@ fn resolve_list_method(
 ) -> Option<Idx> {
     let elem = engine.pool().list_elem(receiver_ty);
     match method {
-        "len" | "count" | "hash" => Some(Idx::INT),
-        "is_empty" | "contains" | "equals" => Some(Idx::BOOL),
+        "len" | "count" => Some(Idx::INT),
+        "is_empty" | "contains" => Some(Idx::BOOL),
         "first" | "last" | "pop" | "get" => Some(engine.pool_mut().option(elem)),
         "reverse" | "sort" | "sorted" | "unique" | "flatten" | "push" | "append" | "prepend"
         | "clone" => Some(receiver_ty),
@@ -78,13 +78,12 @@ fn resolve_option_method(
 ) -> Option<Idx> {
     let inner = engine.pool().option_inner(receiver_ty);
     match method {
-        "is_some" | "is_none" | "equals" => Some(Idx::BOOL),
+        "is_some" | "is_none" => Some(Idx::BOOL),
         "unwrap" | "expect" | "unwrap_or" => Some(inner),
         "map" | "and_then" | "flat_map" | "filter" | "or_else" => {
             Some(engine.pool_mut().fresh_var())
         }
         "or" | "clone" => Some(receiver_ty),
-        "hash" => Some(Idx::INT),
         _ => None,
     }
 }
@@ -97,14 +96,13 @@ fn resolve_result_method(
     let ok_ty = engine.pool().result_ok(receiver_ty);
     let err_ty = engine.pool().result_err(receiver_ty);
     match method {
-        "is_ok" | "is_err" | "equals" => Some(Idx::BOOL),
+        "is_ok" | "is_err" => Some(Idx::BOOL),
         "unwrap" | "expect" | "unwrap_or" => Some(ok_ty),
         "unwrap_err" | "expect_err" => Some(err_ty),
         "ok" => Some(engine.pool_mut().option(ok_ty)),
         "err" => Some(engine.pool_mut().option(err_ty)),
         "map" | "map_err" | "and_then" | "or_else" => Some(engine.pool_mut().fresh_var()),
         "clone" => Some(receiver_ty),
-        "hash" => Some(Idx::INT),
         _ => None,
     }
 }
@@ -113,8 +111,8 @@ fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
     let key_ty = engine.pool().map_key(receiver_ty);
     let value_ty = engine.pool().map_value(receiver_ty);
     match method {
-        "len" | "hash" => Some(Idx::INT),
-        "is_empty" | "contains_key" | "contains" | "equals" => Some(Idx::BOOL),
+        "len" => Some(Idx::INT),
+        "is_empty" | "contains_key" | "contains" => Some(Idx::BOOL),
         "get" => Some(engine.pool_mut().option(value_ty)),
         "keys" => Some(engine.pool_mut().list(key_ty)),
         "values" => Some(engine.pool_mut().list(value_ty)),
@@ -130,8 +128,8 @@ fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
 fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &str) -> Option<Idx> {
     let elem = engine.pool().set_elem(receiver_ty);
     match method {
-        "len" | "hash" => Some(Idx::INT),
-        "is_empty" | "contains" | "equals" => Some(Idx::BOOL),
+        "len" => Some(Idx::INT),
+        "is_empty" | "contains" => Some(Idx::BOOL),
         "insert" | "remove" | "union" | "intersection" | "difference" | "clone" => {
             Some(receiver_ty)
         }
@@ -333,8 +331,7 @@ fn resolve_tuple_method(
     method_name: &str,
 ) -> Option<Idx> {
     match method_name {
-        "len" | "hash" => Some(Idx::INT),
-        "equals" => Some(Idx::BOOL),
+        "len" => Some(Idx::INT),
         "clone" => Some(receiver_ty),
         "to_list" => {
             // Only works if all elements are the same type

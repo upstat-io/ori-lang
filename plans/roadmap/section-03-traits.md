@@ -31,7 +31,7 @@ sections:
     status: in-progress
   - id: "3.7"
     title: Clone Trait Formal Definition
-    status: in-progress
+    status: complete
   - id: "3.8"
     title: Iterator Traits
     status: not-started
@@ -85,7 +85,7 @@ sections:
 
 > **SPEC**: `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 49 passing (39 traits + 10 derives, 0 ignored), proposals pending (3.7-3.17). Verified 2026-02-13: ~239 Ori tests + 49 AOT tests pass. Derive codegen complete (Eq, Clone, Hashable, Printable).
+**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 49 passing (39 traits + 10 derives, 0 ignored), proposals pending (3.7-3.17). Verified 2026-02-15: ~239 Ori tests + 49 AOT tests pass, 8931 total. Derive codegen complete (Eq, Clone, Hashable, Printable). Clone on compound types complete. Phase boundary hygiene review: speculative hash/equals on compound types reverted (eval/LLVM not implemented); byte/char clone added to LLVM.
 
 ---
 
@@ -422,7 +422,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 ## 3.6 Section Completion Checklist
 
 - [x] Core library traits (3.0): Len, IsEmpty, Option, Result, Comparable, Eq — all complete ✅ (2026-02-10)
-  - [x] **Gap**: Clone/Hashable/Default/Printable methods NOT callable on primitives — FIXED: V2 type checker resolvers now return correct types for clone/hash/equals on all primitives ✅ (2026-02-15)
+  - [x] **Gap**: Clone/Hashable/Default/Printable methods NOT callable on primitives — FIXED: V2 type checker resolvers return correct types for clone/hash/equals on primitives ✅ (2026-02-15). Clone also works on compound types (collections, wrappers, tuples). hash/equals on compound types reverted (phase boundary leak — evaluator/LLVM not implemented); tracked under 3.14.
 - [x] Trait declarations (3.1): Parse, required methods, default methods, self, Self, inheritance — all complete ✅ (2026-02-10)
   - [x] **Gap**: Static methods `Type.method()` — FIXED, was stale TODO ✅ (2026-02-13)
 - [x] Trait implementations (3.2): Inherent, trait, generic impls, method resolution, coherence — all complete ✅ (2026-02-10)
@@ -438,7 +438,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Indirect ABI parameter passing — self loaded from pointer for >16B structs ✅ (2026-02-13)
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable ✅ (2026-02-13)
 - [ ] Operator traits (3.21): User-defined operator dispatch NOT working (entirely commented out)
-- [ ] Proposals (3.7-3.17): Iterator, Debug, Formattable, Into, etc. — all not started
+- [ ] Proposals (3.8-3.17): Iterator, Debug, Formattable, Into, etc. — all not started (3.7 Clone complete ✅)
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator ✅. LLVM codegen for built-in and user methods works ✅. User-defined operators and formal trait proposals pending.
 
@@ -456,37 +456,40 @@ Formalizes the `Clone` trait that enables explicit value duplication. The trait 
   - [x] **Ori Tests**: `tests/spec/traits/clone/definition.ori` — derived Clone on structs (6 tests)
   - [x] **LLVM Support**: LLVM codegen for Clone trait (identity for value types, derive for structs)
   - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — Clone definition codegen (derive_clone_basic, derive_clone_large_struct)
-  - Note: Type checker V2 `resolve_*_method` now returns correct types for `clone`/`hash`/`equals` on all primitives. Static method dispatch fix enabled `Type.default()` calls in LLVM codegen.
+  - Note: Type checker V2 `resolve_*_method` returns correct types for `clone` on all primitives and compound types. Static method dispatch fix enabled `Type.default()` calls in LLVM codegen. `hash`/`equals` resolved for primitives only (compound types deferred to 3.14 — evaluator/LLVM codegen not yet implemented).
 
 - [x] **Implement**: Clone implementations for all primitives (int, float, bool, str, char, byte, Duration, Size)
   - [x] **Ori Tests**: `tests/spec/traits/clone/primitives.ori` — all 8 primitive types (13 tests)
   - [x] **LLVM Support**: LLVM codegen for primitive clone methods (identity operation)
   - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — primitive clone codegen (clone_int, clone_float, clone_bool, clone_str)
 
-- [ ] **Implement**: Clone implementations for collections ([T], {K: V}, Set<T>) with element-wise cloning
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collection clone bounds
+- [x] **Implement**: Clone implementations for collections ([T], {K: V}, Set<T>) with element-wise cloning ✅ (2026-02-15)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `test_clone_satisfied_by_list`, `test_clone_satisfied_by_map`, `test_clone_satisfied_by_set`
   - [x] **Ori Tests**: `tests/spec/traits/clone/collections.ori` — list clone (3 tests)
-  - [ ] **LLVM Support**: LLVM codegen for collection clone methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/clone_tests.rs` — collection clone codegen
-  - Note: Interpreter implementation complete — type checker resolvers and evaluator dispatch for list clone. LLVM codegen pending.
+  - [x] **LLVM Support**: LLVM codegen for collection clone — identity (ARC shares data) in `lower_list_method()`
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_clone_list_int`, `test_aot_clone_list_empty`
 
-- [ ] **Implement**: Clone implementations for Option<T> and Result<T, E>
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — option/result clone
+- [x] **Implement**: Clone implementations for Option<T> and Result<T, E> ✅ (2026-02-15)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `test_clone_satisfied_by_option`, `test_clone_satisfied_by_result`
   - [x] **Ori Tests**: `tests/spec/traits/clone/wrappers.ori` — Option Some/None, Result Ok/Err (4 tests)
-  - [ ] **LLVM Support**: LLVM codegen for Option/Result clone methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/clone_tests.rs` — Option/Result clone codegen
-  - Note: Interpreter implementation complete — evaluator dispatch_option_method/dispatch_result_method + EVAL_BUILTIN_METHODS entries. LLVM codegen pending.
+  - [x] **LLVM Support**: LLVM codegen for Option/Result clone — identity (value types) in `lower_option_method()`, `lower_result_method()`
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_clone_option_some`, `test_aot_clone_option_none`, `test_aot_clone_result_ok`, `test_aot_clone_result_err`
 
-- [ ] **Implement**: Clone implementations for tuples (all arities)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — tuple clone bounds
+- [x] **Implement**: Clone implementations for tuples (all arities) ✅ (2026-02-15)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `test_clone_satisfied_by_tuple`, `test_clone_satisfied_by_tuple_triple`
   - [x] **Ori Tests**: `tests/spec/traits/clone/tuples.ori` — pair and triple clone (2 tests)
-  - [ ] **LLVM Support**: LLVM codegen for tuple clone methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/clone_tests.rs` — tuple clone codegen
-  - Note: Interpreter implementation complete — new dispatch_tuple_method + EVAL_BUILTIN_METHODS entry. LLVM codegen pending.
+  - [x] **LLVM Support**: LLVM codegen for tuple clone — identity (value type) via `TypeInfo::Tuple` match in `lower_builtin_method()`
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_clone_tuple_pair`, `test_aot_clone_tuple_triple`
 
 - [x] **Update Spec**: `06-types.md` — add Clone trait section (already present at § Clone Trait, lines 924–970+)
 - [x] **Update Spec**: `12-modules.md` — update prelude traits description (Clone listed in prelude traits table, line 269/279)
 - [x] **Update**: `CLAUDE.md` — Clone is documented in spec; CLAUDE.md is a compiler dev guide, not language reference
+
+- [x] **Hygiene review** (2026-02-15): Phase boundary audit of commit 01051607
+  - [x] **Fixed LEAK**: LLVM codegen missing `byte.clone()` and `char.clone()` — added `Idx::BYTE | Idx::CHAR` identity arms in `lower_builtin_method()` (`lower_calls.rs`)
+  - [x] **Fixed LEAK**: Type checker speculatively accepted `hash`/`equals` on collections (list, map, set), wrappers (Option, Result), and tuples — **reverted**. Evaluator and LLVM codegen have no handlers for these methods. Type checker now only accepts `clone` on compound types. `hash`/`equals` on compound types tracked under 3.14.
+  - [x] **Deferred WASTE**: `abi.clone()` in `lower_calls.rs` (4 sites) — pre-existing borrow-conflict workaround, cheap clone. Not worth refactoring risk now.
+  - [x] **Deferred WASTE**: `method_str` String allocation per method call — pre-existing, requires `Name`-based API change across many call sites.
 
 ---
 
@@ -945,6 +948,10 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
 
 Formalizes the `Comparable` and `Hashable` traits with complete definitions, mathematical invariants, standard implementations, and derivation rules. Adds `Result<T, E>` to both trait implementations and introduces `hash_combine` as a prelude function.
 
+> **Phase boundary discipline**: Each method must be implemented across ALL THREE phases (type checker → evaluator → LLVM codegen) before the type checker may accept it. Commit 01051607 added `hash`/`equals` to the type checker for compound types without evaluator/LLVM handlers — this was reverted in the hygiene review (see 3.7). When implementing items below, add to type checker LAST, after evaluator and LLVM codegen are working.
+>
+> **`equals()` on compound types** is also tracked here. The Eq trait (3.0.6) covers primitives only. Collection/wrapper `equals()` methods (list, map, set, Option, Result, tuple) require the same all-phase implementation as `hash()`.
+
 ### Implementation
 
 - [ ] **Implement**: Formal `Comparable` trait definition in type system
@@ -1018,15 +1025,19 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
 
 - [ ] **Implement**: Hashable implementations for collections ([T], {K: V}, Set<T>, tuples)
+  - [ ] **Evaluator**: `dispatch_list_method`, `dispatch_map_method`, `dispatch_set_method`, `dispatch_tuple_method` — add `hash` handler
+  - [ ] **LLVM Support**: LLVM codegen for collection hash
+  - [ ] **Type Checker**: `resolve_*_method` — add `hash` back (LAST, after eval+LLVM)
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collection hashable bounds
   - [ ] **Ori Tests**: `tests/spec/traits/hashable/collections.ori`
-  - [ ] **LLVM Support**: LLVM codegen for collection hash
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
 
 - [ ] **Implement**: Hashable implementations for Option<T> and Result<T, E>
+  - [ ] **Evaluator**: `dispatch_option_method`, `dispatch_result_method` — add `hash` handler
+  - [ ] **LLVM Support**: LLVM codegen for option/result hash
+  - [ ] **Type Checker**: `resolve_option_method`, `resolve_result_method` — add `hash` back (LAST, after eval+LLVM)
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — option/result hashable
   - [ ] **Ori Tests**: `tests/spec/traits/hashable/wrappers.ori`
-  - [ ] **LLVM Support**: LLVM codegen for option/result hash
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
 
 - [ ] **Implement**: Float hashing consistency (+0.0 == -0.0, NaN == NaN for hash)
@@ -1061,6 +1072,17 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
 - [ ] **Update Spec**: `07-properties-of-types.md` — add Comparable and Hashable sections
 - [ ] **Update Spec**: `12-modules.md` — add hash_combine to prelude functions
 - [ ] **Update**: `CLAUDE.md` — add Comparable, Hashable, hash_combine documentation
+
+- [ ] **Implement**: `equals()` on compound types (Eq trait extension beyond primitives)
+  - [ ] Evaluator: `dispatch_list_method` — element-wise equality
+  - [ ] Evaluator: `dispatch_option_method` — tag + inner equality
+  - [ ] Evaluator: `dispatch_result_method` — tag + inner equality
+  - [ ] Evaluator: `dispatch_map_method` — key-set + value equality
+  - [ ] Evaluator: `dispatch_tuple_method` — element-wise equality
+  - [ ] LLVM codegen: `lower_builtin_method` — inline equals for all compound types
+  - [ ] Type checker: `resolve_*_method` — add `equals` back (LAST, after eval+LLVM)
+  - [ ] **Ori Tests**: `tests/spec/traits/eq/compound_types.ori`
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — compound equals codegen
 
 ---
 
