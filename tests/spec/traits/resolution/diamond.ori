@@ -1,0 +1,68 @@
+// Spec: 08-declarations.md § Trait Resolution — Diamond Inheritance
+// Tests that diamond inheritance works correctly: a single impl
+// satisfies all paths through the trait hierarchy.
+
+use std.testing { assert_eq }
+
+// Diamond:
+//     Base
+//    /    \
+//  Left  Right
+//    \    /
+//    Bottom
+
+trait Base {
+    @id (self) -> str
+}
+
+trait Left: Base {
+    @left_info (self) -> str
+}
+
+trait Right: Base {
+    @right_info (self) -> str
+}
+
+trait Bottom: Left + Right {
+    @combined (self) -> str
+}
+
+type Widget = { name: str }
+
+// Single impl of Base satisfies both Left and Right paths
+impl Base for Widget {
+    @id (self) -> str = "widget:" + self.name
+}
+
+impl Left for Widget {
+    @left_info (self) -> str = "L:" + self.id()
+}
+
+impl Right for Widget {
+    @right_info (self) -> str = "R:" + self.id()
+}
+
+impl Bottom for Widget {
+    @combined (self) -> str = self.left_info() + "|" + self.right_info()
+}
+
+// Simple diamond: inheriting from two traits with a common ancestor
+@test_diamond_base tests @id () -> void = run(
+    let w = Widget { name: "btn" },
+    assert_eq(actual: w.id(), expected: "widget:btn"),
+)
+
+@test_diamond_left tests @left_info () -> void = run(
+    let w = Widget { name: "btn" },
+    assert_eq(actual: w.left_info(), expected: "L:widget:btn"),
+)
+
+@test_diamond_right tests @right_info () -> void = run(
+    let w = Widget { name: "btn" },
+    assert_eq(actual: w.right_info(), expected: "R:widget:btn"),
+)
+
+@test_diamond_combined tests @combined () -> void = run(
+    let w = Widget { name: "btn" },
+    assert_eq(actual: w.combined(), expected: "L:widget:btn|R:widget:btn"),
+)

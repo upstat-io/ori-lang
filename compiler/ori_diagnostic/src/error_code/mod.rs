@@ -125,6 +125,12 @@ pub enum ErrorCode {
     E2019,
     /// Unsupported operator (type does not implement operator trait)
     E2020,
+    /// Overlapping implementations with equal specificity
+    E2021,
+    /// Conflicting default methods from multiple super-traits
+    E2022,
+    /// Ambiguous method call (multiple traits provide same method)
+    E2023,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -289,6 +295,9 @@ impl ErrorCode {
             ErrorCode::E2018 => "E2018",
             ErrorCode::E2019 => "E2019",
             ErrorCode::E2020 => "E2020",
+            ErrorCode::E2021 => "E2021",
+            ErrorCode::E2022 => "E2022",
+            ErrorCode::E2023 => "E2023",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -413,6 +422,9 @@ impl ErrorCode {
                 | ErrorCode::E2018
                 | ErrorCode::E2019
                 | ErrorCode::E2020
+                | ErrorCode::E2021
+                | ErrorCode::E2022
+                | ErrorCode::E2023
         )
     }
 

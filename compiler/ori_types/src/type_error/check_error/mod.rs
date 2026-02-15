@@ -416,6 +416,43 @@ impl TypeCheckError {
                     "cannot apply operator `{op}` to type `{type_name}`; implement `{trait_name}` trait"
                 )
             }
+            TypeErrorKind::DuplicateImpl { trait_name, .. } => {
+                format!(
+                    "duplicate implementation of `{}` for this type",
+                    format_name(*trait_name)
+                )
+            }
+            TypeErrorKind::OverlappingImpls { trait_name, .. } => {
+                format!(
+                    "overlapping implementations of `{}` with equal specificity",
+                    format_name(*trait_name)
+                )
+            }
+            TypeErrorKind::ConflictingDefaults {
+                method,
+                trait_a,
+                trait_b,
+            } => {
+                format!(
+                    "conflicting default for `{}`: provided by both `{}` and `{}`",
+                    format_name(*method),
+                    format_name(*trait_a),
+                    format_name(*trait_b)
+                )
+            }
+            TypeErrorKind::AmbiguousMethod {
+                method, candidates, ..
+            } => {
+                let names: Vec<String> = candidates
+                    .iter()
+                    .map(|n| format!("`{}`", format_name(*n)))
+                    .collect();
+                format!(
+                    "ambiguous method `{}`: provided by {}",
+                    format_name(*method),
+                    names.join(" and ")
+                )
+            }
         }
     }
 
@@ -534,6 +571,18 @@ impl TypeCheckError {
                     ty.display_name()
                 )
             }
+            TypeErrorKind::DuplicateImpl { .. } => {
+                "duplicate trait implementation for this type".to_string()
+            }
+            TypeErrorKind::OverlappingImpls { .. } => {
+                "overlapping trait implementations with equal specificity".to_string()
+            }
+            TypeErrorKind::ConflictingDefaults { .. } => {
+                "conflicting default methods from multiple super-traits".to_string()
+            }
+            TypeErrorKind::AmbiguousMethod { .. } => {
+                "ambiguous method call: multiple traits provide this method".to_string()
+            }
         }
     }
 
@@ -573,8 +622,10 @@ impl TypeCheckError {
             // E2008: Infinite/cyclic types
             TypeErrorKind::InfiniteType { .. } => ErrorCode::E2008,
 
-            // E2010: Missing associated types
-            TypeErrorKind::MissingAssocType { .. } => ErrorCode::E2010,
+            // E2010: Missing associated types / duplicate implementation
+            TypeErrorKind::MissingAssocType { .. } | TypeErrorKind::DuplicateImpl { .. } => {
+                ErrorCode::E2010
+            }
 
             // E2014: Missing capabilities
             TypeErrorKind::MissingCapability { .. } => ErrorCode::E2014,
@@ -584,6 +635,15 @@ impl TypeCheckError {
 
             // E2020: Unsupported operator (missing trait implementation)
             TypeErrorKind::UnsupportedOperator { .. } => ErrorCode::E2020,
+
+            // E2021: Overlapping implementations
+            TypeErrorKind::OverlappingImpls { .. } => ErrorCode::E2021,
+
+            // E2022: Conflicting defaults
+            TypeErrorKind::ConflictingDefaults { .. } => ErrorCode::E2022,
+
+            // E2023: Ambiguous method
+            TypeErrorKind::AmbiguousMethod { .. } => ErrorCode::E2023,
         }
     }
 
@@ -752,6 +812,74 @@ impl TypeCheckError {
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
                 format!("implement `{trait_name}` for this type"),
+                0,
+            )],
+        }
+    }
+
+    /// Create a "duplicate impl" error (E2010).
+    ///
+    /// Emitted when `impl Trait for Type` is defined more than once.
+    pub fn duplicate_impl(span: Span, first_span: Span, trait_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::DuplicateImpl {
+                trait_name,
+                first_span,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text("remove the duplicate implementation", 0)],
+        }
+    }
+
+    /// Create an "overlapping impls" error (E2021).
+    ///
+    /// Emitted when two impls with equal specificity could both apply.
+    pub fn overlapping_impls(span: Span, first_span: Span, trait_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::OverlappingImpls {
+                trait_name,
+                first_span,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "add a where clause or use a more specific type to disambiguate",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "conflicting defaults" error (E2022).
+    ///
+    /// Emitted when multiple super-traits provide different default
+    /// implementations for the same method and the impl doesn't override it.
+    pub fn conflicting_defaults(span: Span, method: Name, trait_a: Name, trait_b: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::ConflictingDefaults {
+                method,
+                trait_a,
+                trait_b,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "provide an explicit implementation to resolve the conflict",
+                0,
+            )],
+        }
+    }
+
+    /// Create an "ambiguous method" error (E2023).
+    ///
+    /// Emitted when multiple trait impls provide the same method for a type.
+    pub fn ambiguous_method(span: Span, method: Name, candidates: Vec<Name>) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::AmbiguousMethod { method, candidates },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "use fully-qualified syntax to disambiguate: `TraitName.method(x)`",
                 0,
             )],
         }
@@ -1038,6 +1166,40 @@ pub enum TypeErrorKind {
         op: &'static str,
         /// The trait name that would need to be implemented.
         trait_name: &'static str,
+    },
+
+    /// Duplicate trait implementation for the same type (E2010).
+    DuplicateImpl {
+        /// Name of the trait being implemented.
+        trait_name: Name,
+        /// Span of the first (existing) implementation.
+        first_span: Span,
+    },
+
+    /// Overlapping implementations with equal specificity (E2021).
+    OverlappingImpls {
+        /// Name of the trait with overlapping impls.
+        trait_name: Name,
+        /// Span of the first (existing) implementation.
+        first_span: Span,
+    },
+
+    /// Conflicting default methods from multiple super-traits (E2022).
+    ConflictingDefaults {
+        /// The method with conflicting defaults.
+        method: Name,
+        /// First super-trait providing a default.
+        trait_a: Name,
+        /// Second super-trait providing a different default.
+        trait_b: Name,
+    },
+
+    /// Ambiguous method call — multiple trait impls provide the same method (E2023).
+    AmbiguousMethod {
+        /// The method name that's ambiguous.
+        method: Name,
+        /// Traits that each provide this method.
+        candidates: Vec<Name>,
     },
 }
 

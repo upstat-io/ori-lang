@@ -4,7 +4,9 @@ use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::InferEngine;
 use super::{infer_expr, resolve_builtin_method};
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Pool, Tag, TypeCheckError};
+use crate::{
+    ContextKind, Expected, ExpectedOrigin, Idx, MethodLookupResult, Pool, Tag, TypeCheckError,
+};
 
 /// Infer the type of a function call expression.
 pub(crate) fn infer_call(
@@ -639,11 +641,42 @@ fn resolve_impl_method(
     args: ori_ir::ExprRange,
     span: Span,
 ) -> Option<Idx> {
-    // Look up the method signature and self-ness from user-defined impls
-    let (sig_ty, has_self) = {
-        let trait_registry = engine.trait_registry()?;
-        let lookup = trait_registry.lookup_method(receiver_ty, method)?;
-        (lookup.method().signature, lookup.method().has_self)
+    // Look up the method signature with ambiguity detection.
+    // Borrow dance: scope the immutable trait_registry borrow to extract
+    // data, then use engine mutably for error reporting.
+    enum LookupOutcome {
+        Found { sig: Idx, has_self: bool },
+        Ambiguous(Vec<ori_ir::Name>),
+        NotFound,
+    }
+
+    let outcome = {
+        let trait_registry = engine.trait_registry();
+        match trait_registry {
+            None => LookupOutcome::NotFound,
+            Some(reg) => match reg.lookup_method_checked(receiver_ty, method) {
+                MethodLookupResult::Found(lookup) => LookupOutcome::Found {
+                    sig: lookup.method().signature,
+                    has_self: lookup.method().has_self,
+                },
+                MethodLookupResult::Ambiguous { candidates } => {
+                    LookupOutcome::Ambiguous(candidates.iter().map(|&(_, n)| n).collect())
+                }
+                MethodLookupResult::NotFound => LookupOutcome::NotFound,
+            },
+        }
+    };
+
+    let (sig_ty, has_self) = match outcome {
+        LookupOutcome::Found { sig, has_self } => (sig, has_self),
+        LookupOutcome::Ambiguous(trait_names) => {
+            engine.push_error(TypeCheckError::ambiguous_method(span, method, trait_names));
+            for &arg_id in arena.get_expr_list(args) {
+                infer_expr(engine, arena, arg_id);
+            }
+            return Some(Idx::ERROR);
+        }
+        LookupOutcome::NotFound => return None,
     };
 
     let resolved_sig = engine.resolve(sig_ty);
@@ -705,10 +738,40 @@ fn resolve_impl_method_named(
     args: ori_ir::CallArgRange,
     span: Span,
 ) -> Option<Idx> {
-    let (sig_ty, has_self) = {
-        let trait_registry = engine.trait_registry()?;
-        let lookup = trait_registry.lookup_method(receiver_ty, method)?;
-        (lookup.method().signature, lookup.method().has_self)
+    // Same borrow dance as resolve_impl_method: extract data from scoped borrow
+    enum LookupOutcome {
+        Found { sig: Idx, has_self: bool },
+        Ambiguous(Vec<ori_ir::Name>),
+        NotFound,
+    }
+
+    let outcome = {
+        let trait_registry = engine.trait_registry();
+        match trait_registry {
+            None => LookupOutcome::NotFound,
+            Some(reg) => match reg.lookup_method_checked(receiver_ty, method) {
+                MethodLookupResult::Found(lookup) => LookupOutcome::Found {
+                    sig: lookup.method().signature,
+                    has_self: lookup.method().has_self,
+                },
+                MethodLookupResult::Ambiguous { candidates } => {
+                    LookupOutcome::Ambiguous(candidates.iter().map(|&(_, n)| n).collect())
+                }
+                MethodLookupResult::NotFound => LookupOutcome::NotFound,
+            },
+        }
+    };
+
+    let (sig_ty, has_self) = match outcome {
+        LookupOutcome::Found { sig, has_self } => (sig, has_self),
+        LookupOutcome::Ambiguous(trait_names) => {
+            engine.push_error(TypeCheckError::ambiguous_method(span, method, trait_names));
+            for arg in arena.get_call_args(args) {
+                infer_expr(engine, arena, arg.value);
+            }
+            return Some(Idx::ERROR);
+        }
+        LookupOutcome::NotFound => return None,
     };
 
     let resolved_sig = engine.resolve(sig_ty);

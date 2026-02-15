@@ -1,0 +1,32 @@
+// Test that conflicting default methods from super-traits produce an error (E2022)
+// Spec: 08-declarations.md § Trait Resolution
+
+trait Source {
+    @greet (self) -> str = "Hello from Source"
+}
+
+trait Sink {
+    @greet (self) -> str = "Hello from Sink"
+}
+
+// Pipeline inherits from both — conflicting defaults for `greet`
+trait Pipeline: Source + Sink {
+    @process (self) -> str
+}
+
+type Stream = { id: int }
+
+impl Source for Stream {}
+impl Sink for Stream {}
+
+// This impl doesn't override greet, so the conflicting defaults from
+// Source and Sink should trigger E2022
+impl Pipeline for Stream {
+    @process (self) -> str = "processing"
+}
+
+#[compile_fail("conflicting default")]
+@test_conflicting_defaults () -> void = run(
+    let s = Stream { id: 1 },
+    ()
+)

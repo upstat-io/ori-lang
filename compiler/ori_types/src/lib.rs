@@ -50,7 +50,9 @@ pub use registry::{
     // Trait registry
     ImplEntry,
     ImplMethodDef,
+    ImplSpecificity,
     MethodLookup,
+    MethodLookupResult,
     MethodRegistry,
     MethodResolution,
     MethodTransform,

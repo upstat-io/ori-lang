@@ -40,6 +40,7 @@ fn register_and_lookup_trait() {
         name,
         idx,
         type_params: vec![],
+        super_traits: vec![],
         methods,
         assoc_types: FxHashMap::default(),
         span: test_span(),
@@ -73,6 +74,7 @@ fn register_and_lookup_impl() {
         name: trait_name,
         idx: trait_idx,
         type_params: vec![],
+        super_traits: vec![],
         methods: FxHashMap::default(),
         assoc_types: FxHashMap::default(),
         span: test_span(),
@@ -99,6 +101,7 @@ fn register_and_lookup_impl() {
         methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
+        specificity: ImplSpecificity::Concrete,
         span: test_span(),
     });
 
@@ -146,6 +149,7 @@ fn inherent_impl() {
         methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
+        specificity: ImplSpecificity::Concrete,
         span: test_span(),
     });
 
@@ -174,6 +178,7 @@ fn method_lookup_priority() {
         name: test_name("Trait"),
         idx: trait_idx,
         type_params: vec![],
+        super_traits: vec![],
         methods: FxHashMap::default(),
         assoc_types: FxHashMap::default(),
         span: test_span(),
@@ -199,6 +204,7 @@ fn method_lookup_priority() {
         methods: inherent_methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
+        specificity: ImplSpecificity::Concrete,
         span: test_span(),
     });
 
@@ -222,6 +228,7 @@ fn method_lookup_priority() {
         methods: trait_methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
+        specificity: ImplSpecificity::Concrete,
         span: test_span(),
     });
 
@@ -244,6 +251,7 @@ fn coherence_check() {
         name: test_name("Trait"),
         idx: trait_idx,
         type_params: vec![],
+        super_traits: vec![],
         methods: FxHashMap::default(),
         assoc_types: FxHashMap::default(),
         span: test_span(),
@@ -260,6 +268,7 @@ fn coherence_check() {
         methods: FxHashMap::default(),
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
+        specificity: ImplSpecificity::Concrete,
         span: test_span(),
     });
 
@@ -290,6 +299,7 @@ fn associated_types() {
         name: trait_name,
         idx: trait_idx,
         type_params: vec![],
+        super_traits: vec![],
         methods: FxHashMap::default(),
         assoc_types,
         span: test_span(),
@@ -301,4 +311,155 @@ fn associated_types() {
         .expect("should find assoc type");
     assert_eq!(assoc.name, item_name);
     assert!(assoc.default.is_none());
+}
+
+// =============================================================================
+// Super-trait tracking
+// =============================================================================
+
+/// Helper to register a minimal trait with the given super-traits.
+fn register_simple_trait(
+    registry: &mut TraitRegistry,
+    name: &str,
+    idx: Idx,
+    super_traits: Vec<Idx>,
+    methods: FxHashMap<Name, TraitMethodDef>,
+) {
+    registry.register_trait(TraitEntry {
+        name: test_name(name),
+        idx,
+        type_params: vec![],
+        super_traits,
+        methods,
+        assoc_types: FxHashMap::default(),
+        span: test_span(),
+    });
+}
+
+#[test]
+fn all_super_traits_linear_chain() {
+    let mut registry = TraitRegistry::new();
+
+    // A (no parents) -> B: A -> C: B
+    let a_idx = Idx::from_raw(100);
+    let b_idx = Idx::from_raw(101);
+    let c_idx = Idx::from_raw(102);
+
+    register_simple_trait(&mut registry, "A", a_idx, vec![], FxHashMap::default());
+    register_simple_trait(&mut registry, "B", b_idx, vec![a_idx], FxHashMap::default());
+    register_simple_trait(&mut registry, "C", c_idx, vec![b_idx], FxHashMap::default());
+
+    // C's all_super_traits should be [B, A]
+    let supers = registry.all_super_traits(c_idx);
+    assert_eq!(supers.len(), 2);
+    assert!(supers.contains(&b_idx));
+    assert!(supers.contains(&a_idx));
+
+    // B's all_super_traits should be [A]
+    let supers = registry.all_super_traits(b_idx);
+    assert_eq!(supers, vec![a_idx]);
+
+    // A has no super-traits
+    assert!(registry.all_super_traits(a_idx).is_empty());
+}
+
+#[test]
+fn all_super_traits_diamond() {
+    let mut registry = TraitRegistry::new();
+
+    //     A
+    //    / \
+    //   B   C
+    //    \ /
+    //     D
+    let a_idx = Idx::from_raw(100);
+    let b_idx = Idx::from_raw(101);
+    let c_idx = Idx::from_raw(102);
+    let d_idx = Idx::from_raw(103);
+
+    register_simple_trait(&mut registry, "A", a_idx, vec![], FxHashMap::default());
+    register_simple_trait(&mut registry, "B", b_idx, vec![a_idx], FxHashMap::default());
+    register_simple_trait(&mut registry, "C", c_idx, vec![a_idx], FxHashMap::default());
+    register_simple_trait(
+        &mut registry,
+        "D",
+        d_idx,
+        vec![b_idx, c_idx],
+        FxHashMap::default(),
+    );
+
+    // D should have B, C, A (deduplicated — A appears only once)
+    let supers = registry.all_super_traits(d_idx);
+    assert_eq!(supers.len(), 3);
+    assert!(supers.contains(&b_idx));
+    assert!(supers.contains(&c_idx));
+    assert!(supers.contains(&a_idx));
+}
+
+#[test]
+fn collected_methods_deduplication() {
+    let mut registry = TraitRegistry::new();
+
+    // A has method "foo"
+    let a_idx = Idx::from_raw(100);
+    let b_idx = Idx::from_raw(101);
+    let foo_name = test_name("foo");
+
+    let mut a_methods = FxHashMap::default();
+    a_methods.insert(
+        foo_name,
+        TraitMethodDef {
+            name: foo_name,
+            signature: Idx::from_raw(300),
+            has_default: true,
+            default_body: Some(test_expr()),
+            span: test_span(),
+        },
+    );
+
+    register_simple_trait(&mut registry, "A", a_idx, vec![], a_methods);
+
+    // B: A also has "foo" (override) and "bar"
+    let bar_name = test_name("bar");
+    let mut b_methods = FxHashMap::default();
+    b_methods.insert(
+        foo_name,
+        TraitMethodDef {
+            name: foo_name,
+            signature: Idx::from_raw(400),
+            has_default: true,
+            default_body: Some(test_expr()),
+            span: test_span(),
+        },
+    );
+    b_methods.insert(
+        bar_name,
+        TraitMethodDef {
+            name: bar_name,
+            signature: Idx::from_raw(401),
+            has_default: false,
+            default_body: None,
+            span: test_span(),
+        },
+    );
+
+    register_simple_trait(&mut registry, "B", b_idx, vec![a_idx], b_methods);
+
+    // B's collected_methods: foo from B (override), bar from B, NOT foo from A
+    let methods = registry.collected_methods(b_idx);
+    assert_eq!(methods.len(), 2);
+
+    let foo_entry = methods
+        .iter()
+        .find(|(name, _, _)| *name == foo_name)
+        .expect("foo method should exist in collected methods");
+    // foo should come from B, not A
+    assert_eq!(foo_entry.1, b_idx);
+    assert_eq!(foo_entry.2.signature, Idx::from_raw(400));
+
+    let bar_entry = methods
+        .iter()
+        .find(|(name, _, _)| *name == bar_name)
+        .expect("bar method should exist in collected methods");
+    assert_eq!(bar_entry.1, b_idx);
 }

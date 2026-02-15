@@ -64,13 +64,13 @@ sections:
 
 ## 6.1 Capability Declaration
 
-- [x] **Implement**: `uses` clause ✅ (2026-02-10)
+- [x] **Implement**: `uses` clause [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/lib.rs` — uses clause parsing (4 tests)
   - [x] **Ori Tests**: `tests/spec/capabilities/declaration.ori` (3 tests)
   - [ ] **LLVM Support**: LLVM codegen for `uses` clause in function signatures
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
 
-- [x] **Implement**: Multiple capabilities ✅ (2026-02-10)
+- [x] **Implement**: Multiple capabilities [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/lib.rs` — multiple capabilities parsing
   - [x] **Ori Tests**: `tests/spec/capabilities/declaration.ori` — @save_and_log example
   - [ ] **LLVM Support**: LLVM codegen for multiple capabilities in function signatures
@@ -80,7 +80,7 @@ sections:
 
 ## 6.2 Capability Traits
 
-- [x] **Implement**: Capability traits ✅ (2026-02-10)
+- [x] **Implement**: Capability traits [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability trait validation
   - [x] **Ori Tests**: `tests/spec/capabilities/traits.ori` — 5 tests for capability traits
   - [ ] **LLVM Support**: LLVM codegen for capability trait dispatch
@@ -92,21 +92,21 @@ sections:
 
 > **Note**: Renamed from `Async` to `Suspend` per `proposals/approved/rename-async-to-suspend-proposal.md`
 
-- [x] **Implement**: Explicit suspension declaration ✅ (2026-02-10)
+- [x] **Implement**: Explicit suspension declaration [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 4 tests (marker trait, signature storage, combined capabilities, sync function)
   - [x] **Ori Tests**: `tests/spec/capabilities/async.ori` (test file exists)
   - [ ] **LLVM Support**: LLVM codegen for explicit suspension declaration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
 
-- [x] **Implement**: Sync vs suspending behavior ✅ (2026-02-10)
+- [x] **Implement**: Sync vs suspending behavior [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_sync_function_no_suspend_capability`
   - [x] **Ori Tests**: `tests/spec/capabilities/async.ori`
 
-- [x] **Implement**: No `async` type modifier ✅ (2026-02-10)
+- [x] **Implement**: No `async` type modifier [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/lib.rs::test_no_async_type_modifier`, `test_async_keyword_reserved`
   - [x] **Ori Tests**: Design notes document this
 
-- [x] **Implement**: No `await` expression ✅ (2026-02-10)
+- [x] **Implement**: No `await` expression [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_await_syntax_not_supported`
   - [x] **Ori Tests**: Design notes document this
 
@@ -119,14 +119,14 @@ sections:
 
 ## 6.4 Providing Capabilities
 
-- [x] **Implement**: `with...in` expression ✅ (2026-02-10)
+- [x] **Implement**: `with...in` expression [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/lib.rs` — with expression parsing (3 tests)
   - [x] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — with expression evaluation
   - [x] **Ori Tests**: `tests/spec/capabilities/providing.ori` (17 test annotations)
   - [ ] **LLVM Support**: LLVM codegen for `with...in` capability binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
 
-- [x] **Implement**: Scoping ✅ (2026-02-10)
+- [x] **Implement**: Scoping [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — capability scoping via push_scope/pop_scope
   - [x] **Ori Tests**: `tests/spec/capabilities/providing.ori` — scoping and shadowing tests
   - [ ] **LLVM Support**: LLVM codegen for capability scoping (push/pop)
@@ -136,17 +136,17 @@ sections:
 
 ## 6.5 Capability Propagation
 
-- [x] **Implement**: Runtime capability propagation ✅ (2026-02-10)
+- [x] **Implement**: Runtime capability propagation [done] (2026-02-10)
   - [x] **Changes**: `FunctionValue` now stores capabilities, `eval_call` passes them to called functions
   - [x] **Ori Tests**: `tests/spec/capabilities/traits.ori` — tests capability propagation
   - [ ] **LLVM Support**: LLVM codegen for runtime capability propagation through calls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
 
-- [x] **Implement**: Static transitive requirements ✅ (2026-02-10)
+- [x] **Implement**: Static transitive requirements [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability propagation (E2014)
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — 7 test annotations for propagation
 
-- [x] **Implement**: Providing vs requiring ✅ (2026-02-10)
+- [x] **Implement**: Providing vs requiring [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/call.rs` — check_capability_propagation function
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — tests with...in providing capabilities
 
@@ -157,7 +157,7 @@ sections:
 > **STATUS**: Trait definitions complete in `library/std/prelude.ori`
 > Real implementations deferred to Section 7 (Stdlib).
 
-- [x] **Define**: Trait interfaces ✅ (2026-02-10)
+- [x] **Define**: Trait interfaces [done] (2026-02-10)
   - [x] **Location**: `library/std/prelude.ori` — trait definitions
   - [x] **Traits**: Http, FileSystem, Cache, Clock, Random, Logger, Env — defined in prelude
 
@@ -176,13 +176,13 @@ sections:
 
 > **STATUS**: Complete — mocking works via trait implementations, demonstrated in propagation.ori
 
-- [x] **Implement**: Mock implementations ✅ (2026-02-10)
+- [x] **Implement**: Mock implementations [done] (2026-02-10)
   - [x] **Rust Tests**: Type checking handles trait implementations for capability mocking
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — MockHttp, MockLogger examples
   - [ ] **LLVM Support**: LLVM codegen for mock capability implementations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
 
-- [x] **Implement**: Test example ✅ (2026-02-10)
+- [x] **Implement**: Test example [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — shows test patterns with `with...in`
 
 ---
@@ -191,7 +191,7 @@ sections:
 
 > **STATUS**: Complete — compile-time enforcement via E2014 propagation errors
 
-- [x] **Implement**: Compile-time enforcement ✅ (2026-02-10)
+- [x] **Implement**: Compile-time enforcement [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for E2014 propagation errors
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — caller must declare or provide capabilities
 
@@ -438,9 +438,9 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
 
 ## 6.15 Section Completion Checklist
 
-- [x] 6.1-6.5 complete (declaration, traits, suspend, providing, propagation) ✅
-- [x] 6.6 trait definitions in prelude (implementations in Section 7) ✅
-- [x] 6.7-6.8 complete (testing/mocking, compile-time enforcement) ✅
+- [x] 6.1-6.5 complete (declaration, traits, suspend, providing, propagation) [done]
+- [x] 6.6 trait definitions in prelude (implementations in Section 7) [done]
+- [x] 6.7-6.8 complete (testing/mocking, compile-time enforcement) [done]
 - [ ] 6.9 Unsafe marker trait defined (FFI enforcement in Section 11)
 - [ ] 6.10 Default implementations (`def impl`) — test file exists (4 tests), implementation partial
 - [ ] 6.11 Capability Composition — not started

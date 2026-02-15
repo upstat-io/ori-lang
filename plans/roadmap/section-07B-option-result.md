@@ -31,13 +31,13 @@ sections:
 
 ## 7B.1 Option Functions
 
-- [x] **Implement**: `is_some(x)` — spec/11-built-in-functions.md § is_some ✅ (2026-02-10)
+- [x] **Implement**: `is_some(x)` — spec/11-built-in-functions.md § is_some [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator builtin — is_some tests
   - [x] **Ori Tests**: Used in `tests/spec/inference/polymorphism.ori`, `tests/spec/inference/generics.ori`
   - [ ] **LLVM Support**: LLVM codegen for is_some
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_tests.rs` — is_some codegen
 
-- [x] **Implement**: `is_none(x)` — spec/11-built-in-functions.md § is_none ✅ (2026-02-10)
+- [x] **Implement**: `is_none(x)` — spec/11-built-in-functions.md § is_none [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator builtin — is_none tests
   - [x] **Ori Tests**: Used in `tests/spec/inference/polymorphism.ori`
   - [ ] **LLVM Support**: LLVM codegen for is_none
@@ -49,7 +49,7 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for Option.map
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_tests.rs` — Option.map codegen
 
-- [x] **Implement**: `Option.unwrap_or` — spec/11-built-in-functions.md § Option.unwrap_or ✅ (2026-02-10)
+- [x] **Implement**: `Option.unwrap_or` — spec/11-built-in-functions.md § Option.unwrap_or [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — Option.unwrap_or tests
   - [x] **Ori Tests**: `tests/spec/inference/generics.ori` — `opt.unwrap_or(default: 42)`
   - [ ] **LLVM Support**: LLVM codegen for Option.unwrap_or
@@ -77,13 +77,13 @@ sections:
 
 ## 7B.2 Result Functions
 
-- [x] **Implement**: `is_ok(x)` — spec/11-built-in-functions.md § is_ok ✅ (2026-02-10)
+- [x] **Implement**: `is_ok(x)` — spec/11-built-in-functions.md § is_ok [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator builtin — is_ok tests
   - [x] **Ori Tests**: `tests/spec/inference/generics.ori` — `is_ok(r: res)`
   - [ ] **LLVM Support**: LLVM codegen for is_ok
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — is_ok codegen
 
-- [x] **Implement**: `is_err(x)` — spec/11-built-in-functions.md § is_err ✅ (2026-02-10)
+- [x] **Implement**: `is_err(x)` — spec/11-built-in-functions.md § is_err [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator builtin — is_err tests
   - [x] **Ori Tests**: `tests/spec/inference/generics.ori`
   - [ ] **LLVM Support**: LLVM codegen for is_err
