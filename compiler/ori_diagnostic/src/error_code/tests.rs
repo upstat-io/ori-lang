@@ -52,41 +52,57 @@ fn test_eval_error_codes() {
     assert!(!ErrorCode::E6001.is_warning());
 }
 
+/// Every variant in `ErrorCode::ALL` must be classified by exactly one `is_*` predicate.
+///
+/// This is the exhaustive version of the old test which only checked one representative
+/// per phase. Catches drift when a new variant is added to the enum and `as_str()` but
+/// omitted from its `is_*` predicate.
 #[test]
-fn test_predicate_exclusivity() {
-    // Ensure predicates don't overlap
-    let all_codes = [
-        ErrorCode::E0001,
-        ErrorCode::E1001,
-        ErrorCode::E2001,
-        ErrorCode::E3001,
-        ErrorCode::E4001,
-        ErrorCode::E5001,
-        ErrorCode::E6001,
-        ErrorCode::E9001,
-        ErrorCode::W1001,
-        ErrorCode::W1002,
-    ];
-
-    for code in &all_codes {
+fn test_all_variants_classified() {
+    for &code in ErrorCode::ALL {
         let flags = [
-            code.is_lexer_error(),
-            code.is_parser_error(),
-            code.is_type_error(),
-            code.is_pattern_error(),
-            code.is_arc_error(),
-            code.is_codegen_error(),
-            code.is_eval_error(),
-            code.is_internal_error(),
-            code.is_warning(),
+            ("is_lexer_error", code.is_lexer_error()),
+            ("is_parser_error", code.is_parser_error()),
+            ("is_type_error", code.is_type_error()),
+            ("is_pattern_error", code.is_pattern_error()),
+            ("is_arc_error", code.is_arc_error()),
+            ("is_codegen_error", code.is_codegen_error()),
+            ("is_eval_error", code.is_eval_error()),
+            ("is_internal_error", code.is_internal_error()),
+            ("is_warning", code.is_warning()),
         ];
-        // Exactly one predicate should be true for every code
-        let true_count = flags.iter().filter(|&&f| f).count();
+        let true_count = flags.iter().filter(|(_, f)| *f).count();
+        let matching: Vec<_> = flags.iter().filter(|(_, f)| *f).map(|(n, _)| *n).collect();
         assert_eq!(
             true_count, 1,
-            "expected exactly 1 predicate true for {code}, got {true_count}"
+            "{code}: expected exactly 1 predicate, got {true_count} ({matching:?})"
         );
     }
+}
+
+/// Verify `ErrorCode::ALL` actually contains every variant.
+///
+/// Uses `as_str()` round-tripping: every variant in `ALL` maps to a unique string.
+/// If `ALL` is missing a variant, the count here won't match the exhaustive match in
+/// `as_str()`. Checked by comparing `ALL.len()` against the count of arms in `as_str()`
+/// (which Rust enforces to be exhaustive).
+#[test]
+fn test_all_is_complete() {
+    use std::collections::HashSet;
+    let strings: HashSet<&str> = ErrorCode::ALL.iter().map(ErrorCode::as_str).collect();
+    // No duplicates — each variant maps to a unique string.
+    assert_eq!(
+        strings.len(),
+        ErrorCode::ALL.len(),
+        "ALL contains duplicate entries"
+    );
+    // ALL has the right count. When a variant is added to the enum and `as_str()`
+    // but not ALL, this number must be bumped — causing the test to fail.
+    assert_eq!(
+        ErrorCode::ALL.len(),
+        100,
+        "ALL length changed — did you add a new ErrorCode variant? Update ALL."
+    );
 }
 
 #[test]

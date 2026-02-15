@@ -538,13 +538,12 @@ pub(crate) fn infer_method_call(
         return engine.pool_mut().fresh_var();
     }
 
-    // Resolve method name to an owned string for built-in lookup.
-    // String::from is needed to end the immutable engine borrow before the
-    // mutable resolve_builtin_method call.
-    let method_str = engine.lookup_name(method).map(String::from);
+    // lookup_name returns &'pool str (interner lifetime), independent of the
+    // engine borrow — no String::from allocation needed.
+    let method_str = engine.lookup_name(method);
 
     // 1. Try built-in method resolution
-    if let Some(ref name_str) = method_str {
+    if let Some(name_str) = method_str {
         if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
             // Infer arguments (built-in methods don't have formal param types yet)
             for &arg_id in arena.get_expr_list(args) {
@@ -603,13 +602,12 @@ pub(crate) fn infer_method_call_named(
         return engine.pool_mut().fresh_var();
     }
 
-    // Resolve method name to an owned string for built-in lookup.
-    // String::from is needed to end the immutable engine borrow before the
-    // mutable resolve_builtin_method call.
-    let method_str = engine.lookup_name(method).map(String::from);
+    // lookup_name returns &'pool str (interner lifetime), independent of the
+    // engine borrow — no String::from allocation needed.
+    let method_str = engine.lookup_name(method);
 
     // 1. Try built-in method resolution
-    if let Some(ref name_str) = method_str {
+    if let Some(name_str) = method_str {
         if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
             for arg in arena.get_call_args(args) {
                 infer_expr(engine, arena, arg.value);
