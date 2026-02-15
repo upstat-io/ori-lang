@@ -99,7 +99,7 @@ pub fn compile_derives<'a>(
                     compile_derive_printable(fc, type_name, type_idx, &type_name_str, fields);
                 }
                 DerivedTrait::Default => {
-                    compile_derive_default(fc, type_name, type_idx, &type_name_str, fields);
+                    compile_derive_default(fc, type_name, type_idx, &type_name_str);
                 }
             }
         }
@@ -596,7 +596,6 @@ fn compile_derive_default<'a>(
     type_name: Name,
     type_idx: Idx,
     type_name_str: &str,
-    _fields: &[FieldDef],
 ) {
     let method_name_str = "default";
     let method_name = fc.intern(method_name_str);

@@ -23,7 +23,13 @@ type Point = { x: int, y: int }
 
     let mut user_method_registry = UserMethodRegistry::new();
 
-    process_derives(&parse_result.module, &mut user_method_registry, &interner);
+    let mut default_ft = DefaultFieldTypeRegistry::new();
+    process_derives(
+        &parse_result.module,
+        &mut user_method_registry,
+        &mut default_ft,
+        &interner,
+    );
 
     let point = interner.intern("Point");
     let eq = interner.intern("eq");
@@ -52,7 +58,13 @@ type Point = { x: int, y: int }
 
     let mut user_method_registry = UserMethodRegistry::new();
 
-    process_derives(&parse_result.module, &mut user_method_registry, &interner);
+    let mut default_ft = DefaultFieldTypeRegistry::new();
+    process_derives(
+        &parse_result.module,
+        &mut user_method_registry,
+        &mut default_ft,
+        &interner,
+    );
 
     let point = interner.intern("Point");
     let eq = interner.intern("eq");
@@ -81,7 +93,13 @@ type Point = { x: int }
 
     let mut user_method_registry = UserMethodRegistry::new();
 
-    process_derives(&parse_result.module, &mut user_method_registry, &interner);
+    let mut default_ft = DefaultFieldTypeRegistry::new();
+    process_derives(
+        &parse_result.module,
+        &mut user_method_registry,
+        &mut default_ft,
+        &interner,
+    );
 
     let point = interner.intern("Point");
     let eq = interner.intern("eq");

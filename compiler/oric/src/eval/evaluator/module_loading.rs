@@ -13,8 +13,8 @@ use crate::parser::ParseOutput;
 use ori_eval::{
     collect_def_impl_methods_with_config, collect_extend_methods_with_config,
     collect_impl_methods_with_config, process_derives, register_module_functions,
-    register_newtype_constructors, register_variant_constructors, MethodCollectionConfig,
-    UserMethodRegistry,
+    register_newtype_constructors, register_variant_constructors, DefaultFieldTypeRegistry,
+    MethodCollectionConfig, UserMethodRegistry,
 };
 use ori_ir::canon::SharedCanonResult;
 use std::path::Path;
@@ -156,12 +156,19 @@ impl Evaluator<'_> {
         collect_def_impl_methods_with_config(&config, &mut user_methods);
 
         // Process derived traits (Eq, Clone, Hashable, Printable, Default)
-        process_derives(&parse_result.module, &mut user_methods, self.interner());
+        let mut default_ft = DefaultFieldTypeRegistry::new();
+        process_derives(
+            &parse_result.module,
+            &mut user_methods,
+            &mut default_ft,
+            self.interner(),
+        );
 
         // Merge the collected methods into the existing registry.
         // Using merge() instead of replacing allows the cached MethodDispatcher
         // to see the new methods (since SharedMutableRegistry provides interior mutability).
         self.user_method_registry().write().merge(user_methods);
+        self.default_field_types().write().merge(default_ft);
 
         Ok(())
     }

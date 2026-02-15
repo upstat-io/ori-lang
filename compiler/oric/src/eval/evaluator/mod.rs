@@ -169,6 +169,13 @@ impl<'a> Evaluator<'a> {
         self.interpreter.user_method_registry()
     }
 
+    /// Get the default field type registry for `#[derive(Default)]`.
+    pub fn default_field_types(
+        &self,
+    ) -> &SharedMutableRegistry<ori_eval::DefaultFieldTypeRegistry> {
+        self.interpreter.default_field_types()
+    }
+
     /// Enable performance counters for `--profile` mode.
     ///
     /// Must be called before evaluation begins. When enabled, expression,

@@ -7,9 +7,10 @@
 //! - `#[derive(Printable)]` -> `to_string` method
 //! - `#[derive(Default)]` -> `default` method
 
+use crate::derives::DefaultFieldType;
 use crate::errors::wrong_function_args;
 use crate::{EvalResult, StructValue, Value};
-use ori_ir::{DefaultFieldType, DerivedMethodInfo, DerivedTrait, Name, TypeId};
+use ori_ir::{DerivedMethodInfo, DerivedTrait, Name, TypeId};
 use rustc_hash::FxHashMap;
 
 use super::Interpreter;
@@ -206,6 +207,9 @@ impl Interpreter<'_> {
     ///
     /// Constructs a struct with all fields set to their type's default value.
     /// Called as a static method: `Point.default()` returns `Point { x: 0, y: 0 }`.
+    ///
+    /// Field types are looked up from the `DefaultFieldTypeRegistry` rather than
+    /// from `DerivedMethodInfo` — this keeps evaluator-specific data out of the IR.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "Consistent derived method dispatch signature"
@@ -215,8 +219,25 @@ impl Interpreter<'_> {
             return Err(crate::errors::no_such_method("default", "non-type").into());
         };
 
+        let default_name = self.interner.intern("default");
+
+        // Look up field types from the evaluator-local registry
+        let field_types = self
+            .default_field_types
+            .read()
+            .lookup(type_name, default_name)
+            .map(Vec::from);
+
+        let Some(field_types) = field_types else {
+            // No field types registered — fall back to empty struct
+            return Ok(Value::Struct(StructValue::new(
+                type_name,
+                FxHashMap::default(),
+            )));
+        };
+
         let mut fields = FxHashMap::default();
-        for (name, field_type) in info.field_names.iter().zip(info.field_types.iter()) {
+        for (name, field_type) in info.field_names.iter().zip(field_types.iter()) {
             let value = self.default_value_for_field(type_name, field_type)?;
             fields.insert(*name, value);
         }

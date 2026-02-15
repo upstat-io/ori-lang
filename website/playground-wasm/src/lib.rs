@@ -7,7 +7,7 @@ use wasm_bindgen::prelude::*;
 use ori_ir::SharedInterner;
 use ori_eval::{
     buffer_handler, collect_extend_methods_with_config, collect_impl_methods_with_config,
-    process_derives, register_module_functions, register_newtype_constructors,
+    process_derives, register_module_functions, register_newtype_constructors, DefaultFieldTypeRegistry,
     register_variant_constructors, EvalMode, InterpreterBuilder, MethodCollectionConfig,
     UserMethodRegistry, Value,
 };
@@ -151,14 +151,17 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     collect_extend_methods_with_config(&config, &mut user_methods);
 
     // Process derived traits (Eq, Clone, Hashable, Printable, Default)
+    let mut default_ft = DefaultFieldTypeRegistry::new();
     process_derives(
         &parse_result.module,
         &mut user_methods,
+        &mut default_ft,
         &interner,
     );
 
     // Merge the collected methods into the interpreter's registry
     interpreter.user_method_registry().write().merge(user_methods);
+    interpreter.default_field_types().write().merge(default_ft);
 
     // Register all functions from the module into the environment
     register_module_functions(&parse_result.module, &shared_arena, interpreter.env_mut(), Some(&shared_canon));
