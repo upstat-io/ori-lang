@@ -577,6 +577,10 @@ impl IteratorValue {
             Value::Map(map) => Some(Self::from_map(map)),
             Value::Str(s) => Some(Self::from_string(s.clone())),
             Value::Range(r) => Some(Self::from_range(r.start, r.end, r.step, r.inclusive)),
+            Value::Set(items) => {
+                let values: Vec<Value> = items.values().cloned().collect();
+                Some(Self::from_set(Heap::new(values)))
+            }
             Value::Iterator(it) => Some(it.clone()),
             // Option<T>: Some(x) → 1-element list iterator, None → empty
             Value::Some(v) => Some(Self::from_list(Heap::new(vec![(**v).clone()]))),

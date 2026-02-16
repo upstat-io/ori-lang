@@ -310,6 +310,7 @@ pub(crate) fn dispatch_builtin_method(
         Value::Str(_) => collections::dispatch_string_method(receiver, method, args, ctx),
         Value::Map(_) => collections::dispatch_map_method(receiver, method, args, ctx),
         Value::Range(_) => collections::dispatch_range_method(receiver, method, args, ctx),
+        Value::Set(_) => collections::dispatch_set_method(receiver, method, args, ctx),
         // Iterator methods are dispatched by CollectionMethodResolver (priority 1),
         // not the builtin resolver. See interpreter/method_dispatch/iterator.rs.
         Value::Some(_) | Value::None => {

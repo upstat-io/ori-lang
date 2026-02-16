@@ -1,4 +1,4 @@
-//! Method dispatch for collection types (list, str, map, range).
+//! Method dispatch for collection types (list, str, map, range, set).
 
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalResult, IteratorValue, Value};
@@ -227,5 +227,37 @@ pub fn dispatch_map_method(
         Ok(receiver)
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "map").into())
+    }
+}
+
+/// Dispatch methods on set values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+pub fn dispatch_set_method(
+    receiver: Value,
+    method: Name,
+    args: Vec<Value>,
+    ctx: &DispatchCtx<'_>,
+) -> EvalResult {
+    let Value::Set(ref items) = receiver else {
+        unreachable!("dispatch_set_method called with non-set receiver")
+    };
+
+    let n = ctx.names;
+
+    if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        // from_value always succeeds for Value::Set (returns Some)
+        match IteratorValue::from_value(&receiver) {
+            Some(iter) => Ok(Value::iterator(iter)),
+            None => unreachable!("Set is always iterable"),
+        }
+    } else if method == n.len {
+        require_args("len", 0, args.len())?;
+        len_to_value(items.len(), "set")
+    } else {
+        Err(no_such_method(ctx.interner.lookup(method), "Set").into())
     }
 }

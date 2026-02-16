@@ -423,15 +423,13 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("Result", "or_else"),
     ("Result", "unwrap_err"),
     ("Result", "unwrap_or"),
-    // Set — not in eval at all yet
+    // Set — most methods not in eval yet
     ("Set", "clone"),
     ("Set", "contains"),
     ("Set", "difference"),
     ("Set", "insert"),
     ("Set", "intersection"),
     ("Set", "is_empty"),
-    ("Set", "iter"),
-    ("Set", "len"),
     ("Set", "remove"),
     ("Set", "to_list"),
     ("Set", "union"),

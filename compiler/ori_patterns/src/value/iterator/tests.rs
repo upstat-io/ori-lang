@@ -735,6 +735,37 @@ fn from_value_option_none() {
 }
 
 #[test]
+fn from_value_set() {
+    let mut set = BTreeMap::new();
+    set.insert("int:1".to_string(), Value::int(1));
+    set.insert("int:2".to_string(), Value::int(2));
+    set.insert("int:3".to_string(), Value::int(3));
+    let val = Value::set(set);
+    let Some(iter) = IteratorValue::from_value(&val) else {
+        panic!("set should be iterable");
+    };
+    // BTreeMap order: keys are sorted, so values come out in key order
+    let (item, iter) = iter.next();
+    assert_eq!(item, Some(Value::int(1)));
+    let (item, iter) = iter.next();
+    assert_eq!(item, Some(Value::int(2)));
+    let (item, iter) = iter.next();
+    assert_eq!(item, Some(Value::int(3)));
+    let (item, _) = iter.next();
+    assert_eq!(item, None);
+}
+
+#[test]
+fn from_value_set_empty() {
+    let val = Value::set(BTreeMap::new());
+    let Some(iter) = IteratorValue::from_value(&val) else {
+        panic!("empty set should be iterable");
+    };
+    let (item, _) = iter.next();
+    assert_eq!(item, None);
+}
+
+#[test]
 fn from_value_non_iterable() {
     assert!(IteratorValue::from_value(&Value::int(42)).is_none());
     assert!(IteratorValue::from_value(&Value::Bool(true)).is_none());

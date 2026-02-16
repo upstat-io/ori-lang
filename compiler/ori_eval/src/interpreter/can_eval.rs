@@ -19,7 +19,7 @@ use ori_ir::canon::{
     CanBindingPattern, CanExpr, CanId, CanMapEntryRange, CanParamRange, CanRange, CanonResult,
 };
 use ori_ir::{BinaryOp, FunctionExpKind, Name, Span, UnaryOp};
-use ori_patterns::{ControlAction, EvalError, EvalResult, RangeValue, Value};
+use ori_patterns::{ControlAction, EvalError, EvalResult, IteratorValue, RangeValue, Value};
 use ori_stack::ensure_sufficient_stack;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -873,7 +873,12 @@ impl Interpreter<'_> {
 
     // For Loop
 
-    /// Evaluate a canonical for loop.
+    /// Evaluate a canonical for loop via the functional iterator protocol.
+    ///
+    /// Converts the iterable value to an `IteratorValue` and advances it
+    /// through `eval_iter_next()`, threading the immutable iterator state
+    /// through each step. Supports all iterable types: List, Map, Range,
+    /// Str, Set, Option, and Iterator pass-through.
     fn eval_can_for(
         &mut self,
         binding: Name,
@@ -884,20 +889,21 @@ impl Interpreter<'_> {
     ) -> EvalResult {
         use crate::exec::control::{to_loop_action, LoopAction};
 
-        // Build a stack-allocated iterator via enum dispatch (no heap allocation).
-        let iter = ForIterator::from_value(iter_val)?;
+        // Convert to functional iterator via Iterable trait
+        let mut current_iter = IteratorValue::from_value(iter_val)
+            .ok_or_else(|| ControlAction::from(crate::errors::for_requires_iterable()))?;
 
         if is_yield {
-            // for...yield collects results into a list
-            let capacity = match iter_val {
-                Value::List(items) => items.len(),
-                Value::Map(map) => map.len(),
-                _ => 0,
-            };
-            let mut results = Vec::with_capacity(capacity);
-            for item in iter {
+            // for...yield: collect results into list
+            let (lower, _) = current_iter.size_hint();
+            let mut results = Vec::with_capacity(lower);
+            loop {
+                let (item, new_iter) = self.eval_iter_next(current_iter)?;
+                current_iter = new_iter;
+                let Some(val) = item else { break };
+
                 let mut scoped = self.scoped();
-                scoped.env.define(binding, item, Mutability::Immutable);
+                scoped.env.define(binding, val, Mutability::Immutable);
 
                 // Check guard
                 if guard.is_valid() {
@@ -925,10 +931,14 @@ impl Interpreter<'_> {
             }
             Ok(Value::list(results))
         } else {
-            // Regular for loop returns Void
-            for item in iter {
+            // for...do: iterate for side effects
+            loop {
+                let (item, new_iter) = self.eval_iter_next(current_iter)?;
+                current_iter = new_iter;
+                let Some(val) = item else { break };
+
                 let mut scoped = self.scoped();
-                scoped.env.define(binding, item, Mutability::Immutable);
+                scoped.env.define(binding, val, Mutability::Immutable);
 
                 // Check guard
                 if guard.is_valid() {
@@ -1204,131 +1214,6 @@ impl Interpreter<'_> {
         } else {
             self.eval_can(step_id)
         }
-    }
-}
-
-// For Loop Iterator
-
-/// Stack-allocated iterator for for-loop dispatch.
-///
-/// Replaces `Box<dyn Iterator<Item = Value>>` with enum dispatch to avoid
-/// a heap allocation + vtable indirection per for-loop. The iterator type
-/// set is closed (List, Map, Range, Str), so enum dispatch is correct.
-///
-/// Each variant stores the borrowed data and a position/cursor for
-/// stateful iteration. List, Map, and Str borrow from the `Value`
-/// being iterated (which outlives the loop body). Range stores its
-/// bounds directly for zero-allocation stepping.
-enum ForIterator<'a> {
-    /// Iterates over list elements by index.
-    List { items: &'a [Value], pos: usize },
-    /// Iterates over map entries as `(key, value)` tuples.
-    Map {
-        iter: std::collections::btree_map::Iter<'a, String, Value>,
-    },
-    /// Iterates over a range of integers (fully owned, no borrowing).
-    Range {
-        current: Option<i64>,
-        end: i64,
-        step: i64,
-        inclusive: bool,
-    },
-    /// Iterates over string characters.
-    Str { chars: std::str::Chars<'a> },
-}
-
-impl<'a> ForIterator<'a> {
-    /// Create a `ForIterator` from a `Value`, or return an error if not iterable.
-    fn from_value(value: &'a Value) -> Result<Self, ControlAction> {
-        match value {
-            Value::List(items) => Ok(ForIterator::List { items, pos: 0 }),
-            Value::Map(map) => Ok(ForIterator::Map { iter: map.iter() }),
-            Value::Range(range) => Ok(ForIterator::Range {
-                current: range_initial(range),
-                end: range.end,
-                step: range.step,
-                inclusive: range.inclusive,
-            }),
-            Value::Str(s) => Ok(ForIterator::Str { chars: s.chars() }),
-            _ => Err(crate::errors::for_requires_iterable().into()),
-        }
-    }
-}
-
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "range bound arithmetic on user-provided i64 values"
-)]
-impl Iterator for ForIterator<'_> {
-    type Item = Value;
-
-    fn next(&mut self) -> Option<Value> {
-        match self {
-            ForIterator::List { items, pos } => {
-                let item = items.get(*pos)?;
-                *pos += 1;
-                Some(item.clone())
-            }
-            ForIterator::Map { iter } => {
-                let (k, v) = iter.next()?;
-                Some(Value::tuple(vec![Value::string(k.clone()), v.clone()]))
-            }
-            ForIterator::Range {
-                current,
-                end,
-                step,
-                inclusive,
-            } => {
-                let val = (*current)?;
-                let s = *step;
-                let e = *end;
-                let incl = *inclusive;
-                // Compute next value
-                let next = val + s;
-                *current = match s.cmp(&0) {
-                    std::cmp::Ordering::Greater => {
-                        if incl {
-                            (next <= e).then_some(next)
-                        } else {
-                            (next < e).then_some(next)
-                        }
-                    }
-                    std::cmp::Ordering::Less => {
-                        if incl {
-                            (next >= e).then_some(next)
-                        } else {
-                            (next > e).then_some(next)
-                        }
-                    }
-                    std::cmp::Ordering::Equal => None,
-                };
-                Some(Value::int(val))
-            }
-            ForIterator::Str { chars } => chars.next().map(Value::Char),
-        }
-    }
-}
-
-/// Compute the initial value for a range iterator.
-///
-/// Returns `None` if the range is empty (e.g., `5..0` with positive step).
-fn range_initial(range: &RangeValue) -> Option<i64> {
-    match range.step.cmp(&0) {
-        std::cmp::Ordering::Greater => {
-            if range.inclusive {
-                (range.start <= range.end).then_some(range.start)
-            } else {
-                (range.start < range.end).then_some(range.start)
-            }
-        }
-        std::cmp::Ordering::Less => {
-            if range.inclusive {
-                (range.start >= range.end).then_some(range.start)
-            } else {
-                (range.start > range.end).then_some(range.start)
-            }
-        }
-        std::cmp::Ordering::Equal => None,
     }
 }
 

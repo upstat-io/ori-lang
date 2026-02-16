@@ -611,6 +611,10 @@ pub(crate) fn infer_for(
             // Sets store elements similarly to lists (single type parameter)
             engine.pool().set_elem(resolved_iter)
         }
+        Tag::Option => {
+            // Option<T> iterates as 0-or-1 element of type T
+            engine.pool().option_inner(resolved_iter)
+        }
         _ => {
             // Not a known iterable - still allow iteration with fresh element type
             // The type checker will catch concrete type mismatches later
