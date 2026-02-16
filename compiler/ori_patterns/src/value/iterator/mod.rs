@@ -48,8 +48,12 @@ fn range_len(current: i64, end: i64, step: i64, inclusive: bool) -> usize {
 /// O(1) clone) plus a position index that advances on each `next()`.
 #[derive(Clone)]
 pub enum IteratorValue {
-    /// Iterator over a list's elements.
-    List { items: Heap<Vec<Value>>, pos: usize },
+    /// Iterator over a list's elements (double-ended: front advances forward, back backward).
+    List {
+        items: Heap<Vec<Value>>,
+        front: usize,
+        back: usize,
+    },
     /// Iterator over an integer range.
     Range {
         current: i64,
@@ -68,10 +72,11 @@ pub enum IteratorValue {
     },
     /// Iterator over a set's elements (collected to Vec for positional access).
     Set { items: Heap<Vec<Value>>, pos: usize },
-    /// Iterator over a string's characters.
+    /// Iterator over a string's characters (double-ended: front/back byte positions).
     Str {
         data: Heap<Cow<'static, str>>,
-        byte_pos: usize,
+        front_pos: usize,
+        back_pos: usize,
     },
     /// Lazy map adapter: applies `transform` to each item yielded by `source`.
     ///
@@ -142,12 +147,13 @@ impl IteratorValue {
     )]
     pub fn next(&self) -> (Option<Value>, IteratorValue) {
         match self {
-            IteratorValue::List { items, pos } => {
-                if *pos < items.len() {
-                    let val = items[*pos].clone();
+            IteratorValue::List { items, front, back } => {
+                if *front < *back {
+                    let val = items[*front].clone();
                     let new_iter = IteratorValue::List {
                         items: items.clone(),
-                        pos: pos + 1,
+                        front: front + 1,
+                        back: *back,
                     };
                     (Some(val), new_iter)
                 } else {
@@ -214,12 +220,17 @@ impl IteratorValue {
                 }
             }
 
-            IteratorValue::Str { data, byte_pos } => {
-                let remaining = &data[*byte_pos..];
+            IteratorValue::Str {
+                data,
+                front_pos,
+                back_pos,
+            } => {
+                let remaining = &data[*front_pos..*back_pos];
                 if let Some(ch) = remaining.chars().next() {
                     let new_iter = IteratorValue::Str {
                         data: data.clone(),
-                        byte_pos: byte_pos + ch.len_utf8(),
+                        front_pos: front_pos + ch.len_utf8(),
+                        back_pos: *back_pos,
                     };
                     (Some(Value::Char(ch)), new_iter)
                 } else {
@@ -247,6 +258,129 @@ impl IteratorValue {
         }
     }
 
+    /// Advance the iterator from the back, returning `(Option<Item>, new_iterator)`.
+    ///
+    /// Only supported on double-ended variants (List, Range, Str) and adapters
+    /// whose source is double-ended (Mapped, Filtered). For other variants,
+    /// use `Interpreter::eval_iter_next_back()` which handles closure-based adapters.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "back/front_pos decrements are guarded by bounds checks; range arithmetic on aligned values"
+    )]
+    pub fn next_back(&self) -> (Option<Value>, IteratorValue) {
+        match self {
+            IteratorValue::List { items, front, back } => {
+                if *front < *back {
+                    let val = items[back - 1].clone();
+                    let new_iter = IteratorValue::List {
+                        items: items.clone(),
+                        front: *front,
+                        back: back - 1,
+                    };
+                    (Some(val), new_iter)
+                } else {
+                    (None, self.clone())
+                }
+            }
+
+            IteratorValue::Range {
+                current,
+                end,
+                step,
+                inclusive,
+            } => {
+                let n = range_len(*current, *end, *step, *inclusive);
+                if n == 0 {
+                    return (None, self.clone());
+                }
+                // Compute last aligned value in the sequence
+                #[expect(
+                    clippy::cast_possible_wrap,
+                    reason = "n-1 fits in i64 since range_len is derived from i64 arithmetic"
+                )]
+                let last = current + (n as i64 - 1) * step;
+                let new_iter = IteratorValue::Range {
+                    current: *current,
+                    end: last,
+                    step: *step,
+                    // After removing the last element, use exclusive bound at `last`
+                    inclusive: false,
+                };
+                (Some(Value::int(last)), new_iter)
+            }
+
+            IteratorValue::Str {
+                data,
+                front_pos,
+                back_pos,
+            } => {
+                let remaining = &data[*front_pos..*back_pos];
+                if let Some(ch) = remaining.chars().next_back() {
+                    let new_iter = IteratorValue::Str {
+                        data: data.clone(),
+                        front_pos: *front_pos,
+                        back_pos: back_pos - ch.len_utf8(),
+                    };
+                    (Some(Value::Char(ch)), new_iter)
+                } else {
+                    (None, self.clone())
+                }
+            }
+
+            // Map and Set are unordered — not double-ended
+            IteratorValue::Map { .. } | IteratorValue::Set { .. } => {
+                unreachable!(
+                    "Map/Set iterators are not double-ended — \
+                     caller must check is_double_ended() first"
+                )
+            }
+
+            // Adapter variants require interpreter access to call closures.
+            IteratorValue::Mapped { .. }
+            | IteratorValue::Filtered { .. }
+            | IteratorValue::TakeN { .. }
+            | IteratorValue::SkipN { .. }
+            | IteratorValue::Enumerated { .. }
+            | IteratorValue::Zipped { .. }
+            | IteratorValue::Chained { .. }
+            | IteratorValue::Flattened { .. }
+            | IteratorValue::Cycled { .. } => {
+                unreachable!(
+                    "adapter iterators must be advanced via Interpreter::eval_iter_next_back(), \
+                     not IteratorValue::next_back()"
+                )
+            }
+        }
+    }
+
+    /// Returns `true` if this iterator supports `next_back()`.
+    ///
+    /// Double-ended: `List`, `Range`, `Str`, and `Mapped`/`Filtered` adapters
+    /// wrapping a double-ended source.
+    pub fn is_double_ended(&self) -> bool {
+        match self {
+            IteratorValue::List { .. }
+            | IteratorValue::Range { .. }
+            | IteratorValue::Str { .. } => true,
+
+            // Mapped/Filtered propagate from source
+            IteratorValue::Mapped { source, .. } | IteratorValue::Filtered { source, .. } => {
+                source.is_double_ended()
+            }
+
+            // Map/Set (unordered) and all other adapters are not double-ended
+            IteratorValue::Map { .. }
+            | IteratorValue::Set { .. }
+            | IteratorValue::TakeN { .. }
+            | IteratorValue::SkipN { .. }
+            | IteratorValue::Enumerated { .. }
+            | IteratorValue::Zipped { .. }
+            | IteratorValue::Chained { .. }
+            | IteratorValue::Flattened { .. }
+            | IteratorValue::Cycled { .. } => false,
+        }
+    }
+
     /// Returns `(lower_bound, Option<upper_bound>)` for remaining items.
     ///
     /// Mirrors Rust's `Iterator::size_hint()` contract:
@@ -255,7 +389,11 @@ impl IteratorValue {
     /// - `None` upper means unbounded or unknown
     pub fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
-            IteratorValue::List { items, pos } | IteratorValue::Set { items, pos } => {
+            IteratorValue::List { front, back, .. } => {
+                let remaining = back.saturating_sub(*front);
+                (remaining, Some(remaining))
+            }
+            IteratorValue::Set { items, pos } => {
                 let remaining = items.len().saturating_sub(*pos);
                 (remaining, Some(remaining))
             }
@@ -272,8 +410,12 @@ impl IteratorValue {
                 let remaining = entries.len().saturating_sub(*pos);
                 (remaining, Some(remaining))
             }
-            IteratorValue::Str { data, byte_pos } => {
-                let remaining_bytes = data.len().saturating_sub(*byte_pos);
+            IteratorValue::Str {
+                front_pos,
+                back_pos,
+                ..
+            } => {
+                let remaining_bytes = back_pos.saturating_sub(*front_pos);
                 // Each char is 1-4 bytes in UTF-8
                 let lower = remaining_bytes.div_ceil(4);
                 (lower, Some(remaining_bytes))
@@ -351,9 +493,14 @@ impl IteratorValue {
         }
     }
 
-    /// Create a list iterator starting at position 0.
+    /// Create a list iterator spanning all elements.
     pub fn from_list(items: Heap<Vec<Value>>) -> Self {
-        IteratorValue::List { items, pos: 0 }
+        let back = items.len();
+        IteratorValue::List {
+            items,
+            front: 0,
+            back,
+        }
     }
 
     /// Create a range iterator.
@@ -381,9 +528,14 @@ impl IteratorValue {
         IteratorValue::Set { items, pos: 0 }
     }
 
-    /// Create a string character iterator.
+    /// Create a string character iterator spanning the entire string.
     pub fn from_string(data: Heap<Cow<'static, str>>) -> Self {
-        IteratorValue::Str { data, byte_pos: 0 }
+        let back_pos = data.len();
+        IteratorValue::Str {
+            data,
+            front_pos: 0,
+            back_pos,
+        }
     }
 
     /// Convert an iterable `Value` to an `IteratorValue`, if possible.
@@ -405,8 +557,12 @@ impl IteratorValue {
 impl fmt::Debug for IteratorValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IteratorValue::List { pos, items } => {
-                write!(f, "ListIterator(pos={}, len={})", pos, items.len())
+            IteratorValue::List { front, back, items } => {
+                write!(
+                    f,
+                    "ListIterator(front={front}, back={back}, len={})",
+                    items.len()
+                )
             }
             IteratorValue::Range {
                 current,
@@ -423,8 +579,16 @@ impl fmt::Debug for IteratorValue {
             IteratorValue::Set { pos, items } => {
                 write!(f, "SetIterator(pos={}, len={})", pos, items.len())
             }
-            IteratorValue::Str { byte_pos, data } => {
-                write!(f, "StrIterator(byte_pos={}, len={})", byte_pos, data.len())
+            IteratorValue::Str {
+                front_pos,
+                back_pos,
+                data,
+            } => {
+                write!(
+                    f,
+                    "StrIterator(front={front_pos}, back={back_pos}, len={})",
+                    data.len()
+                )
             }
             IteratorValue::Mapped { source, .. } => {
                 write!(f, "MappedIterator({source:?})")
@@ -485,10 +649,18 @@ impl PartialEq for IteratorValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (
-                IteratorValue::List { items: a, pos: pa },
-                IteratorValue::List { items: b, pos: pb },
-            )
-            | (
+                IteratorValue::List {
+                    items: a,
+                    front: fa,
+                    back: ba,
+                },
+                IteratorValue::List {
+                    items: b,
+                    front: fb,
+                    back: bb,
+                },
+            ) => fa == fb && ba == bb && a == b,
+            (
                 IteratorValue::Set { items: a, pos: pa },
                 IteratorValue::Set { items: b, pos: pb },
             ) => pa == pb && a == b,
@@ -519,13 +691,15 @@ impl PartialEq for IteratorValue {
             (
                 IteratorValue::Str {
                     data: a,
-                    byte_pos: pa,
+                    front_pos: fa,
+                    back_pos: ba,
                 },
                 IteratorValue::Str {
                     data: b,
-                    byte_pos: pb,
+                    front_pos: fb,
+                    back_pos: bb,
                 },
-            ) => pa == pb && a == b,
+            ) => fa == fb && ba == bb && a == b,
             (
                 IteratorValue::Mapped {
                     source: sa,
@@ -631,9 +805,11 @@ impl std::hash::Hash for IteratorValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            IteratorValue::List { pos, .. }
-            | IteratorValue::Map { pos, .. }
-            | IteratorValue::Set { pos, .. } => pos.hash(state),
+            IteratorValue::List { front, back, .. } => {
+                front.hash(state);
+                back.hash(state);
+            }
+            IteratorValue::Map { pos, .. } | IteratorValue::Set { pos, .. } => pos.hash(state),
             IteratorValue::Range {
                 current,
                 end,
@@ -645,7 +821,14 @@ impl std::hash::Hash for IteratorValue {
                 step.hash(state);
                 inclusive.hash(state);
             }
-            IteratorValue::Str { byte_pos, .. } => byte_pos.hash(state),
+            IteratorValue::Str {
+                front_pos,
+                back_pos,
+                ..
+            } => {
+                front_pos.hash(state);
+                back_pos.hash(state);
+            }
             IteratorValue::Mapped {
                 source, transform, ..
             } => {

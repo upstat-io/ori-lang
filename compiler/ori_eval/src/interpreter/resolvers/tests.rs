@@ -47,6 +47,7 @@ fn iterator_variant_list_matches_predicate() {
         CollectionMethod::IterFlatten,
         CollectionMethod::IterFlatMap,
         CollectionMethod::IterCycle,
+        CollectionMethod::IterNextBack,
         CollectionMethod::IterFold,
         CollectionMethod::IterCount,
         CollectionMethod::IterFind,

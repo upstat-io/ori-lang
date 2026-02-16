@@ -405,4 +405,98 @@ impl Interpreter<'_> {
         };
         Ok(Value::tuple(vec![option_val, Value::iterator(new_iter)]))
     }
+
+    /// Advance an iterator from the back by one step.
+    ///
+    /// Only valid for double-ended variants (List, Range, Str) and adapters
+    /// whose source is double-ended (Mapped, Filtered).
+    pub(in crate::interpreter) fn eval_iter_next_back(
+        &mut self,
+        iter_val: IteratorValue,
+    ) -> Result<(Option<Value>, IteratorValue), ControlAction> {
+        match iter_val {
+            // Source variants — pure, delegate to IteratorValue::next_back()
+            IteratorValue::List { .. }
+            | IteratorValue::Range { .. }
+            | IteratorValue::Str { .. } => {
+                let (item, new_iter) = iter_val.next_back();
+                Ok((item, new_iter))
+            }
+
+            // Mapped: get next_back from source, apply transform
+            IteratorValue::Mapped { source, transform } => {
+                let (item, new_source) = self.eval_iter_next_back(*source)?;
+                match item {
+                    Some(val) => {
+                        let mapped = self.eval_call(&transform, &[val])?;
+                        Ok((
+                            Some(mapped),
+                            IteratorValue::Mapped {
+                                source: Box::new(new_source),
+                                transform,
+                            },
+                        ))
+                    }
+                    None => Ok((
+                        None,
+                        IteratorValue::Mapped {
+                            source: Box::new(new_source),
+                            transform,
+                        },
+                    )),
+                }
+            }
+
+            // Filtered: loop source.next_back() until predicate passes
+            IteratorValue::Filtered { source, predicate } => {
+                let mut current = *source;
+                loop {
+                    let (item, new_source) = self.eval_iter_next_back(current)?;
+                    match item {
+                        Some(val) => {
+                            let keep = self.eval_call(&predicate, std::slice::from_ref(&val))?;
+                            if keep.is_truthy() {
+                                return Ok((
+                                    Some(val),
+                                    IteratorValue::Filtered {
+                                        source: Box::new(new_source),
+                                        predicate,
+                                    },
+                                ));
+                            }
+                            current = new_source;
+                        }
+                        None => {
+                            return Ok((
+                                None,
+                                IteratorValue::Filtered {
+                                    source: Box::new(new_source),
+                                    predicate,
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Non-double-ended variants — runtime error
+            _ => {
+                use crate::errors::wrong_arg_type;
+                Err(wrong_arg_type("next_back", "double-ended iterator").into())
+            }
+        }
+    }
+
+    /// `next_back()` returns `(T?, Iterator<T>)` tuple for the Ori protocol.
+    pub(in crate::interpreter) fn eval_iter_next_back_as_tuple(
+        &mut self,
+        iter_val: IteratorValue,
+    ) -> EvalResult {
+        let (maybe_item, new_iter) = self.eval_iter_next_back(iter_val)?;
+        let option_val = match maybe_item {
+            Some(v) => Value::some(v),
+            None => Value::None,
+        };
+        Ok(Value::tuple(vec![option_val, Value::iterator(new_iter)]))
+    }
 }

@@ -77,6 +77,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Iterator", "for_each"),
     ("Iterator", "map"),
     ("Iterator", "next"),
+    ("Iterator", "next_back"),
     ("Iterator", "skip"),
     ("Iterator", "take"),
     ("Iterator", "zip"),
@@ -701,7 +702,7 @@ fn resolve_iterator_method(
 ) -> Option<Idx> {
     let elem = engine.pool().iterator_elem(receiver_ty);
     match method {
-        "next" => {
+        "next" | "next_back" => {
             let option_elem = engine.pool_mut().option(elem);
             Some(engine.pool_mut().tuple(&[option_elem, receiver_ty]))
         }

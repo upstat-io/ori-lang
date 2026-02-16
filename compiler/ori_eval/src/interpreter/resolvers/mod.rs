@@ -110,6 +110,8 @@ pub enum CollectionMethod {
     IterFlatMap,
     /// `Iterator<T>.cycle() -> Iterator<T>`
     IterCycle,
+    /// `Iterator<T>.next_back() -> (T?, Iterator<T>)` (double-ended only)
+    IterNextBack,
 }
 
 impl CollectionMethod {
@@ -147,6 +149,7 @@ impl CollectionMethod {
                 | Self::IterFlatten
                 | Self::IterFlatMap
                 | Self::IterCycle
+                | Self::IterNextBack
                 | Self::IterFold
                 | Self::IterCount
                 | Self::IterFind
@@ -183,6 +186,7 @@ impl CollectionMethod {
             ("all", Self::IterAll),
             ("for_each", Self::IterForEach),
             ("collect", Self::IterCollect),
+            ("next_back", Self::IterNextBack),
         ]
     }
 }

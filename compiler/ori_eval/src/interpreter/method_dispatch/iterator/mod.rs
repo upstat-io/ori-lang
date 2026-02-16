@@ -37,6 +37,10 @@ impl Interpreter<'_> {
                 Self::expect_arg_count("next", 0, args)?;
                 self.eval_iter_next_as_tuple(iter_val)
             }
+            CollectionMethod::IterNextBack => {
+                Self::expect_arg_count("next_back", 0, args)?;
+                self.eval_iter_next_back_as_tuple(iter_val)
+            }
             CollectionMethod::IterMap => {
                 Self::expect_arg_count("map", 1, args)?;
                 Ok(Self::make_mapped(iter_val, args[0].clone()))
