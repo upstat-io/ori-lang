@@ -84,7 +84,7 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         }
     }
 
-    // 5. TypeRegistry: newtype constructors, enum variant constructors
+    // 7. TypeRegistry: newtype constructors, enum variant constructors
     //    Extract data with immutable borrow, then release before pool_mut
     if let Some(ctor) = resolve_type_constructor_info(engine, name) {
         return match ctor {
@@ -149,7 +149,7 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         };
     }
 
-    // 7. Unknown identifier — find similar names for typo suggestions
+    // 8. Unknown identifier — find similar names for typo suggestions
     let similar = engine
         .env()
         .find_similar(name, 3, |n| engine.lookup_name(n));
