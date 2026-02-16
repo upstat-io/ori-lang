@@ -377,8 +377,8 @@ impl TypeProblem {
                     Some("use `float(x)` to convert int to float")
                 }
             }
-            Self::NumberToString => Some("use `to_str()` to convert to string"),
-            Self::StringToNumber => Some("use `parse()` to convert string to number"),
+            Self::NumberToString => Some("use `str(x)` to convert to string"),
+            Self::StringToNumber => Some("use `int(x)` or `float(x)` to convert"),
 
             Self::NeedsUnwrap { .. } => {
                 Some("use `?` to propagate none, or `match` to handle both cases")

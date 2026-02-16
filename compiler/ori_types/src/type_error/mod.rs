@@ -13,7 +13,7 @@
 //! ```text
 //! 1. During inference: Track Expected { ty: int, origin: Annotation("x", line 5) }
 //! 2. At mismatch: Create TypeProblem::IntFloat (specific problem identified)
-//! 3. Generate Suggestion: "Use `to_int()` to convert float to int"
+//! 3. Generate Suggestion: "use `int(x)` to convert"
 //! 4. Build TypeCheckError with full context for rendering
 //! ```
 //!
