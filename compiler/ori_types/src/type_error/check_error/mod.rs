@@ -738,6 +738,23 @@ impl TypeCheckError {
         }
     }
 
+    /// Create an error for attempting to iterate over `Range<float>`.
+    ///
+    /// Float ranges are not iterable because float arithmetic is imprecise.
+    /// The `suggestion` parameter provides a context-specific example
+    /// (e.g., method call vs for-loop syntax).
+    pub fn range_float_not_iterable(span: Span, suggestion: &str) -> Self {
+        Self::unsatisfied_bound(
+            span,
+            format!(
+                "`Range<float>` does not implement `Iterable` — \
+                 floating-point ranges cannot be iterated because \
+                 float arithmetic is imprecise (use an int range \
+                 with conversion, e.g., `{suggestion}`)"
+            ),
+        )
+    }
+
     /// Create a "not a struct" error for struct literal with non-struct name.
     pub fn not_a_struct(span: Span, name: Name) -> Self {
         Self {
