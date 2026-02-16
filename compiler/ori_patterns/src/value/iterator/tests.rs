@@ -1,3 +1,5 @@
+use std::hash::{Hash, Hasher};
+
 use super::*;
 
 #[test]
@@ -173,4 +175,137 @@ fn iterator_equality() {
     // After advancing one, they're no longer equal
     let (_, a2) = a.next();
     assert_ne!(a2, b);
+}
+
+// ── Adapter variant tests ───────────────────────────────────────────
+
+fn make_list_iter(vals: &[i64]) -> IteratorValue {
+    let items = Heap::new(vals.iter().map(|&v| Value::int(v)).collect());
+    IteratorValue::from_list(items)
+}
+
+fn hash_of(val: &IteratorValue) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    val.hash(&mut hasher);
+    hasher.finish()
+}
+
+#[test]
+fn mapped_debug_format() {
+    let source = make_list_iter(&[1, 2, 3]);
+    let mapped = IteratorValue::Mapped {
+        source: Box::new(source),
+        transform: Box::new(Value::Bool(true)), // dummy
+    };
+    let debug = format!("{mapped:?}");
+    assert!(debug.starts_with("MappedIterator("));
+}
+
+#[test]
+fn filtered_debug_format() {
+    let source = make_list_iter(&[1, 2]);
+    let filtered = IteratorValue::Filtered {
+        source: Box::new(source),
+        predicate: Box::new(Value::Bool(true)), // dummy
+    };
+    let debug = format!("{filtered:?}");
+    assert!(debug.starts_with("FilteredIterator("));
+}
+
+#[test]
+fn take_debug_format() {
+    let source = make_list_iter(&[1, 2, 3]);
+    let take = IteratorValue::TakeN {
+        source: Box::new(source),
+        remaining: 2,
+    };
+    let debug = format!("{take:?}");
+    assert!(debug.starts_with("TakeIterator(remaining=2"));
+}
+
+#[test]
+fn skip_debug_format() {
+    let source = make_list_iter(&[1, 2, 3]);
+    let skip = IteratorValue::SkipN {
+        source: Box::new(source),
+        remaining: 1,
+    };
+    let debug = format!("{skip:?}");
+    assert!(debug.starts_with("SkipIterator(remaining=1"));
+}
+
+#[test]
+fn mapped_equality() {
+    let s1 = make_list_iter(&[1, 2]);
+    let s2 = make_list_iter(&[1, 2]);
+    let transform = Box::new(Value::Bool(true));
+
+    let a = IteratorValue::Mapped {
+        source: Box::new(s1),
+        transform: transform.clone(),
+    };
+    let b = IteratorValue::Mapped {
+        source: Box::new(s2),
+        transform,
+    };
+    assert_eq!(a, b);
+}
+
+#[test]
+fn mapped_inequality_different_transform() {
+    let s1 = make_list_iter(&[1, 2]);
+    let s2 = make_list_iter(&[1, 2]);
+
+    let a = IteratorValue::Mapped {
+        source: Box::new(s1),
+        transform: Box::new(Value::Bool(true)),
+    };
+    let b = IteratorValue::Mapped {
+        source: Box::new(s2),
+        transform: Box::new(Value::Bool(false)),
+    };
+    assert_ne!(a, b);
+}
+
+#[test]
+fn take_equality() {
+    let s1 = make_list_iter(&[1, 2, 3]);
+    let s2 = make_list_iter(&[1, 2, 3]);
+
+    let a = IteratorValue::TakeN {
+        source: Box::new(s1),
+        remaining: 2,
+    };
+    let b = IteratorValue::TakeN {
+        source: Box::new(s2),
+        remaining: 2,
+    };
+    assert_eq!(a, b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+}
+
+#[test]
+fn take_inequality_different_remaining() {
+    let s1 = make_list_iter(&[1, 2, 3]);
+    let s2 = make_list_iter(&[1, 2, 3]);
+
+    let a = IteratorValue::TakeN {
+        source: Box::new(s1),
+        remaining: 2,
+    };
+    let b = IteratorValue::TakeN {
+        source: Box::new(s2),
+        remaining: 3,
+    };
+    assert_ne!(a, b);
+}
+
+#[test]
+fn adapter_not_equal_to_source() {
+    let source = make_list_iter(&[1, 2, 3]);
+    let take = IteratorValue::TakeN {
+        source: Box::new(make_list_iter(&[1, 2, 3])),
+        remaining: 3,
+    };
+    assert_ne!(source, take);
 }

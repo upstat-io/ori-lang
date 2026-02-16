@@ -139,9 +139,11 @@ sections:
 
 ## 6.5 Capability Propagation
 
-- [x] **Implement**: Runtime capability propagation [done] (2026-02-10)
+- [ ] **Implement**: Runtime capability propagation [partial]
   - [x] **Changes**: `FunctionValue` now stores capabilities, `eval_call` passes them to called functions
-  - [x] **Ori Tests**: `tests/spec/capabilities/traits.ori` — tests capability propagation
+  - [x] **Ori Tests**: `tests/spec/capabilities/traits.ori` — tests capability propagation (direct use)
+  - [ ] **Implement**: `with...in` capability provision propagates to called functions — `with Cap = impl in callee()` should make `Cap` available inside `callee()`
+  - [ ] **Ori Tests**: `tests/spec/expressions/with_expr.ori` — 2 tests `#skip("capability provision to called functions not implemented")`
   - [ ] **LLVM Support**: LLVM codegen for runtime capability propagation through calls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
 

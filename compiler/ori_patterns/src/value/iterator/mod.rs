@@ -43,6 +43,30 @@ pub enum IteratorValue {
         data: Heap<Cow<'static, str>>,
         byte_pos: usize,
     },
+    /// Lazy map adapter: applies `transform` to each item yielded by `source`.
+    ///
+    /// `transform` is `Box<Value>` to break the `Value ↔ IteratorValue` drop-check cycle.
+    Mapped {
+        source: Box<IteratorValue>,
+        transform: Box<Value>,
+    },
+    /// Lazy filter adapter: yields only items from `source` matching `predicate`.
+    ///
+    /// `predicate` is `Box<Value>` to break the `Value ↔ IteratorValue` drop-check cycle.
+    Filtered {
+        source: Box<IteratorValue>,
+        predicate: Box<Value>,
+    },
+    /// Take adapter: yields at most `remaining` items from `source`.
+    TakeN {
+        source: Box<IteratorValue>,
+        remaining: usize,
+    },
+    /// Skip adapter: skips first `remaining` items, then yields from `source`.
+    SkipN {
+        source: Box<IteratorValue>,
+        remaining: usize,
+    },
 }
 
 impl IteratorValue {
@@ -140,6 +164,19 @@ impl IteratorValue {
                     (None, self.clone())
                 }
             }
+
+            // Adapter variants require interpreter access to call closures.
+            // They must be advanced via `Interpreter::eval_iter_next()`, not
+            // this pure `next()` method.
+            IteratorValue::Mapped { .. }
+            | IteratorValue::Filtered { .. }
+            | IteratorValue::TakeN { .. }
+            | IteratorValue::SkipN { .. } => {
+                unreachable!(
+                    "adapter iterators must be advanced via Interpreter::eval_iter_next(), \
+                     not IteratorValue::next()"
+                )
+            }
         }
     }
 
@@ -203,6 +240,22 @@ impl fmt::Debug for IteratorValue {
             IteratorValue::Str { byte_pos, data } => {
                 write!(f, "StrIterator(byte_pos={}, len={})", byte_pos, data.len())
             }
+            IteratorValue::Mapped { source, .. } => {
+                write!(f, "MappedIterator({source:?})")
+            }
+            IteratorValue::Filtered { source, .. } => {
+                write!(f, "FilteredIterator({source:?})")
+            }
+            IteratorValue::TakeN {
+                source, remaining, ..
+            } => {
+                write!(f, "TakeIterator(remaining={remaining}, {source:?})")
+            }
+            IteratorValue::SkipN {
+                source, remaining, ..
+            } => {
+                write!(f, "SkipIterator(remaining={remaining}, {source:?})")
+            }
         }
     }
 }
@@ -252,6 +305,46 @@ impl PartialEq for IteratorValue {
                     byte_pos: pb,
                 },
             ) => pa == pb && a == b,
+            (
+                IteratorValue::Mapped {
+                    source: sa,
+                    transform: ta,
+                },
+                IteratorValue::Mapped {
+                    source: sb,
+                    transform: tb,
+                },
+            ) => sa == sb && ta == tb,
+            (
+                IteratorValue::Filtered {
+                    source: sa,
+                    predicate: pa,
+                },
+                IteratorValue::Filtered {
+                    source: sb,
+                    predicate: pb,
+                },
+            ) => sa == sb && pa == pb,
+            (
+                IteratorValue::TakeN {
+                    source: sa,
+                    remaining: ra,
+                },
+                IteratorValue::TakeN {
+                    source: sb,
+                    remaining: rb,
+                },
+            )
+            | (
+                IteratorValue::SkipN {
+                    source: sa,
+                    remaining: ra,
+                },
+                IteratorValue::SkipN {
+                    source: sb,
+                    remaining: rb,
+                },
+            ) => sa == sb && ra == rb,
             _ => false,
         }
     }
@@ -278,6 +371,27 @@ impl std::hash::Hash for IteratorValue {
                 inclusive.hash(state);
             }
             IteratorValue::Str { byte_pos, .. } => byte_pos.hash(state),
+            IteratorValue::Mapped {
+                source, transform, ..
+            } => {
+                source.hash(state);
+                transform.hash(state);
+            }
+            IteratorValue::Filtered {
+                source, predicate, ..
+            } => {
+                source.hash(state);
+                predicate.hash(state);
+            }
+            IteratorValue::TakeN {
+                source, remaining, ..
+            }
+            | IteratorValue::SkipN {
+                source, remaining, ..
+            } => {
+                source.hash(state);
+                remaining.hash(state);
+            }
         }
     }
 }

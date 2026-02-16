@@ -345,7 +345,7 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
 /// yet implemented in the evaluator. These type-check successfully but
 /// would fail at runtime with "no such method".
 const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
-    // Channel — not in eval at all yet
+    // Channel — not in eval at all yet (no Channel value type)
     ("Channel", "close"),
     ("Channel", "is_closed"),
     ("Channel", "is_empty"),
@@ -355,6 +355,19 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("Channel", "send"),
     ("Channel", "try_receive"),
     ("Channel", "try_recv"),
+    // Iterator — dispatched via CollectionMethodResolver, not EVAL_BUILTIN_METHODS
+    ("Iterator", "all"),
+    ("Iterator", "any"),
+    ("Iterator", "collect"),
+    ("Iterator", "count"),
+    ("Iterator", "filter"),
+    ("Iterator", "find"),
+    ("Iterator", "fold"),
+    ("Iterator", "for_each"),
+    ("Iterator", "map"),
+    ("Iterator", "next"),
+    ("Iterator", "skip"),
+    ("Iterator", "take"),
     // Duration — factory and conversion methods not in eval
     ("Duration", "abs"),
     ("Duration", "as_micros"),

@@ -72,6 +72,32 @@ pub enum CollectionMethod {
     Any,
     /// [T].all(predicate: T -> bool) -> bool
     All,
+
+    // Iterator methods (adapters + consumers)
+    /// `Iterator<T>.next() -> (T?, Iterator<T>)`
+    IterNext,
+    /// `Iterator<T>.map(transform: T -> U) -> Iterator<U>`
+    IterMap,
+    /// `Iterator<T>.filter(predicate: T -> bool) -> Iterator<T>`
+    IterFilter,
+    /// `Iterator<T>.take(count: int) -> Iterator<T>`
+    IterTake,
+    /// `Iterator<T>.skip(count: int) -> Iterator<T>`
+    IterSkip,
+    /// `Iterator<T>.fold(initial: U, op: (U, T) -> U) -> U`
+    IterFold,
+    /// `Iterator<T>.count() -> int`
+    IterCount,
+    /// `Iterator<T>.find(predicate: T -> bool) -> T?`
+    IterFind,
+    /// `Iterator<T>.any(predicate: T -> bool) -> bool`
+    IterAny,
+    /// `Iterator<T>.all(predicate: T -> bool) -> bool`
+    IterAll,
+    /// `Iterator<T>.for_each(f: T -> void) -> void`
+    IterForEach,
+    /// `Iterator<T>.collect() -> [T]`
+    IterCollect,
 }
 
 impl CollectionMethod {
@@ -92,6 +118,25 @@ impl CollectionMethod {
             "all" => Some(Self::All),
             _ => None,
         }
+    }
+
+    /// Check if this is an iterator method variant.
+    pub fn is_iterator_method(self) -> bool {
+        matches!(
+            self,
+            Self::IterNext
+                | Self::IterMap
+                | Self::IterFilter
+                | Self::IterTake
+                | Self::IterSkip
+                | Self::IterFold
+                | Self::IterCount
+                | Self::IterFind
+                | Self::IterAny
+                | Self::IterAll
+                | Self::IterForEach
+                | Self::IterCollect
+        )
     }
 }
 
