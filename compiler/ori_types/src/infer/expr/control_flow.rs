@@ -602,13 +602,9 @@ pub(crate) fn infer_for(
         Tag::Range => {
             let elem = engine.pool().range_elem(resolved_iter);
             if elem == Idx::FLOAT {
-                engine.push_error(TypeCheckError::unsatisfied_bound(
+                engine.push_error(TypeCheckError::range_float_not_iterable(
                     span,
-                    "`Range<float>` does not implement `Iterable` — \
-                     floating-point ranges cannot be iterated because \
-                     float arithmetic is imprecise (use an int range \
-                     with conversion, e.g., `for i in 0..10 do i.to_float() / 10.0`)"
-                        .to_owned(),
+                    "for i in 0..10 do i.to_float() / 10.0",
                 ));
             }
             elem

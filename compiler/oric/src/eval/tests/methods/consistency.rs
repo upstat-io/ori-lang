@@ -737,3 +737,64 @@ fn eval_iterator_method_names_sorted() {
         );
     }
 }
+
+// ── Well-known generic type resolution consistency ───────────────────
+
+/// Well-known generic types that must be handled in all three type
+/// resolution functions to ensure `Pool` tags match between annotations
+/// and inference. Adding a type here without updating all three sites
+/// causes unification failures (e.g., `Option<int>` from annotation
+/// produces `Tag::Applied` instead of `Tag::Option`).
+const WELL_KNOWN_GENERIC_TYPES: &[&str] = &[
+    "Channel",
+    "DoubleEndedIterator",
+    "Iterator",
+    "Option",
+    "Range",
+    "Result",
+    "Set",
+];
+
+/// All three type resolution functions must handle the same set of
+/// well-known generic types. This test reads the source files and
+/// verifies each type name appears in each function.
+///
+/// The three resolution sites:
+/// 1. `check/registration/mod.rs` — `resolve_parsed_type_simple()`
+/// 2. `check/signatures/mod.rs` — `resolve_type_with_vars()`
+/// 3. `infer/expr/type_resolution.rs` — `resolve_parsed_type()`
+#[test]
+fn well_known_generic_types_consistent() {
+    use std::path::PathBuf;
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let Some(workspace) = manifest_dir.parent() else {
+        panic!("oric crate should be inside compiler/");
+    };
+
+    let files: &[(&str, &str)] = &[
+        ("registration", "ori_types/src/check/registration/mod.rs"),
+        ("signatures", "ori_types/src/check/signatures/mod.rs"),
+        (
+            "type_resolution",
+            "ori_types/src/infer/expr/type_resolution.rs",
+        ),
+    ];
+
+    for &(label, rel_path) in files {
+        let path = workspace.join(rel_path);
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"));
+
+        for &ty in WELL_KNOWN_GENERIC_TYPES {
+            // Match the string literal as it appears in match arms
+            let pattern = format!("\"{ty}\"");
+            assert!(
+                source.contains(&pattern),
+                "Well-known generic type `{ty}` missing from {label} ({rel_path})\n\
+                 Add a match arm for `(\"{ty}\", N)` in the well-known type routing block.\n\
+                 All three resolution functions must handle the same set of types."
+            );
+        }
+    }
+}
