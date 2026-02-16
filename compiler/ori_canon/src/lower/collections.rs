@@ -58,15 +58,14 @@ impl Lowerer<'_> {
     /// a `Set<T>`, the `ty` will have tag `Set`. We rewrite the method name
     /// so the evaluator can dispatch to the correct collector.
     fn specialize_collect(&self, method: Name, ty: TypeId) -> Name {
-        let collect_name = self.interner.intern("collect");
-        if method != collect_name {
+        if method != self.name_collect {
             return method;
         }
 
         let idx = ori_types::Idx::from_raw(ty.raw());
         let tag = self.pool.tag(idx);
         if tag == ori_types::Tag::Set {
-            self.interner.intern("__collect_set")
+            self.name_collect_set
         } else {
             method
         }
