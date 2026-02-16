@@ -203,6 +203,12 @@ impl Interpreter<'_> {
             | CollectionMethod::IterFilter
             | CollectionMethod::IterTake
             | CollectionMethod::IterSkip
+            | CollectionMethod::IterEnumerate
+            | CollectionMethod::IterZip
+            | CollectionMethod::IterChain
+            | CollectionMethod::IterFlatten
+            | CollectionMethod::IterFlatMap
+            | CollectionMethod::IterCycle
             | CollectionMethod::IterFold
             | CollectionMethod::IterCount
             | CollectionMethod::IterFind

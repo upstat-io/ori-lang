@@ -434,3 +434,288 @@ fn size_hint_skip_exceeds_source() {
     };
     assert_eq!(skip.size_hint(), (0, Some(0)));
 }
+
+// ── New adapter variant tests (Phase 2C/2D) ─────────────────────────
+
+// Debug format tests
+
+#[test]
+fn enumerated_debug_format() {
+    let source = make_list_iter(&[1, 2]);
+    let iter = IteratorValue::Enumerated {
+        source: Box::new(source),
+        index: 0,
+    };
+    let debug = format!("{iter:?}");
+    assert!(debug.starts_with("EnumeratedIterator(index=0"));
+}
+
+#[test]
+fn zipped_debug_format() {
+    let left = make_list_iter(&[1, 2]);
+    let right = make_list_iter(&[3, 4]);
+    let iter = IteratorValue::Zipped {
+        left: Box::new(left),
+        right: Box::new(right),
+    };
+    let debug = format!("{iter:?}");
+    assert!(debug.starts_with("ZippedIterator("));
+}
+
+#[test]
+fn chained_debug_format() {
+    let first = make_list_iter(&[1]);
+    let second = make_list_iter(&[2]);
+    let iter = IteratorValue::Chained {
+        first: Box::new(first),
+        second: Box::new(second),
+        first_done: false,
+    };
+    let debug = format!("{iter:?}");
+    assert!(debug.starts_with("ChainedIterator(first_done=false"));
+}
+
+#[test]
+fn flattened_debug_format() {
+    let source = make_list_iter(&[1]);
+    let iter = IteratorValue::Flattened {
+        source: Box::new(source),
+        inner: None,
+    };
+    let debug = format!("{iter:?}");
+    assert!(debug.starts_with("FlattenedIterator(inner=false"));
+}
+
+#[test]
+fn cycled_debug_format() {
+    let source = make_list_iter(&[1, 2]);
+    let iter = IteratorValue::Cycled {
+        source: Some(Box::new(source)),
+        buffer: Vec::new(),
+        buf_pos: 0,
+    };
+    let debug = format!("{iter:?}");
+    assert!(debug.starts_with("CycledIterator(buffered=0"));
+}
+
+// size_hint tests
+
+#[test]
+fn size_hint_enumerated() {
+    // 1:1 with source
+    let source = make_list_iter(&[1, 2, 3]);
+    let iter = IteratorValue::Enumerated {
+        source: Box::new(source),
+        index: 0,
+    };
+    assert_eq!(iter.size_hint(), (3, Some(3)));
+}
+
+#[test]
+fn size_hint_zipped_equal() {
+    let left = make_list_iter(&[1, 2, 3]);
+    let right = make_list_iter(&[4, 5, 6]);
+    let iter = IteratorValue::Zipped {
+        left: Box::new(left),
+        right: Box::new(right),
+    };
+    assert_eq!(iter.size_hint(), (3, Some(3)));
+}
+
+#[test]
+fn size_hint_zipped_unequal() {
+    // Shorter side limits
+    let left = make_list_iter(&[1, 2]);
+    let right = make_list_iter(&[4, 5, 6, 7]);
+    let iter = IteratorValue::Zipped {
+        left: Box::new(left),
+        right: Box::new(right),
+    };
+    assert_eq!(iter.size_hint(), (2, Some(2)));
+}
+
+#[test]
+fn size_hint_chained() {
+    let first = make_list_iter(&[1, 2]);
+    let second = make_list_iter(&[3, 4, 5]);
+    let iter = IteratorValue::Chained {
+        first: Box::new(first),
+        second: Box::new(second),
+        first_done: false,
+    };
+    assert_eq!(iter.size_hint(), (5, Some(5)));
+}
+
+#[test]
+fn size_hint_chained_first_done() {
+    let first = make_list_iter(&[]);
+    let second = make_list_iter(&[3, 4]);
+    let iter = IteratorValue::Chained {
+        first: Box::new(first),
+        second: Box::new(second),
+        first_done: true,
+    };
+    assert_eq!(iter.size_hint(), (2, Some(2)));
+}
+
+#[test]
+fn size_hint_flattened() {
+    // Unknowable
+    let source = make_list_iter(&[1, 2]);
+    let iter = IteratorValue::Flattened {
+        source: Box::new(source),
+        inner: None,
+    };
+    assert_eq!(iter.size_hint(), (0, None));
+}
+
+#[test]
+fn size_hint_cycled_with_source() {
+    // Still consuming — unknown upper
+    let source = make_list_iter(&[1, 2, 3]);
+    let iter = IteratorValue::Cycled {
+        source: Some(Box::new(source)),
+        buffer: Vec::new(),
+        buf_pos: 0,
+    };
+    let (lower, upper) = iter.size_hint();
+    assert_eq!(lower, 3);
+    assert_eq!(upper, None);
+}
+
+#[test]
+fn size_hint_cycled_replaying() {
+    // Non-empty buffer → infinite
+    let iter = IteratorValue::Cycled {
+        source: None,
+        buffer: vec![Value::int(1), Value::int(2)],
+        buf_pos: 0,
+    };
+    assert_eq!(iter.size_hint(), (usize::MAX, None));
+}
+
+#[test]
+fn size_hint_cycled_empty() {
+    // Empty buffer, no source → exhausted
+    let iter = IteratorValue::Cycled {
+        source: None,
+        buffer: Vec::new(),
+        buf_pos: 0,
+    };
+    assert_eq!(iter.size_hint(), (0, Some(0)));
+}
+
+// Equality tests
+
+#[test]
+fn enumerated_equality() {
+    let s1 = make_list_iter(&[1, 2]);
+    let s2 = make_list_iter(&[1, 2]);
+    let a = IteratorValue::Enumerated {
+        source: Box::new(s1),
+        index: 0,
+    };
+    let b = IteratorValue::Enumerated {
+        source: Box::new(s2),
+        index: 0,
+    };
+    assert_eq!(a, b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+}
+
+#[test]
+fn zipped_equality() {
+    let a = IteratorValue::Zipped {
+        left: Box::new(make_list_iter(&[1])),
+        right: Box::new(make_list_iter(&[2])),
+    };
+    let b = IteratorValue::Zipped {
+        left: Box::new(make_list_iter(&[1])),
+        right: Box::new(make_list_iter(&[2])),
+    };
+    assert_eq!(a, b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+}
+
+#[test]
+fn chained_equality() {
+    let a = IteratorValue::Chained {
+        first: Box::new(make_list_iter(&[1])),
+        second: Box::new(make_list_iter(&[2])),
+        first_done: false,
+    };
+    let b = IteratorValue::Chained {
+        first: Box::new(make_list_iter(&[1])),
+        second: Box::new(make_list_iter(&[2])),
+        first_done: false,
+    };
+    assert_eq!(a, b);
+}
+
+#[test]
+fn chained_inequality_different_done() {
+    let a = IteratorValue::Chained {
+        first: Box::new(make_list_iter(&[1])),
+        second: Box::new(make_list_iter(&[2])),
+        first_done: false,
+    };
+    let b = IteratorValue::Chained {
+        first: Box::new(make_list_iter(&[1])),
+        second: Box::new(make_list_iter(&[2])),
+        first_done: true,
+    };
+    assert_ne!(a, b);
+}
+
+// from_value tests
+
+#[test]
+fn from_value_list() {
+    let val = Value::list(vec![Value::int(1), Value::int(2)]);
+    let Some(iter) = IteratorValue::from_value(&val) else {
+        panic!("list should be iterable");
+    };
+    let (item, _) = iter.next();
+    assert_eq!(item, Some(Value::int(1)));
+}
+
+#[test]
+fn from_value_range() {
+    let val = Value::Range(super::super::RangeValue {
+        start: 0,
+        end: 3,
+        step: 1,
+        inclusive: false,
+    });
+    let Some(iter) = IteratorValue::from_value(&val) else {
+        panic!("range should be iterable");
+    };
+    assert_eq!(iter.size_hint(), (3, Some(3)));
+}
+
+#[test]
+fn from_value_str() {
+    let val = Value::string("hi");
+    let Some(iter) = IteratorValue::from_value(&val) else {
+        panic!("str should be iterable");
+    };
+    let (item, _) = iter.next();
+    assert_eq!(item, Some(Value::Char('h')));
+}
+
+#[test]
+fn from_value_iterator() {
+    let inner = IteratorValue::from_range(0, 5, 1, false);
+    let val = Value::iterator(inner.clone());
+    let Some(iter) = IteratorValue::from_value(&val) else {
+        panic!("iterator should be iterable");
+    };
+    assert_eq!(iter.size_hint(), (5, Some(5)));
+}
+
+#[test]
+fn from_value_non_iterable() {
+    assert!(IteratorValue::from_value(&Value::int(42)).is_none());
+    assert!(IteratorValue::from_value(&Value::Bool(true)).is_none());
+    assert!(IteratorValue::from_value(&Value::Void).is_none());
+}

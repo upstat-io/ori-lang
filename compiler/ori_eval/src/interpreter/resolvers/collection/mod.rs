@@ -22,6 +22,12 @@ struct MethodNames {
     skip: Name,
     count: Name,
     for_each: Name,
+    enumerate: Name,
+    zip: Name,
+    chain: Name,
+    flatten: Name,
+    flat_map: Name,
+    cycle: Name,
 }
 
 impl MethodNames {
@@ -39,6 +45,12 @@ impl MethodNames {
             skip: interner.intern("skip"),
             count: interner.intern("count"),
             for_each: interner.intern("for_each"),
+            enumerate: interner.intern("enumerate"),
+            zip: interner.intern("zip"),
+            chain: interner.intern("chain"),
+            flatten: interner.intern("flatten"),
+            flat_map: interner.intern("flat_map"),
+            cycle: interner.intern("cycle"),
         }
     }
 }
@@ -92,6 +104,18 @@ impl CollectionMethodResolver {
             Some(CollectionMethod::IterForEach)
         } else if method_name == m.collect {
             Some(CollectionMethod::IterCollect)
+        } else if method_name == m.enumerate {
+            Some(CollectionMethod::IterEnumerate)
+        } else if method_name == m.zip {
+            Some(CollectionMethod::IterZip)
+        } else if method_name == m.chain {
+            Some(CollectionMethod::IterChain)
+        } else if method_name == m.flatten {
+            Some(CollectionMethod::IterFlatten)
+        } else if method_name == m.flat_map {
+            Some(CollectionMethod::IterFlatMap)
+        } else if method_name == m.cycle {
+            Some(CollectionMethod::IterCycle)
         } else {
             None
         }

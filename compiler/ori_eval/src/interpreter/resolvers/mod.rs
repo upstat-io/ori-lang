@@ -98,6 +98,18 @@ pub enum CollectionMethod {
     IterForEach,
     /// `Iterator<T>.collect() -> [T]`
     IterCollect,
+    /// `Iterator<T>.enumerate() -> Iterator<(int, T)>`
+    IterEnumerate,
+    /// `Iterator<T>.zip(other: Iterator<U>) -> Iterator<(T, U)>`
+    IterZip,
+    /// `Iterator<T>.chain(other: Iterator<T>) -> Iterator<T>`
+    IterChain,
+    /// `Iterator<Iterator<T>>.flatten() -> Iterator<T>`
+    IterFlatten,
+    /// `Iterator<T>.flat_map(f: T -> Iterator<U>) -> Iterator<U>`
+    IterFlatMap,
+    /// `Iterator<T>.cycle() -> Iterator<T>`
+    IterCycle,
 }
 
 impl CollectionMethod {
@@ -129,6 +141,12 @@ impl CollectionMethod {
                 | Self::IterFilter
                 | Self::IterTake
                 | Self::IterSkip
+                | Self::IterEnumerate
+                | Self::IterZip
+                | Self::IterChain
+                | Self::IterFlatten
+                | Self::IterFlatMap
+                | Self::IterCycle
                 | Self::IterFold
                 | Self::IterCount
                 | Self::IterFind
@@ -152,6 +170,12 @@ impl CollectionMethod {
             ("filter", Self::IterFilter),
             ("take", Self::IterTake),
             ("skip", Self::IterSkip),
+            ("enumerate", Self::IterEnumerate),
+            ("zip", Self::IterZip),
+            ("chain", Self::IterChain),
+            ("flatten", Self::IterFlatten),
+            ("flat_map", Self::IterFlatMap),
+            ("cycle", Self::IterCycle),
             ("fold", Self::IterFold),
             ("count", Self::IterCount),
             ("find", Self::IterFind),
