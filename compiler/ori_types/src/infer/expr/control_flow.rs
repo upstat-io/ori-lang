@@ -583,7 +583,7 @@ pub(crate) fn infer_for(
     guard: ExprId,
     body: ExprId,
     is_yield: bool,
-    _span: Span,
+    span: Span,
 ) -> Idx {
     // Enter scope for loop binding
     engine.enter_scope();
@@ -599,7 +599,20 @@ pub(crate) fn infer_for(
 
     let elem_ty = match tag {
         Tag::List => engine.pool().list_elem(resolved_iter),
-        Tag::Range => engine.pool().range_elem(resolved_iter),
+        Tag::Range => {
+            let elem = engine.pool().range_elem(resolved_iter);
+            if elem == Idx::FLOAT {
+                engine.push_error(TypeCheckError::unsatisfied_bound(
+                    span,
+                    "`Range<float>` does not implement `Iterable` — \
+                     floating-point ranges cannot be iterated because \
+                     float arithmetic is imprecise (use an int range \
+                     with conversion, e.g., `for i in 0..10 do i.to_float() / 10.0`)"
+                        .to_owned(),
+                ));
+            }
+            elem
+        }
         Tag::Iterator | Tag::DoubleEndedIterator => engine.pool().iterator_elem(resolved_iter),
         Tag::Map => {
             // Iterating over a map yields (key, value) tuples

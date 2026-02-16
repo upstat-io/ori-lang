@@ -442,6 +442,10 @@ fn resolve_type_with_vars(
                         return checker.pool_mut().channel(resolved_args[0]);
                     }
                     ("Range", 1) => return checker.pool_mut().range(resolved_args[0]),
+                    ("Iterator", 1) => return checker.pool_mut().iterator(resolved_args[0]),
+                    ("DoubleEndedIterator", 1) => {
+                        return checker.pool_mut().double_ended_iterator(resolved_args[0]);
+                    }
                     _ => {
                         // User-defined generic type: create Applied type
                         return checker.pool_mut().applied(*name, &resolved_args);
