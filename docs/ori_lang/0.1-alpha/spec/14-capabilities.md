@@ -382,6 +382,83 @@ Suspending context is provided by:
 
 Mock implementations are synchronous; test does not need `Suspend`.
 
+## Named Capability Sets (`capset`)
+
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § DECLARATIONS (capset_decl)
+
+A _capset_ is a named, transparent alias for a set of capabilities. Capsets are expanded to their constituent capabilities during name resolution, before type checking. A capset is not a trait, not a type, and has no runtime representation.
+
+```ori
+capset Net = Http, Dns, Tls
+capset Runtime = Clock, Random, Env
+capset WebService = Net, Runtime, Database, Suspend
+```
+
+### Usage
+
+Capsets may appear in `uses` clauses and other `capset` declarations. Capsets and individual capabilities may be mixed:
+
+```ori
+@fetch (url: str) -> Result<str, Error> uses Net, Logger, Suspend = ...
+```
+
+After expansion, `uses Net, Logger, Suspend` is equivalent to `uses Http, Dns, Tls, Logger, Suspend`.
+
+### Expansion
+
+The compiler expands capsets transitively and deduplicates the result. The expanded set uses set semantics — duplicates are eliminated and order is irrelevant:
+
+```ori
+capset Net = Http, Dns
+capset Infra = Net, Logger
+
+// Valid — `uses Infra, Http` expands to `uses Http, Dns, Logger`
+@fn () -> void uses Infra, Http = ...
+```
+
+### Restrictions
+
+A capset declaration:
+
+- Must contain at least one member
+- Must not form a cycle with other capset declarations
+- Must not share a name with a trait in the same scope
+- Members must be capability traits or other capsets
+
+A capset is not a trait. It cannot be used in `impl` blocks, `def impl` declarations, or `with...in` bindings:
+
+```ori
+// Invalid — capsets cannot be bound
+with Net = something in ...  // error
+
+// Invalid — capsets are not traits
+impl Net for SomeType { ... }  // error
+def impl Net { ... }           // error
+```
+
+### Visibility
+
+Capsets follow standard visibility rules. A `pub` capset must not reference non-accessible capabilities:
+
+```ori
+pub capset Net = Http, Dns, Tls       // Valid — all members accessible
+pub capset Bad = SomePrivateTrait      // Invalid — member not accessible
+```
+
+### Variance Interaction
+
+Capability variance operates on the expanded set:
+
+```ori
+capset Runtime = Clock, Random, Env
+
+@needs_clock () -> void uses Clock = ...
+
+@caller () -> void uses Runtime = run(
+    needs_clock(),  // Valid — Runtime includes Clock
+)
+```
+
 ## Purity
 
 Functions without `uses` are pure: no side effects, cannot suspend, safely parallelizable.
@@ -398,6 +475,10 @@ Functions without `uses` are pure: no side effects, cannot suspend, safely paral
 | E1201 | Unbound capability (no `with` or `def impl` available) |
 | E1202 | Type does not implement capability trait |
 | E1203 | `Suspend` capability cannot be explicitly bound |
+| E1220 | Cyclic capset definition |
+| E1221 | Empty capset |
+| E1222 | Capset name collides with trait name |
+| E1223 | Capset member is not a capability trait or capset |
 
 ```
 error[E0600]: function uses `Http` without declaring it

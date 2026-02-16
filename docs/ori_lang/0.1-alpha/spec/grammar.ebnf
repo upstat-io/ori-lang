@@ -191,7 +191,7 @@ c_variadic    = "," "..." .  /* C-style variadic - only valid in extern "c" bloc
 // See: 08-declarations.md
 // ============================================================================
 
-declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl | extern_block ) .
+declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl | extern_block | capset_decl ) .
 
 // --- Attributes ---
 // See: 08-declarations.md § Attributes, 24-conditional-compilation.md
@@ -236,7 +236,8 @@ comparison_op    = ">" | "<" | ">=" | "<=" | "==" | "!=" .
 // --- Capabilities ---
 // See: 14-capabilities.md
 
-uses_clause = "uses" identifier { "," identifier } .
+uses_clause  = "uses" identifier { "," identifier } .
+capset_decl  = "capset" identifier "=" identifier { "," identifier } .
 
 // --- Type Definitions ---
 // See: 08-declarations.md § Types, 06-types.md § User-Defined Types
