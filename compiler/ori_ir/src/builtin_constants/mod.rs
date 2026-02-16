@@ -11,6 +11,7 @@
 //! - `duration`: Nanosecond conversion multipliers
 //! - `size`: Byte conversion multipliers (binary 1024-based)
 //! - `ordering`: Variant tag constants
+//! - `iterator`: Internal method names for type-directed specialization
 //!
 //! Using submodules allows for scoped imports like:
 //! ```ignore
@@ -63,6 +64,17 @@ pub mod size {
     pub const BYTES_PER_GB: u64 = 1_000_000_000;
     /// Bytes per terabyte (1000^4 = 1,000,000,000,000, SI units).
     pub const BYTES_PER_TB: u64 = 1_000_000_000_000;
+}
+
+/// Internal method names injected by canonicalization.
+///
+/// These names are rewritten by the canonicalizer during type-directed
+/// specialization and consumed by the evaluator's method resolver. They
+/// are not user-facing API — users write `collect()`, and the canonicalizer
+/// rewrites to `__collect_set` when the target type is `Set<T>`.
+pub mod iterator {
+    /// Internal method name for type-directed `collect()` → `Set<T>`.
+    pub const COLLECT_SET_METHOD: &str = "__collect_set";
 }
 
 /// Ordering variant tag constants.

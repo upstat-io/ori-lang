@@ -63,7 +63,7 @@ impl MethodNames {
             last: interner.intern("last"),
             rfind: interner.intern("rfind"),
             rfold: interner.intern("rfold"),
-            collect_set: interner.intern("__collect_set"),
+            collect_set: interner.intern(ori_ir::builtin_constants::iterator::COLLECT_SET_METHOD),
         }
     }
 }

@@ -206,6 +206,10 @@ impl CollectionMethod {
             ("last", Self::IterLast),
             ("rfind", Self::IterRFind),
             ("rfold", Self::IterRFold),
+            (
+                ori_ir::builtin_constants::iterator::COLLECT_SET_METHOD,
+                Self::IterCollectSet,
+            ),
         ]
     }
 }
