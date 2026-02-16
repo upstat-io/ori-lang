@@ -139,6 +139,11 @@ pub enum IteratorValue {
     /// `source` must be double-ended. Calling `next()` on a `Reversed` iterator
     /// delegates to `source.next_back()`, and vice versa.
     Reversed { source: Box<IteratorValue> },
+    /// Repeat: infinite iterator that yields the same value on every `next()`.
+    ///
+    /// Created by the `repeat(value)` prelude function. Each call clones the
+    /// stored value. Not double-ended (infinite in one direction only).
+    Repeat { value: Box<Value> },
 }
 
 impl IteratorValue {
@@ -243,6 +248,9 @@ impl IteratorValue {
                 }
             }
 
+            // Repeat: always yields a clone of the stored value
+            IteratorValue::Repeat { value } => (Some(Value::clone(value)), self.clone()),
+
             // Adapter variants require interpreter access to call closures.
             // They must be advanced via `Interpreter::eval_iter_next()`, not
             // this pure `next()` method.
@@ -333,10 +341,12 @@ impl IteratorValue {
                 }
             }
 
-            // Map and Set are unordered — not double-ended
-            IteratorValue::Map { .. } | IteratorValue::Set { .. } => {
+            // Map, Set, and Repeat are not double-ended
+            IteratorValue::Map { .. }
+            | IteratorValue::Set { .. }
+            | IteratorValue::Repeat { .. } => {
                 unreachable!(
-                    "Map/Set iterators are not double-ended — \
+                    "Map/Set/Repeat iterators are not double-ended — \
                      caller must check is_double_ended() first"
                 )
             }
@@ -377,7 +387,7 @@ impl IteratorValue {
                 source.is_double_ended()
             }
 
-            // Map/Set (unordered) and all other adapters are not double-ended
+            // Map/Set (unordered), Repeat (infinite), and other adapters are not double-ended
             IteratorValue::Map { .. }
             | IteratorValue::Set { .. }
             | IteratorValue::TakeN { .. }
@@ -386,7 +396,8 @@ impl IteratorValue {
             | IteratorValue::Zipped { .. }
             | IteratorValue::Chained { .. }
             | IteratorValue::Flattened { .. }
-            | IteratorValue::Cycled { .. } => false,
+            | IteratorValue::Cycled { .. }
+            | IteratorValue::Repeat { .. } => false,
         }
     }
 
@@ -485,6 +496,8 @@ impl IteratorValue {
             }
             // Flattened: unknowable — items may expand or collapse
             IteratorValue::Flattened { .. } => (0, None),
+            // Repeat: always infinite
+            IteratorValue::Repeat { .. } => (usize::MAX, None),
             // Cycled: infinite if non-empty buffer, else depends on source state
             IteratorValue::Cycled { source, buffer, .. } => {
                 if source.is_none() {
@@ -547,6 +560,13 @@ impl IteratorValue {
         }
     }
 
+    /// Create an infinite repeat iterator that yields the same value forever.
+    pub fn from_repeat(value: Value) -> Self {
+        IteratorValue::Repeat {
+            value: Box::new(value),
+        }
+    }
+
     /// Convert an iterable `Value` to an `IteratorValue`, if possible.
     ///
     /// Used by `flatten` to turn each yielded value into a sub-iterator.
@@ -558,6 +578,9 @@ impl IteratorValue {
             Value::Str(s) => Some(Self::from_string(s.clone())),
             Value::Range(r) => Some(Self::from_range(r.start, r.end, r.step, r.inclusive)),
             Value::Iterator(it) => Some(it.clone()),
+            // Option<T>: Some(x) → 1-element list iterator, None → empty
+            Value::Some(v) => Some(Self::from_list(Heap::new(vec![(**v).clone()]))),
+            Value::None => Some(Self::from_list(Heap::new(Vec::new()))),
             _ => None,
         }
     }
@@ -652,6 +675,9 @@ impl fmt::Debug for IteratorValue {
             }
             IteratorValue::Reversed { source } => {
                 write!(f, "ReversedIterator({source:?})")
+            }
+            IteratorValue::Repeat { value } => {
+                write!(f, "RepeatIterator({value:?})")
             }
         }
     }
@@ -809,6 +835,7 @@ impl PartialEq for IteratorValue {
             (IteratorValue::Reversed { source: sa }, IteratorValue::Reversed { source: sb }) => {
                 sa == sb
             }
+            (IteratorValue::Repeat { value: va }, IteratorValue::Repeat { value: vb }) => va == vb,
             _ => false,
         }
     }
@@ -898,6 +925,9 @@ impl std::hash::Hash for IteratorValue {
             }
             IteratorValue::Reversed { source } => {
                 source.hash(state);
+            }
+            IteratorValue::Repeat { value } => {
+                value.hash(state);
             }
         }
     }

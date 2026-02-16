@@ -42,6 +42,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Option", "compare"),
     ("Option", "is_none"),
     ("Option", "is_some"),
+    ("Option", "iter"),
     ("Option", "ok_or"),
     ("Option", "unwrap"),
     ("Option", "unwrap_or"),

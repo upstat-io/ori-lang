@@ -93,6 +93,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Option", "flat_map"),
     ("Option", "is_none"),
     ("Option", "is_some"),
+    ("Option", "iter"),
     ("Option", "map"),
     ("Option", "or"),
     ("Option", "or_else"),
@@ -441,6 +442,7 @@ fn resolve_option_method(
     match method {
         "is_some" | "is_none" => Some(Idx::BOOL),
         "unwrap" | "expect" | "unwrap_or" => Some(inner),
+        "iter" => Some(engine.pool_mut().iterator(inner)),
         "map" | "and_then" | "flat_map" | "filter" | "or_else" => {
             Some(engine.pool_mut().fresh_var())
         }

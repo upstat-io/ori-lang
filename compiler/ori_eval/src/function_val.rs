@@ -109,6 +109,18 @@ pub fn function_val_byte(args: &[Value]) -> Result<Value, EvalError> {
     }
 }
 
+/// Create an infinite iterator that yields the same value on every `next()`.
+///
+/// Usage: `repeat(value: 42).take(count: 5).collect()` → `[42, 42, 42, 42, 42]`
+pub fn function_val_repeat(args: &[Value]) -> Result<Value, EvalError> {
+    if args.len() != 1 {
+        return Err(EvalError::new("repeat expects 1 argument"));
+    }
+    Ok(Value::iterator(ori_patterns::IteratorValue::from_repeat(
+        args[0].clone(),
+    )))
+}
+
 /// Returns the current OS thread ID as an integer.
 /// Useful for verifying parallel execution.
 ///

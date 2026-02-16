@@ -25,7 +25,8 @@ impl Interpreter<'_> {
             | IteratorValue::Range { .. }
             | IteratorValue::Map { .. }
             | IteratorValue::Set { .. }
-            | IteratorValue::Str { .. } => {
+            | IteratorValue::Str { .. }
+            | IteratorValue::Repeat { .. } => {
                 let (item, new_iter) = iter_val.next();
                 Ok((item, new_iter))
             }

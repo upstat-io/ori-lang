@@ -66,7 +66,15 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
             return engine.pool_mut().function(&[t], target);
         }
 
-        // 5. Type names used as expression-level receivers for associated functions
+        // 5. Built-in iterator constructors
+        if s == "repeat" {
+            // repeat: (T) -> Iterator<T>
+            let t = engine.pool_mut().fresh_var();
+            let iter_t = engine.pool_mut().iterator(t);
+            return engine.pool_mut().function(&[t], iter_t);
+        }
+
+        // 6. Type names used as expression-level receivers for associated functions
         //    e.g., Duration.from_seconds(s: 5), Size.from_bytes(b: 100)
         match s {
             "Duration" | "duration" => return Idx::DURATION,

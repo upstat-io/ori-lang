@@ -615,8 +615,8 @@ impl<'a> Interpreter<'a> {
     /// - Built-in enum variants like Less, Equal, Greater (Ordering type)
     pub fn register_prelude(&mut self) {
         use crate::{
-            function_val_byte, function_val_float, function_val_int, function_val_str,
-            function_val_thread_id,
+            function_val_byte, function_val_float, function_val_int, function_val_repeat,
+            function_val_str, function_val_thread_id,
         };
 
         // Type conversion functions (positional args allowed per spec)
@@ -624,6 +624,9 @@ impl<'a> Interpreter<'a> {
         self.register_function_val("int", function_val_int, "int");
         self.register_function_val("float", function_val_float, "float");
         self.register_function_val("byte", function_val_byte, "byte");
+
+        // Iterator constructors
+        self.register_function_val("repeat", function_val_repeat, "repeat");
 
         // Thread/parallel introspection (internal use)
         self.register_function_val("thread_id", function_val_thread_id, "thread_id");
