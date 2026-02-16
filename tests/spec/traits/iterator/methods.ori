@@ -319,3 +319,184 @@ use std.testing { assert, assert_eq }
 @test_str_iter_count tests @str_iter_count () -> void = run(
     assert_eq(actual: str_iter_count(), expected: 5),
 )
+
+// =============================================================================
+// Phase 2C/2D — enumerate, zip, chain, flatten, flat_map, cycle
+// =============================================================================
+
+// enumerate: pair each item with its 0-based index
+@iter_enumerate () -> [(int, int)] = run(
+    [10, 20, 30].iter().enumerate().collect(),
+)
+
+@test_iter_enumerate tests @iter_enumerate () -> void = run(
+    assert_eq(actual: iter_enumerate(), expected: [(0, 10), (1, 20), (2, 30)]),
+)
+
+// enumerate: empty list
+@iter_enumerate_empty () -> [(int, int)] = run(
+    let empty: [int] = [],
+    empty.iter().enumerate().collect(),
+)
+
+@test_iter_enumerate_empty tests @iter_enumerate_empty () -> void = run(
+    assert_eq(actual: iter_enumerate_empty(), expected: []),
+)
+
+// zip: equal length
+@iter_zip_equal () -> [(int, int)] = run(
+    let a = [1, 2, 3].iter(),
+    let b = [4, 5, 6].iter(),
+    a.zip(other: b).collect(),
+)
+
+@test_iter_zip_equal tests @iter_zip_equal () -> void = run(
+    assert_eq(actual: iter_zip_equal(), expected: [(1, 4), (2, 5), (3, 6)]),
+)
+
+// zip: unequal length — stops at shorter
+@iter_zip_unequal () -> [(int, int)] = run(
+    let a = [1, 2].iter(),
+    let b = [10, 20, 30].iter(),
+    a.zip(other: b).collect(),
+)
+
+@test_iter_zip_unequal tests @iter_zip_unequal () -> void = run(
+    assert_eq(actual: iter_zip_unequal(), expected: [(1, 10), (2, 20)]),
+)
+
+// zip: empty
+@iter_zip_empty () -> [(int, int)] = run(
+    let empty: [int] = [],
+    let b = [1, 2].iter(),
+    empty.iter().zip(other: b).collect(),
+)
+
+@test_iter_zip_empty tests @iter_zip_empty () -> void = run(
+    assert_eq(actual: iter_zip_empty(), expected: []),
+)
+
+// chain: basic
+@iter_chain () -> [int] = run(
+    let a = [1, 2].iter(),
+    let b = [3, 4, 5].iter(),
+    a.chain(other: b).collect(),
+)
+
+@test_iter_chain tests @iter_chain () -> void = run(
+    assert_eq(actual: iter_chain(), expected: [1, 2, 3, 4, 5]),
+)
+
+// chain: empty first
+@iter_chain_empty_first () -> [int] = run(
+    let empty: [int] = [],
+    let b = [1, 2].iter(),
+    empty.iter().chain(other: b).collect(),
+)
+
+@test_iter_chain_empty_first tests @iter_chain_empty_first () -> void = run(
+    assert_eq(actual: iter_chain_empty_first(), expected: [1, 2]),
+)
+
+// chain: empty second
+@iter_chain_empty_second () -> [int] = run(
+    let a = [1, 2].iter(),
+    let empty: [int] = [],
+    a.chain(other: empty.iter()).collect(),
+)
+
+@test_iter_chain_empty_second tests @iter_chain_empty_second () -> void = run(
+    assert_eq(actual: iter_chain_empty_second(), expected: [1, 2]),
+)
+
+// chain + filter
+@iter_chain_filter () -> [int] = run(
+    let a = [1, 2, 3].iter(),
+    let b = [4, 5, 6].iter(),
+    a.chain(other: b).filter(predicate: x -> x > 2).collect(),
+)
+
+@test_iter_chain_filter tests @iter_chain_filter () -> void = run(
+    assert_eq(actual: iter_chain_filter(), expected: [3, 4, 5, 6]),
+)
+
+// flatten: list of lists via map + flatten
+@iter_flatten () -> [int] = run(
+    [[1, 2], [3], [4, 5]].iter()
+        .map(transform: sub -> sub.iter())
+        .flatten()
+        .collect(),
+)
+
+@test_iter_flatten tests @iter_flatten () -> void = run(
+    assert_eq(actual: iter_flatten(), expected: [1, 2, 3, 4, 5]),
+)
+
+// flatten: empty outer
+@iter_flatten_empty () -> [int] = run(
+    let empty: [[int]] = [],
+    empty.iter()
+        .map(transform: sub -> sub.iter())
+        .flatten()
+        .collect(),
+)
+
+@test_iter_flatten_empty tests @iter_flatten_empty () -> void = run(
+    assert_eq(actual: iter_flatten_empty(), expected: []),
+)
+
+// flatten: empty inner lists
+@iter_flatten_empty_inner () -> [int] = run(
+    let empty1: [int] = [],
+    let empty2: [int] = [],
+    [empty1, [1], empty2, [2]].iter()
+        .map(transform: sub -> sub.iter())
+        .flatten()
+        .collect(),
+)
+
+@test_iter_flatten_empty_inner tests @iter_flatten_empty_inner () -> void = run(
+    assert_eq(actual: iter_flatten_empty_inner(), expected: [1, 2]),
+)
+
+// flat_map: expand each item
+@iter_flat_map () -> [int] = run(
+    [1, 2, 3].iter()
+        .flat_map(transform: x -> [x, x * 10].iter())
+        .collect(),
+)
+
+@test_iter_flat_map tests @iter_flat_map () -> void = run(
+    assert_eq(actual: iter_flat_map(), expected: [1, 10, 2, 20, 3, 30]),
+)
+
+// flat_map: empty
+@iter_flat_map_empty () -> [int] = run(
+    let empty: [int] = [],
+    empty.iter()
+        .flat_map(transform: x -> [x, x].iter())
+        .collect(),
+)
+
+@test_iter_flat_map_empty tests @iter_flat_map_empty () -> void = run(
+    assert_eq(actual: iter_flat_map_empty(), expected: []),
+)
+
+// cycle + take
+@iter_cycle_take () -> [int] = run(
+    [1, 2, 3].iter().cycle().take(count: 7).collect(),
+)
+
+@test_iter_cycle_take tests @iter_cycle_take () -> void = run(
+    assert_eq(actual: iter_cycle_take(), expected: [1, 2, 3, 1, 2, 3, 1]),
+)
+
+// cycle: empty yields nothing
+@iter_cycle_empty () -> [int] = run(
+    let empty: [int] = [],
+    empty.iter().cycle().take(count: 5).collect(),
+)
+
+@test_iter_cycle_empty tests @iter_cycle_empty () -> void = run(
+    assert_eq(actual: iter_cycle_empty(), expected: []),
+)

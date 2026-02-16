@@ -97,6 +97,38 @@ pub enum IteratorValue {
         source: Box<IteratorValue>,
         remaining: usize,
     },
+    /// Enumerate adapter: pairs each item with its 0-based index.
+    Enumerated {
+        source: Box<IteratorValue>,
+        index: usize,
+    },
+    /// Zip adapter: yields `(left_item, right_item)` tuples until either exhausts.
+    Zipped {
+        left: Box<IteratorValue>,
+        right: Box<IteratorValue>,
+    },
+    /// Chain adapter: yields all items from `first`, then all from `second`.
+    Chained {
+        first: Box<IteratorValue>,
+        second: Box<IteratorValue>,
+        first_done: bool,
+    },
+    /// Flatten adapter: yields items from nested iterators.
+    ///
+    /// `source` yields iterable values; `inner` is the current sub-iterator.
+    Flattened {
+        source: Box<IteratorValue>,
+        inner: Option<Box<IteratorValue>>,
+    },
+    /// Cycle adapter: replays items infinitely by buffering the first pass.
+    ///
+    /// While `source` is `Some`, items are consumed and buffered. Once exhausted,
+    /// subsequent iterations replay from `buffer` starting at `buf_pos`.
+    Cycled {
+        source: Option<Box<IteratorValue>>,
+        buffer: Vec<Value>,
+        buf_pos: usize,
+    },
 }
 
 impl IteratorValue {
@@ -201,7 +233,12 @@ impl IteratorValue {
             IteratorValue::Mapped { .. }
             | IteratorValue::Filtered { .. }
             | IteratorValue::TakeN { .. }
-            | IteratorValue::SkipN { .. } => {
+            | IteratorValue::SkipN { .. }
+            | IteratorValue::Enumerated { .. }
+            | IteratorValue::Zipped { .. }
+            | IteratorValue::Chained { .. }
+            | IteratorValue::Flattened { .. }
+            | IteratorValue::Cycled { .. } => {
                 unreachable!(
                     "adapter iterators must be advanced via Interpreter::eval_iter_next(), \
                      not IteratorValue::next()"
@@ -262,6 +299,55 @@ impl IteratorValue {
                 let upper = src_upper.map(|u| u.saturating_sub(*remaining));
                 (lower, upper)
             }
+            // Enumerated: 1:1 with source
+            IteratorValue::Enumerated { source, .. } => source.size_hint(),
+            // Zipped: limited by the shorter side
+            IteratorValue::Zipped { left, right } => {
+                let (l_lo, l_up) = left.size_hint();
+                let (r_lo, r_up) = right.size_hint();
+                let lower = l_lo.min(r_lo);
+                let upper = match (l_up, r_up) {
+                    (Some(l), Some(r)) => Some(l.min(r)),
+                    (Some(l), None) => Some(l),
+                    (None, Some(r)) => Some(r),
+                    (None, None) => None,
+                };
+                (lower, upper)
+            }
+            // Chained: sum of both sides
+            IteratorValue::Chained {
+                first,
+                second,
+                first_done,
+            } => {
+                if *first_done {
+                    return second.size_hint();
+                }
+                let (f_lo, f_up) = first.size_hint();
+                let (s_lo, s_up) = second.size_hint();
+                let lower = f_lo.saturating_add(s_lo);
+                let upper = match (f_up, s_up) {
+                    (Some(f), Some(s)) => f.checked_add(s),
+                    _ => None,
+                };
+                (lower, upper)
+            }
+            // Flattened: unknowable — items may expand or collapse
+            IteratorValue::Flattened { .. } => (0, None),
+            // Cycled: infinite if non-empty buffer, else depends on source state
+            IteratorValue::Cycled { source, buffer, .. } => {
+                if source.is_none() {
+                    if buffer.is_empty() {
+                        (0, Some(0))
+                    } else {
+                        (usize::MAX, None)
+                    }
+                } else {
+                    // Still consuming source — can't know total
+                    let (src_lo, _) = source.as_ref().map_or((0, Some(0)), |s| s.size_hint());
+                    (src_lo, None)
+                }
+            }
         }
     }
 
@@ -298,6 +384,24 @@ impl IteratorValue {
     /// Create a string character iterator.
     pub fn from_string(data: Heap<Cow<'static, str>>) -> Self {
         IteratorValue::Str { data, byte_pos: 0 }
+    }
+
+    /// Convert an iterable `Value` to an `IteratorValue`, if possible.
+    ///
+    /// Used by `flatten` to turn each yielded value into a sub-iterator.
+    /// Returns `None` for non-iterable values (int, bool, etc.).
+    pub fn from_value(val: &Value) -> Option<Self> {
+        match val {
+            Value::List(items) => Some(Self::from_list(items.clone())),
+            Value::Map(map) => Some(Self::from_map(map)),
+            Value::Str(s) => {
+                let data = Heap::new(Cow::Owned(s.to_string()));
+                Some(Self::from_string(data))
+            }
+            Value::Range(r) => Some(Self::from_range(r.start, r.end, r.step, r.inclusive)),
+            Value::Iterator(it) => Some(it.clone()),
+            _ => None,
+        }
     }
 }
 
@@ -340,6 +444,41 @@ impl fmt::Debug for IteratorValue {
                 source, remaining, ..
             } => {
                 write!(f, "SkipIterator(remaining={remaining}, {source:?})")
+            }
+            IteratorValue::Enumerated { source, index } => {
+                write!(f, "EnumeratedIterator(index={index}, {source:?})")
+            }
+            IteratorValue::Zipped { left, right } => {
+                write!(f, "ZippedIterator({left:?}, {right:?})")
+            }
+            IteratorValue::Chained {
+                first,
+                second,
+                first_done,
+            } => {
+                write!(
+                    f,
+                    "ChainedIterator(first_done={first_done}, {first:?}, {second:?})"
+                )
+            }
+            IteratorValue::Flattened { source, inner } => {
+                write!(
+                    f,
+                    "FlattenedIterator(inner={}, {source:?})",
+                    inner.is_some()
+                )
+            }
+            IteratorValue::Cycled {
+                source,
+                buffer,
+                buf_pos,
+            } => {
+                write!(
+                    f,
+                    "CycledIterator(buffered={}, buf_pos={buf_pos}, source={})",
+                    buffer.len(),
+                    source.is_some()
+                )
             }
         }
     }
@@ -429,7 +568,61 @@ impl PartialEq for IteratorValue {
                     source: sb,
                     remaining: rb,
                 },
+            )
+            | (
+                IteratorValue::Enumerated {
+                    source: sa,
+                    index: ra,
+                },
+                IteratorValue::Enumerated {
+                    source: sb,
+                    index: rb,
+                },
             ) => sa == sb && ra == rb,
+            (
+                IteratorValue::Zipped {
+                    left: la,
+                    right: ra,
+                },
+                IteratorValue::Zipped {
+                    left: lb,
+                    right: rb,
+                },
+            ) => la == lb && ra == rb,
+            (
+                IteratorValue::Chained {
+                    first: fa,
+                    second: sa,
+                    first_done: da,
+                },
+                IteratorValue::Chained {
+                    first: fb,
+                    second: sb,
+                    first_done: db,
+                },
+            ) => da == db && fa == fb && sa == sb,
+            (
+                IteratorValue::Flattened {
+                    source: sa,
+                    inner: ia,
+                },
+                IteratorValue::Flattened {
+                    source: sb,
+                    inner: ib,
+                },
+            ) => sa == sb && ia == ib,
+            (
+                IteratorValue::Cycled {
+                    source: sa,
+                    buffer: ba,
+                    buf_pos: pa,
+                },
+                IteratorValue::Cycled {
+                    source: sb,
+                    buffer: bb,
+                    buf_pos: pb,
+                },
+            ) => sa == sb && ba == bb && pa == pb,
             _ => false,
         }
     }
@@ -473,9 +666,40 @@ impl std::hash::Hash for IteratorValue {
             }
             | IteratorValue::SkipN {
                 source, remaining, ..
+            }
+            | IteratorValue::Enumerated {
+                source,
+                index: remaining,
+                ..
             } => {
                 source.hash(state);
                 remaining.hash(state);
+            }
+            IteratorValue::Zipped { left, right } => {
+                left.hash(state);
+                right.hash(state);
+            }
+            IteratorValue::Chained {
+                first,
+                second,
+                first_done,
+            } => {
+                first.hash(state);
+                second.hash(state);
+                first_done.hash(state);
+            }
+            IteratorValue::Flattened { source, inner } => {
+                source.hash(state);
+                inner.hash(state);
+            }
+            IteratorValue::Cycled {
+                source,
+                buffer,
+                buf_pos,
+            } => {
+                source.hash(state);
+                buffer.hash(state);
+                buf_pos.hash(state);
             }
         }
     }

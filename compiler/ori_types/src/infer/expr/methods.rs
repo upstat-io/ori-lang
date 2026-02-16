@@ -64,16 +64,22 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // Iterator
     ("Iterator", "all"),
     ("Iterator", "any"),
+    ("Iterator", "chain"),
     ("Iterator", "collect"),
     ("Iterator", "count"),
+    ("Iterator", "cycle"),
+    ("Iterator", "enumerate"),
     ("Iterator", "filter"),
     ("Iterator", "find"),
+    ("Iterator", "flat_map"),
+    ("Iterator", "flatten"),
     ("Iterator", "fold"),
     ("Iterator", "for_each"),
     ("Iterator", "map"),
     ("Iterator", "next"),
     ("Iterator", "skip"),
     ("Iterator", "take"),
+    ("Iterator", "zip"),
     // Option
     ("Option", "and_then"),
     ("Option", "clone"),
@@ -699,12 +705,22 @@ fn resolve_iterator_method(
             let option_elem = engine.pool_mut().option(elem);
             Some(engine.pool_mut().tuple(&[option_elem, receiver_ty]))
         }
-        // Adapters
-        "map" => {
+        // Adapters returning same Iterator<T>
+        "filter" | "take" | "skip" | "chain" | "cycle" => Some(receiver_ty),
+        // Adapters returning Iterator with fresh element type
+        "map" | "flatten" | "flat_map" => {
             let new_elem = engine.pool_mut().fresh_var();
             Some(engine.pool_mut().iterator(new_elem))
         }
-        "filter" | "take" | "skip" => Some(receiver_ty),
+        "enumerate" => {
+            let pair = engine.pool_mut().tuple(&[Idx::INT, elem]);
+            Some(engine.pool_mut().iterator(pair))
+        }
+        "zip" => {
+            let other_elem = engine.pool_mut().fresh_var();
+            let pair = engine.pool_mut().tuple(&[elem, other_elem]);
+            Some(engine.pool_mut().iterator(pair))
+        }
         // Consumers
         "fold" => Some(engine.pool_mut().fresh_var()),
         "count" => Some(Idx::INT),
