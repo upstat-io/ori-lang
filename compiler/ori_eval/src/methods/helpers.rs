@@ -66,6 +66,9 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Result", "is_err"),
     ("Result", "is_ok"),
     ("Result", "unwrap"),
+    // Set - methods and traits
+    ("Set", "iter"),
+    ("Set", "len"),
     // Size - operators and traits
     ("Size", "add"),
     ("Size", "bytes"),
