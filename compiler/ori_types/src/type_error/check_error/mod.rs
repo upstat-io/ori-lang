@@ -1300,14 +1300,18 @@ fn problem_message(problem: &TypeProblem) -> Option<String> {
             let s = if *expected == 1 { "" } else { "s" };
             Some(format!("expected {expected} argument{s}, found {found}"))
         }
-        TypeProblem::IntFloat => {
-            Some("int and float are different types; use explicit conversion".to_string())
-        }
+        TypeProblem::IntFloat { expected, found }
+        | TypeProblem::NumericTypeMismatch { expected, found } => Some(format!(
+            "expected `{expected}`, found `{found}`; use `{expected}(x)` to convert"
+        )),
         TypeProblem::NumberToString => {
-            Some("cannot use number as string; use `str()` to convert".to_string())
+            Some("cannot use number as string; use `str(x)` to convert".to_string())
         }
         TypeProblem::StringToNumber => {
-            Some("cannot use string as number; use `int()` or `float()` to convert".to_string())
+            Some("cannot use string as number; use `int(x)` or `float(x)` to convert".to_string())
+        }
+        TypeProblem::ExpectedList { .. } => {
+            Some("expected a list; wrap the value in a list: `[x]`".to_string())
         }
         TypeProblem::ExpectedOption => Some("expected an Option type".to_string()),
         TypeProblem::NeedsUnwrap { inner_type } => Some(format!(
@@ -1367,14 +1371,18 @@ fn problem_message_rich(
             let s = if *expected == 1 { "" } else { "s" };
             Some(format!("expected {expected} argument{s}, found {found}"))
         }
-        TypeProblem::IntFloat => {
-            Some("int and float are different types; use explicit conversion".to_string())
-        }
+        TypeProblem::IntFloat { expected, found }
+        | TypeProblem::NumericTypeMismatch { expected, found } => Some(format!(
+            "expected `{expected}`, found `{found}`; use `{expected}(x)` to convert"
+        )),
         TypeProblem::NumberToString => {
-            Some("cannot use number as string; use `str()` to convert".to_string())
+            Some("cannot use number as string; use `str(x)` to convert".to_string())
         }
         TypeProblem::StringToNumber => {
-            Some("cannot use string as number; use `int()` or `float()` to convert".to_string())
+            Some("cannot use string as number; use `int(x)` or `float(x)` to convert".to_string())
+        }
+        TypeProblem::ExpectedList { .. } => {
+            Some("expected a list; wrap the value in a list: `[x]`".to_string())
         }
         TypeProblem::ExpectedOption => Some("expected an Option type".to_string()),
         TypeProblem::NeedsUnwrap { inner_type } => Some(format!(

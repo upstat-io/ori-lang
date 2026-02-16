@@ -38,7 +38,13 @@ pub enum TypeProblem {
     /// Mixing int and float without explicit conversion.
     ///
     /// Example: `1 + 2.0` - int cannot implicitly convert to float.
-    IntFloat,
+    /// Carries direction so suggestions can recommend `int(x)` or `float(x)`.
+    IntFloat {
+        /// Expected type name ("int" or "float").
+        expected: &'static str,
+        /// Found type name ("float" or "int").
+        found: &'static str,
+    },
 
     /// Trying to use a number where a string is expected.
     ///
@@ -316,7 +322,7 @@ impl TypeProblem {
     /// Get a short description of this problem.
     pub fn description(&self) -> &'static str {
         match self {
-            Self::IntFloat => "int and float are different types",
+            Self::IntFloat { .. } => "int and float are different types",
             Self::NumberToString => "cannot use number as string",
             Self::StringToNumber => "cannot use string as number",
             Self::NumericTypeMismatch { .. } => "numeric type mismatch",
@@ -364,7 +370,13 @@ impl TypeProblem {
     /// Returns a short phrase that can be displayed after the error message.
     pub fn hint(&self) -> Option<&'static str> {
         match self {
-            Self::IntFloat => Some("use `to_float()` or `to_int()` for explicit conversion"),
+            Self::IntFloat { expected, .. } => {
+                if *expected == "int" {
+                    Some("use `int(x)` to convert float to int")
+                } else {
+                    Some("use `float(x)` to convert int to float")
+                }
+            }
             Self::NumberToString => Some("use `to_str()` to convert to string"),
             Self::StringToNumber => Some("use `parse()` to convert string to number"),
 
@@ -405,7 +417,7 @@ impl TypeProblem {
     pub fn is_numeric(&self) -> bool {
         matches!(
             self,
-            Self::IntFloat
+            Self::IntFloat { .. }
                 | Self::NumberToString
                 | Self::StringToNumber
                 | Self::NumericTypeMismatch { .. }

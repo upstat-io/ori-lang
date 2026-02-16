@@ -170,7 +170,10 @@ fn text_suggestions_go_to_suggestions() {
         Span::new(0, 10),
         Idx::INT,
         Idx::FLOAT,
-        vec![ori_types::TypeProblem::IntFloat],
+        vec![ori_types::TypeProblem::IntFloat {
+            expected: "int",
+            found: "float",
+        }],
         ErrorContext::default(),
     );
 
@@ -181,8 +184,8 @@ fn text_suggestions_go_to_suggestions() {
         "text-only suggestions should be in diag.suggestions"
     );
     assert!(
-        diag.suggestions.iter().any(|s| s.contains("to_float")),
-        "should suggest to_float: {:?}",
+        diag.suggestions.iter().any(|s| s.contains("int(x)")),
+        "should suggest int(x): {:?}",
         diag.suggestions
     );
 }
