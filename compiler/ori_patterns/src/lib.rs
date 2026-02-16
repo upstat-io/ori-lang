@@ -137,6 +137,7 @@ pub use errors::{
     spread_requires_struct,
     tuple_index_out_of_bounds,
     tuple_pattern_mismatch,
+    unbounded_range_eager,
     unbounded_range_length,
     undefined_const,
     undefined_function,
