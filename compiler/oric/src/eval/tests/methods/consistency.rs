@@ -157,7 +157,6 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("Duration", "subtract"),
     // Option — eval has trait methods typeck resolves via traits
     ("Option", "compare"),
-    ("Option", "ok_or"),
     // Ordering — no extras needed (all in typeck)
     // Result — eval has trait methods typeck resolves via traits
     ("Result", "compare"),

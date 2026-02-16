@@ -220,17 +220,11 @@ pub fn dispatch_option_method(
     // Iterable: Some(x) → 1-element list iterator, None → empty iterator
     } else if method == n.iter {
         require_args("iter", 0, args.len())?;
-        let items = match &receiver {
-            Value::Some(v) => vec![(**v).clone()],
-            _ => Vec::new(),
-        };
-        // Create via Value::list to get a Heap, then destructure
-        let Value::List(heap) = Value::list(items) else {
-            unreachable!()
-        };
-        Ok(Value::iterator(ori_patterns::IteratorValue::from_list(
-            heap,
-        )))
+        // from_value handles Some → 1-element and None → empty iterator
+        match ori_patterns::IteratorValue::from_value(&receiver) {
+            Some(iter) => Ok(Value::iterator(iter)),
+            None => unreachable!("Option values are always iterable"),
+        }
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Option").into())
     }
