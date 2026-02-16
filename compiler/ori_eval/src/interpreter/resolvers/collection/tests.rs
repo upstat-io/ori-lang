@@ -66,7 +66,7 @@ fn test_int_not_collection() {
 
 /// Helper: create an iterator Value for testing resolution.
 fn make_iter_value() -> Value {
-    Value::iterator(IteratorValue::from_range(0, 10, 1, false))
+    Value::iterator(IteratorValue::from_range(0, Some(10), 1, false))
 }
 
 /// Helper: resolve a method on an iterator value.

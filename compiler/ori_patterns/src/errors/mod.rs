@@ -718,10 +718,10 @@ pub fn range_bound_not_int(bound: &str) -> EvalError {
     EvalError::new(format!("range {bound} must be an integer"))
 }
 
-/// Unbounded range end.
+/// Cannot compute length of unbounded range.
 #[cold]
-pub fn unbounded_range_end() -> EvalError {
-    EvalError::new("unbounded range end")
+pub fn unbounded_range_length() -> EvalError {
+    EvalError::new("cannot compute length of unbounded range")
 }
 
 /// Map keys must be hashable types (primitives, tuples of hashables).

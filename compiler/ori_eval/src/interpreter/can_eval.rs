@@ -27,8 +27,7 @@ use smallvec::SmallVec;
 use super::Interpreter;
 use crate::errors::{
     await_not_supported, hash_outside_index, map_key_not_hashable, non_exhaustive_match,
-    parse_error, range_bound_not_int, self_outside_method, unbounded_range_end, undefined_const,
-    undefined_function,
+    parse_error, range_bound_not_int, self_outside_method, undefined_const, undefined_function,
 };
 use crate::exec::expr;
 use crate::{
@@ -784,11 +783,13 @@ impl Interpreter<'_> {
             0
         };
         let end_val = if end.is_valid() {
-            self.eval_can(end)?
-                .as_int()
-                .ok_or_else(|| ControlAction::from(range_bound_not_int("end")))?
+            Some(
+                self.eval_can(end)?
+                    .as_int()
+                    .ok_or_else(|| ControlAction::from(range_bound_not_int("end")))?,
+            )
         } else {
-            return Err(unbounded_range_end().into());
+            None
         };
         let step_val = if step.is_valid() {
             self.eval_can(step)?
@@ -798,14 +799,21 @@ impl Interpreter<'_> {
             1
         };
 
-        if inclusive {
-            Ok(Value::Range(RangeValue::inclusive_with_step(
-                start_val, end_val, step_val,
-            )))
-        } else {
-            Ok(Value::Range(RangeValue::exclusive_with_step(
-                start_val, end_val, step_val,
-            )))
+        match end_val {
+            Some(end) => {
+                if inclusive {
+                    Ok(Value::Range(RangeValue::inclusive_with_step(
+                        start_val, end, step_val,
+                    )))
+                } else {
+                    Ok(Value::Range(RangeValue::exclusive_with_step(
+                        start_val, end, step_val,
+                    )))
+                }
+            }
+            None => Ok(Value::Range(RangeValue::unbounded_with_step(
+                start_val, step_val,
+            ))),
         }
     }
 

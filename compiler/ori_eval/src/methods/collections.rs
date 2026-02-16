@@ -168,6 +168,9 @@ pub fn dispatch_range_method(
     let n = ctx.names;
 
     if method == n.len {
+        if r.is_unbounded() {
+            return Err(ori_patterns::unbounded_range_length().into());
+        }
         len_to_value(r.len(), "range")
     } else if method == n.contains {
         require_args("contains", 1, args.len())?;

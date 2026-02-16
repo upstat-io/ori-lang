@@ -187,3 +187,122 @@ fn test_memoized_function_cache_update_no_eviction() {
     assert_eq!(memoized.cache_size(), 1);
     assert_eq!(memoized.get_cached(&args), Some(Value::int(200)));
 }
+
+// Unbounded range tests
+
+#[test]
+fn test_range_unbounded() {
+    let range = RangeValue::unbounded(0);
+    assert!(range.is_unbounded());
+    assert_eq!(range.start, 0);
+    assert_eq!(range.end, None);
+    assert_eq!(range.step, 1);
+    assert!(!range.inclusive);
+}
+
+#[test]
+fn test_range_unbounded_with_step() {
+    let range = RangeValue::unbounded_with_step(10, 3);
+    assert!(range.is_unbounded());
+    assert_eq!(range.start, 10);
+    assert_eq!(range.end, None);
+    assert_eq!(range.step, 3);
+}
+
+#[test]
+fn test_range_unbounded_negative_step() {
+    let range = RangeValue::unbounded_with_step(0, -1);
+    assert!(range.is_unbounded());
+    assert_eq!(range.step, -1);
+}
+
+#[test]
+fn test_range_unbounded_len() {
+    let range = RangeValue::unbounded(0);
+    assert_eq!(range.len(), usize::MAX);
+}
+
+#[test]
+fn test_range_unbounded_is_empty() {
+    // Unbounded ranges are never empty (step != 0)
+    let range = RangeValue::unbounded(0);
+    assert!(!range.is_empty());
+
+    let range = RangeValue::unbounded_with_step(100, -2);
+    assert!(!range.is_empty());
+}
+
+#[test]
+fn test_range_unbounded_contains_positive_step() {
+    let range = RangeValue::unbounded(0);
+    assert!(range.contains(0));
+    assert!(range.contains(1));
+    assert!(range.contains(100));
+    assert!(!range.contains(-1)); // before start
+}
+
+#[test]
+fn test_range_unbounded_contains_step_alignment() {
+    let range = RangeValue::unbounded_with_step(0, 3);
+    assert!(range.contains(0));
+    assert!(range.contains(3));
+    assert!(range.contains(6));
+    assert!(!range.contains(1)); // not aligned to step
+    assert!(!range.contains(2));
+    assert!(!range.contains(-3)); // before start
+}
+
+#[test]
+fn test_range_unbounded_contains_negative_step() {
+    let range = RangeValue::unbounded_with_step(10, -1);
+    assert!(range.contains(10));
+    assert!(range.contains(9));
+    assert!(range.contains(0));
+    assert!(range.contains(-100));
+    assert!(!range.contains(11)); // above start with negative step
+}
+
+#[test]
+fn test_range_unbounded_contains_from_nonzero() {
+    let range = RangeValue::unbounded(5);
+    assert!(range.contains(5));
+    assert!(range.contains(6));
+    assert!(range.contains(1000));
+    assert!(!range.contains(4)); // before start
+}
+
+#[test]
+fn test_range_unbounded_iter() {
+    let range = RangeValue::unbounded(0);
+    let first_5: Vec<_> = range.iter().take(5).collect();
+    assert_eq!(first_5, vec![0, 1, 2, 3, 4]);
+}
+
+#[test]
+fn test_range_unbounded_iter_with_step() {
+    let range = RangeValue::unbounded_with_step(0, 2);
+    let first_5: Vec<_> = range.iter().take(5).collect();
+    assert_eq!(first_5, vec![0, 2, 4, 6, 8]);
+}
+
+#[test]
+fn test_range_unbounded_iter_negative_step() {
+    let range = RangeValue::unbounded_with_step(0, -1);
+    let first_5: Vec<_> = range.iter().take(5).collect();
+    assert_eq!(first_5, vec![0, -1, -2, -3, -4]);
+}
+
+#[test]
+fn test_range_unbounded_iter_from_nonzero() {
+    let range = RangeValue::unbounded(100);
+    let first_3: Vec<_> = range.iter().take(3).collect();
+    assert_eq!(first_3, vec![100, 101, 102]);
+}
+
+#[test]
+fn test_range_bounded_is_not_unbounded() {
+    let range = RangeValue::exclusive(0, 5);
+    assert!(!range.is_unbounded());
+    let range = RangeValue::inclusive(0, 5);
+    assert!(!range.is_unbounded());
+}

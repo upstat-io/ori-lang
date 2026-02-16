@@ -43,7 +43,7 @@ fn list_iterator_fused() {
 
 #[test]
 fn range_iterator_exclusive() {
-    let iter = IteratorValue::from_range(0, 3, 1, false);
+    let iter = IteratorValue::from_range(0, Some(3), 1, false);
 
     let (val, iter) = iter.next();
     assert_eq!(val, Some(Value::int(0)));
@@ -57,7 +57,7 @@ fn range_iterator_exclusive() {
 
 #[test]
 fn range_iterator_inclusive() {
-    let iter = IteratorValue::from_range(1, 3, 1, true);
+    let iter = IteratorValue::from_range(1, Some(3), 1, true);
 
     let (val, iter) = iter.next();
     assert_eq!(val, Some(Value::int(1)));
@@ -71,7 +71,7 @@ fn range_iterator_inclusive() {
 
 #[test]
 fn range_iterator_negative_step() {
-    let iter = IteratorValue::from_range(3, 1, -1, false);
+    let iter = IteratorValue::from_range(3, Some(1), -1, false);
 
     let (val, iter) = iter.next();
     assert_eq!(val, Some(Value::int(3)));
@@ -84,7 +84,7 @@ fn range_iterator_negative_step() {
 #[test]
 fn range_iterator_empty() {
     // Empty range: start >= end with positive step
-    let iter = IteratorValue::from_range(5, 3, 1, false);
+    let iter = IteratorValue::from_range(5, Some(3), 1, false);
     let (val, _) = iter.next();
     assert_eq!(val, None);
 }
@@ -329,33 +329,33 @@ fn size_hint_list_empty() {
 
 #[test]
 fn size_hint_range_exclusive() {
-    let iter = IteratorValue::from_range(0, 5, 1, false);
+    let iter = IteratorValue::from_range(0, Some(5), 1, false);
     assert_eq!(iter.size_hint(), (5, Some(5)));
 }
 
 #[test]
 fn size_hint_range_inclusive() {
-    let iter = IteratorValue::from_range(0, 5, 1, true);
+    let iter = IteratorValue::from_range(0, Some(5), 1, true);
     assert_eq!(iter.size_hint(), (6, Some(6)));
 }
 
 #[test]
 fn size_hint_range_step() {
     // 0, 2, 4 → 3 items
-    let iter = IteratorValue::from_range(0, 5, 2, false);
+    let iter = IteratorValue::from_range(0, Some(5), 2, false);
     assert_eq!(iter.size_hint(), (3, Some(3)));
 }
 
 #[test]
 fn size_hint_range_negative_step() {
     // 3, 2 → 2 items (exclusive, stops before 1)
-    let iter = IteratorValue::from_range(3, 1, -1, false);
+    let iter = IteratorValue::from_range(3, Some(1), -1, false);
     assert_eq!(iter.size_hint(), (2, Some(2)));
 }
 
 #[test]
 fn size_hint_range_empty() {
-    let iter = IteratorValue::from_range(5, 3, 1, false);
+    let iter = IteratorValue::from_range(5, Some(3), 1, false);
     assert_eq!(iter.size_hint(), (0, Some(0)));
 }
 
@@ -683,7 +683,7 @@ fn from_value_list() {
 fn from_value_range() {
     let val = Value::Range(super::super::RangeValue {
         start: 0,
-        end: 3,
+        end: Some(3),
         step: 1,
         inclusive: false,
     });
@@ -705,7 +705,7 @@ fn from_value_str() {
 
 #[test]
 fn from_value_iterator() {
-    let inner = IteratorValue::from_range(0, 5, 1, false);
+    let inner = IteratorValue::from_range(0, Some(5), 1, false);
     let val = Value::iterator(inner.clone());
     let Some(iter) = IteratorValue::from_value(&val) else {
         panic!("iterator should be iterable");
@@ -851,7 +851,7 @@ fn list_interleaved_next_and_next_back() {
 #[test]
 fn range_next_back_exclusive() {
     // 0..5 by 1 → values: 0, 1, 2, 3, 4
-    let iter = IteratorValue::from_range(0, 5, 1, false);
+    let iter = IteratorValue::from_range(0, Some(5), 1, false);
 
     let (val, iter) = iter.next_back();
     assert_eq!(val, Some(Value::int(4)));
@@ -875,7 +875,7 @@ fn range_next_back_exclusive() {
 #[test]
 fn range_next_back_inclusive() {
     // 1..=3 by 1 → values: 1, 2, 3
-    let iter = IteratorValue::from_range(1, 3, 1, true);
+    let iter = IteratorValue::from_range(1, Some(3), 1, true);
 
     let (val, iter) = iter.next_back();
     assert_eq!(val, Some(Value::int(3)));
@@ -893,7 +893,7 @@ fn range_next_back_inclusive() {
 #[test]
 fn range_next_back_step() {
     // 0..10 by 3 → values: 0, 3, 6, 9
-    let iter = IteratorValue::from_range(0, 10, 3, false);
+    let iter = IteratorValue::from_range(0, Some(10), 3, false);
 
     let (val, iter) = iter.next_back();
     assert_eq!(val, Some(Value::int(9)));
@@ -914,7 +914,7 @@ fn range_next_back_step() {
 #[test]
 fn range_next_back_negative_step() {
     // 5..1 by -1 → values: 5, 4, 3, 2
-    let iter = IteratorValue::from_range(5, 1, -1, false);
+    let iter = IteratorValue::from_range(5, Some(1), -1, false);
 
     let (val, iter) = iter.next_back();
     assert_eq!(val, Some(Value::int(2)));
@@ -934,7 +934,7 @@ fn range_next_back_negative_step() {
 
 #[test]
 fn range_next_back_empty() {
-    let iter = IteratorValue::from_range(5, 3, 1, false);
+    let iter = IteratorValue::from_range(5, Some(3), 1, false);
     let (val, _) = iter.next_back();
     assert_eq!(val, None);
 }
@@ -942,7 +942,7 @@ fn range_next_back_empty() {
 #[test]
 fn range_interleaved_next_and_next_back() {
     // 0..5 by 1 → values: 0, 1, 2, 3, 4
-    let iter = IteratorValue::from_range(0, 5, 1, false);
+    let iter = IteratorValue::from_range(0, Some(5), 1, false);
 
     let (val, iter) = iter.next();
     assert_eq!(val, Some(Value::int(0)));
@@ -967,7 +967,7 @@ fn range_interleaved_next_and_next_back() {
 #[test]
 fn range_interleaved_step() {
     // 0..10 by 3 → values: 0, 3, 6, 9
-    let iter = IteratorValue::from_range(0, 10, 3, false);
+    let iter = IteratorValue::from_range(0, Some(10), 3, false);
 
     let (val, iter) = iter.next();
     assert_eq!(val, Some(Value::int(0)));
@@ -1055,7 +1055,7 @@ fn str_interleaved_next_and_next_back() {
 #[test]
 fn is_double_ended_source_variants() {
     assert!(make_list_iter(&[1, 2]).is_double_ended());
-    assert!(IteratorValue::from_range(0, 5, 1, false).is_double_ended());
+    assert!(IteratorValue::from_range(0, Some(5), 1, false).is_double_ended());
 
     let data = Heap::new(Cow::Borrowed("abc"));
     assert!(IteratorValue::from_string(data).is_double_ended());
@@ -1159,7 +1159,7 @@ fn size_hint_after_next_back() {
 
 #[test]
 fn size_hint_range_after_next_back() {
-    let iter = IteratorValue::from_range(0, 10, 3, false); // 0, 3, 6, 9
+    let iter = IteratorValue::from_range(0, Some(10), 3, false); // 0, 3, 6, 9
     assert_eq!(iter.size_hint(), (4, Some(4)));
 
     let (_, iter) = iter.next_back(); // removes 9
@@ -1188,7 +1188,7 @@ fn reversed_size_hint_delegates_to_source() {
 
 #[test]
 fn reversed_size_hint_range() {
-    let iter = IteratorValue::from_range(0, 10, 2, false); // 0, 2, 4, 6, 8
+    let iter = IteratorValue::from_range(0, Some(10), 2, false); // 0, 2, 4, 6, 8
     let reversed = IteratorValue::Reversed {
         source: Box::new(iter),
     };
@@ -1328,4 +1328,142 @@ fn repeat_not_equal_to_other_variant() {
     let repeat = IteratorValue::from_repeat(Value::int(1));
     let list = make_list_iter(&[1]);
     assert_ne!(repeat, list);
+}
+
+// ── Unbounded range iterator tests ──────────────────────────────────
+
+#[test]
+fn unbounded_range_next_always_yields() {
+    let iter = IteratorValue::from_range(0, None, 1, false);
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(0)));
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(1)));
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(2)));
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(3)));
+    let (val, _) = iter.next();
+    assert_eq!(val, Some(Value::int(4)));
+}
+
+#[test]
+fn unbounded_range_never_exhausts() {
+    let mut iter = IteratorValue::from_range(0, None, 1, false);
+    for i in 0..100 {
+        let (val, next) = iter.next();
+        assert_eq!(val, Some(Value::int(i)));
+        iter = next;
+    }
+}
+
+#[test]
+fn unbounded_range_with_step() {
+    let iter = IteratorValue::from_range(0, None, 3, false);
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(0)));
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(3)));
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(6)));
+    let (val, _) = iter.next();
+    assert_eq!(val, Some(Value::int(9)));
+}
+
+#[test]
+fn unbounded_range_negative_step() {
+    let iter = IteratorValue::from_range(0, None, -1, false);
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(0)));
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(-1)));
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(-2)));
+    let (val, _) = iter.next();
+    assert_eq!(val, Some(Value::int(-3)));
+}
+
+#[test]
+fn unbounded_range_from_nonzero() {
+    let iter = IteratorValue::from_range(100, None, 1, false);
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(100)));
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(101)));
+    let (val, _) = iter.next();
+    assert_eq!(val, Some(Value::int(102)));
+}
+
+#[test]
+fn unbounded_range_not_double_ended() {
+    let iter = IteratorValue::from_range(0, None, 1, false);
+    assert!(!iter.is_double_ended());
+}
+
+#[test]
+fn unbounded_range_size_hint() {
+    let iter = IteratorValue::from_range(0, None, 1, false);
+    assert_eq!(iter.size_hint(), (usize::MAX, None));
+}
+
+#[test]
+fn unbounded_range_size_hint_with_step() {
+    let iter = IteratorValue::from_range(0, None, 5, false);
+    assert_eq!(iter.size_hint(), (usize::MAX, None));
+}
+
+#[test]
+fn unbounded_range_debug_format() {
+    let iter = IteratorValue::from_range(0, None, 1, false);
+    let debug = format!("{iter:?}");
+    assert!(debug.contains("RangeIterator(0..)"));
+}
+
+#[test]
+fn unbounded_range_equality() {
+    let a = IteratorValue::from_range(0, None, 1, false);
+    let b = IteratorValue::from_range(0, None, 1, false);
+    assert_eq!(a, b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+}
+
+#[test]
+fn unbounded_range_inequality_different_start() {
+    let a = IteratorValue::from_range(0, None, 1, false);
+    let b = IteratorValue::from_range(5, None, 1, false);
+    assert_ne!(a, b);
+}
+
+#[test]
+fn unbounded_range_inequality_different_step() {
+    let a = IteratorValue::from_range(0, None, 1, false);
+    let b = IteratorValue::from_range(0, None, 2, false);
+    assert_ne!(a, b);
+}
+
+#[test]
+fn unbounded_vs_bounded_range_inequality() {
+    let unbounded = IteratorValue::from_range(0, None, 1, false);
+    let bounded = IteratorValue::from_range(0, Some(100), 1, false);
+    assert_ne!(unbounded, bounded);
+}
+
+#[test]
+fn from_value_unbounded_range() {
+    let val = Value::Range(super::super::RangeValue {
+        start: 0,
+        end: None,
+        step: 1,
+        inclusive: false,
+    });
+    let Some(iter) = IteratorValue::from_value(&val) else {
+        panic!("unbounded range should be iterable");
+    };
+    assert_eq!(iter.size_hint(), (usize::MAX, None));
+    let (item, _) = iter.next();
+    assert_eq!(item, Some(Value::int(0)));
 }

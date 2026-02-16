@@ -137,7 +137,7 @@ pub use errors::{
     spread_requires_struct,
     tuple_index_out_of_bounds,
     tuple_pattern_mismatch,
-    unbounded_range_end,
+    unbounded_range_length,
     undefined_const,
     undefined_function,
     undefined_variable,
@@ -335,10 +335,18 @@ impl Iterable {
     /// Try to convert a Value into an Iterable.
     ///
     /// Returns an error if the value is neither a list nor a range.
+    /// Unbounded ranges are rejected since patterns require finite iteration.
     pub fn try_from_value(value: Value) -> Result<Self, EvalError> {
         match value {
             Value::List(list) => Ok(Iterable::List(list)),
-            Value::Range(range) => Ok(Iterable::Range(range)),
+            Value::Range(range) => {
+                if range.is_unbounded() {
+                    return Err(EvalError::new(
+                        "cannot use unbounded range in pattern context (use .iter().take() instead)",
+                    ));
+                }
+                Ok(Iterable::Range(range))
+            }
             _ => Err(EvalError::new(format!(
                 "expected a list or range, got {}",
                 value.type_name()
@@ -361,10 +369,13 @@ impl Iterable {
         match self {
             Iterable::List(list) => IterableIter::List(list.iter().cloned()),
             Iterable::Range(range) => {
+                // Unbounded ranges are rejected in try_from_value, so end is always Some.
+                // Use unwrap_or(0) as a fallback — unreachable in practice.
+                let end_val = range.end.unwrap_or(range.start);
                 let end = if range.inclusive {
-                    range.end + 1
+                    end_val + 1
                 } else {
-                    range.end
+                    end_val
                 };
                 IterableIter::Range((range.start..end).map(Value::int as fn(i64) -> Value))
             }

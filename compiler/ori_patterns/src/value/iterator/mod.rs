@@ -55,9 +55,11 @@ pub enum IteratorValue {
         back: usize,
     },
     /// Iterator over an integer range.
+    ///
+    /// When `end` is `None`, the range is unbounded (infinite in the step direction).
     Range {
         current: i64,
-        end: i64,
+        end: Option<i64>,
         step: i64,
         inclusive: bool,
     },
@@ -177,16 +179,22 @@ impl IteratorValue {
                 step,
                 inclusive,
             } => {
-                let in_bounds = if *inclusive {
-                    if *step > 0 {
-                        *current <= *end
-                    } else {
-                        *current >= *end
+                let in_bounds = match end {
+                    // Unbounded: always in bounds (if step != 0)
+                    None => *step != 0,
+                    Some(end_val) => {
+                        if *inclusive {
+                            if *step > 0 {
+                                *current <= *end_val
+                            } else {
+                                *current >= *end_val
+                            }
+                        } else if *step > 0 {
+                            *current < *end_val
+                        } else {
+                            *current > *end_val
+                        }
                     }
-                } else if *step > 0 {
-                    *current < *end
-                } else {
-                    *current > *end
                 };
 
                 if in_bounds {
@@ -303,7 +311,13 @@ impl IteratorValue {
                 step,
                 inclusive,
             } => {
-                let n = range_len(*current, *end, *step, *inclusive);
+                // Safety: unbounded range iterators are not double-ended —
+                // caller must check is_double_ended() first.
+                let Some(&end_val) = end.as_ref() else {
+                    debug_assert!(false, "next_back() called on unbounded range");
+                    return (None, self.clone());
+                };
+                let n = range_len(*current, end_val, *step, *inclusive);
                 if n == 0 {
                     return (None, self.clone());
                 }
@@ -315,7 +329,7 @@ impl IteratorValue {
                 let last = current + (n as i64 - 1) * step;
                 let new_iter = IteratorValue::Range {
                     current: *current,
-                    end: last,
+                    end: Some(last),
                     step: *step,
                     // After removing the last element, use exclusive bound at `last`
                     inclusive: false,
@@ -378,9 +392,11 @@ impl IteratorValue {
         match self {
             // Source variants and Reversed are always double-ended
             IteratorValue::List { .. }
-            | IteratorValue::Range { .. }
             | IteratorValue::Str { .. }
             | IteratorValue::Reversed { .. } => true,
+
+            // Bounded ranges are double-ended; unbounded are not
+            IteratorValue::Range { end, .. } => end.is_some(),
 
             // Mapped/Filtered propagate from source
             IteratorValue::Mapped { source, .. } | IteratorValue::Filtered { source, .. } => {
@@ -422,10 +438,13 @@ impl IteratorValue {
                 end,
                 step,
                 inclusive,
-            } => {
-                let count = range_len(*current, *end, *step, *inclusive);
-                (count, Some(count))
-            }
+            } => match end {
+                None => (usize::MAX, None),
+                Some(end_val) => {
+                    let count = range_len(*current, *end_val, *step, *inclusive);
+                    (count, Some(count))
+                }
+            },
             IteratorValue::Map { entries, pos } => {
                 let remaining = entries.len().saturating_sub(*pos);
                 (remaining, Some(remaining))
@@ -526,7 +545,7 @@ impl IteratorValue {
     }
 
     /// Create a range iterator.
-    pub fn from_range(start: i64, end: i64, step: i64, inclusive: bool) -> Self {
+    pub fn from_range(start: i64, end: Option<i64>, step: i64, inclusive: bool) -> Self {
         IteratorValue::Range {
             current: start,
             end,
@@ -607,7 +626,10 @@ impl fmt::Debug for IteratorValue {
                 ..
             } => {
                 let op = if *inclusive { "..=" } else { ".." };
-                write!(f, "RangeIterator({current}{op}{end})")
+                match end {
+                    Some(end_val) => write!(f, "RangeIterator({current}{op}{end_val})"),
+                    None => write!(f, "RangeIterator({current}{op})"),
+                }
             }
             IteratorValue::Map { pos, entries } => {
                 write!(f, "MapIterator(pos={}, len={})", pos, entries.len())
