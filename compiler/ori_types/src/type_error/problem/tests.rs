@@ -2,7 +2,14 @@ use super::*;
 
 #[test]
 fn problem_severity() {
-    assert_eq!(TypeProblem::IntFloat.severity(), Severity::Error);
+    assert_eq!(
+        TypeProblem::IntFloat {
+            expected: "int",
+            found: "float"
+        }
+        .severity(),
+        Severity::Error
+    );
     assert_eq!(
         TypeProblem::FieldTypo {
             attempted: Name::from_raw(1),
@@ -17,7 +24,11 @@ fn problem_severity() {
 #[test]
 fn problem_descriptions() {
     assert_eq!(
-        TypeProblem::IntFloat.description(),
+        TypeProblem::IntFloat {
+            expected: "int",
+            found: "float"
+        }
+        .description(),
         "int and float are different types"
     );
     assert_eq!(
@@ -32,7 +43,12 @@ fn problem_descriptions() {
 
 #[test]
 fn problem_hints() {
-    assert!(TypeProblem::IntFloat.hint().is_some());
+    assert!(TypeProblem::IntFloat {
+        expected: "int",
+        found: "float"
+    }
+    .hint()
+    .is_some());
     assert!(TypeProblem::NeedsUnwrap {
         inner_type: Idx::INT
     }
@@ -42,8 +58,16 @@ fn problem_hints() {
 
 #[test]
 fn problem_categories() {
-    assert!(TypeProblem::IntFloat.is_numeric());
-    assert!(!TypeProblem::IntFloat.is_function_related());
+    assert!(TypeProblem::IntFloat {
+        expected: "int",
+        found: "float"
+    }
+    .is_numeric());
+    assert!(!TypeProblem::IntFloat {
+        expected: "int",
+        found: "float"
+    }
+    .is_function_related());
 
     assert!(TypeProblem::WrongArity {
         expected: 1,

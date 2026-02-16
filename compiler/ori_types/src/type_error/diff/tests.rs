@@ -31,7 +31,7 @@ fn diff_int_float() {
     let pool = Pool::new();
     let problems = diff_types(&pool, Idx::INT, Idx::FLOAT);
     assert_eq!(problems.len(), 1);
-    assert!(matches!(problems[0], TypeProblem::IntFloat));
+    assert!(matches!(problems[0], TypeProblem::IntFloat { .. }));
 }
 
 #[test]

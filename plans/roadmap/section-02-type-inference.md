@@ -1,7 +1,7 @@
 ---
 section: 2
 title: Complete Type Inference
-status: in-progress
+status: complete
 tier: 1
 goal: Full Hindley-Milner type inference
 spec:
@@ -16,7 +16,7 @@ sections:
     status: complete
   - id: "2.3"
     title: Type Error Improvements
-    status: in-progress
+    status: complete
   - id: "2.4"
     title: Section Completion Checklist
     status: complete
@@ -28,7 +28,7 @@ sections:
 
 > **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`
 
-**Status**: In progress — §2.3 has remaining work on type conversion suggestions (`int(x)`, `float(x)`, etc.). Core inference complete: 3,792 Rust tests in ori_types (all pass), 101 Ori spec tests across inference/bindings/lambdas/collections (all pass), 6 compile-fail tests pass, 5 skipped (conversion hints).
+**Status**: Complete — Full Hindley-Milner inference with actionable type error messages. 4,078 Rust tests in workspace (all pass), 101 Ori spec tests across inference/bindings/lambdas/collections (all pass), all 11 compile-fail tests pass including 5 conversion hint tests (`int(x)`, `float(x)`, `str(x)`, `byte(x)`, `[x]`).
 
 ---
 
@@ -82,12 +82,12 @@ sections:
   - [x] **Rust Tests**: `ori_types/src/` — 20+ type error tests
   - [x] **Ori Tests**: `tests/compile-fail/type_mismatch_arg.ori` — 1 test (passes)
 
-- [ ] **Implement**: Type conversion hints — spec/06-types.md § Type Errors [partial]
+- [x] **Implement**: Type conversion hints — spec/06-types.md § Type Errors [done] (2026-02-16)
   - [x] **Implement**: Edit-distance typo suggestions ("did you mean?") [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/env.rs` — 21 tests including edit distance for typo suggestions
   - [x] **Ori Tests**: `tests/compile-fail/type_hints.ori` — 5 non-skipped tests pass
-  - [ ] **Implement**: Conversion function suggestions in type mismatch errors (`int(x)`, `float(x)`, `str(x)`, `byte(x)`, `[x]`)
-  - [ ] **Ori Tests**: `tests/compile-fail/type_hints.ori` — 5 tests currently `#skip("conversion hints not yet implemented")`
+  - [x] **Implement**: Conversion function suggestions in type mismatch errors (`int(x)`, `float(x)`, `str(x)`, `byte(x)`, `[x]`) [done] (2026-02-16)
+  - [x] **Ori Tests**: `tests/compile-fail/type_hints.ori` — all 10 tests pass (5 conversion hints + 5 existing) [done] (2026-02-16)
 
 - [x] **Implement**: Source location in errors — spec/06-types.md § Type Errors [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/compile-fail/return_type_mismatch.ori` — 1 test (passes)

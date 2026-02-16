@@ -2,10 +2,13 @@ use super::*;
 
 #[test]
 fn int_float_suggestions() {
-    let problem = TypeProblem::IntFloat;
+    let problem = TypeProblem::IntFloat {
+        expected: "int",
+        found: "float",
+    };
     let suggestions = problem.suggestions();
-    assert_eq!(suggestions.len(), 2);
-    assert!(suggestions[0].message.contains("to_float"));
+    assert_eq!(suggestions.len(), 1);
+    assert!(suggestions[0].message.contains("int(x)"));
 }
 
 #[test]
@@ -45,7 +48,10 @@ fn suggestion_priority_sorting() {
 
 #[test]
 fn top_suggestion() {
-    let problem = TypeProblem::IntFloat;
+    let problem = TypeProblem::IntFloat {
+        expected: "float",
+        found: "int",
+    };
     let top = problem.top_suggestion();
-    assert!(top.is_some_and(|s| s.contains("to_float")));
+    assert!(top.is_some_and(|s| s.contains("float(x)")));
 }

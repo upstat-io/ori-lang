@@ -13,8 +13,6 @@
 @takes_float (x: float) -> float = x
 
 // When float is passed where int is expected, suggest int(x)
-// TODO: Implement conversion hints in type checker
-#skip("conversion hints not yet implemented")
 #compile_fail("int(x)")
 @test_float_to_int_hint tests @takes_int () -> void = run(
     let result = takes_int(x: 3.14),
@@ -22,8 +20,6 @@
 )
 
 // When int is passed where float is expected, suggest float(x)
-// TODO: Implement conversion hints in type checker
-#skip("conversion hints not yet implemented")
 #compile_fail("float(x)")
 @test_int_to_float_hint tests @takes_float () -> void = run(
     let result = takes_float(x: 42),
@@ -38,8 +34,6 @@
 @takes_byte (b: byte) -> byte = b
 
 // When int is passed where str is expected, suggest str(x)
-// TODO: Implement conversion hints in type checker
-#skip("conversion hints not yet implemented")
 #compile_fail("str(x)")
 @test_int_to_str_hint tests @takes_str () -> void = run(
     let result = takes_str(s: 42),
@@ -47,8 +41,6 @@
 )
 
 // When str is passed where byte is expected (only makes sense for single chars)
-// TODO: Implement conversion hints in type checker
-#skip("conversion hints not yet implemented")
 #compile_fail("byte(x)")
 @test_str_to_byte_hint tests @takes_byte () -> void = run(
     let result = takes_byte(b: "a"),
@@ -62,8 +54,6 @@
 @takes_list (items: [int]) -> [int] = items
 
 // When a plain value is passed where list is expected, suggest [x]
-// TODO: Implement conversion hints in type checker
-#skip("conversion hints not yet implemented")
 #compile_fail("[x]")
 @test_wrap_in_list_hint tests @takes_list () -> void = run(
     let result = takes_list(items: 42),

@@ -43,7 +43,10 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
 
         // Int vs Float
         (Tag::Int, Tag::Float) | (Tag::Float, Tag::Int) => {
-            problems.push(TypeProblem::IntFloat);
+            problems.push(TypeProblem::IntFloat {
+                expected: tag_name(exp_tag),
+                found: tag_name(found_tag),
+            });
         }
 
         // String vs Number
@@ -54,15 +57,11 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
             problems.push(TypeProblem::StringToNumber);
         }
 
-        // Byte vs Int
-        (Tag::Byte, Tag::Int) | (Tag::Int, Tag::Byte) => {
+        // Byte vs Int or Str
+        (Tag::Byte, Tag::Int | Tag::Str) | (Tag::Int | Tag::Str, Tag::Byte) => {
             problems.push(TypeProblem::NumericTypeMismatch {
-                expected: if exp_tag == Tag::Byte { "byte" } else { "int" },
-                found: if found_tag == Tag::Byte {
-                    "byte"
-                } else {
-                    "int"
-                },
+                expected: tag_name(exp_tag),
+                found: tag_name(found_tag),
             });
         }
 
