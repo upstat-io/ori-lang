@@ -10,7 +10,8 @@
 
 use ori_patterns::IteratorValue;
 
-use crate::{ControlAction, EvalError, EvalResult, Value};
+use crate::errors::wrong_arg_type;
+use crate::{ControlAction, EvalResult, Value};
 
 use super::super::resolvers::CollectionMethod;
 use super::Interpreter;
@@ -262,15 +263,9 @@ impl Interpreter<'_> {
         match val {
             Value::Int(n) => {
                 let n = n.raw();
-                usize::try_from(n).map_err(|_| {
-                    EvalError::new(format!("{method} count must be non-negative, got {n}")).into()
-                })
+                usize::try_from(n).map_err(|_| wrong_arg_type(method, "non-negative int").into())
             }
-            other => Err(EvalError::new(format!(
-                "{method} expects int argument, got {}",
-                other.type_name()
-            ))
-            .into()),
+            _ => Err(wrong_arg_type(method, "int").into()),
         }
     }
 
@@ -387,7 +382,8 @@ impl Interpreter<'_> {
 
     /// `collect()` — collect all items into a list.
     fn eval_iter_collect(&mut self, iter_val: IteratorValue) -> EvalResult {
-        let mut result = Vec::new();
+        let (lower, _) = iter_val.size_hint();
+        let mut result = Vec::with_capacity(lower);
         let mut current = iter_val;
         loop {
             let (item, new_iter) = self.eval_iter_next(current)?;

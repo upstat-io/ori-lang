@@ -12,6 +12,36 @@ use std::fmt;
 use super::heap::Heap;
 use super::Value;
 
+/// Compute the number of remaining elements in a range.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "division by non-zero step; subtraction of same-sign values"
+)]
+fn range_len(current: i64, end: i64, step: i64, inclusive: bool) -> usize {
+    if step == 0 {
+        return 0;
+    }
+    let diff = if step > 0 {
+        end.saturating_sub(current)
+    } else {
+        current.saturating_sub(end)
+    };
+    if diff < 0 {
+        return 0;
+    }
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "diff is non-negative (guarded above)"
+    )]
+    let abs_diff = diff as u64;
+    let abs_step = step.unsigned_abs();
+
+    let count = abs_diff / abs_step;
+    let has_remainder = inclusive || !abs_diff.is_multiple_of(abs_step);
+    let total = if has_remainder { count + 1 } else { count };
+    usize::try_from(total).unwrap_or(usize::MAX)
+}
+
 /// Iterator value wrapping per-collection state.
 ///
 /// Each variant carries the source collection behind a `Heap<T>` (shared,
@@ -176,6 +206,61 @@ impl IteratorValue {
                     "adapter iterators must be advanced via Interpreter::eval_iter_next(), \
                      not IteratorValue::next()"
                 )
+            }
+        }
+    }
+
+    /// Returns `(lower_bound, Option<upper_bound>)` for remaining items.
+    ///
+    /// Mirrors Rust's `Iterator::size_hint()` contract:
+    /// - `lower` is a guaranteed minimum
+    /// - `upper` is `Some(n)` when the exact or maximum count is known
+    /// - `None` upper means unbounded or unknown
+    pub fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            IteratorValue::List { items, pos } | IteratorValue::Set { items, pos } => {
+                let remaining = items.len().saturating_sub(*pos);
+                (remaining, Some(remaining))
+            }
+            IteratorValue::Range {
+                current,
+                end,
+                step,
+                inclusive,
+            } => {
+                let count = range_len(*current, *end, *step, *inclusive);
+                (count, Some(count))
+            }
+            IteratorValue::Map { entries, pos } => {
+                let remaining = entries.len().saturating_sub(*pos);
+                (remaining, Some(remaining))
+            }
+            IteratorValue::Str { data, byte_pos } => {
+                let remaining_bytes = data.len().saturating_sub(*byte_pos);
+                // Each char is 1-4 bytes in UTF-8
+                let lower = remaining_bytes.div_ceil(4);
+                (lower, Some(remaining_bytes))
+            }
+            IteratorValue::Mapped { source, .. } => {
+                // 1:1 with source
+                source.size_hint()
+            }
+            IteratorValue::Filtered { source, .. } => {
+                // Filter can drop any number of items
+                let (_, upper) = source.size_hint();
+                (0, upper)
+            }
+            IteratorValue::TakeN { source, remaining } => {
+                let (src_lower, src_upper) = source.size_hint();
+                let lower = src_lower.min(*remaining);
+                let upper = src_upper.map_or(*remaining, |u| u.min(*remaining));
+                (lower, Some(upper))
+            }
+            IteratorValue::SkipN { source, remaining } => {
+                let (src_lower, src_upper) = source.size_hint();
+                let lower = src_lower.saturating_sub(*remaining);
+                let upper = src_upper.map(|u| u.saturating_sub(*remaining));
+                (lower, upper)
             }
         }
     }

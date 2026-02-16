@@ -138,6 +138,29 @@ impl CollectionMethod {
                 | Self::IterCollect
         )
     }
+
+    /// All `Iter*` variants paired with their Ori method name.
+    ///
+    /// Single source of truth for consistency tests — any new iterator method
+    /// variant added to the enum must be added here, and the consistency test
+    /// will verify it is also wired into the resolver and dispatcher.
+    #[cfg(test)]
+    pub fn all_iterator_variants() -> &'static [(&'static str, CollectionMethod)] {
+        &[
+            ("next", Self::IterNext),
+            ("map", Self::IterMap),
+            ("filter", Self::IterFilter),
+            ("take", Self::IterTake),
+            ("skip", Self::IterSkip),
+            ("fold", Self::IterFold),
+            ("count", Self::IterCount),
+            ("find", Self::IterFind),
+            ("any", Self::IterAny),
+            ("all", Self::IterAll),
+            ("for_each", Self::IterForEach),
+            ("collect", Self::IterCollect),
+        ]
+    }
 }
 
 /// Trait for method resolvers in the chain of responsibility.
