@@ -118,7 +118,6 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("float", "debug"),
     ("float", "div"),
     ("float", "equals"),
-    ("float", "hash"),
     ("float", "mul"),
     ("float", "neg"),
     ("float", "sub"),

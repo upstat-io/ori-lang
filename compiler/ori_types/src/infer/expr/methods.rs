@@ -3,6 +3,13 @@
 use super::super::InferEngine;
 use crate::{Idx, Tag};
 
+/// Methods that are only available on `DoubleEndedIterator`, not plain `Iterator`.
+///
+/// Used by `resolve_iterator_method()` (the `if is_dei` guards) and by
+/// `infer_method_call()` / `infer_method_call_named()` (diagnostic fallback for
+/// non-DEI receivers). Single source of truth to prevent drift.
+pub const DEI_ONLY_METHODS: &[&str] = &["last", "next_back", "rev", "rfind", "rfold"];
+
 /// All built-in methods recognized by the type checker's `resolve_builtin_method()`.
 ///
 /// Used by cross-crate consistency tests to verify the type checker, evaluator,
@@ -216,7 +223,6 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("float", "equals"),
     ("float", "exp"),
     ("float", "floor"),
-    ("float", "hash"),
     ("float", "is_finite"),
     ("float", "is_infinite"),
     ("float", "is_nan"),
@@ -552,7 +558,7 @@ fn resolve_float_method(method: &str) -> Option<Idx> {
         "abs" | "sqrt" | "cbrt" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2"
         | "ln" | "log2" | "log10" | "exp" | "pow" | "min" | "max" | "clamp" | "signum"
         | "clone" => Some(Idx::FLOAT),
-        "floor" | "ceil" | "round" | "trunc" | "to_int" | "hash" => Some(Idx::INT),
+        "floor" | "ceil" | "round" | "trunc" | "to_int" => Some(Idx::INT),
         "to_str" => Some(Idx::STR),
         "is_nan" | "is_infinite" | "is_finite" | "is_normal" | "is_positive" | "is_negative"
         | "is_zero" | "equals" => Some(Idx::BOOL),
