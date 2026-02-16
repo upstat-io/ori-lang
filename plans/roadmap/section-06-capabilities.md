@@ -43,6 +43,9 @@ sections:
   - id: "6.12"
     title: Default Implementation Resolution
     status: not-started
+  - id: "6.13"
+    title: Named Capability Sets (capset)
+    status: not-started
   - id: "6.14"
     title: Intrinsics Capability
     status: not-started
@@ -363,6 +366,54 @@ Specifies resolution rules for `def impl`: conflict handling, `without def` impo
 
 ---
 
+## 6.13 Named Capability Sets (`capset`)
+
+**Proposal**: `proposals/approved/capset-proposal.md`
+
+Transparent aliases for capability sets. Expanded during name resolution before type checking. Reduces signature noise and creates stable dependency surfaces.
+
+### Implementation
+
+- [ ] **Implement**: Add `capset` keyword to lexer — grammar.ebnf § DECLARATIONS
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — `capset` token recognition
+  - [ ] **Ori Tests**: `tests/spec/capabilities/capset.ori`
+
+- [ ] **Implement**: Parse `capset_decl` — grammar.ebnf § DECLARATIONS
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/item/capset.rs` — CapsetDecl AST node parsing
+  - [ ] **Ori Tests**: `tests/spec/capabilities/capset.ori`
+
+- [ ] **Implement**: Name resolution expansion
+  - [ ] Expand capset names in `uses` clauses to constituent capabilities
+  - [ ] Transitive expansion (capsets containing capsets)
+  - [ ] Deduplication (set semantics)
+  - [ ] **Rust Tests**: `oric/src/typeck/` — capset expansion tests
+
+- [ ] **Implement**: Cycle detection
+  - [ ] Topological sort of capset definitions
+  - [ ] Error E1220 for cyclic definitions
+  - [ ] **Ori Tests**: `tests/spec/capabilities/capset-errors.ori`
+
+- [ ] **Implement**: Validation rules
+  - [ ] Error E1221: empty capset
+  - [ ] Error E1222: name collision with trait
+  - [ ] Error E1223: member is not capability or capset
+  - [ ] Warning W1220: redundant capability in `uses`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/capset-errors.ori`
+
+- [ ] **Implement**: Visibility checking
+  - [ ] `pub` capset must not reference non-accessible capabilities
+  - [ ] **Ori Tests**: `tests/spec/capabilities/capset-visibility.ori`
+
+- [ ] **Implement**: Enhanced E1200 error messages
+  - [ ] Show capset expansion context in "missing capability" errors
+  - [ ] **Rust Tests**: `oric/src/errors/` — error formatting tests
+
+- [ ] **Implement**: LSP support
+  - [ ] Show capset expansion on hover
+  - [ ] Autocomplete capset names in `uses` clauses
+
+---
+
 ## 6.14 Intrinsics Capability
 
 **Proposal**: `proposals/approved/intrinsics-capability-proposal.md`
@@ -445,11 +496,12 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
 - [ ] 6.10 Default implementations (`def impl`) — test file exists (4 tests), implementation partial
 - [ ] 6.11 Capability Composition — not started
 - [ ] 6.12 Default Implementation Resolution — not started
+- [ ] 6.13 Named Capability Sets (`capset`) — not started
 - [ ] 6.14 Intrinsics Capability — not started
 - [ ] LLVM codegen for capabilities — no test files exist
 - [ ] Full test suite: `./test-all.sh`
 
-**Exit Criteria**: Effect tracking works per spec (6.1-6.8 evaluator complete, 6.9-6.14 pending)
+**Exit Criteria**: Effect tracking works per spec (6.1-6.8 evaluator complete, 6.9-6.14 + 6.13 pending)
 **Status**: Verified 2026-02-10.
 
 **Remaining for Section 7 (Stdlib)**:
