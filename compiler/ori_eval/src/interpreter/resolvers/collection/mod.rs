@@ -28,6 +28,7 @@ struct MethodNames {
     flatten: Name,
     flat_map: Name,
     cycle: Name,
+    next_back: Name,
 }
 
 impl MethodNames {
@@ -51,6 +52,7 @@ impl MethodNames {
             flatten: interner.intern("flatten"),
             flat_map: interner.intern("flat_map"),
             cycle: interner.intern("cycle"),
+            next_back: interner.intern("next_back"),
         }
     }
 }
@@ -116,6 +118,8 @@ impl CollectionMethodResolver {
             Some(CollectionMethod::IterFlatMap)
         } else if method_name == m.cycle {
             Some(CollectionMethod::IterCycle)
+        } else if method_name == m.next_back {
+            Some(CollectionMethod::IterNextBack)
         } else {
             None
         }

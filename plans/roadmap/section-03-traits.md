@@ -439,7 +439,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
-- [ ] Proposals (3.8-3.17): Iterator Phase 1+2 complete (core next(), consumers, lazy adapters) [in-progress] (2026-02-15). Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Iterator Phase 1-3 complete (core next(), consumers, lazy adapters, next_back) [in-progress] (2026-02-16). Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
@@ -516,9 +516,9 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [ ] **LLVM Support**: LLVM codegen for iterator trait methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: `DoubleEndedIterator` trait with `next_back()` method
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — double-ended iterator bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/double_ended.ori`
+- [x] **Implement**: `DoubleEndedIterator` trait with `next_back()` method (2026-02-16)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 18 unit tests for next_back (List, Range, Str, interleaved, is_double_ended, size_hint) (2026-02-16)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/double_ended.ori` — 12 spec tests (2026-02-16)
   - [ ] **LLVM Support**: LLVM codegen for double-ended iterator methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
@@ -540,7 +540,7 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [ ] **LLVM Support**: LLVM codegen for all iterator methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
   - [x] **Phase 2C/2D**: enumerate, zip, chain, flatten, flat_map, cycle (2026-02-15)
-  - [ ] **Remaining**: DoubleEndedIterator
+  - [x] **Remaining**: DoubleEndedIterator — next_back() implemented (2026-02-16)
 
 - [ ] **Implement**: DoubleEndedIterator default methods (rev, last, rfind, rfold)
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — double-ended method type inference

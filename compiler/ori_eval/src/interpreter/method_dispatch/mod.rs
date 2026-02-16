@@ -209,6 +209,7 @@ impl Interpreter<'_> {
             | CollectionMethod::IterFlatten
             | CollectionMethod::IterFlatMap
             | CollectionMethod::IterCycle
+            | CollectionMethod::IterNextBack
             | CollectionMethod::IterFold
             | CollectionMethod::IterCount
             | CollectionMethod::IterFind

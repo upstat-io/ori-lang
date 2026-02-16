@@ -719,3 +719,397 @@ fn from_value_non_iterable() {
     assert!(IteratorValue::from_value(&Value::Bool(true)).is_none());
     assert!(IteratorValue::from_value(&Value::Void).is_none());
 }
+
+// ── DoubleEndedIterator (next_back) tests ────────────────────────────
+
+#[test]
+fn list_next_back_basic() {
+    let items = Heap::new(vec![Value::int(1), Value::int(2), Value::int(3)]);
+    let iter = IteratorValue::from_list(items);
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(3)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(2)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(1)));
+
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn list_next_back_empty() {
+    let iter = IteratorValue::from_list(Heap::new(vec![]));
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn list_next_back_fused() {
+    let items = Heap::new(vec![Value::int(1)]);
+    let iter = IteratorValue::from_list(items);
+
+    let (_, iter) = iter.next_back(); // yields 1
+    let (val, iter) = iter.next_back(); // yields None
+    assert_eq!(val, None);
+
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn list_interleaved_next_and_next_back() {
+    let items = Heap::new(vec![
+        Value::int(1),
+        Value::int(2),
+        Value::int(3),
+        Value::int(4),
+        Value::int(5),
+    ]);
+    let iter = IteratorValue::from_list(items);
+
+    // next() from front
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(1)));
+
+    // next_back() from back
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(5)));
+
+    // next() again
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(2)));
+
+    // next_back() again
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(4)));
+
+    // One element left (3)
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(3)));
+
+    // Exhausted
+    let (val, _) = iter.next();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn range_next_back_exclusive() {
+    // 0..5 by 1 → values: 0, 1, 2, 3, 4
+    let iter = IteratorValue::from_range(0, 5, 1, false);
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(4)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(3)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(2)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(1)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(0)));
+
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn range_next_back_inclusive() {
+    // 1..=3 by 1 → values: 1, 2, 3
+    let iter = IteratorValue::from_range(1, 3, 1, true);
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(3)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(2)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(1)));
+
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn range_next_back_step() {
+    // 0..10 by 3 → values: 0, 3, 6, 9
+    let iter = IteratorValue::from_range(0, 10, 3, false);
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(9)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(6)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(3)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(0)));
+
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn range_next_back_negative_step() {
+    // 5..1 by -1 → values: 5, 4, 3, 2
+    let iter = IteratorValue::from_range(5, 1, -1, false);
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(2)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(3)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(4)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(5)));
+
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn range_next_back_empty() {
+    let iter = IteratorValue::from_range(5, 3, 1, false);
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn range_interleaved_next_and_next_back() {
+    // 0..5 by 1 → values: 0, 1, 2, 3, 4
+    let iter = IteratorValue::from_range(0, 5, 1, false);
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(0)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(4)));
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(1)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(3)));
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(2)));
+
+    // Exhausted
+    let (val, _) = iter.next();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn range_interleaved_step() {
+    // 0..10 by 3 → values: 0, 3, 6, 9
+    let iter = IteratorValue::from_range(0, 10, 3, false);
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(0)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(9)));
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(3)));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::int(6)));
+
+    // Exhausted
+    let (val, _) = iter.next();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn str_next_back_ascii() {
+    let data = Heap::new(Cow::Borrowed("abc"));
+    let iter = IteratorValue::from_string(data);
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::Char('c')));
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::Char('b')));
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::Char('a')));
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn str_next_back_unicode() {
+    let data = Heap::new(Cow::Borrowed("café"));
+    let iter = IteratorValue::from_string(data);
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::Char('é')));
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::Char('f')));
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::Char('a')));
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::Char('c')));
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn str_next_back_empty() {
+    let data = Heap::new(Cow::Borrowed(""));
+    let iter = IteratorValue::from_string(data);
+    let (val, _) = iter.next_back();
+    assert_eq!(val, None);
+}
+
+#[test]
+fn str_interleaved_next_and_next_back() {
+    let data = Heap::new(Cow::Borrowed("abcde"));
+    let iter = IteratorValue::from_string(data);
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::Char('a')));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::Char('e')));
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::Char('b')));
+
+    let (val, iter) = iter.next_back();
+    assert_eq!(val, Some(Value::Char('d')));
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::Char('c')));
+
+    let (val, _) = iter.next();
+    assert_eq!(val, None);
+}
+
+// is_double_ended tests
+
+#[test]
+fn is_double_ended_source_variants() {
+    assert!(make_list_iter(&[1, 2]).is_double_ended());
+    assert!(IteratorValue::from_range(0, 5, 1, false).is_double_ended());
+
+    let data = Heap::new(Cow::Borrowed("abc"));
+    assert!(IteratorValue::from_string(data).is_double_ended());
+
+    // Map and Set are NOT double-ended
+    let mut map = BTreeMap::new();
+    map.insert("a".to_string(), Value::int(1));
+    assert!(!IteratorValue::from_map(&map).is_double_ended());
+
+    let set_items = Heap::new(vec![Value::int(1)]);
+    assert!(!IteratorValue::from_set(set_items).is_double_ended());
+}
+
+#[test]
+fn is_double_ended_adapters() {
+    let de_source = make_list_iter(&[1, 2, 3]);
+    let non_de_source = IteratorValue::from_set(Heap::new(vec![Value::int(1)]));
+
+    // Mapped propagates
+    let mapped_de = IteratorValue::Mapped {
+        source: Box::new(de_source.clone()),
+        transform: Box::new(Value::Bool(true)),
+    };
+    assert!(mapped_de.is_double_ended());
+
+    let mapped_non_de = IteratorValue::Mapped {
+        source: Box::new(non_de_source.clone()),
+        transform: Box::new(Value::Bool(true)),
+    };
+    assert!(!mapped_non_de.is_double_ended());
+
+    // Filtered propagates
+    let filtered_de = IteratorValue::Filtered {
+        source: Box::new(de_source),
+        predicate: Box::new(Value::Bool(true)),
+    };
+    assert!(filtered_de.is_double_ended());
+
+    // Other adapters are NOT double-ended
+    assert!(!IteratorValue::TakeN {
+        source: Box::new(make_list_iter(&[1])),
+        remaining: 1,
+    }
+    .is_double_ended());
+
+    assert!(!IteratorValue::SkipN {
+        source: Box::new(make_list_iter(&[1])),
+        remaining: 1,
+    }
+    .is_double_ended());
+
+    assert!(!IteratorValue::Enumerated {
+        source: Box::new(make_list_iter(&[1])),
+        index: 0,
+    }
+    .is_double_ended());
+
+    assert!(!IteratorValue::Zipped {
+        left: Box::new(make_list_iter(&[1])),
+        right: Box::new(make_list_iter(&[1])),
+    }
+    .is_double_ended());
+
+    assert!(!IteratorValue::Chained {
+        first: Box::new(make_list_iter(&[1])),
+        second: Box::new(make_list_iter(&[1])),
+        first_done: false,
+    }
+    .is_double_ended());
+
+    assert!(!IteratorValue::Flattened {
+        source: Box::new(make_list_iter(&[1])),
+        inner: None,
+    }
+    .is_double_ended());
+
+    assert!(!IteratorValue::Cycled {
+        source: Some(Box::new(make_list_iter(&[1]))),
+        buffer: Vec::new(),
+        buf_pos: 0,
+    }
+    .is_double_ended());
+}
+
+// size_hint after next_back
+
+#[test]
+fn size_hint_after_next_back() {
+    let iter = make_list_iter(&[1, 2, 3, 4, 5]);
+    assert_eq!(iter.size_hint(), (5, Some(5)));
+
+    let (_, iter) = iter.next_back();
+    assert_eq!(iter.size_hint(), (4, Some(4)));
+
+    let (_, iter) = iter.next();
+    assert_eq!(iter.size_hint(), (3, Some(3)));
+
+    let (_, iter) = iter.next_back();
+    assert_eq!(iter.size_hint(), (2, Some(2)));
+}
+
+#[test]
+fn size_hint_range_after_next_back() {
+    let iter = IteratorValue::from_range(0, 10, 3, false); // 0, 3, 6, 9
+    assert_eq!(iter.size_hint(), (4, Some(4)));
+
+    let (_, iter) = iter.next_back(); // removes 9
+    assert_eq!(iter.size_hint(), (3, Some(3)));
+}
