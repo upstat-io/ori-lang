@@ -62,7 +62,18 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Duration", "to_str"),
     ("Duration", "zero"),
     // Iterator
+    ("Iterator", "all"),
+    ("Iterator", "any"),
+    ("Iterator", "collect"),
+    ("Iterator", "count"),
+    ("Iterator", "filter"),
+    ("Iterator", "find"),
+    ("Iterator", "fold"),
+    ("Iterator", "for_each"),
+    ("Iterator", "map"),
     ("Iterator", "next"),
+    ("Iterator", "skip"),
+    ("Iterator", "take"),
     // Option
     ("Option", "and_then"),
     ("Option", "clone"),
@@ -673,8 +684,10 @@ fn resolve_char_method(method_name: &str) -> Option<Idx> {
 
 /// Resolve methods on `Iterator<T>`.
 ///
-/// `next()` returns `(T?, Iterator<T>)` — a tuple of the next element
-/// (optional) and the advanced iterator.
+/// Methods fall into two categories:
+/// - **Adapters** (`map`, `filter`, `take`, `skip`) return a new `Iterator<U>` lazily
+/// - **Consumers** (`fold`, `count`, `find`, `any`, `all`, `for_each`, `collect`) eagerly
+///   consume the iterator and return a final value
 fn resolve_iterator_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
@@ -686,6 +699,19 @@ fn resolve_iterator_method(
             let option_elem = engine.pool_mut().option(elem);
             Some(engine.pool_mut().tuple(&[option_elem, receiver_ty]))
         }
+        // Adapters
+        "map" => {
+            let new_elem = engine.pool_mut().fresh_var();
+            Some(engine.pool_mut().iterator(new_elem))
+        }
+        "filter" | "take" | "skip" => Some(receiver_ty),
+        // Consumers
+        "fold" => Some(engine.pool_mut().fresh_var()),
+        "count" => Some(Idx::INT),
+        "find" => Some(engine.pool_mut().option(elem)),
+        "any" | "all" => Some(Idx::BOOL),
+        "for_each" => Some(Idx::UNIT),
+        "collect" => Some(engine.pool_mut().list(elem)),
         _ => None,
     }
 }

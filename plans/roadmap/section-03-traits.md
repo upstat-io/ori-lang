@@ -439,7 +439,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
-- [ ] Proposals (3.8-3.17): Iterator Phase 1 core infrastructure complete [in-progress] (2026-02-15). Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Iterator Phase 1+2 complete (core next(), consumers, lazy adapters) [in-progress] (2026-02-15). Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
@@ -534,11 +534,12 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [ ] **LLVM Support**: LLVM codegen for collect trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: Iterator default methods (map, filter, fold, find, collect, count, any, all, take, skip, enumerate, zip, chain, flatten, flat_map, cycle)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — default method type inference
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/methods.ori`
+- [x] **Implement**: Iterator Phase 2 methods — consumers (fold, count, find, any, all, for_each, collect) and lazy adapters (map, filter, take, skip) (2026-02-15)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 10 adapter variant unit tests (2026-02-15)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/methods.ori` — 31 spec test assertions (2026-02-15)
   - [ ] **LLVM Support**: LLVM codegen for all iterator methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+  - [ ] **Remaining Phase 2C/2D**: enumerate, zip, chain, flatten, flat_map, cycle, DoubleEndedIterator
 
 - [ ] **Implement**: DoubleEndedIterator default methods (rev, last, rfind, rfold)
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — double-ended method type inference
@@ -564,8 +565,8 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [ ] **LLVM Support**: LLVM codegen for all builtin iterator impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [x] **Implement**: Helper iterator types (ListIterator, RangeIterator, MapIterator, SetIterator, StrIterator) (2026-02-15)
-  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 13 unit tests (2026-02-15)
+- [x] **Implement**: Helper iterator types (ListIterator, RangeIterator, MapIterator, SetIterator, StrIterator) + adapter types (Mapped, Filtered, TakeN, SkipN) (2026-02-15)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 22 unit tests (2026-02-15)
   - [ ] **Ori Tests**: `tests/spec/traits/iterator/helper_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for all helper iterator types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`

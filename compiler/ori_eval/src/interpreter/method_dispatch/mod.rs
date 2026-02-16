@@ -2,6 +2,8 @@
 
 use ori_ir::Name;
 
+mod iterator;
+
 use crate::errors::{
     all_requires_list, any_requires_list, collect_requires_range, filter_entries_not_implemented,
     filter_entries_requires_map, filter_requires_collection, find_requires_list,
@@ -194,6 +196,20 @@ impl Interpreter<'_> {
                 Value::Map(_) => Err(filter_entries_not_implemented().into()),
                 _ => Err(filter_entries_requires_map().into()),
             },
+
+            // Iterator methods — delegate to iterator submodule
+            CollectionMethod::IterNext
+            | CollectionMethod::IterMap
+            | CollectionMethod::IterFilter
+            | CollectionMethod::IterTake
+            | CollectionMethod::IterSkip
+            | CollectionMethod::IterFold
+            | CollectionMethod::IterCount
+            | CollectionMethod::IterFind
+            | CollectionMethod::IterAny
+            | CollectionMethod::IterAll
+            | CollectionMethod::IterForEach
+            | CollectionMethod::IterCollect => self.eval_iterator_method(receiver, method, args),
         }
     }
 

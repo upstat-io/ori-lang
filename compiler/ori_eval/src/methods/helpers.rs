@@ -36,8 +36,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Duration", "sub"),
     ("Duration", "subtract"),
     ("Duration", "to_str"),
-    // Iterator - methods
-    ("Iterator", "next"),
+    // Iterator methods are dispatched by CollectionMethodResolver, not here.
     // Option - methods and traits
     ("Option", "clone"),
     ("Option", "compare"),
