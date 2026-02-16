@@ -1113,3 +1113,89 @@ fn size_hint_range_after_next_back() {
     let (_, iter) = iter.next_back(); // removes 9
     assert_eq!(iter.size_hint(), (3, Some(3)));
 }
+
+// ── Reversed variant ─────────────────────────────────────────────────
+
+#[test]
+fn reversed_is_double_ended() {
+    let iter = make_list_iter(&[1, 2, 3]);
+    let reversed = IteratorValue::Reversed {
+        source: Box::new(iter),
+    };
+    assert!(reversed.is_double_ended());
+}
+
+#[test]
+fn reversed_size_hint_delegates_to_source() {
+    let iter = make_list_iter(&[1, 2, 3, 4, 5]);
+    let reversed = IteratorValue::Reversed {
+        source: Box::new(iter),
+    };
+    assert_eq!(reversed.size_hint(), (5, Some(5)));
+}
+
+#[test]
+fn reversed_size_hint_range() {
+    let iter = IteratorValue::from_range(0, 10, 2, false); // 0, 2, 4, 6, 8
+    let reversed = IteratorValue::Reversed {
+        source: Box::new(iter),
+    };
+    assert_eq!(reversed.size_hint(), (5, Some(5)));
+}
+
+#[test]
+fn reversed_debug_format() {
+    let iter = make_list_iter(&[1]);
+    let reversed = IteratorValue::Reversed {
+        source: Box::new(iter),
+    };
+    let debug = format!("{reversed:?}");
+    assert!(debug.starts_with("ReversedIterator("));
+}
+
+#[test]
+fn reversed_equality() {
+    let iter_a = make_list_iter(&[1, 2, 3]);
+    let iter_b = make_list_iter(&[1, 2, 3]);
+    let rev_a = IteratorValue::Reversed {
+        source: Box::new(iter_a),
+    };
+    let rev_b = IteratorValue::Reversed {
+        source: Box::new(iter_b),
+    };
+    assert_eq!(rev_a, rev_b);
+}
+
+#[test]
+fn reversed_inequality_different_source() {
+    let rev_a = IteratorValue::Reversed {
+        source: Box::new(make_list_iter(&[1, 2])),
+    };
+    let rev_b = IteratorValue::Reversed {
+        source: Box::new(make_list_iter(&[3, 4])),
+    };
+    assert_ne!(rev_a, rev_b);
+}
+
+#[test]
+fn reversed_hash_consistency() {
+    let iter_a = make_list_iter(&[1, 2, 3]);
+    let iter_b = make_list_iter(&[1, 2, 3]);
+    let rev_a = IteratorValue::Reversed {
+        source: Box::new(iter_a),
+    };
+    let rev_b = IteratorValue::Reversed {
+        source: Box::new(iter_b),
+    };
+    let hash_a = {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        rev_a.hash(&mut h);
+        h.finish()
+    };
+    let hash_b = {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        rev_b.hash(&mut h);
+        h.finish()
+    };
+    assert_eq!(hash_a, hash_b);
+}

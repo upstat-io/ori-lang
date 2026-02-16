@@ -29,6 +29,10 @@ struct MethodNames {
     flat_map: Name,
     cycle: Name,
     next_back: Name,
+    rev: Name,
+    last: Name,
+    rfind: Name,
+    rfold: Name,
 }
 
 impl MethodNames {
@@ -53,6 +57,10 @@ impl MethodNames {
             flat_map: interner.intern("flat_map"),
             cycle: interner.intern("cycle"),
             next_back: interner.intern("next_back"),
+            rev: interner.intern("rev"),
+            last: interner.intern("last"),
+            rfind: interner.intern("rfind"),
+            rfold: interner.intern("rfold"),
         }
     }
 }
@@ -120,6 +128,14 @@ impl CollectionMethodResolver {
             Some(CollectionMethod::IterCycle)
         } else if method_name == m.next_back {
             Some(CollectionMethod::IterNextBack)
+        } else if method_name == m.rev {
+            Some(CollectionMethod::IterRev)
+        } else if method_name == m.last {
+            Some(CollectionMethod::IterLast)
+        } else if method_name == m.rfind {
+            Some(CollectionMethod::IterRFind)
+        } else if method_name == m.rfold {
+            Some(CollectionMethod::IterRFold)
         } else {
             None
         }

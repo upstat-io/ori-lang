@@ -134,6 +134,11 @@ pub enum IteratorValue {
         buffer: Vec<Value>,
         buf_pos: usize,
     },
+    /// Reverse adapter: swaps `next()` and `next_back()` on a double-ended source.
+    ///
+    /// `source` must be double-ended. Calling `next()` on a `Reversed` iterator
+    /// delegates to `source.next_back()`, and vice versa.
+    Reversed { source: Box<IteratorValue> },
 }
 
 impl IteratorValue {
@@ -249,7 +254,8 @@ impl IteratorValue {
             | IteratorValue::Zipped { .. }
             | IteratorValue::Chained { .. }
             | IteratorValue::Flattened { .. }
-            | IteratorValue::Cycled { .. } => {
+            | IteratorValue::Cycled { .. }
+            | IteratorValue::Reversed { .. } => {
                 unreachable!(
                     "adapter iterators must be advanced via Interpreter::eval_iter_next(), \
                      not IteratorValue::next()"
@@ -344,7 +350,8 @@ impl IteratorValue {
             | IteratorValue::Zipped { .. }
             | IteratorValue::Chained { .. }
             | IteratorValue::Flattened { .. }
-            | IteratorValue::Cycled { .. } => {
+            | IteratorValue::Cycled { .. }
+            | IteratorValue::Reversed { .. } => {
                 unreachable!(
                     "adapter iterators must be advanced via Interpreter::eval_iter_next_back(), \
                      not IteratorValue::next_back()"
@@ -359,9 +366,11 @@ impl IteratorValue {
     /// wrapping a double-ended source.
     pub fn is_double_ended(&self) -> bool {
         match self {
+            // Source variants and Reversed are always double-ended
             IteratorValue::List { .. }
             | IteratorValue::Range { .. }
-            | IteratorValue::Str { .. } => true,
+            | IteratorValue::Str { .. }
+            | IteratorValue::Reversed { .. } => true,
 
             // Mapped/Filtered propagate from source
             IteratorValue::Mapped { source, .. } | IteratorValue::Filtered { source, .. } => {
@@ -420,8 +429,8 @@ impl IteratorValue {
                 let lower = remaining_bytes.div_ceil(4);
                 (lower, Some(remaining_bytes))
             }
-            IteratorValue::Mapped { source, .. } => {
-                // 1:1 with source
+            // Reversed/Mapped: 1:1 with source
+            IteratorValue::Reversed { source } | IteratorValue::Mapped { source, .. } => {
                 source.size_hint()
             }
             IteratorValue::Filtered { source, .. } => {
@@ -641,6 +650,9 @@ impl fmt::Debug for IteratorValue {
                     source.is_some()
                 )
             }
+            IteratorValue::Reversed { source } => {
+                write!(f, "ReversedIterator({source:?})")
+            }
         }
     }
 }
@@ -794,6 +806,9 @@ impl PartialEq for IteratorValue {
                     buf_pos: pb,
                 },
             ) => sa == sb && ba == bb && pa == pb,
+            (IteratorValue::Reversed { source: sa }, IteratorValue::Reversed { source: sb }) => {
+                sa == sb
+            }
             _ => false,
         }
     }
@@ -880,6 +895,9 @@ impl std::hash::Hash for IteratorValue {
                 source.hash(state);
                 buffer.hash(state);
                 buf_pos.hash(state);
+            }
+            IteratorValue::Reversed { source } => {
+                source.hash(state);
             }
         }
     }

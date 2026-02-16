@@ -112,6 +112,14 @@ pub enum CollectionMethod {
     IterCycle,
     /// `Iterator<T>.next_back() -> (T?, Iterator<T>)` (double-ended only)
     IterNextBack,
+    /// `Iterator<T>.rev() -> Iterator<T>` (double-ended only)
+    IterRev,
+    /// `Iterator<T>.last() -> T?` (double-ended only)
+    IterLast,
+    /// `Iterator<T>.rfind(predicate: T -> bool) -> T?` (double-ended only)
+    IterRFind,
+    /// `Iterator<T>.rfold(initial: U, op: (U, T) -> U) -> U` (double-ended only)
+    IterRFold,
 }
 
 impl CollectionMethod {
@@ -150,6 +158,10 @@ impl CollectionMethod {
                 | Self::IterFlatMap
                 | Self::IterCycle
                 | Self::IterNextBack
+                | Self::IterRev
+                | Self::IterLast
+                | Self::IterRFind
+                | Self::IterRFold
                 | Self::IterFold
                 | Self::IterCount
                 | Self::IterFind
@@ -187,6 +199,10 @@ impl CollectionMethod {
             ("for_each", Self::IterForEach),
             ("collect", Self::IterCollect),
             ("next_back", Self::IterNextBack),
+            ("rev", Self::IterRev),
+            ("last", Self::IterLast),
+            ("rfind", Self::IterRFind),
+            ("rfold", Self::IterRFold),
         ]
     }
 }

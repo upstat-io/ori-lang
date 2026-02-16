@@ -81,6 +81,10 @@ impl Interpreter<'_> {
                 Self::expect_arg_count("cycle", 0, args)?;
                 Ok(Self::make_cycled(iter_val))
             }
+            CollectionMethod::IterRev => {
+                Self::expect_arg_count("rev", 0, args)?;
+                Self::make_reversed(iter_val)
+            }
             CollectionMethod::IterFold => {
                 Self::expect_arg_count("fold", 2, args)?;
                 self.eval_iter_fold(iter_val, args[0].clone(), &args[1])
@@ -108,6 +112,18 @@ impl Interpreter<'_> {
             CollectionMethod::IterCollect => {
                 Self::expect_arg_count("collect", 0, args)?;
                 self.eval_iter_collect(iter_val)
+            }
+            CollectionMethod::IterLast => {
+                Self::expect_arg_count("last", 0, args)?;
+                self.eval_iter_last(iter_val)
+            }
+            CollectionMethod::IterRFind => {
+                Self::expect_arg_count("rfind", 1, args)?;
+                self.eval_iter_rfind(iter_val, &args[0])
+            }
+            CollectionMethod::IterRFold => {
+                Self::expect_arg_count("rfold", 2, args)?;
+                self.eval_iter_rfold(iter_val, args[0].clone(), &args[1])
             }
             _ => unreachable!("non-iterator CollectionMethod in eval_iterator_method"),
         }
@@ -199,6 +215,16 @@ impl Interpreter<'_> {
             }),
             inner: None,
         })
+    }
+
+    /// Create a `Reversed` adapter iterator (requires double-ended source).
+    fn make_reversed(iter_val: IteratorValue) -> EvalResult {
+        if !iter_val.is_double_ended() {
+            return Err(wrong_arg_type("rev", "double-ended iterator").into());
+        }
+        Ok(Value::iterator(IteratorValue::Reversed {
+            source: Box::new(iter_val),
+        }))
     }
 
     /// Create a `Cycled` adapter iterator.
