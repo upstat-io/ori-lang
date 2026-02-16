@@ -2165,6 +2165,7 @@ fn typeck_builtin_methods_all_resolve() {
     let result_ty = engine.pool_mut().result(Idx::INT, Idx::STR);
     let range_ty = engine.pool_mut().range(Idx::INT);
     let iterator_ty = engine.pool_mut().iterator(Idx::INT);
+    let dei_ty = engine.pool_mut().double_ended_iterator(Idx::INT);
     let channel_ty = engine.pool_mut().channel(Idx::INT);
     let tuple_ty = engine.pool_mut().tuple(&[Idx::INT, Idx::STR]);
 
@@ -2188,6 +2189,7 @@ fn typeck_builtin_methods_all_resolve() {
             "Result" => (Tag::Result, result_ty),
             "range" => (Tag::Range, range_ty),
             "Iterator" => (Tag::Iterator, iterator_ty),
+            "DoubleEndedIterator" => (Tag::DoubleEndedIterator, dei_ty),
             "Channel" => (Tag::Channel, channel_ty),
             "tuple" => (Tag::Tuple, tuple_ty),
             other => panic!("unknown type name in TYPECK_BUILTIN_METHODS: {other:?}"),

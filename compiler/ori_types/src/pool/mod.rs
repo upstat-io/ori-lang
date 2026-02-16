@@ -348,7 +348,13 @@ impl Pool {
             Tag::Error => TypeFlags::IS_PRIMITIVE | TypeFlags::HAS_ERROR | TypeFlags::IS_RESOLVED,
 
             // Simple containers: inherit from child
-            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range | Tag::Iterator => {
+            Tag::List
+            | Tag::Option
+            | Tag::Set
+            | Tag::Channel
+            | Tag::Range
+            | Tag::Iterator
+            | Tag::DoubleEndedIterator => {
                 let child_flags = self.flags[data as usize];
                 TypeFlags::IS_CONTAINER | TypeFlags::propagate_from(child_flags)
             }
@@ -660,12 +666,16 @@ impl Pool {
 
     /// Get iterator element type.
     ///
-    /// For `Iterator<T>`, returns `T`.
+    /// Works for both `Iterator<T>` and `DoubleEndedIterator<T>`.
     ///
     /// # Panics
-    /// Panics if `idx` is not an Iterator type.
+    /// Panics if `idx` is not an iterator type.
     pub fn iterator_elem(&self, idx: Idx) -> Idx {
-        debug_assert_eq!(self.tag(idx), Tag::Iterator);
+        debug_assert!(
+            self.tag(idx).is_iterator(),
+            "expected Iterator or DoubleEndedIterator, got {:?}",
+            self.tag(idx)
+        );
         // Simple container: data field is the child index directly
         Idx::from_raw(self.data(idx))
     }

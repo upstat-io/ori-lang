@@ -304,6 +304,7 @@ fn tag_name(tag: Tag) -> &'static str {
         Tag::Channel => "channel",
         Tag::Range => "range",
         Tag::Iterator => "Iterator",
+        Tag::DoubleEndedIterator => "DoubleEndedIterator",
         Tag::Map => "map",
         Tag::Result => "result",
         Tag::Borrowed => "borrowed reference",

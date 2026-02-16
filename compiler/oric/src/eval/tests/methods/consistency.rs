@@ -11,7 +11,16 @@ use ori_types::TYPECK_BUILTIN_METHODS;
 /// `ori_ir` builtin method registry. These are tracked as a gap to fix.
 /// Names match `EVAL_BUILTIN_METHODS`/`TYPECK_BUILTIN_METHODS` convention.
 const COLLECTION_TYPES: &[&str] = &[
-    "Channel", "Iterator", "Option", "Result", "Set", "list", "map", "range", "tuple",
+    "Channel",
+    "DoubleEndedIterator",
+    "Iterator",
+    "Option",
+    "Result",
+    "Set",
+    "list",
+    "map",
+    "range",
+    "tuple",
 ];
 
 /// IR registry methods that are implemented in the evaluator through method
@@ -354,6 +363,13 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("Channel", "send"),
     ("Channel", "try_receive"),
     ("Channel", "try_recv"),
+    // DoubleEndedIterator — dispatched via Iterator resolver at runtime
+    // (eval uses IteratorValue for both; gating is via is_double_ended() checks)
+    ("DoubleEndedIterator", "last"),
+    ("DoubleEndedIterator", "next_back"),
+    ("DoubleEndedIterator", "rev"),
+    ("DoubleEndedIterator", "rfind"),
+    ("DoubleEndedIterator", "rfold"),
     // Iterator — dispatched via CollectionMethodResolver, not EVAL_BUILTIN_METHODS
     ("Iterator", "all"),
     ("Iterator", "any"),
@@ -368,13 +384,8 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("Iterator", "flatten"),
     ("Iterator", "fold"),
     ("Iterator", "for_each"),
-    ("Iterator", "last"),
     ("Iterator", "map"),
     ("Iterator", "next"),
-    ("Iterator", "next_back"),
-    ("Iterator", "rev"),
-    ("Iterator", "rfind"),
-    ("Iterator", "rfold"),
     ("Iterator", "skip"),
     ("Iterator", "take"),
     ("Iterator", "zip"),
@@ -683,15 +694,17 @@ fn typeck_methods_implemented_in_eval() {
 
 // ── Iterator cross-crate consistency ─────────────────────────────────
 
-/// Every Iterator method in typeck must have a corresponding eval resolver
-/// entry, and vice versa. This closes the gap where Iterator methods were
-/// exempted from all consistency checks via `COLLECTION_TYPES` and
-/// `TYPECK_METHODS_NOT_IN_EVAL`.
+/// Every Iterator/DoubleEndedIterator method in typeck must have a corresponding
+/// eval resolver entry, and vice versa. The eval resolver dispatches all
+/// iterator methods through `ITERATOR_METHOD_NAMES` regardless of whether they
+/// require `DoubleEndedIterator` at the type level — runtime gating happens in
+/// the eval methods via `is_double_ended()` checks.
 #[test]
 fn iterator_typeck_methods_match_eval_resolver() {
+    // Combine Iterator + DoubleEndedIterator entries from typeck
     let typeck_iter_methods: BTreeSet<&str> = TYPECK_BUILTIN_METHODS
         .iter()
-        .filter(|(ty, _)| *ty == "Iterator")
+        .filter(|(ty, _)| *ty == "Iterator" || *ty == "DoubleEndedIterator")
         .map(|(_, method)| *method)
         .collect();
 

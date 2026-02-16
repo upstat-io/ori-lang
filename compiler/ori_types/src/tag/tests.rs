@@ -74,3 +74,35 @@ fn is_type_variable_is_correct() {
     assert!(!Tag::Int.is_type_variable());
     assert!(!Tag::Function.is_type_variable());
 }
+
+#[test]
+fn double_ended_iterator_in_simple_container_range() {
+    assert!((16..32).contains(&(Tag::DoubleEndedIterator as u8)));
+}
+
+#[test]
+fn double_ended_iterator_does_not_use_extra() {
+    // DoubleEndedIterator is a simple container (one child in data)
+    assert!(!Tag::DoubleEndedIterator.uses_extra());
+}
+
+#[test]
+fn is_iterator_is_correct() {
+    assert!(Tag::Iterator.is_iterator());
+    assert!(Tag::DoubleEndedIterator.is_iterator());
+    assert!(!Tag::List.is_iterator());
+    assert!(!Tag::Int.is_iterator());
+    assert!(!Tag::Option.is_iterator());
+    assert!(!Tag::Function.is_iterator());
+}
+
+#[test]
+fn double_ended_iterator_is_not_primitive() {
+    assert!(!Tag::DoubleEndedIterator.is_primitive());
+    assert!(!Tag::DoubleEndedIterator.is_type_variable());
+}
+
+#[test]
+fn double_ended_iterator_has_correct_name() {
+    assert_eq!(Tag::DoubleEndedIterator.name(), "DoubleEndedIterator");
+}

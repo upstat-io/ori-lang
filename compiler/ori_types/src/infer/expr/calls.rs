@@ -494,7 +494,9 @@ pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bo
         Tag::Result | Tag::Tuple => RESULT_TRAITS.contains(&trait_name),
         Tag::Range => matches!(trait_name, "Len" | "Iterable"),
         Tag::Str => trait_name == "Iterable",
-        Tag::Iterator => trait_name == "Iterator",
+        Tag::Iterator | Tag::DoubleEndedIterator => {
+            trait_name == "Iterator" || trait_name == "DoubleEndedIterator"
+        }
         _ => false,
     }
 }
@@ -554,6 +556,26 @@ pub(crate) fn infer_method_call(
                 infer_expr(engine, arena, arg_id);
             }
             return ret;
+        }
+    }
+
+    // 1b. Produce diagnostic for DoubleEndedIterator methods on non-DEI receivers
+    if tag == Tag::Iterator {
+        if let Some(name_str) = method_str {
+            if matches!(name_str, "rev" | "last" | "rfind" | "rfold" | "next_back") {
+                engine.push_error(TypeCheckError::unsatisfied_bound(
+                    span,
+                    format!(
+                        "`{name_str}` requires a DoubleEndedIterator, \
+                         but this is an Iterator (use .iter() on a list, range, \
+                         or string to get a DoubleEndedIterator)"
+                    ),
+                ));
+                for &arg_id in arena.get_expr_list(args) {
+                    infer_expr(engine, arena, arg_id);
+                }
+                return Idx::ERROR;
+            }
         }
     }
 
@@ -617,6 +639,26 @@ pub(crate) fn infer_method_call_named(
                 infer_expr(engine, arena, arg.value);
             }
             return ret;
+        }
+    }
+
+    // 1b. Produce diagnostic for DoubleEndedIterator methods on non-DEI receivers
+    if tag == Tag::Iterator {
+        if let Some(name_str) = method_str {
+            if matches!(name_str, "rev" | "last" | "rfind" | "rfold" | "next_back") {
+                engine.push_error(TypeCheckError::unsatisfied_bound(
+                    span,
+                    format!(
+                        "`{name_str}` requires a DoubleEndedIterator, \
+                         but this is an Iterator (use .iter() on a list, range, \
+                         or string to get a DoubleEndedIterator)"
+                    ),
+                ));
+                for arg in arena.get_call_args(args) {
+                    infer_expr(engine, arena, arg.value);
+                }
+                return Idx::ERROR;
+            }
         }
     }
 

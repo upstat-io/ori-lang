@@ -600,7 +600,7 @@ pub(crate) fn infer_for(
     let elem_ty = match tag {
         Tag::List => engine.pool().list_elem(resolved_iter),
         Tag::Range => engine.pool().range_elem(resolved_iter),
-        Tag::Iterator => engine.pool().iterator_elem(resolved_iter),
+        Tag::Iterator | Tag::DoubleEndedIterator => engine.pool().iterator_elem(resolved_iter),
         Tag::Map => {
             // Iterating over a map yields (key, value) tuples
             let key_ty = engine.pool().map_key(resolved_iter);

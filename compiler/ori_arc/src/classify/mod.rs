@@ -151,7 +151,8 @@ impl<'pool> ArcClassifier<'pool> {
             | Tag::Set
             | Tag::Channel
             | Tag::Function
-            | Tag::Iterator => ArcClass::DefiniteRef,
+            | Tag::Iterator
+            | Tag::DoubleEndedIterator => ArcClass::DefiniteRef,
 
             // Transitive: single child
             Tag::Option => self.classify(self.pool.option_inner(idx)),

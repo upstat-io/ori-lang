@@ -26,6 +26,12 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Channel", "send"),
     ("Channel", "try_receive"),
     ("Channel", "try_recv"),
+    // DoubleEndedIterator (methods only available on DoubleEndedIterator)
+    ("DoubleEndedIterator", "last"),
+    ("DoubleEndedIterator", "next_back"),
+    ("DoubleEndedIterator", "rev"),
+    ("DoubleEndedIterator", "rfind"),
+    ("DoubleEndedIterator", "rfold"),
     // Duration
     ("Duration", "abs"),
     ("Duration", "as_micros"),
@@ -61,7 +67,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Duration", "to_seconds"),
     ("Duration", "to_str"),
     ("Duration", "zero"),
-    // Iterator
+    // Iterator (methods available on both Iterator and DoubleEndedIterator)
     ("Iterator", "all"),
     ("Iterator", "any"),
     ("Iterator", "chain"),
@@ -75,13 +81,8 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Iterator", "flatten"),
     ("Iterator", "fold"),
     ("Iterator", "for_each"),
-    ("Iterator", "last"),
     ("Iterator", "map"),
     ("Iterator", "next"),
-    ("Iterator", "next_back"),
-    ("Iterator", "rev"),
-    ("Iterator", "rfind"),
-    ("Iterator", "rfold"),
     ("Iterator", "skip"),
     ("Iterator", "take"),
     ("Iterator", "zip"),
@@ -387,7 +388,9 @@ pub(crate) fn resolve_builtin_method(
         Tag::Size => resolve_size_method(method_name),
         Tag::Channel => resolve_channel_method(engine, receiver_ty, method_name),
         Tag::Range => resolve_range_method(engine, receiver_ty, method_name),
-        Tag::Iterator => resolve_iterator_method(engine, receiver_ty, method_name),
+        Tag::Iterator | Tag::DoubleEndedIterator => {
+            resolve_iterator_method(engine, receiver_ty, method_name)
+        }
         Tag::Named | Tag::Applied => resolve_named_type_method(engine, receiver_ty, method_name),
         Tag::Bool => resolve_bool_method(method_name),
         Tag::Byte => resolve_byte_method(method_name),
@@ -408,7 +411,7 @@ fn resolve_list_method(
         "len" | "count" => Some(Idx::INT),
         "is_empty" | "contains" => Some(Idx::BOOL),
         "first" | "last" | "pop" | "get" => Some(engine.pool_mut().option(elem)),
-        "iter" => Some(engine.pool_mut().iterator(elem)),
+        "iter" => Some(engine.pool_mut().double_ended_iterator(elem)),
         "reverse" | "sort" | "sorted" | "unique" | "flatten" | "push" | "append" | "prepend"
         | "clone" => Some(receiver_ty),
         "join" => Some(Idx::STR),
@@ -514,7 +517,7 @@ fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
 fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx> {
     match method {
         "len" | "byte_len" | "hash" => Some(Idx::INT),
-        "iter" => Some(engine.pool_mut().iterator(Idx::CHAR)),
+        "iter" => Some(engine.pool_mut().double_ended_iterator(Idx::CHAR)),
         "is_empty" | "starts_with" | "ends_with" | "contains" | "equals" => Some(Idx::BOOL),
         "to_uppercase" | "to_lowercase" | "trim" | "trim_start" | "trim_end" | "replace"
         | "repeat" | "pad_start" | "pad_end" | "slice" | "substring" | "clone" => Some(Idx::STR),
@@ -615,7 +618,7 @@ fn resolve_range_method(
     match method {
         "len" | "count" => Some(Idx::INT),
         "is_empty" | "contains" => Some(Idx::BOOL),
-        "iter" => Some(engine.pool_mut().iterator(elem)),
+        "iter" => Some(engine.pool_mut().double_ended_iterator(elem)),
         "to_list" | "collect" => Some(engine.pool_mut().list(elem)),
         "step_by" => Some(receiver_ty),
         _ => None,
@@ -700,27 +703,52 @@ fn resolve_char_method(method_name: &str) -> Option<Idx> {
     }
 }
 
-/// Resolve methods on `Iterator<T>`.
+/// Resolve methods on `Iterator<T>` and `DoubleEndedIterator<T>`.
 ///
-/// Methods fall into two categories:
-/// - **Adapters** (`map`, `filter`, `take`, `skip`) return a new `Iterator<U>` lazily
-/// - **Consumers** (`fold`, `count`, `find`, `any`, `all`, `for_each`, `collect`) eagerly
-///   consume the iterator and return a final value
+/// Three categories:
+/// - **Adapters** return a new iterator (may propagate or downgrade double-endedness)
+/// - **Consumers** eagerly consume the iterator and return a final value
+/// - **Double-ended only** (`next_back`, `rev`, `last`, `rfind`, `rfold`) — only
+///   available on `DoubleEndedIterator<T>`, rejected on plain `Iterator<T>`
 fn resolve_iterator_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
     method: &str,
 ) -> Option<Idx> {
     let elem = engine.pool().iterator_elem(receiver_ty);
+    let is_dei = engine.pool().tag(receiver_ty) == Tag::DoubleEndedIterator;
+
     match method {
-        "next" | "next_back" => {
+        // next() — available on all iterators
+        "next" => {
             let option_elem = engine.pool_mut().option(elem);
             Some(engine.pool_mut().tuple(&[option_elem, receiver_ty]))
         }
-        // Adapters returning same Iterator<T>
-        "filter" | "take" | "skip" | "chain" | "cycle" | "rev" => Some(receiver_ty),
-        // Adapters returning Iterator with fresh element type
-        "map" | "flatten" | "flat_map" => {
+
+        // === Double-ended-only methods ===
+        "next_back" if is_dei => {
+            let option_elem = engine.pool_mut().option(elem);
+            Some(engine.pool_mut().tuple(&[option_elem, receiver_ty]))
+        }
+        "rev" if is_dei => Some(receiver_ty),
+        "last" | "rfind" if is_dei => Some(engine.pool_mut().option(elem)),
+        "rfold" if is_dei => Some(engine.pool_mut().fresh_var()),
+        // Non-DEI receiver: next_back/rev/last/rfind/rfold fall through to wildcard (None)
+
+        // === Adapters that PROPAGATE double-endedness ===
+        "filter" => Some(receiver_ty),
+        "map" => {
+            let new_elem = engine.pool_mut().fresh_var();
+            if is_dei {
+                Some(engine.pool_mut().double_ended_iterator(new_elem))
+            } else {
+                Some(engine.pool_mut().iterator(new_elem))
+            }
+        }
+
+        // === Adapters that DOWNGRADE to plain Iterator ===
+        "take" | "skip" | "chain" | "cycle" => Some(engine.pool_mut().iterator(elem)),
+        "flatten" | "flat_map" => {
             let new_elem = engine.pool_mut().fresh_var();
             Some(engine.pool_mut().iterator(new_elem))
         }
@@ -733,10 +761,11 @@ fn resolve_iterator_method(
             let pair = engine.pool_mut().tuple(&[elem, other_elem]);
             Some(engine.pool_mut().iterator(pair))
         }
-        // Consumers
-        "fold" | "rfold" => Some(engine.pool_mut().fresh_var()),
+
+        // === Consumers (available on all iterators) ===
+        "fold" => Some(engine.pool_mut().fresh_var()),
         "count" => Some(Idx::INT),
-        "find" | "rfind" | "last" => Some(engine.pool_mut().option(elem)),
+        "find" => Some(engine.pool_mut().option(elem)),
         "any" | "all" => Some(Idx::BOOL),
         "for_each" => Some(Idx::UNIT),
         "collect" => Some(engine.pool_mut().list(elem)),

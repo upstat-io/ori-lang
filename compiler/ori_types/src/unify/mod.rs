@@ -369,7 +369,13 @@ impl<'pool> UnifyEngine<'pool> {
             }
 
             // Simple containers
-            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range | Tag::Iterator => {
+            Tag::List
+            | Tag::Option
+            | Tag::Set
+            | Tag::Channel
+            | Tag::Range
+            | Tag::Iterator
+            | Tag::DoubleEndedIterator => {
                 let child = Idx::from_raw(self.pool.data(ty));
                 self.occurs_inner(var_id, child)
             }
@@ -462,7 +468,13 @@ impl<'pool> UnifyEngine<'pool> {
                 }
             }
 
-            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range | Tag::Iterator => {
+            Tag::List
+            | Tag::Option
+            | Tag::Set
+            | Tag::Channel
+            | Tag::Range
+            | Tag::Iterator
+            | Tag::DoubleEndedIterator => {
                 let child = Idx::from_raw(self.pool.data(ty));
                 self.update_ranks_inner(child, max_rank);
             }
@@ -532,8 +544,14 @@ impl<'pool> UnifyEngine<'pool> {
         let tag_a = self.pool.tag(a);
         let tag_b = self.pool.tag(b);
 
-        // Tags must match
+        // Tags must match (with DoubleEndedIterator ↔ Iterator coercion)
         if tag_a != tag_b {
+            // DoubleEndedIterator coerces to Iterator: unify element types
+            if tag_a.is_iterator() && tag_b.is_iterator() {
+                let child_a = Idx::from_raw(self.pool.data(a));
+                let child_b = Idx::from_raw(self.pool.data(b));
+                return self.unify_with_context(child_a, child_b, UnifyContext::IteratorElement);
+            }
             return Err(UnifyError::Mismatch {
                 expected: a,
                 found: b,
@@ -587,7 +605,7 @@ impl<'pool> UnifyEngine<'pool> {
                 self.unify_with_context(child_a, child_b, UnifyContext::RangeElement)
             }
 
-            Tag::Iterator => {
+            Tag::Iterator | Tag::DoubleEndedIterator => {
                 let child_a = Idx::from_raw(self.pool.data(a));
                 let child_b = Idx::from_raw(self.pool.data(b));
                 self.unify_with_context(child_a, child_b, UnifyContext::IteratorElement)
@@ -808,7 +826,13 @@ impl<'pool> UnifyEngine<'pool> {
                 }
             }
 
-            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range | Tag::Iterator => {
+            Tag::List
+            | Tag::Option
+            | Tag::Set
+            | Tag::Channel
+            | Tag::Range
+            | Tag::Iterator
+            | Tag::DoubleEndedIterator => {
                 let child = Idx::from_raw(self.pool.data(ty));
                 self.collect_free_vars_inner(child, min_rank, vars);
             }
@@ -992,6 +1016,16 @@ impl<'pool> UnifyEngine<'pool> {
                     ty
                 } else {
                     self.pool.iterator(new_child)
+                }
+            }
+
+            Tag::DoubleEndedIterator => {
+                let child = Idx::from_raw(self.pool.data(ty));
+                let new_child = self.substitute(child, subst);
+                if new_child == child {
+                    ty
+                } else {
+                    self.pool.double_ended_iterator(new_child)
                 }
             }
 
