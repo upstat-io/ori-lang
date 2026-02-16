@@ -8,6 +8,7 @@
 
 use ori_patterns::IteratorValue;
 
+use crate::errors::wrong_arg_type;
 use crate::{EvalResult, Value};
 
 use super::super::Interpreter;
@@ -165,6 +166,9 @@ impl Interpreter<'_> {
 
     /// `last()` — efficiently retrieve the last item via `next_back()`.
     pub(in crate::interpreter) fn eval_iter_last(&mut self, iter_val: IteratorValue) -> EvalResult {
+        if !iter_val.is_double_ended() {
+            return Err(wrong_arg_type("last", "double-ended iterator").into());
+        }
         let (item, _) = self.eval_iter_next_back(iter_val)?;
         match item {
             Some(val) => Ok(Value::some(val)),
@@ -178,6 +182,9 @@ impl Interpreter<'_> {
         iter_val: IteratorValue,
         predicate: &Value,
     ) -> EvalResult {
+        if !iter_val.is_double_ended() {
+            return Err(wrong_arg_type("rfind", "double-ended iterator").into());
+        }
         let mut current = iter_val;
         loop {
             let (item, new_iter) = self.eval_iter_next_back(current)?;
@@ -201,6 +208,9 @@ impl Interpreter<'_> {
         mut acc: Value,
         op: &Value,
     ) -> EvalResult {
+        if !iter_val.is_double_ended() {
+            return Err(wrong_arg_type("rfold", "double-ended iterator").into());
+        }
         let mut current = iter_val;
         loop {
             let (item, new_iter) = self.eval_iter_next_back(current)?;

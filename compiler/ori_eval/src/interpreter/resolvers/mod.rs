@@ -207,6 +207,37 @@ impl CollectionMethod {
     }
 }
 
+/// All Iterator method names recognized by the eval `CollectionMethodResolver`.
+///
+/// Used by cross-crate consistency tests in `oric` to verify that every Iterator
+/// method registered in typeck has a corresponding eval resolver entry, and vice
+/// versa. Sorted alphabetically.
+pub const ITERATOR_METHOD_NAMES: &[&str] = &[
+    "all",
+    "any",
+    "chain",
+    "collect",
+    "count",
+    "cycle",
+    "enumerate",
+    "filter",
+    "find",
+    "flat_map",
+    "flatten",
+    "fold",
+    "for_each",
+    "last",
+    "map",
+    "next",
+    "next_back",
+    "rev",
+    "rfind",
+    "rfold",
+    "skip",
+    "take",
+    "zip",
+];
+
 /// Trait for method resolvers in the chain of responsibility.
 ///
 /// Each resolver handles a specific category of methods and returns

@@ -592,6 +592,7 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
 
 - [ ] **Implement**: Add traits and `repeat` to prelude
   - [ ] `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect` traits in prelude
+  - [ ] Gate double-ended methods (`rev`, `last`, `rfind`, `rfold`, `next_back`) behind `DoubleEndedIterator` trait bound in type checker
   - [ ] `repeat` function in prelude
   - [ ] **Ori Tests**: `tests/spec/traits/iterator/prelude.ori`
 
