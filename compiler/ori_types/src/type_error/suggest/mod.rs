@@ -16,9 +16,8 @@
 //! # Example
 //!
 //! ```text
-//! TypeProblem::IntFloat generates:
-//!   - "Use `to_float()` to convert int to float" (priority 1)
-//!   - "Use `to_int()` to convert float to int (truncates)" (priority 2)
+//! TypeProblem::IntFloat { expected: "float", .. } generates:
+//!   - "use `float(x)` to convert" (priority 1)
 //! ```
 
 use ori_diagnostic::Suggestion;
