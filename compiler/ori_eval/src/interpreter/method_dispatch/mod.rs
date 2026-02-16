@@ -210,6 +210,10 @@ impl Interpreter<'_> {
             | CollectionMethod::IterFlatMap
             | CollectionMethod::IterCycle
             | CollectionMethod::IterNextBack
+            | CollectionMethod::IterRev
+            | CollectionMethod::IterLast
+            | CollectionMethod::IterRFind
+            | CollectionMethod::IterRFold
             | CollectionMethod::IterFold
             | CollectionMethod::IterCount
             | CollectionMethod::IterFind

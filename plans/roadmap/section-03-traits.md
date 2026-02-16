@@ -542,9 +542,9 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [x] **Phase 2C/2D**: enumerate, zip, chain, flatten, flat_map, cycle (2026-02-15)
   - [x] **Remaining**: DoubleEndedIterator — next_back() implemented (2026-02-16)
 
-- [ ] **Implement**: DoubleEndedIterator default methods (rev, last, rfind, rfold)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — double-ended method type inference
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/double_ended_methods.ori`
+- [x] **Implement**: DoubleEndedIterator default methods (rev, last, rfind, rfold) (2026-02-16)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 7 unit tests for Reversed variant (is_double_ended, size_hint, Debug, PartialEq, Hash) (2026-02-16)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/double_ended_methods.ori` — 21 spec tests (rev/last/rfind/rfold on list, range, string, empty, adapters) (2026-02-16)
   - [ ] **LLVM Support**: LLVM codegen for double-ended methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 

@@ -248,6 +248,17 @@ impl Interpreter<'_> {
                 mut buffer,
                 buf_pos,
             } => self.eval_iter_next_cycled(source, &mut buffer, buf_pos),
+
+            // Reversed: delegate to next_back on source
+            IteratorValue::Reversed { source } => {
+                let (item, new_source) = self.eval_iter_next_back(*source)?;
+                Ok((
+                    item,
+                    IteratorValue::Reversed {
+                        source: Box::new(new_source),
+                    },
+                ))
+            }
         }
     }
 
@@ -477,6 +488,17 @@ impl Interpreter<'_> {
                         }
                     }
                 }
+            }
+
+            // Reversed: next_back on reversed delegates to next on source
+            IteratorValue::Reversed { source } => {
+                let (item, new_source) = self.eval_iter_next(*source)?;
+                Ok((
+                    item,
+                    IteratorValue::Reversed {
+                        source: Box::new(new_source),
+                    },
+                ))
             }
 
             // Non-double-ended variants — runtime error

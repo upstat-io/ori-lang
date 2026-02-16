@@ -2,6 +2,9 @@
 //!
 //! Consumers drive the iterator to completion: `fold`, `count`, `find`,
 //! `any`, `all`, `for_each`, `collect`.
+//!
+//! Backward consumers (`last`, `rfind`, `rfold`) use `eval_iter_next_back()`
+//! and require double-ended iterators.
 
 use ori_patterns::IteratorValue;
 
@@ -154,6 +157,59 @@ impl Interpreter<'_> {
                     current = new_iter;
                 }
                 None => return Ok(Value::list(result)),
+            }
+        }
+    }
+
+    // ── Backward consumers (require double-ended iterators) ──────────
+
+    /// `last()` — efficiently retrieve the last item via `next_back()`.
+    pub(in crate::interpreter) fn eval_iter_last(&mut self, iter_val: IteratorValue) -> EvalResult {
+        let (item, _) = self.eval_iter_next_back(iter_val)?;
+        match item {
+            Some(val) => Ok(Value::some(val)),
+            None => Ok(Value::None),
+        }
+    }
+
+    /// `rfind(predicate)` — find the last item matching predicate via `next_back()`.
+    pub(in crate::interpreter) fn eval_iter_rfind(
+        &mut self,
+        iter_val: IteratorValue,
+        predicate: &Value,
+    ) -> EvalResult {
+        let mut current = iter_val;
+        loop {
+            let (item, new_iter) = self.eval_iter_next_back(current)?;
+            match item {
+                Some(val) => {
+                    let found = self.eval_call(predicate, std::slice::from_ref(&val))?;
+                    if found.is_truthy() {
+                        return Ok(Value::some(val));
+                    }
+                    current = new_iter;
+                }
+                None => return Ok(Value::None),
+            }
+        }
+    }
+
+    /// `rfold(initial, op)` — accumulate from the back via `next_back()`.
+    pub(in crate::interpreter) fn eval_iter_rfold(
+        &mut self,
+        iter_val: IteratorValue,
+        mut acc: Value,
+        op: &Value,
+    ) -> EvalResult {
+        let mut current = iter_val;
+        loop {
+            let (item, new_iter) = self.eval_iter_next_back(current)?;
+            match item {
+                Some(val) => {
+                    acc = self.eval_call(op, &[acc, val])?;
+                    current = new_iter;
+                }
+                None => return Ok(acc),
             }
         }
     }

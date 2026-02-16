@@ -75,9 +75,13 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Iterator", "flatten"),
     ("Iterator", "fold"),
     ("Iterator", "for_each"),
+    ("Iterator", "last"),
     ("Iterator", "map"),
     ("Iterator", "next"),
     ("Iterator", "next_back"),
+    ("Iterator", "rev"),
+    ("Iterator", "rfind"),
+    ("Iterator", "rfold"),
     ("Iterator", "skip"),
     ("Iterator", "take"),
     ("Iterator", "zip"),
@@ -707,7 +711,7 @@ fn resolve_iterator_method(
             Some(engine.pool_mut().tuple(&[option_elem, receiver_ty]))
         }
         // Adapters returning same Iterator<T>
-        "filter" | "take" | "skip" | "chain" | "cycle" => Some(receiver_ty),
+        "filter" | "take" | "skip" | "chain" | "cycle" | "rev" => Some(receiver_ty),
         // Adapters returning Iterator with fresh element type
         "map" | "flatten" | "flat_map" => {
             let new_elem = engine.pool_mut().fresh_var();
@@ -723,9 +727,9 @@ fn resolve_iterator_method(
             Some(engine.pool_mut().iterator(pair))
         }
         // Consumers
-        "fold" => Some(engine.pool_mut().fresh_var()),
+        "fold" | "rfold" => Some(engine.pool_mut().fresh_var()),
         "count" => Some(Idx::INT),
-        "find" => Some(engine.pool_mut().option(elem)),
+        "find" | "rfind" | "last" => Some(engine.pool_mut().option(elem)),
         "any" | "all" => Some(Idx::BOOL),
         "for_each" => Some(Idx::UNIT),
         "collect" => Some(engine.pool_mut().list(elem)),
