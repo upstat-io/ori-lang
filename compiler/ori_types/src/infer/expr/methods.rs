@@ -621,9 +621,13 @@ fn resolve_range_method(
     method: &str,
 ) -> Option<Idx> {
     let elem = engine.pool().range_elem(receiver_ty);
+    // Range<float> does not implement Iterable — reject iteration methods.
+    // Non-iteration methods (len, is_empty, contains) are still valid.
+    let is_float = elem == Idx::FLOAT;
     match method {
         "len" | "count" => Some(Idx::INT),
         "is_empty" | "contains" => Some(Idx::BOOL),
+        "iter" | "to_list" | "collect" if is_float => None,
         "iter" => Some(engine.pool_mut().double_ended_iterator(elem)),
         "to_list" | "collect" => Some(engine.pool_mut().list(elem)),
         "step_by" => Some(receiver_ty),

@@ -579,6 +579,28 @@ pub(crate) fn infer_method_call(
         }
     }
 
+    // 1c. Produce diagnostic for iteration methods on Range<float>
+    if tag == Tag::Range {
+        if let Some(name_str) = method_str {
+            if matches!(name_str, "iter" | "collect" | "to_list") {
+                let elem = engine.pool().range_elem(resolved);
+                if elem == Idx::FLOAT {
+                    engine.push_error(TypeCheckError::unsatisfied_bound(
+                        span,
+                        "`Range<float>` does not implement `Iterable` — \
+                         floating-point ranges cannot be iterated because \
+                         float arithmetic is imprecise (use an int range \
+                         with conversion, e.g., `(0..10).iter().map((i) -> i.to_float() / 10.0)`)",
+                    ));
+                    for &arg_id in arena.get_expr_list(args) {
+                        infer_expr(engine, arena, arg_id);
+                    }
+                    return Idx::ERROR;
+                }
+            }
+        }
+    }
+
     // 2. Try user-defined method resolution via TraitRegistry
     if let Some(ret) = resolve_impl_method(engine, arena, resolved, method, args, span) {
         return ret;

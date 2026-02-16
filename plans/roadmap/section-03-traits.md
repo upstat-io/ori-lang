@@ -85,7 +85,7 @@ sections:
 
 > **SPEC**: `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 49 passing (39 traits + 10 derives, 0 ignored), proposals pending (3.7-3.17). Verified 2026-02-15: ~239 Ori tests + 49 AOT tests pass, 8931 total. Derive codegen complete (Eq, Clone, Hashable, Printable). Clone on compound types complete. Phase boundary hygiene review: speculative hash/equals on compound types reverted (eval/LLVM not implemented); byte/char clone added to LLVM.
+**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 49 passing (39 traits + 10 derives, 0 ignored), proposals pending (3.7-3.17). Verified 2026-02-16: Iterator traits registered in prelude (TraitRegistry), Range<float> compile-time rejection, Iterator<T>/DoubleEndedIterator<T> type annotations, spec docs verified. 9350 total tests. Derive codegen complete (Eq, Clone, Hashable, Printable). Clone on compound types complete.
 
 ---
 
@@ -439,7 +439,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
-- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring (core next(), consumers, lazy adapters, next_back, repeat, for loops) [in-progress] (2026-02-16). Remaining: trait prelude registration, DoubleEndedIterator gating, spec updates, Range<float> rejection. Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Remaining: LLVM iterator codegen, 3.8.1 performance/semantics, Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
@@ -561,7 +561,7 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [x] `str` implements `Iterable` (2026-02-15) <!-- DoubleEndedIterator pending -->
   - [x] `Range<int>` implements `Iterable` (2026-02-15) <!-- DoubleEndedIterator pending -->
   - [x] `Option<T>` implements `Iterable` (2026-02-16) — Some(x) → 1-element list iter, None → empty iter
-  - [ ] **Note**: `Range<float>` does NOT implement `Iterable` (precision issues) <!-- gap: type checker accepts Range<float> in for loops and .iter() — runtime rejects it with generic error. Need compile-time rejection with clear diagnostic -->
+  - [x] **Note**: `Range<float>` does NOT implement `Iterable` (precision issues) (2026-02-16) — compile-time rejection with diagnostic in type checker: for loops, `.iter()`, `.collect()`, `.to_list()` all rejected; compile-fail tests in `tests/compile-fail/range_float_iteration.ori` (4 tests)
   - [x] **Ori Tests**: `tests/spec/traits/iterator/builtin_impls.ori` — 13 spec tests (some/none iter, map, filter, count, fold, any, chain, zip) (2026-02-16)
   - [ ] **LLVM Support**: LLVM codegen for all builtin iterator impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
@@ -590,16 +590,16 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [ ] **LLVM Support**: LLVM codegen for desugared for yield
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: Add traits and `repeat` to prelude
-  - [ ] `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect` traits in prelude (TraitRegistry)
+- [x] **Implement**: Add traits and `repeat` to prelude (2026-02-16)
+  - [x] `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect` traits in prelude (TraitRegistry) (2026-02-16) — defined in `library/std/prelude.ori` with `pub trait` syntax; `Iterator<T>`/`DoubleEndedIterator<T>` added to well-known types match in all three type resolution paths (`resolve_parsed_type_simple`, `resolve_type_with_vars`, `resolve_parsed_type`); type annotations like `let it: Iterator<int>` and `let it: DoubleEndedIterator<int>` now resolve correctly
   - [x] Gate double-ended methods (`rev`, `last`, `rfind`, `rfold`, `next_back`) behind `DoubleEndedIterator` trait bound in type checker (2026-02-16) — `Tag::DoubleEndedIterator` added; list/range/str return DEI, map/set/option return Iterator; map/filter preserve DEI, take/skip/enumerate downgrade; error diagnostic for DEI-only methods on plain Iterator; tests: `tests/spec/traits/iterator/double_ended_gating.ori` (16 spec tests), `tag/tests.rs` (5 unit tests), `unify/tests.rs` (7 unit tests)
   - [x] `repeat` function in prelude (2026-02-16) — registered in `register_prelude()` + type sig in `infer_ident()`
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/prelude.ori`
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/prelude.ori` (2026-02-16) — 8 spec tests (Iterator<T> annotation, DoubleEndedIterator<T> annotation, method chains, collect, repeat, for-loop, for-yield)
 
-- [ ] **Update Spec**: `06-types.md` — add Iterator traits section
-- [ ] **Update Spec**: `10-patterns.md` — document for loop desugaring
-- [ ] **Update Spec**: `12-modules.md` — add to prelude
-- [ ] **Update**: `CLAUDE.md` — add iterator documentation to quick reference
+- [x] **Update Spec**: `06-types.md` — Iterator traits section already present (lines 1304-1344) (verified 2026-02-16)
+- [x] **Update Spec**: `10-patterns.md` — for loop desugaring already documented (lines 887-911) (verified 2026-02-16)
+- [x] **Update Spec**: `12-modules.md` — Iterator traits in prelude table (lines 281-288) (verified 2026-02-16)
+- [x] **Update**: `CLAUDE.md` — Iterator documentation in `.claude/rules/ori-syntax.md` (lines 177-182) (verified 2026-02-16)
 
 ---
 
