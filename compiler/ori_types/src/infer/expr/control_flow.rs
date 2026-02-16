@@ -615,6 +615,7 @@ pub(crate) fn infer_for(
             // Option<T> iterates as 0-or-1 element of type T
             engine.pool().option_inner(resolved_iter)
         }
+        Tag::Str => Idx::CHAR,
         _ => {
             // Not a known iterable - still allow iteration with fresh element type
             // The type checker will catch concrete type mismatches later
