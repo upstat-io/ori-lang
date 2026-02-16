@@ -3,6 +3,7 @@
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::InferEngine;
+use super::methods::DEI_ONLY_METHODS;
 use super::{infer_expr, resolve_builtin_method};
 use crate::{
     ContextKind, Expected, ExpectedOrigin, Idx, MethodLookupResult, Pool, Tag, TypeCheckError,
@@ -494,9 +495,8 @@ pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bo
         Tag::Result | Tag::Tuple => RESULT_TRAITS.contains(&trait_name),
         Tag::Range => matches!(trait_name, "Len" | "Iterable"),
         Tag::Str => trait_name == "Iterable",
-        Tag::Iterator | Tag::DoubleEndedIterator => {
-            trait_name == "Iterator" || trait_name == "DoubleEndedIterator"
-        }
+        Tag::DoubleEndedIterator => trait_name == "Iterator" || trait_name == "DoubleEndedIterator",
+        Tag::Iterator => trait_name == "Iterator",
         _ => false,
     }
 }
@@ -562,7 +562,7 @@ pub(crate) fn infer_method_call(
     // 1b. Produce diagnostic for DoubleEndedIterator methods on non-DEI receivers
     if tag == Tag::Iterator {
         if let Some(name_str) = method_str {
-            if matches!(name_str, "rev" | "last" | "rfind" | "rfold" | "next_back") {
+            if DEI_ONLY_METHODS.contains(&name_str) {
                 engine.push_error(TypeCheckError::unsatisfied_bound(
                     span,
                     format!(
@@ -645,7 +645,7 @@ pub(crate) fn infer_method_call_named(
     // 1b. Produce diagnostic for DoubleEndedIterator methods on non-DEI receivers
     if tag == Tag::Iterator {
         if let Some(name_str) = method_str {
-            if matches!(name_str, "rev" | "last" | "rfind" | "rfold" | "next_back") {
+            if DEI_ONLY_METHODS.contains(&name_str) {
                 engine.push_error(TypeCheckError::unsatisfied_bound(
                     span,
                     format!(
@@ -674,6 +674,16 @@ pub(crate) fn infer_method_call_named(
     Idx::ERROR
 }
 
+/// Result of looking up a method in the `TraitRegistry`.
+///
+/// Used by both `resolve_impl_method()` and `resolve_impl_method_named()` to
+/// capture the registry result across the borrow-dance boundary.
+enum LookupOutcome {
+    Found { sig: Idx, has_self: bool },
+    Ambiguous(Vec<ori_ir::Name>),
+    NotFound,
+}
+
 /// Try to resolve a method call through the `TraitRegistry` (user-defined impls).
 ///
 /// Returns `Some(return_type)` if the method was found, `None` otherwise.
@@ -688,11 +698,6 @@ fn resolve_impl_method(
     // Look up the method signature with ambiguity detection.
     // Borrow dance: scope the immutable trait_registry borrow to extract
     // data, then use engine mutably for error reporting.
-    enum LookupOutcome {
-        Found { sig: Idx, has_self: bool },
-        Ambiguous(Vec<ori_ir::Name>),
-        NotFound,
-    }
 
     let outcome = {
         let trait_registry = engine.trait_registry();
@@ -783,12 +788,6 @@ fn resolve_impl_method_named(
     span: Span,
 ) -> Option<Idx> {
     // Same borrow dance as resolve_impl_method: extract data from scoped borrow
-    enum LookupOutcome {
-        Found { sig: Idx, has_self: bool },
-        Ambiguous(Vec<ori_ir::Name>),
-        NotFound,
-    }
-
     let outcome = {
         let trait_registry = engine.trait_registry();
         match trait_registry {

@@ -278,7 +278,6 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
     MethodDef::comparable(BuiltinType::Float),
     MethodDef::eq_trait(BuiltinType::Float),
     MethodDef::clone_trait(BuiltinType::Float),
-    MethodDef::hash_trait(BuiltinType::Float),
     MethodDef::to_str_trait(BuiltinType::Float),
     MethodDef::new(BuiltinType::Float, "abs", &[], ReturnSpec::SelfType, None),
     MethodDef::new(BuiltinType::Float, "floor", &[], ReturnSpec::SelfType, None),
