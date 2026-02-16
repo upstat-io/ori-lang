@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use ori_eval::EVAL_BUILTIN_METHODS;
+use ori_eval::{EVAL_BUILTIN_METHODS, ITERATOR_METHOD_NAMES};
 use ori_ir::builtin_methods::BUILTIN_METHODS;
 use ori_types::TYPECK_BUILTIN_METHODS;
 
@@ -682,4 +682,48 @@ fn typeck_methods_implemented_in_eval() {
         "Type checker recognizes methods not implemented in evaluator: {missing:?}\n\
          Either implement in ori_eval or add to TYPECK_METHODS_NOT_IN_EVAL"
     );
+}
+
+// ── Iterator cross-crate consistency ─────────────────────────────────
+
+/// Every Iterator method in typeck must have a corresponding eval resolver
+/// entry, and vice versa. This closes the gap where Iterator methods were
+/// exempted from all consistency checks via `COLLECTION_TYPES` and
+/// `TYPECK_METHODS_NOT_IN_EVAL`.
+#[test]
+fn iterator_typeck_methods_match_eval_resolver() {
+    let typeck_iter_methods: BTreeSet<&str> = TYPECK_BUILTIN_METHODS
+        .iter()
+        .filter(|(ty, _)| *ty == "Iterator")
+        .map(|(_, method)| *method)
+        .collect();
+
+    let eval_iter_methods: BTreeSet<&str> = ITERATOR_METHOD_NAMES.iter().copied().collect();
+
+    let in_typeck_not_eval: Vec<_> = typeck_iter_methods.difference(&eval_iter_methods).collect();
+    let in_eval_not_typeck: Vec<_> = eval_iter_methods.difference(&typeck_iter_methods).collect();
+
+    assert!(
+        in_typeck_not_eval.is_empty(),
+        "Iterator methods in typeck but missing from eval resolver: {in_typeck_not_eval:?}\n\
+         Add to ITERATOR_METHOD_NAMES in ori_eval/src/interpreter/resolvers/mod.rs"
+    );
+    assert!(
+        in_eval_not_typeck.is_empty(),
+        "Iterator methods in eval resolver but missing from typeck: {in_eval_not_typeck:?}\n\
+         Add to TYPECK_BUILTIN_METHODS in ori_types/src/infer/expr/methods.rs"
+    );
+}
+
+/// The eval iterator method name list must be sorted for reliable comparison.
+#[test]
+fn eval_iterator_method_names_sorted() {
+    for window in ITERATOR_METHOD_NAMES.windows(2) {
+        assert!(
+            window[0] <= window[1],
+            "ITERATOR_METHOD_NAMES not sorted: {:?} > {:?}",
+            window[0],
+            window[1]
+        );
+    }
 }
