@@ -323,6 +323,20 @@ Unordered unique elements. Elements must implement `Eq` and `Hashable`.
 
 Fixed-size heterogeneous collection. `()` is the unit value.
 
+Elements are accessed by zero-based numeric index:
+
+```ori
+let point = (3, 4)
+point.0         // 3
+point.1         // 4
+```
+
+Tuples also support destructuring in `let` and `match` patterns:
+
+```ori
+let (x, y) = point
+```
+
 ### Function
 
 ```

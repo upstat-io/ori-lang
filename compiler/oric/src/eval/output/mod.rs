@@ -114,6 +114,10 @@ impl EvalOutput {
                 end: r.end,
                 inclusive: r.inclusive,
             },
+            Value::Iterator(it) => EvalOutput::Function {
+                description: format!("<iterator {it:?}>"),
+                arity: None,
+            },
             Value::Function(f) => {
                 let arity = f.params.len();
                 EvalOutput::Function {

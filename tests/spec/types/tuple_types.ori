@@ -321,3 +321,47 @@ use std.prelude { is_some, is_none, is_ok }
 )
 
 @nested_tuple_eq () -> bool = ((1, 2), (3, 4)) == ((1, 2), (3, 4))
+
+// =============================================================================
+// Tuple Field Access (.0, .1, ...)
+// =============================================================================
+
+@test_pair_field_access tests @pair_same_type () -> void = run(
+    let pair = (10, 20),
+    assert_eq(actual: pair.0, expected: 10),
+    assert_eq(actual: pair.1, expected: 20),
+)
+
+@test_pair_different_field_access tests @pair_different_types () -> void = run(
+    let pair = (42, "answer"),
+    assert_eq(actual: pair.0, expected: 42),
+    assert_eq(actual: pair.1, expected: "answer"),
+)
+
+@test_triple_field_access tests @triple () -> void = run(
+    let triple = (1, "one", true),
+    assert_eq(actual: triple.0, expected: 1),
+    assert_eq(actual: triple.1, expected: "one"),
+    assert(cond: triple.2),
+)
+
+// Chained tuple field access requires parentheses because the lexer
+// tokenizes `0.1` as a float literal. Use `(t.0).1` not `t.0.1`.
+@test_nested_tuple_field_access tests @nested_pair () -> void = run(
+    let nested = ((1, 2), (3, 4)),
+    assert_eq(actual: (nested.0).0, expected: 1),
+    assert_eq(actual: (nested.0).1, expected: 2),
+    assert_eq(actual: (nested.1).0, expected: 3),
+    assert_eq(actual: (nested.1).1, expected: 4),
+)
+
+@test_single_tuple_field tests @single_tuple () -> void = run(
+    let single = (42,),
+    assert_eq(actual: single.0, expected: 42),
+)
+
+@test_field_access_on_return tests @make_pair () -> void = run(
+    let result = make_pair(a: 99, b: "test"),
+    assert_eq(actual: result.0, expected: 99),
+    assert_eq(actual: result.1, expected: "test"),
+)

@@ -427,6 +427,7 @@ impl Interpreter<'_> {
         match value {
             Value::Struct(s) => s.type_name,
             Value::Range(_) => names.range,
+            Value::Iterator(_) => names.iterator,
             Value::Int(_) => names.int,
             Value::Float(_) => names.float,
             Value::Bool(_) => names.bool_,

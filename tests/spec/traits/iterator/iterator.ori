@@ -1,0 +1,196 @@
+// Spec: Section 3.8 — Iterator Traits (Phase 1)
+// Tests for the core Iterator protocol: .iter() and .next()
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// List Iterator — Basic
+// =============================================================================
+
+// .iter() creates an iterator; .next() returns first element
+@list_iter_first () -> int = run(
+    let iter = [10, 20, 30].iter(),
+    match(
+        iter.next(),
+        (Some(x), _) -> x,
+        _ -> -1,
+    ),
+)
+
+@test_list_iter_first tests @list_iter_first () -> void = run(
+    assert_eq(actual: list_iter_first(), expected: 10),
+)
+
+// Full manual iteration: 1 + 2 + 3 = 6
+@list_iter_sum () -> int = run(
+    let iter = [1, 2, 3].iter(),
+    match(
+        iter.next(),
+        (Some(v1), iter2) -> match(
+            iter2.next(),
+            (Some(v2), iter3) -> match(
+                iter3.next(),
+                (Some(v3), _) -> v1 + v2 + v3,
+                _ -> v1 + v2,
+            ),
+            _ -> v1,
+        ),
+        _ -> 0,
+    ),
+)
+
+@test_list_iter_sum tests @list_iter_sum () -> void = run(
+    assert_eq(actual: list_iter_sum(), expected: 6),
+)
+
+// =============================================================================
+// List Iterator — Empty and Fused
+// =============================================================================
+
+// Empty list iterator returns None immediately
+@list_iter_empty () -> bool = run(
+    let empty: [int] = [],
+    let iter = empty.iter(),
+    match(
+        iter.next(),
+        (Some(_), _) -> false,
+        _ -> true,
+    ),
+)
+
+@test_list_iter_empty tests @list_iter_empty () -> void = run(
+    assert(cond: list_iter_empty()),
+)
+
+// Fused: after exhaustion, next() keeps returning None
+@list_iter_fused () -> bool = run(
+    let iter = [42].iter(),
+    // First next() yields Some(42)
+    match(
+        iter.next(),
+        (Some(_), exhausted) -> match(
+            // Second next() should be None
+            exhausted.next(),
+            (Some(_), _) -> false,
+            _ -> true,
+        ),
+        _ -> false,
+    ),
+)
+
+@test_list_iter_fused tests @list_iter_fused () -> void = run(
+    assert(cond: list_iter_fused()),
+)
+
+// =============================================================================
+// Range Iterator
+// =============================================================================
+
+// Exclusive range 0..3 yields 0, 1, 2
+@range_iter_exclusive () -> int = run(
+    let iter = (0..3).iter(),
+    match(
+        iter.next(),
+        (Some(v1), iter2) -> match(
+            iter2.next(),
+            (Some(v2), iter3) -> match(
+                iter3.next(),
+                (Some(v3), iter4) -> run(
+                    // Should be exhausted now
+                    let done = match(iter4.next(), (Some(_), _) -> false, _ -> true),
+                    assert(cond: done),
+                    v1 + v2 + v3,
+                ),
+                _ -> -1,
+            ),
+            _ -> -1,
+        ),
+        _ -> -1,
+    ),
+)
+
+@test_range_iter_exclusive tests @range_iter_exclusive () -> void = run(
+    assert_eq(actual: range_iter_exclusive(), expected: 3),
+)
+
+// Inclusive range 1..=3 yields 1, 2, 3
+@range_iter_inclusive () -> int = run(
+    let iter = (1..=3).iter(),
+    match(
+        iter.next(),
+        (Some(v1), iter2) -> match(
+            iter2.next(),
+            (Some(v2), iter3) -> match(
+                iter3.next(),
+                (Some(v3), _) -> v1 + v2 + v3,
+                _ -> -1,
+            ),
+            _ -> -1,
+        ),
+        _ -> -1,
+    ),
+)
+
+@test_range_iter_inclusive tests @range_iter_inclusive () -> void = run(
+    assert_eq(actual: range_iter_inclusive(), expected: 6),
+)
+
+// =============================================================================
+// String Iterator
+// =============================================================================
+
+// String iterator yields characters
+@str_iter_first () -> str = run(
+    let iter = "hello".iter(),
+    match(
+        iter.next(),
+        (Some(c), _) -> c.to_str(),
+        _ -> "",
+    ),
+)
+
+@test_str_iter_first tests @str_iter_first () -> void = run(
+    assert_eq(actual: str_iter_first(), expected: "h"),
+)
+
+// String iterator — empty
+@str_iter_empty () -> bool = run(
+    let iter = "".iter(),
+    match(
+        iter.next(),
+        (Some(_), _) -> false,
+        _ -> true,
+    ),
+)
+
+@test_str_iter_empty tests @str_iter_empty () -> void = run(
+    assert(cond: str_iter_empty()),
+)
+
+// =============================================================================
+// Map Iterator
+// =============================================================================
+
+// Map iterator yields entries; count them by chaining next()
+@map_iter_count () -> int = run(
+    let m = {"a": 10, "b": 20},
+    let iter = m.iter(),
+    match(
+        iter.next(),
+        (Some(_), iter2) -> match(
+            iter2.next(),
+            (Some(_), iter3) -> match(
+                // Map has 2 entries, so third next() should be None
+                iter3.next(),
+                (Some(_), _) -> -1,
+                _ -> 2,
+            ),
+            _ -> 1,
+        ),
+        _ -> 0,
+    ),
+)
+
+@test_map_iter_count tests @map_iter_count () -> void = run(
+    assert_eq(actual: map_iter_count(), expected: 2),
+)

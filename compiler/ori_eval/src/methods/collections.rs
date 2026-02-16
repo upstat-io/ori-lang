@@ -1,7 +1,7 @@
 //! Method dispatch for collection types (list, str, map, range).
 
 use ori_ir::Name;
-use ori_patterns::{no_such_method, EvalResult, Value};
+use ori_patterns::{no_such_method, EvalResult, IteratorValue, Value};
 
 use super::compare::{compare_lists, ordering_to_value};
 use super::helpers::{
@@ -49,6 +49,10 @@ pub fn dispatch_list_method(
         let other = require_list_arg("compare", &args, 0)?;
         let ord = compare_lists(&items, other, ctx.interner)?;
         Ok(ordering_to_value(ord))
+    // Iterable trait - create iterator
+    } else if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        Ok(Value::iterator(IteratorValue::from_list(items)))
     // Clone trait - deep clone of list
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
@@ -117,6 +121,10 @@ pub fn dispatch_string_method(
         require_args("equals", 1, args.len())?;
         let other = require_str_arg("equals", &args, 0)?;
         Ok(Value::Bool(&**s == other))
+    // Iterable trait - create character iterator
+    } else if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        Ok(Value::iterator(IteratorValue::from_string(s)))
     // Clone trait
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
@@ -165,6 +173,14 @@ pub fn dispatch_range_method(
         require_args("contains", 1, args.len())?;
         let val = require_int_arg("contains", &args, 0)?;
         Ok(Value::Bool(r.contains(val)))
+    } else if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        Ok(Value::iterator(IteratorValue::from_range(
+            r.start,
+            r.end,
+            r.step,
+            r.inclusive,
+        )))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "range").into())
     }
@@ -203,6 +219,9 @@ pub fn dispatch_map_method(
         // Clone values for return list. Cheap: Value uses Arc for heap types.
         let values: Vec<Value> = map.values().cloned().collect();
         Ok(Value::list(values))
+    } else if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        Ok(Value::iterator(IteratorValue::from_map(map)))
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)

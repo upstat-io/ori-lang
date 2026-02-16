@@ -665,6 +665,15 @@ impl<'tcx> TypeInfoStore<'tcx> {
                 TypeInfo::Error
             }
 
+            // Iterator is interpreter-only for now (Phase 1: no LLVM codegen).
+            Tag::Iterator => {
+                tracing::warn!(
+                    ?idx,
+                    "Iterator type at codegen — not yet implemented in LLVM backend"
+                );
+                TypeInfo::Error
+            }
+
             // These tags should genuinely never reach codegen.
             Tag::BoundVar
             | Tag::RigidVar

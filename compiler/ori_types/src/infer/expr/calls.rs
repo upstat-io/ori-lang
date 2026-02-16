@@ -487,10 +487,14 @@ pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bo
     // Then check compound types by tag
 
     match pool.tag(ty) {
-        Tag::List | Tag::Map | Tag::Set => COLLECTION_TRAITS.contains(&trait_name),
+        Tag::List | Tag::Map | Tag::Set => {
+            COLLECTION_TRAITS.contains(&trait_name) || trait_name == "Iterable"
+        }
         Tag::Option => WRAPPER_TRAITS.contains(&trait_name),
         Tag::Result | Tag::Tuple => RESULT_TRAITS.contains(&trait_name),
-        Tag::Range => trait_name == "Len",
+        Tag::Range => matches!(trait_name, "Len" | "Iterable"),
+        Tag::Str => trait_name == "Iterable",
+        Tag::Iterator => trait_name == "Iterator",
         _ => false,
     }
 }

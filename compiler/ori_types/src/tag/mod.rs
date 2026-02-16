@@ -64,8 +64,10 @@ pub enum Tag {
     Channel = 19,
     /// Range type `range<T>`.
     Range = 20,
+    /// Iterator type `Iterator<T>`.
+    Iterator = 21,
 
-    // Reserved: 21-31 for future simple containers
+    // Reserved: 22-31 for future simple containers
 
     // === Two-Child Containers (32-47) ===
     // data: index into extra[] with two consecutive Idx values
@@ -194,6 +196,7 @@ impl Tag {
             Self::Set => "set",
             Self::Channel => "chan",
             Self::Range => "range",
+            Self::Iterator => "Iterator",
             Self::Map => "map",
             Self::Result => "result",
             Self::Borrowed => "borrowed",

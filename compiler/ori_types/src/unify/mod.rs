@@ -369,7 +369,7 @@ impl<'pool> UnifyEngine<'pool> {
             }
 
             // Simple containers
-            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range => {
+            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range | Tag::Iterator => {
                 let child = Idx::from_raw(self.pool.data(ty));
                 self.occurs_inner(var_id, child)
             }
@@ -462,7 +462,7 @@ impl<'pool> UnifyEngine<'pool> {
                 }
             }
 
-            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range => {
+            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range | Tag::Iterator => {
                 let child = Idx::from_raw(self.pool.data(ty));
                 self.update_ranks_inner(child, max_rank);
             }
@@ -585,6 +585,12 @@ impl<'pool> UnifyEngine<'pool> {
                 let child_a = Idx::from_raw(self.pool.data(a));
                 let child_b = Idx::from_raw(self.pool.data(b));
                 self.unify_with_context(child_a, child_b, UnifyContext::RangeElement)
+            }
+
+            Tag::Iterator => {
+                let child_a = Idx::from_raw(self.pool.data(a));
+                let child_b = Idx::from_raw(self.pool.data(b));
+                self.unify_with_context(child_a, child_b, UnifyContext::IteratorElement)
             }
 
             // Two-child containers
@@ -802,7 +808,7 @@ impl<'pool> UnifyEngine<'pool> {
                 }
             }
 
-            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range => {
+            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range | Tag::Iterator => {
                 let child = Idx::from_raw(self.pool.data(ty));
                 self.collect_free_vars_inner(child, min_rank, vars);
             }
@@ -976,6 +982,16 @@ impl<'pool> UnifyEngine<'pool> {
                     ty
                 } else {
                     self.pool.range(new_child)
+                }
+            }
+
+            Tag::Iterator => {
+                let child = Idx::from_raw(self.pool.data(ty));
+                let new_child = self.substitute(child, subst);
+                if new_child == child {
+                    ty
+                } else {
+                    self.pool.iterator(new_child)
                 }
             }
 

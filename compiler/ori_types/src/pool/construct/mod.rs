@@ -47,6 +47,11 @@ impl Pool {
         self.intern(Tag::Range, elem.raw())
     }
 
+    /// Create an iterator type `Iterator<elem>`.
+    pub fn iterator(&mut self, elem: Idx) -> Idx {
+        self.intern(Tag::Iterator, elem.raw())
+    }
+
     // === Two-Child Container Constructors ===
 
     /// Create a map type `{key: value}`.

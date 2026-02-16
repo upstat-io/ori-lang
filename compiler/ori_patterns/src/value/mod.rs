@@ -29,6 +29,7 @@
 
 mod composite;
 mod heap;
+pub(crate) mod iterator;
 mod scalar_int;
 
 use std::borrow::Cow;
@@ -40,6 +41,7 @@ pub use ori_ir::{Name, StringLookup};
 
 pub use composite::{FunctionValue, MemoizedFunctionValue, RangeValue, StructLayout, StructValue};
 pub use heap::Heap;
+pub use iterator::IteratorValue;
 pub use scalar_int::ScalarInt;
 
 /// Ordering value representing comparison results.
@@ -197,6 +199,8 @@ pub enum Value {
     FunctionVal(FunctionValFn, &'static str),
     /// Range value.
     Range(RangeValue),
+    /// Iterator value (functional — each `next()` returns a new iterator).
+    Iterator(IteratorValue),
 
     /// Module namespace for qualified access.
     ///
@@ -438,6 +442,12 @@ impl Value {
         }
     }
 
+    /// Create an iterator value from an `IteratorValue` state.
+    #[inline]
+    pub fn iterator(state: IteratorValue) -> Self {
+        Value::Iterator(state)
+    }
+
     /// Create a module namespace for qualified access.
     ///
     /// # Example
@@ -551,6 +561,7 @@ impl Value {
             Value::Size(_) => "Size",
             Value::Ordering(_) => "Ordering",
             Value::Range(_) => "Range",
+            Value::Iterator(_) => "Iterator",
             Value::ModuleNamespace(_) => "module",
             Value::Error(_) => "error",
             Value::TypeRef { .. } => "type",
@@ -625,6 +636,7 @@ impl Value {
             Value::Size(bytes) => format!("{bytes}b"),
             Value::Ordering(ord) => ord.name().to_string(),
             Value::Range(r) => format!("{r:?}"),
+            Value::Iterator(it) => format!("<iterator {it:?}>"),
             Value::ModuleNamespace(_) => "<module>".to_string(),
             Value::Error(msg) => format!("Error({msg})"),
             Value::TypeRef { .. } => "<type>".to_string(),
@@ -680,6 +692,7 @@ impl Value {
             | Value::MemoizedFunction(_)
             | Value::FunctionVal(_, _)
             | Value::Range(_)
+            | Value::Iterator(_)
             | Value::ModuleNamespace(_)
             | Value::Error(_)
             | Value::TypeRef { .. } => Err("value is not hashable and cannot be a map key"),
@@ -791,6 +804,7 @@ impl fmt::Debug for Value {
             Value::Size(bytes) => write!(f, "Size({bytes}b)"),
             Value::Ordering(ord) => write!(f, "Ordering({ord:?})"),
             Value::Range(r) => write!(f, "Range({r:?})"),
+            Value::Iterator(it) => write!(f, "Iterator({it:?})"),
             Value::ModuleNamespace(ns) => write!(f, "ModuleNamespace({} items)", ns.len()),
             Value::Error(msg) => write!(f, "Error({msg})"),
             Value::TypeRef { type_name } => write!(f, "TypeRef({type_name:?})"),
@@ -894,6 +908,7 @@ impl fmt::Display for Value {
                     write!(f, "{}..{}", r.start, r.end)
                 }
             }
+            Value::Iterator(it) => write!(f, "<iterator {it:?}>"),
             Value::ModuleNamespace(_) => write!(f, "<module>"),
             Value::Error(msg) => write!(f, "<error: {msg}>"),
             Value::TypeRef { type_name } => write!(f, "<type {type_name:?}>"),
@@ -1057,6 +1072,7 @@ impl std::hash::Hash for Value {
                 r.end.hash(state);
                 r.inclusive.hash(state);
             }
+            Value::Iterator(it) => it.hash(state),
             Value::ModuleNamespace(ns) => {
                 // Hash by namespace size (discriminant already hashed)
                 ns.len().hash(state);

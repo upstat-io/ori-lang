@@ -368,7 +368,7 @@ postfix_op     = "." member_name [ call_args ]       /* field/method access */
                | "?"                                 /* error propagation */
                | "as" type                           /* infallible type conversion */
                | "as?" type .                        /* fallible type conversion */
-member_name    = identifier | keyword .                /* keywords valid after "." */
+member_name    = identifier | keyword | int_literal .  /* keywords/ints valid after "." (tuple: t.0) */
 match_method   = "match" "(" match_arm { "," match_arm } ")" .
 call_args      = "(" [ call_arg { "," call_arg } ] ")" .
 call_arg       = named_arg | positional_arg | spread_arg .
