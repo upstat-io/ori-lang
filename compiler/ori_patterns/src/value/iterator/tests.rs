@@ -714,6 +714,27 @@ fn from_value_iterator() {
 }
 
 #[test]
+fn from_value_option_some() {
+    let val = Value::some(Value::int(99));
+    let Some(iter) = IteratorValue::from_value(&val) else {
+        panic!("Some should be iterable");
+    };
+    let (item, iter) = iter.next();
+    assert_eq!(item, Some(Value::int(99)));
+    let (item, _) = iter.next();
+    assert_eq!(item, None);
+}
+
+#[test]
+fn from_value_option_none() {
+    let Some(iter) = IteratorValue::from_value(&Value::None) else {
+        panic!("None should be iterable");
+    };
+    let (item, _) = iter.next();
+    assert_eq!(item, None);
+}
+
+#[test]
 fn from_value_non_iterable() {
     assert!(IteratorValue::from_value(&Value::int(42)).is_none());
     assert!(IteratorValue::from_value(&Value::Bool(true)).is_none());
@@ -1198,4 +1219,82 @@ fn reversed_hash_consistency() {
         h.finish()
     };
     assert_eq!(hash_a, hash_b);
+}
+
+// ── Repeat variant tests ─────────────────────────────────────────────
+
+#[test]
+fn repeat_basic() {
+    let iter = IteratorValue::from_repeat(Value::int(42));
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(42)));
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::int(42)));
+
+    let (val, _) = iter.next();
+    assert_eq!(val, Some(Value::int(42)));
+}
+
+#[test]
+fn repeat_string() {
+    let iter = IteratorValue::from_repeat(Value::string("hello"));
+
+    let (val, iter) = iter.next();
+    assert_eq!(val, Some(Value::string("hello")));
+
+    let (val, _) = iter.next();
+    assert_eq!(val, Some(Value::string("hello")));
+}
+
+#[test]
+fn repeat_never_exhausts() {
+    let mut iter = IteratorValue::from_repeat(Value::int(7));
+    for _ in 0..100 {
+        let (val, next) = iter.next();
+        assert_eq!(val, Some(Value::int(7)));
+        iter = next;
+    }
+}
+
+#[test]
+fn repeat_not_double_ended() {
+    let iter = IteratorValue::from_repeat(Value::int(1));
+    assert!(!iter.is_double_ended());
+}
+
+#[test]
+fn repeat_size_hint_infinite() {
+    let iter = IteratorValue::from_repeat(Value::int(1));
+    assert_eq!(iter.size_hint(), (usize::MAX, None));
+}
+
+#[test]
+fn repeat_debug_format() {
+    let iter = IteratorValue::from_repeat(Value::int(99));
+    let debug = format!("{iter:?}");
+    assert!(debug.starts_with("RepeatIterator("));
+}
+
+#[test]
+fn repeat_equality() {
+    let a = IteratorValue::from_repeat(Value::int(5));
+    let b = IteratorValue::from_repeat(Value::int(5));
+    assert_eq!(a, b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+}
+
+#[test]
+fn repeat_inequality_different_value() {
+    let a = IteratorValue::from_repeat(Value::int(1));
+    let b = IteratorValue::from_repeat(Value::int(2));
+    assert_ne!(a, b);
+}
+
+#[test]
+fn repeat_not_equal_to_other_variant() {
+    let repeat = IteratorValue::from_repeat(Value::int(1));
+    let list = make_list_iter(&[1]);
+    assert_ne!(repeat, list);
 }

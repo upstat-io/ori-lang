@@ -439,7 +439,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
-- [ ] Proposals (3.8-3.17): Iterator Phase 1-3 complete (core next(), consumers, lazy adapters, next_back) [in-progress] (2026-02-16). Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Iterator Phase 1-3 complete + repeat() (core next(), consumers, lazy adapters, next_back, repeat) [in-progress] (2026-02-16). Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
@@ -548,9 +548,9 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [ ] **LLVM Support**: LLVM codegen for double-ended methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: `repeat(value)` function for infinite iterators
-  - [ ] **Rust Tests**: `oric/src/eval/tests/` — repeat function evaluation
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/infinite.ori`
+- [x] **Implement**: `repeat(value)` function for infinite iterators (2026-02-16)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 9 unit tests (basic, string, never_exhausts, not_double_ended, size_hint, debug, equality, inequality, cross-variant) (2026-02-16)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/infinite.ori` — 13 spec tests (basic, string, bool, take_zero, map, filter, enumerate, skip_take, count, fold, any, all, zip) (2026-02-16)
   - [ ] **LLVM Support**: LLVM codegen for repeat
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
@@ -560,9 +560,9 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [x] `Set<T>` implements `Iterable` (2026-02-15) <!-- Collect pending --> (NOT double-ended — unordered)
   - [x] `str` implements `Iterable` (2026-02-15) <!-- DoubleEndedIterator pending -->
   - [x] `Range<int>` implements `Iterable` (2026-02-15) <!-- DoubleEndedIterator pending -->
-  - [ ] `Option<T>` implements `Iterable`
+  - [x] `Option<T>` implements `Iterable` (2026-02-16) — Some(x) → 1-element list iter, None → empty iter
   - [ ] **Note**: `Range<float>` does NOT implement `Iterable` (precision issues)
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/builtin_impls.ori`
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/builtin_impls.ori` — 13 spec tests (some/none iter, map, filter, count, fold, any, chain, zip) (2026-02-16)
   - [ ] **LLVM Support**: LLVM codegen for all builtin iterator impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
