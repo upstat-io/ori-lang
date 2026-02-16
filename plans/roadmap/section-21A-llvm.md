@@ -551,7 +551,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] `T: Hashable + Eq` bound
   - [ ] **Rust Tests**: `ori_llvm/src/collections/set_tests.rs`
 
-- [ ] **Implement**: Iterator trait codegen
+- [ ] **Implement**: Iterator trait codegen <!-- unblocks:3.8 -->
   - [ ] `Iterator` trait: `type Item; @next (self) -> (Option<Self.Item>, Self)`
   - [ ] `DoubleEndedIterator` trait: `@next_back (self) -> (Option<Self.Item>, Self)`
   - [ ] Fused iterator semantics: `None` stays `None`

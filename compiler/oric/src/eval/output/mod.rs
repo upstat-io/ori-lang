@@ -75,6 +75,8 @@ pub enum EvalOutput {
     },
     /// Map (stored as key-value pairs).
     Map(Vec<(String, EvalOutput)>),
+    /// Set of unique values.
+    Set(Vec<EvalOutput>),
     /// Error during evaluation.
     Error(String),
 }
@@ -189,6 +191,12 @@ impl EvalOutput {
                     .collect();
                 EvalOutput::Map(entries)
             }
+            Value::Set(items) => EvalOutput::Set(
+                items
+                    .values()
+                    .map(|v| Self::from_value(v, interner))
+                    .collect(),
+            ),
             Value::ModuleNamespace(ns) => EvalOutput::Function {
                 description: format!("<module namespace with {} items>", ns.len()),
                 arity: None,
@@ -271,6 +279,10 @@ impl EvalOutput {
                     .collect();
                 format!("{{{}}}", inner.join(", "))
             }
+            EvalOutput::Set(items) => {
+                let inner: Vec<_> = items.iter().map(|i| i.display(interner)).collect();
+                format!("Set {{{}}}", inner.join(", "))
+            }
             EvalOutput::Error(msg) => format!("<error: {msg}>"),
         }
     }
@@ -315,7 +327,8 @@ impl PartialEq for EvalOutput {
             ) => a == b && fc1 == fc2,
             // Vec<EvalOutput> types can be merged
             (EvalOutput::List(a), EvalOutput::List(b))
-            | (EvalOutput::Tuple(a), EvalOutput::Tuple(b)) => a == b,
+            | (EvalOutput::Tuple(a), EvalOutput::Tuple(b))
+            | (EvalOutput::Set(a), EvalOutput::Set(b)) => a == b,
             // Box<EvalOutput> types can be merged
             (EvalOutput::Some(a), EvalOutput::Some(b))
             | (EvalOutput::Ok(a), EvalOutput::Ok(b))
@@ -385,7 +398,9 @@ impl Hash for EvalOutput {
                 field_count.hash(state);
             }
             // Vec<EvalOutput> types
-            EvalOutput::List(items) | EvalOutput::Tuple(items) => items.hash(state),
+            EvalOutput::List(items) | EvalOutput::Tuple(items) | EvalOutput::Set(items) => {
+                items.hash(state);
+            }
             // Box<EvalOutput> types
             EvalOutput::Some(v) | EvalOutput::Ok(v) | EvalOutput::Err(v) => v.hash(state),
             EvalOutput::Map(entries) => entries.hash(state),

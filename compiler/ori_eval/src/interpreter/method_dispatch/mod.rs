@@ -220,7 +220,8 @@ impl Interpreter<'_> {
             | CollectionMethod::IterAny
             | CollectionMethod::IterAll
             | CollectionMethod::IterForEach
-            | CollectionMethod::IterCollect => self.eval_iterator_method(receiver, method, args),
+            | CollectionMethod::IterCollect
+            | CollectionMethod::IterCollectSet => self.eval_iterator_method(receiver, method, args),
         }
     }
 
@@ -467,6 +468,7 @@ impl Interpreter<'_> {
             Value::Ordering(_) => names.ordering,
             Value::List(_) => names.list,
             Value::Map(_) => names.map,
+            Value::Set(_) => names.set,
             Value::Tuple(_) => names.tuple,
             Value::Some(_) | Value::None => names.option,
             Value::Ok(_) | Value::Err(_) => names.result,

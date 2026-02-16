@@ -96,6 +96,7 @@ pub fn evaluate_binary(left: Value, right: Value, op: BinaryOp) -> EvalResult {
         (Value::Ok(_) | Value::Err(_), Value::Ok(_) | Value::Err(_)) => {
             eval_result_binary(&left, &right, op)
         }
+        (Value::Set(a), Value::Set(b)) => eval_set_binary(a, b, op),
         (Value::Struct(a), Value::Struct(b)) => eval_struct_binary(a, b, op),
         _ => Err(binary_type_mismatch(left.type_name(), right.type_name()).into()),
     }
@@ -215,6 +216,19 @@ fn eval_list_binary(a: &Heap<Vec<Value>>, b: &Heap<Vec<Value>>, op: BinaryOp) ->
         BinaryOp::Eq => Ok(Value::Bool(**a == **b)),
         BinaryOp::NotEq => Ok(Value::Bool(**a != **b)),
         _ => Err(invalid_binary_op_for("lists", op).into()),
+    }
+}
+
+/// Binary operations on sets.
+fn eval_set_binary(
+    a: &Heap<std::collections::BTreeMap<String, Value>>,
+    b: &Heap<std::collections::BTreeMap<String, Value>>,
+    op: BinaryOp,
+) -> EvalResult {
+    match op {
+        BinaryOp::Eq => Ok(Value::Bool(**a == **b)),
+        BinaryOp::NotEq => Ok(Value::Bool(**a != **b)),
+        _ => Err(invalid_binary_op_for("sets", op).into()),
     }
 }
 

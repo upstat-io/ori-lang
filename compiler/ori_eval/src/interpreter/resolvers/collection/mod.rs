@@ -33,6 +33,8 @@ struct MethodNames {
     last: Name,
     rfind: Name,
     rfold: Name,
+    // Internal (rewritten by canonicalization)
+    collect_set: Name,
 }
 
 impl MethodNames {
@@ -61,6 +63,7 @@ impl MethodNames {
             last: interner.intern("last"),
             rfind: interner.intern("rfind"),
             rfold: interner.intern("rfold"),
+            collect_set: interner.intern("__collect_set"),
         }
     }
 }
@@ -136,6 +139,8 @@ impl CollectionMethodResolver {
             Some(CollectionMethod::IterRFind)
         } else if method_name == m.rfold {
             Some(CollectionMethod::IterRFold)
+        } else if method_name == m.collect_set {
+            Some(CollectionMethod::IterCollectSet)
         } else {
             None
         }
