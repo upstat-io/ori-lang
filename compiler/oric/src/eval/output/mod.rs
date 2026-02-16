@@ -53,6 +53,7 @@ pub enum EvalOutput {
     Range {
         start: i64,
         end: Option<i64>,
+        step: i64,
         inclusive: bool,
     },
     /// Function (not directly representable in Salsa; carries structured metadata).
@@ -114,6 +115,7 @@ impl EvalOutput {
             Value::Range(r) => EvalOutput::Range {
                 start: r.start,
                 end: r.end,
+                step: r.step,
                 inclusive: r.inclusive,
             },
             Value::Iterator(it) => EvalOutput::Function {
@@ -247,14 +249,22 @@ impl EvalOutput {
             EvalOutput::Range {
                 start,
                 end,
+                step,
                 inclusive,
-            } => match end {
-                Some(end_val) => {
-                    let op = if *inclusive { "..=" } else { ".." };
-                    format!("{start}{op}{end_val}")
+            } => {
+                let base = match end {
+                    Some(end_val) => {
+                        let op = if *inclusive { "..=" } else { ".." };
+                        format!("{start}{op}{end_val}")
+                    }
+                    None => format!("{start}.."),
+                };
+                if *step == 1 {
+                    base
+                } else {
+                    format!("{base} by {step}")
                 }
-                None => format!("{start}.."),
-            },
+            }
             EvalOutput::Function { description, .. } | EvalOutput::Struct { description, .. } => {
                 description.clone()
             }
@@ -341,14 +351,16 @@ impl PartialEq for EvalOutput {
                 EvalOutput::Range {
                     start: s1,
                     end: e1,
+                    step: st1,
                     inclusive: i1,
                 },
                 EvalOutput::Range {
                     start: s2,
                     end: e2,
+                    step: st2,
                     inclusive: i2,
                 },
-            ) => s1 == s2 && e1 == e2 && i1 == i2,
+            ) => s1 == s2 && e1 == e2 && st1 == st2 && i1 == i2,
             // Variant with type, variant name, and fields
             (
                 EvalOutput::Variant {
@@ -409,10 +421,12 @@ impl Hash for EvalOutput {
             EvalOutput::Range {
                 start,
                 end,
+                step,
                 inclusive,
             } => {
                 start.hash(state);
                 end.hash(state);
+                step.hash(state);
                 inclusive.hash(state);
             }
             EvalOutput::Variant {

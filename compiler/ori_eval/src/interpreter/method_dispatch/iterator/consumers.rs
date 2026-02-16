@@ -148,7 +148,9 @@ impl Interpreter<'_> {
         iter_val: IteratorValue,
     ) -> EvalResult {
         let (lower, _) = iter_val.size_hint();
-        let mut result = Vec::with_capacity(lower);
+        // Cap pre-allocation to avoid panic on unbounded iterators (e.g., Repeat, Cycled)
+        // where size_hint() returns (usize::MAX, None). The Vec will grow beyond this if needed.
+        let mut result = Vec::with_capacity(lower.min(1024 * 1024));
         let mut current = iter_val;
         loop {
             let (item, new_iter) = self.eval_iter_next(current)?;

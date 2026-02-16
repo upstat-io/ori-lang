@@ -401,22 +401,34 @@ impl Interpreter<'_> {
     )]
     fn eval_range_collect(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("collect", 0, args)?;
+        if range.is_unbounded() {
+            return Err(crate::errors::unbounded_range_eager("collect").into());
+        }
         let result: Vec<Value> = range.iter().map(Value::int).collect();
         Ok(Value::list(result))
     }
 
     fn eval_range_map(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("map", 1, args)?;
+        if range.is_unbounded() {
+            return Err(crate::errors::unbounded_range_eager("map").into());
+        }
         self.map_iterator(range.iter().map(Value::int), &args[0])
     }
 
     fn eval_range_filter(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("filter", 1, args)?;
+        if range.is_unbounded() {
+            return Err(crate::errors::unbounded_range_eager("filter").into());
+        }
         self.filter_iterator(range.iter().map(Value::int), &args[0])
     }
 
     fn eval_range_fold(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("fold", 2, args)?;
+        if range.is_unbounded() {
+            return Err(crate::errors::unbounded_range_eager("fold").into());
+        }
         self.fold_iterator(range.iter().map(Value::int), args[0].clone(), &args[1])
     }
 

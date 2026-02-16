@@ -724,6 +724,14 @@ pub fn unbounded_range_length() -> EvalError {
     EvalError::new("cannot compute length of unbounded range")
 }
 
+/// Cannot eagerly consume an unbounded range.
+#[cold]
+pub fn unbounded_range_eager(method: &str) -> EvalError {
+    EvalError::new(format!(
+        "cannot {method}() an unbounded range; use .iter().take(n).{method}() instead"
+    ))
+}
+
 /// Map keys must be hashable types (primitives, tuples of hashables).
 #[cold]
 pub fn map_key_not_hashable() -> EvalError {

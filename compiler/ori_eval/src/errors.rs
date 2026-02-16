@@ -35,7 +35,9 @@ pub use ori_patterns::{
 
 // Type Conversion and Validation Errors
 
-pub use ori_patterns::{map_key_not_hashable, range_bound_not_int, unbounded_range_length};
+pub use ori_patterns::{
+    map_key_not_hashable, range_bound_not_int, unbounded_range_eager, unbounded_range_length,
+};
 
 // Control Flow Errors (shared)
 
@@ -50,7 +52,7 @@ pub use ori_patterns::{
 
 // Miscellaneous Errors (shared)
 
-pub use ori_patterns::{parse_error, self_outside_method};
+pub use ori_patterns::{await_not_supported, hash_outside_index, parse_error, self_outside_method};
 
 // Collection Method Errors
 
@@ -76,18 +78,6 @@ pub fn cannot_assign_immutable(name: &str) -> EvalError {
     EvalError::from_kind(EvalErrorKind::ImmutableBinding {
         name: name.to_string(),
     })
-}
-
-/// Hash length (`#`) used outside index brackets.
-#[cold]
-pub fn hash_outside_index() -> EvalError {
-    EvalError::new("# can only be used inside index brackets")
-}
-
-/// Await not supported in the tree-walking interpreter.
-#[cold]
-pub fn await_not_supported() -> EvalError {
-    EvalError::new("await not supported in interpreter")
 }
 
 /// Index assignment (`list[i] = x`) not yet implemented.
