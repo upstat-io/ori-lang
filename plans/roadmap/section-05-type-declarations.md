@@ -23,7 +23,7 @@ sections:
     status: in-progress
   - id: "5.5"
     title: Compound Types
-    status: not-started
+    status: in-progress
   - id: "5.6"
     title: Built-in Generic Types
     status: in-progress
@@ -219,11 +219,17 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` (file does not exist)
 
 - [ ] **Implement**: Tuple `(T, U)` — spec/06-types.md § Tuple Types
+  - [x] **Parser**: Numeric field access `.0`, `.1` — `expect_member_name()` accepts integer literals (2026-02-15)
+  - [x] **Parser Rust Tests**: `ori_parse/src/tests/parser.rs` — `test_tuple_field_access`, `test_chained_tuple_field_access_with_parens`, `test_bare_chained_tuple_field_is_error` (2026-02-15)
+  - [x] **Ori Tests**: `tests/spec/types/tuple_types.ori` — 6 field access tests: pair, different types, triple, nested with parens, single-element, return value (2026-02-15)
+  - [x] **Spec/Grammar**: Updated `grammar.ebnf` § `member_name`, `09-expressions.md`, `06-types.md` (2026-02-15)
   - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — tuple type inference
   - [ ] **Ori Tests**: `tests/spec/types/collections.ori` — all commented out
   - [ ] **LLVM Support**: LLVM codegen for tuple type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` (file does not exist)
+  - [ ] **Parser**: Chained field access without parens (`t.0.1`) — requires source text in parser or text in `Float` token
   - Note: Tuples work in evaluator (used in struct_types.ori destructuring) but type inference commented out
+  <!-- known-bug: decision tree column count mismatch on tuple patterns with nested constructors + wildcard (e.g., (None, _)) — see compile/mod.rs:67 -->
 
 - [ ] **Implement**: Range `Range<T>` — spec/06-types.md § Range Type
   - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — range type inference

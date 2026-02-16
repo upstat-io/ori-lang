@@ -36,6 +36,8 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Duration", "sub"),
     ("Duration", "subtract"),
     ("Duration", "to_str"),
+    // Iterator - methods
+    ("Iterator", "next"),
     // Option - methods and traits
     ("Option", "clone"),
     ("Option", "compare"),
@@ -147,16 +149,20 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "debug"),
     ("list", "first"),
     ("list", "is_empty"),
+    ("list", "iter"),
     ("list", "last"),
     ("list", "len"),
     // map
+    ("map", "clone"),
     ("map", "contains_key"),
     ("map", "is_empty"),
+    ("map", "iter"),
     ("map", "keys"),
     ("map", "len"),
     ("map", "values"),
     // range
     ("range", "contains"),
+    ("range", "iter"),
     ("range", "len"),
     // str - methods and traits
     ("str", "add"),
@@ -169,6 +175,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "equals"),
     ("str", "hash"),
     ("str", "is_empty"),
+    ("str", "iter"),
     ("str", "len"),
     ("str", "starts_with"),
     ("str", "to_lowercase"),

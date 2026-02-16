@@ -36,7 +36,4 @@ pub use traits::{
 };
 
 // Method registry exports
-pub use methods::{
-    BuiltinMethod, BuiltinMethodKind, HigherOrderMethod, MethodRegistry, MethodResolution,
-    MethodTransform,
-};
+pub use methods::MethodRegistry;

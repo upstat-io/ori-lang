@@ -29,6 +29,27 @@ ordering.then(other: Less)    // method call — `then` keyword allowed after `.
 point.type                    // field access — `type` keyword allowed after `.`
 ```
 
+Integer literals are valid in member position for tuple field access. The index
+is zero-based and must be within the tuple's arity:
+
+```ori
+let pair = (10, "hello")
+pair.0          // 10
+pair.1          // "hello"
+```
+
+An out-of-bounds index is a compile-time error. Tuple field access is equivalent
+to destructuring but provides direct positional access without binding all elements.
+
+Chained tuple field access on nested tuples must use parentheses because the
+lexer tokenizes `0.1` as a float literal:
+
+```ori
+let nested = ((1, 2), (3, 4))
+(nested.0).1    // 2 — parentheses required
+nested.0.1      // error: lexer sees 0.1 as float
+```
+
 ### Index Access
 
 ```ori

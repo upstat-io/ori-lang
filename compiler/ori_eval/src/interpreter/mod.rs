@@ -117,6 +117,7 @@ pub(crate) struct TypeNames {
     pub(crate) result: Name,
     pub(crate) function: Name,
     pub(crate) function_val: Name,
+    pub(crate) iterator: Name,
     pub(crate) module: Name,
     pub(crate) error: Name,
 }
@@ -227,6 +228,7 @@ impl TypeNames {
             result: interner.intern("Result"),
             function: interner.intern("function"),
             function_val: interner.intern("function_val"),
+            iterator: interner.intern("Iterator"),
             module: interner.intern("module"),
             error: interner.intern("error"),
         }

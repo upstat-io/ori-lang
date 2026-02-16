@@ -59,8 +59,9 @@ pub(super) use methods::*;
 pub(super) use operators::*;
 pub(super) use sequences::*;
 pub(super) use structs::*;
-// Public re-export for the crate's public API
-// (re-exported through infer/mod.rs as `pub use expr::resolve_parsed_type`)
+// Public re-exports for the crate's public API
+// (re-exported through infer/mod.rs)
+pub use methods::TYPECK_BUILTIN_METHODS;
 pub use type_resolution::resolve_parsed_type;
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Span};

@@ -37,7 +37,7 @@ mod env;
 mod expr;
 
 pub use env::TypeEnv;
-pub use expr::{check_expr, infer_expr, resolve_parsed_type};
+pub use expr::{check_expr, infer_expr, resolve_parsed_type, TYPECK_BUILTIN_METHODS};
 
 use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -798,6 +798,11 @@ impl<'pool> InferEngine<'pool> {
     /// Infer the type of a function.
     pub fn infer_function(&mut self, params: &[Idx], ret: Idx) -> Idx {
         self.pool_mut().function(params, ret)
+    }
+
+    /// Infer the type of an iterator with known element type.
+    pub fn infer_iterator(&mut self, elem_ty: Idx) -> Idx {
+        self.pool_mut().iterator(elem_ty)
     }
 }
 

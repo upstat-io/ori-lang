@@ -60,8 +60,8 @@ pub use registry::{Pattern, PatternRegistry};
 pub use signature::{DefaultValue, FunctionSignature, OptionalArg, PatternSignature};
 pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};
 pub use value::{
-    FunctionValFn, FunctionValue, Heap, MemoizedFunctionValue, OrderingValue, RangeValue,
-    ScalarInt, StringLookup, StructLayout, StructValue, Value,
+    FunctionValFn, FunctionValue, Heap, IteratorValue, MemoizedFunctionValue, OrderingValue,
+    RangeValue, ScalarInt, StringLookup, StructLayout, StructValue, Value,
 };
 
 // Re-export error constructors for use by other crates

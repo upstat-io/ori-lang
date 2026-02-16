@@ -34,7 +34,7 @@ sections:
     status: complete
   - id: "3.8"
     title: Iterator Traits
-    status: not-started
+    status: in-progress
   - id: "3.8.1"
     title: Iterator Performance and Semantics
     status: not-started
@@ -439,7 +439,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
-- [ ] Proposals (3.8-3.17): Iterator, Debug, Formattable, Into, etc. — all not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Iterator Phase 1 core infrastructure complete [in-progress] (2026-02-15). Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
@@ -510,9 +510,9 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
 
 ### Implementation
 
-- [ ] **Implement**: `Iterator` trait with functional `next()` returning `(Option<Self.Item>, Self)`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — iterator trait parsing/bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/iterator.ori`
+- [x] **Implement**: `Iterator` trait with functional `next()` returning `(Option<Self.Item>, Self)` (2026-02-15)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 13 unit tests for IteratorValue (2026-02-15)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/iterator.ori` — 9 spec tests (2026-02-15)
   - [ ] **LLVM Support**: LLVM codegen for iterator trait methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
@@ -522,9 +522,9 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [ ] **LLVM Support**: LLVM codegen for double-ended iterator methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: `Iterable` trait with `iter()` method
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — iterable trait bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/iterable.ori`
+- [x] **Implement**: `Iterable` trait with `iter()` method — built-in dispatch for list, map, range, str (2026-02-15)
+  - [x] **Rust Tests**: Consistency tests verify eval/typeck method sync (2026-02-15)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/iterator.ori` — covers .iter() on all types (2026-02-15)
   - [ ] **LLVM Support**: LLVM codegen for iterable trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
@@ -553,26 +553,26 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
 - [ ] **Implement**: Standard implementations for built-in types
-  - [ ] `[T]` implements `Iterable`, `DoubleEndedIterator`, `Collect`
-  - [ ] `{K: V}` implements `Iterable` (NOT double-ended — unordered)
-  - [ ] `Set<T>` implements `Iterable`, `Collect` (NOT double-ended — unordered)
-  - [ ] `str` implements `Iterable`, `DoubleEndedIterator`
-  - [ ] `Range<int>` implements `Iterable`, `DoubleEndedIterator`
+  - [x] `[T]` implements `Iterable` (2026-02-15) <!-- DoubleEndedIterator, Collect pending -->
+  - [x] `{K: V}` implements `Iterable` (2026-02-15) (NOT double-ended — unordered)
+  - [x] `Set<T>` implements `Iterable` (2026-02-15) <!-- Collect pending --> (NOT double-ended — unordered)
+  - [x] `str` implements `Iterable` (2026-02-15) <!-- DoubleEndedIterator pending -->
+  - [x] `Range<int>` implements `Iterable` (2026-02-15) <!-- DoubleEndedIterator pending -->
   - [ ] `Option<T>` implements `Iterable`
   - [ ] **Note**: `Range<float>` does NOT implement `Iterable` (precision issues)
   - [ ] **Ori Tests**: `tests/spec/traits/iterator/builtin_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for all builtin iterator impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: Helper iterator types (ListIterator, RangeIterator, MapIterator, FilterIterator, RevIterator, CycleIterator, etc.)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — helper type inference
+- [x] **Implement**: Helper iterator types (ListIterator, RangeIterator, MapIterator, SetIterator, StrIterator) (2026-02-15)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 13 unit tests (2026-02-15)
   - [ ] **Ori Tests**: `tests/spec/traits/iterator/helper_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for all helper iterator types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: Fused iterator guarantee (once None, always None)
-  - [ ] **Rust Tests**: `oric/src/eval/tests/` — fused behavior tests
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/fused.ori`
+- [x] **Implement**: Fused iterator guarantee (once None, always None) (2026-02-15)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — list_iterator_fused (2026-02-15)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/iterator.ori` — test_list_iter_fused (2026-02-15)
   - [ ] **LLVM Support**: LLVM codegen respects fused guarantee
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 

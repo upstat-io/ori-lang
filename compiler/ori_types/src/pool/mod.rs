@@ -348,7 +348,7 @@ impl Pool {
             Tag::Error => TypeFlags::IS_PRIMITIVE | TypeFlags::HAS_ERROR | TypeFlags::IS_RESOLVED,
 
             // Simple containers: inherit from child
-            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range => {
+            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range | Tag::Iterator => {
                 let child_flags = self.flags[data as usize];
                 TypeFlags::IS_CONTAINER | TypeFlags::propagate_from(child_flags)
             }
@@ -654,6 +654,18 @@ impl Pool {
     /// Panics if `idx` is not a Channel type.
     pub fn channel_elem(&self, idx: Idx) -> Idx {
         debug_assert_eq!(self.tag(idx), Tag::Channel);
+        // Simple container: data field is the child index directly
+        Idx::from_raw(self.data(idx))
+    }
+
+    /// Get iterator element type.
+    ///
+    /// For `Iterator<T>`, returns `T`.
+    ///
+    /// # Panics
+    /// Panics if `idx` is not an Iterator type.
+    pub fn iterator_elem(&self, idx: Idx) -> Idx {
+        debug_assert_eq!(self.tag(idx), Tag::Iterator);
         // Simple container: data field is the child index directly
         Idx::from_raw(self.data(idx))
     }

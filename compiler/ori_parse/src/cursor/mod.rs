@@ -461,9 +461,10 @@ impl<'a> Cursor<'a> {
 
     /// Expect and consume a member name (after `.`), returning its interned name.
     ///
-    /// Accepts identifiers, soft keywords, and reserved keywords. Keywords are
-    /// valid in member position because the `.` prefix provides unambiguous
-    /// context (e.g., `ordering.then(other: Less)`).
+    /// Accepts identifiers, soft keywords, reserved keywords, and integer
+    /// literals (for tuple field access: `t.0`, `t.1`). Keywords and integers
+    /// are valid in member position because the `.` prefix provides unambiguous
+    /// context (e.g., `ordering.then(other: Less)`, `pair.0`).
     ///
     /// See grammar.ebnf § `member_name`.
     #[inline]
@@ -480,6 +481,11 @@ impl<'a> Cursor<'a> {
         // Accept any keyword (then, if, for, type, etc.)
         } else if let Some(kw_str) = self.current_kind().keyword_str() {
             let name = self.interner.intern(kw_str);
+            self.advance();
+            Ok(name)
+        // Accept integer literals for tuple field access: t.0, t.1
+        } else if let TokenKind::Int(value) = *self.current_kind() {
+            let name = self.interner.intern(&value.to_string());
             self.advance();
             Ok(name)
         } else {

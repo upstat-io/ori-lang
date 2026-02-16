@@ -17,6 +17,7 @@
 mod collections;
 mod compare;
 mod helpers;
+mod iterator;
 mod numeric;
 mod ordering;
 mod units;
@@ -126,6 +127,10 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) megabytes: Name,
     pub(crate) gigabytes: Name,
     pub(crate) terabytes: Name,
+
+    // Iterator
+    pub(crate) iter: Name,
+    pub(crate) next: Name,
 }
 
 impl BuiltinMethodNames {
@@ -210,6 +215,9 @@ impl BuiltinMethodNames {
             megabytes: interner.intern("megabytes"),
             gigabytes: interner.intern("gigabytes"),
             terabytes: interner.intern("terabytes"),
+            // Iterator
+            iter: interner.intern("iter"),
+            next: interner.intern("next"),
         }
     }
 }
@@ -305,6 +313,7 @@ pub(crate) fn dispatch_builtin_method(
         Value::Str(_) => collections::dispatch_string_method(receiver, method, args, ctx),
         Value::Map(_) => collections::dispatch_map_method(receiver, method, args, ctx),
         Value::Range(_) => collections::dispatch_range_method(receiver, method, args, ctx),
+        Value::Iterator(_) => iterator::dispatch_iterator_method(receiver, method, &args, ctx),
         Value::Some(_) | Value::None => {
             variants::dispatch_option_method(receiver, method, args, ctx)
         }
