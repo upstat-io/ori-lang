@@ -394,10 +394,7 @@ impl IteratorValue {
         match val {
             Value::List(items) => Some(Self::from_list(items.clone())),
             Value::Map(map) => Some(Self::from_map(map)),
-            Value::Str(s) => {
-                let data = Heap::new(Cow::Owned(s.to_string()));
-                Some(Self::from_string(data))
-            }
+            Value::Str(s) => Some(Self::from_string(s.clone())),
             Value::Range(r) => Some(Self::from_range(r.start, r.end, r.step, r.inclusive)),
             Value::Iterator(it) => Some(it.clone()),
             _ => None,

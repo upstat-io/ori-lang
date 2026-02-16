@@ -2145,6 +2145,69 @@ fn test_resolve_empty_tuple_is_unit() {
 }
 
 // ========================================================================
+// TYPECK_BUILTIN_METHODS ↔ resolve_builtin_method Consistency
+// ========================================================================
+
+/// Verify every `(type_name, method_name)` in `TYPECK_BUILTIN_METHODS` is actually
+/// resolvable by `resolve_builtin_method()`. Catches drift where an entry is added
+/// to the const but the corresponding resolver match arm is missing.
+#[test]
+fn typeck_builtin_methods_all_resolve() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+
+    // Build concrete receiver types for container/generic types.
+    // Element types are arbitrary — we only care that the resolver returns Some.
+    let list_ty = engine.pool_mut().list(Idx::INT);
+    let map_ty = engine.pool_mut().map(Idx::STR, Idx::INT);
+    let set_ty = engine.pool_mut().set(Idx::INT);
+    let option_ty = engine.pool_mut().option(Idx::INT);
+    let result_ty = engine.pool_mut().result(Idx::INT, Idx::STR);
+    let range_ty = engine.pool_mut().range(Idx::INT);
+    let iterator_ty = engine.pool_mut().iterator(Idx::INT);
+    let channel_ty = engine.pool_mut().channel(Idx::INT);
+    let tuple_ty = engine.pool_mut().tuple(&[Idx::INT, Idx::STR]);
+
+    let mut failures = Vec::new();
+
+    for &(type_name, method_name) in TYPECK_BUILTIN_METHODS {
+        let (tag, receiver_ty) = match type_name {
+            "int" => (Tag::Int, Idx::INT),
+            "float" => (Tag::Float, Idx::FLOAT),
+            "bool" => (Tag::Bool, Idx::BOOL),
+            "str" => (Tag::Str, Idx::STR),
+            "char" => (Tag::Char, Idx::CHAR),
+            "byte" => (Tag::Byte, Idx::BYTE),
+            "Duration" => (Tag::Duration, Idx::DURATION),
+            "Size" => (Tag::Size, Idx::SIZE),
+            "Ordering" => (Tag::Ordering, Idx::ORDERING),
+            "list" => (Tag::List, list_ty),
+            "map" => (Tag::Map, map_ty),
+            "Set" => (Tag::Set, set_ty),
+            "Option" => (Tag::Option, option_ty),
+            "Result" => (Tag::Result, result_ty),
+            "range" => (Tag::Range, range_ty),
+            "Iterator" => (Tag::Iterator, iterator_ty),
+            "Channel" => (Tag::Channel, channel_ty),
+            "tuple" => (Tag::Tuple, tuple_ty),
+            other => panic!("unknown type name in TYPECK_BUILTIN_METHODS: {other:?}"),
+        };
+
+        let result = resolve_builtin_method(&mut engine, receiver_ty, tag, method_name);
+        if result.is_none() {
+            failures.push(format!("  ({type_name}, {method_name})"));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "resolve_builtin_method() returned None for {} entries in TYPECK_BUILTIN_METHODS:\n{}",
+        failures.len(),
+        failures.join("\n"),
+    );
+}
+
+// ========================================================================
 // Trait Satisfaction Tests — Clone on compound types
 // ========================================================================
 
