@@ -309,3 +309,128 @@ fn adapter_not_equal_to_source() {
     };
     assert_ne!(source, take);
 }
+
+// size_hint tests
+
+#[test]
+fn size_hint_list() {
+    let iter = make_list_iter(&[1, 2, 3]);
+    assert_eq!(iter.size_hint(), (3, Some(3)));
+
+    let (_, iter) = iter.next();
+    assert_eq!(iter.size_hint(), (2, Some(2)));
+}
+
+#[test]
+fn size_hint_list_empty() {
+    let iter = make_list_iter(&[]);
+    assert_eq!(iter.size_hint(), (0, Some(0)));
+}
+
+#[test]
+fn size_hint_range_exclusive() {
+    let iter = IteratorValue::from_range(0, 5, 1, false);
+    assert_eq!(iter.size_hint(), (5, Some(5)));
+}
+
+#[test]
+fn size_hint_range_inclusive() {
+    let iter = IteratorValue::from_range(0, 5, 1, true);
+    assert_eq!(iter.size_hint(), (6, Some(6)));
+}
+
+#[test]
+fn size_hint_range_step() {
+    // 0, 2, 4 → 3 items
+    let iter = IteratorValue::from_range(0, 5, 2, false);
+    assert_eq!(iter.size_hint(), (3, Some(3)));
+}
+
+#[test]
+fn size_hint_range_negative_step() {
+    // 3, 2 → 2 items (exclusive, stops before 1)
+    let iter = IteratorValue::from_range(3, 1, -1, false);
+    assert_eq!(iter.size_hint(), (2, Some(2)));
+}
+
+#[test]
+fn size_hint_range_empty() {
+    let iter = IteratorValue::from_range(5, 3, 1, false);
+    assert_eq!(iter.size_hint(), (0, Some(0)));
+}
+
+#[test]
+fn size_hint_str() {
+    // "abc" = 3 bytes, 3 chars → lower=1 (ceil(3/4)), upper=3
+    let data = Heap::new(Cow::Borrowed("abc"));
+    let iter = IteratorValue::from_string(data);
+    let (lower, upper) = iter.size_hint();
+    assert!(lower <= 3);
+    assert_eq!(upper, Some(3));
+}
+
+#[test]
+fn size_hint_mapped() {
+    // Mapped preserves source bounds
+    let source = make_list_iter(&[1, 2, 3]);
+    let mapped = IteratorValue::Mapped {
+        source: Box::new(source),
+        transform: Box::new(Value::Bool(true)),
+    };
+    assert_eq!(mapped.size_hint(), (3, Some(3)));
+}
+
+#[test]
+fn size_hint_filtered() {
+    // Filtered: lower=0, upper from source
+    let source = make_list_iter(&[1, 2, 3]);
+    let filtered = IteratorValue::Filtered {
+        source: Box::new(source),
+        predicate: Box::new(Value::Bool(true)),
+    };
+    assert_eq!(filtered.size_hint(), (0, Some(3)));
+}
+
+#[test]
+fn size_hint_take() {
+    // Take 2 from 5-element source
+    let source = make_list_iter(&[1, 2, 3, 4, 5]);
+    let take = IteratorValue::TakeN {
+        source: Box::new(source),
+        remaining: 2,
+    };
+    assert_eq!(take.size_hint(), (2, Some(2)));
+}
+
+#[test]
+fn size_hint_take_exceeds_source() {
+    // Take 10 from 3-element source — capped at source size
+    let source = make_list_iter(&[1, 2, 3]);
+    let take = IteratorValue::TakeN {
+        source: Box::new(source),
+        remaining: 10,
+    };
+    assert_eq!(take.size_hint(), (3, Some(3)));
+}
+
+#[test]
+fn size_hint_skip() {
+    // Skip 2 from 5-element source → 3 remaining
+    let source = make_list_iter(&[1, 2, 3, 4, 5]);
+    let skip = IteratorValue::SkipN {
+        source: Box::new(source),
+        remaining: 2,
+    };
+    assert_eq!(skip.size_hint(), (3, Some(3)));
+}
+
+#[test]
+fn size_hint_skip_exceeds_source() {
+    // Skip 10 from 3-element source → 0 remaining
+    let source = make_list_iter(&[1, 2, 3]);
+    let skip = IteratorValue::SkipN {
+        source: Box::new(source),
+        remaining: 10,
+    };
+    assert_eq!(skip.size_hint(), (0, Some(0)));
+}
