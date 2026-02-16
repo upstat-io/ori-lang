@@ -402,7 +402,7 @@ fn check_collect_to_set(
 
     let recv_ty = infer_expr(engine, arena, receiver);
     let resolved = engine.resolve(recv_ty);
-    if engine.pool().tag(resolved) != Tag::Iterator {
+    if !engine.pool().tag(resolved).is_iterator() {
         return None;
     }
 

@@ -66,8 +66,13 @@ pub enum Tag {
     Range = 20,
     /// Iterator type `Iterator<T>`.
     Iterator = 21,
+    /// Double-ended iterator type `DoubleEndedIterator<T>`.
+    ///
+    /// Subtype of `Iterator<T>` — has all Iterator methods plus
+    /// `next_back`, `rev`, `last`, `rfind`, `rfold`.
+    DoubleEndedIterator = 22,
 
-    // Reserved: 22-31 for future simple containers
+    // Reserved: 23-31 for future simple containers
 
     // === Two-Child Containers (32-47) ===
     // data: index into extra[] with two consecutive Idx values
@@ -169,6 +174,12 @@ impl Tag {
         v >= 16 && v < 48
     }
 
+    /// Check if this tag represents any iterator type (Iterator or `DoubleEndedIterator`).
+    #[inline]
+    pub const fn is_iterator(self) -> bool {
+        matches!(self, Self::Iterator | Self::DoubleEndedIterator)
+    }
+
     /// Check if this tag represents a type variable.
     #[inline]
     pub const fn is_type_variable(self) -> bool {
@@ -197,6 +208,7 @@ impl Tag {
             Self::Channel => "chan",
             Self::Range => "range",
             Self::Iterator => "Iterator",
+            Self::DoubleEndedIterator => "DoubleEndedIterator",
             Self::Map => "map",
             Self::Result => "result",
             Self::Borrowed => "borrowed",

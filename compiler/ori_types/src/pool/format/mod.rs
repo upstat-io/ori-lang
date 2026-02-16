@@ -71,6 +71,12 @@ impl Pool {
                 self.format_type_into(elem, buf);
                 buf.push('>');
             }
+            Tag::DoubleEndedIterator => {
+                buf.push_str("DoubleEndedIterator<");
+                let elem = Idx::from_raw(self.data(idx));
+                self.format_type_into(elem, buf);
+                buf.push('>');
+            }
 
             // Two-child containers
             Tag::Map => {
@@ -263,7 +269,13 @@ impl Pool {
             }
             // For all other tags, delegate to the base formatter.
             // Re-dispatch only types that can contain Named/Applied children.
-            Tag::List | Tag::Option | Tag::Set | Tag::Channel | Tag::Range | Tag::Iterator => {
+            Tag::List
+            | Tag::Option
+            | Tag::Set
+            | Tag::Channel
+            | Tag::Range
+            | Tag::Iterator
+            | Tag::DoubleEndedIterator => {
                 self.format_type_into_resolved_container(idx, interner, buf);
             }
             Tag::Map | Tag::Result => {
@@ -367,6 +379,11 @@ impl Pool {
                 self.format_type_into_resolved(child, interner, buf);
                 buf.push('>');
             }
+            Tag::DoubleEndedIterator => {
+                buf.push_str("DoubleEndedIterator<");
+                self.format_type_into_resolved(child, interner, buf);
+                buf.push('>');
+            }
             _ => unreachable!(),
         }
     }
@@ -410,7 +427,7 @@ impl Pool {
             Tag::Set => "set",
             Tag::Channel => "channel",
             Tag::Range => "range",
-            Tag::Iterator => "iterator",
+            Tag::Iterator | Tag::DoubleEndedIterator => "iterator",
             Tag::Map => "map",
             Tag::Result => "result",
             Tag::Borrowed => "borrowed reference",

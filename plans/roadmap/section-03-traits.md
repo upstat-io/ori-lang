@@ -439,7 +439,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
-- [ ] Proposals (3.8-3.17): Iterator Phase 1-3 complete + repeat() (core next(), consumers, lazy adapters, next_back, repeat) [in-progress] (2026-02-16). Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring (core next(), consumers, lazy adapters, next_back, repeat, for loops) [in-progress] (2026-02-16). Remaining: trait prelude registration, DoubleEndedIterator gating, spec updates, Range<float> rejection. Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
@@ -561,14 +561,14 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [x] `str` implements `Iterable` (2026-02-15) <!-- DoubleEndedIterator pending -->
   - [x] `Range<int>` implements `Iterable` (2026-02-15) <!-- DoubleEndedIterator pending -->
   - [x] `Option<T>` implements `Iterable` (2026-02-16) — Some(x) → 1-element list iter, None → empty iter
-  - [ ] **Note**: `Range<float>` does NOT implement `Iterable` (precision issues)
+  - [ ] **Note**: `Range<float>` does NOT implement `Iterable` (precision issues) <!-- gap: type checker accepts Range<float> in for loops and .iter() — runtime rejects it with generic error. Need compile-time rejection with clear diagnostic -->
   - [x] **Ori Tests**: `tests/spec/traits/iterator/builtin_impls.ori` — 13 spec tests (some/none iter, map, filter, count, fold, any, chain, zip) (2026-02-16)
   - [ ] **LLVM Support**: LLVM codegen for all builtin iterator impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
 - [x] **Implement**: Helper iterator types (ListIterator, RangeIterator, MapIterator, SetIterator, StrIterator) + adapter types (Mapped, Filtered, TakeN, SkipN) (2026-02-15)
   - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 22 unit tests (2026-02-15)
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/helper_types.ori`
+  - [x] **Ori Tests**: Coverage across existing files — ListIterator/RangeIterator/StrIterator in `iterator.ori`+`double_ended.ori`, SetIterator in `for_loop.ori`, MapIterator in `iterator.ori`, adapters in `methods.ori`+`double_ended.ori` (2026-02-16)
   - [ ] **LLVM Support**: LLVM codegen for all helper iterator types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
@@ -578,22 +578,22 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [ ] **LLVM Support**: LLVM codegen respects fused guarantee
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: `for` loop desugaring to `Iterable.iter()` and functional `next()`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — for loop type checking
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/for_loop.ori`
+- [x] **Implement**: `for` loop desugaring to `Iterable.iter()` and functional `next()` (2026-02-16)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — 4 for-loop type inference tests (infer_for_do, infer_for_yield, infer_for_with_guard, infer_for_guard_not_bool) (2026-02-16)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/for_loop.ori` — 19 spec tests (list, range, str, set, option, iterator pass-through, guards, break) (2026-02-16)
   - [ ] **LLVM Support**: LLVM codegen for desugared for loops
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: `for...yield` desugaring to `.iter().map().collect()`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — for yield type checking
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/for_yield.ori`
+- [x] **Implement**: `for...yield` desugaring to `.iter().map().collect()` (2026-02-16)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — test_infer_for_yield verifies yield produces List<T> (2026-02-16)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/for_loop.ori` — 12+ yield tests (list, empty, range, inclusive, str, option, guard, transform, break) (2026-02-16)
   - [ ] **LLVM Support**: LLVM codegen for desugared for yield
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
 - [ ] **Implement**: Add traits and `repeat` to prelude
-  - [ ] `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect` traits in prelude
-  - [ ] Gate double-ended methods (`rev`, `last`, `rfind`, `rfold`, `next_back`) behind `DoubleEndedIterator` trait bound in type checker
-  - [ ] `repeat` function in prelude
+  - [ ] `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect` traits in prelude (TraitRegistry)
+  - [x] Gate double-ended methods (`rev`, `last`, `rfind`, `rfold`, `next_back`) behind `DoubleEndedIterator` trait bound in type checker (2026-02-16) — `Tag::DoubleEndedIterator` added; list/range/str return DEI, map/set/option return Iterator; map/filter preserve DEI, take/skip/enumerate downgrade; error diagnostic for DEI-only methods on plain Iterator; tests: `tests/spec/traits/iterator/double_ended_gating.ori` (16 spec tests), `tag/tests.rs` (5 unit tests), `unify/tests.rs` (7 unit tests)
+  - [x] `repeat` function in prelude (2026-02-16) — registered in `register_prelude()` + type sig in `infer_ident()`
   - [ ] **Ori Tests**: `tests/spec/traits/iterator/prelude.ori`
 
 - [ ] **Update Spec**: `06-types.md` — add Iterator traits section

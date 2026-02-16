@@ -525,3 +525,87 @@ fn substitute_through_borrowed() {
     let lt = engine.pool().borrowed_lifetime(instance);
     assert_eq!(lt, crate::LifetimeId::STATIC);
 }
+
+// ========================================
+// DoubleEndedIterator Coercion Tests
+// ========================================
+
+#[test]
+fn unify_dei_with_iterator_succeeds() {
+    let mut pool = Pool::new();
+    let dei = pool.double_ended_iterator(Idx::INT);
+    let iter = pool.iterator(Idx::INT);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    // DEI coerces to Iterator (same element type)
+    assert!(engine.unify(dei, iter).is_ok());
+}
+
+#[test]
+fn unify_iterator_with_dei_succeeds() {
+    let mut pool = Pool::new();
+    let iter = pool.iterator(Idx::STR);
+    let dei = pool.double_ended_iterator(Idx::STR);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    // Order shouldn't matter for coercion
+    assert!(engine.unify(iter, dei).is_ok());
+}
+
+#[test]
+fn unify_dei_with_iterator_resolves_element_var() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    let dei = pool.double_ended_iterator(var);
+    let iter = pool.iterator(Idx::INT);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    assert!(engine.unify(dei, iter).is_ok());
+    // Element type variable should resolve to INT
+    assert_eq!(engine.resolve(var), Idx::INT);
+}
+
+#[test]
+fn unify_dei_element_mismatch_fails() {
+    let mut pool = Pool::new();
+    let dei = pool.double_ended_iterator(Idx::INT);
+    let iter = pool.iterator(Idx::STR);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    // Different element types should fail
+    let result = engine.unify(dei, iter);
+    assert!(result.is_err());
+}
+
+#[test]
+fn unify_identical_deis() {
+    let mut pool = Pool::new();
+    let dei1 = pool.double_ended_iterator(Idx::CHAR);
+    let dei2 = pool.double_ended_iterator(Idx::CHAR);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    assert!(engine.unify(dei1, dei2).is_ok());
+}
+
+#[test]
+fn unify_dei_with_variable() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    let dei = pool.double_ended_iterator(Idx::INT);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    assert!(engine.unify(var, dei).is_ok());
+    let resolved = engine.resolve(var);
+    assert_eq!(engine.pool().tag(resolved), Tag::DoubleEndedIterator);
+}
+
+#[test]
+fn occurs_check_finds_var_in_dei() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    let dei_var = pool.double_ended_iterator(var);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    let result = engine.unify(var, dei_var);
+    assert!(matches!(result, Err(UnifyError::InfiniteType { .. })));
+}
