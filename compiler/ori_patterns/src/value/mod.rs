@@ -656,7 +656,7 @@ impl Value {
             Value::Duration(ns) => format_duration(*ns),
             Value::Size(bytes) => format!("{bytes}b"),
             Value::Ordering(ord) => ord.name().to_string(),
-            Value::Range(r) => format!("{r:?}"),
+            Value::Range(r) => format!("{}", Value::Range(r.clone())),
             Value::Iterator(it) => format!("<iterator {it:?}>"),
             Value::ModuleNamespace(_) => "<module>".to_string(),
             Value::Error(msg) => format!("Error({msg})"),
@@ -940,11 +940,16 @@ impl fmt::Display for Value {
             }
             Value::Ordering(ord) => write!(f, "{}", ord.name()),
             Value::Range(r) => {
-                if r.inclusive {
-                    write!(f, "{}..={}", r.start, r.end)
+                if let Some(end) = r.end {
+                    let op = if r.inclusive { "..=" } else { ".." };
+                    write!(f, "{}{op}{end}", r.start)?;
                 } else {
-                    write!(f, "{}..{}", r.start, r.end)
+                    write!(f, "{}..", r.start)?;
                 }
+                if r.step != 1 {
+                    write!(f, " by {}", r.step)?;
+                }
+                Ok(())
             }
             Value::Iterator(it) => write!(f, "<iterator {it:?}>"),
             Value::ModuleNamespace(_) => write!(f, "<module>"),
@@ -1118,6 +1123,7 @@ impl std::hash::Hash for Value {
             Value::Range(r) => {
                 r.start.hash(state);
                 r.end.hash(state);
+                r.step.hash(state);
                 r.inclusive.hash(state);
             }
             Value::Iterator(it) => it.hash(state),

@@ -37,7 +37,7 @@ sections:
     status: in-progress
   - id: "3.8.1"
     title: Iterator Performance and Semantics
-    status: not-started
+    status: in-progress
   - id: "3.9"
     title: Debug Trait
     status: not-started
@@ -617,21 +617,21 @@ Formalizes the performance characteristics and precise semantics of Ori's functi
   - [ ] **LLVM Support**: LLVM codegen respects copy elision
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: Infinite range syntax `start..` in lexer/parser
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — infinite range parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/infinite_range.ori`
+- [x] **Implement**: Infinite range syntax `start..` in lexer/parser
+  - [x] **Rust Tests**: `ori_patterns/src/value/composite/tests.rs` — unbounded range unit tests
+  - [x] **Ori Tests**: `tests/spec/expressions/infinite_range.ori`
   - [ ] **LLVM Support**: LLVM codegen for infinite ranges
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_tests.rs`
 
-- [ ] **Implement**: Infinite range with step `start.. by step`
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — infinite range step parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/infinite_range_step.ori`
+- [x] **Implement**: Infinite range with step `start.. by step`
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — unbounded range iterator tests
+  - [x] **Ori Tests**: `tests/spec/expressions/infinite_range.ori` (step tests included)
   - [ ] **LLVM Support**: LLVM codegen for stepped infinite ranges
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_tests.rs`
 
-- [ ] **Implement**: Infinite range iteration (implements Iterable but NOT DoubleEndedIterator)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — infinite range trait bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/infinite_range.ori`
+- [x] **Implement**: Infinite range iteration (implements Iterable but NOT DoubleEndedIterator)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — unbounded range not double-ended
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/infinite_range.ori`
   - [ ] **LLVM Support**: LLVM codegen for infinite range iteration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
@@ -649,9 +649,9 @@ Formalizes the performance characteristics and precise semantics of Ori's functi
   - [ ] Loop fusion (adjacent maps/filters combined)
   - [ ] **Rust Tests**: `ori_llvm/tests/optimization_tests.rs`
 
-- [ ] **Update Spec**: `06-types.md` — add infinite range type variant
-- [ ] **Update Spec**: `09-expressions.md` — add infinite range syntax section
-- [ ] **Update Spec**: `grammar.ebnf` — update range_expr production
+- [x] **Update Spec**: `06-types.md` — add infinite range type variant (already documented)
+- [x] **Update Spec**: `09-expressions.md` — add infinite range syntax section (already documented)
+- [x] **Update Spec**: `grammar.ebnf` — update range_expr production (already correct: end is optional)
 - [ ] **Update**: `CLAUDE.md` — add infinite range syntax and iterator performance notes
 
 ---

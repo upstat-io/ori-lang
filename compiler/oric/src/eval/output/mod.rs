@@ -52,7 +52,7 @@ pub enum EvalOutput {
     /// Range value.
     Range {
         start: i64,
-        end: i64,
+        end: Option<i64>,
         inclusive: bool,
     },
     /// Function (not directly representable in Salsa; carries structured metadata).
@@ -248,13 +248,13 @@ impl EvalOutput {
                 start,
                 end,
                 inclusive,
-            } => {
-                if *inclusive {
-                    format!("{start}..={end}")
-                } else {
-                    format!("{start}..{end}")
+            } => match end {
+                Some(end_val) => {
+                    let op = if *inclusive { "..=" } else { ".." };
+                    format!("{start}{op}{end_val}")
                 }
-            }
+                None => format!("{start}.."),
+            },
             EvalOutput::Function { description, .. } | EvalOutput::Struct { description, .. } => {
                 description.clone()
             }
