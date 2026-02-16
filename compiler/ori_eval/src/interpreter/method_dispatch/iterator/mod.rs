@@ -113,6 +113,10 @@ impl Interpreter<'_> {
                 Self::expect_arg_count("collect", 0, args)?;
                 self.eval_iter_collect(iter_val)
             }
+            CollectionMethod::IterCollectSet => {
+                Self::expect_arg_count("__collect_set", 0, args)?;
+                self.eval_iter_collect_set(iter_val)
+            }
             CollectionMethod::IterLast => {
                 Self::expect_arg_count("last", 0, args)?;
                 self.eval_iter_last(iter_val)

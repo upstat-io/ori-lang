@@ -263,6 +263,7 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
 /// It handles cases where the expected type can guide literal typing:
 ///
 /// - Integer literals in range 0-255 are coerced to `byte` when expected type is `byte`
+/// - `iter.collect()` resolves to `Set<T>` when expected type is `Set<T>` (Collect trait)
 ///
 /// For all other expressions, this infers the type and then checks against expected.
 #[tracing::instrument(level = "trace", skip(engine, arena, expected))]
@@ -292,10 +293,128 @@ pub fn check_expr(
         }
     }
 
+    // Type-directed collect: when `iter.collect()` is expected to produce a Set,
+    // resolve to `Set<T>` instead of the default `[T]`. This implements the
+    // Collect trait's bidirectional type inference.
+    if let ExprKind::MethodCall {
+        receiver,
+        method,
+        args,
+    } = &expr.kind
+    {
+        if expected_tag == Tag::Set {
+            if let Some(ty) =
+                check_collect_to_set(engine, arena, expr_id, *receiver, *method, *args)
+            {
+                return ty;
+            }
+        }
+    }
+
+    // Propagate expected type through `run(...)` to the result expression.
+    // This enables bidirectional type checking to flow through function bodies,
+    // which are always wrapped in `run(...)` (FunctionSeq::Run).
+    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
+        let func_seq = arena.get_function_seq(*seq_id);
+        if let ori_ir::FunctionSeq::Run {
+            pre_checks,
+            bindings,
+            result,
+            post_checks,
+            ..
+        } = func_seq
+        {
+            let result_ty = check_run_seq(
+                engine,
+                arena,
+                *pre_checks,
+                *bindings,
+                *result,
+                *post_checks,
+                expected,
+                span,
+            );
+            engine.store_type(expr_id.raw() as usize, result_ty);
+            return result_ty;
+        }
+    }
+
     // Default: infer the type and check against expected
     let inferred = infer_expr(engine, arena, expr_id);
     let _ = engine.check_type(inferred, expected, span);
     inferred
+}
+
+/// Bidirectional `run(...)`: propagate expected type to result expression.
+///
+/// Mirrors `infer_run_seq` but calls `check_expr` on the result expression
+/// instead of `infer_expr`, enabling expected type propagation through function
+/// bodies (which are always wrapped in `run(...)`).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors infer_run_seq signature plus expected/span"
+)]
+fn check_run_seq(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    pre_checks: ori_ir::CheckRange,
+    bindings: ori_ir::SeqBindingRange,
+    result: ExprId,
+    post_checks: ori_ir::CheckRange,
+    expected: &Expected,
+    span: Span,
+) -> Idx {
+    engine.enter_scope();
+
+    infer_pre_checks(engine, arena, pre_checks);
+
+    let seq_bindings = arena.get_seq_bindings(bindings);
+    for binding in seq_bindings {
+        infer_seq_binding(engine, arena, binding, false);
+    }
+
+    // Check result expression against expected type (bidirectional)
+    let result_ty = check_expr(engine, arena, result, expected, span);
+
+    infer_post_checks(engine, arena, post_checks, result_ty);
+
+    engine.exit_scope();
+    result_ty
+}
+
+/// Bidirectional collect: resolve `iter.collect()` to `Set<T>` when expected.
+///
+/// Returns `Some(set_ty)` if the method is `collect` on an `Iterator<T>`,
+/// storing the resolved `Set<T>` type. Returns `None` to fall through
+/// to default inference.
+fn check_collect_to_set(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    expr_id: ExprId,
+    receiver: ExprId,
+    method: ori_ir::Name,
+    args: ori_ir::ExprRange,
+) -> Option<Idx> {
+    let method_str = engine.lookup_name(method)?;
+    if method_str != "collect" {
+        return None;
+    }
+
+    let recv_ty = infer_expr(engine, arena, receiver);
+    let resolved = engine.resolve(recv_ty);
+    if engine.pool().tag(resolved) != Tag::Iterator {
+        return None;
+    }
+
+    // Infer arguments (collect has none, but be consistent)
+    for &arg_id in arena.get_expr_list(args) {
+        infer_expr(engine, arena, arg_id);
+    }
+
+    let elem = engine.pool().iterator_elem(resolved);
+    let set_ty = engine.pool_mut().set(elem);
+    engine.store_type(expr_id.raw() as usize, set_ty);
+    Some(set_ty)
 }
 
 #[cfg(test)]

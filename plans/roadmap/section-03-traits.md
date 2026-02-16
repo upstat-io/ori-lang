@@ -528,11 +528,11 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [ ] **LLVM Support**: LLVM codegen for iterable trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: `Collect` trait with `from_iter()` method
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collect trait bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/collect.ori`
-  - [ ] **LLVM Support**: LLVM codegen for collect trait
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+- [x] **Implement**: `Collect` trait with `from_iter()` method — type-directed collect via bidirectional inference (2026-02-16)
+  - [x] **Rust Tests**: `ori_types/src/check/integration_tests.rs` — 4 integration tests for bidirectional collect inference (2026-02-16)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/collect.ori` — 8 spec tests for Set collect, dedup, chained adapters (2026-02-16)
+  - [ ] **LLVM Support**: LLVM codegen for collect trait <!-- blocked-by:21A -->
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` <!-- blocked-by:21A -->
 
 - [x] **Implement**: Iterator Phase 2 methods — consumers (fold, count, find, any, all, for_each, collect) and lazy adapters (map, filter, take, skip) (2026-02-15)
   - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 10 adapter variant unit tests (2026-02-15)

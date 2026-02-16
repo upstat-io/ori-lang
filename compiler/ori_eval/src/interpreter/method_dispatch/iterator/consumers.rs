@@ -162,6 +162,31 @@ impl Interpreter<'_> {
         }
     }
 
+    /// `__collect_set()` — collect all items into a set (type-directed via Collect trait).
+    ///
+    /// Rewritten from `collect()` by canonicalization when the expected type is `Set<T>`.
+    /// Deduplicates elements using `to_map_key()` as the identity key.
+    pub(in crate::interpreter) fn eval_iter_collect_set(
+        &mut self,
+        iter_val: IteratorValue,
+    ) -> EvalResult {
+        let mut result = std::collections::BTreeMap::new();
+        let mut current = iter_val;
+        loop {
+            let (item, new_iter) = self.eval_iter_next(current)?;
+            match item {
+                Some(val) => {
+                    let key = val
+                        .to_map_key()
+                        .map_err(|e| crate::ControlAction::from(crate::EvalError::new(e)))?;
+                    result.entry(key).or_insert(val);
+                    current = new_iter;
+                }
+                None => return Ok(Value::set(result)),
+            }
+        }
+    }
+
     // ── Backward consumers (require double-ended iterators) ──────────
 
     /// `last()` — efficiently retrieve the last item via `next_back()`.

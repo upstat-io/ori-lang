@@ -96,8 +96,10 @@ pub enum CollectionMethod {
     IterAll,
     /// `Iterator<T>.for_each(f: T -> void) -> void`
     IterForEach,
-    /// `Iterator<T>.collect() -> [T]`
+    /// `Iterator<T>.collect() -> [T]` (default)
     IterCollect,
+    /// `Iterator<T>.__collect_set() -> Set<T>` (type-directed via Collect trait)
+    IterCollectSet,
     /// `Iterator<T>.enumerate() -> Iterator<(int, T)>`
     IterEnumerate,
     /// `Iterator<T>.zip(other: Iterator<U>) -> Iterator<(T, U)>`
@@ -169,6 +171,7 @@ impl CollectionMethod {
                 | Self::IterAll
                 | Self::IterForEach
                 | Self::IterCollect
+                | Self::IterCollectSet
         )
     }
 
