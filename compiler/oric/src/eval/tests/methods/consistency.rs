@@ -589,8 +589,6 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("str", "to_int"),
     ("str", "trim_end"),
     ("str", "trim_start"),
-    // tuple — len not in eval
-    ("tuple", "len"),
 ];
 
 /// The typeck method list must be sorted for reliable comparison.

@@ -196,6 +196,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     // tuple - traits
     ("tuple", "clone"),
     ("tuple", "debug"),
+    ("tuple", "len"),
 ];
 
 /// Validate expected argument count.
