@@ -60,6 +60,7 @@ fn iterator_variant_list_matches_predicate() {
         CollectionMethod::IterForEach,
         CollectionMethod::IterCollect,
         CollectionMethod::IterCollectSet,
+        CollectionMethod::IterJoin,
     ];
     let predicate_count = all_variants
         .iter()

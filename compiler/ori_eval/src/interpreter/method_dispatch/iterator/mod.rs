@@ -2,8 +2,8 @@
 //!
 //! Handles both adapter constructors (`map`, `filter`, `take`, `skip`, `enumerate`,
 //! `zip`, `chain`, `flatten`, `flat_map`, `cycle`) that return new lazy iterators,
-//! and consumer methods (`fold`, `count`, `find`, `any`, `all`, `for_each`, `collect`)
-//! that eagerly consume iterators.
+//! and consumer methods (`fold`, `count`, `find`, `any`, `all`, `for_each`, `collect`,
+//! `join`) that eagerly consume iterators.
 //!
 //! Adapter iterators capture closures and need `eval_call()` to invoke them
 //! on each `next()` call, which is why they live at the interpreter level
@@ -116,6 +116,10 @@ impl Interpreter<'_> {
             CollectionMethod::IterCollectSet => {
                 Self::expect_arg_count("__collect_set", 0, args)?;
                 self.eval_iter_collect_set(iter_val)
+            }
+            CollectionMethod::IterJoin => {
+                Self::expect_arg_count("join", 1, args)?;
+                self.eval_iter_join(iter_val, &args[0])
             }
             CollectionMethod::IterLast => {
                 Self::expect_arg_count("last", 0, args)?;

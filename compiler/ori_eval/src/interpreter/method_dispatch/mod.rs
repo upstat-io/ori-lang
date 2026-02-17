@@ -221,7 +221,8 @@ impl Interpreter<'_> {
             | CollectionMethod::IterAll
             | CollectionMethod::IterForEach
             | CollectionMethod::IterCollect
-            | CollectionMethod::IterCollectSet => self.eval_iterator_method(receiver, method, args),
+            | CollectionMethod::IterCollectSet
+            | CollectionMethod::IterJoin => self.eval_iterator_method(receiver, method, args),
         }
     }
 
