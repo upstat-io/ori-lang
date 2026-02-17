@@ -337,7 +337,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 
 ### 23.8.5 Run Pre/Post Check Enforcement  <!-- unblocks:0.6.1 -->
 
-> **Parser Status**: Parses correctly (`pre_check: cond | "msg"`, `post_check: r -> cond | "msg"`) ✅ (2026-02-14)
+> **Parser Status**: Parses correctly (`pre_check: cond | "msg"`, `post_check: r -> cond | "msg"`) [done] (2026-02-14)
 > **IR**: `CheckExpr` struct, `CheckRange`, stored in `FunctionSeq::Run`
 > **Test File**: `tests/spec/patterns/run.ori` (commented-out tests at lines 140-288)
 

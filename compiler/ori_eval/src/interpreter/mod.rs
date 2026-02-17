@@ -112,11 +112,13 @@ pub(crate) struct TypeNames {
     pub(crate) ordering: Name,
     pub(crate) list: Name,
     pub(crate) map: Name,
+    pub(crate) set: Name,
     pub(crate) tuple: Name,
     pub(crate) option: Name,
     pub(crate) result: Name,
     pub(crate) function: Name,
     pub(crate) function_val: Name,
+    pub(crate) iterator: Name,
     pub(crate) module: Name,
     pub(crate) error: Name,
 }
@@ -222,11 +224,13 @@ impl TypeNames {
             ordering: interner.intern("Ordering"),
             list: interner.intern("list"),
             map: interner.intern("map"),
+            set: interner.intern("Set"),
             tuple: interner.intern("tuple"),
             option: interner.intern("Option"),
             result: interner.intern("Result"),
             function: interner.intern("function"),
             function_val: interner.intern("function_val"),
+            iterator: interner.intern("Iterator"),
             module: interner.intern("module"),
             error: interner.intern("error"),
         }
@@ -611,8 +615,8 @@ impl<'a> Interpreter<'a> {
     /// - Built-in enum variants like Less, Equal, Greater (Ordering type)
     pub fn register_prelude(&mut self) {
         use crate::{
-            function_val_byte, function_val_float, function_val_int, function_val_str,
-            function_val_thread_id,
+            function_val_byte, function_val_float, function_val_int, function_val_repeat,
+            function_val_str, function_val_thread_id,
         };
 
         // Type conversion functions (positional args allowed per spec)
@@ -620,6 +624,9 @@ impl<'a> Interpreter<'a> {
         self.register_function_val("int", function_val_int, "int");
         self.register_function_val("float", function_val_float, "float");
         self.register_function_val("byte", function_val_byte, "byte");
+
+        // Iterator constructors
+        self.register_function_val("repeat", function_val_repeat, "repeat");
 
         // Thread/parallel introspection (internal use)
         self.register_function_val("thread_id", function_val_thread_id, "thread_id");

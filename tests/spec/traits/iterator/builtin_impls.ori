@@ -1,0 +1,138 @@
+// Spec: Section 3.8 — Iterator Traits (Built-in Iterable Implementations)
+// Tests for Option<T> implementing Iterable via .iter().
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Option<T>.iter() — Some yields the inner value
+// =============================================================================
+
+@option_some_iter () -> [int] = run(
+    Some(42).iter().collect(),
+)
+
+@test_option_some_iter tests @option_some_iter () -> void = run(
+    assert_eq(actual: option_some_iter(), expected: [42]),
+)
+
+// Option<T>.iter() — None yields nothing
+@option_none_iter () -> [int] = run(
+    let x: Option<int> = None,
+    x.iter().collect(),
+)
+
+@test_option_none_iter tests @option_none_iter () -> void = run(
+    assert_eq(actual: option_none_iter(), expected: []),
+)
+
+// =============================================================================
+// Option.iter() with adapters
+// =============================================================================
+
+// Some + map
+@option_iter_map () -> [int] = run(
+    Some(10).iter().map(transform: x -> x * 2).collect(),
+)
+
+@test_option_iter_map tests @option_iter_map () -> void = run(
+    assert_eq(actual: option_iter_map(), expected: [20]),
+)
+
+// Some + filter (keeps)
+@option_iter_filter_keep () -> [int] = run(
+    Some(5).iter().filter(predicate: x -> x > 3).collect(),
+)
+
+@test_option_iter_filter_keep tests @option_iter_filter_keep () -> void = run(
+    assert_eq(actual: option_iter_filter_keep(), expected: [5]),
+)
+
+// Some + filter (removes)
+@option_iter_filter_remove () -> [int] = run(
+    Some(1).iter().filter(predicate: x -> x > 3).collect(),
+)
+
+@test_option_iter_filter_remove tests @option_iter_filter_remove () -> void = run(
+    assert_eq(actual: option_iter_filter_remove(), expected: []),
+)
+
+// =============================================================================
+// Option.iter() consumers
+// =============================================================================
+
+// count
+@option_some_count () -> int = run(
+    Some("hello").iter().count(),
+)
+
+@test_option_some_count tests @option_some_count () -> void = run(
+    assert_eq(actual: option_some_count(), expected: 1),
+)
+
+@option_none_count () -> int = run(
+    let x: Option<str> = None,
+    x.iter().count(),
+)
+
+@test_option_none_count tests @option_none_count () -> void = run(
+    assert_eq(actual: option_none_count(), expected: 0),
+)
+
+// fold
+@option_some_fold () -> int = run(
+    Some(7).iter().fold(initial: 0, op: (acc, x) -> acc + x),
+)
+
+@test_option_some_fold tests @option_some_fold () -> void = run(
+    assert_eq(actual: option_some_fold(), expected: 7),
+)
+
+// any/all
+@option_some_any () -> bool = run(
+    Some(42).iter().any(predicate: x -> x == 42),
+)
+
+@test_option_some_any tests @option_some_any () -> void = run(
+    assert(cond: option_some_any()),
+)
+
+@option_none_any () -> bool = run(
+    let x: Option<int> = None,
+    x.iter().any(predicate: x -> x == 42),
+)
+
+@test_option_none_any tests @option_none_any () -> void = run(
+    assert(cond: !option_none_any()),
+)
+
+// =============================================================================
+// Option.iter() with string values
+// =============================================================================
+
+@option_str_iter () -> [str] = run(
+    Some("world").iter().collect(),
+)
+
+@test_option_str_iter tests @option_str_iter () -> void = run(
+    assert_eq(actual: option_str_iter(), expected: ["world"]),
+)
+
+// =============================================================================
+// Option.iter() chained with other iterators
+// =============================================================================
+
+@option_chain () -> [int] = run(
+    Some(1).iter().chain(other: [2, 3].iter()).collect(),
+)
+
+@test_option_chain tests @option_chain () -> void = run(
+    assert_eq(actual: option_chain(), expected: [1, 2, 3]),
+)
+
+@option_zip () -> [(int, str)] = run(
+    Some(1).iter().zip(other: ["a"].iter()).collect(),
+)
+
+@test_option_zip tests @option_zip () -> void = run(
+    assert_eq(actual: option_zip(), expected: [(1, "a")]),
+)

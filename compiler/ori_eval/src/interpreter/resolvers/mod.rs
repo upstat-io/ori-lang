@@ -72,6 +72,56 @@ pub enum CollectionMethod {
     Any,
     /// [T].all(predicate: T -> bool) -> bool
     All,
+
+    // Iterator methods (adapters + consumers)
+    /// `Iterator<T>.next() -> (T?, Iterator<T>)`
+    IterNext,
+    /// `Iterator<T>.map(transform: T -> U) -> Iterator<U>`
+    IterMap,
+    /// `Iterator<T>.filter(predicate: T -> bool) -> Iterator<T>`
+    IterFilter,
+    /// `Iterator<T>.take(count: int) -> Iterator<T>`
+    IterTake,
+    /// `Iterator<T>.skip(count: int) -> Iterator<T>`
+    IterSkip,
+    /// `Iterator<T>.fold(initial: U, op: (U, T) -> U) -> U`
+    IterFold,
+    /// `Iterator<T>.count() -> int`
+    IterCount,
+    /// `Iterator<T>.find(predicate: T -> bool) -> T?`
+    IterFind,
+    /// `Iterator<T>.any(predicate: T -> bool) -> bool`
+    IterAny,
+    /// `Iterator<T>.all(predicate: T -> bool) -> bool`
+    IterAll,
+    /// `Iterator<T>.for_each(f: T -> void) -> void`
+    IterForEach,
+    /// `Iterator<T>.collect() -> [T]` (default)
+    IterCollect,
+    /// `Iterator<T>.__collect_set() -> Set<T>` (type-directed via Collect trait)
+    IterCollectSet,
+    /// `Iterator<T>.enumerate() -> Iterator<(int, T)>`
+    IterEnumerate,
+    /// `Iterator<T>.zip(other: Iterator<U>) -> Iterator<(T, U)>`
+    IterZip,
+    /// `Iterator<T>.chain(other: Iterator<T>) -> Iterator<T>`
+    IterChain,
+    /// `Iterator<Iterator<T>>.flatten() -> Iterator<T>`
+    IterFlatten,
+    /// `Iterator<T>.flat_map(f: T -> Iterator<U>) -> Iterator<U>`
+    IterFlatMap,
+    /// `Iterator<T>.cycle() -> Iterator<T>`
+    IterCycle,
+    /// `Iterator<T>.next_back() -> (T?, Iterator<T>)` (double-ended only)
+    IterNextBack,
+    /// `Iterator<T>.rev() -> Iterator<T>` (double-ended only)
+    IterRev,
+    /// `Iterator<T>.last() -> T?` (double-ended only)
+    IterLast,
+    /// `Iterator<T>.rfind(predicate: T -> bool) -> T?` (double-ended only)
+    IterRFind,
+    /// `Iterator<T>.rfold(initial: U, op: (U, T) -> U) -> U` (double-ended only)
+    IterRFold,
 }
 
 impl CollectionMethod {
@@ -93,7 +143,107 @@ impl CollectionMethod {
             _ => None,
         }
     }
+
+    /// Check if this is an iterator method variant.
+    pub fn is_iterator_method(self) -> bool {
+        matches!(
+            self,
+            Self::IterNext
+                | Self::IterMap
+                | Self::IterFilter
+                | Self::IterTake
+                | Self::IterSkip
+                | Self::IterEnumerate
+                | Self::IterZip
+                | Self::IterChain
+                | Self::IterFlatten
+                | Self::IterFlatMap
+                | Self::IterCycle
+                | Self::IterNextBack
+                | Self::IterRev
+                | Self::IterLast
+                | Self::IterRFind
+                | Self::IterRFold
+                | Self::IterFold
+                | Self::IterCount
+                | Self::IterFind
+                | Self::IterAny
+                | Self::IterAll
+                | Self::IterForEach
+                | Self::IterCollect
+                | Self::IterCollectSet
+        )
+    }
+
+    /// All `Iter*` variants paired with their Ori method name.
+    ///
+    /// Single source of truth for consistency tests — any new iterator method
+    /// variant added to the enum must be added here, and the consistency test
+    /// will verify it is also wired into the resolver and dispatcher.
+    #[cfg(test)]
+    pub fn all_iterator_variants() -> &'static [(&'static str, CollectionMethod)] {
+        &[
+            ("next", Self::IterNext),
+            ("map", Self::IterMap),
+            ("filter", Self::IterFilter),
+            ("take", Self::IterTake),
+            ("skip", Self::IterSkip),
+            ("enumerate", Self::IterEnumerate),
+            ("zip", Self::IterZip),
+            ("chain", Self::IterChain),
+            ("flatten", Self::IterFlatten),
+            ("flat_map", Self::IterFlatMap),
+            ("cycle", Self::IterCycle),
+            ("fold", Self::IterFold),
+            ("count", Self::IterCount),
+            ("find", Self::IterFind),
+            ("any", Self::IterAny),
+            ("all", Self::IterAll),
+            ("for_each", Self::IterForEach),
+            ("collect", Self::IterCollect),
+            ("next_back", Self::IterNextBack),
+            ("rev", Self::IterRev),
+            ("last", Self::IterLast),
+            ("rfind", Self::IterRFind),
+            ("rfold", Self::IterRFold),
+            (
+                ori_ir::builtin_constants::iterator::COLLECT_SET_METHOD,
+                Self::IterCollectSet,
+            ),
+        ]
+    }
 }
+
+/// All Iterator method names recognized by the eval `CollectionMethodResolver`.
+///
+/// Used by cross-crate consistency tests in `oric` to verify that every Iterator
+/// method registered in typeck has a corresponding eval resolver entry, and vice
+/// versa. Sorted alphabetically.
+pub const ITERATOR_METHOD_NAMES: &[&str] = &[
+    "all",
+    "any",
+    "chain",
+    "collect",
+    "count",
+    "cycle",
+    "enumerate",
+    "filter",
+    "find",
+    "flat_map",
+    "flatten",
+    "fold",
+    "for_each",
+    "last",
+    "map",
+    "next",
+    "next_back",
+    "rev",
+    "rfind",
+    "rfold",
+    "skip",
+    "take",
+    "zip",
+];
 
 /// Trait for method resolvers in the chain of responsibility.
 ///

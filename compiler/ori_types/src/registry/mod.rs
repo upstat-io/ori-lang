@@ -31,12 +31,10 @@ pub use types::{
 
 // Trait registry exports
 pub use traits::{
-    ImplEntry, ImplMethodDef, MethodLookup, TraitAssocTypeDef, TraitEntry, TraitMethodDef,
-    TraitRegistry, WhereConstraint,
+    ImplEntry, ImplMethodDef, ImplSpecificity, MethodLookup, MethodLookupResult,
+    ObjectSafetyViolation, TraitAssocTypeDef, TraitEntry, TraitMethodDef, TraitRegistry,
+    WhereConstraint,
 };
 
 // Method registry exports
-pub use methods::{
-    BuiltinMethod, BuiltinMethodKind, HigherOrderMethod, MethodRegistry, MethodResolution,
-    MethodTransform,
-};
+pub use methods::MethodRegistry;

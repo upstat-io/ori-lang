@@ -145,9 +145,14 @@ impl<'pool> ArcClassifier<'pool> {
             | Tag::Ordering => ArcClass::Scalar,
 
             // DefiniteRef: heap-allocated or closure types
-            Tag::Str | Tag::List | Tag::Map | Tag::Set | Tag::Channel | Tag::Function => {
-                ArcClass::DefiniteRef
-            }
+            Tag::Str
+            | Tag::List
+            | Tag::Map
+            | Tag::Set
+            | Tag::Channel
+            | Tag::Function
+            | Tag::Iterator
+            | Tag::DoubleEndedIterator => ArcClass::DefiniteRef,
 
             // Transitive: single child
             Tag::Option => self.classify(self.pool.option_inner(idx)),

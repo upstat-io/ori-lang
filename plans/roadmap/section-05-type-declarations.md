@@ -23,7 +23,7 @@ sections:
     status: in-progress
   - id: "5.5"
     title: Compound Types
-    status: not-started
+    status: in-progress
   - id: "5.6"
     title: Built-in Generic Types
     status: in-progress
@@ -53,37 +53,37 @@ sections:
 
 ## 5.1 Struct Types
 
-- [x] **Implement**: Parse `type Name = { field: Type, ... }` — spec/06-types.md § Struct Types, spec/08-declarations.md § Type Declarations ✅ (2026-02-10)
+- [x] **Implement**: Parse `type Name = { field: Type, ... }` — spec/06-types.md § Struct Types, spec/08-declarations.md § Type Declarations [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_struct_type`
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` (30+ tests: basic, single field, empty, nested, many fields, mixed types, generic, with Option/List/Tuple/Function fields)
 
-- [x] **Implement**: Register struct in type environment — spec/08-declarations.md § Type Declarations ✅ (2026-02-10)
+- [x] **Implement**: Register struct in type environment — spec/08-declarations.md § Type Declarations [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/type_registration.rs` — type registry tests
   - [x] **Ori Tests**: All struct tests verify type registration
 
-- [x] **Implement**: Parse struct literals `Name { field: value }` — spec/06-types.md § Struct Types ✅ (2026-02-10)
+- [x] **Implement**: Parse struct literals `Name { field: value }` — spec/06-types.md § Struct Types [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — struct literal parsing
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` — all tests create struct literals
 
-- [x] **Implement**: Type check struct literals — spec/06-types.md § Struct Types ✅ (2026-02-10)
+- [x] **Implement**: Type check struct literals — spec/06-types.md § Struct Types [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — struct literal type checking
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for struct literal construction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — struct literal codegen (file does not exist)
 
-- [x] **Implement**: Shorthand `Point { x, y }` — spec/06-types.md § Struct Types ✅ (2026-02-10)
+- [x] **Implement**: Shorthand `Point { x, y }` — spec/06-types.md § Struct Types [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — shorthand parsing
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` — `test_shorthand_init`, `test_mixed_shorthand`
   - [ ] **LLVM Support**: LLVM codegen for shorthand struct construction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — shorthand struct codegen (file does not exist)
 
-- [x] **Implement**: Field access — spec/06-types.md § Struct Types ✅ (2026-02-10)
+- [x] **Implement**: Field access — spec/06-types.md § Struct Types [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/postfix.rs` — field access type inference
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` — field chaining (`c.ceo.name`, deep nesting)
   - [ ] **LLVM Support**: LLVM codegen for struct field access
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — field access codegen (file does not exist)
 
-- [x] **Implement**: Destructuring — spec/09-expressions.md § Destructuring ✅ (2026-02-10)
+- [x] **Implement**: Destructuring — spec/09-expressions.md § Destructuring [done] (2026-02-10)
   - [x] **Rust Tests**: Parser in `ori_parse/src/grammar/expr/primary.rs` — `parse_binding_pattern()`
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` — `test_destructure`, `test_destructure_partial`, `test_destructure_rename`
   - [ ] **LLVM Support**: LLVM codegen for struct destructuring
@@ -93,37 +93,37 @@ sections:
 
 ## 5.2 Sum Types (Enums) — COMPLETED 2026-01-28
 
-- [x] **Implement**: Parse `type Name = Variant1 | Variant2(Type)` ✅ (2026-02-10)
+- [x] **Implement**: Parse `type Name = Variant1 | Variant2(Type)` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_sum_type`
   - [x] **Ori Tests**: `tests/spec/declarations/sum_types.ori` (30+ tests)
 
-- [x] **Implement**: Unit variants ✅ (2026-02-10)
+- [x] **Implement**: Unit variants [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — included in `test_parse_sum_type`
   - [x] **Ori Tests**: Color (Red|Green|Blue), Direction (NSEW), Toggle (On|Off), Status (4 variants)
 
-- [x] **Implement**: Single-field variants `Variant(Type)` ✅ (2026-02-10)
+- [x] **Implement**: Single-field variants `Variant(Type)` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — single-field variant parsing
   - [x] **Ori Tests**: MyOption (MySome/MyNone), Message (Text/Empty)
   - [ ] **LLVM Support**: LLVM codegen for single-field variants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` (file does not exist)
 
-- [x] **Implement**: Multi-field variants `Variant(x: Type, y: Type)` ✅ (2026-02-10)
+- [x] **Implement**: Multi-field variants `Variant(x: Type, y: Type)` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — multi-field variant parsing
   - [x] **Ori Tests**: Shape (Circle/Rectangle), Point3D, Event (Click/KeyPress/Quit), Response (Success/Error)
   - [ ] **LLVM Support**: LLVM codegen for multi-field variants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` (file does not exist)
 
-- [x] **Implement**: Struct variants ✅ (2026-02-10)
+- [x] **Implement**: Struct variants [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — struct variant parsing (named fields)
   - [x] **Ori Tests**: All multi-field variants use named fields
 
-- [x] **Implement**: Variant constructors ✅ (2026-02-10)
+- [x] **Implement**: Variant constructors [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — variant constructor type checking
   - [x] **Ori Tests**: All sum type tests construct variants; generic sum types (MyResult, MyOptional, LinkedList, Tree)
   - [ ] **LLVM Support**: LLVM codegen for variant constructors
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` (file does not exist)
 
-- [x] **Implement**: Pattern matching on variants ✅ (2026-02-10)
+- [x] **Implement**: Pattern matching on variants [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/pattern.rs` — variant pattern matching
   - [x] **Ori Tests**: Exhaustive match, wildcard, nested match, variable binding, recursive Expr eval
   - [ ] **LLVM Support**: LLVM codegen for variant pattern matching
@@ -136,16 +136,16 @@ sections:
 
 **Proposal**: `proposals/approved/newtype-pattern-proposal.md`
 
-- [x] **Implement**: Parse `type Name = ExistingType` ✅ (2026-02-10)
+- [x] **Implement**: Parse `type Name = ExistingType` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_newtype`
   - [x] **Ori Tests**: `tests/spec/types/newtypes.ori` (UserId, Email, Age, Score)
 
-- [x] **Implement**: Distinct type identity (nominal) ✅ (2026-02-10)
+- [x] **Implement**: Distinct type identity (nominal) [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_typeck/src/registry/tests/type_registry_tests.rs` — nominal type identity
   - [x] **Ori Tests**: `tests/spec/types/newtypes.ori` — separate UserId/Email types, validate_user/validate_email
   - [ ] **LLVM Support**: Transparent at runtime (same as underlying type)
 
-- [x] **Implement**: Wrapping/unwrapping ✅ (2026-02-10)
+- [x] **Implement**: Wrapping/unwrapping [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_eval/src/methods.rs` — newtype unwrap method
   - [x] **Ori Tests**: `tests/spec/types/newtypes.ori` — 9 tests (construction, unwrap, equality, params, computation)
   - [ ] **LLVM Support**: Transparent at runtime (newtype constructor just stores underlying value)
@@ -162,11 +162,11 @@ sections:
 
 ## 5.4 Generic Types
 
-- [x] **Implement**: Parse `type Name<T> = ...` ✅ (2026-02-10)
+- [x] **Implement**: Parse `type Name<T> = ...` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_generic_type_with_bounds`
   - [x] **Ori Tests**: `tests/spec/types/generic.ori` (Box<T>, Pair<A,B>, Container<T>, Wrapper<T>)
 
-- [x] **Implement**: Multiple parameters `<T, U>` ✅ (2026-02-10)
+- [x] **Implement**: Multiple parameters `<T, U>` [done] (2026-02-10)
   - [x] **Rust Tests**: Covered by parser tests
   - [x] **Ori Tests**: `tests/spec/types/generic.ori` — `test_pair_int_str`, `test_pair_str_bool`
 
@@ -182,7 +182,7 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for multiple bounds
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/generic_tests.rs` (file does not exist)
 
-- [x] **Implement**: Generic application / Instantiation ✅ (2026-02-10)
+- [x] **Implement**: Generic application / Instantiation [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — `infer_struct` handles instantiation
   - [x] **Ori Tests**: `tests/spec/types/generic.ori` — 14 tests (Box<int>, Box<str>, Pair<int,str>, nested, chained access, method calls on fields)
   - **Note**: `Type::Applied` tracks instantiated generic types.
@@ -219,11 +219,17 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` (file does not exist)
 
 - [ ] **Implement**: Tuple `(T, U)` — spec/06-types.md § Tuple Types
+  - [x] **Parser**: Numeric field access `.0`, `.1` — `expect_member_name()` accepts integer literals (2026-02-15)
+  - [x] **Parser Rust Tests**: `ori_parse/src/tests/parser.rs` — `test_tuple_field_access`, `test_chained_tuple_field_access_with_parens`, `test_bare_chained_tuple_field_is_error` (2026-02-15)
+  - [x] **Ori Tests**: `tests/spec/types/tuple_types.ori` — 6 field access tests: pair, different types, triple, nested with parens, single-element, return value (2026-02-15)
+  - [x] **Spec/Grammar**: Updated `grammar.ebnf` § `member_name`, `09-expressions.md`, `06-types.md` (2026-02-15)
   - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — tuple type inference
   - [ ] **Ori Tests**: `tests/spec/types/collections.ori` — all commented out
   - [ ] **LLVM Support**: LLVM codegen for tuple type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` (file does not exist)
+  - [ ] **Parser**: Chained field access without parens (`t.0.1`) — requires source text in parser or text in `Float` token
   - Note: Tuples work in evaluator (used in struct_types.ori destructuring) but type inference commented out
+  <!-- known-bug: decision tree column count mismatch on tuple patterns with nested constructors + wildcard (e.g., (None, _)) — see compile/mod.rs:67 -->
 
 - [ ] **Implement**: Range `Range<T>` — spec/06-types.md § Range Type
   - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — range type inference
@@ -242,19 +248,19 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
 
 ## 5.6 Built-in Generic Types
 
-- [x] **Implement**: `Option<T>` with `Some`/`None` ✅ (2026-02-10)
+- [x] **Implement**: `Option<T>` with `Some`/`None` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/builtins.rs` — Option type handling
   - [x] **Ori Tests**: Used throughout test suite (struct_types.ori, sum_types.ori, traits/)
   - [ ] **LLVM Support**: LLVM codegen for Option type — inline IR in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_result_tests.rs` (file does not exist)
 
-- [x] **Implement**: `Result<T, E>` with `Ok`/`Err` ✅ (2026-02-10)
+- [x] **Implement**: `Result<T, E>` with `Ok`/`Err` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/builtins.rs` — Result type handling
   - [x] **Ori Tests**: Used in traits/core/ tests, test suite
   - [ ] **LLVM Support**: LLVM codegen for Result type — inline IR in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_result_tests.rs` (file does not exist)
 
-- [x] **Implement**: `Ordering` with `Less`/`Equal`/`Greater` ✅ (2026-02-10)
+- [x] **Implement**: `Ordering` with `Less`/`Equal`/`Greater` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/builtins.rs` — Ordering type handling
   - [x] **Ori Tests**: `tests/spec/types/ordering/methods.ori` (32 tests)
   - [ ] **LLVM Support**: LLVM codegen for Ordering type — i8 comparison in lower_calls.rs
@@ -281,27 +287,27 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
 > - New: `#derive(Eq, Clone)`
 > See Section 15 (Approved Syntax Proposals) § 15.1. Implement with new syntax directly.
 
-- [x] **Implement**: Parse `#[derive(Trait1, Trait2)]` ✅ (2026-02-10)
+- [x] **Implement**: Parse `#[derive(Trait1, Trait2)]` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — derive attribute parsing
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` (15+ tests)
   - [ ] **LLVM Support**: LLVM codegen for derive attributes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
   - Note: Currently using `#[derive(...)]` syntax, not yet migrated to `#derive(...)` (pending 15A)
 
-- [x] **Implement**: `#derive(Eq)` ✅ (2026-02-10)
+- [x] **Implement**: `#derive(Eq)` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derive/eq.rs` — derive Eq generation
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` — EqPoint, EmptyDerived, SingleFieldDerived, nested derive, generic derive
   - [ ] **LLVM Support**: LLVM codegen for derived Eq
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
   - Note: Derive(Eq) for SUM TYPES not working (skipped in tests)
 
-- [x] **Implement**: `#derive(Clone)` ✅ (2026-02-10)
+- [x] **Implement**: `#derive(Clone)` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derive/clone.rs` — derive Clone generation
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` — ClonePoint, SingleFieldDerived
   - [ ] **LLVM Support**: LLVM codegen for derived Clone
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
 
-- [x] **Implement**: `#derive(Hashable)` ✅ (2026-02-10)
+- [x] **Implement**: `#derive(Hashable)` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derive/hashable.rs` — derive Hashable generation
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` — HashPoint, MultiAttrPoint
   - [ ] **LLVM Support**: LLVM codegen for derived Hashable
@@ -324,19 +330,19 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
 
 ## 5.8 Visibility
 
-- [x] **Implement**: Parse `pub type Name = ...` ✅ (2026-02-10)
+- [x] **Implement**: Parse `pub type Name = ...` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/item.rs` — pub type parsing
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` — `pub type PublicStruct`, `tests/spec/declarations/sum_types.ori` — `pub type PublicStatus`
   - [ ] **LLVM Support**: LLVM codegen for pub type visibility
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/visibility_tests.rs` (file does not exist)
 
-- [x] **Implement**: Public visible from other modules ✅ (2026-02-10)
+- [x] **Implement**: Public visible from other modules [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/eval/module/visibility.rs` — public visibility
   - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori` — `pub type Point` imported cross-module
   - [ ] **LLVM Support**: LLVM codegen for public visibility
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/visibility_tests.rs` (file does not exist)
 
-- [x] **Implement**: Private only in declaring module ✅ (2026-02-10)
+- [x] **Implement**: Private only in declaring module [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/eval/module/visibility.rs` — private visibility
   - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori` — `type InternalPoint` (private)
   - [ ] **LLVM Support**: LLVM codegen for private visibility
@@ -352,32 +358,32 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 
 ### Migration
 
-- [x] **Implement**: Remove `is_type_name_for_associated_functions()` hardcoded checks ✅ (2026-02-10)
+- [x] **Implement**: Remove `is_type_name_for_associated_functions()` hardcoded checks [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_typeck/src/infer/call.rs` — general type name resolution
   - [x] **Ori Tests**: `tests/spec/types/associated_functions.ori` — user types (Point, Builder, Counter, Rectangle, Pair) all work
 
 ### Parsing
 
-- [x] **Implement**: Parse `Type.method(...)` syntax in expression position ✅ (2026-02-10)
+- [x] **Implement**: Parse `Type.method(...)` syntax in expression position [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — type-prefixed method call
   - [x] **Ori Tests**: `Point.origin()`, `Builder.new()`, `Counter.zero()`, `Rectangle.square(size: 5)`
 
-- [x] **Implement**: Distinguish type name vs value in resolution ✅ (2026-02-10)
+- [x] **Implement**: Distinguish type name vs value in resolution [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/postfix.rs` — type vs value resolution
   - [x] **Ori Tests**: `test_instance_vs_associated` — `Pair.create()` (type) vs `p.sum()` (value)
 
 ### Associated Function Registry
 
-- [x] **Implement**: Track methods without `self` in impl blocks ✅ (2026-02-10)
+- [x] **Implement**: Track methods without `self` in impl blocks [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/registry/methods.rs` — associated function registry
   - [x] **Ori Tests**: Point.origin(), Point.new(), Builder.new(), Counter.zero(), Counter.starting_at(), Rectangle.square/from_dimensions/unit(), Pair.create()
 
-- [x] **Implement**: Built-in associated functions for Duration ✅ (2026-02-10)
+- [x] **Implement**: Built-in associated functions for Duration [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/types/associated_functions.ori` — `Duration.from_seconds(s: 5)` verified
   - Duration.from_nanoseconds(ns:), from_microseconds(us:), from_milliseconds(ms:)
   - Duration.from_seconds(s:), from_minutes(m:), from_hours(h:)
 
-- [x] **Implement**: Built-in associated functions for Size ✅ (2026-02-10)
+- [x] **Implement**: Built-in associated functions for Size [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/types/associated_functions.ori` — `Size.from_megabytes(mb: 2)` verified
   - Size.from_bytes(b:), from_kilobytes(kb:), from_megabytes(mb:)
   - Size.from_gigabytes(gb:), from_terabytes(tb:)
@@ -390,7 +396,7 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 
 ### Self Return Type
 
-- [x] **Implement**: Allow `Self` as return type in associated functions ✅ (2026-02-10)
+- [x] **Implement**: Allow `Self` as return type in associated functions [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/types/associated_functions.ori` — Point.origin() -> Self, Builder.new() -> Self, Counter.zero() -> Self, Counter.increment(self) -> Self
 
 ### Trait Associated Functions
@@ -409,14 +415,14 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 
 ## 5.10 Section Completion Checklist
 
-- [x] Struct types (definition, literal, shorthand, field access, destructuring, spread, generic) ✅
-- [x] Sum types (unit, single-field, multi-field, generic, recursive, pattern matching) ✅
-- [x] Newtypes (construction, unwrap, nominal identity) ✅
-- [x] Generic types (single/multiple params, instantiation, field access chain) ✅
-- [x] Built-in generics: Option, Result, Ordering ✅
-- [x] Derive: Eq, Clone, Hashable on structs ✅
-- [x] Visibility: pub type, private by default ✅
-- [x] Associated functions: Type.method() for user types, Duration, Size ✅
+- [x] Struct types (definition, literal, shorthand, field access, destructuring, spread, generic) [done]
+- [x] Sum types (unit, single-field, multi-field, generic, recursive, pattern matching) [done]
+- [x] Newtypes (construction, unwrap, nominal identity) [done]
+- [x] Generic types (single/multiple params, instantiation, field access chain) [done]
+- [x] Built-in generics: Option, Result, Ordering [done]
+- [x] Derive: Eq, Clone, Hashable on structs [done]
+- [x] Visibility: pub type, private by default [done]
+- [x] Associated functions: Type.method() for user types, Duration, Size [done]
 - [ ] Compound type inference (5.5) — entirely pending
 - [ ] Derive: Printable, Default — not working
 - [ ] Derive(Eq) for sum types — not working

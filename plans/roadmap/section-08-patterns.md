@@ -77,16 +77,16 @@ The spec formalizes two distinct pattern categories:
 
 > **Future Enhancement**: Approved proposal `proposals/approved/checks-proposal.md` adds `.pre_check:` and `.post_check:` properties to `run`. See Section 15.5.
 
-- [x] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/10-patterns.md § run ✅ (2026-02-10)
+- [x] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/10-patterns.md § run [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator pattern execution — run pattern tests
   - [x] **Ori Tests**: `tests/spec/patterns/run.ori` — 12 tests pass
   - [ ] **LLVM Support**: LLVM codegen for run pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — run pattern codegen
 
-- [x] **Implement**: Binding `let [ "mut" ] identifier [ ":" type ] "=" expression` — spec/10-patterns.md § run ✅ (2026-02-10)
-- [x] **Implement**: Evaluate each binding in order — spec/10-patterns.md § run ✅ (2026-02-10)
-- [x] **Implement**: Each binding introduces variable into scope — spec/10-patterns.md § run ✅ (2026-02-10)
-- [x] **Implement**: Final expression is the result — spec/10-patterns.md § run ✅ (2026-02-10)
+- [x] **Implement**: Binding `let [ "mut" ] identifier [ ":" type ] "=" expression` — spec/10-patterns.md § run [done] (2026-02-10)
+- [x] **Implement**: Evaluate each binding in order — spec/10-patterns.md § run [done] (2026-02-10)
+- [x] **Implement**: Each binding introduces variable into scope — spec/10-patterns.md § run [done] (2026-02-10)
+- [x] **Implement**: Final expression is the result — spec/10-patterns.md § run [done] (2026-02-10)
 
 ---
 
@@ -110,17 +110,17 @@ The spec formalizes two distinct pattern categories:
 
 ### Basic Implementation (complete)
 
-- [x] **Implement**: `.condition:` property type `bool` — spec/10-patterns.md § recurse ✅ (2026-02-10)
+- [x] **Implement**: `.condition:` property type `bool` — spec/10-patterns.md § recurse [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator pattern execution — recurse pattern tests
   - [x] **Ori Tests**: `tests/spec/patterns/recurse.ori` — 18 tests pass
 
-- [x] **Implement**: `.base:` property type `T` — spec/10-patterns.md § recurse ✅ (2026-02-10)
-- [x] **Implement**: `.step:` property uses `self()` — spec/10-patterns.md § recurse ✅ (2026-02-10)
+- [x] **Implement**: `.base:` property type `T` — spec/10-patterns.md § recurse [done] (2026-02-10)
+- [x] **Implement**: `.step:` property uses `self()` — spec/10-patterns.md § recurse [done] (2026-02-10)
 - [ ] **Implement**: Optional `.memo:` default false — spec/10-patterns.md § recurse
 - [ ] **Implement**: Optional `.parallel:` threshold — spec/10-patterns.md § recurse (stub: executes sequentially)
-- [x] **Implement**: When `.condition` true, return `.base` — spec/10-patterns.md § recurse ✅ (2026-02-10)
-- [x] **Implement**: Otherwise evaluate `.step` — spec/10-patterns.md § recurse ✅ (2026-02-10)
-- [x] **Implement**: `self(...)` refers to recursive function — spec/10-patterns.md § recurse ✅ (2026-02-10)
+- [x] **Implement**: When `.condition` true, return `.base` — spec/10-patterns.md § recurse [done] (2026-02-10)
+- [x] **Implement**: Otherwise evaluate `.step` — spec/10-patterns.md § recurse [done] (2026-02-10)
+- [x] **Implement**: `self(...)` refers to recursive function — spec/10-patterns.md § recurse [done] (2026-02-10)
 - [ ] **Implement**: Memoization caches during top-level call — spec/10-patterns.md § recurse
 
 ### Self Scoping (from approved proposal)
@@ -220,7 +220,7 @@ The spec formalizes two distinct pattern categories:
 >
 > **STUB**: Interpreter has a loud stub in `can_eval.rs:eval_can_function_exp` (sequential execution + `tracing::warn!`). When implementing for real, replace the stub there. See `plans/eval_legacy_removal/section-02-inline-patterns.md`.
 
-- [x] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § parallel ✅ (2026-02-10)
+- [x] **Implement**: `.tasks:` property (required) — spec/10-patterns.md § parallel [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator pattern execution — parallel pattern tests
   - [x] **Ori Tests**: `tests/spec/patterns/parallel.ori` — 5 tests pass
   - [ ] **LLVM Support**: LLVM codegen for parallel pattern

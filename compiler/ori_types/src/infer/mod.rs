@@ -37,7 +37,7 @@ mod env;
 mod expr;
 
 pub use env::TypeEnv;
-pub use expr::{check_expr, infer_expr, resolve_parsed_type};
+pub use expr::{check_expr, infer_expr, resolve_parsed_type, TYPECK_BUILTIN_METHODS};
 
 use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -46,8 +46,8 @@ use ori_diagnostic::Suggestion;
 
 use crate::{
     diff_types, ContextKind, ErrorContext, Expected, FunctionSig, Idx, PatternKey,
-    PatternResolution, Pool, TraitRegistry, TypeCheckError, TypeErrorKind, TypeProblem,
-    TypeRegistry, UnifyEngine, UnifyError,
+    PatternResolution, Pool, TraitRegistry, TypeCheckError, TypeCheckWarning, TypeErrorKind,
+    TypeProblem, TypeRegistry, UnifyEngine, UnifyError,
 };
 
 /// Expression ID type (mirrors `ori_ir::ExprId`).
@@ -90,6 +90,9 @@ pub struct InferEngine<'pool> {
 
     /// Accumulated type check errors.
     errors: Vec<TypeCheckError>,
+
+    /// Accumulated type check warnings.
+    warnings: Vec<TypeCheckWarning>,
 
     /// String interner for resolving names in error messages.
     interner: Option<&'pool StringInterner>,
@@ -138,6 +141,7 @@ impl<'pool> InferEngine<'pool> {
             expr_types: FxHashMap::default(),
             context_stack: Vec::new(),
             errors: Vec::new(),
+            warnings: Vec::new(),
             interner: None,
             trait_registry: None,
             signatures: None,
@@ -162,6 +166,7 @@ impl<'pool> InferEngine<'pool> {
             expr_types: FxHashMap::default(),
             context_stack: Vec::new(),
             errors: Vec::new(),
+            warnings: Vec::new(),
             interner: None,
             trait_registry: None,
             signatures: None,
@@ -311,7 +316,11 @@ impl<'pool> InferEngine<'pool> {
     }
 
     /// Resolve a `Name` to its string representation, if the interner is available.
-    pub fn lookup_name(&self, name: Name) -> Option<&str> {
+    ///
+    /// The returned `&str` has the interner's lifetime (`'pool`), not the engine
+    /// borrow lifetime. This allows holding the result while mutably borrowing
+    /// the engine for other operations.
+    pub fn lookup_name(&self, name: Name) -> Option<&'pool str> {
         self.interner.map(|i| i.lookup(name))
     }
 
@@ -546,6 +555,17 @@ impl<'pool> InferEngine<'pool> {
     /// Get the current error count (for detecting new errors after a section).
     pub fn error_count(&self) -> usize {
         self.errors.len()
+    }
+
+    /// Push a type check warning.
+    pub fn push_warning(&mut self, warning: TypeCheckWarning) {
+        tracing::debug!(kind = ?warning.kind, "type warning recorded");
+        self.warnings.push(warning);
+    }
+
+    /// Take accumulated warnings, leaving an empty vector.
+    pub fn take_warnings(&mut self) -> Vec<TypeCheckWarning> {
+        std::mem::take(&mut self.warnings)
     }
 
     // ========================================
@@ -794,6 +814,11 @@ impl<'pool> InferEngine<'pool> {
     /// Infer the type of a function.
     pub fn infer_function(&mut self, params: &[Idx], ret: Idx) -> Idx {
         self.pool_mut().function(params, ret)
+    }
+
+    /// Infer the type of an iterator with known element type.
+    pub fn infer_iterator(&mut self, elem_ty: Idx) -> Idx {
+        self.pool_mut().iterator(elem_ty)
     }
 }
 

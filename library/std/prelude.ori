@@ -46,6 +46,38 @@ pub trait Default {
 }
 
 // =============================================================================
+// Iteration Traits
+// =============================================================================
+//
+// Iteration traits enable generic programming over sequences. Built-in types
+// (list, map, set, str, range) have hardcoded implementations. User types
+// can implement these traits to participate in for loops and iterator chains.
+
+// Lazy, functional iterator producing elements of type T.
+// next() returns the next element (if any) and the updated iterator state.
+pub trait Iterator<T> {
+    @next (self) -> (Option<T>, Self)
+}
+
+// Iterator that can also produce elements from the back.
+// Enables rev(), last(), rfind(), rfold().
+pub trait DoubleEndedIterator<T>: Iterator {
+    @next_back (self) -> (Option<T>, Self)
+}
+
+// Type that can produce an iterator over its elements.
+// Enables for loops: `for x in collection do ...`
+pub trait Iterable<T> {
+    @iter (self) -> Iterator<T>
+}
+
+// Type that can be constructed from an iterator.
+// Enables .collect(): `iter.collect()` with type-directed inference.
+pub trait Collect<T> {
+    @from_iter (iter: Iterator<T>) -> Self
+}
+
+// =============================================================================
 // Operator Traits
 // =============================================================================
 //

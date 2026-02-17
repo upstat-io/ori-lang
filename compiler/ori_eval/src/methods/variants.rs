@@ -217,6 +217,14 @@ pub fn dispatch_option_method(
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)
+    // Iterable: Some(x) → 1-element list iterator, None → empty iterator
+    } else if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        // from_value handles Some → 1-element and None → empty iterator
+        match ori_patterns::IteratorValue::from_value(&receiver) {
+            Some(iter) => Ok(Value::iterator(iter)),
+            None => unreachable!("Option values are always iterable"),
+        }
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Option").into())
     }

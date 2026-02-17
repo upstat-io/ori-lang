@@ -146,6 +146,21 @@ impl<'a> TypeErrorRenderer<'a> {
             TypeErrorKind::UnsupportedOperator { op, trait_name, .. } => {
                 format!("no `{trait_name}` implementation for `{op}`")
             }
+            TypeErrorKind::DuplicateImpl { trait_name, .. } => {
+                format!("duplicate impl of `{}`", self.format_name(*trait_name))
+            }
+            TypeErrorKind::OverlappingImpls { trait_name, .. } => {
+                format!("overlapping impl of `{}`", self.format_name(*trait_name))
+            }
+            TypeErrorKind::ConflictingDefaults { method, .. } => {
+                format!("conflicting default for `{}`", self.format_name(*method))
+            }
+            TypeErrorKind::AmbiguousMethod { method, .. } => {
+                format!("ambiguous `{}`", self.format_name(*method))
+            }
+            TypeErrorKind::NotObjectSafe { trait_name, .. } => {
+                format!("`{}` is not object-safe", self.format_name(*trait_name))
+            }
         }
     }
 

@@ -399,8 +399,8 @@ fn test_mangle_extension() {
     assert!(mangled.starts_with(MANGLE_PREFIX));
     assert!(mangled.contains("sum"));
 
-    let mangled = mangler.mangle_extension("str", "to_upper", "string_utils");
-    assert!(mangled.contains("to_upper"));
+    let mangled = mangler.mangle_extension("str", "to_uppercase", "string_utils");
+    assert!(mangled.contains("to_uppercase"));
 }
 
 /// Test: Generic function mangling

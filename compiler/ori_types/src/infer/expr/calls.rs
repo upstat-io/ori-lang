@@ -3,8 +3,12 @@
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::InferEngine;
+use super::methods::DEI_ONLY_METHODS;
 use super::{infer_expr, resolve_builtin_method};
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Pool, Tag, TypeCheckError};
+use crate::{
+    ContextKind, Expected, ExpectedOrigin, Idx, MethodLookupResult, Pool, Tag, TypeCheckError,
+    TypeCheckWarning,
+};
 
 /// Infer the type of a function call expression.
 pub(crate) fn infer_call(
@@ -485,10 +489,15 @@ pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bo
     // Then check compound types by tag
 
     match pool.tag(ty) {
-        Tag::List | Tag::Map | Tag::Set => COLLECTION_TRAITS.contains(&trait_name),
+        Tag::List | Tag::Map | Tag::Set => {
+            COLLECTION_TRAITS.contains(&trait_name) || trait_name == "Iterable"
+        }
         Tag::Option => WRAPPER_TRAITS.contains(&trait_name),
         Tag::Result | Tag::Tuple => RESULT_TRAITS.contains(&trait_name),
-        Tag::Range => trait_name == "Len",
+        Tag::Range => matches!(trait_name, "Len" | "Iterable"),
+        Tag::Str => trait_name == "Iterable",
+        Tag::DoubleEndedIterator => trait_name == "Iterator" || trait_name == "DoubleEndedIterator",
+        Tag::Iterator => trait_name == "Iterator",
         _ => false,
     }
 }
@@ -509,56 +518,38 @@ pub(crate) fn infer_method_call(
     args: ori_ir::ExprRange,
     span: Span,
 ) -> Idx {
-    let receiver_ty = infer_expr(engine, arena, receiver);
-    let resolved = engine.resolve(receiver_ty);
-
-    // Propagate errors silently, but still infer args
-    if resolved == Idx::ERROR {
-        for &arg_id in arena.get_expr_list(args) {
-            infer_expr(engine, arena, arg_id);
-        }
-        return Idx::ERROR;
-    }
-
-    // If receiver is a scheme, instantiate it to get the concrete type
-    let resolved = if engine.pool().tag(resolved) == Tag::Scheme {
-        engine.instantiate(resolved)
-    } else {
-        resolved
-    };
-
-    // For unresolved type variables, infer args and return fresh var
-    let tag = engine.pool().tag(resolved);
-    if tag == Tag::Var {
-        for &arg_id in arena.get_expr_list(args) {
-            infer_expr(engine, arena, arg_id);
-        }
-        return engine.pool_mut().fresh_var();
-    }
-
-    // Resolve method name to an owned string for built-in lookup.
-    // String::from is needed to end the immutable engine borrow before the
-    // mutable resolve_builtin_method call.
-    let method_str = engine.lookup_name(method).map(String::from);
-
-    // 1. Try built-in method resolution
-    if let Some(ref name_str) = method_str {
-        if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
-            // Infer arguments (built-in methods don't have formal param types yet)
+    let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
+        ReceiverDispatch::Return(ty) => {
             for &arg_id in arena.get_expr_list(args) {
                 infer_expr(engine, arena, arg_id);
             }
-            return ret;
+            return ty;
         }
+        ReceiverDispatch::Continue { resolved } => resolved,
+    };
+
+    let arg_ids = arena.get_expr_list(args);
+    let outcome = lookup_impl_method(engine, resolved, method);
+    if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, arg_ids.len(), span) {
+        for (i, (&arg_id, &param_ty)) in arg_ids.iter().zip(sig.params.iter()).enumerate() {
+            let expected = Expected {
+                ty: param_ty,
+                origin: ExpectedOrigin::Context {
+                    span,
+                    kind: ContextKind::FunctionArgument {
+                        func_name: None,
+                        arg_index: i,
+                        param_name: None,
+                    },
+                },
+            };
+            let arg_ty = infer_expr(engine, arena, arg_id);
+            let _ = engine.check_type(arg_ty, &expected, arena.get_expr(arg_id).span);
+        }
+        return sig.ret;
     }
 
-    // 2. Try user-defined method resolution via TraitRegistry
-    if let Some(ret) = resolve_impl_method(engine, arena, resolved, method, args, span) {
-        return ret;
-    }
-
-    // 3. No method found — silently return ERROR to preserve backward compatibility.
-    // Once impl method registration is complete, this should report an error instead.
+    // Error or not found — infer all args for side effects
     for &arg_id in arena.get_expr_list(args) {
         infer_expr(engine, arena, arg_id);
     }
@@ -574,186 +565,354 @@ pub(crate) fn infer_method_call_named(
     args: ori_ir::CallArgRange,
     span: Span,
 ) -> Idx {
-    let receiver_ty = infer_expr(engine, arena, receiver);
-    let resolved = engine.resolve(receiver_ty);
-
-    // Propagate errors silently, but still infer args
-    if resolved == Idx::ERROR {
-        for arg in arena.get_call_args(args) {
-            infer_expr(engine, arena, arg.value);
-        }
-        return Idx::ERROR;
-    }
-
-    // If receiver is a scheme, instantiate it
-    let resolved = if engine.pool().tag(resolved) == Tag::Scheme {
-        engine.instantiate(resolved)
-    } else {
-        resolved
-    };
-
-    // For unresolved type variables, infer args and return fresh var
-    let tag = engine.pool().tag(resolved);
-    if tag == Tag::Var {
-        for arg in arena.get_call_args(args) {
-            infer_expr(engine, arena, arg.value);
-        }
-        return engine.pool_mut().fresh_var();
-    }
-
-    // Resolve method name to an owned string for built-in lookup.
-    // String::from is needed to end the immutable engine borrow before the
-    // mutable resolve_builtin_method call.
-    let method_str = engine.lookup_name(method).map(String::from);
-
-    // 1. Try built-in method resolution
-    if let Some(ref name_str) = method_str {
-        if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
+    let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
+        ReceiverDispatch::Return(ty) => {
             for arg in arena.get_call_args(args) {
                 infer_expr(engine, arena, arg.value);
             }
-            return ret;
+            return ty;
         }
+        ReceiverDispatch::Continue { resolved } => resolved,
+    };
+
+    let call_args = arena.get_call_args(args);
+    let outcome = lookup_impl_method(engine, resolved, method);
+    if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, call_args.len(), span) {
+        for (i, (arg, &param_ty)) in call_args.iter().zip(sig.params.iter()).enumerate() {
+            let expected = Expected {
+                ty: param_ty,
+                origin: ExpectedOrigin::Context {
+                    span,
+                    kind: ContextKind::FunctionArgument {
+                        func_name: None,
+                        arg_index: i,
+                        param_name: arg.name,
+                    },
+                },
+            };
+            let arg_ty = infer_expr(engine, arena, arg.value);
+            let _ = engine.check_type(arg_ty, &expected, arg.span);
+        }
+        return sig.ret;
     }
 
-    // 2. Try user-defined method resolution via TraitRegistry
-    if let Some(ret) = resolve_impl_method_named(engine, arena, resolved, method, args, span) {
-        return ret;
-    }
-
-    // 3. No method found — silently return ERROR to preserve backward compatibility.
+    // Error or not found — infer all args for side effects
     for arg in arena.get_call_args(args) {
         infer_expr(engine, arena, arg.value);
     }
     Idx::ERROR
 }
 
-/// Try to resolve a method call through the `TraitRegistry` (user-defined impls).
-///
-/// Returns `Some(return_type)` if the method was found, `None` otherwise.
-fn resolve_impl_method(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    receiver_ty: Idx,
-    method: Name,
-    args: ori_ir::ExprRange,
-    span: Span,
-) -> Option<Idx> {
-    // Look up the method signature and self-ness from user-defined impls
-    let (sig_ty, has_self) = {
-        let trait_registry = engine.trait_registry()?;
-        let lookup = trait_registry.lookup_method(receiver_ty, method)?;
-        (lookup.method().signature, lookup.method().has_self)
-    };
+// ── Shared method dispatch helpers ───────────────────────────────────
 
-    let resolved_sig = engine.resolve(sig_ty);
-    if engine.pool().tag(resolved_sig) != Tag::Function {
-        // Signature exists but isn't a proper function type
-        for &arg_id in arena.get_expr_list(args) {
-            infer_expr(engine, arena, arg_id);
-        }
-        return Some(Idx::ERROR);
-    }
-
-    let params = engine.pool().function_params(resolved_sig);
-    let ret = engine.pool().function_return(resolved_sig);
-
-    // For instance methods (has_self), skip the first `self` param.
-    // For associated functions, use all params.
-    let skip = usize::from(has_self);
-    let method_params = &params[skip..];
-
-    let arg_ids = arena.get_expr_list(args);
-
-    // Check arity
-    if arg_ids.len() != method_params.len() {
-        engine.push_error(TypeCheckError::arity_mismatch(
-            span,
-            method_params.len(),
-            arg_ids.len(),
-            crate::ArityMismatchKind::Function,
-        ));
-        return Some(Idx::ERROR);
-    }
-
-    // Check each argument
-    for (i, (&arg_id, &param_ty)) in arg_ids.iter().zip(method_params.iter()).enumerate() {
-        let expected = Expected {
-            ty: param_ty,
-            origin: ExpectedOrigin::Context {
-                span,
-                kind: ContextKind::FunctionArgument {
-                    func_name: None,
-                    arg_index: i,
-                    param_name: None,
-                },
-            },
-        };
-        let arg_ty = infer_expr(engine, arena, arg_id);
-        let _ = engine.check_type(arg_ty, &expected, arena.get_expr(arg_id).span);
-    }
-
-    Some(ret)
+/// Result of resolving a method receiver and checking builtin dispatch.
+enum ReceiverDispatch {
+    /// Return this type. Caller must infer all args first.
+    Return(Idx),
+    /// No builtin found. Proceed to impl lookup with this resolved receiver.
+    Continue { resolved: Idx },
 }
 
-/// Try to resolve a named-argument method call through the `TraitRegistry`.
-fn resolve_impl_method_named(
+/// Resolve the receiver type and try builtin method dispatch.
+///
+/// Handles: receiver inference, error propagation, scheme instantiation,
+/// type-variable deferral, builtin method lookup, `DoubleEndedIterator`
+/// gating, and `Range<float>` iteration rejection.
+///
+/// Returns `Return(ty)` for early results (caller should infer all args
+/// and return the type). Returns `Continue { resolved }` to proceed
+/// with impl method lookup.
+fn resolve_receiver_and_builtin(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    receiver_ty: Idx,
+    receiver: ExprId,
     method: Name,
-    args: ori_ir::CallArgRange,
+    span: Span,
+) -> ReceiverDispatch {
+    let receiver_ty = infer_expr(engine, arena, receiver);
+    let resolved = engine.resolve(receiver_ty);
+
+    // Propagate errors silently
+    if resolved == Idx::ERROR {
+        return ReceiverDispatch::Return(Idx::ERROR);
+    }
+
+    // If receiver is a scheme, instantiate it to get the concrete type
+    let resolved = if engine.pool().tag(resolved) == Tag::Scheme {
+        engine.instantiate(resolved)
+    } else {
+        resolved
+    };
+
+    // For unresolved type variables, defer resolution
+    let tag = engine.pool().tag(resolved);
+    if tag == Tag::Var {
+        return ReceiverDispatch::Return(engine.pool_mut().fresh_var());
+    }
+
+    let method_str = engine.lookup_name(method);
+
+    // 1. Try built-in method resolution
+    if let Some(name_str) = method_str {
+        if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
+            // 1a. Before returning, check for infinite iterator consumption
+            if matches!(tag, Tag::Iterator | Tag::DoubleEndedIterator) {
+                check_infinite_iterator_consumed(engine, arena, receiver, name_str, span);
+            }
+            return ReceiverDispatch::Return(ret);
+        }
+    }
+
+    // 1b. Reject DoubleEndedIterator methods on plain Iterator receivers
+    if tag == Tag::Iterator {
+        if let Some(name_str) = method_str {
+            if DEI_ONLY_METHODS.contains(&name_str) {
+                engine.push_error(TypeCheckError::unsatisfied_bound(
+                    span,
+                    format!(
+                        "`{name_str}` requires a DoubleEndedIterator, \
+                         but this is an Iterator (use .iter() on a list, range, \
+                         or string to get a DoubleEndedIterator)"
+                    ),
+                ));
+                return ReceiverDispatch::Return(Idx::ERROR);
+            }
+        }
+    }
+
+    // 1c. Reject iteration methods on Range<float>
+    if let Some(err) = check_range_float_iteration(engine, resolved, tag, method_str, span) {
+        return ReceiverDispatch::Return(err);
+    }
+
+    ReceiverDispatch::Continue { resolved }
+}
+
+/// Check if a method call on a `Range<float>` is attempting iteration.
+///
+/// Returns `Some(Idx::ERROR)` with a diagnostic pushed if the method
+/// is an iteration method and the range element type is `float`.
+/// Returns `None` if the check doesn't apply.
+fn check_range_float_iteration(
+    engine: &mut InferEngine<'_>,
+    resolved: Idx,
+    tag: Tag,
+    method_str: Option<&str>,
     span: Span,
 ) -> Option<Idx> {
-    let (sig_ty, has_self) = {
-        let trait_registry = engine.trait_registry()?;
-        let lookup = trait_registry.lookup_method(receiver_ty, method)?;
-        (lookup.method().signature, lookup.method().has_self)
+    if tag != Tag::Range {
+        return None;
+    }
+    let name_str = method_str?;
+    if !matches!(name_str, "iter" | "collect" | "to_list") {
+        return None;
+    }
+    let elem = engine.pool().range_elem(resolved);
+    if elem != Idx::FLOAT {
+        return None;
+    }
+    engine.push_error(TypeCheckError::range_float_not_iterable(
+        span,
+        "(0..10).iter().map((i) -> i.to_float() / 10.0)",
+    ));
+    Some(Idx::ERROR)
+}
+
+/// Methods that consume an entire iterator and will never terminate on infinite sources.
+const INFINITE_CONSUMING_METHODS: &[&str] = &["collect", "count", "fold", "for_each", "to_list"];
+
+/// Methods that are transparent — they wrap the source but don't bound it.
+const TRANSPARENT_ADAPTERS: &[&str] = &[
+    "map",
+    "filter",
+    "enumerate",
+    "skip",
+    "zip",
+    "chain",
+    "flatten",
+    "flat_map",
+    "rev",
+    "iter",
+];
+
+/// Methods that bound an infinite iterator, making consumption safe.
+const BOUNDING_METHODS: &[&str] = &["take"];
+
+/// Check if a consuming method is called on an infinite iterator source.
+///
+/// Walks the receiver's AST chain backward looking for infinite sources
+/// (`repeat()`, unbounded ranges `start..`, `.cycle()`) without an
+/// intervening `.take()` that would bound the iteration.
+///
+/// Emits a warning (W2001) if an infinite pattern is detected.
+fn check_infinite_iterator_consumed(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    receiver: ExprId,
+    method: &str,
+    span: Span,
+) {
+    if !INFINITE_CONSUMING_METHODS.contains(&method) {
+        return;
+    }
+
+    if let Some(source_desc) = find_infinite_source(engine, arena, receiver) {
+        engine.push_warning(TypeCheckWarning::infinite_iterator_consumed(
+            span,
+            method,
+            source_desc,
+        ));
+    }
+}
+
+/// Walk the AST chain from a receiver expression looking for an infinite source.
+///
+/// Returns `Some(description)` if an unbounded infinite source is found,
+/// `None` if the chain is bounded or not infinite.
+pub(crate) fn find_infinite_source(
+    engine: &InferEngine<'_>,
+    arena: &ExprArena,
+    expr: ExprId,
+) -> Option<String> {
+    let node = arena.get_expr(expr);
+    match &node.kind {
+        // Method call chain: check the method name, then walk the receiver
+        ExprKind::MethodCall {
+            receiver, method, ..
+        }
+        | ExprKind::MethodCallNamed {
+            receiver, method, ..
+        } => {
+            let name = engine.lookup_name(*method).unwrap_or("");
+            // .take() bounds the chain — safe
+            if BOUNDING_METHODS.contains(&name) {
+                return None;
+            }
+            // .cycle() is an infinite source
+            if name == "cycle" {
+                return Some("cycle()".into());
+            }
+            // Transparent adapters — keep walking
+            if TRANSPARENT_ADAPTERS.contains(&name) {
+                return find_infinite_source(engine, arena, *receiver);
+            }
+            // Unknown method — stop (conservative: don't warn)
+            None
+        }
+
+        // Function call: check if it's `repeat(...)`
+        ExprKind::Call { func, .. } | ExprKind::CallNamed { func, .. } => {
+            let func_node = arena.get_expr(*func);
+            if let ExprKind::Ident(name) = &func_node.kind {
+                let name_str = engine.lookup_name(*name).unwrap_or("");
+                if name_str == "repeat" {
+                    return Some("repeat()".into());
+                }
+            }
+            None
+        }
+
+        // Range expression: check if end is unbounded
+        ExprKind::Range { end, .. } => {
+            if !end.is_valid() {
+                return Some("unbounded range (start..)".into());
+            }
+            None
+        }
+
+        // Anything else — stop (conservative: don't warn on unknowns)
+        _ => None,
+    }
+}
+
+// ── Impl method resolution (TraitRegistry) ───────────────────────────
+
+/// Result of looking up a method in the `TraitRegistry`.
+enum LookupOutcome {
+    Found { sig: Idx, has_self: bool },
+    Ambiguous(Vec<ori_ir::Name>),
+    NotFound,
+}
+
+/// Successfully resolved impl method signature.
+struct ImplMethodSig {
+    /// Method parameters (excluding `self`).
+    params: Vec<Idx>,
+    /// Return type.
+    ret: Idx,
+}
+
+/// Perform the borrow-dance lookup for impl methods via `TraitRegistry`.
+///
+/// Scopes the immutable `trait_registry` borrow to extract data, so the
+/// caller can use `engine` mutably afterwards.
+fn lookup_impl_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: Name,
+) -> LookupOutcome {
+    let trait_registry = engine.trait_registry();
+    match trait_registry {
+        None => LookupOutcome::NotFound,
+        Some(reg) => match reg.lookup_method_checked(receiver_ty, method) {
+            MethodLookupResult::Found(lookup) => LookupOutcome::Found {
+                sig: lookup.method().signature,
+                has_self: lookup.method().has_self,
+            },
+            MethodLookupResult::Ambiguous { candidates } => {
+                LookupOutcome::Ambiguous(candidates.iter().map(|&(_, n)| n).collect())
+            }
+            MethodLookupResult::NotFound => LookupOutcome::NotFound,
+        },
+    }
+}
+
+/// After an impl method lookup, resolve the signature and validate arity.
+///
+/// Returns `Some(Ok(sig))` on success with params (excluding `self`) and
+/// return type. Returns `Some(Err(()))` for errors (ambiguous, bad
+/// signature, arity mismatch — diagnostic already pushed). Returns `None`
+/// if the method was not found.
+fn resolve_impl_signature(
+    engine: &mut InferEngine<'_>,
+    outcome: LookupOutcome,
+    method: Name,
+    arg_count: usize,
+    span: Span,
+) -> Option<Result<ImplMethodSig, ()>> {
+    let (sig_ty, has_self) = match outcome {
+        LookupOutcome::Found { sig, has_self } => (sig, has_self),
+        LookupOutcome::Ambiguous(trait_names) => {
+            engine.push_error(TypeCheckError::ambiguous_method(span, method, trait_names));
+            return Some(Err(()));
+        }
+        LookupOutcome::NotFound => return None,
     };
 
     let resolved_sig = engine.resolve(sig_ty);
     if engine.pool().tag(resolved_sig) != Tag::Function {
-        for arg in arena.get_call_args(args) {
-            infer_expr(engine, arena, arg.value);
-        }
-        return Some(Idx::ERROR);
+        return Some(Err(()));
     }
 
     let params = engine.pool().function_params(resolved_sig);
     let ret = engine.pool().function_return(resolved_sig);
 
-    // For instance methods (has_self), skip the first `self` param.
-    // For associated functions, use all params.
+    // For instance methods (has_self), skip the first `self` param
     let skip = usize::from(has_self);
-    let method_params = &params[skip..];
+    let method_params = params[skip..].to_vec();
 
-    let call_args = arena.get_call_args(args);
-
-    if call_args.len() != method_params.len() {
+    if arg_count != method_params.len() {
         engine.push_error(TypeCheckError::arity_mismatch(
             span,
             method_params.len(),
-            call_args.len(),
+            arg_count,
             crate::ArityMismatchKind::Function,
         ));
-        return Some(Idx::ERROR);
+        return Some(Err(()));
     }
 
-    for (i, (arg, &param_ty)) in call_args.iter().zip(method_params.iter()).enumerate() {
-        let expected = Expected {
-            ty: param_ty,
-            origin: ExpectedOrigin::Context {
-                span,
-                kind: ContextKind::FunctionArgument {
-                    func_name: None,
-                    arg_index: i,
-                    param_name: arg.name,
-                },
-            },
-        };
-        let arg_ty = infer_expr(engine, arena, arg.value);
-        let _ = engine.check_type(arg_ty, &expected, arena.get_expr(arg.value).span);
-    }
-
-    Some(ret)
+    Some(Ok(ImplMethodSig {
+        params: method_params,
+        ret,
+    }))
 }

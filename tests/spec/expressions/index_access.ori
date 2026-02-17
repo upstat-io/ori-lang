@@ -353,9 +353,10 @@ type Container = { items: [int] }
 // =============================================================================
 // Index Assignment
 // =============================================================================
-// SKIP: Index assignment (list[i] = x) not yet implemented. Use list.set(index:, value:) instead.
+// SKIP: Index assignment (list[i] = x) not currently supported. Pending design proposal
+// for copy-on-write index assignment (see errata on index-trait-proposal.md).
 
-#skip("index assignment not implemented - use list.set()")
+#skip("index assignment not supported - pending design proposal")
 @test_list_assign tests @list_assign () -> void = run(
     let mut list = [1, 2, 3],
     list[1] = 99,

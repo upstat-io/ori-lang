@@ -16,9 +16,8 @@
 //! # Example
 //!
 //! ```text
-//! TypeProblem::IntFloat generates:
-//!   - "Use `to_float()` to convert int to float" (priority 1)
-//!   - "Use `to_int()` to convert float to int (truncates)" (priority 2)
+//! TypeProblem::IntFloat { expected: "float", .. } generates:
+//!   - "use `float(x)` to convert" (priority 1)
 //! ```
 
 use ori_diagnostic::Suggestion;
@@ -38,35 +37,25 @@ impl TypeProblem {
     fn generate_suggestions(&self) -> Vec<Suggestion> {
         match self {
             // === Numeric Problems ===
-            Self::IntFloat => vec![
-                Suggestion::use_function("to_float()", "to convert int to float"),
-                Suggestion::use_function("to_int()", "to convert float to int (truncates)"),
-            ],
-
-            Self::NumberToString => vec![Suggestion::use_function(
-                "to_str()",
-                "to convert a number to string",
-            )],
-
-            Self::StringToNumber => vec![
-                Suggestion::text(
-                    "use `int.parse(str)` to parse string as int",
-                    1,
-                ),
-                Suggestion::text(
-                    "use `float.parse(str)` to parse string as float",
-                    2,
-                ),
-            ],
-
-            Self::NumericTypeMismatch { expected, found } => vec![Suggestion::text(
-                format!("convert from `{found}` to `{expected}` explicitly"),
+            Self::IntFloat { expected, .. }
+            | Self::NumericTypeMismatch { expected, .. } => vec![Suggestion::text(
+                format!("use `{expected}(x)` to convert"),
                 1,
             )],
 
+            Self::NumberToString => vec![Suggestion::text(
+                "use `str(x)` to convert the value to a string",
+                1,
+            )],
+
+            Self::StringToNumber => vec![
+                Suggestion::text("use `int(x)` to convert string to int", 1),
+                Suggestion::text("use `float(x)` to convert string to float", 2),
+            ],
+
             // === Collection Problems ===
             Self::ExpectedList { found } => vec![
-                Suggestion::wrap_in("list", "[value]"),
+                Suggestion::text("wrap the value in a list: `[x]`", 1),
                 Suggestion::text(
                     format!("`{found}` is not iterable; consider using a different approach"),
                     2,

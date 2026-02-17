@@ -340,4 +340,10 @@ Cross-reference to Index trait.
 | Return types | `T` (panic), `Option<T>` (none), `Result<T, E>` (error) |
 | Multiple keys | Implement Index for each key type |
 | Hash shorthand | Built-in only, not for custom Index |
-| Assignment | Not supported (`x[k] = v` is error) |
+| Assignment | Supported via `IndexSet` trait — see [index-assignment-proposal](index-assignment-proposal.md) |
+
+---
+
+## Errata (2026-02-17)
+
+> **Superseded by [index-assignment-proposal](index-assignment-proposal.md)**: The "No Index Assignment" section above is stale. Index and field assignment have been approved via copy-on-write desugaring: `list[i] = x` desugars to `list = list.updated(key: i, value: x)` using the `IndexSet` trait. The original rejection reasoning conflated in-place mutation with reassignment — Ori's mutable bindings support reassignment without mutable references. The recommended alternative `list.set(index:, value:)` was never implemented; `updated(key:, value:)` is the approved method name.

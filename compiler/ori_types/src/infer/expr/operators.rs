@@ -330,20 +330,22 @@ pub(crate) fn infer_unary(
                 }
                 _ => {
                     if !tag.is_primitive() && !tag.is_type_variable() {
-                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, "negate") {
+                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
                             return ret;
                         }
-                        engine.push_error(TypeCheckError::unsupported_operator(
-                            operand_span,
-                            resolved,
-                            "-",
-                            "Neg",
-                        ));
-                        return Idx::ERROR;
+                        if let Some(trait_name) = op.trait_name() {
+                            engine.push_error(TypeCheckError::unsupported_operator(
+                                operand_span,
+                                resolved,
+                                op.as_symbol(),
+                                trait_name,
+                            ));
+                            return Idx::ERROR;
+                        }
                     }
                     engine.push_error(TypeCheckError::bad_unary_operand(
                         operand_span,
-                        "-",
+                        op.as_symbol(),
                         resolved,
                     ));
                     Idx::ERROR
@@ -364,20 +366,22 @@ pub(crate) fn infer_unary(
                 }
                 _ => {
                     if !tag.is_primitive() && !tag.is_type_variable() {
-                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, "not") {
+                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
                             return ret;
                         }
-                        engine.push_error(TypeCheckError::unsupported_operator(
-                            operand_span,
-                            resolved,
-                            "!",
-                            "Not",
-                        ));
-                        return Idx::ERROR;
+                        if let Some(trait_name) = op.trait_name() {
+                            engine.push_error(TypeCheckError::unsupported_operator(
+                                operand_span,
+                                resolved,
+                                op.as_symbol(),
+                                trait_name,
+                            ));
+                            return Idx::ERROR;
+                        }
                     }
                     engine.push_error(TypeCheckError::bad_unary_operand(
                         operand_span,
-                        "!",
+                        op.as_symbol(),
                         resolved,
                     ));
                     Idx::ERROR
@@ -391,7 +395,7 @@ pub(crate) fn infer_unary(
             let tag = engine.pool().tag(resolved);
             match tag {
                 Tag::Int | Tag::Var => {
-                    engine.push_context(ContextKind::UnaryOpOperand { op: "~" });
+                    engine.push_context(ContextKind::UnaryOpOperand { op: op.as_symbol() });
                     let expected = Expected {
                         ty: Idx::INT,
                         origin: ExpectedOrigin::NoExpectation,
@@ -404,18 +408,20 @@ pub(crate) fn infer_unary(
                 Tag::Never => Idx::NEVER,
                 _ => {
                     if !tag.is_primitive() && !tag.is_type_variable() {
-                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, "bit_not") {
+                        if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
                             return ret;
                         }
-                        engine.push_error(TypeCheckError::unsupported_operator(
-                            operand_span,
-                            resolved,
-                            "~",
-                            "BitNot",
-                        ));
-                        return Idx::ERROR;
+                        if let Some(trait_name) = op.trait_name() {
+                            engine.push_error(TypeCheckError::unsupported_operator(
+                                operand_span,
+                                resolved,
+                                op.as_symbol(),
+                                trait_name,
+                            ));
+                            return Idx::ERROR;
+                        }
                     }
-                    engine.push_context(ContextKind::UnaryOpOperand { op: "~" });
+                    engine.push_context(ContextKind::UnaryOpOperand { op: op.as_symbol() });
                     let expected = Expected {
                         ty: Idx::INT,
                         origin: ExpectedOrigin::NoExpectation,
@@ -471,39 +477,17 @@ pub(crate) fn infer_cast(
 }
 
 /// Map a binary operator to its trait method name.
+///
+/// Delegates to `BinaryOp::trait_method_name()` — the single source of truth in `ori_ir`.
 fn binary_op_to_method_name(op: BinaryOp) -> Option<&'static str> {
-    match op {
-        BinaryOp::Add => Some("add"),
-        BinaryOp::Sub => Some("subtract"),
-        BinaryOp::Mul => Some("multiply"),
-        BinaryOp::Div => Some("divide"),
-        BinaryOp::FloorDiv => Some("floor_divide"),
-        BinaryOp::Mod => Some("remainder"),
-        BinaryOp::BitAnd => Some("bit_and"),
-        BinaryOp::BitOr => Some("bit_or"),
-        BinaryOp::BitXor => Some("bit_xor"),
-        BinaryOp::Shl => Some("shift_left"),
-        BinaryOp::Shr => Some("shift_right"),
-        _ => None,
-    }
+    op.trait_method_name()
 }
 
 /// Map a binary operator to its trait name (for error messages).
+///
+/// Delegates to `BinaryOp::trait_name()` — the single source of truth in `ori_ir`.
 fn binary_op_to_trait_name(op: BinaryOp) -> Option<&'static str> {
-    match op {
-        BinaryOp::Add => Some("Add"),
-        BinaryOp::Sub => Some("Sub"),
-        BinaryOp::Mul => Some("Mul"),
-        BinaryOp::Div => Some("Div"),
-        BinaryOp::FloorDiv => Some("FloorDiv"),
-        BinaryOp::Mod => Some("Rem"),
-        BinaryOp::BitAnd => Some("BitAnd"),
-        BinaryOp::BitOr => Some("BitOr"),
-        BinaryOp::BitXor => Some("BitXor"),
-        BinaryOp::Shl => Some("Shl"),
-        BinaryOp::Shr => Some("Shr"),
-        _ => None,
-    }
+    op.trait_name()
 }
 
 /// Try to resolve a binary operator via trait dispatch.
@@ -565,11 +549,15 @@ fn resolve_binary_op_via_trait(
 ///
 /// Looks up the operator's method name in the `TraitRegistry` for the
 /// operand's type. If found, returns the method's return type.
+///
+/// Uses `UnaryOp::trait_method_name()` as the single source of truth for
+/// the operator→method mapping.
 fn resolve_unary_op_via_trait(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
-    method_name: &str,
+    op: UnaryOp,
 ) -> Option<Idx> {
+    let method_name = op.trait_method_name()?;
     let name = engine.intern_name(method_name)?;
 
     let sig_ty = {

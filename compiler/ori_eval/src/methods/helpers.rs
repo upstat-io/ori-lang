@@ -36,11 +36,13 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Duration", "sub"),
     ("Duration", "subtract"),
     ("Duration", "to_str"),
+    // Iterator methods are dispatched by CollectionMethodResolver, not here.
     // Option - methods and traits
     ("Option", "clone"),
     ("Option", "compare"),
     ("Option", "is_none"),
     ("Option", "is_some"),
+    ("Option", "iter"),
     ("Option", "ok_or"),
     ("Option", "unwrap"),
     ("Option", "unwrap_or"),
@@ -56,6 +58,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Ordering", "is_less"),
     ("Ordering", "is_less_or_equal"),
     ("Ordering", "reverse"),
+    ("Ordering", "then"),
     ("Ordering", "to_str"),
     // Result - methods and traits
     ("Result", "clone"),
@@ -63,6 +66,9 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Result", "is_err"),
     ("Result", "is_ok"),
     ("Result", "unwrap"),
+    // Set - methods and traits
+    ("Set", "iter"),
+    ("Set", "len"),
     // Size - operators and traits
     ("Size", "add"),
     ("Size", "bytes"),
@@ -112,7 +118,6 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("float", "debug"),
     ("float", "div"),
     ("float", "equals"),
-    ("float", "hash"),
     ("float", "mul"),
     ("float", "neg"),
     ("float", "sub"),
@@ -146,16 +151,20 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "debug"),
     ("list", "first"),
     ("list", "is_empty"),
+    ("list", "iter"),
     ("list", "last"),
     ("list", "len"),
     // map
+    ("map", "clone"),
     ("map", "contains_key"),
     ("map", "is_empty"),
+    ("map", "iter"),
     ("map", "keys"),
     ("map", "len"),
     ("map", "values"),
     // range
     ("range", "contains"),
+    ("range", "iter"),
     ("range", "len"),
     // str - methods and traits
     ("str", "add"),
@@ -168,6 +177,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "equals"),
     ("str", "hash"),
     ("str", "is_empty"),
+    ("str", "iter"),
     ("str", "len"),
     ("str", "starts_with"),
     ("str", "to_lowercase"),

@@ -143,6 +143,9 @@ pub enum UnifyContext {
 
     /// In a channel element type.
     ChannelElement,
+
+    /// In an iterator element type.
+    IteratorElement,
 }
 
 impl UnifyContext {
@@ -179,6 +182,7 @@ impl UnifyContext {
             Self::BorrowedInner => "borrowed reference inner type",
             Self::RangeElement => "range element type",
             Self::ChannelElement => "channel element type",
+            Self::IteratorElement => "iterator element type",
         }
     }
 }

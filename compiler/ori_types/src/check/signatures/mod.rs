@@ -19,11 +19,13 @@
 //! checker.base_env ← Binds function types in environment
 //! ```
 
-use ori_ir::{ExprArena, Function, Module, Name, ParsedType, TestDef, Visibility as IrVisibility};
+use ori_ir::{
+    ExprArena, Function, Module, Name, ParsedType, Span, TestDef, Visibility as IrVisibility,
+};
 use rustc_hash::FxHashMap;
 
 use super::ModuleChecker;
-use crate::{ConstParamInfo, FnWhereClause, FunctionSig, Idx};
+use crate::{ConstParamInfo, FnWhereClause, FunctionSig, Idx, TypeCheckError};
 
 // ============================================================================
 // Pass 1: Signature Collection
@@ -175,7 +177,10 @@ fn infer_function_signature_with_arena(
     let mut param_types = Vec::with_capacity(params.len());
     for p in &params {
         let ty = match &p.ty {
-            Some(parsed_ty) => resolve_type_with_vars(checker, parsed_ty, &type_param_vars, arena),
+            Some(parsed_ty) => {
+                check_parsed_type_object_safety(checker, parsed_ty, p.span, arena);
+                resolve_type_with_vars(checker, parsed_ty, &type_param_vars, arena)
+            }
             // Parameter without type annotation gets a fresh variable
             None => checker.pool_mut().fresh_var(),
         };
@@ -184,7 +189,10 @@ fn infer_function_signature_with_arena(
 
     // Resolve return type
     let return_type = match &func.return_ty {
-        Some(parsed_ty) => resolve_type_with_vars(checker, parsed_ty, &type_param_vars, arena),
+        Some(parsed_ty) => {
+            check_parsed_type_object_safety(checker, parsed_ty, func.span, arena);
+            resolve_type_with_vars(checker, parsed_ty, &type_param_vars, arena)
+        }
         // No return type annotation: infer from the body.
         // Use a fresh type variable that will be unified with the body type
         // during Pass 2 (body checking).
@@ -273,7 +281,10 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
     let mut param_types = Vec::with_capacity(params.len());
     for p in &params {
         let ty = match &p.ty {
-            Some(parsed_ty) => resolve_type_with_vars(checker, parsed_ty, &empty_vars, arena),
+            Some(parsed_ty) => {
+                check_parsed_type_object_safety(checker, parsed_ty, p.span, arena);
+                resolve_type_with_vars(checker, parsed_ty, &empty_vars, arena)
+            }
             None => checker.pool_mut().fresh_var(),
         };
         param_types.push(ty);
@@ -281,7 +292,10 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
 
     // Tests return their declared type, or unit if no annotation
     let return_type = match &test.return_ty {
-        Some(parsed_ty) => resolve_type_with_vars(checker, parsed_ty, &empty_vars, arena),
+        Some(parsed_ty) => {
+            check_parsed_type_object_safety(checker, parsed_ty, test.span, arena);
+            resolve_type_with_vars(checker, parsed_ty, &empty_vars, arena)
+        }
         None => Idx::UNIT,
     };
 
@@ -442,6 +456,10 @@ fn resolve_type_with_vars(
                         return checker.pool_mut().channel(resolved_args[0]);
                     }
                     ("Range", 1) => return checker.pool_mut().range(resolved_args[0]),
+                    ("Iterator", 1) => return checker.pool_mut().iterator(resolved_args[0]),
+                    ("DoubleEndedIterator", 1) => {
+                        return checker.pool_mut().double_ended_iterator(resolved_args[0]);
+                    }
                     _ => {
                         // User-defined generic type: create Applied type
                         return checker.pool_mut().applied(*name, &resolved_args);
@@ -511,6 +529,98 @@ fn resolve_type_with_vars(
                 Idx::ERROR
             }
         }
+    }
+}
+
+// ============================================================================
+// Object Safety Checking
+// ============================================================================
+
+/// Check a parsed type annotation for non-object-safe trait usage.
+///
+/// Walks the `ParsedType` tree and emits E2024 errors when a trait used as a
+/// type (trait object) violates object safety rules. Two patterns are checked:
+///
+/// - `ParsedType::Named { name }` where `name` resolves to a registered trait
+/// - `ParsedType::TraitBounds(bounds)` where each bound is checked individually
+///
+/// This is called during Pass 1 (signature collection) when all traits have
+/// been registered in Pass 0c. Type annotations in function parameters and
+/// return types are the primary usage site for trait objects.
+fn check_parsed_type_object_safety(
+    checker: &mut ModuleChecker<'_>,
+    parsed: &ParsedType,
+    span: Span,
+    arena: &ExprArena,
+) {
+    match parsed {
+        ParsedType::Named { name, type_args } => {
+            // Check if this name refers to a trait (making this a trait object)
+            let violations = {
+                let trait_reg = checker.trait_registry();
+                trait_reg
+                    .get_trait_by_name(*name)
+                    .filter(|entry| !entry.is_object_safe())
+                    .map(|entry| entry.object_safety_violations.clone())
+            };
+            if let Some(violations) = violations {
+                checker.push_error(TypeCheckError::not_object_safe(span, *name, violations));
+            }
+
+            // Recurse into type arguments (e.g., `[Clone]` has Clone inside List)
+            let type_arg_ids = arena.get_parsed_type_list(*type_args);
+            for &arg_id in type_arg_ids {
+                let arg = arena.get_parsed_type(arg_id);
+                check_parsed_type_object_safety(checker, arg, span, arena);
+            }
+        }
+
+        ParsedType::TraitBounds(bounds) => {
+            // Each bound in `Printable + Hashable` must be object-safe
+            let bound_ids = arena.get_parsed_type_list(*bounds);
+            for &bound_id in bound_ids {
+                let bound = arena.get_parsed_type(bound_id);
+                check_parsed_type_object_safety(checker, bound, span, arena);
+            }
+        }
+
+        // Recurse into compound types that may contain trait objects
+        ParsedType::List(elem_id) | ParsedType::FixedList { elem: elem_id, .. } => {
+            let elem = arena.get_parsed_type(*elem_id);
+            check_parsed_type_object_safety(checker, elem, span, arena);
+        }
+        ParsedType::Map { key, value } => {
+            let key_parsed = arena.get_parsed_type(*key);
+            let value_parsed = arena.get_parsed_type(*value);
+            check_parsed_type_object_safety(checker, key_parsed, span, arena);
+            check_parsed_type_object_safety(checker, value_parsed, span, arena);
+        }
+        ParsedType::Tuple(elems) => {
+            let elem_ids = arena.get_parsed_type_list(*elems);
+            for &elem_id in elem_ids {
+                let elem = arena.get_parsed_type(elem_id);
+                check_parsed_type_object_safety(checker, elem, span, arena);
+            }
+        }
+        ParsedType::Function { params, ret } => {
+            let param_ids = arena.get_parsed_type_list(*params);
+            for &param_id in param_ids {
+                let param = arena.get_parsed_type(param_id);
+                check_parsed_type_object_safety(checker, param, span, arena);
+            }
+            let ret_parsed = arena.get_parsed_type(*ret);
+            check_parsed_type_object_safety(checker, ret_parsed, span, arena);
+        }
+        ParsedType::AssociatedType { base, .. } => {
+            let base_parsed = arena.get_parsed_type(*base);
+            check_parsed_type_object_safety(checker, base_parsed, span, arena);
+        }
+
+        // Leaf types: no trait object usage possible
+        ParsedType::Primitive(_)
+        | ParsedType::Infer
+        | ParsedType::SelfType
+        | ParsedType::ConstExpr(_) => {}
     }
 }
 

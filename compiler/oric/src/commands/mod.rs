@@ -6,7 +6,8 @@
 
 use ori_diagnostic::emitter::DiagnosticEmitter;
 use ori_diagnostic::queue::DiagnosticQueue;
-use ori_types::{Pool, TypeCheckResult};
+use ori_diagnostic::Diagnostic;
+use ori_types::{Pool, TypeCheckResult, TypeCheckWarning, TypeCheckWarningKind};
 use oric::parser::ParseOutput;
 use oric::problem::lex::{render_lex_error, LexProblem};
 use oric::query::{lex_errors, parsed, tokens_with_metadata, typed, typed_pool};
@@ -134,12 +135,37 @@ pub(super) fn report_frontend_errors(
         }
     }
 
+    // Emit type checker warnings (e.g., infinite iterator consumption)
+    for warning in &type_result.typed.warnings {
+        emitter.emit(&render_type_warning(warning));
+    }
+
     Some(FrontendResult {
         parse_result,
         type_result,
         pool,
         lex_error_count,
     })
+}
+
+/// Render a type checker warning into a `Diagnostic`.
+#[cold]
+fn render_type_warning(warning: &TypeCheckWarning) -> Diagnostic {
+    match &warning.kind {
+        TypeCheckWarningKind::InfiniteIteratorConsumed { consumer, source } => {
+            Diagnostic::warning(warning.code())
+                .with_message(format!(
+                    "`.{consumer}()` on an infinite iterator will never terminate"
+                ))
+                .with_label(
+                    warning.span,
+                    format!("this iterator is infinite (from `{source}`)"),
+                )
+                .with_suggestion(format!(
+                    "add `.take(n)` before `.{consumer}()` to bound the iteration"
+                ))
+        }
+    }
 }
 
 /// Read a file from disk, exiting with a user-friendly error message on failure.

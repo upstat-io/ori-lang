@@ -1,0 +1,27 @@
+// Test that Range<float> iteration is rejected at compile time.
+// Spec: Section 3.8 — Range<float> does NOT implement Iterable.
+// Floating-point ranges cannot be iterated due to precision issues.
+
+// for loop on Range<float>
+#[compile_fail("Range<float>")]
+@test_for_range_float () -> void = run(
+    for x in 0.5..2.5 do print(msg: x.to_str()),
+)
+
+// .iter() on Range<float>
+#[compile_fail("Range<float>")]
+@test_iter_range_float () -> int = run(
+    (0.0..1.0).iter().count(),
+)
+
+// .collect() on Range<float>
+#[compile_fail("Range<float>")]
+@test_collect_range_float () -> [float] = run(
+    (0.0..10.0).collect(),
+)
+
+// .to_list() on Range<float>
+#[compile_fail("Range<float>")]
+@test_to_list_range_float () -> [float] = run(
+    (1.0..5.0).to_list(),
+)

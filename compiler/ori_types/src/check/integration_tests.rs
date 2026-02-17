@@ -1359,3 +1359,74 @@ type MaybeNever = Value(v: int) | Impossible(n: Never)
         "Never in sum variant should NOT produce UninhabitedStructField error"
     );
 }
+
+// Collect trait — bidirectional type inference
+
+#[test]
+fn collect_to_set_via_return_type() {
+    // Return type `Set<int>` should guide `collect()` to produce Set
+    let source = r"
+@to_set () -> Set<int> = [1, 2, 3].iter().collect()
+@test_to_set tests @to_set () -> void = ()
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "collect() with Set<int> return type should not error: {:?}",
+        result.error_kinds()
+    );
+    let ty = result.function_body_type("to_set").unwrap();
+    assert_eq!(result.tag(ty), Tag::Set, "body type should be Set");
+}
+
+#[test]
+fn collect_to_list_by_default() {
+    // No Set annotation — collect() should default to list
+    let source = r"
+@to_list () -> [int] = [1, 2, 3].iter().collect()
+@test_to_list tests @to_list () -> void = ()
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "collect() with [int] return type should not error: {:?}",
+        result.error_kinds()
+    );
+    let ty = result.function_body_type("to_list").unwrap();
+    assert_eq!(result.tag(ty), Tag::List, "body type should be List");
+}
+
+#[test]
+fn collect_to_set_via_let_binding() {
+    // Let binding with Set<int> annotation should guide collect()
+    let source = r"
+@via_let () -> bool = run(
+    let s: Set<int> = [1, 2, 3].iter().collect(),
+    s == s,
+)
+@test_via_let tests @via_let () -> void = ()
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "collect() via let binding with Set<int> should not error: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn collect_chained_adapters_to_set() {
+    // Chained adapters (filter) before collect should preserve Set inference
+    let source = r"
+@filtered () -> Set<int> = [1, 2, 3, 4].iter().filter(predicate: x -> x > 2).collect()
+@test_filtered tests @filtered () -> void = ()
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "filter + collect to Set should not error: {:?}",
+        result.error_kinds()
+    );
+    let ty = result.function_body_type("filtered").unwrap();
+    assert_eq!(result.tag(ty), Tag::Set, "filtered collect should be Set");
+}

@@ -521,6 +521,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ///
     /// For `Direct`/`Indirect`: passes through as-is.
     /// For `Void`: skips the parameter.
+    // SYNC: also update ArcIrEmitter::apply_param_passing in arc_emitter.rs
     pub(crate) fn apply_param_passing(
         &mut self,
         raw_args: &[ValueId],

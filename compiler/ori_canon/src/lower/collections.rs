@@ -24,6 +24,11 @@ impl Lowerer<'_> {
     }
 
     /// Lower a method call with positional args.
+    ///
+    /// Performs type-directed specialization for `collect()`: when the type
+    /// checker resolved `collect()` to `Set<T>` (via bidirectional inference),
+    /// rewrites the method name to `__collect_set` so the evaluator dispatches
+    /// to `eval_iter_collect_set` instead of the default list collector.
     pub(super) fn lower_method_call(
         &mut self,
         receiver: ExprId,
@@ -34,6 +39,7 @@ impl Lowerer<'_> {
     ) -> CanId {
         let receiver = self.lower_expr(receiver);
         let args = self.lower_expr_range(args);
+        let method = self.specialize_collect(method, ty);
         self.push(
             CanExpr::MethodCall {
                 receiver,
@@ -43,6 +49,26 @@ impl Lowerer<'_> {
             span,
             ty,
         )
+    }
+
+    /// Rewrite `collect` → `__collect_set` when the resolved type is `Set<T>`.
+    ///
+    /// The type checker stores the resolved return type for each expression.
+    /// When bidirectional checking determined that `collect()` should produce
+    /// a `Set<T>`, the `ty` will have tag `Set`. We rewrite the method name
+    /// so the evaluator can dispatch to the correct collector.
+    fn specialize_collect(&self, method: Name, ty: TypeId) -> Name {
+        if method != self.name_collect {
+            return method;
+        }
+
+        let idx = ori_types::Idx::from_raw(ty.raw());
+        let tag = self.pool.tag(idx);
+        if tag == ori_types::Tag::Set {
+            self.name_collect_set
+        } else {
+            method
+        }
     }
 
     /// Lower a block expression.

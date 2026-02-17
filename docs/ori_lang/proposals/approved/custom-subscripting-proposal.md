@@ -402,3 +402,9 @@ This is a new feature with no breaking changes:
 
 - 2026-01-22: Initial draft
 - 2026-01-30: Approved — Removed IndexMut (Ori has no `mut`), removed Slice (deferred), removed `#`/Sized discussion, added to prelude
+
+---
+
+## Errata (2026-02-17)
+
+> **Superseded by [index-assignment-proposal](index-assignment-proposal.md)**: The "Why No IndexMut?" section above is stale. Index and field assignment have been approved via copy-on-write desugaring using the `IndexSet` trait with an `updated(key:, value:)` method. The original rejection reasoning — that `mut self` is required — was incorrect. Ori's mutable bindings and copy-on-write semantics enable `list[i] = x` to desugar to `list = list.updated(key: i, value: x)` without mutable references. The recommended alternative `matrix.set(row:, col:, value:)` was never implemented.
