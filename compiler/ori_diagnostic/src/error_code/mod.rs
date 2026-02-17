@@ -133,6 +133,12 @@ pub enum ErrorCode {
     E2023,
     /// Trait is not object-safe (cannot be used as trait object)
     E2024,
+    /// Type does not implement Index (not indexable)
+    E2025,
+    /// Wrong key type for Index impl
+    E2026,
+    /// Ambiguous index key type (multiple impls match)
+    E2027,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -308,6 +314,9 @@ impl ErrorCode {
         ErrorCode::E2022,
         ErrorCode::E2023,
         ErrorCode::E2024,
+        ErrorCode::E2025,
+        ErrorCode::E2026,
+        ErrorCode::E2027,
         // Pattern
         ErrorCode::E3001,
         ErrorCode::E3002,
@@ -424,6 +433,9 @@ impl ErrorCode {
             ErrorCode::E2022 => "E2022",
             ErrorCode::E2023 => "E2023",
             ErrorCode::E2024 => "E2024",
+            ErrorCode::E2025 => "E2025",
+            ErrorCode::E2026 => "E2026",
+            ErrorCode::E2027 => "E2027",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -553,6 +565,9 @@ impl ErrorCode {
                 | ErrorCode::E2022
                 | ErrorCode::E2023
                 | ErrorCode::E2024
+                | ErrorCode::E2025
+                | ErrorCode::E2026
+                | ErrorCode::E2027
         )
     }
 

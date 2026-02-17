@@ -187,6 +187,11 @@ pub trait Shr<Rhs = int> {
     @shift_right (self, rhs: Rhs) -> Self.Output
 }
 
+// Subscript access: x[k] -> x.index(key: k)
+pub trait Index<Key, Value> {
+    @index (self, key: Key) -> Value
+}
+
 // =============================================================================
 // Capability Traits
 // =============================================================================

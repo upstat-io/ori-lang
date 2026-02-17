@@ -198,10 +198,18 @@ impl Interpreter<'_> {
             CanExpr::Index { receiver, index } => {
                 let span = self.can_span(can_id);
                 let value = self.eval_can(receiver)?;
-                let length = expr::get_collection_length(&value)
-                    .map_err(|e| Self::attach_span(e.into(), span))?;
-                let idx = self.eval_can_with_hash_length(index, length)?;
-                expr::eval_index(value, idx).map_err(|e| Self::attach_span(e, span))
+
+                // Built-in types: fast path with # (hash length) support
+                if super::is_builtin_indexable(&value) {
+                    let length = expr::get_collection_length(&value)
+                        .map_err(|e| Self::attach_span(e.into(), span))?;
+                    let idx = self.eval_can_with_hash_length(index, length)?;
+                    expr::eval_index(value, idx).map_err(|e| Self::attach_span(e, span))
+                } else {
+                    // User-defined types: dispatch via Index trait method
+                    let idx_val = self.eval_can(index)?;
+                    self.eval_method_call(value, self.op_names.index, vec![idx_val])
+                }
             }
 
             // Control Flow
