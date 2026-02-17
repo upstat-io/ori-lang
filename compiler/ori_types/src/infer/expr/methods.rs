@@ -355,6 +355,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "debug"),
     ("str", "ends_with"),
     ("str", "equals"),
+    ("str", "escape"),
     ("str", "hash"),
     ("str", "index_of"),
     ("str", "is_empty"),
@@ -544,9 +545,8 @@ fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx>
         "iter" => Some(engine.pool_mut().double_ended_iterator(Idx::CHAR)),
         "is_empty" | "starts_with" | "ends_with" | "contains" | "equals" => Some(Idx::BOOL),
         "to_uppercase" | "to_lowercase" | "trim" | "trim_start" | "trim_end" | "replace"
-        | "repeat" | "pad_start" | "pad_end" | "slice" | "substring" | "clone" | "debug" => {
-            Some(Idx::STR)
-        }
+        | "repeat" | "pad_start" | "pad_end" | "slice" | "substring" | "clone" | "debug"
+        | "escape" => Some(Idx::STR),
         "chars" => Some(engine.pool_mut().list(Idx::CHAR)),
         "bytes" => Some(engine.pool_mut().list(Idx::BYTE)),
         "split" | "lines" => Some(engine.pool_mut().list(Idx::STR)),

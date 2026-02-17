@@ -134,6 +134,10 @@ pub fn dispatch_string_method(
     } else if method == n.to_str {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(s.to_string()))
+    // escape - returns string with special characters escaped
+    } else if method == n.escape {
+        require_args("escape", 0, args.len())?;
+        Ok(Value::string(escape_debug_str(&s)))
     // Debug trait - shows escaped string with quotes
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
