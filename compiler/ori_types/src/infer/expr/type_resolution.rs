@@ -1,9 +1,9 @@
 //! Type resolution — converting `ParsedType` AST nodes into pool `Idx` values.
 
-use ori_ir::{ExprArena, ParsedType, ParsedTypeRange, TypeId};
+use ori_ir::{ExprArena, Name, ParsedType, ParsedTypeRange, Span, TypeId};
 
 use super::super::InferEngine;
-use crate::Idx;
+use crate::{Idx, TypeCheckError};
 
 /// Resolve a `ParsedType` from the AST into a pool `Idx`.
 ///
@@ -225,5 +225,116 @@ pub(crate) fn resolve_type_id(engine: &mut InferEngine<'_>, type_id: TypeId) -> 
     } else {
         // INFER (12), SELF_TYPE (13), or unknown — create a fresh variable
         engine.fresh_var()
+    }
+}
+
+// ============================================================================
+// Object Safety Checking (Inference Phase)
+// ============================================================================
+
+/// Resolve a parsed type and check it for non-object-safe trait usage (E2024).
+///
+/// Combines `resolve_parsed_type` with an object safety check. Use this
+/// instead of `resolve_parsed_type` at sites where user-written type
+/// annotations may contain trait objects: let bindings, lambda parameters,
+/// lambda return types, and type casts.
+pub(crate) fn resolve_and_check_parsed_type(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    parsed: &ParsedType,
+    span: Span,
+) -> Idx {
+    check_parsed_type_object_safety_infer(engine, parsed, span, arena);
+    resolve_parsed_type(engine, arena, parsed)
+}
+
+/// Check a parsed type annotation for non-object-safe trait usage (E2024).
+///
+/// Mirrors `check_parsed_type_object_safety` from `signatures/mod.rs` but
+/// operates on `InferEngine` instead of `ModuleChecker`. This extends object
+/// safety checking to the inference phase: let bindings, lambda parameters,
+/// lambda return types, sequence bindings, and type casts.
+fn check_parsed_type_object_safety_infer(
+    engine: &mut InferEngine<'_>,
+    parsed: &ParsedType,
+    span: Span,
+    arena: &ExprArena,
+) {
+    match parsed {
+        ParsedType::Named { name, type_args } => {
+            check_trait_object_safety(engine, *name, span);
+
+            // Recurse into type arguments (e.g., `[Clone]` has Clone inside List)
+            let type_arg_ids = arena.get_parsed_type_list(*type_args);
+            for &arg_id in type_arg_ids {
+                let arg = arena.get_parsed_type(arg_id);
+                check_parsed_type_object_safety_infer(engine, arg, span, arena);
+            }
+        }
+
+        ParsedType::TraitBounds(bounds) => {
+            // Each bound in `Printable + Hashable` must be object-safe
+            let bound_ids = arena.get_parsed_type_list(*bounds);
+            for &bound_id in bound_ids {
+                let bound = arena.get_parsed_type(bound_id);
+                check_parsed_type_object_safety_infer(engine, bound, span, arena);
+            }
+        }
+
+        // Recurse into compound types that may contain trait objects
+        ParsedType::List(elem_id) | ParsedType::FixedList { elem: elem_id, .. } => {
+            let elem = arena.get_parsed_type(*elem_id);
+            check_parsed_type_object_safety_infer(engine, elem, span, arena);
+        }
+        ParsedType::Map { key, value } => {
+            let key_parsed = arena.get_parsed_type(*key);
+            let value_parsed = arena.get_parsed_type(*value);
+            check_parsed_type_object_safety_infer(engine, key_parsed, span, arena);
+            check_parsed_type_object_safety_infer(engine, value_parsed, span, arena);
+        }
+        ParsedType::Tuple(elems) => {
+            let elem_ids = arena.get_parsed_type_list(*elems);
+            for &elem_id in elem_ids {
+                let elem = arena.get_parsed_type(elem_id);
+                check_parsed_type_object_safety_infer(engine, elem, span, arena);
+            }
+        }
+        ParsedType::Function { params, ret } => {
+            let param_ids = arena.get_parsed_type_list(*params);
+            for &param_id in param_ids {
+                let param = arena.get_parsed_type(param_id);
+                check_parsed_type_object_safety_infer(engine, param, span, arena);
+            }
+            let ret_parsed = arena.get_parsed_type(*ret);
+            check_parsed_type_object_safety_infer(engine, ret_parsed, span, arena);
+        }
+        ParsedType::AssociatedType { base, .. } => {
+            let base_parsed = arena.get_parsed_type(*base);
+            check_parsed_type_object_safety_infer(engine, base_parsed, span, arena);
+        }
+
+        // Leaf types: no trait object usage possible
+        ParsedType::Primitive(_)
+        | ParsedType::Infer
+        | ParsedType::SelfType
+        | ParsedType::ConstExpr(_) => {}
+    }
+}
+
+/// Check if a trait name refers to a non-object-safe trait, emitting E2024 if so.
+fn check_trait_object_safety(engine: &mut InferEngine<'_>, name: Name, span: Span) {
+    // Borrow dance: scope the trait_registry borrow to extract violations,
+    // then use engine mutably to push the error.
+    let violations = {
+        let Some(trait_reg) = engine.trait_registry() else {
+            return;
+        };
+        trait_reg
+            .get_trait_by_name(name)
+            .filter(|entry| !entry.is_object_safe())
+            .map(|entry| entry.object_safety_violations.clone())
+    };
+    if let Some(violations) = violations {
+        engine.push_error(TypeCheckError::not_object_safe(span, name, violations));
     }
 }

@@ -9,7 +9,8 @@
 //! - Module checker design: `plans/types_v2/section-08b-module-checker.md`
 
 use ori_ir::{
-    DerivedTrait, ExprId, Module, Name, ParsedType, Span, TraitItem, Visibility as IrVisibility,
+    DerivedTrait, ExprArena, ExprId, Module, Name, ParsedType, Span, TraitItem,
+    Visibility as IrVisibility,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -255,19 +256,21 @@ fn resolve_field_type(
     parsed: &ParsedType,
     _type_params: &[Name],
 ) -> Idx {
-    // We need to avoid borrow conflicts - get arena reference before borrowing pool
-    // By calling through a helper that takes the arena by value (as ptr), we can
-    // then borrow the pool mutably
-    resolve_parsed_type_simple(checker, parsed)
+    let arena = checker.arena();
+    resolve_parsed_type_simple(checker, parsed, arena)
 }
 
 /// Simplified type resolution for registration phase.
 ///
 /// Handles primitives, lists, maps, tuples, functions, and named types.
 /// Generic type arguments are not fully instantiated (deferred to inference).
+///
+/// Takes `arena` as a separate parameter to avoid borrow conflicts between
+/// immutable arena reads and mutable pool writes during recursive resolution.
 pub(super) fn resolve_parsed_type_simple(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
+    arena: &ExprArena,
 ) -> Idx {
     match parsed {
         ParsedType::Primitive(type_id) => {
@@ -286,53 +289,53 @@ pub(super) fn resolve_parsed_type_simple(
         }
 
         ParsedType::List(elem_id) => {
-            let elem = checker.arena().get_parsed_type(*elem_id).clone();
-            let elem_ty = resolve_parsed_type_simple(checker, &elem);
+            let elem = arena.get_parsed_type(*elem_id);
+            let elem_ty = resolve_parsed_type_simple(checker, elem, arena);
             checker.pool_mut().list(elem_ty)
         }
 
         ParsedType::Map { key, value } => {
-            let key_parsed = checker.arena().get_parsed_type(*key).clone();
-            let value_parsed = checker.arena().get_parsed_type(*value).clone();
-            let key_ty = resolve_parsed_type_simple(checker, &key_parsed);
-            let value_ty = resolve_parsed_type_simple(checker, &value_parsed);
+            let key_parsed = arena.get_parsed_type(*key);
+            let value_parsed = arena.get_parsed_type(*value);
+            let key_ty = resolve_parsed_type_simple(checker, key_parsed, arena);
+            let value_ty = resolve_parsed_type_simple(checker, value_parsed, arena);
             checker.pool_mut().map(key_ty, value_ty)
         }
 
         ParsedType::Tuple(elems) => {
-            let elem_ids: Vec<_> = checker.arena().get_parsed_type_list(*elems).to_vec();
+            let elem_ids = arena.get_parsed_type_list(*elems);
             let elem_types: Vec<Idx> = elem_ids
-                .into_iter()
-                .map(|elem_id| {
-                    let elem = checker.arena().get_parsed_type(elem_id).clone();
-                    resolve_parsed_type_simple(checker, &elem)
+                .iter()
+                .map(|&elem_id| {
+                    let elem = arena.get_parsed_type(elem_id);
+                    resolve_parsed_type_simple(checker, elem, arena)
                 })
                 .collect();
             checker.pool_mut().tuple(&elem_types)
         }
 
         ParsedType::Function { params, ret } => {
-            let param_ids: Vec<_> = checker.arena().get_parsed_type_list(*params).to_vec();
+            let param_ids = arena.get_parsed_type_list(*params);
             let param_types: Vec<Idx> = param_ids
-                .into_iter()
-                .map(|param_id| {
-                    let param = checker.arena().get_parsed_type(param_id).clone();
-                    resolve_parsed_type_simple(checker, &param)
+                .iter()
+                .map(|&param_id| {
+                    let param = arena.get_parsed_type(param_id);
+                    resolve_parsed_type_simple(checker, param, arena)
                 })
                 .collect();
-            let ret_parsed = checker.arena().get_parsed_type(*ret).clone();
-            let ret_ty = resolve_parsed_type_simple(checker, &ret_parsed);
+            let ret_parsed = arena.get_parsed_type(*ret);
+            let ret_ty = resolve_parsed_type_simple(checker, ret_parsed, arena);
             checker.pool_mut().function(&param_types, ret_ty)
         }
 
         ParsedType::Named { name, type_args } => {
             // Resolve type arguments if present
-            let type_arg_ids: Vec<_> = checker.arena().get_parsed_type_list(*type_args).to_vec();
+            let type_arg_ids = arena.get_parsed_type_list(*type_args);
             let resolved_args: Vec<Idx> = type_arg_ids
-                .into_iter()
-                .map(|arg_id| {
-                    let arg = checker.arena().get_parsed_type(arg_id).clone();
-                    resolve_parsed_type_simple(checker, &arg)
+                .iter()
+                .map(|&arg_id| {
+                    let arg = arena.get_parsed_type(arg_id);
+                    resolve_parsed_type_simple(checker, arg, arena)
                 })
                 .collect();
 
@@ -378,8 +381,8 @@ pub(super) fn resolve_parsed_type_simple(
 
         ParsedType::FixedList { elem, capacity: _ } => {
             // Treat as regular list for now
-            let elem_parsed = checker.arena().get_parsed_type(*elem).clone();
-            let elem_ty = resolve_parsed_type_simple(checker, &elem_parsed);
+            let elem_parsed = arena.get_parsed_type(*elem);
+            let elem_ty = resolve_parsed_type_simple(checker, elem_parsed, arena);
             checker.pool_mut().list(elem_ty)
         }
 
@@ -394,10 +397,10 @@ pub(super) fn resolve_parsed_type_simple(
 
         // Bounded trait object: resolve first bound as primary type
         ParsedType::TraitBounds(bounds) => {
-            let bound_ids: Vec<_> = checker.arena().get_parsed_type_list(*bounds).to_vec();
+            let bound_ids = arena.get_parsed_type_list(*bounds);
             if let Some(&first_id) = bound_ids.first() {
-                let first = checker.arena().get_parsed_type(first_id).clone();
-                resolve_parsed_type_simple(checker, &first)
+                let first = arena.get_parsed_type(first_id);
+                resolve_parsed_type_simple(checker, first, arena)
             } else {
                 Idx::ERROR
             }
@@ -680,6 +683,7 @@ fn resolve_type_with_params(
     parsed: &ParsedType,
     type_params: &[Name],
 ) -> Idx {
+    let arena = checker.arena();
     match parsed {
         ParsedType::Named { name, .. } => {
             // Check if this is a type parameter
@@ -689,7 +693,7 @@ fn resolve_type_with_params(
                 checker.pool_mut().named(*name)
             } else {
                 // Regular named type
-                resolve_parsed_type_simple(checker, parsed)
+                resolve_parsed_type_simple(checker, parsed, arena)
             }
         }
         ParsedType::SelfType => {
@@ -698,7 +702,7 @@ fn resolve_type_with_params(
             let self_name = checker.interner().intern("Self");
             checker.pool_mut().named(self_name)
         }
-        _ => resolve_parsed_type_simple(checker, parsed),
+        _ => resolve_parsed_type_simple(checker, parsed, arena),
     }
 }
 
@@ -726,7 +730,8 @@ fn register_impl(
     let type_params = collect_generic_params(checker, impl_def.generics);
 
     // 2. Resolve self type
-    let self_type = resolve_parsed_type_simple(checker, &impl_def.self_ty);
+    let arena = checker.arena();
+    let self_type = resolve_parsed_type_simple(checker, &impl_def.self_ty, arena);
 
     // 3. Resolve trait (if trait impl)
     let trait_idx = impl_def.trait_path.as_ref().map(|path| {
@@ -997,11 +1002,24 @@ fn build_where_constraint(
 /// Resolve a parsed type with Self substitution.
 ///
 /// Replaces `Self` references with the actual implementing type.
+/// Takes `arena` as a separate parameter to avoid borrow conflicts.
 pub(super) fn resolve_type_with_self(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
     type_params: &[Name],
     self_type: Idx,
+) -> Idx {
+    let arena = checker.arena();
+    resolve_type_with_self_inner(checker, parsed, type_params, self_type, arena)
+}
+
+/// Inner implementation of Self-substituting type resolution.
+fn resolve_type_with_self_inner(
+    checker: &mut ModuleChecker<'_>,
+    parsed: &ParsedType,
+    type_params: &[Name],
+    self_type: Idx,
+    arena: &ExprArena,
 ) -> Idx {
     match parsed {
         ParsedType::SelfType => self_type,
@@ -1010,56 +1028,60 @@ pub(super) fn resolve_type_with_self(
             if type_params.contains(name) {
                 checker.pool_mut().named(*name)
             } else {
-                resolve_parsed_type_simple(checker, parsed)
+                resolve_parsed_type_simple(checker, parsed, arena)
             }
         }
         ParsedType::List(elem_id) => {
-            let elem = checker.arena().get_parsed_type(*elem_id).clone();
-            let elem_ty = resolve_type_with_self(checker, &elem, type_params, self_type);
+            let elem = arena.get_parsed_type(*elem_id);
+            let elem_ty =
+                resolve_type_with_self_inner(checker, elem, type_params, self_type, arena);
             checker.pool_mut().list(elem_ty)
         }
         ParsedType::Map { key, value } => {
-            let key_parsed = checker.arena().get_parsed_type(*key).clone();
-            let value_parsed = checker.arena().get_parsed_type(*value).clone();
-            let key_ty = resolve_type_with_self(checker, &key_parsed, type_params, self_type);
-            let value_ty = resolve_type_with_self(checker, &value_parsed, type_params, self_type);
+            let key_parsed = arena.get_parsed_type(*key);
+            let value_parsed = arena.get_parsed_type(*value);
+            let key_ty =
+                resolve_type_with_self_inner(checker, key_parsed, type_params, self_type, arena);
+            let value_ty =
+                resolve_type_with_self_inner(checker, value_parsed, type_params, self_type, arena);
             checker.pool_mut().map(key_ty, value_ty)
         }
         ParsedType::Tuple(elems) => {
-            let elem_ids: Vec<_> = checker.arena().get_parsed_type_list(*elems).to_vec();
+            let elem_ids = arena.get_parsed_type_list(*elems);
             let elem_types: Vec<Idx> = elem_ids
-                .into_iter()
-                .map(|elem_id| {
-                    let elem = checker.arena().get_parsed_type(elem_id).clone();
-                    resolve_type_with_self(checker, &elem, type_params, self_type)
+                .iter()
+                .map(|&elem_id| {
+                    let elem = arena.get_parsed_type(elem_id);
+                    resolve_type_with_self_inner(checker, elem, type_params, self_type, arena)
                 })
                 .collect();
             checker.pool_mut().tuple(&elem_types)
         }
         ParsedType::Function { params, ret } => {
-            let param_ids: Vec<_> = checker.arena().get_parsed_type_list(*params).to_vec();
+            let param_ids = arena.get_parsed_type_list(*params);
             let param_types: Vec<Idx> = param_ids
-                .into_iter()
-                .map(|param_id| {
-                    let param = checker.arena().get_parsed_type(param_id).clone();
-                    resolve_type_with_self(checker, &param, type_params, self_type)
+                .iter()
+                .map(|&param_id| {
+                    let param = arena.get_parsed_type(param_id);
+                    resolve_type_with_self_inner(checker, param, type_params, self_type, arena)
                 })
                 .collect();
-            let ret_parsed = checker.arena().get_parsed_type(*ret).clone();
-            let ret_ty = resolve_type_with_self(checker, &ret_parsed, type_params, self_type);
+            let ret_parsed = arena.get_parsed_type(*ret);
+            let ret_ty =
+                resolve_type_with_self_inner(checker, ret_parsed, type_params, self_type, arena);
             checker.pool_mut().function(&param_types, ret_ty)
         }
         // Bounded trait object: resolve first bound with self-substitution
         ParsedType::TraitBounds(bounds) => {
-            let bound_ids: Vec<_> = checker.arena().get_parsed_type_list(*bounds).to_vec();
+            let bound_ids = arena.get_parsed_type_list(*bounds);
             if let Some(&first_id) = bound_ids.first() {
-                let first = checker.arena().get_parsed_type(first_id).clone();
-                resolve_type_with_self(checker, &first, type_params, self_type)
+                let first = arena.get_parsed_type(first_id);
+                resolve_type_with_self_inner(checker, first, type_params, self_type, arena)
             } else {
                 Idx::ERROR
             }
         }
-        _ => resolve_parsed_type_simple(checker, parsed),
+        _ => resolve_parsed_type_simple(checker, parsed, arena),
     }
 }
 

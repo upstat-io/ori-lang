@@ -5,7 +5,7 @@ use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 use super::super::InferEngine;
 use super::{
     check_expr, check_match_pattern, infer_expr, infer_match, lookup_struct_field_types,
-    pattern_first_name, resolve_parsed_type,
+    pattern_first_name, resolve_and_check_parsed_type,
 };
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag};
 
@@ -333,7 +333,7 @@ pub(crate) fn infer_seq_binding(
             let final_ty = if ty.is_valid() {
                 // With type annotation
                 let parsed_ty = arena.get_parsed_type(*ty);
-                let expected_ty = resolve_parsed_type(engine, arena, parsed_ty);
+                let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, *span);
 
                 if try_unwrap {
                     // For try blocks: infer, unwrap, then check against annotation
