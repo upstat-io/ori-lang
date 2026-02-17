@@ -106,6 +106,8 @@ static DOCS: &[(ErrorCode, &str)] = &[
     // Internal errors (E9xxx)
     (ErrorCode::E9001, include_str!("E9001.md")),
     (ErrorCode::E9002, include_str!("E9002.md")),
+    // Type checker warnings (W2xxx)
+    (ErrorCode::W2001, include_str!("W2001.md")),
 ];
 
 #[cfg(test)]
