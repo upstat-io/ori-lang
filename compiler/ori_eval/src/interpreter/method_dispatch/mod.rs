@@ -7,8 +7,9 @@ mod iterator;
 use crate::errors::{
     all_requires_list, any_requires_list, collect_requires_range, filter_entries_not_implemented,
     filter_entries_requires_map, filter_requires_collection, find_requires_list,
-    fold_requires_collection, map_entries_not_implemented, map_entries_requires_map,
-    map_requires_collection, wrong_arg_count, wrong_function_args,
+    fold_requires_collection, join_requires_list, map_entries_not_implemented,
+    map_entries_requires_map, map_requires_collection, wrong_arg_count, wrong_arg_type,
+    wrong_function_args,
 };
 use crate::exec::call::bind_captures_iter;
 use crate::methods::{dispatch_builtin_method, DispatchCtx};
@@ -187,6 +188,10 @@ impl Interpreter<'_> {
             CollectionMethod::All => match receiver {
                 Value::List(items) => self.eval_list_all(items.as_ref(), args),
                 _ => Err(all_requires_list().into()),
+            },
+            CollectionMethod::Join => match receiver {
+                Value::List(items) => self.eval_list_join(items.as_ref(), args),
+                _ => Err(join_requires_list().into()),
             },
             CollectionMethod::MapEntries => match receiver {
                 Value::Map(_) => Err(map_entries_not_implemented().into()),
@@ -394,6 +399,32 @@ impl Interpreter<'_> {
     fn eval_list_all(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
         Self::expect_arg_count("all", 1, args)?;
         self.all_in_slice(items, &args[0])
+    }
+
+    /// `[T].join(sep: str) -> str` — convert each item to string via `to_str()`, join with separator.
+    fn eval_list_join(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        Self::expect_arg_count("join", 1, args)?;
+        let Value::Str(separator) = &args[0] else {
+            return Err(wrong_arg_type("join", "str").into());
+        };
+        let to_str = self.builtin_method_names.to_str;
+        let mut result = String::new();
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 {
+                result.push_str(separator);
+            }
+            // Fast path: string values don't need to_str() dispatch
+            if let Value::Str(s) = item {
+                result.push_str(s);
+            } else {
+                let str_val = self.eval_method_call(item.clone(), to_str, vec![])?;
+                let Value::Str(s) = str_val else {
+                    return Err(wrong_arg_type("join", "Printable element").into());
+                };
+                result.push_str(&s);
+            }
+        }
+        Ok(Value::string(result))
     }
 
     #[expect(

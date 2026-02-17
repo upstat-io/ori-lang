@@ -58,7 +58,7 @@ pub use ori_patterns::{await_not_supported, hash_outside_index, parse_error, sel
 
 pub use ori_patterns::{
     all_requires_list, any_requires_list, collect_requires_range, filter_entries_requires_map,
-    filter_requires_collection, find_requires_list, fold_requires_collection,
+    filter_requires_collection, find_requires_list, fold_requires_collection, join_requires_list,
     map_entries_requires_map, map_requires_collection,
 };
 

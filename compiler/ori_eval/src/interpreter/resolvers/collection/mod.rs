@@ -174,9 +174,14 @@ impl MethodResolver for CollectionMethodResolver {
     fn resolve(&self, receiver: &Value, _type_name: Name, method_name: Name) -> MethodResolution {
         // Check if this is a collection type and the method is a known collection method
         match receiver {
-            Value::List(_) => self
-                .resolve_iterable_method(method_name)
-                .map_or(MethodResolution::NotFound, MethodResolution::Collection),
+            Value::List(_) => {
+                if method_name == self.methods.join {
+                    MethodResolution::Collection(CollectionMethod::Join)
+                } else {
+                    self.resolve_iterable_method(method_name)
+                        .map_or(MethodResolution::NotFound, MethodResolution::Collection)
+                }
+            }
             Value::Range(_) => {
                 // Range has collect() in addition to iterable methods
                 if method_name == self.methods.collect {

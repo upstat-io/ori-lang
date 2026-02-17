@@ -72,6 +72,8 @@ pub enum CollectionMethod {
     Any,
     /// [T].all(predicate: T -> bool) -> bool
     All,
+    /// [T].join(sep: str) -> str
+    Join,
 
     // Iterator methods (adapters + consumers)
     /// `Iterator<T>.next() -> (T?, Iterator<T>)`
@@ -142,6 +144,7 @@ impl CollectionMethod {
             "collect" => Some(Self::Collect),
             "any" => Some(Self::Any),
             "all" => Some(Self::All),
+            "join" => Some(Self::Join),
             _ => None,
         }
     }
