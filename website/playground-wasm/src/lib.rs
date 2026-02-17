@@ -146,6 +146,7 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
         arena: &shared_arena,
         captures: std::sync::Arc::new(interpreter.env().capture()),
         canon: Some(&shared_canon),
+        interner: &interner,
     };
     collect_impl_methods_with_config(&config, &mut user_methods);
     collect_extend_methods_with_config(&config, &mut user_methods);

@@ -547,6 +547,43 @@ impl Interpreter<'_> {
         self.eval_method_body(Some(receiver), method, args, method_name)
     }
 
+    /// Dispatch an Index trait method call on a user-defined type.
+    ///
+    /// Handles both single-impl and multi-impl cases:
+    /// - Single `index` method → call directly
+    /// - Multiple `index` methods (e.g., `Index<int, V>` + `Index<str, V>`)
+    ///   → match by `key_type_hint` against the runtime type of `idx_val`
+    pub(super) fn eval_index_user_type(&mut self, receiver: Value, idx_val: Value) -> EvalResult {
+        let type_name = self.get_value_type_name(&receiver);
+        let index_name = self.op_names.index;
+
+        let matched_method = {
+            let registry = self.user_method_registry.read();
+            match registry.lookup_all(type_name, index_name) {
+                None => None,
+                Some([single]) => Some(single.clone()),
+                Some(methods) => {
+                    let key_type = self.get_value_type_name(&idx_val);
+                    tracing::debug!(
+                        method_count = methods.len(),
+                        ?key_type,
+                        hints = ?methods.iter().map(|m| m.key_type_hint).collect::<Vec<_>>(),
+                        "index multi-dispatch"
+                    );
+                    methods
+                        .iter()
+                        .find(|m| m.key_type_hint == Some(key_type))
+                        .cloned()
+                }
+            }
+        };
+
+        match matched_method {
+            Some(method) => self.eval_user_method(receiver, &method, &[idx_val], index_name),
+            None => self.eval_method_call(receiver, index_name, vec![idx_val]),
+        }
+    }
+
     /// Evaluate an associated function (no `self` parameter).
     ///
     /// Associated functions are called on types rather than instances:

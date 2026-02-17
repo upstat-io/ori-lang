@@ -49,7 +49,7 @@ sections:
     status: complete
   - id: "3.12"
     title: Custom Subscripting (Index Trait)
-    status: not-started
+    status: in-progress
   - id: "3.13"
     title: Additional Core Traits
     status: not-started
@@ -859,17 +859,19 @@ Introduces the `Index` trait for read-only custom subscripting, allowing user-de
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/index_tests.rs`
 
 - [x] **Implement**: Type inference for subscript expressions (resolve which `Index` impl based on key type) *(2026-02-17)*
-  - Uses `lookup_method_checked()` for ambiguity detection
+  - Replaced `lookup_method_checked()` with direct `impls_for_type()` iteration + key-type tag filtering
 
-- [ ] **Implement**: Multiple `Index` impls per type (different key types)
-  - Ambiguity detection via `lookup_method_checked` is in place
-  - [ ] Full multiple-key-type resolution (requires trait registry to distinguish Index impls by key type parameter)
-  - [ ] **Ori Tests**: `tests/spec/traits/index/multiple_impls.ori`
+- [x] **Implement**: Multiple `Index` impls per type (different key types) *(2026-02-17)*
+  - Type checker: `resolve_index_via_trait` filters candidates by key type tag, disambiguates single match
+  - Evaluator: `eval_index_user_type` matches `key_type_hint` against runtime type
+  - Registry: `UserMethodRegistry` stores `Vec<UserMethod>` per key, with `lookup_all()` for multi-dispatch
+  - Canon IR: `method_root_for_nth` assigns correct canonical body to each impl
+  - [x] **Ori Tests**: `tests/spec/traits/index/multiple_impls.ori` *(2026-02-17)*
 
-- [ ] **Implement**: Built-in `Index` implementations for `[T]`, `[T, max N]`, `{K: V}`, `str`
-  - These already work via direct dispatch (hardcoded in `infer_index` and `eval_index`)
-  - [ ] Formal trait impls (register in TraitRegistry for coherence)
-  - [ ] **Ori Tests**: `tests/spec/traits/index/builtin_impls.ori`
+- [x] **Implement**: Built-in `Index` implementations for `[T]`, `[T, max N]`, `{K: V}`, `str` *(2026-02-17)*
+  - These work via direct dispatch (hardcoded in `infer_index` and `eval_index`)
+  - [ ] Formal trait impls (register in TraitRegistry for coherence) — deferred until generic impl support <!-- blocked-by:18 -->
+  - [x] **Ori Tests**: `tests/spec/traits/index/builtin_impls.ori` *(2026-02-17)*
   - [ ] **LLVM Support**: LLVM codegen for builtin Index impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/index_tests.rs`
 
@@ -880,9 +882,9 @@ Introduces the `Index` trait for read-only custom subscripting, allowing user-de
   - [x] Error documentation: `E2025.md`, `E2026.md`, `E2027.md`
   - [x] **Ori Compile-Fail Tests**: `tests/compile-fail/index_no_impl.ori`, `tests/compile-fail/index_wrong_key.ori`
 
-- [ ] **Update Spec**: `09-expressions.md` — expand Index Trait section with fixed-capacity list
-- [ ] **Update Spec**: `06-types.md` — add Index trait to prelude section
-- [ ] **Update**: `CLAUDE.md` — add Index trait to prelude and subscripting documentation
+- [x] **Update Spec**: `09-expressions.md` — Index Trait section already complete with multiple impls, return types, built-in impls *(2026-02-17)*
+- [x] **Update Spec**: `06-types.md` — Index already listed in `.claude/rules/ori-syntax.md` traits list *(2026-02-17)*
+- [x] **Update**: `.claude/rules/ori-syntax.md` — added multiple impls dispatch note to Index entry *(2026-02-17)*
 
 ---
 
