@@ -71,7 +71,7 @@ pub use tag::Tag;
 pub use type_error::{
     diff_types, edit_distance, find_closest_field, suggest_field_typo, ArityMismatchKind,
     ContextKind, ErrorContext, Expected, ExpectedOrigin, ImportErrorKind, SequenceKind, Severity,
-    TypeCheckError, TypeErrorKind, TypeProblem,
+    TypeCheckError, TypeCheckWarning, TypeCheckWarningKind, TypeErrorKind, TypeProblem,
 };
 pub use unify::{ArityKind, Rank, UnifyContext, UnifyEngine, UnifyError};
 pub use value_category::ValueCategory;
@@ -115,6 +115,7 @@ const _: usize = assert_salsa_compatible::<TypeEntry>();
 
 // Error types (embedded in query results)
 const _: usize = assert_salsa_compatible::<TypeCheckError>();
+const _: usize = assert_salsa_compatible::<TypeCheckWarning>();
 const _: usize = assert_salsa_compatible::<TypeErrorKind>();
 const _: usize = assert_salsa_compatible::<ErrorContext>();
 const _: usize = assert_salsa_compatible::<ArityMismatchKind>();

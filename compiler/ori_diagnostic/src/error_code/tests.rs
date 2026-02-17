@@ -100,7 +100,7 @@ fn test_all_is_complete() {
     // but not ALL, this number must be bumped — causing the test to fail.
     assert_eq!(
         ErrorCode::ALL.len(),
-        100,
+        101,
         "ALL length changed — did you add a new ErrorCode variant? Update ALL."
     );
 }
