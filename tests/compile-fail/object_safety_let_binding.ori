@@ -1,0 +1,13 @@
+// Test that non-object-safe traits in let binding annotations are rejected (E2024)
+// Spec: 06-types.md § Object Safety Rules
+// Coverage: inference-phase object safety check (let bindings)
+
+trait Cloneable {
+    @clone (self) -> Self
+}
+
+#[compile_fail("cannot be made into an object")]
+@use_clone () -> void = run(
+    let x: Cloneable = 42,
+    print(msg: "done"),
+)

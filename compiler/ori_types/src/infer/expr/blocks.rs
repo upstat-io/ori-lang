@@ -3,7 +3,7 @@
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::InferEngine;
-use super::{bind_pattern, check_expr, infer_expr, resolve_parsed_type};
+use super::{bind_pattern, check_expr, infer_expr, resolve_and_check_parsed_type};
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx};
 
 /// Infer the type of a block expression.
@@ -40,7 +40,8 @@ pub(crate) fn infer_block(
                 let final_ty = if ty.is_valid() {
                     // With type annotation: use bidirectional checking
                     let parsed_ty = arena.get_parsed_type(*ty);
-                    let expected_ty = resolve_parsed_type(engine, arena, parsed_ty);
+                    let expected_ty =
+                        resolve_and_check_parsed_type(engine, arena, parsed_ty, stmt.span);
                     let expected = Expected {
                         ty: expected_ty,
                         origin: ExpectedOrigin::Annotation {
@@ -104,7 +105,7 @@ pub(crate) fn infer_let(
     // Check/infer the initializer type based on presence of annotation
     let final_ty = if let Some(parsed_ty) = ty_annotation {
         // With type annotation: use bidirectional checking (allows literal coercion)
-        let expected_ty = resolve_parsed_type(engine, arena, parsed_ty);
+        let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, span);
         let expected = Expected {
             ty: expected_ty,
             origin: ExpectedOrigin::Annotation {
@@ -174,7 +175,7 @@ pub(crate) fn infer_lambda(
     let mut param_types = Vec::new();
     for param in arena.get_params(params) {
         let param_ty = if let Some(ref parsed_ty) = param.ty {
-            resolve_parsed_type(engine, arena, parsed_ty)
+            resolve_and_check_parsed_type(engine, arena, parsed_ty, param.span)
         } else {
             engine.fresh_var()
         };
@@ -184,7 +185,7 @@ pub(crate) fn infer_lambda(
 
     // Infer body type, checking against return annotation if present
     let body_ty = if let Some(ret_parsed) = ret_ty {
-        let expected_ty = resolve_parsed_type(engine, arena, ret_parsed);
+        let expected_ty = resolve_and_check_parsed_type(engine, arena, ret_parsed, span);
         let inferred = infer_expr(engine, arena, body);
         let expected = Expected {
             ty: expected_ty,

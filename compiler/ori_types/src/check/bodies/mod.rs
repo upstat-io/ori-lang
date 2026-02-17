@@ -263,7 +263,8 @@ fn check_impl_block(
     traits: &[TraitDef],
 ) {
     // Resolve the Self type for this impl block
-    let self_type = resolve_parsed_type_simple(checker, &impl_def.self_ty);
+    let arena = checker.arena();
+    let self_type = resolve_parsed_type_simple(checker, &impl_def.self_ty, arena);
 
     // Collect generic params for type resolution within methods
     let generic_params: Vec<Name> = checker
@@ -435,13 +436,14 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     };
 
     // Resolve parameter types (no Self substitution for def impl)
-    let params: Vec<_> = checker.arena().get_params(method.params).to_vec();
+    let arena = checker.arena();
+    let params: Vec<_> = arena.get_params(method.params).to_vec();
     let mut param_env = child_env;
 
     let mut param_types = Vec::with_capacity(params.len());
     for p in &params {
         let ty = match &p.ty {
-            Some(parsed_ty) => resolve_parsed_type_simple(checker, parsed_ty),
+            Some(parsed_ty) => resolve_parsed_type_simple(checker, parsed_ty, arena),
             None => checker.pool_mut().fresh_var(),
         };
         param_env.bind(p.name, ty);
@@ -449,7 +451,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     }
 
     // Resolve return type
-    let return_type = resolve_parsed_type_simple(checker, &method.return_ty);
+    let return_type = resolve_parsed_type_simple(checker, &method.return_ty, arena);
 
     // Build function type
     let fn_type = checker.pool_mut().function(&param_types, return_type);

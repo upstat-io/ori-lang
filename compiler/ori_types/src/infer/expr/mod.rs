@@ -62,6 +62,7 @@ pub(super) use structs::*;
 // Public re-exports for the crate's public API
 // (re-exported through infer/mod.rs)
 pub use methods::TYPECK_BUILTIN_METHODS;
+pub(super) use type_resolution::resolve_and_check_parsed_type;
 pub use type_resolution::resolve_parsed_type;
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Span};

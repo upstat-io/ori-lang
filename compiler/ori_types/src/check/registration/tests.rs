@@ -99,11 +99,11 @@ fn resolve_primitive_types() {
 
     // Test primitive type resolution
     let int_parsed = ParsedType::Primitive(ori_ir::TypeId::from_raw(0));
-    let int_idx = resolve_parsed_type_simple(&mut checker, &int_parsed);
+    let int_idx = resolve_parsed_type_simple(&mut checker, &int_parsed, &arena);
     assert_eq!(int_idx, Idx::INT);
 
     let bool_parsed = ParsedType::Primitive(ori_ir::TypeId::from_raw(2));
-    let bool_idx = resolve_parsed_type_simple(&mut checker, &bool_parsed);
+    let bool_idx = resolve_parsed_type_simple(&mut checker, &bool_parsed, &arena);
     assert_eq!(bool_idx, Idx::BOOL);
 }
 
