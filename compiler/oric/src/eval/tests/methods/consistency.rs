@@ -368,6 +368,7 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("Iterator", "flatten"),
     ("Iterator", "fold"),
     ("Iterator", "for_each"),
+    ("Iterator", "join"),
     ("Iterator", "map"),
     ("Iterator", "next"),
     ("Iterator", "skip"),

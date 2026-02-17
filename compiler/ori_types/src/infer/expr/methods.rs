@@ -89,6 +89,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Iterator", "flatten"),
     ("Iterator", "fold"),
     ("Iterator", "for_each"),
+    ("Iterator", "join"),
     ("Iterator", "map"),
     ("Iterator", "next"),
     ("Iterator", "skip"),
@@ -795,6 +796,7 @@ fn resolve_iterator_method(
         // === Consumers (available on all iterators) ===
         "fold" => Some(engine.pool_mut().fresh_var()),
         "count" => Some(Idx::INT),
+        "join" => Some(Idx::STR),
         "find" => Some(engine.pool_mut().option(elem)),
         "any" | "all" => Some(Idx::BOOL),
         "for_each" => Some(Idx::UNIT),

@@ -1,7 +1,7 @@
 //! Iterator consumer methods that eagerly consume iterators.
 //!
 //! Consumers drive the iterator to completion: `fold`, `count`, `find`,
-//! `any`, `all`, `for_each`, `collect`.
+//! `any`, `all`, `for_each`, `collect`, `join`.
 //!
 //! Backward consumers (`last`, `rfind`, `rfold`) use `eval_iter_next_back()`
 //! and require double-ended iterators.
@@ -185,6 +185,46 @@ impl Interpreter<'_> {
                     current = new_iter;
                 }
                 None => return Ok(Value::set(result)),
+            }
+        }
+    }
+
+    /// `join(sep)` — convert each item to string via `to_str()`, join with separator.
+    pub(in crate::interpreter) fn eval_iter_join(
+        &mut self,
+        iter_val: IteratorValue,
+        sep: &Value,
+    ) -> EvalResult {
+        let Value::Str(separator) = sep else {
+            return Err(wrong_arg_type("join", "str").into());
+        };
+
+        let to_str = self.builtin_method_names.to_str;
+        let mut result = String::new();
+        let mut current = iter_val;
+        let mut first = true;
+
+        loop {
+            let (item, new_iter) = self.eval_iter_next(current)?;
+            match item {
+                Some(val) => {
+                    if !first {
+                        result.push_str(separator);
+                    }
+                    // Fast path: string values don't need to_str() dispatch
+                    if let Value::Str(s) = &val {
+                        result.push_str(s);
+                    } else {
+                        let str_val = self.eval_method_call(val, to_str, vec![])?;
+                        let Value::Str(s) = str_val else {
+                            return Err(wrong_arg_type("join", "Printable element").into());
+                        };
+                        result.push_str(&s);
+                    }
+                    first = false;
+                    current = new_iter;
+                }
+                None => return Ok(Value::string(result)),
             }
         }
     }

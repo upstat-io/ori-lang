@@ -710,15 +710,15 @@ Adds a `Debug` trait separate from `Printable` for developer-facing structural r
   - [ ] **LLVM Support**: LLVM codegen for string escape
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
-- [ ] **Implement**: `Iterator.join()` method (user-callable, deferred)
-  - [ ] **Ori Tests**: `tests/spec/traits/debug/join.ori`
+- [x] **Implement**: `Iterator.join()` method (user-callable) (2026-02-17)
+  - [x] **Ori Tests**: `tests/spec/traits/debug/join.ori` (2026-02-17)
   - [ ] **LLVM Support**: LLVM codegen for iterator join
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
-- [ ] **Update Spec**: `06-types.md` — add Debug trait section
-- [ ] **Update Spec**: `08-declarations.md` — add Debug to derivable traits list
-- [ ] **Update Spec**: `12-modules.md` — add Debug to prelude traits
-- [ ] **Update**: `CLAUDE.md` — add Debug to prelude traits list
+- [x] **Update Spec**: `06-types.md` — add Debug trait section (verified 2026-02-17: already present)
+- [x] **Update Spec**: `08-declarations.md` — add Debug to derivable traits list (verified 2026-02-17: already present)
+- [x] **Update Spec**: `12-modules.md` — add Debug to prelude traits (verified 2026-02-17: already present)
+- [x] **Update**: `CLAUDE.md` — add Debug to prelude traits list (verified 2026-02-17: already present, added .join to iterator methods)
 
 ---
 
