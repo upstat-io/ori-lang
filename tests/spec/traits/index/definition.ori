@@ -38,7 +38,7 @@ type Config = { host: str, port: int }
 impl Index<str, str> for Config {
     @index (self, key: str) -> str = match(key,
         "host" -> self.host,
-        "port" -> self.port.to_string(),
+        "port" -> self.port.to_str(),
         _ -> "",
     )
 }

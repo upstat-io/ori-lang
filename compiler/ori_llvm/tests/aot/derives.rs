@@ -170,7 +170,7 @@ type Point = { x: int, y: int }
 
 @main () -> int = run(
     let p = Point { x: 1, y: 2 },
-    let s = p.to_string(),
+    let s = p.to_str(),
     if s.len() > 0 then 0 else 1
 )
 "#,

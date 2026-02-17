@@ -172,13 +172,18 @@ fn register_resolved_imports(
     checker: &mut ori_types::ModuleChecker<'_>,
     interner: &StringInterner,
 ) {
-    // 1. Register prelude functions (all public)
+    // 1a. Register prelude functions (all public)
     if let Some(ref prelude) = resolved.prelude {
         for func in &prelude.parse_output.module.functions {
             if func.visibility.is_public() {
                 checker.register_imported_function(func, &prelude.parse_output.arena);
             }
         }
+    }
+
+    // 1b. Register prelude traits (all public)
+    if let Some(ref prelude) = resolved.prelude {
+        checker.register_imported_traits(&prelude.parse_output.module, &prelude.parse_output.arena);
     }
 
     // 2. Report any import resolution errors

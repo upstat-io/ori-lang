@@ -32,7 +32,7 @@ pub trait Hashable: Eq {
 
 // Can be converted to a string representation
 pub trait Printable {
-    @to_string (self) -> str
+    @to_str (self) -> str
 }
 
 // Developer-facing structural representation
