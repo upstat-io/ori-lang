@@ -15,7 +15,7 @@ use ori_diagnostic::ErrorGuaranteed;
 use ori_ir::{ExprId, Name, PatternKey, PatternResolution, Span};
 
 use crate::registry::TypeEntry;
-use crate::{Idx, TypeCheckError};
+use crate::{Idx, TypeCheckError, TypeCheckWarning};
 
 /// Type-checked module.
 ///
@@ -60,6 +60,12 @@ pub struct TypedModule {
     /// Type errors accumulated during type checking.
     pub errors: Vec<TypeCheckError>,
 
+    /// Type warnings accumulated during type checking.
+    ///
+    /// Warnings indicate suspicious but valid code (e.g., infinite iterator
+    /// consumed without `.take()`). They do not prevent compilation.
+    pub warnings: Vec<TypeCheckWarning>,
+
     /// Resolved patterns: `Binding` names disambiguated to unit variants.
     ///
     /// Sorted by `PatternKey` for O(log n) binary search via `resolve_pattern()`.
@@ -88,6 +94,7 @@ impl TypedModule {
             functions: Vec::with_capacity(function_count),
             types: Vec::new(),
             errors: Vec::new(),
+            warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
         }

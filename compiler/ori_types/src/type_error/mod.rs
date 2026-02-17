@@ -30,6 +30,7 @@ mod diff;
 mod expected;
 mod problem;
 mod suggest;
+mod warning;
 
 pub use check_error::{
     ArityMismatchKind, ErrorContext, ImportErrorKind, TypeCheckError, TypeErrorKind,
@@ -38,4 +39,5 @@ pub use context::ContextKind;
 pub use diff::{diff_types, edit_distance, find_closest_field, suggest_field_typo};
 pub use expected::{Expected, ExpectedOrigin, SequenceKind};
 pub use problem::{Severity, TypeProblem};
+pub use warning::{TypeCheckWarning, TypeCheckWarningKind};
 // Suggestion is re-exported from ori_diagnostic (unified type).

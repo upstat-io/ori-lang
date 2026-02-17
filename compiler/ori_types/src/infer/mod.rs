@@ -46,8 +46,8 @@ use ori_diagnostic::Suggestion;
 
 use crate::{
     diff_types, ContextKind, ErrorContext, Expected, FunctionSig, Idx, PatternKey,
-    PatternResolution, Pool, TraitRegistry, TypeCheckError, TypeErrorKind, TypeProblem,
-    TypeRegistry, UnifyEngine, UnifyError,
+    PatternResolution, Pool, TraitRegistry, TypeCheckError, TypeCheckWarning, TypeErrorKind,
+    TypeProblem, TypeRegistry, UnifyEngine, UnifyError,
 };
 
 /// Expression ID type (mirrors `ori_ir::ExprId`).
@@ -90,6 +90,9 @@ pub struct InferEngine<'pool> {
 
     /// Accumulated type check errors.
     errors: Vec<TypeCheckError>,
+
+    /// Accumulated type check warnings.
+    warnings: Vec<TypeCheckWarning>,
 
     /// String interner for resolving names in error messages.
     interner: Option<&'pool StringInterner>,
@@ -138,6 +141,7 @@ impl<'pool> InferEngine<'pool> {
             expr_types: FxHashMap::default(),
             context_stack: Vec::new(),
             errors: Vec::new(),
+            warnings: Vec::new(),
             interner: None,
             trait_registry: None,
             signatures: None,
@@ -162,6 +166,7 @@ impl<'pool> InferEngine<'pool> {
             expr_types: FxHashMap::default(),
             context_stack: Vec::new(),
             errors: Vec::new(),
+            warnings: Vec::new(),
             interner: None,
             trait_registry: None,
             signatures: None,
@@ -550,6 +555,17 @@ impl<'pool> InferEngine<'pool> {
     /// Get the current error count (for detecting new errors after a section).
     pub fn error_count(&self) -> usize {
         self.errors.len()
+    }
+
+    /// Push a type check warning.
+    pub fn push_warning(&mut self, warning: TypeCheckWarning) {
+        tracing::debug!(kind = ?warning.kind, "type warning recorded");
+        self.warnings.push(warning);
+    }
+
+    /// Take accumulated warnings, leaving an empty vector.
+    pub fn take_warnings(&mut self) -> Vec<TypeCheckWarning> {
+        std::mem::take(&mut self.warnings)
     }
 
     // ========================================

@@ -635,12 +635,12 @@ Formalizes the performance characteristics and precise semantics of Ori's functi
   - [ ] **LLVM Support**: LLVM codegen for infinite range iteration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
-- [ ] **Implement**: Lint warnings for obvious infinite iteration patterns (SHOULD warn)
-  - [ ] `repeat(...).collect()` without `take`
-  - [ ] `(start..).collect()` without `take`
-  - [ ] `iter.cycle().collect()` without `take`
-  - [ ] **Rust Tests**: `oric/src/lint/tests.rs` — infinite iteration lint tests
-  - [ ] **Ori Tests**: `tests/lint/infinite_iteration.ori`
+- [x] **Implement**: Lint warnings for obvious infinite iteration patterns (SHOULD warn) (2026-02-16)
+  - [x] `repeat(...).collect()` without `take` — W2001 warning in type checker
+  - [x] `(start..).collect()` without `take` — unbounded range detection via `ExprKind::Range { end: INVALID }`
+  - [x] `iter.cycle().collect()` without `take` — cycle() detected as infinite source
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — 12 `find_infinite_source_*` unit tests (2026-02-16)
+  - [x] **Ori Tests**: `tests/lint/infinite_iteration.ori` — 14 spec tests (bounded, finite, adapter chains) (2026-02-16)
 
 - [ ] **Implement**: Guaranteed compiler optimizations
   - [ ] Copy elision when iterator rebound immediately
@@ -652,7 +652,7 @@ Formalizes the performance characteristics and precise semantics of Ori's functi
 - [x] **Update Spec**: `06-types.md` — add infinite range type variant (already documented)
 - [x] **Update Spec**: `09-expressions.md` — add infinite range syntax section (already documented)
 - [x] **Update Spec**: `grammar.ebnf` — update range_expr production (already correct: end is optional)
-- [ ] **Update**: `CLAUDE.md` — add infinite range syntax and iterator performance notes
+- [x] **Update**: `CLAUDE.md` — add infinite range syntax and iterator performance notes (verified 2026-02-16: `.claude/rules/ori-syntax.md` lines 102+182 already document infinite range syntax, repeat(), take-before-collect guidance, and lazy/fused semantics)
 
 ---
 

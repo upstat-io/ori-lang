@@ -1,0 +1,165 @@
+// Lint: W2001 — Infinite iterator consumed without bound
+// Verifies that code triggering the infinite iteration warning still
+// compiles and runs correctly. Warnings are non-blocking.
+//
+// Patterns tested:
+//   - repeat().take(n).collect()    → bounded (no warning)
+//   - cycle().take(n).collect()     → bounded (no warning)
+//   - (0..).iter().take(n).collect()→ bounded (no warning)
+//   - finite.iter().collect()       → finite (no warning)
+//   - All adapter chains with .take() bounding
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Bounded infinite sources (no warning expected)
+// =============================================================================
+
+// repeat with take — bounded
+@repeat_take_collect () -> [int] = run(
+    repeat(value: 42).take(count: 5).collect(),
+)
+
+@test_repeat_take tests @repeat_take_collect () -> void = run(
+    assert_eq(actual: repeat_take_collect(), expected: [42, 42, 42, 42, 42]),
+)
+
+// cycle with take — bounded
+@cycle_take_collect () -> [int] = run(
+    [1, 2, 3].iter().cycle().take(count: 7).collect(),
+)
+
+@test_cycle_take tests @cycle_take_collect () -> void = run(
+    assert_eq(actual: cycle_take_collect(), expected: [1, 2, 3, 1, 2, 3, 1]),
+)
+
+// infinite range with take — bounded
+@range_take_collect () -> [int] = run(
+    (0..).iter().take(count: 5).collect(),
+)
+
+@test_range_take tests @range_take_collect () -> void = run(
+    assert_eq(actual: range_take_collect(), expected: [0, 1, 2, 3, 4]),
+)
+
+// =============================================================================
+// Bounded with adapter chains (no warning expected)
+// =============================================================================
+
+// repeat + map + take — bounded
+@repeat_map_take () -> [int] = run(
+    repeat(value: 10).map(transform: x -> x * 2).take(count: 3).collect(),
+)
+
+@test_repeat_map_take tests @repeat_map_take () -> void = run(
+    assert_eq(actual: repeat_map_take(), expected: [20, 20, 20]),
+)
+
+// repeat + filter + take — bounded
+@repeat_filter_take () -> [int] = run(
+    repeat(value: 5).filter(predicate: x -> x > 0).take(count: 4).collect(),
+)
+
+@test_repeat_filter_take tests @repeat_filter_take () -> void = run(
+    assert_eq(actual: repeat_filter_take(), expected: [5, 5, 5, 5]),
+)
+
+// repeat + enumerate + take — bounded
+@repeat_enum_take () -> [(int, int)] = run(
+    repeat(value: 7).enumerate().take(count: 3).collect(),
+)
+
+@test_repeat_enum_take tests @repeat_enum_take () -> void = run(
+    assert_eq(actual: repeat_enum_take(), expected: [(0, 7), (1, 7), (2, 7)]),
+)
+
+// infinite range + map + filter + take — bounded deep chain
+@range_map_filter_take () -> [int] = run(
+    (0..).iter()
+        .map(transform: x -> x * x)
+        .filter(predicate: x -> x % 2 == 0)
+        .take(count: 3)
+        .collect(),
+)
+
+@test_range_map_filter_take tests @range_map_filter_take () -> void = run(
+    assert_eq(actual: range_map_filter_take(), expected: [0, 4, 16]),
+)
+
+// =============================================================================
+// Finite sources (no warning expected)
+// =============================================================================
+
+// finite list collect — no warning
+@finite_collect () -> [int] = run(
+    [1, 2, 3].iter().collect(),
+)
+
+@test_finite_collect tests @finite_collect () -> void = run(
+    assert_eq(actual: finite_collect(), expected: [1, 2, 3]),
+)
+
+// finite list with adapter chain — no warning
+@finite_chain () -> [int] = run(
+    [1, 2, 3, 4, 5].iter()
+        .map(transform: x -> x + 10)
+        .filter(predicate: x -> x > 12)
+        .collect(),
+)
+
+@test_finite_chain tests @finite_chain () -> void = run(
+    assert_eq(actual: finite_chain(), expected: [13, 14, 15]),
+)
+
+// bounded range — no warning
+@bounded_range_collect () -> [int] = run(
+    (0..5).collect(),
+)
+
+@test_bounded_range tests @bounded_range_collect () -> void = run(
+    assert_eq(actual: bounded_range_collect(), expected: [0, 1, 2, 3, 4]),
+)
+
+// =============================================================================
+// Short-circuit consumers on infinite sources (safe, no hang)
+// =============================================================================
+
+// find on infinite range — short-circuits
+@find_infinite () -> Option<int> = run(
+    (0..).iter().find(predicate: x -> x > 5),
+)
+
+@test_find_infinite tests @find_infinite () -> void = run(
+    assert_eq(actual: find_infinite(), expected: Some(6)),
+)
+
+// any on infinite range — short-circuits
+@any_infinite () -> bool = run(
+    (0..).iter().any(predicate: x -> x == 100),
+)
+
+@test_any_infinite tests @any_infinite () -> void = run(
+    assert(cond: any_infinite()),
+)
+
+// =============================================================================
+// Bounded consumers on infinite sources
+// =============================================================================
+
+// take + count — bounded
+@repeat_take_count () -> int = run(
+    repeat(value: 0).take(count: 50).count(),
+)
+
+@test_repeat_take_count tests @repeat_take_count () -> void = run(
+    assert_eq(actual: repeat_take_count(), expected: 50),
+)
+
+// take + fold — bounded
+@repeat_take_fold () -> int = run(
+    repeat(value: 3).take(count: 4).fold(initial: 0, op: (acc, x) -> acc + x),
+)
+
+@test_repeat_take_fold tests @repeat_take_fold () -> void = run(
+    assert_eq(actual: repeat_take_fold(), expected: 12),
+)

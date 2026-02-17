@@ -235,6 +235,10 @@ pub enum ErrorCode {
     W1001,
     /// Unknown calling convention in extern block
     W1002,
+
+    // Type Checker Warnings (W2xxx)
+    /// Infinite iterator consumed without bound (e.g., `repeat(x).collect()`)
+    W2001,
 }
 
 impl ErrorCode {
@@ -353,6 +357,7 @@ impl ErrorCode {
         // Warnings
         ErrorCode::W1001,
         ErrorCode::W1002,
+        ErrorCode::W2001,
     ];
 
     /// Get the numeric code as a string (e.g., "E1001").
@@ -467,6 +472,7 @@ impl ErrorCode {
             // Warnings
             ErrorCode::W1001 => "W1001",
             ErrorCode::W1002 => "W1002",
+            ErrorCode::W2001 => "W2001",
         }
     }
 
@@ -612,7 +618,7 @@ impl ErrorCode {
 
     /// Check if this is a warning code (Wxxx range).
     pub fn is_warning(&self) -> bool {
-        matches!(self, ErrorCode::W1001 | ErrorCode::W1002)
+        matches!(self, ErrorCode::W1001 | ErrorCode::W1002 | ErrorCode::W2001)
     }
 }
 

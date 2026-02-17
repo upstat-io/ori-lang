@@ -90,7 +90,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
     let body_span = checker.arena().get_expr(func.body).span;
 
     // Check body with function scope context
-    let (expr_types, errors, pat_resolutions) =
+    let (expr_types, errors, warnings, pat_resolutions) =
         checker.with_function_scope(fn_type, capabilities, |c| {
             // Get arena reference (lifetime 'a, not tied to c borrow)
             let arena = c.arena();
@@ -133,10 +133,11 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
 
             engine.pop_context();
 
-            // Return expression types, errors, and pattern resolutions
+            // Return expression types, errors, warnings, and pattern resolutions
             (
                 engine.take_expr_types(),
                 engine.take_errors(),
+                engine.take_warnings(),
                 engine.take_pattern_resolutions(),
             )
         });
@@ -146,9 +147,12 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         checker.store_expr_type(expr_index, ty);
     }
 
-    // Store errors
+    // Store errors and warnings
     for error in errors {
         checker.push_error(error);
+    }
+    for warning in warnings {
+        checker.push_warning(warning);
     }
 
     // Accumulate pattern resolutions
@@ -217,6 +221,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     // Extract results
     let expr_types = engine.take_expr_types();
     let errors = engine.take_errors();
+    let warnings = engine.take_warnings();
     let pat_resolutions = engine.take_pattern_resolutions();
 
     // Store expression types
@@ -224,9 +229,12 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
         checker.store_expr_type(expr_index, ty);
     }
 
-    // Store errors
+    // Store errors and warnings
     for error in errors {
         checker.push_error(error);
+    }
+    for warning in warnings {
+        checker.push_warning(warning);
     }
 
     // Accumulate pattern resolutions
@@ -328,7 +336,7 @@ fn check_impl_method(
     let body_span = checker.arena().get_expr(method.body).span;
 
     // Check body within impl scope + function scope
-    let (expr_types, errors, pat_resolutions) = checker.with_impl_scope(self_type, |c| {
+    let (expr_types, errors, warnings, pat_resolutions) = checker.with_impl_scope(self_type, |c| {
         c.with_function_scope(fn_type, FxHashSet::default(), |c| {
             let arena = c.arena();
             let mut engine = c.create_engine_with_env(param_env);
@@ -354,6 +362,7 @@ fn check_impl_method(
             (
                 engine.take_expr_types(),
                 engine.take_errors(),
+                engine.take_warnings(),
                 engine.take_pattern_resolutions(),
             )
         })
@@ -365,6 +374,9 @@ fn check_impl_method(
     }
     for error in errors {
         checker.push_error(error);
+    }
+    for warning in warnings {
+        checker.push_warning(warning);
     }
     checker.pattern_resolutions.extend(pat_resolutions);
 
@@ -446,7 +458,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     let body_span = checker.arena().get_expr(method.body).span;
 
     // Check body with function scope only (no impl scope for def impl)
-    let (expr_types, errors, pat_resolutions) =
+    let (expr_types, errors, warnings, pat_resolutions) =
         checker.with_function_scope(fn_type, FxHashSet::default(), |c| {
             let arena = c.arena();
             let mut engine = c.create_engine_with_env(param_env);
@@ -472,6 +484,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
             (
                 engine.take_expr_types(),
                 engine.take_errors(),
+                engine.take_warnings(),
                 engine.take_pattern_resolutions(),
             )
         });
@@ -482,6 +495,9 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     }
     for error in errors {
         checker.push_error(error);
+    }
+    for warning in warnings {
+        checker.push_warning(warning);
     }
     checker.pattern_resolutions.extend(pat_resolutions);
 }

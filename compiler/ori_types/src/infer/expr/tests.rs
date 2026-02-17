@@ -2374,3 +2374,272 @@ fn test_eq_not_satisfied_by_tuple() {
         "(int, str) should NOT satisfy Eq (no equals() in evaluator/codegen)"
     );
 }
+
+// ========================================================================
+// Infinite Iterator Detection Tests (W2001)
+// ========================================================================
+
+/// Helper: build a method call expression on a receiver.
+fn method_call(
+    arena: &mut ExprArena,
+    interner: &ori_ir::StringInterner,
+    receiver: ExprId,
+    method_name: &str,
+) -> ExprId {
+    let method = interner.intern(method_name);
+    let args = arena.alloc_expr_list_inline(&[]);
+    alloc(
+        arena,
+        ExprKind::MethodCall {
+            receiver,
+            method,
+            args,
+        },
+    )
+}
+
+/// Helper: build a `repeat(value)` call expression.
+fn repeat_call(arena: &mut ExprArena, interner: &ori_ir::StringInterner) -> ExprId {
+    let repeat_name = interner.intern("repeat");
+    let func = alloc(arena, ExprKind::Ident(repeat_name));
+    let arg = alloc(arena, ExprKind::Int(42));
+    let args = arena.alloc_expr_list_inline(&[arg]);
+    alloc(arena, ExprKind::Call { func, args })
+}
+
+/// Helper: build an unbounded range `(0..)`.
+fn unbounded_range(arena: &mut ExprArena) -> ExprId {
+    let start = alloc(arena, ExprKind::Int(0));
+    alloc(
+        arena,
+        ExprKind::Range {
+            start,
+            end: ExprId::INVALID,
+            step: ExprId::INVALID,
+            inclusive: false,
+        },
+    )
+}
+
+/// Helper: build a bounded range `(0..10)`.
+fn bounded_range(arena: &mut ExprArena) -> ExprId {
+    let start = alloc(arena, ExprKind::Int(0));
+    let end = alloc(arena, ExprKind::Int(10));
+    alloc(
+        arena,
+        ExprKind::Range {
+            start,
+            end,
+            step: ExprId::INVALID,
+            inclusive: false,
+        },
+    )
+}
+
+#[test]
+fn find_infinite_source_repeat() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // repeat(42)
+    let repeat = repeat_call(&mut arena, &interner);
+    let result = super::calls::find_infinite_source(&engine, &arena, repeat);
+    assert_eq!(result.as_deref(), Some("repeat()"));
+}
+
+#[test]
+fn find_infinite_source_unbounded_range() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // (0..)
+    let range = unbounded_range(&mut arena);
+    let result = super::calls::find_infinite_source(&engine, &arena, range);
+    assert_eq!(result.as_deref(), Some("unbounded range (start..)"));
+}
+
+#[test]
+fn find_infinite_source_bounded_range_returns_none() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // (0..10) — finite, no warning
+    let range = bounded_range(&mut arena);
+    let result = super::calls::find_infinite_source(&engine, &arena, range);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn find_infinite_source_cycle() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // [1,2,3].iter().cycle()
+    let list_elem = alloc(&mut arena, ExprKind::Int(1));
+    let list = arena.alloc_expr_list_inline(&[list_elem]);
+    let list_expr = alloc(&mut arena, ExprKind::List(list));
+    let iter_call = method_call(&mut arena, &interner, list_expr, "iter");
+    let cycle_call = method_call(&mut arena, &interner, iter_call, "cycle");
+
+    let result = super::calls::find_infinite_source(&engine, &arena, cycle_call);
+    assert_eq!(result.as_deref(), Some("cycle()"));
+}
+
+#[test]
+fn find_infinite_source_repeat_with_map_adapter() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // repeat(42).map(...)
+    let repeat = repeat_call(&mut arena, &interner);
+    let mapped = method_call(&mut arena, &interner, repeat, "map");
+
+    let result = super::calls::find_infinite_source(&engine, &arena, mapped);
+    assert_eq!(result.as_deref(), Some("repeat()"), "map is transparent");
+}
+
+#[test]
+fn find_infinite_source_repeat_with_filter_adapter() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // repeat(42).filter(...)
+    let repeat = repeat_call(&mut arena, &interner);
+    let filtered = method_call(&mut arena, &interner, repeat, "filter");
+
+    let result = super::calls::find_infinite_source(&engine, &arena, filtered);
+    assert_eq!(result.as_deref(), Some("repeat()"), "filter is transparent");
+}
+
+#[test]
+fn find_infinite_source_repeat_with_take_returns_none() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // repeat(42).take(10) — bounded, no warning
+    let repeat = repeat_call(&mut arena, &interner);
+    let taken = method_call(&mut arena, &interner, repeat, "take");
+
+    let result = super::calls::find_infinite_source(&engine, &arena, taken);
+    assert_eq!(result, None, "take bounds the iterator");
+}
+
+#[test]
+fn find_infinite_source_cycle_with_take_returns_none() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // [1,2,3].iter().cycle().take(10)
+    let list_elem = alloc(&mut arena, ExprKind::Int(1));
+    let list = arena.alloc_expr_list_inline(&[list_elem]);
+    let list_expr = alloc(&mut arena, ExprKind::List(list));
+    let iter_call = method_call(&mut arena, &interner, list_expr, "iter");
+    let cycle_call = method_call(&mut arena, &interner, iter_call, "cycle");
+    let taken = method_call(&mut arena, &interner, cycle_call, "take");
+
+    let result = super::calls::find_infinite_source(&engine, &arena, taken);
+    assert_eq!(result, None, "take after cycle bounds the iterator");
+}
+
+#[test]
+fn find_infinite_source_repeat_map_filter_enumerate() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // repeat(42).map(...).filter(...).enumerate()
+    let repeat = repeat_call(&mut arena, &interner);
+    let mapped = method_call(&mut arena, &interner, repeat, "map");
+    let filtered = method_call(&mut arena, &interner, mapped, "filter");
+    let enumerated = method_call(&mut arena, &interner, filtered, "enumerate");
+
+    let result = super::calls::find_infinite_source(&engine, &arena, enumerated);
+    assert_eq!(
+        result.as_deref(),
+        Some("repeat()"),
+        "chain of transparent adapters still sees repeat()"
+    );
+}
+
+#[test]
+fn find_infinite_source_unbounded_range_iter() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // (0..).iter()
+    let range = unbounded_range(&mut arena);
+    let iter_call = method_call(&mut arena, &interner, range, "iter");
+
+    let result = super::calls::find_infinite_source(&engine, &arena, iter_call);
+    assert_eq!(
+        result.as_deref(),
+        Some("unbounded range (start..)"),
+        "iter is transparent — walks through to range"
+    );
+}
+
+#[test]
+fn find_infinite_source_finite_list_returns_none() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // [1,2,3].iter()
+    let list_elem = alloc(&mut arena, ExprKind::Int(1));
+    let list = arena.alloc_expr_list_inline(&[list_elem]);
+    let list_expr = alloc(&mut arena, ExprKind::List(list));
+    let iter_call = method_call(&mut arena, &interner, list_expr, "iter");
+
+    let result = super::calls::find_infinite_source(&engine, &arena, iter_call);
+    assert_eq!(result, None, "finite list.iter() is not infinite");
+}
+
+#[test]
+fn find_infinite_source_unknown_method_returns_none() {
+    let interner = ori_ir::StringInterner::new();
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let mut arena = ExprArena::new();
+
+    // something.custom_method()
+    let something = alloc(&mut arena, ExprKind::Int(42));
+    let custom = method_call(&mut arena, &interner, something, "custom_method");
+
+    let result = super::calls::find_infinite_source(&engine, &arena, custom);
+    assert_eq!(
+        result, None,
+        "unknown methods are conservative — no false positives"
+    );
+}

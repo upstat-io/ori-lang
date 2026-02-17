@@ -1093,8 +1093,12 @@ fn infer_const_type(checker: &mut ModuleChecker<'_>, value_id: ori_ir::ExprId) -
     let mut engine = checker.create_engine();
     let ty = crate::infer_expr(&mut engine, arena, value_id);
     let errors = engine.take_errors();
+    let warnings = engine.take_warnings();
     for err in errors {
         checker.push_error(err);
+    }
+    for warning in warnings {
+        checker.push_warning(warning);
     }
     ty
 }
