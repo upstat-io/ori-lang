@@ -96,10 +96,10 @@ fn non_exhaustive_match_has_correct_kind() {
 
 #[test]
 fn not_implemented_has_correct_kind() {
-    let err = index_assignment_not_implemented();
+    let err = index_assignment_not_supported();
     assert!(matches!(err.kind, EvalErrorKind::NotImplemented { .. }));
-    assert!(err.message.contains("not yet implemented"));
-    assert!(err.message.contains("list.set"));
+    assert!(err.message.contains("not supported"));
+    assert!(err.message.contains("functional update"));
 }
 
 #[test]

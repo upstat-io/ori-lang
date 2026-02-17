@@ -99,7 +99,7 @@ pub use errors::{
     for_pattern_requires_list,
     for_requires_iterable,
     hash_outside_index,
-    index_assignment_not_implemented,
+    index_assignment_not_supported,
     index_out_of_bounds,
     integer_overflow,
     invalid_assignment_target,

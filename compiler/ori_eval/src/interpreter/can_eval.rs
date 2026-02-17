@@ -678,7 +678,7 @@ impl Interpreter<'_> {
                 })?;
                 Ok(value)
             }
-            CanExpr::Index { .. } => Err(crate::errors::index_assignment_not_implemented().into()),
+            CanExpr::Index { .. } => Err(crate::errors::index_assignment_not_supported().into()),
             CanExpr::Field { .. } => Err(crate::errors::field_assignment_not_implemented().into()),
             _ => Err(crate::errors::invalid_assignment_target().into()),
         }

@@ -932,12 +932,12 @@ pub fn filter_entries_not_implemented() -> EvalError {
     })
 }
 
-/// Index assignment not yet implemented.
+/// Index assignment (`list[i] = x`) is not supported.
 #[cold]
-pub fn index_assignment_not_implemented() -> EvalError {
+pub fn index_assignment_not_supported() -> EvalError {
     EvalError::from_kind(EvalErrorKind::NotImplemented {
-        feature: "index assignment (list[i] = x) is not yet implemented".to_string(),
-        suggestion: "use list.set(index: i, value: x) instead".to_string(),
+        feature: "index assignment (list[i] = x) is not supported".to_string(),
+        suggestion: "use functional update patterns instead".to_string(),
     })
 }
 

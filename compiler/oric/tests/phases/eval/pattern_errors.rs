@@ -36,7 +36,7 @@ use ori_patterns::{
 use ori_eval::errors::{
     await_not_supported, cannot_assign_immutable, default_requires_type_context,
     field_assignment_not_implemented, filter_entries_not_implemented, hash_outside_index,
-    index_assignment_not_implemented, map_entries_not_implemented,
+    index_assignment_not_supported, map_entries_not_implemented,
 };
 
 // -- EvalError basic functionality --
@@ -468,9 +468,9 @@ fn test_filter_entries_not_implemented() {
 }
 
 #[test]
-fn test_index_assignment_not_implemented() {
-    let err = index_assignment_not_implemented();
-    assert!(err.message.contains("not yet"));
+fn test_index_assignment_not_supported() {
+    let err = index_assignment_not_supported();
+    assert!(err.message.contains("not supported"));
 }
 
 #[test]
