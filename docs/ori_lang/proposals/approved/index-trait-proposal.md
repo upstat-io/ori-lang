@@ -340,12 +340,10 @@ Cross-reference to Index trait.
 | Return types | `T` (panic), `Option<T>` (none), `Result<T, E>` (error) |
 | Multiple keys | Implement Index for each key type |
 | Hash shorthand | Built-in only, not for custom Index |
-| Assignment | Not supported (`x[k] = v` is error) — see Errata |
+| Assignment | Supported via `IndexSet` trait — see [index-assignment-proposal](index-assignment-proposal.md) |
 
 ---
 
 ## Errata (2026-02-17)
 
-1. **"No Index Assignment" reasoning is stale.** Section "No Index Assignment" states *"Ori's memory model prefers immutable updates. Index assignment would require mutable references."* This conflates in-place mutation with reassignment. Per `spec/05-variables.md`, Ori supports mutable bindings (`let x = 0; x = x + 1`). Index assignment could desugar to `list = list.set(index: i, value: x)` (copy-on-write reassignment) without requiring mutable references. The decision to reject index assignment should be revisited.
-
-2. **`list.set(index:, value:)` does not exist.** The alternative recommended in the "No Index Assignment" section references a method that was never implemented. No `set` method is registered for lists, maps, or any built-in type.
+> **Superseded by [index-assignment-proposal](index-assignment-proposal.md)**: The "No Index Assignment" section above is stale. Index and field assignment have been approved via copy-on-write desugaring: `list[i] = x` desugars to `list = list.updated(key: i, value: x)` using the `IndexSet` trait. The original rejection reasoning conflated in-place mutation with reassignment — Ori's mutable bindings support reassignment without mutable references. The recommended alternative `list.set(index:, value:)` was never implemented; `updated(key:, value:)` is the approved method name.

@@ -407,6 +407,4 @@ This is a new feature with no breaking changes:
 
 ## Errata (2026-02-17)
 
-1. **"Why No IndexMut?" reasoning is stale.** The section states *"The `mut self` pattern required for in-place mutation does not exist in the language."* While Ori has no `mut self`, it does support mutable bindings and reassignment (`let x = 0; x = x + 1` per `spec/05-variables.md`). Index assignment could desugar to copy-on-write reassignment (`list = list.set(index: i, value: x)`) without requiring `mut self` or mutable references. The decision should be revisited via a new proposal.
-
-2. **`matrix.set(row:, col:, value:)` does not exist.** The alternative recommended in the "Why No IndexMut?" section references a method that was never implemented.
+> **Superseded by [index-assignment-proposal](index-assignment-proposal.md)**: The "Why No IndexMut?" section above is stale. Index and field assignment have been approved via copy-on-write desugaring using the `IndexSet` trait with an `updated(key:, value:)` method. The original rejection reasoning — that `mut self` is required — was incorrect. Ori's mutable bindings and copy-on-write semantics enable `list[i] = x` to desugar to `list = list.updated(key: i, value: x)` without mutable references. The recommended alternative `matrix.set(row:, col:, value:)` was never implemented.
