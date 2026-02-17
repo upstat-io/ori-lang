@@ -6,10 +6,10 @@
 use wasm_bindgen::prelude::*;
 use ori_ir::SharedInterner;
 use ori_eval::{
-    buffer_handler, collect_extend_methods_with_config, collect_impl_methods_with_config,
-    process_derives, register_module_functions, register_newtype_constructors, DefaultFieldTypeRegistry,
-    register_variant_constructors, EvalMode, InterpreterBuilder, MethodCollectionConfig,
-    UserMethodRegistry, Value,
+    buffer_handler, collect_def_impl_methods_with_config, collect_extend_methods_with_config,
+    collect_impl_methods_with_config, process_derives, register_module_functions,
+    register_newtype_constructors, DefaultFieldTypeRegistry, register_variant_constructors,
+    EvalMode, InterpreterBuilder, MethodCollectionConfig, UserMethodRegistry, Value,
 };
 use serde::Serialize;
 
@@ -150,6 +150,7 @@ fn run_ori_internal(source: &str, max_call_depth: Option<usize>) -> RunResult {
     };
     collect_impl_methods_with_config(&config, &mut user_methods);
     collect_extend_methods_with_config(&config, &mut user_methods);
+    collect_def_impl_methods_with_config(&config, &mut user_methods);
 
     // Process derived traits (Eq, Clone, Hashable, Printable, Default)
     let mut default_ft = DefaultFieldTypeRegistry::new();

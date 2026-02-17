@@ -298,7 +298,9 @@ fn collect_extend_methods(
     canon: Option<&SharedCanonResult>,
     registry: &mut UserMethodRegistry,
 ) {
-    // Arc is already provided by caller, no cloning needed
+    // Track canonical body indices for duplicate method definitions,
+    // mirroring the pattern from collect_impl_methods.
+    let mut method_canon_index: FxHashMap<(Name, Name), usize> = FxHashMap::default();
 
     for extend_def in &module.extends {
         // Get the target type name (e.g., "list" for `extend [T] { ... }`)
@@ -306,16 +308,17 @@ fn collect_extend_methods(
 
         // Register each method
         for method in &extend_def.methods {
-            // Get parameter names
             let params = arena.get_param_names(method.params);
-
-            // Create user method with Arc-cloned captures (O(1) instead of O(n))
             let mut user_method = UserMethod::new(params, Arc::clone(captures), arena.clone());
 
             if let Some(cr) = canon {
-                if let Some(can_id) = cr.method_root_for(type_name, method.name) {
+                let idx = method_canon_index
+                    .entry((type_name, method.name))
+                    .or_insert(0);
+                if let Some(can_id) = cr.method_root_for_nth(type_name, method.name, *idx) {
                     user_method.set_canon(can_id, cr.clone());
                 }
+                *idx = idx.wrapping_add(1);
             }
 
             registry.register(type_name, method.name, user_method);
@@ -372,26 +375,28 @@ fn collect_def_impl_methods(
     canon: Option<&SharedCanonResult>,
     registry: &mut UserMethodRegistry,
 ) {
-    // Arc is already provided by caller, no cloning needed
+    // Track canonical body indices for duplicate method definitions,
+    // mirroring the pattern from collect_impl_methods.
+    let mut method_canon_index: FxHashMap<(Name, Name), usize> = FxHashMap::default();
 
     for def_impl_def in &module.def_impls {
         let trait_name = def_impl_def.trait_name;
 
         for method in &def_impl_def.methods {
-            // Get parameter names
             let params = arena.get_param_names(method.params);
-
-            // Create user method with Arc-cloned captures (O(1) instead of O(n))
             let mut user_method = UserMethod::new(params, Arc::clone(captures), arena.clone());
 
             if let Some(cr) = canon {
-                if let Some(can_id) = cr.method_root_for(trait_name, method.name) {
+                let idx = method_canon_index
+                    .entry((trait_name, method.name))
+                    .or_insert(0);
+                if let Some(can_id) = cr.method_root_for_nth(trait_name, method.name, *idx) {
                     user_method.set_canon(can_id, cr.clone());
                 }
+                *idx = idx.wrapping_add(1);
             }
 
-            // Register under trait name (trait_name -> method_name)
-            // This enables `TraitName.method(...)` calls for capability dispatch
+            // Register under trait name for `TraitName.method(...)` capability dispatch
             registry.register(trait_name, method.name, user_method);
         }
     }
