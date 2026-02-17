@@ -20,7 +20,7 @@ From CLAUDE.md — Ori's core tenets:
 2. **Dependency-aware integrity** — Change propagates to tests automatically
 3. **Explicit effects** — Capabilities make side effects visible and mockable
 4. **Lean core** — Only essentials in compiler; rest in stdlib
-5. **Immutable by default** — Mutation is explicit
+5. **Value semantics** — No in-place mutation; reassignment replaces values
 6. **Structured concurrency** — No orphan tasks
 7. **Type safety** — No null, no unhandled errors, compile-time data race prevention
 
