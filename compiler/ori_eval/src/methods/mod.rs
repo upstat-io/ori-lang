@@ -72,6 +72,7 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) trim: Name,
     pub(crate) starts_with: Name,
     pub(crate) ends_with: Name,
+    pub(crate) escape: Name,
 
     // Collection (list-specific)
     pub(crate) first: Name,
@@ -168,6 +169,7 @@ impl BuiltinMethodNames {
             trim: interner.intern("trim"),
             starts_with: interner.intern("starts_with"),
             ends_with: interner.intern("ends_with"),
+            escape: interner.intern("escape"),
             // List
             first: interner.intern("first"),
             last: interner.intern("last"),

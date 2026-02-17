@@ -603,10 +603,21 @@ impl Interpreter<'_> {
                     if pat_ids.len() != values.len() {
                         return Err(crate::errors::tuple_pattern_mismatch().into());
                     }
-                    for (pat_id, val) in pat_ids.into_iter().zip(values.iter()) {
-                        // Copy the sub-pattern out to avoid borrow conflict
-                        let sub_pat = *self.canon_ref().arena.get_binding_pattern(pat_id);
-                        self.bind_can_pattern(&sub_pat, val.clone(), mutability)?;
+                    // Copy elision: when the tuple has refcount 1 (e.g., freshly
+                    // created by iter.next()), move elements out instead of cloning.
+                    match values.try_into_inner() {
+                        Ok(owned) => {
+                            for (pat_id, val) in pat_ids.into_iter().zip(owned) {
+                                let sub_pat = *self.canon_ref().arena.get_binding_pattern(pat_id);
+                                self.bind_can_pattern(&sub_pat, val, mutability)?;
+                            }
+                        }
+                        Err(shared) => {
+                            for (pat_id, val) in pat_ids.into_iter().zip(shared.iter()) {
+                                let sub_pat = *self.canon_ref().arena.get_binding_pattern(pat_id);
+                                self.bind_can_pattern(&sub_pat, val.clone(), mutability)?;
+                            }
+                        }
                     }
                     Ok(Value::Void)
                 } else {

@@ -183,6 +183,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "debug"),
     ("str", "ends_with"),
     ("str", "equals"),
+    ("str", "escape"),
     ("str", "hash"),
     ("str", "is_empty"),
     ("str", "iter"),

@@ -50,6 +50,19 @@ impl<T> Heap<T> {
     pub fn inner(&self) -> &Arc<T> {
         &self.0
     }
+
+    /// Attempt to unwrap the inner value, avoiding a clone.
+    ///
+    /// If this is the only reference (refcount == 1), returns `Ok(T)` with
+    /// the owned value moved out. Otherwise returns `Err(self)` unchanged.
+    ///
+    /// This enables copy elision: when destructuring freshly-created values
+    /// (e.g., tuples from `iter.next()`), the Arc typically has refcount 1,
+    /// so elements can be moved out instead of cloned.
+    #[inline]
+    pub fn try_into_inner(self) -> Result<T, Self> {
+        Arc::try_unwrap(self.0).map_err(Heap)
+    }
 }
 
 impl<T: ?Sized> Deref for Heap<T> {

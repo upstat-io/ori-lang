@@ -420,6 +420,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         None,
     ),
     MethodDef::new(BuiltinType::Str, "trim", &[], ReturnSpec::SelfType, None),
+    MethodDef::new(BuiltinType::Str, "escape", &[], ReturnSpec::SelfType, None),
     MethodDef::new(
         BuiltinType::Str,
         "add",

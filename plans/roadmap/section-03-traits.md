@@ -611,9 +611,9 @@ Formalizes the performance characteristics and precise semantics of Ori's functi
 
 ### Implementation
 
-- [ ] **Implement**: Copy elision for iterator rebinding patterns
-  - [ ] **Rust Tests**: `oric/src/eval/tests/` — copy elision verification
-  - [ ] **Ori Tests**: `tests/spec/traits/iterator/copy_elision.ori`
+- [x] **Implement**: Copy elision for iterator rebinding patterns (2026-02-17)
+  - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` + `heap/tests.rs` — copy elision verification (2026-02-17)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/copy_elision.ori` (2026-02-17)
   - [ ] **LLVM Support**: LLVM codegen respects copy elision
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
 
@@ -705,8 +705,8 @@ Adds a `Debug` trait separate from `Printable` for developer-facing structural r
   - [ ] **LLVM Support**: LLVM codegen for derived debug
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
-- [ ] **Implement**: `str.escape()` method (user-callable, deferred)
-  - [ ] **Ori Tests**: `tests/spec/traits/debug/escape.ori`
+- [x] **Implement**: `str.escape()` method (user-callable) (2026-02-17)
+  - [x] **Ori Tests**: `tests/spec/traits/debug/escape.ori` (2026-02-17)
   - [ ] **LLVM Support**: LLVM codegen for string escape
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
