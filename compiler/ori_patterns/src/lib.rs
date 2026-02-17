@@ -106,6 +106,7 @@ pub use errors::{
     invalid_binary_op_for,
     invalid_literal_pattern,
     invalid_tuple_field,
+    join_requires_list,
     key_not_found,
     list_pattern_too_long,
     map_entries_not_implemented,

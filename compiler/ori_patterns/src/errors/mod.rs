@@ -898,6 +898,12 @@ pub fn all_requires_list() -> EvalError {
     EvalError::new("all requires a list")
 }
 
+/// Join requires a list.
+#[cold]
+pub fn join_requires_list() -> EvalError {
+    EvalError::new("join requires a list")
+}
+
 /// Map entries requires a map.
 #[cold]
 pub fn map_entries_requires_map() -> EvalError {
