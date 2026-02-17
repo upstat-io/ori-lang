@@ -98,6 +98,7 @@ fn register_and_lookup_impl() {
 
     let impl_idx = registry.register_impl(ImplEntry {
         trait_idx: Some(trait_idx),
+        trait_type_args: vec![],
         self_type,
         type_params: vec![],
         methods,
@@ -146,6 +147,7 @@ fn inherent_impl() {
 
     registry.register_impl(ImplEntry {
         trait_idx: None, // Inherent impl
+        trait_type_args: vec![],
         self_type,
         type_params: vec![],
         methods,
@@ -202,6 +204,7 @@ fn method_lookup_priority() {
 
     registry.register_impl(ImplEntry {
         trait_idx: None,
+        trait_type_args: vec![],
         self_type,
         type_params: vec![],
         methods: inherent_methods,
@@ -226,6 +229,7 @@ fn method_lookup_priority() {
 
     registry.register_impl(ImplEntry {
         trait_idx: Some(trait_idx),
+        trait_type_args: vec![],
         self_type,
         type_params: vec![],
         methods: trait_methods,
@@ -267,6 +271,7 @@ fn coherence_check() {
     // Register impl
     registry.register_impl(ImplEntry {
         trait_idx: Some(trait_idx),
+        trait_type_args: vec![],
         self_type,
         type_params: vec![],
         methods: FxHashMap::default(),

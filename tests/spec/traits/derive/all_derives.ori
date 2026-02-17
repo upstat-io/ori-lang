@@ -68,18 +68,18 @@ type Empty = { }
     p.hash()
 )
 
-// Test derive Printable (to_string)
-@test_to_string tests @to_string_basic () -> void = run(
+// Test derive Printable (to_str)
+@test_to_str tests @to_str_basic () -> void = run(
     let p = Point { x: 10, y: 20 },
-    let s = p.to_string(),
+    let s = p.to_str(),
 
     // Check the string contains expected parts
     print(msg: s)
 )
 
-@to_string_basic () -> str = run(
+@to_str_basic () -> str = run(
     let p = Point { x: 10, y: 20 },
-    p.to_string()
+    p.to_str()
 )
 
 // Test empty struct

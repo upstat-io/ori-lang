@@ -69,12 +69,12 @@ type Point = { x: int, y: int }
     let point = interner.intern("Point");
     let eq = interner.intern("eq");
     let clone_method = interner.intern("clone");
-    let to_string = interner.intern("to_string");
+    let to_str = interner.intern("to_str");
 
     // Should have all three methods registered
     assert!(user_method_registry.has_method(point, eq));
     assert!(user_method_registry.has_method(point, clone_method));
-    assert!(user_method_registry.has_method(point, to_string));
+    assert!(user_method_registry.has_method(point, to_str));
 }
 
 #[test]

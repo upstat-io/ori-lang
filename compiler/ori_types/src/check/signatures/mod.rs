@@ -555,20 +555,27 @@ fn check_parsed_type_object_safety(
 ) {
     match parsed {
         ParsedType::Named { name, type_args } => {
-            // Check if this name refers to a trait (making this a trait object)
-            let violations = {
-                let trait_reg = checker.trait_registry();
-                trait_reg
-                    .get_trait_by_name(*name)
-                    .filter(|entry| !entry.is_object_safe())
-                    .map(|entry| entry.object_safety_violations.clone())
-            };
-            if let Some(violations) = violations {
-                checker.push_error(TypeCheckError::not_object_safe(span, *name, violations));
+            let type_arg_ids = arena.get_parsed_type_list(*type_args);
+
+            // Well-known concrete types (Iterator<T>, etc.) have dedicated Pool
+            // constructors and are NOT trait objects, even if a same-named trait
+            // exists in the registry. Skip object safety check for these.
+            let name_str = checker.interner().lookup(*name);
+            if !super::registration::is_concrete_named_type(name_str, type_arg_ids.len()) {
+                // Check if this name refers to a trait (making this a trait object)
+                let violations = {
+                    let trait_reg = checker.trait_registry();
+                    trait_reg
+                        .get_trait_by_name(*name)
+                        .filter(|entry| !entry.is_object_safe())
+                        .map(|entry| entry.object_safety_violations.clone())
+                };
+                if let Some(violations) = violations {
+                    checker.push_error(TypeCheckError::not_object_safe(span, *name, violations));
+                }
             }
 
             // Recurse into type arguments (e.g., `[Clone]` has Clone inside List)
-            let type_arg_ids = arena.get_parsed_type_list(*type_args);
             for &arg_id in type_arg_ids {
                 let arg = arena.get_parsed_type(arg_id);
                 check_parsed_type_object_safety(checker, arg, span, arena);

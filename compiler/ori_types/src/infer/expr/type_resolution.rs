@@ -262,10 +262,18 @@ fn check_parsed_type_object_safety_infer(
 ) {
     match parsed {
         ParsedType::Named { name, type_args } => {
-            check_trait_object_safety(engine, *name, span);
+            let type_arg_ids = arena.get_parsed_type_list(*type_args);
+
+            // Well-known concrete types (Iterator<T>, etc.) have dedicated Pool
+            // constructors and are NOT trait objects. Skip object safety check.
+            let skip = engine
+                .lookup_name(*name)
+                .is_some_and(|s| crate::check::is_concrete_named_type(s, type_arg_ids.len()));
+            if !skip {
+                check_trait_object_safety(engine, *name, span);
+            }
 
             // Recurse into type arguments (e.g., `[Clone]` has Clone inside List)
-            let type_arg_ids = arena.get_parsed_type_list(*type_args);
             for &arg_id in type_arg_ids {
                 let arg = arena.get_parsed_type(arg_id);
                 check_parsed_type_object_safety_infer(engine, arg, span, arena);

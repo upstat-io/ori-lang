@@ -8,7 +8,7 @@
 //! - **Eq**: Field-by-field structural equality (`eq(self, other) -> bool`)
 //! - **Clone**: Identity return for value types (`clone(self) -> Self`)
 //! - **Hashable**: FNV-1a hash in pure LLVM IR (`hash(self) -> int`)
-//! - **Printable**: String representation via runtime concat (`to_string(self) -> str`)
+//! - **Printable**: String representation via runtime concat (`to_str(self) -> str`)
 
 use ori_ir::{DerivedTrait, Module, Name, TypeDeclKind};
 use ori_types::{FieldDef, Idx, TypeEntry, TypeKind};
@@ -407,11 +407,12 @@ fn coerce_to_i64<'a>(
 // Printable: string representation via runtime concat
 // ---------------------------------------------------------------------------
 
-/// Generate `to_string(self: Self) -> str`.
+/// Generate `to_str(self: Self) -> str`.
 ///
-/// Builds `"TypeName { field1: <val>, field2: <val> }"` using runtime string
-/// functions: `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float`,
-/// `ori_str_concat`.
+/// Builds `"TypeName(val1, val2)"` per spec §7 — human-readable format
+/// with type name and field values (no field names).
+/// Uses runtime string functions: `ori_str_from_int`, `ori_str_from_bool`,
+/// `ori_str_from_float`, `ori_str_concat`.
 fn compile_derive_printable<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     type_name: Name,
@@ -419,7 +420,7 @@ fn compile_derive_printable<'a>(
     type_name_str: &str,
     fields: &[FieldDef],
 ) {
-    let method_name_str = "to_string";
+    let method_name_str = "to_str";
     let method_name = fc.intern(method_name_str);
 
     let sig = make_sig(
@@ -439,16 +440,12 @@ fn compile_derive_printable<'a>(
     let str_ty = fc.resolve_type(Idx::STR);
     let str_ty_id = fc.builder_mut().register_type(str_ty);
 
-    // Build opening: "TypeName { "
-    let prefix = format!("{type_name_str} {{ ");
+    // Build opening: "TypeName("
+    let prefix = format!("{type_name_str}(");
     let mut result = emit_str_literal(fc, &prefix, "prefix", str_ty_id);
 
     for (i, field) in fields.iter().enumerate() {
         let field_name_str = fc.lookup_name(field.name).to_owned();
-
-        let label = format!("{field_name_str}: ");
-        let label_str = emit_str_literal(fc, &label, &format!("label.{i}"), str_ty_id);
-        result = emit_str_concat(fc, result, label_str, &format!("cat.label.{i}"), str_ty_id);
 
         let field_val =
             fc.builder_mut()
@@ -465,7 +462,7 @@ fn compile_derive_printable<'a>(
         }
     }
 
-    let suffix = emit_str_literal(fc, " }", "suffix", str_ty_id);
+    let suffix = emit_str_literal(fc, ")", "suffix", str_ty_id);
     result = emit_str_concat(fc, result, suffix, "cat.suffix", str_ty_id);
 
     emit_derive_return(fc, func_id, &abi, Some(result));
@@ -573,7 +570,7 @@ fn emit_field_to_string<'a>(
         }
         TypeInfo::Struct { .. } => {
             let nested_name = fc.type_idx_to_name(field_type);
-            let ts_name = fc.intern("to_string");
+            let ts_name = fc.intern("to_str");
             if let Some(type_name) = nested_name {
                 if let Some((fid, abi)) = fc.get_method_function(type_name, ts_name) {
                     return emit_method_call_for_derive(fc, fid, &abi, &[val], name);

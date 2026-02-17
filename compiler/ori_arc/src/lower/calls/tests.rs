@@ -171,7 +171,7 @@ fn lower_method_call_user_defined() {
     let pool = Pool::new();
     let mut arena = CanArena::with_capacity(100);
 
-    let method_name = interner.intern("to_string");
+    let method_name = interner.intern("to_str");
     let receiver = arena.push(CanNode::new(
         CanExpr::Int(1),
         Span::new(0, 1),

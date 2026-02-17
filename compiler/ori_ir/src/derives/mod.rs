@@ -43,7 +43,7 @@ impl DerivedTrait {
             DerivedTrait::Eq => "eq",
             DerivedTrait::Clone => "clone",
             DerivedTrait::Hashable => "hash",
-            DerivedTrait::Printable => "to_string",
+            DerivedTrait::Printable => "to_str",
             DerivedTrait::Debug => "debug",
             DerivedTrait::Default => "default",
         }

@@ -25,7 +25,7 @@ fn test_derived_trait_method_name() {
     assert_eq!(DerivedTrait::Eq.method_name(), "eq");
     assert_eq!(DerivedTrait::Clone.method_name(), "clone");
     assert_eq!(DerivedTrait::Hashable.method_name(), "hash");
-    assert_eq!(DerivedTrait::Printable.method_name(), "to_string");
+    assert_eq!(DerivedTrait::Printable.method_name(), "to_str");
     assert_eq!(DerivedTrait::Debug.method_name(), "debug");
     assert_eq!(DerivedTrait::Default.method_name(), "default");
 }

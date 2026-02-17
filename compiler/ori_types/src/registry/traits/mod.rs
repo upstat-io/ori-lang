@@ -171,6 +171,12 @@ pub struct ImplEntry {
     /// The trait being implemented (`None` for inherent impls).
     pub trait_idx: Option<Idx>,
 
+    /// Concrete type arguments for the trait (e.g., `[INT, STR]` for
+    /// `impl Index<int, str> for T`). Empty for non-generic traits or
+    /// inherent impls. Used by coherence checking to distinguish different
+    /// instantiations of the same generic trait.
+    pub trait_type_args: Vec<Idx>,
+
     /// The self type for this implementation.
     pub self_type: Idx,
 
@@ -459,10 +465,29 @@ impl TraitRegistry {
 
     /// Find an impl of a specific trait for a specific type.
     pub fn find_impl(&self, trait_idx: Idx, self_type: Idx) -> Option<(usize, &ImplEntry)> {
+        self.find_impl_with_args(trait_idx, self_type, &[])
+    }
+
+    /// Find an implementation of a generic trait for a specific type, matching
+    /// concrete type arguments.
+    ///
+    /// For non-generic traits, pass an empty `trait_type_args` slice.
+    /// For generic traits like `Index<Key, Value>`, pass the resolved type
+    /// arguments to distinguish between different instantiations.
+    pub fn find_impl_with_args(
+        &self,
+        trait_idx: Idx,
+        self_type: Idx,
+        trait_type_args: &[Idx],
+    ) -> Option<(usize, &ImplEntry)> {
         self.impls_by_type.get(&self_type).and_then(|indices| {
             indices.iter().find_map(|&i| {
                 let entry = &self.impls[i];
-                if entry.trait_idx == Some(trait_idx) {
+                if entry.trait_idx == Some(trait_idx)
+                    && (trait_type_args.is_empty()
+                        || entry.trait_type_args.is_empty()
+                        || entry.trait_type_args == trait_type_args)
+                {
                     Some((i, entry))
                 } else {
                     None

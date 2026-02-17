@@ -52,7 +52,7 @@ sections:
     status: in-progress
   - id: "3.13"
     title: Additional Core Traits
-    status: not-started
+    status: in-progress
   - id: "3.14"
     title: Comparable and Hashable Traits
     status: not-started
@@ -896,17 +896,20 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
 
 ### Implementation
 
-- [ ] **Implement**: `Printable` trait formal definition in type system
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — printable trait parsing/bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/printable/definition.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Printable trait methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Printable codegen
+- [x] **Implement**: `Printable` trait formal definition in type system [done] (2026-02-17)
+  - Pre-existing: trait defined in prelude.ori, type checker registration in ori_types, evaluator dispatch, LLVM codegen
+  - [x] **Rust Tests**: Existing coverage in ori_types registration, ori_eval dispatch, ori_llvm derive_codegen
+  - [x] **Ori Tests**: `tests/spec/traits/printable/definition.ori` — 8 tests (int, float, bool, str, char, Ordering, generic bound, interpolation)
+  - [x] **LLVM Support**: LLVM codegen for Printable trait methods — existing in derive_codegen.rs
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — derive_printable_basic test passing
 
-- [ ] **Implement**: Printable derivation with `Point(1, 2)` format (type name + values)
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — printable derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/printable/derive.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Printable derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Printable derivation codegen
+- [x] **Implement**: Printable derivation with `Point(1, 2)` format (type name + values) [done] (2026-02-17)
+  - Fixed: eval_derived_to_str() and compile_derive_printable() now produce spec-compliant compact format
+  - Added: format_value_printable() for recursive nested struct formatting (no quotes on strings)
+  - [x] **Rust Tests**: Existing coverage in ori_eval/derives, ori_llvm/derive_codegen
+  - [x] **Ori Tests**: `tests/spec/traits/printable/derive.ori` — 7 tests (basic, single field, mixed types, nested, many fields, printable-vs-debug, interpolation)
+  - [x] **LLVM Support**: LLVM codegen for Printable derivation — compile_derive_printable() updated
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — derive_printable_basic test passing
 
 - [ ] **Implement**: `Default` trait formal definition in type system
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — default trait parsing/bounds
