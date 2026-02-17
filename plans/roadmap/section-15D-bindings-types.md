@@ -18,6 +18,9 @@ sections:
     title: Remove dyn Keyword for Trait Objects
     status: not-started
   - id: "15D.5"
+    title: Index and Field Assignment
+    status: not-started
+  - id: "15D.6"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -373,7 +376,92 @@ let items: [Serializable] = ...
 
 ---
 
-## 15D.5 Section Completion Checklist
+## 15D.5 Index and Field Assignment
+
+**Proposal**: `proposals/approved/index-assignment-proposal.md`
+
+Extend assignment targets to support index expressions (`list[i] = x`), field access (`state.name = x`), mixed chains (`state.items[i] = x`, `list[i].name = x`), and compound assignment on all forms (`list[i] += 1`). All forms desugar to copy-on-write reassignment via `IndexSet` trait (for index) or struct spread (for fields).
+
+```ori
+let list = [1, 2, 3]
+list[0] = 10                          // list = list.updated(key: 0, value: 10)
+
+let state = GameState { score: 0, level: 1 }
+state.score = 100                     // state = { ...state, score: 100 }
+state.items[i] = new_item             // mixed chain
+list[i].name = "new"                  // index then field
+
+list[0] += 5                          // compound: list[0] = list[0] + 5
+```
+
+### Phase 1: `IndexSet` Trait and `updated` Method
+
+- [ ] **Implement**: Define `IndexSet<Key, Value>` trait in prelude — `@updated (self, key: Key, value: Value) -> Self`
+  - [ ] **Rust Tests**: `ori_types/src/infer/` — IndexSet trait resolution
+  - [ ] **Ori Tests**: `tests/spec/traits/index_set/basic.ori`
+
+- [ ] **Implement**: Register `updated` as built-in method on `[T]`, `{K: V}`, `[T, max N]` in evaluator
+  - [ ] **Rust Tests**: `ori_eval/src/method_dispatch/` — updated method dispatch
+  - [ ] **Ori Tests**: `tests/spec/traits/index_set/updated_method.ori`
+
+- [ ] **Implement**: `updated` with ARC-aware copy-on-write in `ori_patterns`/`ori_eval`
+  - [ ] **Rust Tests**: `ori_patterns/src/value/` — copy-on-write behavior
+  - [ ] **Ori Tests**: `tests/spec/traits/index_set/cow_behavior.ori`
+
+### Phase 2: Parser Changes
+
+- [ ] **Implement**: Extend parser to accept `assignment_target` (identifier + index/field chains) on LHS of `=` and compound operators
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/` — assignment target parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/index_assignment_syntax.ori`
+
+- [ ] **Implement**: Emit AST node capturing chain of index/field accesses in assignment target
+  - [ ] **Rust Tests**: `ori_ir/src/ast/expr.rs` — AssignTarget AST node
+  - [ ] **Ori Tests**: `tests/spec/expressions/field_assignment_syntax.ori`
+
+### Phase 3: Type-Directed Desugaring
+
+- [ ] **Implement**: Desugar `[key]` steps to `updated()` calls (requires `IndexSet` trait resolution)
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — index assignment desugaring
+  - [ ] **Ori Tests**: `tests/spec/expressions/index_assignment_desugar.ori`
+
+- [ ] **Implement**: Desugar `.field` steps to struct spread reconstruction (requires struct type info)
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — field assignment desugaring
+  - [ ] **Ori Tests**: `tests/spec/expressions/field_assignment_desugar.ori`
+
+- [ ] **Implement**: Handle nested cases, mixed field-index chains, and compound assignment
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — mixed chain desugaring
+  - [ ] **Ori Tests**: `tests/spec/expressions/mixed_chain_assignment.ori`
+
+### Phase 4: Type Checker Integration
+
+- [ ] **Implement**: Validate mutability of root binding (not `$`, not parameter, not loop variable)
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — mutability validation
+  - [ ] **Ori Tests**: `tests/spec/expressions/assignment_mutability.ori`
+
+- [ ] **Implement**: Validate field names against struct types in assignment chains
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — field validation
+  - [ ] **Ori Tests**: `tests/compile-fail/assignment/invalid_field.ori`
+
+- [ ] **Implement**: Validate key and value types against `IndexSet` impl
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — IndexSet type validation
+  - [ ] **Ori Tests**: `tests/compile-fail/assignment/type_mismatch.ori`
+
+- [ ] **Implement**: Emit diagnostics for all error cases (immutable binding, parameter, loop var, missing IndexSet, field mismatch, type mismatch)
+  - [ ] **Rust Tests**: `ori_diagnostic/` — assignment error diagnostics
+  - [ ] **Ori Tests**: `tests/compile-fail/assignment/all_errors.ori`
+
+### Phase 5: LLVM Support
+
+- [ ] **LLVM Support**: LLVM codegen for index assignment desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/` — index assignment codegen
+- [ ] **LLVM Support**: LLVM codegen for field assignment desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/` — field assignment codegen
+- [ ] **LLVM Support**: LLVM codegen for compound assignment on extended targets
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/` — compound assignment codegen
+
+---
+
+## 15D.6 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[ ]`
 - [ ] All spec docs updated

@@ -409,8 +409,11 @@ capability_binding  = identifier "=" expression .
 // See: 09-expressions.md § Let Binding, 05-variables.md
 
 let_expr = "let" binding_pattern [ ":" type ] "=" expression .
-assignment = identifier "=" expression .
-binding  = let_expr | assignment .  /* used in run/try patterns */
+assignment        = assignment_target "=" expression
+                  | assignment_target compound_op expression .
+assignment_target = identifier { "[" expression "]" | "." identifier } .
+compound_op       = "+=" | "-=" | "*=" | "/=" | "%=" .
+binding           = let_expr | assignment .  /* used in run/try patterns */
 
 // --- Conditional ---
 // See: 09-expressions.md § Conditional
