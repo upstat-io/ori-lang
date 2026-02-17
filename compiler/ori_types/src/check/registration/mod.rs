@@ -9,7 +9,7 @@
 //! - Module checker design: `plans/types_v2/section-08b-module-checker.md`
 
 use ori_ir::{
-    DerivedTrait, ExprArena, ExprId, Module, Name, ParsedType, Span, TraitItem,
+    DerivedTrait, ExprArena, ExprId, Module, Name, ParsedType, Span, TraitItem, TypeId,
     Visibility as IrVisibility,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -270,17 +270,11 @@ pub(super) fn resolve_parsed_type_simple(
 ) -> Idx {
     match parsed {
         ParsedType::Primitive(type_id) => {
-            // TypeId uses a specific encoding - extract the primitive type
-            match type_id.raw() & 0x0FFF_FFFF {
-                0 => Idx::INT,
-                1 => Idx::FLOAT,
-                2 => Idx::BOOL,
-                3 => Idx::STR,
-                4 => Idx::CHAR,
-                5 => Idx::BYTE,
-                6 => Idx::UNIT,
-                7 => Idx::NEVER,
-                _ => Idx::ERROR,
+            let raw = type_id.raw();
+            if raw < TypeId::PRIMITIVE_COUNT {
+                Idx::from_raw(raw)
+            } else {
+                Idx::ERROR
             }
         }
 
@@ -339,26 +333,14 @@ pub(super) fn resolve_parsed_type_simple(
             // to ensure type representations match between annotations and inference.
             if !resolved_args.is_empty() {
                 let name_str = checker.interner().lookup(*name);
-                match (name_str, resolved_args.len()) {
-                    ("Option", 1) => return checker.pool_mut().option(resolved_args[0]),
-                    ("Result", 2) => {
-                        return checker
-                            .pool_mut()
-                            .result(resolved_args[0], resolved_args[1]);
-                    }
-                    ("Set", 1) => return checker.pool_mut().set(resolved_args[0]),
-                    ("Channel" | "Chan", 1) => {
-                        return checker.pool_mut().channel(resolved_args[0]);
-                    }
-                    ("Range", 1) => return checker.pool_mut().range(resolved_args[0]),
-                    ("Iterator", 1) => return checker.pool_mut().iterator(resolved_args[0]),
-                    ("DoubleEndedIterator", 1) => {
-                        return checker.pool_mut().double_ended_iterator(resolved_args[0]);
-                    }
-                    _ => {
-                        return checker.pool_mut().applied(*name, &resolved_args);
-                    }
+                if let Some(idx) = super::well_known::resolve_well_known_generic(
+                    checker.pool_mut(),
+                    name_str,
+                    &resolved_args,
+                ) {
+                    return idx;
                 }
+                return checker.pool_mut().applied(*name, &resolved_args);
             }
 
             // No type args — check for pre-interned primitives before falling
@@ -402,22 +384,6 @@ pub(super) fn resolve_parsed_type_simple(
             }
         }
     }
-}
-
-/// Check if a named type with the given arity resolves to a concrete Pool type
-/// rather than a trait object.
-///
-/// These types have dedicated Pool constructors in [`resolve_parsed_type_simple`]
-/// and are NOT trait objects even if a same-named trait exists in the registry.
-/// Used by object safety checks to avoid false positives.
-pub(crate) fn is_concrete_named_type(name_str: &str, num_args: usize) -> bool {
-    matches!(
-        (name_str, num_args),
-        (
-            "Option" | "Set" | "Channel" | "Chan" | "Range" | "Iterator" | "DoubleEndedIterator",
-            1
-        ) | ("Result", 2)
-    )
 }
 
 /// Convert IR visibility to Types visibility.
