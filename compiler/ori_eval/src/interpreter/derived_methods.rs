@@ -5,6 +5,7 @@
 //! - `#[derive(Clone)]` -> `clone` method
 //! - `#[derive(Hashable)]` -> `hash` method
 //! - `#[derive(Printable)]` -> `to_string` method
+//! - `#[derive(Debug)]` -> `debug` method
 //! - `#[derive(Default)]` -> `default` method
 
 use crate::derives::DefaultFieldType;
@@ -31,6 +32,7 @@ impl Interpreter<'_> {
             DerivedTrait::Clone => self.eval_derived_clone(receiver, info),
             DerivedTrait::Hashable => self.eval_derived_hash(receiver, info),
             DerivedTrait::Printable => self.eval_derived_to_string(receiver, info),
+            DerivedTrait::Debug => self.eval_derived_debug(receiver, info),
             DerivedTrait::Default => self.eval_derived_default(receiver, info),
         }
     }
@@ -196,6 +198,53 @@ impl Interpreter<'_> {
                 first = false;
                 // write! returns fmt::Result but we're writing to String which is infallible
                 let _ = write!(result, "{field_str}: {val}");
+            }
+        }
+
+        result.push_str(" }");
+        Ok(Value::string(result))
+    }
+
+    /// Evaluate derived `debug` method for structs.
+    ///
+    /// Produces a developer-facing string like `Point { x: 10, y: 20 }` where
+    /// nested values use debug formatting (strings are quoted/escaped, etc.).
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Consistent derived method dispatch signature"
+    )]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "Returns EvalResult for consistent derived method dispatch interface"
+    )]
+    fn eval_derived_debug(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
+        use crate::methods::helpers::debug_value;
+        use std::fmt::Write;
+
+        let Value::Struct(struct_val) = &receiver else {
+            return Ok(Value::string(debug_value(&receiver)));
+        };
+
+        let type_name = self.interner.lookup(struct_val.type_name);
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "capacity estimation, overflow is safe"
+        )]
+        let capacity = type_name.len() + 4 + info.field_names.len() * 20;
+        let mut result = String::with_capacity(capacity);
+
+        result.push_str(type_name);
+        result.push_str(" { ");
+
+        let mut first = true;
+        for field_name in &info.field_names {
+            let field_str = self.interner.lookup(*field_name);
+            if let Some(val) = struct_val.get_field(*field_name) {
+                if !first {
+                    result.push_str(", ");
+                }
+                first = false;
+                let _ = write!(result, "{field_str}: {}", debug_value(val));
             }
         }
 

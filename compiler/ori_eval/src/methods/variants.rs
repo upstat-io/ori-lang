@@ -4,7 +4,10 @@ use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalError, EvalResult, Value};
 
 use super::compare::{compare_option_values, compare_result_values, ordering_to_value};
-use super::helpers::{require_args, require_bool_arg, require_byte_arg, require_char_arg};
+use super::helpers::{
+    debug_value, escape_debug_char, require_args, require_bool_arg, require_byte_arg,
+    require_char_arg,
+};
 use super::DispatchCtx;
 
 /// Dispatch operator methods on bool values.
@@ -89,10 +92,10 @@ pub fn dispatch_char_method(
     } else if method == n.to_str {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(c.to_string()))
-    // Debug trait
+    // Debug trait - shows escaped char with quotes
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        Ok(Value::string(format!("'{c}'")))
+        Ok(Value::string(format!("'{}'", escape_debug_char(c))))
     // Hashable trait
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
@@ -225,6 +228,10 @@ pub fn dispatch_option_method(
             Some(iter) => Ok(Value::iterator(iter)),
             None => unreachable!("Option values are always iterable"),
         }
+    // Debug trait - structural representation
+    } else if method == n.debug {
+        require_args("debug", 0, args.len())?;
+        Ok(Value::string(debug_value(&receiver)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Option").into())
     }
@@ -262,6 +269,10 @@ pub fn dispatch_result_method(
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)
+    // Debug trait - structural representation
+    } else if method == n.debug {
+        require_args("debug", 0, args.len())?;
+        Ok(Value::string(debug_value(&receiver)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Result").into())
     }

@@ -47,6 +47,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Duration", "as_seconds"),
     ("Duration", "clone"),
     ("Duration", "compare"),
+    ("Duration", "debug"),
     ("Duration", "equals"),
     ("Duration", "format"),
     ("Duration", "from_hours"),
@@ -96,6 +97,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // Option
     ("Option", "and_then"),
     ("Option", "clone"),
+    ("Option", "debug"),
     ("Option", "expect"),
     ("Option", "filter"),
     ("Option", "flat_map"),
@@ -125,6 +127,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // Result
     ("Result", "and_then"),
     ("Result", "clone"),
+    ("Result", "debug"),
     ("Result", "err"),
     ("Result", "expect"),
     ("Result", "expect_err"),
@@ -140,6 +143,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // Set
     ("Set", "clone"),
     ("Set", "contains"),
+    ("Set", "debug"),
     ("Set", "difference"),
     ("Set", "insert"),
     ("Set", "intersection"),
@@ -153,6 +157,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Size", "as_bytes"),
     ("Size", "clone"),
     ("Size", "compare"),
+    ("Size", "debug"),
     ("Size", "equals"),
     ("Size", "format"),
     ("Size", "from_bytes"),
@@ -176,6 +181,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // bool
     ("bool", "clone"),
     ("bool", "compare"),
+    ("bool", "debug"),
     ("bool", "equals"),
     ("bool", "hash"),
     ("bool", "to_int"),
@@ -183,6 +189,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // byte
     ("byte", "clone"),
     ("byte", "compare"),
+    ("byte", "debug"),
     ("byte", "equals"),
     ("byte", "hash"),
     ("byte", "is_ascii"),
@@ -195,6 +202,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // char
     ("char", "clone"),
     ("char", "compare"),
+    ("char", "debug"),
     ("char", "equals"),
     ("char", "hash"),
     ("char", "is_alpha"),
@@ -220,6 +228,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("float", "clone"),
     ("float", "compare"),
     ("float", "cos"),
+    ("float", "debug"),
     ("float", "equals"),
     ("float", "exp"),
     ("float", "floor"),
@@ -249,6 +258,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("int", "clamp"),
     ("int", "clone"),
     ("int", "compare"),
+    ("int", "debug"),
     ("int", "equals"),
     ("int", "hash"),
     ("int", "is_even"),
@@ -271,6 +281,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "clone"),
     ("list", "contains"),
     ("list", "count"),
+    ("list", "debug"),
     ("list", "enumerate"),
     ("list", "filter"),
     ("list", "find"),
@@ -313,6 +324,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("map", "clone"),
     ("map", "contains"),
     ("map", "contains_key"),
+    ("map", "debug"),
     ("map", "entries"),
     ("map", "get"),
     ("map", "insert"),
@@ -340,6 +352,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "clone"),
     ("str", "compare"),
     ("str", "contains"),
+    ("str", "debug"),
     ("str", "ends_with"),
     ("str", "equals"),
     ("str", "hash"),
@@ -368,6 +381,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "trim_start"),
     // tuple
     ("tuple", "clone"),
+    ("tuple", "debug"),
     ("tuple", "len"),
 ];
 
@@ -420,7 +434,7 @@ fn resolve_list_method(
         "iter" => Some(engine.pool_mut().double_ended_iterator(elem)),
         "reverse" | "sort" | "sorted" | "unique" | "flatten" | "push" | "append" | "prepend"
         | "clone" => Some(receiver_ty),
-        "join" => Some(Idx::STR),
+        "join" | "debug" => Some(Idx::STR),
         "enumerate" => {
             let pair = engine.pool_mut().tuple(&[Idx::INT, elem]);
             Some(engine.pool_mut().list(pair))
@@ -461,6 +475,7 @@ fn resolve_option_method(
             Some(engine.pool_mut().fresh_var())
         }
         "or" | "clone" => Some(receiver_ty),
+        "debug" => Some(Idx::STR),
         _ => None,
     }
 }
@@ -480,6 +495,7 @@ fn resolve_result_method(
         "err" => Some(engine.pool_mut().option(err_ty)),
         "map" | "map_err" | "and_then" | "or_else" => Some(engine.pool_mut().fresh_var()),
         "clone" => Some(receiver_ty),
+        "debug" => Some(Idx::STR),
         _ => None,
     }
 }
@@ -502,6 +518,7 @@ fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
             Some(engine.pool_mut().list(pair))
         }
         "insert" | "remove" | "update" | "merge" | "clone" => Some(receiver_ty),
+        "debug" => Some(Idx::STR),
         _ => None,
     }
 }
@@ -516,6 +533,7 @@ fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
             Some(receiver_ty)
         }
         "to_list" => Some(engine.pool_mut().list(elem)),
+        "debug" => Some(Idx::STR),
         _ => None,
     }
 }
@@ -526,7 +544,9 @@ fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx>
         "iter" => Some(engine.pool_mut().double_ended_iterator(Idx::CHAR)),
         "is_empty" | "starts_with" | "ends_with" | "contains" | "equals" => Some(Idx::BOOL),
         "to_uppercase" | "to_lowercase" | "trim" | "trim_start" | "trim_end" | "replace"
-        | "repeat" | "pad_start" | "pad_end" | "slice" | "substring" | "clone" => Some(Idx::STR),
+        | "repeat" | "pad_start" | "pad_end" | "slice" | "substring" | "clone" | "debug" => {
+            Some(Idx::STR)
+        }
         "chars" => Some(engine.pool_mut().list(Idx::CHAR)),
         "bytes" => Some(engine.pool_mut().list(Idx::BYTE)),
         "split" | "lines" => Some(engine.pool_mut().list(Idx::STR)),
@@ -543,7 +563,7 @@ fn resolve_int_method(method: &str) -> Option<Idx> {
     match method {
         "abs" | "min" | "max" | "clamp" | "pow" | "signum" | "clone" | "hash" => Some(Idx::INT),
         "to_float" => Some(Idx::FLOAT),
-        "to_str" => Some(Idx::STR),
+        "to_str" | "debug" => Some(Idx::STR),
         "to_byte" => Some(Idx::BYTE),
         "is_positive" | "is_negative" | "is_zero" | "is_even" | "is_odd" | "equals" => {
             Some(Idx::BOOL)
@@ -559,7 +579,7 @@ fn resolve_float_method(method: &str) -> Option<Idx> {
         | "ln" | "log2" | "log10" | "exp" | "pow" | "min" | "max" | "clamp" | "signum"
         | "clone" => Some(Idx::FLOAT),
         "floor" | "ceil" | "round" | "trunc" | "to_int" => Some(Idx::INT),
-        "to_str" => Some(Idx::STR),
+        "to_str" | "debug" => Some(Idx::STR),
         "is_nan" | "is_infinite" | "is_finite" | "is_normal" | "is_positive" | "is_negative"
         | "is_zero" | "equals" => Some(Idx::BOOL),
         "compare" => Some(Idx::ORDERING),
@@ -572,7 +592,7 @@ fn resolve_duration_method(method: &str) -> Option<Idx> {
         // Instance methods
         "to_seconds" | "to_millis" | "to_micros" | "to_nanos" | "as_seconds" | "as_millis"
         | "as_micros" | "as_nanos" => Some(Idx::FLOAT),
-        "to_str" | "format" => Some(Idx::STR),
+        "to_str" | "format" | "debug" => Some(Idx::STR),
         "abs" | "from_nanoseconds" | "from_microseconds" | "from_milliseconds" | "from_seconds"
         | "from_minutes" | "from_hours" | "from_nanos" | "from_micros" | "from_millis" | "zero"
         | "clone" => Some(Idx::DURATION),
@@ -588,7 +608,7 @@ fn resolve_size_method(method: &str) -> Option<Idx> {
     match method {
         // Instance methods
         "to_bytes" | "as_bytes" | "to_kb" | "to_mb" | "to_gb" | "to_tb" | "hash" => Some(Idx::INT),
-        "to_str" | "format" => Some(Idx::STR),
+        "to_str" | "format" | "debug" => Some(Idx::STR),
         "is_zero" | "equals" => Some(Idx::BOOL),
         // Associated functions (static constructors): Size.from_bytes(b: 100)
         "from_bytes" | "from_kilobytes" | "from_megabytes" | "from_gigabytes"
@@ -656,7 +676,7 @@ fn resolve_named_type_method(
 
     // Common methods on any user-defined type
     match method_name {
-        "to_str" => Some(Idx::STR),
+        "to_str" | "debug" => Some(Idx::STR),
         _ => None,
     }
 }
@@ -679,7 +699,7 @@ fn resolve_ordering_method(method_name: &str) -> Option<Idx> {
 
 fn resolve_bool_method(method_name: &str) -> Option<Idx> {
     match method_name {
-        "to_str" => Some(Idx::STR),
+        "to_str" | "debug" => Some(Idx::STR),
         "to_int" | "hash" => Some(Idx::INT),
         "clone" | "equals" => Some(Idx::BOOL),
         "compare" => Some(Idx::ORDERING),
@@ -691,7 +711,7 @@ fn resolve_byte_method(method_name: &str) -> Option<Idx> {
     match method_name {
         "to_int" | "hash" => Some(Idx::INT),
         "to_char" => Some(Idx::CHAR),
-        "to_str" => Some(Idx::STR),
+        "to_str" | "debug" => Some(Idx::STR),
         "is_ascii" | "is_ascii_digit" | "is_ascii_alpha" | "is_ascii_whitespace" | "equals" => {
             Some(Idx::BOOL)
         }
@@ -703,7 +723,7 @@ fn resolve_byte_method(method_name: &str) -> Option<Idx> {
 
 fn resolve_char_method(method_name: &str) -> Option<Idx> {
     match method_name {
-        "to_str" => Some(Idx::STR),
+        "to_str" | "debug" => Some(Idx::STR),
         "to_int" | "to_byte" | "hash" => Some(Idx::INT),
         "is_digit" | "is_alpha" | "is_whitespace" | "is_uppercase" | "is_lowercase"
         | "is_ascii" | "equals" => Some(Idx::BOOL),
@@ -787,6 +807,7 @@ fn resolve_tuple_method(receiver_ty: Idx, method_name: &str) -> Option<Idx> {
     match method_name {
         "len" => Some(Idx::INT),
         "clone" => Some(receiver_ty),
+        "debug" => Some(Idx::STR),
         _ => None,
     }
 }

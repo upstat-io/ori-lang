@@ -35,6 +35,11 @@ pub trait Printable {
     @to_string (self) -> str
 }
 
+// Developer-facing structural representation
+pub trait Debug {
+    @debug (self) -> str
+}
+
 // Can be explicitly copied
 pub trait Clone {
     @clone (self) -> Self

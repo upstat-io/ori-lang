@@ -1171,7 +1171,9 @@ fn build_derived_methods(
             .function2(self_type, self_type, Idx::BOOL),
         DerivedTrait::Clone => checker.pool_mut().function1(self_type, self_type),
         DerivedTrait::Hashable => checker.pool_mut().function1(self_type, Idx::INT),
-        DerivedTrait::Printable => checker.pool_mut().function1(self_type, Idx::STR),
+        DerivedTrait::Printable | DerivedTrait::Debug => {
+            checker.pool_mut().function1(self_type, Idx::STR)
+        }
         DerivedTrait::Default => checker.pool_mut().function0(self_type),
     };
 

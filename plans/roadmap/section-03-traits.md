@@ -40,7 +40,7 @@ sections:
     status: in-progress
   - id: "3.9"
     title: Debug Trait
-    status: not-started
+    status: in-progress
   - id: "3.10"
     title: Trait Resolution and Conflict Handling
     status: in-progress
@@ -670,54 +670,47 @@ Adds a `Debug` trait separate from `Printable` for developer-facing structural r
 
 ### Implementation
 
-- [ ] **Implement**: `Debug` trait definition in type system
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — debug trait parsing/bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/debug/definition.ori`
+- [x] **Implement**: `Debug` trait definition in type system
+  - [x] **Rust Tests**: `ori_ir/src/derives/tests.rs` — DerivedTrait::Debug parsing/method_name
+  - [x] **Ori Tests**: `tests/spec/traits/debug/definition.ori`
 
-- [ ] **Implement**: Debug implementations for all primitives (int, float, bool, str, char, byte, void)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — primitive debug bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/debug/primitives.ori`
+- [x] **Implement**: Debug implementations for all primitives (int, float, bool, str, char, byte, void)
+  - [x] **Rust Tests**: `ori_eval/src/methods/helpers/tests.rs` — escape helpers
+  - [x] **Ori Tests**: `tests/spec/traits/debug/primitives.ori`
   - [ ] **LLVM Support**: LLVM codegen for primitive debug methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
-- [ ] **Implement**: Debug implementations for Duration and Size
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — duration/size debug bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/debug/special_types.ori`
+- [x] **Implement**: Debug implementations for Duration and Size
+  - [x] **Ori Tests**: `tests/spec/traits/debug/primitives.ori` (included with primitives)
   - [ ] **LLVM Support**: LLVM codegen for duration/size debug
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
-- [ ] **Implement**: Debug implementations for collections ([T], {K: V}, Set<T>)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collection debug bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/debug/collections.ori`
+- [x] **Implement**: Debug implementations for collections ([T], {K: V}, Set<T>)
+  - [x] **Ori Tests**: `tests/spec/traits/debug/collections.ori`
   - [ ] **LLVM Support**: LLVM codegen for collection debug
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
-- [ ] **Implement**: Debug implementations for Option<T> and Result<T, E>
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — option/result debug
-  - [ ] **Ori Tests**: `tests/spec/traits/debug/wrappers.ori`
+- [x] **Implement**: Debug implementations for Option<T> and Result<T, E>
+  - [x] **Ori Tests**: `tests/spec/traits/debug/wrappers.ori`
   - [ ] **LLVM Support**: LLVM codegen for option/result debug
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
-- [ ] **Implement**: Debug implementations for tuples (all arities)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — tuple debug bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/debug/tuples.ori`
+- [x] **Implement**: Debug implementations for tuples (all arities)
+  - [x] **Ori Tests**: `tests/spec/traits/debug/tuples.ori`
   - [ ] **LLVM Support**: LLVM codegen for tuple debug
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
-- [ ] **Implement**: `#[derive(Debug)]` macro for user-defined types
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — debug derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/debug/derive.ori`
+- [x] **Implement**: `#[derive(Debug)]` macro for user-defined types
+  - [x] **Ori Tests**: `tests/spec/traits/debug/derive.ori`
   - [ ] **LLVM Support**: LLVM codegen for derived debug
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
-- [ ] **Implement**: `str.escape()` method (dependency)
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — string escape tests
+- [ ] **Implement**: `str.escape()` method (user-callable, deferred)
   - [ ] **Ori Tests**: `tests/spec/traits/debug/escape.ori`
   - [ ] **LLVM Support**: LLVM codegen for string escape
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`
 
-- [ ] **Implement**: `Iterator.join()` method (dependency)
-  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — iterator join tests
+- [ ] **Implement**: `Iterator.join()` method (user-callable, deferred)
   - [ ] **Ori Tests**: `tests/spec/traits/debug/join.ori`
   - [ ] **LLVM Support**: LLVM codegen for iterator join
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs`

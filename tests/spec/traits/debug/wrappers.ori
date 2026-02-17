@@ -1,0 +1,55 @@
+// Spec: 07-properties-of-types.md § Debug Trait
+// Tests for Debug trait on Option and Result types
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Option Debug
+// =============================================================================
+
+@test_some_debug tests @some_debug () -> void = run(
+    assert_eq(actual: Some(42).debug(), expected: "Some(42)"),
+)
+
+@some_debug () -> str = Some(42).debug()
+
+@test_none_debug tests @none_debug () -> void = run(
+    let n: Option<int> = None,
+    assert_eq(actual: n.debug(), expected: "None"),
+)
+
+@none_debug () -> str = run(
+    let n: Option<int> = None,
+    n.debug(),
+)
+
+@test_some_string_debug tests @some_string_debug () -> void = run(
+    // String inside Some should be quoted
+    assert_eq(actual: Some("hi").debug(), expected: "Some(\"hi\")"),
+)
+
+@some_string_debug () -> str = Some("hi").debug()
+
+// =============================================================================
+// Result Debug
+// =============================================================================
+
+@test_ok_debug tests @ok_debug () -> void = run(
+    let r: Result<int, str> = Ok(1),
+    assert_eq(actual: r.debug(), expected: "Ok(1)"),
+)
+
+@ok_debug () -> str = run(
+    let r: Result<int, str> = Ok(1),
+    r.debug(),
+)
+
+@test_err_debug tests @err_debug () -> void = run(
+    let r: Result<int, str> = Err("oops"),
+    assert_eq(actual: r.debug(), expected: "Err(\"oops\")"),
+)
+
+@err_debug () -> str = run(
+    let r: Result<int, str> = Err("oops"),
+    r.debug(),
+)

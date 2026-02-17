@@ -101,6 +101,10 @@ pub fn compile_derives<'a>(
                 DerivedTrait::Default => {
                     compile_derive_default(fc, type_name, type_idx, &type_name_str);
                 }
+                DerivedTrait::Debug => {
+                    // TODO: LLVM codegen for Debug (deferred — interpreter-only for now)
+                    debug!(derive = "Debug", type_name = %type_name_str, "Debug derive not yet implemented in LLVM codegen — skipping");
+                }
             }
         }
     }
