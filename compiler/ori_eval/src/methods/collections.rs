@@ -5,7 +5,8 @@ use ori_patterns::{no_such_method, EvalResult, IteratorValue, Value};
 
 use super::compare::{compare_lists, ordering_to_value};
 use super::helpers::{
-    len_to_value, require_args, require_int_arg, require_list_arg, require_str_arg,
+    debug_value, escape_debug_str, len_to_value, require_args, require_int_arg, require_list_arg,
+    require_str_arg,
 };
 use super::DispatchCtx;
 
@@ -60,7 +61,7 @@ pub fn dispatch_list_method(
     // Debug trait - shows list structure
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        let parts: Vec<String> = items.iter().map(|v| format!("{v:?}")).collect();
+        let parts: Vec<String> = items.iter().map(debug_value).collect();
         Ok(Value::string(format!("[{}]", parts.join(", "))))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "list").into())
@@ -136,7 +137,7 @@ pub fn dispatch_string_method(
     // Debug trait - shows escaped string with quotes
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        Ok(Value::string(format!("\"{s}\"")))
+        Ok(Value::string(format!("\"{}\"", escape_debug_str(&s))))
     // Hashable trait
     } else if method == n.hash {
         use std::collections::hash_map::DefaultHasher;
@@ -228,6 +229,10 @@ pub fn dispatch_map_method(
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)
+    // Debug trait - shows map structure
+    } else if method == n.debug {
+        require_args("debug", 0, args.len())?;
+        Ok(Value::string(debug_value(&receiver)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "map").into())
     }
@@ -260,6 +265,10 @@ pub fn dispatch_set_method(
     } else if method == n.len {
         require_args("len", 0, args.len())?;
         len_to_value(items.len(), "set")
+    // Debug trait - shows set structure
+    } else if method == n.debug {
+        require_args("debug", 0, args.len())?;
+        Ok(Value::string(debug_value(&receiver)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Set").into())
     }

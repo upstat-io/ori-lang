@@ -1,0 +1,49 @@
+// Spec: 07-properties-of-types.md § Debug Trait
+// Tests for Debug trait on collection types
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// List Debug
+// =============================================================================
+
+@test_list_debug_ints tests @list_debug_ints () -> void = run(
+    assert_eq(actual: [1, 2, 3].debug(), expected: "[1, 2, 3]"),
+)
+
+@list_debug_ints () -> str = [1, 2, 3].debug()
+
+@test_list_debug_strings tests @list_debug_strings () -> void = run(
+    // Strings inside list should be quoted
+    assert_eq(actual: ["a", "b"].debug(), expected: "[\"a\", \"b\"]"),
+)
+
+@list_debug_strings () -> str = ["a", "b"].debug()
+
+@test_list_debug_empty tests @list_debug_empty () -> void = run(
+    let empty: [int] = [],
+    assert_eq(actual: empty.debug(), expected: "[]"),
+)
+
+@list_debug_empty () -> str = run(
+    let empty: [int] = [],
+    empty.debug(),
+)
+
+@test_list_debug_nested tests @list_debug_nested () -> void = run(
+    assert_eq(actual: [[1, 2], [3]].debug(), expected: "[[1, 2], [3]]"),
+)
+
+@list_debug_nested () -> str = [[1, 2], [3]].debug()
+
+// =============================================================================
+// Map Debug
+// =============================================================================
+
+@test_map_debug tests @map_debug () -> void = run(
+    let m = { "x": 1 },
+    // Map debug shows key: value pairs
+    assert_eq(actual: m.debug(), expected: "{x: 1}"),
+)
+
+@map_debug () -> str = { "x": 1 }.debug()

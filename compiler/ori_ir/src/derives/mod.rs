@@ -17,6 +17,8 @@ pub enum DerivedTrait {
     Hashable,
     /// Printable trait - string representation
     Printable,
+    /// Debug trait - developer-facing structural representation
+    Debug,
     /// Default trait - default value construction
     Default,
 }
@@ -29,6 +31,7 @@ impl DerivedTrait {
             "Clone" => Some(DerivedTrait::Clone),
             "Hashable" => Some(DerivedTrait::Hashable),
             "Printable" => Some(DerivedTrait::Printable),
+            "Debug" => Some(DerivedTrait::Debug),
             "Default" => Some(DerivedTrait::Default),
             _ => None,
         }
@@ -41,6 +44,7 @@ impl DerivedTrait {
             DerivedTrait::Clone => "clone",
             DerivedTrait::Hashable => "hash",
             DerivedTrait::Printable => "to_string",
+            DerivedTrait::Debug => "debug",
             DerivedTrait::Default => "default",
         }
     }

@@ -166,6 +166,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
     MethodDef::clone_trait(BuiltinType::Int),
     MethodDef::hash_trait(BuiltinType::Int),
     MethodDef::to_str_trait(BuiltinType::Int),
+    MethodDef::debug_trait(BuiltinType::Int),
     MethodDef::new(BuiltinType::Int, "abs", &[], ReturnSpec::SelfType, None),
     MethodDef::new(
         BuiltinType::Int,
@@ -279,6 +280,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
     MethodDef::eq_trait(BuiltinType::Float),
     MethodDef::clone_trait(BuiltinType::Float),
     MethodDef::to_str_trait(BuiltinType::Float),
+    MethodDef::debug_trait(BuiltinType::Float),
     MethodDef::new(BuiltinType::Float, "abs", &[], ReturnSpec::SelfType, None),
     MethodDef::new(BuiltinType::Float, "floor", &[], ReturnSpec::SelfType, None),
     MethodDef::new(BuiltinType::Float, "ceil", &[], ReturnSpec::SelfType, None),
@@ -340,6 +342,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
     MethodDef::clone_trait(BuiltinType::Bool),
     MethodDef::hash_trait(BuiltinType::Bool),
     MethodDef::to_str_trait(BuiltinType::Bool),
+    MethodDef::debug_trait(BuiltinType::Bool),
     MethodDef::new(
         BuiltinType::Bool,
         "not",
@@ -353,17 +356,20 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
     MethodDef::clone_trait(BuiltinType::Char),
     MethodDef::hash_trait(BuiltinType::Char),
     MethodDef::to_str_trait(BuiltinType::Char),
+    MethodDef::debug_trait(BuiltinType::Char),
     // byte methods
     MethodDef::comparable(BuiltinType::Byte),
     MethodDef::eq_trait(BuiltinType::Byte),
     MethodDef::clone_trait(BuiltinType::Byte),
     MethodDef::hash_trait(BuiltinType::Byte),
     MethodDef::to_str_trait(BuiltinType::Byte),
+    MethodDef::debug_trait(BuiltinType::Byte),
     // str methods
     MethodDef::comparable(BuiltinType::Str),
     MethodDef::eq_trait(BuiltinType::Str),
     MethodDef::clone_trait(BuiltinType::Str),
     MethodDef::hash_trait(BuiltinType::Str),
+    MethodDef::debug_trait(BuiltinType::Str),
     MethodDef::new(
         BuiltinType::Str,
         "len",
@@ -434,6 +440,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
     MethodDef::clone_trait(BuiltinType::Duration),
     MethodDef::hash_trait(BuiltinType::Duration),
     MethodDef::to_str_trait(BuiltinType::Duration),
+    MethodDef::debug_trait(BuiltinType::Duration),
     MethodDef::new(
         BuiltinType::Duration,
         "nanoseconds",
@@ -525,6 +532,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
     MethodDef::clone_trait(BuiltinType::Size),
     MethodDef::hash_trait(BuiltinType::Size),
     MethodDef::to_str_trait(BuiltinType::Size),
+    MethodDef::debug_trait(BuiltinType::Size),
     MethodDef::new(
         BuiltinType::Size,
         "bytes",
