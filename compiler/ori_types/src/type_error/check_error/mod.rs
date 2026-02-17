@@ -453,6 +453,38 @@ impl TypeCheckError {
                     names.join(" and ")
                 )
             }
+            TypeErrorKind::NotObjectSafe {
+                trait_name,
+                violations,
+            } => {
+                use crate::ObjectSafetyViolation;
+                let reasons: Vec<String> = violations
+                    .iter()
+                    .map(|v| match v {
+                        ObjectSafetyViolation::SelfReturn { method, .. } => {
+                            format!("method `{}` returns `Self`", format_name(*method))
+                        }
+                        ObjectSafetyViolation::SelfParam { method, param, .. } => {
+                            format!(
+                                "method `{}` has `Self` in parameter `{}`",
+                                format_name(*method),
+                                format_name(*param)
+                            )
+                        }
+                        ObjectSafetyViolation::GenericMethod { method, .. } => {
+                            format!(
+                                "method `{}` has generic type parameters",
+                                format_name(*method)
+                            )
+                        }
+                    })
+                    .collect();
+                format!(
+                    "trait `{}` cannot be made into an object: {}",
+                    format_name(*trait_name),
+                    reasons.join("; ")
+                )
+            }
         }
     }
 
@@ -583,6 +615,9 @@ impl TypeCheckError {
             TypeErrorKind::AmbiguousMethod { .. } => {
                 "ambiguous method call: multiple traits provide this method".to_string()
             }
+            TypeErrorKind::NotObjectSafe { .. } => {
+                "trait cannot be made into an object".to_string()
+            }
         }
     }
 
@@ -644,6 +679,9 @@ impl TypeCheckError {
 
             // E2023: Ambiguous method
             TypeErrorKind::AmbiguousMethod { .. } => ErrorCode::E2023,
+
+            // E2024: Not object-safe
+            TypeErrorKind::NotObjectSafe { .. } => ErrorCode::E2024,
         }
     }
 
@@ -899,6 +937,44 @@ impl TypeCheckError {
                 "use fully-qualified syntax to disambiguate: `TraitName.method(x)`",
                 0,
             )],
+        }
+    }
+
+    /// Create a "not object-safe" error (E2024).
+    ///
+    /// Emitted when a non-object-safe trait is used as a trait object type.
+    pub fn not_object_safe(
+        span: Span,
+        trait_name: Name,
+        violations: Vec<crate::ObjectSafetyViolation>,
+    ) -> Self {
+        use crate::ObjectSafetyViolation;
+
+        let suggestions: Vec<_> = violations
+            .iter()
+            .map(|v| match v {
+                ObjectSafetyViolation::SelfReturn { .. } => Suggestion::text(
+                    "consider using a generic parameter `<T: Trait>` instead of a trait object",
+                    1,
+                ),
+                ObjectSafetyViolation::SelfParam { .. } => Suggestion::text(
+                    "consider using a generic parameter to preserve type information",
+                    1,
+                ),
+                ObjectSafetyViolation::GenericMethod { .. } => {
+                    Suggestion::text("consider removing the generic parameter from the method", 1)
+                }
+            })
+            .collect();
+
+        Self {
+            span,
+            kind: TypeErrorKind::NotObjectSafe {
+                trait_name,
+                violations,
+            },
+            context: ErrorContext::default(),
+            suggestions,
         }
     }
 
@@ -1217,6 +1293,14 @@ pub enum TypeErrorKind {
         method: Name,
         /// Traits that each provide this method.
         candidates: Vec<Name>,
+    },
+
+    /// Trait is not object-safe — cannot be used as a trait object (E2024).
+    NotObjectSafe {
+        /// The trait that is not object-safe.
+        trait_name: Name,
+        /// The specific object safety violations.
+        violations: Vec<crate::ObjectSafetyViolation>,
     },
 }
 

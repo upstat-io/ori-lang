@@ -131,6 +131,8 @@ pub enum ErrorCode {
     E2022,
     /// Ambiguous method call (multiple traits provide same method)
     E2023,
+    /// Trait is not object-safe (cannot be used as trait object)
+    E2024,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -305,6 +307,7 @@ impl ErrorCode {
         ErrorCode::E2021,
         ErrorCode::E2022,
         ErrorCode::E2023,
+        ErrorCode::E2024,
         // Pattern
         ErrorCode::E3001,
         ErrorCode::E3002,
@@ -420,6 +423,7 @@ impl ErrorCode {
             ErrorCode::E2021 => "E2021",
             ErrorCode::E2022 => "E2022",
             ErrorCode::E2023 => "E2023",
+            ErrorCode::E2024 => "E2024",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -548,6 +552,7 @@ impl ErrorCode {
                 | ErrorCode::E2021
                 | ErrorCode::E2022
                 | ErrorCode::E2023
+                | ErrorCode::E2024
         )
     }
 

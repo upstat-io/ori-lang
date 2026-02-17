@@ -1,0 +1,10 @@
+// Test that traits with Self in return position cannot be used as trait objects (E2024)
+// Spec: 06-types.md § Object Safety Rules — Rule 1
+
+trait Clone {
+    @clone (self) -> Self
+}
+
+#[compile_fail("cannot be made into an object")]
+@process (item: Clone) -> void =
+    print(msg: "processing")

@@ -1,0 +1,10 @@
+// Test that traits with Self in non-receiver parameter position cannot be used as trait objects (E2024)
+// Spec: 06-types.md § Object Safety Rules — Rule 2
+
+trait Eq {
+    @equals (self, other: Self) -> bool
+}
+
+#[compile_fail("cannot be made into an object")]
+@compare (a: Eq, b: Eq) -> void =
+    print(msg: "comparing")

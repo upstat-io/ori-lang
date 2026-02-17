@@ -348,3 +348,7 @@ Define error codes:
 | No `Self` return | `@clone (self) -> Self` | Unknown size at runtime |
 | No `Self` param | `@eq (self, other: Self)` | Can't verify type match |
 | No generics | `@convert<T> (self) -> T` | Requires monomorphization |
+
+## Errata (added 2026-02-17)
+
+> **Error codes consolidated**: Implementation uses a single error code `E2024` (following Rust's `E0038` pattern) instead of three separate codes `E0800`–`E0802`. The violation details (which rule was broken, which method) are included in the error message body and suggestions, making separate codes unnecessary. The `E0xxx` range is reserved for lexer errors per project convention; type errors use `E2xxx`.

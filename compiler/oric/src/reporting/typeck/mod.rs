@@ -158,6 +158,9 @@ impl<'a> TypeErrorRenderer<'a> {
             TypeErrorKind::AmbiguousMethod { method, .. } => {
                 format!("ambiguous `{}`", self.format_name(*method))
             }
+            TypeErrorKind::NotObjectSafe { trait_name, .. } => {
+                format!("`{}` is not object-safe", self.format_name(*trait_name))
+            }
         }
     }
 

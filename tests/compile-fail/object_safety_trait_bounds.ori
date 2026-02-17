@@ -1,0 +1,15 @@
+// Test that bounded trait objects check all components for object safety (E2024)
+// Spec: 06-types.md § Object Safety Rules
+
+trait Printable {
+    @to_str (self) -> str
+}
+
+trait Clone {
+    @clone (self) -> Self
+}
+
+// Printable is object-safe, but Clone is not — the combination should fail
+#[compile_fail("cannot be made into an object")]
+@show (item: Clone + Printable) -> void =
+    print(msg: "showing")

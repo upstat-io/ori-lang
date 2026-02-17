@@ -931,9 +931,7 @@ Trait objects can have additional bounds. All component traits must be object-sa
 
 **Error Codes**
 
-- `E0800`: Self in return position
-- `E0801`: Self as non-receiver parameter
-- `E0802`: Generic method in trait
+- `E2024`: Trait is not object-safe (covers all three rules; violation details included in error message)
 
 ## Clone Trait
 
