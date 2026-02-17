@@ -58,13 +58,6 @@ const EVAL_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("Size", "multiply"),
     ("Size", "remainder"),
     ("Size", "subtract"),
-    // Debug trait — implemented in eval, not yet in IR for all types
-    ("bool", "debug"),
-    ("byte", "debug"),
-    ("char", "debug"),
-    ("float", "debug"),
-    ("int", "debug"),
-    ("str", "debug"),
     // Printable for str (str.to_str returns itself)
     ("str", "to_str"),
     // Iterable — iter() returns Iterator<T>, not expressible in current IR ReturnSpec
@@ -186,12 +179,8 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("Size", "terabytes"),
     // Operator methods — typeck resolves operators via operator inference,
     // not through resolve_builtin_method()
-    ("bool", "debug"),
     ("bool", "not"),
-    ("byte", "debug"),
-    ("char", "debug"),
     ("float", "add"),
-    ("float", "debug"),
     ("float", "div"),
     ("float", "mul"),
     ("float", "neg"),
@@ -201,7 +190,6 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("int", "bit_not"),
     ("int", "bit_or"),
     ("int", "bit_xor"),
-    ("int", "debug"),
     ("int", "div"),
     ("int", "floor_div"),
     ("int", "mul"),
@@ -213,10 +201,8 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("list", "add"),
     ("list", "compare"),
     ("list", "concat"),
-    ("list", "debug"),
     ("str", "add"),
     ("str", "concat"),
-    ("str", "debug"),
     ("str", "to_str"),
 ];
 
@@ -247,8 +233,6 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("Duration", "to_nanos"),
     ("Duration", "to_seconds"),
     ("Duration", "zero"),
-    // Ordering — debug trait
-    ("Ordering", "debug"),
     // Size — conversion aliases and factory methods
     ("Size", "as_bytes"),
     ("Size", "format"),
