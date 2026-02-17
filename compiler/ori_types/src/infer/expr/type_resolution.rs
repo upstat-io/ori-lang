@@ -3,7 +3,8 @@
 use ori_ir::{ExprArena, Name, ParsedType, ParsedTypeRange, Span, TypeId};
 
 use super::super::InferEngine;
-use crate::{Idx, TypeCheckError};
+use crate::check::ObjectSafetyChecker;
+use crate::{Idx, ObjectSafetyViolation, TypeCheckError};
 
 /// Resolve a `ParsedType` from the AST into a pool `Idx`.
 ///
@@ -86,33 +87,18 @@ pub fn resolve_parsed_type(
                 resolve_parsed_type_list(engine, arena, *type_args)
             };
 
-            // Check for well-known generic types that have dedicated Pool tags.
-            // Must use the correct Pool constructors to match types created during inference.
+            // Well-known generic types must use their dedicated Pool constructors
+            // to match types created during inference.
             if !resolved_args.is_empty() {
                 if let Some(name_str) = engine.lookup_name(*name) {
-                    match (name_str, resolved_args.len()) {
-                        ("Option", 1) => return engine.pool_mut().option(resolved_args[0]),
-                        ("Result", 2) => {
-                            return engine.pool_mut().result(resolved_args[0], resolved_args[1]);
-                        }
-                        ("Set", 1) => return engine.pool_mut().set(resolved_args[0]),
-                        ("Channel" | "Chan", 1) => {
-                            return engine.pool_mut().channel(resolved_args[0]);
-                        }
-                        ("Range", 1) => return engine.pool_mut().range(resolved_args[0]),
-                        ("Iterator", 1) => {
-                            return engine.pool_mut().iterator(resolved_args[0]);
-                        }
-                        ("DoubleEndedIterator", 1) => {
-                            return engine.pool_mut().double_ended_iterator(resolved_args[0]);
-                        }
-                        _ => {
-                            // User-defined generic: Applied type
-                            return engine.pool_mut().applied(*name, &resolved_args);
-                        }
+                    if let Some(idx) = crate::check::resolve_well_known_generic(
+                        engine.pool_mut(),
+                        name_str,
+                        &resolved_args,
+                    ) {
+                        return idx;
                     }
                 }
-                // No interner — create Applied type with name and args
                 return engine.pool_mut().applied(*name, &resolved_args);
             }
 
@@ -127,8 +113,8 @@ pub fn resolve_parsed_type(
                     "byte" => return Idx::BYTE,
                     "void" | "()" => return Idx::UNIT,
                     "never" | "Never" => return Idx::NEVER,
-                    "duration" => return Idx::DURATION,
-                    "size" => return Idx::SIZE,
+                    "Duration" | "duration" => return Idx::DURATION,
+                    "Size" | "size" => return Idx::SIZE,
                     "ordering" | "Ordering" => return Idx::ORDERING,
                     _ => {}
                 }
@@ -244,105 +230,35 @@ pub(crate) fn resolve_and_check_parsed_type(
     parsed: &ParsedType,
     span: Span,
 ) -> Idx {
-    check_parsed_type_object_safety_infer(engine, parsed, span, arena);
+    crate::check::check_parsed_type_object_safety(engine, parsed, span, arena);
     resolve_parsed_type(engine, arena, parsed)
 }
 
-/// Check a parsed type annotation for non-object-safe trait usage (E2024).
+/// `InferEngine` implementation of object safety checking.
 ///
-/// Mirrors `check_parsed_type_object_safety` from `signatures/mod.rs` but
-/// operates on `InferEngine` instead of `ModuleChecker`. This extends object
-/// safety checking to the inference phase: let bindings, lambda parameters,
-/// lambda return types, sequence bindings, and type casts.
-fn check_parsed_type_object_safety_infer(
-    engine: &mut InferEngine<'_>,
-    parsed: &ParsedType,
-    span: Span,
-    arena: &ExprArena,
-) {
-    match parsed {
-        ParsedType::Named { name, type_args } => {
-            let type_arg_ids = arena.get_parsed_type_list(*type_args);
-
-            // Well-known concrete types (Iterator<T>, etc.) have dedicated Pool
-            // constructors and are NOT trait objects. Skip object safety check.
-            let skip = engine
-                .lookup_name(*name)
-                .is_some_and(|s| crate::check::is_concrete_named_type(s, type_arg_ids.len()));
-            if !skip {
-                check_trait_object_safety(engine, *name, span);
-            }
-
-            // Recurse into type arguments (e.g., `[Clone]` has Clone inside List)
-            for &arg_id in type_arg_ids {
-                let arg = arena.get_parsed_type(arg_id);
-                check_parsed_type_object_safety_infer(engine, arg, span, arena);
-            }
-        }
-
-        ParsedType::TraitBounds(bounds) => {
-            // Each bound in `Printable + Hashable` must be object-safe
-            let bound_ids = arena.get_parsed_type_list(*bounds);
-            for &bound_id in bound_ids {
-                let bound = arena.get_parsed_type(bound_id);
-                check_parsed_type_object_safety_infer(engine, bound, span, arena);
-            }
-        }
-
-        // Recurse into compound types that may contain trait objects
-        ParsedType::List(elem_id) | ParsedType::FixedList { elem: elem_id, .. } => {
-            let elem = arena.get_parsed_type(*elem_id);
-            check_parsed_type_object_safety_infer(engine, elem, span, arena);
-        }
-        ParsedType::Map { key, value } => {
-            let key_parsed = arena.get_parsed_type(*key);
-            let value_parsed = arena.get_parsed_type(*value);
-            check_parsed_type_object_safety_infer(engine, key_parsed, span, arena);
-            check_parsed_type_object_safety_infer(engine, value_parsed, span, arena);
-        }
-        ParsedType::Tuple(elems) => {
-            let elem_ids = arena.get_parsed_type_list(*elems);
-            for &elem_id in elem_ids {
-                let elem = arena.get_parsed_type(elem_id);
-                check_parsed_type_object_safety_infer(engine, elem, span, arena);
-            }
-        }
-        ParsedType::Function { params, ret } => {
-            let param_ids = arena.get_parsed_type_list(*params);
-            for &param_id in param_ids {
-                let param = arena.get_parsed_type(param_id);
-                check_parsed_type_object_safety_infer(engine, param, span, arena);
-            }
-            let ret_parsed = arena.get_parsed_type(*ret);
-            check_parsed_type_object_safety_infer(engine, ret_parsed, span, arena);
-        }
-        ParsedType::AssociatedType { base, .. } => {
-            let base_parsed = arena.get_parsed_type(*base);
-            check_parsed_type_object_safety_infer(engine, base_parsed, span, arena);
-        }
-
-        // Leaf types: no trait object usage possible
-        ParsedType::Primitive(_)
-        | ParsedType::Infer
-        | ParsedType::SelfType
-        | ParsedType::ConstExpr(_) => {}
+/// Unlike `ModuleChecker`, `InferEngine` has an *optional* trait registry
+/// (it may not be set during isolated inference). When absent, all names
+/// pass the object safety check.
+impl ObjectSafetyChecker for InferEngine<'_> {
+    fn is_well_known_concrete(&self, name: Name, num_args: usize) -> bool {
+        self.lookup_name(name)
+            .is_some_and(|s| crate::check::is_concrete_named_type(s, num_args))
     }
-}
 
-/// Check if a trait name refers to a non-object-safe trait, emitting E2024 if so.
-fn check_trait_object_safety(engine: &mut InferEngine<'_>, name: Name, span: Span) {
-    // Borrow dance: scope the trait_registry borrow to extract violations,
-    // then use engine mutably to push the error.
-    let violations = {
-        let Some(trait_reg) = engine.trait_registry() else {
-            return;
+    fn check_and_emit(&mut self, name: Name, span: Span) {
+        // Borrow dance: scope the trait_registry borrow to extract violations,
+        // then use self mutably to push the error.
+        let violations: Option<Vec<ObjectSafetyViolation>> = {
+            let Some(trait_reg) = self.trait_registry() else {
+                return;
+            };
+            trait_reg
+                .get_trait_by_name(name)
+                .filter(|entry| !entry.is_object_safe())
+                .map(|entry| entry.object_safety_violations.clone())
         };
-        trait_reg
-            .get_trait_by_name(name)
-            .filter(|entry| !entry.is_object_safe())
-            .map(|entry| entry.object_safety_violations.clone())
-    };
-    if let Some(violations) = violations {
-        engine.push_error(TypeCheckError::not_object_safe(span, name, violations));
+        if let Some(violations) = violations {
+            self.push_error(TypeCheckError::not_object_safe(span, name, violations));
+        }
     }
 }

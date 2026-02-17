@@ -68,11 +68,14 @@ pub use api::{
 
 mod api;
 mod bodies;
+mod object_safety;
 mod registration;
 mod signatures;
+mod well_known;
 
 // Re-export for use in sibling modules (e.g., infer::expr::type_resolution).
-pub(crate) use registration::is_concrete_named_type;
+pub(crate) use object_safety::{check_parsed_type_object_safety, ObjectSafetyChecker};
+pub(crate) use well_known::{is_concrete_named_type, resolve_well_known_generic};
 
 #[cfg(test)]
 mod integration_tests;
