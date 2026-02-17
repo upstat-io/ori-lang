@@ -183,6 +183,7 @@ pub(crate) struct OpNames {
     pub(crate) negate: Name,
     pub(crate) not: Name,
     pub(crate) bit_not: Name,
+    pub(crate) index: Name,
 }
 
 impl OpNames {
@@ -203,6 +204,7 @@ impl OpNames {
             negate: interner.intern("negate"),
             not: interner.intern("not"),
             bit_not: interner.intern("bit_not"),
+            index: interner.intern("index"),
         }
     }
 }
@@ -682,6 +684,17 @@ fn is_primitive_value(value: &Value) -> bool {
             | Value::Ok(_)
             | Value::Err(_)
             | Value::Range(_)
+    )
+}
+
+/// Check if a value is a built-in indexable type (list, map, str, tuple).
+///
+/// These types use the fast-path direct indexing with `#` hash-length support.
+/// User-defined types dispatch through `Index` trait methods instead.
+fn is_builtin_indexable(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::List(_) | Value::Map(_) | Value::Str(_) | Value::Tuple(_)
     )
 }
 

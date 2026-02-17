@@ -848,39 +848,37 @@ Introduces the `Index` trait for read-only custom subscripting, allowing user-de
 
 ### Implementation
 
-- [ ] **Implement**: `Index<Key, Value>` trait definition in prelude
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — index trait parsing/bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/index/definition.ori`
+- [x] **Implement**: `Index<Key, Value>` trait definition in prelude *(2026-02-17)*
+  - [x] **Ori Tests**: `tests/spec/traits/index/definition.ori` *(2026-02-17)*
+  - [x] **Ori Tests**: `tests/spec/traits/index/option_return.ori` *(2026-02-17)*
 
-- [ ] **Implement**: Desugaring `x[k]` to `x.index(key: k)` in parser/desugarer
-  - [ ] **Rust Tests**: `oric/src/desugar/tests.rs` — subscript desugaring tests
-  - [ ] **Ori Tests**: `tests/spec/traits/index/desugaring.ori`
+- [x] **Implement**: Desugaring `x[k]` to `x.index(key: k)` via type checker + evaluator fallback *(2026-02-17)*
+  - Type checker: `infer_index()` falls back to `resolve_index_via_trait()` for non-builtin types
+  - Evaluator: `CanExpr::Index` handler splits built-in (fast path) vs trait dispatch
   - [ ] **LLVM Support**: LLVM codegen for desugared index calls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/index_tests.rs`
 
-- [ ] **Implement**: Type inference for subscript expressions (resolve which `Index` impl based on key type)
-  - [ ] **Rust Tests**: `oric/src/typeck/infer/tests.rs` — subscript type inference tests
-  - [ ] **Ori Tests**: `tests/spec/traits/index/inference.ori`
+- [x] **Implement**: Type inference for subscript expressions (resolve which `Index` impl based on key type) *(2026-02-17)*
+  - Uses `lookup_method_checked()` for ambiguity detection
 
 - [ ] **Implement**: Multiple `Index` impls per type (different key types)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — multiple impl resolution
+  - Ambiguity detection via `lookup_method_checked` is in place
+  - [ ] Full multiple-key-type resolution (requires trait registry to distinguish Index impls by key type parameter)
   - [ ] **Ori Tests**: `tests/spec/traits/index/multiple_impls.ori`
 
 - [ ] **Implement**: Built-in `Index` implementations for `[T]`, `[T, max N]`, `{K: V}`, `str`
-  - [ ] `[T]` implements `Index<int, T>` (panics on out-of-bounds)
-  - [ ] `[T, max N]` implements `Index<int, T>` (same as `[T]`)
-  - [ ] `{K: V}` implements `Index<K, Option<V>>`
-  - [ ] `str` implements `Index<int, str>` (single codepoint, panics on out-of-bounds)
+  - These already work via direct dispatch (hardcoded in `infer_index` and `eval_index`)
+  - [ ] Formal trait impls (register in TraitRegistry for coherence)
   - [ ] **Ori Tests**: `tests/spec/traits/index/builtin_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for builtin Index impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/index_tests.rs`
 
-- [ ] **Implement**: Error messages for Index trait (E0950-E0952)
-  - [ ] E0950: mismatched types in index expression
-  - [ ] E0951: type cannot be indexed (Index not implemented)
-  - [ ] E0952: ambiguous index key type
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — error message tests
-  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/index_errors.ori`
+- [x] **Implement**: Error messages for Index trait (E2025-E2027) *(2026-02-17)*
+  - [x] E2025: type does not implement Index (not indexable)
+  - [x] E2026: wrong key type for Index impl
+  - [x] E2027: ambiguous index key type (multiple impls match)
+  - [x] Error documentation: `E2025.md`, `E2026.md`, `E2027.md`
+  - [x] **Ori Compile-Fail Tests**: `tests/compile-fail/index_no_impl.ori`, `tests/compile-fail/index_wrong_key.ori`
 
 - [ ] **Update Spec**: `09-expressions.md` — expand Index Trait section with fixed-capacity list
 - [ ] **Update Spec**: `06-types.md` — add Index trait to prelude section

@@ -1,0 +1,82 @@
+// Spec: 09-expressions.md § Index Trait
+// Tests for user-defined Index<Key, Value> trait implementations
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Basic Index impl — struct indexed by int, returning int
+// =============================================================================
+
+type Pair = { first: int, second: int }
+
+impl Index<int, int> for Pair {
+    @index (self, key: int) -> int = if key == 0 then self.first else self.second
+}
+
+@pair_index_first () -> int = run(
+    let p = Pair { first: 10, second: 20 },
+    p[0]
+)
+
+@test_pair_index_first tests @pair_index_first () -> void =
+    assert_eq(actual: pair_index_first(), expected: 10)
+
+@pair_index_second () -> int = run(
+    let p = Pair { first: 10, second: 20 },
+    p[1]
+)
+
+@test_pair_index_second tests @pair_index_second () -> void =
+    assert_eq(actual: pair_index_second(), expected: 20)
+
+// =============================================================================
+// Index with string key
+// =============================================================================
+
+type Config = { host: str, port: int }
+
+impl Index<str, str> for Config {
+    @index (self, key: str) -> str = match(key,
+        "host" -> self.host,
+        "port" -> self.port.to_string(),
+        _ -> "",
+    )
+}
+
+@config_index () -> str = run(
+    let c = Config { host: "localhost", port: 8080 },
+    c["host"]
+)
+
+@test_config_index tests @config_index () -> void =
+    assert_eq(actual: config_index(), expected: "localhost")
+
+// =============================================================================
+// Index result used in expressions
+// =============================================================================
+
+@pair_index_in_arithmetic () -> int = run(
+    let p = Pair { first: 10, second: 20 },
+    p[0] + p[1]
+)
+
+@test_pair_index_in_arithmetic tests @pair_index_in_arithmetic () -> void =
+    assert_eq(actual: pair_index_in_arithmetic(), expected: 30)
+
+// =============================================================================
+// Chained indexing — Index returns a list, then list is indexed
+// =============================================================================
+
+type Grid = { rows: [[int]] }
+
+impl Index<int, [int]> for Grid {
+    @index (self, key: int) -> [int] = self.rows[key]
+}
+
+@chained_index () -> int = run(
+    let g = Grid { rows: [[1, 2], [3, 4]] },
+    g[1][0]
+)
+
+@test_chained_index tests @chained_index () -> void =
+    assert_eq(actual: chained_index(), expected: 3)
