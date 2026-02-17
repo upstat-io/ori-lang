@@ -43,6 +43,7 @@ fn register_and_lookup_trait() {
         super_traits: vec![],
         methods,
         assoc_types: FxHashMap::default(),
+        object_safety_violations: vec![],
         span: test_span(),
     });
 
@@ -77,6 +78,7 @@ fn register_and_lookup_impl() {
         super_traits: vec![],
         methods: FxHashMap::default(),
         assoc_types: FxHashMap::default(),
+        object_safety_violations: vec![],
         span: test_span(),
     });
 
@@ -181,6 +183,7 @@ fn method_lookup_priority() {
         super_traits: vec![],
         methods: FxHashMap::default(),
         assoc_types: FxHashMap::default(),
+        object_safety_violations: vec![],
         span: test_span(),
     });
 
@@ -254,6 +257,7 @@ fn coherence_check() {
         super_traits: vec![],
         methods: FxHashMap::default(),
         assoc_types: FxHashMap::default(),
+        object_safety_violations: vec![],
         span: test_span(),
     });
 
@@ -302,6 +306,7 @@ fn associated_types() {
         super_traits: vec![],
         methods: FxHashMap::default(),
         assoc_types,
+        object_safety_violations: vec![],
         span: test_span(),
     });
 
@@ -332,6 +337,7 @@ fn register_simple_trait(
         super_traits,
         methods,
         assoc_types: FxHashMap::default(),
+        object_safety_violations: vec![],
         span: test_span(),
     });
 }

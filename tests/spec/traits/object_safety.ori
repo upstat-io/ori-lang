@@ -1,0 +1,35 @@
+// Object safety: verifies that object-safe traits are accepted as types
+// Spec: 06-types.md § Object Safety Rules
+//
+// Note: Full trait object dispatch (passing concrete types as trait objects)
+// requires coercion support. See compile-fail/ tests for object safety
+// error detection (the primary deliverable of Section 3.11).
+
+use std.testing { assert_eq }
+
+// Object-safe: returns str, not Self — no E2024
+trait Describable {
+    @describe (self) -> str
+}
+
+// Object-safe: returns int, no Self in params — no E2024
+trait Hashable {
+    @hash (self) -> int
+}
+
+type Point = { x: int, y: int }
+
+impl Describable for Point {
+    @describe (self) -> str = "Point(" + self.x.to_str() + ", " + self.y.to_str() + ")"
+}
+
+impl Hashable for Point {
+    @hash (self) -> int = self.x * 31 + self.y
+}
+
+// Verify: calling trait methods directly on concrete types still works
+@test_trait_method_call () -> void = run(
+    let p = Point { x: 3, y: 4 },
+    assert_eq(actual: p.describe(), expected: "Point(3, 4)"),
+    assert_eq(actual: p.hash(), expected: 97)
+)

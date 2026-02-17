@@ -69,8 +69,65 @@ pub struct TraitEntry {
     /// Associated types defined by this trait.
     pub assoc_types: FxHashMap<Name, TraitAssocTypeDef>,
 
+    /// Object safety violations found in this trait's methods.
+    ///
+    /// Empty means the trait is object-safe (can be used as a trait object).
+    /// Computed during registration by analyzing method signatures for:
+    /// - `Self` in return position (can't know size at runtime)
+    /// - `Self` in parameter position except receiver (can't verify type match)
+    /// - Generic methods (require monomorphization, incompatible with vtable)
+    pub object_safety_violations: Vec<ObjectSafetyViolation>,
+
     /// Source location of the definition.
     pub span: Span,
+}
+
+impl TraitEntry {
+    /// Check if this trait can be used as a trait object.
+    ///
+    /// A trait is object-safe if none of its methods violate the three rules:
+    /// 1. No `Self` in return position
+    /// 2. No `Self` in parameter position (except receiver)
+    /// 3. No generic methods
+    #[inline]
+    pub fn is_object_safe(&self) -> bool {
+        self.object_safety_violations.is_empty()
+    }
+}
+
+/// A reason why a trait is not object-safe.
+///
+/// Each variant corresponds to a rule that the trait violates.
+/// A trait with any violations cannot be used as a trait object.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ObjectSafetyViolation {
+    /// Method returns `Self` — unknown size at runtime (Rule 1).
+    SelfReturn {
+        /// The method that returns `Self`.
+        method: Name,
+        /// Source location of the method.
+        span: Span,
+    },
+
+    /// Method takes `Self` as a non-receiver parameter — can't verify type
+    /// match at runtime (Rule 2).
+    SelfParam {
+        /// The method with `Self` parameter.
+        method: Name,
+        /// The parameter name that has `Self` type.
+        param: Name,
+        /// Source location of the method.
+        span: Span,
+    },
+
+    /// Method has its own generic type parameters — requires monomorphization,
+    /// which is incompatible with vtable dispatch (Rule 3).
+    GenericMethod {
+        /// The method with generic parameters.
+        method: Name,
+        /// Source location of the method.
+        span: Span,
+    },
 }
 
 /// A trait method signature.

@@ -54,6 +54,7 @@ pub use registry::{
     MethodLookupResult,
     // Method registry
     MethodRegistry,
+    ObjectSafetyViolation,
     StructDef,
     TraitAssocTypeDef,
     TraitEntry,

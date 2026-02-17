@@ -15,9 +15,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::ModuleChecker;
 use crate::{
-    EnumVariant, FieldDef, Idx, ImplEntry, ImplMethodDef, ImplSpecificity, TraitAssocTypeDef,
-    TraitEntry, TraitMethodDef, TypeCheckError, VariantDef, VariantFields, Visibility,
-    WhereConstraint,
+    EnumVariant, FieldDef, Idx, ImplEntry, ImplMethodDef, ImplSpecificity, ObjectSafetyViolation,
+    TraitAssocTypeDef, TraitEntry, TraitMethodDef, TypeCheckError, VariantDef, VariantFields,
+    Visibility, WhereConstraint,
 };
 
 // ============================================================================
@@ -466,7 +466,10 @@ fn register_trait(checker: &mut ModuleChecker<'_>, trait_def: &ori_ir::TraitDef)
         .map(|bound| checker.pool_mut().named(bound.name()))
         .collect();
 
-    // 5. Register in TraitRegistry
+    // 5. Compute object safety violations from the original AST
+    let object_safety_violations = compute_object_safety_violations(checker, trait_def);
+
+    // 6. Register in TraitRegistry
     let entry = TraitEntry {
         name: trait_def.name,
         idx,
@@ -474,10 +477,111 @@ fn register_trait(checker: &mut ModuleChecker<'_>, trait_def: &ori_ir::TraitDef)
         super_traits,
         methods,
         assoc_types,
+        object_safety_violations,
         span: trait_def.span,
     };
 
     checker.trait_registry_mut().register_trait(entry);
+}
+
+/// Analyze a trait definition for object safety violations.
+///
+/// Checks each trait method against the three object safety rules:
+/// 1. No `Self` in return position
+/// 2. No `Self` in parameter position (except `self` receiver)
+/// 3. No per-method generic type parameters (currently not parseable)
+///
+/// Returns violations found. An empty list means the trait is object-safe.
+fn compute_object_safety_violations(
+    checker: &ModuleChecker<'_>,
+    trait_def: &ori_ir::TraitDef,
+) -> Vec<ObjectSafetyViolation> {
+    let mut violations = Vec::new();
+    let arena = checker.arena();
+
+    for item in &trait_def.items {
+        let (name, params_range, return_ty, span) = match item {
+            TraitItem::MethodSig(sig) => (sig.name, sig.params, &sig.return_ty, sig.span),
+            TraitItem::DefaultMethod(m) => (m.name, m.params, &m.return_ty, m.span),
+            TraitItem::AssocType(_) => continue,
+        };
+
+        // Rule 1: Check return type for Self
+        if parsed_type_contains_self(arena, return_ty) {
+            violations.push(ObjectSafetyViolation::SelfReturn { method: name, span });
+        }
+
+        // Rule 2: Check non-receiver params for Self
+        let params = arena.get_params(params_range);
+        for (i, param) in params.iter().enumerate() {
+            // Skip the first parameter if it's `self` (the receiver)
+            if i == 0 && checker.interner().lookup(param.name) == "self" {
+                continue;
+            }
+
+            if let Some(ty) = &param.ty {
+                if parsed_type_contains_self(arena, ty) {
+                    violations.push(ObjectSafetyViolation::SelfParam {
+                        method: name,
+                        param: param.name,
+                        span,
+                    });
+                }
+            }
+        }
+
+        // Rule 3: Generic methods — currently trait methods cannot have their
+        // own generics (TraitMethodSig has no `generics` field), so this rule
+        // cannot be violated. When per-method generics are added to the parser,
+        // this check will need to be implemented.
+    }
+
+    violations
+}
+
+/// Check if a `ParsedType` tree contains `SelfType` anywhere.
+///
+/// Recursively walks the type tree looking for `ParsedType::SelfType`.
+/// Used for object safety analysis: methods returning `Self` or taking
+/// `Self` as a non-receiver parameter make a trait non-object-safe.
+fn parsed_type_contains_self(arena: &ori_ir::ExprArena, ty: &ParsedType) -> bool {
+    match ty {
+        ParsedType::SelfType => true,
+
+        // Leaf types — never contain Self
+        ParsedType::Primitive(_) | ParsedType::Infer | ParsedType::ConstExpr(_) => false,
+
+        // Named types — check type arguments
+        ParsedType::Named { type_args, .. } => {
+            let args = arena.get_parsed_type_list(*type_args);
+            args.iter()
+                .any(|&id| parsed_type_contains_self(arena, arena.get_parsed_type(id)))
+        }
+
+        // Container types — check children
+        ParsedType::List(elem) | ParsedType::FixedList { elem, .. } => {
+            parsed_type_contains_self(arena, arena.get_parsed_type(*elem))
+        }
+        ParsedType::Map { key, value } => {
+            parsed_type_contains_self(arena, arena.get_parsed_type(*key))
+                || parsed_type_contains_self(arena, arena.get_parsed_type(*value))
+        }
+        ParsedType::Tuple(elems) | ParsedType::TraitBounds(elems) => {
+            let ids = arena.get_parsed_type_list(*elems);
+            ids.iter()
+                .any(|&id| parsed_type_contains_self(arena, arena.get_parsed_type(id)))
+        }
+        ParsedType::Function { params, ret } => {
+            let param_ids = arena.get_parsed_type_list(*params);
+            param_ids
+                .iter()
+                .any(|&id| parsed_type_contains_self(arena, arena.get_parsed_type(id)))
+                || parsed_type_contains_self(arena, arena.get_parsed_type(*ret))
+        }
+        ParsedType::AssociatedType { base, .. } => {
+            parsed_type_contains_self(arena, arena.get_parsed_type(*base))
+        }
+    }
 }
 
 /// Build a `TraitMethodDef` from a required method signature.
