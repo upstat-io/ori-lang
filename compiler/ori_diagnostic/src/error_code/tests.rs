@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use super::*;
 
 #[test]
@@ -103,6 +105,38 @@ fn test_all_is_complete() {
         101,
         "ALL length changed — did you add a new ErrorCode variant? Update ALL."
     );
+}
+
+/// Every variant in `ErrorCode::ALL` round-trips through `from_str(as_str())`.
+///
+/// This guarantees `from_str()` can parse every code the compiler can emit,
+/// since it derives from the same `ALL` array and `as_str()` match.
+#[test]
+fn test_from_str_round_trip() {
+    for &code in ErrorCode::ALL {
+        let s = code.as_str();
+        let parsed = ErrorCode::from_str(s);
+        assert_eq!(
+            parsed,
+            Ok(code),
+            "from_str({s:?}) should return Ok({code:?})"
+        );
+    }
+}
+
+/// `from_str()` is case-insensitive.
+#[test]
+fn test_from_str_case_insensitive() {
+    assert_eq!(ErrorCode::from_str("e2001"), Ok(ErrorCode::E2001));
+    assert_eq!(ErrorCode::from_str("w2001"), Ok(ErrorCode::W2001));
+}
+
+/// `from_str()` returns `Err` for unrecognized strings.
+#[test]
+fn test_from_str_unknown() {
+    assert!(ErrorCode::from_str("E9999").is_err());
+    assert!(ErrorCode::from_str("hello").is_err());
+    assert!(ErrorCode::from_str("").is_err());
 }
 
 #[test]

@@ -26,5 +26,5 @@ fn test_has_docs() {
 fn test_all_codes() {
     let codes: Vec<_> = ErrorDocs::all_codes().collect();
     assert!(codes.contains(&ErrorCode::E2001));
-    assert!(codes.len() >= 35); // We have at least 35 documented errors
+    assert!(codes.len() >= 46); // We have at least 46 documented codes
 }
