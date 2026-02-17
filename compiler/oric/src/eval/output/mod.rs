@@ -52,7 +52,8 @@ pub enum EvalOutput {
     /// Range value.
     Range {
         start: i64,
-        end: i64,
+        end: Option<i64>,
+        step: i64,
         inclusive: bool,
     },
     /// Function (not directly representable in Salsa; carries structured metadata).
@@ -75,6 +76,8 @@ pub enum EvalOutput {
     },
     /// Map (stored as key-value pairs).
     Map(Vec<(String, EvalOutput)>),
+    /// Set of unique values.
+    Set(Vec<EvalOutput>),
     /// Error during evaluation.
     Error(String),
 }
@@ -112,7 +115,12 @@ impl EvalOutput {
             Value::Range(r) => EvalOutput::Range {
                 start: r.start,
                 end: r.end,
+                step: r.step,
                 inclusive: r.inclusive,
+            },
+            Value::Iterator(it) => EvalOutput::Function {
+                description: format!("<iterator {it:?}>"),
+                arity: None,
             },
             Value::Function(f) => {
                 let arity = f.params.len();
@@ -185,6 +193,12 @@ impl EvalOutput {
                     .collect();
                 EvalOutput::Map(entries)
             }
+            Value::Set(items) => EvalOutput::Set(
+                items
+                    .values()
+                    .map(|v| Self::from_value(v, interner))
+                    .collect(),
+            ),
             Value::ModuleNamespace(ns) => EvalOutput::Function {
                 description: format!("<module namespace with {} items>", ns.len()),
                 arity: None,
@@ -235,12 +249,20 @@ impl EvalOutput {
             EvalOutput::Range {
                 start,
                 end,
+                step,
                 inclusive,
             } => {
-                if *inclusive {
-                    format!("{start}..={end}")
+                let base = match end {
+                    Some(end_val) => {
+                        let op = if *inclusive { "..=" } else { ".." };
+                        format!("{start}{op}{end_val}")
+                    }
+                    None => format!("{start}.."),
+                };
+                if *step == 1 {
+                    base
                 } else {
-                    format!("{start}..{end}")
+                    format!("{base} by {step}")
                 }
             }
             EvalOutput::Function { description, .. } | EvalOutput::Struct { description, .. } => {
@@ -266,6 +288,10 @@ impl EvalOutput {
                     .map(|(k, v)| format!("\"{}\": {}", k, v.display(interner)))
                     .collect();
                 format!("{{{}}}", inner.join(", "))
+            }
+            EvalOutput::Set(items) => {
+                let inner: Vec<_> = items.iter().map(|i| i.display(interner)).collect();
+                format!("Set {{{}}}", inner.join(", "))
             }
             EvalOutput::Error(msg) => format!("<error: {msg}>"),
         }
@@ -311,7 +337,8 @@ impl PartialEq for EvalOutput {
             ) => a == b && fc1 == fc2,
             // Vec<EvalOutput> types can be merged
             (EvalOutput::List(a), EvalOutput::List(b))
-            | (EvalOutput::Tuple(a), EvalOutput::Tuple(b)) => a == b,
+            | (EvalOutput::Tuple(a), EvalOutput::Tuple(b))
+            | (EvalOutput::Set(a), EvalOutput::Set(b)) => a == b,
             // Box<EvalOutput> types can be merged
             (EvalOutput::Some(a), EvalOutput::Some(b))
             | (EvalOutput::Ok(a), EvalOutput::Ok(b))
@@ -324,14 +351,16 @@ impl PartialEq for EvalOutput {
                 EvalOutput::Range {
                     start: s1,
                     end: e1,
+                    step: st1,
                     inclusive: i1,
                 },
                 EvalOutput::Range {
                     start: s2,
                     end: e2,
+                    step: st2,
                     inclusive: i2,
                 },
-            ) => s1 == s2 && e1 == e2 && i1 == i2,
+            ) => s1 == s2 && e1 == e2 && st1 == st2 && i1 == i2,
             // Variant with type, variant name, and fields
             (
                 EvalOutput::Variant {
@@ -381,7 +410,9 @@ impl Hash for EvalOutput {
                 field_count.hash(state);
             }
             // Vec<EvalOutput> types
-            EvalOutput::List(items) | EvalOutput::Tuple(items) => items.hash(state),
+            EvalOutput::List(items) | EvalOutput::Tuple(items) | EvalOutput::Set(items) => {
+                items.hash(state);
+            }
             // Box<EvalOutput> types
             EvalOutput::Some(v) | EvalOutput::Ok(v) | EvalOutput::Err(v) => v.hash(state),
             EvalOutput::Map(entries) => entries.hash(state),
@@ -390,10 +421,12 @@ impl Hash for EvalOutput {
             EvalOutput::Range {
                 start,
                 end,
+                step,
                 inclusive,
             } => {
                 start.hash(state);
                 end.hash(state);
+                step.hash(state);
                 inclusive.hash(state);
             }
             EvalOutput::Variant {

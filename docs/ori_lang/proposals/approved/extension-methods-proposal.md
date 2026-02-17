@@ -124,7 +124,7 @@ extend Iterator {
 
 ### Value Semantics
 
-Extension methods receive `self` by value and return new values (Ori has no mutation):
+Extension methods receive `self` by value and return new values (Ori has no in-place mutation — values are replaced, not modified):
 
 ```ori
 extend [T] {

@@ -16,6 +16,25 @@ struct MethodNames {
     collect: Name,
     any: Name,
     all: Name,
+    // Iterator-specific
+    next: Name,
+    take: Name,
+    skip: Name,
+    count: Name,
+    for_each: Name,
+    enumerate: Name,
+    zip: Name,
+    chain: Name,
+    flatten: Name,
+    flat_map: Name,
+    cycle: Name,
+    next_back: Name,
+    rev: Name,
+    last: Name,
+    rfind: Name,
+    rfold: Name,
+    // Internal (rewritten by canonicalization)
+    collect_set: Name,
 }
 
 impl MethodNames {
@@ -28,6 +47,23 @@ impl MethodNames {
             collect: interner.intern("collect"),
             any: interner.intern("any"),
             all: interner.intern("all"),
+            next: interner.intern("next"),
+            take: interner.intern("take"),
+            skip: interner.intern("skip"),
+            count: interner.intern("count"),
+            for_each: interner.intern("for_each"),
+            enumerate: interner.intern("enumerate"),
+            zip: interner.intern("zip"),
+            chain: interner.intern("chain"),
+            flatten: interner.intern("flatten"),
+            flat_map: interner.intern("flat_map"),
+            cycle: interner.intern("cycle"),
+            next_back: interner.intern("next_back"),
+            rev: interner.intern("rev"),
+            last: interner.intern("last"),
+            rfind: interner.intern("rfind"),
+            rfold: interner.intern("rfold"),
+            collect_set: interner.intern(ori_ir::builtin_constants::iterator::COLLECT_SET_METHOD),
         }
     }
 }
@@ -51,6 +87,62 @@ impl CollectionMethodResolver {
     pub fn new(interner: &StringInterner) -> Self {
         Self {
             methods: MethodNames::new(interner),
+        }
+    }
+
+    /// Resolve methods on `Iterator<T>` values.
+    fn resolve_iterator_method(&self, method_name: Name) -> Option<CollectionMethod> {
+        let m = &self.methods;
+        if method_name == m.next {
+            Some(CollectionMethod::IterNext)
+        } else if method_name == m.map {
+            Some(CollectionMethod::IterMap)
+        } else if method_name == m.filter {
+            Some(CollectionMethod::IterFilter)
+        } else if method_name == m.take {
+            Some(CollectionMethod::IterTake)
+        } else if method_name == m.skip {
+            Some(CollectionMethod::IterSkip)
+        } else if method_name == m.fold {
+            Some(CollectionMethod::IterFold)
+        } else if method_name == m.count {
+            Some(CollectionMethod::IterCount)
+        } else if method_name == m.find {
+            Some(CollectionMethod::IterFind)
+        } else if method_name == m.any {
+            Some(CollectionMethod::IterAny)
+        } else if method_name == m.all {
+            Some(CollectionMethod::IterAll)
+        } else if method_name == m.for_each {
+            Some(CollectionMethod::IterForEach)
+        } else if method_name == m.collect {
+            Some(CollectionMethod::IterCollect)
+        } else if method_name == m.enumerate {
+            Some(CollectionMethod::IterEnumerate)
+        } else if method_name == m.zip {
+            Some(CollectionMethod::IterZip)
+        } else if method_name == m.chain {
+            Some(CollectionMethod::IterChain)
+        } else if method_name == m.flatten {
+            Some(CollectionMethod::IterFlatten)
+        } else if method_name == m.flat_map {
+            Some(CollectionMethod::IterFlatMap)
+        } else if method_name == m.cycle {
+            Some(CollectionMethod::IterCycle)
+        } else if method_name == m.next_back {
+            Some(CollectionMethod::IterNextBack)
+        } else if method_name == m.rev {
+            Some(CollectionMethod::IterRev)
+        } else if method_name == m.last {
+            Some(CollectionMethod::IterLast)
+        } else if method_name == m.rfind {
+            Some(CollectionMethod::IterRFind)
+        } else if method_name == m.rfold {
+            Some(CollectionMethod::IterRFold)
+        } else if method_name == m.collect_set {
+            Some(CollectionMethod::IterCollectSet)
+        } else {
+            None
         }
     }
 
@@ -100,6 +192,9 @@ impl MethodResolver for CollectionMethodResolver {
                     MethodResolution::NotFound
                 }
             }
+            Value::Iterator(_) => self
+                .resolve_iterator_method(method_name)
+                .map_or(MethodResolution::NotFound, MethodResolution::Collection),
             _ => MethodResolution::NotFound,
         }
     }

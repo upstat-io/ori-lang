@@ -2,6 +2,8 @@
 
 use ori_ir::Name;
 
+mod iterator;
+
 use crate::errors::{
     all_requires_list, any_requires_list, collect_requires_range, filter_entries_not_implemented,
     filter_entries_requires_map, filter_requires_collection, find_requires_list,
@@ -194,6 +196,32 @@ impl Interpreter<'_> {
                 Value::Map(_) => Err(filter_entries_not_implemented().into()),
                 _ => Err(filter_entries_requires_map().into()),
             },
+
+            // Iterator methods — delegate to iterator submodule
+            CollectionMethod::IterNext
+            | CollectionMethod::IterMap
+            | CollectionMethod::IterFilter
+            | CollectionMethod::IterTake
+            | CollectionMethod::IterSkip
+            | CollectionMethod::IterEnumerate
+            | CollectionMethod::IterZip
+            | CollectionMethod::IterChain
+            | CollectionMethod::IterFlatten
+            | CollectionMethod::IterFlatMap
+            | CollectionMethod::IterCycle
+            | CollectionMethod::IterNextBack
+            | CollectionMethod::IterRev
+            | CollectionMethod::IterLast
+            | CollectionMethod::IterRFind
+            | CollectionMethod::IterRFold
+            | CollectionMethod::IterFold
+            | CollectionMethod::IterCount
+            | CollectionMethod::IterFind
+            | CollectionMethod::IterAny
+            | CollectionMethod::IterAll
+            | CollectionMethod::IterForEach
+            | CollectionMethod::IterCollect
+            | CollectionMethod::IterCollectSet => self.eval_iterator_method(receiver, method, args),
         }
     }
 
@@ -373,22 +401,34 @@ impl Interpreter<'_> {
     )]
     fn eval_range_collect(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("collect", 0, args)?;
+        if range.is_unbounded() {
+            return Err(crate::errors::unbounded_range_eager("collect").into());
+        }
         let result: Vec<Value> = range.iter().map(Value::int).collect();
         Ok(Value::list(result))
     }
 
     fn eval_range_map(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("map", 1, args)?;
+        if range.is_unbounded() {
+            return Err(crate::errors::unbounded_range_eager("map").into());
+        }
         self.map_iterator(range.iter().map(Value::int), &args[0])
     }
 
     fn eval_range_filter(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("filter", 1, args)?;
+        if range.is_unbounded() {
+            return Err(crate::errors::unbounded_range_eager("filter").into());
+        }
         self.filter_iterator(range.iter().map(Value::int), &args[0])
     }
 
     fn eval_range_fold(&mut self, range: &crate::RangeValue, args: &[Value]) -> EvalResult {
         Self::expect_arg_count("fold", 2, args)?;
+        if range.is_unbounded() {
+            return Err(crate::errors::unbounded_range_eager("fold").into());
+        }
         self.fold_iterator(range.iter().map(Value::int), args[0].clone(), &args[1])
     }
 
@@ -427,6 +467,7 @@ impl Interpreter<'_> {
         match value {
             Value::Struct(s) => s.type_name,
             Value::Range(_) => names.range,
+            Value::Iterator(_) => names.iterator,
             Value::Int(_) => names.int,
             Value::Float(_) => names.float,
             Value::Bool(_) => names.bool_,
@@ -439,6 +480,7 @@ impl Interpreter<'_> {
             Value::Ordering(_) => names.ordering,
             Value::List(_) => names.list,
             Value::Map(_) => names.map,
+            Value::Set(_) => names.set,
             Value::Tuple(_) => names.tuple,
             Value::Some(_) | Value::None => names.option,
             Value::Ok(_) | Value::Err(_) => names.result,

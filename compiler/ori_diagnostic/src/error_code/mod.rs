@@ -125,6 +125,14 @@ pub enum ErrorCode {
     E2019,
     /// Unsupported operator (type does not implement operator trait)
     E2020,
+    /// Overlapping implementations with equal specificity
+    E2021,
+    /// Conflicting default methods from multiple super-traits
+    E2022,
+    /// Ambiguous method call (multiple traits provide same method)
+    E2023,
+    /// Trait is not object-safe (cannot be used as trait object)
+    E2024,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -229,9 +237,132 @@ pub enum ErrorCode {
     W1001,
     /// Unknown calling convention in extern block
     W1002,
+
+    // Type Checker Warnings (W2xxx)
+    /// Infinite iterator consumed without bound (e.g., `repeat(x).collect()`)
+    W2001,
 }
 
 impl ErrorCode {
+    /// All error code variants, for exhaustive testing.
+    ///
+    /// Kept in sync with `as_str()` which is exhaustive (Rust match enforces it).
+    /// When adding a new variant: add it to the enum, `as_str()`, and here.
+    /// The `test_all_variants_classified` test catches any omission.
+    pub const ALL: &[ErrorCode] = &[
+        // Lexer
+        ErrorCode::E0001,
+        ErrorCode::E0002,
+        ErrorCode::E0003,
+        ErrorCode::E0004,
+        ErrorCode::E0005,
+        ErrorCode::E0006,
+        ErrorCode::E0007,
+        ErrorCode::E0008,
+        ErrorCode::E0009,
+        ErrorCode::E0010,
+        ErrorCode::E0011,
+        ErrorCode::E0012,
+        ErrorCode::E0013,
+        ErrorCode::E0014,
+        ErrorCode::E0015,
+        ErrorCode::E0911,
+        // Parser
+        ErrorCode::E1001,
+        ErrorCode::E1002,
+        ErrorCode::E1003,
+        ErrorCode::E1004,
+        ErrorCode::E1005,
+        ErrorCode::E1006,
+        ErrorCode::E1007,
+        ErrorCode::E1008,
+        ErrorCode::E1009,
+        ErrorCode::E1010,
+        ErrorCode::E1011,
+        ErrorCode::E1012,
+        ErrorCode::E1013,
+        ErrorCode::E1014,
+        ErrorCode::E1015,
+        // Type
+        ErrorCode::E2001,
+        ErrorCode::E2002,
+        ErrorCode::E2003,
+        ErrorCode::E2004,
+        ErrorCode::E2005,
+        ErrorCode::E2006,
+        ErrorCode::E2007,
+        ErrorCode::E2008,
+        ErrorCode::E2009,
+        ErrorCode::E2010,
+        ErrorCode::E2011,
+        ErrorCode::E2012,
+        ErrorCode::E2013,
+        ErrorCode::E2014,
+        ErrorCode::E2015,
+        ErrorCode::E2016,
+        ErrorCode::E2017,
+        ErrorCode::E2018,
+        ErrorCode::E2019,
+        ErrorCode::E2020,
+        ErrorCode::E2021,
+        ErrorCode::E2022,
+        ErrorCode::E2023,
+        ErrorCode::E2024,
+        // Pattern
+        ErrorCode::E3001,
+        ErrorCode::E3002,
+        ErrorCode::E3003,
+        // ARC
+        ErrorCode::E4001,
+        ErrorCode::E4002,
+        ErrorCode::E4003,
+        // Codegen / LLVM
+        ErrorCode::E5001,
+        ErrorCode::E5002,
+        ErrorCode::E5003,
+        ErrorCode::E5004,
+        ErrorCode::E5005,
+        ErrorCode::E5006,
+        ErrorCode::E5007,
+        ErrorCode::E5008,
+        ErrorCode::E5009,
+        // Runtime / Eval
+        ErrorCode::E6001,
+        ErrorCode::E6002,
+        ErrorCode::E6003,
+        ErrorCode::E6004,
+        ErrorCode::E6005,
+        ErrorCode::E6006,
+        ErrorCode::E6010,
+        ErrorCode::E6011,
+        ErrorCode::E6012,
+        ErrorCode::E6020,
+        ErrorCode::E6021,
+        ErrorCode::E6022,
+        ErrorCode::E6023,
+        ErrorCode::E6024,
+        ErrorCode::E6025,
+        ErrorCode::E6026,
+        ErrorCode::E6027,
+        ErrorCode::E6030,
+        ErrorCode::E6031,
+        ErrorCode::E6032,
+        ErrorCode::E6040,
+        ErrorCode::E6050,
+        ErrorCode::E6051,
+        ErrorCode::E6060,
+        ErrorCode::E6070,
+        ErrorCode::E6080,
+        ErrorCode::E6099,
+        // Internal
+        ErrorCode::E9001,
+        ErrorCode::E9002,
+        // Warnings
+        ErrorCode::W1001,
+        ErrorCode::W1002,
+        ErrorCode::W2001,
+    ];
+
     /// Get the numeric code as a string (e.g., "E1001").
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -289,6 +420,10 @@ impl ErrorCode {
             ErrorCode::E2018 => "E2018",
             ErrorCode::E2019 => "E2019",
             ErrorCode::E2020 => "E2020",
+            ErrorCode::E2021 => "E2021",
+            ErrorCode::E2022 => "E2022",
+            ErrorCode::E2023 => "E2023",
+            ErrorCode::E2024 => "E2024",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -341,6 +476,7 @@ impl ErrorCode {
             // Warnings
             ErrorCode::W1001 => "W1001",
             ErrorCode::W1002 => "W1002",
+            ErrorCode::W2001 => "W2001",
         }
     }
 
@@ -413,6 +549,10 @@ impl ErrorCode {
                 | ErrorCode::E2018
                 | ErrorCode::E2019
                 | ErrorCode::E2020
+                | ErrorCode::E2021
+                | ErrorCode::E2022
+                | ErrorCode::E2023
+                | ErrorCode::E2024
         )
     }
 
@@ -483,13 +623,30 @@ impl ErrorCode {
 
     /// Check if this is a warning code (Wxxx range).
     pub fn is_warning(&self) -> bool {
-        matches!(self, ErrorCode::W1001 | ErrorCode::W1002)
+        matches!(self, ErrorCode::W1001 | ErrorCode::W1002 | ErrorCode::W2001)
     }
 }
 
 impl fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+/// Parse an error code string like `"E2001"` or `"W2001"`.
+///
+/// Case-insensitive. Derived from [`ErrorCode::ALL`] and [`ErrorCode::as_str()`],
+/// so it is automatically exhaustive — no manual mirroring needed.
+impl std::str::FromStr for ErrorCode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let upper = s.to_uppercase();
+        Self::ALL
+            .iter()
+            .find(|code| code.as_str() == upper)
+            .copied()
+            .ok_or(())
     }
 }
 

@@ -13,7 +13,7 @@
 //! ```text
 //! 1. During inference: Track Expected { ty: int, origin: Annotation("x", line 5) }
 //! 2. At mismatch: Create TypeProblem::IntFloat (specific problem identified)
-//! 3. Generate Suggestion: "Use `to_int()` to convert float to int"
+//! 3. Generate Suggestion: "use `int(x)` to convert"
 //! 4. Build TypeCheckError with full context for rendering
 //! ```
 //!
@@ -30,6 +30,7 @@ mod diff;
 mod expected;
 mod problem;
 mod suggest;
+mod warning;
 
 pub use check_error::{
     ArityMismatchKind, ErrorContext, ImportErrorKind, TypeCheckError, TypeErrorKind,
@@ -38,4 +39,5 @@ pub use context::ContextKind;
 pub use diff::{diff_types, edit_distance, find_closest_field, suggest_field_typo};
 pub use expected::{Expected, ExpectedOrigin, SequenceKind};
 pub use problem::{Severity, TypeProblem};
+pub use warning::{TypeCheckWarning, TypeCheckWarningKind};
 // Suggestion is re-exported from ori_diagnostic (unified type).

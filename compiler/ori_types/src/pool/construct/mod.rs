@@ -47,6 +47,19 @@ impl Pool {
         self.intern(Tag::Range, elem.raw())
     }
 
+    /// Create an iterator type `Iterator<elem>`.
+    pub fn iterator(&mut self, elem: Idx) -> Idx {
+        self.intern(Tag::Iterator, elem.raw())
+    }
+
+    /// Create a double-ended iterator type `DoubleEndedIterator<elem>`.
+    ///
+    /// Subtype of `Iterator<T>` — supports `next_back`, `rev`, `last`, `rfind`, `rfold`
+    /// in addition to all Iterator methods.
+    pub fn double_ended_iterator(&mut self, elem: Idx) -> Idx {
+        self.intern(Tag::DoubleEndedIterator, elem.raw())
+    }
+
     // === Two-Child Container Constructors ===
 
     /// Create a map type `{key: value}`.

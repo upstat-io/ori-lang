@@ -57,7 +57,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     FunctionSig, Idx, InferEngine, MethodRegistry, PatternKey, PatternResolution, Pool,
-    TraitRegistry, TypeCheckError, TypeCheckResult, TypeEnv, TypeRegistry, TypedModule,
+    TraitRegistry, TypeCheckError, TypeCheckResult, TypeCheckWarning, TypeEnv, TypeRegistry,
+    TypedModule,
 };
 
 // Re-export main API
@@ -164,6 +165,8 @@ pub struct ModuleChecker<'a> {
     // === Diagnostics ===
     /// Accumulated type check errors.
     errors: Vec<TypeCheckError>,
+    /// Accumulated type check warnings.
+    warnings: Vec<TypeCheckWarning>,
 
     // === Pattern Resolutions ===
     /// Accumulated pattern resolutions from all checked bodies.
@@ -199,6 +202,7 @@ impl<'a> ModuleChecker<'a> {
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
             errors: Vec::new(),
+            warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
         }
@@ -232,6 +236,7 @@ impl<'a> ModuleChecker<'a> {
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
             errors: Vec::new(),
+            warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
         }
@@ -536,6 +541,11 @@ impl<'a> ModuleChecker<'a> {
         self.errors.push(error);
     }
 
+    /// Push a type check warning.
+    pub fn push_warning(&mut self, warning: TypeCheckWarning) {
+        self.warnings.push(warning);
+    }
+
     /// Report an undefined identifier error.
     pub fn error_undefined(&mut self, name: Name, span: Span) {
         self.errors
@@ -701,6 +711,7 @@ impl<'a> ModuleChecker<'a> {
             functions,
             types,
             errors: self.errors,
+            warnings: self.warnings,
             pattern_resolutions,
             impl_sigs: self.impl_sigs,
         };
@@ -732,6 +743,7 @@ impl<'a> ModuleChecker<'a> {
             functions,
             types,
             errors: self.errors,
+            warnings: self.warnings,
             pattern_resolutions,
             impl_sigs: self.impl_sigs,
         };

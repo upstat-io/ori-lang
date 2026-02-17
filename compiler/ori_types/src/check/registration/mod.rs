@@ -11,12 +11,13 @@
 use ori_ir::{
     DerivedTrait, ExprId, Module, Name, ParsedType, Span, TraitItem, Visibility as IrVisibility,
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::ModuleChecker;
 use crate::{
-    EnumVariant, FieldDef, Idx, ImplEntry, ImplMethodDef, TraitAssocTypeDef, TraitEntry,
-    TraitMethodDef, TypeCheckError, VariantDef, VariantFields, Visibility, WhereConstraint,
+    EnumVariant, FieldDef, Idx, ImplEntry, ImplMethodDef, ImplSpecificity, ObjectSafetyViolation,
+    TraitAssocTypeDef, TraitEntry, TraitMethodDef, TypeCheckError, VariantDef, VariantFields,
+    Visibility, WhereConstraint,
 };
 
 // ============================================================================
@@ -351,6 +352,10 @@ pub(super) fn resolve_parsed_type_simple(
                         return checker.pool_mut().channel(resolved_args[0]);
                     }
                     ("Range", 1) => return checker.pool_mut().range(resolved_args[0]),
+                    ("Iterator", 1) => return checker.pool_mut().iterator(resolved_args[0]),
+                    ("DoubleEndedIterator", 1) => {
+                        return checker.pool_mut().double_ended_iterator(resolved_args[0]);
+                    }
                     _ => {
                         return checker.pool_mut().applied(*name, &resolved_args);
                     }
@@ -454,17 +459,129 @@ fn register_trait(checker: &mut ModuleChecker<'_>, trait_def: &ori_ir::TraitDef)
         }
     }
 
-    // 4. Register in TraitRegistry
+    // 4. Resolve super-traits to pool indices
+    let super_traits: Vec<Idx> = trait_def
+        .super_traits
+        .iter()
+        .map(|bound| checker.pool_mut().named(bound.name()))
+        .collect();
+
+    // 5. Compute object safety violations from the original AST
+    let object_safety_violations = compute_object_safety_violations(checker, trait_def);
+
+    // 6. Register in TraitRegistry
     let entry = TraitEntry {
         name: trait_def.name,
         idx,
         type_params,
+        super_traits,
         methods,
         assoc_types,
+        object_safety_violations,
         span: trait_def.span,
     };
 
     checker.trait_registry_mut().register_trait(entry);
+}
+
+/// Analyze a trait definition for object safety violations.
+///
+/// Checks each trait method against the three object safety rules:
+/// 1. No `Self` in return position
+/// 2. No `Self` in parameter position (except `self` receiver)
+/// 3. No per-method generic type parameters (currently not parseable)
+///
+/// Returns violations found. An empty list means the trait is object-safe.
+fn compute_object_safety_violations(
+    checker: &ModuleChecker<'_>,
+    trait_def: &ori_ir::TraitDef,
+) -> Vec<ObjectSafetyViolation> {
+    let mut violations = Vec::new();
+    let arena = checker.arena();
+
+    for item in &trait_def.items {
+        let (name, params_range, return_ty, span) = match item {
+            TraitItem::MethodSig(sig) => (sig.name, sig.params, &sig.return_ty, sig.span),
+            TraitItem::DefaultMethod(m) => (m.name, m.params, &m.return_ty, m.span),
+            TraitItem::AssocType(_) => continue,
+        };
+
+        // Rule 1: Check return type for Self
+        if parsed_type_contains_self(arena, return_ty) {
+            violations.push(ObjectSafetyViolation::SelfReturn { method: name, span });
+        }
+
+        // Rule 2: Check non-receiver params for Self
+        let params = arena.get_params(params_range);
+        for (i, param) in params.iter().enumerate() {
+            // Skip the first parameter if it's `self` (the receiver)
+            if i == 0 && checker.interner().lookup(param.name) == "self" {
+                continue;
+            }
+
+            if let Some(ty) = &param.ty {
+                if parsed_type_contains_self(arena, ty) {
+                    violations.push(ObjectSafetyViolation::SelfParam {
+                        method: name,
+                        param: param.name,
+                        span,
+                    });
+                }
+            }
+        }
+
+        // Rule 3: Generic methods — currently trait methods cannot have their
+        // own generics (TraitMethodSig has no `generics` field), so this rule
+        // cannot be violated. When per-method generics are added to the parser,
+        // this check will need to be implemented.
+    }
+
+    violations
+}
+
+/// Check if a `ParsedType` tree contains `SelfType` anywhere.
+///
+/// Recursively walks the type tree looking for `ParsedType::SelfType`.
+/// Used for object safety analysis: methods returning `Self` or taking
+/// `Self` as a non-receiver parameter make a trait non-object-safe.
+fn parsed_type_contains_self(arena: &ori_ir::ExprArena, ty: &ParsedType) -> bool {
+    match ty {
+        ParsedType::SelfType => true,
+
+        // Leaf types — never contain Self
+        ParsedType::Primitive(_) | ParsedType::Infer | ParsedType::ConstExpr(_) => false,
+
+        // Named types — check type arguments
+        ParsedType::Named { type_args, .. } => {
+            let args = arena.get_parsed_type_list(*type_args);
+            args.iter()
+                .any(|&id| parsed_type_contains_self(arena, arena.get_parsed_type(id)))
+        }
+
+        // Container types — check children
+        ParsedType::List(elem) | ParsedType::FixedList { elem, .. } => {
+            parsed_type_contains_self(arena, arena.get_parsed_type(*elem))
+        }
+        ParsedType::Map { key, value } => {
+            parsed_type_contains_self(arena, arena.get_parsed_type(*key))
+                || parsed_type_contains_self(arena, arena.get_parsed_type(*value))
+        }
+        ParsedType::Tuple(elems) | ParsedType::TraitBounds(elems) => {
+            let ids = arena.get_parsed_type_list(*elems);
+            ids.iter()
+                .any(|&id| parsed_type_contains_self(arena, arena.get_parsed_type(id)))
+        }
+        ParsedType::Function { params, ret } => {
+            let param_ids = arena.get_parsed_type_list(*params);
+            param_ids
+                .iter()
+                .any(|&id| parsed_type_contains_self(arena, arena.get_parsed_type(id)))
+                || parsed_type_contains_self(arena, arena.get_parsed_type(*ret))
+        }
+        ParsedType::AssociatedType { base, .. } => {
+            parsed_type_contains_self(arena, arena.get_parsed_type(*base))
+        }
+    }
 }
 
 /// Build a `TraitMethodDef` from a required method signature.
@@ -628,8 +745,14 @@ fn register_impl(
         methods.insert(impl_method.name, method_def);
     }
 
-    // 4b. For trait impls, also register unoverridden default methods
+    // 4b. For trait impls, register unoverridden default methods (direct + transitive)
+    //
+    // explicit_methods tracks methods from steps 3+4b (explicit impl methods + direct
+    // trait defaults). Step 6c uses this to detect conflicting defaults — transitive
+    // defaults must NOT be in this set, otherwise conflicts are silently masked.
+    let explicit_methods: FxHashSet<Name>;
     if let Some(trait_path) = &impl_def.trait_path {
+        // Step 1: Direct defaults from the AST trait definition
         if let Some(&trait_name) = trait_path.last() {
             if let Some(trait_def) = traits.iter().find(|t| t.name == trait_name) {
                 for item in &trait_def.items {
@@ -642,6 +765,41 @@ fn register_impl(
                 }
             }
         }
+
+        // Snapshot explicit methods BEFORE transitive defaults are added.
+        explicit_methods = methods.keys().copied().collect();
+
+        // Step 2: Transitive defaults from super-trait hierarchy via the registry.
+        // Borrow dance: scope the immutable trait_registry borrow to extract the
+        // data we need, then use checker mutably for build_impl_method.
+        if let Some(t_idx) = trait_idx {
+            let transitive_defaults: Vec<(Name, Idx, ExprId, Span)> = {
+                let reg = checker.trait_registry();
+                reg.collected_methods(t_idx)
+                    .into_iter()
+                    .filter_map(|(name, _owner, def)| {
+                        let body = def.default_body?;
+                        if !def.has_default {
+                            return None;
+                        }
+                        Some((name, def.signature, body, def.span))
+                    })
+                    .collect()
+            };
+
+            for (name, signature, body, span) in transitive_defaults {
+                methods.entry(name).or_insert(ImplMethodDef {
+                    name,
+                    signature,
+                    has_self: true,
+                    body,
+                    span,
+                });
+            }
+        }
+    } else {
+        // Non-trait impls: all methods are explicit
+        explicit_methods = methods.keys().copied().collect();
     }
 
     // 5. Process associated type definitions
@@ -652,7 +810,7 @@ fn register_impl(
     }
 
     // 6. Process where clauses (const bounds filtered out — not yet evaluated)
-    let where_clause = impl_def
+    let where_clause: Vec<WhereConstraint> = impl_def
         .where_clauses
         .iter()
         .filter_map(|wc| build_where_constraint(checker, wc, &type_params, self_type))
@@ -681,17 +839,68 @@ fn register_impl(
         }
     }
 
+    // 6c. Check for conflicting default methods from super-traits
+    if let Some(t_idx) = trait_idx {
+        // Borrow dance: scope the registry borrow to extract conflict data
+        let conflicts: Vec<(Name, Vec<Name>)> = {
+            let reg = checker.trait_registry();
+            reg.find_conflicting_defaults(t_idx)
+                .into_iter()
+                .map(|(method_name, provider_idxs)| {
+                    let names: Vec<Name> = provider_idxs
+                        .iter()
+                        .filter_map(|&idx| reg.get_trait_by_idx(idx).map(|e| e.name))
+                        .collect();
+                    (method_name, names)
+                })
+                .collect()
+        };
+
+        for (method_name, provider_names) in conflicts {
+            // Only report if the impl doesn't explicitly override the method.
+            // Check against explicit_methods (step 3 + step 4b direct defaults),
+            // NOT the full methods map which includes transitive defaults.
+            if !explicit_methods.contains(&method_name) && provider_names.len() >= 2 {
+                checker.push_error(TypeCheckError::conflicting_defaults(
+                    impl_def.span,
+                    method_name,
+                    provider_names[0],
+                    provider_names[1],
+                ));
+            }
+        }
+    }
+
     // 7. Check for coherence violations
     if let Some(t_idx) = trait_idx {
-        if checker.trait_registry().has_impl(t_idx, self_type) {
-            // Coherence violation - duplicate impl
-            // TODO: Report error with E2010 error code
-            // For now, we skip registration to avoid panics
+        // Borrow dance: extract existing impl span and trait name, then push error
+        let existing: Option<(Span, Name)> = {
+            let reg = checker.trait_registry();
+            reg.find_impl(t_idx, self_type).and_then(|(_, entry)| {
+                let trait_name = reg.get_trait_by_idx(t_idx).map(|t| t.name)?;
+                Some((entry.span, trait_name))
+            })
+        };
+        if let Some((first_span, trait_name)) = existing {
+            checker.push_error(TypeCheckError::duplicate_impl(
+                impl_def.span,
+                first_span,
+                trait_name,
+            ));
             return;
         }
     }
 
-    // 8. Register in TraitRegistry
+    // 8. Compute specificity
+    let specificity = if type_params.is_empty() {
+        ImplSpecificity::Concrete
+    } else if !where_clause.is_empty() {
+        ImplSpecificity::Constrained
+    } else {
+        ImplSpecificity::Generic
+    };
+
+    // 9. Register in TraitRegistry
     let entry = ImplEntry {
         trait_idx,
         self_type,
@@ -699,6 +908,7 @@ fn register_impl(
         methods,
         assoc_types,
         where_clause,
+        specificity,
         span: impl_def.span,
     };
 
@@ -895,7 +1105,7 @@ fn register_derived_impl(
     // 5. Build method signatures for the derived trait
     let methods = build_derived_methods(checker, trait_name, self_type, type_decl.span);
 
-    // 6. Create and register the impl entry
+    // 6. Create and register the impl entry (derived impls are always concrete)
     let entry = ImplEntry {
         trait_idx: Some(trait_idx),
         self_type,
@@ -903,6 +1113,7 @@ fn register_derived_impl(
         methods,
         assoc_types: FxHashMap::default(),
         where_clause: Vec::new(),
+        specificity: ImplSpecificity::Concrete,
         span: type_decl.span,
     };
 
@@ -986,8 +1197,12 @@ fn infer_const_type(checker: &mut ModuleChecker<'_>, value_id: ori_ir::ExprId) -
     let mut engine = checker.create_engine();
     let ty = crate::infer_expr(&mut engine, arena, value_id);
     let errors = engine.take_errors();
+    let warnings = engine.take_warnings();
     for err in errors {
         checker.push_error(err);
+    }
+    for warning in warnings {
+        checker.push_warning(warning);
     }
     ty
 }

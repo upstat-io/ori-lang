@@ -718,10 +718,18 @@ pub fn range_bound_not_int(bound: &str) -> EvalError {
     EvalError::new(format!("range {bound} must be an integer"))
 }
 
-/// Unbounded range end.
+/// Cannot compute length of unbounded range.
 #[cold]
-pub fn unbounded_range_end() -> EvalError {
-    EvalError::new("unbounded range end")
+pub fn unbounded_range_length() -> EvalError {
+    EvalError::new("cannot compute length of unbounded range")
+}
+
+/// Cannot eagerly consume an unbounded range.
+#[cold]
+pub fn unbounded_range_eager(method: &str) -> EvalError {
+    EvalError::new(format!(
+        "cannot {method}() an unbounded range; use .iter().take(n).{method}() instead"
+    ))
 }
 
 /// Map keys must be hashable types (primitives, tuples of hashables).
@@ -924,12 +932,12 @@ pub fn filter_entries_not_implemented() -> EvalError {
     })
 }
 
-/// Index assignment not yet implemented.
+/// Index assignment (`list[i] = x`) is not supported.
 #[cold]
-pub fn index_assignment_not_implemented() -> EvalError {
+pub fn index_assignment_not_supported() -> EvalError {
     EvalError::from_kind(EvalErrorKind::NotImplemented {
-        feature: "index assignment (list[i] = x) is not yet implemented".to_string(),
-        suggestion: "use list.set(index: i, value: x) instead".to_string(),
+        feature: "index assignment (list[i] = x) is not supported".to_string(),
+        suggestion: "use functional update patterns instead".to_string(),
     })
 }
 

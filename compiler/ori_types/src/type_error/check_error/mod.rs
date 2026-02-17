@@ -416,6 +416,75 @@ impl TypeCheckError {
                     "cannot apply operator `{op}` to type `{type_name}`; implement `{trait_name}` trait"
                 )
             }
+            TypeErrorKind::DuplicateImpl { trait_name, .. } => {
+                format!(
+                    "duplicate implementation of `{}` for this type",
+                    format_name(*trait_name)
+                )
+            }
+            TypeErrorKind::OverlappingImpls { trait_name, .. } => {
+                format!(
+                    "overlapping implementations of `{}` with equal specificity",
+                    format_name(*trait_name)
+                )
+            }
+            TypeErrorKind::ConflictingDefaults {
+                method,
+                trait_a,
+                trait_b,
+            } => {
+                format!(
+                    "conflicting default for `{}`: provided by both `{}` and `{}`",
+                    format_name(*method),
+                    format_name(*trait_a),
+                    format_name(*trait_b)
+                )
+            }
+            TypeErrorKind::AmbiguousMethod {
+                method, candidates, ..
+            } => {
+                let names: Vec<String> = candidates
+                    .iter()
+                    .map(|n| format!("`{}`", format_name(*n)))
+                    .collect();
+                format!(
+                    "ambiguous method `{}`: provided by {}",
+                    format_name(*method),
+                    names.join(" and ")
+                )
+            }
+            TypeErrorKind::NotObjectSafe {
+                trait_name,
+                violations,
+            } => {
+                use crate::ObjectSafetyViolation;
+                let reasons: Vec<String> = violations
+                    .iter()
+                    .map(|v| match v {
+                        ObjectSafetyViolation::SelfReturn { method, .. } => {
+                            format!("method `{}` returns `Self`", format_name(*method))
+                        }
+                        ObjectSafetyViolation::SelfParam { method, param, .. } => {
+                            format!(
+                                "method `{}` has `Self` in parameter `{}`",
+                                format_name(*method),
+                                format_name(*param)
+                            )
+                        }
+                        ObjectSafetyViolation::GenericMethod { method, .. } => {
+                            format!(
+                                "method `{}` has generic type parameters",
+                                format_name(*method)
+                            )
+                        }
+                    })
+                    .collect();
+                format!(
+                    "trait `{}` cannot be made into an object: {}",
+                    format_name(*trait_name),
+                    reasons.join("; ")
+                )
+            }
         }
     }
 
@@ -534,6 +603,21 @@ impl TypeCheckError {
                     ty.display_name()
                 )
             }
+            TypeErrorKind::DuplicateImpl { .. } => {
+                "duplicate trait implementation for this type".to_string()
+            }
+            TypeErrorKind::OverlappingImpls { .. } => {
+                "overlapping trait implementations with equal specificity".to_string()
+            }
+            TypeErrorKind::ConflictingDefaults { .. } => {
+                "conflicting default methods from multiple super-traits".to_string()
+            }
+            TypeErrorKind::AmbiguousMethod { .. } => {
+                "ambiguous method call: multiple traits provide this method".to_string()
+            }
+            TypeErrorKind::NotObjectSafe { .. } => {
+                "trait cannot be made into an object".to_string()
+            }
         }
     }
 
@@ -573,8 +657,10 @@ impl TypeCheckError {
             // E2008: Infinite/cyclic types
             TypeErrorKind::InfiniteType { .. } => ErrorCode::E2008,
 
-            // E2010: Missing associated types
-            TypeErrorKind::MissingAssocType { .. } => ErrorCode::E2010,
+            // E2010: Missing associated types / duplicate implementation
+            TypeErrorKind::MissingAssocType { .. } | TypeErrorKind::DuplicateImpl { .. } => {
+                ErrorCode::E2010
+            }
 
             // E2014: Missing capabilities
             TypeErrorKind::MissingCapability { .. } => ErrorCode::E2014,
@@ -584,6 +670,18 @@ impl TypeCheckError {
 
             // E2020: Unsupported operator (missing trait implementation)
             TypeErrorKind::UnsupportedOperator { .. } => ErrorCode::E2020,
+
+            // E2021: Overlapping implementations
+            TypeErrorKind::OverlappingImpls { .. } => ErrorCode::E2021,
+
+            // E2022: Conflicting defaults
+            TypeErrorKind::ConflictingDefaults { .. } => ErrorCode::E2022,
+
+            // E2023: Ambiguous method
+            TypeErrorKind::AmbiguousMethod { .. } => ErrorCode::E2023,
+
+            // E2024: Not object-safe
+            TypeErrorKind::NotObjectSafe { .. } => ErrorCode::E2024,
         }
     }
 
@@ -678,6 +776,23 @@ impl TypeCheckError {
         }
     }
 
+    /// Create an error for attempting to iterate over `Range<float>`.
+    ///
+    /// Float ranges are not iterable because float arithmetic is imprecise.
+    /// The `suggestion` parameter provides a context-specific example
+    /// (e.g., method call vs for-loop syntax).
+    pub fn range_float_not_iterable(span: Span, suggestion: &str) -> Self {
+        Self::unsatisfied_bound(
+            span,
+            format!(
+                "`Range<float>` does not implement `Iterable` — \
+                 floating-point ranges cannot be iterated because \
+                 float arithmetic is imprecise (use an int range \
+                 with conversion, e.g., `{suggestion}`)"
+            ),
+        )
+    }
+
     /// Create a "not a struct" error for struct literal with non-struct name.
     pub fn not_a_struct(span: Span, name: Name) -> Self {
         Self {
@@ -754,6 +869,112 @@ impl TypeCheckError {
                 format!("implement `{trait_name}` for this type"),
                 0,
             )],
+        }
+    }
+
+    /// Create a "duplicate impl" error (E2010).
+    ///
+    /// Emitted when `impl Trait for Type` is defined more than once.
+    pub fn duplicate_impl(span: Span, first_span: Span, trait_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::DuplicateImpl {
+                trait_name,
+                first_span,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text("remove the duplicate implementation", 0)],
+        }
+    }
+
+    /// Create an "overlapping impls" error (E2021).
+    ///
+    /// Emitted when two impls with equal specificity could both apply.
+    pub fn overlapping_impls(span: Span, first_span: Span, trait_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::OverlappingImpls {
+                trait_name,
+                first_span,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "add a where clause or use a more specific type to disambiguate",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "conflicting defaults" error (E2022).
+    ///
+    /// Emitted when multiple super-traits provide different default
+    /// implementations for the same method and the impl doesn't override it.
+    pub fn conflicting_defaults(span: Span, method: Name, trait_a: Name, trait_b: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::ConflictingDefaults {
+                method,
+                trait_a,
+                trait_b,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "provide an explicit implementation to resolve the conflict",
+                0,
+            )],
+        }
+    }
+
+    /// Create an "ambiguous method" error (E2023).
+    ///
+    /// Emitted when multiple trait impls provide the same method for a type.
+    pub fn ambiguous_method(span: Span, method: Name, candidates: Vec<Name>) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::AmbiguousMethod { method, candidates },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "use fully-qualified syntax to disambiguate: `TraitName.method(x)`",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "not object-safe" error (E2024).
+    ///
+    /// Emitted when a non-object-safe trait is used as a trait object type.
+    pub fn not_object_safe(
+        span: Span,
+        trait_name: Name,
+        violations: Vec<crate::ObjectSafetyViolation>,
+    ) -> Self {
+        use crate::ObjectSafetyViolation;
+
+        let suggestions: Vec<_> = violations
+            .iter()
+            .map(|v| match v {
+                ObjectSafetyViolation::SelfReturn { .. } => Suggestion::text(
+                    "consider using a generic parameter `<T: Trait>` instead of a trait object",
+                    1,
+                ),
+                ObjectSafetyViolation::SelfParam { .. } => Suggestion::text(
+                    "consider using a generic parameter to preserve type information",
+                    1,
+                ),
+                ObjectSafetyViolation::GenericMethod { .. } => {
+                    Suggestion::text("consider removing the generic parameter from the method", 1)
+                }
+            })
+            .collect();
+
+        Self {
+            span,
+            kind: TypeErrorKind::NotObjectSafe {
+                trait_name,
+                violations,
+            },
+            context: ErrorContext::default(),
+            suggestions,
         }
     }
 
@@ -1039,6 +1260,48 @@ pub enum TypeErrorKind {
         /// The trait name that would need to be implemented.
         trait_name: &'static str,
     },
+
+    /// Duplicate trait implementation for the same type (E2010).
+    DuplicateImpl {
+        /// Name of the trait being implemented.
+        trait_name: Name,
+        /// Span of the first (existing) implementation.
+        first_span: Span,
+    },
+
+    /// Overlapping implementations with equal specificity (E2021).
+    OverlappingImpls {
+        /// Name of the trait with overlapping impls.
+        trait_name: Name,
+        /// Span of the first (existing) implementation.
+        first_span: Span,
+    },
+
+    /// Conflicting default methods from multiple super-traits (E2022).
+    ConflictingDefaults {
+        /// The method with conflicting defaults.
+        method: Name,
+        /// First super-trait providing a default.
+        trait_a: Name,
+        /// Second super-trait providing a different default.
+        trait_b: Name,
+    },
+
+    /// Ambiguous method call — multiple trait impls provide the same method (E2023).
+    AmbiguousMethod {
+        /// The method name that's ambiguous.
+        method: Name,
+        /// Traits that each provide this method.
+        candidates: Vec<Name>,
+    },
+
+    /// Trait is not object-safe — cannot be used as a trait object (E2024).
+    NotObjectSafe {
+        /// The trait that is not object-safe.
+        trait_name: Name,
+        /// The specific object safety violations.
+        violations: Vec<crate::ObjectSafetyViolation>,
+    },
 }
 
 /// What kind of arity mismatch occurred.
@@ -1128,99 +1391,62 @@ impl ErrorContext {
 
 /// Generate a specific message for a `TypeProblem`, if the problem
 /// provides more context than the generic mismatch message.
+///
+/// Uses `Idx::display_name()` for type names (renders primitives, falls back
+/// to `"<type>"` for complex types).
 fn problem_message(problem: &TypeProblem) -> Option<String> {
-    match problem {
-        TypeProblem::NotCallable { actual_type } => Some(format!(
-            "expected a function, found {}",
-            actual_type.display_name()
-        )),
-        TypeProblem::WrongArity { expected, found } => {
-            let s = if *expected == 1 { "" } else { "s" };
-            Some(format!("expected {expected} argument{s}, found {found}"))
-        }
-        TypeProblem::IntFloat => {
-            Some("int and float are different types; use explicit conversion".to_string())
-        }
-        TypeProblem::NumberToString => {
-            Some("cannot use number as string; use `str()` to convert".to_string())
-        }
-        TypeProblem::StringToNumber => {
-            Some("cannot use string as number; use `int()` or `float()` to convert".to_string())
-        }
-        TypeProblem::ExpectedOption => Some("expected an Option type".to_string()),
-        TypeProblem::NeedsUnwrap { inner_type } => Some(format!(
-            "value needs to be unwrapped; inner type is {}",
-            inner_type.display_name()
-        )),
-        TypeProblem::ReturnMismatch { expected, found } => Some(format!(
-            "return type mismatch: expected {}, found {}",
-            expected.display_name(),
-            found.display_name()
-        )),
-        TypeProblem::ArgumentMismatch {
-            arg_index,
-            expected,
-            found,
-        } => Some(format!(
-            "argument {} has type {}, expected {}",
-            arg_index + 1,
-            found.display_name(),
-            expected.display_name()
-        )),
-        TypeProblem::BadOperandType {
-            op,
-            op_category,
-            found_type,
-            required_type,
-        } => {
-            if *op_category == "unary" {
-                // "cannot apply `-` to `str`", "cannot apply `!` to `int`"
-                Some(format!("cannot apply `{op}` to `{found_type}`"))
-            } else {
-                // "left operand of bitwise operator must be `int`"
-                Some(format!(
-                    "left operand of {op_category} operator must be `{required_type}`"
-                ))
-            }
-        }
-        TypeProblem::ClosureSelfCapture => Some("closure cannot capture itself".to_string()),
-        _ => None,
-    }
+    problem_message_with(problem, &|idx| idx.display_name().to_string())
 }
 
 /// Generate a rich problem message using a type formatter.
 ///
-/// Same as `problem_message` but uses the provided formatter for full type names
+/// Uses the provided formatter for full type names with backtick wrapping,
 /// instead of `Idx::display_name()`.
 fn problem_message_rich(
     problem: &TypeProblem,
     format_type: &dyn Fn(Idx) -> String,
 ) -> Option<String> {
+    problem_message_with(problem, &|idx| format!("`{}`", format_type(idx)))
+}
+
+/// Shared implementation for problem message generation.
+///
+/// The `format_type` closure controls how `Idx` values are rendered:
+/// - Simple path: `|idx| idx.display_name().to_string()` (no backticks)
+/// - Rich path: `|idx| format!("`{}`", full_format(idx))` (with backticks)
+fn problem_message_with(
+    problem: &TypeProblem,
+    format_type: &dyn Fn(Idx) -> String,
+) -> Option<String> {
     match problem {
         TypeProblem::NotCallable { actual_type } => Some(format!(
-            "expected a function, found `{}`",
+            "expected a function, found {}",
             format_type(*actual_type)
         )),
         TypeProblem::WrongArity { expected, found } => {
             let s = if *expected == 1 { "" } else { "s" };
             Some(format!("expected {expected} argument{s}, found {found}"))
         }
-        TypeProblem::IntFloat => {
-            Some("int and float are different types; use explicit conversion".to_string())
-        }
+        TypeProblem::IntFloat { expected, found }
+        | TypeProblem::NumericTypeMismatch { expected, found } => Some(format!(
+            "expected `{expected}`, found `{found}`; use `{expected}(x)` to convert"
+        )),
         TypeProblem::NumberToString => {
-            Some("cannot use number as string; use `str()` to convert".to_string())
+            Some("cannot use number as string; use `str(x)` to convert".to_string())
         }
         TypeProblem::StringToNumber => {
-            Some("cannot use string as number; use `int()` or `float()` to convert".to_string())
+            Some("cannot use string as number; use `int(x)` or `float(x)` to convert".to_string())
+        }
+        TypeProblem::ExpectedList { .. } => {
+            Some("expected a list; wrap the value in a list: `[x]`".to_string())
         }
         TypeProblem::ExpectedOption => Some("expected an Option type".to_string()),
         TypeProblem::NeedsUnwrap { inner_type } => Some(format!(
-            "value needs to be unwrapped; inner type is `{}`",
+            "value needs to be unwrapped; inner type is {}",
             format_type(*inner_type)
         )),
         TypeProblem::ReturnMismatch { expected, found } => Some(format!(
-            "return type mismatch: expected `{}`, found `{}`",
+            "return type mismatch: expected {}, found {}",
             format_type(*expected),
             format_type(*found)
         )),
@@ -1229,7 +1455,7 @@ fn problem_message_rich(
             expected,
             found,
         } => Some(format!(
-            "argument {} has type `{}`, expected `{}`",
+            "argument {} has type {}, expected {}",
             arg_index + 1,
             format_type(*found),
             format_type(*expected)

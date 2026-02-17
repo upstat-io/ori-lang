@@ -35,7 +35,9 @@ pub use ori_patterns::{
 
 // Type Conversion and Validation Errors
 
-pub use ori_patterns::{map_key_not_hashable, range_bound_not_int, unbounded_range_end};
+pub use ori_patterns::{
+    map_key_not_hashable, range_bound_not_int, unbounded_range_eager, unbounded_range_length,
+};
 
 // Control Flow Errors (shared)
 
@@ -50,7 +52,7 @@ pub use ori_patterns::{
 
 // Miscellaneous Errors (shared)
 
-pub use ori_patterns::{parse_error, self_outside_method};
+pub use ori_patterns::{await_not_supported, hash_outside_index, parse_error, self_outside_method};
 
 // Collection Method Errors
 
@@ -78,24 +80,12 @@ pub fn cannot_assign_immutable(name: &str) -> EvalError {
     })
 }
 
-/// Hash length (`#`) used outside index brackets.
+/// Index assignment (`list[i] = x`) is not supported.
 #[cold]
-pub fn hash_outside_index() -> EvalError {
-    EvalError::new("# can only be used inside index brackets")
-}
-
-/// Await not supported in the tree-walking interpreter.
-#[cold]
-pub fn await_not_supported() -> EvalError {
-    EvalError::new("await not supported in interpreter")
-}
-
-/// Index assignment (`list[i] = x`) not yet implemented.
-#[cold]
-pub fn index_assignment_not_implemented() -> EvalError {
+pub fn index_assignment_not_supported() -> EvalError {
     EvalError::from_kind(EvalErrorKind::NotImplemented {
-        feature: "index assignment (list[i] = x) is not yet implemented".to_string(),
-        suggestion: "use list.set(index: i, value: x) instead".to_string(),
+        feature: "index assignment (list[i] = x) is not supported".to_string(),
+        suggestion: "use functional update patterns instead".to_string(),
     })
 }
 

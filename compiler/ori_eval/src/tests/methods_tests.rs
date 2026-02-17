@@ -720,6 +720,60 @@ mod ordering_methods {
     }
 
     #[test]
+    fn then_equal_chains() {
+        let interner = test_interner();
+        // Equal.then(Less) -> Less (chains to other)
+        assert_eq!(
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Equal),
+                "then",
+                vec![Value::Ordering(OrderingValue::Less)],
+                &interner
+            )
+            .unwrap(),
+            Value::Ordering(OrderingValue::Less)
+        );
+        // Equal.then(Equal) -> Equal
+        assert_eq!(
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Equal),
+                "then",
+                vec![Value::Ordering(OrderingValue::Equal)],
+                &interner
+            )
+            .unwrap(),
+            Value::Ordering(OrderingValue::Equal)
+        );
+    }
+
+    #[test]
+    fn then_non_equal_keeps_self() {
+        let interner = test_interner();
+        // Less.then(Greater) -> Less (keeps self)
+        assert_eq!(
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Less),
+                "then",
+                vec![Value::Ordering(OrderingValue::Greater)],
+                &interner
+            )
+            .unwrap(),
+            Value::Ordering(OrderingValue::Less)
+        );
+        // Greater.then(Less) -> Greater (keeps self)
+        assert_eq!(
+            dispatch_builtin_method(
+                Value::Ordering(OrderingValue::Greater),
+                "then",
+                vec![Value::Ordering(OrderingValue::Less)],
+                &interner
+            )
+            .unwrap(),
+            Value::Ordering(OrderingValue::Greater)
+        );
+    }
+
+    #[test]
     fn no_such_method() {
         let interner = test_interner();
         assert!(dispatch_builtin_method(

@@ -583,7 +583,7 @@ pub(crate) fn infer_for(
     guard: ExprId,
     body: ExprId,
     is_yield: bool,
-    _span: Span,
+    span: Span,
 ) -> Idx {
     // Enter scope for loop binding
     engine.enter_scope();
@@ -599,7 +599,17 @@ pub(crate) fn infer_for(
 
     let elem_ty = match tag {
         Tag::List => engine.pool().list_elem(resolved_iter),
-        Tag::Range => engine.pool().range_elem(resolved_iter),
+        Tag::Range => {
+            let elem = engine.pool().range_elem(resolved_iter);
+            if elem == Idx::FLOAT {
+                engine.push_error(TypeCheckError::range_float_not_iterable(
+                    span,
+                    "for i in 0..10 do i.to_float() / 10.0",
+                ));
+            }
+            elem
+        }
+        Tag::Iterator | Tag::DoubleEndedIterator => engine.pool().iterator_elem(resolved_iter),
         Tag::Map => {
             // Iterating over a map yields (key, value) tuples
             let key_ty = engine.pool().map_key(resolved_iter);
@@ -610,6 +620,11 @@ pub(crate) fn infer_for(
             // Sets store elements similarly to lists (single type parameter)
             engine.pool().set_elem(resolved_iter)
         }
+        Tag::Option => {
+            // Option<T> iterates as 0-or-1 element of type T
+            engine.pool().option_inner(resolved_iter)
+        }
+        Tag::Str => Idx::CHAR,
         _ => {
             // Not a known iterable - still allow iteration with fresh element type
             // The type checker will catch concrete type mismatches later

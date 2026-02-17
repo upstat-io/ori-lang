@@ -195,9 +195,19 @@ impl Parser<'_> {
         self.cursor.advance();
 
         // Parse end expression (optional for open-ended ranges like 0..)
+        // The token after `..` determines whether this is an open-ended range:
+        // delimiters (`,`, `)`, `]`, `}`), the `by` step keyword, or keywords
+        // that follow ranges in control flow contexts (`do`, `yield`, `then`).
         let end = if matches!(
             self.cursor.current_kind(),
-            TokenKind::Comma | TokenKind::RParen | TokenKind::RBracket | TokenKind::By
+            TokenKind::Comma
+                | TokenKind::RParen
+                | TokenKind::RBracket
+                | TokenKind::RBrace
+                | TokenKind::By
+                | TokenKind::Do
+                | TokenKind::Yield
+                | TokenKind::Then
         ) || self.cursor.is_at_end()
         {
             ExprId::INVALID

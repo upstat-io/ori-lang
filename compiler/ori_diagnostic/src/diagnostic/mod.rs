@@ -82,7 +82,7 @@ impl Substitution {
 ///
 /// Supports two forms:
 /// - **Text-only**: A human-readable message with no code substitutions.
-///   Created via `text()`, `did_you_mean()`, `use_function()`, `wrap_in()`.
+///   Created via `text()`, `did_you_mean()`, `wrap_in()`.
 /// - **Span-bearing**: A message with exact code substitutions for `ori fix`.
 ///   Created via `new()`, `machine_applicable()`, `maybe_incorrect()`, etc.
 ///
@@ -149,11 +149,6 @@ impl Suggestion {
     /// Create a "did you mean" suggestion (priority 0).
     pub fn did_you_mean(suggestion: impl Into<String>) -> Self {
         Self::text(format!("did you mean `{}`?", suggestion.into()), 0)
-    }
-
-    /// Create a suggestion to use a specific function/method (priority 1).
-    pub fn use_function(func_name: &str, description: &str) -> Self {
-        Self::text(format!("use `{func_name}` {description}"), 1)
     }
 
     /// Create a suggestion to wrap in something (priority 1).

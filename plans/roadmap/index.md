@@ -464,6 +464,11 @@ mutable, mut, changeable
 destructure, pattern binding
 type annotation, : T
 shadowing, rebind, override
+index assignment, list[i] = x, IndexSet, updated
+field assignment, state.field = x, struct spread
+compound assignment, +=, -=, *=
+assignment target, lvalue, lhs
+copy-on-write, COW, ARC optimization
 ```
 
 ---

@@ -99,6 +99,7 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) is_less_or_equal: Name,
     pub(crate) is_greater_or_equal: Name,
     pub(crate) reverse: Name,
+    pub(crate) then: Name,
 
     // Type names for associated function dispatch
     pub(crate) duration: Name,
@@ -125,6 +126,9 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) megabytes: Name,
     pub(crate) gigabytes: Name,
     pub(crate) terabytes: Name,
+
+    // Iterator
+    pub(crate) iter: Name,
 }
 
 impl BuiltinMethodNames {
@@ -186,6 +190,7 @@ impl BuiltinMethodNames {
             is_less_or_equal: interner.intern("is_less_or_equal"),
             is_greater_or_equal: interner.intern("is_greater_or_equal"),
             reverse: interner.intern("reverse"),
+            then: interner.intern("then"),
             // Type names
             duration: interner.intern("Duration"),
             size: interner.intern("Size"),
@@ -208,6 +213,8 @@ impl BuiltinMethodNames {
             megabytes: interner.intern("megabytes"),
             gigabytes: interner.intern("gigabytes"),
             terabytes: interner.intern("terabytes"),
+            // Iterator
+            iter: interner.intern("iter"),
         }
     }
 }
@@ -303,6 +310,9 @@ pub(crate) fn dispatch_builtin_method(
         Value::Str(_) => collections::dispatch_string_method(receiver, method, args, ctx),
         Value::Map(_) => collections::dispatch_map_method(receiver, method, args, ctx),
         Value::Range(_) => collections::dispatch_range_method(receiver, method, args, ctx),
+        Value::Set(_) => collections::dispatch_set_method(receiver, method, args, ctx),
+        // Iterator methods are dispatched by CollectionMethodResolver (priority 1),
+        // not the builtin resolver. See interpreter/method_dispatch/iterator.rs.
         Value::Some(_) | Value::None => {
             variants::dispatch_option_method(receiver, method, args, ctx)
         }

@@ -45,7 +45,7 @@ input ──▶ step A ──▶ step B ──▶ step C ──▶ output
 ```
 
 Each binding in a sequence:
-1. Is immutable after creation
+1. Holds a value that is never mutated in place (reassignment replaces the value, it does not modify it)
 2. Can only reference earlier bindings (forward-only)
 3. Is destroyed when the sequence ends
 
@@ -272,8 +272,8 @@ When a task is cancelled, destructors still run during unwinding.
 
 Cycles prevented at compile time:
 
-1. Immutable data cannot form cycles
-2. Mutable references restricted from completing cycles
+1. Values are never mutated in place — reassignment produces new values, preventing in-place cycle formation
+2. No shared mutable references — single ownership of mutable data
 3. Self-referential types forbidden
 
 ```ori

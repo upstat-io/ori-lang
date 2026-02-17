@@ -20,8 +20,8 @@
 // - is_space(c: char) -> bool
 // - is_upper(c: char) -> bool
 // - is_lower(c: char) -> bool
-// - to_upper(c: char) -> char
-// - to_lower(c: char) -> char
+// - to_uppercase(c: char) -> char
+// - to_lowercase(c: char) -> char
 //
 // Re-exports:
 // pub use std.text.regex { Regex, match, find, replace }

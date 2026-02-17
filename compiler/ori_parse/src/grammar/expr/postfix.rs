@@ -123,7 +123,7 @@ impl Parser<'_> {
                     continue;
                 }
 
-                let field = self.cursor.expect_ident()?;
+                let field = self.cursor.expect_member_name()?;
 
                 if self.cursor.check(&TokenKind::LParen) {
                     self.cursor.advance();

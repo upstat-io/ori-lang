@@ -191,7 +191,7 @@ c_variadic    = "," "..." .  /* C-style variadic - only valid in extern "c" bloc
 // See: 08-declarations.md
 // ============================================================================
 
-declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl | extern_block ) .
+declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl | extern_block | capset_decl ) .
 
 // --- Attributes ---
 // See: 08-declarations.md § Attributes, 24-conditional-compilation.md
@@ -236,7 +236,8 @@ comparison_op    = ">" | "<" | ">=" | "<=" | "==" | "!=" .
 // --- Capabilities ---
 // See: 14-capabilities.md
 
-uses_clause = "uses" identifier { "," identifier } .
+uses_clause  = "uses" identifier { "," identifier } .
+capset_decl  = "capset" identifier "=" identifier { "," identifier } .
 
 // --- Type Definitions ---
 // See: 08-declarations.md § Types, 06-types.md § User-Defined Types
@@ -360,13 +361,14 @@ field_init      = identifier [ ":" expression ] .
 // See: 09-expressions.md § Postfix Expressions
 
 postfix_expr   = primary { postfix_op } .
-postfix_op     = "." identifier [ call_args ]        /* field/method access */
+postfix_op     = "." member_name [ call_args ]       /* field/method access */
                | "." match_method                    /* method-style match */
                | "[" expression "]"                  /* index access */
                | call_args                           /* function call */
                | "?"                                 /* error propagation */
                | "as" type                           /* infallible type conversion */
                | "as?" type .                        /* fallible type conversion */
+member_name    = identifier | keyword | int_literal .  /* keywords/ints valid after "." (tuple: t.0) */
 match_method   = "match" "(" match_arm { "," match_arm } ")" .
 call_args      = "(" [ call_arg { "," call_arg } ] ")" .
 call_arg       = named_arg | positional_arg | spread_arg .
@@ -407,8 +409,11 @@ capability_binding  = identifier "=" expression .
 // See: 09-expressions.md § Let Binding, 05-variables.md
 
 let_expr = "let" binding_pattern [ ":" type ] "=" expression .
-assignment = identifier "=" expression .
-binding  = let_expr | assignment .  /* used in run/try patterns */
+assignment        = assignment_target "=" expression
+                  | assignment_target compound_op expression .
+assignment_target = identifier { "[" expression "]" | "." identifier } .
+compound_op       = "+=" | "-=" | "*=" | "/=" | "%=" .
+binding           = let_expr | assignment .  /* used in run/try patterns */
 
 // --- Conditional ---
 // See: 09-expressions.md § Conditional

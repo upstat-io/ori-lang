@@ -28,7 +28,7 @@ use ori_patterns::{
     no_member_in_module, no_such_method, non_exhaustive_match, non_integer_in_index, not_callable,
     operator_not_supported_in_index, parse_error, propagated_error_message, range_bound_not_int,
     recursion_limit_exceeded, self_outside_method, tuple_index_out_of_bounds,
-    tuple_pattern_mismatch, unbounded_range_end, undefined_const, undefined_function,
+    tuple_pattern_mismatch, unbounded_range_length, undefined_const, undefined_function,
     undefined_variable, unknown_pattern, wrong_arg_count, wrong_arg_type, wrong_function_args,
 };
 
@@ -36,7 +36,7 @@ use ori_patterns::{
 use ori_eval::errors::{
     await_not_supported, cannot_assign_immutable, default_requires_type_context,
     field_assignment_not_implemented, filter_entries_not_implemented, hash_outside_index,
-    index_assignment_not_implemented, map_entries_not_implemented,
+    index_assignment_not_supported, map_entries_not_implemented,
 };
 
 // -- EvalError basic functionality --
@@ -277,9 +277,10 @@ fn test_range_bound_not_int() {
 }
 
 #[test]
-fn test_unbounded_range_end() {
-    let err = unbounded_range_end();
+fn test_unbounded_range_length() {
+    let err = unbounded_range_length();
     assert!(err.message.contains("unbounded"));
+    assert!(err.message.contains("length"));
 }
 
 #[test]
@@ -467,9 +468,9 @@ fn test_filter_entries_not_implemented() {
 }
 
 #[test]
-fn test_index_assignment_not_implemented() {
-    let err = index_assignment_not_implemented();
-    assert!(err.message.contains("not yet"));
+fn test_index_assignment_not_supported() {
+    let err = index_assignment_not_supported();
+    assert!(err.message.contains("not supported"));
 }
 
 #[test]
@@ -562,7 +563,7 @@ fn test_errors_are_distinct() {
         collect_requires_range().message,
         any_requires_list().message,
         all_requires_list().message,
-        unbounded_range_end().message,
+        unbounded_range_length().message,
         map_key_not_hashable().message,
     ];
 

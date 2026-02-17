@@ -1,7 +1,7 @@
-//! Method dispatch for collection types (list, str, map, range).
+//! Method dispatch for collection types (list, str, map, range, set).
 
 use ori_ir::Name;
-use ori_patterns::{no_such_method, EvalResult, Value};
+use ori_patterns::{no_such_method, EvalResult, IteratorValue, Value};
 
 use super::compare::{compare_lists, ordering_to_value};
 use super::helpers::{
@@ -49,6 +49,10 @@ pub fn dispatch_list_method(
         let other = require_list_arg("compare", &args, 0)?;
         let ord = compare_lists(&items, other, ctx.interner)?;
         Ok(ordering_to_value(ord))
+    // Iterable trait - create iterator
+    } else if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        Ok(Value::iterator(IteratorValue::from_list(items)))
     // Clone trait - deep clone of list
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
@@ -117,6 +121,10 @@ pub fn dispatch_string_method(
         require_args("equals", 1, args.len())?;
         let other = require_str_arg("equals", &args, 0)?;
         Ok(Value::Bool(&**s == other))
+    // Iterable trait - create character iterator
+    } else if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        Ok(Value::iterator(IteratorValue::from_string(s)))
     // Clone trait
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
@@ -160,11 +168,22 @@ pub fn dispatch_range_method(
     let n = ctx.names;
 
     if method == n.len {
+        if r.is_unbounded() {
+            return Err(ori_patterns::unbounded_range_length().into());
+        }
         len_to_value(r.len(), "range")
     } else if method == n.contains {
         require_args("contains", 1, args.len())?;
         let val = require_int_arg("contains", &args, 0)?;
         Ok(Value::Bool(r.contains(val)))
+    } else if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        Ok(Value::iterator(IteratorValue::from_range(
+            r.start,
+            r.end,
+            r.step,
+            r.inclusive,
+        )))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "range").into())
     }
@@ -203,10 +222,45 @@ pub fn dispatch_map_method(
         // Clone values for return list. Cheap: Value uses Arc for heap types.
         let values: Vec<Value> = map.values().cloned().collect();
         Ok(Value::list(values))
+    } else if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        Ok(Value::iterator(IteratorValue::from_map(map)))
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "map").into())
+    }
+}
+
+/// Dispatch methods on set values.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "Consistent method dispatch signature"
+)]
+pub fn dispatch_set_method(
+    receiver: Value,
+    method: Name,
+    args: Vec<Value>,
+    ctx: &DispatchCtx<'_>,
+) -> EvalResult {
+    let Value::Set(ref items) = receiver else {
+        unreachable!("dispatch_set_method called with non-set receiver")
+    };
+
+    let n = ctx.names;
+
+    if method == n.iter {
+        require_args("iter", 0, args.len())?;
+        // from_value always succeeds for Value::Set (returns Some)
+        match IteratorValue::from_value(&receiver) {
+            Some(iter) => Ok(Value::iterator(iter)),
+            None => unreachable!("Set is always iterable"),
+        }
+    } else if method == n.len {
+        require_args("len", 0, args.len())?;
+        len_to_value(items.len(), "set")
+    } else {
+        Err(no_such_method(ctx.interner.lookup(method), "Set").into())
     }
 }

@@ -1,0 +1,275 @@
+// Spec: Section 3.8 — DoubleEndedIterator
+// Tests for .next_back() on double-ended iterators.
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// List — next_back() basic
+// =============================================================================
+
+@list_next_back_first () -> int = run(
+    let iter = [10, 20, 30].iter(),
+    match(
+        iter.next_back(),
+        (Some(x), _) -> x,
+        _ -> -1,
+    ),
+)
+
+@test_list_next_back_first tests @list_next_back_first () -> void = run(
+    assert_eq(actual: list_next_back_first(), expected: 30),
+)
+
+// Exhaust list backwards: 3, 2, 1
+@list_next_back_all () -> [int] = run(
+    let iter = [1, 2, 3].iter(),
+    let result = [],
+    match(
+        iter.next_back(),
+        (Some(v1), iter2) -> match(
+            iter2.next_back(),
+            (Some(v2), iter3) -> match(
+                iter3.next_back(),
+                (Some(v3), _) -> [v1, v2, v3],
+                _ -> [],
+            ),
+            _ -> [],
+        ),
+        _ -> [],
+    ),
+)
+
+@test_list_next_back_all tests @list_next_back_all () -> void = run(
+    assert_eq(actual: list_next_back_all(), expected: [3, 2, 1]),
+)
+
+// =============================================================================
+// List — interleaved next() and next_back()
+// =============================================================================
+
+@list_interleaved () -> (int, int) = run(
+    let iter = [1, 2, 3, 4, 5].iter(),
+    match(
+        iter.next(),
+        (Some(front), iter2) -> match(
+            iter2.next_back(),
+            (Some(back), _) -> (front, back),
+            _ -> (-1, -1),
+        ),
+        _ -> (-1, -1),
+    ),
+)
+
+@test_list_interleaved tests @list_interleaved () -> void = run(
+    let (front, back) = list_interleaved(),
+    assert_eq(actual: front, expected: 1),
+    assert_eq(actual: back, expected: 5),
+)
+
+// Interleave until meeting in middle
+@list_interleaved_full () -> [int] = run(
+    let iter = [1, 2, 3, 4, 5].iter(),
+    let result = [],
+    // front: 1
+    match(
+        iter.next(),
+        (Some(f1), iter2) -> match(
+            // back: 5
+            iter2.next_back(),
+            (Some(b1), iter3) -> match(
+                // front: 2
+                iter3.next(),
+                (Some(f2), iter4) -> match(
+                    // back: 4
+                    iter4.next_back(),
+                    (Some(b2), iter5) -> match(
+                        // middle: 3
+                        iter5.next(),
+                        (Some(m), _) -> [f1, b1, f2, b2, m],
+                        _ -> [],
+                    ),
+                    _ -> [],
+                ),
+                _ -> [],
+            ),
+            _ -> [],
+        ),
+        _ -> [],
+    ),
+)
+
+@test_list_interleaved_full tests @list_interleaved_full () -> void = run(
+    assert_eq(actual: list_interleaved_full(), expected: [1, 5, 2, 4, 3]),
+)
+
+// =============================================================================
+// Range — next_back()
+// =============================================================================
+
+@range_next_back () -> int = run(
+    let iter = (0..5).iter(),
+    match(
+        iter.next_back(),
+        (Some(x), _) -> x,
+        _ -> -1,
+    ),
+)
+
+@test_range_next_back tests @range_next_back () -> void = run(
+    assert_eq(actual: range_next_back(), expected: 4),
+)
+
+// Interleaved range: front=0, back=4, front=1, back=3
+@range_interleaved () -> [int] = run(
+    let iter = (0..5).iter(),
+    match(
+        iter.next(),
+        (Some(f1), iter2) -> match(
+            iter2.next_back(),
+            (Some(b1), iter3) -> match(
+                iter3.next(),
+                (Some(f2), iter4) -> match(
+                    iter4.next_back(),
+                    (Some(b2), _) -> [f1, b1, f2, b2],
+                    _ -> [],
+                ),
+                _ -> [],
+            ),
+            _ -> [],
+        ),
+        _ -> [],
+    ),
+)
+
+@test_range_interleaved tests @range_interleaved () -> void = run(
+    assert_eq(actual: range_interleaved(), expected: [0, 4, 1, 3]),
+)
+
+// =============================================================================
+// String — next_back()
+// =============================================================================
+
+@str_next_back () -> char = run(
+    let iter = "hello".iter(),
+    match(
+        iter.next_back(),
+        (Some(ch), _) -> ch,
+        _ -> 'x',
+    ),
+)
+
+@test_str_next_back tests @str_next_back () -> void = run(
+    assert_eq(actual: str_next_back(), expected: 'o'),
+)
+
+// Interleaved string: front='h', back='o'
+@str_interleaved () -> (char, char) = run(
+    let iter = "hello".iter(),
+    match(
+        iter.next(),
+        (Some(front), iter2) -> match(
+            iter2.next_back(),
+            (Some(back), _) -> (front, back),
+            _ -> ('x', 'x'),
+        ),
+        _ -> ('x', 'x'),
+    ),
+)
+
+@test_str_interleaved tests @str_interleaved () -> void = run(
+    let (front, back) = str_interleaved(),
+    assert_eq(actual: front, expected: 'h'),
+    assert_eq(actual: back, expected: 'o'),
+)
+
+// =============================================================================
+// Empty iterator — next_back() returns None
+// =============================================================================
+
+@empty_list_next_back () -> bool = run(
+    let iter = [].iter(),
+    match(
+        iter.next_back(),
+        (None, _) -> true,
+        _ -> false,
+    ),
+)
+
+@test_empty_list_next_back tests @empty_list_next_back () -> void = run(
+    assert(condition: empty_list_next_back()),
+)
+
+// =============================================================================
+// Mapped adapter — next_back() with transform
+// =============================================================================
+
+@mapped_next_back () -> int = run(
+    let iter = [1, 2, 3].iter().map(x -> x * 10),
+    match(
+        iter.next_back(),
+        (Some(x), _) -> x,
+        _ -> -1,
+    ),
+)
+
+@test_mapped_next_back tests @mapped_next_back () -> void = run(
+    assert_eq(actual: mapped_next_back(), expected: 30),
+)
+
+// Interleaved on mapped: front=10, back=30
+@mapped_interleaved () -> (int, int) = run(
+    let iter = [1, 2, 3].iter().map(x -> x * 10),
+    match(
+        iter.next(),
+        (Some(front), iter2) -> match(
+            iter2.next_back(),
+            (Some(back), _) -> (front, back),
+            _ -> (-1, -1),
+        ),
+        _ -> (-1, -1),
+    ),
+)
+
+@test_mapped_interleaved tests @mapped_interleaved () -> void = run(
+    let (front, back) = mapped_interleaved(),
+    assert_eq(actual: front, expected: 10),
+    assert_eq(actual: back, expected: 30),
+)
+
+// =============================================================================
+// Filtered adapter — next_back() with predicate
+// =============================================================================
+
+@filtered_next_back () -> int = run(
+    let iter = [1, 2, 3, 4, 5, 6].iter().filter(x -> x % 2 == 0),
+    // Even numbers: 2, 4, 6 — next_back should yield 6
+    match(
+        iter.next_back(),
+        (Some(x), _) -> x,
+        _ -> -1,
+    ),
+)
+
+@test_filtered_next_back tests @filtered_next_back () -> void = run(
+    assert_eq(actual: filtered_next_back(), expected: 6),
+)
+
+// Interleaved on filtered: front=2, back=6
+@filtered_interleaved () -> (int, int) = run(
+    let iter = [1, 2, 3, 4, 5, 6].iter().filter(x -> x % 2 == 0),
+    match(
+        iter.next(),
+        (Some(front), iter2) -> match(
+            iter2.next_back(),
+            (Some(back), _) -> (front, back),
+            _ -> (-1, -1),
+        ),
+        _ -> (-1, -1),
+    ),
+)
+
+@test_filtered_interleaved tests @filtered_interleaved () -> void = run(
+    let (front, back) = filtered_interleaved(),
+    assert_eq(actual: front, expected: 2),
+    assert_eq(actual: back, expected: 6),
+)

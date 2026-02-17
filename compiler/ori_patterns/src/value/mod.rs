@@ -29,6 +29,7 @@
 
 mod composite;
 mod heap;
+pub(crate) mod iterator;
 mod scalar_int;
 
 use std::borrow::Cow;
@@ -40,6 +41,7 @@ pub use ori_ir::{Name, StringLookup};
 
 pub use composite::{FunctionValue, MemoizedFunctionValue, RangeValue, StructLayout, StructValue};
 pub use heap::Heap;
+pub use iterator::IteratorValue;
 pub use scalar_int::ScalarInt;
 
 /// Ordering value representing comparison results.
@@ -139,6 +141,12 @@ pub enum Value {
     /// Uses `BTreeMap` for deterministic iteration order, which enables
     /// efficient hashing without needing to sort keys.
     Map(Heap<BTreeMap<String, Value>>),
+    /// Set of unique values.
+    ///
+    /// Uses `BTreeMap<String, Value>` keyed by `to_map_key()` for deterministic
+    /// iteration order and O(log n) membership testing. The String key is the
+    /// type-prefixed key from `to_map_key()`, the Value is the actual element.
+    Set(Heap<BTreeMap<String, Value>>),
     /// Tuple of values.
     Tuple(Heap<Vec<Value>>),
 
@@ -197,6 +205,8 @@ pub enum Value {
     FunctionVal(FunctionValFn, &'static str),
     /// Range value.
     Range(RangeValue),
+    /// Iterator value (functional — each `next()` returns a new iterator).
+    Iterator(IteratorValue),
 
     /// Module namespace for qualified access.
     ///
@@ -291,6 +301,15 @@ impl Value {
     #[inline]
     pub fn map_from_hashmap(entries: std::collections::HashMap<String, Value>) -> Self {
         Value::Map(Heap::new(entries.into_iter().collect()))
+    }
+
+    /// Create a set value from a keyed `BTreeMap`.
+    ///
+    /// The map keys are `to_map_key()` strings for O(log n) deduplication.
+    /// The map values are the actual `Value` elements.
+    #[inline]
+    pub fn set(items: BTreeMap<String, Value>) -> Self {
+        Value::Set(Heap::new(items))
     }
 
     /// Create a tuple value.
@@ -438,6 +457,12 @@ impl Value {
         }
     }
 
+    /// Create an iterator value from an `IteratorValue` state.
+    #[inline]
+    pub fn iterator(state: IteratorValue) -> Self {
+        Value::Iterator(state)
+    }
+
     /// Create a module namespace for qualified access.
     ///
     /// # Example
@@ -462,6 +487,7 @@ impl Value {
             Value::Int(n) => !n.is_zero(),
             Value::Str(s) => !s.is_empty(),
             Value::List(items) => !items.is_empty(),
+            Value::Set(items) => !items.is_empty(),
             Value::None | Value::Err(_) | Value::Void => false,
             _ => true,
         }
@@ -537,6 +563,7 @@ impl Value {
             Value::Void => "void",
             Value::List(_) => "list",
             Value::Map(_) => "map",
+            Value::Set(_) => "Set",
             Value::Tuple(_) => "tuple",
             Value::Some(_) | Value::None => "Option",
             Value::Ok(_) | Value::Err(_) => "Result",
@@ -551,6 +578,7 @@ impl Value {
             Value::Size(_) => "Size",
             Value::Ordering(_) => "Ordering",
             Value::Range(_) => "Range",
+            Value::Iterator(_) => "Iterator",
             Value::ModuleNamespace(_) => "module",
             Value::Error(_) => "error",
             Value::TypeRef { .. } => "type",
@@ -599,6 +627,10 @@ impl Value {
                     .collect();
                 format!("{{{}}}", inner.join(", "))
             }
+            Value::Set(items) => {
+                let inner: Vec<_> = items.values().map(Value::display_value).collect();
+                format!("Set {{{}}}", inner.join(", "))
+            }
             Value::Tuple(items) => {
                 let inner: Vec<_> = items.iter().map(Value::display_value).collect();
                 format!("({})", inner.join(", "))
@@ -624,7 +656,8 @@ impl Value {
             Value::Duration(ns) => format_duration(*ns),
             Value::Size(bytes) => format!("{bytes}b"),
             Value::Ordering(ord) => ord.name().to_string(),
-            Value::Range(r) => format!("{r:?}"),
+            Value::Range(r) => format!("{}", Value::Range(r.clone())),
+            Value::Iterator(it) => format!("<iterator {it:?}>"),
             Value::ModuleNamespace(_) => "<module>".to_string(),
             Value::Error(msg) => format!("Error({msg})"),
             Value::TypeRef { .. } => "<type>".to_string(),
@@ -671,6 +704,7 @@ impl Value {
             Value::Void
             | Value::List(_)
             | Value::Map(_)
+            | Value::Set(_)
             | Value::Variant { .. }
             | Value::VariantConstructor { .. }
             | Value::Newtype { .. }
@@ -680,6 +714,7 @@ impl Value {
             | Value::MemoizedFunction(_)
             | Value::FunctionVal(_, _)
             | Value::Range(_)
+            | Value::Iterator(_)
             | Value::ModuleNamespace(_)
             | Value::Error(_)
             | Value::TypeRef { .. } => Err("value is not hashable and cannot be a map key"),
@@ -701,6 +736,11 @@ impl Value {
             | (Value::Err(a), Value::Err(b)) => a.equals(b),
             (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
+            }
+            (Value::Set(a), Value::Set(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .all(|(k, v)| b.get(k).is_some_and(|bv| v.equals(bv)))
             }
             (Value::Duration(a), Value::Duration(b)) => a == b,
             (Value::Size(a), Value::Size(b)) => a == b,
@@ -751,6 +791,7 @@ impl fmt::Debug for Value {
             Value::Void => write!(f, "Void"),
             Value::List(items) => write!(f, "List({:?})", &**items),
             Value::Map(map) => write!(f, "Map({:?})", &**map),
+            Value::Set(items) => write!(f, "Set({:?})", items.values().collect::<Vec<_>>()),
             Value::Tuple(items) => write!(f, "Tuple({:?})", &**items),
             Value::Some(v) => write!(f, "Some({:?})", &**v),
             Value::None => write!(f, "None"),
@@ -791,6 +832,7 @@ impl fmt::Debug for Value {
             Value::Size(bytes) => write!(f, "Size({bytes}b)"),
             Value::Ordering(ord) => write!(f, "Ordering({ord:?})"),
             Value::Range(r) => write!(f, "Range({r:?})"),
+            Value::Iterator(it) => write!(f, "Iterator({it:?})"),
             Value::ModuleNamespace(ns) => write!(f, "ModuleNamespace({} items)", ns.len()),
             Value::Error(msg) => write!(f, "Error({msg})"),
             Value::TypeRef { type_name } => write!(f, "TypeRef({type_name:?})"),
@@ -825,6 +867,16 @@ impl fmt::Display for Value {
                         write!(f, ", ")?;
                     }
                     write!(f, "\"{k}\": {v}")?;
+                }
+                write!(f, "}}")
+            }
+            Value::Set(items) => {
+                write!(f, "Set {{")?;
+                for (i, v) in items.values().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{v}")?;
                 }
                 write!(f, "}}")
             }
@@ -888,12 +940,18 @@ impl fmt::Display for Value {
             }
             Value::Ordering(ord) => write!(f, "{}", ord.name()),
             Value::Range(r) => {
-                if r.inclusive {
-                    write!(f, "{}..={}", r.start, r.end)
+                if let Some(end) = r.end {
+                    let op = if r.inclusive { "..=" } else { ".." };
+                    write!(f, "{}{op}{end}", r.start)?;
                 } else {
-                    write!(f, "{}..{}", r.start, r.end)
+                    write!(f, "{}..", r.start)?;
                 }
+                if r.step != 1 {
+                    write!(f, " by {}", r.step)?;
+                }
+                Ok(())
             }
+            Value::Iterator(it) => write!(f, "<iterator {it:?}>"),
             Value::ModuleNamespace(_) => write!(f, "<module>"),
             Value::Error(msg) => write!(f, "<error: {msg}>"),
             Value::TypeRef { type_name } => write!(f, "<type {type_name:?}>"),
@@ -972,6 +1030,9 @@ impl PartialEq for Value {
             (Value::Map(a), Value::Map(b)) => {
                 a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| v == bv))
             }
+            (Value::Set(a), Value::Set(b)) => {
+                a.len() == b.len() && a.keys().all(|k| b.contains_key(k))
+            }
             _ => false,
         }
     }
@@ -1008,6 +1069,13 @@ impl std::hash::Hash for Value {
                 for (k, v) in m.iter() {
                     k.hash(state);
                     v.hash(state);
+                }
+            }
+            Value::Set(s) => {
+                s.len().hash(state);
+                // BTreeMap iterates in sorted key order, so no sorting needed
+                for k in s.keys() {
+                    k.hash(state);
                 }
             }
             Value::Struct(s) => {
@@ -1055,8 +1123,10 @@ impl std::hash::Hash for Value {
             Value::Range(r) => {
                 r.start.hash(state);
                 r.end.hash(state);
+                r.step.hash(state);
                 r.inclusive.hash(state);
             }
+            Value::Iterator(it) => it.hash(state),
             Value::ModuleNamespace(ns) => {
                 // Hash by namespace size (discriminant already hashed)
                 ns.len().hash(state);

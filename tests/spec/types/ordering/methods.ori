@@ -198,20 +198,44 @@ use std.testing { assert, assert_eq }
 @hash_distinct () -> int = Less.hash()
 
 // =============================================================================
-// Ordering Type — then and then_with Methods
+// Ordering Type — then Method
 // =============================================================================
 
-// Note: The `then` method is BLOCKED because `then` is a keyword in Ori
-// (used in if...then...else). Once resolved, these tests can be enabled.
-//
-// #skip("then is a keyword")
-// @test_then_equal_continues tests @then_equal () -> void = run(
-//     let result = Equal.then(other: Less),
-//     assert(cond: result.is_less()),
-// )
-//
-// #skip("then is a keyword")
-// @test_then_less_returns_self tests @then_less () -> void = run(
-//     let result = Less.then(other: Greater),
-//     assert(cond: result.is_less()),
-// )
+// Note: `then` is a keyword (if...then...else) but keywords are now valid
+// as method names after `.` (grammar.ebnf § member_name).
+
+// --- then: Equal chains to other ---
+
+@test_then_equal_continues tests @then_equal () -> void =
+    assert(cond: Equal.then(other: Less).is_less())
+
+@then_equal () -> Ordering = Equal.then(other: Less)
+
+// --- then: Non-equal keeps self ---
+
+@test_then_less_returns_self tests @then_less () -> void =
+    assert(cond: Less.then(other: Greater).is_less())
+
+@then_less () -> Ordering = Less.then(other: Greater)
+
+@test_then_greater_returns_self tests @then_greater () -> void =
+    assert(cond: Greater.then(other: Less).is_greater())
+
+@then_greater () -> Ordering = Greater.then(other: Less)
+
+// --- then: Equal chains to Equal ---
+
+@test_then_equal_equal tests @then_equal_equal () -> void =
+    assert(cond: Equal.then(other: Equal).is_equal())
+
+@then_equal_equal () -> Ordering = Equal.then(other: Equal)
+
+// --- then: chaining for lexicographic comparison ---
+
+@test_then_chained tests @then_chained () -> void = run(
+    // Compare (1, 2) with (1, 3): first fields equal, second fields differ
+    let result = Equal.then(other: Less),
+    assert(cond: result.is_less()),
+)
+
+@then_chained () -> Ordering = Equal.then(other: Less)

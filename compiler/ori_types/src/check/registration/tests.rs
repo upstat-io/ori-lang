@@ -137,3 +137,295 @@ fn resolve_type_with_self_substitution() {
 
     assert_eq!(resolved, self_type);
 }
+
+// ============================================================================
+// parsed_type_contains_self tests
+// ============================================================================
+
+#[test]
+fn contains_self_direct() {
+    let arena = ExprArena::new();
+    assert!(parsed_type_contains_self(&arena, &ParsedType::SelfType));
+}
+
+#[test]
+fn contains_self_primitive_is_false() {
+    let arena = ExprArena::new();
+    assert!(!parsed_type_contains_self(
+        &arena,
+        &ParsedType::Primitive(ori_ir::TypeId::INT)
+    ));
+}
+
+#[test]
+fn contains_self_in_list() {
+    let mut arena = ExprArena::new();
+    let self_id = arena.alloc_parsed_type(ParsedType::SelfType);
+    assert!(parsed_type_contains_self(
+        &arena,
+        &ParsedType::List(self_id)
+    ));
+}
+
+#[test]
+fn contains_self_in_map_key() {
+    let mut arena = ExprArena::new();
+    let self_id = arena.alloc_parsed_type(ParsedType::SelfType);
+    let int_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+    assert!(parsed_type_contains_self(
+        &arena,
+        &ParsedType::Map {
+            key: self_id,
+            value: int_id,
+        }
+    ));
+}
+
+#[test]
+fn contains_self_in_map_value() {
+    let mut arena = ExprArena::new();
+    let int_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+    let self_id = arena.alloc_parsed_type(ParsedType::SelfType);
+    assert!(parsed_type_contains_self(
+        &arena,
+        &ParsedType::Map {
+            key: int_id,
+            value: self_id,
+        }
+    ));
+}
+
+#[test]
+fn contains_self_nested_function_return() {
+    let mut arena = ExprArena::new();
+    let int_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+    let self_id = arena.alloc_parsed_type(ParsedType::SelfType);
+    let params = arena.alloc_parsed_type_list(vec![int_id]);
+    assert!(parsed_type_contains_self(
+        &arena,
+        &ParsedType::Function {
+            params,
+            ret: self_id,
+        }
+    ));
+}
+
+#[test]
+fn contains_self_not_in_plain_function() {
+    let mut arena = ExprArena::new();
+    let int_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
+    let bool_id = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::BOOL));
+    let params = arena.alloc_parsed_type_list(vec![int_id]);
+    assert!(!parsed_type_contains_self(
+        &arena,
+        &ParsedType::Function {
+            params,
+            ret: bool_id,
+        }
+    ));
+}
+
+// ============================================================================
+// compute_object_safety_violations tests
+// ============================================================================
+
+/// Helper: create a simple Param.
+fn make_param(name: Name, ty: Option<ParsedType>) -> ori_ir::Param {
+    ori_ir::Param {
+        name,
+        pattern: None,
+        ty,
+        default: None,
+        span: ori_ir::Span::DUMMY,
+        is_variadic: false,
+    }
+}
+
+#[test]
+fn object_safe_trait_has_no_violations() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let method_name = interner.intern("to_str");
+    let self_name = interner.intern("self");
+
+    // @to_str (self) -> str
+    let params = arena.alloc_params(vec![make_param(self_name, None)]);
+
+    let trait_def = ori_ir::TraitDef {
+        name: interner.intern("Printable"),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits: vec![],
+        items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+            name: method_name,
+            params,
+            return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(3)), // str
+            span: ori_ir::Span::DUMMY,
+        })],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    };
+
+    // Create checker AFTER arena mutations
+    let checker = ModuleChecker::new(&arena, &interner);
+    let violations = compute_object_safety_violations(&checker, &trait_def);
+    assert!(violations.is_empty(), "Printable should be object-safe");
+}
+
+#[test]
+fn self_return_violates_object_safety() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let method_name = interner.intern("clone");
+    let self_name = interner.intern("self");
+
+    // @clone (self) -> Self
+    let params = arena.alloc_params(vec![make_param(self_name, None)]);
+
+    let trait_def = ori_ir::TraitDef {
+        name: interner.intern("Clone"),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits: vec![],
+        items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+            name: method_name,
+            params,
+            return_ty: ParsedType::SelfType,
+            span: ori_ir::Span::DUMMY,
+        })],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    };
+
+    let checker = ModuleChecker::new(&arena, &interner);
+    let violations = compute_object_safety_violations(&checker, &trait_def);
+    assert_eq!(violations.len(), 1);
+    assert!(
+        matches!(&violations[0], ObjectSafetyViolation::SelfReturn { method, .. } if *method == method_name)
+    );
+}
+
+#[test]
+fn self_param_violates_object_safety() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let method_name = interner.intern("equals");
+    let self_name = interner.intern("self");
+    let other_name = interner.intern("other");
+
+    // @equals (self, other: Self) -> bool
+    let params = arena.alloc_params(vec![
+        make_param(self_name, None),
+        make_param(other_name, Some(ParsedType::SelfType)),
+    ]);
+
+    let trait_def = ori_ir::TraitDef {
+        name: interner.intern("Eq"),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits: vec![],
+        items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+            name: method_name,
+            params,
+            return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(2)), // bool
+            span: ori_ir::Span::DUMMY,
+        })],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    };
+
+    let checker = ModuleChecker::new(&arena, &interner);
+    let violations = compute_object_safety_violations(&checker, &trait_def);
+    assert_eq!(violations.len(), 1);
+    assert!(
+        matches!(&violations[0], ObjectSafetyViolation::SelfParam { method, param, .. }
+            if *method == method_name && *param == other_name)
+    );
+}
+
+#[test]
+fn multiple_violations_in_single_trait() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let self_name = interner.intern("self");
+    let clone_name = interner.intern("clone");
+    let eq_name = interner.intern("equals");
+    let other_name = interner.intern("other");
+
+    // Method 1: @clone (self) -> Self (Rule 1 violation)
+    let params1 = arena.alloc_params(vec![make_param(self_name, None)]);
+
+    // Method 2: @equals (self, other: Self) -> bool (Rule 2 violation)
+    let params2 = arena.alloc_params(vec![
+        make_param(self_name, None),
+        make_param(other_name, Some(ParsedType::SelfType)),
+    ]);
+
+    let trait_def = ori_ir::TraitDef {
+        name: interner.intern("CloneEq"),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits: vec![],
+        items: vec![
+            ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+                name: clone_name,
+                params: params1,
+                return_ty: ParsedType::SelfType,
+                span: ori_ir::Span::DUMMY,
+            }),
+            ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+                name: eq_name,
+                params: params2,
+                return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(2)),
+                span: ori_ir::Span::DUMMY,
+            }),
+        ],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    };
+
+    let checker = ModuleChecker::new(&arena, &interner);
+    let violations = compute_object_safety_violations(&checker, &trait_def);
+    assert_eq!(violations.len(), 2, "Should detect both violations");
+    assert!(matches!(
+        &violations[0],
+        ObjectSafetyViolation::SelfReturn { .. }
+    ));
+    assert!(matches!(
+        &violations[1],
+        ObjectSafetyViolation::SelfParam { .. }
+    ));
+}
+
+#[test]
+fn self_in_receiver_position_is_allowed() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let method_name = interner.intern("show");
+    let self_name = interner.intern("self");
+
+    // @show (self) -> str — self receiver has explicit Self type, still OK
+    let params = arena.alloc_params(vec![make_param(self_name, Some(ParsedType::SelfType))]);
+
+    let trait_def = ori_ir::TraitDef {
+        name: interner.intern("Show"),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits: vec![],
+        items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+            name: method_name,
+            params,
+            return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(3)), // str
+            span: ori_ir::Span::DUMMY,
+        })],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    };
+
+    let checker = ModuleChecker::new(&arena, &interner);
+    let violations = compute_object_safety_violations(&checker, &trait_def);
+    assert!(
+        violations.is_empty(),
+        "Self in receiver position should not violate object safety"
+    );
+}

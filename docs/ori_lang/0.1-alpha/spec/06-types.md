@@ -323,6 +323,20 @@ Unordered unique elements. Elements must implement `Eq` and `Hashable`.
 
 Fixed-size heterogeneous collection. `()` is the unit value.
 
+Elements are accessed by zero-based numeric index:
+
+```ori
+let point = (3, 4)
+point.0         // 3
+point.1         // 4
+```
+
+Tuples also support destructuring in `let` and `match` patterns:
+
+```ori
+let (x, y) = point
+```
+
 ### Function
 
 ```
@@ -917,9 +931,7 @@ Trait objects can have additional bounds. All component traits must be object-sa
 
 **Error Codes**
 
-- `E0800`: Self in return position
-- `E0801`: Self as non-receiver parameter
-- `E0802`: Generic method in trait
+- `E2024`: Trait is not object-safe (covers all three rules; violation details included in error message)
 
 ## Clone Trait
 

@@ -139,7 +139,7 @@ mod int_ops {
         let result = evaluate_binary(Value::int(1), Value::int(5), BinaryOp::Range).unwrap();
         if let Value::Range(r) = result {
             assert_eq!(r.start, 1);
-            assert_eq!(r.end, 5);
+            assert_eq!(r.end, Some(5));
             assert!(!r.inclusive);
         } else {
             panic!("Expected Range");

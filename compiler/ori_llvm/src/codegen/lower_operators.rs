@@ -556,6 +556,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// Maps the operator to its trait method name (e.g., `+` → `"add"`),
     /// looks up the compiled method function in `method_functions`, and
     /// emits a method call via `invoke_user_function`.
+    // SYNC: also update ArcIrEmitter::emit_binary_op_via_trait in arc_emitter.rs
     fn lower_binary_op_via_trait(
         &mut self,
         op: BinaryOp,
@@ -563,19 +564,27 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         rhs: ValueId,
         left_type: Idx,
     ) -> Option<ValueId> {
-        let method_name = binary_op_to_method_name(op)?;
+        let method_name = op.trait_method_name()?;
         let type_name = *self.type_idx_to_name.get(&left_type)?;
         let interned_method = self.interner.intern(method_name);
-        let (func_id, abi) = self.method_functions.get(&(type_name, interned_method))?;
-        let func_id = *func_id;
-        let abi = abi.clone();
+        // Scope the immutable borrow of method_functions: extract only what
+        // we need so we can call &mut self methods below.
+        let (func_id, params, ret_passing, ret_ty_idx) = {
+            let (fid, abi) = self.method_functions.get(&(type_name, interned_method))?;
+            (
+                *fid,
+                abi.params.clone(),
+                abi.return_abi.passing.clone(),
+                abi.return_abi.ty,
+            )
+        };
 
         let raw_args = [lhs, rhs];
-        let all_args = self.apply_param_passing(&raw_args, &abi.params);
+        let all_args = self.apply_param_passing(&raw_args, &params);
 
-        match &abi.return_abi.passing {
+        match &ret_passing {
             ReturnPassing::Sret { .. } => {
-                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                let ret_ty = self.resolve_type(ret_ty_idx);
                 self.invoke_user_function_sret(func_id, &all_args, ret_ty, "op_trait")
             }
             ReturnPassing::Direct | ReturnPassing::Void => {
@@ -588,30 +597,32 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     ///
     /// Maps the operator to its trait method name (e.g., `-` → `"negate"`),
     /// looks up the compiled method function, and emits a method call.
+    // SYNC: also update ArcIrEmitter::emit_unary_op_via_trait in arc_emitter.rs
     fn lower_unary_op_via_trait(
         &mut self,
         op: UnaryOp,
         val: ValueId,
         operand_type: Idx,
     ) -> Option<ValueId> {
-        let method_name = match op {
-            UnaryOp::Neg => "negate",
-            UnaryOp::Not => "not",
-            UnaryOp::BitNot => "bit_not",
-            UnaryOp::Try => return None,
-        };
+        let method_name = op.trait_method_name()?;
         let type_name = *self.type_idx_to_name.get(&operand_type)?;
         let interned_method = self.interner.intern(method_name);
-        let (func_id, abi) = self.method_functions.get(&(type_name, interned_method))?;
-        let func_id = *func_id;
-        let abi = abi.clone();
+        let (func_id, params, ret_passing, ret_ty_idx) = {
+            let (fid, abi) = self.method_functions.get(&(type_name, interned_method))?;
+            (
+                *fid,
+                abi.params.clone(),
+                abi.return_abi.passing.clone(),
+                abi.return_abi.ty,
+            )
+        };
 
         let raw_args = [val];
-        let all_args = self.apply_param_passing(&raw_args, &abi.params);
+        let all_args = self.apply_param_passing(&raw_args, &params);
 
-        match &abi.return_abi.passing {
+        match &ret_passing {
             ReturnPassing::Sret { .. } => {
-                let ret_ty = self.resolve_type(abi.return_abi.ty);
+                let ret_ty = self.resolve_type(ret_ty_idx);
                 self.invoke_user_function_sret(func_id, &all_args, ret_ty, "op_trait")
             }
             ReturnPassing::Direct | ReturnPassing::Void => {
@@ -657,31 +668,5 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             // INT, DURATION, SIZE, UNIT, NEVER — already i64
             _ => val,
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Operator → trait method name mapping
-// ---------------------------------------------------------------------------
-
-/// Map a binary operator to its trait method name.
-///
-/// Mirrors the mapping in `ori_types::infer::expr::operators::binary_op_to_method_name`.
-/// Only operators that have corresponding trait methods are mapped; comparison
-/// and logical operators return `None`.
-pub(crate) fn binary_op_to_method_name(op: BinaryOp) -> Option<&'static str> {
-    match op {
-        BinaryOp::Add => Some("add"),
-        BinaryOp::Sub => Some("subtract"),
-        BinaryOp::Mul => Some("multiply"),
-        BinaryOp::Div => Some("divide"),
-        BinaryOp::FloorDiv => Some("floor_divide"),
-        BinaryOp::Mod => Some("remainder"),
-        BinaryOp::BitAnd => Some("bit_and"),
-        BinaryOp::BitOr => Some("bit_or"),
-        BinaryOp::BitXor => Some("bit_xor"),
-        BinaryOp::Shl => Some("shift_left"),
-        BinaryOp::Shr => Some("shift_right"),
-        _ => None,
     }
 }

@@ -1,0 +1,139 @@
+// Spec: Section 3.8 — Iterator Traits (Infinite Iterators)
+// Tests for the repeat(value) infinite iterator function.
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// repeat: basic usage
+// =============================================================================
+
+// repeat with take and collect
+@repeat_int () -> [int] = run(
+    repeat(value: 42).take(count: 3).collect(),
+)
+
+@test_repeat_int tests @repeat_int () -> void = run(
+    assert_eq(actual: repeat_int(), expected: [42, 42, 42]),
+)
+
+// repeat with string values
+@repeat_str () -> [str] = run(
+    repeat(value: "ab").take(count: 4).collect(),
+)
+
+@test_repeat_str tests @repeat_str () -> void = run(
+    assert_eq(actual: repeat_str(), expected: ["ab", "ab", "ab", "ab"]),
+)
+
+// repeat with bool
+@repeat_bool () -> [bool] = run(
+    repeat(value: true).take(count: 2).collect(),
+)
+
+@test_repeat_bool tests @repeat_bool () -> void = run(
+    assert_eq(actual: repeat_bool(), expected: [true, true]),
+)
+
+// =============================================================================
+// repeat: zero take (empty result)
+// =============================================================================
+
+@repeat_take_zero () -> [int] = run(
+    repeat(value: 99).take(count: 0).collect(),
+)
+
+@test_repeat_take_zero tests @repeat_take_zero () -> void = run(
+    assert_eq(actual: repeat_take_zero(), expected: []),
+)
+
+// =============================================================================
+// repeat: chaining with adapters
+// =============================================================================
+
+// repeat + map
+@repeat_map () -> [int] = run(
+    repeat(value: 10).take(count: 3).map(transform: x -> x + 1).collect(),
+)
+
+@test_repeat_map tests @repeat_map () -> void = run(
+    assert_eq(actual: repeat_map(), expected: [11, 11, 11]),
+)
+
+// repeat + filter (filter is identity since all same)
+@repeat_filter () -> [int] = run(
+    repeat(value: 5).take(count: 4).filter(predicate: x -> x == 5).collect(),
+)
+
+@test_repeat_filter tests @repeat_filter () -> void = run(
+    assert_eq(actual: repeat_filter(), expected: [5, 5, 5, 5]),
+)
+
+// repeat + enumerate
+@repeat_enumerate () -> [(int, int)] = run(
+    repeat(value: 7).take(count: 3).enumerate().collect(),
+)
+
+@test_repeat_enumerate tests @repeat_enumerate () -> void = run(
+    assert_eq(actual: repeat_enumerate(), expected: [(0, 7), (1, 7), (2, 7)]),
+)
+
+// repeat + skip + take
+@repeat_skip_take () -> [int] = run(
+    repeat(value: 1).skip(count: 5).take(count: 3).collect(),
+)
+
+@test_repeat_skip_take tests @repeat_skip_take () -> void = run(
+    assert_eq(actual: repeat_skip_take(), expected: [1, 1, 1]),
+)
+
+// =============================================================================
+// repeat: consumers
+// =============================================================================
+
+// repeat + take + count
+@repeat_count () -> int = run(
+    repeat(value: 0).take(count: 100).count(),
+)
+
+@test_repeat_count tests @repeat_count () -> void = run(
+    assert_eq(actual: repeat_count(), expected: 100),
+)
+
+// repeat + take + fold
+@repeat_fold () -> int = run(
+    repeat(value: 3).take(count: 4).fold(initial: 0, op: (acc, x) -> acc + x),
+)
+
+@test_repeat_fold tests @repeat_fold () -> void = run(
+    assert_eq(actual: repeat_fold(), expected: 12),
+)
+
+// repeat + take + any
+@repeat_any () -> bool = run(
+    repeat(value: 42).take(count: 5).any(predicate: x -> x == 42),
+)
+
+@test_repeat_any tests @repeat_any () -> void = run(
+    assert(cond: repeat_any()),
+)
+
+// repeat + take + all
+@repeat_all () -> bool = run(
+    repeat(value: 42).take(count: 5).all(predicate: x -> x == 42),
+)
+
+@test_repeat_all tests @repeat_all () -> void = run(
+    assert(cond: repeat_all()),
+)
+
+// =============================================================================
+// repeat: zip with finite iterator
+// =============================================================================
+
+@repeat_zip () -> [(int, int)] = run(
+    repeat(value: 0).zip(other: [10, 20, 30].iter()).collect(),
+)
+
+@test_repeat_zip tests @repeat_zip () -> void = run(
+    assert_eq(actual: repeat_zip(), expected: [(0, 10), (0, 20), (0, 30)]),
+)

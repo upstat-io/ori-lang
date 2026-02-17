@@ -1,0 +1,11 @@
+// Test that for-loop string iteration infers element type as `char`.
+// Spec: §3.8 — For Loop Desugaring
+//
+// Iterating over a string yields `char` values.
+// Arithmetic on `char` (e.g. char + int) must be a type error.
+
+#[compile_fail("type mismatch")]
+@test_str_iter_arithmetic () -> void = run(
+    let xs: [int] = for c in "hello" yield c + 1,
+    ()
+)

@@ -1463,3 +1463,70 @@ fn test_label_with_space_is_not_label() {
         "space before colon should prevent label parsing"
     );
 }
+
+#[test]
+fn test_tuple_field_access() {
+    let interner = StringInterner::new();
+    let tokens = ori_lexer::lex("@f (t: (int, int)) -> int = t.0", &interner);
+    let result = parse(&tokens, &interner);
+
+    assert!(
+        !result.has_errors(),
+        "tuple field access should parse: {:?}",
+        result.errors
+    );
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    if let ExprKind::Field { field, .. } = &body.kind {
+        assert_eq!(interner.lookup(*field), "0");
+    } else {
+        panic!("expected ExprKind::Field, got {:?}", body.kind);
+    }
+}
+
+#[test]
+fn test_chained_tuple_field_access_with_parens() {
+    // Chained tuple field access requires parentheses: (t.0).1
+    // because the lexer tokenizes `0.1` as a float literal.
+    let interner = StringInterner::new();
+    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = (t.0).1", &interner);
+    let result = parse(&tokens, &interner);
+
+    assert!(
+        !result.has_errors(),
+        "parenthesized chained tuple field access should parse: {:?}",
+        result.errors
+    );
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+    // (t.0).1 parses as Field(Field(t, "0"), "1") — parens are transparent
+    if let ExprKind::Field { receiver, field } = &body.kind {
+        assert_eq!(interner.lookup(*field), "1");
+        let inner = result.arena.get_expr(*receiver);
+        if let ExprKind::Field {
+            field: inner_field, ..
+        } = &inner.kind
+        {
+            assert_eq!(interner.lookup(*inner_field), "0");
+        } else {
+            panic!("expected inner ExprKind::Field, got {:?}", inner.kind);
+        }
+    } else {
+        panic!("expected ExprKind::Field, got {:?}", body.kind);
+    }
+}
+
+#[test]
+fn test_bare_chained_tuple_field_is_error() {
+    // `t.0.1` without parens fails because lexer tokenizes `0.1` as float.
+    // This is a known limitation — use `(t.0).1` instead.
+    let interner = StringInterner::new();
+    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = t.0.1", &interner);
+    let result = parse(&tokens, &interner);
+    assert!(
+        result.has_errors(),
+        "bare t.0.1 should fail (lexer sees 0.1 as float)"
+    );
+}
