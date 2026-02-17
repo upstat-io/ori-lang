@@ -5,10 +5,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::super::InferEngine;
 use super::{find_similar_type_names, infer_expr, infer_ident};
-use crate::{
-    ContextKind, Expected, ExpectedOrigin, Idx, MethodLookupResult, Pool, Tag, TypeCheckError,
-    TypeKind,
-};
+use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Pool, Tag, TypeCheckError, TypeKind};
 
 /// Infer type for a struct literal: `Point { x: 1, y: 2 }`.
 ///
@@ -692,12 +689,12 @@ pub(crate) fn infer_index(
 
 /// Try to resolve subscript indexing via `Index` trait dispatch.
 ///
-/// Looks up the `index` method in the `TraitRegistry` for the receiver type.
-/// If found, checks the key expression against the method's key parameter
-/// and returns the method's return type (the `Value` in `Index<Key, Value>`).
+/// Iterates all `Index` trait impls for the receiver type and filters by
+/// key type compatibility. This handles the case where a type implements
+/// `Index` for multiple key types (e.g., `Index<int, V>` + `Index<str, V>`).
 ///
-/// Follows the same borrow-dance pattern as `resolve_binary_op_via_trait`:
-/// scope the `trait_registry()` borrow, extract data, then use engine mutably.
+/// Follows the borrow-dance pattern: scope the `trait_registry()` borrow
+/// to extract candidate data, then use engine mutably for type checking.
 fn resolve_index_via_trait(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -710,61 +707,104 @@ fn resolve_index_via_trait(
         return Idx::ERROR;
     };
 
-    // Scoped borrow: look up the `index` method via trait registry,
-    // extract signature and self-ness, then release the registry borrow.
-    let lookup_result = {
+    // Scoped borrow: collect all Index impl candidates (signature, has_self).
+    let candidates: Vec<(Idx, bool)> = {
         let Some(trait_registry) = engine.trait_registry() else {
             return Idx::ERROR;
         };
-        match trait_registry.lookup_method_checked(receiver_ty, name) {
-            MethodLookupResult::Found(lookup) => {
-                Ok((lookup.method().signature, lookup.method().has_self))
-            }
-            MethodLookupResult::NotFound => Err(false),
-            MethodLookupResult::Ambiguous { .. } => Err(true),
-        }
+        trait_registry
+            .impls_for_type(receiver_ty)
+            .filter_map(|impl_entry| {
+                let method = impl_entry.methods.get(&name)?;
+                Some((method.signature, method.has_self))
+            })
+            .collect()
     };
 
-    match lookup_result {
-        Err(false) => {
-            // No Index impl found
+    if candidates.is_empty() {
+        engine.push_error(TypeCheckError::not_indexable(span, receiver_ty));
+        return Idx::ERROR;
+    }
+
+    // Single candidate — use directly without key-type filtering
+    if candidates.len() == 1 {
+        return check_index_signature(engine, arena, candidates[0], index_ty, index, span);
+    }
+
+    // Multiple candidates — disambiguate by matching key type tags.
+    let resolved_index = engine.resolve(index_ty);
+    let index_tag = engine.pool().tag(resolved_index);
+
+    let matching: Vec<(Idx, bool)> = candidates
+        .into_iter()
+        .filter(|&(sig_ty, has_self)| {
+            let resolved_sig = engine.resolve(sig_ty);
+            if engine.pool().tag(resolved_sig) != Tag::Function {
+                return false;
+            }
+            let params = engine.pool().function_params(resolved_sig);
+            let skip = usize::from(has_self);
+            let key_params = &params[skip..];
+            if key_params.len() != 1 {
+                return false;
+            }
+            let key_resolved = engine.resolve(key_params[0]);
+            let key_tag = engine.pool().tag(key_resolved);
+            // Match if key tags equal, or if either is a type variable (deferred)
+            key_tag == index_tag || key_tag == Tag::Var || index_tag == Tag::Var
+        })
+        .collect();
+
+    match matching.len() {
+        0 => {
             engine.push_error(TypeCheckError::not_indexable(span, receiver_ty));
             Idx::ERROR
         }
-        Err(true) => {
-            // Multiple Index impls match
+        1 => check_index_signature(engine, arena, matching[0], index_ty, index, span),
+        _ => {
             engine.push_error(TypeCheckError::ambiguous_index(span, receiver_ty));
             Idx::ERROR
         }
-        Ok((sig_ty, has_self)) => {
-            let resolved_sig = engine.resolve(sig_ty);
-            if engine.pool().tag(resolved_sig) != Tag::Function {
-                return Idx::ERROR;
-            }
-
-            let params = engine.pool().function_params(resolved_sig);
-            let ret = engine.pool().function_return(resolved_sig);
-
-            // Skip `self` parameter for instance methods
-            let skip = usize::from(has_self);
-            let method_params = &params[skip..];
-
-            // Index trait expects exactly one non-self parameter (the key)
-            if method_params.len() != 1 {
-                return Idx::ERROR;
-            }
-
-            // Check index expression against the method's key parameter type
-            let expected = Expected {
-                ty: method_params[0],
-                origin: ExpectedOrigin::Context {
-                    span,
-                    kind: ContextKind::IndexKey,
-                },
-            };
-            let _ = engine.check_type(index_ty, &expected, arena.get_expr(index).span);
-
-            ret
-        }
     }
+}
+
+/// Check the signature of a resolved Index method against the index expression.
+///
+/// Validates the method signature is a function with exactly one non-self
+/// parameter (the key), unifies the key type with the index expression type,
+/// and returns the method's return type.
+fn check_index_signature(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    candidate: (Idx, bool),
+    index_ty: Idx,
+    index: ExprId,
+    span: Span,
+) -> Idx {
+    let (sig_ty, has_self) = candidate;
+    let resolved_sig = engine.resolve(sig_ty);
+    if engine.pool().tag(resolved_sig) != Tag::Function {
+        return Idx::ERROR;
+    }
+
+    let params = engine.pool().function_params(resolved_sig);
+    let ret = engine.pool().function_return(resolved_sig);
+
+    let skip = usize::from(has_self);
+    let method_params = &params[skip..];
+
+    if method_params.len() != 1 {
+        return Idx::ERROR;
+    }
+
+    let expected = Expected {
+        ty: method_params[0],
+        origin: ExpectedOrigin::Context {
+            span,
+            kind: ContextKind::IndexKey,
+        },
+    };
+    let _ = engine.check_type(index_ty, &expected, arena.get_expr(index).span);
+
+    ret
 }

@@ -208,7 +208,7 @@ impl Interpreter<'_> {
                 } else {
                     // User-defined types: dispatch via Index trait method
                     let idx_val = self.eval_can(index)?;
-                    self.eval_method_call(value, self.op_names.index, vec![idx_val])
+                    self.eval_index_user_type(value, idx_val)
                 }
             }
 

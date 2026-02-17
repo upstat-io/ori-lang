@@ -150,6 +150,7 @@ impl Evaluator<'_> {
             arena: &shared_arena,
             captures: std::sync::Arc::new(self.env().capture()),
             canon,
+            interner: self.interner(),
         };
         collect_impl_methods_with_config(&config, &mut user_methods);
         collect_extend_methods_with_config(&config, &mut user_methods);
