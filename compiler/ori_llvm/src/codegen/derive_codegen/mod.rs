@@ -8,7 +8,15 @@
 //! - **Eq**: Field-by-field structural equality (`eq(self, other) -> bool`)
 //! - **Clone**: Identity return for value types (`clone(self) -> Self`)
 //! - **Hashable**: FNV-1a hash in pure LLVM IR (`hash(self) -> int`)
-//! - **Printable**: String representation via runtime concat (`to_string(self) -> str`)
+//! - **Printable**: String representation via runtime concat (`to_str(self) -> str`)
+//! - **Default**: Zero-initialized struct construction (`default() -> Self`)
+//! - **Comparable**: Lexicographic field comparison (`compare(self, other) -> Ordering`)
+//!
+//! Deferred to interpreter-only (not yet codegen'd):
+//! - **Debug**: Debug string representation
+
+mod field_ops;
+mod string_helpers;
 
 use ori_ir::{DerivedTrait, Module, Name, TypeDeclKind};
 use ori_types::{FieldDef, Idx, TypeEntry, TypeKind};
@@ -17,8 +25,10 @@ use tracing::{debug, trace, warn};
 
 use super::abi::{compute_function_abi, FunctionAbi, ReturnPassing};
 use super::function_compiler::FunctionCompiler;
-use super::type_info::TypeInfo;
-use super::value_id::{FunctionId, LLVMTypeId, ValueId};
+use super::value_id::{FunctionId, ValueId};
+
+use field_ops::{coerce_to_i64, emit_field_compare, emit_field_eq};
+use string_helpers::{emit_field_to_string, emit_str_concat, emit_str_literal};
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -100,6 +110,13 @@ pub fn compile_derives<'a>(
                 }
                 DerivedTrait::Default => {
                     compile_derive_default(fc, type_name, type_idx, &type_name_str);
+                }
+                DerivedTrait::Debug => {
+                    // TODO: LLVM codegen for Debug (deferred — interpreter-only for now)
+                    debug!(derive = "Debug", type_name = %type_name_str, "Debug derive not yet implemented in LLVM codegen — skipping");
+                }
+                DerivedTrait::Comparable => {
+                    compile_derive_comparable(fc, type_name, type_idx, &type_name_str, fields);
                 }
             }
         }
@@ -188,72 +205,112 @@ fn compile_derive_eq<'a>(
     fc.builder_mut().ret(false_val);
 }
 
-/// Emit an equality comparison for a single field based on its type.
-fn emit_field_eq<'a>(
+// ---------------------------------------------------------------------------
+// Comparable: lexicographic field comparison
+// ---------------------------------------------------------------------------
+
+/// Generate `compare(self: Self, other: Self) -> Ordering`.
+///
+/// Lexicographic: compare fields in declaration order, short-circuit on first
+/// non-Equal result. Returns Ordering (i8): 0=Less, 1=Equal, 2=Greater.
+fn compile_derive_comparable<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    lhs: ValueId,
-    rhs: ValueId,
-    field_type: Idx,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let info = fc.type_info().get(field_type);
-    match &info {
-        TypeInfo::Int
-        | TypeInfo::Char
-        | TypeInfo::Byte
-        | TypeInfo::Bool
-        | TypeInfo::Duration
-        | TypeInfo::Size
-        | TypeInfo::Ordering => fc.builder_mut().icmp_eq(lhs, rhs, name),
+    type_name: Name,
+    type_idx: Idx,
+    type_name_str: &str,
+    fields: &[FieldDef],
+) {
+    let method_name_str = "compare";
+    let method_name = fc.intern(method_name_str);
+    let other_name = fc.intern("other");
 
-        TypeInfo::Float => fc.builder_mut().fcmp_oeq(lhs, rhs, name),
+    let sig = make_sig(
+        method_name,
+        vec![fc.intern("self"), other_name],
+        vec![type_idx, type_idx],
+        Idx::ORDERING,
+    );
 
-        TypeInfo::Str => emit_str_eq_call(fc, lhs, rhs, name, str_ty_id),
+    let abi = compute_function_abi(&sig, fc.type_info());
+    let symbol = fc.mangle_method(type_name_str, method_name_str);
 
-        TypeInfo::Struct { .. } => {
-            let nested_name = fc.type_idx_to_name(field_type);
-            let eq_name = fc.intern("eq");
-            if let Some(type_name) = nested_name {
-                if let Some((fid, abi)) = fc.get_method_function(type_name, eq_name) {
-                    return emit_method_call_for_derive(fc, fid, &abi, &[lhs, rhs], name);
-                }
-            }
-            fc.builder_mut().icmp_eq(lhs, rhs, name)
-        }
+    let (func_id, self_val, param_vals) =
+        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
 
-        _ => {
-            trace!(
-                ?info,
-                "unsupported field type for derive Eq — using icmp eq"
+    let other_val = param_vals[0];
+
+    // Resolve str type once for string field comparisons
+    let str_ty = fc.resolve_type(Idx::STR);
+    let str_ty_id = fc.builder_mut().register_type(str_ty);
+
+    let equal_bb = fc.builder_mut().append_block(func_id, "cmp.equal");
+
+    if fields.is_empty() {
+        // Empty struct: always Equal
+        fc.builder_mut().br(equal_bb);
+    } else {
+        for (i, field) in fields.iter().enumerate() {
+            let field_name = fc.lookup_name(field.name).to_owned();
+            let self_field =
+                fc.builder_mut()
+                    .extract_value(self_val, i as u32, &format!("self.{field_name}"));
+            let other_field =
+                fc.builder_mut()
+                    .extract_value(other_val, i as u32, &format!("other.{field_name}"));
+
+            let (Some(sf), Some(of)) = (self_field, other_field) else {
+                warn!(field = %field_name, "extract_value failed in derive Comparable");
+                fc.builder_mut().br(equal_bb);
+                break;
+            };
+
+            let ord = emit_field_compare(
+                fc,
+                sf,
+                of,
+                field.ty,
+                &format!("cmp.{field_name}"),
+                str_ty_id,
             );
-            fc.builder_mut().icmp_eq(lhs, rhs, name)
+
+            // Check if this field's comparison is Equal (1)
+            let one = fc.builder_mut().const_i8(1);
+            let is_equal = fc
+                .builder_mut()
+                .icmp_eq(ord, one, &format!("cmp.{field_name}.is_eq"));
+
+            if i + 1 < fields.len() {
+                // More fields: if Equal, continue to next; otherwise return this Ordering
+                let ret_bb = fc
+                    .builder_mut()
+                    .append_block(func_id, &format!("cmp.ret.{field_name}"));
+                let next_bb = fc
+                    .builder_mut()
+                    .append_block(func_id, &format!("cmp.next.{}", i + 1));
+                fc.builder_mut().cond_br(is_equal, next_bb, ret_bb);
+
+                // Return the non-Equal ordering
+                fc.builder_mut().position_at_end(ret_bb);
+                emit_derive_return(fc, func_id, &abi, Some(ord));
+
+                fc.builder_mut().position_at_end(next_bb);
+            } else {
+                // Last field: if Equal, fall through to equal_bb; otherwise return
+                let ret_bb = fc
+                    .builder_mut()
+                    .append_block(func_id, &format!("cmp.ret.{field_name}"));
+                fc.builder_mut().cond_br(is_equal, equal_bb, ret_bb);
+
+                fc.builder_mut().position_at_end(ret_bb);
+                emit_derive_return(fc, func_id, &abi, Some(ord));
+            }
         }
     }
-}
 
-/// Call `ori_str_eq(a: ptr, b: ptr) -> bool` via alloca+store pattern.
-fn emit_str_eq_call<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    lhs: ValueId,
-    rhs: ValueId,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let ptr_ty = fc.builder_mut().ptr_type();
-    let bool_ty = fc.builder_mut().bool_type();
-
-    let lhs_alloca = fc.builder_mut().alloca(str_ty_id, "lhs_str");
-    fc.builder_mut().store(lhs, lhs_alloca);
-    let rhs_alloca = fc.builder_mut().alloca(str_ty_id, "rhs_str");
-    fc.builder_mut().store(rhs, rhs_alloca);
-
-    let eq_fn = fc
-        .builder_mut()
-        .get_or_declare_function("ori_str_eq", &[ptr_ty, ptr_ty], bool_ty);
-    fc.builder_mut()
-        .call(eq_fn, &[lhs_alloca, rhs_alloca], name)
-        .unwrap_or_else(|| fc.builder_mut().const_bool(false))
+    // All fields Equal
+    fc.builder_mut().position_at_end(equal_bb);
+    let equal_val = fc.builder_mut().const_i8(1);
+    emit_derive_return(fc, func_id, &abi, Some(equal_val));
 }
 
 // ---------------------------------------------------------------------------
@@ -350,64 +407,16 @@ fn compile_derive_hash<'a>(
     emit_derive_return(fc, func_id, &abi, Some(hash));
 }
 
-/// Coerce a field value to i64 for hashing.
-fn coerce_to_i64<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    val: ValueId,
-    field_type: Idx,
-    name: &str,
-) -> ValueId {
-    let info = fc.type_info().get(field_type);
-    match &info {
-        TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => val,
-
-        TypeInfo::Char | TypeInfo::Byte | TypeInfo::Ordering => {
-            let i64_ty = fc.builder_mut().i64_type();
-            fc.builder_mut().sext(val, i64_ty, name)
-        }
-
-        TypeInfo::Bool => {
-            let i64_ty = fc.builder_mut().i64_type();
-            fc.builder_mut().zext(val, i64_ty, name)
-        }
-
-        TypeInfo::Float => {
-            let i64_ty = fc.builder_mut().i64_type();
-            fc.builder_mut().bitcast(val, i64_ty, name)
-        }
-
-        TypeInfo::Str => fc
-            .builder_mut()
-            .extract_value(val, 0, &format!("{name}.len"))
-            .unwrap_or_else(|| fc.builder_mut().const_i64(0)),
-
-        TypeInfo::Struct { .. } => {
-            let nested_name = fc.type_idx_to_name(field_type);
-            let hash_name = fc.intern("hash");
-            if let Some(type_name) = nested_name {
-                if let Some((fid, abi)) = fc.get_method_function(type_name, hash_name) {
-                    return emit_method_call_for_derive(fc, fid, &abi, &[val], name);
-                }
-            }
-            fc.builder_mut().const_i64(0)
-        }
-
-        _ => {
-            trace!(?info, "unsupported field type for derive Hash — using 0");
-            fc.builder_mut().const_i64(0)
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Printable: string representation via runtime concat
 // ---------------------------------------------------------------------------
 
-/// Generate `to_string(self: Self) -> str`.
+/// Generate `to_str(self: Self) -> str`.
 ///
-/// Builds `"TypeName { field1: <val>, field2: <val> }"` using runtime string
-/// functions: `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float`,
-/// `ori_str_concat`.
+/// Builds `"TypeName(val1, val2)"` per spec §7 — human-readable format
+/// with type name and field values (no field names).
+/// Uses runtime string functions: `ori_str_from_int`, `ori_str_from_bool`,
+/// `ori_str_from_float`, `ori_str_concat`.
 fn compile_derive_printable<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     type_name: Name,
@@ -415,7 +424,7 @@ fn compile_derive_printable<'a>(
     type_name_str: &str,
     fields: &[FieldDef],
 ) {
-    let method_name_str = "to_string";
+    let method_name_str = "to_str";
     let method_name = fc.intern(method_name_str);
 
     let sig = make_sig(
@@ -435,16 +444,12 @@ fn compile_derive_printable<'a>(
     let str_ty = fc.resolve_type(Idx::STR);
     let str_ty_id = fc.builder_mut().register_type(str_ty);
 
-    // Build opening: "TypeName { "
-    let prefix = format!("{type_name_str} {{ ");
+    // Build opening: "TypeName("
+    let prefix = format!("{type_name_str}(");
     let mut result = emit_str_literal(fc, &prefix, "prefix", str_ty_id);
 
     for (i, field) in fields.iter().enumerate() {
         let field_name_str = fc.lookup_name(field.name).to_owned();
-
-        let label = format!("{field_name_str}: ");
-        let label_str = emit_str_literal(fc, &label, &format!("label.{i}"), str_ty_id);
-        result = emit_str_concat(fc, result, label_str, &format!("cat.label.{i}"), str_ty_id);
 
         let field_val =
             fc.builder_mut()
@@ -461,124 +466,10 @@ fn compile_derive_printable<'a>(
         }
     }
 
-    let suffix = emit_str_literal(fc, " }", "suffix", str_ty_id);
+    let suffix = emit_str_literal(fc, ")", "suffix", str_ty_id);
     result = emit_str_concat(fc, result, suffix, "cat.suffix", str_ty_id);
 
     emit_derive_return(fc, func_id, &abi, Some(result));
-}
-
-/// Emit a string literal as an Ori str value `{i64 len, ptr data}`.
-fn emit_str_literal<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    s: &str,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let data_ptr = fc
-        .builder_mut()
-        .build_global_string_ptr(s, &format!("{name}.data"));
-    let len = fc.builder_mut().const_i64(s.len() as i64);
-    fc.builder_mut()
-        .build_struct(str_ty_id, &[len, data_ptr], name)
-}
-
-/// Call `ori_str_concat(a: ptr, b: ptr) -> str` (alloca+store pattern).
-fn emit_str_concat<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    lhs: ValueId,
-    rhs: ValueId,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let ptr_ty = fc.builder_mut().ptr_type();
-
-    let lhs_alloca = fc.builder_mut().alloca(str_ty_id, &format!("{name}.lhs"));
-    fc.builder_mut().store(lhs, lhs_alloca);
-    let rhs_alloca = fc.builder_mut().alloca(str_ty_id, &format!("{name}.rhs"));
-    fc.builder_mut().store(rhs, rhs_alloca);
-
-    let concat_fn =
-        fc.builder_mut()
-            .get_or_declare_function("ori_str_concat", &[ptr_ty, ptr_ty], str_ty_id);
-    fc.builder_mut()
-        .call(concat_fn, &[lhs_alloca, rhs_alloca], name)
-        .unwrap_or_else(|| emit_str_literal(fc, "", "empty", str_ty_id))
-}
-
-/// Convert a field value to its string representation.
-fn emit_field_to_string<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    val: ValueId,
-    field_type: Idx,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let info = fc.type_info().get(field_type);
-    match &info {
-        TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
-            let i64_ty = fc.builder_mut().i64_type();
-            let f =
-                fc.builder_mut()
-                    .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
-            fc.builder_mut()
-                .call(f, &[val], name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<int>", name, str_ty_id))
-        }
-        TypeInfo::Float => {
-            let f64_ty = fc.builder_mut().f64_type();
-            let f = fc.builder_mut().get_or_declare_function(
-                "ori_str_from_float",
-                &[f64_ty],
-                str_ty_id,
-            );
-            fc.builder_mut()
-                .call(f, &[val], name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<float>", name, str_ty_id))
-        }
-        TypeInfo::Bool => {
-            let bool_ty = fc.builder_mut().bool_type();
-            let f = fc.builder_mut().get_or_declare_function(
-                "ori_str_from_bool",
-                &[bool_ty],
-                str_ty_id,
-            );
-            fc.builder_mut()
-                .call(f, &[val], name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<bool>", name, str_ty_id))
-        }
-        TypeInfo::Str => val,
-        TypeInfo::Char => {
-            let i64_ty = fc.builder_mut().i64_type();
-            let char_as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
-            let f =
-                fc.builder_mut()
-                    .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
-            fc.builder_mut()
-                .call(f, &[char_as_i64], name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<char>", name, str_ty_id))
-        }
-        TypeInfo::Byte | TypeInfo::Ordering => {
-            let i64_ty = fc.builder_mut().i64_type();
-            let as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
-            let f =
-                fc.builder_mut()
-                    .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
-            fc.builder_mut()
-                .call(f, &[as_i64], name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<byte>", name, str_ty_id))
-        }
-        TypeInfo::Struct { .. } => {
-            let nested_name = fc.type_idx_to_name(field_type);
-            let ts_name = fc.intern("to_string");
-            if let Some(type_name) = nested_name {
-                if let Some((fid, abi)) = fc.get_method_function(type_name, ts_name) {
-                    return emit_method_call_for_derive(fc, fid, &abi, &[val], name);
-                }
-            }
-            emit_str_literal(fc, "<struct>", name, str_ty_id)
-        }
-        _ => emit_str_literal(fc, "<?>", name, str_ty_id),
-    }
 }
 
 // ---------------------------------------------------------------------------

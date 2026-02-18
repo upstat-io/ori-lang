@@ -46,6 +46,13 @@ pub struct UserMethod {
     pub canon: Option<SharedCanonResult>,
     /// Captured variables from the defining scope (Arc for cheap cloning).
     pub captures: Arc<FxHashMap<Name, Value>>,
+    /// Expected key type name for discriminated dispatch.
+    ///
+    /// Set when a method is registered from a trait impl with type arguments
+    /// (e.g., `impl Index<int, str> for T` → `key_type_hint = Some("int")`).
+    /// Used at runtime to disambiguate when multiple methods share the same
+    /// `(type_name, method_name)` key.
+    pub key_type_hint: Option<Name>,
 }
 
 impl UserMethod {
@@ -66,6 +73,7 @@ impl UserMethod {
             arena,
             canon: None,
             captures,
+            key_type_hint: None,
         }
     }
 
@@ -98,14 +106,17 @@ pub enum MethodEntry {
 
 /// Registry for user-defined methods from impl blocks.
 ///
-/// Methods are keyed by (`type_name`, `method_name`) pairs.
+/// Methods are keyed by (`type_name`, `method_name`) pairs. Each key maps
+/// to a `Vec<UserMethod>` to support multiple trait impls providing the same
+/// method name (e.g., `Index<int, V>` + `Index<str, V>` both provide `index`).
+///
 /// Type names are strings like "Point", "int", "[int]", etc.
 ///
 /// Also supports derived methods from `#[derive(...)]` attributes.
 #[derive(Clone, Debug, Default)]
 pub struct UserMethodRegistry {
-    /// Map from method key to method definition.
-    methods: FxHashMap<MethodKey, UserMethod>,
+    /// Map from method key to method definitions (Vec for multi-impl support).
+    methods: FxHashMap<MethodKey, Vec<UserMethod>>,
     /// Map from method key to derived method info.
     derived_methods: FxHashMap<MethodKey, DerivedMethodInfo>,
 }
@@ -121,21 +132,17 @@ impl UserMethodRegistry {
 
     /// Register a user-defined method.
     ///
-    /// # Arguments
-    /// * `type_name` - The type this method is defined on (interned)
-    /// * `method_name` - The method name (interned)
-    /// * `method` - The method definition
+    /// Multiple methods can be registered for the same (type, name) pair,
+    /// enabling multi-dispatch for traits like `Index<K, V>` with different
+    /// key types.
     pub fn register(&mut self, type_name: Name, method_name: Name, method: UserMethod) {
         self.methods
-            .insert(MethodKey::new(type_name, method_name), method);
+            .entry(MethodKey::new(type_name, method_name))
+            .or_default()
+            .push(method);
     }
 
     /// Register a derived method.
-    ///
-    /// # Arguments
-    /// * `type_name` - The type this method is defined on (interned)
-    /// * `method_name` - The method name (interned)
-    /// * `info` - The derived method information
     pub fn register_derived(
         &mut self,
         type_name: Name,
@@ -146,16 +153,27 @@ impl UserMethodRegistry {
             .insert(MethodKey::new(type_name, method_name), info);
     }
 
-    /// Look up a user-defined method.
+    /// Look up a user-defined method (single-dispatch, returns first).
     ///
-    /// Returns None if no method is registered for this type/method combination.
+    /// For most methods, there is exactly one registration per key. When
+    /// multiple exist (e.g., multiple Index impls), use `lookup_all()`.
     pub fn lookup(&self, type_name: Name, method_name: Name) -> Option<&UserMethod> {
-        self.methods.get(&MethodKey::new(type_name, method_name))
+        self.methods
+            .get(&MethodKey::new(type_name, method_name))
+            .and_then(|v| v.first())
+    }
+
+    /// Look up all user-defined methods for a (type, name) pair.
+    ///
+    /// Returns `None` if no methods registered, `Some(&[UserMethod])` otherwise.
+    /// Used for multi-dispatch (e.g., multiple `Index<K, V>` impls).
+    pub fn lookup_all(&self, type_name: Name, method_name: Name) -> Option<&[UserMethod]> {
+        self.methods
+            .get(&MethodKey::new(type_name, method_name))
+            .map(Vec::as_slice)
     }
 
     /// Look up a derived method.
-    ///
-    /// Returns None if no derived method is registered for this type/method combination.
     pub fn lookup_derived(&self, type_name: Name, method_name: Name) -> Option<&DerivedMethodInfo> {
         self.derived_methods
             .get(&MethodKey::new(type_name, method_name))
@@ -163,12 +181,14 @@ impl UserMethodRegistry {
 
     /// Look up any method (user-defined or derived).
     ///
-    /// Returns the method entry if found.
+    /// For user methods, returns the first registered method.
     pub fn lookup_any(&self, type_name: Name, method_name: Name) -> Option<MethodEntry> {
         let key = MethodKey::new(type_name, method_name);
 
-        if let Some(user_method) = self.methods.get(&key) {
-            return Some(MethodEntry::User(user_method.clone()));
+        if let Some(methods) = self.methods.get(&key) {
+            if let Some(user_method) = methods.first() {
+                return Some(MethodEntry::User(user_method.clone()));
+            }
         }
 
         if let Some(derived_info) = self.derived_methods.get(&key) {
@@ -181,12 +201,13 @@ impl UserMethodRegistry {
     /// Check if a method exists for the given type (user or derived).
     pub fn has_method(&self, type_name: Name, method_name: Name) -> bool {
         let key = MethodKey::new(type_name, method_name);
-        self.methods.contains_key(&key) || self.derived_methods.contains_key(&key)
+        self.methods.get(&key).is_some_and(|v| !v.is_empty())
+            || self.derived_methods.contains_key(&key)
     }
 
     /// Get all registered user methods (for debugging).
-    pub fn all_methods(&self) -> impl Iterator<Item = (&MethodKey, &UserMethod)> {
-        self.methods.iter()
+    pub fn all_methods(&self) -> impl Iterator<Item = (&MethodKey, &[UserMethod])> {
+        self.methods.iter().map(|(k, v)| (k, v.as_slice()))
     }
 
     /// Get all registered derived methods (for debugging).
@@ -195,8 +216,12 @@ impl UserMethodRegistry {
     }
 
     /// Merge another registry into this one.
+    ///
+    /// Concatenates method Vecs for keys that exist in both registries.
     pub fn merge(&mut self, other: UserMethodRegistry) {
-        self.methods.extend(other.methods);
+        for (key, methods) in other.methods {
+            self.methods.entry(key).or_default().extend(methods);
+        }
         self.derived_methods.extend(other.derived_methods);
     }
 
@@ -205,12 +230,13 @@ impl UserMethodRegistry {
     /// This is useful for determining if a type name should be treated as
     /// a type reference for associated function calls.
     pub fn has_any_methods_for_type(&self, type_name: Name) -> bool {
-        // Check if any user method is registered for this type
-        let has_user = self.methods.keys().any(|k| k.type_name == type_name);
+        let has_user = self
+            .methods
+            .iter()
+            .any(|(k, v)| k.type_name == type_name && !v.is_empty());
         if has_user {
             return true;
         }
-        // Check if any derived method is registered for this type
         self.derived_methods
             .keys()
             .any(|k| k.type_name == type_name)

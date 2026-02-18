@@ -7,8 +7,9 @@ mod iterator;
 use crate::errors::{
     all_requires_list, any_requires_list, collect_requires_range, filter_entries_not_implemented,
     filter_entries_requires_map, filter_requires_collection, find_requires_list,
-    fold_requires_collection, map_entries_not_implemented, map_entries_requires_map,
-    map_requires_collection, wrong_arg_count, wrong_function_args,
+    fold_requires_collection, join_requires_list, map_entries_not_implemented,
+    map_entries_requires_map, map_requires_collection, wrong_arg_count, wrong_arg_type,
+    wrong_function_args,
 };
 use crate::exec::call::bind_captures_iter;
 use crate::methods::{dispatch_builtin_method, DispatchCtx};
@@ -188,6 +189,10 @@ impl Interpreter<'_> {
                 Value::List(items) => self.eval_list_all(items.as_ref(), args),
                 _ => Err(all_requires_list().into()),
             },
+            CollectionMethod::Join => match receiver {
+                Value::List(items) => self.eval_list_join(items.as_ref(), args),
+                _ => Err(join_requires_list().into()),
+            },
             CollectionMethod::MapEntries => match receiver {
                 Value::Map(_) => Err(map_entries_not_implemented().into()),
                 _ => Err(map_entries_requires_map().into()),
@@ -221,7 +226,8 @@ impl Interpreter<'_> {
             | CollectionMethod::IterAll
             | CollectionMethod::IterForEach
             | CollectionMethod::IterCollect
-            | CollectionMethod::IterCollectSet => self.eval_iterator_method(receiver, method, args),
+            | CollectionMethod::IterCollectSet
+            | CollectionMethod::IterJoin => self.eval_iterator_method(receiver, method, args),
         }
     }
 
@@ -395,6 +401,32 @@ impl Interpreter<'_> {
         self.all_in_slice(items, &args[0])
     }
 
+    /// `[T].join(sep: str) -> str` — convert each item to string via `to_str()`, join with separator.
+    fn eval_list_join(&mut self, items: &[Value], args: &[Value]) -> EvalResult {
+        Self::expect_arg_count("join", 1, args)?;
+        let Value::Str(separator) = &args[0] else {
+            return Err(wrong_arg_type("join", "str").into());
+        };
+        let to_str = self.builtin_method_names.to_str;
+        let mut result = String::new();
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 {
+                result.push_str(separator);
+            }
+            // Fast path: string values don't need to_str() dispatch
+            if let Value::Str(s) = item {
+                result.push_str(s);
+            } else {
+                let str_val = self.eval_method_call(item.clone(), to_str, vec![])?;
+                let Value::Str(s) = str_val else {
+                    return Err(wrong_arg_type("join", "Printable element").into());
+                };
+                result.push_str(&s);
+            }
+        }
+        Ok(Value::string(result))
+    }
+
     #[expect(
         clippy::unused_self,
         reason = "Consistent method signature with other eval_range_* methods that do use self"
@@ -513,6 +545,43 @@ impl Interpreter<'_> {
             return Err(wrong_function_args(method.params.len() - 1, args.len()).into());
         }
         self.eval_method_body(Some(receiver), method, args, method_name)
+    }
+
+    /// Dispatch an Index trait method call on a user-defined type.
+    ///
+    /// Handles both single-impl and multi-impl cases:
+    /// - Single `index` method → call directly
+    /// - Multiple `index` methods (e.g., `Index<int, V>` + `Index<str, V>`)
+    ///   → match by `key_type_hint` against the runtime type of `idx_val`
+    pub(super) fn eval_index_user_type(&mut self, receiver: Value, idx_val: Value) -> EvalResult {
+        let type_name = self.get_value_type_name(&receiver);
+        let index_name = self.op_names.index;
+
+        let matched_method = {
+            let registry = self.user_method_registry.read();
+            match registry.lookup_all(type_name, index_name) {
+                None => None,
+                Some([single]) => Some(single.clone()),
+                Some(methods) => {
+                    let key_type = self.get_value_type_name(&idx_val);
+                    tracing::debug!(
+                        method_count = methods.len(),
+                        ?key_type,
+                        hints = ?methods.iter().map(|m| m.key_type_hint).collect::<Vec<_>>(),
+                        "index multi-dispatch"
+                    );
+                    methods
+                        .iter()
+                        .find(|m| m.key_type_hint == Some(key_type))
+                        .cloned()
+                }
+            }
+        };
+
+        match matched_method {
+            Some(method) => self.eval_user_method(receiver, &method, &[idx_val], index_name),
+            None => self.eval_method_call(receiver, index_name, vec![idx_val]),
+        }
     }
 
     /// Evaluate an associated function (no `self` parameter).

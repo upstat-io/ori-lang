@@ -1,5 +1,7 @@
 //! Argument validation and shared utility functions.
 
+use std::fmt::Write;
+
 use ori_patterns::{
     wrong_arg_count, wrong_arg_type, EvalError, EvalResult, Heap, ScalarInt, Value,
 };
@@ -17,6 +19,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Duration", "add"),
     ("Duration", "clone"),
     ("Duration", "compare"),
+    ("Duration", "debug"),
     ("Duration", "div"),
     ("Duration", "divide"),
     ("Duration", "equals"),
@@ -40,6 +43,9 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     // Option - methods and traits
     ("Option", "clone"),
     ("Option", "compare"),
+    ("Option", "debug"),
+    ("Option", "equals"),
+    ("Option", "hash"),
     ("Option", "is_none"),
     ("Option", "is_some"),
     ("Option", "iter"),
@@ -63,10 +69,19 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     // Result - methods and traits
     ("Result", "clone"),
     ("Result", "compare"),
+    ("Result", "debug"),
+    ("Result", "equals"),
+    ("Result", "has_trace"),
+    ("Result", "hash"),
     ("Result", "is_err"),
     ("Result", "is_ok"),
+    ("Result", "trace"),
+    ("Result", "trace_entries"),
     ("Result", "unwrap"),
     // Set - methods and traits
+    ("Set", "debug"),
+    ("Set", "equals"),
+    ("Set", "hash"),
     ("Set", "iter"),
     ("Set", "len"),
     // Size - operators and traits
@@ -74,6 +89,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Size", "bytes"),
     ("Size", "clone"),
     ("Size", "compare"),
+    ("Size", "debug"),
     ("Size", "div"),
     ("Size", "divide"),
     ("Size", "equals"),
@@ -111,6 +127,15 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("char", "equals"),
     ("char", "hash"),
     ("char", "to_str"),
+    // error - Traceable trait and accessors
+    ("error", "clone"),
+    ("error", "debug"),
+    ("error", "has_trace"),
+    ("error", "message"),
+    ("error", "to_str"),
+    ("error", "trace"),
+    ("error", "trace_entries"),
+    ("error", "with_trace"),
     // float - operators and traits
     ("float", "add"),
     ("float", "clone"),
@@ -118,6 +143,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("float", "debug"),
     ("float", "div"),
     ("float", "equals"),
+    ("float", "hash"),
     ("float", "mul"),
     ("float", "neg"),
     ("float", "sub"),
@@ -149,7 +175,9 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "concat"),
     ("list", "contains"),
     ("list", "debug"),
+    ("list", "equals"),
     ("list", "first"),
+    ("list", "hash"),
     ("list", "is_empty"),
     ("list", "iter"),
     ("list", "last"),
@@ -157,6 +185,9 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     // map
     ("map", "clone"),
     ("map", "contains_key"),
+    ("map", "debug"),
+    ("map", "equals"),
+    ("map", "hash"),
     ("map", "is_empty"),
     ("map", "iter"),
     ("map", "keys"),
@@ -175,6 +206,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "debug"),
     ("str", "ends_with"),
     ("str", "equals"),
+    ("str", "escape"),
     ("str", "hash"),
     ("str", "is_empty"),
     ("str", "iter"),
@@ -186,6 +218,11 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "trim"),
     // tuple - traits
     ("tuple", "clone"),
+    ("tuple", "compare"),
+    ("tuple", "debug"),
+    ("tuple", "equals"),
+    ("tuple", "hash"),
+    ("tuple", "len"),
 ];
 
 /// Validate expected argument count.
@@ -307,3 +344,95 @@ pub fn len_to_value(len: usize, collection_type: &str) -> EvalResult {
         .map(Value::int)
         .map_err(|_| EvalError::new(format!("{collection_type} too large")).into())
 }
+
+/// Escape a string for Debug output (newlines, tabs, quotes, backslashes, null).
+pub fn escape_debug_str(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\t' => result.push_str("\\t"),
+            '\\' => result.push_str("\\\\"),
+            '"' => result.push_str("\\\""),
+            '\0' => result.push_str("\\0"),
+            c => result.push(c),
+        }
+    }
+    result
+}
+
+/// Escape a char for Debug output.
+pub fn escape_debug_char(c: char) -> String {
+    match c {
+        '\n' => "\\n".to_string(),
+        '\r' => "\\r".to_string(),
+        '\t' => "\\t".to_string(),
+        '\\' => "\\\\".to_string(),
+        '\'' => "\\'".to_string(),
+        '\0' => "\\0".to_string(),
+        c => c.to_string(),
+    }
+}
+
+/// Format a `Value` using Debug semantics (developer-facing structural output).
+///
+/// This is the recursive workhorse for `.debug()` on collections, Option, Result,
+/// and tuples. Each value is formatted as it would appear in a `.debug()` call.
+pub fn debug_value(val: &Value) -> String {
+    match val {
+        Value::Int(n) => n.raw().to_string(),
+        Value::Float(f) => f.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Str(s) => format!("\"{}\"", escape_debug_str(s)),
+        Value::Char(c) => format!("'{}'", escape_debug_char(*c)),
+        Value::Byte(b) => format!("0x{b:02x}"),
+        Value::Void => "void".to_string(),
+        Value::None => "None".to_string(),
+        Value::Some(v) => format!("Some({})", debug_value(v)),
+        Value::Ok(v) => format!("Ok({})", debug_value(v)),
+        Value::Err(v) => format!("Err({})", debug_value(v)),
+        Value::List(items) => {
+            let parts: Vec<String> = items.iter().map(debug_value).collect();
+            format!("[{}]", parts.join(", "))
+        }
+        Value::Map(map) => {
+            let mut result = String::from("{");
+            let mut first = true;
+            for (k, v) in map.iter() {
+                if !first {
+                    result.push_str(", ");
+                }
+                first = false;
+                // Map keys are internally prefixed (e.g. "s:name", "i:42").
+                // Strip the type prefix for debug display.
+                let display_key = k.split_once(':').map_or(k.as_str(), |(_, rest)| rest);
+                let _ = write!(
+                    result,
+                    "{}: {}",
+                    escape_debug_str(display_key),
+                    debug_value(v)
+                );
+            }
+            result.push('}');
+            result
+        }
+        Value::Set(items) => {
+            let parts: Vec<String> = items.values().map(debug_value).collect();
+            format!("Set {{{}}}", parts.join(", "))
+        }
+        Value::Tuple(elems) => {
+            let parts: Vec<String> = elems.iter().map(debug_value).collect();
+            format!("({})", parts.join(", "))
+        }
+        Value::Duration(ns) => super::units::format_duration_debug(*ns),
+        Value::Size(bytes) => super::units::format_size_debug(*bytes),
+        Value::Ordering(ord) => ord.name().to_string(),
+        Value::Range(r) => format!("{r:?}"),
+        // Struct, Closure, Iterator, etc. — fall back to Display
+        other => format!("{other}"),
+    }
+}
+
+#[cfg(test)]
+mod tests;

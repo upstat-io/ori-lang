@@ -4,8 +4,10 @@
 //! - `#[derive(Eq)]` -> `eq` method
 //! - `#[derive(Clone)]` -> `clone` method
 //! - `#[derive(Hashable)]` -> `hash` method
-//! - `#[derive(Printable)]` -> `to_string` method
+//! - `#[derive(Printable)]` -> `to_str` method
+//! - `#[derive(Debug)]` -> `debug` method
 //! - `#[derive(Default)]` -> `default` method
+//! - `#[derive(Comparable)]` -> `compare` method
 
 use crate::derives::DefaultFieldType;
 use crate::errors::wrong_function_args;
@@ -30,8 +32,10 @@ impl Interpreter<'_> {
             DerivedTrait::Eq => self.eval_derived_eq(receiver, info, args),
             DerivedTrait::Clone => self.eval_derived_clone(receiver, info),
             DerivedTrait::Hashable => self.eval_derived_hash(receiver, info),
-            DerivedTrait::Printable => self.eval_derived_to_string(receiver, info),
+            DerivedTrait::Printable => self.eval_derived_to_str(receiver, info),
+            DerivedTrait::Debug => self.eval_derived_debug(receiver, info),
             DerivedTrait::Default => self.eval_derived_default(receiver, info),
+            DerivedTrait::Comparable => self.eval_derived_compare(receiver, info, args),
         }
     }
 
@@ -150,13 +154,14 @@ impl Interpreter<'_> {
         Ok(Value::int(hasher.finish() as i64))
     }
 
-    /// Evaluate derived `to_string` method for structs.
+    /// Evaluate derived `to_str` method for structs.
     ///
-    /// Produces a string representation like "Point { x: 10, y: 20 }".
+    /// Produces human-readable format like `Point(10, 20)` per spec §7
+    /// (type name + field values in parens, no field names).
     ///
-    /// # Performance
-    /// Uses a single String builder with `write!()` instead of Vec + format! + join
-    /// to minimize allocations on this hot path.
+    /// Uses [`format_value_printable`] for each field to ensure:
+    /// - Strings are unquoted (human-readable)
+    /// - Nested structs are recursively formatted as `TypeName(vals...)`
     #[expect(
         clippy::needless_pass_by_value,
         reason = "Consistent derived method dispatch signature"
@@ -165,17 +170,105 @@ impl Interpreter<'_> {
         clippy::unnecessary_wraps,
         reason = "Returns EvalResult for consistent derived method dispatch interface"
     )]
-    fn eval_derived_to_string(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
-        use std::fmt::Write;
-
+    fn eval_derived_to_str(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
         let Value::Struct(struct_val) = &receiver else {
             return Ok(Value::string(format!("{receiver}")));
         };
 
         let type_name = self.interner.lookup(struct_val.type_name);
-        // Pre-allocate capacity: type_name + " { " + estimated field content + " }"
+        // Pre-allocate capacity: type_name + "(" + estimated field content + ")"
         // Overflow is impossible for reasonable struct sizes, and even if it wrapped,
         // String::with_capacity handles it safely by allocating less.
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "capacity estimation, overflow is safe"
+        )]
+        let capacity = type_name.len() + 2 + info.field_names.len() * 12;
+        let mut result = String::with_capacity(capacity);
+
+        result.push_str(type_name);
+        result.push('(');
+
+        let mut first = true;
+        for field_name in &info.field_names {
+            if let Some(val) = struct_val.get_field(*field_name) {
+                if !first {
+                    result.push_str(", ");
+                }
+                first = false;
+                result.push_str(&self.format_value_printable(val));
+            }
+        }
+
+        result.push(')');
+        Ok(Value::string(result))
+    }
+
+    /// Format a value in Printable style (human-readable, no quotes on strings).
+    ///
+    /// Unlike `Value::Display` which wraps strings in quotes and shows raw
+    /// struct debug info, this produces the human-readable Printable format:
+    /// - Strings: content directly (no quotes)
+    /// - Chars: character directly (no quotes)
+    /// - Structs: `TypeName(val1, val2)` via recursive lookup
+    /// - Other values: standard Display format
+    fn format_value_printable(&self, val: &Value) -> String {
+        match val {
+            Value::Str(s) => (**s).to_string(),
+            Value::Char(c) => c.to_string(),
+            Value::Struct(sv) => {
+                let to_str_name = self.interner.intern("to_str");
+                let derived_info = self
+                    .user_method_registry
+                    .read()
+                    .lookup_derived(sv.type_name, to_str_name)
+                    .cloned();
+
+                let type_name = self.interner.lookup(sv.type_name);
+                let mut result = String::from(type_name);
+                result.push('(');
+
+                if let Some(ref info) = derived_info {
+                    let mut first = true;
+                    for field_name in &info.field_names {
+                        if let Some(fv) = sv.get_field(*field_name) {
+                            if !first {
+                                result.push_str(", ");
+                            }
+                            first = false;
+                            result.push_str(&self.format_value_printable(fv));
+                        }
+                    }
+                }
+
+                result.push(')');
+                result
+            }
+            _ => format!("{val}"),
+        }
+    }
+
+    /// Evaluate derived `debug` method for structs.
+    ///
+    /// Produces a developer-facing string like `Point { x: 10, y: 20 }` where
+    /// nested values use debug formatting (strings are quoted/escaped, etc.).
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Consistent derived method dispatch signature"
+    )]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "Returns EvalResult for consistent derived method dispatch interface"
+    )]
+    fn eval_derived_debug(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
+        use crate::methods::helpers::debug_value;
+        use std::fmt::Write;
+
+        let Value::Struct(struct_val) = &receiver else {
+            return Ok(Value::string(debug_value(&receiver)));
+        };
+
+        let type_name = self.interner.lookup(struct_val.type_name);
         #[expect(
             clippy::arithmetic_side_effects,
             reason = "capacity estimation, overflow is safe"
@@ -194,8 +287,7 @@ impl Interpreter<'_> {
                     result.push_str(", ");
                 }
                 first = false;
-                // write! returns fmt::Result but we're writing to String which is infallible
-                let _ = write!(result, "{field_str}: {val}");
+                let _ = write!(result, "{field_str}: {}", debug_value(val));
             }
         }
 
@@ -243,6 +335,62 @@ impl Interpreter<'_> {
         }
 
         Ok(Value::Struct(StructValue::new(type_name, fields)))
+    }
+
+    /// Evaluate derived `compare` method for structs.
+    ///
+    /// Lexicographic field comparison: compares fields in declaration order,
+    /// short-circuiting on the first non-equal field. Uses `compare_values()`
+    /// for recursive comparison of field values.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Consistent derived method dispatch signature"
+    )]
+    fn eval_derived_compare(
+        &self,
+        receiver: Value,
+        info: &DerivedMethodInfo,
+        args: &[Value],
+    ) -> EvalResult {
+        use crate::methods::compare::{compare_values, ordering_to_value};
+
+        if args.len() != 1 {
+            return Err(wrong_function_args(1, args.len()).into());
+        }
+
+        let other = &args[0];
+
+        let (Value::Struct(self_struct), Value::Struct(other_struct)) = (&receiver, other) else {
+            return Err(crate::errors::no_such_method("compare", "non-struct value").into());
+        };
+
+        if self_struct.type_name != other_struct.type_name {
+            return Err(crate::errors::no_such_method("compare", "different struct types").into());
+        }
+
+        // Lexicographic comparison: compare fields in order, short-circuit on first difference
+        for field_name in &info.field_names {
+            let self_val = self_struct.get_field(*field_name);
+            let other_val = other_struct.get_field(*field_name);
+
+            match (self_val, other_val) {
+                (Some(sv), Some(ov)) => {
+                    let ord = compare_values(sv, ov, self.interner)?;
+                    if ord != std::cmp::Ordering::Equal {
+                        return Ok(ordering_to_value(ord));
+                    }
+                }
+                _ => {
+                    return Err(crate::errors::no_such_method(
+                        "compare",
+                        "struct with missing field",
+                    )
+                    .into());
+                }
+            }
+        }
+
+        Ok(ordering_to_value(std::cmp::Ordering::Equal))
     }
 
     /// Produce the default value for a single field based on its type.

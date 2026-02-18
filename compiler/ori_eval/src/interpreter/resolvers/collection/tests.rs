@@ -96,6 +96,21 @@ fn iterator_methods_resolve() {
     }
 }
 
+#[test]
+fn test_list_join_resolves() {
+    let interner = StringInterner::new();
+    let resolver = CollectionMethodResolver::new(&interner);
+    let list = Value::list(vec![Value::int(1), Value::int(2)]);
+
+    let list_type = interner.intern("[int]");
+    let join_method = interner.intern("join");
+    let result = resolver.resolve(&list, list_type, join_method);
+    assert!(matches!(
+        result,
+        MethodResolution::Collection(CollectionMethod::Join)
+    ));
+}
+
 /// Unknown methods on iterators return `NotFound`.
 #[test]
 fn iterator_unknown_method_not_found() {

@@ -1,0 +1,93 @@
+// Spec: 07-properties-of-types.md § Printable Trait
+// Tests for Printable trait definition and to_str() on all types
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Printable Trait on Primitive Types
+// =============================================================================
+
+// int.to_str()
+@test_int_to_str tests @int_to_str () -> void = run(
+    assert_eq(actual: 42.to_str(), expected: "42"),
+    assert_eq(actual: 0.to_str(), expected: "0"),
+    assert_eq(actual: (-7).to_str(), expected: "-7"),
+)
+
+@int_to_str () -> str = 42.to_str()
+
+// float.to_str()
+@test_float_to_str tests @float_to_str () -> void = run(
+    assert_eq(actual: 3.14.to_str(), expected: "3.14"),
+    assert_eq(actual: 0.0.to_str(), expected: "0"),
+    assert_eq(actual: (-1.5).to_str(), expected: "-1.5"),
+)
+
+@float_to_str () -> str = 3.14.to_str()
+
+// bool.to_str()
+@test_bool_to_str tests @bool_to_str () -> void = run(
+    assert_eq(actual: true.to_str(), expected: "true"),
+    assert_eq(actual: false.to_str(), expected: "false"),
+)
+
+@bool_to_str () -> str = true.to_str()
+
+// str.to_str() — identity
+@test_str_to_str tests @str_to_str () -> void = run(
+    assert_eq(actual: "hello".to_str(), expected: "hello"),
+    assert_eq(actual: "".to_str(), expected: ""),
+)
+
+@str_to_str () -> str = "hello".to_str()
+
+// char.to_str()
+@test_char_to_str tests @char_to_str () -> void = run(
+    assert_eq(actual: 'a'.to_str(), expected: "a"),
+    assert_eq(actual: 'Z'.to_str(), expected: "Z"),
+)
+
+@char_to_str () -> str = 'a'.to_str()
+
+// =============================================================================
+// Printable on Ordering Type
+// =============================================================================
+
+@test_ordering_to_str tests @ordering_to_str () -> void = run(
+    assert_eq(actual: Less.to_str(), expected: "Less"),
+    assert_eq(actual: Equal.to_str(), expected: "Equal"),
+    assert_eq(actual: Greater.to_str(), expected: "Greater"),
+)
+
+@ordering_to_str () -> str = Less.to_str()
+
+// =============================================================================
+// Printable via Generic Bound
+// =============================================================================
+
+@format_value<T: Printable> (val: T) -> str = val.to_str()
+
+@test_printable_bound tests @printable_bound () -> void = run(
+    assert_eq(actual: format_value(val: 42), expected: "42"),
+    assert_eq(actual: format_value(val: "hello"), expected: "hello"),
+    assert_eq(actual: format_value(val: true), expected: "true"),
+)
+
+@printable_bound () -> str = format_value(val: 42)
+
+// =============================================================================
+// String Interpolation Uses Printable
+// =============================================================================
+
+@test_interpolation_uses_to_str tests @interp_printable () -> void = run(
+    let x = 42,
+    let s = `value: {x}`,
+    assert_eq(actual: s, expected: "value: 42"),
+)
+
+@interp_printable () -> str = run(
+    let x = 42,
+    `value: {x}`
+)
+
+@main () -> void = print(msg: "Printable definition tests")

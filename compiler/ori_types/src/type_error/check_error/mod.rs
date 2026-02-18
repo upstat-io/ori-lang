@@ -485,6 +485,36 @@ impl TypeCheckError {
                     reasons.join("; ")
                 )
             }
+            TypeErrorKind::NotIndexable { ty } => {
+                format!(
+                    "type `{}` does not support indexing; implement `Index` trait",
+                    format_type(*ty)
+                )
+            }
+            TypeErrorKind::IndexKeyMismatch {
+                ty,
+                expected_key,
+                found_key,
+            } => {
+                format!(
+                    "wrong index key type for `{}`: expected `{}`, found `{}`",
+                    format_type(*ty),
+                    format_type(*expected_key),
+                    format_type(*found_key)
+                )
+            }
+            TypeErrorKind::AmbiguousIndex { ty } => {
+                format!(
+                    "ambiguous index: type `{}` has multiple `Index` implementations",
+                    format_type(*ty)
+                )
+            }
+            TypeErrorKind::CannotDeriveDefaultForSumType { type_name } => {
+                format!(
+                    "cannot derive `Default` for sum type `{}`",
+                    format_name(*type_name)
+                )
+            }
         }
     }
 
@@ -618,6 +648,33 @@ impl TypeCheckError {
             TypeErrorKind::NotObjectSafe { .. } => {
                 "trait cannot be made into an object".to_string()
             }
+            TypeErrorKind::NotIndexable { ty } => {
+                format!(
+                    "type `{}` does not support indexing; implement `Index` trait",
+                    ty.display_name()
+                )
+            }
+            TypeErrorKind::IndexKeyMismatch {
+                ty,
+                expected_key,
+                found_key,
+            } => {
+                format!(
+                    "wrong index key type for `{}`: expected {}, found {}",
+                    ty.display_name(),
+                    expected_key.display_name(),
+                    found_key.display_name()
+                )
+            }
+            TypeErrorKind::AmbiguousIndex { ty } => {
+                format!(
+                    "ambiguous index: type `{}` has multiple `Index` implementations",
+                    ty.display_name()
+                )
+            }
+            TypeErrorKind::CannotDeriveDefaultForSumType { .. } => {
+                "cannot derive `Default` for sum type".to_string()
+            }
         }
     }
 
@@ -682,6 +739,18 @@ impl TypeCheckError {
 
             // E2024: Not object-safe
             TypeErrorKind::NotObjectSafe { .. } => ErrorCode::E2024,
+
+            // E2025: Type not indexable
+            TypeErrorKind::NotIndexable { .. } => ErrorCode::E2025,
+
+            // E2026: Wrong index key type
+            TypeErrorKind::IndexKeyMismatch { .. } => ErrorCode::E2026,
+
+            // E2027: Ambiguous index key type
+            TypeErrorKind::AmbiguousIndex { .. } => ErrorCode::E2027,
+
+            // E2028: Cannot derive Default for sum type
+            TypeErrorKind::CannotDeriveDefaultForSumType { .. } => ErrorCode::E2028,
         }
     }
 
@@ -867,6 +936,71 @@ impl TypeCheckError {
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
                 format!("implement `{trait_name}` for this type"),
+                0,
+            )],
+        }
+    }
+
+    /// Create a "not indexable" error (E2025).
+    ///
+    /// Emitted when `x[k]` is used on a type that doesn't implement `Index`.
+    pub fn not_indexable(span: Span, ty: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::NotIndexable { ty },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "implement `Index<Key, Value>` for this type",
+                0,
+            )],
+        }
+    }
+
+    /// Create an "index key mismatch" error (E2026).
+    ///
+    /// Emitted when `x[k]` uses a key type that doesn't match the `Index` impl.
+    pub fn index_key_mismatch(span: Span, ty: Idx, expected_key: Idx, found_key: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::IndexKeyMismatch {
+                ty,
+                expected_key,
+                found_key,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "use a key expression matching the Index implementation's key type",
+                0,
+            )],
+        }
+    }
+
+    /// Create an "ambiguous index" error (E2027).
+    ///
+    /// Emitted when multiple `Index` impls match and the key type is ambiguous.
+    pub fn ambiguous_index(span: Span, ty: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::AmbiguousIndex { ty },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "add a type annotation to the key to disambiguate",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "cannot derive Default for sum type" error (E2028).
+    ///
+    /// Emitted when `#[derive(Default)]` is applied to a sum type, which is
+    /// invalid because there is no unambiguous default variant.
+    pub fn cannot_derive_default_for_sum_type(span: Span, type_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::CannotDeriveDefaultForSumType { type_name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "remove `Default` from derive list, or implement `Default` manually choosing a specific variant",
                 0,
             )],
         }
@@ -1301,6 +1435,34 @@ pub enum TypeErrorKind {
         trait_name: Name,
         /// The specific object safety violations.
         violations: Vec<crate::ObjectSafetyViolation>,
+    },
+
+    /// Type does not implement the `Index` trait — not indexable (E2025).
+    NotIndexable {
+        /// The type that was used with subscript syntax.
+        ty: Idx,
+    },
+
+    /// Wrong key type for subscript expression (E2026).
+    IndexKeyMismatch {
+        /// The receiver type.
+        ty: Idx,
+        /// The expected key type (from the Index impl).
+        expected_key: Idx,
+        /// The actual key type found.
+        found_key: Idx,
+    },
+
+    /// Multiple `Index` impls match the key type (E2027).
+    AmbiguousIndex {
+        /// The receiver type with ambiguous Index impls.
+        ty: Idx,
+    },
+
+    /// Cannot derive `Default` for a sum type (E2028).
+    CannotDeriveDefaultForSumType {
+        /// The sum type name.
+        type_name: Name,
     },
 }
 

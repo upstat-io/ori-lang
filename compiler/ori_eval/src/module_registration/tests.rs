@@ -92,7 +92,14 @@ fn test_collect_impl_methods() {
     let mut registry = UserMethodRegistry::new();
     let captures = Arc::new(FxHashMap::default());
 
-    collect_impl_methods(&result.module, &arena, &captures, None, &mut registry);
+    collect_impl_methods(
+        &result.module,
+        &arena,
+        &captures,
+        None,
+        &interner,
+        &mut registry,
+    );
 
     let point_name = interner.intern("Point");
     let sum_name = interner.intern("sum");
@@ -121,6 +128,7 @@ fn test_collect_impl_methods_with_config() {
         arena: &arena,
         captures: Arc::clone(&captures),
         canon: None,
+        interner: &interner,
     };
     collect_impl_methods_with_config(&config, &mut registry);
 
@@ -171,6 +179,7 @@ fn test_collect_extend_methods_with_config() {
         arena: &arena,
         captures: Arc::clone(&captures),
         canon: None,
+        interner: &interner,
     };
     collect_extend_methods_with_config(&config, &mut registry);
 
@@ -225,6 +234,7 @@ fn test_collect_def_impl_methods_with_config() {
         arena: &arena,
         captures: Arc::clone(&captures),
         canon: None,
+        interner: &interner,
     };
     collect_def_impl_methods_with_config(&config, &mut registry);
 

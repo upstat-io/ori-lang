@@ -1,9 +1,10 @@
 //! Type resolution — converting `ParsedType` AST nodes into pool `Idx` values.
 
-use ori_ir::{ExprArena, ParsedType, ParsedTypeRange, TypeId};
+use ori_ir::{ExprArena, Name, ParsedType, ParsedTypeRange, Span, TypeId};
 
 use super::super::InferEngine;
-use crate::Idx;
+use crate::check::ObjectSafetyChecker;
+use crate::{Idx, ObjectSafetyViolation, TypeCheckError};
 
 /// Resolve a `ParsedType` from the AST into a pool `Idx`.
 ///
@@ -86,33 +87,18 @@ pub fn resolve_parsed_type(
                 resolve_parsed_type_list(engine, arena, *type_args)
             };
 
-            // Check for well-known generic types that have dedicated Pool tags.
-            // Must use the correct Pool constructors to match types created during inference.
+            // Well-known generic types must use their dedicated Pool constructors
+            // to match types created during inference.
             if !resolved_args.is_empty() {
                 if let Some(name_str) = engine.lookup_name(*name) {
-                    match (name_str, resolved_args.len()) {
-                        ("Option", 1) => return engine.pool_mut().option(resolved_args[0]),
-                        ("Result", 2) => {
-                            return engine.pool_mut().result(resolved_args[0], resolved_args[1]);
-                        }
-                        ("Set", 1) => return engine.pool_mut().set(resolved_args[0]),
-                        ("Channel" | "Chan", 1) => {
-                            return engine.pool_mut().channel(resolved_args[0]);
-                        }
-                        ("Range", 1) => return engine.pool_mut().range(resolved_args[0]),
-                        ("Iterator", 1) => {
-                            return engine.pool_mut().iterator(resolved_args[0]);
-                        }
-                        ("DoubleEndedIterator", 1) => {
-                            return engine.pool_mut().double_ended_iterator(resolved_args[0]);
-                        }
-                        _ => {
-                            // User-defined generic: Applied type
-                            return engine.pool_mut().applied(*name, &resolved_args);
-                        }
+                    if let Some(idx) = crate::check::resolve_well_known_generic(
+                        engine.pool_mut(),
+                        name_str,
+                        &resolved_args,
+                    ) {
+                        return idx;
                     }
                 }
-                // No interner — create Applied type with name and args
                 return engine.pool_mut().applied(*name, &resolved_args);
             }
 
@@ -127,8 +113,8 @@ pub fn resolve_parsed_type(
                     "byte" => return Idx::BYTE,
                     "void" | "()" => return Idx::UNIT,
                     "never" | "Never" => return Idx::NEVER,
-                    "duration" => return Idx::DURATION,
-                    "size" => return Idx::SIZE,
+                    "Duration" | "duration" => return Idx::DURATION,
+                    "Size" | "size" => return Idx::SIZE,
                     "ordering" | "Ordering" => return Idx::ORDERING,
                     _ => {}
                 }
@@ -225,5 +211,54 @@ pub(crate) fn resolve_type_id(engine: &mut InferEngine<'_>, type_id: TypeId) -> 
     } else {
         // INFER (12), SELF_TYPE (13), or unknown — create a fresh variable
         engine.fresh_var()
+    }
+}
+
+// ============================================================================
+// Object Safety Checking (Inference Phase)
+// ============================================================================
+
+/// Resolve a parsed type and check it for non-object-safe trait usage (E2024).
+///
+/// Combines `resolve_parsed_type` with an object safety check. Use this
+/// instead of `resolve_parsed_type` at sites where user-written type
+/// annotations may contain trait objects: let bindings, lambda parameters,
+/// lambda return types, and type casts.
+pub(crate) fn resolve_and_check_parsed_type(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    parsed: &ParsedType,
+    span: Span,
+) -> Idx {
+    crate::check::check_parsed_type_object_safety(engine, parsed, span, arena);
+    resolve_parsed_type(engine, arena, parsed)
+}
+
+/// `InferEngine` implementation of object safety checking.
+///
+/// Unlike `ModuleChecker`, `InferEngine` has an *optional* trait registry
+/// (it may not be set during isolated inference). When absent, all names
+/// pass the object safety check.
+impl ObjectSafetyChecker for InferEngine<'_> {
+    fn is_well_known_concrete(&self, name: Name, num_args: usize) -> bool {
+        self.lookup_name(name)
+            .is_some_and(|s| crate::check::is_concrete_named_type(s, num_args))
+    }
+
+    fn check_and_emit(&mut self, name: Name, span: Span) {
+        // Borrow dance: scope the trait_registry borrow to extract violations,
+        // then use self mutably to push the error.
+        let violations: Option<Vec<ObjectSafetyViolation>> = {
+            let Some(trait_reg) = self.trait_registry() else {
+                return;
+            };
+            trait_reg
+                .get_trait_by_name(name)
+                .filter(|entry| !entry.is_object_safe())
+                .map(|entry| entry.object_safety_violations.clone())
+        };
+        if let Some(violations) = violations {
+            self.push_error(TypeCheckError::not_object_safe(span, name, violations));
+        }
     }
 }

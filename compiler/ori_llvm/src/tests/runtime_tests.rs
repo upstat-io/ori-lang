@@ -111,6 +111,37 @@ fn test_ori_str_eq_different_lengths() {
 }
 
 #[test]
+fn test_ori_str_compare() {
+    let a = make_ori_str(b"apple");
+    let b = make_ori_str(b"banana");
+    let c = make_ori_str(b"apple");
+
+    // apple < banana → Less (0)
+    assert_eq!(runtime::ori_str_compare(&raw const a, &raw const b), 0);
+    // banana > apple → Greater (2)
+    assert_eq!(runtime::ori_str_compare(&raw const b, &raw const a), 2);
+    // apple == apple → Equal (1)
+    assert_eq!(runtime::ori_str_compare(&raw const a, &raw const c), 1);
+}
+
+#[test]
+fn test_ori_str_compare_prefix() {
+    let short = make_ori_str(b"ab");
+    let long = make_ori_str(b"abc");
+
+    // "ab" < "abc" → Less (0)
+    assert_eq!(
+        runtime::ori_str_compare(&raw const short, &raw const long),
+        0
+    );
+    // "abc" > "ab" → Greater (2)
+    assert_eq!(
+        runtime::ori_str_compare(&raw const long, &raw const short),
+        2
+    );
+}
+
+#[test]
 fn test_ori_assert_passes() {
     runtime::ori_assert(true);
 }

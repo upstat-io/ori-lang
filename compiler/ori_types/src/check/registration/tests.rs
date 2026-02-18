@@ -99,11 +99,11 @@ fn resolve_primitive_types() {
 
     // Test primitive type resolution
     let int_parsed = ParsedType::Primitive(ori_ir::TypeId::from_raw(0));
-    let int_idx = resolve_parsed_type_simple(&mut checker, &int_parsed);
+    let int_idx = resolve_parsed_type_simple(&mut checker, &int_parsed, &arena);
     assert_eq!(int_idx, Idx::INT);
 
     let bool_parsed = ParsedType::Primitive(ori_ir::TypeId::from_raw(2));
-    let bool_idx = resolve_parsed_type_simple(&mut checker, &bool_parsed);
+    let bool_idx = resolve_parsed_type_simple(&mut checker, &bool_parsed, &arena);
     assert_eq!(bool_idx, Idx::BOOL);
 }
 
@@ -115,7 +115,7 @@ fn resolve_self_type() {
 
     // Self type should resolve to a placeholder during registration
     let self_parsed = ParsedType::SelfType;
-    let self_idx = resolve_type_with_params(&mut checker, &self_parsed, &[]);
+    let self_idx = resolve_type_with_params(&mut checker, &self_parsed, &[], &arena);
 
     // Should be a named type (placeholder for Self)
     assert_eq!(checker.pool().tag(self_idx), crate::Tag::Named);
@@ -268,7 +268,7 @@ fn object_safe_trait_has_no_violations() {
 
     // Create checker AFTER arena mutations
     let checker = ModuleChecker::new(&arena, &interner);
-    let violations = compute_object_safety_violations(&checker, &trait_def);
+    let violations = compute_object_safety_violations(&checker, &trait_def, &arena);
     assert!(violations.is_empty(), "Printable should be object-safe");
 }
 
@@ -298,7 +298,7 @@ fn self_return_violates_object_safety() {
     };
 
     let checker = ModuleChecker::new(&arena, &interner);
-    let violations = compute_object_safety_violations(&checker, &trait_def);
+    let violations = compute_object_safety_violations(&checker, &trait_def, &arena);
     assert_eq!(violations.len(), 1);
     assert!(
         matches!(&violations[0], ObjectSafetyViolation::SelfReturn { method, .. } if *method == method_name)
@@ -335,7 +335,7 @@ fn self_param_violates_object_safety() {
     };
 
     let checker = ModuleChecker::new(&arena, &interner);
-    let violations = compute_object_safety_violations(&checker, &trait_def);
+    let violations = compute_object_safety_violations(&checker, &trait_def, &arena);
     assert_eq!(violations.len(), 1);
     assert!(
         matches!(&violations[0], ObjectSafetyViolation::SelfParam { method, param, .. }
@@ -385,7 +385,7 @@ fn multiple_violations_in_single_trait() {
     };
 
     let checker = ModuleChecker::new(&arena, &interner);
-    let violations = compute_object_safety_violations(&checker, &trait_def);
+    let violations = compute_object_safety_violations(&checker, &trait_def, &arena);
     assert_eq!(violations.len(), 2, "Should detect both violations");
     assert!(matches!(
         &violations[0],
@@ -423,7 +423,7 @@ fn self_in_receiver_position_is_allowed() {
     };
 
     let checker = ModuleChecker::new(&arena, &interner);
-    let violations = compute_object_safety_violations(&checker, &trait_def);
+    let violations = compute_object_safety_violations(&checker, &trait_def, &arena);
     assert!(
         violations.is_empty(),
         "Self in receiver position should not violate object safety"

@@ -1,0 +1,53 @@
+// Spec: 07-properties-of-types.md § Comparable Trait on Tuples
+// Tests for tuple .compare() method (§3.14)
+
+use std.testing { assert }
+
+// =============================================================================
+// Tuple .compare() — Lexicographic ordering
+// =============================================================================
+
+@test_tuple_compare_less tests @tup_cmp_less () -> void = run(
+    assert(cond: (1, 2).compare(other: (1, 3)).is_less()),
+    assert(cond: (0, 99).compare(other: (1, 0)).is_less()),
+)
+
+@tup_cmp_less () -> Ordering = (1, 2).compare(other: (1, 3))
+
+@test_tuple_compare_equal tests @tup_cmp_equal () -> void = run(
+    assert(cond: (1, 2).compare(other: (1, 2)).is_equal()),
+    assert(cond: ("a", "b").compare(other: ("a", "b")).is_equal()),
+)
+
+@tup_cmp_equal () -> Ordering = (1, 2).compare(other: (1, 2))
+
+@test_tuple_compare_greater tests @tup_cmp_greater () -> void = run(
+    assert(cond: (2, 0).compare(other: (1, 99)).is_greater()),
+    assert(cond: (1, 3).compare(other: (1, 2)).is_greater()),
+)
+
+@tup_cmp_greater () -> Ordering = (2, 0).compare(other: (1, 0))
+
+@test_tuple_compare_first_field tests @tup_cmp_first () -> void = run(
+    // First field difference determines result
+    assert(cond: (1, 100).compare(other: (2, 0)).is_less()),
+    assert(cond: (3, 0).compare(other: (2, 100)).is_greater()),
+)
+
+@tup_cmp_first () -> Ordering = (1, 100).compare(other: (2, 0))
+
+@test_tuple_compare_second_field tests @tup_cmp_second () -> void = run(
+    // When first fields equal, second field breaks tie
+    assert(cond: (5, 1).compare(other: (5, 2)).is_less()),
+    assert(cond: (5, 3).compare(other: (5, 2)).is_greater()),
+)
+
+@tup_cmp_second () -> Ordering = (5, 1).compare(other: (5, 2))
+
+@test_tuple_compare_three_elements tests @tup_cmp_three () -> void = run(
+    assert(cond: (1, 2, 3).compare(other: (1, 2, 4)).is_less()),
+    assert(cond: (1, 2, 3).compare(other: (1, 2, 3)).is_equal()),
+    assert(cond: (1, 2, 4).compare(other: (1, 2, 3)).is_greater()),
+)
+
+@tup_cmp_three () -> Ordering = (1, 2, 3).compare(other: (1, 2, 4))

@@ -3,9 +3,10 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalResult, IteratorValue, Value};
 
-use super::compare::{compare_lists, ordering_to_value};
+use super::compare::{compare_lists, equals_values, hash_value, ordering_to_value};
 use super::helpers::{
-    len_to_value, require_args, require_int_arg, require_list_arg, require_str_arg,
+    debug_value, escape_debug_str, len_to_value, require_args, require_int_arg, require_list_arg,
+    require_str_arg,
 };
 use super::DispatchCtx;
 
@@ -49,6 +50,23 @@ pub fn dispatch_list_method(
         let other = require_list_arg("compare", &args, 0)?;
         let ord = compare_lists(&items, other, ctx.interner)?;
         Ok(ordering_to_value(ord))
+    // Eq trait - deep element-wise equality
+    } else if method == n.equals {
+        require_args("equals", 1, args.len())?;
+        let other = require_list_arg("equals", &args, 0)?;
+        if items.len() != other.len() {
+            return Ok(Value::Bool(false));
+        }
+        for (a, b) in items.iter().zip(other.iter()) {
+            if !equals_values(a, b, ctx.interner)? {
+                return Ok(Value::Bool(false));
+            }
+        }
+        Ok(Value::Bool(true))
+    // Hashable trait - recursive element hash
+    } else if method == n.hash {
+        require_args("hash", 0, args.len())?;
+        Ok(Value::int(hash_value(&Value::List(items), ctx.interner)?))
     // Iterable trait - create iterator
     } else if method == n.iter {
         require_args("iter", 0, args.len())?;
@@ -60,7 +78,7 @@ pub fn dispatch_list_method(
     // Debug trait - shows list structure
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        let parts: Vec<String> = items.iter().map(|v| format!("{v:?}")).collect();
+        let parts: Vec<String> = items.iter().map(debug_value).collect();
         Ok(Value::string(format!("[{}]", parts.join(", "))))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "list").into())
@@ -133,10 +151,14 @@ pub fn dispatch_string_method(
     } else if method == n.to_str {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(s.to_string()))
+    // escape - returns string with special characters escaped
+    } else if method == n.escape {
+        require_args("escape", 0, args.len())?;
+        Ok(Value::string(escape_debug_str(&s)))
     // Debug trait - shows escaped string with quotes
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        Ok(Value::string(format!("\"{s}\"")))
+        Ok(Value::string(format!("\"{}\"", escape_debug_str(&s))))
     // Hashable trait
     } else if method == n.hash {
         use std::collections::hash_map::DefaultHasher;
@@ -225,9 +247,22 @@ pub fn dispatch_map_method(
     } else if method == n.iter {
         require_args("iter", 0, args.len())?;
         Ok(Value::iterator(IteratorValue::from_map(map)))
+    // Eq trait - deep value equality (order-independent)
+    } else if method == n.equals {
+        require_args("equals", 1, args.len())?;
+        let eq = equals_values(&receiver, &args[0], ctx.interner)?;
+        Ok(Value::Bool(eq))
+    // Hashable trait - order-independent XOR of entry hashes
+    } else if method == n.hash {
+        require_args("hash", 0, args.len())?;
+        Ok(Value::int(hash_value(&receiver, ctx.interner)?))
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)
+    // Debug trait - shows map structure
+    } else if method == n.debug {
+        require_args("debug", 0, args.len())?;
+        Ok(Value::string(debug_value(&receiver)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "map").into())
     }
@@ -260,6 +295,19 @@ pub fn dispatch_set_method(
     } else if method == n.len {
         require_args("len", 0, args.len())?;
         len_to_value(items.len(), "set")
+    // Eq trait - deep value equality
+    } else if method == n.equals {
+        require_args("equals", 1, args.len())?;
+        let eq = equals_values(&receiver, &args[0], ctx.interner)?;
+        Ok(Value::Bool(eq))
+    // Hashable trait - order-independent XOR of element hashes
+    } else if method == n.hash {
+        require_args("hash", 0, args.len())?;
+        Ok(Value::int(hash_value(&receiver, ctx.interner)?))
+    // Debug trait - shows set structure
+    } else if method == n.debug {
+        require_args("debug", 0, args.len())?;
+        Ok(Value::string(debug_value(&receiver)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Set").into())
     }

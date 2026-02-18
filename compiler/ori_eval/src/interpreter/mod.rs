@@ -57,6 +57,12 @@ mod scope_guard;
 pub use builder::InterpreterBuilder;
 pub use scope_guard::ScopedInterpreter;
 
+#[allow(
+    clippy::disallowed_types,
+    reason = "Arc<String> shared across child interpreters"
+)]
+use std::sync::Arc;
+
 use crate::errors::no_member_in_module;
 use crate::eval_mode::{EvalMode, ModeState};
 use crate::print_handler::SharedPrintHandler;
@@ -183,6 +189,7 @@ pub(crate) struct OpNames {
     pub(crate) negate: Name,
     pub(crate) not: Name,
     pub(crate) bit_not: Name,
+    pub(crate) index: Name,
 }
 
 impl OpNames {
@@ -203,6 +210,7 @@ impl OpNames {
             negate: interner.intern("negate"),
             not: interner.intern("not"),
             bit_not: interner.intern("bit_not"),
+            index: interner.intern("index"),
         }
     }
 }
@@ -261,6 +269,10 @@ pub(crate) enum ScopeOwnership {
 /// - `Interpret` — full I/O for `ori run`
 /// - `ConstEval` — budget-limited, no I/O, deterministic
 /// - `TestRun` — captures output, collects test results
+#[allow(
+    clippy::disallowed_types,
+    reason = "Arc<String> for source metadata shared across children"
+)]
 pub struct Interpreter<'a> {
     /// String interner for name lookup.
     pub(crate) interner: &'a StringInterner,
@@ -328,6 +340,16 @@ pub struct Interpreter<'a> {
     /// When `Owned`, the interpreter was created for a function/method call
     /// via `create_function_interpreter` and will pop its environment scope on drop.
     pub(crate) scope_ownership: ScopeOwnership,
+    /// Source file path for Traceable trait trace entries.
+    ///
+    /// Set by `oric` when creating the top-level interpreter. Propagated to
+    /// child interpreters in `create_function_interpreter()`.
+    pub(crate) source_file_path: Option<Arc<String>>,
+    /// Source text for Traceable trait trace entries.
+    ///
+    /// Used to compute line/column from byte offsets in spans. Set by `oric`
+    /// and propagated to child interpreters.
+    pub(crate) source_text: Option<Arc<String>>,
     /// Canonical IR for the current module (optional during migration).
     ///
     /// When present, function calls on `FunctionValue`s with canonical bodies
@@ -583,6 +605,8 @@ impl<'a> Interpreter<'a> {
             prop_names: self.prop_names,
             op_names: self.op_names,
             builtin_method_names: self.builtin_method_names,
+            source_file_path: self.source_file_path.clone(),
+            source_text: self.source_text.clone(),
             mode: self.mode,
             mode_state: ModeState::child(&self.mode, &self.mode_state),
             call_stack: child_stack,
@@ -615,8 +639,8 @@ impl<'a> Interpreter<'a> {
     /// - Built-in enum variants like Less, Equal, Greater (Ordering type)
     pub fn register_prelude(&mut self) {
         use crate::{
-            function_val_byte, function_val_float, function_val_int, function_val_repeat,
-            function_val_str, function_val_thread_id,
+            function_val_byte, function_val_error, function_val_float, function_val_hash_combine,
+            function_val_int, function_val_repeat, function_val_str, function_val_thread_id,
         };
 
         // Type conversion functions (positional args allowed per spec)
@@ -625,8 +649,14 @@ impl<'a> Interpreter<'a> {
         self.register_function_val("float", function_val_float, "float");
         self.register_function_val("byte", function_val_byte, "byte");
 
+        // Error constructor (Traceable errors with trace storage)
+        self.register_function_val("Error", function_val_error, "Error");
+
         // Iterator constructors
         self.register_function_val("repeat", function_val_repeat, "repeat");
+
+        // Hash utility (wrapping arithmetic — can't be pure Ori due to overflow)
+        self.register_function_val("hash_combine", function_val_hash_combine, "hash_combine");
 
         // Thread/parallel introspection (internal use)
         self.register_function_val("thread_id", function_val_thread_id, "thread_id");
@@ -682,6 +712,17 @@ fn is_primitive_value(value: &Value) -> bool {
             | Value::Ok(_)
             | Value::Err(_)
             | Value::Range(_)
+    )
+}
+
+/// Check if a value is a built-in indexable type (list, map, str, tuple).
+///
+/// These types use the fast-path direct indexing with `#` hash-length support.
+/// User-defined types dispatch through `Index` trait methods instead.
+fn is_builtin_indexable(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::List(_) | Value::Map(_) | Value::Str(_) | Value::Tuple(_)
     )
 }
 

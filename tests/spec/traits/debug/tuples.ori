@@ -1,0 +1,20 @@
+// Spec: 07-properties-of-types.md § Debug Trait
+// Tests for Debug trait on tuple types
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Tuple Debug
+// =============================================================================
+
+@test_tuple_debug_pair tests @tuple_debug_pair () -> void = run(
+    assert_eq(actual: (1, true).debug(), expected: "(1, true)"),
+)
+
+@tuple_debug_pair () -> str = (1, true).debug()
+
+@test_tuple_debug_triple tests @tuple_debug_triple () -> void = run(
+    assert_eq(actual: (1, "hi", false).debug(), expected: "(1, \"hi\", false)"),
+)
+
+@tuple_debug_triple () -> str = (1, "hi", false).debug()

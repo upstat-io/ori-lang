@@ -9,7 +9,8 @@
 //! - Module checker design: `plans/types_v2/section-08b-module-checker.md`
 
 use ori_ir::{
-    DerivedTrait, ExprId, Module, Name, ParsedType, Span, TraitItem, Visibility as IrVisibility,
+    DerivedTrait, ExprArena, ExprId, Module, Name, ParsedType, Span, TraitItem, TypeId,
+    Visibility as IrVisibility,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -28,11 +29,16 @@ use crate::{
 ///
 /// Currently registers:
 /// - `Ordering` enum (Less, Equal, Greater)
+/// - `TraceEntry` struct (function, file, line, column) — for Traceable trait
 ///
 /// Note: Primitive types (int, str, etc.) are pre-interned in the Pool.
 pub fn register_builtin_types(checker: &mut ModuleChecker<'_>) {
-    // Ordering enum - used by comparison operations
-    // The variants are unit variants (no data)
+    register_ordering_type(checker);
+    register_trace_entry_type(checker);
+}
+
+/// Register the `Ordering` enum (Less, Equal, Greater).
+fn register_ordering_type(checker: &mut ModuleChecker<'_>) {
     let ordering_name = checker.interner().intern("Ordering");
     let less_name = checker.interner().intern("Less");
     let equal_name = checker.interner().intern("Equal");
@@ -87,6 +93,69 @@ pub fn register_builtin_types(checker: &mut ModuleChecker<'_>) {
     );
 }
 
+/// Register the `TraceEntry` struct for the Traceable trait.
+///
+/// Fields: `function: str`, `file: str`, `line: int`, `column: int`.
+/// This is a compiler-provided struct, not user-defined. Registered so that
+/// trait method signatures referencing `TraceEntry` resolve correctly.
+fn register_trace_entry_type(checker: &mut ModuleChecker<'_>) {
+    let te_name = checker.interner().intern("TraceEntry");
+    let fn_name = checker.interner().intern("function");
+    let file_name = checker.interner().intern("file");
+    let line_name = checker.interner().intern("line");
+    let column_name = checker.interner().intern("column");
+
+    // Create named index via Pool (dynamic allocation)
+    let named_idx = checker.pool_mut().named(te_name);
+
+    // Create Pool struct entry with field name+type pairs
+    let pool_fields = [
+        (fn_name, Idx::STR),
+        (file_name, Idx::STR),
+        (line_name, Idx::INT),
+        (column_name, Idx::INT),
+    ];
+    let struct_idx = checker.pool_mut().struct_type(te_name, &pool_fields);
+    checker.pool_mut().set_resolution(named_idx, struct_idx);
+
+    // Register in TypeRegistry for field access and type checking
+    let field_defs = vec![
+        FieldDef {
+            name: fn_name,
+            ty: Idx::STR,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+        FieldDef {
+            name: file_name,
+            ty: Idx::STR,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+        FieldDef {
+            name: line_name,
+            ty: Idx::INT,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+        FieldDef {
+            name: column_name,
+            ty: Idx::INT,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+    ];
+
+    checker.type_registry_mut().register_struct(
+        te_name,
+        named_idx,
+        vec![], // No type params
+        field_defs,
+        Span::DUMMY,
+        Visibility::Public,
+    );
+}
+
 // ============================================================================
 // Pass 0b: User-Defined Types
 // ============================================================================
@@ -101,7 +170,7 @@ pub fn register_user_types(checker: &mut ModuleChecker<'_>, module: &Module) {
 /// Register a single type declaration.
 fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) {
     // Collect generic parameters
-    let type_params = collect_generic_params(checker, decl.generics);
+    let type_params = collect_generic_params(checker.arena(), decl.generics);
 
     // Create pool index for this type
     let idx = checker.pool_mut().named(decl.name);
@@ -232,12 +301,8 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
 ///
 /// Const generic parameters (`$N: int`) are filtered out — they are values,
 /// not types, and should not be bound as type variables.
-fn collect_generic_params(
-    checker: &ModuleChecker<'_>,
-    generics: ori_ir::GenericParamRange,
-) -> Vec<Name> {
-    checker
-        .arena()
+fn collect_generic_params(arena: &ExprArena, generics: ori_ir::GenericParamRange) -> Vec<Name> {
+    arena
         .get_generic_params(generics)
         .iter()
         .filter(|param| !param.is_const)
@@ -255,84 +320,80 @@ fn resolve_field_type(
     parsed: &ParsedType,
     _type_params: &[Name],
 ) -> Idx {
-    // We need to avoid borrow conflicts - get arena reference before borrowing pool
-    // By calling through a helper that takes the arena by value (as ptr), we can
-    // then borrow the pool mutably
-    resolve_parsed_type_simple(checker, parsed)
+    let arena = checker.arena();
+    resolve_parsed_type_simple(checker, parsed, arena)
 }
 
 /// Simplified type resolution for registration phase.
 ///
 /// Handles primitives, lists, maps, tuples, functions, and named types.
 /// Generic type arguments are not fully instantiated (deferred to inference).
+///
+/// Takes `arena` as a separate parameter to avoid borrow conflicts between
+/// immutable arena reads and mutable pool writes during recursive resolution.
 pub(super) fn resolve_parsed_type_simple(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
+    arena: &ExprArena,
 ) -> Idx {
     match parsed {
         ParsedType::Primitive(type_id) => {
-            // TypeId uses a specific encoding - extract the primitive type
-            match type_id.raw() & 0x0FFF_FFFF {
-                0 => Idx::INT,
-                1 => Idx::FLOAT,
-                2 => Idx::BOOL,
-                3 => Idx::STR,
-                4 => Idx::CHAR,
-                5 => Idx::BYTE,
-                6 => Idx::UNIT,
-                7 => Idx::NEVER,
-                _ => Idx::ERROR,
+            let raw = type_id.raw();
+            if raw < TypeId::PRIMITIVE_COUNT {
+                Idx::from_raw(raw)
+            } else {
+                Idx::ERROR
             }
         }
 
         ParsedType::List(elem_id) => {
-            let elem = checker.arena().get_parsed_type(*elem_id).clone();
-            let elem_ty = resolve_parsed_type_simple(checker, &elem);
+            let elem = arena.get_parsed_type(*elem_id);
+            let elem_ty = resolve_parsed_type_simple(checker, elem, arena);
             checker.pool_mut().list(elem_ty)
         }
 
         ParsedType::Map { key, value } => {
-            let key_parsed = checker.arena().get_parsed_type(*key).clone();
-            let value_parsed = checker.arena().get_parsed_type(*value).clone();
-            let key_ty = resolve_parsed_type_simple(checker, &key_parsed);
-            let value_ty = resolve_parsed_type_simple(checker, &value_parsed);
+            let key_parsed = arena.get_parsed_type(*key);
+            let value_parsed = arena.get_parsed_type(*value);
+            let key_ty = resolve_parsed_type_simple(checker, key_parsed, arena);
+            let value_ty = resolve_parsed_type_simple(checker, value_parsed, arena);
             checker.pool_mut().map(key_ty, value_ty)
         }
 
         ParsedType::Tuple(elems) => {
-            let elem_ids: Vec<_> = checker.arena().get_parsed_type_list(*elems).to_vec();
+            let elem_ids = arena.get_parsed_type_list(*elems);
             let elem_types: Vec<Idx> = elem_ids
-                .into_iter()
-                .map(|elem_id| {
-                    let elem = checker.arena().get_parsed_type(elem_id).clone();
-                    resolve_parsed_type_simple(checker, &elem)
+                .iter()
+                .map(|&elem_id| {
+                    let elem = arena.get_parsed_type(elem_id);
+                    resolve_parsed_type_simple(checker, elem, arena)
                 })
                 .collect();
             checker.pool_mut().tuple(&elem_types)
         }
 
         ParsedType::Function { params, ret } => {
-            let param_ids: Vec<_> = checker.arena().get_parsed_type_list(*params).to_vec();
+            let param_ids = arena.get_parsed_type_list(*params);
             let param_types: Vec<Idx> = param_ids
-                .into_iter()
-                .map(|param_id| {
-                    let param = checker.arena().get_parsed_type(param_id).clone();
-                    resolve_parsed_type_simple(checker, &param)
+                .iter()
+                .map(|&param_id| {
+                    let param = arena.get_parsed_type(param_id);
+                    resolve_parsed_type_simple(checker, param, arena)
                 })
                 .collect();
-            let ret_parsed = checker.arena().get_parsed_type(*ret).clone();
-            let ret_ty = resolve_parsed_type_simple(checker, &ret_parsed);
+            let ret_parsed = arena.get_parsed_type(*ret);
+            let ret_ty = resolve_parsed_type_simple(checker, ret_parsed, arena);
             checker.pool_mut().function(&param_types, ret_ty)
         }
 
         ParsedType::Named { name, type_args } => {
             // Resolve type arguments if present
-            let type_arg_ids: Vec<_> = checker.arena().get_parsed_type_list(*type_args).to_vec();
+            let type_arg_ids = arena.get_parsed_type_list(*type_args);
             let resolved_args: Vec<Idx> = type_arg_ids
-                .into_iter()
-                .map(|arg_id| {
-                    let arg = checker.arena().get_parsed_type(arg_id).clone();
-                    resolve_parsed_type_simple(checker, &arg)
+                .iter()
+                .map(|&arg_id| {
+                    let arg = arena.get_parsed_type(arg_id);
+                    resolve_parsed_type_simple(checker, arg, arena)
                 })
                 .collect();
 
@@ -340,26 +401,14 @@ pub(super) fn resolve_parsed_type_simple(
             // to ensure type representations match between annotations and inference.
             if !resolved_args.is_empty() {
                 let name_str = checker.interner().lookup(*name);
-                match (name_str, resolved_args.len()) {
-                    ("Option", 1) => return checker.pool_mut().option(resolved_args[0]),
-                    ("Result", 2) => {
-                        return checker
-                            .pool_mut()
-                            .result(resolved_args[0], resolved_args[1]);
-                    }
-                    ("Set", 1) => return checker.pool_mut().set(resolved_args[0]),
-                    ("Channel" | "Chan", 1) => {
-                        return checker.pool_mut().channel(resolved_args[0]);
-                    }
-                    ("Range", 1) => return checker.pool_mut().range(resolved_args[0]),
-                    ("Iterator", 1) => return checker.pool_mut().iterator(resolved_args[0]),
-                    ("DoubleEndedIterator", 1) => {
-                        return checker.pool_mut().double_ended_iterator(resolved_args[0]);
-                    }
-                    _ => {
-                        return checker.pool_mut().applied(*name, &resolved_args);
-                    }
+                if let Some(idx) = super::well_known::resolve_well_known_generic(
+                    checker.pool_mut(),
+                    name_str,
+                    &resolved_args,
+                ) {
+                    return idx;
                 }
+                return checker.pool_mut().applied(*name, &resolved_args);
             }
 
             // No type args — check for pre-interned primitives before falling
@@ -378,8 +427,8 @@ pub(super) fn resolve_parsed_type_simple(
 
         ParsedType::FixedList { elem, capacity: _ } => {
             // Treat as regular list for now
-            let elem_parsed = checker.arena().get_parsed_type(*elem).clone();
-            let elem_ty = resolve_parsed_type_simple(checker, &elem_parsed);
+            let elem_parsed = arena.get_parsed_type(*elem);
+            let elem_ty = resolve_parsed_type_simple(checker, elem_parsed, arena);
             checker.pool_mut().list(elem_ty)
         }
 
@@ -394,10 +443,10 @@ pub(super) fn resolve_parsed_type_simple(
 
         // Bounded trait object: resolve first bound as primary type
         ParsedType::TraitBounds(bounds) => {
-            let bound_ids: Vec<_> = checker.arena().get_parsed_type_list(*bounds).to_vec();
+            let bound_ids = arena.get_parsed_type_list(*bounds);
             if let Some(&first_id) = bound_ids.first() {
-                let first = checker.arena().get_parsed_type(first_id).clone();
-                resolve_parsed_type_simple(checker, &first)
+                let first = arena.get_parsed_type(first_id);
+                resolve_parsed_type_simple(checker, first, arena)
             } else {
                 Idx::ERROR
             }
@@ -419,8 +468,25 @@ fn convert_visibility(ir_vis: IrVisibility) -> Visibility {
 
 /// Register trait definitions.
 pub fn register_traits(checker: &mut ModuleChecker<'_>, module: &Module) {
+    let arena = checker.arena();
     for trait_def in &module.traits {
-        register_trait(checker, trait_def);
+        register_trait(checker, trait_def, arena);
+    }
+}
+
+/// Register public traits from a foreign module (e.g., prelude).
+///
+/// Uses the foreign module's arena to resolve generic params and method
+/// signatures. Only public traits are registered.
+pub(super) fn register_imported_traits(
+    checker: &mut ModuleChecker<'_>,
+    module: &Module,
+    foreign_arena: &ExprArena,
+) {
+    for trait_def in &module.traits {
+        if trait_def.visibility.is_public() {
+            register_trait(checker, trait_def, foreign_arena);
+        }
     }
 }
 
@@ -428,9 +494,17 @@ pub fn register_traits(checker: &mut ModuleChecker<'_>, module: &Module) {
 ///
 /// Converts an `ori_ir::TraitDef` to a `TraitEntry` and registers it in the
 /// `TraitRegistry`. This enables method resolution and trait bound checking.
-fn register_trait(checker: &mut ModuleChecker<'_>, trait_def: &ori_ir::TraitDef) {
+///
+/// Takes an explicit `arena` so that foreign-module traits can be registered
+/// using the foreign module's `ExprArena` (for resolving generic params and
+/// method signatures).
+fn register_trait(
+    checker: &mut ModuleChecker<'_>,
+    trait_def: &ori_ir::TraitDef,
+    arena: &ExprArena,
+) {
     // 1. Collect generic parameters
-    let type_params = collect_generic_params(checker, trait_def.generics);
+    let type_params = collect_generic_params(arena, trait_def.generics);
 
     // 2. Create pool index for this trait
     let idx = checker.pool_mut().named(trait_def.name);
@@ -443,17 +517,18 @@ fn register_trait(checker: &mut ModuleChecker<'_>, trait_def: &ori_ir::TraitDef)
         match item {
             TraitItem::MethodSig(sig) => {
                 // Required method (no default implementation)
-                let method_def = build_trait_method_sig(checker, sig, &type_params);
+                let method_def = build_trait_method_sig(checker, sig, &type_params, arena);
                 methods.insert(sig.name, method_def);
             }
             TraitItem::DefaultMethod(default_method) => {
                 // Method with default implementation
-                let method_def = build_trait_default_method(checker, default_method, &type_params);
+                let method_def =
+                    build_trait_default_method(checker, default_method, &type_params, arena);
                 methods.insert(default_method.name, method_def);
             }
             TraitItem::AssocType(assoc) => {
                 // Associated type (with optional default)
-                let assoc_def = build_trait_assoc_type(checker, assoc, &type_params);
+                let assoc_def = build_trait_assoc_type(checker, assoc, &type_params, arena);
                 assoc_types.insert(assoc.name, assoc_def);
             }
         }
@@ -467,7 +542,7 @@ fn register_trait(checker: &mut ModuleChecker<'_>, trait_def: &ori_ir::TraitDef)
         .collect();
 
     // 5. Compute object safety violations from the original AST
-    let object_safety_violations = compute_object_safety_violations(checker, trait_def);
+    let object_safety_violations = compute_object_safety_violations(checker, trait_def, arena);
 
     // 6. Register in TraitRegistry
     let entry = TraitEntry {
@@ -495,9 +570,9 @@ fn register_trait(checker: &mut ModuleChecker<'_>, trait_def: &ori_ir::TraitDef)
 fn compute_object_safety_violations(
     checker: &ModuleChecker<'_>,
     trait_def: &ori_ir::TraitDef,
+    arena: &ExprArena,
 ) -> Vec<ObjectSafetyViolation> {
     let mut violations = Vec::new();
-    let arena = checker.arena();
 
     for item in &trait_def.items {
         let (name, params_range, return_ty, span) = match item {
@@ -589,20 +664,21 @@ fn build_trait_method_sig(
     checker: &mut ModuleChecker<'_>,
     sig: &ori_ir::TraitMethodSig,
     type_params: &[Name],
+    arena: &ExprArena,
 ) -> TraitMethodDef {
     // Resolve parameter types
-    let params: Vec<_> = checker.arena().get_params(sig.params).to_vec();
+    let params: Vec<_> = arena.get_params(sig.params).to_vec();
     let param_types: Vec<Idx> = params
         .iter()
         .map(|p| {
             p.ty.as_ref().map_or(Idx::ERROR, |ty| {
-                resolve_type_with_params(checker, ty, type_params)
+                resolve_type_with_params(checker, ty, type_params, arena)
             })
         })
         .collect();
 
     // Resolve return type
-    let return_ty = resolve_type_with_params(checker, &sig.return_ty, type_params);
+    let return_ty = resolve_type_with_params(checker, &sig.return_ty, type_params, arena);
 
     // Create function type for signature
     let signature = checker.pool_mut().function(&param_types, return_ty);
@@ -621,20 +697,21 @@ fn build_trait_default_method(
     checker: &mut ModuleChecker<'_>,
     method: &ori_ir::TraitDefaultMethod,
     type_params: &[Name],
+    arena: &ExprArena,
 ) -> TraitMethodDef {
     // Resolve parameter types
-    let params: Vec<_> = checker.arena().get_params(method.params).to_vec();
+    let params: Vec<_> = arena.get_params(method.params).to_vec();
     let param_types: Vec<Idx> = params
         .iter()
         .map(|p| {
             p.ty.as_ref().map_or(Idx::ERROR, |ty| {
-                resolve_type_with_params(checker, ty, type_params)
+                resolve_type_with_params(checker, ty, type_params, arena)
             })
         })
         .collect();
 
     // Resolve return type
-    let return_ty = resolve_type_with_params(checker, &method.return_ty, type_params);
+    let return_ty = resolve_type_with_params(checker, &method.return_ty, type_params, arena);
 
     // Create function type for signature
     let signature = checker.pool_mut().function(&param_types, return_ty);
@@ -653,12 +730,13 @@ fn build_trait_assoc_type(
     checker: &mut ModuleChecker<'_>,
     assoc: &ori_ir::TraitAssocType,
     type_params: &[Name],
+    arena: &ExprArena,
 ) -> TraitAssocTypeDef {
     // Resolve default type if present
     let default = assoc
         .default_type
         .as_ref()
-        .map(|ty| resolve_type_with_params(checker, ty, type_params));
+        .map(|ty| resolve_type_with_params(checker, ty, type_params, arena));
 
     // TODO: Resolve bounds on associated type
     let bounds = Vec::new();
@@ -679,6 +757,7 @@ fn resolve_type_with_params(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
     type_params: &[Name],
+    arena: &ExprArena,
 ) -> Idx {
     match parsed {
         ParsedType::Named { name, .. } => {
@@ -689,7 +768,7 @@ fn resolve_type_with_params(
                 checker.pool_mut().named(*name)
             } else {
                 // Regular named type
-                resolve_parsed_type_simple(checker, parsed)
+                resolve_parsed_type_simple(checker, parsed, arena)
             }
         }
         ParsedType::SelfType => {
@@ -698,7 +777,7 @@ fn resolve_type_with_params(
             let self_name = checker.interner().intern("Self");
             checker.pool_mut().named(self_name)
         }
-        _ => resolve_parsed_type_simple(checker, parsed),
+        _ => resolve_parsed_type_simple(checker, parsed, arena),
     }
 }
 
@@ -723,10 +802,11 @@ fn register_impl(
     traits: &[ori_ir::TraitDef],
 ) {
     // 1. Collect generic parameters
-    let type_params = collect_generic_params(checker, impl_def.generics);
+    let arena = checker.arena();
+    let type_params = collect_generic_params(arena, impl_def.generics);
 
     // 2. Resolve self type
-    let self_type = resolve_parsed_type_simple(checker, &impl_def.self_ty);
+    let self_type = resolve_parsed_type_simple(checker, &impl_def.self_ty, arena);
 
     // 3. Resolve trait (if trait impl)
     let trait_idx = impl_def.trait_path.as_ref().map(|path| {
@@ -737,6 +817,18 @@ fn register_impl(
             .unwrap_or_else(|| checker.interner().intern("<unknown>"));
         checker.pool_mut().named(trait_name)
     });
+
+    // 3b. Resolve trait type arguments (e.g., `<int, str>` in `impl Index<int, str> for T`)
+    let trait_type_args: Vec<Idx> = {
+        let arg_ids = arena.get_parsed_type_list(impl_def.trait_type_args);
+        arg_ids
+            .iter()
+            .map(|&arg_id| {
+                let parsed = arena.get_parsed_type(arg_id);
+                resolve_parsed_type_simple(checker, parsed, arena)
+            })
+            .collect()
+    };
 
     // 4. Process explicitly defined methods
     let mut methods = FxHashMap::default();
@@ -873,13 +965,16 @@ fn register_impl(
 
     // 7. Check for coherence violations
     if let Some(t_idx) = trait_idx {
-        // Borrow dance: extract existing impl span and trait name, then push error
+        // Borrow dance: extract existing impl span and trait name, then push error.
+        // Uses type-argument-aware matching so that `impl Index<int, str> for T`
+        // and `impl Index<str, str> for T` are correctly treated as distinct.
         let existing: Option<(Span, Name)> = {
             let reg = checker.trait_registry();
-            reg.find_impl(t_idx, self_type).and_then(|(_, entry)| {
-                let trait_name = reg.get_trait_by_idx(t_idx).map(|t| t.name)?;
-                Some((entry.span, trait_name))
-            })
+            reg.find_impl_with_args(t_idx, self_type, &trait_type_args)
+                .and_then(|(_, entry)| {
+                    let trait_name = reg.get_trait_by_idx(t_idx).map(|t| t.name)?;
+                    Some((entry.span, trait_name))
+                })
         };
         if let Some((first_span, trait_name)) = existing {
             checker.push_error(TypeCheckError::duplicate_impl(
@@ -903,6 +998,7 @@ fn register_impl(
     // 9. Register in TraitRegistry
     let entry = ImplEntry {
         trait_idx,
+        trait_type_args,
         self_type,
         type_params,
         methods,
@@ -997,11 +1093,24 @@ fn build_where_constraint(
 /// Resolve a parsed type with Self substitution.
 ///
 /// Replaces `Self` references with the actual implementing type.
+/// Takes `arena` as a separate parameter to avoid borrow conflicts.
 pub(super) fn resolve_type_with_self(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
     type_params: &[Name],
     self_type: Idx,
+) -> Idx {
+    let arena = checker.arena();
+    resolve_type_with_self_inner(checker, parsed, type_params, self_type, arena)
+}
+
+/// Inner implementation of Self-substituting type resolution.
+fn resolve_type_with_self_inner(
+    checker: &mut ModuleChecker<'_>,
+    parsed: &ParsedType,
+    type_params: &[Name],
+    self_type: Idx,
+    arena: &ExprArena,
 ) -> Idx {
     match parsed {
         ParsedType::SelfType => self_type,
@@ -1010,56 +1119,60 @@ pub(super) fn resolve_type_with_self(
             if type_params.contains(name) {
                 checker.pool_mut().named(*name)
             } else {
-                resolve_parsed_type_simple(checker, parsed)
+                resolve_parsed_type_simple(checker, parsed, arena)
             }
         }
         ParsedType::List(elem_id) => {
-            let elem = checker.arena().get_parsed_type(*elem_id).clone();
-            let elem_ty = resolve_type_with_self(checker, &elem, type_params, self_type);
+            let elem = arena.get_parsed_type(*elem_id);
+            let elem_ty =
+                resolve_type_with_self_inner(checker, elem, type_params, self_type, arena);
             checker.pool_mut().list(elem_ty)
         }
         ParsedType::Map { key, value } => {
-            let key_parsed = checker.arena().get_parsed_type(*key).clone();
-            let value_parsed = checker.arena().get_parsed_type(*value).clone();
-            let key_ty = resolve_type_with_self(checker, &key_parsed, type_params, self_type);
-            let value_ty = resolve_type_with_self(checker, &value_parsed, type_params, self_type);
+            let key_parsed = arena.get_parsed_type(*key);
+            let value_parsed = arena.get_parsed_type(*value);
+            let key_ty =
+                resolve_type_with_self_inner(checker, key_parsed, type_params, self_type, arena);
+            let value_ty =
+                resolve_type_with_self_inner(checker, value_parsed, type_params, self_type, arena);
             checker.pool_mut().map(key_ty, value_ty)
         }
         ParsedType::Tuple(elems) => {
-            let elem_ids: Vec<_> = checker.arena().get_parsed_type_list(*elems).to_vec();
+            let elem_ids = arena.get_parsed_type_list(*elems);
             let elem_types: Vec<Idx> = elem_ids
-                .into_iter()
-                .map(|elem_id| {
-                    let elem = checker.arena().get_parsed_type(elem_id).clone();
-                    resolve_type_with_self(checker, &elem, type_params, self_type)
+                .iter()
+                .map(|&elem_id| {
+                    let elem = arena.get_parsed_type(elem_id);
+                    resolve_type_with_self_inner(checker, elem, type_params, self_type, arena)
                 })
                 .collect();
             checker.pool_mut().tuple(&elem_types)
         }
         ParsedType::Function { params, ret } => {
-            let param_ids: Vec<_> = checker.arena().get_parsed_type_list(*params).to_vec();
+            let param_ids = arena.get_parsed_type_list(*params);
             let param_types: Vec<Idx> = param_ids
-                .into_iter()
-                .map(|param_id| {
-                    let param = checker.arena().get_parsed_type(param_id).clone();
-                    resolve_type_with_self(checker, &param, type_params, self_type)
+                .iter()
+                .map(|&param_id| {
+                    let param = arena.get_parsed_type(param_id);
+                    resolve_type_with_self_inner(checker, param, type_params, self_type, arena)
                 })
                 .collect();
-            let ret_parsed = checker.arena().get_parsed_type(*ret).clone();
-            let ret_ty = resolve_type_with_self(checker, &ret_parsed, type_params, self_type);
+            let ret_parsed = arena.get_parsed_type(*ret);
+            let ret_ty =
+                resolve_type_with_self_inner(checker, ret_parsed, type_params, self_type, arena);
             checker.pool_mut().function(&param_types, ret_ty)
         }
         // Bounded trait object: resolve first bound with self-substitution
         ParsedType::TraitBounds(bounds) => {
-            let bound_ids: Vec<_> = checker.arena().get_parsed_type_list(*bounds).to_vec();
+            let bound_ids = arena.get_parsed_type_list(*bounds);
             if let Some(&first_id) = bound_ids.first() {
-                let first = checker.arena().get_parsed_type(first_id).clone();
-                resolve_type_with_self(checker, &first, type_params, self_type)
+                let first = arena.get_parsed_type(first_id);
+                resolve_type_with_self_inner(checker, first, type_params, self_type, arena)
             } else {
                 Idx::ERROR
             }
         }
-        _ => resolve_parsed_type_simple(checker, parsed),
+        _ => resolve_parsed_type_simple(checker, parsed, arena),
     }
 }
 
@@ -1087,6 +1200,16 @@ fn register_derived_impl(
     type_decl: &ori_ir::TypeDecl,
     trait_name: Name,
 ) {
+    // 0. Reject #[derive(Default)] on sum types (spec: ambiguous variant)
+    let trait_str = checker.interner().lookup(trait_name);
+    if trait_str == "Default" && matches!(type_decl.kind, ori_ir::TypeDeclKind::Sum(_)) {
+        checker.push_error(TypeCheckError::cannot_derive_default_for_sum_type(
+            type_decl.span,
+            type_decl.name,
+        ));
+        return;
+    }
+
     // 1. Get the trait index
     let trait_idx = checker.pool_mut().named(trait_name);
 
@@ -1094,7 +1217,7 @@ fn register_derived_impl(
     let self_type = checker.pool_mut().named(type_decl.name);
 
     // 3. Collect type parameters from the type declaration
-    let type_params = collect_generic_params(checker, type_decl.generics);
+    let type_params = collect_generic_params(checker.arena(), type_decl.generics);
 
     // 4. Check if this impl already exists (coherence check)
     if checker.trait_registry().has_impl(trait_idx, self_type) {
@@ -1108,6 +1231,7 @@ fn register_derived_impl(
     // 6. Create and register the impl entry (derived impls are always concrete)
     let entry = ImplEntry {
         trait_idx: Some(trait_idx),
+        trait_type_args: Vec::new(),
         self_type,
         type_params,
         methods,
@@ -1126,7 +1250,7 @@ fn register_derived_impl(
 /// - Eq: `eq(self: T, other: T) -> bool`
 /// - Clone: `clone(self: T) -> T`
 /// - Hashable: `hash(self: T) -> int`
-/// - Printable: `to_string(self: T) -> str`
+/// - Printable: `to_str(self: T) -> str`
 /// - Default: `default() -> T`
 fn build_derived_methods(
     checker: &mut ModuleChecker<'_>,
@@ -1149,8 +1273,15 @@ fn build_derived_methods(
             .function2(self_type, self_type, Idx::BOOL),
         DerivedTrait::Clone => checker.pool_mut().function1(self_type, self_type),
         DerivedTrait::Hashable => checker.pool_mut().function1(self_type, Idx::INT),
-        DerivedTrait::Printable => checker.pool_mut().function1(self_type, Idx::STR),
+        DerivedTrait::Printable | DerivedTrait::Debug => {
+            checker.pool_mut().function1(self_type, Idx::STR)
+        }
         DerivedTrait::Default => checker.pool_mut().function0(self_type),
+        DerivedTrait::Comparable => {
+            checker
+                .pool_mut()
+                .function2(self_type, self_type, Idx::ORDERING)
+        }
     };
 
     let has_self = !matches!(trait_kind, DerivedTrait::Default);

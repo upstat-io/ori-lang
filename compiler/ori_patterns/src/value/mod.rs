@@ -28,6 +28,7 @@
 //! potential race conditions.
 
 mod composite;
+mod error_value;
 mod heap;
 pub(crate) mod iterator;
 mod scalar_int;
@@ -40,6 +41,7 @@ use std::fmt;
 pub use ori_ir::{Name, StringLookup};
 
 pub use composite::{FunctionValue, MemoizedFunctionValue, RangeValue, StructLayout, StructValue};
+pub use error_value::{ErrorValue, TraceEntryData};
 pub use heap::Heap;
 pub use iterator::IteratorValue;
 pub use scalar_int::ScalarInt;
@@ -219,8 +221,8 @@ pub enum Value {
     ModuleNamespace(Heap<BTreeMap<Name, Value>>),
 
     // Error Recovery
-    /// Error value for error recovery.
-    Error(String),
+    /// Error value with optional trace storage for Traceable trait.
+    Error(Heap<ErrorValue>),
 
     /// Reference to a type for associated function dispatch.
     ///
@@ -463,6 +465,33 @@ impl Value {
         Value::Iterator(state)
     }
 
+    /// Create an error value with no trace entries.
+    ///
+    /// This is the standard way to create error values. The trace will be
+    /// populated as the error propagates through `?` operator sites.
+    #[inline]
+    pub fn error(msg: impl Into<String>) -> Self {
+        Value::Error(Heap::new(ErrorValue::new(msg)))
+    }
+
+    /// Create an error value from an existing `ErrorValue`.
+    ///
+    /// Used when constructing errors with pre-existing trace data
+    /// (e.g., after `with_entry()` or `push_trace()`).
+    #[inline]
+    pub fn error_from(ev: ErrorValue) -> Self {
+        Value::Error(Heap::new(ev))
+    }
+
+    /// Extract the error value, if this is a `Value::Error`.
+    #[inline]
+    pub fn as_error(&self) -> Option<&ErrorValue> {
+        match self {
+            Value::Error(ev) => Some(ev),
+            _ => None,
+        }
+    }
+
     /// Create a module namespace for qualified access.
     ///
     /// # Example
@@ -580,7 +609,7 @@ impl Value {
             Value::Range(_) => "Range",
             Value::Iterator(_) => "Iterator",
             Value::ModuleNamespace(_) => "module",
-            Value::Error(_) => "error",
+            Value::Error(..) => "error",
             Value::TypeRef { .. } => "type",
         }
     }
@@ -659,7 +688,7 @@ impl Value {
             Value::Range(r) => format!("{}", Value::Range(r.clone())),
             Value::Iterator(it) => format!("<iterator {it:?}>"),
             Value::ModuleNamespace(_) => "<module>".to_string(),
-            Value::Error(msg) => format!("Error({msg})"),
+            Value::Error(ev) => format!("Error({})", ev.message()),
             Value::TypeRef { .. } => "<type>".to_string(),
         }
     }
@@ -834,7 +863,7 @@ impl fmt::Debug for Value {
             Value::Range(r) => write!(f, "Range({r:?})"),
             Value::Iterator(it) => write!(f, "Iterator({it:?})"),
             Value::ModuleNamespace(ns) => write!(f, "ModuleNamespace({} items)", ns.len()),
-            Value::Error(msg) => write!(f, "Error({msg})"),
+            Value::Error(ev) => write!(f, "Error({})", ev.message()),
             Value::TypeRef { type_name } => write!(f, "TypeRef({type_name:?})"),
         }
     }
@@ -953,7 +982,7 @@ impl fmt::Display for Value {
             }
             Value::Iterator(it) => write!(f, "<iterator {it:?}>"),
             Value::ModuleNamespace(_) => write!(f, "<module>"),
-            Value::Error(msg) => write!(f, "<error: {msg}>"),
+            Value::Error(ev) => write!(f, "<error: {}>", ev.message()),
             Value::TypeRef { type_name } => write!(f, "<type {type_name:?}>"),
         }
     }
@@ -1131,7 +1160,7 @@ impl std::hash::Hash for Value {
                 // Hash by namespace size (discriminant already hashed)
                 ns.len().hash(state);
             }
-            Value::Error(msg) => msg.hash(state),
+            Value::Error(ev) => ev.hash(state),
             Value::TypeRef { type_name } => type_name.hash(state),
         }
     }

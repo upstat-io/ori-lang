@@ -3,7 +3,7 @@
 use ori_ir::{BinaryOp, ExprArena, ExprId, Span, UnaryOp};
 
 use super::super::InferEngine;
-use super::{infer_expr, resolve_parsed_type};
+use super::{infer_expr, resolve_and_check_parsed_type};
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
 /// Infer the type of a binary operation.
@@ -460,13 +460,13 @@ pub(crate) fn infer_cast(
     expr: ExprId,
     ty: &ori_ir::ParsedType,
     fallible: bool,
-    _span: Span,
+    span: Span,
 ) -> Idx {
     // Infer the expression type (for validation, though we don't check cast validity here)
     let _expr_ty = infer_expr(engine, arena, expr);
 
     // Resolve the target type
-    let target_ty = resolve_parsed_type(engine, arena, ty);
+    let target_ty = resolve_and_check_parsed_type(engine, arena, ty, span);
 
     // Fallible casts return Option<T>, infallible return T directly
     if fallible {

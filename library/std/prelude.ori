@@ -22,7 +22,7 @@ pub trait Eq {
 
 // Ordering comparison
 pub trait Comparable: Eq {
-    @cmp (self, other: Self) -> Ordering
+    @compare (self, other: Self) -> Ordering
 }
 
 // Can be used as a map key or set element
@@ -32,7 +32,12 @@ pub trait Hashable: Eq {
 
 // Can be converted to a string representation
 pub trait Printable {
-    @to_string (self) -> str
+    @to_str (self) -> str
+}
+
+// Developer-facing structural representation
+pub trait Debug {
+    @debug (self) -> str
 }
 
 // Can be explicitly copied
@@ -43,6 +48,16 @@ pub trait Clone {
 // Has a default value
 pub trait Default {
     @default () -> Self
+}
+
+// Error trace propagation (spec §3.13)
+// Implemented by Error type; Result delegates to inner Error.
+// The ? operator auto-injects trace entries as errors propagate.
+pub trait Traceable {
+    @with_trace (self, entry: TraceEntry) -> Self
+    @trace (self) -> str
+    @trace_entries (self) -> [TraceEntry]
+    @has_trace (self) -> bool
 }
 
 // =============================================================================
@@ -182,6 +197,11 @@ pub trait Shr<Rhs = int> {
     @shift_right (self, rhs: Rhs) -> Self.Output
 }
 
+// Subscript access: x[k] -> x.index(key: k)
+pub trait Index<Key, Value> {
+    @index (self, key: Key) -> Value
+}
+
 // =============================================================================
 // Capability Traits
 // =============================================================================
@@ -310,3 +330,7 @@ pub @min (a: int, b: int) -> int = if a < b then a else b
 
 // Get the maximum of two integers
 pub @max (a: int, b: int) -> int = if a > b then a else b
+
+// Combine two hash values using the Boost hash combine algorithm.
+// Uses wrapping arithmetic (built-in) since hash computation overflows by design.
+pub @hash_combine (seed: int, value: int) -> int

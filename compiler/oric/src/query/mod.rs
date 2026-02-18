@@ -451,8 +451,12 @@ pub(crate) fn run_evaluation(
     // Uses session-scoped CanonCache for reuse across consumers.
     let shared_canon = canonicalize_cached(db, file, parse_result, type_result, pool);
 
-    // Create evaluator with type information and canonical IR
+    // Create evaluator with type information, canonical IR, and source info for Traceable
+    let source_path = std::sync::Arc::new(file_path.to_string_lossy().to_string());
+    let source_text = std::sync::Arc::new(file.text(db).clone());
     let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
+        .source_file_path(source_path)
+        .source_text(source_text)
         .canon(shared_canon.clone())
         .build();
     evaluator.register_prelude();

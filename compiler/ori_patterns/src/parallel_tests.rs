@@ -287,7 +287,7 @@ mod execute_task_tests {
     fn wraps_error_in_ok() {
         // Note: execute_task wraps non-callable values in Ok, including Error.
         // Error -> Err conversion only happens in wrap_in_result for function results.
-        let result = execute_task(Value::Error("runtime error".to_string()));
+        let result = execute_task(Value::error("runtime error"));
         match result {
             Value::Ok(_) => {}
             _ => panic!("expected Ok variant (Error is wrapped, not converted)"),
@@ -330,7 +330,7 @@ mod wrap_in_result_tests {
 
     #[test]
     fn converts_error_to_err() {
-        let result = wrap_in_result(Value::Error("bad".to_string()));
+        let result = wrap_in_result(Value::error("bad"));
         match result {
             Value::Err(_) => {}
             _ => panic!("expected Err"),

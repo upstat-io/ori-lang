@@ -25,7 +25,7 @@ use ori_ir::{
 use rustc_hash::FxHashMap;
 
 use super::ModuleChecker;
-use crate::{ConstParamInfo, FnWhereClause, FunctionSig, Idx, TypeCheckError};
+use crate::{ConstParamInfo, FnWhereClause, FunctionSig, Idx};
 
 // ============================================================================
 // Pass 1: Signature Collection
@@ -331,7 +331,7 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
 /// (parser treated it as a named type) representations of `int`/`bool`.
 fn resolve_const_param_type(checker: &ModuleChecker<'_>, param: &ori_ir::GenericParam) -> Idx {
     match &param.const_type {
-        Some(ParsedType::Primitive(tid)) => match tid.raw() & 0x0FFF_FFFF {
+        Some(ParsedType::Primitive(tid)) => match tid.raw() {
             0 => Idx::INT,
             2 => Idx::BOOL,
             _ => Idx::ERROR,
@@ -363,18 +363,14 @@ fn resolve_type_with_vars(
     arena: &ExprArena,
 ) -> Idx {
     match parsed {
-        // Primitive types - unchanged
-        ParsedType::Primitive(type_id) => match type_id.raw() & 0x0FFF_FFFF {
-            0 => Idx::INT,
-            1 => Idx::FLOAT,
-            2 => Idx::BOOL,
-            3 => Idx::STR,
-            4 => Idx::CHAR,
-            5 => Idx::BYTE,
-            6 => Idx::UNIT,
-            7 => Idx::NEVER,
-            _ => Idx::ERROR,
-        },
+        ParsedType::Primitive(type_id) => {
+            let raw = type_id.raw();
+            if raw < ori_ir::TypeId::PRIMITIVE_COUNT {
+                Idx::from_raw(raw)
+            } else {
+                Idx::ERROR
+            }
+        }
 
         // List type: [T]
         ParsedType::List(elem_id) => {
@@ -438,33 +434,19 @@ fn resolve_type_with_vars(
                 })
                 .collect();
 
-            // Check for well-known generic types that have dedicated Pool tags.
-            // These must be constructed with their specific Pool methods to ensure
-            // unification works correctly (e.g., Option<int> from a type annotation
-            // must produce the same Tag::Option as pool.option(int) from inference).
+            // Well-known generic types must use their dedicated Pool constructors
+            // to ensure unification works correctly (e.g., Option<int> from a type
+            // annotation must produce the same Tag::Option as pool.option(int)).
             if !resolved_args.is_empty() {
                 let name_str = checker.interner().lookup(*name);
-                match (name_str, resolved_args.len()) {
-                    ("Option", 1) => return checker.pool_mut().option(resolved_args[0]),
-                    ("Result", 2) => {
-                        return checker
-                            .pool_mut()
-                            .result(resolved_args[0], resolved_args[1]);
-                    }
-                    ("Set", 1) => return checker.pool_mut().set(resolved_args[0]),
-                    ("Channel" | "Chan", 1) => {
-                        return checker.pool_mut().channel(resolved_args[0]);
-                    }
-                    ("Range", 1) => return checker.pool_mut().range(resolved_args[0]),
-                    ("Iterator", 1) => return checker.pool_mut().iterator(resolved_args[0]),
-                    ("DoubleEndedIterator", 1) => {
-                        return checker.pool_mut().double_ended_iterator(resolved_args[0]);
-                    }
-                    _ => {
-                        // User-defined generic type: create Applied type
-                        return checker.pool_mut().applied(*name, &resolved_args);
-                    }
+                if let Some(idx) = super::well_known::resolve_well_known_generic(
+                    checker.pool_mut(),
+                    name_str,
+                    &resolved_args,
+                ) {
+                    return idx;
                 }
+                return checker.pool_mut().applied(*name, &resolved_args);
             }
 
             // No type args — check for built-in primitive type names
@@ -532,96 +514,17 @@ fn resolve_type_with_vars(
     }
 }
 
-// ============================================================================
-// Object Safety Checking
-// ============================================================================
-
-/// Check a parsed type annotation for non-object-safe trait usage.
+/// Delegate to the generic object safety traversal.
 ///
-/// Walks the `ParsedType` tree and emits E2024 errors when a trait used as a
-/// type (trait object) violates object safety rules. Two patterns are checked:
-///
-/// - `ParsedType::Named { name }` where `name` resolves to a registered trait
-/// - `ParsedType::TraitBounds(bounds)` where each bound is checked individually
-///
-/// This is called during Pass 1 (signature collection) when all traits have
-/// been registered in Pass 0c. Type annotations in function parameters and
-/// return types are the primary usage site for trait objects.
+/// `ModuleChecker` implements `ObjectSafetyChecker` (in `check/object_safety.rs`),
+/// so this is a thin wrapper for call-site convenience.
 fn check_parsed_type_object_safety(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
     span: Span,
     arena: &ExprArena,
 ) {
-    match parsed {
-        ParsedType::Named { name, type_args } => {
-            // Check if this name refers to a trait (making this a trait object)
-            let violations = {
-                let trait_reg = checker.trait_registry();
-                trait_reg
-                    .get_trait_by_name(*name)
-                    .filter(|entry| !entry.is_object_safe())
-                    .map(|entry| entry.object_safety_violations.clone())
-            };
-            if let Some(violations) = violations {
-                checker.push_error(TypeCheckError::not_object_safe(span, *name, violations));
-            }
-
-            // Recurse into type arguments (e.g., `[Clone]` has Clone inside List)
-            let type_arg_ids = arena.get_parsed_type_list(*type_args);
-            for &arg_id in type_arg_ids {
-                let arg = arena.get_parsed_type(arg_id);
-                check_parsed_type_object_safety(checker, arg, span, arena);
-            }
-        }
-
-        ParsedType::TraitBounds(bounds) => {
-            // Each bound in `Printable + Hashable` must be object-safe
-            let bound_ids = arena.get_parsed_type_list(*bounds);
-            for &bound_id in bound_ids {
-                let bound = arena.get_parsed_type(bound_id);
-                check_parsed_type_object_safety(checker, bound, span, arena);
-            }
-        }
-
-        // Recurse into compound types that may contain trait objects
-        ParsedType::List(elem_id) | ParsedType::FixedList { elem: elem_id, .. } => {
-            let elem = arena.get_parsed_type(*elem_id);
-            check_parsed_type_object_safety(checker, elem, span, arena);
-        }
-        ParsedType::Map { key, value } => {
-            let key_parsed = arena.get_parsed_type(*key);
-            let value_parsed = arena.get_parsed_type(*value);
-            check_parsed_type_object_safety(checker, key_parsed, span, arena);
-            check_parsed_type_object_safety(checker, value_parsed, span, arena);
-        }
-        ParsedType::Tuple(elems) => {
-            let elem_ids = arena.get_parsed_type_list(*elems);
-            for &elem_id in elem_ids {
-                let elem = arena.get_parsed_type(elem_id);
-                check_parsed_type_object_safety(checker, elem, span, arena);
-            }
-        }
-        ParsedType::Function { params, ret } => {
-            let param_ids = arena.get_parsed_type_list(*params);
-            for &param_id in param_ids {
-                let param = arena.get_parsed_type(param_id);
-                check_parsed_type_object_safety(checker, param, span, arena);
-            }
-            let ret_parsed = arena.get_parsed_type(*ret);
-            check_parsed_type_object_safety(checker, ret_parsed, span, arena);
-        }
-        ParsedType::AssociatedType { base, .. } => {
-            let base_parsed = arena.get_parsed_type(*base);
-            check_parsed_type_object_safety(checker, base_parsed, span, arena);
-        }
-
-        // Leaf types: no trait object usage possible
-        ParsedType::Primitive(_)
-        | ParsedType::Infer
-        | ParsedType::SelfType
-        | ParsedType::ConstExpr(_) => {}
-    }
+    super::object_safety::check_parsed_type_object_safety(checker, parsed, span, arena);
 }
 
 #[cfg(test)]
