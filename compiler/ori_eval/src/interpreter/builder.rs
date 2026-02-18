@@ -1,5 +1,15 @@
 //! `InterpreterBuilder` for creating Interpreter instances with various configurations.
 
+// Arc<String> is used here for source file path and source text that are shared
+// across child interpreters (clone-per-child). Heap<T> is not suitable because
+// its constructor is pub(super) to the value module.
+#![allow(
+    clippy::disallowed_types,
+    reason = "Arc<String> shared across child interpreters"
+)]
+
+use std::sync::Arc;
+
 use super::resolvers::{
     BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, MethodResolverKind,
     UserRegistryResolver,
@@ -31,6 +41,10 @@ pub struct InterpreterBuilder<'a> {
     print_handler: Option<SharedPrintHandler>,
     scope_ownership: ScopeOwnership,
     call_stack: Option<CallStack>,
+    /// Source file path for Traceable trace entries.
+    source_file_path: Option<Arc<String>>,
+    /// Source text for computing line/column from spans.
+    source_text: Option<Arc<String>>,
     /// Canonical IR for canonical evaluation path.
     canon: Option<SharedCanonResult>,
 }
@@ -49,6 +63,8 @@ impl<'a> InterpreterBuilder<'a> {
             print_handler: None,
             scope_ownership: ScopeOwnership::Borrowed,
             call_stack: None,
+            source_file_path: None,
+            source_text: None,
             canon: None,
         }
     }
@@ -119,6 +135,25 @@ impl<'a> InterpreterBuilder<'a> {
     #[must_use]
     pub fn call_stack(mut self, stack: CallStack) -> Self {
         self.call_stack = Some(stack);
+        self
+    }
+
+    /// Set the source file path for Traceable trace entries.
+    ///
+    /// Used by `?` operator to record propagation location in error traces.
+    #[must_use]
+    pub fn source_file_path(mut self, path: Arc<String>) -> Self {
+        self.source_file_path = Some(path);
+        self
+    }
+
+    /// Set the source text for computing line/column from byte offsets.
+    ///
+    /// Used by `?` operator to convert span byte offsets to line:column
+    /// in error trace entries.
+    #[must_use]
+    pub fn source_text(mut self, text: Arc<String>) -> Self {
+        self.source_text = Some(text);
         self
     }
 
@@ -204,6 +239,8 @@ impl<'a> InterpreterBuilder<'a> {
             print_handler,
             scope_ownership: self.scope_ownership,
             builtin_method_names,
+            source_file_path: self.source_file_path,
+            source_text: self.source_text,
             canon: self.canon,
         }
     }

@@ -16,6 +16,7 @@
 
 mod collections;
 mod compare;
+mod error;
 pub(crate) mod helpers;
 mod numeric;
 mod ordering;
@@ -130,6 +131,13 @@ pub(crate) struct BuiltinMethodNames {
 
     // Iterator
     pub(crate) iter: Name,
+
+    // Traceable trait (Error type)
+    pub(crate) trace: Name,
+    pub(crate) trace_entries: Name,
+    pub(crate) has_trace: Name,
+    pub(crate) with_trace: Name,
+    pub(crate) message: Name,
 }
 
 impl BuiltinMethodNames {
@@ -217,6 +225,12 @@ impl BuiltinMethodNames {
             terabytes: interner.intern("terabytes"),
             // Iterator
             iter: interner.intern("iter"),
+            // Traceable
+            trace: interner.intern("trace"),
+            trace_entries: interner.intern("trace_entries"),
+            has_trace: interner.intern("has_trace"),
+            with_trace: interner.intern("with_trace"),
+            message: interner.intern("message"),
         }
     }
 }
@@ -330,6 +344,7 @@ pub(crate) fn dispatch_builtin_method(
         Value::Size(_) => units::dispatch_size_method(receiver, method, args, ctx),
         Value::Ordering(_) => ordering::dispatch_ordering_method(receiver, method, args, ctx),
         Value::Tuple(_) => dispatch_tuple_method(receiver, method, args, ctx),
+        Value::Error(_) => error::dispatch_error_method(receiver, method, args, ctx),
         _ => {
             let method_str = ctx.interner.lookup(method);
             Err(no_such_method(method_str, receiver.type_name()).into())

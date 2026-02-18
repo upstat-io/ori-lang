@@ -50,6 +50,16 @@ pub trait Default {
     @default () -> Self
 }
 
+// Error trace propagation (spec §3.13)
+// Implemented by Error type; Result delegates to inner Error.
+// The ? operator auto-injects trace entries as errors propagate.
+pub trait Traceable {
+    @with_trace (self, entry: TraceEntry) -> Self
+    @trace (self) -> str
+    @trace_entries (self) -> [TraceEntry]
+    @has_trace (self) -> bool
+}
+
 // =============================================================================
 // Iteration Traits
 // =============================================================================

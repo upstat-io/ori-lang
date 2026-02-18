@@ -1,0 +1,102 @@
+// Spec: 07-properties-of-types.md § Traceable
+// ? operator injects trace entries
+
+use std.testing { assert_eq, assert }
+
+// Helper that always fails
+@fail () -> Result<int, Error> =
+    Err(Error("fail"))
+
+// Single ? adds one trace entry
+@one_hop () -> Result<int, Error> = run(
+    let x = fail()?,
+    Ok(x),
+)
+
+@test_has tests @has () -> void = run(
+    let r = one_hop(),
+    assert(cond: r.has_trace()),
+)
+
+@has () -> bool = run(
+    let r = one_hop(),
+    r.has_trace(),
+)
+
+@test_count tests @count () -> void = run(
+    let r = one_hop(),
+    assert_eq(
+        actual: r.trace_entries().len(),
+        expected: 1,
+    ),
+)
+
+@count () -> int = run(
+    let r = one_hop(),
+    r.trace_entries().len(),
+)
+
+@test_tr tests @tr () -> void = run(
+    let r = one_hop(),
+    assert(cond: r.trace() != ""),
+)
+
+@tr () -> bool = run(
+    let r = one_hop(),
+    r.trace() != "",
+)
+
+// Chained: two ? sites = two entries
+@inner () -> Result<int, Error> = run(
+    let x = fail()?,
+    Ok(x),
+)
+
+@outer () -> Result<int, Error> = run(
+    let x = inner()?,
+    Ok(x),
+)
+
+@test_chain tests @chain () -> void = run(
+    let r = outer(),
+    assert_eq(
+        actual: r.trace_entries().len(),
+        expected: 2,
+    ),
+)
+
+@chain () -> int = run(
+    let r = outer(),
+    r.trace_entries().len(),
+)
+
+@test_chain_has tests @chain_has () -> void = run(
+    let r = outer(),
+    assert(cond: r.has_trace()),
+)
+
+@chain_has () -> bool = run(
+    let r = outer(),
+    r.has_trace(),
+)
+
+// Ok values pass through ? untouched
+@ok () -> Result<int, Error> = Ok(42)
+
+@ok_hop () -> Result<int, Error> = run(
+    let x = ok()?,
+    Ok(x),
+)
+
+@test_ok_clean tests @ok_clean () -> void = run(
+    let r = ok_hop(),
+    assert_eq(
+        actual: r.has_trace(),
+        expected: false,
+    ),
+)
+
+@ok_clean () -> bool = run(
+    let r = ok_hop(),
+    r.has_trace(),
+)

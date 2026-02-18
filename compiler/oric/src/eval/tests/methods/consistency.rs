@@ -17,6 +17,7 @@ const COLLECTION_TYPES: &[&str] = &[
     "Option",
     "Result",
     "Set",
+    "error",
     "list",
     "map",
     "range",
@@ -162,6 +163,15 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     // Ordering — no extras needed (all in typeck)
     // Result — eval has trait methods typeck resolves via traits
     ("Result", "compare"),
+    // error — bare Error type methods; typeck resolves via Result delegation
+    ("error", "clone"),
+    ("error", "debug"),
+    ("error", "has_trace"),
+    ("error", "message"),
+    ("error", "to_str"),
+    ("error", "trace"),
+    ("error", "trace_entries"),
+    ("error", "with_trace"),
     // Size — operators and accessor methods
     ("Size", "add"),
     ("Size", "bytes"),

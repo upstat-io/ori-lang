@@ -132,12 +132,15 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Result", "err"),
     ("Result", "expect"),
     ("Result", "expect_err"),
+    ("Result", "has_trace"),
     ("Result", "is_err"),
     ("Result", "is_ok"),
     ("Result", "map"),
     ("Result", "map_err"),
     ("Result", "ok"),
     ("Result", "or_else"),
+    ("Result", "trace"),
+    ("Result", "trace_entries"),
     ("Result", "unwrap"),
     ("Result", "unwrap_err"),
     ("Result", "unwrap_or"),
@@ -490,14 +493,16 @@ fn resolve_result_method(
     let ok_ty = engine.pool().result_ok(receiver_ty);
     let err_ty = engine.pool().result_err(receiver_ty);
     match method {
-        "is_ok" | "is_err" => Some(Idx::BOOL),
+        "is_ok" | "is_err" | "has_trace" => Some(Idx::BOOL),
         "unwrap" | "expect" | "unwrap_or" => Some(ok_ty),
         "unwrap_err" | "expect_err" => Some(err_ty),
         "ok" => Some(engine.pool_mut().option(ok_ty)),
         "err" => Some(engine.pool_mut().option(err_ty)),
-        "map" | "map_err" | "and_then" | "or_else" => Some(engine.pool_mut().fresh_var()),
+        "map" | "map_err" | "and_then" | "or_else" | "trace_entries" => {
+            Some(engine.pool_mut().fresh_var())
+        }
         "clone" => Some(receiver_ty),
-        "debug" => Some(Idx::STR),
+        "debug" | "trace" => Some(Idx::STR),
         _ => None,
     }
 }

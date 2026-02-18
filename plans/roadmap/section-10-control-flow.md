@@ -413,11 +413,12 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for Result.context method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Result.context codegen
 
-- [ ] **Implement**: `Traceable` trait for custom error types — proposals/approved/error-return-traces-proposal.md § Custom Error Types
-  - [ ] `@with_trace(self, trace: [TraceEntry]) -> Self`
-  - [ ] `@get_trace(self) -> [TraceEntry]`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/traits.rs` — Traceable trait
-  - [ ] **Ori Tests**: `tests/spec/errors/traceable_trait.ori`
+- [x] **Implement**: `Traceable` trait for built-in Error type — implemented in §3.13 (2026-02-17)
+  - [x] `@with_trace(self, entry: TraceEntry) -> Self` — push trace entry
+  - [x] `@trace(self) -> str` — formatted trace string
+  - [x] `@trace_entries(self) -> [TraceEntry]` — list of TraceEntry structs
+  - [x] `@has_trace(self) -> bool` — check if trace exists
+  - Note: Custom error types implementing Traceable is deferred (requires user-defined trait impls)
   - [ ] **LLVM Support**: LLVM codegen for Traceable trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Traceable trait codegen
 

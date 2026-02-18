@@ -19,7 +19,9 @@ use ori_ir::canon::{
     CanBindingPattern, CanExpr, CanId, CanMapEntryRange, CanParamRange, CanRange, CanonResult,
 };
 use ori_ir::{BinaryOp, FunctionExpKind, Name, Span, UnaryOp};
-use ori_patterns::{ControlAction, EvalError, EvalResult, IteratorValue, RangeValue, Value};
+use ori_patterns::{
+    ControlAction, EvalError, EvalResult, IteratorValue, RangeValue, TraceEntryData, Value,
+};
 use ori_stack::ensure_sufficient_stack;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -63,6 +65,77 @@ impl Interpreter<'_> {
     #[inline]
     fn can_span(&self, can_id: CanId) -> Span {
         self.canon_ref().arena.span(can_id)
+    }
+
+    /// Inject a trace entry into an error value at a `?` operator site.
+    ///
+    /// If the value is `Value::Err(Value::Error(...))`, appends a `TraceEntryData`
+    /// recording the current function name and source location. Non-error values
+    /// are returned unchanged.
+    fn inject_trace_entry(&self, value: Value, can_id: CanId) -> Value {
+        let Value::Err(inner) = &value else {
+            return value;
+        };
+        let Value::Error(ev) = &**inner else {
+            return value;
+        };
+
+        // Build the function name from the call stack
+        let function_name = self.call_stack.current_frame().map_or_else(
+            || "<top-level>".to_string(),
+            |f| self.interner.lookup(f.name).to_string(),
+        );
+
+        // Compute line/column from span byte offset
+        let span = self.can_span(can_id);
+        let (line, column) = self.line_col_from_offset(span.start);
+
+        let file = self
+            .source_file_path
+            .as_deref()
+            .cloned()
+            .unwrap_or_else(|| "<unknown>".to_string());
+
+        let new_ev = ev.with_entry(TraceEntryData {
+            function: function_name,
+            file,
+            line,
+            column,
+        });
+        Value::err(Value::error_from(new_ev))
+    }
+
+    /// Compute 1-based line and column from a byte offset in the source text.
+    ///
+    /// Counts newlines in `source_text[..offset]` to determine line number,
+    /// then computes column from the last newline position. If no source text
+    /// is available, returns `(0, 0)`.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "u32↔usize: source offsets and line/column numbers fit in u32"
+    )]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "column = (end - last_newline) + 1: last_newline ≤ end by construction"
+    )]
+    fn line_col_from_offset(&self, offset: u32) -> (u32, u32) {
+        let Some(src) = &self.source_text else {
+            return (0, 0);
+        };
+        let offset = offset as usize;
+        let bytes = src.as_bytes();
+        let end = offset.min(bytes.len());
+
+        let mut line: u32 = 1;
+        let mut last_newline: usize = 0;
+        for (i, &b) in bytes[..end].iter().enumerate() {
+            if b == b'\n' {
+                line = line.wrapping_add(1);
+                last_newline = i.wrapping_add(1);
+            }
+        }
+        let column = (end - last_newline) as u32 + 1;
+        (line, column)
     }
 
     /// Evaluate a list of canonical expressions from a `CanRange`.
@@ -325,7 +398,10 @@ impl Interpreter<'_> {
             // Error Handling
             CanExpr::Try(inner) => match self.eval_can(inner)? {
                 Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
-                Value::Err(e) => Err(ControlAction::Propagate(Value::Err(e))),
+                err @ Value::Err(_) => {
+                    let traced = self.inject_trace_entry(err, can_id);
+                    Err(ControlAction::Propagate(traced))
+                }
                 Value::None => Err(ControlAction::Propagate(Value::None)),
                 other => Ok(other),
             },
