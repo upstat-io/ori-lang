@@ -789,6 +789,36 @@ pub extern "C" fn ori_str_compare(a: *const OriStr, b: *const OriStr) -> i8 {
     }
 }
 
+/// Hash a string using FNV-1a (64-bit).
+///
+/// Returns a deterministic i64 hash of the string's bytes. Uses the same
+/// FNV-1a constants as the LLVM derive codegen for struct hashing, so
+/// hash values compose correctly via `hash_combine`.
+#[no_mangle]
+pub extern "C" fn ori_str_hash(s: *const OriStr) -> i64 {
+    const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
+    const FNV_PRIME: u64 = 1_099_511_628_211;
+
+    let bytes = if s.is_null() {
+        &[]
+    } else {
+        // SAFETY: Caller ensures s points to a valid OriStr
+        let ori_str = unsafe { &*s };
+        if ori_str.data.is_null() || ori_str.len <= 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(ori_str.data, ori_str.len as usize) }
+        }
+    };
+
+    let mut hash = FNV_OFFSET_BASIS;
+    for &byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash as i64
+}
+
 /// Convert an integer to a string.
 #[no_mangle]
 pub extern "C" fn ori_str_from_int(n: i64) -> OriStr {

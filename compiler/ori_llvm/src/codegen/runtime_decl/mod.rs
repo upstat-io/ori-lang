@@ -78,6 +78,7 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_str_eq", &[ptr_ty, ptr_ty], Some(bool_ty));
     builder.declare_extern_function("ori_str_ne", &[ptr_ty, ptr_ty], Some(bool_ty));
     builder.declare_extern_function("ori_str_compare", &[ptr_ty, ptr_ty], Some(i8_ty));
+    builder.declare_extern_function("ori_str_hash", &[ptr_ty], Some(i64_ty));
 
     // -- Type conversion functions --
     builder.declare_extern_function("ori_str_from_int", &[i64_ty], Some(str_ty));

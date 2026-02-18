@@ -57,6 +57,7 @@ pub mod arc_emitter;
 
 // -- Expression lowering (Section 03) --
 pub mod expr_lowerer;
+mod lower_builtin_methods;
 mod lower_calls;
 mod lower_collections;
 mod lower_constructs;
