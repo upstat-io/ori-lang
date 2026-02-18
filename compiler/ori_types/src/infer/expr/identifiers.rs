@@ -149,7 +149,13 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         };
     }
 
-    // 8. Unknown identifier — find similar names for typo suggestions
+    // 8. Built-in Error constructor (after TypeRegistry so user-defined Error variants win)
+    if name_str == Some("Error") {
+        let error_type = engine.pool_mut().named(name);
+        return engine.pool_mut().function(&[Idx::STR], error_type);
+    }
+
+    // 9. Unknown identifier — find similar names for typo suggestions
     let similar = engine
         .env()
         .find_similar(name, 3, |n| engine.lookup_name(n));

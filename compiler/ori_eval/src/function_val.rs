@@ -121,6 +121,18 @@ pub fn function_val_repeat(args: &[Value]) -> Result<Value, EvalError> {
     )))
 }
 
+/// Create an Error value with the given message string.
+///
+/// Usage: `Error("something failed")` → `Value::Error(ErrorValue::new("..."))`
+/// Used with `Err(Error("msg"))` to create traceable errors.
+pub fn function_val_error(args: &[Value]) -> Result<Value, EvalError> {
+    if args.len() != 1 {
+        return Err(EvalError::new("Error expects 1 argument"));
+    }
+    let msg = args[0].display_value();
+    Ok(Value::error(msg))
+}
+
 /// Returns the current OS thread ID as an integer.
 /// Useful for verifying parallel execution.
 ///

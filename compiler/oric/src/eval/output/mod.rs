@@ -203,7 +203,7 @@ impl EvalOutput {
                 description: format!("<module namespace with {} items>", ns.len()),
                 arity: None,
             },
-            Value::Error(msg) => EvalOutput::Error(msg.clone()),
+            Value::Error(ev) => EvalOutput::Error(ev.message().to_string()),
             Value::TypeRef { type_name } => {
                 let type_str = interner.lookup(*type_name);
                 EvalOutput::Function {

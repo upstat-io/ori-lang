@@ -927,21 +927,30 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
   - [x] **LLVM Support**: LLVM codegen for Default derivation — compile_derive_default() working
   - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 5 tests passing (2026-02-17)
 
-- [ ] **Implement**: `Traceable` trait formal definition in type system
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — traceable trait parsing/bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/traceable/definition.ori`
+- [x] **Implement**: `Traceable` trait formal definition in type system (2026-02-17)
+  - Traceable trait with 4 methods (with_trace, trace, trace_entries, has_trace) in prelude.ori
+  - TraceEntry struct registered as built-in type with 4 fields (function, file, line, column)
+  - Error constructor added to type checker (infer_ident) and evaluator (function_val_error)
+  - [x] **Rust Tests**: ErrorValue construction/trace accumulation tests in ori_patterns, consistency tests in oric (2026-02-17)
+  - [x] **Ori Tests**: `tests/spec/traits/traceable/definition.ori` — 5 tests (2026-02-17)
   - [ ] **LLVM Support**: LLVM codegen for Traceable trait methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Traceable codegen
 
-- [ ] **Implement**: Traceable for Error type with trace storage
-  - [ ] **Rust Tests**: `oric/src/eval/tests/` — error trace evaluation
-  - [ ] **Ori Tests**: `tests/spec/traits/traceable/error.ori`
+- [x] **Implement**: Traceable for Error type with trace storage (2026-02-17)
+  - Value::Error changed from String to Heap<ErrorValue> with trace Vec<TraceEntryData>
+  - `?` operator injects trace entries via inject_trace_entry() in can_eval.rs
+  - Error methods (trace, trace_entries, has_trace, with_trace, message) dispatched in methods/error.rs
+  - [x] **Rust Tests**: ErrorValue tests in ori_patterns, method dispatch tests in ori_eval (2026-02-17)
+  - [x] **Ori Tests**: `tests/spec/traits/traceable/error_trace.ori` — 7 tests, `tests/spec/traits/traceable/no_trace.ori` — 3 tests (2026-02-17)
   - [ ] **LLVM Support**: LLVM codegen for Traceable Error type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Traceable Error codegen
 
-- [ ] **Implement**: Traceable delegation for Result<T, E: Traceable>
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — result traceable bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/traceable/result.ori`
+- [x] **Implement**: Traceable delegation for Result<T, E: Traceable> (2026-02-17)
+  - Result.has_trace/trace/trace_entries delegate to inner Error value
+  - Ok and non-Error Err return empty traces
+  - Type checker recognizes trace methods on Result via TYPECK_BUILTIN_METHODS
+  - [x] **Rust Tests**: Consistency tests updated in oric (2026-02-17)
+  - [x] **Ori Tests**: `tests/spec/traits/traceable/result_delegation.ori` — 6 tests (2026-02-17)
   - [ ] **LLVM Support**: LLVM codegen for Traceable Result delegation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Traceable Result codegen
 

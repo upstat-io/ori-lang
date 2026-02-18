@@ -64,7 +64,7 @@ mod wrap_in_result_tests {
 
     #[test]
     fn error_converts_to_err() {
-        let value = Value::Error("some error".to_string());
+        let value = Value::error("some error");
         let result = wrap_in_result(value);
         assert!(matches!(result, Value::Err(_)));
     }

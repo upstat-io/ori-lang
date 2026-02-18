@@ -273,7 +273,41 @@ pub fn dispatch_result_method(
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
         Ok(Value::string(debug_value(&receiver)))
+    // Traceable delegation: forward to inner Error if present
+    } else if method == n.trace {
+        require_args("trace", 0, args.len())?;
+        Ok(Value::string(result_error_trace(&receiver)))
+    } else if method == n.trace_entries {
+        require_args("trace_entries", 0, args.len())?;
+        match result_inner_error(&receiver) {
+            Some(ev) => {
+                let entries: Vec<Value> = ev
+                    .trace()
+                    .iter()
+                    .map(|entry| super::error::trace_entry_to_struct(entry, ctx))
+                    .collect();
+                Ok(Value::list(entries))
+            }
+            None => Ok(Value::list(vec![])),
+        }
+    } else if method == n.has_trace {
+        require_args("has_trace", 0, args.len())?;
+        let has = result_inner_error(&receiver).is_some_and(ori_patterns::ErrorValue::has_trace);
+        Ok(Value::Bool(has))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Result").into())
     }
+}
+
+/// Extract the inner `ErrorValue` from a Result's Err variant, if present.
+fn result_inner_error(value: &Value) -> Option<&ori_patterns::ErrorValue> {
+    match value {
+        Value::Err(inner) => inner.as_error(),
+        _ => None,
+    }
+}
+
+/// Get the trace string from a Result's inner Error, or empty string.
+fn result_error_trace(value: &Value) -> String {
+    result_inner_error(value).map_or_else(String::new, ori_patterns::ErrorValue::format_trace)
 }

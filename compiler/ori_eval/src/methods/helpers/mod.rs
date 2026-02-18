@@ -68,8 +68,11 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Result", "clone"),
     ("Result", "compare"),
     ("Result", "debug"),
+    ("Result", "has_trace"),
     ("Result", "is_err"),
     ("Result", "is_ok"),
+    ("Result", "trace"),
+    ("Result", "trace_entries"),
     ("Result", "unwrap"),
     // Set - methods and traits
     ("Set", "debug"),
@@ -118,6 +121,15 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("char", "equals"),
     ("char", "hash"),
     ("char", "to_str"),
+    // error - Traceable trait and accessors
+    ("error", "clone"),
+    ("error", "debug"),
+    ("error", "has_trace"),
+    ("error", "message"),
+    ("error", "to_str"),
+    ("error", "trace"),
+    ("error", "trace_entries"),
+    ("error", "with_trace"),
     // float - operators and traits
     ("float", "add"),
     ("float", "clone"),

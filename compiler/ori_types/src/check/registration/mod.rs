@@ -29,11 +29,16 @@ use crate::{
 ///
 /// Currently registers:
 /// - `Ordering` enum (Less, Equal, Greater)
+/// - `TraceEntry` struct (function, file, line, column) — for Traceable trait
 ///
 /// Note: Primitive types (int, str, etc.) are pre-interned in the Pool.
 pub fn register_builtin_types(checker: &mut ModuleChecker<'_>) {
-    // Ordering enum - used by comparison operations
-    // The variants are unit variants (no data)
+    register_ordering_type(checker);
+    register_trace_entry_type(checker);
+}
+
+/// Register the `Ordering` enum (Less, Equal, Greater).
+fn register_ordering_type(checker: &mut ModuleChecker<'_>) {
     let ordering_name = checker.interner().intern("Ordering");
     let less_name = checker.interner().intern("Less");
     let equal_name = checker.interner().intern("Equal");
@@ -83,6 +88,69 @@ pub fn register_builtin_types(checker: &mut ModuleChecker<'_>) {
         ordering_idx,
         vec![], // No type params
         variants,
+        Span::DUMMY,
+        Visibility::Public,
+    );
+}
+
+/// Register the `TraceEntry` struct for the Traceable trait.
+///
+/// Fields: `function: str`, `file: str`, `line: int`, `column: int`.
+/// This is a compiler-provided struct, not user-defined. Registered so that
+/// trait method signatures referencing `TraceEntry` resolve correctly.
+fn register_trace_entry_type(checker: &mut ModuleChecker<'_>) {
+    let te_name = checker.interner().intern("TraceEntry");
+    let fn_name = checker.interner().intern("function");
+    let file_name = checker.interner().intern("file");
+    let line_name = checker.interner().intern("line");
+    let column_name = checker.interner().intern("column");
+
+    // Create named index via Pool (dynamic allocation)
+    let named_idx = checker.pool_mut().named(te_name);
+
+    // Create Pool struct entry with field name+type pairs
+    let pool_fields = [
+        (fn_name, Idx::STR),
+        (file_name, Idx::STR),
+        (line_name, Idx::INT),
+        (column_name, Idx::INT),
+    ];
+    let struct_idx = checker.pool_mut().struct_type(te_name, &pool_fields);
+    checker.pool_mut().set_resolution(named_idx, struct_idx);
+
+    // Register in TypeRegistry for field access and type checking
+    let field_defs = vec![
+        FieldDef {
+            name: fn_name,
+            ty: Idx::STR,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+        FieldDef {
+            name: file_name,
+            ty: Idx::STR,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+        FieldDef {
+            name: line_name,
+            ty: Idx::INT,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+        FieldDef {
+            name: column_name,
+            ty: Idx::INT,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+    ];
+
+    checker.type_registry_mut().register_struct(
+        te_name,
+        named_idx,
+        vec![], // No type params
+        field_defs,
         Span::DUMMY,
         Visibility::Public,
     );

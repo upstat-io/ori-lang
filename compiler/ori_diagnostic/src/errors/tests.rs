@@ -26,5 +26,14 @@ fn test_has_docs() {
 fn test_all_codes() {
     let codes: Vec<_> = ErrorDocs::all_codes().collect();
     assert!(codes.contains(&ErrorCode::E2001));
-    assert!(codes.len() >= 46); // We have at least 46 documented codes
+    assert!(codes.len() >= 51); // We have at least 51 documented codes
+}
+
+#[test]
+fn test_e2024_through_e2028_registered() {
+    assert!(ErrorDocs::has_docs(ErrorCode::E2024));
+    assert!(ErrorDocs::has_docs(ErrorCode::E2025));
+    assert!(ErrorDocs::has_docs(ErrorCode::E2026));
+    assert!(ErrorDocs::has_docs(ErrorCode::E2027));
+    assert!(ErrorDocs::has_docs(ErrorCode::E2028));
 }
