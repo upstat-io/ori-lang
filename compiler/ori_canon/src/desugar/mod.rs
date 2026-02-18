@@ -8,7 +8,7 @@
 //! | `CallNamed` | `Call` (args reordered to positional) |
 //! | `MethodCallNamed` | `MethodCall` (args reordered) |
 //! | `TemplateFull` | `Str` (handled inline in lower.rs) |
-//! | `TemplateLiteral` | `Str` + `.to_str()` + `.concat()` chain |
+//! | `TemplateLiteral` | `Str` + `.to_str()` / `FormatWith` + `.concat()` chain |
 //! | `ListWithSpread` | `List` + `.concat()` chains |
 //! | `MapWithSpread` | `Map` + `.merge()` chains |
 //! | `StructWithSpread` | `Struct` with all fields resolved via `Field` access |
@@ -231,13 +231,24 @@ impl Lowerer<'_> {
             .map(|p| (p.expr, p.format_spec, p.text_after))
             .collect();
 
-        for (expr_id, _format_spec, text_after) in src_parts {
+        for (expr_id, format_spec, text_after) in src_parts {
             // Lower the interpolated expression.
             let expr = self.lower_expr(expr_id);
             let expr_ty = self.arena.ty(expr);
 
-            // If the expression isn't already a string, wrap in .to_str().
-            let str_expr = if expr_ty == TypeId::STR {
+            // If a format spec is present, use FormatWith (even for strings —
+            // they may need width/alignment/precision).
+            // Otherwise, wrap non-string expressions in .to_str().
+            let str_expr = if format_spec != Name::EMPTY {
+                self.push(
+                    CanExpr::FormatWith {
+                        expr,
+                        spec: format_spec,
+                    },
+                    span,
+                    TypeId::STR,
+                )
+            } else if expr_ty == TypeId::STR {
                 expr
             } else {
                 let empty_args = self.arena.push_expr_list(&[]);
@@ -413,6 +424,10 @@ impl Lowerer<'_> {
     ///    - `Spread { expr }` → for ALL fields, set value to `expr.field_name`
     /// 3. "Later wins" — explicit fields after a spread override the spread.
     /// 4. Emit a flat `CanExpr::Struct` with all fields.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "multi-step struct spread desugaring with field override resolution"
+    )]
     pub(crate) fn desugar_struct_with_spread(
         &mut self,
         name: Name,

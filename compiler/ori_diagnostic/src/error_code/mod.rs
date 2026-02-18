@@ -151,6 +151,10 @@ pub enum ErrorCode {
     E2032,
     /// Trait cannot be derived (not in the derivable set)
     E2033,
+    /// Invalid format specification in template string
+    E2034,
+    /// Format type not supported for expression type
+    E2035,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -335,6 +339,8 @@ impl ErrorCode {
         ErrorCode::E2031,
         ErrorCode::E2032,
         ErrorCode::E2033,
+        ErrorCode::E2034,
+        ErrorCode::E2035,
         // Pattern
         ErrorCode::E3001,
         ErrorCode::E3002,
@@ -391,6 +397,10 @@ impl ErrorCode {
     ];
 
     /// Get the numeric code as a string (e.g., "E1001").
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ErrorCode → string dispatch"
+    )]
     pub fn as_str(&self) -> &'static str {
         match self {
             // Lexer
@@ -460,6 +470,8 @@ impl ErrorCode {
             ErrorCode::E2031 => "E2031",
             ErrorCode::E2032 => "E2032",
             ErrorCode::E2033 => "E2033",
+            ErrorCode::E2034 => "E2034",
+            ErrorCode::E2035 => "E2035",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -598,6 +610,8 @@ impl ErrorCode {
                 | ErrorCode::E2031
                 | ErrorCode::E2032
                 | ErrorCode::E2033
+                | ErrorCode::E2034
+                | ErrorCode::E2035
         )
     }
 

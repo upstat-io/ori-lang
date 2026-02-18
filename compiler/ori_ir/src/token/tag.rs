@@ -185,6 +185,7 @@ impl TokenTag {
     pub const MAX_DISCRIMINANT: u8 = Self::Eof as u8;
 
     /// Get a human-readable name for this tag.
+    #[expect(clippy::too_many_lines, reason = "exhaustive TokenTag → name dispatch")]
     pub const fn name(self) -> &'static str {
         match self {
             Self::Ident => "identifier",

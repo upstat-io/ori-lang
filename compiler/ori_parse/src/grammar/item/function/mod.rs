@@ -203,6 +203,10 @@ impl Parser<'_> {
     /// - Literal patterns: `(0: int)` — clause-based functions
     /// - List patterns: `([]: [T])`, `([_, ..tail]: [T])` — clause-based functions
     /// - Default values: `(x: int = 42)`
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive parameter parsing covering patterns, self, literals, defaults, and type annotations"
+    )]
     pub(crate) fn parse_params(&mut self) -> Result<ParamRange, ParseError> {
         use crate::series::SeriesConfig;
 

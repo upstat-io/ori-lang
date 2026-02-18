@@ -125,6 +125,10 @@ pub(super) fn infer_function_signature_from(
 /// Shared implementation for inferring a function signature from any arena.
 ///
 /// Returns the signature and the var IDs of generic type parameters.
+#[expect(
+    clippy::too_many_lines,
+    reason = "full function signature inference covering generics, params, return type, and where clauses"
+)]
 fn infer_function_signature_with_arena(
     checker: &mut ModuleChecker<'_>,
     func: &Function,
@@ -357,6 +361,10 @@ fn resolve_const_param_type(checker: &ModuleChecker<'_>, param: &ori_ir::Generic
 /// Combines the work of `resolve_type_with_vars` and
 /// `check_parsed_type_object_safety` into one tree walk.
 /// The `span` is used for object-safety error reporting on `Named` nodes.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive ParsedType variant resolution with object-safety checking in one tree walk"
+)]
 fn resolve_and_check_type_with_vars(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,

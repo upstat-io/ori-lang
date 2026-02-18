@@ -989,7 +989,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 self.collect_free_vars(target, params, captures, seen);
                 self.collect_free_vars(value, params, captures, seen);
             }
-            CanExpr::Cast { expr, .. } => {
+            CanExpr::Cast { expr, .. } | CanExpr::FormatWith { expr, .. } => {
                 self.collect_free_vars(expr, params, captures, seen);
             }
             CanExpr::Tuple(range) | CanExpr::List(range) => {

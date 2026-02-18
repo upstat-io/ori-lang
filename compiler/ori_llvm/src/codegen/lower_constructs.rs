@@ -252,6 +252,67 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     // -----------------------------------------------------------------------
+    // FormatWith (stub)
+    // -----------------------------------------------------------------------
+
+    /// Lower `CanExpr::FormatWith { expr, spec }` — stub implementation.
+    ///
+    /// Full format spec support in LLVM codegen is a roadmap item. For now,
+    /// convert the inner expression to a string using runtime functions.
+    /// The format spec is ignored — values are formatted with default
+    /// representation. This matches `emit_field_to_string` in derive codegen.
+    pub(crate) fn lower_format_with_stub(&mut self, expr: CanId, _id: CanId) -> Option<ValueId> {
+        let inner_ty = self.expr_type(expr);
+        let val = self.lower(expr)?;
+
+        // If already a string, return it directly
+        if inner_ty == ori_types::Idx::STR {
+            return Some(val);
+        }
+
+        // Convert to string via runtime functions (format spec ignored for now)
+        tracing::debug!("FormatWith stub: converting to string via runtime, spec ignored");
+        let str_ty_id = self.resolve_type(ori_types::Idx::STR);
+
+        match inner_ty {
+            ori_types::Idx::INT | ori_types::Idx::DURATION | ori_types::Idx::SIZE => {
+                let i64_ty = self.builder.i64_type();
+                let f =
+                    self.builder
+                        .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
+                self.builder.call(f, &[val], "fmt.int")
+            }
+            ori_types::Idx::FLOAT => {
+                let f64_ty = self.builder.f64_type();
+                let f = self.builder.get_or_declare_function(
+                    "ori_str_from_float",
+                    &[f64_ty],
+                    str_ty_id,
+                );
+                self.builder.call(f, &[val], "fmt.float")
+            }
+            ori_types::Idx::BOOL => {
+                let bool_ty = self.builder.bool_type();
+                let f = self.builder.get_or_declare_function(
+                    "ori_str_from_bool",
+                    &[bool_ty],
+                    str_ty_id,
+                );
+                self.builder.call(f, &[val], "fmt.bool")
+            }
+            _ => {
+                // Fallback: coerce to int and format as int
+                let coerced = self.coerce_to_i64(val, inner_ty);
+                let i64_ty = self.builder.i64_type();
+                let f =
+                    self.builder
+                        .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
+                self.builder.call(f, &[coerced], "fmt.coerced")
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // SelfRef, Await, WithCapability
     // -----------------------------------------------------------------------
 

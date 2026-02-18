@@ -15,6 +15,10 @@ impl Interpreter<'_> {
     ///
     /// Returns `(Option<Value>, IteratorValue)` — the yielded item and the
     /// advanced iterator state.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive IteratorValue variant dispatch across source and adapter variants"
+    )]
     pub(in crate::interpreter) fn eval_iter_next(
         &mut self,
         iter_val: IteratorValue,

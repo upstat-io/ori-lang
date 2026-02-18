@@ -169,6 +169,10 @@ pub(crate) fn infer_match(
 /// The `pattern_key` identifies this pattern for resolution lookup. For top-level
 /// arm patterns it's `PatternKey::Arm(arms.start + i)`, for nested patterns it's
 /// `PatternKey::Nested(match_pattern_id.raw())`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive MatchPattern variant type checking with variable binding"
+)]
 pub(crate) fn check_match_pattern(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,

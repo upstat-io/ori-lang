@@ -65,6 +65,10 @@ impl Parser<'_> {
     ///     post_check: r -> r > 0 | "message",
     /// )
     /// ```
+    #[expect(
+        clippy::too_many_lines,
+        reason = "multi-phase function sequence parser with pre/post checks and binding collection"
+    )]
     fn parse_function_seq_internal(&mut self, kind: FunctionSeqKind) -> ParseOutcome<ExprId> {
         let is_try = matches!(kind, FunctionSeqKind::Try);
         let is_run = !is_try;
@@ -362,6 +366,10 @@ impl Parser<'_> {
     /// Parse for pattern: for(over: items, [map: transform,] match: Pattern -> expr, default: value)
     ///
     /// Called after `for` keyword has been consumed by `parse_primary`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "multi-clause for-pattern parser handling over/map/match/default props"
+    )]
     pub(crate) fn parse_for_pattern(&mut self) -> ParseOutcome<ExprId> {
         let start_span = self.cursor.previous_span();
         committed!(self.cursor.expect(&TokenKind::LParen));
@@ -546,6 +554,10 @@ impl Parser<'_> {
 
     /// Parse literal patterns: integers (possibly negative), booleans, strings.
     /// Also handles range patterns: `1..10`, `1..=10`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive literal and range pattern dispatch across all token kinds"
+    )]
     fn parse_pattern_literal(&mut self) -> ParseOutcome<MatchPattern> {
         match *self.cursor.current_kind() {
             // Negative integer literal: -42

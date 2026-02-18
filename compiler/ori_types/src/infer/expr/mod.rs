@@ -65,7 +65,7 @@ pub use methods::TYPECK_BUILTIN_METHODS;
 pub(super) use type_resolution::resolve_and_check_parsed_type;
 pub use type_resolution::resolve_parsed_type;
 
-use ori_ir::{ExprArena, ExprId, ExprKind, Span};
+use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 use ori_stack::ensure_sufficient_stack;
 
 use super::InferEngine;
@@ -86,6 +86,10 @@ pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Expr
 }
 
 /// Inner implementation of expression inference, dispatching on `ExprKind`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive ExprKind → inference handler router"
+)]
 fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx {
     let expr = arena.get_expr(expr_id);
     let span = expr.span;
@@ -242,9 +246,14 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
 
         // Template Literals
         ExprKind::TemplateLiteral { parts, .. } => {
-            // Infer each interpolated expression (for error reporting), result is always str
+            // Infer each interpolated expression and validate format specs
             for part in arena.get_template_parts(*parts) {
-                infer_expr(engine, arena, part.expr);
+                let part_ty = infer_expr(engine, arena, part.expr);
+
+                // Validate format spec if present
+                if part.format_spec != Name::EMPTY {
+                    validate_format_spec(engine, part.format_spec, part_ty, span);
+                }
             }
             Idx::STR
         }
@@ -416,6 +425,66 @@ fn check_collect_to_set(
     let set_ty = engine.pool_mut().set(elem);
     engine.store_type(expr_id.raw() as usize, set_ty);
     Some(set_ty)
+}
+
+/// Validate a format specification against the expression's inferred type.
+///
+/// Checks:
+/// 1. The format spec parses correctly (E2034 if not)
+/// 2. The format type is compatible with the expression type (E2035 if not):
+///    - `b`, `o`, `x`, `X` require `int`
+///    - `e`, `E`, `f`, `%` require `float`
+fn validate_format_spec(
+    engine: &mut InferEngine<'_>,
+    format_spec: Name,
+    expr_type: Idx,
+    span: Span,
+) {
+    use ori_ir::format_spec::parse_format_spec;
+
+    let Some(spec_str) = engine.lookup_name(format_spec) else {
+        return;
+    };
+
+    if spec_str.is_empty() {
+        return;
+    }
+
+    let parsed = match parse_format_spec(spec_str) {
+        Ok(p) => p,
+        Err(e) => {
+            engine.push_error(crate::TypeCheckError::invalid_format_spec(
+                span,
+                spec_str.to_owned(),
+                e.to_string(),
+            ));
+            return;
+        }
+    };
+
+    // Validate format type against expression type
+    let Some(fmt_type) = parsed.format_type else {
+        return;
+    };
+
+    let resolved = engine.resolve(expr_type);
+    let tag = engine.pool().tag(resolved);
+
+    if fmt_type.is_integer_only() && !matches!(tag, Tag::Int) {
+        engine.push_error(crate::TypeCheckError::format_type_mismatch(
+            span,
+            resolved,
+            fmt_type.name().to_owned(),
+            "int",
+        ));
+    } else if fmt_type.is_float_only() && !matches!(tag, Tag::Float) {
+        engine.push_error(crate::TypeCheckError::format_type_mismatch(
+            span,
+            resolved,
+            fmt_type.name().to_owned(),
+            "float",
+        ));
+    }
 }
 
 #[cfg(test)]

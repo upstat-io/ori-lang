@@ -128,6 +128,10 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
         clippy::match_same_arms,
         reason = "Separate arms document each variant's width calculation for maintainability"
     )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ExprKind width calculation dispatch"
+    )]
     fn calculate_width(&mut self, expr_id: ExprId) -> usize {
         let expr = self.arena.get_expr(expr_id);
 

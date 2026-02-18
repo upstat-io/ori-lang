@@ -7,6 +7,10 @@ use super::{infer_expr, resolve_and_check_parsed_type};
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
 /// Infer the type of a binary operation.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive BinaryOp dispatch with trait-based type checking for each operator"
+)]
 pub(crate) fn infer_binary(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -306,6 +310,10 @@ pub(crate) fn infer_binary(
 }
 
 /// Infer the type of a unary operation.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive UnaryOp dispatch with type-specific error reporting"
+)]
 pub(crate) fn infer_unary(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,

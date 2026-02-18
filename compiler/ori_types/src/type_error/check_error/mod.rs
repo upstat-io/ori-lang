@@ -272,6 +272,10 @@ impl TypeCheckError {
     ///   (e.g., `|idx| pool.format_type(idx)`)
     /// - `format_name`: Resolves an interned `Name` to its string value
     ///   (e.g., `|name| interner.lookup(name).to_string()`)
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TypeErrorKind → rich message dispatch"
+    )]
     pub fn format_message_rich(
         &self,
         format_type: &dyn Fn(Idx) -> String,
@@ -551,6 +555,19 @@ impl TypeCheckError {
             TypeErrorKind::TraitNotDerivable { trait_name } => {
                 format!("trait `{}` cannot be derived", format_name(*trait_name))
             }
+            TypeErrorKind::InvalidFormatSpec { spec, reason } => {
+                format!("invalid format specification `{spec}`: {reason}")
+            }
+            TypeErrorKind::FormatTypeMismatch {
+                expr_type,
+                format_type: fmt_ty,
+                valid_for,
+            } => {
+                format!(
+                    "format type `{fmt_ty}` not supported for `{}`; valid for {valid_for}",
+                    format_type(*expr_type)
+                )
+            }
         }
     }
 
@@ -578,6 +595,10 @@ impl TypeCheckError {
     /// Uses `Idx::display_name()` for type names, which renders primitives
     /// (int, bool, str, etc.) and falls back to `"<type>"` for complex types
     /// that would need a Pool to render fully.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TypeErrorKind message dispatch"
+    )]
     pub fn message(&self) -> String {
         match &self.kind {
             TypeErrorKind::Mismatch {
@@ -727,6 +748,19 @@ impl TypeCheckError {
                 "field type does not implement trait required by derive".to_string()
             }
             TypeErrorKind::TraitNotDerivable { .. } => "trait cannot be derived".to_string(),
+            TypeErrorKind::InvalidFormatSpec { spec, reason } => {
+                format!("invalid format specification `{spec}`: {reason}")
+            }
+            TypeErrorKind::FormatTypeMismatch {
+                expr_type,
+                format_type,
+                valid_for,
+            } => {
+                format!(
+                    "format type `{format_type}` not supported for `{}`; valid for {valid_for}",
+                    expr_type.display_name()
+                )
+            }
         }
     }
 
@@ -818,6 +852,12 @@ impl TypeCheckError {
 
             // E2033: Trait not derivable
             TypeErrorKind::TraitNotDerivable { .. } => ErrorCode::E2033,
+
+            // E2034: Invalid format specification
+            TypeErrorKind::InvalidFormatSpec { .. } => ErrorCode::E2034,
+
+            // E2035: Format type not supported for expression type
+            TypeErrorKind::FormatTypeMismatch { .. } => ErrorCode::E2035,
         }
     }
 
@@ -1400,6 +1440,46 @@ impl TypeCheckError {
             )],
         }
     }
+
+    /// Create an "invalid format spec" error (E2034).
+    ///
+    /// Emitted when a format spec in a template string doesn't parse.
+    pub fn invalid_format_spec(span: Span, spec: String, reason: String) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::InvalidFormatSpec { spec, reason },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "format specs follow: [[fill]align][sign][#][0][width][.precision][type]",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "format type mismatch" error (E2035).
+    ///
+    /// Emitted when a format type (e.g., `x`, `b`) is used with an
+    /// incompatible expression type.
+    pub fn format_type_mismatch(
+        span: Span,
+        expr_type: Idx,
+        format_type: String,
+        valid_for: &'static str,
+    ) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::FormatTypeMismatch {
+                expr_type,
+                format_type,
+                valid_for,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                format!("this format type is only valid for {valid_for} types"),
+                0,
+            )],
+        }
+    }
 }
 
 /// What kind of type error occurred.
@@ -1658,6 +1738,24 @@ pub enum TypeErrorKind {
     TraitNotDerivable {
         /// The trait name that was attempted.
         trait_name: Name,
+    },
+
+    /// Invalid format specification in template string (E2034).
+    InvalidFormatSpec {
+        /// The raw format spec string that failed to parse.
+        spec: String,
+        /// The parse error message.
+        reason: String,
+    },
+
+    /// Format type not supported for expression type (E2035).
+    FormatTypeMismatch {
+        /// The expression's inferred type.
+        expr_type: Idx,
+        /// The format type that's incompatible (e.g., "x", "b", "e").
+        format_type: String,
+        /// Which types are valid for this format type.
+        valid_for: &'static str,
     },
 }
 

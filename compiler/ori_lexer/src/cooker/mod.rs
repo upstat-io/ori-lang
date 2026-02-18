@@ -88,6 +88,10 @@ impl<'src> TokenCooker<'src> {
     /// `offset` is the byte position of the token in source.
     /// `len` is the byte length of the token.
     #[inline]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive RawTag → TokenKind cooking dispatch"
+    )]
     pub(crate) fn cook(&mut self, tag: RawTag, offset: u32, len: u32) -> TokenKind {
         self.errors_before_cook = self.errors.len();
         self.contextual_kw = false;

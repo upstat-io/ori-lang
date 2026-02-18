@@ -70,6 +70,10 @@ fn validate_type(id: ori_ir::canon::CanId, ty: TypeId) {
 }
 
 /// Validate all child references in a `CanExpr`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive CanExpr child-reference validation"
+)]
 fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanId, kind: &CanExpr) {
     match kind {
         // Leaf nodes — no child references to validate.
@@ -123,7 +127,9 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
             validate_can_id(arena, id, *left, "left");
             validate_can_id(arena, id, *right, "right");
         }
-        CanExpr::Cast { expr, .. } => validate_can_id(arena, id, *expr, "expr"),
+        CanExpr::Cast { expr, .. } | CanExpr::FormatWith { expr, .. } => {
+            validate_can_id(arena, id, *expr, "expr");
+        }
         CanExpr::Field { receiver, .. } => validate_can_id(arena, id, *receiver, "receiver"),
         CanExpr::Index { receiver, index } => {
             validate_can_id(arena, id, *receiver, "receiver");

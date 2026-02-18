@@ -12,6 +12,10 @@ use super::DispatchCtx;
 
 /// Dispatch operator methods on integer values.
 #[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive integer operator method dispatch"
+)]
+#[expect(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]

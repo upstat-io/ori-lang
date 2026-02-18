@@ -82,6 +82,10 @@ impl<'a> TypeErrorRenderer<'a> {
     }
 
     /// Build the primary label text for the error location.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TypeErrorKind → label dispatch"
+    )]
     fn primary_label_text(&self, error: &TypeCheckError) -> String {
         match &error.kind {
             TypeErrorKind::Mismatch {
@@ -219,6 +223,19 @@ impl<'a> TypeErrorRenderer<'a> {
                 format!(
                     "trait `{}` cannot be derived",
                     self.format_name(*trait_name)
+                )
+            }
+            TypeErrorKind::InvalidFormatSpec { spec, .. } => {
+                format!("invalid format spec `{spec}`")
+            }
+            TypeErrorKind::FormatTypeMismatch {
+                expr_type,
+                format_type,
+                ..
+            } => {
+                format!(
+                    "`{format_type}` not valid for `{}`",
+                    self.format_type(*expr_type)
                 )
             }
         }

@@ -8,6 +8,10 @@ use super::Formatter;
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit a match pattern.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive MatchPattern formatting dispatch"
+    )]
     pub(super) fn emit_match_pattern(&mut self, pattern: &MatchPattern) {
         match pattern {
             MatchPattern::Wildcard => self.ctx.emit("_"),

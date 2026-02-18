@@ -22,6 +22,10 @@ use super::Interpreter;
 
 impl Interpreter<'_> {
     /// Dispatch an iterator method call.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive CollectionMethod dispatch for all iterator operations"
+    )]
     pub(in crate::interpreter) fn eval_iterator_method(
         &mut self,
         receiver: Value,

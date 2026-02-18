@@ -604,6 +604,10 @@ impl<'a> Parser<'a> {
     ///
     /// Returns `true` if a token was consumed (used by the caller to
     /// detect infinite loops).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive top-level declaration kind dispatch"
+    )]
     fn dispatch_declaration(
         &mut self,
         attrs: ParsedAttrs,

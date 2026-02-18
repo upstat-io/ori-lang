@@ -168,6 +168,10 @@ pub fn register_user_types(checker: &mut ModuleChecker<'_>, module: &Module) {
 }
 
 /// Register a single type declaration.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive type declaration kind registration — struct, enum, newtype, alias"
+)]
 fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) {
     // Collect generic parameters
     let type_params = collect_generic_params(checker.arena(), decl.generics);
@@ -788,6 +792,10 @@ pub fn register_impls(checker: &mut ModuleChecker<'_>, module: &Module) {
 /// Converts an `ori_ir::ImplDef` to an `ImplEntry` and registers it in the
 /// `TraitRegistry`. Handles both inherent impls (`impl Type { ... }`) and
 /// trait impls (`impl Trait for Type { ... }`).
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive impl registration covering inherent and trait impls with method signature collection"
+)]
 fn register_impl(
     checker: &mut ModuleChecker<'_>,
     impl_def: &ori_ir::ImplDef,

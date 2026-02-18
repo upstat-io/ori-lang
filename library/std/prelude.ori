@@ -35,6 +35,12 @@ pub trait Printable {
     @to_str (self) -> str
 }
 
+// Supports custom formatting with format specifications (spec §3.16)
+// All Printable types get a blanket impl that falls back to to_str()
+pub trait Formattable {
+    @format (self, spec: str) -> str
+}
+
 // Developer-facing structural representation
 pub trait Debug {
     @debug (self) -> str

@@ -214,6 +214,10 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
 /// - Newlines (for line counting)
 ///
 /// Each token carries [`TokenFlags`] metadata capturing whitespace/trivia context.
+#[expect(
+    clippy::too_many_lines,
+    reason = "lexer main loop with token classification"
+)]
 pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
     let buf = SourceBuffer::new(source);
     let mut scanner = RawScanner::new(buf.cursor());

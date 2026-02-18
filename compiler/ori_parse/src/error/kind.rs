@@ -217,6 +217,10 @@ impl ParseErrorKind {
     ///
     /// Uses first-person phrasing ("I found...", "I was expecting...")
     /// inspired by Elm's error messages.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ParseErrorKind → user message dispatch"
+    )]
     pub fn empathetic_message(&self) -> String {
         match self {
             Self::UnexpectedToken {
@@ -549,6 +553,10 @@ impl ParseErrorKind {
     }
 
     /// Generate the primary error message.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ParseErrorKind message dispatch"
+    )]
     pub fn message(&self) -> String {
         match self {
             Self::UnexpectedToken {
@@ -679,6 +687,10 @@ impl ParseErrorKind {
     #[allow(
         dead_code,
         reason = "infrastructure for ParseErrorKind rich diagnostic migration"
+    )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ParseErrorKind → diagnostic dispatch"
     )]
     pub(crate) fn details(&self, error_span: Span) -> ParseErrorDetails {
         match self {

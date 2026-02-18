@@ -112,6 +112,8 @@ static DOCS: &[(ErrorCode, &str)] = &[
     (ErrorCode::E2031, include_str!("E2031.md")),
     (ErrorCode::E2032, include_str!("E2032.md")),
     (ErrorCode::E2033, include_str!("E2033.md")),
+    (ErrorCode::E2034, include_str!("E2034.md")),
+    (ErrorCode::E2035, include_str!("E2035.md")),
     // Pattern errors (E3xxx)
     (ErrorCode::E3001, include_str!("E3001.md")),
     (ErrorCode::E3002, include_str!("E3002.md")),

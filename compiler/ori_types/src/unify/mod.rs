@@ -541,6 +541,10 @@ impl<'pool> UnifyEngine<'pool> {
     // ========================================
 
     /// Unify two concrete (non-variable) types structurally.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive Tag-based structural unification"
+    )]
     fn unify_structural(
         &mut self,
         a: Idx,
@@ -939,6 +943,10 @@ impl<'pool> UnifyEngine<'pool> {
     /// Substitute variables according to the given mapping.
     ///
     /// Returns the original type if no substitutions apply.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive Tag dispatch for type variable substitution across all type forms"
+    )]
     fn substitute(&mut self, ty: Idx, subst: &FxHashMap<u32, Idx>) -> Idx {
         // Fast path: no variables to substitute
         if !self.pool.flags(ty).contains(TypeFlags::HAS_VAR) {
