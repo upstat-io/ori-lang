@@ -80,6 +80,26 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_str_compare", &[ptr_ty, ptr_ty], Some(i8_ty));
     builder.declare_extern_function("ori_str_hash", &[ptr_ty], Some(i64_ty));
 
+    // -- String iteration --
+    // ori_str_next_char(data: ptr, len: i64, byte_offset: i64) -> {i32 codepoint, i64 next_offset}
+    let char_result_ty = builder.register_type(
+        builder
+            .scx()
+            .type_struct(
+                &[
+                    builder.scx().type_i32().into(),
+                    builder.scx().type_i64().into(),
+                ],
+                false,
+            )
+            .into(),
+    );
+    builder.declare_extern_function(
+        "ori_str_next_char",
+        &[ptr_ty, i64_ty, i64_ty],
+        Some(char_result_ty),
+    );
+
     // -- Type conversion functions --
     builder.declare_extern_function("ori_str_from_int", &[i64_ty], Some(str_ty));
     builder.declare_extern_function("ori_str_from_bool", &[bool_ty], Some(str_ty));

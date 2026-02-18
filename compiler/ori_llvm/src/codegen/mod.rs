@@ -27,7 +27,8 @@
 //! ├── expr_lowerer.rs     — ExprLowerer struct + dispatch (Section 03)
 //! ├── lower_literals.rs   — Literals, identifiers, constants
 //! ├── lower_operators.rs  — Binary/unary ops, cast, short-circuit
-//! ├── lower_control_flow.rs — If, loop, for, block, break, continue, match
+//! ├── lower_control_flow.rs — If, loop, block, break, continue, match, assign
+//! ├── lower_for_loop.rs    — For-loops (range, list, str, option, set, map)
 //! ├── lower_error_handling.rs — Ok, Err, Some, None, Try
 //! ├── lower_collections.rs — List, map, tuple, struct, range, field, index
 //! ├── lower_calls.rs      — Call, MethodCall, Lambda
@@ -64,6 +65,7 @@ mod lower_collections;
 mod lower_constructs;
 mod lower_control_flow;
 mod lower_error_handling;
+mod lower_for_loop;
 mod lower_literals;
 mod lower_operators;
 

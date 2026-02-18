@@ -8,6 +8,7 @@ pub mod cli;
 pub mod codegen;
 pub mod cross;
 pub mod derives;
+pub mod for_loops;
 pub mod linking;
 pub mod lto;
 pub mod spec;
