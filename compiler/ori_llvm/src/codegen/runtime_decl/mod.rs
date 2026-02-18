@@ -50,7 +50,9 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.add_cold_attribute(panic_cstr);
 
     // -- Entry point wrapper --
-    // ori_run_main wraps @main with catch_unwind for clean panic handling
+    // ori_run_main wraps @main with catch_unwind for clean panic handling.
+    // Parameter is `extern "C" fn()` but declared as `ptr` — LLVM opaque
+    // pointers erase the distinction, so both are ABI-compatible.
     builder.declare_extern_function("ori_run_main", &[ptr_ty], Some(i32_ty));
 
     // -- Assertion functions --

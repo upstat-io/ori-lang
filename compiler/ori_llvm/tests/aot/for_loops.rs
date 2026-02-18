@@ -249,3 +249,74 @@ fn test_for_option_yield_none() {
         "for_option_yield_none",
     );
 }
+
+// -----------------------------------------------------------------------
+// String for-loops — character value verification
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_for_str_char_values() {
+    // Verify actual codepoint values: 'A'=65, 'B'=66, 'C'=67 → sum=198
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let mut sum = 0,
+    for c in "ABC" do sum = sum + c.to_int(),
+    if sum == 198 then 0 else 1
+)
+"#,
+        "for_str_char_values",
+    );
+}
+
+// -----------------------------------------------------------------------
+// Set for-loops — blocked: .iter().collect() not yet in AOT codegen.
+// lower_for_data_array (Set codepath) is identical to List, so List
+// tests provide equivalent coverage. Add Set tests when iterator
+// method dispatch is available in AOT.
+// -----------------------------------------------------------------------
+
+// -----------------------------------------------------------------------
+// Map for-loops (key-value tuple iteration)
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_for_map_sum() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let mut sum = 0,
+    for entry in {"a": 10, "b": 20, "c": 30} do sum = sum + entry.1,
+    if sum == 60 then 0 else 1
+)
+"#,
+        "for_map_sum",
+    );
+}
+
+#[test]
+fn test_for_map_yield() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let values = for entry in {"x": 1, "y": 2, "z": 3} yield entry.1,
+    if values.length() == 3 then 0 else 1
+)
+"#,
+        "for_map_yield",
+    );
+}
+
+#[test]
+fn test_for_map_entries() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let mut count = 0,
+    for entry in {"a": 1, "b": 2} do count = count + 1,
+    if count == 2 then 0 else 1
+)
+"#,
+        "for_map_entries",
+    );
+}
