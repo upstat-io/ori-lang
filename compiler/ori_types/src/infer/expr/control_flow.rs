@@ -247,15 +247,14 @@ pub(crate) fn check_match_pattern(
         MatchPattern::Variant { name, inner } => {
             let resolved = engine.resolve(expected_ty);
             let tag = engine.pool().tag(resolved);
+            let inner_ids = arena.get_match_pattern_list(*inner);
 
-            // Handle known container types
+            // Resolve the inner field types for each variant payload
             let inner_types = match tag {
                 Tag::Option => {
-                    // Some(x) pattern - inner has one element with inner type
                     vec![engine.pool().option_inner(resolved)]
                 }
                 Tag::Result => {
-                    // Ok(x) or Err(e) pattern - use variant name to select inner type
                     let variant_str = engine.lookup_name(*name);
                     match variant_str {
                         Some("Err") => vec![engine.pool().result_err(resolved)],
@@ -263,66 +262,12 @@ pub(crate) fn check_match_pattern(
                     }
                 }
                 Tag::Named | Tag::Applied => {
-                    // User-defined enum: look up variant field types from TypeRegistry,
-                    // substituting any generic type parameters with concrete types from
-                    // the scrutinee's type arguments.
-                    let result = engine.type_registry().and_then(|reg| {
-                        let (type_entry, variant_def) = reg.lookup_variant_def(*name)?;
-                        let field_types: Vec<Idx> = match &variant_def.fields {
-                            VariantFields::Unit => vec![],
-                            VariantFields::Tuple(types) => types.clone(),
-                            VariantFields::Record(fields) => fields.iter().map(|f| f.ty).collect(),
-                        };
-                        Some((type_entry.type_params.clone(), field_types))
-                    });
-
-                    match result {
-                        Some((type_params, field_types)) if type_params.is_empty() => {
-                            // Non-generic enum: field types are concrete, use directly
-                            field_types
-                        }
-                        Some((type_params, field_types)) => {
-                            // Generic enum: substitute type parameters with concrete
-                            // type arguments from the scrutinee.
-                            // e.g., scrutinee `MyResult<int, str>` -> T=int, E=str
-                            let type_args = if tag == Tag::Applied {
-                                engine.pool().applied_args(resolved)
-                            } else {
-                                vec![]
-                            };
-
-                            if type_args.len() == type_params.len() {
-                                // Build param->arg mapping and substitute
-                                let substituted: Vec<Idx> = field_types
-                                    .iter()
-                                    .map(|&ft| {
-                                        substitute_type_params(engine, ft, &type_params, &type_args)
-                                    })
-                                    .collect();
-                                substituted
-                            } else {
-                                // Mismatch between expected and actual type args — use
-                                // fresh variables as fallback
-                                let inner_ids = arena.get_match_pattern_list(*inner);
-                                inner_ids.iter().map(|_| engine.fresh_var()).collect()
-                            }
-                        }
-                        None => {
-                            // Variant not found — fall back to fresh variables
-                            let inner_ids = arena.get_match_pattern_list(*inner);
-                            inner_ids.iter().map(|_| engine.fresh_var()).collect()
-                        }
-                    }
+                    resolve_variant_fields(engine, *name, tag, resolved, inner_ids.len())
                 }
-                _ => {
-                    // Unknown tag — fall back to fresh variables
-                    let inner_ids = arena.get_match_pattern_list(*inner);
-                    inner_ids.iter().map(|_| engine.fresh_var()).collect()
-                }
+                _ => inner_ids.iter().map(|_| engine.fresh_var()).collect(),
             };
 
             // Check inner patterns
-            let inner_ids = arena.get_match_pattern_list(*inner);
             for (inner_id, inner_ty) in inner_ids.iter().zip(inner_types.iter()) {
                 let inner_pattern = arena.get_match_pattern(*inner_id);
                 let nested_key = PatternKey::Nested(inner_id.raw());
@@ -465,6 +410,59 @@ pub(crate) fn check_match_pattern(
             let inner_pattern = arena.get_match_pattern(*inner_id);
             let nested_key = PatternKey::Nested(inner_id.raw());
             check_match_pattern(engine, arena, inner_pattern, expected_ty, nested_key, span);
+        }
+    }
+}
+
+/// Resolve the field types for a user-defined enum variant in a match pattern.
+///
+/// Looks up the variant in the `TypeRegistry`, extracts field types, and substitutes
+/// any generic type parameters with concrete type arguments from the scrutinee.
+/// Falls back to fresh type variables when the variant is not found or type argument
+/// counts don't match.
+fn resolve_variant_fields(
+    engine: &mut InferEngine<'_>,
+    variant_name: Name,
+    scrutinee_tag: Tag,
+    resolved_scrutinee: Idx,
+    fallback_count: usize,
+) -> Vec<Idx> {
+    let result = engine.type_registry().and_then(|reg| {
+        let (type_entry, variant_def) = reg.lookup_variant_def(variant_name)?;
+        let field_types: Vec<Idx> = match &variant_def.fields {
+            VariantFields::Unit => vec![],
+            VariantFields::Tuple(types) => types.clone(),
+            VariantFields::Record(fields) => fields.iter().map(|f| f.ty).collect(),
+        };
+        Some((type_entry.type_params.clone(), field_types))
+    });
+
+    match result {
+        Some((type_params, field_types)) if type_params.is_empty() => {
+            // Non-generic enum: field types are concrete
+            field_types
+        }
+        Some((type_params, field_types)) => {
+            // Generic enum: substitute type parameters with concrete type arguments
+            let type_args = if scrutinee_tag == Tag::Applied {
+                engine.pool().applied_args(resolved_scrutinee)
+            } else {
+                vec![]
+            };
+
+            if type_args.len() == type_params.len() {
+                field_types
+                    .iter()
+                    .map(|&ft| substitute_type_params(engine, ft, &type_params, &type_args))
+                    .collect()
+            } else {
+                // Type arg count mismatch — fall back to fresh variables
+                (0..fallback_count).map(|_| engine.fresh_var()).collect()
+            }
+        }
+        None => {
+            // Variant not found — fall back to fresh variables
+            (0..fallback_count).map(|_| engine.fresh_var()).collect()
         }
     }
 }

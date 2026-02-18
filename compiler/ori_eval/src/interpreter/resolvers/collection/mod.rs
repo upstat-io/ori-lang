@@ -93,6 +93,10 @@ impl CollectionMethodResolver {
     }
 
     /// Resolve methods on `Iterator<T>` values.
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "linear name-to-method dispatch over 25 pre-interned iterator methods"
+    )]
     fn resolve_iterator_method(&self, method_name: Name) -> Option<CollectionMethod> {
         let m = &self.methods;
         if method_name == m.next {

@@ -275,6 +275,10 @@ impl LtoMode {
 }
 
 /// Parse build options from command line arguments.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "linear if/else CLI flag parser"
+)]
 pub fn parse_build_options(args: &[String]) -> BuildOptions {
     let mut options = BuildOptions::default();
 
