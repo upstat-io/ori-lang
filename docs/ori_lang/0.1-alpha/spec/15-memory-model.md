@@ -356,6 +356,10 @@ If weak references are added to the language, they must:
 - Require explicit upgrade operations returning `Option<T>`
 - Never be implicitly created
 
+### Handler Frame State
+
+Stateful handlers (see [Capabilities § Stateful Handlers](14-capabilities.md#stateful-handlers)) maintain frame-local mutable state within a `with...in` scope. This state is analogous to mutable loop variables: it is local to the handler frame, not aliased, and not accessible outside the `with...in` scope. Handler frame state does not violate Invariant 3 (no shared mutable references) because the state has a single owner (the handler frame) and is never shared.
+
 ### Feature Evaluation
 
 New language features must be evaluated against these invariants. A feature that violates any invariant must either:

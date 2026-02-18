@@ -557,7 +557,9 @@ type HealthCheck = {
             "https://example.com": MockResponse { status: 200, body: "OK" },
         },
     },
-    Clock = MockClock { time: "2024-01-15T10:00:00" } in run(
+    Clock = handler(state: Instant.parse(s: "2024-01-15T10:00:00")) {
+        now: (s) -> (s, s),
+    } in run(
         let result = check_page(url: "https://example.com"),
         assert_eq(actual: result.status, expected: 200),
         assert_none(option: result.error),

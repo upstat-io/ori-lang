@@ -59,7 +59,7 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 //           false, for, if, impl, in, let, loop, match, pub, self, Self, suspend,
 //           tests, then, trait, true, type, unsafe, use, uses, void, where, with, yield
 // Reserved (future, 5): asm, inline, static, union, view
-// Context-sensitive (patterns, 16): cache, catch, collect, filter, find, fold, map,
+// Context-sensitive (patterns, 17): cache, catch, collect, filter, find, fold, handler, map,
 //           nursery, parallel, recurse, retry, run, spawn, timeout, try, validate
 // Context-sensitive (pattern args, 7): body, default, expr, on_error, over, pre_check, post_check
 // Context-sensitive (imports, 2): from (extern blocks), without (import items, before "def")
@@ -404,6 +404,14 @@ mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" ) unary_expr } .
 
 with_expr           = "with" capability_binding { "," capability_binding } "in" expression .
 capability_binding  = identifier "=" expression .
+
+// --- Handler Expression (Stateful Effect Handlers) ---
+// See: 14-capabilities.md § Stateful Handlers, proposals/approved/stateful-mock-testing-proposal.md
+// `handler` is context-sensitive: valid only in the expression position of a capability_binding.
+
+handler_expr        = "handler" "(" "state" ":" expression ")" "{" handler_operations "}" .
+handler_operations  = handler_operation { "," handler_operation } .
+handler_operation   = identifier ":" expression .
 
 // --- Let Binding ---
 // See: 09-expressions.md § Let Binding, 05-variables.md

@@ -209,17 +209,20 @@ Mock capabilities can simulate failures:
 )
 
 @test_business_hours tests @is_business_hours () -> void = run(
-    // Test during business hours
-    with Clock = MockClock { time: "2024-01-15T10:30:00" } in
-        assert(condition: is_business_hours()),
+    // Test during business hours — stateful handler with fixed time
+    with Clock = handler(state: Instant.parse(s: "2024-01-15T10:30:00")) {
+        now: (s) -> (s, s),
+    } in assert(condition: is_business_hours()),
 
     // Test after hours
-    with Clock = MockClock { time: "2024-01-15T20:00:00" } in
-        assert(condition: !is_business_hours()),
+    with Clock = handler(state: Instant.parse(s: "2024-01-15T20:00:00")) {
+        now: (s) -> (s, s),
+    } in assert(condition: !is_business_hours()),
 
     // Test weekend
-    with Clock = MockClock { time: "2024-01-13T10:30:00" } in
-        assert(condition: !is_business_hours()),
+    with Clock = handler(state: Instant.parse(s: "2024-01-13T10:30:00")) {
+        now: (s) -> (s, s),
+    } in assert(condition: !is_business_hours()),
 )
 ```
 

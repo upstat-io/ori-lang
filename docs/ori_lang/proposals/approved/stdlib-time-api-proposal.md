@@ -398,25 +398,30 @@ trait Clock {
 }
 ```
 
-This allows testing with controlled time:
+This allows testing with controlled time using stateful handlers:
 
 ```ori
 @test_expiration tests @is_expired () -> void = run(
     let fixed_time = Instant.from_unix_secs(secs: 1700000000),
-    let mock_clock = MockClock.new(now: fixed_time),
 
-    with Clock = mock_clock in run(
+    with Clock = handler(state: fixed_time) {
+        now: (s) -> (s, s),
+        advance: (s, by: Duration) -> (s + by, ()),
+    } in run(
         let token = Token { expires: fixed_time.add(duration: 1h) },
         assert(!is_expired(token: token)),
 
-        // Advance time (MockClock uses interior mutability)
-        mock_clock.advance(by: 2h),
+        Clock.advance(by: 2h),
         assert(is_expired(token: token)),
     ),
 )
 ```
 
-> **Note:** `MockClock` uses interior mutability for its time state. The `advance()` method modifies the internal time without requiring reassignment, enabling natural test patterns where the same mock instance can be advanced multiple times.
+> **Note:** Mock clocks use the `handler(state: expr) { ... }` construct to thread time state through operations. State is frame-local and does not require interior mutability. See `proposals/approved/stateful-mock-testing-proposal.md`.
+
+## Errata (added 2026-02-18)
+
+> **Superseded by stateful-mock-testing-proposal**: The original `MockClock` design used interior mutability (a runtime-provided type with special mutable state). This was replaced by the stateful handler mechanism (`handler(state: expr) { ... }`), which enables the same testing patterns while preserving value semantics. Users build their own stateful clock mocks using the handler construct instead of relying on a runtime-provided `MockClock` type.
 
 ---
 
