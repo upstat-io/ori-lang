@@ -11,6 +11,7 @@ impl<I: StringLookup> Formatter<'_, I> {
     /// Emit an expression inline (single line).
     #[expect(
         clippy::too_many_lines,
+        clippy::cognitive_complexity,
         reason = "exhaustive ExprKind formatting dispatch"
     )]
     pub(super) fn emit_inline(&mut self, expr_id: ExprId) {

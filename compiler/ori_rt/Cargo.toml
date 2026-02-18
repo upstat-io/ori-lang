@@ -19,13 +19,34 @@ crate-type = ["rlib", "staticlib"]
 [lints.rust]
 # unsafe_code is required for C FFI entry points
 unsafe_code = "allow"
+dead_code = "deny"
+unused = { level = "deny", priority = -1 }
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
-# FFI functions take raw pointers from LLVM-generated code
-not_unsafe_ptr_arg_deref = "allow"
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+allow_attributes_without_reason = "warn"
+
+# Deny footguns
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+
+# Allow for CLI/practical reasons
+needless_return = "deny"
+print_stdout = "allow"
+print_stderr = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
+too_many_lines = "deny"
+cognitive_complexity = "deny"
+similar_names = "allow"
+
+# FFI functions take raw pointers from LLVM-generated code
+not_unsafe_ptr_arg_deref = "allow"

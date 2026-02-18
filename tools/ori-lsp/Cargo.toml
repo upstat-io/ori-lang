@@ -1,9 +1,13 @@
 [package]
 name = "ori-lsp"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0-alpha.9"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/upstat-io/ori-lang"
 description = "Language Server Protocol implementation for the Ori programming language"
+
+# Excluded from workspace (not yet updated to use new compiler).
+# Build: cargo check --manifest-path tools/ori-lsp/Cargo.toml
 
 [dependencies]
 oric = { path = "../../compiler/oric" }
@@ -11,8 +15,32 @@ tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 dashmap = "5"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"
+dead_code = "deny"
+unused = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+allow_attributes_without_reason = "warn"
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+needless_return = "allow"
+print_stdout = "allow"
+print_stderr = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+too_many_lines = "deny"
+cognitive_complexity = "warn"
+similar_names = "allow"
 
 [[bin]]
 name = "ori-lsp"
