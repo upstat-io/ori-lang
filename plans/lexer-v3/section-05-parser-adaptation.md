@@ -1,24 +1,24 @@
 ---
 section: "05"
 title: "Parser Adaptation"
-status: in-progress
+status: not-started
 goal: "Adapt ori_parse to consume CompactTokenStream with lazy cooking, replacing TokenList dependency"
 sections:
   - id: "05.1"
     title: "Audit Parser Token Access Patterns"
-    status: done
+    status: not-started
   - id: "05.2"
     title: "Design TokenCursor Abstraction"
-    status: done
+    status: not-started
   - id: "05.3"
     title: "Implement TokenCursor for CompactTokenStream"
-    status: done
+    status: not-started
   - id: "05.4"
     title: "Migrate Parser to TokenCursor"
-    status: done
+    status: not-started
   - id: "05.5"
     title: "Remove Legacy TokenList Path"
-    status: in-progress
+    status: not-started
   - id: "05.6"
     title: "Performance Validation"
     status: not-started
@@ -26,7 +26,7 @@ sections:
 
 # Section 05: Parser Adaptation
 
-**Status:** In Progress (05.5 partially done, 05.6 remaining)
+**Status:** Planned
 **Goal:** Adapt the parser (`ori_parse`) to consume the new `CompactTokenStream` + lazy cooker, replacing the current `TokenList` dependency without changing parsing behavior.
 
 ---
@@ -44,15 +44,15 @@ The key observation is that **the parser already uses the `tags` array for most 
 
 ## 05.1 Audit Parser Token Access Patterns
 
-- [x] Grep parser for all `TokenList` / `Token` / `TokenKind` access points
-- [x] Classify each access into:
-  - [x] **Tag-only** (most common): `tag(i) == TokenKind::LParen as u8` — needs only the tag byte
-  - [x] **Kind match**: `match token.kind { TokenKind::Ident(name) => ..., TokenKind::Int(n) => ... }` — needs cooked value
-  - [x] **Span access**: `token.span` — needs offset computation
-  - [x] **Flags access**: `flag(i)` — needs flags byte
-- [x] Count access pattern distribution (expect ~70% tag-only, ~20% kind-match, ~10% span/flags)
-- [x] Identify hot loops where tag-only access dominates (expression parsing, statement parsing)
-- [x] Identify cold paths where kind-match dominates (literal extraction, error messages)
+- [ ] Grep parser for all `TokenList` / `Token` / `TokenKind` access points
+- [ ] Classify each access into:
+  - [ ] **Tag-only** (most common): `tag(i) == TokenKind::LParen as u8` — needs only the tag byte
+  - [ ] **Kind match**: `match token.kind { TokenKind::Ident(name) => ..., TokenKind::Int(n) => ... }` — needs cooked value
+  - [ ] **Span access**: `token.span` — needs offset computation
+  - [ ] **Flags access**: `flag(i)` — needs flags byte
+- [ ] Count access pattern distribution (expect ~70% tag-only, ~20% kind-match, ~10% span/flags)
+- [ ] Identify hot loops where tag-only access dominates (expression parsing, statement parsing)
+- [ ] Identify cold paths where kind-match dominates (literal extraction, error messages)
 
 ---
 
@@ -111,15 +111,15 @@ impl<'src> TokenCursor<'src> {
 }
 ```
 
-- [x] Define the `TokenCursor` trait/struct API
-- [x] Ensure tag constants are accessible from the parser
-  - [x] Either: parser uses `RawTag` discriminant values directly
-  - [x] Or: define `const` tag values that map to `RawTag` repr
-  - [x] The current `TokenList.tag()` already returns `u8` discriminant indices — ensure the new tags use compatible values or define a clean mapping
-- [x] Design the `RawTag` ↔ parser tag compatibility layer
-  - [x] Current parser uses `TokenKind::discriminant_index()` values (0-123)
-  - [x] New system uses `RawTag` repr values (different numbering)
-  - [x] Need either: (a) renumber `RawTag` to match, (b) add a mapping table, or (c) define new parser tag constants
+- [ ] Define the `TokenCursor` trait/struct API
+- [ ] Ensure tag constants are accessible from the parser
+  - [ ] Either: parser uses `RawTag` discriminant values directly
+  - [ ] Or: define `const` tag values that map to `RawTag` repr
+  - [ ] The current `TokenList.tag()` already returns `u8` discriminant indices — ensure the new tags use compatible values or define a clean mapping
+- [ ] Design the `RawTag` ↔ parser tag compatibility layer
+  - [ ] Current parser uses `TokenKind::discriminant_index()` values (0-123)
+  - [ ] New system uses `RawTag` repr values (different numbering)
+  - [ ] Need either: (a) renumber `RawTag` to match, (b) add a mapping table, or (c) define new parser tag constants
 
 ### Tag Mapping Strategy
 
@@ -145,27 +145,27 @@ pub enum TokenTag {
 
 This replaces both `RawTag` and `TokenKind::discriminant_index()` with a single `u8` vocabulary shared across the entire pipeline. Operators and delimiters are fully identified by tag alone. Identifiers and keywords require the SIMD pass to emit keyword-specific tags (or the lazy cooker resolves them on access).
 
-- [x] Design `TokenTag` enum
-- [x] Map from `RawTag` to `TokenTag` (1:1 for most, Ident→Keyword resolution is the exception)
-- [x] Decide: resolve keywords in SIMD pass or defer to lazy cooker?
-  - [x] Option A: SIMD pass emits `Ident` tag, lazy cooker resolves keywords → simpler SIMD, but parser can't distinguish `if` from `foo` without cooking
-  - [x] Option B: Post-SIMD keyword resolution pass scans all `Ident` tokens and resolves keywords → adds a pass but parser gets keyword tags for free
-  - [x] Recommend Option B: keyword resolution is cheap (length-bucketed match on source bytes) and the parser needs keyword tags on the fast path
+- [ ] Design `TokenTag` enum
+- [ ] Map from `RawTag` to `TokenTag` (1:1 for most, Ident→Keyword resolution is the exception)
+- [ ] Decide: resolve keywords in SIMD pass or defer to lazy cooker?
+  - [ ] Option A: SIMD pass emits `Ident` tag, lazy cooker resolves keywords → simpler SIMD, but parser can't distinguish `if` from `foo` without cooking
+  - [ ] Option B: Post-SIMD keyword resolution pass scans all `Ident` tokens and resolves keywords → adds a pass but parser gets keyword tags for free
+  - [ ] Recommend Option B: keyword resolution is cheap (length-bucketed match on source bytes) and the parser needs keyword tags on the fast path
 
 ---
 
 ## 05.3 Implement TokenCursor for CompactTokenStream
 
-- [x] Implement `TokenCursor` struct
-- [x] Implement fast-path methods (tag, peek, at, advance, span, flags)
-- [x] Implement lazy-path methods (current_kind, current_ident, current_int, etc.)
-- [x] Wire lazy cooker into cursor
-- [x] Add error forwarding: cooking errors accumulated in cooker, retrieved after parse
-- [x] Tests:
-  - [x] Tag-only access never triggers cooking
-  - [x] Value access triggers cooking exactly once (cached)
-  - [x] Span computation matches expected values
-  - [x] Error propagation from cooker
+- [ ] Implement `TokenCursor` struct
+- [ ] Implement fast-path methods (tag, peek, at, advance, span, flags)
+- [ ] Implement lazy-path methods (current_kind, current_ident, current_int, etc.)
+- [ ] Wire lazy cooker into cursor
+- [ ] Add error forwarding: cooking errors accumulated in cooker, retrieved after parse
+- [ ] Tests:
+  - [ ] Tag-only access never triggers cooking
+  - [ ] Value access triggers cooking exactly once (cached)
+  - [ ] Span computation matches expected values
+  - [ ] Error propagation from cooker
 
 ---
 
@@ -173,13 +173,13 @@ This replaces both `RawTag` and `TokenKind::discriminant_index()` with a single 
 
 This is the largest task. The parser (`ori_parse`) needs to be updated to use `TokenCursor` instead of direct `TokenList` access.
 
-- [x] Identify the parser's token access entry point (likely a `Parser` struct with a token position)
-- [x] Replace the `Parser` struct's token storage with `TokenCursor`
-- [x] Migrate tag-based dispatch (should be mostly mechanical rename)
-- [x] Migrate kind-based extraction (replace `token.kind` access with `cursor.current_kind()`)
-- [x] Migrate span access (replace `token.span` with `cursor.current_span()`)
-- [x] Run all parser tests after each file migration
-- [x] Run all spec tests after complete migration
+- [ ] Identify the parser's token access entry point (likely a `Parser` struct with a token position)
+- [ ] Replace the `Parser` struct's token storage with `TokenCursor`
+- [ ] Migrate tag-based dispatch (should be mostly mechanical rename)
+- [ ] Migrate kind-based extraction (replace `token.kind` access with `cursor.current_kind()`)
+- [ ] Migrate span access (replace `token.span` with `cursor.current_span()`)
+- [ ] Run all parser tests after each file migration
+- [ ] Run all spec tests after complete migration
 
 ### Migration Approach
 
@@ -189,11 +189,11 @@ This is the largest task. The parser (`ori_parse`) needs to be updated to use `T
 
 ## 05.5 Remove Legacy TokenList Path
 
-- [x] Remove `TokenList` from `LexOutput` (replaced by `CompactTokenStream`)
+- [ ] Remove `TokenList` from `LexOutput` (replaced by `CompactTokenStream`)
 - [ ] Remove `CompactTokenStream::to_token_list()` bridge
 - [ ] Remove `TokenList` parallel arrays (`tokens`, `tags`, `flags`) — replaced by `CompactTokenStream`
 - [ ] Keep `TokenList` available for external consumers (e.g., tests) if needed, or remove entirely
-- [x] Update Salsa query types to use `CompactTokenStream`
+- [ ] Update Salsa query types to use `CompactTokenStream`
 - [ ] Clean up `ori_ir/src/token/` — remove unused code
 - [ ] Run `./test-all.sh` to verify nothing broke
 

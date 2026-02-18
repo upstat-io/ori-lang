@@ -1,21 +1,21 @@
 ---
 section: "01"
 title: "Compact Token Stream (SoA)"
-status: done
+status: not-started
 goal: "Replace 26-byte AoS TokenList with 6-byte SoA CompactTokenStream for 4.3x cache density"
 sections:
   - id: "01.1"
     title: "Design CompactTokenStream"
-    status: done
+    status: not-started
   - id: "01.2"
     title: "Implement CompactTokenStream"
-    status: done
+    status: not-started
   - id: "01.3"
     title: "Wire into Lexer Output"
-    status: done
+    status: not-started
   - id: "01.4"
     title: "Salsa Compatibility"
-    status: done
+    status: not-started
   - id: "01.5"
     title: "Performance Validation"
     status: not-started
@@ -23,7 +23,7 @@ sections:
 
 # Section 01: Compact Token Stream (SoA)
 
-**Status:** Done (01.5 Performance Validation remaining)
+**Status:** Planned
 **Goal:** Replace the current `TokenList` (26 bytes/token, AoS layout) with a `CompactTokenStream` (6 bytes/token, SoA layout) that stores only what the raw scanner produces: tag, offset, and flags.
 
 ---
@@ -79,26 +79,26 @@ With SoA, the parser can fit ~64 tags per cache line. With AoS, only ~2.7 tokens
 
 ## 01.1 Design CompactTokenStream
 
-- [x] Define `CompactTokenStream` struct in `ori_ir/src/token/`
-  - [x] `tags: Vec<u8>` — raw tag discriminant (reuse `RawTag` repr(u8))
-  - [x] `offsets: Vec<u32>` — byte position of each token start
-  - [x] `flags: Vec<u8>` — `TokenFlags` bitfield per token
-  - [x] Final offset entry = source length (sentinel, for computing last token's span)
-- [x] Define access API
-  - [x] `tag(index) -> u8` — O(1)
-  - [x] `offset(index) -> u32` — O(1)
-  - [x] `span(index) -> Span` — computed from `offsets[i]..offsets[i+1]`
-  - [x] `flag(index) -> TokenFlags` — O(1)
-  - [x] `len() -> usize`
-  - [x] `is_empty() -> bool`
-- [x] Define iteration API
-  - [x] `iter_tags() -> &[u8]` — for sequential tag scanning
-  - [x] `iter() -> impl Iterator<Item = (u8, Span, TokenFlags)>` — full iteration
-- [x] Design the cooked value access (deferred to Section 02)
-  - [x] Placeholder: `cooked_kind(index, source, interner) -> TokenKind`
-- [x] Size assertions
-  - [x] `CompactTokenStream` struct size <= 72 bytes (3 Vecs = 3x24)
-  - [x] No per-token heap allocation
+- [ ] Define `CompactTokenStream` struct in `ori_ir/src/token/`
+  - [ ] `tags: Vec<u8>` — raw tag discriminant (reuse `RawTag` repr(u8))
+  - [ ] `offsets: Vec<u32>` — byte position of each token start
+  - [ ] `flags: Vec<u8>` — `TokenFlags` bitfield per token
+  - [ ] Final offset entry = source length (sentinel, for computing last token's span)
+- [ ] Define access API
+  - [ ] `tag(index) -> u8` — O(1)
+  - [ ] `offset(index) -> u32` — O(1)
+  - [ ] `span(index) -> Span` — computed from `offsets[i]..offsets[i+1]`
+  - [ ] `flag(index) -> TokenFlags` — O(1)
+  - [ ] `len() -> usize`
+  - [ ] `is_empty() -> bool`
+- [ ] Define iteration API
+  - [ ] `iter_tags() -> &[u8]` — for sequential tag scanning
+  - [ ] `iter() -> impl Iterator<Item = (u8, Span, TokenFlags)>` — full iteration
+- [ ] Design the cooked value access (deferred to Section 02)
+  - [ ] Placeholder: `cooked_kind(index, source, interner) -> TokenKind`
+- [ ] Size assertions
+  - [ ] `CompactTokenStream` struct size <= 72 bytes (3 Vecs = 3x24)
+  - [ ] No per-token heap allocation
 
 ### Key Design Decisions
 
@@ -115,40 +115,40 @@ A: In `ori_ir` alongside the existing `TokenList`, since the parser (in `ori_par
 
 ## 01.2 Implement CompactTokenStream
 
-- [x] Create `ori_ir/src/token/compact.rs`
-  - [x] `CompactTokenStream` struct
-  - [x] Constructor: `new()`, `with_capacity(source_len)`
-  - [x] Push: `push(tag: u8, offset: u32, flags: u8)`
-  - [x] Finalize: `seal(source_len: u32)` — appends sentinel offset
-  - [x] Access: `tag()`, `offset()`, `span()`, `flag()`
-  - [x] Iteration: `iter_tags()`, `iter()`
-- [x] Derive required traits
-  - [x] `Clone` — for Salsa
-  - [x] `Debug` — summary format (count, not full dump)
-  - [x] Manual `PartialEq`, `Eq`, `Hash` — compare only `tags` + `flags` (not offsets), matching current `TokenList` semantics for Salsa early-cutoff
-- [x] Pre-allocation heuristic
-  - [x] Reuse existing: `source_len / 2` tokens estimated (from `LexOutput::with_capacity`)
-- [x] Tests in `ori_ir/src/token/compact/tests.rs`
-  - [x] Push + access round-trip
-  - [x] Span computation correctness
-  - [x] Empty stream
-  - [x] Single token
-  - [x] Equality: same tags+flags, different offsets → equal (Salsa semantics)
-  - [x] Hash consistency with equality
+- [ ] Create `ori_ir/src/token/compact.rs`
+  - [ ] `CompactTokenStream` struct
+  - [ ] Constructor: `new()`, `with_capacity(source_len)`
+  - [ ] Push: `push(tag: u8, offset: u32, flags: u8)`
+  - [ ] Finalize: `seal(source_len: u32)` — appends sentinel offset
+  - [ ] Access: `tag()`, `offset()`, `span()`, `flag()`
+  - [ ] Iteration: `iter_tags()`, `iter()`
+- [ ] Derive required traits
+  - [ ] `Clone` — for Salsa
+  - [ ] `Debug` — summary format (count, not full dump)
+  - [ ] Manual `PartialEq`, `Eq`, `Hash` — compare only `tags` + `flags` (not offsets), matching current `TokenList` semantics for Salsa early-cutoff
+- [ ] Pre-allocation heuristic
+  - [ ] Reuse existing: `source_len / 2` tokens estimated (from `LexOutput::with_capacity`)
+- [ ] Tests in `ori_ir/src/token/compact/tests.rs`
+  - [ ] Push + access round-trip
+  - [ ] Span computation correctness
+  - [ ] Empty stream
+  - [ ] Single token
+  - [ ] Equality: same tags+flags, different offsets → equal (Salsa semantics)
+  - [ ] Hash consistency with equality
 
 ---
 
 ## 01.3 Wire into Lexer Output
 
-- [x] Modify `lex_with_comments()` in `ori_lexer/src/lib.rs`
-  - [x] Replace `TokenList` with `CompactTokenStream` in `LexOutput`
-  - [x] Driver loop pushes `(raw.tag as u8, offset, pending_flags)` instead of constructing `Token`
-  - [x] Trivia tokens (whitespace) still tracked in flags, not stored as tokens
-  - [x] Comment tokens still captured in `CommentList` (unchanged)
-  - [x] Newline tokens stored in compact stream (they're significant in Ori)
-- [x] Update `LexResult` to carry `CompactTokenStream`
-- [x] Update `lex()` and `lex_full()` entry points
-- [x] Ensure `LexOutput::into_parts()` still produces `ModuleExtra` correctly
+- [ ] Modify `lex_with_comments()` in `ori_lexer/src/lib.rs`
+  - [ ] Replace `TokenList` with `CompactTokenStream` in `LexOutput`
+  - [ ] Driver loop pushes `(raw.tag as u8, offset, pending_flags)` instead of constructing `Token`
+  - [ ] Trivia tokens (whitespace) still tracked in flags, not stored as tokens
+  - [ ] Comment tokens still captured in `CommentList` (unchanged)
+  - [ ] Newline tokens stored in compact stream (they're significant in Ori)
+- [ ] Update `LexResult` to carry `CompactTokenStream`
+- [ ] Update `lex()` and `lex_full()` entry points
+- [ ] Ensure `LexOutput::into_parts()` still produces `ModuleExtra` correctly
 
 ### Migration Strategy
 
@@ -170,14 +170,14 @@ This allows incremental migration: the lexer produces `CompactTokenStream` inter
 
 ## 01.4 Salsa Compatibility
 
-- [x] `CompactTokenStream` implements `Clone + Eq + PartialEq + Hash + Debug`
-- [x] Equality semantics: compare `tags` + `flags` only (not `offsets`)
-  - [x] Rationale: whitespace-only edits shift offsets but don't change token sequence
-  - [x] This matches current `TokenList` equality semantics
-- [x] Hash semantics: hash `tags` + `flags` only
-- [x] Verify Salsa early-cutoff behavior
-  - [x] Edit whitespace → re-lex → CompactTokenStream differs in offsets but equals in tags+flags → Salsa cuts off → parser not re-invoked
-  - [x] Edit identifier → re-lex → tags differ → Salsa re-parses
+- [ ] `CompactTokenStream` implements `Clone + Eq + PartialEq + Hash + Debug`
+- [ ] Equality semantics: compare `tags` + `flags` only (not `offsets`)
+  - [ ] Rationale: whitespace-only edits shift offsets but don't change token sequence
+  - [ ] This matches current `TokenList` equality semantics
+- [ ] Hash semantics: hash `tags` + `flags` only
+- [ ] Verify Salsa early-cutoff behavior
+  - [ ] Edit whitespace → re-lex → CompactTokenStream differs in offsets but equals in tags+flags → Salsa cuts off → parser not re-invoked
+  - [ ] Edit identifier → re-lex → tags differ → Salsa re-parses
 
 ---
 
