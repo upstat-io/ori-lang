@@ -466,6 +466,10 @@ fn add_runtime_mappings_to_engine(
         ("ori_str_eq", runtime::ori_str_eq as *const () as usize),
         ("ori_str_ne", runtime::ori_str_ne as *const () as usize),
         (
+            "ori_str_compare",
+            runtime::ori_str_compare as *const () as usize,
+        ),
+        (
             "ori_assert_eq_str",
             runtime::ori_assert_eq_str as *const () as usize,
         ),

@@ -34,6 +34,7 @@ fn runtime_functions_declared() {
         "ori_str_concat",
         "ori_str_eq",
         "ori_str_ne",
+        "ori_str_compare",
         "ori_str_from_int",
         "ori_str_from_bool",
         "ori_str_from_float",
