@@ -544,3 +544,75 @@ type Pair = { x: int, y: int }
         "derive_multiple_traits",
     );
 }
+
+// =========================================================================
+// 3.14: Derive hash edge cases (hygiene fixes)
+// =========================================================================
+
+// Derive Hashable with float fields: ±0.0 must produce same hash
+
+#[test]
+fn test_aot_derive_hash_float_neg_zero() {
+    assert_aot_success(
+        r#"
+#[derive(Hashable)]
+type Wrapper = { value: float }
+
+@main () -> int = run(
+    let a = Wrapper { value: 0.0 },
+    let b = Wrapper { value: -0.0 },
+    // 0.0 and -0.0 are equal, so their hashes must match
+    if a.hash() == b.hash() then 0 else 1
+)
+"#,
+        "derive_hash_float_neg_zero",
+    );
+}
+
+// Derive Hashable with str fields: different strings must hash differently
+
+#[test]
+fn test_aot_derive_hash_str_content() {
+    assert_aot_success(
+        r#"
+#[derive(Hashable)]
+type Named = { name: str }
+
+@main () -> int = run(
+    let a = Named { name: "abc" },
+    let b = Named { name: "abc" },
+    let c = Named { name: "xyz" },
+    // Same string → same hash
+    let r1 = a.hash() == b.hash(),
+    // Different string (same length) → different hash
+    let r2 = a.hash() != c.hash(),
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "derive_hash_str_content",
+    );
+}
+
+// Derive Hashable with byte field: values ≥ 128 must use unsigned extension
+
+#[test]
+fn test_aot_derive_hash_byte_field() {
+    assert_aot_success(
+        r#"
+#[derive(Hashable)]
+type ByteBox = { b: byte }
+
+@main () -> int = run(
+    let a = ByteBox { b: byte(200) },
+    let b = ByteBox { b: byte(200) },
+    let c = ByteBox { b: byte(100) },
+    // Same byte → same hash
+    let r1 = a.hash() == b.hash(),
+    // Different byte → different hash
+    let r2 = a.hash() != c.hash(),
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "derive_hash_byte_field",
+    );
+}

@@ -1301,3 +1301,165 @@ fn test_aot_char_hash() {
         "char_hash",
     );
 }
+
+// =========================================================================
+// 3.14: Hash contract edge cases (hygiene fixes)
+// =========================================================================
+
+// Float ±0.0 hash contract: -0.0 == 0.0 → hash must match
+
+#[test]
+fn test_aot_float_hash_neg_zero() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let pos = 0.0,
+    let neg = -0.0,
+    // -0.0 == 0.0 must be true
+    let eq = pos == neg,
+    // Their hashes must also match
+    let h1 = pos.hash(),
+    let h2 = neg.hash(),
+    if eq && h1 == h2 then 0 else 1
+)
+"#,
+        "float_hash_neg_zero",
+    );
+}
+
+// Byte hash: values ≥ 128 must use unsigned extension
+
+#[test]
+fn test_aot_byte_hash_high_value() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let b = byte(200),
+    let h = b.hash(),
+    // byte(200) should hash to 200 (unsigned), not -56 (signed)
+    if h == 200 then 0 else 1
+)
+"#,
+        "byte_hash_high_value",
+    );
+}
+
+// String hash quality: different strings of same length must hash differently
+
+#[test]
+fn test_aot_str_hash_same_length_different_content() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = "abc",
+    let b = "xyz",
+    let h1 = a.hash(),
+    let h2 = b.hash(),
+    // Same-length but different content must produce different hashes
+    if h1 != h2 then 0 else 1
+)
+"#,
+        "str_hash_same_length_different",
+    );
+}
+
+// Nested Option: Option<Option<int>> compare/equals/hash
+
+#[test]
+fn test_aot_nested_option_equals() {
+    assert_aot_success(
+        r#"
+@wrap (x: Option<int>) -> Option<Option<int>> = Some(x)
+@wrap_none () -> Option<Option<int>> = None
+
+@main () -> int = run(
+    let a = wrap(x: Some(42)),
+    let b = wrap(x: Some(42)),
+    let c = wrap(x: Some(99)),
+    let d = wrap(x: None),
+    let e = wrap_none(),
+    // Same value → equals
+    let r1 = a.equals(b),
+    // Different inner value → not equals
+    let r2 = !a.equals(c),
+    // Some(Some(42)) != Some(None)
+    let r3 = !a.equals(d),
+    // Some(None) != None
+    let r4 = !d.equals(e),
+    // None == None
+    let r5 = e.equals(wrap_none()),
+    if r1 && r2 && r3 && r4 && r5 then 0 else 1
+)
+"#,
+        "nested_option_equals",
+    );
+}
+
+#[test]
+fn test_aot_nested_option_compare() {
+    assert_aot_success(
+        r#"
+@wrap (x: Option<int>) -> Option<Option<int>> = Some(x)
+@wrap_none () -> Option<Option<int>> = None
+
+@main () -> int = run(
+    let a = wrap(x: Some(10)),
+    let b = wrap(x: Some(20)),
+    let c = wrap_none(),
+    // Some(Some(10)) < Some(Some(20))
+    let r1 = a.compare(b).is_less(),
+    // None < Some(anything)
+    let r2 = c.compare(a).is_less(),
+    // Some(anything) > None
+    let r3 = a.compare(c).is_greater(),
+    if r1 && r2 && r3 then 0 else 1
+)
+"#,
+        "nested_option_compare",
+    );
+}
+
+#[test]
+fn test_aot_nested_option_hash() {
+    assert_aot_success(
+        r#"
+@wrap (x: Option<int>) -> Option<Option<int>> = Some(x)
+
+@main () -> int = run(
+    let a = wrap(x: Some(42)),
+    let b = wrap(x: Some(42)),
+    let c = wrap(x: Some(99)),
+    let h1 = a.hash(),
+    let h2 = b.hash(),
+    let h3 = c.hash(),
+    // Same value → same hash
+    let r1 = h1 == h2,
+    // Different value → different hash
+    let r2 = h1 != h3,
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "nested_option_hash",
+    );
+}
+
+// Tuple inside Option: Option<(int, int)> compare/equals
+
+#[test]
+fn test_aot_option_tuple_equals() {
+    assert_aot_success(
+        r#"
+@wrap (t: (int, int)) -> Option<(int, int)> = Some(t)
+
+@main () -> int = run(
+    let a = wrap(t: (1, 2)),
+    let b = wrap(t: (1, 2)),
+    let c = wrap(t: (3, 4)),
+    let r1 = a.equals(b),
+    let r2 = !a.equals(c),
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "option_tuple_equals",
+    );
+}

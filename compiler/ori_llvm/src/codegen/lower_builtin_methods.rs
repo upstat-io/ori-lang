@@ -201,8 +201,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 Some(self.emit_icmp_ordering(recv, other, "byte.cmp", false))
             }
             "hash" => {
+                // Byte is unsigned (8-bit) — use zext to match evaluator semantics
                 let i64_ty = self.builder.i64_type();
-                Some(self.builder.sext(recv, i64_ty, "byte.hash"))
+                Some(self.builder.zext(recv, i64_ty, "byte.hash"))
             }
             "equals" => {
                 let arg_ids = self.canon.arena.get_expr_list(args);
@@ -1023,6 +1024,22 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         match &info {
             TypeInfo::Float => self.builder.fcmp_oeq(lhs, rhs, name),
             TypeInfo::Str => self.emit_str_eq_call(lhs, rhs, name),
+            TypeInfo::Option { inner } => {
+                let inner = *inner;
+                self.emit_option_equals(lhs, rhs, inner_type, inner)
+                    .unwrap_or_else(|| self.builder.const_bool(false))
+            }
+            TypeInfo::Result { ok, err } => {
+                let ok = *ok;
+                let err = *err;
+                self.emit_result_equals(lhs, rhs, inner_type, ok, err)
+                    .unwrap_or_else(|| self.builder.const_bool(false))
+            }
+            TypeInfo::Tuple { elements } => {
+                let elements = elements.clone();
+                self.emit_tuple_equals(lhs, rhs, &elements)
+                    .unwrap_or_else(|| self.builder.const_bool(false))
+            }
             TypeInfo::Struct { .. } => {
                 if let Some(&type_name) = self.type_idx_to_name.get(&inner_type) {
                     let eq_name = self.interner.intern("eq");
@@ -1067,6 +1084,22 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             }
             TypeInfo::Float => self.emit_fcmp_ordering(lhs, rhs, name),
             TypeInfo::Str => self.emit_str_runtime_call(lhs, rhs, "ori_str_compare", name),
+            TypeInfo::Option { inner } => {
+                let inner = *inner;
+                self.emit_option_compare(lhs, rhs, inner_type, inner)
+                    .unwrap_or_else(|| self.builder.const_i8(1))
+            }
+            TypeInfo::Result { ok, err } => {
+                let ok = *ok;
+                let err = *err;
+                self.emit_result_compare(lhs, rhs, inner_type, ok, err)
+                    .unwrap_or_else(|| self.builder.const_i8(1))
+            }
+            TypeInfo::Tuple { elements } => {
+                let elements = elements.clone();
+                self.emit_tuple_compare(lhs, rhs, &elements)
+                    .unwrap_or_else(|| self.builder.const_i8(1))
+            }
             TypeInfo::Struct { .. } => {
                 if let Some(&type_name) = self.type_idx_to_name.get(&inner_type) {
                     let compare_name = self.interner.intern("compare");
@@ -1091,7 +1124,12 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         let info = self.type_info.get(inner_type);
         match &info {
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => val,
-            TypeInfo::Char | TypeInfo::Byte | TypeInfo::Ordering => {
+            TypeInfo::Byte => {
+                // Byte is unsigned (8-bit) — use zext to match evaluator semantics
+                let i64_ty = self.builder.i64_type();
+                self.builder.zext(val, i64_ty, name)
+            }
+            TypeInfo::Char | TypeInfo::Ordering => {
                 let i64_ty = self.builder.i64_type();
                 self.builder.sext(val, i64_ty, name)
             }
@@ -1105,6 +1143,22 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 self.builder.bitcast(normalized, i64_ty, name)
             }
             TypeInfo::Str => self.emit_str_hash_call(val, name),
+            TypeInfo::Option { inner } => {
+                let inner = *inner;
+                self.emit_option_hash(val, inner)
+                    .unwrap_or_else(|| self.builder.const_i64(0))
+            }
+            TypeInfo::Result { ok, err } => {
+                let ok = *ok;
+                let err = *err;
+                self.emit_result_hash(val, ok, err)
+                    .unwrap_or_else(|| self.builder.const_i64(0))
+            }
+            TypeInfo::Tuple { elements } => {
+                let elements = elements.clone();
+                self.emit_tuple_hash(val, &elements)
+                    .unwrap_or_else(|| self.builder.const_i64(0))
+            }
             TypeInfo::Struct { .. } => {
                 if let Some(&type_name) = self.type_idx_to_name.get(&inner_type) {
                     let hash_name = self.interner.intern("hash");
@@ -1128,6 +1182,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // -----------------------------------------------------------------------
 
     /// Emit `icmp slt/sgt → select` chain returning Ordering i8.
+    ///
+    /// Delegates to `IrBuilder::emit_icmp_ordering`.
     fn emit_icmp_ordering(
         &mut self,
         lhs: ValueId,
@@ -1135,38 +1191,14 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         name: &str,
         signed: bool,
     ) -> ValueId {
-        let lt = if signed {
-            self.builder.icmp_slt(lhs, rhs, &format!("{name}.lt"))
-        } else {
-            self.builder.icmp_ult(lhs, rhs, &format!("{name}.lt"))
-        };
-        let gt = if signed {
-            self.builder.icmp_sgt(lhs, rhs, &format!("{name}.gt"))
-        } else {
-            self.builder.icmp_ugt(lhs, rhs, &format!("{name}.gt"))
-        };
-        let less = self.builder.const_i8(0);
-        let equal = self.builder.const_i8(1);
-        let greater = self.builder.const_i8(2);
-        let gt_or_eq = self
-            .builder
-            .select(gt, greater, equal, &format!("{name}.gt_or_eq"));
-        self.builder
-            .select(lt, less, gt_or_eq, &format!("{name}.result"))
+        self.builder.emit_icmp_ordering(lhs, rhs, name, signed)
     }
 
     /// Emit `fcmp olt/ogt → select` chain returning Ordering i8.
+    ///
+    /// Delegates to `IrBuilder::emit_fcmp_ordering`.
     fn emit_fcmp_ordering(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        let lt = self.builder.fcmp_olt(lhs, rhs, &format!("{name}.lt"));
-        let gt = self.builder.fcmp_ogt(lhs, rhs, &format!("{name}.gt"));
-        let less = self.builder.const_i8(0);
-        let equal = self.builder.const_i8(1);
-        let greater = self.builder.const_i8(2);
-        let gt_or_eq = self
-            .builder
-            .select(gt, greater, equal, &format!("{name}.gt_or_eq"));
-        self.builder
-            .select(lt, less, gt_or_eq, &format!("{name}.result"))
+        self.builder.emit_fcmp_ordering(lhs, rhs, name)
     }
 
     /// Call `ori_str_eq(a: ptr, b: ptr) -> bool` via alloca+store pattern.
