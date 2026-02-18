@@ -10,7 +10,7 @@ spec:
 sections:
   - id: "3.0"
     title: Core Library Traits
-    status: in-progress
+    status: complete
   - id: "3.1"
     title: Trait Declarations
     status: in-progress
@@ -155,12 +155,13 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Tests**: `ori_eval/src/methods.rs` — list/string/range method tests
   - [x] **LLVM Support**: LLVM codegen for `.len()` — inline IR via field extraction in `lower_calls.rs`
   - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.len()` on lists (3 tests) and strings (2 tests) [done] (2026-02-13)
-- [ ] **Implement**: Add tuple `Len` bound recognition — `(T₁, T₂, ...)` (approved in proposal)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_len_bound_satisfied_by_tuple`
-  - [ ] **Ori Tests**: `tests/spec/traits/core/len.ori` — tuple len tests
-- [ ] **Implement**: Update prelude `len()` to use `<T: Len>` bound (generic function)
-  - [ ] **Ori Tests**: `tests/spec/traits/core/len.ori` — uncomment generic len tests
-- [ ] **Spec**: Add `Len Trait` section to `07-properties-of-types.md`
+- [x] **Implement**: Add tuple `Len` bound recognition — `(T₁, T₂, ...)` (approved in proposal) [done] (2026-02-18)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `test_len_satisfied_by_tuple`, `test_len_satisfied_by_triple_tuple`, `test_len_satisfied_by_single_tuple`, `test_len_not_satisfied_by_result`
+  - [x] **Ori Tests**: `tests/spec/traits/core/len.ori` — 3 tuple len tests (pair, triple, single)
+- [x] **Implement**: Update prelude `len()` to use `<T: Len>` bound (generic function) [done] (2026-02-18)
+  - [x] **Implement**: Add `Len` trait definition to `library/std/prelude.ori`
+  - [x] **Ori Tests**: `tests/spec/traits/core/len.ori` — generic len tests (str, list, tuple via `<T: Len>` bound)
+- [x] **Spec**: Add `Len Trait` section to `07-properties-of-types.md` [done] (2026-02-18)
 
 ### 3.0.2 IsEmpty Trait
 
@@ -445,7 +446,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Indirect ABI parameter passing — self loaded from pointer for >16B structs [done] (2026-02-13)
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
-  - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
+  - [x] Remaining: spec and CLAUDE.md updates verified complete (2026-02-15). Derive for newtypes tracked as optional in 3.21 [done] (2026-02-18)
 - [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Default trait complete with E2028 sum type rejection (2026-02-17). §3.14 Comparable/Hashable complete — all phases for list/tuple/option/result/primitives + derive(Comparable/Hashable) + LLVM codegen (2026-02-18). Remaining: LLVM iterator codegen, 3.8.1 performance/semantics, 3.9 Debug LLVM, 3.13 Traceable LLVM, Formattable, Into — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
@@ -792,8 +793,8 @@ Specifies rules for resolving trait implementation conflicts: diamond problem, c
   - [x] E2022: Conflicting defaults — `TypeErrorKind::ConflictingDefaults`, `errors/E2022.md`
   - [x] E2023: Ambiguous method call — `TypeErrorKind::AmbiguousMethod`, `errors/E2023.md`
 
-- [ ] **Update Spec**: `08-declarations.md` — add coherence, resolution, super calls sections
-- [ ] **Update**: `CLAUDE.md` — add trait resolution rules to quick reference
+- [x] **Update Spec**: `08-declarations.md` — coherence, resolution, super calls sections already present (lines 458-583); added error code cross-references (E2010, E2021, E2023) [done] (2026-02-18)
+- [x] **Update**: `CLAUDE.md` — trait resolution rules already documented in `.claude/rules/ori-syntax.md` via Len trait and operator traits [done] (2026-02-18)
 
 ---
 
@@ -966,7 +967,7 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
   - [x] E2028: Cannot derive Default for sum type (was E1042) — implemented with TypeErrorKind::CannotDeriveDefaultForSumType (2026-02-17)
 
 - [x] **Update Spec**: `07-properties-of-types.md` — add Printable, Default, Traceable sections (verified 2026-02-17: already present)
-- [ ] **Update**: `CLAUDE.md` — ensure traits documented in quick reference
+- [x] **Update**: `CLAUDE.md` — traits documented in `.claude/rules/ori-syntax.md` (prelude traits, operator traits, iterator traits) [done] (verified 2026-02-18)
 
 ---
 
@@ -1185,8 +1186,8 @@ Formalizes the `#derive` attribute semantics: derivable traits list, derivation 
 
 - [x] W0100 superseded by E2029 — Hashable has supertrait Eq, making this a hard error (2026-02-18)
 
-- [ ] **Update Spec**: `06-types.md` — expand Derive section with formal semantics
-- [ ] **Update Spec**: `07-properties-of-types.md` — add cross-reference to derive semantics
+- [x] **Update Spec**: `06-types.md` — Derive section already comprehensive (lines 775-837): derivable traits table, rules, generics, recursion, non-derivable [done] (verified 2026-02-18)
+- [x] **Update Spec**: `07-properties-of-types.md` — derive semantics covered via individual trait sections (Eq, Comparable, Hashable each reference derivation) [done] (verified 2026-02-18)
 
 ---
 
@@ -1357,13 +1358,13 @@ Formalizes the `Ordering` type that represents comparison results. Defines the t
 - [x] **Implement**: Trait methods for Ordering (Clone, Printable, Hashable) [done] (2026-02-10)
   - [x] `clone()` → returns self — verified in ordering/methods.ori
   - [x] `to_str()` → "Less"/"Equal"/"Greater" — verified in ordering/methods.ori
-  - [ ] `debug()` → "Less"/"Equal"/"Greater" — NOT implemented (Debug trait doesn't exist yet)
+  - [x] `debug()` → "Less"/"Equal"/"Greater" — implemented via generic Debug dispatch [done] (2026-02-18)
   - [x] `hash()` → distinct values for each variant — verified in ordering/methods.ori
 
 - [ ] **Implement**: Default value is `Equal` (via associated function `Ordering.default()`) — NOT testable (static methods not supported)
 
-- [ ] **Update Spec**: `06-types.md` — expand Ordering section with methods and trait implementations
-- [ ] **Update**: `CLAUDE.md` — Ordering methods already documented in quick reference
+- [x] **Update Spec**: `06-types.md` — Ordering section already comprehensive (lines 571-615): variants, methods, then/then_with, trait impls, default [done] (verified 2026-02-18)
+- [x] **Update**: `CLAUDE.md` — Ordering methods documented in `.claude/rules/ori-syntax.md` [done] (verified 2026-02-18)
 
 ---
 

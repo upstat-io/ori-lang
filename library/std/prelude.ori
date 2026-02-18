@@ -66,6 +66,11 @@ pub trait Traceable {
     @has_trace (self) -> bool
 }
 
+// Types with a countable length (collections, strings, tuples, ranges)
+pub trait Len {
+    @len (self) -> int
+}
+
 // =============================================================================
 // Iteration Traits
 // =============================================================================
@@ -293,8 +298,8 @@ pub trait Env {
 // =============================================================================
 // Utility Functions
 // =============================================================================
-// Get the length of a list
-pub @len<T> (collection: [T]) -> int = collection.len()
+// Get the length of any collection implementing Len
+pub @len<T: Len> (collection: T) -> int = collection.len()
 
 // Check if a list is empty
 pub @is_empty<T> (collection: [T]) -> bool = collection.len() == 0

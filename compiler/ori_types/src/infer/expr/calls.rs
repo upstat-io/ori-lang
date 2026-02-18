@@ -527,7 +527,8 @@ pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bo
         }
         Tag::Map | Tag::Set => COLLECTION_TRAITS.contains(&trait_name) || trait_name == "Iterable",
         Tag::Option => WRAPPER_TRAITS.contains(&trait_name),
-        Tag::Result | Tag::Tuple => RESULT_TRAITS.contains(&trait_name),
+        Tag::Result => RESULT_TRAITS.contains(&trait_name),
+        Tag::Tuple => RESULT_TRAITS.contains(&trait_name) || trait_name == "Len",
         Tag::Range => matches!(trait_name, "Len" | "Iterable"),
         Tag::Str => trait_name == "Iterable",
         Tag::DoubleEndedIterator => trait_name == "Iterator" || trait_name == "DoubleEndedIterator",

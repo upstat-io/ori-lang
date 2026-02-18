@@ -411,8 +411,15 @@ impl WellKnownNames {
                     || t == self.hashable
                     || t == self.default_trait
             }
-            Tag::Result | Tag::Tuple => {
+            Tag::Result => {
                 t == self.eq || t == self.comparable || t == self.clone_trait || t == self.hashable
+            }
+            Tag::Tuple => {
+                t == self.eq
+                    || t == self.comparable
+                    || t == self.clone_trait
+                    || t == self.hashable
+                    || t == self.len_trait
             }
             Tag::Range => t == self.len_trait || t == self.iterable,
             Tag::Str => t == self.iterable,

@@ -514,6 +514,8 @@ impl std.Display for std.Vec { }  // Error: orphan implementation
 
 Blanket implementations (`impl<T> Trait for T where ...`) follow the same rules.
 
+A duplicate implementation — where the same `Trait` and `Type` combination is implemented twice — is an error (E2010). When two blanket implementations with equal specificity could both apply, it is an error (E2021).
+
 ### Method Resolution Order
 
 When calling `value.method()`:
@@ -523,7 +525,7 @@ When calling `value.method()`:
 3. **Trait methods from in-scope traits** — traits imported into current scope
 4. **Extension methods** — methods added via `extend`
 
-If multiple traits provide the same method and none are inherent, the call is ambiguous. Use fully-qualified syntax:
+If multiple traits provide the same method and none are inherent, the call is ambiguous (E2023). Use fully-qualified syntax to disambiguate:
 
 ```ori
 A.method(x)  // Calls A's implementation
@@ -571,7 +573,7 @@ When multiple implementations could apply, the most specific wins:
 2. **Constrained blanket** — `impl<T: Clone> Trait for T`
 3. **Generic blanket** — `impl<T> Trait for T` (least specific)
 
-It is an error if two applicable implementations have equal specificity.
+It is an error if two applicable implementations have equal specificity (E2021).
 
 ### Extension Method Conflicts
 
