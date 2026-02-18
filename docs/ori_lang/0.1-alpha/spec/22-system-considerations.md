@@ -73,12 +73,12 @@ For grapheme-aware operations, use standard library functions.
 
 ### Length
 
-`len(str)` returns the number of codepoints, not bytes.
+`len(str)` returns the number of bytes, not codepoints. Use `.chars().count()` for codepoint count.
 
 ```ori
-len("hello")  // 5
-len("世界")    // 2
-len("🧑‍🚀")    // 3 (codepoints, not graphemes)
+len("hello")  // 5 (5 bytes)
+len("世界")    // 6 (each character is 3 UTF-8 bytes)
+len("🧑‍🚀")    // 11 (multi-byte emoji ZWJ sequence: 4+3+4)
 ```
 
 ## Collections

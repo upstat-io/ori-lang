@@ -655,12 +655,9 @@ use std.testing { assert, assert_eq, assert_ne }
 // Extended str Tests — Edge Cases
 // =============================================================================
 
-// TODO: IMPLEMENTATION BUG: len() returns byte count not character count for strings
-// Unicode strings "こんにちは" has 5 characters but 15 bytes (3 bytes per Japanese char)
-// @test_str_unicode_content tests @str_unicode_content () -> void = run(
-//     let x = "こんにちは",
-//     assert(cond: len(collection: x) == 5),
-// )
+// str.len() returns byte count, not codepoint count (per Len Trait proposal, approved 2026-02-18).
+// "こんにちは" has 5 codepoints but 15 bytes (3 UTF-8 bytes per character).
+// Use .chars().count() for codepoint count when available.
 
 @str_unicode_content () -> str = "こんにちは"
 

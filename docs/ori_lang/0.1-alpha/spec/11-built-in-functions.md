@@ -42,7 +42,7 @@ len(collection: T) -> int
 is_empty(collection: T) -> bool
 ```
 
-Works on `[T]`, `{K: V}`, `str`. For strings, returns code point count.
+Works on `[T]`, `{K: V}`, `str`, `Set<T>`, `Range<int>`, tuples. For strings, returns byte count (not codepoint count). Use `.chars().count()` for codepoint count.
 
 ## Option Functions
 
