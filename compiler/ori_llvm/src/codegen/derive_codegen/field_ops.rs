@@ -102,32 +102,8 @@ pub(super) fn emit_field_compare<'a>(
             emit_icmp_ordering(fc, lhs, rhs, name, /* signed */ true)
         }
 
-        TypeInfo::Char | TypeInfo::Byte => {
-            // Char/Byte are unsigned — zero-extend to i64 for unsigned comparison
-            let i64_ty = fc.builder_mut().i64_type();
-            let lhs_ext = fc
-                .builder_mut()
-                .zext(lhs, i64_ty, &format!("{name}.lhs.ext"));
-            let rhs_ext = fc
-                .builder_mut()
-                .zext(rhs, i64_ty, &format!("{name}.rhs.ext"));
-            emit_icmp_ordering(fc, lhs_ext, rhs_ext, name, /* signed */ false)
-        }
-
-        TypeInfo::Bool => {
-            // false(0) < true(1) — zero-extend then unsigned compare
-            let i64_ty = fc.builder_mut().i64_type();
-            let lhs_ext = fc
-                .builder_mut()
-                .zext(lhs, i64_ty, &format!("{name}.lhs.ext"));
-            let rhs_ext = fc
-                .builder_mut()
-                .zext(rhs, i64_ty, &format!("{name}.rhs.ext"));
-            emit_icmp_ordering(fc, lhs_ext, rhs_ext, name, /* signed */ false)
-        }
-
-        TypeInfo::Ordering => {
-            // Ordering is i8: Less(0) < Equal(1) < Greater(2)
+        TypeInfo::Char | TypeInfo::Byte | TypeInfo::Bool | TypeInfo::Ordering => {
+            // All unsigned at native width — icmp works directly without widening
             emit_icmp_ordering(fc, lhs, rhs, name, /* signed */ false)
         }
 
@@ -158,6 +134,8 @@ pub(super) fn emit_field_compare<'a>(
 }
 
 /// Emit `icmp slt/sgt → select` chain returning Ordering i8.
+///
+/// Delegates to `IrBuilder::emit_icmp_ordering`.
 fn emit_icmp_ordering<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     lhs: ValueId,
@@ -165,43 +143,19 @@ fn emit_icmp_ordering<'a>(
     name: &str,
     signed: bool,
 ) -> ValueId {
-    let lt = if signed {
-        fc.builder_mut().icmp_slt(lhs, rhs, &format!("{name}.lt"))
-    } else {
-        fc.builder_mut().icmp_ult(lhs, rhs, &format!("{name}.lt"))
-    };
-    let gt = if signed {
-        fc.builder_mut().icmp_sgt(lhs, rhs, &format!("{name}.gt"))
-    } else {
-        fc.builder_mut().icmp_ugt(lhs, rhs, &format!("{name}.gt"))
-    };
-    let less = fc.builder_mut().const_i8(0);
-    let equal = fc.builder_mut().const_i8(1);
-    let greater = fc.builder_mut().const_i8(2);
-    let gt_or_eq = fc
-        .builder_mut()
-        .select(gt, greater, equal, &format!("{name}.gt_or_eq"));
-    fc.builder_mut()
-        .select(lt, less, gt_or_eq, &format!("{name}.ord"))
+    fc.builder_mut().emit_icmp_ordering(lhs, rhs, name, signed)
 }
 
 /// Emit `fcmp olt/ogt → select` chain returning Ordering i8.
+///
+/// Delegates to `IrBuilder::emit_fcmp_ordering`.
 fn emit_fcmp_ordering<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     lhs: ValueId,
     rhs: ValueId,
     name: &str,
 ) -> ValueId {
-    let lt = fc.builder_mut().fcmp_olt(lhs, rhs, &format!("{name}.lt"));
-    let gt = fc.builder_mut().fcmp_ogt(lhs, rhs, &format!("{name}.gt"));
-    let less = fc.builder_mut().const_i8(0);
-    let equal = fc.builder_mut().const_i8(1);
-    let greater = fc.builder_mut().const_i8(2);
-    let gt_or_eq = fc
-        .builder_mut()
-        .select(gt, greater, equal, &format!("{name}.gt_or_eq"));
-    fc.builder_mut()
-        .select(lt, less, gt_or_eq, &format!("{name}.ord"))
+    fc.builder_mut().emit_fcmp_ordering(lhs, rhs, name)
 }
 
 /// Call `ori_str_compare(a: ptr, b: ptr) -> i8` via alloca+store pattern.
@@ -228,6 +182,28 @@ fn emit_str_compare_call<'a>(
         .unwrap_or_else(|| fc.builder_mut().const_i8(1)) // Equal fallback
 }
 
+/// Call `ori_str_hash(s: ptr) -> i64` via alloca+store pattern.
+fn emit_str_hash_call<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    val: ValueId,
+    name: &str,
+) -> ValueId {
+    let str_ty = fc.resolve_type(Idx::STR);
+    let str_ty_id = fc.builder_mut().register_type(str_ty);
+    let ptr_ty = fc.builder_mut().ptr_type();
+    let i64_ty = fc.builder_mut().i64_type();
+
+    let val_alloca = fc.builder_mut().alloca(str_ty_id, &format!("{name}.str"));
+    fc.builder_mut().store(val, val_alloca);
+
+    let hash_fn = fc
+        .builder_mut()
+        .get_or_declare_function("ori_str_hash", &[ptr_ty], i64_ty);
+    fc.builder_mut()
+        .call(hash_fn, &[val_alloca], name)
+        .unwrap_or_else(|| fc.builder_mut().const_i64(0))
+}
+
 /// Coerce a field value to i64 for hashing.
 pub(super) fn coerce_to_i64<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
@@ -239,7 +215,13 @@ pub(super) fn coerce_to_i64<'a>(
     match &info {
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => val,
 
-        TypeInfo::Char | TypeInfo::Byte | TypeInfo::Ordering => {
+        TypeInfo::Byte => {
+            // Byte is unsigned (8-bit) — use zext to match evaluator semantics
+            let i64_ty = fc.builder_mut().i64_type();
+            fc.builder_mut().zext(val, i64_ty, name)
+        }
+
+        TypeInfo::Char | TypeInfo::Ordering => {
             let i64_ty = fc.builder_mut().i64_type();
             fc.builder_mut().sext(val, i64_ty, name)
         }
@@ -250,14 +232,20 @@ pub(super) fn coerce_to_i64<'a>(
         }
 
         TypeInfo::Float => {
+            // Normalize ±0.0 → +0.0 before bitcast to preserve hash contract:
+            // (-0.0).equals(0.0) is true, so their hashes must match.
+            let pos_zero = fc.builder_mut().const_f64(0.0);
+            let is_zero = fc
+                .builder_mut()
+                .fcmp_oeq(val, pos_zero, &format!("{name}.is_zero"));
+            let normalized =
+                fc.builder_mut()
+                    .select(is_zero, pos_zero, val, &format!("{name}.normalized"));
             let i64_ty = fc.builder_mut().i64_type();
-            fc.builder_mut().bitcast(val, i64_ty, name)
+            fc.builder_mut().bitcast(normalized, i64_ty, name)
         }
 
-        TypeInfo::Str => fc
-            .builder_mut()
-            .extract_value(val, 0, &format!("{name}.len"))
-            .unwrap_or_else(|| fc.builder_mut().const_i64(0)),
+        TypeInfo::Str => emit_str_hash_call(fc, val, name),
 
         TypeInfo::Struct { .. } => {
             let nested_name = fc.type_idx_to_name(field_type);
