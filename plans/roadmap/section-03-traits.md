@@ -55,7 +55,7 @@ sections:
     status: in-progress
   - id: "3.14"
     title: Comparable and Hashable Traits
-    status: in-progress
+    status: complete
   - id: "3.15"
     title: Derived Traits Formal Semantics
     status: not-started
@@ -85,7 +85,7 @@ sections:
 
 > **SPEC**: `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 51 passing (39 traits + 12 derives, 0 ignored), proposals pending (3.7-3.17). Verified 2026-02-17: Default trait complete (definition, derivation, E2028 sum type rejection, LLVM codegen). Derive codegen complete (Eq, Clone, Hashable, Printable, Default). Clone on compound types complete. Audited 2026-02-17: §3.14 evaluator+typeck complete — Comparable/Hashable/equals on all compound types, hash_combine, derive(Comparable/Hashable). LLVM codegen for compound type methods + derive(Comparable) remaining.
+**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 57 passing (45 traits + 12 derives, 0 ignored), proposals pending (3.7-3.17). §3.14 LLVM codegen complete for list/tuple/option/result compare+hash+equals and derive(Comparable/Hashable) (2026-02-18). Map/set LLVM hash/equals pending AOT collection infrastructure. Remaining: 3.8.1 performance, 3.9 Debug LLVM, 3.13 Traceable LLVM, 3.15-3.17 not started.
 
 ---
 
@@ -439,7 +439,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
-- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Default trait complete with E2028 sum type rejection (2026-02-17). Comparable/Hashable eval+typeck complete (2026-02-17). Remaining: LLVM iterator codegen, LLVM compound type methods (compare/hash/equals), derive(Comparable) LLVM, 3.8.1 performance/semantics, Formattable, Into — not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Default trait complete with E2028 sum type rejection (2026-02-17). §3.14 Comparable/Hashable complete — all phases for list/tuple/option/result/primitives + derive(Comparable/Hashable) + LLVM codegen (2026-02-18). Remaining: LLVM iterator codegen, 3.8.1 performance/semantics, 3.9 Debug LLVM, 3.13 Traceable LLVM, Formattable, Into — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
@@ -992,8 +992,8 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — dispatch_list_method with compare() via `compare_lists()`
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for list
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — list compare() tests (6 tests incl. empty, length diff)
-  - [ ] **LLVM Support**: LLVM codegen for list compare (compound types)
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — list compare codegen
+  - [x] **LLVM Support**: `ori_llvm/src/codegen/lower_collection_methods.rs` — `emit_list_compare()` lexicographic loop with phi-merge (2026-02-18)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_list_compare`, `test_aot_list_compare_empty` (2026-02-18)
 
 - [x] **Implement**: Comparable implementations for tuples (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/compare.rs` — lexicographic via `compare_lists()` (same logic)
@@ -1052,8 +1052,8 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — list/map/set hash(); `compare.rs` — tuple hash via `hash_value()`
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — hash() returns int for all collections
   - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — collection hash tests (order-independent for map/set)
-  - [ ] **LLVM Support**: LLVM codegen for list/map/set hash (tuple hash done in `lower_builtin_methods.rs` — 2026-02-18)
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — list/map/set hash codegen (tuple hash: `test_aot_tuple_hash` — 2026-02-18)
+  - [x] **LLVM Support**: List hash in `lower_collection_methods.rs` — `emit_list_hash()` fold loop with hash_combine; tuple hash in `lower_builtin_methods.rs` (2026-02-18). Map/set hash pending AOT collection infrastructure.
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_list_hash`, `test_aot_list_hash_empty`, `test_aot_tuple_hash` (2026-02-18). Map/set hash tests pending AOT collection infrastructure.
 
 - [x] **Implement**: Hashable implementations for Option<T> and Result<T, E> (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/variants.rs` — Option hash (None→0, Some→hash_combine(1,hash)); Result hash (Ok→hash_combine(2,hash), Err→hash_combine(3,hash))
@@ -1107,8 +1107,8 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [x] Evaluator: `ori_eval/src/methods/compare.rs` — tuple element-wise via `equals_values()`
   - [x] Type checker: `ori_types/src/infer/expr/methods.rs` — `equals` registered for all compound types
   - [x] **Ori Tests**: `tests/spec/traits/core/compound_equals.ori` — 12 tests (list, map, Option, Result, tuple)
-  - [ ] LLVM codegen: list/map/set equals (Option/Result/Tuple done in `lower_builtin_methods.rs` — 2026-02-18)
-  - [ ] **LLVM Rust Tests**: list/map/set equals codegen (Option/Result/Tuple: `test_aot_option_equals`, `test_aot_result_equals`, `test_aot_tuple_equals` — 2026-02-18)
+  - [x] LLVM codegen: List equals in `lower_collection_methods.rs` — `emit_list_equals()` length check + element-wise loop; Option/Result/Tuple in `lower_builtin_methods.rs` (2026-02-18). Map/set equals pending AOT collection infrastructure.
+  - [x] **LLVM Rust Tests**: `test_aot_list_equals`, `test_aot_list_equals_empty`, `test_aot_option_equals`, `test_aot_result_equals`, `test_aot_tuple_equals` (2026-02-18). Map/set equals tests pending AOT collection infrastructure.
 
 ---
 

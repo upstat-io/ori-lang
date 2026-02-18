@@ -12,7 +12,7 @@
 //! - **Option**: `is_some`, `is_none`, `unwrap`, `unwrap_or`, `compare`, `equals`, `hash`, `clone`
 //! - **Result**: `is_ok`, `is_err`, `unwrap`, `compare`, `equals`, `hash`, `clone`
 //! - **Tuple**: `len`, `compare`, `equals`, `hash`, `clone`
-//! - **List**: `len`, `is_empty`, `clone`
+//! - **List**: `len`, `is_empty`, `clone`, `compare`, `equals`, `hash`
 
 use ori_ir::canon::CanRange;
 use ori_types::Idx;
@@ -57,7 +57,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                         let err = *err;
                         self.lower_result_method(recv_val, recv_type, ok, err, method, args)
                     }
-                    TypeInfo::List { .. } => self.lower_list_method(recv_val, method),
+                    TypeInfo::List { element } => {
+                        let element = *element;
+                        self.lower_list_method(recv_val, element, method, args)
+                    }
                     TypeInfo::Tuple { elements } => {
                         let elements = elements.clone();
                         self.lower_tuple_method(recv_val, &elements, method, args)
@@ -995,7 +998,13 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // List methods
     // -----------------------------------------------------------------------
 
-    fn lower_list_method(&mut self, recv: ValueId, method: &str) -> Option<ValueId> {
+    fn lower_list_method(
+        &mut self,
+        recv: ValueId,
+        element: Idx,
+        method: &str,
+        args: CanRange,
+    ) -> Option<ValueId> {
         match method {
             "len" | "length" => self.builder.extract_value(recv, 0, "list.len"),
             "is_empty" => {
@@ -1004,6 +1013,16 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 Some(self.builder.icmp_eq(len, zero, "list.is_empty"))
             }
             "clone" => Some(recv),
+            "compare" | "equals" => {
+                let arg_ids = self.canon.arena.get_expr_list(args);
+                let other = self.lower(*arg_ids.first()?)?;
+                if method == "compare" {
+                    self.emit_list_compare(recv, other, element)
+                } else {
+                    self.emit_list_equals(recv, other, element)
+                }
+            }
+            "hash" => self.emit_list_hash(recv, element),
             _ => None,
         }
     }
@@ -1013,7 +1032,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     // -----------------------------------------------------------------------
 
     /// Emit equality comparison for an inner value, dispatching on `TypeInfo`.
-    fn emit_inner_eq(
+    pub(crate) fn emit_inner_eq(
         &mut self,
         lhs: ValueId,
         rhs: ValueId,
@@ -1040,6 +1059,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 self.emit_tuple_equals(lhs, rhs, &elements)
                     .unwrap_or_else(|| self.builder.const_bool(false))
             }
+            TypeInfo::List { element } => {
+                let element = *element;
+                self.emit_list_equals(lhs, rhs, element)
+                    .unwrap_or_else(|| self.builder.const_bool(false))
+            }
             TypeInfo::Struct { .. } => {
                 if let Some(&type_name) = self.type_idx_to_name.get(&inner_type) {
                     let eq_name = self.interner.intern("eq");
@@ -1059,7 +1083,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit three-way comparison for an inner value, returning Ordering (i8).
-    fn emit_inner_compare(
+    pub(crate) fn emit_inner_compare(
         &mut self,
         lhs: ValueId,
         rhs: ValueId,
@@ -1100,6 +1124,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 self.emit_tuple_compare(lhs, rhs, &elements)
                     .unwrap_or_else(|| self.builder.const_i8(1))
             }
+            TypeInfo::List { element } => {
+                let element = *element;
+                self.emit_list_compare(lhs, rhs, element)
+                    .unwrap_or_else(|| self.builder.const_i8(1))
+            }
             TypeInfo::Struct { .. } => {
                 if let Some(&type_name) = self.type_idx_to_name.get(&inner_type) {
                     let compare_name = self.interner.intern("compare");
@@ -1120,7 +1149,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit hash computation for an inner value, producing i64.
-    fn emit_inner_hash(&mut self, val: ValueId, inner_type: Idx, name: &str) -> ValueId {
+    pub(crate) fn emit_inner_hash(&mut self, val: ValueId, inner_type: Idx, name: &str) -> ValueId {
         let info = self.type_info.get(inner_type);
         match &info {
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => val,
@@ -1159,6 +1188,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 self.emit_tuple_hash(val, &elements)
                     .unwrap_or_else(|| self.builder.const_i64(0))
             }
+            TypeInfo::List { element } => {
+                let element = *element;
+                self.emit_list_hash(val, element)
+                    .unwrap_or_else(|| self.builder.const_i64(0))
+            }
             TypeInfo::Struct { .. } => {
                 if let Some(&type_name) = self.type_idx_to_name.get(&inner_type) {
                     let hash_name = self.interner.intern("hash");
@@ -1184,7 +1218,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// Emit `icmp slt/sgt → select` chain returning Ordering i8.
     ///
     /// Delegates to `IrBuilder::emit_icmp_ordering`.
-    fn emit_icmp_ordering(
+    pub(crate) fn emit_icmp_ordering(
         &mut self,
         lhs: ValueId,
         rhs: ValueId,

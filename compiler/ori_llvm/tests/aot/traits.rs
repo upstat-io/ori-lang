@@ -7,7 +7,7 @@
 //! - 3.0: Core library traits (Len, `IsEmpty`, Option, Result, Comparable, Eq)
 //! - 3.1: Trait declarations (default methods)
 //! - 3.2: Trait implementations (inherent impl, trait impl, method resolution)
-//! - 3.14: Comparable/Hashable for compound types (Option, Result, Tuple)
+//! - 3.14: Comparable/Hashable for compound types (Option, Result, Tuple, List)
 //! - 3.21: Operator traits (user-defined +, -, *, /, %, //, &, |, ^, <<, >>)
 
 #![allow(
@@ -1461,5 +1461,135 @@ fn test_aot_option_tuple_equals() {
 )
 "#,
         "option_tuple_equals",
+    );
+}
+
+// -- List compare --
+
+#[test]
+fn test_aot_list_compare() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = [1, 2, 3],
+    let b = [1, 2, 4],
+    let c = [1, 2, 3],
+    let d = [1, 2],
+    // [1,2,3] < [1,2,4] — third element decides
+    let r1 = a.compare(b).is_less(),
+    // [1,2,3] == [1,2,3]
+    let r2 = a.compare(c).is_equal(),
+    // [1,2,4] > [1,2,3] — third element decides
+    let r3 = b.compare(a).is_greater(),
+    // [1,2] < [1,2,3] — shorter list is Less
+    let r4 = d.compare(a).is_less(),
+    // [1,2,3] > [1,2] — longer list is Greater
+    let r5 = a.compare(d).is_greater(),
+    if r1 && r2 && r3 && r4 && r5 then 0 else 1
+)
+"#,
+        "list_compare",
+    );
+}
+
+#[test]
+fn test_aot_list_compare_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let empty: [int] = [],
+    let one = [1],
+    // [] == []
+    let r1 = empty.compare(empty).is_equal(),
+    // [] < [1]
+    let r2 = empty.compare(one).is_less(),
+    // [1] > []
+    let r3 = one.compare(empty).is_greater(),
+    if r1 && r2 && r3 then 0 else 1
+)
+"#,
+        "list_compare_empty",
+    );
+}
+
+// -- List equals --
+
+#[test]
+fn test_aot_list_equals() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = [1, 2, 3],
+    let b = [1, 2, 3],
+    let c = [1, 2, 4],
+    let d = [1, 2],
+    let r1 = a.equals(b),
+    let r2 = !a.equals(c),
+    let r3 = !a.equals(d),
+    if r1 && r2 && r3 then 0 else 1
+)
+"#,
+        "list_equals",
+    );
+}
+
+#[test]
+fn test_aot_list_equals_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a: [int] = [],
+    let b: [int] = [],
+    let c = [1],
+    let r1 = a.equals(b),
+    let r2 = !a.equals(c),
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "list_equals_empty",
+    );
+}
+
+// -- List hash --
+
+#[test]
+fn test_aot_list_hash() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = [1, 2, 3],
+    let b = [1, 2, 3],
+    let c = [3, 2, 1],
+    let h1 = a.hash(),
+    let h2 = b.hash(),
+    let h3 = c.hash(),
+    // Same list → same hash
+    let r1 = h1 == h2,
+    // Different order → different hash
+    let r2 = h1 != h3,
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "list_hash",
+    );
+}
+
+#[test]
+fn test_aot_list_hash_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a: [int] = [],
+    let b: [int] = [],
+    let h1 = a.hash(),
+    let h2 = b.hash(),
+    // Empty lists have same hash
+    let r1 = h1 == h2,
+    // Empty list hash is 0 (initial seed)
+    let r2 = h1 == 0,
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "list_hash_empty",
     );
 }
