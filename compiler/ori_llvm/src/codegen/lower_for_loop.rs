@@ -536,8 +536,15 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             self.scope.bind_immutable(binding, elem_val);
         }
 
-        // No loop context needed — Option isn't a real loop, break/continue
-        // would be caught by the type checker
+        // Loop context: both break and continue jump to exit.
+        // Option body runs at most once, so continue just skips to exit
+        // (no latch/back-edge needed).
+        let prev_loop = self.loop_ctx.take();
+        self.loop_ctx = Some(LoopContext {
+            exit_block: exit_bb,
+            continue_block: exit_bb,
+            break_values: Vec::new(),
+        });
 
         let body_val = self.lower(body);
 
@@ -549,6 +556,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             self.builder.br(exit_bb);
         }
 
+        // Restore loop context
+        let loop_ctx = self.loop_ctx.take().unwrap();
+        self.loop_ctx = prev_loop;
+
         // Exit
         self.builder.position_at_end(exit_bb);
 
@@ -556,7 +567,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             return self.finish_yield_list(&yc, expr_id);
         }
 
-        Some(self.builder.const_i64(0))
+        self.build_for_result(&loop_ctx, "foropt.result")
     }
 
     // -----------------------------------------------------------------------

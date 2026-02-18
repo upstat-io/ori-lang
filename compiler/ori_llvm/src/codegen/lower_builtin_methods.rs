@@ -238,6 +238,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let other = self.lower(*arg_ids.first()?)?;
                 Some(self.builder.icmp_eq(recv, other, "char.eq"))
             }
+            "to_int" => {
+                let i64_ty = self.builder.i64_type();
+                // Char is i32 (Unicode scalar 0..=0x10FFFF), always non-negative
+                Some(self.builder.zext(recv, i64_ty, "char.to_int"))
+            }
             "clone" => Some(recv),
             _ => None,
         }
