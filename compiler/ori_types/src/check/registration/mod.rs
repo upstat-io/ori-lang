@@ -1192,7 +1192,7 @@ fn register_derived_impl(
     type_decl: &ori_ir::TypeDecl,
     trait_name: Name,
 ) {
-    // 0. Reject #[derive(Default)] on sum types (spec: ambiguous variant)
+    // 0a. Reject #[derive(Default)] on sum types (spec: ambiguous variant)
     let trait_str = checker.interner().lookup(trait_name);
     if trait_str == "Default" && matches!(type_decl.kind, ori_ir::TypeDeclKind::Sum(_)) {
         checker.push_error(TypeCheckError::cannot_derive_default_for_sum_type(
@@ -1200,6 +1200,28 @@ fn register_derived_impl(
             type_decl.name,
         ));
         return;
+    }
+
+    // 0b. Reject #[derive(Hashable)] without Eq (hash invariant: a == b ⟹ hash(a) == hash(b))
+    if trait_str == "Hashable" {
+        let has_eq = type_decl
+            .derives
+            .iter()
+            .any(|d| checker.interner().lookup(*d) == "Eq");
+        if !has_eq {
+            // Also check if an explicit `impl Eq for Type` exists in the trait registry
+            let eq_name = checker.interner().intern("Eq");
+            let eq_idx = checker.pool_mut().named(eq_name);
+            let self_type = checker.pool_mut().named(type_decl.name);
+            let has_eq_impl = checker.trait_registry().has_impl(eq_idx, self_type);
+            if !has_eq_impl {
+                checker.push_error(TypeCheckError::cannot_derive_hashable_without_eq(
+                    type_decl.span,
+                    type_decl.name,
+                ));
+                return;
+            }
+        }
     }
 
     // 1. Get the trait index

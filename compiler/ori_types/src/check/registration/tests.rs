@@ -429,3 +429,60 @@ fn self_in_receiver_position_is_allowed() {
         "Self in receiver position should not violate object safety"
     );
 }
+
+// ── E2029: Derive Hashable without Eq ────────────────────────────────
+
+#[test]
+fn derive_hashable_without_eq_emits_error() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+
+    let hashable = interner.intern("Hashable");
+    let type_name = interner.intern("Point");
+    let type_decl = ori_ir::TypeDecl {
+        name: type_name,
+        kind: ori_ir::TypeDeclKind::Struct(vec![]),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives: vec![hashable], // only Hashable, no Eq
+    };
+
+    register_derived_impl(&mut checker, &type_decl, hashable);
+
+    let errors = checker.errors();
+    assert_eq!(errors.len(), 1, "expected exactly one error");
+    assert_eq!(errors[0].code(), ori_diagnostic::ErrorCode::E2029);
+}
+
+#[test]
+fn derive_eq_and_hashable_succeeds() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+
+    let eq = interner.intern("Eq");
+    let hashable = interner.intern("Hashable");
+    let type_name = interner.intern("Point");
+    let type_decl = ori_ir::TypeDecl {
+        name: type_name,
+        kind: ori_ir::TypeDeclKind::Struct(vec![]),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives: vec![eq, hashable], // both Eq and Hashable
+    };
+
+    // Register Eq first (as the derive processor would)
+    register_derived_impl(&mut checker, &type_decl, eq);
+    // Now register Hashable — should succeed
+    register_derived_impl(&mut checker, &type_decl, hashable);
+
+    let errors = checker.errors();
+    assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
+}

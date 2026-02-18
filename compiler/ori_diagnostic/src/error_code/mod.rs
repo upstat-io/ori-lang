@@ -141,6 +141,12 @@ pub enum ErrorCode {
     E2027,
     /// Cannot derive Default for sum type (ambiguous variant)
     E2028,
+    /// Cannot derive Hashable without Eq (hash invariant requires equality)
+    E2029,
+    /// Hashable implementation may violate hash invariant
+    E2030,
+    /// Type cannot be used as map key (missing Hashable)
+    E2031,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -320,6 +326,9 @@ impl ErrorCode {
         ErrorCode::E2026,
         ErrorCode::E2027,
         ErrorCode::E2028,
+        ErrorCode::E2029,
+        ErrorCode::E2030,
+        ErrorCode::E2031,
         // Pattern
         ErrorCode::E3001,
         ErrorCode::E3002,
@@ -440,6 +449,9 @@ impl ErrorCode {
             ErrorCode::E2026 => "E2026",
             ErrorCode::E2027 => "E2027",
             ErrorCode::E2028 => "E2028",
+            ErrorCode::E2029 => "E2029",
+            ErrorCode::E2030 => "E2030",
+            ErrorCode::E2031 => "E2031",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -573,6 +585,9 @@ impl ErrorCode {
                 | ErrorCode::E2026
                 | ErrorCode::E2027
                 | ErrorCode::E2028
+                | ErrorCode::E2029
+                | ErrorCode::E2030
+                | ErrorCode::E2031
         )
     }
 
