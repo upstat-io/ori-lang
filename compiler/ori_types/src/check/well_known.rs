@@ -19,7 +19,7 @@
 
 use ori_ir::{Name, StringInterner};
 
-use crate::{Idx, Pool};
+use crate::{Idx, Pool, Tag};
 
 /// Pre-interned names for all primitive and well-known generic types.
 ///
@@ -55,6 +55,35 @@ pub(crate) struct WellKnownNames {
     pub range: Name,
     pub iterator: Name,
     pub double_ended_iterator: Name,
+
+    // Well-known trait names
+    pub eq: Name,
+    pub comparable: Name,
+    pub clone_trait: Name,
+    pub hashable: Name,
+    pub default_trait: Name,
+    pub printable: Name,
+    pub sendable: Name,
+    pub add: Name,
+    pub sub: Name,
+    pub mul: Name,
+    pub div: Name,
+    pub floor_div: Name,
+    pub rem_trait: Name,
+    pub neg: Name,
+    pub bit_and: Name,
+    pub bit_or: Name,
+    pub bit_xor: Name,
+    pub bit_not: Name,
+    pub shl: Name,
+    pub shr: Name,
+    pub not_trait: Name,
+    pub len_trait: Name,
+    pub is_empty: Name,
+    pub iterable: Name,
+
+    // Well-known keyword names
+    pub self_kw: Name,
 }
 
 impl WellKnownNames {
@@ -85,6 +114,31 @@ impl WellKnownNames {
             range: interner.intern("Range"),
             iterator: interner.intern("Iterator"),
             double_ended_iterator: interner.intern("DoubleEndedIterator"),
+            eq: interner.intern("Eq"),
+            comparable: interner.intern("Comparable"),
+            clone_trait: interner.intern("Clone"),
+            hashable: interner.intern("Hashable"),
+            default_trait: interner.intern("Default"),
+            printable: interner.intern("Printable"),
+            sendable: interner.intern("Sendable"),
+            add: interner.intern("Add"),
+            sub: interner.intern("Sub"),
+            mul: interner.intern("Mul"),
+            div: interner.intern("Div"),
+            floor_div: interner.intern("FloorDiv"),
+            rem_trait: interner.intern("Rem"),
+            neg: interner.intern("Neg"),
+            bit_and: interner.intern("BitAnd"),
+            bit_or: interner.intern("BitOr"),
+            bit_xor: interner.intern("BitXor"),
+            bit_not: interner.intern("BitNot"),
+            shl: interner.intern("Shl"),
+            shr: interner.intern("Shr"),
+            not_trait: interner.intern("Not"),
+            len_trait: interner.intern("Len"),
+            is_empty: interner.intern("IsEmpty"),
+            iterable: interner.intern("Iterable"),
+            self_kw: interner.intern("self"),
         }
     }
 
@@ -180,6 +234,173 @@ impl WellKnownNames {
             Some(Idx::SIZE)
         } else {
             None
+        }
+    }
+
+    // ── Trait satisfaction by Name (no interner lock) ──────────────────
+
+    /// Check if a primitive type inherently satisfies a trait.
+    ///
+    /// Name-based equivalent of the freestanding `primitive_satisfies_trait()`.
+    /// Uses pre-interned `Name` (u32) comparison — no `RwLock`, no string allocation.
+    #[inline]
+    pub fn primitive_satisfies_trait(&self, ty: Idx, t: Name) -> bool {
+        if ty == Idx::INT {
+            t == self.eq
+                || t == self.comparable
+                || t == self.clone_trait
+                || t == self.hashable
+                || t == self.default_trait
+                || t == self.printable
+                || t == self.add
+                || t == self.sub
+                || t == self.mul
+                || t == self.div
+                || t == self.floor_div
+                || t == self.rem_trait
+                || t == self.neg
+                || t == self.bit_and
+                || t == self.bit_or
+                || t == self.bit_xor
+                || t == self.bit_not
+                || t == self.shl
+                || t == self.shr
+        } else if ty == Idx::FLOAT {
+            t == self.eq
+                || t == self.comparable
+                || t == self.clone_trait
+                || t == self.hashable
+                || t == self.default_trait
+                || t == self.printable
+                || t == self.add
+                || t == self.sub
+                || t == self.mul
+                || t == self.div
+                || t == self.neg
+        } else if ty == Idx::BOOL {
+            t == self.eq
+                || t == self.comparable
+                || t == self.clone_trait
+                || t == self.hashable
+                || t == self.default_trait
+                || t == self.printable
+                || t == self.not_trait
+        } else if ty == Idx::STR {
+            t == self.eq
+                || t == self.comparable
+                || t == self.clone_trait
+                || t == self.hashable
+                || t == self.default_trait
+                || t == self.printable
+                || t == self.len_trait
+                || t == self.is_empty
+                || t == self.add
+        } else if ty == Idx::CHAR {
+            t == self.eq
+                || t == self.comparable
+                || t == self.clone_trait
+                || t == self.hashable
+                || t == self.printable
+        } else if ty == Idx::BYTE {
+            t == self.eq
+                || t == self.comparable
+                || t == self.clone_trait
+                || t == self.hashable
+                || t == self.printable
+                || t == self.add
+                || t == self.sub
+                || t == self.mul
+                || t == self.div
+                || t == self.rem_trait
+                || t == self.bit_and
+                || t == self.bit_or
+                || t == self.bit_xor
+                || t == self.bit_not
+                || t == self.shl
+                || t == self.shr
+        } else if ty == Idx::UNIT {
+            t == self.eq || t == self.clone_trait || t == self.default_trait
+        } else if ty == Idx::DURATION {
+            t == self.eq
+                || t == self.comparable
+                || t == self.clone_trait
+                || t == self.hashable
+                || t == self.default_trait
+                || t == self.printable
+                || t == self.sendable
+                || t == self.add
+                || t == self.sub
+                || t == self.mul
+                || t == self.div
+                || t == self.rem_trait
+                || t == self.neg
+        } else if ty == Idx::SIZE {
+            t == self.eq
+                || t == self.comparable
+                || t == self.clone_trait
+                || t == self.hashable
+                || t == self.default_trait
+                || t == self.printable
+                || t == self.sendable
+                || t == self.add
+                || t == self.sub
+                || t == self.mul
+                || t == self.div
+                || t == self.rem_trait
+        } else if ty == Idx::ORDERING {
+            t == self.eq
+                || t == self.comparable
+                || t == self.clone_trait
+                || t == self.hashable
+                || t == self.printable
+        } else {
+            false
+        }
+    }
+
+    /// Check if a type satisfies a trait, including compound types via Pool tags.
+    ///
+    /// Name-based equivalent of the freestanding `type_satisfies_trait()`.
+    /// Uses pre-interned `Name` (u32) comparison — no `RwLock`, no string allocation.
+    /// The caller can pass `bound_name: Name` directly without `engine.lookup_name()`.
+    pub fn type_satisfies_trait(&self, ty: Idx, t: Name, pool: &Pool) -> bool {
+        if self.primitive_satisfies_trait(ty, t) {
+            return true;
+        }
+
+        match pool.tag(ty) {
+            Tag::List => {
+                t == self.eq
+                    || t == self.clone_trait
+                    || t == self.hashable
+                    || t == self.len_trait
+                    || t == self.is_empty
+                    || t == self.comparable
+                    || t == self.iterable
+            }
+            Tag::Map | Tag::Set => {
+                t == self.eq
+                    || t == self.clone_trait
+                    || t == self.hashable
+                    || t == self.len_trait
+                    || t == self.is_empty
+                    || t == self.iterable
+            }
+            Tag::Option => {
+                t == self.eq
+                    || t == self.comparable
+                    || t == self.clone_trait
+                    || t == self.hashable
+                    || t == self.default_trait
+            }
+            Tag::Result | Tag::Tuple => {
+                t == self.eq || t == self.comparable || t == self.clone_trait || t == self.hashable
+            }
+            Tag::Range => t == self.len_trait || t == self.iterable,
+            Tag::Str => t == self.iterable,
+            Tag::DoubleEndedIterator => t == self.iterator || t == self.double_ended_iterator,
+            Tag::Iterator => t == self.iterator,
+            _ => false,
         }
     }
 }

@@ -582,7 +582,7 @@ fn compute_object_safety_violations(
         let params = arena.get_params(params_range);
         for (i, param) in params.iter().enumerate() {
             // Skip the first parameter if it's `self` (the receiver)
-            if i == 0 && checker.interner().lookup(param.name) == "self" {
+            if i == 0 && param.name == checker.well_known().self_kw {
                 continue;
             }
 
@@ -1015,7 +1015,7 @@ fn build_impl_method(
     let param_types: Vec<Idx> = params
         .iter()
         .map(|p| {
-            let is_self = checker.interner().lookup(p.name) == "self";
+            let is_self = p.name == checker.well_known().self_kw;
             match p.ty.as_ref() {
                 Some(ty) => resolve_type_with_self(checker, ty, type_params, self_type),
                 None if is_self => self_type,
@@ -1030,7 +1030,7 @@ fn build_impl_method(
     // Detect whether the first parameter is `self` (instance method vs associated function)
     let has_self = params
         .first()
-        .is_some_and(|p| checker.interner().lookup(p.name) == "self");
+        .is_some_and(|p| p.name == checker.well_known().self_kw);
 
     // Create function type for signature
     let signature = checker.pool_mut().function(&param_types, return_ty);
