@@ -178,6 +178,12 @@ impl<'a> TypeErrorRenderer<'a> {
             TypeErrorKind::AmbiguousIndex { ty } => {
                 format!("ambiguous index on `{}`", self.format_type(*ty))
             }
+            TypeErrorKind::CannotDeriveDefaultForSumType { type_name } => {
+                format!(
+                    "cannot derive `Default` for sum type `{}`",
+                    self.format_name(*type_name)
+                )
+            }
         }
     }
 

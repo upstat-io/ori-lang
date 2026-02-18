@@ -85,7 +85,7 @@ sections:
 
 > **SPEC**: `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 49 passing (39 traits + 10 derives, 0 ignored), proposals pending (3.7-3.17). Verified 2026-02-16: Iterator traits registered in prelude (TraitRegistry), Range<float> compile-time rejection, Iterator<T>/DoubleEndedIterator<T> type annotations, spec docs verified. 9350 total tests. Derive codegen complete (Eq, Clone, Hashable, Printable). Clone on compound types complete.
+**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 51 passing (39 traits + 12 derives, 0 ignored), proposals pending (3.7-3.17). Verified 2026-02-17: Default trait complete (definition, derivation, E2028 sum type rejection, LLVM codegen). 9616 total tests. Derive codegen complete (Eq, Clone, Hashable, Printable, Default). Clone on compound types complete.
 
 ---
 
@@ -439,7 +439,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
-- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Remaining: LLVM iterator codegen, 3.8.1 performance/semantics, Debug, Formattable, Into, etc. — not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Default trait complete with E2028 sum type rejection (2026-02-17). Remaining: LLVM iterator codegen, 3.8.1 performance/semantics, Formattable, Into, Traceable, Comparable/Hashable formalization — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
@@ -911,18 +911,21 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
   - [x] **LLVM Support**: LLVM codegen for Printable derivation — compile_derive_printable() updated
   - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — derive_printable_basic test passing
 
-- [ ] **Implement**: `Default` trait formal definition in type system
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — default trait parsing/bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/default/definition.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Default trait methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Default codegen
+- [x] **Implement**: `Default` trait formal definition in type system (2026-02-17)
+  - Pre-existing: trait defined in prelude.ori, type checker registration in ori_types, evaluator dispatch, LLVM codegen
+  - [x] **Rust Tests**: Existing coverage in ori_types registration, ori_eval derived_methods, ori_ir derives tests
+  - [x] **Ori Tests**: `tests/spec/traits/default/definition.ori` — 10 tests (int, float, bool, str defaults via struct fields, Duration/Size defaults, nested structs, deep nesting, idempotency) (2026-02-17)
+  - [x] **LLVM Support**: LLVM codegen for Default trait — compile_derive_default() in derive_codegen.rs
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 5 tests (basic, mixed_types, eq_integration, str_field, nested) (2026-02-17)
 
-- [ ] **Implement**: Default derivation for structs only (error on sum types)
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — default derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/default/derive.ori`
-  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/default_sum_type.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Default derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Default derivation codegen
+- [x] **Implement**: Default derivation for structs only (error on sum types) (2026-02-17)
+  - Pre-existing: derive processing in ori_eval, LLVM codegen in derive_codegen.rs
+  - Fixed: Added E2028 compile-time rejection of #[derive(Default)] on sum types (2026-02-17)
+  - [x] **Rust Tests**: Existing coverage in ori_ir/derives/tests.rs, ori_eval/derives
+  - [x] **Ori Tests**: `tests/spec/traits/default/derive.ori` — 7 tests (basic struct, single field, mixed fields, nested, eq integration, modify, multi-derive) (2026-02-17)
+  - [x] **Ori Compile-Fail Tests**: `tests/compile-fail/default_sum_type.ori` — E2028 error (2026-02-17)
+  - [x] **LLVM Support**: LLVM codegen for Default derivation — compile_derive_default() working
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 5 tests passing (2026-02-17)
 
 - [ ] **Implement**: `Traceable` trait formal definition in type system
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — traceable trait parsing/bounds
@@ -942,11 +945,11 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
   - [ ] **LLVM Support**: LLVM codegen for Traceable Result delegation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Traceable Result codegen
 
-- [ ] **Implement**: Error messages (E1040, E1042)
+- [ ] **Implement**: Error messages (E1040)
   - [ ] E1040: Missing Printable for string interpolation
-  - [ ] E1042: Cannot derive Default for sum type
+  - [x] E2028: Cannot derive Default for sum type (was E1042) — implemented with TypeErrorKind::CannotDeriveDefaultForSumType (2026-02-17)
 
-- [ ] **Update Spec**: `07-properties-of-types.md` — add Printable, Default, Traceable sections (DONE)
+- [x] **Update Spec**: `07-properties-of-types.md` — add Printable, Default, Traceable sections (verified 2026-02-17: already present)
 - [ ] **Update**: `CLAUDE.md` — ensure traits documented in quick reference
 
 ---
