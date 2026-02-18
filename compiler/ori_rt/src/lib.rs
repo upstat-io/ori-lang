@@ -1024,6 +1024,92 @@ pub extern "C" fn ori_register_panic_handler(handler: *const ()) {
     }
 }
 
+// ── String iteration ─────────────────────────────────────────────────────
+
+/// Result of decoding a single UTF-8 character from a string.
+///
+/// Returned by `ori_str_next_char`. The codepoint is the Unicode scalar value
+/// (as i32/char), and `next_offset` is the byte offset of the next character.
+#[repr(C)]
+pub struct OriCharResult {
+    /// Unicode codepoint (i32). -1 on error or end-of-string.
+    pub codepoint: i32,
+    /// Byte offset of the next character. Equals `byte_offset + char_width`.
+    pub next_offset: i64,
+}
+
+/// Decode the next UTF-8 character from a string at the given byte offset.
+///
+/// Returns the Unicode codepoint and the byte offset of the next character.
+/// If `byte_offset >= len` or the byte sequence is invalid, returns
+/// codepoint = -1 and `next_offset = len` (termination sentinel).
+///
+/// # Parameters
+/// - `data`: Pointer to the string's UTF-8 byte data
+/// - `len`: Total byte length of the string
+/// - `byte_offset`: Current byte position to decode from
+#[no_mangle]
+pub extern "C" fn ori_str_next_char(data: *const u8, len: i64, byte_offset: i64) -> OriCharResult {
+    if data.is_null() || byte_offset < 0 || byte_offset >= len {
+        return OriCharResult {
+            codepoint: -1,
+            next_offset: len,
+        };
+    }
+
+    let offset = byte_offset as usize;
+    let length = len as usize;
+    let remaining = length - offset;
+
+    // SAFETY: data is valid for `len` bytes, offset < len
+    let lead = unsafe { *data.add(offset) };
+
+    // Decode UTF-8 leading byte to determine character width
+    let (codepoint, width) = if lead < 0x80 {
+        // 1-byte: 0xxxxxxx (ASCII)
+        (i32::from(lead), 1)
+    } else if lead < 0xC0 {
+        // Continuation byte in leading position — invalid
+        return OriCharResult {
+            codepoint: -1,
+            next_offset: byte_offset + 1,
+        };
+    } else if lead < 0xE0 && remaining >= 2 {
+        // 2-byte: 110xxxxx 10xxxxxx
+        let b1 = unsafe { *data.add(offset + 1) };
+        let cp = (i32::from(lead & 0x1F) << 6) | i32::from(b1 & 0x3F);
+        (cp, 2)
+    } else if lead < 0xF0 && remaining >= 3 {
+        // 3-byte: 1110xxxx 10xxxxxx 10xxxxxx
+        let b1 = unsafe { *data.add(offset + 1) };
+        let b2 = unsafe { *data.add(offset + 2) };
+        let cp =
+            (i32::from(lead & 0x0F) << 12) | (i32::from(b1 & 0x3F) << 6) | i32::from(b2 & 0x3F);
+        (cp, 3)
+    } else if lead < 0xF8 && remaining >= 4 {
+        // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+        let b1 = unsafe { *data.add(offset + 1) };
+        let b2 = unsafe { *data.add(offset + 2) };
+        let b3 = unsafe { *data.add(offset + 3) };
+        let cp = (i32::from(lead & 0x07) << 18)
+            | (i32::from(b1 & 0x3F) << 12)
+            | (i32::from(b2 & 0x3F) << 6)
+            | i32::from(b3 & 0x3F);
+        (cp, 4)
+    } else {
+        // Incomplete multi-byte sequence or invalid lead byte
+        return OriCharResult {
+            codepoint: -1,
+            next_offset: byte_offset + 1,
+        };
+    };
+
+    OriCharResult {
+        codepoint,
+        next_offset: byte_offset + width,
+    }
+}
+
 // ── AOT entry point wrapper ─────────────────────────────────────────────
 
 /// Wrap an AOT `@main` call with `catch_unwind` to handle Ori panics.
