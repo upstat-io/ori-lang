@@ -72,13 +72,15 @@ impl Interpreter<'_> {
     /// If the value is `Value::Err(Value::Error(...))`, appends a `TraceEntryData`
     /// recording the current function name and source location. Non-error values
     /// are returned unchanged.
-    fn inject_trace_entry(&self, value: Value, can_id: CanId) -> Value {
-        let Value::Err(inner) = &value else {
+    ///
+    /// Uses `Heap::make_mut` for copy-on-write: when the error is uniquely owned
+    /// (common case — errors propagate linearly through `?`), the trace entry
+    /// is appended in place with no cloning.
+    fn inject_trace_entry(&self, mut value: Value, can_id: CanId) -> Value {
+        // Guard: only Err(Error(...)) values carry traces
+        if !matches!(&value, Value::Err(inner) if matches!(&**inner, Value::Error(_))) {
             return value;
-        };
-        let Value::Error(ev) = &**inner else {
-            return value;
-        };
+        }
 
         // Build the function name from the call stack
         let function_name = self.call_stack.current_frame().map_or_else(
@@ -96,13 +98,20 @@ impl Interpreter<'_> {
             .cloned()
             .unwrap_or_else(|| "<unknown>".to_string());
 
-        let new_ev = ev.with_entry(TraceEntryData {
+        let entry = TraceEntryData {
             function: function_name,
             file,
             line,
             column,
-        });
-        Value::err(Value::error_from(new_ev))
+        };
+
+        // Copy-on-write through two Heap layers: Err(Heap<Value>) → Error(Heap<ErrorValue>)
+        if let Value::Err(ref mut outer) = value {
+            if let Value::Error(ref mut ev_heap) = *outer.make_mut() {
+                ev_heap.make_mut().push_trace(entry);
+            }
+        }
+        value
     }
 
     /// Compute 1-based line and column from a byte offset in the source text.

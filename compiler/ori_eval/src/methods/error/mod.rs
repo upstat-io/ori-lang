@@ -1,7 +1,9 @@
 //! Method dispatch for Error values (Traceable trait).
 
 use ori_ir::Name;
-use ori_patterns::{no_such_method, ErrorValue, EvalResult, StructValue, TraceEntryData, Value};
+use ori_patterns::{
+    no_such_method, ErrorValue, EvalError, EvalResult, StructValue, TraceEntryData, Value,
+};
 use rustc_hash::FxHashMap;
 
 use super::helpers::require_args;
@@ -48,7 +50,7 @@ pub fn dispatch_error_method(
     } else if method == n.with_trace {
         require_args("with_trace", 1, args.len())?;
         let ev = extract_error(&receiver);
-        let entry = struct_to_trace_entry(&args[0], ctx);
+        let entry = struct_to_trace_entry(&args[0], ctx)?;
         let new_ev = ev.with_entry(entry);
         Ok(Value::error_from(new_ev))
     } else if method == n.message {
@@ -93,14 +95,18 @@ pub(super) fn trace_entry_to_struct(entry: &TraceEntryData, ctx: &DispatchCtx<'_
 }
 
 /// Convert a `Value::Struct` (`TraceEntry`) to a `TraceEntryData`.
-fn struct_to_trace_entry(value: &Value, ctx: &DispatchCtx<'_>) -> TraceEntryData {
+///
+/// Returns an error if the input is not a struct or is missing required fields
+/// (`function`, `file`, `line`, `column`) with the correct types.
+fn struct_to_trace_entry(
+    value: &Value,
+    ctx: &DispatchCtx<'_>,
+) -> Result<TraceEntryData, EvalError> {
     let Value::Struct(sv) = value else {
-        return TraceEntryData {
-            function: "<unknown>".into(),
-            file: "<unknown>".into(),
-            line: 0,
-            column: 0,
-        };
+        return Err(EvalError::new(format!(
+            "with_trace: expected TraceEntry struct, got {}",
+            value.type_name()
+        )));
     };
 
     let fn_name = ctx.interner.intern("function");
@@ -108,27 +114,54 @@ fn struct_to_trace_entry(value: &Value, ctx: &DispatchCtx<'_>) -> TraceEntryData
     let line_name = ctx.interner.intern("line");
     let column_name = ctx.interner.intern("column");
 
-    let get_str = |name: Name| -> String {
-        sv.layout
+    let get_str = |name: Name, field: &str| -> Result<String, EvalError> {
+        let val = sv
+            .layout
             .get_index(name)
             .and_then(|i| sv.fields.get(i))
-            .and_then(|v| v.as_str())
-            .unwrap_or("<unknown>")
-            .to_string()
+            .ok_or_else(|| {
+                EvalError::new(format!("with_trace: TraceEntry missing field '{field}'"))
+            })?;
+        val.as_str().map(str::to_string).ok_or_else(|| {
+            EvalError::new(format!(
+                "with_trace: field '{field}' expected str, got {}",
+                val.type_name()
+            ))
+        })
     };
-    let get_int = |name: Name| -> u32 {
-        sv.layout
+    let get_int = |name: Name, field: &str| -> Result<u32, EvalError> {
+        let val = sv
+            .layout
             .get_index(name)
             .and_then(|i| sv.fields.get(i))
-            .and_then(Value::as_int)
-            .and_then(|v| u32::try_from(v).ok())
-            .unwrap_or(0)
+            .ok_or_else(|| {
+                EvalError::new(format!("with_trace: TraceEntry missing field '{field}'"))
+            })?;
+        let raw = val.as_int().ok_or_else(|| {
+            EvalError::new(format!(
+                "with_trace: field '{field}' expected int, got {}",
+                val.type_name()
+            ))
+        })?;
+        u32::try_from(raw).map_err(|_| {
+            EvalError::new(format!(
+                "with_trace: field '{field}' value {raw} out of range for u32"
+            ))
+        })
     };
 
-    TraceEntryData {
-        function: get_str(fn_name),
-        file: get_str(file_name),
-        line: get_int(line_name),
-        column: get_int(column_name),
-    }
+    Ok(TraceEntryData {
+        function: get_str(fn_name, "function")?,
+        file: get_str(file_name, "file")?,
+        line: get_int(line_name, "line")?,
+        column: get_int(column_name, "column")?,
+    })
 }
+
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "Tests use unwrap for brevity"
+)]
+mod tests;

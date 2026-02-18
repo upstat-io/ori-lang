@@ -70,6 +70,34 @@ mod wrap_in_result_tests {
     }
 
     #[test]
+    fn error_preserves_trace() {
+        use crate::TraceEntryData;
+
+        let mut ev = crate::ErrorValue::new("traced error");
+        ev.push_trace(TraceEntryData {
+            function: "my_fn".into(),
+            file: "test.ori".into(),
+            line: 10,
+            column: 5,
+        });
+        let value = Value::error_from(ev);
+
+        let result = wrap_in_result(value);
+
+        // The error should be nested inside Err, preserving its trace
+        let Value::Err(inner) = result else {
+            panic!("expected Err wrapper");
+        };
+        let Value::Error(ev) = &*inner else {
+            panic!("expected Error inside Err");
+        };
+        assert!(ev.has_trace());
+        assert_eq!(ev.trace().len(), 1);
+        assert_eq!(ev.trace()[0].function, "my_fn");
+        assert_eq!(ev.trace()[0].file, "test.ori");
+    }
+
+    #[test]
     fn plain_value_wraps_in_ok() {
         let value = Value::Bool(true);
         let result = wrap_in_result(value);
