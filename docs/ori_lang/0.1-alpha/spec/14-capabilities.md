@@ -152,6 +152,82 @@ let result = with Http = mock in fetch()
 fetch()  // Uses default Http, not mock
 ```
 
+## Stateful Handlers
+
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § EXPRESSIONS (handler_expr)
+>
+> **Proposal:** [stateful-mock-testing-proposal.md](../../../proposals/approved/stateful-mock-testing-proposal.md)
+
+A _stateful handler_ is a `with...in` binding that threads local mutable state through handler operations. The `handler(state: expr) { ... }` construct creates a handler frame with frame-local state, enabling stateful capability mocking while preserving value semantics.
+
+`handler` is a context-sensitive keyword, valid only in the expression position of a `capability_binding`.
+
+### Syntax
+
+```ori
+with Counter = handler(state: 0) {
+    increment: (s) -> (s + 1, s + 1),
+    get: (s) -> (s, s),
+} in run(
+    let a = Counter.increment(),  // state: 0 -> 1, returns 1
+    let b = Counter.increment(),  // state: 1 -> 2, returns 2
+    a + b,                        // 3
+)
+```
+
+### Semantics
+
+1. The `state:` initializer determines the initial state value and its type `S`
+2. Each handler operation receives the current state as its first argument, replacing `self`
+3. Each handler operation must return `(S, R)` where `S` is the next state and `R` is the trait method's return type
+4. State is threaded through operations sequentially within the `with...in` scope
+5. The `with...in` expression returns the body's type; handler state is internal
+
+### Type Checking Rules
+
+For a handler operation named `op` implementing trait method `@op (self, p1: T1, ..., pN: TN) -> R`:
+
+- The handler operation receives `(state: S, p1: T1, ..., pN: TN)`
+- The handler operation must return `(S, R)`
+- The state type `S` is inferred from the `state:` initializer
+- All handler operations must use the same state type
+- Every required trait method must have a corresponding handler operation; default trait methods are used if not overridden
+- Handler operations for non-existent trait methods are an error
+
+A stateful handler is not a type and has no `self`. It satisfies the trait's interface for the duration of the `with...in` scope through a distinct dispatch mechanism from `impl` blocks.
+
+### State Composition
+
+Handlers support a single state value. Multiple independent state values are composed into a struct or tuple:
+
+```ori
+with Counter = handler(state: { count: 0, log: [] }) {
+    increment: (s) -> ({ ...s, count: s.count + 1, log: [...s.log, "inc"] }, s.count + 1),
+    get: (s) -> (s, s.count),
+} in ...
+```
+
+### Nested Handlers
+
+Each handler maintains independent state. Cross-handler calls dispatch through normal capability resolution:
+
+```ori
+with Logger = handler(state: []) {
+    log: (s, msg: str) -> ([...s, msg], ()),
+} in
+    with Counter = handler(state: 0) {
+        increment: (s) -> run(
+            Logger.log(msg: "increment"),  // invokes outer handler
+            (s + 1, s + 1),
+        ),
+    } in ...
+```
+
+### Restrictions
+
+- `def impl` cannot be stateful (stateless by design, no scope for state lifetime)
+- Stateful handlers are available in all `with...in` scopes (not restricted to test code)
+
 ## Capability Variance
 
 A context with more capabilities may call functions requiring fewer:
@@ -250,20 +326,23 @@ trait Clock {
     print(msg: `[{Clock.now()}] {msg}`)
 ```
 
-Mock clocks enable deterministic testing:
+Mock clocks enable deterministic testing via _stateful handlers_:
 
 ```ori
 @test_expiry tests @is_expired () -> void = run(
-    let mock = MockClock.new(now: Instant.from_unix_secs(secs: 1700000000)),
-    with Clock = mock in run(
+    let start = Instant.from_unix_secs(secs: 1700000000),
+    with Clock = handler(state: start) {
+        now: (s) -> (s, s),
+        advance: (s, by: Duration) -> (s + by, ()),
+    } in run(
         assert(!is_expired(token: token)),
-        mock.advance(by: 1h),
+        Clock.advance(by: 1h),
         assert(is_expired(token: token)),
     ),
 )
 ```
 
-`MockClock` uses interior mutability for its time state, allowing `advance()` without reassignment.
+The `handler(state: expr) { ... }` construct creates a stateful handler frame with local mutable state threaded through operations. State is frame-local and does not violate value semantics. See [Stateful Handlers](#stateful-handlers) for the full specification.
 
 ### Crypto Capability
 
@@ -475,6 +554,10 @@ Functions without `uses` are pure: no side effects, cannot suspend, safely paral
 | E1201 | Unbound capability (no `with` or `def impl` available) |
 | E1202 | Type does not implement capability trait |
 | E1203 | `Suspend` capability cannot be explicitly bound |
+| E1204 | Handler missing required operation (trait method not defined in handler) |
+| E1205 | Handler operation signature mismatch (parameters or return type) |
+| E1206 | Handler state type inconsistency (operations return different state types) |
+| E1207 | Handler operation for non-existent trait method |
 | E1220 | Cyclic capset definition |
 | E1221 | Empty capset |
 | E1222 | Capset name collides with trait name |

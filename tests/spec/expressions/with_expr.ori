@@ -58,10 +58,11 @@ impl Counter for MockCounter {
     with Counter = mock in mock.get(),
 )
 
-// This test expects mock.increment() to return sequential values (1, then 2),
-// but MockCounter.increment returns self.value + 1 which is always 1 for value: 0.
-// The test design assumes mutable state which Counter doesn't provide.
-#skip("test expects mutable state but Counter.increment is pure")
+// This test requires stateful handlers to accumulate state across calls.
+// See proposals/approved/stateful-mock-testing-proposal.md for the approved mechanism.
+// Once handler(state: expr) { ... } is implemented, rewrite using:
+//   with Counter = handler(state: 0) { increment: (s) -> (s+1, s+1), get: (s) -> (s, s) }
+#skip("requires stateful handlers - see stateful-mock-testing-proposal")
 @test_with_expression_body tests @with_expression_body () -> void = run(
     let mock = MockCounter { value: 0 },
     let result = with Counter = mock in run(
