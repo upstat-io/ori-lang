@@ -133,6 +133,31 @@ pub fn function_val_error(args: &[Value]) -> Result<Value, EvalError> {
     Ok(Value::error(msg))
 }
 
+/// Combine two hash values using the Boost hash combine algorithm.
+///
+/// Uses wrapping arithmetic since hash computation intentionally overflows.
+/// Exposed as `hash_combine(seed, value)` in the Ori prelude.
+pub fn function_val_hash_combine(args: &[Value]) -> Result<Value, EvalError> {
+    if args.len() != 2 {
+        return Err(EvalError::new("hash_combine expects 2 arguments"));
+    }
+    let seed = match &args[0] {
+        Value::Int(n) => n.raw(),
+        _ => return Err(EvalError::new("hash_combine seed must be int")),
+    };
+    let value = match &args[1] {
+        Value::Int(n) => n.raw(),
+        _ => return Err(EvalError::new("hash_combine value must be int")),
+    };
+    // Boost hash combine: seed ^ (value + 0x9e3779b9 + (seed << 6) + (seed >> 2))
+    let result = seed
+        ^ (value
+            .wrapping_add(0x9e37_79b9_i64)
+            .wrapping_add(seed << 6)
+            .wrapping_add(seed >> 2));
+    Ok(Value::int(result))
+}
+
 /// Returns the current OS thread ID as an integer.
 /// Useful for verifying parallel execution.
 ///

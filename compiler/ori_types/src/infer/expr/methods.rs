@@ -98,10 +98,13 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // Option
     ("Option", "and_then"),
     ("Option", "clone"),
+    ("Option", "compare"),
     ("Option", "debug"),
+    ("Option", "equals"),
     ("Option", "expect"),
     ("Option", "filter"),
     ("Option", "flat_map"),
+    ("Option", "hash"),
     ("Option", "is_none"),
     ("Option", "is_some"),
     ("Option", "iter"),
@@ -128,11 +131,14 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     // Result
     ("Result", "and_then"),
     ("Result", "clone"),
+    ("Result", "compare"),
     ("Result", "debug"),
+    ("Result", "equals"),
     ("Result", "err"),
     ("Result", "expect"),
     ("Result", "expect_err"),
     ("Result", "has_trace"),
+    ("Result", "hash"),
     ("Result", "is_err"),
     ("Result", "is_ok"),
     ("Result", "map"),
@@ -149,6 +155,8 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Set", "contains"),
     ("Set", "debug"),
     ("Set", "difference"),
+    ("Set", "equals"),
+    ("Set", "hash"),
     ("Set", "insert"),
     ("Set", "intersection"),
     ("Set", "is_empty"),
@@ -236,6 +244,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("float", "equals"),
     ("float", "exp"),
     ("float", "floor"),
+    ("float", "hash"),
     ("float", "is_finite"),
     ("float", "is_infinite"),
     ("float", "is_nan"),
@@ -283,10 +292,12 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "append"),
     ("list", "chunk"),
     ("list", "clone"),
+    ("list", "compare"),
     ("list", "contains"),
     ("list", "count"),
     ("list", "debug"),
     ("list", "enumerate"),
+    ("list", "equals"),
     ("list", "filter"),
     ("list", "find"),
     ("list", "first"),
@@ -296,6 +307,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "for_each"),
     ("list", "get"),
     ("list", "group_by"),
+    ("list", "hash"),
     ("list", "is_empty"),
     ("list", "iter"),
     ("list", "join"),
@@ -330,7 +342,9 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("map", "contains_key"),
     ("map", "debug"),
     ("map", "entries"),
+    ("map", "equals"),
     ("map", "get"),
+    ("map", "hash"),
     ("map", "insert"),
     ("map", "is_empty"),
     ("map", "iter"),
@@ -386,7 +400,10 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "trim_start"),
     // tuple
     ("tuple", "clone"),
+    ("tuple", "compare"),
     ("tuple", "debug"),
+    ("tuple", "equals"),
+    ("tuple", "hash"),
     ("tuple", "len"),
 ];
 
@@ -433,12 +450,13 @@ fn resolve_list_method(
 ) -> Option<Idx> {
     let elem = engine.pool().list_elem(receiver_ty);
     match method {
-        "len" | "count" => Some(Idx::INT),
-        "is_empty" | "contains" => Some(Idx::BOOL),
+        "len" | "count" | "hash" => Some(Idx::INT),
+        "is_empty" | "contains" | "equals" => Some(Idx::BOOL),
         "first" | "last" | "pop" | "get" => Some(engine.pool_mut().option(elem)),
         "iter" => Some(engine.pool_mut().double_ended_iterator(elem)),
         "reverse" | "sort" | "sorted" | "unique" | "flatten" | "push" | "append" | "prepend"
         | "clone" => Some(receiver_ty),
+        "compare" => Some(Idx::ORDERING),
         "join" | "debug" => Some(Idx::STR),
         "enumerate" => {
             let pair = engine.pool_mut().tuple(&[Idx::INT, elem]);
@@ -469,8 +487,10 @@ fn resolve_option_method(
 ) -> Option<Idx> {
     let inner = engine.pool().option_inner(receiver_ty);
     match method {
-        "is_some" | "is_none" => Some(Idx::BOOL),
+        "is_some" | "is_none" | "equals" => Some(Idx::BOOL),
         "unwrap" | "expect" | "unwrap_or" => Some(inner),
+        "compare" => Some(Idx::ORDERING),
+        "hash" => Some(Idx::INT),
         "ok_or" => {
             let err_ty = engine.pool_mut().fresh_var();
             Some(engine.pool_mut().result(inner, err_ty))
@@ -493,8 +513,10 @@ fn resolve_result_method(
     let ok_ty = engine.pool().result_ok(receiver_ty);
     let err_ty = engine.pool().result_err(receiver_ty);
     match method {
-        "is_ok" | "is_err" | "has_trace" => Some(Idx::BOOL),
+        "is_ok" | "is_err" | "has_trace" | "equals" => Some(Idx::BOOL),
         "unwrap" | "expect" | "unwrap_or" => Some(ok_ty),
+        "compare" => Some(Idx::ORDERING),
+        "hash" => Some(Idx::INT),
         "unwrap_err" | "expect_err" => Some(err_ty),
         "ok" => Some(engine.pool_mut().option(ok_ty)),
         "err" => Some(engine.pool_mut().option(err_ty)),
@@ -511,8 +533,8 @@ fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
     let key_ty = engine.pool().map_key(receiver_ty);
     let value_ty = engine.pool().map_value(receiver_ty);
     match method {
-        "len" => Some(Idx::INT),
-        "is_empty" | "contains_key" | "contains" => Some(Idx::BOOL),
+        "len" | "hash" => Some(Idx::INT),
+        "is_empty" | "contains_key" | "contains" | "equals" => Some(Idx::BOOL),
         "get" => Some(engine.pool_mut().option(value_ty)),
         "iter" => {
             let pair = engine.pool_mut().tuple(&[key_ty, value_ty]);
@@ -533,8 +555,8 @@ fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
 fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &str) -> Option<Idx> {
     let elem = engine.pool().set_elem(receiver_ty);
     match method {
-        "len" => Some(Idx::INT),
-        "is_empty" | "contains" => Some(Idx::BOOL),
+        "len" | "hash" => Some(Idx::INT),
+        "is_empty" | "contains" | "equals" => Some(Idx::BOOL),
         "iter" => Some(engine.pool_mut().iterator(elem)),
         "insert" | "remove" | "union" | "intersection" | "difference" | "clone" => {
             Some(receiver_ty)
@@ -584,7 +606,7 @@ fn resolve_float_method(method: &str) -> Option<Idx> {
         "abs" | "sqrt" | "cbrt" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2"
         | "ln" | "log2" | "log10" | "exp" | "pow" | "min" | "max" | "clamp" | "signum"
         | "clone" => Some(Idx::FLOAT),
-        "floor" | "ceil" | "round" | "trunc" | "to_int" => Some(Idx::INT),
+        "floor" | "ceil" | "round" | "trunc" | "to_int" | "hash" => Some(Idx::INT),
         "to_str" | "debug" => Some(Idx::STR),
         "is_nan" | "is_infinite" | "is_finite" | "is_normal" | "is_positive" | "is_negative"
         | "is_zero" | "equals" => Some(Idx::BOOL),
@@ -812,7 +834,9 @@ fn resolve_iterator_method(
 
 fn resolve_tuple_method(receiver_ty: Idx, method_name: &str) -> Option<Idx> {
     match method_name {
-        "len" => Some(Idx::INT),
+        "len" | "hash" => Some(Idx::INT),
+        "compare" => Some(Idx::ORDERING),
+        "equals" => Some(Idx::BOOL),
         "clone" => Some(receiver_ty),
         "debug" => Some(Idx::STR),
         _ => None,

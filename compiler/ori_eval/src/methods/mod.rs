@@ -15,7 +15,7 @@
 //! - [`compare`]: Value comparison utilities
 
 mod collections;
-mod compare;
+pub(crate) mod compare;
 mod error;
 pub(crate) mod helpers;
 mod numeric;
@@ -296,6 +296,35 @@ fn dispatch_tuple_method(
             unreachable!("dispatch_tuple_method called with non-tuple receiver")
         };
         helpers::len_to_value(elems.len(), "tuple")
+    // Comparable trait - lexicographic element comparison
+    } else if method == n.compare {
+        helpers::require_args("compare", 1, args.len())?;
+        let Value::Tuple(a_elems) = &receiver else {
+            unreachable!("dispatch_tuple_method called with non-tuple receiver")
+        };
+        let Value::Tuple(b_elems) = &args[0] else {
+            return Err(ori_patterns::wrong_arg_type("compare", "tuple").into());
+        };
+        // Lexicographic comparison: compare element by element
+        for (a, b) in a_elems.iter().zip(b_elems.iter()) {
+            let ord = compare::compare_values(a, b, ctx.interner)?;
+            if ord != std::cmp::Ordering::Equal {
+                return Ok(compare::ordering_to_value(ord));
+            }
+        }
+        // All compared elements equal, compare by length (shorter < longer)
+        Ok(compare::ordering_to_value(
+            a_elems.len().cmp(&b_elems.len()),
+        ))
+    // Eq trait - element-wise equality
+    } else if method == n.equals {
+        helpers::require_args("equals", 1, args.len())?;
+        let eq = compare::equals_values(&receiver, &args[0], ctx.interner)?;
+        Ok(Value::Bool(eq))
+    // Hashable trait - recursive element hash
+    } else if method == n.hash {
+        helpers::require_args("hash", 0, args.len())?;
+        Ok(Value::int(compare::hash_value(&receiver, ctx.interner)?))
     // Debug trait - structural representation
     } else if method == n.debug {
         helpers::require_args("debug", 0, args.len())?;

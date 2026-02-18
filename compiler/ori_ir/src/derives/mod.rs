@@ -21,6 +21,8 @@ pub enum DerivedTrait {
     Debug,
     /// Default trait - default value construction
     Default,
+    /// Comparable trait - lexicographic field comparison
+    Comparable,
 }
 
 impl DerivedTrait {
@@ -33,6 +35,7 @@ impl DerivedTrait {
             "Printable" => Some(DerivedTrait::Printable),
             "Debug" => Some(DerivedTrait::Debug),
             "Default" => Some(DerivedTrait::Default),
+            "Comparable" => Some(DerivedTrait::Comparable),
             _ => None,
         }
     }
@@ -46,6 +49,7 @@ impl DerivedTrait {
             DerivedTrait::Printable => "to_str",
             DerivedTrait::Debug => "debug",
             DerivedTrait::Default => "default",
+            DerivedTrait::Comparable => "compare",
         }
     }
 }

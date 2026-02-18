@@ -105,6 +105,10 @@ pub fn compile_derives<'a>(
                     // TODO: LLVM codegen for Debug (deferred — interpreter-only for now)
                     debug!(derive = "Debug", type_name = %type_name_str, "Debug derive not yet implemented in LLVM codegen — skipping");
                 }
+                DerivedTrait::Comparable => {
+                    // TODO: LLVM codegen for Comparable (deferred — interpreter-only for now)
+                    debug!(derive = "Comparable", type_name = %type_name_str, "Comparable derive not yet implemented in LLVM codegen — skipping");
+                }
             }
         }
     }

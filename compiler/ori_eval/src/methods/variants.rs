@@ -3,7 +3,9 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalError, EvalResult, Value};
 
-use super::compare::{compare_option_values, compare_result_values, ordering_to_value};
+use super::compare::{
+    compare_option_values, compare_result_values, equals_values, hash_value, ordering_to_value,
+};
 use super::helpers::{
     debug_value, escape_debug_char, require_args, require_bool_arg, require_byte_arg,
     require_char_arg,
@@ -216,6 +218,15 @@ pub fn dispatch_option_method(
         require_args("compare", 1, args.len())?;
         let ord = compare_option_values(&receiver, &args[0], ctx.interner)?;
         Ok(ordering_to_value(ord))
+    // Eq trait - deep equality
+    } else if method == n.equals {
+        require_args("equals", 1, args.len())?;
+        let eq = equals_values(&receiver, &args[0], ctx.interner)?;
+        Ok(Value::Bool(eq))
+    // Hashable trait - recursive hash
+    } else if method == n.hash {
+        require_args("hash", 0, args.len())?;
+        Ok(Value::int(hash_value(&receiver, ctx.interner)?))
     // Clone trait
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
@@ -265,6 +276,15 @@ pub fn dispatch_result_method(
         let other = &args[0];
         let ord = compare_result_values(&receiver, other, ctx.interner)?;
         Ok(ordering_to_value(ord))
+    // Eq trait - deep equality
+    } else if method == n.equals {
+        require_args("equals", 1, args.len())?;
+        let eq = equals_values(&receiver, &args[0], ctx.interner)?;
+        Ok(Value::Bool(eq))
+    // Hashable trait - recursive hash
+    } else if method == n.hash {
+        require_args("hash", 0, args.len())?;
+        Ok(Value::int(hash_value(&receiver, ctx.interner)?))
     // Clone trait
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
