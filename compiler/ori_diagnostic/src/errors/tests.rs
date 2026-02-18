@@ -87,7 +87,7 @@ fn test_all_documented_codes_retrievable() {
 /// 2. Bump `MAX_UNDOCUMENTED` here (with justification in the commit).
 #[test]
 fn test_undocumented_count_does_not_grow() {
-    const MAX_UNDOCUMENTED: usize = 55;
+    const MAX_UNDOCUMENTED: usize = 52;
 
     let undocumented: Vec<_> = ErrorCode::ALL
         .iter()
@@ -111,7 +111,6 @@ fn test_undocumented_count_does_not_grow() {
 ///
 /// Missing documentation (as of this writing):
 /// - E0006–E0015, E0911 (11 lexer codes: cross-language habits, confusables)
-/// - E2015–E2017 (3 type codes: type parameter ordering, missing/extra args)
 /// - E4001–E4003 (3 ARC codes: ARC IR lowering errors)
 /// - E5001–E5009 (9 codegen codes: LLVM codegen errors)
 /// - E6001–E6099 (27 runtime codes: eval/runtime errors)
