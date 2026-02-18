@@ -752,30 +752,7 @@ impl<'a> ModuleChecker<'a> {
     ///
     /// Consumes the checker and returns the typed module with any errors.
     pub fn finish(self) -> TypeCheckResult {
-        // Sort functions by name for deterministic output regardless of
-        // FxHashMap iteration order. Required for Salsa's Eq comparison.
-        let mut functions: Vec<FunctionSig> = self.signatures.into_values().collect();
-        functions.sort_by_key(|f| f.name);
-
-        // Extract type definitions (already sorted by name via BTreeMap).
-        let types = self.types.into_entries();
-
-        // Sort and dedup pattern resolutions for O(log n) binary search.
-        let mut pattern_resolutions = self.pattern_resolutions;
-        pattern_resolutions.sort_by_key(|(k, _)| *k);
-        pattern_resolutions.dedup_by_key(|(k, _)| *k);
-
-        let typed = TypedModule {
-            expr_types: self.expr_types,
-            functions,
-            types,
-            errors: self.errors,
-            warnings: self.warnings,
-            pattern_resolutions,
-            impl_sigs: self.impl_sigs,
-        };
-
-        TypeCheckResult::from_typed(typed)
+        self.finish_with_pool().0
     }
 
     /// Consume the checker and return the pool along with the result.
@@ -784,6 +761,7 @@ impl<'a> ModuleChecker<'a> {
     /// after checking is complete.
     pub fn finish_with_pool(self) -> (TypeCheckResult, Pool) {
         let pool = self.pool;
+
         // Sort functions by name for deterministic output regardless of
         // FxHashMap iteration order. Required for Salsa's Eq comparison.
         let mut functions: Vec<FunctionSig> = self.signatures.into_values().collect();

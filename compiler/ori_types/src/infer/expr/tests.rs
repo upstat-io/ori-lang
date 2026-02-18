@@ -1,8 +1,8 @@
 use super::*;
-use crate::Pool;
+use crate::{Idx, Pool};
 use ori_ir::{
     ast::{Expr, ExprKind, MapEntry, MatchArm, MatchPattern, Param, Stmt, StmtKind},
-    BindingPattern, ExprArena, ExprId, Name, Span,
+    BindingPattern, ExprArena, ExprId, Name, Span, StringInterner,
 };
 
 // ========================================================================
@@ -2641,4 +2641,118 @@ fn find_infinite_source_unknown_method_returns_none() {
         result, None,
         "unknown methods are conservative — no false positives"
     );
+}
+
+// ========================================================================
+// Trait Satisfaction Sync Tests — Name-based vs String-based
+// ========================================================================
+
+/// Verify that `WellKnownNames::type_satisfies_trait` (Name-based) produces
+/// identical results to the string-based `calls::type_satisfies_trait` for all
+/// primitive and compound types × all known trait names.
+///
+/// When adding a new trait to either function, this test catches drift between
+/// the two implementations.
+#[test]
+fn well_known_trait_satisfaction_sync() {
+    use crate::check::WellKnownNames;
+
+    let interner = StringInterner::new();
+    let wk = WellKnownNames::new(&interner);
+
+    // All trait names used across both primitive and compound satisfaction checks
+    let trait_names: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Default",
+        "Printable",
+        "Sendable",
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "FloorDiv",
+        "Rem",
+        "Neg",
+        "BitAnd",
+        "BitOr",
+        "BitXor",
+        "BitNot",
+        "Shl",
+        "Shr",
+        "Not",
+        "Len",
+        "IsEmpty",
+        "Iterable",
+        "Iterator",
+        "DoubleEndedIterator",
+        // A trait name NOT in any list — should be false everywhere
+        "Nonexistent",
+    ];
+
+    let primitives: &[(Idx, &str)] = &[
+        (Idx::INT, "int"),
+        (Idx::FLOAT, "float"),
+        (Idx::BOOL, "bool"),
+        (Idx::STR, "str"),
+        (Idx::CHAR, "char"),
+        (Idx::BYTE, "byte"),
+        (Idx::UNIT, "unit"),
+        (Idx::DURATION, "duration"),
+        (Idx::SIZE, "size"),
+        (Idx::ORDERING, "ordering"),
+    ];
+
+    let mut pool = Pool::new();
+
+    for &(ty, type_name) in primitives {
+        for &trait_str in trait_names {
+            let trait_name = interner.intern(trait_str);
+            let string_result = super::calls::type_satisfies_trait(ty, trait_str, &pool);
+            let name_result = wk.type_satisfies_trait(ty, trait_name, &pool);
+            assert_eq!(
+                string_result, name_result,
+                "SYNC MISMATCH: {type_name} × {trait_str}: \
+                 string={string_result}, name={name_result}",
+            );
+        }
+    }
+
+    // Compound types (require pool construction)
+    let list_ty = pool.list(Idx::INT);
+    let map_ty = pool.map(Idx::STR, Idx::INT);
+    let set_ty = pool.set(Idx::INT);
+    let opt_ty = pool.option(Idx::INT);
+    let res_ty = pool.result(Idx::STR, Idx::INT);
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::STR]);
+    let range_ty = pool.range(Idx::INT);
+    let iter_ty = pool.iterator(Idx::INT);
+    let dei_ty = pool.double_ended_iterator(Idx::INT);
+
+    let compounds: &[(Idx, &str)] = &[
+        (list_ty, "[int]"),
+        (map_ty, "{str: int}"),
+        (set_ty, "Set<int>"),
+        (opt_ty, "Option<int>"),
+        (res_ty, "Result<str, int>"),
+        (tuple_ty, "(int, str)"),
+        (range_ty, "Range<int>"),
+        (iter_ty, "Iterator<int>"),
+        (dei_ty, "DoubleEndedIterator<int>"),
+    ];
+
+    for &(ty, type_name) in compounds {
+        for &trait_str in trait_names {
+            let trait_name = interner.intern(trait_str);
+            let string_result = super::calls::type_satisfies_trait(ty, trait_str, &pool);
+            let name_result = wk.type_satisfies_trait(ty, trait_name, &pool);
+            assert_eq!(
+                string_result, name_result,
+                "SYNC MISMATCH: {type_name} × {trait_str}: \
+                 string={string_result}, name={name_result}",
+            );
+        }
+    }
 }

@@ -288,6 +288,7 @@ pub(crate) fn check_where_clauses(
             return;
         };
         let pool = engine.pool();
+        let well_known = engine.well_known();
 
         let mut errors: Vec<String> = Vec::new();
 
@@ -304,22 +305,34 @@ pub(crate) fn check_where_clauses(
                         continue;
                     };
                     for &(bound_name, bound_idx) in &check.bound_entries {
-                        let bound_str = engine.lookup_name(bound_name).unwrap_or("");
-                        if !trait_registry.has_impl(bound_idx, projected_type)
-                            && !type_satisfies_trait(projected_type, bound_str, pool)
-                        {
-                            errors.push(format!("does not satisfy trait bound `{bound_str}`",));
+                        if !trait_registry.has_impl(bound_idx, projected_type) {
+                            let satisfies = if let Some(wk) = well_known {
+                                wk.type_satisfies_trait(projected_type, bound_name, pool)
+                            } else {
+                                let s = engine.lookup_name(bound_name).unwrap_or("");
+                                type_satisfies_trait(projected_type, s, pool)
+                            };
+                            if !satisfies {
+                                let bound_str = engine.lookup_name(bound_name).unwrap_or("?");
+                                errors.push(format!("does not satisfy trait bound `{bound_str}`",));
+                            }
                         }
                     }
                 }
             } else {
                 // Direct bound: `where T: Clone`
                 for &(bound_name, bound_idx) in &check.bound_entries {
-                    let bound_str = engine.lookup_name(bound_name).unwrap_or("");
-                    if !trait_registry.has_impl(bound_idx, check.concrete_type)
-                        && !type_satisfies_trait(check.concrete_type, bound_str, pool)
-                    {
-                        errors.push(format!("does not satisfy trait bound `{bound_str}`",));
+                    if !trait_registry.has_impl(bound_idx, check.concrete_type) {
+                        let satisfies = if let Some(wk) = well_known {
+                            wk.type_satisfies_trait(check.concrete_type, bound_name, pool)
+                        } else {
+                            let s = engine.lookup_name(bound_name).unwrap_or("");
+                            type_satisfies_trait(check.concrete_type, s, pool)
+                        };
+                        if !satisfies {
+                            let bound_str = engine.lookup_name(bound_name).unwrap_or("?");
+                            errors.push(format!("does not satisfy trait bound `{bound_str}`",));
+                        }
                     }
                 }
             }
