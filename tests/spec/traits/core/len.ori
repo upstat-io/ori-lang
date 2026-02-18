@@ -133,8 +133,9 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 // Len Built-in Function with Strings
 // =============================================================================
-// PENDING: Len trait proposal - see proposals/drafts/len-trait-proposal.md
-// When approved, uncomment these tests:
+// APPROVED: Len trait proposal - see proposals/approved/len-trait-proposal.md (2026-02-18)
+// PENDING IMPLEMENTATION: Generic len() function with Len trait bound.
+// Uncomment these tests when the prelude len() is updated to use <T: Len> bound:
 //
 // @test_len_builtin_str tests @len_builtin_str () -> void = run(
 //     assert_eq(
@@ -148,8 +149,8 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 // Len Trait Bound
 // =============================================================================
-// PENDING: Len trait proposal - see proposals/drafts/len-trait-proposal.md
-// When approved, uncomment these tests:
+// APPROVED: Len trait proposal - see proposals/approved/len-trait-proposal.md (2026-02-18)
+// PENDING IMPLEMENTATION: Uncomment these tests when <T: Len> bounds are implemented:
 //
 // @get_length<T: Len> (x: T) -> int = x.len()
 //

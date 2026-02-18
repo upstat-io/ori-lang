@@ -146,6 +146,7 @@ Core library traits are implemented via:
 This approach follows the "Lean Core, Rich Libraries" principle — the runtime implementation stays in Rust for efficiency, while the type system recognizes the trait bounds for generic programming.
 
 ### 3.0.1 Len Trait
+**Proposal**: `proposals/approved/len-trait-proposal.md` (approved 2026-02-18)
 
 - [x] **Implemented**: Trait bound `Len` recognized for `[T]`, `str`, `{K: V}`, `Set<T>`, `Range<T>` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_len_bound_satisfied_by_*`
@@ -154,6 +155,12 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Tests**: `ori_eval/src/methods.rs` — list/string/range method tests
   - [x] **LLVM Support**: LLVM codegen for `.len()` — inline IR via field extraction in `lower_calls.rs`
   - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.len()` on lists (3 tests) and strings (2 tests) [done] (2026-02-13)
+- [ ] **Implement**: Add tuple `Len` bound recognition — `(T₁, T₂, ...)` (approved in proposal)
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_len_bound_satisfied_by_tuple`
+  - [ ] **Ori Tests**: `tests/spec/traits/core/len.ori` — tuple len tests
+- [ ] **Implement**: Update prelude `len()` to use `<T: Len>` bound (generic function)
+  - [ ] **Ori Tests**: `tests/spec/traits/core/len.ori` — uncomment generic len tests
+- [ ] **Spec**: Add `Len Trait` section to `07-properties-of-types.md`
 
 ### 3.0.2 IsEmpty Trait
 

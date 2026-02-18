@@ -1,8 +1,9 @@
 # Proposal: Len Trait for Collection Length
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-02-05
+**Approved:** 2026-02-18
 **Affects:** Type system, prelude, standard library
 
 ---
@@ -13,7 +14,7 @@ This proposal formalizes the `Len` trait for types that have a countable size. T
 
 **Key features:**
 1. **Len trait** with `.len() -> int` method
-2. **Built-in implementations** for `[T]`, `str`, `{K: V}`, `Set<T>`, `Range<T>`
+2. **Built-in implementations** for `[T]`, `str`, `{K: V}`, `Set<T>`, `Range<int>`, `(T₁, T₂, ...)`, `[T, max N]`
 3. **Generic `len()` function** in prelude using `Len` bound
 
 ---
@@ -53,7 +54,8 @@ len(collection: "hello")    // ERROR: expected [T], found str
 | `str` | Number of bytes (not codepoints) |
 | `{K: V}` | Number of key-value pairs |
 | `Set<T>` | Number of elements |
-| `Range<T>` | Number of values in range |
+| `Range<int>` | Number of values in range |
+| `(T₁, T₂, ...)` | Number of elements |
 | `[T, max N]` | Current length (0 to N) |
 
 ---
@@ -87,6 +89,7 @@ The compiler provides built-in implementations for core types:
 | `{K: V}` | Number of entries |
 | `Set<T>` | Number of elements |
 | `Range<int>` | `end - start` for exclusive, `end - start + 1` for inclusive |
+| `(T₁, T₂, ...)` | Number of elements (statically known) |
 | `[T, max N]` | Current element count |
 
 These are implemented in the evaluator's method registry, not in Ori source.
@@ -110,6 +113,20 @@ With the `Len` trait, users can write generic functions:
 @process_if_nonempty<T: Len> (x: T, f: (T) -> void) -> void =
     if x.len() > 0 then f(x) else ()
 ```
+
+### Distinction from Iterator.count()
+
+The `Len` trait is distinct from `Iterator.count()`:
+
+| | `Len.len()` | `Iterator.count()` |
+|--|------------|-------------------|
+| **Complexity** | O(1) for built-in types | O(n) — consumes the iterator |
+| **Side effects** | None — non-consuming | Consuming — iterator is exhausted |
+| **Semantics** | Current size of collection | Number of remaining elements |
+
+Iterators do **not** implement `Len`. To count iterator elements, use `.count()`.
+
+Collections that implement `Len` may also be iterable, but `len()` provides direct size access without iteration.
 
 ---
 
@@ -154,6 +171,7 @@ For codepoint iteration, use `.chars()`. For grapheme clusters, use the `unicode
 | `{K: V}` | Yes |
 | `Set<T>` | Yes |
 | `Range<int>` | Yes |
+| `(T₁, T₂, ...)` | Yes |
 | `[T, max N]` | Yes |
 
 #### Derivation
@@ -167,7 +185,7 @@ For codepoint iteration, use `.chars()`. For grapheme clusters, use the `unicode
 ### Phase 1: Type Checker Support
 
 1. Add `Len` to recognized built-in traits in V2 type checker
-2. Implement `type_implements_len()` for `[T]`, `str`, `{K: V}`, `Set<T>`, `Range<T>`
+2. Implement `type_implements_len()` for `[T]`, `str`, `{K: V}`, `Set<T>`, `Range<int>`, `(T₁, T₂, ...)`, `[T, max N]`
 3. Ensure trait bound `<T: Len>` resolves correctly
 
 **Files:**
@@ -237,20 +255,10 @@ Ori follows Python's model: a trait defines the capability, a function provides 
 
 ---
 
-## Open Questions
+## Resolved Questions
 
-1. **Should `Len` extend another trait?** Could extend `Eq` (all Len types are equatable), but this seems unnecessary coupling.
+1. **Should `Len` extend another trait?** **No.** `Len` stands alone with no supertrait. Requiring `Eq` would be unnecessary coupling — not all measurable types need equality.
 
-2. **Range length for non-int ranges?** Currently only `Range<int>` has meaningful length. Should `Range<char>` count codepoints?
+2. **Range length for non-int ranges?** **`Range<int>` only for now.** `Range<char>` would require codepoint distance semantics, which is complex. Deferred to a future proposal.
 
-3. **Channel length?** Should buffered channels implement `Len`? Returns current buffer occupancy, but value is racy.
-
----
-
-## Checklist
-
-- [ ] Specification text approved
-- [ ] Type checker implementation complete
-- [ ] Prelude updated
-- [ ] Tests enabled and passing
-- [ ] Documentation updated
+3. **Channel length?** **No.** Channel buffer occupancy is inherently racy — the value is stale before it can be used. This violates the determinism semantic requirement. Deferred to a future `BufferedChannel` API if needed.
