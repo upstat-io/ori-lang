@@ -366,6 +366,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Eq",
         "Comparable",
         "Clone",
+        "Hashable",
         "Default",
         "Printable",
         "Add",
@@ -374,7 +375,15 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Div",
         "Neg",
     ];
-    const BOOL_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Default", "Printable", "Not"];
+    const BOOL_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Default",
+        "Printable",
+        "Not",
+    ];
     const STR_TRAITS: &[&str] = &[
         "Eq",
         "Comparable",
@@ -389,6 +398,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
     const CHAR_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
     const BYTE_TRAITS: &[&str] = &[
         "Eq",
+        "Comparable",
         "Clone",
         "Hashable",
         "Printable",
@@ -434,7 +444,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Div",
         "Rem",
     ];
-    const ORDERING_TRAITS: &[&str] = &["Eq", "Clone", "Printable"];
+    const ORDERING_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
 
     // Check primitive types by Idx constant
     if ty == Idx::INT {
@@ -477,9 +487,9 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
 /// Tuple, Set, and Range — types that aren't simple Idx constants but can be
 /// identified by their Pool tag.
 pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bool {
-    const COLLECTION_TRAITS: &[&str] = &["Clone", "Len", "IsEmpty"];
-    const WRAPPER_TRAITS: &[&str] = &["Clone", "Default"];
-    const RESULT_TRAITS: &[&str] = &["Clone"];
+    const COLLECTION_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Len", "IsEmpty"];
+    const WRAPPER_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Default"];
+    const RESULT_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable"];
 
     // First check primitives (no pool access needed)
     if primitive_satisfies_trait(ty, trait_name) {
@@ -489,9 +499,12 @@ pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bo
     // Then check compound types by tag
 
     match pool.tag(ty) {
-        Tag::List | Tag::Map | Tag::Set => {
-            COLLECTION_TRAITS.contains(&trait_name) || trait_name == "Iterable"
+        Tag::List => {
+            COLLECTION_TRAITS.contains(&trait_name)
+                || trait_name == "Comparable"
+                || trait_name == "Iterable"
         }
+        Tag::Map | Tag::Set => COLLECTION_TRAITS.contains(&trait_name) || trait_name == "Iterable",
         Tag::Option => WRAPPER_TRAITS.contains(&trait_name),
         Tag::Result | Tag::Tuple => RESULT_TRAITS.contains(&trait_name),
         Tag::Range => matches!(trait_name, "Len" | "Iterable"),

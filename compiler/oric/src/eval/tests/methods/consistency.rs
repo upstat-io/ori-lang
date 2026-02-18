@@ -17,6 +17,7 @@ const COLLECTION_TYPES: &[&str] = &[
     "Option",
     "Result",
     "Set",
+    "error",
     "list",
     "map",
     "range",
@@ -58,13 +59,8 @@ const EVAL_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("Size", "multiply"),
     ("Size", "remainder"),
     ("Size", "subtract"),
-    // Debug trait — implemented in eval, not yet in IR for all types
-    ("bool", "debug"),
-    ("byte", "debug"),
-    ("char", "debug"),
-    ("float", "debug"),
-    ("int", "debug"),
-    ("str", "debug"),
+    // Float hash — new compound type hash support, not yet in IR
+    ("float", "hash"),
     // Printable for str (str.to_str returns itself)
     ("str", "to_str"),
     // Iterable — iter() returns Iterator<T>, not expressible in current IR ReturnSpec
@@ -164,11 +160,15 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("Duration", "remainder"),
     ("Duration", "sub"),
     ("Duration", "subtract"),
-    // Option — eval has trait methods typeck resolves via traits
-    ("Option", "compare"),
-    // Ordering — no extras needed (all in typeck)
-    // Result — eval has trait methods typeck resolves via traits
-    ("Result", "compare"),
+    // error — bare Error type methods; typeck resolves via Result delegation
+    ("error", "clone"),
+    ("error", "debug"),
+    ("error", "has_trace"),
+    ("error", "message"),
+    ("error", "to_str"),
+    ("error", "trace"),
+    ("error", "trace_entries"),
+    ("error", "with_trace"),
     // Size — operators and accessor methods
     ("Size", "add"),
     ("Size", "bytes"),
@@ -186,12 +186,8 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("Size", "terabytes"),
     // Operator methods — typeck resolves operators via operator inference,
     // not through resolve_builtin_method()
-    ("bool", "debug"),
     ("bool", "not"),
-    ("byte", "debug"),
-    ("char", "debug"),
     ("float", "add"),
-    ("float", "debug"),
     ("float", "div"),
     ("float", "mul"),
     ("float", "neg"),
@@ -201,7 +197,6 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("int", "bit_not"),
     ("int", "bit_or"),
     ("int", "bit_xor"),
-    ("int", "debug"),
     ("int", "div"),
     ("int", "floor_div"),
     ("int", "mul"),
@@ -211,12 +206,9 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("int", "shr"),
     ("int", "sub"),
     ("list", "add"),
-    ("list", "compare"),
     ("list", "concat"),
-    ("list", "debug"),
     ("str", "add"),
     ("str", "concat"),
-    ("str", "debug"),
     ("str", "to_str"),
 ];
 
@@ -247,8 +239,6 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("Duration", "to_nanos"),
     ("Duration", "to_seconds"),
     ("Duration", "zero"),
-    // Ordering — debug trait
-    ("Ordering", "debug"),
     // Size — conversion aliases and factory methods
     ("Size", "as_bytes"),
     ("Size", "format"),
@@ -298,6 +288,8 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("float", "clamp"),
     ("float", "cos"),
     ("float", "exp"),
+    // Float hash — compound type hash support, not yet in IR
+    ("float", "hash"),
     ("float", "is_finite"),
     ("float", "is_infinite"),
     ("float", "is_nan"),
@@ -384,6 +376,7 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("Iterator", "flatten"),
     ("Iterator", "fold"),
     ("Iterator", "for_each"),
+    ("Iterator", "join"),
     ("Iterator", "map"),
     ("Iterator", "next"),
     ("Iterator", "skip"),
@@ -605,8 +598,6 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("str", "to_int"),
     ("str", "trim_end"),
     ("str", "trim_start"),
-    // tuple — len not in eval
-    ("tuple", "len"),
 ];
 
 /// The typeck method list must be sorted for reliable comparison.
@@ -740,11 +731,11 @@ fn eval_iterator_method_names_sorted() {
 
 // ── Well-known generic type resolution consistency ───────────────────
 
-/// Well-known generic types that must be handled in all three type
-/// resolution functions to ensure `Pool` tags match between annotations
-/// and inference. Adding a type here without updating all three sites
-/// causes unification failures (e.g., `Option<int>` from annotation
-/// produces `Tag::Applied` instead of `Tag::Option`).
+/// Well-known generic types that must be handled in the centralized
+/// `resolve_well_known_generic()` function to ensure `Pool` tags match
+/// between annotations and inference. Adding a type here without updating
+/// `check/well_known.rs` causes unification failures (e.g., `Option<int>`
+/// from annotation produces `Tag::Applied` instead of `Tag::Option`).
 const WELL_KNOWN_GENERIC_TYPES: &[&str] = &[
     "Channel",
     "DoubleEndedIterator",
@@ -755,11 +746,12 @@ const WELL_KNOWN_GENERIC_TYPES: &[&str] = &[
     "Set",
 ];
 
-/// All three type resolution functions must handle the same set of
-/// well-known generic types. This test reads the source files and
-/// verifies each type name appears in each function.
+/// The centralized `resolve_well_known_generic()` in `check/well_known.rs`
+/// must contain all well-known generic types, and all three resolution
+/// functions must delegate to it.
 ///
-/// The three resolution sites:
+/// Single source of truth: `check/well_known.rs`
+/// Consumers (must call `resolve_well_known_generic`):
 /// 1. `check/registration/mod.rs` — `resolve_parsed_type_simple()`
 /// 2. `check/signatures/mod.rs` — `resolve_type_with_vars()`
 /// 3. `infer/expr/type_resolution.rs` — `resolve_parsed_type()`
@@ -772,7 +764,22 @@ fn well_known_generic_types_consistent() {
         panic!("oric crate should be inside compiler/");
     };
 
-    let files: &[(&str, &str)] = &[
+    // 1. Verify the single source of truth contains all types.
+    let well_known_path = workspace.join("ori_types/src/check/well_known.rs");
+    let well_known_src = std::fs::read_to_string(&well_known_path)
+        .unwrap_or_else(|e| panic!("failed to read well_known.rs: {e}"));
+
+    for &ty in WELL_KNOWN_GENERIC_TYPES {
+        let pattern = format!("\"{ty}\"");
+        assert!(
+            well_known_src.contains(&pattern),
+            "Well-known generic type `{ty}` missing from check/well_known.rs\n\
+             Add a match arm for `(\"{ty}\", N)` in resolve_well_known_generic()."
+        );
+    }
+
+    // 2. Verify all three consumers delegate to the shared helper.
+    let consumers: &[(&str, &str)] = &[
         ("registration", "ori_types/src/check/registration/mod.rs"),
         ("signatures", "ori_types/src/check/signatures/mod.rs"),
         (
@@ -781,20 +788,16 @@ fn well_known_generic_types_consistent() {
         ),
     ];
 
-    for &(label, rel_path) in files {
+    for &(label, rel_path) in consumers {
         let path = workspace.join(rel_path);
         let source = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"));
 
-        for &ty in WELL_KNOWN_GENERIC_TYPES {
-            // Match the string literal as it appears in match arms
-            let pattern = format!("\"{ty}\"");
-            assert!(
-                source.contains(&pattern),
-                "Well-known generic type `{ty}` missing from {label} ({rel_path})\n\
-                 Add a match arm for `(\"{ty}\", N)` in the well-known type routing block.\n\
-                 All three resolution functions must handle the same set of types."
-            );
-        }
+        assert!(
+            source.contains("resolve_well_known_generic"),
+            "{label} ({rel_path}) does not call resolve_well_known_generic().\n\
+             All three resolution functions must delegate to the shared helper \
+             in check/well_known.rs to prevent drift."
+        );
     }
 }

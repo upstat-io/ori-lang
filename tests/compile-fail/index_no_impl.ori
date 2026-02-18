@@ -1,0 +1,12 @@
+// Test that indexing a type without Index impl produces E2025 error
+// Spec: 09-expressions.md § Index Trait
+
+type Point = { x: int, y: int }
+
+// Subscript on type without Index impl
+#[compile_fail("does not support indexing")]
+@test_no_index () -> void = run(
+    let p = Point { x: 1, y: 2 },
+    let _ = p[0],
+    ()
+)

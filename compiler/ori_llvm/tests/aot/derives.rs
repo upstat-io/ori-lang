@@ -170,7 +170,7 @@ type Point = { x: int, y: int }
 
 @main () -> int = run(
     let p = Point { x: 1, y: 2 },
-    let s = p.to_string(),
+    let s = p.to_str(),
     if s.len() > 0 then 0 else 1
 )
 "#,
@@ -226,6 +226,41 @@ type Point = { x: int, y: int }
 )
 "#,
         "derive_default_eq_integration",
+    );
+}
+
+#[test]
+fn test_aot_derive_default_str_field() {
+    assert_aot_success(
+        r#"
+#[derive(Default)]
+type Record = { name: str, count: int }
+
+@main () -> int = run(
+    let r = Record.default(),
+    if r.name == "" && r.count == 0 then 0 else 1
+)
+"#,
+        "derive_default_str_field",
+    );
+}
+
+#[test]
+fn test_aot_derive_default_nested() {
+    assert_aot_success(
+        r#"
+#[derive(Default)]
+type Inner = { x: int, y: int }
+
+#[derive(Default)]
+type Outer = { inner: Inner, label: str }
+
+@main () -> int = run(
+    let o = Outer.default(),
+    if o.inner.x == 0 && o.inner.y == 0 && o.label == "" then 0 else 1
+)
+"#,
+        "derive_default_nested",
     );
 }
 
@@ -408,6 +443,86 @@ fn test_aot_clone_tuple_triple() {
 )
 "#,
         "clone_tuple_triple",
+    );
+}
+
+// 3.14: Derive Comparable
+
+#[test]
+fn test_aot_derive_comparable_basic() {
+    assert_aot_success(
+        r#"
+#[derive(Comparable)]
+type Point = { x: int, y: int }
+
+@main () -> int = run(
+    let a = Point { x: 1, y: 2 },
+    let b = Point { x: 1, y: 3 },
+    let c = Point { x: 1, y: 2 },
+    let ab = a.compare(other: b),
+    let ac = a.compare(other: c),
+    if ab.is_less() && ac.is_equal() then 0 else 1
+)
+"#,
+        "derive_comparable_basic",
+    );
+}
+
+#[test]
+fn test_aot_derive_comparable_first_field_wins() {
+    assert_aot_success(
+        r#"
+#[derive(Comparable)]
+type Pair = { x: int, y: int }
+
+@main () -> int = run(
+    let a = Pair { x: 5, y: 1 },
+    let b = Pair { x: 3, y: 999 },
+    let cmp = a.compare(other: b),
+    if cmp.is_greater() then 0 else 1
+)
+"#,
+        "derive_comparable_first_field",
+    );
+}
+
+#[test]
+fn test_aot_derive_comparable_with_strings() {
+    assert_aot_success(
+        r#"
+#[derive(Comparable)]
+type Named = { name: str, id: int }
+
+@main () -> int = run(
+    let a = Named { name: "alice", id: 1 },
+    let b = Named { name: "bob", id: 1 },
+    let c = Named { name: "alice", id: 2 },
+    let ab = a.compare(other: b),
+    let ac = a.compare(other: c),
+    if ab.is_less() && ac.is_less() then 0 else 1
+)
+"#,
+        "derive_comparable_strings",
+    );
+}
+
+#[test]
+fn test_aot_derive_comparable_single_field() {
+    assert_aot_success(
+        r#"
+#[derive(Comparable)]
+type Wrapper = { value: int }
+
+@main () -> int = run(
+    let a = Wrapper { value: 10 },
+    let b = Wrapper { value: 20 },
+    let c = Wrapper { value: 10 },
+    let ab = a.compare(other: b),
+    let ac = a.compare(other: c),
+    if ab.is_less() && ac.is_equal() then 0 else 1
+)
+"#,
+        "derive_comparable_single_field",
     );
 }
 

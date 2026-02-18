@@ -15,8 +15,9 @@
 //! - [`compare`]: Value comparison utilities
 
 mod collections;
-mod compare;
-mod helpers;
+pub(crate) mod compare;
+mod error;
+pub(crate) mod helpers;
 mod numeric;
 mod ordering;
 mod units;
@@ -72,6 +73,7 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) trim: Name,
     pub(crate) starts_with: Name,
     pub(crate) ends_with: Name,
+    pub(crate) escape: Name,
 
     // Collection (list-specific)
     pub(crate) first: Name,
@@ -129,6 +131,13 @@ pub(crate) struct BuiltinMethodNames {
 
     // Iterator
     pub(crate) iter: Name,
+
+    // Traceable trait (Error type)
+    pub(crate) trace: Name,
+    pub(crate) trace_entries: Name,
+    pub(crate) has_trace: Name,
+    pub(crate) with_trace: Name,
+    pub(crate) message: Name,
 }
 
 impl BuiltinMethodNames {
@@ -168,6 +177,7 @@ impl BuiltinMethodNames {
             trim: interner.intern("trim"),
             starts_with: interner.intern("starts_with"),
             ends_with: interner.intern("ends_with"),
+            escape: interner.intern("escape"),
             // List
             first: interner.intern("first"),
             last: interner.intern("last"),
@@ -215,6 +225,12 @@ impl BuiltinMethodNames {
             terabytes: interner.intern("terabytes"),
             // Iterator
             iter: interner.intern("iter"),
+            // Traceable
+            trace: interner.intern("trace"),
+            trace_entries: interner.intern("trace_entries"),
+            has_trace: interner.intern("has_trace"),
+            with_trace: interner.intern("with_trace"),
+            message: interner.intern("message"),
         }
     }
 }
@@ -280,6 +296,39 @@ fn dispatch_tuple_method(
             unreachable!("dispatch_tuple_method called with non-tuple receiver")
         };
         helpers::len_to_value(elems.len(), "tuple")
+    // Comparable trait - lexicographic element comparison
+    } else if method == n.compare {
+        helpers::require_args("compare", 1, args.len())?;
+        let Value::Tuple(a_elems) = &receiver else {
+            unreachable!("dispatch_tuple_method called with non-tuple receiver")
+        };
+        let Value::Tuple(b_elems) = &args[0] else {
+            return Err(ori_patterns::wrong_arg_type("compare", "tuple").into());
+        };
+        // Lexicographic comparison: compare element by element
+        for (a, b) in a_elems.iter().zip(b_elems.iter()) {
+            let ord = compare::compare_values(a, b, ctx.interner)?;
+            if ord != std::cmp::Ordering::Equal {
+                return Ok(compare::ordering_to_value(ord));
+            }
+        }
+        // All compared elements equal, compare by length (shorter < longer)
+        Ok(compare::ordering_to_value(
+            a_elems.len().cmp(&b_elems.len()),
+        ))
+    // Eq trait - element-wise equality
+    } else if method == n.equals {
+        helpers::require_args("equals", 1, args.len())?;
+        let eq = compare::equals_values(&receiver, &args[0], ctx.interner)?;
+        Ok(Value::Bool(eq))
+    // Hashable trait - recursive element hash
+    } else if method == n.hash {
+        helpers::require_args("hash", 0, args.len())?;
+        Ok(Value::int(compare::hash_value(&receiver, ctx.interner)?))
+    // Debug trait - structural representation
+    } else if method == n.debug {
+        helpers::require_args("debug", 0, args.len())?;
+        Ok(Value::string(helpers::debug_value(&receiver)))
     } else {
         let method_str = ctx.interner.lookup(method);
         Err(no_such_method(method_str, "tuple").into())
@@ -324,6 +373,7 @@ pub(crate) fn dispatch_builtin_method(
         Value::Size(_) => units::dispatch_size_method(receiver, method, args, ctx),
         Value::Ordering(_) => ordering::dispatch_ordering_method(receiver, method, args, ctx),
         Value::Tuple(_) => dispatch_tuple_method(receiver, method, args, ctx),
+        Value::Error(_) => error::dispatch_error_method(receiver, method, args, ctx),
         _ => {
             let method_str = ctx.interner.lookup(method);
             Err(no_such_method(method_str, receiver.type_name()).into())

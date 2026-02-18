@@ -3,8 +3,13 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalError, EvalResult, Value};
 
-use super::compare::{compare_option_values, compare_result_values, ordering_to_value};
-use super::helpers::{require_args, require_bool_arg, require_byte_arg, require_char_arg};
+use super::compare::{
+    compare_option_values, compare_result_values, equals_values, hash_value, ordering_to_value,
+};
+use super::helpers::{
+    debug_value, escape_debug_char, require_args, require_bool_arg, require_byte_arg,
+    require_char_arg,
+};
 use super::DispatchCtx;
 
 /// Dispatch operator methods on bool values.
@@ -89,10 +94,10 @@ pub fn dispatch_char_method(
     } else if method == n.to_str {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(c.to_string()))
-    // Debug trait
+    // Debug trait - shows escaped char with quotes
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        Ok(Value::string(format!("'{c}'")))
+        Ok(Value::string(format!("'{}'", escape_debug_char(c))))
     // Hashable trait
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
@@ -213,6 +218,15 @@ pub fn dispatch_option_method(
         require_args("compare", 1, args.len())?;
         let ord = compare_option_values(&receiver, &args[0], ctx.interner)?;
         Ok(ordering_to_value(ord))
+    // Eq trait - deep equality
+    } else if method == n.equals {
+        require_args("equals", 1, args.len())?;
+        let eq = equals_values(&receiver, &args[0], ctx.interner)?;
+        Ok(Value::Bool(eq))
+    // Hashable trait - recursive hash
+    } else if method == n.hash {
+        require_args("hash", 0, args.len())?;
+        Ok(Value::int(hash_value(&receiver, ctx.interner)?))
     // Clone trait
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
@@ -225,6 +239,10 @@ pub fn dispatch_option_method(
             Some(iter) => Ok(Value::iterator(iter)),
             None => unreachable!("Option values are always iterable"),
         }
+    // Debug trait - structural representation
+    } else if method == n.debug {
+        require_args("debug", 0, args.len())?;
+        Ok(Value::string(debug_value(&receiver)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Option").into())
     }
@@ -258,11 +276,58 @@ pub fn dispatch_result_method(
         let other = &args[0];
         let ord = compare_result_values(&receiver, other, ctx.interner)?;
         Ok(ordering_to_value(ord))
+    // Eq trait - deep equality
+    } else if method == n.equals {
+        require_args("equals", 1, args.len())?;
+        let eq = equals_values(&receiver, &args[0], ctx.interner)?;
+        Ok(Value::Bool(eq))
+    // Hashable trait - recursive hash
+    } else if method == n.hash {
+        require_args("hash", 0, args.len())?;
+        Ok(Value::int(hash_value(&receiver, ctx.interner)?))
     // Clone trait
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)
+    // Debug trait - structural representation
+    } else if method == n.debug {
+        require_args("debug", 0, args.len())?;
+        Ok(Value::string(debug_value(&receiver)))
+    // Traceable delegation: forward to inner Error if present
+    } else if method == n.trace {
+        require_args("trace", 0, args.len())?;
+        Ok(Value::string(result_error_trace(&receiver)))
+    } else if method == n.trace_entries {
+        require_args("trace_entries", 0, args.len())?;
+        match result_inner_error(&receiver) {
+            Some(ev) => {
+                let entries: Vec<Value> = ev
+                    .trace()
+                    .iter()
+                    .map(|entry| super::error::trace_entry_to_struct(entry, ctx))
+                    .collect();
+                Ok(Value::list(entries))
+            }
+            None => Ok(Value::list(vec![])),
+        }
+    } else if method == n.has_trace {
+        require_args("has_trace", 0, args.len())?;
+        let has = result_inner_error(&receiver).is_some_and(ori_patterns::ErrorValue::has_trace);
+        Ok(Value::Bool(has))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Result").into())
     }
+}
+
+/// Extract the inner `ErrorValue` from a Result's Err variant, if present.
+fn result_inner_error(value: &Value) -> Option<&ori_patterns::ErrorValue> {
+    match value {
+        Value::Err(inner) => inner.as_error(),
+        _ => None,
+    }
+}
+
+/// Get the trace string from a Result's inner Error, or empty string.
+fn result_error_trace(value: &Value) -> String {
+    result_inner_error(value).map_or_else(String::new, ori_patterns::ErrorValue::format_trace)
 }

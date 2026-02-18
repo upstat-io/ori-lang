@@ -766,6 +766,29 @@ pub extern "C" fn ori_str_ne(a: *const OriStr, b: *const OriStr) -> bool {
     !ori_str_eq(a, b)
 }
 
+/// Compare two strings lexicographically.
+///
+/// Returns Ordering tag: 0 (Less), 1 (Equal), 2 (Greater).
+#[no_mangle]
+pub extern "C" fn ori_str_compare(a: *const OriStr, b: *const OriStr) -> i8 {
+    let a_str = if a.is_null() {
+        ""
+    } else {
+        unsafe { (*a).as_str() }
+    };
+    let b_str = if b.is_null() {
+        ""
+    } else {
+        unsafe { (*b).as_str() }
+    };
+
+    match a_str.cmp(b_str) {
+        core::cmp::Ordering::Less => 0,
+        core::cmp::Ordering::Equal => 1,
+        core::cmp::Ordering::Greater => 2,
+    }
+}
+
 /// Convert an integer to a string.
 #[no_mangle]
 pub extern "C" fn ori_str_from_int(n: i64) -> OriStr {

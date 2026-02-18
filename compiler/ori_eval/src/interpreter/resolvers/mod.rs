@@ -72,6 +72,8 @@ pub enum CollectionMethod {
     Any,
     /// [T].all(predicate: T -> bool) -> bool
     All,
+    /// [T].join(sep: str) -> str
+    Join,
 
     // Iterator methods (adapters + consumers)
     /// `Iterator<T>.next() -> (T?, Iterator<T>)`
@@ -100,6 +102,8 @@ pub enum CollectionMethod {
     IterCollect,
     /// `Iterator<T>.__collect_set() -> Set<T>` (type-directed via Collect trait)
     IterCollectSet,
+    /// `Iterator<T>.join(sep: str) -> str`
+    IterJoin,
     /// `Iterator<T>.enumerate() -> Iterator<(int, T)>`
     IterEnumerate,
     /// `Iterator<T>.zip(other: Iterator<U>) -> Iterator<(T, U)>`
@@ -140,6 +144,7 @@ impl CollectionMethod {
             "collect" => Some(Self::Collect),
             "any" => Some(Self::Any),
             "all" => Some(Self::All),
+            "join" => Some(Self::Join),
             _ => None,
         }
     }
@@ -172,6 +177,7 @@ impl CollectionMethod {
                 | Self::IterForEach
                 | Self::IterCollect
                 | Self::IterCollectSet
+                | Self::IterJoin
         )
     }
 
@@ -201,6 +207,7 @@ impl CollectionMethod {
             ("all", Self::IterAll),
             ("for_each", Self::IterForEach),
             ("collect", Self::IterCollect),
+            ("join", Self::IterJoin),
             ("next_back", Self::IterNextBack),
             ("rev", Self::IterRev),
             ("last", Self::IterLast),
@@ -233,6 +240,7 @@ pub const ITERATOR_METHOD_NAMES: &[&str] = &[
     "flatten",
     "fold",
     "for_each",
+    "join",
     "last",
     "map",
     "next",

@@ -1,5 +1,7 @@
 //! `EvaluatorBuilder` for creating Evaluator instances with various configurations.
 
+use std::sync::Arc;
+
 use super::Evaluator;
 use crate::db::Db;
 use crate::ir::{ExprArena, SharedArena, StringInterner};
@@ -19,6 +21,10 @@ pub struct EvaluatorBuilder<'a> {
     env: Option<Environment>,
     imported_arena: Option<SharedArena>,
     user_method_registry: Option<SharedMutableRegistry<UserMethodRegistry>>,
+    /// Source file path for Traceable trace entries.
+    source_file_path: Option<Arc<String>>,
+    /// Source text for line/column computation in trace entries.
+    source_text: Option<Arc<String>>,
     /// Canonical IR for canonical evaluation dispatch.
     canon: Option<SharedCanonResult>,
 }
@@ -34,6 +40,8 @@ impl<'a> EvaluatorBuilder<'a> {
             env: None,
             imported_arena: None,
             user_method_registry: None,
+            source_file_path: None,
+            source_text: None,
             canon: None,
         }
     }
@@ -68,6 +76,20 @@ impl<'a> EvaluatorBuilder<'a> {
         self
     }
 
+    /// Set the source file path for Traceable trace entries.
+    #[must_use]
+    pub fn source_file_path(mut self, path: Arc<String>) -> Self {
+        self.source_file_path = Some(path);
+        self
+    }
+
+    /// Set the source text for Traceable trace entries.
+    #[must_use]
+    pub fn source_text(mut self, text: Arc<String>) -> Self {
+        self.source_text = Some(text);
+        self
+    }
+
     /// Set the canonical IR for canonical evaluation dispatch.
     ///
     /// When set, the evaluator can dispatch via `eval_can()` for root expressions
@@ -94,6 +116,14 @@ impl<'a> EvaluatorBuilder<'a> {
 
         if let Some(registry) = self.user_method_registry {
             interpreter_builder = interpreter_builder.user_method_registry(registry);
+        }
+
+        // Pass source info for Traceable trace entries
+        if let Some(path) = self.source_file_path {
+            interpreter_builder = interpreter_builder.source_file_path(path);
+        }
+        if let Some(text) = self.source_text {
+            interpreter_builder = interpreter_builder.source_text(text);
         }
 
         // Pass canonical IR for eval_can dispatch

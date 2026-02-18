@@ -313,7 +313,7 @@ pub fn execute_task(task: Value) -> Value {
 pub fn wrap_in_result(value: Value) -> Value {
     match value {
         Value::Ok(_) | Value::Err(_) => value,
-        Value::Error(msg) => Value::err(Value::string(&msg)),
+        Value::Error(ev) => Value::err(Value::Error(ev)),
         other => Value::ok(other),
     }
 }

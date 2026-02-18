@@ -64,9 +64,37 @@ mod wrap_in_result_tests {
 
     #[test]
     fn error_converts_to_err() {
-        let value = Value::Error("some error".to_string());
+        let value = Value::error("some error");
         let result = wrap_in_result(value);
         assert!(matches!(result, Value::Err(_)));
+    }
+
+    #[test]
+    fn error_preserves_trace() {
+        use crate::TraceEntryData;
+
+        let mut ev = crate::ErrorValue::new("traced error");
+        ev.push_trace(TraceEntryData {
+            function: "my_fn".into(),
+            file: "test.ori".into(),
+            line: 10,
+            column: 5,
+        });
+        let value = Value::error_from(ev);
+
+        let result = wrap_in_result(value);
+
+        // The error should be nested inside Err, preserving its trace
+        let Value::Err(inner) = result else {
+            panic!("expected Err wrapper");
+        };
+        let Value::Error(ev) = &*inner else {
+            panic!("expected Error inside Err");
+        };
+        assert!(ev.has_trace());
+        assert_eq!(ev.trace().len(), 1);
+        assert_eq!(ev.trace()[0].function, "my_fn");
+        assert_eq!(ev.trace()[0].file, "test.ori");
     }
 
     #[test]

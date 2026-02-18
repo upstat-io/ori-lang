@@ -17,8 +17,12 @@ pub enum DerivedTrait {
     Hashable,
     /// Printable trait - string representation
     Printable,
+    /// Debug trait - developer-facing structural representation
+    Debug,
     /// Default trait - default value construction
     Default,
+    /// Comparable trait - lexicographic field comparison
+    Comparable,
 }
 
 impl DerivedTrait {
@@ -29,7 +33,9 @@ impl DerivedTrait {
             "Clone" => Some(DerivedTrait::Clone),
             "Hashable" => Some(DerivedTrait::Hashable),
             "Printable" => Some(DerivedTrait::Printable),
+            "Debug" => Some(DerivedTrait::Debug),
             "Default" => Some(DerivedTrait::Default),
+            "Comparable" => Some(DerivedTrait::Comparable),
             _ => None,
         }
     }
@@ -40,8 +46,10 @@ impl DerivedTrait {
             DerivedTrait::Eq => "eq",
             DerivedTrait::Clone => "clone",
             DerivedTrait::Hashable => "hash",
-            DerivedTrait::Printable => "to_string",
+            DerivedTrait::Printable => "to_str",
+            DerivedTrait::Debug => "debug",
             DerivedTrait::Default => "default",
+            DerivedTrait::Comparable => "compare",
         }
     }
 }

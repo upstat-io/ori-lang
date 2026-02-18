@@ -36,6 +36,7 @@ fn iterator_variant_list_matches_predicate() {
         CollectionMethod::FilterEntries,
         CollectionMethod::Any,
         CollectionMethod::All,
+        CollectionMethod::Join,
         CollectionMethod::IterNext,
         CollectionMethod::IterMap,
         CollectionMethod::IterFilter,
@@ -60,6 +61,7 @@ fn iterator_variant_list_matches_predicate() {
         CollectionMethod::IterForEach,
         CollectionMethod::IterCollect,
         CollectionMethod::IterCollectSet,
+        CollectionMethod::IterJoin,
     ];
     let predicate_count = all_variants
         .iter()
@@ -116,6 +118,10 @@ fn test_collection_method_from_name() {
     assert_eq!(
         CollectionMethod::from_name("all"),
         Some(CollectionMethod::All)
+    );
+    assert_eq!(
+        CollectionMethod::from_name("join"),
+        Some(CollectionMethod::Join)
     );
     assert_eq!(CollectionMethod::from_name("unknown"), None);
 }

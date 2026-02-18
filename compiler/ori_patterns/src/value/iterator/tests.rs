@@ -1,3 +1,5 @@
+#![expect(clippy::expect_used, reason = "Tests use expect for clarity")]
+
 use std::hash::{Hash, Hasher};
 
 use super::*;
@@ -1466,4 +1468,68 @@ fn from_value_unbounded_range() {
     assert_eq!(iter.size_hint(), (usize::MAX, None));
     let (item, _) = iter.next();
     assert_eq!(item, Some(Value::int(0)));
+}
+
+// === Copy elision tests ===
+// These verify that freshly-created tuples (like those from iter.next())
+// have Arc refcount 1, enabling move-based destructuring without cloning.
+
+#[test]
+fn copy_elision_fresh_tuple_has_refcount_one() {
+    // Simulates what eval_iter_next_as_tuple() produces
+    let option_val = Value::some(Value::int(42));
+    let iter = IteratorValue::from_list(Heap::new(vec![Value::int(1)]));
+    let tuple = Value::tuple(vec![option_val, Value::iterator(iter)]);
+
+    // Fresh tuple should have refcount 1 — eligible for copy elision
+    if let Value::Tuple(values) = tuple {
+        assert!(
+            values.try_into_inner().is_ok(),
+            "fresh tuple should be unwrappable (refcount == 1)"
+        );
+    } else {
+        panic!("expected tuple");
+    }
+}
+
+#[test]
+fn copy_elision_shared_tuple_falls_back_to_clone() {
+    let tuple = Value::tuple(vec![Value::int(1), Value::int(2)]);
+    let _alias = tuple.clone(); // bump refcount to 2
+
+    if let Value::Tuple(values) = tuple {
+        assert!(
+            values.try_into_inner().is_err(),
+            "shared tuple should not be unwrappable (refcount > 1)"
+        );
+    } else {
+        panic!("expected tuple");
+    }
+}
+
+#[test]
+fn copy_elision_moves_iterator_without_clone() {
+    // Create an iterator and wrap in a tuple (mimics next() return)
+    let items = Heap::new(vec![Value::int(10), Value::int(20)]);
+    let iter = IteratorValue::from_list(items);
+    let (item, advanced_iter) = iter.next();
+    assert_eq!(item, Some(Value::int(10)));
+
+    let tuple = Value::tuple(vec![
+        Value::some(Value::int(10)),
+        Value::iterator(advanced_iter),
+    ]);
+
+    // Unwrap the tuple and extract the iterator — no clone needed
+    if let Value::Tuple(values) = tuple {
+        let owned = values.try_into_inner().expect("should unwrap");
+        assert_eq!(owned.len(), 2);
+        // The iterator element should be intact and usable
+        if let Value::Iterator(iter_box) = &owned[1] {
+            let (next_item, _) = iter_box.next();
+            assert_eq!(next_item, Some(Value::int(20)));
+        } else {
+            panic!("expected iterator in second position");
+        }
+    }
 }

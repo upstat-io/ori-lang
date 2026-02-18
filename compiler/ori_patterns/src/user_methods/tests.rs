@@ -70,7 +70,7 @@ fn test_derived_trait_method_name() {
     assert_eq!(DerivedTrait::Eq.method_name(), "eq");
     assert_eq!(DerivedTrait::Clone.method_name(), "clone");
     assert_eq!(DerivedTrait::Hashable.method_name(), "hash");
-    assert_eq!(DerivedTrait::Printable.method_name(), "to_string");
+    assert_eq!(DerivedTrait::Printable.method_name(), "to_str");
     assert_eq!(DerivedTrait::Default.method_name(), "default");
 }
 
@@ -158,4 +158,88 @@ fn test_merge_registries() {
     // Both should be present
     assert!(registry1.has_method(point, distance));
     assert!(registry1.has_method(point, clone_name));
+}
+
+#[test]
+fn test_register_multiple_methods_same_key() {
+    let interner = SharedInterner::default();
+    let mut registry = UserMethodRegistry::new();
+
+    let json_value = interner.intern("JsonValue");
+    let index = interner.intern("index");
+    let int_hint = interner.intern("int");
+    let str_hint = interner.intern("str");
+
+    // Register two methods for same (type, name) with different key_type_hints
+    let mut method1 = UserMethod::new(vec![dummy_name()], dummy_captures(), dummy_arena());
+    method1.key_type_hint = Some(int_hint);
+
+    let mut method2 = UserMethod::new(vec![dummy_name()], dummy_captures(), dummy_arena());
+    method2.key_type_hint = Some(str_hint);
+
+    registry.register(json_value, index, method1);
+    registry.register(json_value, index, method2);
+
+    // lookup returns first registered
+    let first = registry.lookup(json_value, index).unwrap();
+    assert_eq!(first.key_type_hint, Some(int_hint));
+
+    // lookup_all returns both
+    let all = registry.lookup_all(json_value, index).unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[0].key_type_hint, Some(int_hint));
+    assert_eq!(all[1].key_type_hint, Some(str_hint));
+
+    assert!(registry.has_method(json_value, index));
+}
+
+#[test]
+fn test_lookup_all_single_method() {
+    let interner = SharedInterner::default();
+    let mut registry = UserMethodRegistry::new();
+
+    let point = interner.intern("Point");
+    let distance = interner.intern("distance");
+
+    let method = UserMethod::new(vec![dummy_name()], dummy_captures(), dummy_arena());
+    registry.register(point, distance, method);
+
+    let all = registry.lookup_all(point, distance).unwrap();
+    assert_eq!(all.len(), 1);
+}
+
+#[test]
+fn test_lookup_all_not_found() {
+    let interner = SharedInterner::default();
+    let registry = UserMethodRegistry::new();
+
+    let point = interner.intern("Point");
+    let distance = interner.intern("distance");
+
+    assert!(registry.lookup_all(point, distance).is_none());
+}
+
+#[test]
+fn test_merge_concatenates_multi_methods() {
+    let interner = SharedInterner::default();
+    let mut registry1 = UserMethodRegistry::new();
+    let mut registry2 = UserMethodRegistry::new();
+
+    let json = interner.intern("Json");
+    let index = interner.intern("index");
+    let int_hint = interner.intern("int");
+    let str_hint = interner.intern("str");
+
+    let mut m1 = UserMethod::new(vec![dummy_name()], dummy_captures(), dummy_arena());
+    m1.key_type_hint = Some(int_hint);
+    registry1.register(json, index, m1);
+
+    let mut m2 = UserMethod::new(vec![dummy_name()], dummy_captures(), dummy_arena());
+    m2.key_type_hint = Some(str_hint);
+    registry2.register(json, index, m2);
+
+    registry1.merge(registry2);
+
+    let all = registry1.lookup_all(json, index).unwrap();
+    assert_eq!(all.len(), 2);
 }

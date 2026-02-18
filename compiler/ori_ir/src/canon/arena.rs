@@ -441,6 +441,25 @@ impl CanonResult {
             .find(|r| r.type_name == type_name && r.method_name == method_name)
             .map(|r| r.body)
     }
+
+    /// Look up the Nth method root for a `(type_name, method_name)` pair.
+    ///
+    /// When multiple impls define the same method on the same type
+    /// (e.g., `impl Index<int, V>` and `impl Index<str, V>`), each produces
+    /// a separate `MethodRoot` entry. This method selects the Nth one,
+    /// matching the sequential order in which impls appear in the module.
+    pub fn method_root_for_nth(
+        &self,
+        type_name: Name,
+        method_name: Name,
+        n: usize,
+    ) -> Option<CanId> {
+        self.method_roots
+            .iter()
+            .filter(|r| r.type_name == type_name && r.method_name == method_name)
+            .nth(n)
+            .map(|r| r.body)
+    }
 }
 
 /// Thread-safe shared reference to a `CanonResult`.

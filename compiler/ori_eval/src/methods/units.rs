@@ -172,7 +172,7 @@ pub fn dispatch_duration_method(
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(Value::Duration(ns))
-    } else if method == n.to_str {
+    } else if method == n.to_str || method == n.debug {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(format_duration(ns)))
     } else if method == n.equals {
@@ -186,6 +186,11 @@ pub fn dispatch_duration_method(
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Duration").into())
     }
+}
+
+/// Format a Duration for Debug output. Same as Printable for Duration.
+pub(super) fn format_duration_debug(ns: i64) -> String {
+    format_duration(ns)
 }
 
 /// Format a Duration (nanoseconds) as a human-readable string.
@@ -321,7 +326,7 @@ pub fn dispatch_size_method(
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(Value::Size(bytes))
-    } else if method == n.to_str {
+    } else if method == n.to_str || method == n.debug {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(format_size(bytes)))
     } else if method == n.equals {
@@ -335,6 +340,11 @@ pub fn dispatch_size_method(
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Size").into())
     }
+}
+
+/// Format a Size for Debug output. Same as Printable for Size.
+pub(super) fn format_size_debug(bytes: u64) -> String {
+    format_size(bytes)
 }
 
 /// Format a Size (bytes) as a human-readable string.

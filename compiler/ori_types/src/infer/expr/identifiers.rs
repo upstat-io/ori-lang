@@ -66,7 +66,13 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
             return engine.pool_mut().function(&[t], target);
         }
 
-        // 5. Built-in iterator constructors
+        // 5a. Hash utility function
+        if s == "hash_combine" {
+            // hash_combine: (int, int) -> int
+            return engine.pool_mut().function(&[Idx::INT, Idx::INT], Idx::INT);
+        }
+
+        // 5b. Built-in iterator constructors
         if s == "repeat" {
             // repeat: (T) -> Iterator<T>
             let t = engine.pool_mut().fresh_var();
@@ -149,7 +155,13 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         };
     }
 
-    // 8. Unknown identifier — find similar names for typo suggestions
+    // 8. Built-in Error constructor (after TypeRegistry so user-defined Error variants win)
+    if name_str == Some("Error") {
+        let error_type = engine.pool_mut().named(name);
+        return engine.pool_mut().function(&[Idx::STR], error_type);
+    }
+
+    // 9. Unknown identifier — find similar names for typo suggestions
     let similar = engine
         .env()
         .find_similar(name, 3, |n| engine.lookup_name(n));

@@ -1,0 +1,101 @@
+// Spec: 07-properties-of-types.md § Comparable + Derive
+// Tests for #[derive(Comparable)] on structs (§3.14)
+
+use std.testing { assert }
+
+// =============================================================================
+// Basic derive(Comparable)
+// =============================================================================
+
+#[derive(Comparable)]
+type Point = { x: int, y: int }
+
+@test_point_compare_less tests @point_cmp_less () -> void = run(
+    let p1 = Point { x: 1, y: 2 },
+    let p2 = Point { x: 1, y: 3 },
+    assert(cond: p1.compare(other: p2).is_less()),
+)
+
+@point_cmp_less () -> Ordering = run(
+    let p1 = Point { x: 1, y: 2 },
+    let p2 = Point { x: 1, y: 3 },
+    p1.compare(other: p2),
+)
+
+@test_point_compare_equal tests @point_cmp_equal () -> void = run(
+    let p1 = Point { x: 5, y: 10 },
+    let p2 = Point { x: 5, y: 10 },
+    assert(cond: p1.compare(other: p2).is_equal()),
+)
+
+@point_cmp_equal () -> Ordering = run(
+    let p = Point { x: 5, y: 10 },
+    p.compare(other: p),
+)
+
+@test_point_compare_greater tests @point_cmp_greater () -> void = run(
+    let p1 = Point { x: 2, y: 0 },
+    let p2 = Point { x: 1, y: 99 },
+    assert(cond: p1.compare(other: p2).is_greater()),
+)
+
+@point_cmp_greater () -> Ordering = run(
+    let p1 = Point { x: 2, y: 0 },
+    let p2 = Point { x: 1, y: 99 },
+    p1.compare(other: p2),
+)
+
+// =============================================================================
+// Lexicographic ordering: first field has priority
+// =============================================================================
+
+@test_first_field_determines tests @first_field () -> void = run(
+    let p1 = Point { x: 10, y: 0 },
+    let p2 = Point { x: 5, y: 100 },
+    // x: 10 > 5, so p1 > p2 regardless of y
+    assert(cond: p1.compare(other: p2).is_greater()),
+)
+
+@first_field () -> Ordering = run(
+    let p1 = Point { x: 10, y: 0 },
+    let p2 = Point { x: 5, y: 100 },
+    p1.compare(other: p2),
+)
+
+// =============================================================================
+// Second field breaks ties
+// =============================================================================
+
+@test_second_field_tiebreak tests @second_field () -> void = run(
+    let p1 = Point { x: 5, y: 3 },
+    let p2 = Point { x: 5, y: 7 },
+    // x equal, y: 3 < 7
+    assert(cond: p1.compare(other: p2).is_less()),
+)
+
+@second_field () -> Ordering = run(
+    let p1 = Point { x: 5, y: 3 },
+    let p2 = Point { x: 5, y: 7 },
+    p1.compare(other: p2),
+)
+
+// =============================================================================
+// Single-field struct
+// =============================================================================
+
+#[derive(Comparable)]
+type Wrapper = { value: int }
+
+@test_wrapper_compare tests @wrapper_cmp () -> void = run(
+    let w1 = Wrapper { value: 10 },
+    let w2 = Wrapper { value: 20 },
+    assert(cond: w1.compare(other: w2).is_less()),
+    assert(cond: w2.compare(other: w1).is_greater()),
+    assert(cond: w1.compare(other: w1).is_equal()),
+)
+
+@wrapper_cmp () -> Ordering = run(
+    let w1 = Wrapper { value: 10 },
+    let w2 = Wrapper { value: 20 },
+    w1.compare(other: w2),
+)

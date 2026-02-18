@@ -68,8 +68,14 @@ pub use api::{
 
 mod api;
 mod bodies;
+mod object_safety;
 mod registration;
 mod signatures;
+mod well_known;
+
+// Re-export for use in sibling modules (e.g., infer::expr::type_resolution).
+pub(crate) use object_safety::{check_parsed_type_object_safety, ObjectSafetyChecker};
+pub(crate) use well_known::{is_concrete_named_type, resolve_well_known_generic};
 
 #[cfg(test)]
 mod integration_tests;
@@ -401,6 +407,14 @@ impl<'a> ModuleChecker<'a> {
 
         self.import_env.bind(alias, bound_type);
         self.signatures.insert(alias, sig);
+    }
+
+    /// Register traits from an imported module (e.g., prelude).
+    ///
+    /// Uses the foreign module's arena to resolve generic params and method
+    /// signatures. Only public traits are registered.
+    pub fn register_imported_traits(&mut self, module: &ori_ir::Module, foreign_arena: &ExprArena) {
+        registration::register_imported_traits(self, module, foreign_arena);
     }
 
     /// Register a built-in function directly by type signature.

@@ -21,7 +21,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
 
 use ori_ir::canon::SharedCanonResult;
-use ori_ir::{Module, Name, SharedArena, TypeDeclKind};
+use ori_ir::{Module, Name, ParsedType, SharedArena, StringInterner, TypeDeclKind};
 
 use crate::{Environment, FunctionValue, Mutability, UserMethod, UserMethodRegistry, Value};
 
@@ -39,6 +39,11 @@ pub struct MethodCollectionConfig<'a> {
     pub captures: Arc<FxHashMap<Name, Value>>,
     /// Optional canonical IR for canonical method dispatch.
     pub canon: Option<&'a SharedCanonResult>,
+    /// String interner for converting primitive `TypeId`s to `Name`s.
+    ///
+    /// Required for extracting `key_type_hint` from trait type arguments
+    /// (e.g., `impl Index<int, str> for T` → hint = intern("int")).
+    pub interner: &'a StringInterner,
 }
 
 /// Register all functions from a module into the environment.
@@ -127,6 +132,7 @@ pub fn collect_impl_methods_with_config(
         config.arena,
         &config.captures,
         config.canon,
+        config.interner,
         registry,
     );
 }
@@ -152,32 +158,37 @@ pub fn collect_extend_methods_with_config(
 /// Takes explicit captures instead of borrowing from an interpreter, enabling
 /// use from both CLI and WASM playground.
 ///
-/// # Arguments
-///
-/// * `module` - The module containing impl blocks
-/// * `arena` - Shared arena for expression lookup
-/// * `captures` - Variable captures pre-wrapped in Arc for efficient sharing
-/// * `registry` - Registry to store collected methods
+/// For trait impls with type arguments (e.g., `impl Index<int, str> for T`),
+/// extracts the first type argument as `key_type_hint` for runtime dispatch.
 fn collect_impl_methods(
     module: &Module,
     arena: &SharedArena,
     captures: &Arc<FxHashMap<Name, Value>>,
     canon: Option<&SharedCanonResult>,
+    interner: &StringInterner,
     registry: &mut UserMethodRegistry,
 ) {
-    // Arc is already provided by caller, no cloning needed
-
     // First, build a map of trait names to their definitions for default method lookup
     let mut trait_map: FxHashMap<Name, &ori_ir::TraitDef> = FxHashMap::default();
     for trait_def in &module.traits {
         trait_map.insert(trait_def.name, trait_def);
     }
 
+    // Track how many times each (type_name, method_name) pair has been seen,
+    // so we can pick the correct canonical body when multiple impls define the
+    // same method (e.g., two `impl Index<K,V> for T` blocks both defining `index`).
+    // The canonicalization pass pushes method_roots in the same iteration order,
+    // so the Nth occurrence here matches the Nth entry in `method_roots`.
+    let mut method_canon_index: FxHashMap<(Name, Name), usize> = FxHashMap::default();
+
     for impl_def in &module.impls {
         // Get the type name from self_path (e.g., "Point" for `impl Point { ... }`)
         let Some(&type_name) = impl_def.self_path.last() else {
-            continue; // Skip if no type path
+            continue;
         };
+
+        // Extract key_type_hint from trait type args (first arg of Index<K, V> etc.)
+        let key_type_hint = extract_key_type_hint(impl_def, arena, interner);
 
         // Collect names of methods explicitly defined in this impl
         let mut overridden_methods: FxHashSet<Name> = FxHashSet::default();
@@ -186,17 +197,18 @@ fn collect_impl_methods(
         for method in &impl_def.methods {
             overridden_methods.insert(method.name);
 
-            // Get parameter names
             let params = arena.get_param_names(method.params);
-
-            // Create user method with Arc-cloned captures (O(1) instead of O(n))
             let mut user_method = UserMethod::new(params, Arc::clone(captures), arena.clone());
+            user_method.key_type_hint = key_type_hint;
 
-            // Attach canonical IR when available.
             if let Some(cr) = canon {
-                if let Some(can_id) = cr.method_root_for(type_name, method.name) {
+                let idx = method_canon_index
+                    .entry((type_name, method.name))
+                    .or_insert(0);
+                if let Some(can_id) = cr.method_root_for_nth(type_name, method.name, *idx) {
                     user_method.set_canon(can_id, cr.clone());
                 }
+                *idx = idx.wrapping_add(1);
             }
 
             registry.register(type_name, method.name, user_method);
@@ -208,19 +220,22 @@ fn collect_impl_methods(
                 if let Some(trait_def) = trait_map.get(&trait_name) {
                     for item in &trait_def.items {
                         if let ori_ir::TraitItem::DefaultMethod(default_method) = item {
-                            // Only register if not overridden
                             if !overridden_methods.contains(&default_method.name) {
                                 let params = arena.get_param_names(default_method.params);
-
                                 let mut user_method =
                                     UserMethod::new(params, Arc::clone(captures), arena.clone());
+                                user_method.key_type_hint = key_type_hint;
 
                                 if let Some(cr) = canon {
+                                    let idx = method_canon_index
+                                        .entry((type_name, default_method.name))
+                                        .or_insert(0);
                                     if let Some(can_id) =
-                                        cr.method_root_for(type_name, default_method.name)
+                                        cr.method_root_for_nth(type_name, default_method.name, *idx)
                                     {
                                         user_method.set_canon(can_id, cr.clone());
                                     }
+                                    *idx = idx.wrapping_add(1);
                                 }
 
                                 registry.register(type_name, default_method.name, user_method);
@@ -231,6 +246,38 @@ fn collect_impl_methods(
             }
         }
     }
+}
+
+/// Extract the first trait type argument as a `Name` for runtime dispatch.
+///
+/// For `impl Index<int, str> for T`, this returns `Some(Name("int"))`.
+/// Used to disambiguate multiple impls of the same trait on the same type.
+fn extract_key_type_hint(
+    impl_def: &ori_ir::ImplDef,
+    arena: &SharedArena,
+    interner: &StringInterner,
+) -> Option<Name> {
+    if impl_def.trait_type_args.is_empty() {
+        return None;
+    }
+    let type_arg_ids = arena.get_parsed_type_list(impl_def.trait_type_args);
+    let first_id = *type_arg_ids.first()?;
+    let parsed_type = arena.get_parsed_type(first_id);
+    let hint = match parsed_type {
+        ParsedType::Primitive(type_id) => {
+            let name_str = type_id.name()?;
+            Some(interner.intern(name_str))
+        }
+        ParsedType::Named { name, .. } => Some(*name),
+        _ => None,
+    };
+    tracing::debug!(
+        ?hint,
+        ?parsed_type,
+        arg_count = type_arg_ids.len(),
+        "extract_key_type_hint"
+    );
+    hint
 }
 
 /// Collect methods from extend blocks into a registry.
@@ -251,7 +298,9 @@ fn collect_extend_methods(
     canon: Option<&SharedCanonResult>,
     registry: &mut UserMethodRegistry,
 ) {
-    // Arc is already provided by caller, no cloning needed
+    // Track canonical body indices for duplicate method definitions,
+    // mirroring the pattern from collect_impl_methods.
+    let mut method_canon_index: FxHashMap<(Name, Name), usize> = FxHashMap::default();
 
     for extend_def in &module.extends {
         // Get the target type name (e.g., "list" for `extend [T] { ... }`)
@@ -259,16 +308,17 @@ fn collect_extend_methods(
 
         // Register each method
         for method in &extend_def.methods {
-            // Get parameter names
             let params = arena.get_param_names(method.params);
-
-            // Create user method with Arc-cloned captures (O(1) instead of O(n))
             let mut user_method = UserMethod::new(params, Arc::clone(captures), arena.clone());
 
             if let Some(cr) = canon {
-                if let Some(can_id) = cr.method_root_for(type_name, method.name) {
+                let idx = method_canon_index
+                    .entry((type_name, method.name))
+                    .or_insert(0);
+                if let Some(can_id) = cr.method_root_for_nth(type_name, method.name, *idx) {
                     user_method.set_canon(can_id, cr.clone());
                 }
+                *idx = idx.wrapping_add(1);
             }
 
             registry.register(type_name, method.name, user_method);
@@ -325,26 +375,28 @@ fn collect_def_impl_methods(
     canon: Option<&SharedCanonResult>,
     registry: &mut UserMethodRegistry,
 ) {
-    // Arc is already provided by caller, no cloning needed
+    // Track canonical body indices for duplicate method definitions,
+    // mirroring the pattern from collect_impl_methods.
+    let mut method_canon_index: FxHashMap<(Name, Name), usize> = FxHashMap::default();
 
     for def_impl_def in &module.def_impls {
         let trait_name = def_impl_def.trait_name;
 
         for method in &def_impl_def.methods {
-            // Get parameter names
             let params = arena.get_param_names(method.params);
-
-            // Create user method with Arc-cloned captures (O(1) instead of O(n))
             let mut user_method = UserMethod::new(params, Arc::clone(captures), arena.clone());
 
             if let Some(cr) = canon {
-                if let Some(can_id) = cr.method_root_for(trait_name, method.name) {
+                let idx = method_canon_index
+                    .entry((trait_name, method.name))
+                    .or_insert(0);
+                if let Some(can_id) = cr.method_root_for_nth(trait_name, method.name, *idx) {
                     user_method.set_canon(can_id, cr.clone());
                 }
+                *idx = idx.wrapping_add(1);
             }
 
-            // Register under trait name (trait_name -> method_name)
-            // This enables `TraitName.method(...)` calls for capability dispatch
+            // Register under trait name for `TraitName.method(...)` capability dispatch
             registry.register(trait_name, method.name, user_method);
         }
     }

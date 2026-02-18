@@ -425,6 +425,10 @@ pub fn wasm_opt_available() -> bool {
 // AOT compile-and-run helpers
 
 /// Get the path to the `ori` binary.
+///
+/// When both debug and release binaries exist, prefers the **most recently
+/// modified** one. This prevents stale-binary bugs where `cargo bl` (debug)
+/// builds new code but tests silently pick up an old release binary.
 pub fn ori_binary() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir
@@ -432,17 +436,23 @@ pub fn ori_binary() -> PathBuf {
         .find(|p| p.join("Cargo.toml").exists() && p.join("compiler").exists())
         .map_or_else(|| PathBuf::from("/workspace"), Path::to_path_buf);
 
-    let release_path = workspace_root.join("target/release/ori");
-    if release_path.exists() {
-        return release_path;
-    }
-
     let debug_path = workspace_root.join("target/debug/ori");
-    if debug_path.exists() {
-        return debug_path;
-    }
+    let release_path = workspace_root.join("target/release/ori");
 
-    PathBuf::from("ori")
+    match (debug_path.exists(), release_path.exists()) {
+        (true, true) => {
+            let debug_mtime = fs::metadata(&debug_path).and_then(|m| m.modified()).ok();
+            let release_mtime = fs::metadata(&release_path).and_then(|m| m.modified()).ok();
+            match (debug_mtime, release_mtime) {
+                (Some(d), Some(r)) if d >= r => debug_path,
+                (Some(_), Some(_)) => release_path,
+                _ => debug_path,
+            }
+        }
+        (true, false) => debug_path,
+        (false, true) => release_path,
+        (false, false) => PathBuf::from("ori"),
+    }
 }
 
 /// Compile and run an Ori program, returning the exit code.

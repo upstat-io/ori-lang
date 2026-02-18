@@ -260,6 +260,9 @@ pub enum ContextKind {
     /// Index value in an index operation.
     IndexValue,
 
+    /// Key expression in a subscript operation `x[key]` dispatched via Index trait.
+    IndexKey,
+
     /// Spread element in a list/array.
     SpreadElement,
 
@@ -378,6 +381,7 @@ impl ContextKind {
             Self::Assignment => "in an assignment".to_string(),
             Self::IndexOperation => "in an index operation".to_string(),
             Self::IndexValue => "in an index value".to_string(),
+            Self::IndexKey => "in the index key".to_string(),
             Self::SpreadElement => "in a spread element".to_string(),
             Self::ReturnStatement => "in a return statement".to_string(),
             Self::BreakValue => "in a break value".to_string(),
@@ -453,6 +457,7 @@ impl ContextKind {
             Self::Assignment => "assigned value must match variable type",
             Self::IndexOperation => "container requires this index type",
             Self::IndexValue => "index must be int",
+            Self::IndexKey => "key type must match the Index implementation",
             Self::SpreadElement => "spread element must match container type",
             Self::ReturnStatement => "return value must match function type",
             Self::BreakValue => "break value must match loop type",

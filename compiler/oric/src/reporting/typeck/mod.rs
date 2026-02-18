@@ -161,6 +161,29 @@ impl<'a> TypeErrorRenderer<'a> {
             TypeErrorKind::NotObjectSafe { trait_name, .. } => {
                 format!("`{}` is not object-safe", self.format_name(*trait_name))
             }
+            TypeErrorKind::NotIndexable { ty } => {
+                format!("`{}` is not indexable", self.format_type(*ty))
+            }
+            TypeErrorKind::IndexKeyMismatch {
+                expected_key,
+                found_key,
+                ..
+            } => {
+                format!(
+                    "expected key `{}`, found `{}`",
+                    self.format_type(*expected_key),
+                    self.format_type(*found_key)
+                )
+            }
+            TypeErrorKind::AmbiguousIndex { ty } => {
+                format!("ambiguous index on `{}`", self.format_type(*ty))
+            }
+            TypeErrorKind::CannotDeriveDefaultForSumType { type_name } => {
+                format!(
+                    "cannot derive `Default` for sum type `{}`",
+                    self.format_name(*type_name)
+                )
+            }
         }
     }
 

@@ -19,7 +19,9 @@ use ori_ir::canon::{
     CanBindingPattern, CanExpr, CanId, CanMapEntryRange, CanParamRange, CanRange, CanonResult,
 };
 use ori_ir::{BinaryOp, FunctionExpKind, Name, Span, UnaryOp};
-use ori_patterns::{ControlAction, EvalError, EvalResult, IteratorValue, RangeValue, Value};
+use ori_patterns::{
+    ControlAction, EvalError, EvalResult, IteratorValue, RangeValue, TraceEntryData, Value,
+};
 use ori_stack::ensure_sufficient_stack;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -63,6 +65,86 @@ impl Interpreter<'_> {
     #[inline]
     fn can_span(&self, can_id: CanId) -> Span {
         self.canon_ref().arena.span(can_id)
+    }
+
+    /// Inject a trace entry into an error value at a `?` operator site.
+    ///
+    /// If the value is `Value::Err(Value::Error(...))`, appends a `TraceEntryData`
+    /// recording the current function name and source location. Non-error values
+    /// are returned unchanged.
+    ///
+    /// Uses `Heap::make_mut` for copy-on-write: when the error is uniquely owned
+    /// (common case — errors propagate linearly through `?`), the trace entry
+    /// is appended in place with no cloning.
+    fn inject_trace_entry(&self, mut value: Value, can_id: CanId) -> Value {
+        // Guard: only Err(Error(...)) values carry traces
+        if !matches!(&value, Value::Err(inner) if matches!(&**inner, Value::Error(_))) {
+            return value;
+        }
+
+        // Build the function name from the call stack
+        let function_name = self.call_stack.current_frame().map_or_else(
+            || "<top-level>".to_string(),
+            |f| self.interner.lookup(f.name).to_string(),
+        );
+
+        // Compute line/column from span byte offset
+        let span = self.can_span(can_id);
+        let (line, column) = self.line_col_from_offset(span.start);
+
+        let file = self
+            .source_file_path
+            .as_deref()
+            .cloned()
+            .unwrap_or_else(|| "<unknown>".to_string());
+
+        let entry = TraceEntryData {
+            function: function_name,
+            file,
+            line,
+            column,
+        };
+
+        // Copy-on-write through two Heap layers: Err(Heap<Value>) → Error(Heap<ErrorValue>)
+        if let Value::Err(ref mut outer) = value {
+            if let Value::Error(ref mut ev_heap) = *outer.make_mut() {
+                ev_heap.make_mut().push_trace(entry);
+            }
+        }
+        value
+    }
+
+    /// Compute 1-based line and column from a byte offset in the source text.
+    ///
+    /// Counts newlines in `source_text[..offset]` to determine line number,
+    /// then computes column from the last newline position. If no source text
+    /// is available, returns `(0, 0)`.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "u32↔usize: source offsets and line/column numbers fit in u32"
+    )]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "column = (end - last_newline) + 1: last_newline ≤ end by construction"
+    )]
+    fn line_col_from_offset(&self, offset: u32) -> (u32, u32) {
+        let Some(src) = &self.source_text else {
+            return (0, 0);
+        };
+        let offset = offset as usize;
+        let bytes = src.as_bytes();
+        let end = offset.min(bytes.len());
+
+        let mut line: u32 = 1;
+        let mut last_newline: usize = 0;
+        for (i, &b) in bytes[..end].iter().enumerate() {
+            if b == b'\n' {
+                line = line.wrapping_add(1);
+                last_newline = i.wrapping_add(1);
+            }
+        }
+        let column = (end - last_newline) as u32 + 1;
+        (line, column)
     }
 
     /// Evaluate a list of canonical expressions from a `CanRange`.
@@ -198,10 +280,18 @@ impl Interpreter<'_> {
             CanExpr::Index { receiver, index } => {
                 let span = self.can_span(can_id);
                 let value = self.eval_can(receiver)?;
-                let length = expr::get_collection_length(&value)
-                    .map_err(|e| Self::attach_span(e.into(), span))?;
-                let idx = self.eval_can_with_hash_length(index, length)?;
-                expr::eval_index(value, idx).map_err(|e| Self::attach_span(e, span))
+
+                // Built-in types: fast path with # (hash length) support
+                if super::is_builtin_indexable(&value) {
+                    let length = expr::get_collection_length(&value)
+                        .map_err(|e| Self::attach_span(e.into(), span))?;
+                    let idx = self.eval_can_with_hash_length(index, length)?;
+                    expr::eval_index(value, idx).map_err(|e| Self::attach_span(e, span))
+                } else {
+                    // User-defined types: dispatch via Index trait method
+                    let idx_val = self.eval_can(index)?;
+                    self.eval_index_user_type(value, idx_val)
+                }
             }
 
             // Control Flow
@@ -317,7 +407,10 @@ impl Interpreter<'_> {
             // Error Handling
             CanExpr::Try(inner) => match self.eval_can(inner)? {
                 Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
-                Value::Err(e) => Err(ControlAction::Propagate(Value::Err(e))),
+                err @ Value::Err(_) => {
+                    let traced = self.inject_trace_entry(err, can_id);
+                    Err(ControlAction::Propagate(traced))
+                }
                 Value::None => Err(ControlAction::Propagate(Value::None)),
                 other => Ok(other),
             },
@@ -603,10 +696,21 @@ impl Interpreter<'_> {
                     if pat_ids.len() != values.len() {
                         return Err(crate::errors::tuple_pattern_mismatch().into());
                     }
-                    for (pat_id, val) in pat_ids.into_iter().zip(values.iter()) {
-                        // Copy the sub-pattern out to avoid borrow conflict
-                        let sub_pat = *self.canon_ref().arena.get_binding_pattern(pat_id);
-                        self.bind_can_pattern(&sub_pat, val.clone(), mutability)?;
+                    // Copy elision: when the tuple has refcount 1 (e.g., freshly
+                    // created by iter.next()), move elements out instead of cloning.
+                    match values.try_into_inner() {
+                        Ok(owned) => {
+                            for (pat_id, val) in pat_ids.into_iter().zip(owned) {
+                                let sub_pat = *self.canon_ref().arena.get_binding_pattern(pat_id);
+                                self.bind_can_pattern(&sub_pat, val, mutability)?;
+                            }
+                        }
+                        Err(shared) => {
+                            for (pat_id, val) in pat_ids.into_iter().zip(shared.iter()) {
+                                let sub_pat = *self.canon_ref().arena.get_binding_pattern(pat_id);
+                                self.bind_can_pattern(&sub_pat, val.clone(), mutability)?;
+                            }
+                        }
                     }
                     Ok(Value::Void)
                 } else {

@@ -1,0 +1,13 @@
+// Test that non-object-safe traits in lambda parameter types are rejected (E2024)
+// Spec: 06-types.md § Object Safety Rules
+// Coverage: inference-phase object safety check (lambda parameters)
+
+trait Cloneable {
+    @clone (self) -> Self
+}
+
+#[compile_fail("cannot be made into an object")]
+@use_clone_lambda () -> void = run(
+    let f = (x: Cloneable) -> x,
+    print(msg: "done"),
+)

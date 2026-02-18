@@ -103,6 +103,12 @@ impl CallStack {
         self.frames.is_empty()
     }
 
+    /// The current (most recent) call frame, if any.
+    #[inline]
+    pub fn current_frame(&self) -> Option<&CallFrame> {
+        self.frames.last()
+    }
+
     /// Capture a snapshot of the current call stack as an `EvalBacktrace`.
     ///
     /// The frames are converted to `BacktraceFrame` using the string interner
