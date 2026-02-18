@@ -147,6 +147,10 @@ pub enum ErrorCode {
     E2030,
     /// Type cannot be used as map key (missing Hashable)
     E2031,
+    /// Field type does not implement trait required by derive
+    E2032,
+    /// Trait cannot be derived (not in the derivable set)
+    E2033,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -329,6 +333,8 @@ impl ErrorCode {
         ErrorCode::E2029,
         ErrorCode::E2030,
         ErrorCode::E2031,
+        ErrorCode::E2032,
+        ErrorCode::E2033,
         // Pattern
         ErrorCode::E3001,
         ErrorCode::E3002,
@@ -452,6 +458,8 @@ impl ErrorCode {
             ErrorCode::E2029 => "E2029",
             ErrorCode::E2030 => "E2030",
             ErrorCode::E2031 => "E2031",
+            ErrorCode::E2032 => "E2032",
+            ErrorCode::E2033 => "E2033",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -588,6 +596,8 @@ impl ErrorCode {
                 | ErrorCode::E2029
                 | ErrorCode::E2030
                 | ErrorCode::E2031
+                | ErrorCode::E2032
+                | ErrorCode::E2033
         )
     }
 

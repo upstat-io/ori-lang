@@ -1,0 +1,8 @@
+// Spec: §3.15 — Derived Traits Formal Semantics
+// Trait cannot be derived if not in the derivable set (E2033)
+
+#[derive(Iterator)]
+type Numbers = { values: [int] }
+
+#[compile_fail("trait cannot be derived")]
+@test_not_derivable () -> void = ()

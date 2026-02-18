@@ -47,56 +47,25 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             Idx::STR => self.lower_str_method(recv_val, method, args),
             Idx::BYTE => self.lower_byte_method(recv_val, method, args),
             Idx::CHAR => self.lower_char_method(recv_val, method, args),
-            _ => {
-                let type_info = self.type_info.get(recv_type);
-                match &type_info {
-                    TypeInfo::Option { inner } => {
-                        let inner = *inner;
-                        self.lower_option_method(recv_val, inner, method, args)
-                    }
-                    TypeInfo::Result { ok, err } => {
-                        let ok = *ok;
-                        let err = *err;
-                        self.lower_result_method(recv_val, ok, err, method, args)
-                    }
-                    TypeInfo::List { element } => {
-                        let element = *element;
-                        self.lower_list_method(recv_val, element, method, args)
-                    }
-                    TypeInfo::Tuple { elements } => {
-                        let elements = elements.clone();
-                        self.lower_tuple_method(recv_val, &elements, method, args)
-                    }
-                    TypeInfo::Map { key, value } => {
-                        let key = *key;
-                        let value = *value;
-                        match method {
-                            "clone" => Some(recv_val),
-                            "equals" => {
-                                let arg_ids = self.canon.arena.get_expr_list(args);
-                                let other = self.lower(*arg_ids.first()?)?;
-                                self.emit_map_equals(recv_val, other, key, value)
-                            }
-                            "hash" => self.emit_map_hash(recv_val, key, value),
-                            _ => None,
-                        }
-                    }
-                    TypeInfo::Set { element } => {
-                        let element = *element;
-                        match method {
-                            "clone" => Some(recv_val),
-                            "equals" => {
-                                let arg_ids = self.canon.arena.get_expr_list(args);
-                                let other = self.lower(*arg_ids.first()?)?;
-                                self.emit_set_equals(recv_val, other, element)
-                            }
-                            "hash" => self.emit_set_hash(recv_val, element),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
+            _ => match self.type_info.get(recv_type) {
+                TypeInfo::Option { inner } => {
+                    self.lower_option_method(recv_val, inner, method, args)
                 }
-            }
+                TypeInfo::Result { ok, err } => {
+                    self.lower_result_method(recv_val, ok, err, method, args)
+                }
+                TypeInfo::List { element } => {
+                    self.lower_list_method(recv_val, element, method, args)
+                }
+                TypeInfo::Tuple { elements } => {
+                    self.lower_tuple_method(recv_val, &elements, method, args)
+                }
+                TypeInfo::Map { key, value } => {
+                    self.lower_map_method(recv_val, key, value, method, args)
+                }
+                TypeInfo::Set { element } => self.lower_set_method(recv_val, element, method, args),
+                _ => None,
+            },
         }
     }
 
@@ -1047,6 +1016,53 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     // -----------------------------------------------------------------------
+    // Map methods
+    // -----------------------------------------------------------------------
+
+    fn lower_map_method(
+        &mut self,
+        recv: ValueId,
+        key: Idx,
+        value: Idx,
+        method: &str,
+        args: CanRange,
+    ) -> Option<ValueId> {
+        match method {
+            "clone" => Some(recv),
+            "equals" => {
+                let arg_ids = self.canon.arena.get_expr_list(args);
+                let other = self.lower(*arg_ids.first()?)?;
+                self.emit_map_equals(recv, other, key, value)
+            }
+            "hash" => self.emit_map_hash(recv, key, value),
+            _ => None,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Set methods
+    // -----------------------------------------------------------------------
+
+    fn lower_set_method(
+        &mut self,
+        recv: ValueId,
+        element: Idx,
+        method: &str,
+        args: CanRange,
+    ) -> Option<ValueId> {
+        match method {
+            "clone" => Some(recv),
+            "equals" => {
+                let arg_ids = self.canon.arena.get_expr_list(args);
+                let other = self.lower(*arg_ids.first()?)?;
+                self.emit_set_equals(recv, other, element)
+            }
+            "hash" => self.emit_set_hash(recv, element),
+            _ => None,
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Inner-type dispatch helpers
     // -----------------------------------------------------------------------
 
@@ -1062,8 +1078,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         inner_type: Idx,
         name: &str,
     ) -> ValueId {
-        let info = self.type_info.get(inner_type);
-        match &info {
+        match self.type_info.get(inner_type) {
             // Integer-representable primitives and pointer-identity types
             TypeInfo::Int
             | TypeInfo::Duration
@@ -1077,43 +1092,29 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             TypeInfo::Float => self.builder.fcmp_oeq(lhs, rhs, name),
             TypeInfo::Str => self.emit_str_eq_call(lhs, rhs, name),
 
-            TypeInfo::Option { inner } => {
-                let inner = *inner;
-                self.emit_option_equals(lhs, rhs, inner)
-                    .unwrap_or_else(|| self.builder.const_bool(false))
-            }
-            TypeInfo::Result { ok, err } => {
-                let ok = *ok;
-                let err = *err;
-                self.emit_result_equals(lhs, rhs, ok, err)
-                    .unwrap_or_else(|| self.builder.const_bool(false))
-            }
-            TypeInfo::Tuple { elements } => {
-                let elements = elements.clone();
-                self.emit_tuple_equals(lhs, rhs, &elements)
-                    .unwrap_or_else(|| self.builder.const_bool(false))
-            }
-            TypeInfo::List { element } => {
-                let element = *element;
-                self.emit_list_equals(lhs, rhs, element)
-                    .unwrap_or_else(|| self.builder.const_bool(false))
-            }
-            TypeInfo::Map { key, value } => {
-                let key = *key;
-                let value = *value;
-                self.emit_map_equals(lhs, rhs, key, value)
-                    .unwrap_or_else(|| self.builder.const_bool(false))
-            }
-            TypeInfo::Set { element } => {
-                let element = *element;
-                self.emit_set_equals(lhs, rhs, element)
-                    .unwrap_or_else(|| self.builder.const_bool(false))
-            }
+            TypeInfo::Option { inner } => self
+                .emit_option_equals(lhs, rhs, inner)
+                .unwrap_or_else(|| self.builder.const_bool(false)),
+            TypeInfo::Result { ok, err } => self
+                .emit_result_equals(lhs, rhs, ok, err)
+                .unwrap_or_else(|| self.builder.const_bool(false)),
+            TypeInfo::Tuple { elements } => self
+                .emit_tuple_equals(lhs, rhs, &elements)
+                .unwrap_or_else(|| self.builder.const_bool(false)),
+            TypeInfo::List { element } => self
+                .emit_list_equals(lhs, rhs, element)
+                .unwrap_or_else(|| self.builder.const_bool(false)),
+            TypeInfo::Map { key, value } => self
+                .emit_map_equals(lhs, rhs, key, value)
+                .unwrap_or_else(|| self.builder.const_bool(false)),
+            TypeInfo::Set { element } => self
+                .emit_set_equals(lhs, rhs, element)
+                .unwrap_or_else(|| self.builder.const_bool(false)),
 
-            // User-defined types: delegate to derived/user eq method
-            TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
+            // User-defined struct: delegate to derived/user eq, bitwise fallback
+            TypeInfo::Struct { .. } => {
                 if let Some(&type_name) = self.type_idx_to_name.get(&inner_type) {
-                    let eq_name = self.interner.intern("eq");
+                    let eq_name = self.prop_names.eq;
                     if let Some((func_id, _abi)) = self.method_functions.get(&(type_name, eq_name))
                     {
                         let func_id = *func_id;
@@ -1122,13 +1123,21 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                             .unwrap_or_else(|| self.builder.const_bool(false));
                     }
                 }
-                // Struct fallback: bitwise (works for scalar-only structs).
-                // Enum fallback: const false (no valid bitwise comparison).
-                if matches!(info, TypeInfo::Struct { .. }) {
-                    self.builder.icmp_eq(lhs, rhs, name)
-                } else {
-                    self.builder.const_bool(false)
+                self.builder.icmp_eq(lhs, rhs, name)
+            }
+            // User-defined enum: delegate to derived/user eq, no bitwise fallback
+            TypeInfo::Enum { .. } => {
+                if let Some(&type_name) = self.type_idx_to_name.get(&inner_type) {
+                    let eq_name = self.prop_names.eq;
+                    if let Some((func_id, _abi)) = self.method_functions.get(&(type_name, eq_name))
+                    {
+                        let func_id = *func_id;
+                        return self
+                            .invoke_user_function(func_id, &[lhs, rhs], name)
+                            .unwrap_or_else(|| self.builder.const_bool(false));
+                    }
                 }
+                self.builder.const_bool(false)
             }
 
             // Range: compare all 3 fields (start, end, inclusive)
@@ -1187,8 +1196,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         inner_type: Idx,
         name: &str,
     ) -> ValueId {
-        let info = self.type_info.get(inner_type);
-        match &info {
+        match self.type_info.get(inner_type) {
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
                 self.emit_icmp_ordering(lhs, rhs, name, true)
             }
@@ -1205,32 +1213,23 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             }
             TypeInfo::Float => self.emit_fcmp_ordering(lhs, rhs, name),
             TypeInfo::Str => self.emit_str_runtime_call(lhs, rhs, "ori_str_compare", name),
-            TypeInfo::Option { inner } => {
-                let inner = *inner;
-                self.emit_option_compare(lhs, rhs, inner)
-                    .unwrap_or_else(|| self.builder.const_i8(1))
-            }
-            TypeInfo::Result { ok, err } => {
-                let ok = *ok;
-                let err = *err;
-                self.emit_result_compare(lhs, rhs, ok, err)
-                    .unwrap_or_else(|| self.builder.const_i8(1))
-            }
-            TypeInfo::Tuple { elements } => {
-                let elements = elements.clone();
-                self.emit_tuple_compare(lhs, rhs, &elements)
-                    .unwrap_or_else(|| self.builder.const_i8(1))
-            }
-            TypeInfo::List { element } => {
-                let element = *element;
-                self.emit_list_compare(lhs, rhs, element)
-                    .unwrap_or_else(|| self.builder.const_i8(1))
-            }
+            TypeInfo::Option { inner } => self
+                .emit_option_compare(lhs, rhs, inner)
+                .unwrap_or_else(|| self.builder.const_i8(1)),
+            TypeInfo::Result { ok, err } => self
+                .emit_result_compare(lhs, rhs, ok, err)
+                .unwrap_or_else(|| self.builder.const_i8(1)),
+            TypeInfo::Tuple { elements } => self
+                .emit_tuple_compare(lhs, rhs, &elements)
+                .unwrap_or_else(|| self.builder.const_i8(1)),
+            TypeInfo::List { element } => self
+                .emit_list_compare(lhs, rhs, element)
+                .unwrap_or_else(|| self.builder.const_i8(1)),
 
             // User-defined types: delegate to derived/user compare method
             TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
                 if let Some(&type_name) = self.type_idx_to_name.get(&inner_type) {
-                    let compare_name = self.interner.intern("compare");
+                    let compare_name = self.prop_names.compare;
                     if let Some((func_id, _abi)) =
                         self.method_functions.get(&(type_name, compare_name))
                     {
@@ -1262,8 +1261,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     /// hashing (Channel, Function) return 0 — these should not reach this
     /// path if the type checker is correct.
     pub(crate) fn emit_inner_hash(&mut self, val: ValueId, inner_type: Idx, name: &str) -> ValueId {
-        let info = self.type_info.get(inner_type);
-        match &info {
+        match self.type_info.get(inner_type) {
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => val,
             // Unsigned small types: zero-extend to i64
             TypeInfo::Byte | TypeInfo::Bool => {
@@ -1281,43 +1279,29 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 self.builder.bitcast(normalized, i64_ty, name)
             }
             TypeInfo::Str => self.emit_str_hash_call(val, name),
-            TypeInfo::Option { inner } => {
-                let inner = *inner;
-                self.emit_option_hash(val, inner)
-                    .unwrap_or_else(|| self.builder.const_i64(0))
-            }
-            TypeInfo::Result { ok, err } => {
-                let ok = *ok;
-                let err = *err;
-                self.emit_result_hash(val, ok, err)
-                    .unwrap_or_else(|| self.builder.const_i64(0))
-            }
-            TypeInfo::Tuple { elements } => {
-                let elements = elements.clone();
-                self.emit_tuple_hash(val, &elements)
-                    .unwrap_or_else(|| self.builder.const_i64(0))
-            }
-            TypeInfo::List { element } => {
-                let element = *element;
-                self.emit_list_hash(val, element)
-                    .unwrap_or_else(|| self.builder.const_i64(0))
-            }
-            TypeInfo::Map { key, value } => {
-                let key = *key;
-                let value = *value;
-                self.emit_map_hash(val, key, value)
-                    .unwrap_or_else(|| self.builder.const_i64(0))
-            }
-            TypeInfo::Set { element } => {
-                let element = *element;
-                self.emit_set_hash(val, element)
-                    .unwrap_or_else(|| self.builder.const_i64(0))
-            }
+            TypeInfo::Option { inner } => self
+                .emit_option_hash(val, inner)
+                .unwrap_or_else(|| self.builder.const_i64(0)),
+            TypeInfo::Result { ok, err } => self
+                .emit_result_hash(val, ok, err)
+                .unwrap_or_else(|| self.builder.const_i64(0)),
+            TypeInfo::Tuple { elements } => self
+                .emit_tuple_hash(val, &elements)
+                .unwrap_or_else(|| self.builder.const_i64(0)),
+            TypeInfo::List { element } => self
+                .emit_list_hash(val, element)
+                .unwrap_or_else(|| self.builder.const_i64(0)),
+            TypeInfo::Map { key, value } => self
+                .emit_map_hash(val, key, value)
+                .unwrap_or_else(|| self.builder.const_i64(0)),
+            TypeInfo::Set { element } => self
+                .emit_set_hash(val, element)
+                .unwrap_or_else(|| self.builder.const_i64(0)),
 
             // User-defined types: delegate to derived/user hash method
             TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
                 if let Some(&type_name) = self.type_idx_to_name.get(&inner_type) {
-                    let hash_name = self.interner.intern("hash");
+                    let hash_name = self.prop_names.hash;
                     if let Some((func_id, _abi)) =
                         self.method_functions.get(&(type_name, hash_name))
                     {
