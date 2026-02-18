@@ -55,7 +55,7 @@ sections:
     status: in-progress
   - id: "3.14"
     title: Comparable and Hashable Traits
-    status: not-started
+    status: in-progress
   - id: "3.15"
     title: Derived Traits Formal Semantics
     status: not-started
@@ -85,7 +85,7 @@ sections:
 
 > **SPEC**: `spec/07-properties-of-types.md`, `spec/08-declarations.md`
 
-**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 51 passing (39 traits + 12 derives, 0 ignored), proposals pending (3.7-3.17). Verified 2026-02-17: Default trait complete (definition, derivation, E2028 sum type rejection, LLVM codegen). 9616 total tests. Derive codegen complete (Eq, Clone, Hashable, Printable, Default). Clone on compound types complete.
+**Status**: In-progress — Core evaluator complete (3.0-3.6, 3.18-3.21), LLVM AOT tests 51 passing (39 traits + 12 derives, 0 ignored), proposals pending (3.7-3.17). Verified 2026-02-17: Default trait complete (definition, derivation, E2028 sum type rejection, LLVM codegen). Derive codegen complete (Eq, Clone, Hashable, Printable, Default). Clone on compound types complete. Audited 2026-02-17: §3.14 evaluator+typeck complete — Comparable/Hashable/equals on all compound types, hash_combine, derive(Comparable/Hashable). LLVM codegen for compound type methods + derive(Comparable) remaining.
 
 ---
 
@@ -439,7 +439,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [ ] Remaining: derive support for newtypes (optional), spec update, CLAUDE.md update
-- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Default trait complete with E2028 sum type rejection (2026-02-17). Remaining: LLVM iterator codegen, 3.8.1 performance/semantics, Formattable, Into, Traceable, Comparable/Hashable formalization — not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Default trait complete with E2028 sum type rejection (2026-02-17). Comparable/Hashable eval+typeck complete (2026-02-17). Remaining: LLVM iterator codegen, LLVM compound type methods (compare/hash/equals), derive(Comparable) LLVM, 3.8.1 performance/semantics, Formattable, Into — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
@@ -975,115 +975,121 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
 
 ### Implementation
 
-- [ ] **Implement**: Formal `Comparable` trait definition in type system
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — comparable trait parsing/bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/comparable/definition.ori`
+- [x] **Implement**: Formal `Comparable` trait definition in type system (2026-02-17)
+  - [x] Trait defined in `library/std/prelude.ori`: `pub trait Comparable: Eq { @compare (self, other: Self) -> Ordering }`
+  - [x] `DerivedTrait::Comparable` variant in `ori_ir/src/derives/mod.rs`
+  - [x] Trait registered in `ori_types/src/check/registration/mod.rs`
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — 58 tests covering all types + operators
 
-- [ ] **Implement**: Comparable implementations for all primitives (int, float, bool, str, char, byte, Duration, Size)
-  - [ ] **Rust Implementation**: `ori_eval/src/methods.rs` — dispatch_*_method with compare()
-  - [ ] **Type Checking**: `ori_typeck/src/infer/builtin_methods/` — compare() returns Ordering for all primitives
-  - [ ] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — all primitive compare() tests
-  - [ ] **Ori Tests**: `tests/spec/types/duration_size_comparable.ori` — Duration/Size compare() tests
-  - [ ] **LLVM Support**: LLVM codegen for primitive compare methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+- [x] **Implement**: Comparable implementations for all primitives (int, float, bool, str, char, byte, Duration, Size) (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/numeric.rs` (int, float), `variants.rs` (bool, char, byte), `collections.rs` (str), `units.rs` (Duration, Size)
+  - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for all primitives
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — all primitive compare() tests (58 tests)
+  - [x] **LLVM Support**: Primitive compare already in LLVM — `ori_llvm/tests/aot/traits.rs` (7 tests)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — compare/is_less/is_equal/is_greater/reverse/is_less_or_equal/is_greater_or_equal
 
-- [ ] **Implement**: Comparable implementations for lists ([T])
-  - [ ] **Rust Implementation**: `ori_eval/src/methods.rs` — dispatch_list_method with compare()
-  - [ ] **Type Checking**: `ori_typeck/src/infer/builtin_methods/list.rs` — compare() returns Ordering
-  - [ ] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — list compare() tests
-  - [ ] **LLVM Support**: LLVM codegen for list compare
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+- [x] **Implement**: Comparable implementations for lists ([T]) (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — dispatch_list_method with compare() via `compare_lists()`
+  - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for list
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — list compare() tests (6 tests incl. empty, length diff)
+  - [ ] **LLVM Support**: LLVM codegen for list compare (compound types)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — list compare codegen
 
-- [ ] **Implement**: Comparable implementations for tuples
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — tuple comparable bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/comparable/tuples.ori`
+- [x] **Implement**: Comparable implementations for tuples (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/compare.rs` — lexicographic via `compare_lists()` (same logic)
+  - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for tuple
+  - [x] **Ori Tests**: `tests/spec/traits/core/tuple_compare.ori` — 6 tests (lexicographic ordering, field priority, tiebreakers)
   - [ ] **LLVM Support**: LLVM codegen for tuple compare
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — tuple compare codegen
 
-- [ ] **Implement**: Comparable implementation for Option<T>
-  - [ ] **Rust Implementation**: `ori_eval/src/methods.rs` — dispatch_option_method with compare()
-  - [ ] **Type Checking**: `ori_typeck/src/infer/builtin_methods/option.rs` — compare() returns Ordering
-  - [ ] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Option compare() tests
+- [x] **Implement**: Comparable implementation for Option<T> (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/variants.rs` — dispatch_option_method via `compare_option_values()` (None < Some)
+  - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for Option
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Option compare() tests (4 tests: None-None, None-Some, Some-Some)
   - [ ] **LLVM Support**: LLVM codegen for option compare
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — option compare codegen
 
-- [ ] **Implement**: Comparable implementation for Result<T, E>
-  - [ ] **Rust Implementation**: `ori_eval/src/methods.rs` — dispatch_result_method with compare()
-  - [ ] **Type Checking**: `ori_typeck/src/infer/builtin_methods/result.rs` — compare() returns Ordering
-  - [ ] Result: `Ok(_) < Err(_)`, then compare inner values
-  - [ ] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Result compare() tests
+- [x] **Implement**: Comparable implementation for Result<T, E> (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/variants.rs` — dispatch_result_method via `compare_result_values()` (Ok < Err)
+  - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for Result
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Result compare() tests (3 tests: Ok-Ok, Ok-Err, Err-Err)
   - [ ] **LLVM Support**: LLVM codegen for result compare
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — result compare codegen
 
-- [ ] **Implement**: Float IEEE 754 total ordering (NaN handling)
-  - [ ] **Rust Implementation**: `ori_eval/src/methods.rs` — uses `total_cmp()` for IEEE 754 ordering
-  - [ ] **Ori Tests**: `tests/spec/traits/comparable/float_nan.ori`
-  - [ ] **LLVM Support**: LLVM codegen for float total ordering
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+- [x] **Implement**: Float IEEE 754 total ordering (NaN handling) (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/numeric.rs` — uses `total_cmp()` for IEEE 754 ordering
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — float comparison tests
+  - [x] **LLVM Support**: Primitive float compare in LLVM (existing)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — float compare tests
 
-- [ ] **Implement**: Comparable implementation for Ordering
-  - [ ] **Rust Implementation**: `ori_eval/src/methods.rs` — dispatch_ordering_method with compare()
-  - [ ] **Type Checking**: `ori_typeck/src/infer/builtin_methods/ordering.rs` — compare() returns Ordering
-  - [ ] Ordering: `Less < Equal < Greater`
-  - [ ] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Ordering compare() tests
+- [x] **Implement**: Comparable implementation for Ordering (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/ordering.rs` — dispatch_ordering_method with compare() (Less<Equal<Greater)
+  - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for Ordering
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Ordering compare() tests (3 tests)
   - [ ] **LLVM Support**: LLVM codegen for ordering compare
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — ordering compare codegen
 
-- [ ] **Implement**: Comparison operator derivation (`<`, `<=`, `>`, `>=` via Ordering methods)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — operator desugaring
-  - [ ] **Ori Tests**: `tests/spec/traits/comparable/operators.ori`
-  - [ ] **LLVM Support**: LLVM codegen for comparison operators
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+- [x] **Implement**: Comparison operator derivation (`<`, `<=`, `>`, `>=` via Ordering methods) (2026-02-15)
+  - [x] Completed as part of operator traits (3.21) — operators desugared to Comparable trait calls
+  - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — operator tests
+  - [x] **LLVM Support**: Operators compile via trait call desugaring
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — is_less/is_greater/etc.
 
-- [ ] **Implement**: Formal `Hashable` trait definition in type system
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — hashable trait parsing/bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/hashable/definition.ori`
+- [x] **Implement**: Formal `Hashable` trait definition in type system (2026-02-17)
+  - [x] Trait defined in `library/std/prelude.ori`: `pub trait Hashable: Eq { @hash (self) -> int }`
+  - [x] `DerivedTrait::Hashable` variant in `ori_ir/src/derives/mod.rs`
+  - [x] Trait registered in `ori_types/src/check/registration/mod.rs`
+  - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — 17 tests covering all types + hash_combine
 
-- [ ] **Implement**: Hashable implementations for all primitives (int, float, bool, str, char, byte, Duration, Size)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — primitive hashable bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/hashable/primitives.ori`
-  - [ ] **LLVM Support**: LLVM codegen for primitive hash methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+- [x] **Implement**: Hashable implementations for all primitives (int, float, bool, str, char, byte, Duration, Size) (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/numeric.rs` (int identity, float normalized), `variants.rs` (bool, char, byte), `collections.rs` (str), `units.rs` (Duration, Size), `ordering.rs` (Ordering)
+  - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — hash() returns int for all primitives
+  - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — primitive hash consistency tests
+  - [ ] **LLVM Support**: LLVM codegen for builtin hash methods (non-derived)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — primitive hash codegen
 
-- [ ] **Implement**: Hashable implementations for collections ([T], {K: V}, Set<T>, tuples)
-  - [ ] **Evaluator**: `dispatch_list_method`, `dispatch_map_method`, `dispatch_set_method`, `dispatch_tuple_method` — add `hash` handler
+- [x] **Implement**: Hashable implementations for collections ([T], {K: V}, Set<T>, tuples) (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — list/map/set hash(); `compare.rs` — tuple hash via `hash_value()`
+  - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — hash() returns int for all collections
+  - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — collection hash tests (order-independent for map/set)
   - [ ] **LLVM Support**: LLVM codegen for collection hash
-  - [ ] **Type Checker**: `resolve_*_method` — add `hash` back (LAST, after eval+LLVM)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — collection hashable bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/hashable/collections.ori`
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — collection hash codegen
 
-- [ ] **Implement**: Hashable implementations for Option<T> and Result<T, E>
-  - [ ] **Evaluator**: `dispatch_option_method`, `dispatch_result_method` — add `hash` handler
+- [x] **Implement**: Hashable implementations for Option<T> and Result<T, E> (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/variants.rs` — Option hash (None→0, Some→hash_combine(1,hash)); Result hash (Ok→hash_combine(2,hash), Err→hash_combine(3,hash))
+  - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — hash() returns int for Option/Result
+  - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — Option/Result hash tests
   - [ ] **LLVM Support**: LLVM codegen for option/result hash
-  - [ ] **Type Checker**: `resolve_option_method`, `resolve_result_method` — add `hash` back (LAST, after eval+LLVM)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — option/result hashable
-  - [ ] **Ori Tests**: `tests/spec/traits/hashable/wrappers.ori`
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — option/result hash codegen
 
-- [ ] **Implement**: Float hashing consistency (+0.0 == -0.0, NaN == NaN for hash)
-  - [ ] **Rust Tests**: `oric/src/eval/tests/` — float hash edge cases
-  - [ ] **Ori Tests**: `tests/spec/traits/hashable/float_hash.ori`
+- [x] **Implement**: Float hashing consistency (+0.0 == -0.0, NaN == NaN for hash) (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/methods/compare.rs` — `hash_float()` normalizes ±0.0 and NaN
+  - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — float hash consistency tests
   - [ ] **LLVM Support**: LLVM codegen for float hash normalization
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — float hash normalization codegen
 
-- [ ] **Implement**: `hash_combine` function in prelude
-  - [ ] **Rust Tests**: `oric/src/eval/tests/` — hash_combine evaluation
-  - [ ] **Ori Tests**: `tests/spec/traits/hashable/hash_combine.ori`
+- [x] **Implement**: `hash_combine` function in prelude (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/function_val.rs` — `function_val_hash_combine()` using boost hash combine algorithm
+  - [x] **Registration**: `ori_eval/src/interpreter/mod.rs` — registered in prelude via `register_function_val()`
+  - [x] **Type Checker**: `ori_types/src/infer/expr/identifiers.rs` — type signature `(int, int) -> int`
+  - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — hash_combine tests (3 tests)
   - [ ] **LLVM Support**: LLVM codegen for hash_combine
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — hash_combine codegen
 
-- [ ] **Implement**: `#[derive(Comparable)]` macro for user-defined types
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — comparable derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/comparable/derive.ori`
-  - [ ] **LLVM Support**: LLVM codegen for derived comparable
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparable_tests.rs`
+- [x] **Implement**: `#[derive(Comparable)]` for user-defined types — evaluator only (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/interpreter/derived_methods.rs` — `eval_derived_compare()` with lexicographic field comparison
+  - [x] **IR**: `ori_ir/src/derives/mod.rs` — `DerivedTrait::Comparable` + `method_name()` returns "compare"
+  - [x] **IR Tests**: `ori_ir/src/derives/tests.rs` — from_name/method_name tests
+  - [x] **Ori Tests**: `tests/spec/traits/derive/comparable.ori` — 6 tests (basic, lexicographic, single-field)
+  - [ ] **LLVM Support**: LLVM codegen for derived comparable (currently debug-log stub in `derive_codegen/mod.rs:118-121`)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — derived comparable codegen
 
-- [ ] **Implement**: `#[derive(Hashable)]` macro for user-defined types
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — hashable derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/hashable/derive.ori`
-  - [ ] **LLVM Support**: LLVM codegen for derived hashable
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/hashable_tests.rs`
+- [x] **Implement**: `#[derive(Hashable)]` for user-defined types — all phases (2026-02-17)
+  - [x] **Evaluator**: `ori_eval/src/interpreter/derived_methods.rs` — `eval_derived_hash()` with field hash combination
+  - [x] **IR**: `ori_ir/src/derives/mod.rs` — `DerivedTrait::Hashable` + `method_name()` returns "hash"
+  - [x] **LLVM Support**: `ori_llvm/src/codegen/derive_codegen/mod.rs` — FNV-1a hash in pure LLVM IR
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 2 tests (equal values, different values)
+  - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — hash consistency + struct hash tests
 
 - [ ] **Implement**: Error messages (E0940-E0942)
   - [ ] E0940: Cannot derive Hashable without Eq
@@ -1094,16 +1100,13 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
 - [ ] **Update Spec**: `12-modules.md` — add hash_combine to prelude functions
 - [ ] **Update**: `CLAUDE.md` — add Comparable, Hashable, hash_combine documentation
 
-- [ ] **Implement**: `equals()` on compound types (Eq trait extension beyond primitives)
-  - [ ] Evaluator: `dispatch_list_method` — element-wise equality
-  - [ ] Evaluator: `dispatch_option_method` — tag + inner equality
-  - [ ] Evaluator: `dispatch_result_method` — tag + inner equality
-  - [ ] Evaluator: `dispatch_map_method` — key-set + value equality
-  - [ ] Evaluator: `dispatch_tuple_method` — element-wise equality
+- [x] **Implement**: `equals()` on compound types (Eq trait extension beyond primitives) (2026-02-17)
+  - [x] Evaluator: `ori_eval/src/methods/collections.rs` — list element-wise, map key-set+value, set element-wise equality
+  - [x] Evaluator: `ori_eval/src/methods/variants.rs` — Option tag+inner, Result tag+inner equality
+  - [x] Evaluator: `ori_eval/src/methods/compare.rs` — tuple element-wise via `equals_values()`
+  - [x] Type checker: `ori_types/src/infer/expr/methods.rs` — `equals` registered for all compound types
+  - [x] **Ori Tests**: `tests/spec/traits/core/compound_equals.ori` — 12 tests (list, map, Option, Result, tuple)
   - [ ] LLVM codegen: `lower_builtin_method` — inline equals for all compound types
-  - [ ] Type checker: `resolve_*_method` — add `equals` back (LAST, after eval+LLVM)
-  - [ ] Type checker: `type_satisfies_trait()` — re-add `"Eq"` to `COLLECTION_TRAITS`, `WRAPPER_TRAITS`, `RESULT_TRAITS` (removed in 3.7 hygiene pass 2)
-  - [ ] **Ori Tests**: `tests/spec/traits/eq/compound_types.ori`
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/` — compound equals codegen
 
 ---

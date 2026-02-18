@@ -1,8 +1,9 @@
 //! Field-level operations for derived trait codegen.
 //!
-//! Contains type-driven field comparison (for Eq) and field-to-i64 coercion
-//! (for Hashable). Both dispatch on `TypeInfo` to handle primitives, strings,
-//! and nested structs with recursive method calls.
+//! Contains type-driven field comparison (for Eq), field ordering (for
+//! Comparable), and field-to-i64 coercion (for Hashable). All dispatch on
+//! `TypeInfo` to handle primitives, strings, and nested structs with
+//! recursive method calls.
 
 use ori_types::Idx;
 use tracing::trace;
@@ -78,6 +79,153 @@ fn emit_str_eq_call<'a>(
     fc.builder_mut()
         .call(eq_fn, &[lhs_alloca, rhs_alloca], name)
         .unwrap_or_else(|| fc.builder_mut().const_bool(false))
+}
+
+/// Emit a three-way comparison for a single field, returning Ordering (i8).
+///
+/// Returns: 0 (Less), 1 (Equal), 2 (Greater). For integer types this uses
+/// the same icmp+select chain as `lower_int_method("compare")`. For strings
+/// it calls `ori_str_compare`. For nested structs it calls their `compare()`
+/// method recursively.
+pub(super) fn emit_field_compare<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    lhs: ValueId,
+    rhs: ValueId,
+    field_type: Idx,
+    name: &str,
+    str_ty_id: LLVMTypeId,
+) -> ValueId {
+    let info = fc.type_info().get(field_type);
+    match &info {
+        // Integer-like: signed comparison via icmp
+        TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
+            emit_icmp_ordering(fc, lhs, rhs, name, /* signed */ true)
+        }
+
+        TypeInfo::Char | TypeInfo::Byte => {
+            // Char/Byte are unsigned — zero-extend to i64 for unsigned comparison
+            let i64_ty = fc.builder_mut().i64_type();
+            let lhs_ext = fc
+                .builder_mut()
+                .zext(lhs, i64_ty, &format!("{name}.lhs.ext"));
+            let rhs_ext = fc
+                .builder_mut()
+                .zext(rhs, i64_ty, &format!("{name}.rhs.ext"));
+            emit_icmp_ordering(fc, lhs_ext, rhs_ext, name, /* signed */ false)
+        }
+
+        TypeInfo::Bool => {
+            // false(0) < true(1) — zero-extend then unsigned compare
+            let i64_ty = fc.builder_mut().i64_type();
+            let lhs_ext = fc
+                .builder_mut()
+                .zext(lhs, i64_ty, &format!("{name}.lhs.ext"));
+            let rhs_ext = fc
+                .builder_mut()
+                .zext(rhs, i64_ty, &format!("{name}.rhs.ext"));
+            emit_icmp_ordering(fc, lhs_ext, rhs_ext, name, /* signed */ false)
+        }
+
+        TypeInfo::Ordering => {
+            // Ordering is i8: Less(0) < Equal(1) < Greater(2)
+            emit_icmp_ordering(fc, lhs, rhs, name, /* signed */ false)
+        }
+
+        TypeInfo::Float => emit_fcmp_ordering(fc, lhs, rhs, name),
+
+        TypeInfo::Str => emit_str_compare_call(fc, lhs, rhs, name, str_ty_id),
+
+        TypeInfo::Struct { .. } => {
+            let nested_name = fc.type_idx_to_name(field_type);
+            let compare_name = fc.intern("compare");
+            if let Some(type_name) = nested_name {
+                if let Some((fid, abi)) = fc.get_method_function(type_name, compare_name) {
+                    return emit_method_call_for_derive(fc, fid, &abi, &[lhs, rhs], name);
+                }
+            }
+            // Fallback: treat as Equal if no compare method found
+            fc.builder_mut().const_i8(1)
+        }
+
+        _ => {
+            trace!(
+                ?info,
+                "unsupported field type for derive Comparable — treating as Equal"
+            );
+            fc.builder_mut().const_i8(1)
+        }
+    }
+}
+
+/// Emit `icmp slt/sgt → select` chain returning Ordering i8.
+fn emit_icmp_ordering<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    lhs: ValueId,
+    rhs: ValueId,
+    name: &str,
+    signed: bool,
+) -> ValueId {
+    let lt = if signed {
+        fc.builder_mut().icmp_slt(lhs, rhs, &format!("{name}.lt"))
+    } else {
+        fc.builder_mut().icmp_ult(lhs, rhs, &format!("{name}.lt"))
+    };
+    let gt = if signed {
+        fc.builder_mut().icmp_sgt(lhs, rhs, &format!("{name}.gt"))
+    } else {
+        fc.builder_mut().icmp_ugt(lhs, rhs, &format!("{name}.gt"))
+    };
+    let less = fc.builder_mut().const_i8(0);
+    let equal = fc.builder_mut().const_i8(1);
+    let greater = fc.builder_mut().const_i8(2);
+    let gt_or_eq = fc
+        .builder_mut()
+        .select(gt, greater, equal, &format!("{name}.gt_or_eq"));
+    fc.builder_mut()
+        .select(lt, less, gt_or_eq, &format!("{name}.ord"))
+}
+
+/// Emit `fcmp olt/ogt → select` chain returning Ordering i8.
+fn emit_fcmp_ordering<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    lhs: ValueId,
+    rhs: ValueId,
+    name: &str,
+) -> ValueId {
+    let lt = fc.builder_mut().fcmp_olt(lhs, rhs, &format!("{name}.lt"));
+    let gt = fc.builder_mut().fcmp_ogt(lhs, rhs, &format!("{name}.gt"));
+    let less = fc.builder_mut().const_i8(0);
+    let equal = fc.builder_mut().const_i8(1);
+    let greater = fc.builder_mut().const_i8(2);
+    let gt_or_eq = fc
+        .builder_mut()
+        .select(gt, greater, equal, &format!("{name}.gt_or_eq"));
+    fc.builder_mut()
+        .select(lt, less, gt_or_eq, &format!("{name}.ord"))
+}
+
+/// Call `ori_str_compare(a: ptr, b: ptr) -> i8` via alloca+store pattern.
+fn emit_str_compare_call<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    lhs: ValueId,
+    rhs: ValueId,
+    name: &str,
+    str_ty_id: LLVMTypeId,
+) -> ValueId {
+    let ptr_ty = fc.builder_mut().ptr_type();
+    let i8_ty = fc.builder_mut().i8_type();
+
+    let lhs_alloca = fc.builder_mut().alloca(str_ty_id, "cmp_lhs_str");
+    fc.builder_mut().store(lhs, lhs_alloca);
+    let rhs_alloca = fc.builder_mut().alloca(str_ty_id, "cmp_rhs_str");
+    fc.builder_mut().store(rhs, rhs_alloca);
+
+    let cmp_fn =
+        fc.builder_mut()
+            .get_or_declare_function("ori_str_compare", &[ptr_ty, ptr_ty], i8_ty);
+    fc.builder_mut()
+        .call(cmp_fn, &[lhs_alloca, rhs_alloca], name)
+        .unwrap_or_else(|| fc.builder_mut().const_i8(1)) // Equal fallback
 }
 
 /// Coerce a field value to i64 for hashing.

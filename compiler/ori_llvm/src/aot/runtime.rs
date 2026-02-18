@@ -7,9 +7,11 @@
 //!
 //! Discovery follows rustc's sysroot pattern - walk up from the executable:
 //!
-//! 1. **Dev layout**: Same directory as compiler binary (`target/release/libori_rt.a`)
-//! 2. **Installed layout**: `<exe>/../lib/libori_rt.a` (e.g., `/usr/local/bin/ori` → `/usr/local/lib/`)
-//! 3. **Workspace dev**: `$ORI_WORKSPACE_DIR/target/{release,debug}/libori_rt.a`
+//! 1. **Dev layout**: Same directory as compiler binary (`target/{debug,release}/libori_rt.a`)
+//! 2. **Sibling profile**: `target/release/` when exe is in `target/debug/` (and vice versa)
+//! 3. **Standalone `ori_rt` build**: `compiler/ori_rt/target/{release,debug}/libori_rt.a`
+//! 4. **Installed layout**: `<exe>/../lib/libori_rt.a` (e.g., `/usr/local/bin/ori` → `/usr/local/lib/`)
+//! 5. **Workspace dev**: `$ORI_WORKSPACE_DIR/target/{release,debug}/libori_rt.a`
 //!
 //! No environment variables are used for primary discovery. Use `--runtime-path` CLI flag for overrides.
 //!
@@ -125,6 +127,21 @@ impl RuntimeConfig {
                 }
                 searched.push(exe_dir.to_path_buf());
 
+                // Sibling profile: target/debug/ori -> check target/release/ (and vice versa).
+                // Handles the common case where `cargo bl` (debug) builds the compiler but
+                // `libori_rt.a` was built in release (or vice versa).
+                if let Some(target_dir) = exe_dir.parent() {
+                    for profile in &["release", "debug"] {
+                        let sibling = target_dir.join(profile);
+                        if sibling != exe_dir && Self::lib_exists(&sibling, lib_name) {
+                            return Ok(Self::new(sibling));
+                        }
+                        if sibling != *exe_dir {
+                            searched.push(sibling);
+                        }
+                    }
+                }
+
                 // Installed layout: bin/ori -> ../lib/libori_rt.a
                 // Standard FHS: /usr/local/bin/ori -> /usr/local/lib/libori_rt.a
                 let lib_path = exe_dir.join("../lib");
@@ -135,7 +152,30 @@ impl RuntimeConfig {
             }
         }
 
-        // 2. Check workspace directory (for `cargo run` during development)
+        // 2. Check ori_rt's standalone build directory.
+        // ori_rt is excluded from the workspace, so `cargo build --manifest-path
+        // compiler/ori_rt/Cargo.toml` puts the staticlib in compiler/ori_rt/target/.
+        // Detect the workspace root by walking up from the executable.
+        if let Ok(exe_path) = std::env::current_exe() {
+            let exe_path = exe_path.canonicalize().unwrap_or(exe_path);
+            // exe is at <workspace>/target/<profile>/ori → workspace = exe/../../../
+            if let Some(workspace_root) = exe_path
+                .parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+            {
+                let ori_rt_target = workspace_root.join("compiler/ori_rt/target");
+                for profile in ["release", "debug"] {
+                    let path = ori_rt_target.join(profile);
+                    if Self::lib_exists(&path, lib_name) {
+                        return Ok(Self::new(path));
+                    }
+                    searched.push(path);
+                }
+            }
+        }
+
+        // 3. Check workspace directory (for `cargo run` during development)
         // ORI_WORKSPACE_DIR is set by the build system when running via cargo
         if let Ok(workspace) = std::env::var("ORI_WORKSPACE_DIR") {
             for profile in ["release", "debug"] {

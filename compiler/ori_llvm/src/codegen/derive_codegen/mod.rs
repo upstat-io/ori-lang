@@ -10,10 +10,10 @@
 //! - **Hashable**: FNV-1a hash in pure LLVM IR (`hash(self) -> int`)
 //! - **Printable**: String representation via runtime concat (`to_str(self) -> str`)
 //! - **Default**: Zero-initialized struct construction (`default() -> Self`)
+//! - **Comparable**: Lexicographic field comparison (`compare(self, other) -> Ordering`)
 //!
 //! Deferred to interpreter-only (not yet codegen'd):
 //! - **Debug**: Debug string representation
-//! - **Comparable**: Lexicographic field comparison (`compare(self, other) -> Ordering`)
 
 mod field_ops;
 mod string_helpers;
@@ -27,7 +27,7 @@ use super::abi::{compute_function_abi, FunctionAbi, ReturnPassing};
 use super::function_compiler::FunctionCompiler;
 use super::value_id::{FunctionId, ValueId};
 
-use field_ops::{coerce_to_i64, emit_field_eq};
+use field_ops::{coerce_to_i64, emit_field_compare, emit_field_eq};
 use string_helpers::{emit_field_to_string, emit_str_concat, emit_str_literal};
 
 // ---------------------------------------------------------------------------
@@ -116,8 +116,7 @@ pub fn compile_derives<'a>(
                     debug!(derive = "Debug", type_name = %type_name_str, "Debug derive not yet implemented in LLVM codegen — skipping");
                 }
                 DerivedTrait::Comparable => {
-                    // TODO: LLVM codegen for Comparable (deferred — interpreter-only for now)
-                    debug!(derive = "Comparable", type_name = %type_name_str, "Comparable derive not yet implemented in LLVM codegen — skipping");
+                    compile_derive_comparable(fc, type_name, type_idx, &type_name_str, fields);
                 }
             }
         }
@@ -204,6 +203,114 @@ fn compile_derive_eq<'a>(
     fc.builder_mut().position_at_end(false_bb);
     let false_val = fc.builder_mut().const_bool(false);
     fc.builder_mut().ret(false_val);
+}
+
+// ---------------------------------------------------------------------------
+// Comparable: lexicographic field comparison
+// ---------------------------------------------------------------------------
+
+/// Generate `compare(self: Self, other: Self) -> Ordering`.
+///
+/// Lexicographic: compare fields in declaration order, short-circuit on first
+/// non-Equal result. Returns Ordering (i8): 0=Less, 1=Equal, 2=Greater.
+fn compile_derive_comparable<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    type_name: Name,
+    type_idx: Idx,
+    type_name_str: &str,
+    fields: &[FieldDef],
+) {
+    let method_name_str = "compare";
+    let method_name = fc.intern(method_name_str);
+    let other_name = fc.intern("other");
+
+    let sig = make_sig(
+        method_name,
+        vec![fc.intern("self"), other_name],
+        vec![type_idx, type_idx],
+        Idx::ORDERING,
+    );
+
+    let abi = compute_function_abi(&sig, fc.type_info());
+    let symbol = fc.mangle_method(type_name_str, method_name_str);
+
+    let (func_id, self_val, param_vals) =
+        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
+
+    let other_val = param_vals[0];
+
+    // Resolve str type once for string field comparisons
+    let str_ty = fc.resolve_type(Idx::STR);
+    let str_ty_id = fc.builder_mut().register_type(str_ty);
+
+    let equal_bb = fc.builder_mut().append_block(func_id, "cmp.equal");
+
+    if fields.is_empty() {
+        // Empty struct: always Equal
+        fc.builder_mut().br(equal_bb);
+    } else {
+        for (i, field) in fields.iter().enumerate() {
+            let field_name = fc.lookup_name(field.name).to_owned();
+            let self_field =
+                fc.builder_mut()
+                    .extract_value(self_val, i as u32, &format!("self.{field_name}"));
+            let other_field =
+                fc.builder_mut()
+                    .extract_value(other_val, i as u32, &format!("other.{field_name}"));
+
+            let (Some(sf), Some(of)) = (self_field, other_field) else {
+                warn!(field = %field_name, "extract_value failed in derive Comparable");
+                fc.builder_mut().br(equal_bb);
+                break;
+            };
+
+            let ord = emit_field_compare(
+                fc,
+                sf,
+                of,
+                field.ty,
+                &format!("cmp.{field_name}"),
+                str_ty_id,
+            );
+
+            // Check if this field's comparison is Equal (1)
+            let one = fc.builder_mut().const_i8(1);
+            let is_equal = fc
+                .builder_mut()
+                .icmp_eq(ord, one, &format!("cmp.{field_name}.is_eq"));
+
+            if i + 1 < fields.len() {
+                // More fields: if Equal, continue to next; otherwise return this Ordering
+                let ret_bb = fc
+                    .builder_mut()
+                    .append_block(func_id, &format!("cmp.ret.{field_name}"));
+                let next_bb = fc
+                    .builder_mut()
+                    .append_block(func_id, &format!("cmp.next.{}", i + 1));
+                fc.builder_mut().cond_br(is_equal, next_bb, ret_bb);
+
+                // Return the non-Equal ordering
+                fc.builder_mut().position_at_end(ret_bb);
+                emit_derive_return(fc, func_id, &abi, Some(ord));
+
+                fc.builder_mut().position_at_end(next_bb);
+            } else {
+                // Last field: if Equal, fall through to equal_bb; otherwise return
+                let ret_bb = fc
+                    .builder_mut()
+                    .append_block(func_id, &format!("cmp.ret.{field_name}"));
+                fc.builder_mut().cond_br(is_equal, equal_bb, ret_bb);
+
+                fc.builder_mut().position_at_end(ret_bb);
+                emit_derive_return(fc, func_id, &abi, Some(ord));
+            }
+        }
+    }
+
+    // All fields Equal
+    fc.builder_mut().position_at_end(equal_bb);
+    let equal_val = fc.builder_mut().const_i8(1);
+    emit_derive_return(fc, func_id, &abi, Some(equal_val));
 }
 
 // ---------------------------------------------------------------------------
