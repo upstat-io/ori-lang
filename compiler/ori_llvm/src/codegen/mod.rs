@@ -59,6 +59,7 @@ pub mod arc_emitter;
 pub mod expr_lowerer;
 mod lower_builtin_methods;
 mod lower_calls;
+mod lower_collection_methods;
 mod lower_collections;
 mod lower_constructs;
 mod lower_control_flow;
