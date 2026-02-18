@@ -400,12 +400,8 @@ pub(super) fn resolve_parsed_type_simple(
             // Well-known generic types must use their dedicated Pool constructors
             // to ensure type representations match between annotations and inference.
             if !resolved_args.is_empty() {
-                let name_str = checker.interner().lookup(*name);
-                if let Some(idx) = super::well_known::resolve_well_known_generic(
-                    checker.pool_mut(),
-                    name_str,
-                    &resolved_args,
-                ) {
+                if let Some(idx) = checker.resolve_well_known_generic_cached(*name, &resolved_args)
+                {
                     return idx;
                 }
                 return checker.pool_mut().applied(*name, &resolved_args);
@@ -415,12 +411,8 @@ pub(super) fn resolve_parsed_type_simple(
             // through to pool.named(). Without this, struct fields like
             // `order: Ordering` would get a fresh Named Idx instead of Idx::ORDERING,
             // causing the same duality bug that affected register_builtin_types.
-            let name_str = checker.interner().lookup(*name);
-            match name_str {
-                "Ordering" | "ordering" => return Idx::ORDERING,
-                "Duration" | "duration" => return Idx::DURATION,
-                "Size" | "size" => return Idx::SIZE,
-                _ => {}
+            if let Some(idx) = checker.resolve_registration_primitive(*name) {
+                return idx;
             }
             checker.pool_mut().named(*name)
         }

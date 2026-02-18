@@ -90,20 +90,31 @@ pub fn resolve_parsed_type(
             // Well-known generic types must use their dedicated Pool constructors
             // to match types created during inference.
             if !resolved_args.is_empty() {
-                if let Some(name_str) = engine.lookup_name(*name) {
-                    if let Some(idx) = crate::check::resolve_well_known_generic(
+                // Grab cache pointer before mutably borrowing pool
+                let wk = engine.well_known();
+                let resolved = if let Some(wk) = wk {
+                    wk.resolve_generic(engine.pool_mut(), *name, &resolved_args)
+                } else if let Some(name_str) = engine.lookup_name(*name) {
+                    crate::check::resolve_well_known_generic(
                         engine.pool_mut(),
                         name_str,
                         &resolved_args,
-                    ) {
-                        return idx;
-                    }
+                    )
+                } else {
+                    None
+                };
+                if let Some(idx) = resolved {
+                    return idx;
                 }
                 return engine.pool_mut().applied(*name, &resolved_args);
             }
 
-            // No type args — check for builtin primitive names
-            if let Some(name_str) = engine.lookup_name(*name) {
+            // No type args — check for builtin primitive names via cache
+            if let Some(wk) = engine.well_known() {
+                if let Some(idx) = wk.resolve_primitive(*name) {
+                    return idx;
+                }
+            } else if let Some(name_str) = engine.lookup_name(*name) {
                 match name_str {
                     "int" => return Idx::INT,
                     "float" => return Idx::FLOAT,
@@ -241,8 +252,12 @@ pub(crate) fn resolve_and_check_parsed_type(
 /// pass the object safety check.
 impl ObjectSafetyChecker for InferEngine<'_> {
     fn is_well_known_concrete(&self, name: Name, num_args: usize) -> bool {
-        self.lookup_name(name)
-            .is_some_and(|s| crate::check::is_concrete_named_type(s, num_args))
+        if let Some(wk) = self.well_known() {
+            wk.is_concrete(name, num_args)
+        } else {
+            self.lookup_name(name)
+                .is_some_and(|s| crate::check::is_concrete_named_type(s, num_args))
+        }
     }
 
     fn check_and_emit(&mut self, name: Name, span: Span) {

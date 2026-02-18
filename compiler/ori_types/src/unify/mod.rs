@@ -262,6 +262,14 @@ impl<'pool> UnifyEngine<'pool> {
         other: Idx,
         context: UnifyContext,
     ) -> Result<(), UnifyError> {
+        /// Extracted action from var state for borrow-splitting.
+        enum Action {
+            Link(crate::Rank),
+            Follow(crate::Idx),
+            Rigid(ori_ir::Name),
+            GenError(u32),
+        }
+
         let var_id = self.pool.data(var_idx);
 
         // Occurs check: prevent infinite types
@@ -272,32 +280,30 @@ impl<'pool> UnifyEngine<'pool> {
             });
         }
 
-        // Get variable state
-        let state = self.pool.var_state(var_id).clone();
+        // Extract action from var state without cloning (all fields are Copy).
+        // The match borrows pool immutably; we drop the borrow before mutating.
+        let action = match self.pool.var_state(var_id) {
+            VarState::Unbound { rank, .. } => Action::Link(*rank),
+            VarState::Link { target } => Action::Follow(*target),
+            VarState::Rigid { name } => Action::Rigid(*name),
+            VarState::Generalized { id, .. } => Action::GenError(*id),
+        };
 
-        match state {
-            VarState::Unbound { rank, .. } => {
-                // Update ranks of variables in `other` to be at most `rank`
+        match action {
+            Action::Link(rank) => {
                 self.update_ranks(other, rank);
-
-                // Set link
                 *self.pool.var_state_mut(var_id) = VarState::Link { target: other };
                 Ok(())
             }
-
-            VarState::Link { target } => {
+            Action::Follow(target) => {
                 // Should not happen after resolve(), but handle it
                 self.unify_with_context(target, other, context)
             }
-
-            VarState::Rigid { name } => Err(UnifyError::RigidMismatch {
+            Action::Rigid(name) => Err(UnifyError::RigidMismatch {
                 rigid_name: name,
                 concrete: other,
             }),
-
-            VarState::Generalized { id, .. } => {
-                // Generalized variables should be instantiated before unification.
-                // This is a compiler invariant violation, not a user error.
+            Action::GenError(id) => {
                 tracing::error!(
                     var_id = id,
                     "attempted to unify generalized variable without instantiation"
@@ -784,11 +790,15 @@ impl<'pool> UnifyEngine<'pool> {
             return ty; // Monomorphic
         }
 
-        // Mark collected variables as generalized
+        // Mark collected variables as generalized.
+        // Extract id/name from the immutable borrow, then write the new state.
         for &var_id in &vars {
-            let state = self.pool.var_state_mut(var_id);
-            if let VarState::Unbound { id, name, .. } = state.clone() {
-                *state = VarState::Generalized { id, name };
+            let gen = match self.pool.var_state(var_id) {
+                VarState::Unbound { id, name, .. } => Some((*id, *name)),
+                _ => None,
+            };
+            if let Some((id, name)) = gen {
+                *self.pool.var_state_mut(var_id) = VarState::Generalized { id, name };
             }
         }
 
