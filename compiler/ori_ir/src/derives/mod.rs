@@ -62,8 +62,13 @@ impl DerivedTrait {
 pub struct DerivedMethodInfo {
     /// The trait being derived.
     pub trait_kind: DerivedTrait,
-    /// Field names for struct types (in order).
+    /// Field names for struct types (in declaration order).
     pub field_names: Vec<Name>,
+    /// Variant names for sum types (in declaration order).
+    ///
+    /// Empty for struct types. Used by the evaluator to determine variant
+    /// ordering for `Comparable` derivation and variant-aware `Hash` dispatch.
+    pub variant_names: Vec<Name>,
 }
 
 impl DerivedMethodInfo {
@@ -72,6 +77,16 @@ impl DerivedMethodInfo {
         DerivedMethodInfo {
             trait_kind,
             field_names,
+            variant_names: Vec::new(),
+        }
+    }
+
+    /// Create a new derived method info for a sum type.
+    pub fn new_sum(trait_kind: DerivedTrait, variant_names: Vec<Name>) -> Self {
+        DerivedMethodInfo {
+            trait_kind,
+            field_names: Vec::new(),
+            variant_names,
         }
     }
 }

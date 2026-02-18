@@ -1,0 +1,13 @@
+// Spec: §3.15 — Derived Traits Formal Semantics
+// Field type must implement the derived trait (E2032)
+
+type FileHandle = { fd: int }
+
+#[derive(Eq)]
+type Container = { data: FileHandle }
+
+#[compile_fail("field type does not implement trait required by derive")]
+@test_field_missing () -> void = run(
+    let _ = Container { data: FileHandle { fd: 1 } } == Container { data: FileHandle { fd: 1 } },
+    ()
+)

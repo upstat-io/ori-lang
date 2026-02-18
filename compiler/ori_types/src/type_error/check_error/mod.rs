@@ -533,6 +533,24 @@ impl TypeCheckError {
                     format_type(*key_type)
                 )
             }
+            TypeErrorKind::FieldMissingTraitInDerive {
+                type_name,
+                trait_name,
+                field_name,
+                field_type,
+            } => {
+                format!(
+                    "cannot derive `{}` for `{}`: field `{}` of type `{}` does not implement `{}`",
+                    format_name(*trait_name),
+                    format_name(*type_name),
+                    format_name(*field_name),
+                    format_type(*field_type),
+                    format_name(*trait_name),
+                )
+            }
+            TypeErrorKind::TraitNotDerivable { trait_name } => {
+                format!("trait `{}` cannot be derived", format_name(*trait_name))
+            }
         }
     }
 
@@ -705,6 +723,10 @@ impl TypeCheckError {
                     key_type.display_name()
                 )
             }
+            TypeErrorKind::FieldMissingTraitInDerive { .. } => {
+                "field type does not implement trait required by derive".to_string()
+            }
+            TypeErrorKind::TraitNotDerivable { .. } => "trait cannot be derived".to_string(),
         }
     }
 
@@ -790,6 +812,12 @@ impl TypeCheckError {
 
             // E2031: Non-hashable map key
             TypeErrorKind::NonHashableMapKey { .. } => ErrorCode::E2031,
+
+            // E2032: Field missing trait in derive
+            TypeErrorKind::FieldMissingTraitInDerive { .. } => ErrorCode::E2032,
+
+            // E2033: Trait not derivable
+            TypeErrorKind::TraitNotDerivable { .. } => ErrorCode::E2033,
         }
     }
 
@@ -1089,6 +1117,49 @@ impl TypeCheckError {
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
                 "add `#[derive(Eq, Hashable)]` to the type, or implement `Hashable` manually",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "field missing trait in derive" error (E2032).
+    ///
+    /// Emitted when `#[derive(Trait)]` is applied to a type but one of its
+    /// fields does not implement the required trait.
+    pub fn field_missing_trait_in_derive(
+        span: Span,
+        type_name: Name,
+        trait_name: Name,
+        field_name: Name,
+        field_type: Idx,
+    ) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::FieldMissingTraitInDerive {
+                type_name,
+                trait_name,
+                field_name,
+                field_type,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "ensure all field types implement the derived trait, or implement the trait manually",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "trait not derivable" error (E2033).
+    ///
+    /// Emitted when `#[derive(Trait)]` is applied with a trait that cannot be
+    /// automatically derived.
+    pub fn trait_not_derivable(span: Span, trait_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::TraitNotDerivable { trait_name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "derivable traits are: Eq, Clone, Hashable, Comparable, Printable, Debug, Default",
                 0,
             )],
         }
@@ -1569,6 +1640,24 @@ pub enum TypeErrorKind {
     NonHashableMapKey {
         /// The key type that doesn't implement Hashable.
         key_type: Idx,
+    },
+
+    /// Field type does not implement trait required by derive (E2032).
+    FieldMissingTraitInDerive {
+        /// The type name being derived.
+        type_name: Name,
+        /// The trait being derived.
+        trait_name: Name,
+        /// The field name whose type lacks the trait.
+        field_name: Name,
+        /// The field's resolved type.
+        field_type: Idx,
+    },
+
+    /// Trait cannot be derived — not in the derivable set (E2033).
+    TraitNotDerivable {
+        /// The trait name that was attempted.
+        trait_name: Name,
     },
 }
 

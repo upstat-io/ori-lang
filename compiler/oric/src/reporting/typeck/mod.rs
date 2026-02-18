@@ -202,6 +202,25 @@ impl<'a> TypeErrorRenderer<'a> {
                     self.format_type(*key_type)
                 )
             }
+            TypeErrorKind::FieldMissingTraitInDerive {
+                trait_name,
+                field_name,
+                field_type,
+                ..
+            } => {
+                format!(
+                    "field `{}` of type `{}` does not implement `{}`",
+                    self.format_name(*field_name),
+                    self.format_type(*field_type),
+                    self.format_name(*trait_name),
+                )
+            }
+            TypeErrorKind::TraitNotDerivable { trait_name } => {
+                format!(
+                    "trait `{}` cannot be derived",
+                    self.format_name(*trait_name)
+                )
+            }
         }
     }
 

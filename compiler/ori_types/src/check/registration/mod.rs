@@ -1192,6 +1192,18 @@ fn register_derived_impl(
     type_decl: &ori_ir::TypeDecl,
     trait_name: Name,
 ) {
+    // 0. Reject non-derivable traits (E2033)
+    {
+        let trait_str = checker.interner().lookup(trait_name);
+        if DerivedTrait::from_name(trait_str).is_none() {
+            checker.push_error(TypeCheckError::trait_not_derivable(
+                type_decl.span,
+                trait_name,
+            ));
+            return;
+        }
+    }
+
     // 0a. Reject #[derive(Default)] on sum types (spec: ambiguous variant)
     let wk = checker.well_known();
     if trait_name == wk.default_trait && matches!(type_decl.kind, ori_ir::TypeDeclKind::Sum(_)) {
@@ -1236,10 +1248,15 @@ fn register_derived_impl(
         return;
     }
 
-    // 5. Build method signatures for the derived trait
+    // 5. Validate field types implement the derived trait (E2032)
+    if !validate_derive_field_constraints(checker, type_decl, trait_name, trait_idx) {
+        return;
+    }
+
+    // 6. Build method signatures for the derived trait
     let methods = build_derived_methods(checker, trait_name, self_type, type_decl.span);
 
-    // 6. Create and register the impl entry (derived impls are always concrete)
+    // 7. Create and register the impl entry (derived impls are always concrete)
     let entry = ImplEntry {
         trait_idx: Some(trait_idx),
         trait_type_args: Vec::new(),
@@ -1253,6 +1270,139 @@ fn register_derived_impl(
     };
 
     checker.trait_registry_mut().register_impl(entry);
+}
+
+/// Validate that all field types implement the derived trait (E2032).
+///
+/// Returns `true` if validation passes (all fields satisfy the trait or are
+/// generic type parameters). Returns `false` if any field definitively fails,
+/// after emitting E2032 errors for each failing field.
+fn validate_derive_field_constraints(
+    checker: &mut ModuleChecker<'_>,
+    type_decl: &ori_ir::TypeDecl,
+    trait_name: Name,
+    trait_idx: Idx,
+) -> bool {
+    let arena = checker.arena();
+
+    // Collect generic parameter names to skip them during validation.
+    // Generic params (e.g., T in Pair<T>) are checked at instantiation.
+    let generic_params: FxHashSet<Name> = {
+        let params = arena.get_generic_params(type_decl.generics);
+        params.iter().map(|p| p.name).collect()
+    };
+
+    let self_name = type_decl.name;
+    let mut all_valid = true;
+
+    match &type_decl.kind {
+        ori_ir::TypeDeclKind::Struct(fields) => {
+            for field in fields {
+                let field_ty = resolve_parsed_type_simple(checker, &field.ty, arena);
+                if !field_type_satisfies_trait(
+                    checker,
+                    field_ty,
+                    trait_name,
+                    trait_idx,
+                    self_name,
+                    &generic_params,
+                ) {
+                    checker.push_error(TypeCheckError::field_missing_trait_in_derive(
+                        field.span,
+                        type_decl.name,
+                        trait_name,
+                        field.name,
+                        field_ty,
+                    ));
+                    all_valid = false;
+                }
+            }
+        }
+        ori_ir::TypeDeclKind::Sum(variants) => {
+            for variant in variants {
+                for field in &variant.fields {
+                    let field_ty = resolve_parsed_type_simple(checker, &field.ty, arena);
+                    if !field_type_satisfies_trait(
+                        checker,
+                        field_ty,
+                        trait_name,
+                        trait_idx,
+                        self_name,
+                        &generic_params,
+                    ) {
+                        checker.push_error(TypeCheckError::field_missing_trait_in_derive(
+                            field.span,
+                            type_decl.name,
+                            trait_name,
+                            field.name,
+                            field_ty,
+                        ));
+                        all_valid = false;
+                    }
+                }
+            }
+        }
+        ori_ir::TypeDeclKind::Newtype(_) => {
+            // Newtypes don't have fields to validate
+        }
+    }
+
+    all_valid
+}
+
+/// Check if a field type satisfies a trait for derive validation.
+///
+/// Conservative: returns `true` for generic type parameters (checked at
+/// instantiation), self-references, and types where satisfaction can't be
+/// determined during registration.
+fn field_type_satisfies_trait(
+    checker: &ModuleChecker<'_>,
+    field_ty: Idx,
+    trait_name: Name,
+    trait_idx: Idx,
+    self_name: Name,
+    generic_params: &FxHashSet<Name>,
+) -> bool {
+    use crate::Tag;
+
+    let tag = checker.pool().tag(field_ty);
+
+    // Generic type variables — skip, checked at instantiation
+    if matches!(tag, Tag::Var | Tag::BoundVar | Tag::RigidVar | Tag::Infer) {
+        return true;
+    }
+
+    // Primitives and builtins — use well-known table
+    let wk = checker.well_known();
+    if wk.type_satisfies_trait(field_ty, trait_name, checker.pool()) {
+        return true;
+    }
+
+    // Check trait registry for existing impls (covers earlier derives + manual impls)
+    if checker.trait_registry().has_impl(trait_idx, field_ty) {
+        return true;
+    }
+
+    // For Named types: skip self-references and generic parameters
+    if tag == Tag::Named {
+        let name = checker.pool().named_name(field_ty);
+        // Self-reference (e.g., Tree containing Tree fields)
+        if name == self_name {
+            return true;
+        }
+        // Generic type parameter (e.g., T in Pair<T>)
+        if generic_params.contains(&name) {
+            return true;
+        }
+    }
+
+    // For applied types (generics like List<T>, Option<T>), the trait satisfaction
+    // depends on the type arguments. Be conservative and accept.
+    if matches!(tag, Tag::Applied) {
+        return true;
+    }
+
+    false
 }
 
 /// Build the method map for a derived trait implementation.

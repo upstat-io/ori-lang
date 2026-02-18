@@ -63,6 +63,7 @@ pub(crate) struct WellKnownNames {
     pub hashable: Name,
     pub default_trait: Name,
     pub printable: Name,
+    pub debug_trait: Name,
     pub sendable: Name,
     pub add: Name,
     pub sub: Name,
@@ -120,6 +121,7 @@ impl WellKnownNames {
             hashable: interner.intern("Hashable"),
             default_trait: interner.intern("Default"),
             printable: interner.intern("Printable"),
+            debug_trait: interner.intern("Debug"),
             sendable: interner.intern("Sendable"),
             add: interner.intern("Add"),
             sub: interner.intern("Sub"),
@@ -252,6 +254,7 @@ impl WellKnownNames {
                 || t == self.hashable
                 || t == self.default_trait
                 || t == self.printable
+                || t == self.debug_trait
                 || t == self.add
                 || t == self.sub
                 || t == self.mul
@@ -272,6 +275,7 @@ impl WellKnownNames {
                 || t == self.hashable
                 || t == self.default_trait
                 || t == self.printable
+                || t == self.debug_trait
                 || t == self.add
                 || t == self.sub
                 || t == self.mul
@@ -284,6 +288,7 @@ impl WellKnownNames {
                 || t == self.hashable
                 || t == self.default_trait
                 || t == self.printable
+                || t == self.debug_trait
                 || t == self.not_trait
         } else if ty == Idx::STR {
             t == self.eq
@@ -292,6 +297,7 @@ impl WellKnownNames {
                 || t == self.hashable
                 || t == self.default_trait
                 || t == self.printable
+                || t == self.debug_trait
                 || t == self.len_trait
                 || t == self.is_empty
                 || t == self.add
@@ -301,12 +307,14 @@ impl WellKnownNames {
                 || t == self.clone_trait
                 || t == self.hashable
                 || t == self.printable
+                || t == self.debug_trait
         } else if ty == Idx::BYTE {
             t == self.eq
                 || t == self.comparable
                 || t == self.clone_trait
                 || t == self.hashable
                 || t == self.printable
+                || t == self.debug_trait
                 || t == self.add
                 || t == self.sub
                 || t == self.mul
@@ -319,7 +327,10 @@ impl WellKnownNames {
                 || t == self.shl
                 || t == self.shr
         } else if ty == Idx::UNIT {
-            t == self.eq || t == self.clone_trait || t == self.default_trait
+            t == self.eq
+                || t == self.clone_trait
+                || t == self.default_trait
+                || t == self.debug_trait
         } else if ty == Idx::DURATION {
             t == self.eq
                 || t == self.comparable
@@ -327,6 +338,7 @@ impl WellKnownNames {
                 || t == self.hashable
                 || t == self.default_trait
                 || t == self.printable
+                || t == self.debug_trait
                 || t == self.sendable
                 || t == self.add
                 || t == self.sub
@@ -341,6 +353,7 @@ impl WellKnownNames {
                 || t == self.hashable
                 || t == self.default_trait
                 || t == self.printable
+                || t == self.debug_trait
                 || t == self.sendable
                 || t == self.add
                 || t == self.sub
@@ -353,6 +366,7 @@ impl WellKnownNames {
                 || t == self.clone_trait
                 || t == self.hashable
                 || t == self.printable
+                || t == self.debug_trait
         } else {
             false
         }

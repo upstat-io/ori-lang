@@ -1,0 +1,78 @@
+// Spec: 07-properties-of-types.md § Comparable + Derive, sum type variant ordering
+// Formal semantics: variants compare by declaration order; same variant compares payload
+//
+// §3.15: Derived Traits Formal Semantics
+
+use std.testing { assert }
+
+// Variants declared in order: Low < Medium < High
+
+#[derive(Comparable)]
+type Priority = Low | Medium | High
+
+// Variants with payloads
+
+#[derive(Comparable)]
+type Shape = Circle(radius: int) | Rectangle(w: int, h: int)
+
+// --- Declaration order: earlier < later ---
+
+@test_low_lt_high tests @low_lt_high () -> void = run(
+    assert(cond: Low.compare(other: High).is_less()),
+)
+@low_lt_high () -> Ordering = Low.compare(other: High)
+
+@test_high_gt_low tests @high_gt_low () -> void = run(
+    assert(cond: High.compare(other: Low).is_greater()),
+)
+@high_gt_low () -> Ordering = High.compare(other: Low)
+
+@test_medium_between tests @medium_between () -> void = run(
+    assert(cond: Low.compare(other: Medium).is_less()),
+    assert(cond: Medium.compare(other: High).is_less()),
+    assert(cond: High.compare(other: Medium).is_greater()),
+)
+@medium_between () -> Ordering = Medium.compare(other: High)
+
+// --- Same variant → Equal ---
+
+@test_same_variant_equal tests @same_equal () -> void = run(
+    assert(cond: Low.compare(other: Low).is_equal()),
+    assert(cond: Medium.compare(other: Medium).is_equal()),
+    assert(cond: High.compare(other: High).is_equal()),
+)
+@same_equal () -> Ordering = Low.compare(other: Low)
+
+// --- Variants with payloads: different variants compare by position ---
+
+@test_circle_lt_rect tests @circle_lt_rect () -> void = run(
+    assert(cond: Circle(radius: 100).compare(other: Rectangle(w: 1, h: 1)).is_less()),
+)
+@circle_lt_rect () -> Ordering = Circle(radius: 100).compare(other: Rectangle(w: 1, h: 1))
+
+// --- Same variant with payloads: compare payload lexicographically ---
+
+@test_same_variant_payload tests @same_payload () -> void = run(
+    assert(cond: Circle(radius: 3).compare(other: Circle(radius: 5)).is_less()),
+    assert(cond: Circle(radius: 5).compare(other: Circle(radius: 5)).is_equal()),
+    assert(cond: Circle(radius: 5).compare(other: Circle(radius: 3)).is_greater()),
+)
+@same_payload () -> Ordering = Circle(radius: 3).compare(other: Circle(radius: 5))
+
+// --- Multi-payload: lexicographic on payload ---
+
+@test_rect_lexicographic tests @rect_lex () -> void = run(
+    // w differs: 2 < 5
+    assert(cond: Rectangle(w: 2, h: 10).compare(other: Rectangle(w: 5, h: 1)).is_less()),
+    // w equal, h differs: 3 < 7
+    assert(cond: Rectangle(w: 5, h: 3).compare(other: Rectangle(w: 5, h: 7)).is_less()),
+)
+@rect_lex () -> Ordering = Rectangle(w: 2, h: 10).compare(other: Rectangle(w: 5, h: 1))
+
+// --- Reflexivity ---
+
+@test_reflexive tests @reflexive () -> void = run(
+    assert(cond: Medium.compare(other: Medium).is_equal()),
+    assert(cond: Circle(radius: 7).compare(other: Circle(radius: 7)).is_equal()),
+)
+@reflexive () -> Ordering = Medium.compare(other: Medium)

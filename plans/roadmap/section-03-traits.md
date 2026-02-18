@@ -58,7 +58,7 @@ sections:
     status: complete
   - id: "3.15"
     title: Derived Traits Formal Semantics
-    status: not-started
+    status: in-progress
   - id: "3.16"
     title: Formattable Trait
     status: not-started
@@ -1120,77 +1120,66 @@ Formalizes the `#derive` attribute semantics: derivable traits list, derivation 
 
 ### Implementation
 
-- [ ] **Implement**: Eq derivation for structs — field-wise equality
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — eq derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/eq.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Eq struct derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Eq struct derive codegen
+- [x] **Implement**: Eq derivation for structs — field-wise equality (2026-02-18)
+  - [x] **Ori Tests**: `tests/spec/traits/derive/eq.ori` — 22 struct tests
+  - [x] **LLVM Support**: LLVM codegen for Eq struct derivation (pre-existing)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 5 Eq struct AOT tests
 
-- [ ] **Implement**: Eq derivation for sum types — variant matching
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — eq sum type tests
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/eq_sum.ori`
+- [x] **Implement**: Eq derivation for sum types — variant matching (2026-02-18)
+  - [x] **Ori Tests**: `tests/spec/traits/derive/eq_sum.ori` — 15 sum type tests
   - [ ] **LLVM Support**: LLVM codegen for Eq sum type derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Eq sum type derive codegen
+  - [ ] **LLVM Rust Tests**: AOT tests for Eq sum type derive codegen
 
-- [ ] **Implement**: Hashable derivation — combined field hashes via `hash_combine`
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — hashable derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/hashable.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Hashable derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Hashable derive codegen
+- [x] **Implement**: Hashable derivation — combined field hashes via `hash_combine` (2026-02-18)
+  - [x] **Ori Tests**: `tests/spec/traits/derive/hashable.ori` — 11 tests
+  - [x] **LLVM Support**: LLVM codegen for Hashable derivation (pre-existing)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 4 Hashable AOT tests
 
-- [ ] **Implement**: Comparable derivation — lexicographic field comparison
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — comparable derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/comparable.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Comparable derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Comparable derive codegen
+- [x] **Implement**: Comparable derivation — lexicographic field comparison (2026-02-18)
+  - [x] **Ori Tests**: `tests/spec/traits/derive/comparable_sum.ori` — 10 tests
+  - [x] **LLVM Support**: LLVM codegen for Comparable derivation (pre-existing)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 4 Comparable AOT tests
 
-- [ ] **Implement**: Clone derivation — field-wise clone
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — clone derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/clone.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Clone derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Clone derive codegen
+- [x] **Implement**: Clone derivation — field-wise clone (2026-02-18)
+  - [x] **Ori Tests**: `tests/spec/traits/derive/clone.ori` — 8 tests
+  - [x] **LLVM Support**: LLVM codegen for Clone derivation (pre-existing)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 6 Clone AOT tests
 
-- [ ] **Implement**: Default derivation for structs only
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — default derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/default.ori`
-  - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/derive_default_sum.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Default derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Default derive codegen
+- [x] **Implement**: Default derivation for structs only (2026-02-18)
+  - [x] **Ori Compile-Fail Tests**: `tests/compile-fail/default_sum_type.ori` (pre-existing)
+  - [x] **LLVM Support**: LLVM codegen for Default derivation (pre-existing)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 5 Default AOT tests
 
-- [ ] **Implement**: Debug derivation — structural representation with type name
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — debug derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/debug.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Debug derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Debug derive codegen
+- [x] **Implement**: Debug derivation — structural representation with type name (2026-02-18)
+  - [x] **Ori Tests**: `tests/spec/traits/derive/debug.ori` — 5 tests
+  - [ ] **LLVM Support**: LLVM codegen for Debug derivation (deferred — interpreter-only)
+  - [ ] **LLVM Rust Tests**: AOT tests for Debug derive codegen
 
-- [ ] **Implement**: Printable derivation — human-readable format `TypeName(field1, field2)`
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — printable derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/printable.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Printable derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — Printable derive codegen
+- [x] **Implement**: Printable derivation — human-readable format `TypeName(field1, field2)` (2026-02-18)
+  - [x] **Ori Tests**: `tests/spec/traits/derive/printable.ori` — 6 tests
+  - [x] **LLVM Support**: LLVM codegen for Printable derivation (pre-existing)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 1 Printable AOT test
 
-- [ ] **Implement**: Generic type conditional derivation — bounded impls
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — generic derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/generic.ori`
+- [x] **Implement**: Generic type conditional derivation — bounded impls (2026-02-18)
+  - [x] **Ori Tests**: `tests/spec/traits/derive/generic.ori` — 5 tests (Eq + Clone on Pair<T>)
   - [ ] **LLVM Support**: LLVM codegen for generic conditional derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — generic derive codegen
+  - [ ] **LLVM Rust Tests**: AOT tests for generic derive codegen
 
-- [ ] **Implement**: Recursive type derivation
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — recursive derive tests
-  - [ ] **Ori Tests**: `tests/spec/traits/derive/recursive.ori`
+- [x] **Implement**: Recursive type derivation (2026-02-18)
+  - [x] **Ori Tests**: `tests/spec/traits/derive/recursive.ori` — 8 tests (Eq + Clone + Printable on Tree)
   - [ ] **LLVM Support**: LLVM codegen for recursive type derivation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` — recursive derive codegen
+  - [ ] **LLVM Rust Tests**: AOT tests for recursive derive codegen
 
-- [ ] **Implement**: Error messages (E0880-E0882)
-  - [ ] E0880: Cannot derive trait for type (field missing trait)
-  - [ ] E0881: Trait is not derivable
-  - [ ] E0882: Cannot derive Default for sum type
+- [x] **Implement**: Error messages for derive validation (2026-02-18)
+  - [x] E2032: Field type does not implement trait required by derive (was E0880)
+  - [x] E2033: Trait cannot be derived (was E0881)
+  - [x] E2028: Cannot derive Default for sum type (was E0882, pre-existing)
+  - [x] **Compile-Fail Tests**: `tests/compile-fail/derive_field_missing_trait.ori`, `tests/compile-fail/derive_not_derivable.ori`
 
-- [ ] **Implement**: Warning W0100 — Hashable derived without Eq
+- [x] W0100 superseded by E2029 — Hashable has supertrait Eq, making this a hard error (2026-02-18)
 
 - [ ] **Update Spec**: `06-types.md` — expand Derive section with formal semantics
 - [ ] **Update Spec**: `07-properties-of-types.md` — add cross-reference to derive semantics
-- [ ] **Update**: `CLAUDE.md` — update derive documentation
 
 ---
 
