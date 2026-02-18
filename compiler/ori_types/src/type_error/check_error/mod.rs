@@ -509,6 +509,12 @@ impl TypeCheckError {
                     format_type(*ty)
                 )
             }
+            TypeErrorKind::CannotDeriveDefaultForSumType { type_name } => {
+                format!(
+                    "cannot derive `Default` for sum type `{}`",
+                    format_name(*type_name)
+                )
+            }
         }
     }
 
@@ -666,6 +672,9 @@ impl TypeCheckError {
                     ty.display_name()
                 )
             }
+            TypeErrorKind::CannotDeriveDefaultForSumType { .. } => {
+                "cannot derive `Default` for sum type".to_string()
+            }
         }
     }
 
@@ -739,6 +748,9 @@ impl TypeCheckError {
 
             // E2027: Ambiguous index key type
             TypeErrorKind::AmbiguousIndex { .. } => ErrorCode::E2027,
+
+            // E2028: Cannot derive Default for sum type
+            TypeErrorKind::CannotDeriveDefaultForSumType { .. } => ErrorCode::E2028,
         }
     }
 
@@ -973,6 +985,22 @@ impl TypeCheckError {
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
                 "add a type annotation to the key to disambiguate",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "cannot derive Default for sum type" error (E2028).
+    ///
+    /// Emitted when `#[derive(Default)]` is applied to a sum type, which is
+    /// invalid because there is no unambiguous default variant.
+    pub fn cannot_derive_default_for_sum_type(span: Span, type_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::CannotDeriveDefaultForSumType { type_name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "remove `Default` from derive list, or implement `Default` manually choosing a specific variant",
                 0,
             )],
         }
@@ -1429,6 +1457,12 @@ pub enum TypeErrorKind {
     AmbiguousIndex {
         /// The receiver type with ambiguous Index impls.
         ty: Idx,
+    },
+
+    /// Cannot derive `Default` for a sum type (E2028).
+    CannotDeriveDefaultForSumType {
+        /// The sum type name.
+        type_name: Name,
     },
 }
 

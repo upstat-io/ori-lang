@@ -139,6 +139,8 @@ pub enum ErrorCode {
     E2026,
     /// Ambiguous index key type (multiple impls match)
     E2027,
+    /// Cannot derive Default for sum type (ambiguous variant)
+    E2028,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -317,6 +319,7 @@ impl ErrorCode {
         ErrorCode::E2025,
         ErrorCode::E2026,
         ErrorCode::E2027,
+        ErrorCode::E2028,
         // Pattern
         ErrorCode::E3001,
         ErrorCode::E3002,
@@ -436,6 +439,7 @@ impl ErrorCode {
             ErrorCode::E2025 => "E2025",
             ErrorCode::E2026 => "E2026",
             ErrorCode::E2027 => "E2027",
+            ErrorCode::E2028 => "E2028",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -568,6 +572,7 @@ impl ErrorCode {
                 | ErrorCode::E2025
                 | ErrorCode::E2026
                 | ErrorCode::E2027
+                | ErrorCode::E2028
         )
     }
 

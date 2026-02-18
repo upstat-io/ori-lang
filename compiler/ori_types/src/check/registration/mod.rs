@@ -1132,6 +1132,16 @@ fn register_derived_impl(
     type_decl: &ori_ir::TypeDecl,
     trait_name: Name,
 ) {
+    // 0. Reject #[derive(Default)] on sum types (spec: ambiguous variant)
+    let trait_str = checker.interner().lookup(trait_name);
+    if trait_str == "Default" && matches!(type_decl.kind, ori_ir::TypeDeclKind::Sum(_)) {
+        checker.push_error(TypeCheckError::cannot_derive_default_for_sum_type(
+            type_decl.span,
+            type_decl.name,
+        ));
+        return;
+    }
+
     // 1. Get the trait index
     let trait_idx = checker.pool_mut().named(trait_name);
 

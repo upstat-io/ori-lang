@@ -229,6 +229,41 @@ type Point = { x: int, y: int }
     );
 }
 
+#[test]
+fn test_aot_derive_default_str_field() {
+    assert_aot_success(
+        r#"
+#[derive(Default)]
+type Record = { name: str, count: int }
+
+@main () -> int = run(
+    let r = Record.default(),
+    if r.name == "" && r.count == 0 then 0 else 1
+)
+"#,
+        "derive_default_str_field",
+    );
+}
+
+#[test]
+fn test_aot_derive_default_nested() {
+    assert_aot_success(
+        r#"
+#[derive(Default)]
+type Inner = { x: int, y: int }
+
+#[derive(Default)]
+type Outer = { inner: Inner, label: str }
+
+@main () -> int = run(
+    let o = Outer.default(),
+    if o.inner.x == 0 && o.inner.y == 0 && o.label == "" then 0 else 1
+)
+"#,
+        "derive_default_nested",
+    );
+}
+
 // 3.7: Clone trait on primitives (built-in identity clone)
 
 #[test]

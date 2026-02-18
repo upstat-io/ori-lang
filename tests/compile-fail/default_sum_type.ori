@@ -1,0 +1,11 @@
+// Spec: 07-properties-of-types.md § Default Trait — Derivation
+// Sum types cannot derive Default (ambiguous variant)
+
+#[derive(Default)]
+type Status = Pending | Running | Done
+
+#[compile_fail("cannot derive `Default` for sum type")]
+@test_default_sum_type () -> void = run(
+    let _ = Status.default(),
+    ()
+)
