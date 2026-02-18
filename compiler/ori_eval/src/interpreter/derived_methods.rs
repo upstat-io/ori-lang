@@ -7,6 +7,7 @@
 //! - `#[derive(Printable)]` -> `to_str` method
 //! - `#[derive(Debug)]` -> `debug` method
 //! - `#[derive(Default)]` -> `default` method
+//! - `#[derive(Comparable)]` -> `compare` method
 
 use crate::derives::DefaultFieldType;
 use crate::errors::wrong_function_args;
@@ -34,6 +35,7 @@ impl Interpreter<'_> {
             DerivedTrait::Printable => self.eval_derived_to_str(receiver, info),
             DerivedTrait::Debug => self.eval_derived_debug(receiver, info),
             DerivedTrait::Default => self.eval_derived_default(receiver, info),
+            DerivedTrait::Comparable => self.eval_derived_compare(receiver, info, args),
         }
     }
 
@@ -333,6 +335,62 @@ impl Interpreter<'_> {
         }
 
         Ok(Value::Struct(StructValue::new(type_name, fields)))
+    }
+
+    /// Evaluate derived `compare` method for structs.
+    ///
+    /// Lexicographic field comparison: compares fields in declaration order,
+    /// short-circuiting on the first non-equal field. Uses `compare_values()`
+    /// for recursive comparison of field values.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Consistent derived method dispatch signature"
+    )]
+    fn eval_derived_compare(
+        &self,
+        receiver: Value,
+        info: &DerivedMethodInfo,
+        args: &[Value],
+    ) -> EvalResult {
+        use crate::methods::compare::{compare_values, ordering_to_value};
+
+        if args.len() != 1 {
+            return Err(wrong_function_args(1, args.len()).into());
+        }
+
+        let other = &args[0];
+
+        let (Value::Struct(self_struct), Value::Struct(other_struct)) = (&receiver, other) else {
+            return Err(crate::errors::no_such_method("compare", "non-struct value").into());
+        };
+
+        if self_struct.type_name != other_struct.type_name {
+            return Err(crate::errors::no_such_method("compare", "different struct types").into());
+        }
+
+        // Lexicographic comparison: compare fields in order, short-circuit on first difference
+        for field_name in &info.field_names {
+            let self_val = self_struct.get_field(*field_name);
+            let other_val = other_struct.get_field(*field_name);
+
+            match (self_val, other_val) {
+                (Some(sv), Some(ov)) => {
+                    let ord = compare_values(sv, ov, self.interner)?;
+                    if ord != std::cmp::Ordering::Equal {
+                        return Ok(ordering_to_value(ord));
+                    }
+                }
+                _ => {
+                    return Err(crate::errors::no_such_method(
+                        "compare",
+                        "struct with missing field",
+                    )
+                    .into());
+                }
+            }
+        }
+
+        Ok(ordering_to_value(std::cmp::Ordering::Equal))
     }
 
     /// Produce the default value for a single field based on its type.

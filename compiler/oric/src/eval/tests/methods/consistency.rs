@@ -59,6 +59,8 @@ const EVAL_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("Size", "multiply"),
     ("Size", "remainder"),
     ("Size", "subtract"),
+    // Float hash — new compound type hash support, not yet in IR
+    ("float", "hash"),
     // Printable for str (str.to_str returns itself)
     ("str", "to_str"),
     // Iterable — iter() returns Iterator<T>, not expressible in current IR ReturnSpec
@@ -158,11 +160,6 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("Duration", "remainder"),
     ("Duration", "sub"),
     ("Duration", "subtract"),
-    // Option — eval has trait methods typeck resolves via traits
-    ("Option", "compare"),
-    // Ordering — no extras needed (all in typeck)
-    // Result — eval has trait methods typeck resolves via traits
-    ("Result", "compare"),
     // error — bare Error type methods; typeck resolves via Result delegation
     ("error", "clone"),
     ("error", "debug"),
@@ -209,7 +206,6 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("int", "shr"),
     ("int", "sub"),
     ("list", "add"),
-    ("list", "compare"),
     ("list", "concat"),
     ("str", "add"),
     ("str", "concat"),
@@ -292,6 +288,8 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("float", "clamp"),
     ("float", "cos"),
     ("float", "exp"),
+    // Float hash — compound type hash support, not yet in IR
+    ("float", "hash"),
     ("float", "is_finite"),
     ("float", "is_infinite"),
     ("float", "is_nan"),

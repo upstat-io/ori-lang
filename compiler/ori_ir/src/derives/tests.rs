@@ -17,6 +17,10 @@ fn test_derived_trait_from_name() {
         DerivedTrait::from_name("Default"),
         Some(DerivedTrait::Default)
     );
+    assert_eq!(
+        DerivedTrait::from_name("Comparable"),
+        Some(DerivedTrait::Comparable)
+    );
     assert_eq!(DerivedTrait::from_name("Unknown"), None);
 }
 
@@ -28,4 +32,5 @@ fn test_derived_trait_method_name() {
     assert_eq!(DerivedTrait::Printable.method_name(), "to_str");
     assert_eq!(DerivedTrait::Debug.method_name(), "debug");
     assert_eq!(DerivedTrait::Default.method_name(), "default");
+    assert_eq!(DerivedTrait::Comparable.method_name(), "compare");
 }

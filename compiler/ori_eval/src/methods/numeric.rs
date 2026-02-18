@@ -197,6 +197,10 @@ pub fn dispatch_float_method(
     } else if method == n.to_str || method == n.debug {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(a.to_string()))
+    // Hashable trait - IEEE 754 normalized hash
+    } else if method == n.hash {
+        require_args("hash", 0, args.len())?;
+        Ok(Value::int(super::compare::hash_float(a)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "float").into())
     }

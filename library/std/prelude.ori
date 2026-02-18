@@ -22,7 +22,7 @@ pub trait Eq {
 
 // Ordering comparison
 pub trait Comparable: Eq {
-    @cmp (self, other: Self) -> Ordering
+    @compare (self, other: Self) -> Ordering
 }
 
 // Can be used as a map key or set element
@@ -330,3 +330,7 @@ pub @min (a: int, b: int) -> int = if a < b then a else b
 
 // Get the maximum of two integers
 pub @max (a: int, b: int) -> int = if a > b then a else b
+
+// Combine two hash values using the Boost hash combine algorithm.
+// Uses wrapping arithmetic (built-in) since hash computation overflows by design.
+pub @hash_combine (seed: int, value: int) -> int

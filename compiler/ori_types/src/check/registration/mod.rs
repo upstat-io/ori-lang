@@ -1277,6 +1277,11 @@ fn build_derived_methods(
             checker.pool_mut().function1(self_type, Idx::STR)
         }
         DerivedTrait::Default => checker.pool_mut().function0(self_type),
+        DerivedTrait::Comparable => {
+            checker
+                .pool_mut()
+                .function2(self_type, self_type, Idx::ORDERING)
+        }
     };
 
     let has_self = !matches!(trait_kind, DerivedTrait::Default);
