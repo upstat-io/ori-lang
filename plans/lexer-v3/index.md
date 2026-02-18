@@ -13,7 +13,7 @@
 ## Keyword Clusters by Section
 
 ### Section 01: Compact Token Stream (SoA)
-**File:** `section-01-compact-token-stream.md` | **Status:** Done
+**File:** `section-01-compact-token-stream.md` | **Status:** Not Started
 
 ```
 compact tokens, SoA, structure of arrays, parallel arrays
@@ -25,7 +25,7 @@ TokenList replacement, cache line utilization, L1 cache
 ---
 
 ### Section 02: Lazy Cooking
-**File:** `section-02-lazy-cooking.md` | **Status:** In Progress
+**File:** `section-02-lazy-cooking.md` | **Status:** Not Started
 
 ```
 lazy cooking, deferred interning, on-demand, pull-based
@@ -61,7 +61,7 @@ string/template/comment special handling
 ---
 
 ### Section 05: Parser Adaptation
-**File:** `section-05-parser-adaptation.md` | **Status:** In Progress
+**File:** `section-05-parser-adaptation.md` | **Status:** Not Started
 
 ```
 parser interface, CompactTokenList, tag-based dispatch

@@ -1,18 +1,18 @@
 ---
 section: "02"
 title: "Lazy Cooking"
-status: in-progress
+status: not-started
 goal: "Defer keyword resolution, string interning, and numeric parsing to first access, avoiding 30-50% of cooking work"
 sections:
   - id: "02.1"
     title: "Design LazyCooker API"
-    status: done
+    status: not-started
   - id: "02.2"
     title: "Implement LazyCooker"
-    status: done
+    status: not-started
   - id: "02.3"
     title: "Cache Strategy"
-    status: done
+    status: not-started
   - id: "02.4"
     title: "Performance Validation"
     status: not-started
@@ -20,7 +20,7 @@ sections:
 
 # Section 02: Lazy Cooking
 
-**Status:** In Progress (core implementation done, 02.4 Performance Validation remaining)
+**Status:** Planned
 **Goal:** Replace the current eager cooking model (all tokens cooked during lexing) with a lazy/on-demand model where `TokenKind` values are materialized only when the parser inspects them.
 
 ---
@@ -77,7 +77,7 @@ For keywords, the raw scanner currently emits `RawTag::Ident` and the cooker res
 
 ## 02.1 Design LazyCooker API
 
-- [x] Define `LazyCooker` struct
+- [ ] Define `LazyCooker` struct
   ```rust
   /// Lazy cooking layer that materializes TokenKind on demand.
   ///
@@ -93,7 +93,7 @@ For keywords, the raw scanner currently emits `RawTag::Ident` and the cooker res
       errors: Vec<LexError>,
   }
   ```
-- [x] Define `CookedValue` — the lazy result type
+- [ ] Define `CookedValue` — the lazy result type
   ```rust
   /// The payload portion of a TokenKind, without the discriminant.
   /// Only needed for tokens that carry data (identifiers, literals).
@@ -122,41 +122,41 @@ For keywords, the raw scanner currently emits `RawTag::Ident` and the cooker res
       Error,
   }
   ```
-- [x] Define access API
-  - [x] `cook(index, tag, offset, len) -> TokenKind` — full materialization
-  - [x] `cook_ident(index, offset, len) -> TokenKind` — identifier/keyword resolution
-  - [x] `cook_literal(index, tag, offset, len) -> TokenKind` — numeric/string parsing
-  - [x] `is_keyword(index, offset, len) -> Option<TokenKind>` — keyword check without full cook
-- [x] Define error collection API
-  - [x] `errors() -> &[LexError]` — same as current
-  - [x] `into_errors() -> Vec<LexError>` — consume
+- [ ] Define access API
+  - [ ] `cook(index, tag, offset, len) -> TokenKind` — full materialization
+  - [ ] `cook_ident(index, offset, len) -> TokenKind` — identifier/keyword resolution
+  - [ ] `cook_literal(index, tag, offset, len) -> TokenKind` — numeric/string parsing
+  - [ ] `is_keyword(index, offset, len) -> Option<TokenKind>` — keyword check without full cook
+- [ ] Define error collection API
+  - [ ] `errors() -> &[LexError]` — same as current
+  - [ ] `into_errors() -> Vec<LexError>` — consume
 
 ---
 
 ## 02.2 Implement LazyCooker
 
-- [x] Extract cooking logic from current `TokenCooker` into reusable functions
-  - [x] `cook_ident_value(source, offset, len, interner) -> (TokenKind, bool)` — returns (kind, is_contextual_kw)
-  - [x] `cook_int_value(source, offset, len) -> Result<u64, LexError>`
-  - [x] `cook_float_value(source, offset, len) -> Result<u64, LexError>`
-  - [x] `cook_string_value(source, offset, len, interner) -> Result<Name, Vec<LexError>>`
-  - [x] `cook_char_value(source, offset, len) -> Result<char, Vec<LexError>>`
-  - [x] `cook_duration_value(source, offset, len) -> Result<(u64, DurationUnit), LexError>`
-  - [x] `cook_size_value(source, offset, len) -> Result<(u64, SizeUnit), LexError>`
-  - [x] Template cooking functions (head, middle, tail, complete)
-- [x] Implement `LazyCooker::cook()`
-  - [x] Check cache first
-  - [x] If uncached: dispatch on `RawTag`, call appropriate cooking function
-  - [x] Cache result
-  - [x] Return `TokenKind`
-- [x] Implement direct-map path for operators/delimiters
-  - [x] These never need caching — the `RawTag` → `TokenKind` mapping is a trivial `match`
-  - [x] Static lookup table: `RAWTAG_TO_TOKENKIND: [Option<TokenKind>; 256]`
-  - [x] If entry is `Some`, return directly (no cache, no cooking)
-  - [x] If entry is `None`, fall through to lazy cooking
-- [x] Port error accumulation from `TokenCooker`
-  - [x] Errors pushed during cooking (same behavior as current)
-  - [x] `last_cook_had_error()` check still works (compare error count before/after)
+- [ ] Extract cooking logic from current `TokenCooker` into reusable functions
+  - [ ] `cook_ident_value(source, offset, len, interner) -> (TokenKind, bool)` — returns (kind, is_contextual_kw)
+  - [ ] `cook_int_value(source, offset, len) -> Result<u64, LexError>`
+  - [ ] `cook_float_value(source, offset, len) -> Result<u64, LexError>`
+  - [ ] `cook_string_value(source, offset, len, interner) -> Result<Name, Vec<LexError>>`
+  - [ ] `cook_char_value(source, offset, len) -> Result<char, Vec<LexError>>`
+  - [ ] `cook_duration_value(source, offset, len) -> Result<(u64, DurationUnit), LexError>`
+  - [ ] `cook_size_value(source, offset, len) -> Result<(u64, SizeUnit), LexError>`
+  - [ ] Template cooking functions (head, middle, tail, complete)
+- [ ] Implement `LazyCooker::cook()`
+  - [ ] Check cache first
+  - [ ] If uncached: dispatch on `RawTag`, call appropriate cooking function
+  - [ ] Cache result
+  - [ ] Return `TokenKind`
+- [ ] Implement direct-map path for operators/delimiters
+  - [ ] These never need caching — the `RawTag` → `TokenKind` mapping is a trivial `match`
+  - [ ] Static lookup table: `RAWTAG_TO_TOKENKIND: [Option<TokenKind>; 256]`
+  - [ ] If entry is `Some`, return directly (no cache, no cooking)
+  - [ ] If entry is `None`, fall through to lazy cooking
+- [ ] Port error accumulation from `TokenCooker`
+  - [ ] Errors pushed during cooking (same behavior as current)
+  - [ ] `last_cook_had_error()` check still works (compare error count before/after)
 
 ---
 
@@ -209,9 +209,9 @@ union CookedSlot {
 
 Actually, a simpler approach: since `TokenKind` is already 16 bytes and the cache is only populated on demand, just use `Vec<TokenKind>` initialized to `TokenKind::Eof` (sentinel), and check for sentinel on access.
 
-- [x] Decide on cache strategy (recommend Option C simplified: `Vec<TokenKind>` with sentinel)
-- [x] Implement cache initialization (lazy — only allocate when first cook happens)
-- [x] Implement cache lookup + populate
+- [ ] Decide on cache strategy (recommend Option C simplified: `Vec<TokenKind>` with sentinel)
+- [ ] Implement cache initialization (lazy — only allocate when first cook happens)
+- [ ] Implement cache lookup + populate
 - [ ] Benchmark cache hit rate on representative Ori files
 
 ---
