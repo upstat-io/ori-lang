@@ -9,6 +9,10 @@ use super::{binary_op_str, unary_op_str, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit an expression inline (single line).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ExprKind formatting dispatch"
+    )]
     pub(super) fn emit_inline(&mut self, expr_id: ExprId) {
         let expr = self.arena.get_expr(expr_id);
 

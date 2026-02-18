@@ -214,6 +214,10 @@ impl TestRunner {
     /// while sharing the interner across all files. This allows parallel execution
     /// (each file gets its own Salsa query cache) while maintaining `Name` comparability
     /// (all `Name` values come from the same interner).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "multi-phase test file execution pipeline"
+    )]
     fn run_file_with_interner(
         path: &Path,
         interner: &crate::ir::SharedInterner,

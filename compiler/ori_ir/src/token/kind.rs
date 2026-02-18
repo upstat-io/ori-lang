@@ -325,6 +325,10 @@ impl TokenKind {
     /// This is a simple match that compiles to a discriminant extraction,
     /// which is typically a single memory load on the tag field.
     #[inline]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TokenKind → discriminant index mapping"
+    )]
     pub const fn discriminant_index(&self) -> u8 {
         match self {
             // Literals (0-10)
@@ -630,6 +634,10 @@ impl TokenKind {
     ///
     /// The generated assembly is comparable to a direct array lookup.
     #[inline]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TokenKind → display name dispatch"
+    )]
     pub fn display_name(&self) -> &'static str {
         match self {
             TokenKind::Int(_) => "integer",
@@ -764,6 +772,10 @@ impl TokenKind {
     /// Used by `TokenSet::format_expected()` for generating error messages like
     /// "expected `,`, `)`, or `}`".
     #[inline]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive discriminant index → friendly name lookup"
+    )]
     pub fn friendly_name_from_index(index: u8) -> Option<&'static str> {
         // Map indices to friendly names, excluding internal/error tokens.
         // Uses TokenTag values as indices. Some arms are merged when different

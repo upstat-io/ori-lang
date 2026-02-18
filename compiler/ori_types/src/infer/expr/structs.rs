@@ -140,6 +140,10 @@ pub(crate) fn infer_struct(
 }
 
 /// Infer type for a struct literal with spread syntax: `Point { ...base, x: 10 }`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "multi-step struct spread inference: lookup, field validation, spread resolution, and type checking"
+)]
 pub(crate) fn infer_struct_spread(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -297,6 +301,10 @@ pub(crate) fn infer_struct_spread(
 ///
 /// Walks the pool type structure recursively. For a generic struct `type Box<T> = { value: T }`,
 /// field type `Named(T)` is replaced with the fresh type variable allocated for T.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive Tag-based type substitution"
+)]
 pub(crate) fn substitute_named_types(
     pool: &mut Pool,
     ty: Idx,

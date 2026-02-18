@@ -32,6 +32,10 @@ impl<'old> AstCopier<'old> {
     }
 
     /// Copy an expression tree recursively, allocating in the new arena.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ExprKind copy dispatch for incremental reparsing"
+    )]
     pub fn copy_expr(&self, old_id: ExprId, new_arena: &mut ExprArena) -> ExprId {
         let old_expr = self.old_arena.get_expr(old_id);
         let new_span = self.adjust_span(old_expr.span);

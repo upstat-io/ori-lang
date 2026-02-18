@@ -64,6 +64,10 @@ impl ArcLowerer<'_> {
     // Main dispatch
 
     /// Lower a single canonical expression, returning the `ArcVarId` of the result.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive CanExpr → ARC lowering router"
+    )]
     pub(crate) fn lower_expr(&mut self, id: CanId) -> ArcVarId {
         if !id.is_valid() {
             return self.emit_unit();
@@ -211,6 +215,13 @@ impl ArcLowerer<'_> {
                     kind: "WithCapability",
                     span,
                 });
+                self.emit_unit()
+            }
+
+            // Formatting — FormatWith consumes expr and produces a string.
+            // For ARC analysis, treat like a function call that consumes the value.
+            CanExpr::FormatWith { expr, .. } => {
+                let _inner = self.lower_expr(expr);
                 self.emit_unit()
             }
 

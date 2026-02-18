@@ -9,6 +9,7 @@ use oric::commands::{
 };
 use oric::test::TestRunnerConfig;
 
+#[expect(clippy::too_many_lines, reason = "CLI command router")]
 fn main() {
     oric::tracing_setup::init();
 

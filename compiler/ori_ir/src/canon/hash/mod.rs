@@ -71,6 +71,7 @@ fn hash_node(arena: &CanArena, id: CanId, state: &mut FxHasher) {
 ///
 /// Organized by variant category for clarity. Each arm hashes non-child
 /// data first, then recurses into child `CanId`s in a deterministic order.
+#[expect(clippy::too_many_lines, reason = "exhaustive CanExpr hashing dispatch")]
 fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
     match *kind {
         // Literals — hash value directly
@@ -251,6 +252,12 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
         CanExpr::FunctionExp { kind, props } => {
             mem::discriminant(&kind).hash(state);
             hash_named_exprs(arena, props, state);
+        }
+
+        // Formatting
+        CanExpr::FormatWith { expr, spec } => {
+            spec.raw().hash(state);
+            hash_node(arena, expr, state);
         }
     }
 }

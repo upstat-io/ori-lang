@@ -245,6 +245,10 @@ impl WellKnownNames {
     ///
     /// Name-based equivalent of the freestanding `primitive_satisfies_trait()`.
     /// Uses pre-interned `Name` (u32) comparison — no `RwLock`, no string allocation.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive primitive type trait satisfaction lookup table"
+    )]
     #[inline]
     pub fn primitive_satisfies_trait(&self, ty: Idx, t: Name) -> bool {
         if ty == Idx::INT {

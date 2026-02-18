@@ -28,6 +28,10 @@ use crate::{Idx, ObjectSafetyViolation, Tag, TypeCheckError};
 /// - Named type lookup requires `TypeRegistry` integration (section 07)
 /// - `SelfType` requires trait/impl context
 /// - `AssociatedType` requires projection support
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive ParsedType variant resolution covering all primitive, container, and user-defined types"
+)]
 pub fn resolve_parsed_type(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,

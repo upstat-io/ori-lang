@@ -63,7 +63,7 @@ impl Interpreter<'_> {
 
     /// Get the span for a canonical expression.
     #[inline]
-    fn can_span(&self, can_id: CanId) -> Span {
+    pub(super) fn can_span(&self, can_id: CanId) -> Span {
         self.canon_ref().arena.span(can_id)
     }
 
@@ -157,6 +157,10 @@ impl Interpreter<'_> {
     /// Inner canonical evaluation dispatch.
     ///
     /// Handles all 44 `CanExpr` variants exhaustively. No `_ =>` catch-all.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive CanExpr variant dispatch — no catch-all"
+    )]
     fn eval_can_inner(&mut self, can_id: CanId) -> EvalResult {
         self.mode_state.count_expression();
 
@@ -437,6 +441,9 @@ impl Interpreter<'_> {
                 self.eval_can_function_exp(kind, props)
                     .map_err(|e| Self::attach_span(e, span))
             }
+
+            // Formatting
+            CanExpr::FormatWith { expr, spec } => self.eval_format_with(can_id, expr, spec),
 
             // Error Recovery
             CanExpr::Error => {
@@ -1124,6 +1131,10 @@ impl Interpreter<'_> {
     /// In canonical IR, `FunctionExp` props are `CanNamedExpr` (name + `CanId`).
     /// We evaluate all props eagerly, then delegate to the existing pattern
     /// registry via the legacy `EvalContext` path by bridging the evaluated values.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive FunctionExpKind dispatch across all built-in function expression kinds"
+    )]
     fn eval_can_function_exp(
         &mut self,
         kind: FunctionExpKind,

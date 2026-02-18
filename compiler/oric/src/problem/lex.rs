@@ -54,6 +54,10 @@ impl LexProblem {
 /// Public so that callers can render lex errors directly from `&LexError`
 /// without cloning into a `LexProblem::Error` wrapper.
 #[cold]
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive LexErrorKind → diagnostic dispatch"
+)]
 pub fn render_lex_error(err: &LexError) -> Diagnostic {
     let span = err.span;
     let mut diag = match &err.kind {

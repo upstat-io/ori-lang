@@ -472,6 +472,10 @@ fn compile_or_pattern_variant_bindings() {
 // Guards with overlapping patterns
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "multi-step decision tree test with guard combinations"
+)]
 fn compile_guards_overlapping_variants() {
     use ori_ir::canon::CanId;
 

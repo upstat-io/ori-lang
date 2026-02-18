@@ -669,6 +669,10 @@ enum SpecResult {
 /// `expected_sub_count` is the number of sub-patterns that this specialization
 /// should produce for wildcard expansion (determined by scanning the matrix
 /// for the first concrete constructor pattern).
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive (FlatPattern, TestValue) specialization dispatch"
+)]
 fn specialize_pattern(pat: &FlatPattern, tv: &TestValue, expected_sub_count: usize) -> SpecResult {
     match (pat, tv) {
         // Wildcards and bindings match any test value.

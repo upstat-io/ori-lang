@@ -34,6 +34,10 @@ impl TypeProblem {
         suggestions
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TypeProblem suggestion generation for all error kinds"
+    )]
     fn generate_suggestions(&self) -> Vec<Suggestion> {
         match self {
             // === Numeric Problems ===

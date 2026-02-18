@@ -84,6 +84,10 @@ pub enum EvalOutput {
 
 impl EvalOutput {
     /// Convert a runtime Value to a Salsa-compatible `EvalOutput`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive Value → EvalOutput conversion dispatch"
+    )]
     pub fn from_value(value: &Value, interner: &StringInterner) -> Self {
         match value {
             Value::Int(n) => EvalOutput::Int(n.raw()),

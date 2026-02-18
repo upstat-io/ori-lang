@@ -28,6 +28,10 @@ pub fn diff_types(pool: &Pool, expected: Idx, found: Idx) -> Vec<TypeProblem> {
 }
 
 /// Inner diffing logic that accumulates problems.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive (Tag, Tag) mismatch categorization"
+)]
 fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<TypeProblem>) {
     // Same type? No problem.
     if expected == found {

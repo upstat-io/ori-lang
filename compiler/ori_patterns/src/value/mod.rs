@@ -870,6 +870,7 @@ impl fmt::Debug for Value {
 }
 
 impl fmt::Display for Value {
+    #[expect(clippy::too_many_lines, reason = "exhaustive Value Display formatting")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Int(n) => write!(f, "{n}"),

@@ -1,0 +1,9 @@
+// Spec: §3.16 Formattable Trait — Format type validation
+// Hex format type is only valid for int, not str
+
+#[compile_fail("not supported")]
+@test_hex_on_string () -> void = run(
+    let name = "hello",
+    let _ = `{name:x}`,
+    ()
+)

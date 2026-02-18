@@ -49,6 +49,7 @@
 mod builder;
 mod can_eval;
 mod derived_methods;
+mod format;
 mod function_call;
 mod method_dispatch;
 pub mod resolvers;

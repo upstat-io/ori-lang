@@ -262,6 +262,10 @@ pub fn walk_test<'ast, V: Visitor<'ast> + ?Sized>(
 }
 
 /// Walk an expression's children.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive ExprKind child-walking dispatch"
+)]
 pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
     expr: &Expr,

@@ -75,6 +75,10 @@ pub fn lower(
 /// # Returns
 ///
 /// A `CanonResult` with all functions lowered and named roots populated.
+#[expect(
+    clippy::too_many_lines,
+    reason = "module-level canonicalization pipeline"
+)]
 pub fn lower_module(
     module: &Module,
     src: &ExprArena,

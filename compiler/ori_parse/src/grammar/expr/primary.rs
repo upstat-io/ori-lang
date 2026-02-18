@@ -80,6 +80,10 @@ impl Parser<'_> {
     /// Uses `one_of!` for token-dispatched alternatives with automatic backtracking.
     /// Context-sensitive keywords that need multi-token lookahead remain as an if-chain
     /// before the `one_of!` dispatch.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive primary expression token dispatch — one branch per token kind"
+    )]
     pub(crate) fn parse_primary(&mut self) -> ParseOutcome<ExprId> {
         debug!(
             pos = self.cursor.position(),
@@ -475,6 +479,10 @@ impl Parser<'_> {
     /// Parse control flow primaries: `break`, `continue`, `return`.
     ///
     /// Returns `EmptyErr` if the current token is not a control flow keyword.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive control flow keyword dispatch with argument parsing"
+    )]
     fn parse_control_flow_primary(&mut self) -> ParseOutcome<ExprId> {
         let span = self.cursor.current_span();
         match *self.cursor.current_kind() {
@@ -600,6 +608,10 @@ impl Parser<'_> {
         )
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "multi-case parenthesized expression parser covering tuples, lambdas, and grouped expressions"
+    )]
     fn parse_parenthesized_body(&mut self) -> ParseOutcome<ExprId> {
         let span = self.cursor.current_span();
         self.cursor.advance(); // (
@@ -1017,6 +1029,10 @@ impl Parser<'_> {
     ///
     /// Per grammar: `binding_pattern = [ "$" ] identifier | "_" | "{" ... "}" | ...`
     /// The `$` prefix marks the binding as immutable.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive binding pattern dispatch across destructuring, name, and wildcard forms"
+    )]
     pub(crate) fn parse_binding_pattern(&mut self) -> Result<BindingPattern, ParseError> {
         // Handle $ prefix for immutable bindings: $x, $name, etc.
         if self.cursor.check(&TokenKind::Dollar) {

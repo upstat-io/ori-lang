@@ -98,102 +98,27 @@ impl FusedPattern {
                 input,
                 map_fn,
                 filter_fn,
-            } => {
-                let items = exec.eval(*input)?;
-                let map_f = exec.eval(*map_fn)?;
-                let filter_f = exec.eval(*filter_fn)?;
-
-                match items {
-                    Value::List(list) => {
-                        let mut results = Vec::new();
-                        for item in list.iter() {
-                            // Apply map
-                            let mapped = exec.call(&map_f, vec![item.clone()])?;
-                            // Apply filter
-                            if exec.call(&filter_f, vec![mapped.clone()])?.is_truthy() {
-                                results.push(mapped);
-                            }
-                        }
-                        Ok(Value::list(results))
-                    }
-                    _ => Err(EvalError::new("fused map-filter requires a list").into()),
-                }
-            }
+            } => eval_map_filter(exec, *input, *map_fn, *filter_fn),
 
             FusedPattern::FilterMap {
                 input,
                 filter_fn,
                 map_fn,
-            } => {
-                let items = exec.eval(*input)?;
-                let filter_f = exec.eval(*filter_fn)?;
-                let map_f = exec.eval(*map_fn)?;
-
-                match items {
-                    Value::List(list) => {
-                        let mut results = Vec::new();
-                        for item in list.iter() {
-                            // Apply filter first
-                            if exec.call(&filter_f, vec![item.clone()])?.is_truthy() {
-                                // Then map
-                                let mapped = exec.call(&map_f, vec![item.clone()])?;
-                                results.push(mapped);
-                            }
-                        }
-                        Ok(Value::list(results))
-                    }
-                    _ => Err(EvalError::new("fused filter-map requires a list").into()),
-                }
-            }
+            } => eval_filter_map(exec, *input, *filter_fn, *map_fn),
 
             FusedPattern::MapFold {
                 input,
                 map_fn,
                 init,
                 fold_fn,
-            } => {
-                let items = exec.eval(*input)?;
-                let map_f = exec.eval(*map_fn)?;
-                let mut acc = exec.eval(*init)?;
-                let fold_f = exec.eval(*fold_fn)?;
-
-                match items {
-                    Value::List(list) => {
-                        for item in list.iter() {
-                            // Apply map then fold in single pass
-                            let mapped = exec.call(&map_f, vec![item.clone()])?;
-                            acc = exec.call(&fold_f, vec![acc, mapped])?;
-                        }
-                        Ok(acc)
-                    }
-                    _ => Err(EvalError::new("fused map-fold requires a list").into()),
-                }
-            }
+            } => eval_map_fold(exec, *input, *map_fn, *init, *fold_fn),
 
             FusedPattern::FilterFold {
                 input,
                 filter_fn,
                 init,
                 fold_fn,
-            } => {
-                let items = exec.eval(*input)?;
-                let filter_f = exec.eval(*filter_fn)?;
-                let mut acc = exec.eval(*init)?;
-                let fold_f = exec.eval(*fold_fn)?;
-
-                match items {
-                    Value::List(list) => {
-                        for item in list.iter() {
-                            // Only fold items that pass filter
-                            if exec.call(&filter_f, vec![item.clone()])?.is_truthy() {
-                                acc = exec.call(&fold_f, vec![acc, item.clone()])?;
-                            }
-                        }
-                        Ok(acc)
-                    }
-                    _ => Err(EvalError::new("fused filter-fold requires a list").into()),
-                }
-            }
+            } => eval_filter_fold(exec, *input, *filter_fn, *init, *fold_fn),
 
             FusedPattern::MapFilterFold {
                 input,
@@ -201,75 +126,19 @@ impl FusedPattern {
                 filter_fn,
                 init,
                 fold_fn,
-            } => {
-                let items = exec.eval(*input)?;
-                let map_f = exec.eval(*map_fn)?;
-                let filter_f = exec.eval(*filter_fn)?;
-                let mut acc = exec.eval(*init)?;
-                let fold_f = exec.eval(*fold_fn)?;
-
-                match items {
-                    Value::List(list) => {
-                        for item in list.iter() {
-                            // Map -> Filter -> Fold in single pass
-                            let mapped = exec.call(&map_f, vec![item.clone()])?;
-                            if exec.call(&filter_f, vec![mapped.clone()])?.is_truthy() {
-                                acc = exec.call(&fold_f, vec![acc, mapped])?;
-                            }
-                        }
-                        Ok(acc)
-                    }
-                    _ => Err(EvalError::new("fused map-filter-fold requires a list").into()),
-                }
-            }
+            } => eval_map_filter_fold(exec, *input, *map_fn, *filter_fn, *init, *fold_fn),
 
             FusedPattern::MapFind {
                 input,
                 map_fn,
                 find_fn,
-            } => {
-                let items = exec.eval(*input)?;
-                let map_f = exec.eval(*map_fn)?;
-                let find_f = exec.eval(*find_fn)?;
-
-                match items {
-                    Value::List(list) => {
-                        for item in list.iter() {
-                            let mapped = exec.call(&map_f, vec![item.clone()])?;
-                            if exec.call(&find_f, vec![mapped.clone()])?.is_truthy() {
-                                return Ok(Value::some(mapped));
-                            }
-                        }
-                        Ok(Value::None)
-                    }
-                    _ => Err(EvalError::new("fused map-find requires a list").into()),
-                }
-            }
+            } => eval_map_find(exec, *input, *map_fn, *find_fn),
 
             FusedPattern::FilterFind {
                 input,
                 filter_fn,
                 find_fn,
-            } => {
-                let items = exec.eval(*input)?;
-                let filter_f = exec.eval(*filter_fn)?;
-                let find_f = exec.eval(*find_fn)?;
-
-                match items {
-                    Value::List(list) => {
-                        for item in list.iter() {
-                            // Both predicates must pass
-                            if exec.call(&filter_f, vec![item.clone()])?.is_truthy()
-                                && exec.call(&find_f, vec![item.clone()])?.is_truthy()
-                            {
-                                return Ok(Value::some(item.clone()));
-                            }
-                        }
-                        Ok(Value::None)
-                    }
-                    _ => Err(EvalError::new("fused filter-find requires a list").into()),
-                }
-            }
+            } => eval_filter_find(exec, *input, *filter_fn, *find_fn),
         }
     }
 
@@ -285,6 +154,172 @@ impl FusedPattern {
             FusedPattern::FilterFind { .. } => "filter-find",
         }
     }
+}
+
+// Fusion evaluation helpers
+//
+// Each function evaluates one fused pattern variant in a single pass over the input list.
+
+fn eval_map_filter(
+    exec: &mut dyn PatternExecutor,
+    input: ExprId,
+    map_fn: ExprId,
+    filter_fn: ExprId,
+) -> EvalResult {
+    let items = exec.eval(input)?;
+    let Value::List(list) = items else {
+        return Err(EvalError::new("fused map-filter requires a list").into());
+    };
+    let map_f = exec.eval(map_fn)?;
+    let filter_f = exec.eval(filter_fn)?;
+
+    let mut results = Vec::new();
+    for item in list.iter() {
+        let mapped = exec.call(&map_f, vec![item.clone()])?;
+        if exec.call(&filter_f, vec![mapped.clone()])?.is_truthy() {
+            results.push(mapped);
+        }
+    }
+    Ok(Value::list(results))
+}
+
+fn eval_filter_map(
+    exec: &mut dyn PatternExecutor,
+    input: ExprId,
+    filter_fn: ExprId,
+    map_fn: ExprId,
+) -> EvalResult {
+    let items = exec.eval(input)?;
+    let Value::List(list) = items else {
+        return Err(EvalError::new("fused filter-map requires a list").into());
+    };
+    let filter_f = exec.eval(filter_fn)?;
+    let map_f = exec.eval(map_fn)?;
+
+    let mut results = Vec::new();
+    for item in list.iter() {
+        if exec.call(&filter_f, vec![item.clone()])?.is_truthy() {
+            let mapped = exec.call(&map_f, vec![item.clone()])?;
+            results.push(mapped);
+        }
+    }
+    Ok(Value::list(results))
+}
+
+fn eval_map_fold(
+    exec: &mut dyn PatternExecutor,
+    input: ExprId,
+    map_fn: ExprId,
+    init: ExprId,
+    fold_fn: ExprId,
+) -> EvalResult {
+    let items = exec.eval(input)?;
+    let Value::List(list) = items else {
+        return Err(EvalError::new("fused map-fold requires a list").into());
+    };
+    let map_f = exec.eval(map_fn)?;
+    let mut acc = exec.eval(init)?;
+    let fold_f = exec.eval(fold_fn)?;
+
+    for item in list.iter() {
+        let mapped = exec.call(&map_f, vec![item.clone()])?;
+        acc = exec.call(&fold_f, vec![acc, mapped])?;
+    }
+    Ok(acc)
+}
+
+fn eval_filter_fold(
+    exec: &mut dyn PatternExecutor,
+    input: ExprId,
+    filter_fn: ExprId,
+    init: ExprId,
+    fold_fn: ExprId,
+) -> EvalResult {
+    let items = exec.eval(input)?;
+    let Value::List(list) = items else {
+        return Err(EvalError::new("fused filter-fold requires a list").into());
+    };
+    let filter_f = exec.eval(filter_fn)?;
+    let mut acc = exec.eval(init)?;
+    let fold_f = exec.eval(fold_fn)?;
+
+    for item in list.iter() {
+        if exec.call(&filter_f, vec![item.clone()])?.is_truthy() {
+            acc = exec.call(&fold_f, vec![acc, item.clone()])?;
+        }
+    }
+    Ok(acc)
+}
+
+fn eval_map_filter_fold(
+    exec: &mut dyn PatternExecutor,
+    input: ExprId,
+    map_fn: ExprId,
+    filter_fn: ExprId,
+    init: ExprId,
+    fold_fn: ExprId,
+) -> EvalResult {
+    let items = exec.eval(input)?;
+    let Value::List(list) = items else {
+        return Err(EvalError::new("fused map-filter-fold requires a list").into());
+    };
+    let map_f = exec.eval(map_fn)?;
+    let filter_f = exec.eval(filter_fn)?;
+    let mut acc = exec.eval(init)?;
+    let fold_f = exec.eval(fold_fn)?;
+
+    for item in list.iter() {
+        let mapped = exec.call(&map_f, vec![item.clone()])?;
+        if exec.call(&filter_f, vec![mapped.clone()])?.is_truthy() {
+            acc = exec.call(&fold_f, vec![acc, mapped])?;
+        }
+    }
+    Ok(acc)
+}
+
+fn eval_map_find(
+    exec: &mut dyn PatternExecutor,
+    input: ExprId,
+    map_fn: ExprId,
+    find_fn: ExprId,
+) -> EvalResult {
+    let items = exec.eval(input)?;
+    let Value::List(list) = items else {
+        return Err(EvalError::new("fused map-find requires a list").into());
+    };
+    let map_f = exec.eval(map_fn)?;
+    let find_f = exec.eval(find_fn)?;
+
+    for item in list.iter() {
+        let mapped = exec.call(&map_f, vec![item.clone()])?;
+        if exec.call(&find_f, vec![mapped.clone()])?.is_truthy() {
+            return Ok(Value::some(mapped));
+        }
+    }
+    Ok(Value::None)
+}
+
+fn eval_filter_find(
+    exec: &mut dyn PatternExecutor,
+    input: ExprId,
+    filter_fn: ExprId,
+    find_fn: ExprId,
+) -> EvalResult {
+    let items = exec.eval(input)?;
+    let Value::List(list) = items else {
+        return Err(EvalError::new("fused filter-find requires a list").into());
+    };
+    let filter_f = exec.eval(filter_fn)?;
+    let find_f = exec.eval(find_fn)?;
+
+    for item in list.iter() {
+        if exec.call(&filter_f, vec![item.clone()])?.is_truthy()
+            && exec.call(&find_f, vec![item.clone()])?.is_truthy()
+        {
+            return Ok(Value::some(item.clone()));
+        }
+    }
+    Ok(Value::None)
 }
 
 /// A link in a pattern chain.

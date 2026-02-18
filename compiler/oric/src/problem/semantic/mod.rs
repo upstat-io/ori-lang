@@ -217,6 +217,10 @@ impl SemanticProblem {
     ///
     /// Uses the interner to resolve interned `Name` fields to display strings.
     #[cold]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive SemanticWarning → Diagnostic dispatch"
+    )]
     pub fn into_diagnostic(&self, interner: &StringInterner) -> Diagnostic {
         match self {
             SemanticProblem::UnknownIdentifier {

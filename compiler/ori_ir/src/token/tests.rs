@@ -1,6 +1,10 @@
 use super::*;
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive TokenKind variant enumeration"
+)]
 fn test_discriminant_index_uniqueness() {
     // Verify all discriminant indices are unique and within range
     let mut seen = [false; 128];
@@ -476,6 +480,10 @@ fn test_token_tag_stability() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive TokenTag variant enumeration"
+)]
 fn test_token_tag_name_non_empty() {
     // Every TokenTag variant must return a non-empty name
     let all_tags: &[TokenTag] = &[

@@ -353,6 +353,10 @@ pub enum ExprKind {
 }
 
 impl fmt::Debug for ExprKind {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ExprKind Debug formatting"
+    )]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExprKind::Int(n) => write!(f, "Int({n})"),

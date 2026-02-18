@@ -214,6 +214,10 @@ pub(crate) fn check_call_capabilities(
 /// 1. Mutable phase: resolve types and create pool entries
 /// 2. Immutable phase: check trait registry and collect violations
 /// 3. Mutable phase: push collected errors
+#[expect(
+    clippy::too_many_lines,
+    reason = "three-phase where clause checking: resolve, collect violations, push errors"
+)]
 pub(crate) fn check_where_clauses(
     engine: &mut InferEngine<'_>,
     func_name: Name,
@@ -352,6 +356,10 @@ pub(crate) fn check_where_clauses(
 /// Mirrors V1's `primitive_implements_trait()` from `bound_checking.rs`.
 /// Primitive and built-in types have known trait implementations that don't
 /// require explicit `impl` blocks in the trait registry.
+#[expect(
+    clippy::too_many_lines,
+    reason = "per-primitive trait set lookup table"
+)]
 pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
     // Trait sets for each primitive type, matching V1's const arrays.
     const INT_TRAITS: &[&str] = &[
