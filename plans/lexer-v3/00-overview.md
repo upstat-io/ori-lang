@@ -1,15 +1,15 @@
 ---
 plan: "lexer-v3"
 title: "Lexer V3: SIMD-Accelerated Compact Token Stream"
-status: not-started
+status: in-progress
 goal: "8-12x lexer throughput via compact SoA token storage, lazy cooking, and SIMD byte classification"
 sections:
   - id: "01"
     title: "Compact Token Stream (SoA)"
-    status: not-started
+    status: done
   - id: "02"
     title: "Lazy Cooking"
-    status: not-started
+    status: in-progress
   - id: "03"
     title: "SIMD Byte Classification"
     status: not-started
@@ -18,7 +18,7 @@ sections:
     status: not-started
   - id: "05"
     title: "Parser Adaptation"
-    status: not-started
+    status: in-progress
   - id: "06"
     title: "Integration & Benchmarks"
     status: not-started
@@ -26,7 +26,7 @@ sections:
 
 # Lexer V3: SIMD-Accelerated Compact Token Stream
 
-**Status:** Planned
+**Status:** In Progress
 **Goal:** Achieve 8-12x lexer throughput improvement through three synergistic techniques: compact Structure-of-Arrays token storage, lazy/deferred token cooking, and SIMD-accelerated byte classification.
 
 ---

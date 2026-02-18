@@ -65,6 +65,20 @@ impl<T> Heap<T> {
     }
 }
 
+impl<T: Clone> Heap<T> {
+    /// Get a mutable reference via copy-on-write.
+    ///
+    /// If this is the only reference (refcount == 1), returns `&mut T`
+    /// directly with no allocation. If shared, clones the inner value first
+    /// to ensure exclusive ownership, then returns `&mut T`.
+    ///
+    /// This is the `Heap` equivalent of `Arc::make_mut`.
+    #[inline]
+    pub fn make_mut(&mut self) -> &mut T {
+        Arc::make_mut(&mut self.0)
+    }
+}
+
 impl<T: ?Sized> Deref for Heap<T> {
     type Target = T;
 
