@@ -1091,14 +1091,15 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 2 tests (equal values, different values)
   - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — hash consistency + struct hash tests
 
-- [ ] **Implement**: Error messages (E0940-E0942)
-  - [ ] E0940: Cannot derive Hashable without Eq
-  - [ ] E0941: Hashable implementation violates hash invariant
-  - [ ] E0942: Type cannot be used as map key (missing Hashable)
+- [x] **Implement**: Error messages (E2029-E2031, remapped from E0940-E0942) (2026-02-18)
+  - [x] E2029: Cannot derive Hashable without Eq — validation in `register_derived_impl()`, compile-fail test, Rust unit tests
+  - [x] E2030: Hashable implementation violates hash invariant — infrastructure complete (error code, TypeErrorKind, diagnostics, docs); detection deferred until manual trait impls exist
+  - [x] E2031: Type cannot be used as map key (missing Hashable) — validation in `check_map_key_hashable()`, compile-fail test
+  - [x] Fixed 5 AOT derive hash tests that derived Hashable without Eq (now correctly caught by E2029)
 
-- [ ] **Update Spec**: `07-properties-of-types.md` — add Comparable and Hashable sections
-- [ ] **Update Spec**: `12-modules.md` — add hash_combine to prelude functions
-- [ ] **Update**: `CLAUDE.md` — add Comparable, Hashable, hash_combine documentation
+- [x] **Update Spec**: `07-properties-of-types.md` — Comparable and Hashable sections already present; updated E2029/E2031 error references (2026-02-18)
+- [x] **Update Spec**: `12-modules.md` — hash_combine already documented in prelude functions (2026-02-18)
+- [x] **Update**: `CLAUDE.md` — added Comparable, Hashable, hash_combine, derive validation docs (2026-02-18)
 
 - [x] **Implement**: `equals()` on compound types (Eq trait extension beyond primitives) (2026-02-17)
   - [x] Evaluator: `ori_eval/src/methods/collections.rs` — list element-wise, map key-set+value, set element-wise equality

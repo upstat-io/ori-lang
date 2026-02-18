@@ -488,7 +488,8 @@ Floats hash consistently with equality:
 
 ### Map Key and Set Element Requirements
 
-To use a type as a map key or set element, it must implement both `Eq` and `Hashable`:
+To use a type as a map key or set element, it must implement both `Eq` and `Hashable`.
+Using a type that does not implement `Hashable` as a map key is an error (E2031):
 
 ```ori
 let map: {Point: str} = {}  // Point must be Eq + Hashable
@@ -517,7 +518,7 @@ type Point = { x: int, y: int }
 // Generated: combine field hashes using hash_combine
 ```
 
-Deriving `Hashable` without `Eq` produces a warning.
+Deriving `Hashable` without `Eq` is an error (E2029). The hash invariant requires that equal values produce equal hashes, which cannot be guaranteed without an `Eq` implementation.
 
 ## Into Trait
 

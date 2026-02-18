@@ -129,7 +129,7 @@ type Big = { a: int, b: int, c: int }
 fn test_aot_derive_hash_equal_values() {
     assert_aot_success(
         r#"
-#[derive(Hashable)]
+#[derive(Eq, Hashable)]
 type Point = { x: int, y: int }
 
 @main () -> int = run(
@@ -146,7 +146,7 @@ type Point = { x: int, y: int }
 fn test_aot_derive_hash_different_values() {
     assert_aot_success(
         r#"
-#[derive(Hashable)]
+#[derive(Eq, Hashable)]
 type Point = { x: int, y: int }
 
 @main () -> int = run(
@@ -555,7 +555,7 @@ type Pair = { x: int, y: int }
 fn test_aot_derive_hash_float_neg_zero() {
     assert_aot_success(
         r#"
-#[derive(Hashable)]
+#[derive(Eq, Hashable)]
 type Wrapper = { value: float }
 
 @main () -> int = run(
@@ -575,7 +575,7 @@ type Wrapper = { value: float }
 fn test_aot_derive_hash_str_content() {
     assert_aot_success(
         r#"
-#[derive(Hashable)]
+#[derive(Eq, Hashable)]
 type Named = { name: str }
 
 @main () -> int = run(
@@ -599,7 +599,7 @@ type Named = { name: str }
 fn test_aot_derive_hash_byte_field() {
     assert_aot_success(
         r#"
-#[derive(Hashable)]
+#[derive(Eq, Hashable)]
 type ByteBox = { b: byte }
 
 @main () -> int = run(

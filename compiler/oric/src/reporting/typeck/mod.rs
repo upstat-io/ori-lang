@@ -184,6 +184,24 @@ impl<'a> TypeErrorRenderer<'a> {
                     self.format_name(*type_name)
                 )
             }
+            TypeErrorKind::CannotDeriveHashableWithoutEq { type_name } => {
+                format!(
+                    "cannot derive `Hashable` without `Eq` for `{}`",
+                    self.format_name(*type_name)
+                )
+            }
+            TypeErrorKind::HashInvariantViolation { type_name } => {
+                format!(
+                    "`Hashable` may violate hash invariant for `{}`",
+                    self.format_name(*type_name)
+                )
+            }
+            TypeErrorKind::NonHashableMapKey { key_type } => {
+                format!(
+                    "`{}` cannot be used as map key (missing `Hashable`)",
+                    self.format_type(*key_type)
+                )
+            }
         }
     }
 

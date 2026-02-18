@@ -515,6 +515,24 @@ impl TypeCheckError {
                     format_name(*type_name)
                 )
             }
+            TypeErrorKind::CannotDeriveHashableWithoutEq { type_name } => {
+                format!(
+                    "cannot derive `Hashable` without `Eq` for type `{}`",
+                    format_name(*type_name)
+                )
+            }
+            TypeErrorKind::HashInvariantViolation { type_name } => {
+                format!(
+                    "`Hashable` implementation for `{}` may violate hash invariant",
+                    format_name(*type_name)
+                )
+            }
+            TypeErrorKind::NonHashableMapKey { key_type } => {
+                format!(
+                    "`{}` cannot be used as map key (missing `Hashable`)",
+                    format_type(*key_type)
+                )
+            }
         }
     }
 
@@ -675,6 +693,18 @@ impl TypeCheckError {
             TypeErrorKind::CannotDeriveDefaultForSumType { .. } => {
                 "cannot derive `Default` for sum type".to_string()
             }
+            TypeErrorKind::CannotDeriveHashableWithoutEq { .. } => {
+                "cannot derive `Hashable` without `Eq`".to_string()
+            }
+            TypeErrorKind::HashInvariantViolation { .. } => {
+                "`Hashable` implementation may violate hash invariant".to_string()
+            }
+            TypeErrorKind::NonHashableMapKey { key_type } => {
+                format!(
+                    "`{}` cannot be used as map key (missing `Hashable`)",
+                    key_type.display_name()
+                )
+            }
         }
     }
 
@@ -751,6 +781,15 @@ impl TypeCheckError {
 
             // E2028: Cannot derive Default for sum type
             TypeErrorKind::CannotDeriveDefaultForSumType { .. } => ErrorCode::E2028,
+
+            // E2029: Cannot derive Hashable without Eq
+            TypeErrorKind::CannotDeriveHashableWithoutEq { .. } => ErrorCode::E2029,
+
+            // E2030: Hash invariant violation
+            TypeErrorKind::HashInvariantViolation { .. } => ErrorCode::E2030,
+
+            // E2031: Non-hashable map key
+            TypeErrorKind::NonHashableMapKey { .. } => ErrorCode::E2031,
         }
     }
 
@@ -1001,6 +1040,55 @@ impl TypeCheckError {
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
                 "remove `Default` from derive list, or implement `Default` manually choosing a specific variant",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "cannot derive Hashable without Eq" error (E2029).
+    ///
+    /// Emitted when `#[derive(Hashable)]` is applied to a type that does not
+    /// also derive or implement `Eq`. The hash invariant requires that equal
+    /// values have equal hashes.
+    pub fn cannot_derive_hashable_without_eq(span: Span, type_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::CannotDeriveHashableWithoutEq { type_name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "add `Eq` to the derive list: `#[derive(Eq, Hashable)]`",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "hash invariant violation" warning (E2030).
+    ///
+    /// Emitted when a type's `Hashable` and `Eq` implementations may be
+    /// inconsistent (e.g., one is derived and the other is manual).
+    pub fn hash_invariant_violation(span: Span, type_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::HashInvariantViolation { type_name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "ensure equal values produce equal hashes: if a == b then a.hash() == b.hash()",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "non-hashable map key" error (E2031).
+    ///
+    /// Emitted when a type that does not implement `Hashable` is used as a
+    /// map key or set element type.
+    pub fn non_hashable_map_key(span: Span, key_type: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::NonHashableMapKey { key_type },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "add `#[derive(Eq, Hashable)]` to the type, or implement `Hashable` manually",
                 0,
             )],
         }
@@ -1463,6 +1551,24 @@ pub enum TypeErrorKind {
     CannotDeriveDefaultForSumType {
         /// The sum type name.
         type_name: Name,
+    },
+
+    /// Cannot derive `Hashable` without `Eq` (E2029).
+    CannotDeriveHashableWithoutEq {
+        /// The type name that derives Hashable.
+        type_name: Name,
+    },
+
+    /// `Hashable` implementation may violate hash invariant (E2030).
+    HashInvariantViolation {
+        /// The type name with the potentially inconsistent impls.
+        type_name: Name,
+    },
+
+    /// Type cannot be used as map key — missing `Hashable` (E2031).
+    NonHashableMapKey {
+        /// The key type that doesn't implement Hashable.
+        key_type: Idx,
     },
 }
 
