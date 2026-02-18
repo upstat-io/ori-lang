@@ -7,6 +7,7 @@
 //! - 3.0: Core library traits (Len, `IsEmpty`, Option, Result, Comparable, Eq)
 //! - 3.1: Trait declarations (default methods)
 //! - 3.2: Trait implementations (inherent impl, trait impl, method resolution)
+//! - 3.14: Comparable/Hashable for compound types (Option, Result, Tuple)
 //! - 3.21: Operator traits (user-defined +, -, *, /, %, //, &, |, ^, <<, >>)
 
 #![allow(
@@ -889,5 +890,414 @@ impl Not for Toggle {
 )
 "#,
         "operator_trait_not",
+    );
+}
+
+// =========================================================================
+// 3.14: Comparable/Hashable compound type methods
+// =========================================================================
+
+// -- String methods --
+
+#[test]
+fn test_aot_str_compare() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = "apple",
+    let b = "banana",
+    let c = "apple",
+    let r1 = a.compare(b).is_less(),
+    let r2 = a.compare(c).is_equal(),
+    let r3 = b.compare(a).is_greater(),
+    if r1 && r2 && r3 then 0 else 1
+)
+"#,
+        "str_compare",
+    );
+}
+
+#[test]
+fn test_aot_str_equals() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = "hello",
+    let b = "hello",
+    let c = "world",
+    let r1 = a.equals(b),
+    let r2 = !a.equals(c),
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "str_equals",
+    );
+}
+
+#[test]
+fn test_aot_str_hash() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = "hello",
+    let b = "hello",
+    let c = "world",
+    let h1 = a.hash(),
+    let h2 = b.hash(),
+    let h3 = c.hash(),
+    // Same strings produce same hash
+    if h1 == h2 && h1 != h3 then 0 else 1
+)
+"#,
+        "str_hash",
+    );
+}
+
+// -- Bool hash --
+
+#[test]
+fn test_aot_bool_hash() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let t = true,
+    let f = false,
+    let ht = t.hash(),
+    let hf = f.hash(),
+    // true.hash() = 1, false.hash() = 0
+    if ht == 1 && hf == 0 then 0 else 1
+)
+"#,
+        "bool_hash",
+    );
+}
+
+// -- Ordering compare --
+
+#[test]
+fn test_aot_ordering_compare() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = 1.compare(2),
+    let b = 1.compare(2),
+    let c = 3.compare(2),
+    // Less.compare(Less) = Equal
+    let r1 = a.compare(b).is_equal(),
+    // Less.compare(Greater) = Less (0 < 2)
+    let r2 = a.compare(c).is_less(),
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "ordering_compare",
+    );
+}
+
+// -- Float hash --
+
+#[test]
+fn test_aot_float_hash() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = 3.14,
+    let b = 3.14,
+    let c = 2.71,
+    let h1 = a.hash(),
+    let h2 = b.hash(),
+    let h3 = c.hash(),
+    if h1 == h2 && h1 != h3 then 0 else 1
+)
+"#,
+        "float_hash",
+    );
+}
+
+// -- hash_combine --
+
+#[test]
+fn test_aot_hash_combine() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let h1 = hash_combine(0, 42),
+    let h2 = hash_combine(0, 42),
+    let h3 = hash_combine(0, 99),
+    // Deterministic
+    if h1 == h2 && h1 != h3 then 0 else 1
+)
+"#,
+        "hash_combine",
+    );
+}
+
+// -- Option compare --
+
+#[test]
+fn test_aot_option_compare() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let none: Option<int> = None,
+    let some1 = Some(10),
+    let some2 = Some(20),
+    let some3 = Some(10),
+    // None < Some
+    let r1 = none.compare(some1).is_less(),
+    // Some(10) < Some(20)
+    let r2 = some1.compare(some2).is_less(),
+    // Some(10) == Some(10)
+    let r3 = some1.compare(some3).is_equal(),
+    // Some > None
+    let r4 = some1.compare(none).is_greater(),
+    if r1 && r2 && r3 && r4 then 0 else 1
+)
+"#,
+        "option_compare",
+    );
+}
+
+// -- Option equals --
+
+#[test]
+fn test_aot_option_equals() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let none1: Option<int> = None,
+    let none2: Option<int> = None,
+    let some1 = Some(42),
+    let some2 = Some(42),
+    let some3 = Some(99),
+    let r1 = none1.equals(none2),
+    let r2 = some1.equals(some2),
+    let r3 = !some1.equals(some3),
+    let r4 = !none1.equals(some1),
+    if r1 && r2 && r3 && r4 then 0 else 1
+)
+"#,
+        "option_equals",
+    );
+}
+
+// -- Option hash --
+
+#[test]
+fn test_aot_option_hash() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let none: Option<int> = None,
+    let some1 = Some(42),
+    let some2 = Some(42),
+    let some3 = Some(99),
+    let h_none = none.hash(),
+    let h1 = some1.hash(),
+    let h2 = some2.hash(),
+    let h3 = some3.hash(),
+    // None.hash() == 0
+    let r1 = h_none == 0,
+    // Same value → same hash
+    let r2 = h1 == h2,
+    // Different value → different hash (with overwhelming probability)
+    let r3 = h1 != h3,
+    if r1 && r2 && r3 then 0 else 1
+)
+"#,
+        "option_hash",
+    );
+}
+
+// -- Result compare --
+
+#[test]
+fn test_aot_result_compare() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let ok1: Result<int, int> = Ok(10),
+    let ok2: Result<int, int> = Ok(20),
+    let err1: Result<int, int> = Err(5),
+    let err2: Result<int, int> = Err(15),
+    // Ok < Err
+    let r1 = ok1.compare(err1).is_less(),
+    // Ok(10) < Ok(20)
+    let r2 = ok1.compare(ok2).is_less(),
+    // Err(5) < Err(15)
+    let r3 = err1.compare(err2).is_less(),
+    // Err > Ok
+    let r4 = err1.compare(ok1).is_greater(),
+    if r1 && r2 && r3 && r4 then 0 else 1
+)
+"#,
+        "result_compare",
+    );
+}
+
+// -- Result equals --
+
+#[test]
+fn test_aot_result_equals() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let ok1: Result<int, int> = Ok(42),
+    let ok2: Result<int, int> = Ok(42),
+    let ok3: Result<int, int> = Ok(99),
+    let err1: Result<int, int> = Err(1),
+    let err2: Result<int, int> = Err(1),
+    let r1 = ok1.equals(ok2),
+    let r2 = !ok1.equals(ok3),
+    let r3 = err1.equals(err2),
+    let r4 = !ok1.equals(err1),
+    if r1 && r2 && r3 && r4 then 0 else 1
+)
+"#,
+        "result_equals",
+    );
+}
+
+// -- Result hash --
+
+#[test]
+fn test_aot_result_hash() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let ok1: Result<int, int> = Ok(42),
+    let ok2: Result<int, int> = Ok(42),
+    let err1: Result<int, int> = Err(42),
+    let h1 = ok1.hash(),
+    let h2 = ok2.hash(),
+    let h3 = err1.hash(),
+    // Same variant+value → same hash
+    let r1 = h1 == h2,
+    // Ok(42) vs Err(42) → different hash (different seed)
+    let r2 = h1 != h3,
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "result_hash",
+    );
+}
+
+// -- Tuple compare --
+
+#[test]
+fn test_aot_tuple_compare() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = (1, 2),
+    let b = (1, 3),
+    let c = (1, 2),
+    let d = (2, 0),
+    // (1,2) < (1,3) — lexicographic on second field
+    let r1 = a.compare(b).is_less(),
+    // (1,2) == (1,2)
+    let r2 = a.compare(c).is_equal(),
+    // (2,0) > (1,3) — first field decides
+    let r3 = d.compare(b).is_greater(),
+    if r1 && r2 && r3 then 0 else 1
+)
+"#,
+        "tuple_compare",
+    );
+}
+
+// -- Tuple equals --
+
+#[test]
+fn test_aot_tuple_equals() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = (1, true),
+    let b = (1, true),
+    let c = (1, false),
+    let r1 = a.equals(b),
+    let r2 = !a.equals(c),
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "tuple_equals",
+    );
+}
+
+// -- Tuple hash --
+
+#[test]
+fn test_aot_tuple_hash() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = (1, 2, 3),
+    let b = (1, 2, 3),
+    let c = (3, 2, 1),
+    let h1 = a.hash(),
+    let h2 = b.hash(),
+    let h3 = c.hash(),
+    // Same tuple → same hash
+    let r1 = h1 == h2,
+    // Different tuple → different hash
+    let r2 = h1 != h3,
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "tuple_hash",
+    );
+}
+
+// -- Primitive equals methods --
+
+#[test]
+fn test_aot_int_equals() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = 42,
+    let b = 42,
+    let c = 99,
+    let r1 = a.equals(b),
+    let r2 = !a.equals(c),
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "int_equals",
+    );
+}
+
+#[test]
+fn test_aot_byte_compare() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = byte(10),
+    let b = byte(20),
+    let c = byte(10),
+    let r1 = a.compare(b).is_less(),
+    let r2 = a.compare(c).is_equal(),
+    if r1 && r2 then 0 else 1
+)
+"#,
+        "byte_compare",
+    );
+}
+
+#[test]
+fn test_aot_char_hash() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let a = 'A',
+    let b = 'A',
+    let c = 'Z',
+    let h1 = a.hash(),
+    let h2 = b.hash(),
+    let h3 = c.hash(),
+    if h1 == h2 && h1 != h3 then 0 else 1
+)
+"#,
+        "char_hash",
     );
 }
