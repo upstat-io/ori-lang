@@ -2375,6 +2375,54 @@ fn test_eq_satisfied_by_tuple() {
 }
 
 // ========================================================================
+// Trait Satisfaction Tests — Len satisfied by tuple (§3.0.1)
+// ========================================================================
+
+#[test]
+fn test_len_satisfied_by_tuple() {
+    let mut pool = Pool::new();
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::STR]);
+
+    assert!(
+        super::calls::type_satisfies_trait(tuple_ty, "Len", &pool),
+        "(int, str) should satisfy Len"
+    );
+}
+
+#[test]
+fn test_len_satisfied_by_triple_tuple() {
+    let mut pool = Pool::new();
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::BOOL, Idx::STR]);
+
+    assert!(
+        super::calls::type_satisfies_trait(tuple_ty, "Len", &pool),
+        "(int, bool, str) should satisfy Len"
+    );
+}
+
+#[test]
+fn test_len_satisfied_by_single_tuple() {
+    let mut pool = Pool::new();
+    let tuple_ty = pool.tuple(&[Idx::INT]);
+
+    assert!(
+        super::calls::type_satisfies_trait(tuple_ty, "Len", &pool),
+        "(int,) should satisfy Len"
+    );
+}
+
+#[test]
+fn test_len_not_satisfied_by_result() {
+    let mut pool = Pool::new();
+    let res_ty = pool.result(Idx::INT, Idx::STR);
+
+    assert!(
+        !super::calls::type_satisfies_trait(res_ty, "Len", &pool),
+        "Result<int, str> should NOT satisfy Len"
+    );
+}
+
+// ========================================================================
 // Infinite Iterator Detection Tests (W2001)
 // ========================================================================
 

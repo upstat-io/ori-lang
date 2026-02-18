@@ -198,6 +198,25 @@ use std.testing { assert, assert_eq }
 @hash_distinct () -> int = Less.hash()
 
 // =============================================================================
+// Ordering Type — Debug Trait
+// =============================================================================
+
+@test_ordering_debug_less tests @debug_less () -> void =
+    assert_eq(actual: Less.debug(), expected: "Less")
+
+@debug_less () -> str = Less.debug()
+
+@test_ordering_debug_equal tests @debug_equal () -> void =
+    assert_eq(actual: Equal.debug(), expected: "Equal")
+
+@debug_equal () -> str = Equal.debug()
+
+@test_ordering_debug_greater tests @debug_greater () -> void =
+    assert_eq(actual: Greater.debug(), expected: "Greater")
+
+@debug_greater () -> str = Greater.debug()
+
+// =============================================================================
 // Ordering Type — then Method
 // =============================================================================
 

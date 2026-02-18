@@ -361,6 +361,60 @@ type TraceEntry = {
 | `Error` | Yes |
 | `Result<T, E>` where `E: Traceable` | Yes (delegates to E) |
 
+## Len Trait
+
+The `Len` trait provides length information for collections and sequences.
+
+```ori
+trait Len {
+    @len (self) -> int
+}
+```
+
+### Semantic Requirements
+
+Implementations _must_ satisfy:
+
+- **Non-negative**: `x.len() >= 0` for all `x`
+- **Deterministic**: `x.len()` returns the same value for unchanged `x`
+
+### String Length
+
+For `str`, `.len()` returns the **byte count**, not the codepoint or grapheme count:
+
+```ori
+"hello".len()  // 5
+"café".len()   // 5 (é is 2 bytes in UTF-8)
+"日本".len()   // 6 (each character is 3 bytes)
+```
+
+### Standard Implementations
+
+| Type | Implements `Len` | Returns |
+|------|-------------------|---------|
+| `[T]` | Yes | Number of elements |
+| `str` | Yes | Number of bytes |
+| `{K: V}` | Yes | Number of entries |
+| `Set<T>` | Yes | Number of elements |
+| `Range<int>` | Yes | Number of values in range |
+| `(T₁, T₂, ...)` | Yes | Number of elements (statically known) |
+
+### Derivation
+
+`Len` cannot be derived. Types _must_ implement it explicitly or be built-in.
+
+### Distinction from Iterator.count()
+
+The `Len` trait is distinct from `Iterator.count()`:
+
+| | `Len.len()` | `Iterator.count()` |
+|--|------------|-------------------|
+| **Complexity** | O(1) for built-in types | O(n) — consumes the iterator |
+| **Side effects** | None — non-consuming | Consuming — iterator is exhausted |
+| **Semantics** | Current size of collection | Number of remaining elements |
+
+Iterators do _not_ implement `Len`. To count iterator elements, use `.count()`.
+
 ## Comparable Trait
 
 The `Comparable` trait provides total ordering for values.
