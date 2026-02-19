@@ -55,7 +55,7 @@ god file, accretion, 500-line limit
 ---
 
 ### Section 04: LLVM Codegen Consolidation
-**File:** `section-04-llvm-refactor.md` | **Status:** Not Started
+**File:** `section-04-llvm-refactor.md` | **Status:** Complete
 
 ```
 lower_builtin_methods, 1497 lines, LLVM codegen, split
@@ -81,7 +81,7 @@ consistency test, method registry, trait registry
 ---
 
 ### Section 06: Error Code Generation
-**File:** `section-06-error-codegen.md` | **Status:** Not Started
+**File:** `section-06-error-codegen.md` | **Status:** Complete
 
 ```
 error code, E20XX, define_error_codes!, macro
@@ -94,14 +94,16 @@ diagnostic, ori_diagnostic, boilerplate
 ---
 
 ### Section 07: Shared Derive Strategy
-**File:** `section-07-derive-strategy.md` | **Status:** Not Started
+**File:** `section-07-derive-strategy.md` | **Status:** Complete
 
 ```
-derive strategy, DeriveStep, CombineOp
-dual backend, eval, LLVM, duplication
-ForEachField, AllEqual, LexicographicCmp, HashCombine
+derive strategy, DeriveStrategy, StructBody, SumBody
+FieldOp, CombineOp, FormatOpen, FormatFields
+dual backend, eval, LLVM, duplication, strategy pattern
+ForEachField, AllTrue, Lexicographic, HashCombine
 field iteration, field operation, field dispatch
-eval_derived, compile_derive, shared logic
+compile_for_each_field, compile_format_fields
+eval_for_each_field, eval_format_fields
 ```
 
 ---

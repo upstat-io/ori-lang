@@ -114,18 +114,18 @@ Sections 02, 05, and 07 depend on Section 01.
 | 01 | Trait Metadata Registry | **Complete** | `671ca6c7` |
 | 02 | Data-Driven Trait Satisfaction | **Complete** | `f0786fd0` |
 | 03 | Registration Module Split | **Complete** | — |
-| 04 | LLVM Codegen Consolidation | Not Started | — |
+| 04 | LLVM Codegen Consolidation | **Complete** | — |
 | 05 | Cross-Crate Sync Enforcement | **Complete** | `a718da5d` |
-| 06 | Error Code Generation | Not Started | — |
-| 07 | Shared Derive Strategy | Not Started | — |
+| 06 | Error Code Generation | **Complete** | — |
+| 07 | Shared Derive Strategy | **Complete** | — |
 
-**Next up:** Section 04 (LLVM Codegen Consolidation)
+**All sections complete.** The trait architecture refactor is finished.
 
 ## Exit Criteria
 
-- [ ] Adding a new derived trait requires editing `define_derived_traits!` invocation (1 file), implementing eval handler (1 file), implementing LLVM handler (1 file), adding prelude definition (1 file), and writing tests
+- [x] Adding a new derived trait requires editing `define_derived_traits!` invocation (1 file), defining strategy (same file), implementing eval handler (1 file), implementing LLVM handler (1 file), adding prelude definition (1 file), and writing tests (§01 + §07)
 - [x] `cargo t` catches any missed sync point across all 4 consuming crates (§05)
-- [ ] No source file in the trait infrastructure exceeds 500 lines (excluding tests)
+- [x] No source file in the trait infrastructure exceeds 500 lines (excluding tests) (§03 + §04)
 - [x] `primitive_satisfies_trait` is data-driven (bitset or table), not N×M inline code (§02)
 - [x] `./test-all.sh` passes with zero regressions
 - [x] All existing spec tests, compile-fail tests, and AOT tests continue to pass unchanged

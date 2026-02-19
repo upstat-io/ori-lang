@@ -4,22 +4,17 @@
 //! Each derived method becomes a real LLVM function registered in `method_functions`,
 //! so the existing `lower_method_call` dispatch finds them with no special path.
 //!
-//! Supported traits:
-//! - **Eq**: Field-by-field structural equality (`eq(self, other) -> bool`)
-//! - **Clone**: Identity return for value types (`clone(self) -> Self`)
-//! - **Hashable**: FNV-1a hash in pure LLVM IR (`hash(self) -> int`)
-//! - **Printable**: String representation via runtime concat (`to_str(self) -> str`)
-//! - **Default**: Zero-initialized struct construction (`default() -> Self`)
-//! - **Comparable**: Lexicographic field comparison (`compare(self, other) -> Ordering`)
-//!
-//! Deferred to interpreter-only (not yet codegen'd):
-//! - **Debug**: Debug string representation
+//! Dispatch is strategy-driven: `DerivedTrait::strategy()` returns a `DeriveStrategy`
+//! describing the composition logic (field iteration, result combination), and this
+//! module interprets the strategy in LLVM IR terms. Adding a new trait only requires
+//! adding a strategy entry in `ori_ir` — no per-trait function needed here.
 
+mod bodies;
 mod field_ops;
 mod string_helpers;
 
-use ori_ir::{DerivedMethodShape, DerivedTrait, Module, Name, TypeDeclKind};
-use ori_types::{FieldDef, Idx, TypeEntry, TypeKind};
+use ori_ir::{DerivedMethodShape, DerivedTrait, Module, Name, StructBody, TypeDeclKind};
+use ori_types::{Idx, TypeEntry, TypeKind};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
 
@@ -27,8 +22,9 @@ use super::abi::{compute_function_abi, FunctionAbi, ReturnPassing};
 use super::function_compiler::FunctionCompiler;
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
-use field_ops::{coerce_to_i64, emit_field_compare, emit_field_eq};
-use string_helpers::{emit_field_to_string, emit_str_concat, emit_str_literal};
+use bodies::{
+    compile_clone_fields, compile_default_construct, compile_for_each_field, compile_format_fields,
+};
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -95,28 +91,58 @@ pub fn compile_derives<'a>(
                 continue;
             };
 
-            match trait_kind {
-                DerivedTrait::Eq => {
-                    compile_derive_eq(fc, type_name, type_idx, &type_name_str, fields);
+            let strategy = trait_kind.strategy();
+            match strategy.struct_body {
+                StructBody::ForEachField { field_op, combine } => {
+                    compile_for_each_field(
+                        fc,
+                        trait_kind,
+                        type_name,
+                        type_idx,
+                        &type_name_str,
+                        fields,
+                        field_op,
+                        combine,
+                    );
                 }
-                DerivedTrait::Clone => {
-                    compile_derive_clone(fc, type_name, type_idx, &type_name_str, fields);
+                StructBody::FormatFields {
+                    open,
+                    separator,
+                    suffix,
+                    include_names,
+                } => {
+                    compile_format_fields(
+                        fc,
+                        trait_kind,
+                        type_name,
+                        type_idx,
+                        &type_name_str,
+                        fields,
+                        open,
+                        separator,
+                        suffix,
+                        include_names,
+                    );
                 }
-                DerivedTrait::Hashable => {
-                    compile_derive_hash(fc, type_name, type_idx, &type_name_str, fields);
+                StructBody::CloneFields => {
+                    compile_clone_fields(
+                        fc,
+                        trait_kind,
+                        type_name,
+                        type_idx,
+                        &type_name_str,
+                        fields,
+                    );
                 }
-                DerivedTrait::Printable => {
-                    compile_derive_printable(fc, type_name, type_idx, &type_name_str, fields);
-                }
-                DerivedTrait::Default => {
-                    compile_derive_default(fc, type_name, type_idx, &type_name_str, fields);
-                }
-                DerivedTrait::Debug => {
-                    // TODO: LLVM codegen for Debug (deferred — interpreter-only for now)
-                    debug!(derive = "Debug", type_name = %type_name_str, "Debug derive not yet implemented in LLVM codegen — skipping");
-                }
-                DerivedTrait::Comparable => {
-                    compile_derive_comparable(fc, type_name, type_idx, &type_name_str, fields);
+                StructBody::DefaultConstruct => {
+                    compile_default_construct(
+                        fc,
+                        trait_kind,
+                        type_name,
+                        type_idx,
+                        &type_name_str,
+                        fields,
+                    );
                 }
             }
         }
@@ -128,16 +154,16 @@ pub fn compile_derives<'a>(
 // ---------------------------------------------------------------------------
 
 /// Context returned by [`setup_derive_function`] for derive body emitters.
-struct DeriveSetup {
-    func_id: FunctionId,
-    abi: FunctionAbi,
+pub(super) struct DeriveSetup {
+    pub(super) func_id: FunctionId,
+    pub(super) abi: FunctionAbi,
     /// Value for `self` parameter. `None` for nullary methods (Default).
-    self_val: Option<ValueId>,
+    pub(super) self_val: Option<ValueId>,
     /// Value for `other` parameter. `None` for unary/nullary methods.
-    other_val: Option<ValueId>,
+    pub(super) other_val: Option<ValueId>,
     /// Resolved `str` type for string operations. `None` for shapes that
-    /// don't need string handling (Nullary, UnaryIdentity).
-    str_ty_id: Option<LLVMTypeId>,
+    /// don't need string handling (`Nullary`, `UnaryIdentity`).
+    pub(super) str_ty_id: Option<LLVMTypeId>,
 }
 
 /// Common scaffolding for all derived trait codegen functions.
@@ -229,332 +255,6 @@ fn derive_return_type(shape: DerivedMethodShape, type_idx: Idx) -> Idx {
         DerivedMethodShape::UnaryToStr => Idx::STR,
         DerivedMethodShape::BinaryToOrdering => Idx::ORDERING,
     }
-}
-
-// ---------------------------------------------------------------------------
-// Eq: field-by-field structural equality
-// ---------------------------------------------------------------------------
-
-/// Generate `eq(self: Self, other: Self) -> bool`.
-///
-/// Short-circuit AND: compare each field, branch to `false_bb` on first
-/// mismatch, fall through to `ret true`.
-fn compile_derive_eq<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    type_name: Name,
-    type_idx: Idx,
-    type_name_str: &str,
-    fields: &[FieldDef],
-) {
-    let setup = setup_derive_function(fc, DerivedTrait::Eq, type_name, type_idx, type_name_str);
-    let self_val = setup.self_val.expect("Eq has self");
-    let other_val = setup.other_val.expect("Eq has other");
-    let func_id = setup.func_id;
-
-    let true_bb = fc.builder_mut().append_block(func_id, "eq.true");
-    let false_bb = fc.builder_mut().append_block(func_id, "eq.false");
-    let str_ty_id = setup.str_ty_id.expect("Eq needs str_ty_id");
-
-    if fields.is_empty() {
-        fc.builder_mut().br(true_bb);
-    } else {
-        for (i, field) in fields.iter().enumerate() {
-            let field_name = fc.lookup_name(field.name).to_owned();
-            let self_field =
-                fc.builder_mut()
-                    .extract_value(self_val, i as u32, &format!("self.{field_name}"));
-            let other_field =
-                fc.builder_mut()
-                    .extract_value(other_val, i as u32, &format!("other.{field_name}"));
-
-            let (Some(sf), Some(of)) = (self_field, other_field) else {
-                warn!(field = %field_name, "extract_value failed in derive Eq");
-                fc.builder_mut().br(false_bb);
-                break;
-            };
-
-            let cmp = emit_field_eq(fc, sf, of, field.ty, &format!("eq.{field_name}"), str_ty_id);
-
-            if i + 1 < fields.len() {
-                let next_bb = fc
-                    .builder_mut()
-                    .append_block(func_id, &format!("eq.check.{}", i + 1));
-                fc.builder_mut().cond_br(cmp, next_bb, false_bb);
-                fc.builder_mut().position_at_end(next_bb);
-            } else {
-                fc.builder_mut().cond_br(cmp, true_bb, false_bb);
-            }
-        }
-    }
-
-    fc.builder_mut().position_at_end(true_bb);
-    let true_val = fc.builder_mut().const_bool(true);
-    fc.builder_mut().ret(true_val);
-
-    fc.builder_mut().position_at_end(false_bb);
-    let false_val = fc.builder_mut().const_bool(false);
-    fc.builder_mut().ret(false_val);
-}
-
-// ---------------------------------------------------------------------------
-// Comparable: lexicographic field comparison
-// ---------------------------------------------------------------------------
-
-/// Generate `compare(self: Self, other: Self) -> Ordering`.
-///
-/// Lexicographic: compare fields in declaration order, short-circuit on first
-/// non-Equal result. Returns Ordering (i8): 0=Less, 1=Equal, 2=Greater.
-fn compile_derive_comparable<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    type_name: Name,
-    type_idx: Idx,
-    type_name_str: &str,
-    fields: &[FieldDef],
-) {
-    let setup = setup_derive_function(
-        fc,
-        DerivedTrait::Comparable,
-        type_name,
-        type_idx,
-        type_name_str,
-    );
-    let self_val = setup.self_val.expect("Comparable has self");
-    let other_val = setup.other_val.expect("Comparable has other");
-    let func_id = setup.func_id;
-    let str_ty_id = setup.str_ty_id.expect("Comparable needs str_ty_id");
-
-    let equal_bb = fc.builder_mut().append_block(func_id, "cmp.equal");
-
-    if fields.is_empty() {
-        // Empty struct: always Equal
-        fc.builder_mut().br(equal_bb);
-    } else {
-        for (i, field) in fields.iter().enumerate() {
-            let field_name = fc.lookup_name(field.name).to_owned();
-            let self_field =
-                fc.builder_mut()
-                    .extract_value(self_val, i as u32, &format!("self.{field_name}"));
-            let other_field =
-                fc.builder_mut()
-                    .extract_value(other_val, i as u32, &format!("other.{field_name}"));
-
-            let (Some(sf), Some(of)) = (self_field, other_field) else {
-                warn!(field = %field_name, "extract_value failed in derive Comparable");
-                fc.builder_mut().br(equal_bb);
-                break;
-            };
-
-            let ord = emit_field_compare(
-                fc,
-                sf,
-                of,
-                field.ty,
-                &format!("cmp.{field_name}"),
-                str_ty_id,
-            );
-
-            // Check if this field's comparison is Equal (1)
-            let one = fc.builder_mut().const_i8(1);
-            let is_equal = fc
-                .builder_mut()
-                .icmp_eq(ord, one, &format!("cmp.{field_name}.is_eq"));
-
-            if i + 1 < fields.len() {
-                // More fields: if Equal, continue to next; otherwise return this Ordering
-                let ret_bb = fc
-                    .builder_mut()
-                    .append_block(func_id, &format!("cmp.ret.{field_name}"));
-                let next_bb = fc
-                    .builder_mut()
-                    .append_block(func_id, &format!("cmp.next.{}", i + 1));
-                fc.builder_mut().cond_br(is_equal, next_bb, ret_bb);
-
-                // Return the non-Equal ordering
-                fc.builder_mut().position_at_end(ret_bb);
-                emit_derive_return(fc, func_id, &setup.abi, Some(ord));
-
-                fc.builder_mut().position_at_end(next_bb);
-            } else {
-                // Last field: if Equal, fall through to equal_bb; otherwise return
-                let ret_bb = fc
-                    .builder_mut()
-                    .append_block(func_id, &format!("cmp.ret.{field_name}"));
-                fc.builder_mut().cond_br(is_equal, equal_bb, ret_bb);
-
-                fc.builder_mut().position_at_end(ret_bb);
-                emit_derive_return(fc, func_id, &setup.abi, Some(ord));
-            }
-        }
-    }
-
-    // All fields Equal
-    fc.builder_mut().position_at_end(equal_bb);
-    let equal_val = fc.builder_mut().const_i8(1);
-    emit_derive_return(fc, func_id, &setup.abi, Some(equal_val));
-}
-
-// ---------------------------------------------------------------------------
-// Clone: identity return for value types
-// ---------------------------------------------------------------------------
-
-/// Generate `clone(self: Self) -> Self`.
-///
-/// For value-type structs, clone is identity — just return self.
-/// ABI handles sret for large structs automatically.
-fn compile_derive_clone<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    type_name: Name,
-    type_idx: Idx,
-    type_name_str: &str,
-    _fields: &[FieldDef],
-) {
-    let setup = setup_derive_function(fc, DerivedTrait::Clone, type_name, type_idx, type_name_str);
-    let self_val = setup.self_val.expect("Clone has self");
-    emit_derive_return(fc, setup.func_id, &setup.abi, Some(self_val));
-}
-
-// ---------------------------------------------------------------------------
-// Hashable: FNV-1a hash in pure LLVM IR
-// ---------------------------------------------------------------------------
-
-/// FNV-1a offset basis (64-bit).
-const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
-/// FNV-1a prime (64-bit).
-const FNV_PRIME: u64 = 1_099_511_628_211;
-
-/// Generate `hash(self: Self) -> int`.
-///
-/// FNV-1a in pure LLVM IR: `hash = (hash XOR field_as_i64) * FNV_PRIME` per field.
-fn compile_derive_hash<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    type_name: Name,
-    type_idx: Idx,
-    type_name_str: &str,
-    fields: &[FieldDef],
-) {
-    let setup = setup_derive_function(
-        fc,
-        DerivedTrait::Hashable,
-        type_name,
-        type_idx,
-        type_name_str,
-    );
-    let self_val = setup.self_val.expect("Hashable has self");
-    let str_ty_id = setup.str_ty_id.expect("Hashable needs str_ty_id");
-
-    let mut hash = fc.builder_mut().const_i64(FNV_OFFSET_BASIS as i64);
-    let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);
-
-    for (i, field) in fields.iter().enumerate() {
-        let field_name = fc.lookup_name(field.name).to_owned();
-        let field_val =
-            fc.builder_mut()
-                .extract_value(self_val, i as u32, &format!("hash.{field_name}"));
-
-        let Some(fv) = field_val else {
-            warn!(field = %field_name, "extract_value failed in derive Hash");
-            continue;
-        };
-
-        let field_as_i64 =
-            coerce_to_i64(fc, fv, field.ty, &format!("hash.{field_name}"), str_ty_id);
-
-        let xored = fc
-            .builder_mut()
-            .xor(hash, field_as_i64, &format!("hash.xor.{i}"));
-        hash = fc.builder_mut().mul(xored, prime, &format!("hash.mul.{i}"));
-    }
-
-    emit_derive_return(fc, setup.func_id, &setup.abi, Some(hash));
-}
-
-// ---------------------------------------------------------------------------
-// Printable: string representation via runtime concat
-// ---------------------------------------------------------------------------
-
-/// Generate `to_str(self: Self) -> str`.
-///
-/// Builds `"TypeName(val1, val2)"` per spec §7 — human-readable format
-/// with type name and field values (no field names).
-/// Uses runtime string functions: `ori_str_from_int`, `ori_str_from_bool`,
-/// `ori_str_from_float`, `ori_str_concat`.
-fn compile_derive_printable<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    type_name: Name,
-    type_idx: Idx,
-    type_name_str: &str,
-    fields: &[FieldDef],
-) {
-    let setup = setup_derive_function(
-        fc,
-        DerivedTrait::Printable,
-        type_name,
-        type_idx,
-        type_name_str,
-    );
-    let self_val = setup.self_val.expect("Printable has self");
-    let str_ty_id = setup.str_ty_id.expect("Printable needs str_ty_id");
-
-    // Build opening: "TypeName("
-    let prefix = format!("{type_name_str}(");
-    let mut result = emit_str_literal(fc, &prefix, "prefix", str_ty_id);
-
-    for (i, field) in fields.iter().enumerate() {
-        let field_name_str = fc.lookup_name(field.name).to_owned();
-
-        let field_val =
-            fc.builder_mut()
-                .extract_value(self_val, i as u32, &format!("ts.{field_name_str}"));
-        if let Some(fv) = field_val {
-            let field_str =
-                emit_field_to_string(fc, fv, field.ty, &format!("ts.{field_name_str}"), str_ty_id);
-            result = emit_str_concat(fc, result, field_str, &format!("cat.val.{i}"), str_ty_id);
-        }
-
-        if i + 1 < fields.len() {
-            let sep = emit_str_literal(fc, ", ", &format!("sep.{i}"), str_ty_id);
-            result = emit_str_concat(fc, result, sep, &format!("cat.sep.{i}"), str_ty_id);
-        }
-    }
-
-    let suffix = emit_str_literal(fc, ")", "suffix", str_ty_id);
-    result = emit_str_concat(fc, result, suffix, "cat.suffix", str_ty_id);
-
-    emit_derive_return(fc, setup.func_id, &setup.abi, Some(result));
-}
-
-// ---------------------------------------------------------------------------
-// Default: zero-initialized struct construction
-// ---------------------------------------------------------------------------
-
-/// Generate `default() -> Self` (static method, no self parameter).
-///
-/// Constructs a zero-initialized struct by building each field's default
-/// value and assembling them via `build_struct`. Uses `const_zero` for the
-/// struct's LLVM type, which recursively zero-inits all fields — producing
-/// correct defaults for int(0), float(0.0), bool(false), and str({0, null}).
-fn compile_derive_default<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    type_name: Name,
-    type_idx: Idx,
-    type_name_str: &str,
-    _fields: &[FieldDef],
-) {
-    let setup = setup_derive_function(
-        fc,
-        DerivedTrait::Default,
-        type_name,
-        type_idx,
-        type_name_str,
-    );
-
-    // Build a zero-initialized struct value.
-    // `const_zero` on a struct type recursively zeros all fields:
-    // int → 0, float → 0.0, bool → false, ptr → null, str → {0, null}
-    let struct_llvm_ty = fc.resolve_type(type_idx);
-    let result = fc.builder_mut().const_zero(struct_llvm_ty);
-
-    emit_derive_return(fc, setup.func_id, &setup.abi, Some(result));
 }
 
 // ---------------------------------------------------------------------------

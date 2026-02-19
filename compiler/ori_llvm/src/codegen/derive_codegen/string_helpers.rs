@@ -1,8 +1,9 @@
-//! String emission helpers for derived Printable codegen.
+//! String emission helpers for derived format codegen (Printable & Debug).
 //!
 //! Provides LLVM IR generation for string literals, concatenation, and
-//! field-to-string conversion. Used by `compile_derive_printable()` to build
-//! `"TypeName(val1, val2)"` representations.
+//! field-to-string conversion. Used by `compile_format_fields()` to build
+//! formatted representations like `"TypeName(val1, val2)"` (Printable) or
+//! `"TypeName { f1: val1, f2: val2 }"` (Debug).
 
 use ori_ir::DerivedTrait;
 use ori_types::Idx;
@@ -37,9 +38,9 @@ pub(super) fn emit_str_concat<'a>(
 ) -> ValueId {
     let ptr_ty = fc.builder_mut().ptr_type();
 
-    let lhs_alloca = fc.builder_mut().alloca(str_ty_id, &format!("{name}.lhs"));
+    let lhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.lhs"));
     fc.builder_mut().store(lhs, lhs_alloca);
-    let rhs_alloca = fc.builder_mut().alloca(str_ty_id, &format!("{name}.rhs"));
+    let rhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.rhs"));
     fc.builder_mut().store(rhs, rhs_alloca);
 
     let concat_fn =
@@ -51,8 +52,13 @@ pub(super) fn emit_str_concat<'a>(
 }
 
 /// Convert a field value to its string representation.
+///
+/// The `trait_kind` parameter determines which method to call on nested struct
+/// types (e.g., `to_str` for Printable, `debug` for Debug) and whether to
+/// quote string values (Debug quotes, Printable doesn't).
 pub(super) fn emit_field_to_string<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    trait_kind: DerivedTrait,
     val: ValueId,
     field_type: Idx,
     name: &str,
@@ -91,7 +97,17 @@ pub(super) fn emit_field_to_string<'a>(
                 .call(f, &[val], name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<bool>", name, str_ty_id))
         }
-        TypeInfo::Str => val,
+        TypeInfo::Str => {
+            if trait_kind == DerivedTrait::Debug {
+                // Debug quotes string values: "hello" → "\"hello\""
+                let open = emit_str_literal(fc, "\"", &format!("{name}.q1"), str_ty_id);
+                let quoted = emit_str_concat(fc, open, val, &format!("{name}.qcat"), str_ty_id);
+                let close = emit_str_literal(fc, "\"", &format!("{name}.q2"), str_ty_id);
+                emit_str_concat(fc, quoted, close, &format!("{name}.quoted"), str_ty_id)
+            } else {
+                val
+            }
+        }
         TypeInfo::Char => {
             let i64_ty = fc.builder_mut().i64_type();
             let char_as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
@@ -114,9 +130,9 @@ pub(super) fn emit_field_to_string<'a>(
         }
         TypeInfo::Struct { .. } => {
             let nested_name = fc.type_idx_to_name(field_type);
-            let ts_name = fc.intern(DerivedTrait::Printable.method_name());
+            let method = fc.intern(trait_kind.method_name());
             if let Some(type_name) = nested_name {
-                if let Some((fid, abi)) = fc.get_method_function(type_name, ts_name) {
+                if let Some((fid, abi)) = fc.get_method_function(type_name, method) {
                     return emit_method_call_for_derive(fc, fid, &abi, &[val], name);
                 }
             }
