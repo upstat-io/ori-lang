@@ -9,8 +9,8 @@
 //! - Module checker design: `plans/types_v2/section-08b-module-checker.md`
 
 use ori_ir::{
-    DerivedTrait, ExprArena, ExprId, Module, Name, ParsedType, Span, TraitItem, TypeId,
-    Visibility as IrVisibility,
+    DerivedMethodShape, DerivedTrait, ExprArena, ExprId, Module, Name, ParsedType, Span, TraitItem,
+    TypeId, Visibility as IrVisibility,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -1449,40 +1449,45 @@ fn register_derived_impl(
     trait_name: Name,
 ) {
     // 0. Reject non-derivable traits (E2033)
-    {
+    let trait_kind = {
         let trait_str = checker.interner().lookup(trait_name);
-        if DerivedTrait::from_name(trait_str).is_none() {
-            checker.push_error(TypeCheckError::trait_not_derivable(
-                type_decl.span,
-                trait_name,
-            ));
-            return;
+        match DerivedTrait::from_name(trait_str) {
+            Some(kind) => kind,
+            None => {
+                checker.push_error(TypeCheckError::trait_not_derivable(
+                    type_decl.span,
+                    trait_name,
+                ));
+                return;
+            }
         }
-    }
+    };
 
-    // 0a. Reject #[derive(Default)] on sum types (spec: ambiguous variant)
-    let wk = checker.well_known();
-    if trait_name == wk.default_trait && matches!(type_decl.kind, ori_ir::TypeDeclKind::Sum(_)) {
-        checker.push_error(TypeCheckError::cannot_derive_default_for_sum_type(
+    // 0a. Reject derives on sum types when the trait doesn't support it (E2028)
+    if !trait_kind.supports_sum_types() && matches!(type_decl.kind, ori_ir::TypeDeclKind::Sum(_)) {
+        checker.push_error(TypeCheckError::cannot_derive_for_sum_type(
             type_decl.span,
             type_decl.name,
+            trait_kind,
         ));
         return;
     }
 
-    // 0b. Reject #[derive(Hashable)] without Eq (hash invariant: a == b ⟹ hash(a) == hash(b))
-    let eq_name = wk.eq;
-    if trait_name == wk.hashable {
-        let has_eq = type_decl.derives.contains(&eq_name);
-        if !has_eq {
-            // Also check if an explicit `impl Eq for Type` exists in the trait registry
-            let eq_idx = checker.pool_mut().named(eq_name);
+    // 0b. Reject derives when the required supertrait is missing (E2029)
+    if let Some(required) = trait_kind.requires_supertrait() {
+        let required_name = checker.interner().intern(required.trait_name());
+        let has_derive = type_decl.derives.contains(&required_name);
+        if !has_derive {
+            // Also check if an explicit impl exists in the trait registry
+            let required_idx = checker.pool_mut().named(required_name);
             let self_type = checker.pool_mut().named(type_decl.name);
-            let has_eq_impl = checker.trait_registry().has_impl(eq_idx, self_type);
-            if !has_eq_impl {
-                checker.push_error(TypeCheckError::cannot_derive_hashable_without_eq(
+            let has_impl = checker.trait_registry().has_impl(required_idx, self_type);
+            if !has_impl {
+                checker.push_error(TypeCheckError::cannot_derive_without_supertrait(
                     type_decl.span,
                     type_decl.name,
+                    trait_kind,
+                    required,
                 ));
                 return;
             }
@@ -1683,25 +1688,26 @@ fn build_derived_methods(
     let method_str = trait_kind.method_name();
     let method_name = checker.interner().intern(method_str);
 
-    // Build function type: (params...) -> return_type
-    let signature = match trait_kind {
-        DerivedTrait::Eq => checker
-            .pool_mut()
-            .function2(self_type, self_type, Idx::BOOL),
-        DerivedTrait::Clone => checker.pool_mut().function1(self_type, self_type),
-        DerivedTrait::Hashable => checker.pool_mut().function1(self_type, Idx::INT),
-        DerivedTrait::Printable | DerivedTrait::Debug => {
-            checker.pool_mut().function1(self_type, Idx::STR)
+    // Build function type from shape metadata — adding a new trait with an
+    // existing shape requires zero changes here.
+    let signature = match trait_kind.shape() {
+        DerivedMethodShape::BinaryPredicate => {
+            checker
+                .pool_mut()
+                .function2(self_type, self_type, Idx::BOOL)
         }
-        DerivedTrait::Default => checker.pool_mut().function0(self_type),
-        DerivedTrait::Comparable => {
+        DerivedMethodShape::UnaryIdentity => checker.pool_mut().function1(self_type, self_type),
+        DerivedMethodShape::UnaryToInt => checker.pool_mut().function1(self_type, Idx::INT),
+        DerivedMethodShape::UnaryToStr => checker.pool_mut().function1(self_type, Idx::STR),
+        DerivedMethodShape::Nullary => checker.pool_mut().function0(self_type),
+        DerivedMethodShape::BinaryToOrdering => {
             checker
                 .pool_mut()
                 .function2(self_type, self_type, Idx::ORDERING)
         }
     };
 
-    let has_self = !matches!(trait_kind, DerivedTrait::Default);
+    let has_self = trait_kind.shape().has_self();
 
     let mut methods = FxHashMap::default();
     methods.insert(

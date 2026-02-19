@@ -15,7 +15,7 @@
 //! - Suggestions are generated based on the specific problem
 
 use ori_diagnostic::ErrorCode;
-use ori_ir::{Name, Span};
+use ori_ir::{DerivedTrait, Name, Span};
 
 use ori_diagnostic::Suggestion;
 
@@ -513,15 +513,25 @@ impl TypeCheckError {
                     format_type(*ty)
                 )
             }
-            TypeErrorKind::CannotDeriveDefaultForSumType { type_name } => {
+            TypeErrorKind::CannotDeriveForSumType {
+                type_name,
+                trait_kind,
+            } => {
                 format!(
-                    "cannot derive `Default` for sum type `{}`",
+                    "cannot derive `{}` for sum type `{}`",
+                    trait_kind.trait_name(),
                     format_name(*type_name)
                 )
             }
-            TypeErrorKind::CannotDeriveHashableWithoutEq { type_name } => {
+            TypeErrorKind::CannotDeriveWithoutSupertrait {
+                type_name,
+                trait_kind,
+                required,
+            } => {
                 format!(
-                    "cannot derive `Hashable` without `Eq` for type `{}`",
+                    "cannot derive `{}` without `{}` for type `{}`",
+                    trait_kind.trait_name(),
+                    required.trait_name(),
                     format_name(*type_name)
                 )
             }
@@ -755,11 +765,19 @@ impl TypeCheckError {
                     ty.display_name()
                 )
             }
-            TypeErrorKind::CannotDeriveDefaultForSumType { .. } => {
-                "cannot derive `Default` for sum type".to_string()
+            TypeErrorKind::CannotDeriveForSumType { trait_kind, .. } => {
+                format!("cannot derive `{}` for sum type", trait_kind.trait_name())
             }
-            TypeErrorKind::CannotDeriveHashableWithoutEq { .. } => {
-                "cannot derive `Hashable` without `Eq`".to_string()
+            TypeErrorKind::CannotDeriveWithoutSupertrait {
+                trait_kind,
+                required,
+                ..
+            } => {
+                format!(
+                    "cannot derive `{}` without `{}`",
+                    trait_kind.trait_name(),
+                    required.trait_name()
+                )
             }
             TypeErrorKind::HashInvariantViolation { .. } => {
                 "`Hashable` implementation may violate hash invariant".to_string()
@@ -885,10 +903,10 @@ impl TypeCheckError {
             TypeErrorKind::AmbiguousIndex { .. } => ErrorCode::E2027,
 
             // E2028: Cannot derive Default for sum type
-            TypeErrorKind::CannotDeriveDefaultForSumType { .. } => ErrorCode::E2028,
+            TypeErrorKind::CannotDeriveForSumType { .. } => ErrorCode::E2028,
 
             // E2029: Cannot derive Hashable without Eq
-            TypeErrorKind::CannotDeriveHashableWithoutEq { .. } => ErrorCode::E2029,
+            TypeErrorKind::CannotDeriveWithoutSupertrait { .. } => ErrorCode::E2029,
 
             // E2030: Hash invariant violation
             TypeErrorKind::HashInvariantViolation { .. } => ErrorCode::E2030,
@@ -1159,32 +1177,53 @@ impl TypeCheckError {
     ///
     /// Emitted when `#[derive(Default)]` is applied to a sum type, which is
     /// invalid because there is no unambiguous default variant.
-    pub fn cannot_derive_default_for_sum_type(span: Span, type_name: Name) -> Self {
+    pub fn cannot_derive_for_sum_type(
+        span: Span,
+        type_name: Name,
+        trait_kind: DerivedTrait,
+    ) -> Self {
+        let suggestion = format!(
+            "remove `{}` from derive list, or implement `{}` manually choosing a specific variant",
+            trait_kind.trait_name(),
+            trait_kind.trait_name(),
+        );
         Self {
             span,
-            kind: TypeErrorKind::CannotDeriveDefaultForSumType { type_name },
+            kind: TypeErrorKind::CannotDeriveForSumType {
+                type_name,
+                trait_kind,
+            },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "remove `Default` from derive list, or implement `Default` manually choosing a specific variant",
-                0,
-            )],
+            suggestions: vec![Suggestion::text(suggestion, 0)],
         }
     }
 
-    /// Create a "cannot derive Hashable without Eq" error (E2029).
+    /// Create a "cannot derive trait without required supertrait" error (E2029).
     ///
-    /// Emitted when `#[derive(Hashable)]` is applied to a type that does not
-    /// also derive or implement `Eq`. The hash invariant requires that equal
-    /// values have equal hashes.
-    pub fn cannot_derive_hashable_without_eq(span: Span, type_name: Name) -> Self {
+    /// Emitted when a derived trait requires a supertrait (e.g., `Hashable`
+    /// requires `Eq`, `Comparable` requires `Eq`) but the type does not derive
+    /// or implement the required supertrait.
+    pub fn cannot_derive_without_supertrait(
+        span: Span,
+        type_name: Name,
+        trait_kind: DerivedTrait,
+        required: DerivedTrait,
+    ) -> Self {
+        let suggestion = format!(
+            "add `{}` to the derive list: `#[derive({}, {})]`",
+            required.trait_name(),
+            required.trait_name(),
+            trait_kind.trait_name(),
+        );
         Self {
             span,
-            kind: TypeErrorKind::CannotDeriveHashableWithoutEq { type_name },
+            kind: TypeErrorKind::CannotDeriveWithoutSupertrait {
+                type_name,
+                trait_kind,
+                required,
+            },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "add `Eq` to the derive list: `#[derive(Eq, Hashable)]`",
-                0,
-            )],
+            suggestions: vec![Suggestion::text(suggestion, 0)],
         }
     }
 
@@ -1804,16 +1843,22 @@ pub enum TypeErrorKind {
         ty: Idx,
     },
 
-    /// Cannot derive `Default` for a sum type (E2028).
-    CannotDeriveDefaultForSumType {
+    /// Cannot derive a trait for a sum type (E2028).
+    CannotDeriveForSumType {
         /// The sum type name.
         type_name: Name,
+        /// The trait that cannot be derived for sum types.
+        trait_kind: DerivedTrait,
     },
 
-    /// Cannot derive `Hashable` without `Eq` (E2029).
-    CannotDeriveHashableWithoutEq {
-        /// The type name that derives Hashable.
+    /// Cannot derive a trait without its required supertrait (E2029).
+    CannotDeriveWithoutSupertrait {
+        /// The type name.
         type_name: Name,
+        /// The trait being derived.
+        trait_kind: DerivedTrait,
+        /// The required supertrait that is missing.
+        required: DerivedTrait,
     },
 
     /// `Hashable` implementation may violate hash invariant (E2030).

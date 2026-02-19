@@ -452,7 +452,7 @@ fn test_aot_clone_tuple_triple() {
 fn test_aot_derive_comparable_basic() {
     assert_aot_success(
         r#"
-#[derive(Comparable)]
+#[derive(Eq, Comparable)]
 type Point = { x: int, y: int }
 
 @main () -> int = run(
@@ -472,7 +472,7 @@ type Point = { x: int, y: int }
 fn test_aot_derive_comparable_first_field_wins() {
     assert_aot_success(
         r#"
-#[derive(Comparable)]
+#[derive(Eq, Comparable)]
 type Pair = { x: int, y: int }
 
 @main () -> int = run(
@@ -490,7 +490,7 @@ type Pair = { x: int, y: int }
 fn test_aot_derive_comparable_with_strings() {
     assert_aot_success(
         r#"
-#[derive(Comparable)]
+#[derive(Eq, Comparable)]
 type Named = { name: str, id: int }
 
 @main () -> int = run(
@@ -510,7 +510,7 @@ type Named = { name: str, id: int }
 fn test_aot_derive_comparable_single_field() {
     assert_aot_success(
         r#"
-#[derive(Comparable)]
+#[derive(Eq, Comparable)]
 type Wrapper = { value: int }
 
 @main () -> int = run(

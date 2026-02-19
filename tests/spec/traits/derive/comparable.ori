@@ -7,7 +7,7 @@ use std.testing { assert }
 // Basic derive(Comparable)
 // =============================================================================
 
-#[derive(Comparable)]
+#[derive(Eq, Comparable)]
 type Point = { x: int, y: int }
 
 @test_point_compare_less tests @point_cmp_less () -> void = run(
@@ -83,7 +83,7 @@ type Point = { x: int, y: int }
 // Single-field struct
 // =============================================================================
 
-#[derive(Comparable)]
+#[derive(Eq, Comparable)]
 type Wrapper = { value: int }
 
 @test_wrapper_compare tests @wrapper_cmp () -> void = run(
