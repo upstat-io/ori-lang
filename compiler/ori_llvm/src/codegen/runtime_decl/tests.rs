@@ -1,5 +1,8 @@
+use std::collections::BTreeSet;
+
 use super::*;
 use crate::context::SimpleCx;
+use crate::evaluator::{AOT_ONLY_RUNTIME_FUNCTIONS, JIT_MAPPED_RUNTIME_FUNCTIONS};
 use inkwell::context::Context;
 
 #[test]
@@ -10,40 +13,61 @@ fn runtime_functions_declared() {
 
     declare_runtime(&mut builder);
 
-    // Verify key runtime functions exist in the module
+    // Verify ALL runtime functions exist in the module (must match declare_runtime exactly)
     let expected = [
+        // I/O
         "ori_print",
         "ori_print_int",
         "ori_print_float",
         "ori_print_bool",
+        // Panic
         "ori_panic",
         "ori_panic_cstr",
+        // Entry point wrapper (AOT-only, not in JIT mappings)
+        "ori_run_main",
+        // Assertions
         "ori_assert",
         "ori_assert_eq_int",
         "ori_assert_eq_bool",
         "ori_assert_eq_float",
         "ori_assert_eq_str",
+        // Lists
         "ori_list_alloc_data",
         "ori_list_free_data",
         "ori_list_new",
         "ori_list_free",
         "ori_list_len",
+        // Comparison
         "ori_compare_int",
         "ori_min_int",
         "ori_max_int",
+        // Strings
         "ori_str_concat",
         "ori_str_eq",
         "ori_str_ne",
         "ori_str_compare",
+        "ori_str_hash",
+        "ori_str_next_char",
+        // Type conversions
         "ori_str_from_int",
         "ori_str_from_bool",
         "ori_str_from_float",
+        // Format functions (Formattable trait)
+        "ori_format_int",
+        "ori_format_float",
+        "ori_format_str",
+        "ori_format_bool",
+        "ori_format_char",
+        // Reference counting
         "ori_rc_alloc",
         "ori_rc_inc",
         "ori_rc_dec",
         "ori_rc_free",
+        // Args
         "ori_args_from_argv",
         "ori_register_panic_handler",
+        // EH personality
+        "rust_eh_personality",
     ];
 
     for name in &expected {
@@ -165,5 +189,54 @@ fn panic_functions_have_cold_nounwind() {
     assert!(
         ir.contains("cold"),
         "panic functions should have cold attribute in IR:\n{ir}"
+    );
+}
+
+/// Verifies that every function declared by `declare_runtime()` is either
+/// in the JIT mapping table or in the documented AOT-only exception list.
+///
+/// This catches drift where a new runtime function is declared but not
+/// added to the JIT symbol mappings.
+#[test]
+fn declared_functions_covered_by_jit_or_aot_only() {
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_sync");
+    let mut builder = IrBuilder::new(&scx);
+
+    declare_runtime(&mut builder);
+
+    // Collect all function names declared in the LLVM module
+    let mut declared: BTreeSet<String> = BTreeSet::new();
+    let mut func = scx.llmod.get_first_function();
+    while let Some(f) = func {
+        declared.insert(
+            f.get_name()
+                .to_str()
+                .expect("non-UTF8 function name")
+                .to_owned(),
+        );
+        func = f.get_next_function();
+    }
+
+    // Build the combined coverage set: JIT mappings + AOT-only exceptions
+    let covered: BTreeSet<String> = JIT_MAPPED_RUNTIME_FUNCTIONS
+        .iter()
+        .chain(AOT_ONLY_RUNTIME_FUNCTIONS.iter())
+        .map(|s| (*s).to_owned())
+        .collect();
+
+    let uncovered: BTreeSet<_> = declared.difference(&covered).collect();
+    let phantom: BTreeSet<_> = covered.difference(&declared).collect();
+
+    assert!(
+        uncovered.is_empty(),
+        "Runtime functions declared but not in JIT mappings or AOT-only list: {uncovered:?}\n\
+         Add them to JIT_MAPPED_RUNTIME_FUNCTIONS in evaluator.rs or \
+         AOT_ONLY_RUNTIME_FUNCTIONS if they are AOT-only."
+    );
+    assert!(
+        phantom.is_empty(),
+        "Functions in JIT/AOT-only lists but not declared by declare_runtime(): {phantom:?}\n\
+         Remove them from evaluator.rs or add them to declare_runtime()."
     );
 }
