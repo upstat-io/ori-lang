@@ -366,13 +366,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
                 body,
             } => self.lower_with_capability(capability, provider, body),
 
-            // --- Formatting (stub: falls back to .to_str()) ---
-            CanExpr::FormatWith { expr, .. } => {
-                // TODO: Full format spec support in LLVM codegen.
-                // For now, lower the expression and call to_str() on it.
-                // This loses format spec information but produces correct (unformatted) strings.
-                self.lower_format_with_stub(expr, id)
-            }
+            // --- Formatting (§3.16 Formattable trait) ---
+            CanExpr::FormatWith { expr, spec } => self.lower_format_with(expr, spec, id),
 
             // --- Error placeholder (should not reach codegen) ---
             CanExpr::Error => {

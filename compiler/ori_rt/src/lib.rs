@@ -51,6 +51,8 @@
     reason = "tests use &var to get pointers — intentional for FFI testing"
 )]
 
+pub mod format;
+
 use std::cell::{Cell, RefCell};
 use std::ffi::CStr;
 use std::panic;
@@ -85,6 +87,17 @@ impl OriStr {
         }
         let slice = std::slice::from_raw_parts(self.data, self.len as usize);
         std::str::from_utf8_unchecked(slice)
+    }
+
+    /// Create an `OriStr` from an owned `String`, leaking the allocation.
+    ///
+    /// The caller (LLVM-generated code) owns the returned pointer.
+    #[must_use]
+    pub fn from_owned(s: String) -> Self {
+        let len = s.len() as i64;
+        let data = s.into_boxed_str();
+        let ptr = Box::into_raw(data) as *const u8;
+        Self { len, data: ptr }
     }
 }
 

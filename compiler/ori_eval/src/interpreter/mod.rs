@@ -672,6 +672,38 @@ impl<'a> Interpreter<'a> {
         self.env.define_global(equal_name, Value::ordering_equal());
         self.env
             .define_global(greater_name, Value::ordering_greater());
+
+        // Built-in format spec enum variants (§3.16 Formattable)
+        self.register_format_variants();
+    }
+
+    /// Register `Alignment`, `Sign`, and `FormatType` enum variants as globals.
+    ///
+    /// These unit variants are used by the `Formattable` trait's `FormatSpec` struct.
+    /// Uses the generic `Value::Variant` representation (not a dedicated Value variant)
+    /// since format spec types are only used in formatting, not in hot-path operators.
+    fn register_format_variants(&mut self) {
+        let alignment = self.interner.intern("Alignment");
+        for name in ["Left", "Center", "Right"] {
+            let n = self.interner.intern(name);
+            self.env
+                .define_global(n, Value::variant(alignment, n, vec![]));
+        }
+
+        let sign = self.interner.intern("Sign");
+        for name in ["Plus", "Minus", "Space"] {
+            let n = self.interner.intern(name);
+            self.env.define_global(n, Value::variant(sign, n, vec![]));
+        }
+
+        let format_type = self.interner.intern("FormatType");
+        for name in [
+            "Binary", "Octal", "Hex", "HexUpper", "Exp", "ExpUpper", "Fixed", "Percent",
+        ] {
+            let n = self.interner.intern(name);
+            self.env
+                .define_global(n, Value::variant(format_type, n, vec![]));
+        }
     }
 
     /// Get captured print output.

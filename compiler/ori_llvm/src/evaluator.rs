@@ -352,9 +352,14 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         // Feeding malformed IR to LLVM's verifier or JIT can cause
         // heap corruption (SIGABRT) that kills the entire process.
         if codegen_errors > 0 {
-            // NOTE: scx (ManuallyDrop) is intentionally leaked here.
-            // Dropping an LLVM module with invalid IR (type-mismatched
-            // ret void, etc.) can itself trigger heap corruption.
+            // Drop scx to free the LLVM Module while the Context (owned by
+            // self) is still alive. Previously this was leaked (ManuallyDrop
+            // suppressed drop), but that caused the Module's LLVM-internal
+            // pointers to dangle when the Context was freed — accumulating
+            // leaked modules across many files eventually corrupted LLVM's heap.
+            // SAFETY: The Module was created from self.context which is still
+            // alive, so LLVMDisposeModule can safely clean up.
+            drop(ManuallyDrop::into_inner(scx));
             return Err(LLVMEvalError::new(format!(
                 "LLVM codegen had {codegen_errors} type-mismatch error(s) — skipping verification/JIT",
             )));
@@ -369,7 +374,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
 
         // 11. Verify IR
         if let Err(msg) = scx.llmod.verify() {
-            // NOTE: scx intentionally leaked — see codegen_errors note above.
+            // Drop scx to free the Module while Context is alive (see codegen_errors note).
+            drop(ManuallyDrop::into_inner(scx));
             return Err(LLVMEvalError::new(format!(
                 "LLVM IR verification failed: {}",
                 msg.to_string()
@@ -484,6 +490,27 @@ fn add_runtime_mappings_to_engine(
         (
             "ori_str_from_float",
             runtime::ori_str_from_float as *const () as usize,
+        ),
+        // Format functions (§3.16 Formattable trait)
+        (
+            "ori_format_int",
+            runtime::format::ori_format_int as *const () as usize,
+        ),
+        (
+            "ori_format_float",
+            runtime::format::ori_format_float as *const () as usize,
+        ),
+        (
+            "ori_format_str",
+            runtime::format::ori_format_str as *const () as usize,
+        ),
+        (
+            "ori_format_bool",
+            runtime::format::ori_format_bool as *const () as usize,
+        ),
+        (
+            "ori_format_char",
+            runtime::format::ori_format_char as *const () as usize,
         ),
         ("ori_rc_alloc", runtime::ori_rc_alloc as *const () as usize),
         ("ori_rc_inc", runtime::ori_rc_inc as *const () as usize),

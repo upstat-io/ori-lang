@@ -107,6 +107,14 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_str_from_bool", &[bool_ty], Some(str_ty));
     builder.declare_extern_function("ori_str_from_float", &[f64_ty], Some(str_ty));
 
+    // -- Format functions (§3.16 Formattable trait) --
+    // Each takes the value + format spec string (ptr + len) and returns formatted OriStr.
+    builder.declare_extern_function("ori_format_int", &[i64_ty, ptr_ty, i64_ty], Some(str_ty));
+    builder.declare_extern_function("ori_format_float", &[f64_ty, ptr_ty, i64_ty], Some(str_ty));
+    builder.declare_extern_function("ori_format_str", &[ptr_ty, ptr_ty, i64_ty], Some(str_ty));
+    builder.declare_extern_function("ori_format_bool", &[bool_ty, ptr_ty, i64_ty], Some(str_ty));
+    builder.declare_extern_function("ori_format_char", &[i32_ty, ptr_ty, i64_ty], Some(str_ty));
+
     // -- Reference counting (V2: data-pointer style, 8-byte header) --
     //
     // ARC-safe attributes are CRITICAL for correctness under LLVM optimization.

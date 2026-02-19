@@ -304,6 +304,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let zero = self.builder.const_i64(0);
                 Some(self.builder.icmp_eq(len, zero, "str.is_empty"))
             }
+            "concat" => {
+                let arg_ids = self.canon.arena.get_expr_list(args);
+                let other = self.lower(*arg_ids.first()?)?;
+                Some(self.emit_str_concat_call(recv, other, "str.concat"))
+            }
             "compare" => {
                 let arg_ids = self.canon.arena.get_expr_list(args);
                 let other = self.lower(*arg_ids.first()?)?;
@@ -1407,6 +1412,26 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         self.builder
             .call(cmp_fn, &[lhs_ptr, rhs_ptr], name)
             .unwrap_or_else(|| self.builder.const_i8(1))
+    }
+
+    /// Call `ori_str_concat(a: ptr, b: ptr) -> OriStr` via alloca+store pattern.
+    fn emit_str_concat_call(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
+        let lhs_ptr = self.alloca_and_store(lhs, &format!("{name}.lhs"));
+        let rhs_ptr = self.alloca_and_store(rhs, &format!("{name}.rhs"));
+
+        let ptr_ty = self.builder.ptr_type();
+        let str_ty = self.resolve_type(Idx::STR);
+        let concat_fn =
+            self.builder
+                .get_or_declare_function("ori_str_concat", &[ptr_ty, ptr_ty], str_ty);
+        self.builder
+            .call(concat_fn, &[lhs_ptr, rhs_ptr], name)
+            .unwrap_or_else(|| {
+                let zero_len = self.builder.const_i64(0);
+                let null_ptr = self.builder.const_null_ptr();
+                self.builder
+                    .build_struct(str_ty, &[zero_len, null_ptr], name)
+            })
     }
 
     /// Call `ori_str_hash(s: ptr) -> i64` via alloca+store pattern.
