@@ -987,16 +987,12 @@ impl Parser<'_> {
 
         // Per spec: mutable by default, $ prefix for immutable
         // - `let x = ...` → mutable (default)
-        // - `let $x = ...` → immutable (spec syntax)
-        // - `let mut x = ...` → mutable (legacy, same as default)
+        // - `let $x = ...` → immutable
         let mutable = if self.cursor.check(&TokenKind::Dollar) {
             self.cursor.advance();
-            false // $ prefix means immutable
-        } else if self.cursor.check(&TokenKind::Mut) {
-            self.cursor.advance();
-            true // mut keyword (legacy, redundant since default is mutable)
+            false
         } else {
-            true // default is mutable per spec
+            true
         };
 
         let pattern = committed!(self.parse_binding_pattern());

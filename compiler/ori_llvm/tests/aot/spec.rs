@@ -661,7 +661,7 @@ fn test_aot_loop_conditional_break() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut count = 0,
+    let count = 0,
     loop(run(
         count = count + 1,
         if count >= 5 then break,
@@ -678,7 +678,7 @@ fn test_aot_loop_break_never_coercion() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut count = 0,
+    let count = 0,
     let result = loop(run(
         count = count + 1,
         if count > 5 then break count else count,
@@ -695,8 +695,8 @@ fn test_aot_loop_continue_never_coercion() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut count = 0,
-    let mut sum = 0,
+    let count = 0,
+    let sum = 0,
     loop(run(
         count = count + 1,
         if count > 10 then break,
@@ -715,8 +715,8 @@ fn test_aot_loop_break_and_continue_combined() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut i = 0,
-    let mut total = 0,
+    let i = 0,
+    let total = 0,
     loop(run(
         i = i + 1,
         if i > 20 then break,

@@ -90,7 +90,7 @@ use std.testing { assert_eq }
 // =============================================================================
 
 @for_loop_iterable () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [10, 20, 30] do sum = sum + x,
     sum,
 )

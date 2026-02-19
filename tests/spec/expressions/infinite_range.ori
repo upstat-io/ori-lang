@@ -107,7 +107,7 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @for_break () -> [int] = run(
-    let mut result: [int] = [],
+    let result: [int] = [],
     for i in 0.. do run(
         if i >= 5 then break,
         result = result + [i],
@@ -121,7 +121,7 @@ use std.testing { assert, assert_eq }
 
 // For loop with step and break
 @for_step_break () -> [int] = run(
-    let mut result: [int] = [],
+    let result: [int] = [],
     for i in 0.. by 2 do run(
         if i >= 10 then break,
         result = result + [i],

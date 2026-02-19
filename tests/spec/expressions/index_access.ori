@@ -358,13 +358,13 @@ type Container = { items: [int] }
 
 #skip("index assignment not supported - pending design proposal")
 @test_list_assign tests @list_assign () -> void = run(
-    let mut list = [1, 2, 3],
+    let list = [1, 2, 3],
     list[1] = 99,
     assert_eq(actual: list[1], expected: 99),
 )
 
 @list_assign () -> int = run(
-    let mut list = [1, 2, 3],
+    let list = [1, 2, 3],
     list[1] = 99,
     list[1],
 )

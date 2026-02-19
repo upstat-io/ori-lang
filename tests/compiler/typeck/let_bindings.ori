@@ -143,7 +143,7 @@ use std.prelude { is_ok }
 
 // Valid: mutable binding with annotation
 @test_let_mut_annotation () -> void = run(
-    let mut x: int = 0,
+    let x: int = 0,
     x = 42,
     assert_eq(actual: x, expected: 42),
 )
@@ -151,14 +151,14 @@ use std.prelude { is_ok }
 // Invalid: mutable binding with wrong annotation
 #[compile_fail("type mismatch")]
 @test_let_mut_wrong_annotation () -> void = run(
-    let mut x: int = "hello",
+    let x: int = "hello",
     (),
 )
 
 // Invalid: reassign mutable to wrong type
 #[compile_fail("type mismatch")]
 @test_let_mut_reassign_wrong_type () -> void = run(
-    let mut x: int = 42,
+    let x: int = 42,
     x = "hello",
     (),
 )

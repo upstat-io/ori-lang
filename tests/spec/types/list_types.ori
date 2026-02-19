@@ -197,7 +197,7 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @sum_list (items: [int]) -> int = run(
-    let mut total = 0,
+    let total = 0,
     for x in items do total = total + x,
     total,
 )
@@ -228,8 +228,8 @@ use std.testing { assert, assert_eq }
 // Parser does not accept wildcard '_' as binding pattern in for loops.
 
 @make_range (n: int) -> [int] = run(
-    let mut result: [int] = [],
-    let mut i = 0,
+    let result: [int] = [],
+    let i = 0,
     for _ in 0..n do run(
         result = [...result, i],
         i = i + 1,

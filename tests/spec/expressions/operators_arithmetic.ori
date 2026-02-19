@@ -355,12 +355,12 @@ use std.testing { assert_eq, assert }
 // =============================================================================
 
 @test_left_to_right_eval tests @left_to_right_eval () -> void = run(
-    let mut counter = 0,
+    let counter = 0,
     let result = run(counter = 1, counter) + run(counter = counter * 10, counter),
     assert_eq(actual: result, expected: 11),
 )
 
 @left_to_right_eval () -> int = run(
-    let mut counter = 0,
+    let counter = 0,
     run(counter = 1, counter) + run(counter = counter * 10, counter),
 )

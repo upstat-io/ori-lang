@@ -22,7 +22,7 @@ fn test_for_range_sum() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for i in 0..5 do sum = sum + i,
     if sum == 10 then 0 else 1
 )
@@ -36,7 +36,7 @@ fn test_for_range_inclusive() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for i in 0..=5 do sum = sum + i,
     if sum == 15 then 0 else 1
 )
@@ -50,7 +50,7 @@ fn test_for_range_empty() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut count = 0,
+    let count = 0,
     for i in 5..0 do count = count + 1,
     if count == 0 then 0 else 1
 )
@@ -77,7 +77,7 @@ fn test_for_range_with_guard() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for i in 0..10 if i % 2 == 0 do sum = sum + i,
     if sum == 20 then 0 else 1
 )
@@ -95,7 +95,7 @@ fn test_for_list_sum() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [10, 20, 30] do sum = sum + x,
     if sum == 60 then 0 else 1
 )
@@ -122,7 +122,7 @@ fn test_for_list_empty() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut count = 0,
+    let count = 0,
     let empty: [int] = [],
     for x in empty do count = count + 1,
     if count == 0 then 0 else 1
@@ -154,7 +154,7 @@ fn test_for_str_count_chars() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut count = 0,
+    let count = 0,
     for c in "hello" do count = count + 1,
     if count == 5 then 0 else 1
 )
@@ -168,7 +168,7 @@ fn test_for_str_empty() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut count = 0,
+    let count = 0,
     for c in "" do count = count + 1,
     if count == 0 then 0 else 1
 )
@@ -199,7 +199,7 @@ fn test_for_option_some() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in Some(42) do sum = sum + x,
     if sum == 42 then 0 else 1
 )
@@ -213,7 +213,7 @@ fn test_for_option_none() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut count = 0,
+    let count = 0,
     let empty: Option<int> = None,
     for x in empty do count = count + 1,
     if count == 0 then 0 else 1
@@ -260,7 +260,7 @@ fn test_for_str_char_values() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for c in "ABC" do sum = sum + c.to_int(),
     if sum == 198 then 0 else 1
 )
@@ -285,7 +285,7 @@ fn test_for_map_sum() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for entry in {"a": 10, "b": 20, "c": 30} do sum = sum + entry.1,
     if sum == 60 then 0 else 1
 )
@@ -312,7 +312,7 @@ fn test_for_map_entries() {
     assert_aot_success(
         r#"
 @main () -> int = run(
-    let mut count = 0,
+    let count = 0,
     for entry in {"a": 1, "b": 2} do count = count + 1,
     if count == 2 then 0 else 1
 )

@@ -239,7 +239,7 @@
 // )
 //
 // @list_eval_order () -> [int] = run(
-//     let mut counter = 0,
+//     let counter = 0,
 //     [run(counter = counter + 1, counter), run(counter = counter + 1, counter), run(counter = counter + 1, counter)],
 // )
 //

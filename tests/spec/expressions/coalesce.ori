@@ -72,7 +72,7 @@ use std.testing { assert, assert_eq }
 
 @test_none_evaluates_default tests @none_evaluates_default () -> void = run(
     // When left is None, right should be evaluated
-    let mut evaluated = false,
+    let evaluated = false,
     let opt: Option<int> = None,
     let result = opt ?? run(evaluated = true, 99),
     assert(cond: evaluated),
@@ -85,7 +85,7 @@ use std.testing { assert, assert_eq }
 )
 
 @test_some_skips_side_effect tests @some_skips_side_effect () -> void = run(
-    let mut counter = 0,
+    let counter = 0,
     let opt = Some(42),
     let result = opt ?? run(counter = counter + 1, 0),
     assert_eq(actual: counter, expected: 0), // Side effect did not occur
@@ -93,7 +93,7 @@ use std.testing { assert, assert_eq }
 )
 
 @some_skips_side_effect () -> int = run(
-    let mut counter = 0,
+    let counter = 0,
     let opt = Some(42),
     opt ?? run(counter = counter + 1, 0),
 )
@@ -315,7 +315,7 @@ use std.testing { assert, assert_eq }
 
 @test_coalesce_lazy_default tests @coalesce_lazy_default () -> void = run(
     // Default should only be computed if needed
-    let mut computed = false,
+    let computed = false,
     let opt = Some(42),
     let result = opt ?? run(computed = true, 99),
     assert(cond: !computed),

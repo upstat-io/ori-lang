@@ -161,7 +161,7 @@ impl Logger for MockLogger {
 
 @test_with_in_loop tests @with_in_loop () -> void = run(
     let mock = MockCounter { value: 0 },
-    let mut sum = 0,
+    let sum = 0,
     for i in [1, 2, 3] do run(
         let val = with Counter = mock in mock.get(),
         sum = sum + val + i,
@@ -171,7 +171,7 @@ impl Logger for MockLogger {
 
 @with_in_loop () -> int = run(
     let mock = MockCounter { value: 0 },
-    let mut sum = 0,
+    let sum = 0,
     for i in [1, 2, 3] do run(
         let val = with Counter = mock in mock.get(),
         sum = sum + val + i,

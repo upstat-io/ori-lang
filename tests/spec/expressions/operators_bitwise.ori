@@ -379,8 +379,8 @@ use std.testing { assert, assert_eq, assert_panics }
 )
 
 @test_swap_without_temp tests @swap_without_temp () -> void = run(
-    let mut a = 5,
-    let mut b = 10,
+    let a = 5,
+    let b = 10,
     a = a ^ b,
     b = a ^ b,
     a = a ^ b,
@@ -389,8 +389,8 @@ use std.testing { assert, assert_eq, assert_panics }
 )
 
 @swap_without_temp () -> int = run(
-    let mut a = 5,
-    let mut b = 10,
+    let a = 5,
+    let b = 10,
     a = a ^ b,
     b = a ^ b,
     a = a ^ b,

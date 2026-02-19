@@ -9,7 +9,7 @@ use std.testing { assert_eq, assert }
 // When else is omitted, the expression has type void.
 
 @test_if_then_true_executes tests @if_then_true_executes () -> void = run(
-    let mut x = 0,
+    let x = 0,
     if_then_true_executes(x: x),
 )
 
