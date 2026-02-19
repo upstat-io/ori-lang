@@ -6,13 +6,6 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **COMPLETED REROUTE — Trait Architecture Refactor** (Feb 2026)
->
-> The `plans/trait_arch/` reroute is **complete** (7/7 sections). All trait infrastructure improvements are merged:
-> `define_derived_traits!` macro, data-driven trait satisfaction, registration module split, LLVM codegen consolidation, cross-crate sync tests, error code generation macro, and shared derive strategy. Normal roadmap work resumes below.
-
----
-
 > **PRIORITY BLOCKER — Do This First**: Section 10.7 `catch(expr)` pattern must be implemented before other roadmap work. `assert_panics` depends on `catch`, and 16 spec tests (11 in `integer_safety.ori`, 5 in `operators_bitwise.ori`) are `#skip`ped until it lands. Without `catch`, panic-related tests cannot verify correct behavior.
 
 ---
