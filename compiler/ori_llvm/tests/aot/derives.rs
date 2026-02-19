@@ -19,38 +19,44 @@ use crate::util::assert_aot_success;
 
 #[test]
 fn all_derived_traits_have_codegen() {
-    let implemented: &[DerivedTrait] = &[
-        DerivedTrait::Eq,
-        DerivedTrait::Clone,
-        DerivedTrait::Hashable,
-        DerivedTrait::Printable,
-        DerivedTrait::Default,
-        DerivedTrait::Comparable,
+    // Known gaps — traits with documented reasons for missing LLVM codegen.
+    // Adding a trait here requires a comment explaining why codegen is deferred.
+    // Removing a trait means codegen was implemented — update the count below.
+    let known_gaps: &[DerivedTrait] = &[
+        DerivedTrait::Debug, // deferred: interpreter-only (trait_arch backlog)
     ];
 
-    let missing: Vec<_> = DerivedTrait::ALL
-        .iter()
-        .filter(|t| !implemented.contains(t))
-        .collect();
-
-    // IMPORTANT: When you implement codegen for a missing trait,
-    // move it from `missing` to `implemented`. This test will then
-    // enforce that it stays implemented.
-    assert!(
-        missing.len() <= 1,
-        "More than 1 derived trait without LLVM codegen: {missing:?}. \
-         Implement codegen or document the gap."
+    // Guard: pinned trait count forces this test to be reviewed when a new
+    // DerivedTrait variant is added. Update this constant, then either
+    // implement LLVM codegen or add the trait to known_gaps above.
+    assert_eq!(
+        DerivedTrait::COUNT,
+        7,
+        "DerivedTrait::COUNT changed! Update this test: either implement \
+         LLVM codegen for the new trait or add it to known_gaps with a reason."
     );
 
-    // Verify the known gap is Debug, not something unexpected
-    if missing.len() == 1 {
-        assert_eq!(
-            *missing[0],
-            DerivedTrait::Debug,
-            "Unexpected missing codegen: {:?}. Only Debug should be missing.",
-            missing[0]
+    // Verify known_gaps entries are valid (no stale entries after variant removal)
+    for gap in known_gaps {
+        assert!(
+            DerivedTrait::ALL.contains(gap),
+            "Stale known_gap: {gap:?} is no longer in DerivedTrait::ALL"
         );
     }
+
+    // Every trait in ALL must be either in known_gaps or expected to have codegen.
+    // The pinned count above is the real guard; this documents intent.
+    let should_have_codegen: Vec<_> = DerivedTrait::ALL
+        .iter()
+        .filter(|t| !known_gaps.contains(t))
+        .collect();
+
+    assert_eq!(
+        should_have_codegen.len(),
+        6,
+        "Traits expected to have LLVM codegen changed: {should_have_codegen:?}. \
+         Update this count after implementing codegen or adding to known_gaps."
+    );
 }
 
 // 3.5.1: Derive Eq

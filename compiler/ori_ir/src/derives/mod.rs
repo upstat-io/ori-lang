@@ -176,7 +176,15 @@ impl DerivedMethodInfo {
     }
 
     /// Create a new derived method info for a sum type.
+    ///
+    /// # Panics (debug only)
+    ///
+    /// Panics if `variant_names` is empty — sum types must have at least one variant.
     pub fn new_sum(trait_kind: DerivedTrait, variant_names: Vec<Name>) -> Self {
+        debug_assert!(
+            !variant_names.is_empty(),
+            "new_sum() requires at least one variant"
+        );
         DerivedMethodInfo {
             trait_kind,
             field_names: Vec::new(),
