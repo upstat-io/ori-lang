@@ -182,6 +182,8 @@ impl Interpreter<'_> {
                 }
                 Ok(Value::int(hash.cast_signed()))
             }
+            // SAFETY: DerivedTrait::strategy() only produces valid (FieldOp, CombineOp) pairings:
+            // (Equals, AllTrue), (Compare, Lexicographic), (Hash, HashCombine).
             _ => unreachable!(
                 "unsupported FieldOp+CombineOp: {:?}+{:?}",
                 field_op, combine
@@ -231,6 +233,7 @@ impl Interpreter<'_> {
                     ),
                 }
             }
+            // SAFETY: strategy() pairs Hash with HashCombine; Hash is unary (no `other` param).
             CombineOp::HashCombine => unreachable!("Hash is unary, not binary"),
         }
     }
@@ -259,6 +262,7 @@ impl Interpreter<'_> {
                 }
                 Ok(Value::int(hash.cast_signed()))
             }
+            // SAFETY: only Hash routes to unary variant handling; Hash pairs with HashCombine.
             _ => unreachable!("only HashCombine uses unary variant handling"),
         }
     }
