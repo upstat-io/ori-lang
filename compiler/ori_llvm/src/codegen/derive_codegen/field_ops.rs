@@ -188,9 +188,8 @@ fn emit_str_hash_call<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     val: ValueId,
     name: &str,
+    str_ty_id: LLVMTypeId,
 ) -> ValueId {
-    let str_ty = fc.resolve_type(Idx::STR);
-    let str_ty_id = fc.builder_mut().register_type(str_ty);
     let ptr_ty = fc.builder_mut().ptr_type();
     let i64_ty = fc.builder_mut().i64_type();
 
@@ -211,6 +210,7 @@ pub(super) fn coerce_to_i64<'a>(
     val: ValueId,
     field_type: Idx,
     name: &str,
+    str_ty_id: LLVMTypeId,
 ) -> ValueId {
     let info = fc.type_info().get(field_type);
     match &info {
@@ -246,7 +246,7 @@ pub(super) fn coerce_to_i64<'a>(
             fc.builder_mut().bitcast(normalized, i64_ty, name)
         }
 
-        TypeInfo::Str => emit_str_hash_call(fc, val, name),
+        TypeInfo::Str => emit_str_hash_call(fc, val, name, str_ty_id),
 
         TypeInfo::Struct { .. } => {
             let nested_name = fc.type_idx_to_name(field_type);
