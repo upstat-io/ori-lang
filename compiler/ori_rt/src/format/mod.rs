@@ -66,15 +66,15 @@ pub extern "C" fn ori_format_char(c: i32, spec_ptr: *const u8, spec_len: i64) ->
 // =============================================================================
 
 #[derive(Clone, Debug)]
-struct ParsedFormatSpec {
-    fill: Option<char>,
-    align: Option<Align>,
-    sign: Option<Sign>,
-    alternate: bool,
-    zero_pad: bool,
-    width: Option<usize>,
-    precision: Option<usize>,
-    format_type: Option<FormatType>,
+pub(crate) struct ParsedFormatSpec {
+    pub(crate) fill: Option<char>,
+    pub(crate) align: Option<Align>,
+    pub(crate) sign: Option<Sign>,
+    pub(crate) alternate: bool,
+    pub(crate) zero_pad: bool,
+    pub(crate) width: Option<usize>,
+    pub(crate) precision: Option<usize>,
+    pub(crate) format_type: Option<FormatType>,
 }
 
 impl ParsedFormatSpec {
@@ -91,21 +91,21 @@ impl ParsedFormatSpec {
 }
 
 #[derive(Copy, Clone, Debug)]
-enum Align {
+pub(crate) enum Align {
     Left,
     Center,
     Right,
 }
 
 #[derive(Copy, Clone, Debug)]
-enum Sign {
+pub(crate) enum Sign {
     Plus,
     Minus,
     Space,
 }
 
 #[derive(Copy, Clone, Debug)]
-enum FormatType {
+pub(crate) enum FormatType {
     Binary,
     Octal,
     Hex,
@@ -134,7 +134,7 @@ unsafe fn spec_from_raw<'a>(ptr: *const u8, len: i64) -> &'a str {
 /// Mirrors `ori_ir::format_spec::parse_format_spec`. On invalid input,
 /// falls back to empty spec (LLVM-compiled code has already been validated
 /// by the type checker, so errors here indicate an internal bug, not user error).
-fn parse_format_spec(spec: &str) -> ParsedFormatSpec {
+pub(crate) fn parse_format_spec(spec: &str) -> ParsedFormatSpec {
     if spec.is_empty() {
         return ParsedFormatSpec::EMPTY;
     }
@@ -407,6 +407,11 @@ fn format_scientific(f: f64, uppercase: bool, precision: Option<usize>) -> Strin
 // =============================================================================
 
 fn fmt_str(s: &str, spec: &ParsedFormatSpec) -> String {
+    // No-op fast path: no precision truncation or width/alignment needed
+    if spec.precision.is_none() && spec.width.is_none() {
+        return s.to_string();
+    }
+
     let truncated = if let Some(prec) = spec.precision {
         if s.chars().count() > prec {
             s.chars().take(prec).collect::<String>()
@@ -467,3 +472,6 @@ fn apply_alignment(s: &str, spec: &ParsedFormatSpec) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

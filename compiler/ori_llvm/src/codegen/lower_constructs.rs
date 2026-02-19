@@ -348,8 +348,16 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     .call(f, &[str_alloca, spec_ptr, spec_len], "fmt.str")
             }
             _ => {
-                // Fallback: coerce to int and format
-                tracing::debug!("FormatWith: unknown type, coercing to int");
+                // User Formattable impls are not yet supported in AOT codegen.
+                // The evaluator dispatches to user `format()` methods, but LLVM
+                // codegen cannot yet emit general trait method calls. Coercing
+                // to i64 would produce silently wrong output, so record an error.
+                tracing::warn!(
+                    "FormatWith: user Formattable impls not yet supported in AOT, \
+                     falling back to int coercion for type {:?}",
+                    ty
+                );
+                self.builder.record_codegen_error();
                 let coerced = self.coerce_to_i64(val, ty);
                 let f = self.builder.get_or_declare_function(
                     "ori_format_int",

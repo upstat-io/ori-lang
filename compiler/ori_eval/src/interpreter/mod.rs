@@ -216,6 +216,73 @@ impl OpNames {
     }
 }
 
+/// Pre-interned names for `FormatSpec` value construction.
+///
+/// These names are interned once at Interpreter construction so that
+/// `build_format_spec_value` avoids repeated hash lookups when constructing
+/// the Ori-side `FormatSpec` struct for user `Formattable::format()` calls.
+#[derive(Clone, Copy)]
+pub(crate) struct FormatNames {
+    pub(crate) format_spec: Name,
+    pub(crate) fill: Name,
+    pub(crate) align: Name,
+    pub(crate) sign: Name,
+    pub(crate) width: Name,
+    pub(crate) precision: Name,
+    pub(crate) format_type: Name,
+    pub(crate) alignment: Name,
+    pub(crate) left: Name,
+    pub(crate) center: Name,
+    pub(crate) right: Name,
+    pub(crate) sign_type: Name,
+    pub(crate) plus: Name,
+    pub(crate) minus: Name,
+    pub(crate) space: Name,
+    pub(crate) ft_type: Name,
+    pub(crate) binary: Name,
+    pub(crate) octal: Name,
+    pub(crate) hex: Name,
+    pub(crate) hex_upper: Name,
+    pub(crate) exp: Name,
+    pub(crate) exp_upper: Name,
+    pub(crate) fixed: Name,
+    pub(crate) percent: Name,
+    pub(crate) format: Name,
+}
+
+impl FormatNames {
+    /// Pre-intern all format-related names.
+    fn new(interner: &StringInterner) -> Self {
+        Self {
+            format_spec: interner.intern("FormatSpec"),
+            fill: interner.intern("fill"),
+            align: interner.intern("align"),
+            sign: interner.intern("sign"),
+            width: interner.intern("width"),
+            precision: interner.intern("precision"),
+            format_type: interner.intern("format_type"),
+            alignment: interner.intern("Alignment"),
+            left: interner.intern("Left"),
+            center: interner.intern("Center"),
+            right: interner.intern("Right"),
+            sign_type: interner.intern("Sign"),
+            plus: interner.intern("Plus"),
+            minus: interner.intern("Minus"),
+            space: interner.intern("Space"),
+            ft_type: interner.intern("FormatType"),
+            binary: interner.intern("Binary"),
+            octal: interner.intern("Octal"),
+            hex: interner.intern("Hex"),
+            hex_upper: interner.intern("HexUpper"),
+            exp: interner.intern("Exp"),
+            exp_upper: interner.intern("ExpUpper"),
+            fixed: interner.intern("Fixed"),
+            percent: interner.intern("Percent"),
+            format: interner.intern("format"),
+        }
+    }
+}
+
 impl TypeNames {
     /// Pre-intern all primitive type names.
     pub(crate) fn new(interner: &StringInterner) -> Self {
@@ -292,6 +359,8 @@ pub struct Interpreter<'a> {
     pub(crate) prop_names: PropNames,
     /// Pre-interned operator trait method names for user-defined operator dispatch.
     pub(crate) op_names: OpNames,
+    /// Pre-interned format-related names for `FormatSpec` value construction.
+    pub(crate) format_names: FormatNames,
     /// Pre-interned builtin method names for `Name`-based dispatch.
     /// Avoids de-interning in `dispatch_builtin_method` on every call.
     pub(crate) builtin_method_names: crate::methods::BuiltinMethodNames,
@@ -605,6 +674,7 @@ impl<'a> Interpreter<'a> {
             print_names: self.print_names,
             prop_names: self.prop_names,
             op_names: self.op_names,
+            format_names: self.format_names,
             builtin_method_names: self.builtin_method_names,
             source_file_path: self.source_file_path.clone(),
             source_text: self.source_text.clone(),
