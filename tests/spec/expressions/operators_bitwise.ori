@@ -185,9 +185,7 @@ use std.testing { assert, assert_eq, assert_panics }
 
 @shl_negative_value () -> int = -2 << 3
 
-// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - shift overflow does not panic
-// Per spec, 1 << 63 should panic due to overflow but evaluator succeeds silently.
-#skip("catch pattern not yet implemented (roadmap Section 10.7)")
+// Per spec, shift overflow panics (e.g. 1 << 63 overflows into sign bit).
 @test_shl_overflow_panic tests @shl_overflow_panic () -> void = run(
     // Shift that causes overflow should panic
     assert_panics(f: () -> 1 << 63),
@@ -195,7 +193,6 @@ use std.testing { assert, assert_eq, assert_panics }
 
 @shl_overflow_panic () -> int = 1 << 63
 
-#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_shl_bit_width_panic tests @shl_bit_width_panic () -> void = run(
     // Shift count >= bit width should panic
     assert_panics(f: () -> 1 << 64),
@@ -203,7 +200,6 @@ use std.testing { assert, assert_eq, assert_panics }
 
 @shl_bit_width_panic () -> int = 1 << 64
 
-#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_shl_negative_count_panic tests @shl_negative_count_panic () -> void = run(
     // Negative shift count should panic
     assert_panics(f: () -> 1 << -1),
@@ -242,7 +238,6 @@ use std.testing { assert, assert_eq, assert_panics }
 
 @shr_negative_value () -> int = -16 >> 3
 
-#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_shr_bit_width_panic tests @shr_bit_width_panic () -> void = run(
     // Shift count >= bit width should panic
     assert_panics(f: () -> 1 >> 64),
@@ -250,7 +245,6 @@ use std.testing { assert, assert_eq, assert_panics }
 
 @shr_bit_width_panic () -> int = 1 >> 64
 
-#skip("catch pattern not yet implemented (roadmap Section 10.7)")
 @test_shr_negative_count_panic tests @shr_negative_count_panic () -> void = run(
     // Negative shift count should panic
     assert_panics(f: () -> 1 >> -1),

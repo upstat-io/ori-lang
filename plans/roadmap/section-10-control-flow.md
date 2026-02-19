@@ -506,10 +506,10 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for panic function
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — panic function codegen
 
-- [ ] **Implement**: `catch(expr)` pattern — spec/20-errors-and-panics.md § Catching Panics
-  - [ ] **Rust Tests**: `oric/src/patterns/catch.rs` — catch pattern tests
-  - [ ] **Ori Tests**: `tests/spec/patterns/catch.ori`
-  - [ ] **LLVM Support**: LLVM codegen for catch pattern
+- [x] **Implement**: `catch(expr)` pattern — spec/20-errors-and-panics.md § Catching Panics [done] (2026-02-19)
+  - [x] **Rust Tests**: `ori_patterns/src/builtins/catch/tests.rs` — catch_success, catch_error, name, required_props; `ori_types/src/infer/expr/tests.rs` — catch type inference
+  - [x] **Ori Tests**: `tests/spec/patterns/catch.ori` — 7 tests: success, panic, message, div_zero, ok_value, string, nested
+  - [ ] **LLVM Support**: LLVM codegen for catch pattern (simplified placeholder exists)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — catch pattern codegen
 
 - [ ] **Implement**: `PanicInfo` type — spec/20-errors-and-panics.md § PanicInfo

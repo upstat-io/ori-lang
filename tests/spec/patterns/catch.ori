@@ -1,80 +1,106 @@
 // Spec: 20-errors-and-panics.md § Catching Panics
-// Spec: 10-patterns.md § catch
-//
-// TODO: Type checker needs various features
-// - `catch` pattern for panic recovery
-// - `is_ok` and `is_err` prelude function polymorphism
-// - Result type inference from catch expression
-// - Match on Result variants (Ok/Err)
-//
-// Uncomment when type checker supports these features.
+// Tests for the catch(expr: ...) pattern that converts panics to Result<T, str>.
 
-// use std.testing { assert_eq, assert }
-//
-// // =============================================================================
-// // catch — Panic Recovery
-// // =============================================================================
-//
-// // catch returns Ok when expression succeeds
-// @test_catch_success tests @catch_success () -> void = run(
-//     let result = catch(expr: 42),
-//     assert(cond: is_ok(r: result)),
-// )
-//
-// @catch_success () -> int = 42
-//
-// // catch returns Err when expression panics
-// @test_catch_panic tests @catch_panic () -> void = run(
-//     let result = catch(expr: panic(msg: "test error")),
-//     assert(cond: is_err(r: result)),
-// )
-//
-// @catch_panic () -> int = run(
-//     let result = catch(expr: panic(msg: "test error")),
-//     if is_err(r: result) then 1 else 0,
-// )
-//
-// // catch captures panic message
-// @test_catch_message tests @catch_message () -> void = run(
-//     let result = catch(expr: panic(msg: "specific error")),
-//     match(result,
-//         Err(msg) -> assert_eq(
-//             actual: msg,
-//             expected: "panic: specific error",
-//         ),
-//         Ok(_) -> panic(msg: "expected Err"),
-//     )
-// )
-//
-// @catch_message () -> str = run(
-//     let result = catch(expr: panic(msg: "specific error")),
-//     match(result,
-//         Err(msg) -> msg,
-//         Ok(_) -> "no error",
-//     )
-// )
-//
-// // catch captures division by zero
-// @test_catch_div_zero tests @catch_div_zero () -> void = run(
-//     let result = catch(expr: 1 / 0),
-//     assert(cond: is_err(r: result)),
-// )
-//
-// @catch_div_zero () -> int = run(
-//     let result = catch(expr: 1 / 0),
-//     if is_err(r: result) then 1 else 0,
-// )
-//
-// // catch wraps successful value in Ok
-// @test_catch_ok_value tests @catch_ok_value () -> void = run(
-//     let result = catch(expr: 10 + 20),
-//     match(result,
-//         Ok(v) -> assert_eq(
-//             actual: v,
-//             expected: 30,
-//         ),
-//         Err(_) -> panic(msg: "expected Ok"),
-//     )
-// )
-//
-// @catch_ok_value () -> int = 10 + 20
+use std.testing { assert_eq, assert }
+
+// =============================================================================
+// catch — Panic Recovery
+// =============================================================================
+
+// catch returns Ok when expression succeeds
+@test_catch_success tests @catch_success () -> void = run(
+    let result = catch(expr: 42),
+    match(result,
+        Ok(v) -> assert_eq(actual: v, expected: 42),
+        Err(_) -> panic(msg: "expected Ok"),
+    ),
+)
+
+@catch_success () -> int = 42
+
+// catch returns Err when expression panics
+@test_catch_panic tests @catch_panic () -> void = run(
+    let result = catch(expr: panic(msg: "test error")),
+    match(result,
+        Err(_) -> (),
+        Ok(_) -> panic(msg: "expected Err"),
+    ),
+)
+
+@catch_panic () -> int = 1
+
+// catch captures panic message
+@test_catch_message tests @catch_message () -> void = run(
+    let result = catch(expr: panic(msg: "specific error")),
+    match(result,
+        Err(m) -> assert_eq(
+            actual: m,
+            expected: "specific error",
+        ),
+        Ok(_) -> panic(msg: "expected Err"),
+    ),
+)
+
+@catch_message () -> str = run(
+    let result = catch(expr: panic(msg: "specific error")),
+    match(result,
+        Err(m) -> m,
+        Ok(_) -> "no error",
+    ),
+)
+
+// catch captures division by zero
+@test_catch_div_zero tests @catch_div_zero () -> void = run(
+    let result = catch(expr: 1 / 0),
+    match(result,
+        Err(_) -> (),
+        Ok(_) -> panic(msg: "expected Err from div by zero"),
+    ),
+)
+
+@catch_div_zero () -> int = 1
+
+// catch wraps successful value in Ok
+@test_catch_ok_value tests @catch_ok_value () -> void = run(
+    let result = catch(expr: 10 + 20),
+    match(result,
+        Ok(v) -> assert_eq(
+            actual: v,
+            expected: 30,
+        ),
+        Err(_) -> panic(msg: "expected Ok"),
+    ),
+)
+
+@catch_ok_value () -> int = 10 + 20
+
+// catch works with string expressions
+@test_catch_string tests @catch_string () -> void = run(
+    let result = catch(expr: "hello" + " world"),
+    match(result,
+        Ok(v) -> assert_eq(actual: v, expected: "hello world"),
+        Err(_) -> panic(msg: "expected Ok"),
+    ),
+)
+
+@catch_string () -> str = "hello" + " world"
+
+// catch propagates non-panic errors (ControlAction) unchanged
+// Nested catch: inner catches inner panic, outer catches outer panic
+@test_catch_nested tests @catch_nested () -> void = run(
+    let outer = catch(
+        expr: run(
+            let inner = catch(expr: panic(msg: "inner")),
+            match(inner,
+                Err(m) -> assert_eq(actual: m, expected: "inner"),
+                Ok(_) -> panic(msg: "expected inner Err"),
+            ),
+        ),
+    ),
+    match(outer,
+        Ok(_) -> (),
+        Err(m) -> panic(msg: "outer should be Ok, got: " + m),
+    ),
+)
+
+@catch_nested () -> int = 1
