@@ -6,7 +6,7 @@ goal: Split lower_builtin_methods.rs (1497 lines) by type group and extract deri
 sections:
   - id: "04.1"
     title: Split lower_builtin_methods.rs
-    status: not-started
+    status: done
   - id: "04.2"
     title: Derive Scaffolding Factory
     status: not-started
@@ -20,7 +20,7 @@ sections:
 
 # Section 04: LLVM Codegen Consolidation
 
-**Status:** Not Started
+**Status:** In Progress (04.1 done)
 **Goal:** Split `lower_builtin_methods.rs` (1497 lines, 3× the 500-line limit) into type-grouped submodules. Extract the repeated derive scaffolding into a factory function. Unify the three copies of field-operation TypeInfo dispatch (`emit_field_eq`, `emit_field_compare`, `coerce_to_i64`) into a shared abstraction.
 
 **Current state:**
@@ -30,73 +30,43 @@ sections:
 
 ---
 
-## 04.1 Split `lower_builtin_methods.rs`
+## 04.1 Split `lower_builtin_methods.rs` ✅
 
-### Target Structure
+### Final Structure
 
 ```
-compiler/ori_llvm/src/codegen/
-├── lower_builtin_methods/
-│   ├── mod.rs           — Dispatch entry point (~100 lines)
-│   ├── numeric.rs       — int, float, byte methods (~250 lines)
-│   ├── text.rs          — str, char methods (~200 lines)
-│   ├── containers.rs    — option, result, tuple, ordering methods (~350 lines)
-│   └── primitives.rs    — bool, unit, duration, size methods (~150 lines)
+compiler/ori_llvm/src/codegen/lower_builtin_methods/
+├── mod.rs             (75 lines)   — Module docs, mod declarations, top-level dispatch
+├── primitives.rs      (265 lines)  — int, float, bool, byte, char, ordering, str handlers
+├── option.rs          (239 lines)  — Option dispatch + compare/equals/hash emitters
+├── result.rs          (259 lines)  — Result dispatch + compare/equals/hash emitters
+├── tuple.rs           (189 lines)  — Tuple dispatch + compare/equals/hash emitters
+├── collections.rs     (89 lines)   — List/Map/Set dispatch (thin wrappers)
+├── inner_dispatch.rs  (289 lines)  — emit_inner_eq/compare/hash (pub(crate))
+└── helpers.rs         (142 lines)  — icmp_ordering, str calls, hash_combine, etc.
 ```
 
-### Module Responsibilities
+All 8 files well under 400-line target. Total: 1,547 lines (vs 1,497 original — minor increase from pub(super) doc comments).
 
-**`mod.rs`** — Contains `lower_builtin_method()` entry point which matches on TypeInfo and dispatches to submodule functions. Only dispatching logic, no method implementations.
+### Visibility Rules Applied
 
-**`numeric.rs`** — `lower_int_method()`, `lower_float_method()`, `lower_byte_method()`. These share patterns: arithmetic operations, comparison, hashing, numeric conversions.
+- `pub(crate)`: Methods called from outside the directory (`lower_calls.rs`, `lower_collection_methods.rs`)
+- `pub(super)`: Methods called across submodule files within the directory
+- `fn` (private): Methods only used within their own file
 
-**`text.rs`** — `lower_str_method()`, `lower_char_method()`. String methods involve runtime calls (`ori_str_*`); char methods are simpler inline operations.
-
-**`containers.rs`** — `lower_option_method()`, `lower_result_method()`, `lower_tuple_method()`, `lower_ordering_method()`. These handle tag-based dispatch (option discriminant, result discriminant, tuple field access).
-
-**`primitives.rs`** — `lower_bool_method()`, `lower_unit_method()`, `lower_duration_method()`, `lower_size_method()`. Simple methods on simple types.
-
-### Split Strategy
-
-Each `lower_*_method()` function moves to its submodule unchanged. The only refactoring is file location — no logic changes.
-
-```rust
-// lower_builtin_methods/mod.rs — dispatch only
-pub(crate) fn lower_builtin_method(
-    fc: &mut FunctionCompiler,
-    receiver: ValueId,
-    method: &str,
-    args: &[ValueId],
-    type_info: &TypeInfo,
-) -> Option<ValueId> {
-    match type_info {
-        TypeInfo::Int => numeric::lower_int_method(fc, receiver, method, args),
-        TypeInfo::Float => numeric::lower_float_method(fc, receiver, method, args),
-        TypeInfo::Byte => numeric::lower_byte_method(fc, receiver, method, args),
-        TypeInfo::Str => text::lower_str_method(fc, receiver, method, args),
-        TypeInfo::Char => text::lower_char_method(fc, receiver, method, args),
-        TypeInfo::Bool => primitives::lower_bool_method(fc, receiver, method, args),
-        TypeInfo::Unit => primitives::lower_unit_method(fc, receiver, method, args),
-        TypeInfo::Duration => primitives::lower_duration_method(fc, receiver, method, args),
-        TypeInfo::Size => primitives::lower_size_method(fc, receiver, method, args),
-        TypeInfo::Ordering => containers::lower_ordering_method(fc, receiver, method, args),
-        TypeInfo::Option { .. } => containers::lower_option_method(fc, receiver, method, args, type_info),
-        TypeInfo::Result { .. } => containers::lower_result_method(fc, receiver, method, args, type_info),
-        TypeInfo::Tuple { .. } => containers::lower_tuple_method(fc, receiver, method, args, type_info),
-        _ => None,
-    }
-}
-```
-
-- [ ] Create `lower_builtin_methods/` directory
-- [ ] Move dispatch entry point to `lower_builtin_methods/mod.rs`
-- [ ] Move int/float/byte handlers to `numeric.rs`
-- [ ] Move str/char handlers to `text.rs`
-- [ ] Move option/result/tuple/ordering handlers to `containers.rs`
-- [ ] Move bool/unit/duration/size handlers to `primitives.rs`
-- [ ] `cargo t -p ori_llvm` passes
-- [ ] Each file under 400 lines
-- [ ] `./test-all.sh` passes
+- [x] Create `lower_builtin_methods/` directory
+- [x] Move dispatch entry point to `mod.rs`
+- [x] Move primitive handlers (int, float, bool, byte, char, ordering, str) to `primitives.rs`
+- [x] Move option handlers to `option.rs`
+- [x] Move result handlers to `result.rs`
+- [x] Move tuple handlers to `tuple.rs`
+- [x] Move list/map/set handlers to `collections.rs`
+- [x] Move inner dispatch (emit_inner_eq/compare/hash) to `inner_dispatch.rs`
+- [x] Move helpers (icmp_ordering, str calls, hash_combine) to `helpers.rs`
+- [x] `cargo t` (LLVM) passes — 338 tests
+- [x] Each file under 400 lines
+- [x] `./test-all.sh` passes — 10,149 tests, 0 failures
+- [x] `./clippy-all.sh` passes
 
 ---
 
@@ -336,8 +306,8 @@ let eq = emit_field_operation(fc, FieldOp::Eq, lhs_field, Some(rhs_field), field
 
 ## 04.4 Completion Checklist
 
-- [ ] `lower_builtin_methods.rs` split into 4 submodules, each under 400 lines
-- [ ] `lower_builtin_methods/mod.rs` is dispatch-only (~100 lines)
+- [x] `lower_builtin_methods.rs` split into 7 submodules + mod.rs, each under 300 lines
+- [x] `lower_builtin_methods/mod.rs` is dispatch-only (75 lines)
 - [ ] `with_derive_function()` factory eliminates scaffolding repetition
 - [ ] All 7 `compile_derive_*()` functions use the factory
 - [ ] `emit_field_operation()` unifies the three field-level dispatch functions

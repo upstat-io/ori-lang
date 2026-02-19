@@ -32,7 +32,16 @@
 //! ├── lower_error_handling.rs — Ok, Err, Some, None, Try
 //! ├── lower_collections.rs — List, map, tuple, struct, range, field, index
 //! ├── lower_calls.rs      — Call, MethodCall, Lambda
-//! └── lower_constructs.rs — FunctionSeq, FunctionExp, SelfRef, Await
+//! ├── lower_constructs.rs — FunctionSeq, FunctionExp, SelfRef, Await
+//! ├── lower_builtin_methods/ — Built-in method dispatch (Section 04.1)
+//! │   ├── primitives.rs   — int, float, bool, byte, char, ordering, str
+//! │   ├── option.rs       — Option compare/equals/hash
+//! │   ├── result.rs       — Result compare/equals/hash
+//! │   ├── tuple.rs        — Tuple compare/equals/hash
+//! │   ├── collections.rs  — List/Map/Set dispatch wrappers
+//! │   ├── inner_dispatch.rs — Type-agnostic eq/compare/hash
+//! │   └── helpers.rs      — Shared emit utilities
+//! └── lower_collection_methods.rs — Loop-based collection ops
 //! ```
 //!
 //! # Architecture Note
