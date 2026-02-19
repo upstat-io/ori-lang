@@ -271,12 +271,12 @@ TypeId is a flat `u32` index with no sharding. Primitive types have fixed indice
 
 | Index | Constant | Description |
 |-------|----------|-------------|
-| 0 | `INT` | 64-bit signed integer |
-| 1 | `FLOAT` | 64-bit floating point |
+| 0 | `INT` | Signed integer (range: [-2⁶³, 2⁶³-1]) |
+| 1 | `FLOAT` | IEEE 754 double-precision |
 | 2 | `BOOL` | Boolean |
 | 3 | `STR` | UTF-8 string |
-| 4 | `CHAR` | Unicode codepoint |
-| 5 | `BYTE` | 8-bit unsigned |
+| 4 | `CHAR` | Unicode scalar value |
+| 5 | `BYTE` | Unsigned integer (range: [0, 255]) |
 | 6 | `UNIT` (alias: `VOID`) | Unit type |
 | 7 | `NEVER` | Bottom type |
 | 8 | `ERROR` | Error placeholder |

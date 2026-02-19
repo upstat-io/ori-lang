@@ -57,14 +57,14 @@ The backend follows patterns from `rustc_codegen_llvm`, using a two-layer archit
 
 ## Type Mappings
 
-Ori types map to LLVM types as follows:
+Ori types map to LLVM types as follows. These are **canonical** mappings — the compiler may use narrower types when it can prove semantic equivalence (see [Representation Optimization Proposal](../../../ori_lang/proposals/approved/representation-optimization-proposal.md)):
 
 | Ori Type | LLVM Type | Notes |
 |----------|-----------|-------|
-| `int` | `i64` | 64-bit signed integer |
-| `float` | `f64` | 64-bit IEEE 754 |
-| `bool` | `i1` | 1-bit boolean |
-| `byte` | `i8` | 8-bit unsigned |
+| `int` | `i64` | Canonical: signed integer, range [-2⁶³, 2⁶³ - 1] |
+| `float` | `f64` | Canonical: IEEE 754 double-precision |
+| `bool` | `i1` | 1-bit boolean (already narrowed from canonical) |
+| `byte` | `i8` | Unsigned, range [0, 255] (already narrowed from canonical) |
 | `str` | `{ i64, ptr }` | Length + data pointer |
 | `[T]` | `{ i64, i64, ptr }` | Length, capacity, data pointer |
 | `Option<T>` | `{ i8, T }` | Tag (0=None, 1=Some) + payload |
