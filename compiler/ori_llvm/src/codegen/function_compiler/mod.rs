@@ -15,7 +15,6 @@
 
 use std::cell::Cell;
 
-use inkwell::types::BasicTypeEnum;
 use ori_arc::{lower_function_can, AnnotatedSig, ArcClassifier};
 use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Function, Name, Span, StringInterner, TestDef, TraitDef, TraitItem};
@@ -531,7 +530,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     let ptr = self.builder.get_param(func_id, llvm_idx);
                     let ty = self.type_resolver.resolve(param.ty);
                     let ty_id = self.builder.register_type(ty);
-                    values.push(self.load_indirect_param(ptr, ty, ty_id, i));
+                    // IrBuilder::load() auto-decomposes struct types via
+                    // per-field GEP+load+insert_value (FastISel safety).
+                    values.push(self.builder.load(ty_id, ptr, &format!("param.{i}")));
                     llvm_idx += 1;
                 }
                 ParamPassing::Reference => {
@@ -546,50 +547,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
 
         values
-    }
-
-    /// Load an Indirect parameter, using per-field GEP for struct types.
-    ///
-    /// A single `load %LargeStruct, ptr` instruction can trigger stack
-    /// corruption in LLVM's JIT at O0 when the aggregate exceeds register
-    /// capacity (>16 bytes on x86_64). FastISel mishandles the spill slots
-    /// for the large aggregate SSA value, causing subsequent stores to
-    /// overwrite unrelated stack data.
-    ///
-    /// The fix: load each struct field individually via `struct_gep` + `load`,
-    /// then reassemble via `insert_value`. Each individual load is ≤16 bytes
-    /// and well-handled by FastISel.
-    fn load_indirect_param(
-        &mut self,
-        ptr: ValueId,
-        ty: BasicTypeEnum<'ctx>,
-        ty_id: LLVMTypeId,
-        param_idx: usize,
-    ) -> ValueId {
-        let BasicTypeEnum::StructType(st) = ty else {
-            // Non-struct Indirect: single load (rare — only for very large
-            // non-struct types, which don't exist in current Ori).
-            return self.builder.load(ty_id, ptr, &format!("param.{param_idx}"));
-        };
-
-        let num_fields = st.count_fields();
-        let mut agg = self.builder.const_zero(ty);
-
-        for f in 0..num_fields {
-            let field_ty = st.get_field_type_at_index(f).expect("field index in range");
-            let field_ty_id = self.builder.register_type(field_ty);
-            let field_ptr =
-                self.builder
-                    .struct_gep(ty_id, ptr, f, &format!("param.{param_idx}.f{f}.ptr"));
-            let field_val =
-                self.builder
-                    .load(field_ty_id, field_ptr, &format!("param.{param_idx}.f{f}"));
-            agg = self
-                .builder
-                .insert_value(agg, field_val, f, &format!("param.{param_idx}.s{f}"));
-        }
-
-        agg
     }
 
     /// Bind function parameters to a `Scope`, accounting for sret offset.

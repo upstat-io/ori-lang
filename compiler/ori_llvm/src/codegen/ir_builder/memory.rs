@@ -1,6 +1,6 @@
 //! Memory operations (alloca, load, store, GEP) for `IrBuilder`.
 
-use inkwell::types::BasicTypeEnum;
+use inkwell::types::{BasicTypeEnum, StructType};
 use inkwell::values::IntValue;
 
 use super::IrBuilder;
@@ -55,10 +55,25 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
 
     /// Build a load from a pointer.
     ///
+    /// Struct types are automatically decomposed into per-field GEP + load +
+    /// `insert_value` sequences. This prevents creating large aggregate SSA values
+    /// that LLVM's `FastISel` mishandles in JIT at O0 (stack corruption for structs
+    /// >16 bytes). See llvm.md §8. Recursive: nested structs decompose further.
+    ///
     /// Defensive: if `ptr` is not a pointer value, records a codegen error
     /// and returns a zero constant instead of panicking.
     pub fn load(&mut self, ty: LLVMTypeId, ptr: ValueId, name: &str) -> ValueId {
         let llvm_ty = self.arena.get_type(ty);
+
+        // Auto-decompose struct loads to avoid FastISel aggregate spill issues.
+        // Per-field GEP+load+insert_value matches Clang -O0 output.
+        if let BasicTypeEnum::StructType(st) = llvm_ty {
+            if st.count_fields() > 0 {
+                return self.load_struct_per_field(ty, st, ptr, name);
+            }
+        }
+
+        // Non-struct (or empty struct): direct load.
         let raw = self.arena.get_value(ptr);
         if !raw.is_pointer_value() {
             tracing::error!(val_type = ?raw.get_type(), "load from non-pointer — returning zero");
@@ -70,6 +85,46 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .build_load(llvm_ty, raw.into_pointer_value(), name)
             .expect("load");
         self.arena.push_value(v)
+    }
+
+    /// Load a struct from a pointer using per-field GEP + load + `insert_value`.
+    ///
+    /// This avoids creating a single large aggregate SSA value, which LLVM's
+    /// `FastISel` mishandles for structs exceeding register capacity (>16 bytes).
+    /// Each field load is small enough for `FastISel` to handle correctly.
+    ///
+    /// Recursive: if a field is itself a struct, the recursive `load()` call
+    /// will decompose it further — no aggregate SSA value is ever created.
+    fn load_struct_per_field(
+        &mut self,
+        struct_ty_id: LLVMTypeId,
+        st: StructType<'ctx>,
+        ptr: ValueId,
+        name: &str,
+    ) -> ValueId {
+        let raw = self.arena.get_value(ptr);
+        if !raw.is_pointer_value() {
+            tracing::error!(
+                val_type = ?raw.get_type(),
+                "load_struct from non-pointer — returning zero"
+            );
+            self.record_codegen_error();
+            return self.const_zero(BasicTypeEnum::StructType(st));
+        }
+
+        let num_fields = st.count_fields();
+        let mut agg = self.const_zero(BasicTypeEnum::StructType(st));
+
+        for f in 0..num_fields {
+            let field_ty = st.get_field_type_at_index(f).expect("field index in range");
+            let field_ty_id = self.register_type(field_ty);
+            let field_ptr = self.struct_gep(struct_ty_id, ptr, f, &format!("{name}.f{f}.ptr"));
+            // Recursive: if field is a struct, it will decompose further.
+            let field_val = self.load(field_ty_id, field_ptr, &format!("{name}.f{f}"));
+            agg = self.insert_value(agg, field_val, f, &format!("{name}.s{f}"));
+        }
+
+        agg
     }
 
     /// Build a store to a pointer.
