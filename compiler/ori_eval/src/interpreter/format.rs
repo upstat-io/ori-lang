@@ -15,7 +15,7 @@ use ori_ir::Name;
 use ori_patterns::{EvalError, EvalResult, StructValue, Value};
 use rustc_hash::FxHashMap;
 
-use super::Interpreter;
+use super::{FormatNames, Interpreter};
 
 impl Interpreter<'_> {
     /// Evaluate a `FormatWith` expression: format `expr` using `spec`.
@@ -53,16 +53,16 @@ impl Interpreter<'_> {
             Value::Char(c) => format_str(&c.to_string(), &parsed),
             // User types: check for Formattable impl, then blanket fallback
             _ => {
-                let format_method = self.interner.intern("format");
+                let fmt = self.format_names;
                 let type_name = self.get_value_type_name(&value);
                 let has_user_impl = self
                     .user_method_registry
                     .read()
-                    .has_method(type_name, format_method);
+                    .has_method(type_name, fmt.format);
 
                 if has_user_impl {
-                    let spec_value = build_format_spec_value(&parsed, self.interner);
-                    let result = self.eval_method_call(value, format_method, vec![spec_value])?;
+                    let spec_value = build_format_spec_value(&parsed, &fmt);
+                    let result = self.eval_method_call(value, fmt.format, vec![spec_value])?;
                     return Ok(result);
                 }
 
@@ -80,15 +80,9 @@ impl Interpreter<'_> {
 ///
 /// Converts the Rust-side `ParsedFormatSpec` to an Ori-side `FormatSpec` struct value
 /// for passing to user-defined `Formattable::format()` implementations.
-fn build_format_spec_value(parsed: &ParsedFormatSpec, interner: &ori_ir::StringInterner) -> Value {
-    let type_name = interner.intern("FormatSpec");
-    let fill_name = interner.intern("fill");
-    let align_name = interner.intern("align");
-    let sign_name = interner.intern("sign");
-    let width_name = interner.intern("width");
-    let precision_name = interner.intern("precision");
-    let format_type_name = interner.intern("format_type");
-
+///
+/// Uses pre-interned `FormatNames` to avoid repeated hash lookups on every call.
+fn build_format_spec_value(parsed: &ParsedFormatSpec, names: &FormatNames) -> Value {
     let fill_val = match parsed.fill {
         Some(c) => Value::some(Value::Char(c)),
         None => Value::None,
@@ -96,26 +90,24 @@ fn build_format_spec_value(parsed: &ParsedFormatSpec, interner: &ori_ir::StringI
 
     let align_val = match parsed.align {
         Some(align) => {
-            let alignment_type = interner.intern("Alignment");
             let variant = match align {
-                Align::Left => interner.intern("Left"),
-                Align::Center => interner.intern("Center"),
-                Align::Right => interner.intern("Right"),
+                Align::Left => names.left,
+                Align::Center => names.center,
+                Align::Right => names.right,
             };
-            Value::some(Value::variant(alignment_type, variant, vec![]))
+            Value::some(Value::variant(names.alignment, variant, vec![]))
         }
         None => Value::None,
     };
 
     let sign_val = match parsed.sign {
         Some(sign) => {
-            let sign_type = interner.intern("Sign");
             let variant = match sign {
-                Sign::Plus => interner.intern("Plus"),
-                Sign::Minus => interner.intern("Minus"),
-                Sign::Space => interner.intern("Space"),
+                Sign::Plus => names.plus,
+                Sign::Minus => names.minus,
+                Sign::Space => names.space,
             };
-            Value::some(Value::variant(sign_type, variant, vec![]))
+            Value::some(Value::variant(names.sign_type, variant, vec![]))
         }
         None => Value::None,
     };
@@ -132,31 +124,30 @@ fn build_format_spec_value(parsed: &ParsedFormatSpec, interner: &ori_ir::StringI
 
     let format_type_val = match parsed.format_type {
         Some(ft) => {
-            let ft_type = interner.intern("FormatType");
             let variant = match ft {
-                FormatType::Binary => interner.intern("Binary"),
-                FormatType::Octal => interner.intern("Octal"),
-                FormatType::Hex => interner.intern("Hex"),
-                FormatType::HexUpper => interner.intern("HexUpper"),
-                FormatType::Exp => interner.intern("Exp"),
-                FormatType::ExpUpper => interner.intern("ExpUpper"),
-                FormatType::Fixed => interner.intern("Fixed"),
-                FormatType::Percent => interner.intern("Percent"),
+                FormatType::Binary => names.binary,
+                FormatType::Octal => names.octal,
+                FormatType::Hex => names.hex,
+                FormatType::HexUpper => names.hex_upper,
+                FormatType::Exp => names.exp,
+                FormatType::ExpUpper => names.exp_upper,
+                FormatType::Fixed => names.fixed,
+                FormatType::Percent => names.percent,
             };
-            Value::some(Value::variant(ft_type, variant, vec![]))
+            Value::some(Value::variant(names.ft_type, variant, vec![]))
         }
         None => Value::None,
     };
 
     let mut fields = FxHashMap::default();
-    fields.insert(fill_name, fill_val);
-    fields.insert(align_name, align_val);
-    fields.insert(sign_name, sign_val);
-    fields.insert(width_name, width_val);
-    fields.insert(precision_name, precision_val);
-    fields.insert(format_type_name, format_type_val);
+    fields.insert(names.fill, fill_val);
+    fields.insert(names.align, align_val);
+    fields.insert(names.sign, sign_val);
+    fields.insert(names.width, width_val);
+    fields.insert(names.precision, precision_val);
+    fields.insert(names.format_type, format_type_val);
 
-    Value::Struct(StructValue::new(type_name, fields))
+    Value::Struct(StructValue::new(names.format_spec, fields))
 }
 
 /// Format an integer value according to the spec.
@@ -243,7 +234,7 @@ fn format_float(f: f64, spec: &ParsedFormatSpec) -> String {
             if let Some(prec) = spec.precision {
                 format!("{abs_f:.prec$}")
             } else {
-                format_float_default(abs_f)
+                format!("{abs_f}")
             }
         }
     };
@@ -267,6 +258,11 @@ fn format_float(f: f64, spec: &ParsedFormatSpec) -> String {
 
 /// Format a string value according to the spec.
 fn format_str(s: &str, spec: &ParsedFormatSpec) -> String {
+    // No-op fast path: no precision truncation or width/alignment needed
+    if spec.precision.is_none() && spec.width.is_none() {
+        return s.to_string();
+    }
+
     // Apply precision as max length for strings
     let truncated = if let Some(prec) = spec.precision {
         if s.chars().count() > prec {
@@ -369,13 +365,6 @@ fn format_scientific(f: f64, uppercase: bool, precision: Option<usize>) -> Strin
     };
 
     format!("{mantissa_str}{e}{exp}")
-}
-
-/// Format a float with default representation (no trailing zeros beyond one decimal).
-fn format_float_default(f: f64) -> String {
-    // Use Rust's default float formatting which already handles this well
-    let s = format!("{f}");
-    s
 }
 
 #[cfg(test)]

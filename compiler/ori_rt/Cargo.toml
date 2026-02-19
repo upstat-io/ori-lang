@@ -16,6 +16,11 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 # No dependencies - pure runtime functions
 
+[dev-dependencies]
+# Cross-parser conformance tests: verify ori_rt's format spec parser
+# matches ori_ir's parser (the source of truth during compilation).
+ori_ir = { path = "../ori_ir" }
+
 [lints.rust]
 # unsafe_code is required for C FFI entry points
 unsafe_code = "allow"
