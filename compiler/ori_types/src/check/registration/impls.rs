@@ -30,10 +30,6 @@ pub fn register_impls(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) 
 /// Converts an `ori_ir::ImplDef` to an `ImplEntry` and registers it in the
 /// `TraitRegistry`. Handles both inherent impls (`impl Type { ... }`) and
 /// trait impls (`impl Trait for Type { ... }`).
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive impl registration covering inherent and trait impls with method signature collection"
-)]
 fn register_impl(
     checker: &mut ModuleChecker<'_>,
     impl_def: &ori_ir::ImplDef,
@@ -48,7 +44,6 @@ fn register_impl(
 
     // 3. Resolve trait (if trait impl)
     let trait_idx = impl_def.trait_path.as_ref().map(|path| {
-        // Use the last segment of the trait path as the trait name
         let trait_name = path
             .last()
             .copied()
@@ -75,62 +70,16 @@ fn register_impl(
         methods.insert(impl_method.name, method_def);
     }
 
-    // 4b. For trait impls, register unoverridden default methods (direct + transitive)
-    //
-    // explicit_methods tracks methods from steps 3+4b (explicit impl methods + direct
-    // trait defaults). Step 6c uses this to detect conflicting defaults — transitive
-    // defaults must NOT be in this set, otherwise conflicts are silently masked.
-    let explicit_methods: FxHashSet<Name>;
-    if let Some(trait_path) = &impl_def.trait_path {
-        // Step 1: Direct defaults from the AST trait definition
-        if let Some(&trait_name) = trait_path.last() {
-            if let Some(trait_def) = traits.iter().find(|t| t.name == trait_name) {
-                for item in &trait_def.items {
-                    if let ori_ir::TraitItem::DefaultMethod(default) = item {
-                        methods.entry(default.name).or_insert_with(|| {
-                            let as_impl = ori_ir::ImplMethod::from(default);
-                            build_impl_method(checker, &as_impl, &type_params, self_type)
-                        });
-                    }
-                }
-            }
-        }
-
-        // Snapshot explicit methods BEFORE transitive defaults are added.
-        explicit_methods = methods.keys().copied().collect();
-
-        // Step 2: Transitive defaults from super-trait hierarchy via the registry.
-        // Borrow dance: scope the immutable trait_registry borrow to extract the
-        // data we need, then use checker mutably for build_impl_method.
-        if let Some(t_idx) = trait_idx {
-            let transitive_defaults: Vec<(Name, Idx, ExprId, Span)> = {
-                let reg = checker.trait_registry();
-                reg.collected_methods(t_idx)
-                    .into_iter()
-                    .filter_map(|(name, _owner, def)| {
-                        let body = def.default_body?;
-                        if !def.has_default {
-                            return None;
-                        }
-                        Some((name, def.signature, body, def.span))
-                    })
-                    .collect()
-            };
-
-            for (name, signature, body, span) in transitive_defaults {
-                methods.entry(name).or_insert(ImplMethodDef {
-                    name,
-                    signature,
-                    has_self: true,
-                    body,
-                    span,
-                });
-            }
-        }
-    } else {
-        // Non-trait impls: all methods are explicit
-        explicit_methods = methods.keys().copied().collect();
-    }
+    // 4b. Inherit unoverridden default methods (direct + transitive from super-traits)
+    let explicit_methods = inherit_default_methods(
+        checker,
+        impl_def,
+        traits,
+        trait_idx,
+        &type_params,
+        self_type,
+        &mut methods,
+    );
 
     // 5. Process associated type definitions
     let mut assoc_types = FxHashMap::default();
@@ -146,80 +95,11 @@ fn register_impl(
         .filter_map(|wc| build_where_constraint(checker, wc, &type_params, self_type))
         .collect();
 
-    // 6b. Validate all required associated types are defined
+    // 7. Validate associated types, check conflicting defaults, check coherence
     if let Some(t_idx) = trait_idx {
-        if let Some(trait_entry) = checker.trait_registry().get_trait_by_idx(t_idx) {
-            let trait_name = trait_entry.name;
-            let required: Vec<Name> = trait_entry
-                .assoc_types
-                .iter()
-                .filter(|(_, def)| def.default.is_none())
-                .map(|(&name, _)| name)
-                .collect();
-
-            for name in required {
-                if !assoc_types.contains_key(&name) {
-                    checker.push_error(TypeCheckError::missing_assoc_type(
-                        impl_def.span,
-                        name,
-                        trait_name,
-                    ));
-                }
-            }
-        }
-    }
-
-    // 6c. Check for conflicting default methods from super-traits
-    if let Some(t_idx) = trait_idx {
-        // Borrow dance: scope the registry borrow to extract conflict data
-        let conflicts: Vec<(Name, Vec<Name>)> = {
-            let reg = checker.trait_registry();
-            reg.find_conflicting_defaults(t_idx)
-                .into_iter()
-                .map(|(method_name, provider_idxs)| {
-                    let names: Vec<Name> = provider_idxs
-                        .iter()
-                        .filter_map(|&idx| reg.get_trait_by_idx(idx).map(|e| e.name))
-                        .collect();
-                    (method_name, names)
-                })
-                .collect()
-        };
-
-        for (method_name, provider_names) in conflicts {
-            // Only report if the impl doesn't explicitly override the method.
-            // Check against explicit_methods (step 3 + step 4b direct defaults),
-            // NOT the full methods map which includes transitive defaults.
-            if !explicit_methods.contains(&method_name) && provider_names.len() >= 2 {
-                checker.push_error(TypeCheckError::conflicting_defaults(
-                    impl_def.span,
-                    method_name,
-                    provider_names[0],
-                    provider_names[1],
-                ));
-            }
-        }
-    }
-
-    // 7. Check for coherence violations
-    if let Some(t_idx) = trait_idx {
-        // Borrow dance: extract existing impl span and trait name, then push error.
-        // Uses type-argument-aware matching so that `impl Index<int, str> for T`
-        // and `impl Index<str, str> for T` are correctly treated as distinct.
-        let existing: Option<(Span, Name)> = {
-            let reg = checker.trait_registry();
-            reg.find_impl_with_args(t_idx, self_type, &trait_type_args)
-                .and_then(|(_, entry)| {
-                    let trait_name = reg.get_trait_by_idx(t_idx).map(|t| t.name)?;
-                    Some((entry.span, trait_name))
-                })
-        };
-        if let Some((first_span, trait_name)) = existing {
-            checker.push_error(TypeCheckError::duplicate_impl(
-                impl_def.span,
-                first_span,
-                trait_name,
-            ));
+        validate_assoc_types(checker, impl_def, t_idx, &assoc_types);
+        check_conflicting_defaults(checker, impl_def, t_idx, &explicit_methods);
+        if has_coherence_violation(checker, impl_def, t_idx, self_type, &trait_type_args) {
             return;
         }
     }
@@ -247,6 +127,172 @@ fn register_impl(
     };
 
     checker.trait_registry_mut().register_impl(entry);
+}
+
+/// Inherit unoverridden default methods from trait definitions.
+///
+/// For trait impls, collects default methods from both the direct trait (AST)
+/// and transitive super-traits (registry). Returns the set of "explicit"
+/// method names (user-defined + direct defaults, excluding transitive) for
+/// use in conflicting default detection.
+fn inherit_default_methods(
+    checker: &mut ModuleChecker<'_>,
+    impl_def: &ori_ir::ImplDef,
+    traits: &[ori_ir::TraitDef],
+    trait_idx: Option<Idx>,
+    type_params: &[Name],
+    self_type: Idx,
+    methods: &mut FxHashMap<Name, ImplMethodDef>,
+) -> FxHashSet<Name> {
+    let Some(trait_path) = &impl_def.trait_path else {
+        // Non-trait impls: all methods are explicit
+        return methods.keys().copied().collect();
+    };
+
+    // Step 1: Direct defaults from the AST trait definition
+    if let Some(&trait_name) = trait_path.last() {
+        if let Some(trait_def) = traits.iter().find(|t| t.name == trait_name) {
+            for item in &trait_def.items {
+                if let ori_ir::TraitItem::DefaultMethod(default) = item {
+                    methods.entry(default.name).or_insert_with(|| {
+                        let as_impl = ori_ir::ImplMethod::from(default);
+                        build_impl_method(checker, &as_impl, type_params, self_type)
+                    });
+                }
+            }
+        }
+    }
+
+    // Snapshot explicit methods BEFORE transitive defaults are added.
+    let explicit_methods: FxHashSet<Name> = methods.keys().copied().collect();
+
+    // Step 2: Transitive defaults from super-trait hierarchy via the registry.
+    // Borrow dance: scope the immutable trait_registry borrow to extract the
+    // data we need, then use checker mutably for build_impl_method.
+    if let Some(t_idx) = trait_idx {
+        let transitive_defaults: Vec<(Name, Idx, ExprId, Span)> = {
+            let reg = checker.trait_registry();
+            reg.collected_methods(t_idx)
+                .into_iter()
+                .filter_map(|(name, _owner, def)| {
+                    let body = def.default_body?;
+                    if !def.has_default {
+                        return None;
+                    }
+                    Some((name, def.signature, body, def.span))
+                })
+                .collect()
+        };
+
+        for (name, signature, body, span) in transitive_defaults {
+            methods.entry(name).or_insert(ImplMethodDef {
+                name,
+                signature,
+                has_self: true,
+                body,
+                span,
+            });
+        }
+    }
+
+    explicit_methods
+}
+
+/// Validate that all required associated types are defined in the impl.
+fn validate_assoc_types(
+    checker: &mut ModuleChecker<'_>,
+    impl_def: &ori_ir::ImplDef,
+    trait_idx: Idx,
+    assoc_types: &FxHashMap<Name, Idx>,
+) {
+    let Some(trait_entry) = checker.trait_registry().get_trait_by_idx(trait_idx) else {
+        return;
+    };
+    let trait_name = trait_entry.name;
+    let required: Vec<Name> = trait_entry
+        .assoc_types
+        .iter()
+        .filter(|(_, def)| def.default.is_none())
+        .map(|(&name, _)| name)
+        .collect();
+
+    for name in required {
+        if !assoc_types.contains_key(&name) {
+            checker.push_error(TypeCheckError::missing_assoc_type(
+                impl_def.span,
+                name,
+                trait_name,
+            ));
+        }
+    }
+}
+
+/// Check for conflicting default methods inherited from multiple super-traits.
+///
+/// Only reports conflicts for methods not explicitly overridden in the impl.
+fn check_conflicting_defaults(
+    checker: &mut ModuleChecker<'_>,
+    impl_def: &ori_ir::ImplDef,
+    trait_idx: Idx,
+    explicit_methods: &FxHashSet<Name>,
+) {
+    // Borrow dance: scope the registry borrow to extract conflict data
+    let conflicts: Vec<(Name, Vec<Name>)> = {
+        let reg = checker.trait_registry();
+        reg.find_conflicting_defaults(trait_idx)
+            .into_iter()
+            .map(|(method_name, provider_idxs)| {
+                let names: Vec<Name> = provider_idxs
+                    .iter()
+                    .filter_map(|&idx| reg.get_trait_by_idx(idx).map(|e| e.name))
+                    .collect();
+                (method_name, names)
+            })
+            .collect()
+    };
+
+    for (method_name, provider_names) in conflicts {
+        if !explicit_methods.contains(&method_name) && provider_names.len() >= 2 {
+            checker.push_error(TypeCheckError::conflicting_defaults(
+                impl_def.span,
+                method_name,
+                provider_names[0],
+                provider_names[1],
+            ));
+        }
+    }
+}
+
+/// Check for coherence violations (duplicate impls of the same trait for the same type).
+///
+/// Returns `true` if a violation was found (caller should skip registration).
+fn has_coherence_violation(
+    checker: &mut ModuleChecker<'_>,
+    impl_def: &ori_ir::ImplDef,
+    trait_idx: Idx,
+    self_type: Idx,
+    trait_type_args: &[Idx],
+) -> bool {
+    // Borrow dance: extract existing impl span and trait name, then push error.
+    // Uses type-argument-aware matching so that `impl Index<int, str> for T`
+    // and `impl Index<str, str> for T` are correctly treated as distinct.
+    let existing: Option<(Span, Name)> = {
+        let reg = checker.trait_registry();
+        reg.find_impl_with_args(trait_idx, self_type, trait_type_args)
+            .and_then(|(_, entry)| {
+                let trait_name = reg.get_trait_by_idx(trait_idx).map(|t| t.name)?;
+                Some((entry.span, trait_name))
+            })
+    };
+    if let Some((first_span, trait_name)) = existing {
+        checker.push_error(TypeCheckError::duplicate_impl(
+            impl_def.span,
+            first_span,
+            trait_name,
+        ));
+        return true;
+    }
+    false
 }
 
 /// Build an `ImplMethodDef` from an impl method.

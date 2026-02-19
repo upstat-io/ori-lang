@@ -38,7 +38,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
             let field_defs: Vec<FieldDef> = fields
                 .iter()
                 .map(|f| {
-                    let ty = resolve_field_type(checker, &f.ty, &type_params);
+                    let ty = resolve_field_type(checker, &f.ty);
                     FieldDef {
                         name: f.name,
                         ty,
@@ -86,7 +86,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                             .fields
                             .iter()
                             .map(|f| {
-                                let ty = resolve_field_type(checker, &f.ty, &type_params);
+                                let ty = resolve_field_type(checker, &f.ty);
                                 FieldDef {
                                     name: f.name,
                                     ty,
@@ -138,7 +138,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
         }
 
         ori_ir::TypeDeclKind::Newtype(underlying) => {
-            let underlying_ty = resolve_field_type(checker, underlying, &type_params);
+            let underlying_ty = resolve_field_type(checker, underlying);
             checker.type_registry_mut().register_newtype(
                 decl.name,
                 idx,

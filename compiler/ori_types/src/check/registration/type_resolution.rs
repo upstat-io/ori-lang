@@ -24,16 +24,13 @@ pub(super) fn collect_generic_params(
         .collect()
 }
 
-/// Resolve a parsed type to an Idx, with generic parameters in scope.
+/// Resolve a struct/enum field type to an Idx during registration.
 ///
-/// This is a simplified version that handles common cases during type registration.
-/// For full type resolution during inference, use the `resolve_parsed_type` function
-/// from the `infer` module.
-pub(super) fn resolve_field_type(
-    checker: &mut ModuleChecker<'_>,
-    parsed: &ParsedType,
-    _type_params: &[Name],
-) -> Idx {
+/// Delegates to `resolve_parsed_type_simple` — generic type arguments are not
+/// fully instantiated at registration time (deferred to inference). For
+/// resolution that is aware of type parameters and Self, use
+/// `resolve_type_with_params` or `resolve_type_with_self`.
+pub(super) fn resolve_field_type(checker: &mut ModuleChecker<'_>, parsed: &ParsedType) -> Idx {
     let arena = checker.arena();
     resolve_parsed_type_simple(checker, parsed, arena)
 }
@@ -163,7 +160,11 @@ pub(crate) fn resolve_parsed_type_simple(
 /// Resolve a parsed type with type parameters in scope.
 ///
 /// Type parameters are looked up by name and replaced with fresh type variables
-/// during inference. For registration, we just create a named type placeholder.
+/// during inference. `Self` becomes a Named placeholder. Recurses into compound
+/// types (List, Map, Tuple, Function, TraitBounds) so that nested `Self` and
+/// type parameter references are resolved correctly — without this recursion,
+/// types like `-> List<Self>` or `-> (T, int)` would silently map the nested
+/// `Self`/param to `Idx::ERROR` via `resolve_parsed_type_simple`.
 pub(super) fn resolve_type_with_params(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
@@ -172,21 +173,60 @@ pub(super) fn resolve_type_with_params(
 ) -> Idx {
     match parsed {
         ParsedType::Named { name, .. } => {
-            // Check if this is a type parameter
             if type_params.contains(name) {
-                // Create a named type for the parameter
-                // During inference, this will be replaced with a fresh type variable
                 checker.pool_mut().named(*name)
             } else {
-                // Regular named type
                 resolve_parsed_type_simple(checker, parsed, arena)
             }
         }
         ParsedType::SelfType => {
-            // Self type - create a placeholder named type
-            // Will be substituted with the actual implementing type during impl registration
             let self_name = checker.interner().intern("Self");
             checker.pool_mut().named(self_name)
+        }
+        ParsedType::List(elem_id) => {
+            let elem = arena.get_parsed_type(*elem_id);
+            let elem_ty = resolve_type_with_params(checker, elem, type_params, arena);
+            checker.pool_mut().list(elem_ty)
+        }
+        ParsedType::Map { key, value } => {
+            let key_parsed = arena.get_parsed_type(*key);
+            let value_parsed = arena.get_parsed_type(*value);
+            let key_ty = resolve_type_with_params(checker, key_parsed, type_params, arena);
+            let value_ty = resolve_type_with_params(checker, value_parsed, type_params, arena);
+            checker.pool_mut().map(key_ty, value_ty)
+        }
+        ParsedType::Tuple(elems) => {
+            let elem_ids = arena.get_parsed_type_list(*elems);
+            let elem_types: Vec<Idx> = elem_ids
+                .iter()
+                .map(|&elem_id| {
+                    let elem = arena.get_parsed_type(elem_id);
+                    resolve_type_with_params(checker, elem, type_params, arena)
+                })
+                .collect();
+            checker.pool_mut().tuple(&elem_types)
+        }
+        ParsedType::Function { params, ret } => {
+            let param_ids = arena.get_parsed_type_list(*params);
+            let param_types: Vec<Idx> = param_ids
+                .iter()
+                .map(|&param_id| {
+                    let param = arena.get_parsed_type(param_id);
+                    resolve_type_with_params(checker, param, type_params, arena)
+                })
+                .collect();
+            let ret_parsed = arena.get_parsed_type(*ret);
+            let ret_ty = resolve_type_with_params(checker, ret_parsed, type_params, arena);
+            checker.pool_mut().function(&param_types, ret_ty)
+        }
+        ParsedType::TraitBounds(bounds) => {
+            let bound_ids = arena.get_parsed_type_list(*bounds);
+            if let Some(&first_id) = bound_ids.first() {
+                let first = arena.get_parsed_type(first_id);
+                resolve_type_with_params(checker, first, type_params, arena)
+            } else {
+                Idx::ERROR
+            }
         }
         _ => resolve_parsed_type_simple(checker, parsed, arena),
     }
