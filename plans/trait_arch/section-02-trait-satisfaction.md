@@ -1,29 +1,29 @@
 ---
 section: "02"
 title: Data-Driven Trait Satisfaction
-status: not-started
+status: complete
 goal: Replace the 200-line N×M inline boolean chain with a data-driven trait satisfaction table
 sections:
   - id: "02.1"
     title: TraitSet Bitfield
-    status: not-started
+    status: complete
   - id: "02.2"
     title: Primitive Satisfaction Table
-    status: not-started
+    status: complete
   - id: "02.3"
     title: Compound Type Satisfaction Table
-    status: not-started
+    status: complete
   - id: "02.4"
     title: Migration
-    status: not-started
+    status: complete
   - id: "02.5"
     title: Completion Checklist
-    status: not-started
+    status: complete
 ---
 
 # Section 02: Data-Driven Trait Satisfaction
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Replace the `primitive_satisfies_trait()` and `type_satisfies_trait()` functions — currently a 200-line inline boolean matrix with N×M `||` chains — with a data-driven lookup table using bitfield trait sets. Adding a trait to a primitive type becomes one line, not 10 branches.
 
 **Depends on:** Section 01 (uses `DerivedTrait::ALL` for initialization validation)
@@ -119,10 +119,10 @@ mod trait_bits {
 }
 ```
 
-- [ ] Define `TraitSet` struct with `contains()`, `union()`, `from_bits()`
-- [ ] Define `trait_bits` module with bit positions for all current well-known traits
-- [ ] Unit tests: `contains()` for set/unset bits, `union()`, `from_bits()` with various combinations
-- [ ] Verify `TraitSet` is `Copy` — no allocation, no indirection
+- [x] Define `TraitSet` struct with `contains()`, `union()`, `from_bits()`
+- [x] Define `trait_bits` module with bit positions for all current well-known traits
+- [x] Unit tests: `contains()` for set/unset bits, `union()`, `from_bits()` with various combinations
+- [x] Verify `TraitSet` is `Copy` — no allocation, no indirection
 
 ---
 
@@ -274,14 +274,14 @@ impl WellKnownNames {
 }
 ```
 
-- [ ] Add `prim_trait_sets: [TraitSet; 12]` field to `WellKnownNames`
-- [ ] Add `trait_bit_map: [(Name, u32); N]` field to `WellKnownNames`
-- [ ] Implement `build_primitive_trait_sets()` initialization
-- [ ] Implement `trait_bit()` lookup
-- [ ] Replace `primitive_satisfies_trait()` with bitfield version
-- [ ] Unit tests: every primitive type × every supported trait returns `true`
-- [ ] Unit tests: every primitive type × non-supported trait returns `false`
-- [ ] Unit tests: unknown traits return `false`
+- [x] Add `prim_trait_sets: [TraitSet; 12]` field to `WellKnownNames`
+- [x] Add `trait_bit_map: [(Name, u32); N]` field to `WellKnownNames`
+- [x] Implement `build_primitive_trait_sets()` initialization
+- [x] Implement `trait_bit()` lookup
+- [x] Replace `primitive_satisfies_trait()` with bitfield version
+- [x] Unit tests: every primitive type × every supported trait returns `true`
+- [x] Unit tests: every primitive type × non-supported trait returns `false`
+- [x] Unit tests: unknown traits return `false`
 
 ---
 
@@ -324,11 +324,11 @@ impl WellKnownNames {
 
 The compound trait sets are pre-computed fields on `WellKnownNames`, initialized once.
 
-- [ ] Add compound trait set fields to `WellKnownNames` (list_traits, map_set_traits, etc.)
-- [ ] Initialize compound trait sets in `build_compound_trait_sets()`
-- [ ] Replace `type_satisfies_trait()` with bitfield version
-- [ ] Unit tests: each compound type × each supported trait
-- [ ] Verify the `Tag::Str => self.str_compound_traits` handles `Iterable` (currently only compound-level check for str)
+- [x] Add compound trait set fields to `WellKnownNames` (list_traits, map_set_traits, etc.)
+- [x] Initialize compound trait sets in `build_compound_trait_sets()`
+- [x] Replace `type_satisfies_trait()` with bitfield version
+- [x] Unit tests: each compound type × each supported trait
+- [x] Verify the `Tag::Str => self.str_compound_traits` handles `Iterable` (currently only compound-level check for str)
 
 ---
 
@@ -365,25 +365,25 @@ fn verify_equivalence(wk: &WellKnownNames, pool: &Pool) {
 }
 ```
 
-- [ ] Write equivalence test that runs both old and new implementations
-- [ ] Run equivalence test — all assertions pass
-- [ ] Replace old implementations
-- [ ] Delete old code
-- [ ] `./test-all.sh` passes
+- [x] Write equivalence test that runs both old and new implementations
+- [x] Run equivalence test — all assertions pass
+- [x] Replace old implementations
+- [x] Delete old code
+- [x] `./test-all.sh` passes
 
 ---
 
 ## 02.5 Completion Checklist
 
-- [ ] `TraitSet` bitfield struct defined and tested
-- [ ] `trait_bits` module with bit positions for all 27 well-known traits
-- [ ] `prim_trait_sets` pre-computed for all 12 primitive types
-- [ ] Compound type trait sets pre-computed for all 9 compound tag types
-- [ ] `primitive_satisfies_trait()` uses bitfield lookup (O(1))
-- [ ] `type_satisfies_trait()` uses bitfield lookup (O(1))
-- [ ] Old N×M `||` chain code deleted
-- [ ] Equivalence test validates correctness during migration
-- [ ] Net line reduction: ~200 lines of `||` chains → ~80 lines of table construction
-- [ ] `./test-all.sh` passes with zero regressions
+- [x] `TraitSet` bitfield struct defined and tested
+- [x] `trait_bits` module with bit positions for all 27 well-known traits
+- [x] `prim_trait_sets` pre-computed for all 12 primitive types
+- [x] Compound type trait sets pre-computed for all 9 compound tag types
+- [x] `primitive_satisfies_trait()` uses bitfield lookup (O(1))
+- [x] `type_satisfies_trait()` uses bitfield lookup (O(1))
+- [x] Old N×M `||` chain code deleted
+- [x] Equivalence test validates correctness during migration
+- [x] Net line reduction: ~200 lines of `||` chains → ~80 lines of table construction
+- [x] `./test-all.sh` passes with zero regressions
 
 **Exit Criteria:** Adding a new trait to a primitive type is a single line in the table builder. The `||` chains are gone. The lookup is O(1) via bitwise AND. File stays under 500 lines.
