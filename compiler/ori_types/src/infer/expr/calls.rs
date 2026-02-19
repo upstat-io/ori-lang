@@ -369,6 +369,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Add",
         "Sub",
         "Mul",
@@ -390,6 +391,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Add",
         "Sub",
         "Mul",
@@ -403,6 +405,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Not",
     ];
     const STR_TRAITS: &[&str] = &[
@@ -412,17 +415,26 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Len",
         "IsEmpty",
         "Add",
     ];
-    const CHAR_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
+    const CHAR_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Printable",
+        "Debug",
+    ];
     const BYTE_TRAITS: &[&str] = &[
         "Eq",
         "Comparable",
         "Clone",
         "Hashable",
         "Printable",
+        "Debug",
         "Add",
         "Sub",
         "Mul",
@@ -435,7 +447,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Shl",
         "Shr",
     ];
-    const UNIT_TRAITS: &[&str] = &["Eq", "Clone", "Default"];
+    const UNIT_TRAITS: &[&str] = &["Eq", "Clone", "Default", "Debug"];
     const DURATION_TRAITS: &[&str] = &[
         "Eq",
         "Comparable",
@@ -443,6 +455,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Sendable",
         "Add",
         "Sub",
@@ -458,6 +471,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Sendable",
         "Add",
         "Sub",
@@ -465,7 +479,14 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Div",
         "Rem",
     ];
-    const ORDERING_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
+    const ORDERING_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Printable",
+        "Debug",
+    ];
 
     // Check primitive types by Idx constant
     if ty == Idx::INT {

@@ -2716,6 +2716,7 @@ fn well_known_trait_satisfaction_sync() {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Sendable",
         "Add",
         "Sub",
