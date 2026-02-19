@@ -23,7 +23,7 @@ pub use units::{DurationUnit, SizeUnit};
 
 /// Number of [`TokenKind`] variants. Used for bitset sizing and test verification.
 #[cfg(test)]
-pub(crate) const TOKEN_KIND_COUNT: usize = 123;
+pub(crate) const TOKEN_KIND_COUNT: usize = 122;
 
 use std::fmt;
 

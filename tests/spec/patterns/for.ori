@@ -126,7 +126,7 @@
 // )
 //
 // @for_do_basic () -> int = run(
-//     let mut sum = 0,
+//     let sum = 0,
 //     for x in [1, 2, 3, 4, 5] do sum = sum + x,
 //     sum,
 // )
@@ -137,7 +137,7 @@
 // )
 //
 // @for_do_empty () -> int = run(
-//     let mut sum = 0,
+//     let sum = 0,
 //     for x in [] do sum = sum + x,
 //     sum,
 // )
@@ -148,7 +148,7 @@
 // )
 //
 // @for_do_single () -> int = run(
-//     let mut result = 0,
+//     let result = 0,
 //     for x in [42] do result = x,
 //     result,
 // )
@@ -159,7 +159,7 @@
 // )
 //
 // @for_do_string () -> int = run(
-//     let mut count = 0,
+//     let count = 0,
 //     for _ in ["a", "b", "c"] do count = count + 1,
 //     count,
 // )
@@ -170,7 +170,7 @@
 // )
 //
 // @for_do_range () -> int = run(
-//     let mut sum = 0,
+//     let sum = 0,
 //     for i in 0..10 do sum = sum + i,
 //     sum,
 // )
@@ -250,7 +250,7 @@
 // )
 //
 // @nested_for_do () -> int = run(
-//     let mut count = 0,
+//     let count = 0,
 //     for i in [1, 2, 3] do
 //         for j in [1, 2, 3] do count = count + 1,
 //     count,
@@ -289,7 +289,7 @@
 // )
 //
 // @for_break () -> int = run(
-//     let mut sum = 0,
+//     let sum = 0,
 //     for x in [1, 2, 3, 4, 5] do run(
 //         if x > 3 then break,
 //         sum = sum + x,
@@ -304,7 +304,7 @@
 // )
 //
 // @for_continue () -> int = run(
-//     let mut sum = 0,
+//     let sum = 0,
 //     for x in [1, 2, 3, 4, 5] do run(
 //         if x == 3 then continue,
 //         sum = sum + x,
@@ -374,7 +374,7 @@
 // // )
 //
 // // @labeled_break () -> int = run(
-// //     let mut count = 0,
+// //     let count = 0,
 // //     for:outer i in 1..5 do
 // //         for j in 1..5 do run(
 // //             if j > 2 then break:outer,
@@ -389,7 +389,7 @@
 // // )
 //
 // // @labeled_continue () -> int = run(
-// //     let mut count = 0,
+// //     let count = 0,
 // //     for:outer i in 1..5 do
 // //         for j in 1..5 do run(
 // //             if j > 2 then continue:outer,
@@ -424,7 +424,7 @@
 //
 // @for_option () -> int = run(
 //     let opt = Some(42),
-//     let mut result = 0,
+//     let result = 0,
 //     for x in opt do result = x,
 //     result,
 // )
@@ -437,7 +437,7 @@
 //
 // @for_none () -> int = run(
 //     let opt: Option<int> = None,
-//     let mut result = 0,
+//     let result = 0,
 //     for x in opt do result = x,
 //     result,
 // )

@@ -47,7 +47,6 @@ pub enum TokenKind {
     Let,
     Loop,
     Match,
-    Mut,
     Pub,
     SelfLower, // self
     SelfUpper, // Self
@@ -205,7 +204,6 @@ impl TokenKind {
     pub const TAG_LET: u8 = TokenTag::KwLet as u8;
     pub const TAG_LOOP: u8 = TokenTag::KwLoop as u8;
     pub const TAG_MATCH: u8 = TokenTag::KwMatch as u8;
-    pub const TAG_MUT: u8 = TokenTag::KwMut as u8;
     pub const TAG_PUB: u8 = TokenTag::KwPub as u8;
     pub const TAG_SELF_LOWER: u8 = TokenTag::KwSelfLower as u8;
     pub const TAG_SELF_UPPER: u8 = TokenTag::KwSelfUpper as u8;
@@ -361,7 +359,6 @@ impl TokenKind {
             Self::Let => TokenTag::KwLet as u8,
             Self::Loop => TokenTag::KwLoop as u8,
             Self::Match => TokenTag::KwMatch as u8,
-            Self::Mut => TokenTag::KwMut as u8,
             Self::Pub => TokenTag::KwPub as u8,
             Self::SelfLower => TokenTag::KwSelfLower as u8,
             Self::SelfUpper => TokenTag::KwSelfUpper as u8,
@@ -565,7 +562,6 @@ impl TokenKind {
             TokenKind::Let => Some("let"),
             TokenKind::Loop => Some("loop"),
             TokenKind::Match => Some("match"),
-            TokenKind::Mut => Some("mut"),
             TokenKind::Pub => Some("pub"),
             TokenKind::SelfLower => Some("self"),
             TokenKind::SelfUpper => Some("Self"),
@@ -662,7 +658,6 @@ impl TokenKind {
             TokenKind::Let => "let",
             TokenKind::Loop => "loop",
             TokenKind::Match => "match",
-            TokenKind::Mut => "mut",
             TokenKind::Pub => "pub",
             TokenKind::SelfLower => "self",
             TokenKind::SelfUpper => "Self",

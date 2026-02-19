@@ -248,13 +248,13 @@ impl Point {
 )
 
 @test_for_fold tests @for_fold () -> void = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3, 4, 5] do sum = sum + x,
     assert_eq(actual: sum, expected: 15),
 )
 
 @for_fold () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3, 4, 5] do sum = sum + x,
     sum,
 )

@@ -466,7 +466,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // For loops in run blocks now work after parser update.
 @test_match_in_for tests @match_in_for () -> void = run(
     let items = [Some(1), None, Some(3), None, Some(5)],
-    let mut total = 0,
+    let total = 0,
     for item in items do total = total + match(item,
         Some(x) -> x,
         None -> 0,

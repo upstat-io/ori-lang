@@ -287,7 +287,7 @@ fn test_lex_template_format_spec_complex() {
 fn test_lex_all_reserved_keywords() {
     let interner = test_interner();
     let source =
-        "async break continue do else false for if impl in let loop match mut pub self Self then trait true type use uses void where with yield";
+        "async break continue do else false for if impl in let loop match pub self Self then trait true type use uses void where with yield";
     let tokens = lex(source, &interner);
 
     let expected = [
@@ -304,7 +304,6 @@ fn test_lex_all_reserved_keywords() {
         TokenKind::Let,
         TokenKind::Loop,
         TokenKind::Match,
-        TokenKind::Mut,
         TokenKind::Pub,
         TokenKind::SelfLower,
         TokenKind::SelfUpper,

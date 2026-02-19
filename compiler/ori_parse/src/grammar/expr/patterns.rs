@@ -111,9 +111,6 @@ impl Parser<'_> {
                 let mutable = if self.cursor.check(&TokenKind::Dollar) {
                     self.cursor.advance();
                     false
-                } else if self.cursor.check(&TokenKind::Mut) {
-                    self.cursor.advance();
-                    true
                 } else {
                     true
                 };

@@ -9,26 +9,26 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @test_for_do_basic tests @for_do_basic () -> void = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3] do sum = sum + x,
     assert_eq(actual: sum, expected: 6),
 )
 
 @for_do_basic () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3] do sum = sum + x,
     sum,
 )
 
 @test_for_do_empty tests @for_do_empty () -> void = run(
-    let mut called = false,
+    let called = false,
     let empty: [int] = [],
     for x in empty do called = true,
     assert(cond: !called),
 )
 
 @for_do_empty () -> bool = run(
-    let mut called = false,
+    let called = false,
     let empty: [int] = [],
     for x in empty do called = true,
     called,
@@ -46,25 +46,25 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @test_for_do_with_guard tests @for_do_with_guard () -> void = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3, 4, 5] if x % 2 == 0 do sum = sum + x,
     assert_eq(actual: sum, expected: 6), // 2 + 4
 )
 
 @for_do_with_guard () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3, 4, 5] if x % 2 == 0 do sum = sum + x,
     sum,
 )
 
 @test_for_do_guard_all_filtered tests @for_do_guard_all_filtered () -> void = run(
-    let mut count = 0,
+    let count = 0,
     for x in [1, 3, 5] if x % 2 == 0 do count = count + 1,
     assert_eq(actual: count, expected: 0),
 )
 
 @for_do_guard_all_filtered () -> int = run(
-    let mut count = 0,
+    let count = 0,
     for x in [1, 3, 5] if x % 2 == 0 do count = count + 1,
     count,
 )
@@ -122,7 +122,7 @@ use std.testing { assert, assert_eq }
 
 @test_for_tuple_destructure tests @for_tuple_destructure () -> void = run(
     let pairs = [(1, "a"), (2, "b"), (3, "c")],
-    let mut sum = 0,
+    let sum = 0,
     for pair in pairs do run(
         let (n, s) = pair,
         sum = sum + n,
@@ -132,7 +132,7 @@ use std.testing { assert, assert_eq }
 
 @for_tuple_destructure () -> int = run(
     let pairs = [(1, "a"), (2, "b")],
-    let mut sum = 0,
+    let sum = 0,
     for pair in pairs do run(
         let (n, s) = pair,
         sum = sum + n,
@@ -158,7 +158,7 @@ type Point = { x: int, y: int }
 // =============================================================================
 
 @test_nested_for_do tests @nested_for_do () -> void = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2] do
         for y in [10, 20] do
             sum = sum + x * y,
@@ -166,7 +166,7 @@ type Point = { x: int, y: int }
 )
 
 @nested_for_do () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2] do
         for y in [10, 20] do
             sum = sum + x * y,
@@ -185,7 +185,7 @@ type Point = { x: int, y: int }
 // =============================================================================
 
 @test_loop_with_break tests @loop_with_break () -> void = run(
-    let mut count = 0,
+    let count = 0,
     loop(run(
         count = count + 1,
         if count >= 5 then break,
@@ -194,7 +194,7 @@ type Point = { x: int, y: int }
 )
 
 @loop_with_break () -> int = run(
-    let mut count = 0,
+    let count = 0,
     loop(run(
         count = count + 1,
         if count >= 5 then break,
@@ -216,7 +216,7 @@ type Point = { x: int, y: int }
 ))
 
 @test_loop_conditional_break tests @loop_conditional_break () -> void = run(
-    let mut n = 0,
+    let n = 0,
     let result = loop(run(
         n = n + 1,
         if n > 10 then break n * 2,
@@ -225,7 +225,7 @@ type Point = { x: int, y: int }
 )
 
 @loop_conditional_break () -> int = run(
-    let mut n = 0,
+    let n = 0,
     loop(run(
         n = n + 1,
         if n > 10 then break n * 2,
@@ -237,8 +237,8 @@ type Point = { x: int, y: int }
 // =============================================================================
 
 @test_loop_continue tests @loop_continue () -> void = run(
-    let mut count = 0,
-    let mut sum = 0,
+    let count = 0,
+    let sum = 0,
     loop(run(
         count = count + 1,
         if count > 10 then break,
@@ -249,8 +249,8 @@ type Point = { x: int, y: int }
 )
 
 @loop_continue () -> int = run(
-    let mut count = 0,
-    let mut sum = 0,
+    let count = 0,
+    let sum = 0,
     loop(run(
         count = count + 1,
         if count > 10 then break,
@@ -265,7 +265,7 @@ type Point = { x: int, y: int }
 // =============================================================================
 
 @test_for_do_break tests @for_do_break () -> void = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3, 4, 5] do run(
         if x == 4 then break,
         sum = sum + x,
@@ -274,7 +274,7 @@ type Point = { x: int, y: int }
 )
 
 @for_do_break () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3, 4, 5] do run(
         if x == 4 then break,
         sum = sum + x,
@@ -314,7 +314,7 @@ type Point = { x: int, y: int }
 // =============================================================================
 
 @test_for_do_continue tests @for_do_continue () -> void = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3, 4, 5] do run(
         if x == 3 then continue,
         sum = sum + x,
@@ -323,7 +323,7 @@ type Point = { x: int, y: int }
 )
 
 @for_do_continue () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3, 4, 5] do run(
         if x == 3 then continue,
         sum = sum + x,
@@ -376,7 +376,7 @@ type Point = { x: int, y: int }
 // =============================================================================
 
 @test_loop_void tests @loop_void () -> void = run(
-    let mut count = 0,
+    let count = 0,
     loop(run(
         count = count + 1,
         if count >= 3 then break,
@@ -386,7 +386,7 @@ type Point = { x: int, y: int }
 )
 
 @loop_void () -> void = run(
-    let mut count = 0,
+    let count = 0,
     loop(run(
         count = count + 1,
         if count >= 3 then break,
@@ -432,7 +432,7 @@ type Point = { x: int, y: int }
 
 @test_flatten_with_break tests @flatten_with_break () -> void = run(
     let matrix = [[1, 2], [3, 4], [5, 6]],
-    let mut count = 0,
+    let count = 0,
     for row in matrix do run(
         for x in row do run(
             if x == 4 then break,
@@ -446,7 +446,7 @@ type Point = { x: int, y: int }
 
 @flatten_with_break () -> int = run(
     let matrix = [[1, 2], [3, 4], [5, 6]],
-    let mut count = 0,
+    let count = 0,
     for row in matrix do run(
         for x in row do run(
             if x == 4 then break,
@@ -457,9 +457,9 @@ type Point = { x: int, y: int }
 )
 
 @test_accumulate_until tests @accumulate_until () -> void = run(
-    let mut sum = 0,
+    let sum = 0,
     let limit = 10,
-    let mut i = 0,
+    let i = 0,
     loop(run(
         sum = sum + i,
         i = i + 1,
@@ -470,8 +470,8 @@ type Point = { x: int, y: int }
 )
 
 @accumulate_until () -> int = run(
-    let mut sum = 0,
-    let mut i = 0,
+    let sum = 0,
+    let i = 0,
     loop(run(
         sum = sum + i,
         i = i + 1,

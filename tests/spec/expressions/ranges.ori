@@ -158,8 +158,8 @@ use std.testing { assert, assert_eq }
 
 @test_infinite_with_break tests @infinite_with_break () -> void = run(
     // Simulate infinite range with loop
-    let mut r: [int] = [],
-    let mut i = 0,
+    let r: [int] = [],
+    let i = 0,
     loop(run(
         if i >= 5 then break,
         r = r + [i],
@@ -169,8 +169,8 @@ use std.testing { assert, assert_eq }
 )
 
 @infinite_with_break () -> [int] = run(
-    let mut r: [int] = [],
-    let mut i = 0,
+    let r: [int] = [],
+    let i = 0,
     loop(run(
         if i >= 5 then break,
         r = r + [i],
@@ -180,8 +180,8 @@ use std.testing { assert, assert_eq }
 )
 
 @test_infinite_from_nonzero tests @infinite_from_nonzero () -> void = run(
-    let mut r: [int] = [],
-    let mut i = 100,
+    let r: [int] = [],
+    let i = 100,
     loop(run(
         if i >= 105 then break,
         r = r + [i],
@@ -191,8 +191,8 @@ use std.testing { assert, assert_eq }
 )
 
 @infinite_from_nonzero () -> [int] = run(
-    let mut r: [int] = [],
-    let mut i = 100,
+    let r: [int] = [],
+    let i = 100,
     loop(run(
         if i >= 105 then break,
         r = r + [i],
@@ -202,9 +202,9 @@ use std.testing { assert, assert_eq }
 )
 
 @test_infinite_with_step tests @infinite_with_step () -> void = run(
-    let mut r: [int] = [],
-    let mut i = 0,
-    let mut count = 0,
+    let r: [int] = [],
+    let i = 0,
+    let count = 0,
     loop(run(
         if count >= 5 then break,
         r = r + [i],
@@ -215,9 +215,9 @@ use std.testing { assert, assert_eq }
 )
 
 @infinite_with_step () -> [int] = run(
-    let mut r: [int] = [],
-    let mut i = 0,
-    let mut count = 0,
+    let r: [int] = [],
+    let i = 0,
+    let count = 0,
     loop(run(
         if count >= 5 then break,
         r = r + [i],
@@ -228,9 +228,9 @@ use std.testing { assert, assert_eq }
 )
 
 @test_infinite_negative_step tests @infinite_negative_step () -> void = run(
-    let mut r: [int] = [],
-    let mut i = 0,
-    let mut count = 0,
+    let r: [int] = [],
+    let i = 0,
+    let count = 0,
     loop(run(
         if count >= 5 then break,
         r = r + [i],
@@ -241,9 +241,9 @@ use std.testing { assert, assert_eq }
 )
 
 @infinite_negative_step () -> [int] = run(
-    let mut r: [int] = [],
-    let mut i = 0,
-    let mut count = 0,
+    let r: [int] = [],
+    let i = 0,
+    let count = 0,
     loop(run(
         if count >= 5 then break,
         r = r + [i],
@@ -254,8 +254,8 @@ use std.testing { assert, assert_eq }
 )
 
 @test_infinite_from_negative tests @infinite_from_negative () -> void = run(
-    let mut r: [int] = [],
-    let mut i = -5,
+    let r: [int] = [],
+    let i = -5,
     loop(run(
         if i >= 0 then break,
         r = r + [i],
@@ -265,8 +265,8 @@ use std.testing { assert, assert_eq }
 )
 
 @infinite_from_negative () -> [int] = run(
-    let mut r: [int] = [],
-    let mut i = -5,
+    let r: [int] = [],
+    let i = -5,
     loop(run(
         if i >= 0 then break,
         r = r + [i],
@@ -315,13 +315,13 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @test_range_in_for_do tests @range_in_for_do () -> void = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in 1..=5 do sum = sum + x,
     assert_eq(actual: sum, expected: 15),
 )
 
 @range_in_for_do () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in 1..=5 do sum = sum + x,
     sum,
 )
@@ -368,13 +368,13 @@ use std.testing { assert, assert_eq }
 @range_filter () -> [int] = for x in 0..10 if x % 3 == 0 yield x
 
 @test_range_fold tests @range_fold () -> void = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in 1..=5 do sum = sum + x,
     assert_eq(actual: sum, expected: 15),
 )
 
 @range_fold () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in 1..=5 do sum = sum + x,
     sum,
 )

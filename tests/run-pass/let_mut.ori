@@ -1,9 +1,9 @@
-// Test let and let mut variable bindings
+// Test let variable bindings and mutation
 
 use std.testing { assert, assert_eq, assert_ne }
 
 @increment (n: int) -> int = run(
-    let mut result = n,
+    let result = n,
     result = result + 1,
     result
 )
@@ -15,7 +15,7 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @counter () -> int = run(
-    let mut count = 0,
+    let count = 0,
     count = count + 1,
     count = count + 1,
     count = count + 1,

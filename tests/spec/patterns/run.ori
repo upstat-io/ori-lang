@@ -95,7 +95,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 @test_run_mutable tests @run_mutable () -> void = run(
-    let mut x = 1,
+    let x = 1,
     x = x + 1,
     x = x * 2,
     assert_eq(
@@ -105,15 +105,15 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @run_mutable () -> int = run(
-    let mut x = 1,
+    let x = 1,
     x = x + 1,
     x = x * 2,
     x,
 )
 
 @test_run_mutable_multiple tests @run_mutable_multiple () -> void = run(
-    let mut a = 10,
-    let mut b = 20,
+    let a = 10,
+    let b = 20,
     a = a + 5,
     b = b - 5,
     assert_eq(
@@ -123,8 +123,8 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @run_mutable_multiple () -> int = run(
-    let mut a = 10,
-    let mut b = 20,
+    let a = 10,
+    let b = 20,
     a = a + 5,
     b = b - 5,
     a + b,
@@ -280,7 +280,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // @safe_sqrt_int (n: int) -> int = run(
 //     // Simple integer square root
-//     let mut i = 0,
+//     let i = 0,
 //     for _ in 0..n do if i * i <= n then i = i + 1 else (),
 //     i - 1,
 //     post_check: r -> r * r <= n | "result squared must not exceed input",
@@ -388,7 +388,7 @@ use std.testing { assert, assert_eq, assert_ne }
 )
 
 @test_run_void tests @run_void () -> void = run(
-    let mut counter = 0,
+    let counter = 0,
     run(
         counter = counter + 1,
         counter = counter + 2,

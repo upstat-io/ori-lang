@@ -311,8 +311,8 @@ type PointPair = { first: (int, int), second: (int, int) }
 // Test uses destructure + separate mut bindings as workaround.
 @mutable_tuple_destructure () -> int = run(
     let (x, y) = (10, 20),
-    let mut a = x,
-    let mut b = y,
+    let a = x,
+    let b = y,
     a = a + 1,
     b = b + 1,
     a + b,
@@ -320,8 +320,8 @@ type PointPair = { first: (int, int), second: (int, int) }
 
 @test_mutable_tuple_destructure tests @mutable_tuple_destructure () -> void = run(
     let (x, y) = (10, 20),
-    let mut a = x,
-    let mut b = y,
+    let a = x,
+    let b = y,
     a = a + 1,
     b = b + 1,
     assert_eq(actual: a, expected: 11),

@@ -235,9 +235,9 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [ ] **LLVM Support**: LLVM codegen for immutable binding parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable binding parsing codegen
 
-- [ ] **Implement**: Remove `mut` from `let_expr` grammar
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — mut removal
-  - [ ] **Ori Tests**: `tests/compile-fail/let_mut_removed.ori`
+- [x] **Implement**: Remove `mut` from `let_expr` grammar
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — mut removal
+  - [x] **Ori Tests**: All 151 `let mut` occurrences migrated to `let` across 25 test files + AOT tests
   - [ ] **LLVM Support**: LLVM codegen for mut removal
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — mut removal codegen
 

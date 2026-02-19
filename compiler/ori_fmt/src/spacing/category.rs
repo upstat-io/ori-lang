@@ -382,7 +382,6 @@ impl From<&TokenKind> for TokenCategory {
             // Keywords treated as identifiers for spacing purposes
             TokenKind::Ident(_)
             | TokenKind::Async
-            | TokenKind::Mut
             | TokenKind::Dyn
             | TokenKind::Skip
             | TokenKind::Suspend

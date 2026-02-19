@@ -13,7 +13,7 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_basic () -> int = run(
-    let mut x = 5,
+    let x = 5,
     x = 10,
     x,
 )
@@ -24,7 +24,7 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_multiple_assign () -> int = run(
-    let mut x = 1,
+    let x = 1,
     x = 2,
     x = 3,
     x = 4,
@@ -37,7 +37,7 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_arithmetic () -> int = run(
-    let mut count = 0,
+    let count = 0,
     count = count + 1,
     count = count + 2,
     count = count + 3,
@@ -54,7 +54,7 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_loop () -> int = run(
-    let mut count = 0,
+    let count = 0,
     loop(run(
         count = count + 1,
         if count >= 3 then break,
@@ -68,7 +68,7 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_sum () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for i in 1..=5 do sum = sum + i,
     sum,
 )
@@ -79,8 +79,8 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_while_pattern () -> int = run(
-    let mut n = 10,
-    let mut result = 0,
+    let n = 10,
+    let result = 0,
     loop(run(
         if n == 0 then break,
         result = result + n,
@@ -95,7 +95,7 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_nested_loops () -> int = run(
-    let mut total = 0,
+    let total = 0,
     for i in 1..=3 do
         for j in 1..=2 do
             total = total + i * j,
@@ -135,7 +135,7 @@ use std.testing { assert, assert_eq }
 
 @mixed_mutability () -> int = run(
     let immut = 10,
-    let mut accum = 0,
+    let accum = 0,
     for i in 1..=immut do accum = accum + i,
     accum,
 )
@@ -147,7 +147,7 @@ use std.testing { assert, assert_eq }
 
 @shadow_mutability () -> int = run(
     let x = 5,
-    let mut x = x * 2,
+    let x = x * 2,
     x = x + 1,
     x,
 )
@@ -162,7 +162,7 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_tuple () -> int = run(
-    let mut (a, b) = (1, 2),
+    let (a, b) = (1, 2),
     a = a + 10,
     b = b + 20,
     a + b,
@@ -178,7 +178,7 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_no_assign () -> int = run(
-    let mut x = 42,
+    let x = 42,
     x,
 )
 
@@ -188,7 +188,7 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_zero () -> int = run(
-    let mut x = 0,
+    let x = 0,
     x = x + 1,
     x,
 )
@@ -199,7 +199,7 @@ use std.testing { assert, assert_eq }
 )
 
 @mutable_negative () -> int = run(
-    let mut x = -5,
+    let x = -5,
     x = x - 3,
     x,
 )

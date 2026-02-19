@@ -23,7 +23,6 @@ fn declaration_keywords() {
     assert_eq!(lookup("trait"), Some(TokenKind::Trait));
     assert_eq!(lookup("impl"), Some(TokenKind::Impl));
     assert_eq!(lookup("pub"), Some(TokenKind::Pub));
-    assert_eq!(lookup("mut"), Some(TokenKind::Mut));
 }
 
 #[test]

@@ -102,45 +102,45 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // @test_push tests @push () -> void = run(
-//     let mut buffer: [int, max 5] = [1, 2],
+//     let buffer: [int, max 5] = [1, 2],
 //     buffer.push(item: 3),
 //     assert_eq(actual: buffer.len(), expected: 3),
 //     assert_eq(actual: buffer[2], expected: 3),
 // )
 
 // @push () -> [int, max 5] = run(
-//     let mut buffer: [int, max 5] = [1, 2],
+//     let buffer: [int, max 5] = [1, 2],
 //     buffer.push(item: 3),
 //     buffer,
 // )
 
 // @test_try_push tests @try_push () -> void = run(
-//     let mut buffer: [int, max 2] = [1, 2],
+//     let buffer: [int, max 2] = [1, 2],
 //     let success = buffer.try_push(item: 3),
 //     assert(cond: !success),
 //     assert_eq(actual: buffer.len(), expected: 2),
 // )
 
 // @try_push () -> bool = run(
-//     let mut buffer: [int, max 2] = [1, 2],
+//     let buffer: [int, max 2] = [1, 2],
 //     buffer.try_push(item: 3),
 // )
 
 // @test_push_or_drop tests @push_or_drop () -> void = run(
-//     let mut buffer: [int, max 2] = [1, 2],
+//     let buffer: [int, max 2] = [1, 2],
 //     buffer.push_or_drop(item: 3),
 //     // Item dropped, length unchanged
 //     assert_eq(actual: buffer.len(), expected: 2),
 // )
 
 // @push_or_drop () -> [int, max 2] = run(
-//     let mut buffer: [int, max 2] = [1, 2],
+//     let buffer: [int, max 2] = [1, 2],
 //     buffer.push_or_drop(item: 3),
 //     buffer,
 // )
 
 // @test_push_or_oldest tests @push_or_oldest () -> void = run(
-//     let mut buffer: [int, max 2] = [1, 2],
+//     let buffer: [int, max 2] = [1, 2],
 //     buffer.push_or_oldest(item: 3),
 //     // First element removed, new element added
 //     assert_eq(actual: buffer.len(), expected: 2),
@@ -149,7 +149,7 @@ use std.testing { assert, assert_eq }
 // )
 
 // @push_or_oldest () -> [int, max 2] = run(
-//     let mut buffer: [int, max 2] = [1, 2],
+//     let buffer: [int, max 2] = [1, 2],
 //     buffer.push_or_oldest(item: 3),
 //     buffer,
 // )
@@ -244,14 +244,14 @@ use std.testing { assert, assert_eq }
 
 @test_fixed_iter tests @fixed_iter () -> void = run(
     let buffer: [int, max 5] = [1, 2, 3],
-    let mut sum = 0,
+    let sum = 0,
     for x in buffer do sum = sum + x,
     assert_eq(actual: sum, expected: 6),
 )
 
 @fixed_iter () -> int = run(
     let buffer: [int, max 5] = [1, 2, 3],
-    let mut sum = 0,
+    let sum = 0,
     for x in buffer do sum = sum + x,
     sum,
 )

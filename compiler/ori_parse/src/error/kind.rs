@@ -418,16 +418,6 @@ impl ParseErrorKind {
                 ..
             } => Some("Ori has no `return` keyword. The last expression in a block is automatically its value."),
 
-            // === Mutability ===
-            Self::UnexpectedToken {
-                found: TokenKind::Mut,
-                ..
-            }
-            | Self::UnsupportedKeyword {
-                keyword: TokenKind::Mut,
-                ..
-            } => Some("In Ori, variables are mutable by default. Use `$name` (dollar prefix) to create an immutable binding."),
-
             // === Trailing operators ===
             Self::TrailingOperator {
                 operator: TokenKind::Plus,

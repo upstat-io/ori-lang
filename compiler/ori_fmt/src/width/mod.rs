@@ -218,8 +218,8 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                     return ALWAYS_STACKED;
                 }
 
-                // "let " or "let mut "
-                let mut total = if *mutable { 8 } else { 4 };
+                // "let " (4 chars, mutable default) or "let $" (5 chars, immutable)
+                let mut total = if *mutable { 4 } else { 5 };
                 let pat = self.arena.get_binding_pattern(*pattern);
                 total += binding_pattern_width(pat, self.interner);
                 if ty.is_valid() {

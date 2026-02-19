@@ -194,7 +194,7 @@ fn debug_context_emit_declare_for_alloca_convenience() {
     let module = ctx.create_module("test_dc_declare");
     let builder = ctx.create_builder();
 
-    let source = "let mut x = 42\n";
+    let source = "let x = 42\n";
     let dc = DebugContext::new(
         &module,
         &ctx,

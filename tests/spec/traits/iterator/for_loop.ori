@@ -52,7 +52,7 @@ use std.testing { assert, assert_eq }
 
 @for_set_count () -> int = run(
     let s: Set<int> = [10, 20, 30].iter().collect(),
-    let mut count = 0,
+    let count = 0,
     for x in s do count = count + 1,
     count,
 )
@@ -67,7 +67,7 @@ use std.testing { assert, assert_eq }
 
 @for_option_some () -> int = run(
     let opt = Some(42),
-    let mut result = 0,
+    let result = 0,
     for x in opt do result = x,
     result,
 )
@@ -78,7 +78,7 @@ use std.testing { assert, assert_eq }
 
 @for_option_none () -> int = run(
     let opt: Option<int> = None,
-    let mut result = 0,
+    let result = 0,
     for x in opt do result = x,
     result,
 )
@@ -152,7 +152,7 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @for_do_sum () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3, 4, 5] do sum = sum + x,
     sum,
 )
@@ -162,7 +162,7 @@ use std.testing { assert, assert_eq }
 )
 
 @for_do_empty () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [] do sum = sum + x,
     sum,
 )
@@ -176,7 +176,7 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @for_break_do () -> int = run(
-    let mut sum = 0,
+    let sum = 0,
     for x in [1, 2, 3, 4, 5] do run(
         if x > 3 then break,
         sum = sum + x,
