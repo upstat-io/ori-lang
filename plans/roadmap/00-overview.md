@@ -2,6 +2,8 @@
 
 > **Unified Implementation Plan** — Merges V3 implementation and language gap fixes into a single dependency-ordered roadmap.
 
+> **ACTIVE REROUTE — Trait Architecture Refactor**: All roadmap work is suspended until `plans/trait_arch/` is complete. See `plans/trait_arch/00-overview.md` for the full plan. This reroute was added because 35% of recent work was reactive sync-drift fixes — the trait infrastructure must be restructured before adding more traits. Remove this block when all 7 trait_arch sections are complete.
+
 ## Source Plans
 
 This roadmap consolidates:
