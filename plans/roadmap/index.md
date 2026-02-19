@@ -6,7 +6,7 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **PRIORITY BLOCKER — Do This First**: Section 10.7 `catch(expr)` pattern must be implemented before other roadmap work. `assert_panics` depends on `catch`, and 16 spec tests (11 in `integer_safety.ori`, 5 in `operators_bitwise.ori`) are `#skip`ped until it lands. Without `catch`, panic-related tests cannot verify correct behavior.
+> **~~PRIORITY BLOCKER~~ RESOLVED (2026-02-19)**: Section 10.7 `catch(expr)` — implemented across all interpreter phases. `assert_panics` works via `library/std/testing.ori`. All 16 previously-skipped tests (11 in `integer_safety.ori`, 5 in `operators_bitwise.ori`) now pass. LLVM codegen for catch remains simplified (placeholder).
 
 ---
 
