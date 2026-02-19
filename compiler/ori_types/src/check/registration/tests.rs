@@ -1,5 +1,5 @@
 use super::*;
-use ori_ir::{ExprArena, StringInterner};
+use ori_ir::{DerivedTrait, ExprArena, Span, StringInterner};
 
 #[test]
 fn register_builtin_ordering() {
@@ -485,4 +485,76 @@ fn derive_eq_and_hashable_succeeds() {
 
     let errors = checker.errors();
     assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
+}
+
+// --- Cross-crate sync enforcement (Section 05.1, Tests 2 and 3) ---
+
+#[test]
+fn all_derived_traits_have_type_signatures() {
+    // Verifies that build_derived_methods() produces a valid method
+    // for every DerivedTrait variant. Catches: "added trait to enum
+    // but forgot to register its signature in the type checker."
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+
+    for &trait_kind in DerivedTrait::ALL {
+        let trait_name = interner.intern(trait_kind.trait_name());
+        let type_name = interner.intern("TestType");
+        let self_type = checker.pool_mut().named(type_name);
+
+        let methods = build_derived_methods(&mut checker, trait_name, self_type, Span::DUMMY);
+
+        assert!(
+            !methods.is_empty(),
+            "DerivedTrait::{:?} (trait '{}') produced no methods in type checker",
+            trait_kind,
+            trait_kind.trait_name()
+        );
+
+        // Verify the method name matches
+        let method_name = interner.intern(trait_kind.method_name());
+        assert!(
+            methods.contains_key(&method_name),
+            "DerivedTrait::{:?} registered method name doesn't match method_name()",
+            trait_kind
+        );
+    }
+}
+
+#[test]
+fn all_derived_traits_have_well_known_names() {
+    // Verifies that every DerivedTrait has a corresponding pre-interned name
+    // in WellKnownNames. The exhaustive match forces a compile error if a new
+    // variant is added without mapping it to a WellKnownNames field.
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let checker = ModuleChecker::new(&arena, &interner);
+    let wk = checker.well_known();
+
+    for &trait_kind in DerivedTrait::ALL {
+        let trait_name = interner.intern(trait_kind.trait_name());
+
+        // Map each DerivedTrait to its WellKnownNames field.
+        // This match is exhaustive — adding a new variant without
+        // a WellKnownNames field causes a compile error here.
+        let wk_name = match trait_kind {
+            DerivedTrait::Eq => wk.eq,
+            DerivedTrait::Clone => wk.clone_trait,
+            DerivedTrait::Hashable => wk.hashable,
+            DerivedTrait::Printable => wk.printable,
+            DerivedTrait::Debug => wk.debug_trait,
+            DerivedTrait::Default => wk.default_trait,
+            DerivedTrait::Comparable => wk.comparable,
+        };
+
+        assert_eq!(
+            trait_name,
+            wk_name,
+            "DerivedTrait::{:?} trait_name '{}' doesn't match WellKnownNames field",
+            trait_kind,
+            trait_kind.trait_name()
+        );
+    }
 }

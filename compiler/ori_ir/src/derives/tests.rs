@@ -129,6 +129,36 @@ fn supports_sum_types_correctness() {
     assert!(DerivedTrait::Comparable.supports_sum_types());
 }
 
+// --- Cross-crate sync enforcement (Section 05.1, Test 1) ---
+
+#[test]
+fn all_derived_traits_round_trip() {
+    for &trait_kind in DerivedTrait::ALL {
+        let name = trait_kind.trait_name();
+        let method = trait_kind.method_name();
+
+        // from_name round-trips
+        assert_eq!(
+            DerivedTrait::from_name(name),
+            Some(trait_kind),
+            "from_name({name:?}) failed for {trait_kind:?}"
+        );
+
+        // method_name is non-empty
+        assert!(!method.is_empty(), "method_name() empty for {trait_kind:?}");
+
+        // trait_name is non-empty
+        assert!(!name.is_empty(), "trait_name() empty for {trait_kind:?}");
+
+        // shape has valid param_count
+        let shape = trait_kind.shape();
+        assert!(
+            shape.param_count() <= 2,
+            "shape param_count > 2 for {trait_kind:?}"
+        );
+    }
+}
+
 // --- DerivedMethodShape tests ---
 
 #[test]
