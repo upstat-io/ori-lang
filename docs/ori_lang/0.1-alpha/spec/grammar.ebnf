@@ -64,6 +64,7 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 // Context-sensitive (pattern args, 7): body, default, expr, on_error, over, pre_check, post_check
 // Context-sensitive (imports, 2): from (extern blocks), without (import items, before "def")
 // Context-sensitive (other, 3): args (@main params), by (after range), max (fixed-capacity lists)
+// Context-sensitive (embed, 2): embed (file embedding), has_embed (file existence check)
 // Context-sensitive (type names, 5): bool, byte, float, int, str
 // Built-in constructors (4): channel, channel_all, channel_in, channel_out
 
@@ -331,12 +332,20 @@ primary       = literal | identifier | "self" | "Self"
               | "#"                                   /* length in index context */
               | list_literal | map_literal | struct_literal
               | pattern_expr                          /* run, try, match, parallel, etc. */
-              | unsafe_expr .
+              | unsafe_expr
+              | embed_expr | has_embed_expr .
 
 // --- Unsafe Expression ---
 // See: spec/24-ffi.md § Unsafe Blocks
 
 unsafe_expr = "unsafe" "(" expression ")" .
+
+// --- Embed Expressions ---
+// See: 11-built-in-functions.md § embed, § has_embed
+// See: proposals/approved/embed-expression-proposal.md
+
+embed_expr     = "embed" "(" expression ")" .
+has_embed_expr = "has_embed" "(" expression ")" .
 
 // List literals with spread support
 // See: 09-expressions.md § Spread Operator

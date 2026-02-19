@@ -178,6 +178,7 @@ unreachable, unreachable!
 dbg, debug print, debug output
 repeat, infinite iterator
 compile_error, build error
+embed, has_embed, file embedding, compile-time embedding
 PanicInfo, panic handler, @panic
 drop_early, early destruction
 ```
