@@ -1,5 +1,6 @@
 use super::*;
-use ori_ir::{DerivedTrait, ExprArena, Span, StringInterner};
+use crate::{Idx, ModuleChecker, ObjectSafetyViolation};
+use ori_ir::{DerivedTrait, ExprArena, Module, Name, ParsedType, Span, StringInterner};
 
 #[test]
 fn register_builtin_ordering() {

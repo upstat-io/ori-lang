@@ -113,13 +113,13 @@ Sections 02, 05, and 07 depend on Section 01.
 |---------|-------|--------|--------|
 | 01 | Trait Metadata Registry | **Complete** | `671ca6c7` |
 | 02 | Data-Driven Trait Satisfaction | **Complete** | `f0786fd0` |
-| 03 | Registration Module Split | Not Started | — |
+| 03 | Registration Module Split | **Complete** | — |
 | 04 | LLVM Codegen Consolidation | Not Started | — |
 | 05 | Cross-Crate Sync Enforcement | **Complete** | `a718da5d` |
 | 06 | Error Code Generation | Not Started | — |
 | 07 | Shared Derive Strategy | Not Started | — |
 
-**Next up:** Section 03 (Registration Module Split)
+**Next up:** Section 04 (LLVM Codegen Consolidation)
 
 ## Exit Criteria
 
