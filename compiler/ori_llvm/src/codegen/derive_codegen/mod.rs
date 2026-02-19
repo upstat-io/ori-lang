@@ -18,7 +18,7 @@
 mod field_ops;
 mod string_helpers;
 
-use ori_ir::{DerivedTrait, Module, Name, TypeDeclKind};
+use ori_ir::{DerivedMethodShape, DerivedTrait, Module, Name, TypeDeclKind};
 use ori_types::{FieldDef, Idx, TypeEntry, TypeKind};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
@@ -109,7 +109,7 @@ pub fn compile_derives<'a>(
                     compile_derive_printable(fc, type_name, type_idx, &type_name_str, fields);
                 }
                 DerivedTrait::Default => {
-                    compile_derive_default(fc, type_name, type_idx, &type_name_str);
+                    compile_derive_default(fc, type_name, type_idx, &type_name_str, fields);
                 }
                 DerivedTrait::Debug => {
                     // TODO: LLVM codegen for Debug (deferred — interpreter-only for now)
@@ -120,6 +120,99 @@ pub fn compile_derives<'a>(
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Factory: common derive scaffolding
+// ---------------------------------------------------------------------------
+
+/// Context returned by [`setup_derive_function`] for derive body emitters.
+struct DeriveSetup {
+    func_id: FunctionId,
+    abi: FunctionAbi,
+    /// Value for `self` parameter. `None` for nullary methods (Default).
+    self_val: Option<ValueId>,
+    /// Value for `other` parameter. `None` for unary/nullary methods.
+    other_val: Option<ValueId>,
+}
+
+/// Common scaffolding for all derived trait codegen functions.
+///
+/// Handles: method name interning, signature construction (driven by
+/// [`DerivedMethodShape`]), ABI computation, symbol mangling, and function
+/// declaration. Returns a [`DeriveSetup`] with the function handle and
+/// parameter values for the body to use.
+fn setup_derive_function<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    trait_kind: DerivedTrait,
+    type_name: Name,
+    type_idx: Idx,
+    type_name_str: &str,
+) -> DeriveSetup {
+    let method_name_str = trait_kind.method_name();
+    let method_name = fc.intern(method_name_str);
+    let shape = trait_kind.shape();
+
+    let (param_names, param_types) = build_derive_params(fc, shape, type_idx);
+    let return_type = derive_return_type(shape, type_idx);
+
+    let sig = make_sig(method_name, param_names, param_types, return_type);
+    let abi = compute_function_abi(&sig, fc.type_info());
+    let symbol = fc.mangle_method(type_name_str, method_name_str);
+
+    let (func_id, self_val, param_vals) =
+        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
+
+    let self_opt = if shape.has_self() {
+        Some(self_val)
+    } else {
+        None
+    };
+    let other_opt = if shape.has_other() {
+        Some(param_vals[0])
+    } else {
+        None
+    };
+
+    DeriveSetup {
+        func_id,
+        abi,
+        self_val: self_opt,
+        other_val: other_opt,
+    }
+}
+
+/// Build parameter names and types for a derived method from its shape.
+fn build_derive_params<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    shape: DerivedMethodShape,
+    type_idx: Idx,
+) -> (Vec<Name>, Vec<Idx>) {
+    match shape {
+        DerivedMethodShape::BinaryPredicate | DerivedMethodShape::BinaryToOrdering => {
+            let self_name = fc.intern("self");
+            let other_name = fc.intern("other");
+            (vec![self_name, other_name], vec![type_idx, type_idx])
+        }
+        DerivedMethodShape::UnaryIdentity
+        | DerivedMethodShape::UnaryToInt
+        | DerivedMethodShape::UnaryToStr => {
+            let self_name = fc.intern("self");
+            (vec![self_name], vec![type_idx])
+        }
+        DerivedMethodShape::Nullary => (vec![], vec![]),
+    }
+}
+
+/// Determine the return type for a derived method from its shape.
+fn derive_return_type(shape: DerivedMethodShape, type_idx: Idx) -> Idx {
+    match shape {
+        DerivedMethodShape::BinaryPredicate => Idx::BOOL,
+        DerivedMethodShape::UnaryIdentity | DerivedMethodShape::Nullary => type_idx,
+        DerivedMethodShape::UnaryToInt => Idx::INT,
+        DerivedMethodShape::UnaryToStr => Idx::STR,
+        DerivedMethodShape::BinaryToOrdering => Idx::ORDERING,
     }
 }
 
@@ -138,24 +231,10 @@ fn compile_derive_eq<'a>(
     type_name_str: &str,
     fields: &[FieldDef],
 ) {
-    let method_name_str = "eq";
-    let method_name = fc.intern(method_name_str);
-    let other_name = fc.intern("other");
-
-    let sig = make_sig(
-        method_name,
-        vec![fc.intern("self"), other_name],
-        vec![type_idx, type_idx],
-        Idx::BOOL,
-    );
-
-    let abi = compute_function_abi(&sig, fc.type_info());
-    let symbol = fc.mangle_method(type_name_str, method_name_str);
-
-    let (func_id, self_val, param_vals) =
-        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
-
-    let other_val = param_vals[0];
+    let setup = setup_derive_function(fc, DerivedTrait::Eq, type_name, type_idx, type_name_str);
+    let self_val = setup.self_val.expect("Eq has self");
+    let other_val = setup.other_val.expect("Eq has other");
+    let func_id = setup.func_id;
 
     let true_bb = fc.builder_mut().append_block(func_id, "eq.true");
     let false_bb = fc.builder_mut().append_block(func_id, "eq.false");
@@ -220,24 +299,16 @@ fn compile_derive_comparable<'a>(
     type_name_str: &str,
     fields: &[FieldDef],
 ) {
-    let method_name_str = "compare";
-    let method_name = fc.intern(method_name_str);
-    let other_name = fc.intern("other");
-
-    let sig = make_sig(
-        method_name,
-        vec![fc.intern("self"), other_name],
-        vec![type_idx, type_idx],
-        Idx::ORDERING,
+    let setup = setup_derive_function(
+        fc,
+        DerivedTrait::Comparable,
+        type_name,
+        type_idx,
+        type_name_str,
     );
-
-    let abi = compute_function_abi(&sig, fc.type_info());
-    let symbol = fc.mangle_method(type_name_str, method_name_str);
-
-    let (func_id, self_val, param_vals) =
-        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
-
-    let other_val = param_vals[0];
+    let self_val = setup.self_val.expect("Comparable has self");
+    let other_val = setup.other_val.expect("Comparable has other");
+    let func_id = setup.func_id;
 
     // Resolve str type once for string field comparisons
     let str_ty = fc.resolve_type(Idx::STR);
@@ -291,7 +362,7 @@ fn compile_derive_comparable<'a>(
 
                 // Return the non-Equal ordering
                 fc.builder_mut().position_at_end(ret_bb);
-                emit_derive_return(fc, func_id, &abi, Some(ord));
+                emit_derive_return(fc, func_id, &setup.abi, Some(ord));
 
                 fc.builder_mut().position_at_end(next_bb);
             } else {
@@ -302,7 +373,7 @@ fn compile_derive_comparable<'a>(
                 fc.builder_mut().cond_br(is_equal, equal_bb, ret_bb);
 
                 fc.builder_mut().position_at_end(ret_bb);
-                emit_derive_return(fc, func_id, &abi, Some(ord));
+                emit_derive_return(fc, func_id, &setup.abi, Some(ord));
             }
         }
     }
@@ -310,7 +381,7 @@ fn compile_derive_comparable<'a>(
     // All fields Equal
     fc.builder_mut().position_at_end(equal_bb);
     let equal_val = fc.builder_mut().const_i8(1);
-    emit_derive_return(fc, func_id, &abi, Some(equal_val));
+    emit_derive_return(fc, func_id, &setup.abi, Some(equal_val));
 }
 
 // ---------------------------------------------------------------------------
@@ -328,23 +399,9 @@ fn compile_derive_clone<'a>(
     type_name_str: &str,
     _fields: &[FieldDef],
 ) {
-    let method_name_str = "clone";
-    let method_name = fc.intern(method_name_str);
-
-    let sig = make_sig(
-        method_name,
-        vec![fc.intern("self")],
-        vec![type_idx],
-        type_idx,
-    );
-
-    let abi = compute_function_abi(&sig, fc.type_info());
-    let symbol = fc.mangle_method(type_name_str, method_name_str);
-
-    let (func_id, self_val, _) =
-        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
-
-    emit_derive_return(fc, func_id, &abi, Some(self_val));
+    let setup = setup_derive_function(fc, DerivedTrait::Clone, type_name, type_idx, type_name_str);
+    let self_val = setup.self_val.expect("Clone has self");
+    emit_derive_return(fc, setup.func_id, &setup.abi, Some(self_val));
 }
 
 // ---------------------------------------------------------------------------
@@ -366,21 +423,14 @@ fn compile_derive_hash<'a>(
     type_name_str: &str,
     fields: &[FieldDef],
 ) {
-    let method_name_str = "hash";
-    let method_name = fc.intern(method_name_str);
-
-    let sig = make_sig(
-        method_name,
-        vec![fc.intern("self")],
-        vec![type_idx],
-        Idx::INT,
+    let setup = setup_derive_function(
+        fc,
+        DerivedTrait::Hashable,
+        type_name,
+        type_idx,
+        type_name_str,
     );
-
-    let abi = compute_function_abi(&sig, fc.type_info());
-    let symbol = fc.mangle_method(type_name_str, method_name_str);
-
-    let (func_id, self_val, _) =
-        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
+    let self_val = setup.self_val.expect("Hashable has self");
 
     let mut hash = fc.builder_mut().const_i64(FNV_OFFSET_BASIS as i64);
     let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);
@@ -404,7 +454,7 @@ fn compile_derive_hash<'a>(
         hash = fc.builder_mut().mul(xored, prime, &format!("hash.mul.{i}"));
     }
 
-    emit_derive_return(fc, func_id, &abi, Some(hash));
+    emit_derive_return(fc, setup.func_id, &setup.abi, Some(hash));
 }
 
 // ---------------------------------------------------------------------------
@@ -424,21 +474,14 @@ fn compile_derive_printable<'a>(
     type_name_str: &str,
     fields: &[FieldDef],
 ) {
-    let method_name_str = "to_str";
-    let method_name = fc.intern(method_name_str);
-
-    let sig = make_sig(
-        method_name,
-        vec![fc.intern("self")],
-        vec![type_idx],
-        Idx::STR,
+    let setup = setup_derive_function(
+        fc,
+        DerivedTrait::Printable,
+        type_name,
+        type_idx,
+        type_name_str,
     );
-
-    let abi = compute_function_abi(&sig, fc.type_info());
-    let symbol = fc.mangle_method(type_name_str, method_name_str);
-
-    let (func_id, self_val, _) =
-        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
+    let self_val = setup.self_val.expect("Printable has self");
 
     // Resolve str type once for all string operations
     let str_ty = fc.resolve_type(Idx::STR);
@@ -469,7 +512,7 @@ fn compile_derive_printable<'a>(
     let suffix = emit_str_literal(fc, ")", "suffix", str_ty_id);
     result = emit_str_concat(fc, result, suffix, "cat.suffix", str_ty_id);
 
-    emit_derive_return(fc, func_id, &abi, Some(result));
+    emit_derive_return(fc, setup.func_id, &setup.abi, Some(result));
 }
 
 // ---------------------------------------------------------------------------
@@ -487,18 +530,15 @@ fn compile_derive_default<'a>(
     type_name: Name,
     type_idx: Idx,
     type_name_str: &str,
+    _fields: &[FieldDef],
 ) {
-    let method_name_str = "default";
-    let method_name = fc.intern(method_name_str);
-
-    // No parameters — default() is a static method
-    let sig = make_sig(method_name, vec![], vec![], type_idx);
-
-    let abi = compute_function_abi(&sig, fc.type_info());
-    let symbol = fc.mangle_method(type_name_str, method_name_str);
-
-    let (func_id, _, _) =
-        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
+    let setup = setup_derive_function(
+        fc,
+        DerivedTrait::Default,
+        type_name,
+        type_idx,
+        type_name_str,
+    );
 
     // Build a zero-initialized struct value.
     // `const_zero` on a struct type recursively zeros all fields:
@@ -506,7 +546,7 @@ fn compile_derive_default<'a>(
     let struct_llvm_ty = fc.resolve_type(type_idx);
     let result = fc.builder_mut().const_zero(struct_llvm_ty);
 
-    emit_derive_return(fc, func_id, &abi, Some(result));
+    emit_derive_return(fc, setup.func_id, &setup.abi, Some(result));
 }
 
 // ---------------------------------------------------------------------------
